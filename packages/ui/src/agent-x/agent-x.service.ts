@@ -3,7 +3,7 @@
  * @module @nxt1/ui/agent-x
  * @version 1.0.0
  *
- * Signal-based state management for Agent X AI assistant.
+ * Signal-based state management for the Agent X command center.
  * Shared between web and mobile applications.
  *
  * Features:

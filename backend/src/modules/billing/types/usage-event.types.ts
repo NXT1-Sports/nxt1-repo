@@ -6,9 +6,10 @@
  */
 
 import type { Timestamp } from 'firebase-admin/firestore';
+import type { BillingMode, BudgetInterval } from '@nxt1/core/usage';
 
 // NOTE: UsageEvent and PaymentLog use plain Date (MongoDB). All other interfaces
-// (BillingContext, StripeCustomer, WalletHold, etc.) keep Firestore Timestamp.
+// (BillingState, StripeCustomer, WalletHold, etc.) keep Firestore Timestamp.
 
 /**
  * Billable features — aligned with USAGE_PRODUCT_CONFIGS in @nxt1/core/usage
@@ -243,15 +244,14 @@ export interface UsageEventMessage {
 /** Who pays: the individual user or the parent organization */
 export type BillingEntity = 'individual' | 'organization';
 
-/** How this billing context is funded */
+/** How this billing state is funded */
 export type PaymentProvider = 'stripe' | 'iap';
 
 /**
- * Billing context stored in Firestore (`BillingContexts` collection).
- * Canonical document IDs are the billing owner key: `{uid}` or `org:{organizationId}`.
+ * Resolved billing state projected from normalized wallet, preference, and ledger documents.
  * Determines whether a user's usage is billed to them or to their organization.
  */
-export interface BillingContext {
+export interface BillingState {
   /** Firebase Auth UID for individual-user billing contexts */
   userId?: string;
 
@@ -264,20 +264,20 @@ export interface BillingContext {
   /** The organization that pays (if billingEntity is 'organization') */
   organizationId?: string;
 
+  /** Current wallet-routing mode for new charges */
+  billingMode?: BillingMode;
+
   /** Who is billed for this user's usage */
   billingEntity: BillingEntity;
+
+  /** Budget cadence for the current spending window */
+  budgetInterval?: BudgetInterval;
 
   /** Monthly spending budget in cents */
   monthlyBudget: number;
 
   /** Accumulated spend in the current billing period (cents) */
   currentPeriodSpend: number;
-
-  /** Personal-wallet spend accumulated in the current billing period (cents) */
-  personalCurrentPeriodSpend?: number;
-
-  /** Org-billed spend accumulated for this user in the current billing period (cents) */
-  orgCurrentPeriodSpend?: number;
 
   /** ISO date — start of current billing period */
   periodStart: string;
@@ -343,13 +343,6 @@ export interface BillingContext {
    */
   budgetName?: string;
 
-  /**
-   * When true, resolveBillingTarget skips all org routing and returns the user's
-   * personal individual billing context. Allows org roster members to continue
-   * using the platform on their own wallet when the org wallet is empty.
-   */
-  usePersonalBilling?: boolean;
-
   /** Whether auto top-up is enabled for this billing context */
   autoTopUpEnabled?: boolean;
 
@@ -390,6 +383,9 @@ export interface TeamBudgetAllocation {
   /** Parent organization ID */
   organizationId: string;
 
+  /** Budget cadence for this team allocation */
+  budgetInterval?: BudgetInterval;
+
   /** Monthly sub-limit in cents (0 = no sub-limit, draws from org pool) */
   monthlyLimit: number;
 
@@ -418,6 +414,53 @@ export interface TeamBudgetAllocation {
   updatedAt: Timestamp;
 }
 
+/**
+ * Organization-owned budget document.
+ * Each document represents exactly one target + cadence pair.
+ */
+export interface OrganizationBudgetDocument {
+  /** Document ID */
+  id: string;
+
+  /** Parent organization ID */
+  organizationId: string;
+
+  /** Budget target type */
+  targetType: 'organization' | 'team';
+
+  /** Target identifier — orgId for org budgets, teamId for team budgets */
+  targetId: string;
+
+  /** Budget cadence */
+  budgetInterval: BudgetInterval;
+
+  /** Limit in cents */
+  budgetLimit: number;
+
+  /** Whether this budget blocks usage when the limit is exceeded */
+  hardStop: boolean;
+
+  /** Accumulated spend this period */
+  currentPeriodSpend: number;
+
+  /** Current billing window start */
+  periodStart: string;
+
+  /** Current billing window end */
+  periodEnd: string;
+
+  /** Alert flags */
+  notified50: boolean;
+  notified80: boolean;
+  notified100: boolean;
+
+  /** Created timestamp */
+  createdAt: Timestamp;
+
+  /** Updated timestamp */
+  updatedAt: Timestamp;
+}
+
 // ============================================
 // BUDGET DEFAULTS
 // ============================================
@@ -431,6 +474,10 @@ export interface WalletHold {
   id: string;
   /** User who owns this hold */
   userId: string;
+  /** Billing owner ID for the reserved wallet */
+  ownerId?: string;
+  /** Billing owner type for the reserved wallet */
+  ownerType?: 'individual' | 'organization';
   /** Organization ID — set for org-entity users so hold ops update org master budget */
   organizationId?: string;
   /** Team ID — set for org-entity users with team sub-allocations */

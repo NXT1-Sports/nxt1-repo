@@ -110,6 +110,48 @@ describe('mapBackendProfileToCachedUserProfile', () => {
     expect(ctx?.profileRoute).toBe('/team/argyle/ARG123');
   });
 
+  it('derives selectedSports from normalized backend sports', () => {
+    const mapped = mapBackendProfileToCachedUserProfile({
+      id: 'user-selected-sports',
+      email: 'athlete@nxt1.com',
+      firstName: 'Alex',
+      lastName: 'Player',
+      role: 'athlete',
+      sports: [
+        {
+          sport: 'Football',
+          order: 0,
+        },
+        {
+          sport: 'Track & Field',
+          order: 1,
+        },
+      ],
+    });
+
+    expect(mapped.selectedSports).toEqual(['Football', 'Track & Field']);
+    expect(mapped.primarySport).toBe('Football');
+  });
+
+  it('preserves connected emails for connected account sign-in state', () => {
+    const mapped = mapBackendProfileToCachedUserProfile({
+      id: 'user-connected-emails',
+      email: 'athlete@nxt1.com',
+      firstName: 'Alex',
+      lastName: 'Player',
+      role: 'athlete',
+      connectedEmails: [
+        { provider: 'gmail', isActive: true },
+        { provider: 'microsoft', isActive: true },
+      ],
+    });
+
+    expect(mapped.connectedEmails).toEqual([
+      { provider: 'gmail', isActive: true },
+      { provider: 'microsoft', isActive: true },
+    ]);
+  });
+
   it('prefers the real managed team code over a document id fallback', () => {
     const mapped = mapBackendProfileToCachedUserProfile({
       id: 'user-doc-fallback',

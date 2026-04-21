@@ -655,7 +655,7 @@ export class ScoutReportCardComponent {
   /**
    * Handle card click.
    */
-  protected async handleCardClick(event: Event): Promise<void> {
+  protected async handleCardClick(_event: Event): Promise<void> {
     await this.haptics.impact('light');
     this.cardClick.emit(this.report());
   }

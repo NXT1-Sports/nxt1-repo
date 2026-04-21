@@ -12,7 +12,7 @@
 import { ConversationModel, type IConversation } from '../models/conversation.model.js';
 import { MessageModel, type IMessage } from '../models/message.model.js';
 import { logger } from '../utils/logger.js';
-import { sendEmailViaProvider } from './email-sync.service.js';
+import { sendEmailViaProvider } from './connected-mail.service.js';
 import type { Firestore } from 'firebase-admin/firestore';
 import type {
   Conversation,

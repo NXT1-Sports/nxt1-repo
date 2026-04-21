@@ -20,6 +20,12 @@ import {
   Matches,
 } from 'class-validator';
 
+export enum BudgetIntervalDto {
+  DAILY = 'daily',
+  WEEKLY = 'weekly',
+  MONTHLY = 'monthly',
+}
+
 // ============================================
 // ENUMS
 // ============================================
@@ -90,6 +96,12 @@ export class UpdateBudgetDto {
   @IsNotEmpty()
   monthlyBudget!: number; // in cents
 
+  @IsEnum(BudgetIntervalDto, {
+    message: 'Budget interval must be one of: daily, weekly, monthly',
+  })
+  @IsOptional()
+  budgetInterval?: BudgetIntervalDto;
+
   @IsOptional()
   @IsEnum(['soft', 'hard'], { message: 'Hard stop must be either "soft" or "hard"' })
   hardStop?: 'soft' | 'hard';
@@ -145,6 +157,16 @@ export class UpdateOrganizationBudgetDto {
   @Max(1000000000, { message: 'Monthly budget cannot exceed $10,000,000' })
   @IsNotEmpty()
   monthlyBudget!: number; // in cents
+
+  @IsEnum(BudgetIntervalDto, {
+    message: 'Budget interval must be one of: daily, weekly, monthly',
+  })
+  @IsOptional()
+  budgetInterval?: BudgetIntervalDto;
+
+  @IsOptional()
+  @IsEnum(['soft', 'hard'], { message: 'Hard stop must be either "soft" or "hard"' })
+  hardStop?: 'soft' | 'hard';
 }
 
 // ============================================
@@ -157,6 +179,12 @@ export class UpdateTeamAllocationDto {
   @Max(1000000000, { message: 'Monthly limit cannot exceed $10,000,000' })
   @IsNotEmpty()
   monthlyLimit!: number; // in cents
+
+  @IsEnum(BudgetIntervalDto, {
+    message: 'Budget interval must be one of: daily, weekly, monthly',
+  })
+  @IsOptional()
+  budgetInterval?: BudgetIntervalDto;
 }
 
 // ============================================

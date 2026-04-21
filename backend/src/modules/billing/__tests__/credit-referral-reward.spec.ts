@@ -12,12 +12,7 @@ import {
   creditReferralReward,
 } from '../budget.service.js';
 
-type CollectionName =
-  | 'BillingContexts'
-  | 'ReferralRewards'
-  | 'AppConfig'
-  | 'Teams'
-  | 'Organizations';
+type CollectionName = 'Wallets' | 'ReferralRewards' | 'AppConfig' | 'Teams' | 'Organizations';
 type StoredDoc = Record<string, unknown>;
 
 type MockDocRef = {
@@ -132,11 +127,13 @@ describe('creditReferralReward', () => {
 
   it('credits the wallet and writes an idempotency record on the happy path', async () => {
     const firestore = createMockFirestore({
-      BillingContexts: {
+      Wallets: {
         inviter_1: {
-          userId: 'inviter_1',
-          walletBalanceCents: 1200,
-          totalReferralRewards: 3,
+          id: 'inviter_1',
+          ownerId: 'inviter_1',
+          ownerType: 'individual',
+          balanceCents: 1200,
+          totalReferralRewardsCents: 3,
         },
       },
       AppConfig: {
@@ -154,6 +151,10 @@ describe('creditReferralReward', () => {
       amountCents: 700,
       type: 'referral_reward',
     });
+    expect(firestore.getDoc('Wallets', 'inviter_1')).toMatchObject({
+      balanceCents: 1900,
+      totalReferralRewardsCents: 4,
+    });
     expect(dispatchMock).toHaveBeenCalledTimes(1);
     expect(dispatchMock).toHaveBeenCalledWith(
       firestore.db,
@@ -167,11 +168,13 @@ describe('creditReferralReward', () => {
 
   it('returns current balance and performs no writes when the reward already exists', async () => {
     const firestore = createMockFirestore({
-      BillingContexts: {
+      Wallets: {
         inviter_2: {
-          userId: 'inviter_2',
-          walletBalanceCents: 2400,
-          totalReferralRewards: 5,
+          id: 'inviter_2',
+          ownerId: 'inviter_2',
+          ownerType: 'individual',
+          balanceCents: 2400,
+          totalReferralRewardsCents: 5,
         },
       },
       ReferralRewards: {
@@ -193,11 +196,13 @@ describe('creditReferralReward', () => {
 
   it('enforces the per-user referral cap without writing a reward', async () => {
     const firestore = createMockFirestore({
-      BillingContexts: {
+      Wallets: {
         inviter_3: {
-          userId: 'inviter_3',
-          walletBalanceCents: 3100,
-          totalReferralRewards: MAX_REFERRAL_REWARDS,
+          id: 'inviter_3',
+          ownerId: 'inviter_3',
+          ownerType: 'individual',
+          balanceCents: 3100,
+          totalReferralRewardsCents: MAX_REFERRAL_REWARDS,
         },
       },
       AppConfig: {
@@ -220,11 +225,13 @@ describe('creditReferralReward', () => {
 
   it('falls back to the default reward amount when AppConfig is missing', async () => {
     const firestore = createMockFirestore({
-      BillingContexts: {
+      Wallets: {
         inviter_4: {
-          userId: 'inviter_4',
-          walletBalanceCents: 400,
-          totalReferralRewards: 0,
+          id: 'inviter_4',
+          ownerId: 'inviter_4',
+          ownerType: 'individual',
+          balanceCents: 400,
+          totalReferralRewardsCents: 0,
         },
       },
     });
@@ -243,11 +250,13 @@ describe('creditReferralReward', () => {
 
   it('rejects self-referrals before any transaction work begins', async () => {
     const firestore = createMockFirestore({
-      BillingContexts: {
+      Wallets: {
         inviter_5: {
-          userId: 'inviter_5',
-          walletBalanceCents: 900,
-          totalReferralRewards: 1,
+          id: 'inviter_5',
+          ownerId: 'inviter_5',
+          ownerType: 'individual',
+          balanceCents: 900,
+          totalReferralRewardsCents: 1,
         },
       },
     });

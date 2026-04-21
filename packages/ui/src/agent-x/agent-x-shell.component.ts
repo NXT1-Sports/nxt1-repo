@@ -40,7 +40,6 @@ import {
   EnvironmentInjector,
   runInInjectionContext,
 } from '@angular/core';
-import { Capacitor } from '@capacitor/core';
 import { Location } from '@angular/common';
 import { Router } from '@angular/router';
 import { FormsModule } from '@angular/forms';
@@ -52,7 +51,6 @@ import { AgentXService } from './agent-x.service';
 import { AgentXControlPanelComponent } from './agent-x-control-panel.component';
 import { AgentXInputBarComponent } from './agent-x-input-bar.component';
 import {
-  AGENT_X_GOAL_OPTIONS,
   AgentXControlPanelStateService,
   type AgentXControlPanelKind,
 } from './agent-x-control-panel-state.service';
@@ -66,15 +64,13 @@ import { AgentXDashboardSkeletonComponent } from './agent-x-dashboard-skeleton.c
 import { HapticsService } from '../services/haptics/haptics.service';
 import { NxtToastService } from '../services/toast/toast.service';
 import { NxtBottomSheetService, SHEET_PRESETS } from '../components/bottom-sheet';
-import {
-  type ShellWeeklyPlaybookItem,
-  type AgentDashboardGoal,
-  type AgentYieldState,
-} from '@nxt1/core/ai';
+import { type ShellWeeklyPlaybookItem, type AgentYieldState } from '@nxt1/core/ai';
 import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/assets';
 import { NxtStateViewComponent } from '../components/state-view';
 import { ActivityService } from '../activity/activity.service';
-import type { OnboardingUserType } from '@nxt1/core';
+import { buildLinkSourcesFormData, type OnboardingUserType } from '@nxt1/core';
+import type { LinkSourcesFormData } from '@nxt1/core/api';
+import type { ConnectedAccountsResyncSource } from '../components/connected-sources';
 
 // ============================================
 // INTERFACES
@@ -85,6 +81,26 @@ export interface AgentXUser {
   readonly profileImg?: string | null;
   readonly displayName?: string | null;
   readonly role?: string;
+  readonly selectedSports?: readonly string[];
+  readonly connectedSources?: readonly {
+    platform: string;
+    profileUrl: string;
+    scopeType?: 'global' | 'sport' | 'team';
+    scopeId?: string;
+  }[];
+  readonly connectedEmails?: readonly {
+    provider: string;
+    isActive?: boolean;
+  }[];
+  readonly firebaseProviders?: readonly {
+    providerId: string;
+  }[];
+}
+
+export interface AgentXConnectedAccountsSaveRequest {
+  readonly linkSources: LinkSourcesFormData;
+  readonly requestResync?: boolean;
+  readonly resyncSources?: readonly ConnectedAccountsResyncSource[];
 }
 
 /** A contextual action chip for quick workflows. */
@@ -1655,7 +1671,6 @@ export interface WeeklyPlaybookItem {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AgentXShellComponent {
-  private readonly el = inject(ElementRef<HTMLElement>);
   protected readonly agentX = inject(AgentXService);
   protected readonly controlPanelState = inject(AgentXControlPanelStateService);
   private readonly haptics = inject(HapticsService);
@@ -1703,6 +1718,9 @@ export class AgentXShellComponent {
 
   /** Emitted when an action chip is tapped. */
   readonly chipTap = output<ActionChip>();
+
+  /** Emitted when connected accounts need to be saved from the shell. */
+  readonly connectedAccountsSave = output<AgentXConnectedAccountsSaveRequest>();
 
   // ============================================
   // COMPUTED
@@ -1807,29 +1825,7 @@ export class AgentXShellComponent {
       this.agentX.startTitleAnimation();
       this.agentX.loadDashboard();
 
-      // Keyboard lift: manually raise the footer above the keyboard.
-      // ion-content/ion-footer are nested inside this custom element so
-      // Ionic's built-in resize: "ionic" cannot reach them. We drive
-      // --keyboard-height on the host and CSS translateY does the rest.
-      if (Capacitor.isNativePlatform()) {
-        import('@capacitor/keyboard')
-          .then(({ Keyboard }) => {
-            void Keyboard.addListener('keyboardWillShow', (info) => {
-              // Subtract 10px so the footer doesn't overshoot above the keyboard
-              const offset = Math.max(0, info.keyboardHeight - 10);
-              this.el.nativeElement.style.setProperty('--keyboard-height', `${offset}px`);
-              // Remove safe-area-inset-bottom padding — keyboard covers the home bar
-              this.el.nativeElement.style.setProperty('--footer-safe-area', '0px');
-            });
-            void Keyboard.addListener('keyboardWillHide', () => {
-              this.el.nativeElement.style.setProperty('--keyboard-height', '0px');
-              this.el.nativeElement.style.removeProperty('--footer-safe-area');
-            });
-          })
-          .catch(() => {
-            // @capacitor/keyboard not available — silently ignore
-          });
-      }
+      // Keyboard lift is now managed directly by the AgentXInputBarComponent.
     });
 
     effect(() => {
@@ -1875,12 +1871,30 @@ export class AgentXShellComponent {
   }
 
   protected async openConnectedAccounts(): Promise<void> {
-    const role = (this.user()?.role as OnboardingUserType) ?? null;
+    const user = this.user();
+    const role = (user?.role as OnboardingUserType) ?? null;
     const { ConnectedAccountsModalService } = await import('../components/connected-sources');
     const service = runInInjectionContext(this.injector, () =>
       inject(ConnectedAccountsModalService)
     );
-    await service.open({ role, scope: 'athlete' });
+    const result = await service.open({
+      role,
+      selectedSports: user?.selectedSports ?? [],
+      linkSourcesData: buildLinkSourcesFormData({
+        connectedSources: user?.connectedSources ?? [],
+        connectedEmails: user?.connectedEmails ?? [],
+        firebaseProviders: user?.firebaseProviders ?? [],
+      }) as LinkSourcesFormData | null,
+      scope: role === 'coach' || role === 'director' ? 'team' : 'athlete',
+    });
+
+    if (result.linkSources) {
+      this.connectedAccountsSave.emit({
+        linkSources: result.linkSources,
+        requestResync: result.resync === true,
+        resyncSources: result.sources ?? [],
+      });
+    }
   }
 
   protected async openControlPanel(panel: AgentXControlPanelKind, required = false): Promise<void> {
@@ -1930,20 +1944,6 @@ export class AgentXShellComponent {
 
     // After saving goals, sync to backend and trigger generation
     if (panel === 'goals' && result?.role === 'save') {
-      const goalIds = this.controlPanelState.goals();
-      const dashboardGoals: AgentDashboardGoal[] = goalIds.map((id) => {
-        if (id.startsWith('custom:')) {
-          return { id, text: id.slice(7), category: 'custom', createdAt: new Date().toISOString() };
-        }
-        const option = AGENT_X_GOAL_OPTIONS.find((o) => o.id === id);
-        return {
-          id,
-          text: option?.label ?? id,
-          category: 'custom',
-          createdAt: new Date().toISOString(),
-        };
-      });
-
       // Goals already persisted by AgentXControlPanelComponent — just refresh the briefing
       this.agentX.generateBriefing(true).catch(() => undefined);
     }

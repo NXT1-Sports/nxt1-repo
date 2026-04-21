@@ -37,38 +37,16 @@ import {
 import { NxtModalHeaderComponent } from '../../components/overlay';
 import { formatPrice } from '@nxt1/core';
 import { TEST_IDS } from '@nxt1/core/testing';
-
-// ============================================
-// TYPES
-// ============================================
-
-/** Auto top-up settings payload */
-export interface AutoTopupSettings {
-  readonly enabled: boolean;
-  readonly thresholdCents: number;
-  readonly amountCents: number;
-}
-
-/** Union result type emitted by the modal's `close` output. */
-export type BuyCreditsAutoTopupResult =
-  | { readonly type: 'buy'; readonly amountCents: number }
-  | ({ readonly type: 'auto-topup' } & AutoTopupSettings)
-  | null;
-
-// ============================================
-// CONSTANTS
-// ============================================
-
-/** Credit package dollar amounts. */
-const CREDIT_PACKAGES_USD = [5, 10, 25, 50, 100, 250, 500] as const;
-
-/** Preset threshold values at which auto top-up fires (in cents). */
-const THRESHOLD_PRESETS_CENTS = [200, 500, 1_000, 2_500] as const;
-
-/** Preset top-up amounts (in cents). */
-const TOPUP_AMOUNT_PRESETS_CENTS = [500, 1_000, 2_500, 5_000, 10_000] as const;
-
-type Tab = 'buy' | 'auto-topup';
+import {
+  CREDIT_PACKAGES_USD,
+  THRESHOLD_PRESETS_CENTS,
+  TOPUP_AMOUNT_PRESETS_CENTS,
+  normalizeUsdInput,
+  parseUsdToCents,
+  type BuyCreditsAutoTopupResult,
+  type BuyCreditsTab,
+  type CreditPackageUsd,
+} from '../buy-credits-flow.shared';
 
 // ============================================
 // COMPONENT
@@ -172,6 +150,44 @@ type Tab = 'buy' | 'auto-topup';
             }
           </div>
 
+          <div class="bc-custom-amount">
+            <div class="bc-custom-amount-header">
+              <span class="bc-setting-label">Custom amount</span>
+              <span class="bc-custom-amount-hint">Enter your own wallet top-up</span>
+            </div>
+
+            <label
+              class="bc-custom-input-shell"
+              [class.bc-custom-input-shell--active]="customAmountUsd().length > 0"
+              [class.bc-custom-input-shell--invalid]="customAmountError() !== null"
+            >
+              <span class="bc-custom-input-prefix">$</span>
+              <input
+                #customAmountInput
+                type="text"
+                inputmode="decimal"
+                class="bc-custom-input"
+                placeholder="Enter amount"
+                [value]="customAmountUsd()"
+                [attr.data-testid]="testIds.BUY_CREDITS_CUSTOM_AMOUNT_INPUT"
+                (input)="onCustomAmountInput(customAmountInput.value)"
+              />
+            </label>
+
+            @if (customAmountError()) {
+              <p class="bc-custom-amount-feedback bc-custom-amount-feedback--error">
+                {{ customAmountError() }}
+              </p>
+            } @else if (selectedPackageUsd() === null && selectedBuyAmountCents() !== null) {
+              <p class="bc-custom-amount-feedback">
+                {{ formatCents(selectedBuyAmountCents() ?? 0) }} purchase ·
+                {{ selectedBuyAmountCents() ?? 0 }} credits
+              </p>
+            } @else {
+              <p class="bc-custom-amount-feedback">Minimum custom purchase is $1.00.</p>
+            }
+          </div>
+
           <!-- Note about credit rate -->
           <p class="bc-note">100 credits = $1.00 &nbsp;·&nbsp; Credits never expire</p>
 
@@ -179,14 +195,14 @@ type Tab = 'buy' | 'auto-topup';
           <button
             type="button"
             class="bc-primary-btn"
-            [disabled]="selectedPackageUsd() === null"
+            [disabled]="selectedBuyAmountCents() === null"
             [attr.data-testid]="testIds.BUY_CREDITS_BUY_BTN"
             (click)="onBuyNow()"
           >
-            @if (selectedPackageUsd() !== null) {
-              Buy \${{ selectedPackageUsd() }} of Credits
+            @if (selectedBuyAmountLabel()) {
+              Buy {{ selectedBuyAmountLabel() }} of Credits
             } @else {
-              Select a package above
+              Select a package or enter an amount
             }
           </button>
 
@@ -311,6 +327,7 @@ type Tab = 'buy' | 'auto-topup';
         flex-direction: column;
         max-height: 85vh;
         overflow: hidden;
+        width: min(100%, 680px);
       }
 
       /* ---- Tabs ---- */
@@ -396,8 +413,9 @@ type Tab = 'buy' | 'auto-topup';
       }
 
       .bc-package:hover {
-        border-color: var(--nxt1-color-primary-muted, rgba(57, 255, 20, 0.3));
-        background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.08));
+        border-color: var(--nxt1-color-primary, currentColor);
+        background: var(--nxt1-color-alpha-primary20, rgba(255, 255, 255, 0.08));
+        transform: translateY(-1px);
       }
 
       .bc-package:active {
@@ -405,8 +423,9 @@ type Tab = 'buy' | 'auto-topup';
       }
 
       .bc-package--selected {
-        border-color: var(--nxt1-color-primary, #39ff14);
-        background: var(--nxt1-color-primary-surface, rgba(57, 255, 20, 0.08));
+        border-color: var(--nxt1-color-primary, currentColor);
+        background: var(--nxt1-color-alpha-primary20, rgba(255, 255, 255, 0.08));
+        box-shadow: inset 0 0 0 1px var(--nxt1-color-alpha-primary30, rgba(255, 255, 255, 0.14));
       }
 
       .bc-package-amount {
@@ -423,7 +442,93 @@ type Tab = 'buy' | 'auto-topup';
       }
 
       .bc-package--selected .bc-package-label {
-        color: var(--nxt1-color-primary, #39ff14);
+        color: var(--nxt1-color-text-primary, #f1f5f9);
+      }
+
+      .bc-custom-amount {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        padding: 14px;
+        border: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
+        border-radius: 12px;
+        background: linear-gradient(
+          180deg,
+          var(--nxt1-color-surface-100, rgba(255, 255, 255, 0.04)) 0%,
+          var(--nxt1-color-surface-50, rgba(255, 255, 255, 0.02)) 100%
+        );
+      }
+
+      .bc-custom-amount-header {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+
+      .bc-custom-amount-hint {
+        font-size: 12px;
+        color: var(--nxt1-color-text-tertiary, #64748b);
+      }
+
+      .bc-custom-input-shell {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 0 14px;
+        min-height: 52px;
+        border-radius: 12px;
+        border: 1px solid var(--nxt1-color-border-default, rgba(255, 255, 255, 0.12));
+        background: var(--nxt1-color-surface-base, rgba(255, 255, 255, 0.02));
+        transition:
+          border-color 0.15s ease,
+          box-shadow 0.15s ease,
+          background 0.15s ease;
+      }
+
+      .bc-custom-input-shell:focus-within,
+      .bc-custom-input-shell--active {
+        border-color: var(--nxt1-color-primary, currentColor);
+        background: var(--nxt1-color-alpha-primary20, rgba(255, 255, 255, 0.08));
+        box-shadow: 0 0 0 3px var(--nxt1-color-alpha-primary20, rgba(255, 255, 255, 0.08));
+      }
+
+      .bc-custom-input-shell--invalid {
+        border-color: var(--nxt1-color-danger, #ef4444);
+        box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.14);
+      }
+
+      .bc-custom-input-prefix {
+        font-size: 18px;
+        font-weight: 700;
+        color: var(--nxt1-color-text-secondary, #94a3b8);
+      }
+
+      .bc-custom-input {
+        flex: 1;
+        min-width: 0;
+        border: none;
+        outline: none;
+        background: transparent;
+        color: var(--nxt1-color-text-primary, #f1f5f9);
+        font-size: 18px;
+        font-weight: 600;
+        letter-spacing: -0.02em;
+      }
+
+      .bc-custom-input::placeholder {
+        color: var(--nxt1-color-text-tertiary, #64748b);
+      }
+
+      .bc-custom-amount-feedback {
+        margin: 0;
+        font-size: 12px;
+        color: var(--nxt1-color-text-tertiary, #64748b);
+      }
+
+      .bc-custom-amount-feedback--error {
+        color: var(--nxt1-color-danger, #ef4444);
       }
 
       /* ---- Shared note ---- */
@@ -439,29 +544,50 @@ type Tab = 'buy' | 'auto-topup';
         width: 100%;
         padding: 12px 16px;
         border-radius: 10px;
-        border: none;
-        background: var(--nxt1-color-primary, #39ff14);
-        color: #000;
+        border: 1px solid transparent;
+        background: var(--nxt1-color-primary, currentColor);
+        color: var(--nxt1-color-text-on-primary, #000);
         font-size: 14px;
         font-weight: 600;
         cursor: pointer;
-        transition: opacity 0.15s;
+        box-shadow: 0 10px 24px -14px var(--nxt1-color-alpha-primary30, rgba(255, 255, 255, 0.18));
+        transition:
+          transform 0.15s ease,
+          box-shadow 0.15s ease,
+          opacity 0.15s ease,
+          background 0.15s ease;
       }
 
       .bc-primary-btn:disabled {
-        opacity: 0.35;
+        background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.08));
+        border-color: var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
+        color: var(--nxt1-color-text-tertiary, #64748b);
+        box-shadow: none;
+        opacity: 1;
         cursor: not-allowed;
       }
 
       .bc-primary-btn:not(:disabled):hover {
-        opacity: 0.9;
+        transform: translateY(-1px);
+        box-shadow: 0 16px 30px -18px var(--nxt1-color-alpha-primary30, rgba(255, 255, 255, 0.18));
+      }
+
+      .bc-primary-btn:not(:disabled):focus-visible,
+      .bc-secondary-link:focus-visible,
+      .bc-package:focus-visible,
+      .bc-preset-btn:focus-visible,
+      .bc-tab:focus-visible,
+      .bc-toggle:focus-visible {
+        outline: none;
+        box-shadow: 0 0 0 3px var(--nxt1-color-alpha-primary20, rgba(255, 255, 255, 0.08));
       }
 
       .bc-secondary-link {
         background: none;
         border: none;
-        color: var(--nxt1-color-primary, #39ff14);
+        color: var(--nxt1-color-text-primary, #f1f5f9);
         font-size: 12px;
+        font-weight: 600;
         cursor: pointer;
         text-align: center;
         padding: 0;
@@ -505,8 +631,8 @@ type Tab = 'buy' | 'auto-topup';
       }
 
       .bc-toggle-status--on {
-        background: rgba(57, 255, 20, 0.15);
-        color: var(--nxt1-color-primary, #39ff14);
+        background: var(--nxt1-color-alpha-primary20, rgba(255, 255, 255, 0.08));
+        color: var(--nxt1-color-text-primary, #f1f5f9);
       }
 
       .bc-toggle-status--off {
@@ -528,7 +654,7 @@ type Tab = 'buy' | 'auto-topup';
       }
 
       .bc-toggle--on {
-        background: var(--nxt1-color-primary, #39ff14);
+        background: var(--nxt1-color-primary, currentColor);
       }
 
       .bc-toggle-thumb {
@@ -583,9 +709,10 @@ type Tab = 'buy' | 'auto-topup';
       }
 
       .bc-preset-btn--active {
-        background: var(--nxt1-color-primary-surface, rgba(57, 255, 20, 0.1));
-        border-color: var(--nxt1-color-primary, #39ff14);
-        color: var(--nxt1-color-primary, #39ff14);
+        background: var(--nxt1-color-alpha-primary20, rgba(255, 255, 255, 0.08));
+        border-color: var(--nxt1-color-primary, currentColor);
+        color: var(--nxt1-color-text-primary, #f1f5f9);
+        box-shadow: inset 0 0 0 1px var(--nxt1-color-alpha-primary30, rgba(255, 255, 255, 0.14));
       }
 
       /* ---- Summary blurb ---- */
@@ -597,6 +724,24 @@ type Tab = 'buy' | 'auto-topup';
         padding: 10px 14px;
         line-height: 1.5;
         border: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.06));
+      }
+
+      @media (min-width: 768px) {
+        .bc-packages-grid {
+          grid-template-columns: repeat(4, 1fr);
+        }
+      }
+
+      @media (max-width: 640px) {
+        .bc-tabs,
+        .bc-body {
+          padding-left: 18px;
+          padding-right: 18px;
+        }
+
+        .bc-packages-grid {
+          grid-template-columns: repeat(2, 1fr);
+        }
       }
     `,
   ],
@@ -633,10 +778,35 @@ export class BuyCreditsAutoTopupModalComponent implements OnInit {
   // UI state
   // ----------------------------------------
 
-  protected readonly activeTab = signal<Tab>('buy');
+  protected readonly activeTab = signal<BuyCreditsTab>('buy');
 
   /** Selected credit package dollar amount (null = nothing picked yet). */
-  protected readonly selectedPackageUsd = signal<(typeof CREDIT_PACKAGES_USD)[number] | null>(null);
+  protected readonly selectedPackageUsd = signal<CreditPackageUsd | null>(null);
+  protected readonly customAmountUsd = signal('');
+  protected readonly customAmountCents = computed(() => parseUsdToCents(this.customAmountUsd()));
+  protected readonly customAmountError = computed(() => {
+    const value = this.customAmountUsd();
+    if (value.length === 0) return null;
+
+    const cents = parseUsdToCents(value);
+    if (cents === null) return 'Enter a valid dollar amount with up to two decimals.';
+    if (cents < 100) return 'Enter at least $1.00.';
+
+    return null;
+  });
+  protected readonly selectedBuyAmountCents = computed<number | null>(() => {
+    const selectedPackageUsd = this.selectedPackageUsd();
+    if (selectedPackageUsd !== null) return selectedPackageUsd * 100;
+
+    const cents = this.customAmountCents();
+    if (cents === null || cents < 100 || this.customAmountError() !== null) return null;
+
+    return cents;
+  });
+  protected readonly selectedBuyAmountLabel = computed(() => {
+    const cents = this.selectedBuyAmountCents();
+    return cents === null ? null : formatPrice(cents);
+  });
 
   /** Auto top-up local editable state */
   protected readonly enabledLocal = signal(false);
@@ -664,15 +834,29 @@ export class BuyCreditsAutoTopupModalComponent implements OnInit {
   // Actions
   // ----------------------------------------
 
-  protected selectPackage(usd: (typeof CREDIT_PACKAGES_USD)[number]): void {
+  protected selectPackage(usd: CreditPackageUsd): void {
     // Toggle: clicking the already-selected package deselects it.
-    this.selectedPackageUsd.update((prev) => (prev === usd ? null : usd));
+    this.selectedPackageUsd.update((prev) => {
+      const nextValue = prev === usd ? null : usd;
+      if (nextValue !== null) {
+        this.customAmountUsd.set('');
+      }
+      return nextValue;
+    });
   }
 
   protected onBuyNow(): void {
-    const usd = this.selectedPackageUsd();
-    if (usd === null) return;
-    this.close.emit({ type: 'buy', amountCents: usd * 100 });
+    const amountCents = this.selectedBuyAmountCents();
+    if (amountCents === null) return;
+    this.close.emit({ type: 'buy', amountCents });
+  }
+
+  protected onCustomAmountInput(value: string): void {
+    const normalized = normalizeUsdInput(value);
+    this.customAmountUsd.set(normalized);
+    if (normalized.length > 0) {
+      this.selectedPackageUsd.set(null);
+    }
   }
 
   protected onSaveAutoTopup(): void {

@@ -122,10 +122,20 @@
       "import": "./dist/ai/index.js",
       "require": "./dist/ai/index.cjs"
     },
+    "./usage": {
+      "types": "./dist/usage/index.d.ts",
+      "import": "./dist/usage/index.js",
+      "require": "./dist/usage/index.cjs"
+    },
     "./team-profile": {
       "types": "./dist/team-profile/index.d.ts",
       "import": "./dist/team-profile/index.js",
       "require": "./dist/team-profile/index.cjs"
+    },
+    "./*": {
+      "types": "./dist/*/index.d.ts",
+      "import": "./dist/*/index.js",
+      "require": "./dist/*/index.cjs"
     }
   },
   "files": [

@@ -8,7 +8,8 @@
  * dispatched through the same provider tokens.
  *
  * Token storage:
- *   Firestore → Users/{uid}/emailTokens/{provider}
+ *   Firestore → Users/{uid}/oauthTokens/{provider}
+ *   Fallback   → Users/{uid}/emailTokens/{provider}
  *   (server-only subcollection — Firestore rules block client reads)
  *
  * College coach matching:
@@ -18,6 +19,11 @@
 
 import { randomUUID } from 'node:crypto';
 import axios from 'axios';
+import {
+  OAUTH_TOKEN_SUBCOLLECTION,
+  LEGACY_EMAIL_TOKEN_SUBCOLLECTION,
+  getOAuthTokenDocId,
+} from '@nxt1/core/auth';
 import type { Firestore } from 'firebase-admin/firestore';
 import { db as defaultDb } from '../utils/firebase.js';
 import { stagingDb } from '../utils/firebase-staging.js';
@@ -81,12 +87,50 @@ async function getEmailTokens(
   provider: EmailProvider,
   db: Firestore = defaultDb
 ): Promise<EmailTokens | null> {
-  const tokenRef = db.collection('Users').doc(userId).collection('emailTokens').doc(provider);
-  const snap = await tokenRef.get();
+  const tokenRef = db
+    .collection('Users')
+    .doc(userId)
+    .collection(OAUTH_TOKEN_SUBCOLLECTION)
+    .doc(getOAuthTokenDocId(provider));
+  const tokenSnap = await tokenRef.get();
+
+  if (tokenSnap.exists) {
+    const tokenData = tokenSnap.data() as EmailTokens;
+    return { ...tokenData, provider };
+  }
+
+  const legacyTokenRef = db
+    .collection('Users')
+    .doc(userId)
+    .collection(LEGACY_EMAIL_TOKEN_SUBCOLLECTION)
+    .doc(provider);
+  const snap = await legacyTokenRef.get();
 
   if (!snap.exists) return null;
 
   const data = snap.data() as EmailTokens;
+  const migratedStorageDoc = {
+    ...data,
+    provider: getOAuthTokenDocId(provider),
+  };
+
+  try {
+    const batch = db.batch();
+    batch.set(tokenRef, migratedStorageDoc, { merge: true });
+    batch.delete(legacyTokenRef);
+    await batch.commit();
+    logger.info('[EmailSync] Migrated legacy email token doc to oauthTokens', {
+      userId,
+      provider,
+    });
+  } catch (error) {
+    logger.warn('[EmailSync] Failed to migrate legacy email token doc', {
+      userId,
+      provider,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+
   return { ...data, provider };
 }
 
@@ -114,7 +158,11 @@ async function refreshGmailToken(
   const newAccessToken = data.access_token as string;
 
   // Persist refreshed token
-  const tokenRef = db.collection('Users').doc(userId).collection('emailTokens').doc('gmail');
+  const tokenRef = db
+    .collection('Users')
+    .doc(userId)
+    .collection(OAUTH_TOKEN_SUBCOLLECTION)
+    .doc(getOAuthTokenDocId('gmail'));
   await tokenRef.update({
     accessToken: newAccessToken,
     lastRefreshedAt: new Date().toISOString(),
@@ -155,7 +203,11 @@ async function refreshMicrosoftToken(
   const newAccessToken = data.access_token as string;
 
   // Persist refreshed token
-  const tokenRef = db.collection('Users').doc(userId).collection('emailTokens').doc('microsoft');
+  const tokenRef = db
+    .collection('Users')
+    .doc(userId)
+    .collection(OAUTH_TOKEN_SUBCOLLECTION)
+    .doc(getOAuthTokenDocId('microsoft'));
   await tokenRef.update({
     accessToken: newAccessToken,
     lastRefreshedAt: new Date().toISOString(),

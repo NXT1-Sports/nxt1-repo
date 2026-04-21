@@ -207,8 +207,6 @@ export const INVITE_API_ENDPOINTS = {
   SEND_BULK: '/invite/send-bulk',
   /** Get invite history */
   HISTORY: '/invite/history',
-  /** Get invite stats */
-  STATS: '/invite/stats',
   /** Validate referral code */
   VALIDATE_CODE: '/invite/validate',
   /** Accept invite */
@@ -225,8 +223,6 @@ export const INVITE_API_ENDPOINTS = {
  * Cache keys for invite data.
  */
 export const INVITE_CACHE_KEYS = {
-  /** Stats cache key */
-  STATS: 'invite:stats',
   /** History cache key prefix */
   HISTORY_PREFIX: 'invite:history:',
   /** Link cache key */
@@ -237,8 +233,6 @@ export const INVITE_CACHE_KEYS = {
  * Cache TTL values (in milliseconds).
  */
 export const INVITE_CACHE_TTL = {
-  /** Stats: 5 minutes */
-  STATS: 300_000,
   /** History: 2 minutes */
   HISTORY: 120_000,
   /** Link: 1 hour */

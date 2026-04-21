@@ -107,8 +107,19 @@ export const AGENT_DESCRIPTORS: Record<AgentIdentifier, AgentDescriptor> = {
     id: 'general',
     name: 'General Assistant',
     description:
-      'Handles general questions, platform help, and tasks that do not fit a specialized coordinator.',
-    capabilities: ['general_qa', 'platform_help', 'small_talk'],
+      'Handles general questions, platform help, Google Workspace actions (Gmail, Calendar, Drive, Docs, Sheets, Slides), and tasks that do not fit a specialized coordinator. Route any request involving Gmail, Google Calendar, Google Drive, Google Docs, Google Sheets, or Google Slides to this agent.',
+    capabilities: [
+      'general_qa',
+      'platform_help',
+      'small_talk',
+      'google_workspace',
+      'gmail',
+      'google_calendar',
+      'google_drive',
+      'google_docs',
+      'google_sheets',
+      'google_slides',
+    ],
   },
 } as const;
 

@@ -18,6 +18,7 @@ import {
   ViewChild,
 } from '@angular/core';
 import { Router } from '@angular/router';
+import { buildLinkSourcesFormData, mapToConnectedSources } from '@nxt1/core';
 import type { LinkSourcesFormData } from '@nxt1/core/api';
 import {
   ConnectedAccountsWebModalComponent,
@@ -30,7 +31,7 @@ import { ANALYTICS_ADAPTER } from '@nxt1/ui/services/analytics';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import type { PlatformScope } from '@nxt1/core/api';
 import { AUTH_SERVICE, type IAuthService } from '../../core/services/auth/auth.interface';
-import { SeoService } from '../../core/services';
+import { EditProfileApiService, SeoService } from '../../core/services';
 import { WebEmailConnectionService } from '../../core/services/web/email-connection.service';
 
 @Component({
@@ -76,6 +77,7 @@ export class ConnectedAccountsComponent implements OnInit {
   private readonly logger = inject(NxtLoggingService).child('ConnectedAccountsPage');
   private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
   private readonly breadcrumb = inject(NxtBreadcrumbService);
+  private readonly editProfileApi = inject(EditProfileApiService);
   private readonly emailConnectionService = inject(WebEmailConnectionService);
 
   protected readonly userRole = computed(() => this.auth.user?.()?.role ?? null);
@@ -88,49 +90,13 @@ export class ConnectedAccountsComponent implements OnInit {
     const user = this.auth.user?.();
     if (!user) return null;
 
-    const PROVIDER_ID_MAP: Record<string, string> = {
-      'google.com': 'google',
-      'microsoft.com': 'microsoft',
-    };
-    const EMAIL_PROVIDER_PLATFORM: Record<string, string> = {
-      gmail: 'google',
-      microsoft: 'microsoft',
-    };
-
     const firebaseUser = this.auth.firebaseUser();
-    const firebaseSigninLinks = (firebaseUser?.providerData ?? [])
-      .filter((p) => PROVIDER_ID_MAP[p.providerId])
-      .map((p) => ({
-        platform: PROVIDER_ID_MAP[p.providerId]!,
-        connected: true,
-        connectionType: 'signin' as const,
-        scopeType: 'global' as const,
-      }));
 
-    const firebasePlatforms = new Set(firebaseSigninLinks.map((l) => l.platform));
-    const emailTokenLinks = (user.connectedEmails ?? [])
-      .filter((e) => e.isActive !== false && EMAIL_PROVIDER_PLATFORM[e.provider])
-      .filter((e) => !firebasePlatforms.has(EMAIL_PROVIDER_PLATFORM[e.provider]))
-      .map((e) => ({
-        platform: EMAIL_PROVIDER_PLATFORM[e.provider]!,
-        connected: true,
-        connectionType: 'signin' as const,
-        scopeType: 'global' as const,
-      }));
-
-    const signinLinks = [...firebaseSigninLinks, ...emailTokenLinks];
-
-    const linkedSources = (user.connectedSources ?? []).map((src) => ({
-      platform: src.platform,
-      connected: true,
-      connectionType: 'link' as const,
-      url: src.profileUrl,
-      scopeType: src.scopeType ?? 'global',
-      scopeId: src.scopeId,
-    }));
-
-    const allLinks = [...linkedSources, ...signinLinks];
-    return allLinks.length ? { links: allLinks } : null;
+    return buildLinkSourcesFormData({
+      connectedSources: user.connectedSources ?? [],
+      connectedEmails: user.connectedEmails ?? [],
+      firebaseProviders: firebaseUser?.providerData ?? [],
+    }) as LinkSourcesFormData | null;
   });
 
   ngOnInit(): void {
@@ -148,14 +114,38 @@ export class ConnectedAccountsComponent implements OnInit {
     this.logger.info('Connected accounts page opened');
   }
 
-  protected onModalClose(data: ConnectedAccountsModalCloseData): void {
-    if (data.saved) {
+  protected async onModalClose(data: ConnectedAccountsModalCloseData): Promise<void> {
+    if (!data.saved || !data.linkSources) {
+      await this.router.navigate(['/settings']);
+      return;
+    }
+
+    const user = this.auth.user?.();
+    if (!user?.uid) {
+      this.toast.error('Not signed in. Please refresh and try again.');
+      await this.router.navigate(['/settings']);
+      return;
+    }
+
+    const connectedSources = mapToConnectedSources(data.linkSources.links);
+    const result = await this.editProfileApi.updateSection(user.uid, 'connected-sources', {
+      connectedSources,
+    });
+
+    if (result.success) {
+      await this.auth.refreshUserProfile();
       this.toast.success('Connected accounts updated');
       this.logger.info('Connected accounts saved from page', {
-        linkCount: data.updatedLinks?.length ?? 0,
+        linkCount: connectedSources.length,
       });
+    } else {
+      this.logger.error('Failed to save connected accounts from page', undefined, {
+        error: result.error,
+      });
+      this.toast.error(result.error ?? 'Failed to save connected accounts');
     }
-    this.router.navigate(['/settings']);
+
+    await this.router.navigate(['/settings']);
   }
 
   /**

@@ -12,7 +12,7 @@
 import { Component, ChangeDetectionStrategy, input, output, computed } from '@angular/core';
 import { IonRippleEffect } from '@ionic/angular/standalone';
 
-import type { UsageOverview, UsagePaymentHistoryRecord } from '@nxt1/core';
+import type { BillingMode, UsageOverview, UsagePaymentHistoryRecord } from '@nxt1/core';
 import { formatPrice } from '@nxt1/core';
 import { USAGE_TEST_IDS } from '@nxt1/core/testing';
 import { UsagePaymentHistoryComponent } from './usage-payment-history.component';
@@ -51,7 +51,7 @@ import { UsagePaymentHistoryComponent } from './usage-payment-history.component'
               X.</span
             >
           </div>
-          <button type="button" class="banner-btn" (click)="switchToBillingMode.emit(true)">
+          <button type="button" class="banner-btn" (click)="switchToBillingMode.emit('personal')">
             Use personal wallet
           </button>
         </div>
@@ -82,14 +82,18 @@ import { UsagePaymentHistoryComponent } from './usage-payment-history.component'
               credits.</span
             >
           </div>
-          <button type="button" class="banner-btn" (click)="switchToBillingMode.emit(false)">
+          <button
+            type="button"
+            class="banner-btn"
+            (click)="switchToBillingMode.emit('organization')"
+          >
             Switch to org billing
           </button>
         </div>
       }
 
       <!-- ── Billing mode pill (when on personal override) ────────────── -->
-      @if (usePersonalBilling()) {
+      @if (billingMode() === 'personal') {
         <div class="mode-pill" [attr.data-testid]="testIds.OVERVIEW_PERSONAL_BILLING_PILL">
           <svg
             xmlns="http://www.w3.org/2000/svg"
@@ -107,7 +111,11 @@ import { UsagePaymentHistoryComponent } from './usage-payment-history.component'
             <circle cx="12" cy="7" r="4" />
           </svg>
           Using personal billing
-          <button type="button" class="mode-pill__switch" (click)="switchToBillingMode.emit(false)">
+          <button
+            type="button"
+            class="mode-pill__switch"
+            (click)="switchToBillingMode.emit('organization')"
+          >
             Switch to org billing
           </button>
         </div>
@@ -124,7 +132,7 @@ import { UsagePaymentHistoryComponent } from './usage-payment-history.component'
           <ion-ripple-effect></ion-ripple-effect>
           <div class="card-header">
             <span class="card-label">
-              @if (isOrg() && !usePersonalBilling()) {
+              @if (isOrg() && billingMode() === 'organization') {
                 Organization Credits
               } @else {
                 Personal Credits
@@ -431,8 +439,8 @@ export class UsageOverviewComponent {
   /** True when on personal billing override but org wallet has been refilled — show "switch back" banner */
   readonly orgWalletRefilled = input<boolean>(false);
 
-  /** True when the user has manually switched to personal billing */
-  readonly usePersonalBilling = input<boolean>(false);
+  /** Current backend-resolved billing mode */
+  readonly billingMode = input<BillingMode>('personal');
 
   /** Hide the Add Credits button (e.g. on desktop web where it lives in the top nav) */
   readonly hideBuyCredits = input<boolean>(false);
@@ -446,8 +454,8 @@ export class UsageOverviewComponent {
   /** Emitted when "Add Credits" button is clicked */
   readonly buyCredit = output<void>();
 
-  /** Emitted when a billing mode banner button is clicked. true=personal, false=org */
-  readonly switchToBillingMode = output<boolean>();
+  /** Emitted when a billing mode banner button is clicked */
+  readonly switchToBillingMode = output<BillingMode>();
 
   /** Emitted when a receipt download is requested */
   readonly downloadReceipt = output<string>();
@@ -476,9 +484,10 @@ export class UsageOverviewComponent {
   /** Wallet is completely empty */
   protected readonly isWalletEmpty = computed(() => (this.data()?.walletBalanceCents ?? 0) === 0);
 
-  /** Low balance warning — above $0 but below $5 */
+  /** Low balance warning — above $0 but below the backend-configured threshold */
   protected readonly isLowBalance = computed(() => {
     const bal = this.data()?.walletBalanceCents ?? 0;
-    return bal > 0 && bal < 500;
+    const threshold = this.data()?.lowBalanceThresholdCents ?? 200;
+    return bal > 0 && bal < threshold;
   });
 }

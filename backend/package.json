@@ -29,11 +29,18 @@
     "reconcile:usage": "tsx scripts/reconcile-usage-events.ts",
     "reconcile:usage:dry-run": "tsx scripts/reconcile-usage-events.ts --dry-run",
     "reconcile:usage:staging": "tsx scripts/reconcile-usage-events.ts --staging",
+    "migrate:billing-contexts": "tsx scripts/migrate-billing-contexts.ts",
+    "migrate:billing-contexts:dry-run": "tsx scripts/migrate-billing-contexts.ts --dry-run",
+    "backfill:activity-badges": "tsx scripts/backfill-activity-badges.ts",
+    "backfill:activity-badges:commit": "tsx scripts/backfill-activity-badges.ts --commit",
+    "backfill:activity-badges:staging": "tsx scripts/backfill-activity-badges.ts --staging",
     "cache:clear": "tsx scripts/clear-cache.ts",
     "cache:clear:staging": "tsx scripts/clear-cache.ts --env=staging",
     "cache:clear:profiles": "tsx scripts/clear-cache.ts --pattern=profile:*",
     "cache:clear:teams": "tsx scripts/clear-cache.ts --pattern=team:*",
-    "seed:knowledge": "tsx ../scripts/seed-knowledge/index.ts"
+    "seed:knowledge": "tsx ../scripts/seed-knowledge/index.ts",
+    "deploy:mcp:stateful": "bash ./scripts/deploy-stateful-mcp.sh",
+    "deploy:mcp:google-workspace": "bash ./scripts/deploy-google-workspace-mcp.sh"
   },
   "dependencies": {
     "@apple/app-store-server-library": "^3.0.0",

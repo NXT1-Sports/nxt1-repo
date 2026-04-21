@@ -9,8 +9,7 @@
  *   Step 2 – Connected accounts
  *
  * Saves via:
- *   - ProfileService.addSport()        → adds the sport entry
- *   - ProfileService.updateProfile()   → merges connected sources
+ *   - ProfileService.addSport()        → adds the sport entry and persists connectedSources
  */
 
 import { Injectable, inject, signal, computed, PLATFORM_ID } from '@angular/core';
@@ -24,11 +23,11 @@ import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import { ANALYTICS_ADAPTER } from '@nxt1/ui/services/analytics';
 import { NxtBreadcrumbService } from '@nxt1/ui/services/breadcrumb';
 
-import type { SportFormData, LinkSourcesFormData, LinkSourceEntry } from '@nxt1/core/api';
-import type { ConnectedSource, OnboardingUserType } from '@nxt1/core';
+import type { SportFormData, LinkSourcesFormData } from '@nxt1/core/api';
+import type { OnboardingUserType } from '@nxt1/core';
 import { DEFAULT_SPORTS, isTeamRole, type SportCell } from '@nxt1/core/constants';
 import { APP_EVENTS } from '@nxt1/core/analytics';
-import { mapToConnectedSources, mergeConnectedSources } from '@nxt1/core/profile';
+import { mapToConnectedSources } from '@nxt1/core/profile';
 
 import { AuthFlowService } from '../../core/services/auth/auth-flow.service';
 import { ProfileService } from '../../core/services/api/profile-api.service';
@@ -282,11 +281,14 @@ export class AddSportService {
     this.breadcrumb.trackStateChange('add-sport:saving', { sport: primarySport.sport });
 
     try {
+      const newSources = mapToConnectedSources(this._linkSourcesFormData()?.links ?? []);
+
       // 1. Add the new sport to the user's profile
       const sportResponse = await firstValueFrom(
         this.profileService.addSport(uid, {
           sport: primarySport.sport,
           positions: primarySport.positions ?? [],
+          connectedSources: newSources,
         })
       );
 
@@ -297,27 +299,6 @@ export class AddSportService {
       }
 
       this.logger.info('Sport added', { sport: primarySport.sport });
-
-      // 2. Save connected accounts (link sources) if any were provided
-      const linkSourcesData = this._linkSourcesFormData();
-      const connectedEntries: LinkSourceEntry[] = linkSourcesData?.links ?? [];
-      const newSources = mapToConnectedSources(connectedEntries);
-
-      if (newSources.length > 0) {
-        const existingSources: ConnectedSource[] =
-          (user as { connectedSources?: ConnectedSource[] }).connectedSources ?? [];
-        const mergedSources = mergeConnectedSources(existingSources, newSources);
-
-        const updateResponse = await firstValueFrom(
-          this.profileService.updateProfile(uid, { connectedSources: mergedSources })
-        );
-
-        if (updateResponse.success) {
-          this.logger.info('Connected sources updated', { count: newSources.length });
-        } else {
-          this.logger.warn('Failed to update connected sources', { error: updateResponse.error });
-        }
-      }
 
       // Invalidate profile cache so home page reflects new sport
       this.profileService.invalidateCache(uid);

@@ -576,13 +576,16 @@ export class SettingsShellComponent implements OnInit, AfterViewInit, OnDestroy 
       resync: result.resync,
     });
 
-    if (result.resync) {
-      await this.settings.requestConnectedAccountsResync(result.sources ?? []);
-    } else if (result.saved && result.updatedLinks) {
+    if (result.linkSources && result.updatedLinks) {
       this.action.emit({
         itemId: 'connectedAccounts',
         action: 'saveConnectedAccounts',
-        data: { updatedLinks: result.updatedLinks, linkSources: result.linkSources },
+        data: {
+          updatedLinks: result.updatedLinks,
+          linkSources: result.linkSources,
+          requestResync: result.resync === true,
+          resyncSources: result.sources ?? [],
+        },
       } as SettingsActionEvent);
     }
   }

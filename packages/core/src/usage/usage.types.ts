@@ -87,6 +87,8 @@ export interface UsageOverview {
   readonly walletBalanceCents: number;
   /** Pending wallet holds in cents (funds reserved for in-flight operations) */
   readonly pendingHoldsCents: number;
+  /** Wallet balance threshold in cents at which low-balance UI warnings should appear */
+  readonly lowBalanceThresholdCents: number;
 }
 
 // ============================================
@@ -321,12 +323,27 @@ export interface UsageCoupon {
 /** Who pays: the individual user, a team sub-allocation, or the parent organization */
 export type BillingEntity = 'individual' | 'team' | 'organization';
 
+/** Which wallet is currently active for charges */
+export type BillingMode = 'personal' | 'organization';
+
+/** Budget cadence used for alerts, dashboards, and team/org budget windows */
+export type BudgetInterval = 'daily' | 'weekly' | 'monthly';
+
 /** How a billing context is funded */
 export type PaymentProviderType = 'stripe' | 'iap';
 
-/** The user's billing context summary (returned by GET /budget) */
-export interface BillingContextSummary {
+/** A selectable budget target in the editor */
+export interface BudgetTargetOption {
+  readonly id: string;
+  readonly type: 'organization' | 'team';
+  readonly label: string;
+}
+
+/** The user's resolved billing state summary (returned by GET /budget) */
+export interface BillingStateSummary {
+  readonly billingMode: BillingMode;
   readonly billingEntity: BillingEntity;
+  readonly budgetInterval: BudgetInterval;
   readonly monthlyBudget: number;
   readonly currentPeriodSpend: number;
   readonly periodStart: string;
@@ -352,15 +369,12 @@ export interface BillingContextSummary {
   /** Amount in cents to reload when auto top-up fires */
   readonly autoTopUpAmountCents?: number;
   /**
-   * When true, this org-roster member has opted to use their personal wallet
-   * instead of the org's wallet. Ignored for individual billing contexts.
-   */
-  readonly usePersonalBilling?: boolean;
-  /**
    * True when this user resolves to org billing AND the org wallet balance is 0.
    * Used to drive the "Your team is out of funds" banner in the Usage UI.
    */
   readonly orgWalletEmpty?: boolean;
+  /** Available org/team targets the current user can create budgets for */
+  readonly availableBudgetTargets?: readonly BudgetTargetOption[];
 }
 
 /** A team's sub-allocation within an organization budget */
@@ -369,6 +383,8 @@ export interface TeamBudgetAllocation {
   readonly teamId: string;
   /** Team display name */
   readonly teamName: string;
+  /** Budget cadence for this allocation */
+  readonly budgetInterval: BudgetInterval;
   /** Monthly sub-limit in cents (0 = no sub-limit, draws from org pool) */
   readonly monthlyLimit: number;
   /** Current spend this period in cents */
@@ -390,12 +406,18 @@ export const DEFAULT_ORGANIZATION_STARTER_BALANCE = 2000; // $20
 export interface UsageBudget {
   /** Unique ID */
   readonly id: string;
+  /** What billing target this budget edits */
+  readonly targetScope: BillingEntity;
+  /** Billing target ID used when opening the editor */
+  readonly targetId: string;
   /** Product category */
   readonly category: UsageProductCategory;
   /** Product display name */
   readonly productName: string;
   /** Budget limit in cents (0 = unlimited) */
   readonly budgetLimit: number;
+  /** Budget cadence for this budget */
+  readonly budgetInterval: BudgetInterval;
   /** Amount spent in cents */
   readonly spent: number;
   /** Percentage of budget used (0-100+) */

@@ -286,6 +286,8 @@ export interface InviteLink {
   readonly qrCodeDataUrl?: string;
   /** Expiration date */
   readonly expiresAt?: string;
+  /** Live referral reward amount in cents for invite/share copy. */
+  readonly referralRewardCents?: number;
   /** Team code (for team invites — used at accept time to join the roster) */
   readonly teamCode?: string;
   /** Human-readable team name (for team invites — display only) */
@@ -310,14 +312,11 @@ export interface InviteState {
   readonly message: string;
   /** Generated invite link */
   readonly inviteLink: InviteLink | null;
-  /** User's invite stats */
-  readonly stats: InviteStats | null;
   /** Recent invite history */
   readonly history: readonly InviteItem[];
   /** Loading states */
   readonly isLoading: boolean;
   readonly isSending: boolean;
-  readonly isLoadingStats: boolean;
   /** Error state */
   readonly error: string | null;
 }

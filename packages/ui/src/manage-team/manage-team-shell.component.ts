@@ -151,11 +151,11 @@ export interface ManageTeamCloseEvent {
             (remove)="onRemoveImage($event)"
           />
 
-          <!-- Connected team accounts -->
-          <nxt1-list-section header="Connected accounts">
-            <nxt1-list-row label="Accounts" (tap)="manageTeamSetup()">
+          <!-- Team setup / branding -->
+          <nxt1-list-section header="Team setup">
+            <nxt1-list-row label="Website & branding" (tap)="manageTeamSetup()">
               <span class="nxt1-list-value" [class.nxt1-list-placeholder]="!accountsSummary()">
-                {{ accountsSummary() || 'Connect accounts' }}
+                {{ accountsSummary() || 'Update team setup' }}
               </span>
             </nxt1-list-row>
           </nxt1-list-section>

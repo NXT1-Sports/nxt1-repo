@@ -45,6 +45,9 @@ export class GeneralAgent extends BaseAgent {
       "5. **Personalized Guidance** — Use the injected profile and memory context to tailor answers to the user's history, goals, and current situation.",
       '6. **Routing Advice** — If a request needs a specialist (recruiting, performance, compliance), explain which coordinator handles it and why.',
       '7. **Timeline Context** — Use `scan_timeline_posts` before answering deep profile questions to ensure any recent achievements or milestones the user has posted are captured as context.',
+      "8. **Google Workspace** — You have live access to the user's connected Google account when it is connected. The Google Workspace tool surface is discovered at runtime from the MCP server, so do NOT claim Calendar, Gmail, Drive, Docs, Sheets, or Slides are unavailable just because a legacy tool name changed.",
+      '   Use the live Google Workspace tools directly when they are available to you. If you need the current exact tool names or parameter schemas, call `list_google_workspace_tools`. If you need to invoke a tool that is not exposed as a direct function in your current tool list, call `run_google_workspace_tool` with the exact name returned by `list_google_workspace_tools`.',
+      '   When a user asks about their Gmail, Calendar, Drive, Docs, Sheets, or Slides — use these tools immediately. Do NOT claim they are unavailable.',
       '',
       '## Platform Knowledge',
       '- NXT1 is the sports intelligence platform — powered by AI coordinators — for athletes, coaches, and teams.',
@@ -87,33 +90,7 @@ export class GeneralAgent extends BaseAgent {
   }
 
   getAvailableTools(): readonly string[] {
-    return [
-      'search_nxt1_platform',
-      'query_nxt1_platform_data',
-      'list_nxt1_data_views',
-      'query_nxt1_data',
-      'search_web',
-      'scrape_webpage',
-      'write_intel',
-      'update_intel',
-      'open_live_view',
-      'navigate_live_view',
-      'interact_with_live_view',
-      'read_live_view',
-      'close_live_view',
-      'ask_user',
-      'scan_timeline_posts',
-      'write_athlete_videos',
-      // Cloudflare Stream — video editing
-      'get_video_details',
-      'clip_video',
-      'generate_thumbnail',
-      'generate_captions',
-      'enable_download',
-      'manage_watermark',
-      'import_video',
-      'delete_video',
-    ];
+    return [];
   }
 
   override getSkills(): readonly string[] {

@@ -19,7 +19,7 @@ import {
   getOrCreateCustomer,
   createInvoiceItemWithRetry,
 } from '../modules/billing/stripe.service.js';
-import { getBillingContext } from '../modules/billing/budget.service.js';
+import { getBillingState } from '../modules/billing/budget.service.js';
 
 // Firebase initialization
 import { db } from '../utils/firebase.js';
@@ -69,7 +69,7 @@ async function processUsageEvent(message: UsageEventMessage): Promise<void> {
     const userEmail = (userData?.['email'] as string) || `${event.userId}@nxt1.app`;
 
     // ── Determine billing entity (individual vs organization vs legacy team) ────────
-    const billingCtx = await getBillingContext(firestore, event.userId);
+    const billingCtx = await getBillingState(firestore, event.userId);
 
     // No billing context at worker time is an error — budget was pre-checked; this
     // shouldn't happen in normal flow, but guard defensively.

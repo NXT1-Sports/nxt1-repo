@@ -30,8 +30,11 @@ import {
   output,
   computed,
   OnInit,
+  OnDestroy,
+  NgZone,
+  PLATFORM_ID,
 } from '@angular/core';
-import { CommonModule } from '@angular/common';
+import { CommonModule, isPlatformBrowser } from '@angular/common';
 import { IonContent } from '@ionic/angular/standalone';
 import { NxtBottomSheetService, SHEET_PRESETS } from '../components/bottom-sheet';
 import { NxtIconComponent } from '../components/icon';
@@ -44,7 +47,13 @@ import {
 } from '../components/option-scroller';
 import { NxtToastService } from '../services/toast/toast.service';
 import { HapticsService } from '../services/haptics/haptics.service';
-import { UsageService, type UsageSection } from './usage.service';
+import {
+  UsageService,
+  USAGE_CHECKOUT_POPUP_NAME,
+  USAGE_CHECKOUT_RETURN_MESSAGE,
+  type UsageSection,
+} from './usage.service';
+import type { UsageBudget } from '@nxt1/core';
 import { USAGE_TEST_IDS } from '@nxt1/core/testing';
 import { UsageSkeletonComponent } from './usage-skeleton.component';
 import { UsageHelpContentComponent } from './usage-help-content.component';
@@ -200,7 +209,7 @@ export interface UsageUser {
               } @else {
                 @switch (svc.activeSection()) {
                   @case ('overview') {
-                    @if (svc.isOrgMember() && !svc.usePersonalBilling()) {
+                    @if (svc.isOrgMember() && svc.billingMode() === 'organization') {
                       <!-- Org member on org billing: restricted overview — no financial data -->
                       <nxt1-usage-org-member-stub />
                     } @else {
@@ -211,7 +220,7 @@ export interface UsageUser {
                         [isOrgAdmin]="svc.isOrgAdmin()"
                         [orgWalletEmpty]="svc.orgWalletEmpty()"
                         [orgWalletRefilled]="svc.orgWalletRefilled()"
-                        [usePersonalBilling]="svc.usePersonalBilling()"
+                        [billingMode]="svc.billingMode()"
                         [paymentHistory]="svc.filteredPaymentHistory()"
                         [historyHasMore]="svc.historyHasMore()"
                         (buyCredit)="onBuyCredits()"
@@ -220,16 +229,6 @@ export interface UsageUser {
                         (downloadInvoice)="onDownloadInvoice($event)"
                         (loadMore)="svc.loadMoreHistory()"
                       />
-
-                      @if (svc.isOrg() && svc.isOrgAdmin()) {
-                        <nxt1-usage-budgets
-                          [budgets]="svc.budgets()"
-                          [readOnly]="false"
-                          (createBudget)="onCreateBudget()"
-                          (editBudget)="onEditBudget($event)"
-                          (editTeamBudget)="onEditTeamBudget($event)"
-                        />
-                      }
                     }
                     <!-- end @else (not org member) -->
                   }
@@ -258,11 +257,11 @@ export interface UsageUser {
 
                   @case ('budgets') {
                     <nxt1-usage-budgets
-                      [budgets]="svc.budgets()"
+                      [budgets]="svc.activeBudgets()"
                       [readOnly]="!svc.isOrgAdmin()"
                       (createBudget)="onCreateBudget()"
                       (editBudget)="onEditBudget($event)"
-                      (editTeamBudget)="onEditTeamBudget($event)"
+                      (removeBudget)="onDeleteBudget($event)"
                     />
                   }
 
@@ -519,13 +518,125 @@ export interface UsageUser {
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class UsageShellComponent implements OnInit {
+export class UsageShellComponent implements OnInit, OnDestroy {
   protected readonly testIds = USAGE_TEST_IDS;
   protected readonly svc = inject(UsageService);
   private readonly toast = inject(NxtToastService);
   private readonly haptics = inject(HapticsService);
   private readonly bottomSheet = inject(NxtBottomSheetService);
   private readonly usageBottomSheet = inject(UsageBottomSheetService);
+  private readonly ngZone = inject(NgZone);
+  private readonly platformId = inject(PLATFORM_ID);
+
+  private _hiddenAt: number | null = null;
+  private static readonly STALE_THRESHOLD_MS = 30_000;
+
+  private handleCheckoutReturnFromUrl(): void {
+    if (!isPlatformBrowser(this.platformId)) {
+      return;
+    }
+
+    const currentUrl = new URL(window.location.href);
+    const creditsStatus = currentUrl.searchParams.get('credits');
+    const returnedOrganizationId = currentUrl.searchParams.get('organizationId');
+    const sessionId = currentUrl.searchParams.get('session_id');
+    if (!creditsStatus) {
+      return;
+    }
+
+    if (window.opener && window.name === USAGE_CHECKOUT_POPUP_NAME) {
+      window.opener.postMessage(
+        {
+          type: USAGE_CHECKOUT_RETURN_MESSAGE,
+          status: creditsStatus,
+          organizationId: returnedOrganizationId,
+          sessionId,
+        },
+        window.location.origin
+      );
+      window.close();
+      return;
+    }
+
+    if (creditsStatus === 'success') {
+      const currentOrganizationId = this.svc.billingContext()?.organizationId ?? null;
+      if (
+        returnedOrganizationId &&
+        currentOrganizationId &&
+        returnedOrganizationId !== currentOrganizationId
+      ) {
+        this.toast.info(
+          'Credits were added to a different organization wallet than the one open here.'
+        );
+      }
+      void this.svc.refreshAfterExternalBillingReturn({
+        sessionId,
+        organizationId: returnedOrganizationId,
+      });
+    }
+
+    currentUrl.searchParams.delete('credits');
+    currentUrl.searchParams.delete('amount');
+    currentUrl.searchParams.delete('organizationId');
+    currentUrl.searchParams.delete('session_id');
+    const nextUrl = `${currentUrl.pathname}${currentUrl.search}${currentUrl.hash}`;
+    window.history.replaceState({}, '', nextUrl);
+  }
+
+  private readonly onCheckoutWindowMessage = (event: MessageEvent): void => {
+    if (!isPlatformBrowser(this.platformId) || event.origin !== window.location.origin) {
+      return;
+    }
+
+    const data = event.data as
+      | {
+          type?: string;
+          status?: string;
+          organizationId?: string | null;
+          sessionId?: string | null;
+        }
+      | null
+      | undefined;
+    if (data?.type !== USAGE_CHECKOUT_RETURN_MESSAGE) {
+      return;
+    }
+
+    if (data.status === 'success') {
+      const currentOrganizationId = this.svc.billingContext()?.organizationId ?? null;
+      if (
+        data.organizationId &&
+        currentOrganizationId &&
+        data.organizationId !== currentOrganizationId
+      ) {
+        this.toast.info(
+          'Credits were added to a different organization wallet than the one open here.'
+        );
+      }
+      void this.svc.refreshAfterExternalBillingReturn({
+        sessionId: data.sessionId,
+        organizationId: data.organizationId,
+      });
+    }
+  };
+
+  private readonly onVisibilityChange = (): void => {
+    if (document.visibilityState === 'hidden') {
+      this._hiddenAt = Date.now();
+      return;
+    }
+
+    const awayMs = this._hiddenAt !== null ? Date.now() - this._hiddenAt : 0;
+    this._hiddenAt = null;
+    if (this.svc.consumePortalRefresh() || awayMs >= UsageShellComponent.STALE_THRESHOLD_MS) {
+      void this.svc.refreshAfterExternalBillingReturn();
+    }
+  };
+
+  private readonly onWindowFocus = (): void => {
+    if (this.svc.consumePortalRefresh()) {
+      void this.svc.refreshAfterExternalBillingReturn();
+    }
+  };
 
   // ============================================
   // INPUTS
@@ -592,7 +703,10 @@ export class UsageShellComponent implements OnInit {
 
     await this.bottomSheet.openSheet({
       component: UsageHelpContentComponent,
-      componentProps: { isPersonal: this.svc.isPersonal() },
+      componentProps: {
+        isPersonal: this.svc.isPersonal(),
+        billingContext: this.svc.billingContext(),
+      },
       ...SHEET_PRESETS.FULL,
       showHandle: true,
       handleBehavior: 'cycle',
@@ -607,6 +721,22 @@ export class UsageShellComponent implements OnInit {
 
   ngOnInit(): void {
     this.svc.loadDashboard(true);
+    if (isPlatformBrowser(this.platformId)) {
+      this.handleCheckoutReturnFromUrl();
+      this.ngZone.runOutsideAngular(() => {
+        document.addEventListener('visibilitychange', this.onVisibilityChange);
+        window.addEventListener('focus', this.onWindowFocus);
+        window.addEventListener('message', this.onCheckoutWindowMessage);
+      });
+    }
+  }
+
+  ngOnDestroy(): void {
+    if (isPlatformBrowser(this.platformId)) {
+      document.removeEventListener('visibilitychange', this.onVisibilityChange);
+      window.removeEventListener('focus', this.onWindowFocus);
+      window.removeEventListener('message', this.onCheckoutWindowMessage);
+    }
   }
 
   // ============================================
@@ -659,9 +789,9 @@ export class UsageShellComponent implements OnInit {
     }
   }
 
-  protected async onSwitchBillingMode(usePersonalBilling: boolean): Promise<void> {
+  protected async onSwitchBillingMode(billingMode: 'personal' | 'organization'): Promise<void> {
     await this.haptics.impact('medium');
-    await this.svc.switchBillingMode(usePersonalBilling);
+    await this.svc.switchBillingMode(billingMode);
   }
 
   protected async onSaveAutoTopUp(settings: {
@@ -685,35 +815,33 @@ export class UsageShellComponent implements OnInit {
 
   protected async onCreateBudget(): Promise<void> {
     await this.haptics.impact('light');
-    await this.openBudgetControlPanel();
+    await this.openBudgetControlPanel(undefined, 'new');
   }
 
-  protected async onEditBudget(_budgetId: string): Promise<void> {
+  protected async onEditBudget(budget: UsageBudget): Promise<void> {
     await this.haptics.impact('light');
-    const result = await this.usageBottomSheet.showBudgetOptions();
-    if (!result) return;
-
-    if (result.action === 'Edit budget') {
-      await this.openBudgetControlPanel();
-    } else if (result.action === 'Delete budget') {
-      await this.svc.deleteBudget();
-    }
+    await this.openBudgetControlPanel(
+      budget.targetScope === 'team' ? budget.targetId : undefined,
+      'current'
+    );
   }
 
-  protected async onEditTeamBudget(teamId: string): Promise<void> {
+  protected async onDeleteBudget(budget: UsageBudget): Promise<void> {
     await this.haptics.impact('light');
-    const amountCents = await this.usageBottomSheet.showBudgetLimit();
-    if (amountCents !== null) {
-      await this.svc.updateTeamBudget(teamId, amountCents);
-    }
+    await this.svc.deleteBudget(budget);
   }
 
-  private async openBudgetControlPanel(): Promise<void> {
+  private async openBudgetControlPanel(
+    teamId?: string,
+    budgetDraftMode: 'current' | 'new' = 'current'
+  ): Promise<void> {
     await this.bottomSheet.openSheet({
       component: AgentXControlPanelComponent,
       componentProps: {
         panel: 'budget',
         presentation: 'sheet',
+        budgetTargetTeamId: teamId ?? null,
+        budgetDraftMode,
       },
       ...SHEET_PRESETS.FULL,
       showHandle: true,

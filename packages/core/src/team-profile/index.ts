@@ -24,9 +24,9 @@ export {
   type TeamProfileTabId,
   type TeamProfileTab,
   // Team identity types
+  type ConnectedSource,
   type TeamProfileType,
   type TeamProfileBranding,
-  type TeamProfileSocialLink,
   type TeamProfileContact,
   type TeamProfileLinks,
   type TeamProfileSponsor,

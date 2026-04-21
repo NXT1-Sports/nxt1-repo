@@ -14,11 +14,9 @@ export { UsageShellWebComponent } from './web/usage-shell-web.component';
 export { BuyCreditsModalComponent } from './web/buy-credits-modal.component';
 
 // Combined Buy Credits + Auto Top-Up Modal (web overlay) — preferred
-export {
-  BuyCreditsAutoTopupModalComponent,
-  type BuyCreditsAutoTopupResult,
-  type AutoTopupSettings,
-} from './web/buy-credits-autotopup-modal.component';
+export { BuyCreditsAutoTopupModalComponent } from './web/buy-credits-autotopup-modal.component';
+export type { BuyCreditsAutoTopupResult, AutoTopupSettings } from './buy-credits-flow.shared';
+export { BuyCreditsAutoTopupSheetComponent } from './buy-credits-autotopup-sheet.component';
 
 // Landing Page (public marketing)
 export { NxtUsageLandingComponent } from './usage-landing.component';

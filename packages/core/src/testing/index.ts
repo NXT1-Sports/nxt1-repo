@@ -682,6 +682,7 @@ export const USAGE_TEST_IDS = {
   BUY_CREDITS_TAB_BUY: 'usage-buy-credits-tab-buy',
   BUY_CREDITS_TAB_TOPUP: 'usage-buy-credits-tab-topup',
   BUY_CREDITS_PACKAGE: 'usage-buy-credits-package',
+  BUY_CREDITS_CUSTOM_AMOUNT_INPUT: 'usage-buy-credits-custom-amount-input',
   BUY_CREDITS_BUY_BTN: 'usage-buy-credits-buy-btn',
   BUY_CREDITS_TOPUP_TOGGLE: 'usage-buy-credits-topup-toggle',
   BUY_CREDITS_TOPUP_THRESHOLD: 'usage-buy-credits-topup-threshold',
@@ -986,6 +987,8 @@ export const ADD_SPORT_TEST_IDS = {
   STEP_CONTENT: 'add-sport-step-content',
   /** Sport selection step */
   STEP_SPORT: 'add-sport-step-sport',
+  /** Organization / program selection step */
+  STEP_ORGANIZATION: 'add-sport-step-organization',
   /** Connected accounts step */
   STEP_LINK_SOURCES: 'add-sport-step-link-sources',
   /** Desktop footer / navigation buttons area */

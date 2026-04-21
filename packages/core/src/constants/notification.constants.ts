@@ -91,6 +91,8 @@ export const NOTIFICATION_TYPES = {
   PAYMENT_RECEIVED: 'payment_received',
   PAYMENT_FAILED: 'payment_failed',
   CREDITS_LOW: 'credits_low',
+  WALLET_EMPTY: 'wallet_empty',
+  ORG_WALLET_EMPTY: 'org_wallet_empty',
   CREDITS_ADDED: 'credits_added',
   BUDGET_WARNING: 'budget_warning',
   BUDGET_REACHED: 'budget_reached',
@@ -179,6 +181,8 @@ export const NOTIFICATION_TYPE_CATEGORY: Record<NotificationType, NotificationCa
   payment_received: 'billing',
   payment_failed: 'billing',
   credits_low: 'billing',
+  wallet_empty: 'billing',
+  org_wallet_empty: 'billing',
   credits_added: 'billing',
   budget_warning: 'billing',
   budget_reached: 'billing',
@@ -280,6 +284,8 @@ export const NOTIFICATION_TYPE_TAB: Record<NotificationType, ActivityTabId> = {
   payment_received: 'alerts',
   payment_failed: 'alerts',
   credits_low: 'alerts',
+  wallet_empty: 'alerts',
+  org_wallet_empty: 'alerts',
   credits_added: 'alerts',
   budget_warning: 'alerts',
   budget_reached: 'alerts',
@@ -342,6 +348,8 @@ export const NOTIFICATION_DEEP_LINKS: Partial<Record<NotificationType, string>> 
   payment_received: '/usage?section=payment-history',
   payment_failed: '/usage?section=payment-info',
   credits_low: '/usage?section=overview',
+  wallet_empty: '/usage?section=overview',
+  org_wallet_empty: '/usage?section=overview',
   credits_added: '/usage?section=overview',
   org_wallet_refilled: '/usage?section=overview',
 
@@ -415,7 +423,12 @@ export function getNotificationCategory(type: NotificationType): NotificationCat
  * Check if a notification type is high priority
  */
 export function isHighPriorityNotification(type: NotificationType): boolean {
-  const highPriorityTypes: NotificationType[] = ['security_alert', 'payment_failed'];
+  const highPriorityTypes: NotificationType[] = [
+    'security_alert',
+    'payment_failed',
+    'wallet_empty',
+    'org_wallet_empty',
+  ];
   return highPriorityTypes.includes(type);
 }
 

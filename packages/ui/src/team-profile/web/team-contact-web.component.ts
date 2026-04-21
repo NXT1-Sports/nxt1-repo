@@ -587,8 +587,8 @@ export class TeamContactWebComponent {
       readonly verified: boolean;
       readonly faviconUrl: string | null;
     }> => {
-      const social = this.teamProfile.team()?.social;
-      if (!social?.length) return [];
+      const connectedSources = this.teamProfile.team()?.connectedSources;
+      if (!connectedSources?.length) return [];
 
       const defaultMeta = {
         label: '',
@@ -598,27 +598,29 @@ export class TeamContactWebComponent {
         showHandle: false,
       };
 
-      return social
+      return connectedSources
         .slice()
         .sort((a, b) => (a.displayOrder ?? 99) - (b.displayOrder ?? 99))
         .slice(0, 8)
-        .map((link) => {
+        .map((source, index) => {
           const meta =
-            TeamContactWebComponent.PLATFORM_META[link.platform.toLowerCase()] ?? defaultMeta;
+            TeamContactWebComponent.PLATFORM_META[source.platform.toLowerCase()] ?? defaultMeta;
           const handle = meta.showHandle
-            ? link.username
-              ? `${meta.handlePrefix}${link.username.replace(/^@/, '')}`
-              : deriveConnectedHandle(link.url, meta.label || link.platform, meta.handlePrefix)
-            : meta.label || link.platform;
+            ? deriveConnectedHandle(
+                source.profileUrl,
+                meta.label || source.platform,
+                meta.handlePrefix
+              )
+            : meta.label || source.platform;
           return {
-            key: link.platform,
-            label: meta.label || link.platform,
+            key: `${source.platform}-${source.scopeType ?? 'global'}-${source.scopeId ?? index}`,
+            label: meta.label || source.platform,
             handle,
             icon: meta.icon,
             color: meta.color,
-            url: link.url,
-            verified: !!link.verified,
-            faviconUrl: getPlatformFaviconUrl(link.platform.toLowerCase()),
+            url: source.profileUrl,
+            verified: source.syncStatus !== 'error',
+            faviconUrl: getPlatformFaviconUrl(source.platform.toLowerCase()),
           };
         });
     }

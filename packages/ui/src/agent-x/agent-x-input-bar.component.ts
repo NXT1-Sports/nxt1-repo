@@ -6,8 +6,7 @@
  * Uses ion-footer so it pins to the bottom of whichever Ionic scroll container
  * owns it — the main page on the shell, the bottom sheet on operation chat.
  *
- * Keyboard lift is driven externally via --keyboard-height CSS custom property
- * set on the host by the parent (AgentXShellComponent).
+ * Handles native keyboard lift automatically on mobile via @capacitor/keyboard.
  */
 
 import {
@@ -18,9 +17,13 @@ import {
   viewChild,
   ElementRef,
   effect,
+  inject,
+  OnDestroy,
+  OnInit,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { IonFooter } from '@ionic/angular/standalone';
+import { Capacitor, type PluginListenerHandle } from '@capacitor/core';
 import { NxtIconComponent } from '../components/icon/icon.component';
 import type { AgentXPendingFile } from './agent-x-pending-file';
 
@@ -427,7 +430,9 @@ import type { AgentXPendingFile } from './agent-x-pending-file';
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class AgentXInputBarComponent {
+export class AgentXInputBarComponent implements OnInit, OnDestroy {
+  private readonly el = inject(ElementRef);
+
   // ── Ref for auto-resize ──
   private readonly textareaRef = viewChild<ElementRef<HTMLTextAreaElement>>('messageInput');
 
@@ -449,6 +454,9 @@ export class AgentXInputBarComponent {
   readonly removeFile = output<number>();
   readonly removeTask = output<void>();
 
+  private keyboardShowListener?: PluginListenerHandle;
+  private keyboardHideListener?: PluginListenerHandle;
+
   constructor() {
     // Auto-resize textarea when message changes
     effect(() => {
@@ -459,6 +467,38 @@ export class AgentXInputBarComponent {
       el.style.height = `${Math.min(el.scrollHeight, 140)}px`;
       if (!msg) el.style.height = '';
     });
+  }
+
+  async ngOnInit(): Promise<void> {
+    if (Capacitor.isNativePlatform()) {
+      try {
+        const { Keyboard } = await import('@capacitor/keyboard');
+
+        this.keyboardShowListener = await Keyboard.addListener('keyboardWillShow', (info) => {
+          // Subtract 10px so the footer doesn't overshoot above the keyboard
+          const offset = Math.max(0, info.keyboardHeight - 10);
+          this.el.nativeElement.style.setProperty('--keyboard-height', `${offset}px`);
+          // Remove safe-area-inset-bottom padding — keyboard covers the home bar
+          this.el.nativeElement.style.setProperty('--footer-safe-area', '0px');
+        });
+
+        this.keyboardHideListener = await Keyboard.addListener('keyboardWillHide', () => {
+          this.el.nativeElement.style.setProperty('--keyboard-height', '0px');
+          this.el.nativeElement.style.removeProperty('--footer-safe-area');
+        });
+      } catch (err) {
+        // @capacitor/keyboard not available — silently ignore
+      }
+    }
+  }
+
+  ngOnDestroy(): void {
+    if (this.keyboardShowListener) {
+      this.keyboardShowListener.remove();
+    }
+    if (this.keyboardHideListener) {
+      this.keyboardHideListener.remove();
+    }
   }
 
   protected onEnterKey(event: Event): void {

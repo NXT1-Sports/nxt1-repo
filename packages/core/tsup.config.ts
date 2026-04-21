@@ -33,31 +33,7 @@ async function fixEsmImports(dir: string): Promise<void> {
 }
 
 export default defineConfig({
-  entry: [
-    'src/index.ts',
-    'src/models/index.ts',
-    'src/constants/index.ts',
-    'src/api/index.ts',
-    'src/helpers/index.ts',
-    'src/validation/index.ts',
-    'src/auth/index.ts',
-    'src/storage/index.ts',
-    'src/platform/index.ts',
-    'src/analytics/index.ts',
-    'src/cache/index.ts',
-    'src/errors/index.ts',
-    'src/errors/express.middleware.ts',
-    'src/logging/index.ts',
-    'src/testing/index.ts', // Shared testing infrastructure
-    'src/geolocation/index.ts', // Geolocation helpers
-    'src/crashlytics/index.ts', // Firebase Crashlytics adapter
-    'src/posts/index.ts', // Post types and interfaces
-    'src/onboarding/index.ts', // Onboarding navigation and link-drop types
-    'src/platforms/index.ts', // Platform registry, types, and favicon utilities
-    'src/performance/index.ts', // Performance tracing abstraction
-    'src/ai/index.ts', // AI definitions
-    'src/team-profile/index.ts', // Team profile types and API
-  ],
+  entry: ['src/index.ts', 'src/*/index.ts', 'src/errors/express.middleware.ts'],
   format: ['cjs', 'esm'],
   outExtension({ format }) {
     return { js: format === 'cjs' ? '.cjs' : '.js' };

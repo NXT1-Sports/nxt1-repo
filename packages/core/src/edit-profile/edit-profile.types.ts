@@ -25,6 +25,7 @@ export type EditProfileSectionId =
   | 'academics'
   | 'physical'
   | 'contact'
+  | 'connected-sources'
   | 'preferences';
 
 /**

@@ -39,6 +39,7 @@ export { LiveViewSessionService } from './live-view-session.service';
 // Components
 export {
   AgentXShellComponent,
+  type AgentXConnectedAccountsSaveRequest,
   type AgentXUser,
   type ActionChip,
   type CommandCategory,

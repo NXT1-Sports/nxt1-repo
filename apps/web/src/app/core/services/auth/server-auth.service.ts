@@ -239,6 +239,7 @@ export class ServerAuthService implements IAuthService, OnDestroy {
           photoURL: fbUser.photoURL,
           emailVerified: fbUser.emailVerified,
           metadata: fbUser.metadata,
+          providerData: fbUser.providerData,
         }
       : null;
 

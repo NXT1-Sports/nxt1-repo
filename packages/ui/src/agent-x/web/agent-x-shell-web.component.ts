@@ -54,6 +54,7 @@ import { NxtStateViewComponent } from '../../components/state-view';
 import { NxtHeaderPortalService } from '../../services/header-portal/header-portal.service';
 import { NxtOverlayService } from '../../components/overlay';
 import { ConnectedAccountsModalService } from '../../components/connected-sources';
+import type { ConnectedAccountsResyncSource } from '../../components/connected-sources';
 import { AgentXService } from '../agent-x.service';
 import { LiveViewSessionService } from '../live-view-session.service';
 import { AgentXDashboardSkeletonComponent } from '../agent-x-dashboard-skeleton.component';
@@ -71,7 +72,6 @@ import type { DraftSubmittedEvent } from '../agent-x-draft-card.component';
 import { AgentXPromptInputComponent } from '../agent-x-prompt-input.component';
 import {
   AgentXControlPanelStateService,
-  AGENT_X_GOAL_OPTIONS,
   type AgentXControlPanelKind,
 } from '../agent-x-control-panel-state.service';
 import { NxtToastService } from '../../services/toast/toast.service';
@@ -83,16 +83,15 @@ import {
   AgentXOperationEventService,
   type ThreadTitleUpdatedEvent,
 } from '../agent-x-operation-event.service';
-import type { CommandCategory, WeeklyPlaybookItem } from '../agent-x-shell.component';
+import type { CommandCategory } from '../agent-x-shell.component';
 import {
   type ShellWeeklyPlaybookItem,
-  type AgentDashboardGoal,
   type OperationLogEntry,
   type AgentYieldState,
 } from '@nxt1/core/ai';
 import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/assets';
-import type { OnboardingUserType } from '@nxt1/core';
-import { buildTrackedLinkUrl } from '@nxt1/core';
+import { buildLinkSourcesFormData, buildTrackedLinkUrl, type OnboardingUserType } from '@nxt1/core';
+import type { LinkSourcesFormData } from '@nxt1/core/api';
 import { TEST_IDS } from '@nxt1/core/testing';
 import { NxtBrowserService } from '../../services/browser';
 
@@ -119,6 +118,26 @@ export interface AgentXUser {
   readonly profileImg?: string | null;
   readonly displayName?: string | null;
   readonly role?: string;
+  readonly selectedSports?: readonly string[];
+  readonly connectedSources?: readonly {
+    platform: string;
+    profileUrl: string;
+    scopeType?: 'global' | 'sport' | 'team';
+    scopeId?: string;
+  }[];
+  readonly connectedEmails?: readonly {
+    provider: string;
+    isActive?: boolean;
+  }[];
+  readonly firebaseProviders?: readonly {
+    providerId: string;
+  }[];
+}
+
+export interface AgentXConnectedAccountsSaveRequest {
+  readonly linkSources: LinkSourcesFormData;
+  readonly requestResync?: boolean;
+  readonly resyncSources?: readonly ConnectedAccountsResyncSource[];
 }
 
 interface AgentXDesktopSession {
@@ -3367,6 +3386,9 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   /** Hide the input bar (e.g. when logged out) */
   readonly hideInput = input(false);
 
+  /** Emitted when connected accounts need to be saved from the shell. */
+  readonly connectedAccountsSave = output<AgentXConnectedAccountsSaveRequest>();
+
   // ============================================
   // LOCAL STATE
   // ============================================
@@ -3972,7 +3994,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
         panel === 'status'
           ? 'Agent status information'
           : panel === 'budget'
-            ? 'Agent budget controls'
+            ? 'Budget settings'
             : 'Agent goals manager',
       panelClass: 'agent-x-control-panel-modal',
     });
@@ -3992,11 +4014,26 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
    * Opens the shared Connected Accounts modal (same as /settings).
    */
   protected async openConnectedAccounts(): Promise<void> {
-    const role = (this.user()?.role as OnboardingUserType) ?? null;
-    await this.connectedAccountsModal.open({
+    const user = this.user();
+    const role = (user?.role as OnboardingUserType) ?? null;
+    const result = await this.connectedAccountsModal.open({
       role,
-      scope: 'athlete',
+      selectedSports: user?.selectedSports ?? [],
+      linkSourcesData: buildLinkSourcesFormData({
+        connectedSources: user?.connectedSources ?? [],
+        connectedEmails: user?.connectedEmails ?? [],
+        firebaseProviders: user?.firebaseProviders ?? [],
+      }) as LinkSourcesFormData | null,
+      scope: role === 'coach' || role === 'director' ? 'team' : 'athlete',
     });
+
+    if (result.linkSources) {
+      this.connectedAccountsSave.emit({
+        linkSources: result.linkSources,
+        requestResync: result.resync === true,
+        resyncSources: result.sources ?? [],
+      });
+    }
   }
 
   /**

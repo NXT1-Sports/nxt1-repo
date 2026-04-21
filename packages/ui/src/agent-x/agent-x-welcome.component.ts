@@ -37,7 +37,9 @@ import { NxtIconComponent } from '../components/icon/icon.component';
           <nxt1-icon name="bolt" [size]="48" class="ai-icon" />
         </div>
         <h1 class="welcome-title">{{ currentTitle() }}</h1>
-        <p class="welcome-subtitle">Your AI-powered recruiting assistant</p>
+        <p class="welcome-subtitle">
+          Your AI command center for recruiting, media, and evaluations
+        </p>
       </div>
 
       <!-- Quick Actions Grid -->

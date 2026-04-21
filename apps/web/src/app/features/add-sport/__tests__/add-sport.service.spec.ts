@@ -85,7 +85,6 @@ const createAuthFlowMock = () => ({
 
 const createProfileServiceMock = () => ({
   addSport: vi.fn().mockReturnValue(of({ success: true, data: {} })),
-  updateProfile: vi.fn().mockReturnValue(of({ success: true, data: {} })),
   invalidateCache: vi.fn(),
 });
 
@@ -314,6 +313,7 @@ describe('AddSportService', () => {
         expect(profileServiceMock.addSport).toHaveBeenCalledWith('user-123', {
           sport: 'Basketball',
           positions: ['PG'],
+          connectedSources: [],
         });
       });
 
@@ -376,7 +376,9 @@ describe('AddSportService', () => {
 
       service.onContinue();
       await vi.waitFor(() => {
-        expect(profileServiceMock.updateProfile).toHaveBeenCalledWith('user-123', {
+        expect(profileServiceMock.addSport).toHaveBeenCalledWith('user-123', {
+          sport: 'Basketball',
+          positions: ['PG'],
           connectedSources: [
             {
               platform: 'hudl',

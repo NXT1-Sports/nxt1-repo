@@ -1217,7 +1217,7 @@ export const PLATFORM_REGISTRY: readonly PlatformDefinition[] = [
     scope: 'global',
     sports: [],
     placeholder: 'Sign in to Catapult',
-    loginUrl: 'https://connect.catapultsports.com/login',
+    loginUrl: 'https://sso.catapultsports.info/login?app_url=https://vault.catapultsports.info',
   },
   {
     platform: 'ncsa_signin',

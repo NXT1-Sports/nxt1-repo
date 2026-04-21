@@ -20,7 +20,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable, Subject } from 'rxjs';
 import { firstValueFrom } from 'rxjs';
-import { AGENT_X_API_BASE_URL, AGENT_X_AUTH_TOKEN_FACTORY } from './agent-x-job.service';
+import { AGENT_X_API_BASE_URL } from './agent-x-job.service';
 import { AGENT_X_ENDPOINTS } from '@nxt1/core/ai';
 import { NxtLoggingService } from '../services/logging/logging.service';
 import { ANALYTICS_ADAPTER } from '../services/analytics/analytics-adapter.token';
@@ -105,7 +105,6 @@ function buildTusMetadata(fields: Record<string, string>): string {
 export class AgentXVideoUploadService {
   private readonly http = inject(HttpClient);
   private readonly baseUrl = inject(AGENT_X_API_BASE_URL);
-  private readonly getAuthToken = inject(AGENT_X_AUTH_TOKEN_FACTORY, { optional: true });
   private readonly logger = inject(NxtLoggingService).child('AgentXVideoUploadService');
   private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
   private readonly breadcrumb = inject(NxtBreadcrumbService);

@@ -601,6 +601,39 @@ function sectionToFirestoreUpdate(
       break;
     }
 
+    case 'connected-sources': {
+      const data = sectionData as {
+        connectedSources?: readonly {
+          platform: string;
+          profileUrl: string;
+          scopeType?: 'global' | 'sport' | 'team';
+          scopeId?: string;
+        }[];
+        links?: readonly {
+          platform: string;
+          url?: string;
+          username?: string;
+          scopeType?: 'global' | 'sport' | 'team';
+          scopeId?: string;
+        }[];
+      };
+
+      const connectedSources = Array.isArray(data.connectedSources)
+        ? data.connectedSources
+        : (data.links ?? [])
+            .filter((link) => typeof link.platform === 'string')
+            .map((link) => ({
+              platform: link.platform,
+              profileUrl: link.url?.trim() || link.username?.trim() || '',
+              scopeType: link.scopeType,
+              scopeId: link.scopeId,
+            }))
+            .filter((link) => link.profileUrl.length > 0);
+
+      updates['connectedSources'] = connectedSources;
+      break;
+    }
+
     default:
       throw fieldError('sectionId', `Unknown section: ${sectionId}`, 'invalid_section');
   }
@@ -703,6 +736,7 @@ router.put(
       'academics',
       'physical',
       'contact',
+      'connected-sources',
     ];
 
     if (!validSections.includes(sectionId as EditProfileSectionId)) {
@@ -805,7 +839,7 @@ router.put(
       user.sports?.[sportIndex ?? user.activeSportIndex ?? 0] ?? user.sports?.[0];
     const teamId = (user.teamCode as any)?.teamId ?? activeSportData?.team?.teamId;
 
-    if (sectionId === 'social-links' && isTeamRole && teamId && updates['connectedSources']) {
+    if (sectionId === 'connected-sources' && isTeamRole && teamId && updates['connectedSources']) {
       // Write connected sources to Team doc instead of User doc
       try {
         await db.collection('Teams').doc(teamId).update({

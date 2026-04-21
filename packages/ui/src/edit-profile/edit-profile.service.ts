@@ -19,7 +19,12 @@
  */
 
 import { Injectable, inject, signal, computed } from '@angular/core';
-import type { EditProfileSectionId, EditProfileSection, EditProfileFormData } from '@nxt1/core';
+import type {
+  ConnectedSource,
+  EditProfileSectionId,
+  EditProfileSection,
+  EditProfileFormData,
+} from '@nxt1/core';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import { HapticsService } from '../services/haptics/haptics.service';
 import { NxtToastService } from '../services/toast/toast.service';
@@ -522,6 +527,73 @@ export class EditProfileService {
       this.logger.error('Failed to remove photo', err);
       this.toast.error('Failed to remove photo. Please try again.');
       throw err;
+    } finally {
+      this._isSaving.set(false);
+    }
+  }
+
+  /**
+   * Persist connected accounts immediately via the shared connected-sources section.
+   */
+  async saveConnectedSources(connectedSources: readonly ConnectedSource[]): Promise<boolean> {
+    if (!this.currentUserId) {
+      this.logger.error('Cannot save connected sources: no user ID');
+      this.toast.error('Unable to save connected accounts right now.');
+      return false;
+    }
+
+    if (!this.api) {
+      this.logger.error('Cannot save connected sources: edit profile API is not configured');
+      this.toast.error('Connected accounts are unavailable right now.');
+      return false;
+    }
+
+    this._isSaving.set(true);
+    this._error.set(null);
+    this.logger.info('Saving connected sources', {
+      userId: this.currentUserId,
+      count: connectedSources.length,
+    });
+    this.breadcrumb.trackStateChange('edit-profile:connected-sources-saving', {
+      count: connectedSources.length,
+    });
+
+    try {
+      const response = await this.api.updateSection(
+        this.currentUserId,
+        'connected-sources',
+        { connectedSources },
+        this.currentSportIndex
+      );
+
+      if (!response.success) {
+        throw new Error(response.error ?? 'Failed to save connected accounts');
+      }
+
+      this.analytics?.trackEvent(APP_EVENTS.PROFILE_EDITED, {
+        source: 'edit-profile-connected-accounts',
+        action: 'connected-sources-saved',
+        count: connectedSources.length,
+      });
+      this.breadcrumb.trackStateChange('edit-profile:connected-sources-saved', {
+        count: connectedSources.length,
+      });
+      this.logger.info('Connected sources saved', { count: connectedSources.length });
+      this.toast.success('Connected accounts updated');
+      await this.haptics.notification('success');
+      return true;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to save connected accounts';
+      this._error.set(message);
+      this.logger.error('Failed to save connected sources', err, {
+        count: connectedSources.length,
+      });
+      this.breadcrumb.trackStateChange('edit-profile:connected-sources-save-error', {
+        message,
+      });
+      this.toast.error(message);
+      await this.haptics.notification('error');
+      return false;
     } finally {
       this._isSaving.set(false);
     }

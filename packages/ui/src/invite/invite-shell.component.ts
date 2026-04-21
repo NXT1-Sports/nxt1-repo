@@ -495,7 +495,7 @@ export class InviteShellComponent implements OnInit {
       inviteType: this.inviteType(),
       senderRole: this.user()?.role ?? null,
       team: this.team(),
-      rewardCents: this.invite.stats()?.referralRewardCents ?? null,
+      rewardCents: this.invite.inviteLink()?.referralRewardCents ?? null,
     })
   );
 

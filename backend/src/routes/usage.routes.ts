@@ -9,12 +9,14 @@
 import { Router, type Request, type Response } from 'express';
 import type { Firestore } from 'firebase-admin/firestore';
 import { Types } from 'mongoose';
+import type Stripe from 'stripe';
 import { appGuard } from '../middleware/auth.middleware.js';
 import { validateBody } from '../middleware/validation.middleware.js';
 import {
   PaymentMethodIdDto,
   RedeemCouponDto,
   BuyCreditsDto,
+  ConfirmCheckoutSessionDto,
   AutoTopUpDto,
   BillingModeDto,
   InvoiceTopUpDto,
@@ -22,16 +24,23 @@ import {
 import { logger } from '../utils/logger.js';
 import {
   COLLECTIONS,
+  createBillingPreferenceDocumentId,
   getOrCreateCustomer,
+  getDefaultCardPaymentMethodId,
   getStripeClient,
   createSetupIntent,
-  getBillingContext,
-  getOrCreateBillingContext,
-  getOrgTeamAllocations,
+  getBillingSummary,
+  ensureUserBillingState,
+  getOrganizationBudgetDocuments,
+  getPersonalBillingSummary,
+  parseBillingOwnerKey,
   resolveBillingTarget,
   evictBillingResolutionCache,
   chargeOffSession,
   addWalletTopUp,
+  addFundsToOrgWallet,
+  getPlatformConfig,
+  finalizeWalletCheckoutSession,
   type ResolvedBillingTarget,
 } from '../modules/billing/index.js';
 import { USAGE_PRODUCT_CONFIGS, USAGE_CATEGORY_CONFIGS, USAGE_HISTORY_PAGE_SIZE } from '@nxt1/core';
@@ -68,18 +77,55 @@ function toISOString(val: unknown): string {
   return new Date().toISOString();
 }
 
-function hasConfiguredBudget(ctx: {
-  billingEntity: string;
-  monthlyBudget: number;
-  budgetAlertsEnabled?: boolean;
-  budgetName?: string;
-}): boolean {
-  if (ctx.monthlyBudget <= 0) return false;
-  if (ctx.billingEntity === 'individual') return false;
-  if (ctx.billingEntity === 'organization') {
-    return ctx.budgetAlertsEnabled === true || ctx.budgetName !== 'Starter budget';
-  }
-  return ctx.budgetAlertsEnabled === true;
+const STRIPE_CHECKOUT_SESSION_PLACEHOLDER = '{CHECKOUT_SESSION_ID}';
+
+function formatBudgetIntervalLabel(interval: UsageBudget['budgetInterval']): string {
+  return interval.charAt(0).toUpperCase() + interval.slice(1);
+}
+
+async function buildOrganizationBudgetRows(
+  db: Firestore,
+  organizationId: string
+): Promise<readonly UsageBudget[]> {
+  const [budgetDocs, teamsSnap] = await Promise.all([
+    getOrganizationBudgetDocuments(db, organizationId),
+    db.collection('Teams').where('organizationId', '==', organizationId).get(),
+  ]);
+
+  const teamNames = new Map(
+    teamsSnap.docs.map((doc) => {
+      const data = doc.data() as Record<string, unknown>;
+      const label =
+        (typeof data['name'] === 'string' && data['name'].trim()) ||
+        (typeof data['teamName'] === 'string' && data['teamName'].trim()) ||
+        'Unknown Team';
+      return [doc.id, label] as const;
+    })
+  );
+
+  return [...budgetDocs]
+    .filter((budget) => budget.budgetLimit > 0)
+    .sort((left, right) => left.id.localeCompare(right.id))
+    .map((budget) => ({
+      id: budget.id,
+      targetScope: budget.targetType,
+      targetId: budget.targetId,
+      category: 'ai' as const,
+      productName: `${formatBudgetIntervalLabel(budget.budgetInterval)} budget`,
+      budgetLimit: budget.budgetLimit,
+      budgetInterval: budget.budgetInterval,
+      spent: budget.currentPeriodSpend,
+      percentUsed:
+        budget.budgetLimit > 0
+          ? Math.round((budget.currentPeriodSpend / budget.budgetLimit) * 100)
+          : 0,
+      stopOnLimit: budget.hardStop,
+      accountName:
+        budget.targetType === 'organization'
+          ? 'Organization'
+          : (teamNames.get(budget.targetId) ?? 'Unknown Team'),
+      ownershipPercent: 100,
+    }));
 }
 
 import type {
@@ -168,6 +214,43 @@ function getFeatureDisplayName(feature: string): string {
   if (config) return config.name;
   // Humanize raw tool names from agent metadata (e.g. "generate_scout_report" → "Generate Scout Report")
   return feature.replace(/[-_]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function buildUsageBillingInfoFromStripeCustomer(
+  customer: Stripe.Customer | Stripe.DeletedCustomer
+): UsageBillingInfo | null {
+  if (typeof customer === 'string' || customer.deleted || !customer.address) {
+    return null;
+  }
+
+  const address = customer.address;
+  const cityStateZip = [address.city, address.state, address.postal_code]
+    .filter(Boolean)
+    .join(', ');
+
+  return {
+    name: customer.name ?? '',
+    addressLine1: address.line1 ?? '',
+    addressLine2: address.line2 ? `${address.line2}, ${cityStateZip}` : cityStateZip,
+    country: address.country ?? '',
+  };
+}
+
+function buildUsageBillingInfoFromCache(docData: Record<string, unknown>): UsageBillingInfo | null {
+  const cached = docData['billingInfo'];
+  if (!cached || typeof cached !== 'object') {
+    return null;
+  }
+
+  const billingInfo = cached as Record<string, unknown>;
+  return {
+    name: typeof billingInfo['name'] === 'string' ? billingInfo['name'] : '',
+    addressLine1:
+      typeof billingInfo['addressLine1'] === 'string' ? billingInfo['addressLine1'] : '',
+    addressLine2:
+      typeof billingInfo['addressLine2'] === 'string' ? billingInfo['addressLine2'] : '',
+    country: typeof billingInfo['country'] === 'string' ? billingInfo['country'] : '',
+  };
 }
 
 // ============================================
@@ -271,7 +354,7 @@ async function buildBreakdownRows(
         const td = d.data();
         const tName = (td['teamName'] as string) ?? '';
         const sport = (td['sport'] as string) ?? (td['sportName'] as string) ?? '';
-        const label = [tName, sport].filter(Boolean).join(' · ') || d.id;
+        const label = tName || sport || d.id;
         teamNames.set(d.id, label);
       }
     }
@@ -442,11 +525,8 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
     const environment = req.isStaging ? 'staging' : 'production';
 
     // Resolve billing target (director → org, otherwise individual).
-    // Read the personal billing context first to get the usePersonalBilling flag,
-    // then pass it explicitly so we don't rely on resolveBillingTarget's auto-read
-    // which could return stale data right after a billing mode switch.
-    const usePersonalBilling = (await getBillingContext(db, userId))?.usePersonalBilling ?? false;
-    const target = await resolveBillingTarget(db, userId, { usePersonalBilling });
+    // The user doc's activeBillingTarget is the source of truth for current routing.
+    const target = await resolveBillingTarget(db, userId);
     const billingCtx = target.context;
 
     // ── Parallelize independent queries ──
@@ -538,7 +618,7 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
     // from the personal wallet — events from the prior org-billing period are excluded.
     const isIapUser =
       billingCtx.billingEntity === 'individual' && billingCtx.paymentProvider === 'iap';
-    const isPersonalOverride = billingCtx.usePersonalBilling === true;
+    const isPersonalOverride = billingCtx.billingMode === 'personal' && !!billingCtx.organizationId;
     const isOrgBilling = billingCtx.billingEntity === 'organization';
 
     if (isIapUser || isPersonalOverride) {
@@ -569,6 +649,8 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
       }
     }
 
+    const platformConfig = await getPlatformConfig(db);
+
     // Build overview (includes wallet fields for B2C UI fork)
     const overview: UsageOverview = {
       currentMeteredUsage: totalUsageCents,
@@ -584,6 +666,7 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
       paymentProvider: billingCtx.paymentProvider,
       walletBalanceCents: billingCtx.walletBalanceCents ?? 0,
       pendingHoldsCents: billingCtx.pendingHoldsCents ?? 0,
+      lowBalanceThresholdCents: platformConfig.lowBalanceThresholdCents,
     };
 
     // Build chart data — stop at today so the line doesn't extend into future days
@@ -657,10 +740,10 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
       };
     });
 
-  // Payment methods and billing info.
-  // Primary: read from Firestore (StripeCustomers.defaultPaymentMethod — synced by webhooks)
-  // to avoid slow Stripe API calls on every dashboard load. Fall back to Stripe only on a
-  // cold cache, and skip entirely for non-admin org members who have no billing access.
+    // Payment methods and billing info.
+    // Primary: read from Firestore (StripeCustomers.defaultPaymentMethod — synced by webhooks)
+    // to avoid slow Stripe API calls on every dashboard load. Fall back to Stripe only on a
+    // cold cache, and skip entirely for non-admin org members who have no billing access.
     let paymentMethods: UsagePaymentMethod[] = [];
     let billingInfo: UsageBillingInfo | null = null;
     if (!isOrgMember) {
@@ -673,8 +756,10 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
           .get();
 
         if (!customerDoc.empty) {
+          const customerDocRef = customerDoc.docs[0]!.ref;
           const docData = customerDoc.docs[0]!.data() as Record<string, unknown>;
           const cached = docData['defaultPaymentMethod'] as Record<string, unknown> | undefined;
+          billingInfo = buildUsageBillingInfoFromCache(docData);
 
           if (cached?.['pmId']) {
             // Fast path: build from Firestore cache (set by payment_method.attached /
@@ -695,14 +780,19 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
                 addedAt: (docData['updatedAt'] as string | undefined) ?? new Date().toISOString(),
               },
             ];
-          } else {
-            // Cold path: no webhook data yet — fall back to Stripe API once
+          }
+
+          const shouldHydrateFromStripe = !cached?.['pmId'] || billingInfo === null;
+          if (shouldHydrateFromStripe) {
             const customerId = docData['stripeCustomerId'] as string;
             const stripe = getStripeClient(environment);
-            const [methods, customer] = await Promise.all([
-              stripe.paymentMethods.list({ customer: customerId, type: 'card' }),
-              stripe.customers.retrieve(customerId),
-            ]);
+            const customerPromise = stripe.customers.retrieve(customerId);
+
+            const methodsPromise = cached?.['pmId']
+              ? Promise.resolve(null)
+              : stripe.paymentMethods.list({ customer: customerId, type: 'card' });
+
+            const [methods, customer] = await Promise.all([methodsPromise, customerPromise]);
 
             const defaultMethodId =
               typeof customer !== 'string' && !customer.deleted
@@ -711,31 +801,32 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
                   : customer.invoice_settings?.default_payment_method?.id
                 : undefined;
 
-            paymentMethods = methods.data.map((m) => ({
-              id: m.id,
-              type: 'card' as const,
-              provider: 'stripe' as const,
-              label: `${(m.card?.brand ?? 'card').charAt(0).toUpperCase() + (m.card?.brand ?? 'card').slice(1)} ending in ${m.card?.last4 ?? '****'}`,
-              last4: m.card?.last4 ?? null,
-              brand: m.card?.brand ?? null,
-              expiryMonth: m.card?.exp_month ?? null,
-              expiryYear: m.card?.exp_year ?? null,
-              isDefault: m.id === defaultMethodId,
-              email: null,
-              addedAt: new Date(m.created * 1000).toISOString(),
-            }));
+            if (methods) {
+              paymentMethods = methods.data.map((m) => ({
+                id: m.id,
+                type: 'card' as const,
+                provider: 'stripe' as const,
+                label: `${(m.card?.brand ?? 'card').charAt(0).toUpperCase() + (m.card?.brand ?? 'card').slice(1)} ending in ${m.card?.last4 ?? '****'}`,
+                last4: m.card?.last4 ?? null,
+                brand: m.card?.brand ?? null,
+                expiryMonth: m.card?.exp_month ?? null,
+                expiryYear: m.card?.exp_year ?? null,
+                isDefault: m.id === defaultMethodId,
+                email: null,
+                addedAt: new Date(m.created * 1000).toISOString(),
+              }));
+            }
 
-            if (typeof customer !== 'string' && !customer.deleted && customer.address) {
-              const addr = customer.address;
-              const cityStateZip = [addr.city, addr.state, addr.postal_code]
-                .filter(Boolean)
-                .join(', ');
-              billingInfo = {
-                name: customer.name ?? '',
-                addressLine1: addr.line1 ?? '',
-                addressLine2: addr.line2 ? `${addr.line2}, ${cityStateZip}` : cityStateZip,
-                country: addr.country ?? '',
-              };
+            const hydratedBillingInfo = buildUsageBillingInfoFromStripeCustomer(customer);
+            if (hydratedBillingInfo) {
+              billingInfo = hydratedBillingInfo;
+              await customerDocRef.set(
+                {
+                  billingInfo: hydratedBillingInfo,
+                  updatedAt: new Date().toISOString(),
+                },
+                { merge: true }
+              );
             }
           }
         }
@@ -744,52 +835,10 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
       }
     }
 
-    // Budgets from billing context
-    const accountName = billingCtx.billingEntity === 'organization' ? 'Organization' : 'Personal';
-
-    // For org billing, include team allocations so the AD can see per-team breakdown
-    let teamAllocations: UsageBudget['teamAllocations'];
-    if (billingCtx.billingEntity === 'organization' && billingCtx.organizationId) {
-      const allocations = await getOrgTeamAllocations(db, billingCtx.organizationId);
-      if (allocations.length > 0) {
-        // Resolve team names in parallel
-        const teamDocs = await Promise.all(
-          allocations.map((a) => db.collection('Teams').doc(a.teamId).get())
-        );
-        const teamNames = new Map(
-          teamDocs.map((doc) => [doc.id, (doc.data()?.['name'] as string) ?? 'Unknown Team'])
-        );
-
-        teamAllocations = allocations.map((a) => ({
-          teamId: a.teamId,
-          teamName: teamNames.get(a.teamId) ?? 'Unknown Team',
-          monthlyLimit: a.monthlyLimit,
-          currentSpend: a.currentPeriodSpend,
-          percentUsed:
-            a.monthlyLimit > 0 ? Math.round((a.currentPeriodSpend / a.monthlyLimit) * 100) : 0,
-        }));
-      }
-    }
-
-    const budgets: UsageBudget[] = hasConfiguredBudget(billingCtx)
-      ? [
-          {
-            id: `budget-${userId}`,
-            category: 'ai',
-            productName: billingCtx.budgetName ?? 'Overall Budget',
-            budgetLimit: billingCtx.monthlyBudget,
-            spent: billingCtx.currentPeriodSpend,
-            percentUsed:
-              billingCtx.monthlyBudget > 0
-                ? Math.round((billingCtx.currentPeriodSpend / billingCtx.monthlyBudget) * 100)
-                : 0,
-            stopOnLimit: billingCtx.hardStop,
-            accountName,
-            ownershipPercent: 100,
-            teamAllocations,
-          },
-        ]
-      : [];
+    const budgets: UsageBudget[] =
+      billingCtx.billingEntity === 'organization' && billingCtx.organizationId
+        ? [...(await buildOrganizationBudgetRows(db, billingCtx.organizationId))]
+        : [];
 
     // Authoritative section list — backend decides, frontend just renders.
     // Eliminating all tab-visibility conditional logic from the frontend.
@@ -799,7 +848,7 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
         ? ['overview', 'metered-usage', 'breakdown', 'budgets', 'payment-info']
         : ['overview', 'metered-usage', 'breakdown', 'payment-info']; // personal: payment-info to view/manage saved card
 
-        const dashboard: UsageDashboardData = {
+    const dashboard: UsageDashboardData = {
       overview,
       chartData: isOrgMember ? [] : chartData,
       productDetails: isOrgMember ? [] : productDetails,
@@ -856,7 +905,7 @@ router.get('/overview', appGuard, async (req: Request, res: Response) => {
     // correctly excluding spend that occurred while the user was on org billing.
     const isIapUser =
       billingCtx.billingEntity === 'individual' && billingCtx.paymentProvider === 'iap';
-    const isPersonalOverride = billingCtx.usePersonalBilling === true;
+    const isPersonalOverride = billingCtx.billingMode === 'personal' && !!billingCtx.organizationId;
     const isOrgBilling = billingCtx.billingEntity === 'organization';
 
     let totalUsageCents = 0;
@@ -880,6 +929,8 @@ router.get('/overview', appGuard, async (req: Request, res: Response) => {
       }
     }
 
+    const platformConfig = await getPlatformConfig(db);
+
     const overview: UsageOverview = {
       currentMeteredUsage: totalUsageCents,
       nextPaymentDueDate: end.toISOString(),
@@ -894,6 +945,7 @@ router.get('/overview', appGuard, async (req: Request, res: Response) => {
       paymentProvider: billingCtx.paymentProvider,
       walletBalanceCents: billingCtx.walletBalanceCents ?? 0,
       pendingHoldsCents: billingCtx.pendingHoldsCents ?? 0,
+      lowBalanceThresholdCents: platformConfig.lowBalanceThresholdCents,
     };
 
     return res.json({ success: true, data: overview });
@@ -1068,7 +1120,7 @@ router.get('/payment-methods', appGuard, async (req: Request, res: Response) => 
 
     // ── Guard: Only org admins can view payment methods for an organization ──
     if (target.type === 'organization' && target.organizationId) {
-      const billingCtx = await getBillingContext(db, userId);
+      const billingCtx = await getBillingSummary(db, userId);
       const isOrg = billingCtx?.billingEntity === 'organization';
       if (isOrg) {
         const userDoc = await db.collection('Users').doc(userId).get();
@@ -1144,7 +1196,7 @@ router.post('/payment-methods/setup-intent', appGuard, async (req: Request, res:
     const db = req.firebase?.db;
     if (!db) throw new Error('Firebase context not available');
 
-    const billingCtx = await getBillingContext(db, userId);
+    const billingCtx = await getBillingSummary(db, userId);
     if (billingCtx?.billingEntity === 'individual') {
       return res.status(400).json({
         error: 'Individual users manage payment via Apple IAP, not Stripe',
@@ -1370,77 +1422,127 @@ router.post(
         };
       }
 
-      // ── Fast path: charge saved default payment method directly ──────────
-      // Avoids redirecting the user to Stripe Checkout when a card is already
-      // on file. Only personal top-ups use this path — org top-ups may involve
-      // bank accounts which need the full Checkout UX.
-      if (!organizationId) {
-        const customer = await stripe.customers.retrieve(customerId);
-        const defaultMethodId =
-          typeof customer !== 'string' && !customer.deleted
-            ? typeof customer.invoice_settings?.default_payment_method === 'string'
-              ? customer.invoice_settings.default_payment_method
-              : (customer.invoice_settings?.default_payment_method?.id ?? null)
-            : null;
+      // ── Fast path: charge saved default card directly ───────────────────
+      // Avoids redirecting the user to Stripe Checkout when Stripe already has
+      // a default card on file for this billing entity.
+      const defaultMethodId = await getDefaultCardPaymentMethodId(customerId, environment);
 
-        if (defaultMethodId) {
-          const idempotencyKey = `buy-credits:${userId}:${amountCents}:${Date.now()}`;
-          const charge = await chargeOffSession(
-            customerId,
-            defaultMethodId,
+      if (defaultMethodId) {
+        const idempotencyKey = organizationId
+          ? `buy-credits:org:${organizationId}:${amountCents}:${Date.now()}`
+          : `buy-credits:${userId}:${amountCents}:${Date.now()}`;
+        const charge = await chargeOffSession(
+          customerId,
+          defaultMethodId,
+          amountCents,
+          organizationId ? 'NXT1 Team Credits top-up' : 'NXT1 Credits top-up',
+          idempotencyKey,
+          environment
+        );
+
+        if (!charge.success) {
+          // Card declined or requires authentication — fall through to Checkout
+          // so the user can update their payment method.
+          logger.warn('[POST /buy-credits] Off-session charge failed, falling back to Checkout', {
+            userId,
             amountCents,
-            'NXT1 Credits top-up',
-            idempotencyKey,
-            environment
+            organizationId,
+            errorCode: charge.errorCode,
+          });
+        } else if (organizationId) {
+          const { newBalance } = await addFundsToOrgWallet(
+            db,
+            organizationId,
+            amountCents,
+            'direct_charge'
           );
 
-          if (!charge.success) {
-            // Card declined or requires authentication — fall through to Checkout
-            // so the user can update their payment method.
-            logger.warn('[POST /buy-credits] Off-session charge failed, falling back to Checkout', {
-              userId,
-              amountCents,
-              errorCode: charge.errorCode,
-            });
-          } else {
-            // Credit the wallet and write a PaymentLog immediately — no webhook needed.
-            const { newBalance } = await addWalletTopUp(db!, userId, amountCents, 'stripe');
-
-            await PaymentLogModel.findOneAndUpdate(
-              { invoiceId: charge.paymentIntentId },
-              {
-                $setOnInsert: {
-                  invoiceId: charge.paymentIntentId,
-                  customerId,
-                  userId,
-                  amountDue: amountCents / 100,
-                  amountPaid: amountCents / 100,
-                  currency: 'usd',
-                  status: 'PAID',
-                  paymentMethodLabel: 'Card',
-                  type: 'wallet_topup',
-                  receiptUrl: charge.receiptUrl ?? null,
-                  invoiceUrl: null,
-                  rawEvent: { paymentIntentId: charge.paymentIntentId } as Record<string, unknown>,
-                  createdAt: new Date(),
-                },
+          await PaymentLogModel.findOneAndUpdate(
+            { invoiceId: charge.paymentIntentId },
+            {
+              $setOnInsert: {
+                invoiceId: charge.paymentIntentId,
+                customerId,
+                userId: `org:${organizationId}`,
+                organizationId,
+                amountDue: amountCents / 100,
+                amountPaid: amountCents / 100,
+                currency: 'usd',
+                status: 'PAID',
+                paymentMethodLabel: 'Card',
+                type: 'org_wallet_topup',
+                finalizationSource: 'direct_charge',
+                receiptUrl: charge.receiptUrl ?? null,
+                invoiceUrl: null,
+                rawEvent: { paymentIntentId: charge.paymentIntentId } as Record<string, unknown>,
+                createdAt: new Date(),
               },
-              { upsert: true }
-            );
+            },
+            { upsert: true }
+          );
 
-            logger.info('[POST /buy-credits] Wallet topped up via saved card', {
-              userId,
-              amountCents,
-              newBalance,
-              paymentIntentId: charge.paymentIntentId,
-            });
+          logger.info('[POST /buy-credits] Org wallet topped up via saved card', {
+            userId,
+            organizationId,
+            amountCents,
+            newBalance,
+            paymentIntentId: charge.paymentIntentId,
+          });
 
-            return res.json({ success: true, credited: true, newBalance });
-          }
+          return res.json({ success: true, credited: true, newBalance });
+        } else {
+          // Credit the wallet and write a PaymentLog immediately — no webhook needed.
+          const { newBalance } = await addWalletTopUp(db, userId, amountCents, 'stripe');
+
+          await PaymentLogModel.findOneAndUpdate(
+            { invoiceId: charge.paymentIntentId },
+            {
+              $setOnInsert: {
+                invoiceId: charge.paymentIntentId,
+                customerId,
+                userId,
+                amountDue: amountCents / 100,
+                amountPaid: amountCents / 100,
+                currency: 'usd',
+                status: 'PAID',
+                paymentMethodLabel: 'Card',
+                type: 'wallet_topup',
+                finalizationSource: 'direct_charge',
+                receiptUrl: charge.receiptUrl ?? null,
+                invoiceUrl: null,
+                rawEvent: { paymentIntentId: charge.paymentIntentId } as Record<string, unknown>,
+                createdAt: new Date(),
+              },
+            },
+            { upsert: true }
+          );
+
+          logger.info('[POST /buy-credits] Wallet topped up via saved card', {
+            userId,
+            amountCents,
+            newBalance,
+            paymentIntentId: charge.paymentIntentId,
+          });
+
+          return res.json({ success: true, credited: true, newBalance });
         }
       }
 
       // ── Redirect path: no saved card, or org top-up ──────────────────────
+      const successSearchParams = new URLSearchParams({
+        credits: 'success',
+        amount: String(amountCents),
+      });
+      if (organizationId) {
+        successSearchParams.set('organizationId', organizationId);
+      }
+      const successUrlQuery = `${successSearchParams.toString()}&session_id=${STRIPE_CHECKOUT_SESSION_PLACEHOLDER}`;
+
+      const cancelSearchParams = new URLSearchParams({ credits: 'cancelled' });
+      if (organizationId) {
+        cancelSearchParams.set('organizationId', organizationId);
+      }
+
       const session = await stripe.checkout.sessions.create({
         customer: customerId,
         mode: 'payment',
@@ -1469,8 +1571,8 @@ router.post(
           setup_future_usage: 'off_session',
         },
         metadata: sessionMetadata,
-        success_url: `${origin}/usage?credits=success&amount=${amountCents}`,
-        cancel_url: `${origin}/usage?credits=cancelled`,
+        success_url: `${origin}/usage?${successUrlQuery}`,
+        cancel_url: `${origin}/usage?${cancelSearchParams.toString()}`,
       });
 
       logger.info('[POST /buy-credits] Checkout session created', {
@@ -1486,6 +1588,81 @@ router.post(
       return res.status(500).json({
         error: 'Failed to start credit purchase',
         message: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+  }
+);
+
+router.post(
+  '/checkout/confirm',
+  appGuard,
+  validateBody(ConfirmCheckoutSessionDto),
+  async (req: Request, res: Response) => {
+    try {
+      const userId = req.user!.uid;
+      const { sessionId, organizationId: expectedOrganizationId } =
+        req.body as ConfirmCheckoutSessionDto;
+      const db = req.firebase?.db;
+
+      if (!db) {
+        return res.status(503).json({ success: false, error: 'Database unavailable' });
+      }
+
+      if (sessionId.includes('CHECKOUT_SESSION_ID')) {
+        return res.status(400).json({
+          success: false,
+          error: 'Stripe checkout session placeholder was not resolved on the return URL',
+        });
+      }
+
+      const environment = req.isStaging ? 'staging' : 'production';
+      const stripe = getStripeClient(environment);
+      const session = await stripe.checkout.sessions.retrieve(sessionId);
+      const metadata = session.metadata ?? {};
+      const type = metadata['type'];
+      const sessionUserId = metadata['userId'];
+      const sessionOrganizationId = metadata['organizationId'];
+
+      if (type !== 'wallet_topup' && type !== 'org_wallet_topup') {
+        return res.status(400).json({
+          success: false,
+          error: 'Checkout session is not a wallet top-up',
+        });
+      }
+
+      if (!sessionUserId || sessionUserId !== userId) {
+        return res.status(403).json({
+          success: false,
+          error: 'Checkout session does not belong to the current user',
+        });
+      }
+
+      if (
+        expectedOrganizationId &&
+        sessionOrganizationId &&
+        expectedOrganizationId !== sessionOrganizationId
+      ) {
+        return res.status(409).json({
+          success: false,
+          error: 'Checkout session belongs to a different organization wallet',
+        });
+      }
+
+      const result = await finalizeWalletCheckoutSession(db, session, environment, 'client_return');
+
+      return res.json({
+        success: true,
+        data: {
+          kind: result.kind,
+          newBalance: result.newBalance,
+          organizationId: result.organizationId ?? null,
+        },
+      });
+    } catch (error) {
+      logger.error('[POST /checkout/confirm] Failed to finalize checkout session', { error });
+      return res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to confirm checkout session',
       });
     }
   }
@@ -1510,24 +1687,24 @@ router.post(
 
       // Resolve billing context — auto top-up applies to whoever pays
       const target = await resolveBillingTarget(db, userId);
-      const billingUserId = target.billingUserId;
+      const { ownerId, ownerType } = parseBillingOwnerKey(target.billingUserId);
+      const preferenceRef = db
+        .collection(COLLECTIONS.BILLING_PREFERENCES)
+        .doc(createBillingPreferenceDocumentId(ownerType, ownerId));
 
-      const snapshot = await db.collection(COLLECTIONS.BILLING_CONTEXTS).doc(billingUserId).get();
-
-      if (!snapshot.exists) {
-        return res.status(404).json({ error: 'Billing context not found' });
-      }
-
-      await snapshot.ref.update({
-        autoTopUpEnabled: enabled,
-        autoTopUpThresholdCents: thresholdCents,
-        autoTopUpAmountCents: amountCents,
-        updatedAt: new Date(),
-      });
+      await preferenceRef.set(
+        {
+          autoTopUpEnabled: enabled,
+          autoTopUpThresholdCents: thresholdCents,
+          autoTopUpAmountCents: amountCents,
+          updatedAt: new Date(),
+        },
+        { merge: true }
+      );
 
       logger.info('[POST /auto-topup] Auto top-up configured', {
         userId,
-        billingUserId,
+        billingUserId: target.billingUserId,
         enabled,
         thresholdCents,
         amountCents,
@@ -1547,7 +1724,7 @@ router.post(
 /**
  * POST /api/v1/usage/billing-mode
  * Allow an org roster member to toggle between org wallet and personal wallet.
- * When usePersonalBilling=true, their AI spend is deducted from their own wallet
+ * When billingMode='personal', their AI spend is deducted from their own wallet
  * instead of the org wallet — useful when the org wallet is empty.
  */
 router.post(
@@ -1557,51 +1734,62 @@ router.post(
   async (req: Request, res: Response) => {
     try {
       const userId = req.user!.uid;
-      const { usePersonalBilling } = req.body as BillingModeDto;
+      const { billingMode } = req.body as BillingModeDto;
       const db = req.firebase?.db;
       if (!db) return res.status(503).json({ error: 'Database unavailable' });
 
-      // Persist the preference on the user's individual billing context.
-      // Use getOrCreateBillingContext to guarantee the doc exists before writing —
-      // org users may not have a personal billing context yet if they've never
-      // used personal billing.
-      await getOrCreateBillingContext(db, userId);
+      // Ensure the user's personal billing state exists before switching targets.
+      await ensureUserBillingState(db, userId);
 
-      // Re-query to get the Firestore doc ref after ensuring it exists
-      const snapshot = await db.collection(COLLECTIONS.BILLING_CONTEXTS).doc(userId).get();
-
-      if (!snapshot.exists) {
-        return res.status(404).json({ error: 'Billing context not found' });
+      const orgTarget = await resolveBillingTarget(db, userId, { billingMode: 'organization' });
+      if (billingMode === 'personal' && orgTarget.type !== 'organization') {
+        return res
+          .status(400)
+          .json({ error: 'Personal override requires an organization billing target' });
       }
 
-      const personalCtxData = snapshot.data();
+      const activeBillingTarget =
+        billingMode === 'personal'
+          ? {
+              ownerId: userId,
+              ownerType: 'individual' as const,
+              organizationId: orgTarget.organizationId,
+              teamId: orgTarget.context.teamId,
+              source: 'personal' as const,
+            }
+          : orgTarget.type === 'organization' && orgTarget.organizationId
+            ? {
+                ownerId: orgTarget.organizationId,
+                ownerType: 'organization' as const,
+                organizationId: orgTarget.organizationId,
+                teamId: orgTarget.context.teamId,
+                source: 'organization' as const,
+              }
+            : {
+                ownerId: userId,
+                ownerType: 'individual' as const,
+                source: 'personal' as const,
+              };
 
-      const modeUpdate: Record<string, unknown> = {
-        usePersonalBilling,
-        updatedAt: new Date(),
-      };
-      // currentPeriodSpend is the active-mode display counter consumed by the UI.
-      // Restore it from the persisted per-mode counters so switching away and
-      // back keeps the last personal/org state exactly intact.
-      if (usePersonalBilling) {
-        modeUpdate['currentPeriodSpend'] =
-          (personalCtxData?.['personalCurrentPeriodSpend'] as number | undefined) ?? 0;
-      } else {
-        modeUpdate['currentPeriodSpend'] =
-          (personalCtxData?.['orgCurrentPeriodSpend'] as number | undefined) ?? 0;
-      }
+      await db.collection('Users').doc(userId).set(
+        {
+          activeBillingTarget,
+          updatedAt: new Date(),
+        },
+        { merge: true }
+      );
 
-      await snapshot.ref.update(modeUpdate);
+      const personalCtxData = await getPersonalBillingSummary(db, userId);
 
       // Evict in-memory billing resolution cache so the next dashboard load
-      // re-resolves from Firestore (picks up the new usePersonalBilling flag).
+      // re-resolves from Firestore using the new active billing target.
       evictBillingResolutionCache(userId);
 
-      // ── Return the fully resolved billing context in the response ──
+      // ── Return the fully resolved billing state in the response ──
       // This eliminates read-after-write races: the frontend can apply the
-      // fresh context directly from the mutation response instead of needing
+      // fresh state directly from the mutation response instead of needing
       // to GET /billing/budget (which may hit a stale HTTP cache).
-      const freshTarget = await resolveBillingTarget(db, userId, { usePersonalBilling });
+      const freshTarget = await resolveBillingTarget(db, userId);
       const freshCtx = freshTarget.context;
       const freshWalletBalance = freshCtx.walletBalanceCents ?? 0;
 
@@ -1627,7 +1815,7 @@ router.post(
         freshAdminResult = { isOrgAdmin: orgAdmin, isTeamAdmin: orgAdmin };
       }
 
-      logger.info('[POST /billing-mode] Billing mode updated', { userId, usePersonalBilling });
+      logger.info('[POST /billing-mode] Billing mode updated', { userId, billingMode });
 
       // Compute the authoritative section list for the new billing mode so the
       // frontend can swap sidebar tabs atomically with the billing context.
@@ -1645,10 +1833,11 @@ router.post(
       return res.json({
         success: true,
         data: {
-          billingMode: usePersonalBilling ? 'personal' : 'organization',
+          billingMode,
           allowedSections: freshAllowedSections,
-          // Fresh billing context — SSOT for the frontend
-          billingContext: {
+          // Fresh billing state — SSOT for the frontend
+          billingState: {
+            billingMode: freshCtx.billingMode ?? billingMode,
             billingEntity: freshCtx.billingEntity,
             monthlyBudget: freshCtx.monthlyBudget,
             currentPeriodSpend: freshCtx.currentPeriodSpend,
@@ -1666,13 +1855,9 @@ router.post(
             pendingHoldsCents: freshCtx.pendingHoldsCents ?? 0,
             isOrgAdmin: freshAdminResult.isOrgAdmin,
             isTeamAdmin: freshAdminResult.isTeamAdmin,
-            usePersonalBilling,
-            autoTopUpEnabled:
-              (personalCtxData?.['autoTopUpEnabled'] as boolean | undefined) ?? false,
-            autoTopUpThresholdCents:
-              (personalCtxData?.['autoTopUpThresholdCents'] as number | undefined) ?? 0,
-            autoTopUpAmountCents:
-              (personalCtxData?.['autoTopUpAmountCents'] as number | undefined) ?? 0,
+            autoTopUpEnabled: personalCtxData?.autoTopUpEnabled ?? false,
+            autoTopUpThresholdCents: personalCtxData?.autoTopUpThresholdCents ?? 0,
+            autoTopUpAmountCents: personalCtxData?.autoTopUpAmountCents ?? 0,
             orgWalletEmpty: freshCtx.billingEntity !== 'individual' && freshWalletBalance <= 0,
           },
         },
@@ -1708,7 +1893,7 @@ router.post(
       if (!db) return res.status(503).json({ error: 'Database unavailable' });
 
       // Resolve org billing context — only org admins can request invoice top-ups
-      const billingCtx = await getBillingContext(db, userId);
+      const billingCtx = await getBillingSummary(db, userId);
       if (billingCtx?.billingEntity !== 'organization' || !billingCtx.organizationId) {
         return res
           .status(403)
@@ -1804,50 +1989,10 @@ router.get('/budgets', appGuard, async (req: Request, res: Response) => {
     const target = await resolveBillingTarget(db, userId);
     const ctx = target.context;
 
-    const accountName = ctx.billingEntity === 'organization' ? 'Organization' : 'Personal';
-
-    // For org billing, include team allocations
-    let teamAllocations: UsageBudget['teamAllocations'];
-    if (ctx.billingEntity === 'organization' && ctx.organizationId) {
-      const allocations = await getOrgTeamAllocations(db, ctx.organizationId);
-      if (allocations.length > 0) {
-        const teamDocs = await Promise.all(
-          allocations.map((a) => db.collection('Teams').doc(a.teamId).get())
-        );
-        const teamNames = new Map(
-          teamDocs.map((doc) => [doc.id, (doc.data()?.['name'] as string) ?? 'Unknown Team'])
-        );
-
-        teamAllocations = allocations.map((a) => ({
-          teamId: a.teamId,
-          teamName: teamNames.get(a.teamId) ?? 'Unknown Team',
-          monthlyLimit: a.monthlyLimit,
-          currentSpend: a.currentPeriodSpend,
-          percentUsed:
-            a.monthlyLimit > 0 ? Math.round((a.currentPeriodSpend / a.monthlyLimit) * 100) : 0,
-        }));
-      }
-    }
-
-    const budgets: UsageBudget[] = hasConfiguredBudget(ctx)
-      ? [
-          {
-            id: `budget-${userId}`,
-            category: 'ai',
-            productName: ctx.budgetName ?? 'Overall Budget',
-            budgetLimit: ctx.monthlyBudget,
-            spent: ctx.currentPeriodSpend,
-            percentUsed:
-              ctx.monthlyBudget > 0
-                ? Math.round((ctx.currentPeriodSpend / ctx.monthlyBudget) * 100)
-                : 0,
-            stopOnLimit: ctx.hardStop,
-            accountName,
-            ownershipPercent: 100,
-            teamAllocations,
-          },
-        ]
-      : [];
+    const budgets: UsageBudget[] =
+      ctx.billingEntity === 'organization' && ctx.organizationId
+        ? [...(await buildOrganizationBudgetRows(db, ctx.organizationId))]
+        : [];
 
     return res.json({ success: true, data: budgets });
   } catch (error) {
@@ -2028,7 +2173,7 @@ router.post('/portal-session', appGuard, async (req: Request, res: Response) => 
 
     // Resolve who actually pays — directors bill to their org's Stripe customer,
     // individuals bill to their own.
-    const billingCtx = await getBillingContext(db, userId);
+    const billingCtx = await getBillingSummary(db, userId);
     let customerUserId = userId;
     let customerEmail = email;
 

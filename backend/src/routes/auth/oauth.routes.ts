@@ -15,6 +15,12 @@
 
 import { Router } from 'express';
 import type { Request, Response, Router as RouterType } from 'express';
+import {
+  GOOGLE_OAUTH_SCOPES,
+  OAUTH_TOKEN_SUBCOLLECTION,
+  LEGACY_EMAIL_TOKEN_SUBCOLLECTION,
+  GOOGLE_OAUTH_TOKEN_DOC_ID,
+} from '@nxt1/core/auth';
 import { asyncHandler, sendError } from '@nxt1/core/errors/express';
 import { validationError, internalError } from '@nxt1/core/errors';
 import type { ConnectedEmail } from '@nxt1/core';
@@ -238,10 +244,7 @@ router.get(
     oauthUrl.searchParams.set('client_id', googleClientId);
     oauthUrl.searchParams.set('response_type', 'code');
     oauthUrl.searchParams.set('redirect_uri', redirectUri);
-    oauthUrl.searchParams.set(
-      'scope',
-      'https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/userinfo.email'
-    );
+    oauthUrl.searchParams.set('scope', GOOGLE_OAUTH_SCOPES.join(' '));
     oauthUrl.searchParams.set('access_type', 'offline');
     oauthUrl.searchParams.set('prompt', 'select_account consent');
     const statePayload = mobileScheme
@@ -362,16 +365,9 @@ router.get(
       }
 
       const userRef = db.collection('Users').doc(uid);
-      const tokenRef = userRef.collection('emailTokens').doc('gmail');
-      await tokenRef.set(
-        {
-          provider: 'gmail',
-          refreshToken: tokenData.refresh_token,
-          updatedAt: new Date().toISOString(),
-          ...(connectedEmail && { email: connectedEmail }),
-        },
-        { merge: true }
-      );
+      const tokenRef = userRef.collection(OAUTH_TOKEN_SUBCOLLECTION).doc(GOOGLE_OAUTH_TOKEN_DOC_ID);
+      const legacyTokenRef = userRef.collection(LEGACY_EMAIL_TOKEN_SUBCOLLECTION).doc('gmail');
+      const now = new Date().toISOString();
 
       const userDoc = await userRef.get();
       if (userDoc.exists) {
@@ -380,20 +376,50 @@ router.get(
           | undefined;
         const existing = userData?.connectedEmails ?? [];
         const filtered = existing.filter((e) => e.provider !== 'gmail');
-        await userRef.update({
+        const batch = db.batch();
+        batch.set(
+          tokenRef,
+          {
+            provider: GOOGLE_OAUTH_TOKEN_DOC_ID,
+            refreshToken: tokenData.refresh_token,
+            updatedAt: now,
+            ...(connectedEmail && { email: connectedEmail }),
+          },
+          { merge: true }
+        );
+        batch.update(userRef, {
           connectedEmails: [
             ...filtered,
             {
               provider: 'gmail',
               isActive: true,
-              connectedAt: new Date().toISOString(),
+              connectedAt: now,
               ...(connectedEmail && { email: connectedEmail }),
             },
           ],
+          updatedAt: now,
         });
+        batch.delete(legacyTokenRef);
+        await batch.commit();
         await invalidateProfileCaches(uid).catch((err) =>
           logger.warn('[Google Callback] Failed to invalidate profile cache', { uid, err })
         );
+      } else {
+        await tokenRef.set(
+          {
+            provider: GOOGLE_OAUTH_TOKEN_DOC_ID,
+            refreshToken: tokenData.refresh_token,
+            updatedAt: now,
+            ...(connectedEmail && { email: connectedEmail }),
+          },
+          { merge: true }
+        );
+        await legacyTokenRef.delete().catch((error) => {
+          logger.warn('[Google Callback] Failed to delete legacy Gmail token doc', {
+            uid,
+            error,
+          });
+        });
       }
 
       logger.info('[Google Callback] Gmail token saved', {
@@ -438,7 +464,7 @@ router.get(
     oauthUrl.searchParams.set('response_mode', 'query');
     oauthUrl.searchParams.set(
       'scope',
-      'https://graph.microsoft.com/Mail.Send offline_access openid email https://graph.microsoft.com/User.Read'
+      'https://graph.microsoft.com/Mail.Send https://graph.microsoft.com/Mail.Read https://graph.microsoft.com/Calendars.ReadWrite https://graph.microsoft.com/Files.ReadWrite offline_access openid email https://graph.microsoft.com/User.Read'
     );
     oauthUrl.searchParams.set('prompt', 'consent');
 
@@ -519,10 +545,18 @@ router.get(
           const tokenDoc = await checkDb
             .collection('Users')
             .doc(uid)
-            .collection('emailTokens')
+            .collection(OAUTH_TOKEN_SUBCOLLECTION)
             .doc('microsoft')
             .get();
-          if (tokenDoc.exists) {
+          const existingTokenDoc = tokenDoc.exists
+            ? tokenDoc
+            : await checkDb
+                .collection('Users')
+                .doc(uid)
+                .collection(LEGACY_EMAIL_TOKEN_SUBCOLLECTION)
+                .doc('microsoft')
+                .get();
+          if (existingTokenDoc.exists) {
             logger.info(
               '[Microsoft Callback] server_error but token exists — treating as success',
               { uid: uid.substring(0, 8) + '...' }
@@ -607,17 +641,9 @@ router.get(
       }
 
       const userRef = db.collection('Users').doc(uid);
-      const tokenRef = userRef.collection('emailTokens').doc('microsoft');
-      await tokenRef.set(
-        {
-          provider: 'microsoft',
-          refreshToken: tokenData.refresh_token,
-          accessToken: tokenData.access_token,
-          updatedAt: new Date().toISOString(),
-          ...(connectedEmail && { email: connectedEmail }),
-        },
-        { merge: true }
-      );
+      const tokenRef = userRef.collection(OAUTH_TOKEN_SUBCOLLECTION).doc('microsoft');
+      const legacyTokenRef = userRef.collection(LEGACY_EMAIL_TOKEN_SUBCOLLECTION).doc('microsoft');
+      const now = new Date().toISOString();
 
       const userDoc = await userRef.get();
       if (userDoc.exists) {
@@ -626,20 +652,52 @@ router.get(
           | undefined;
         const existing = userData?.connectedEmails ?? [];
         const filtered = existing.filter((e) => e.provider !== 'microsoft');
-        await userRef.update({
+        const batch = db.batch();
+        batch.set(
+          tokenRef,
+          {
+            provider: 'microsoft',
+            refreshToken: tokenData.refresh_token,
+            accessToken: tokenData.access_token,
+            updatedAt: now,
+            ...(connectedEmail && { email: connectedEmail }),
+          },
+          { merge: true }
+        );
+        batch.update(userRef, {
           connectedEmails: [
             ...filtered,
             {
               provider: 'microsoft',
               isActive: true,
-              connectedAt: new Date().toISOString(),
+              connectedAt: now,
               ...(connectedEmail && { email: connectedEmail }),
             },
           ],
+          updatedAt: now,
         });
+        batch.delete(legacyTokenRef);
+        await batch.commit();
         await invalidateProfileCaches(uid).catch((err) =>
           logger.warn('[Microsoft Callback] Failed to invalidate profile cache', { uid, err })
         );
+      } else {
+        await tokenRef.set(
+          {
+            provider: 'microsoft',
+            refreshToken: tokenData.refresh_token,
+            accessToken: tokenData.access_token,
+            updatedAt: now,
+            ...(connectedEmail && { email: connectedEmail }),
+          },
+          { merge: true }
+        );
+        await legacyTokenRef.delete().catch((error) => {
+          logger.warn('[Microsoft Callback] Failed to delete legacy Microsoft token doc', {
+            uid,
+            error,
+          });
+        });
       }
 
       logger.info('[Microsoft Callback] Microsoft token saved', {
@@ -711,7 +769,8 @@ router.post(
       const MAX_RETRIES = 4;
       const BASE_DELAY_MS = 500;
       const userRef = db.collection('Users').doc(uid);
-      const tokenRef = userRef.collection('emailTokens').doc('gmail');
+      const tokenRef = userRef.collection(OAUTH_TOKEN_SUBCOLLECTION).doc(GOOGLE_OAUTH_TOKEN_DOC_ID);
+      const legacyTokenRef = userRef.collection(LEGACY_EMAIL_TOKEN_SUBCOLLECTION).doc('gmail');
 
       for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
         if (attempt > 0) {
@@ -742,7 +801,17 @@ router.post(
             connectedEmails: [...filtered, meta],
             updatedAt: now,
           });
-          batch.set(tokenRef, { ...tokenFields, email: email ?? '', lastRefreshedAt: now });
+          batch.set(
+            tokenRef,
+            {
+              ...tokenFields,
+              email: email ?? '',
+              lastRefreshedAt: now,
+              updatedAt: now,
+            },
+            { merge: true }
+          );
+          batch.delete(legacyTokenRef);
           await batch.commit();
           return;
         } catch (err) {
@@ -760,7 +829,10 @@ router.post(
         uid: uid.substring(0, 8) + '...',
       });
       const connectedEmail = req.user!.email;
-      await writeWithRetry({ provider: 'gmail', accessToken: webAccessToken }, connectedEmail);
+      await writeWithRetry(
+        { provider: GOOGLE_OAUTH_TOKEN_DOC_ID, accessToken: webAccessToken },
+        connectedEmail
+      );
       logger.info('[Google Connect Gmail] Web accessToken saved', {
         uid: uid.substring(0, 8) + '...',
         email: connectedEmail,
@@ -846,7 +918,7 @@ router.post(
     }
 
     await writeWithRetry(
-      { provider: 'gmail', refreshToken: tokenData.refresh_token },
+      { provider: GOOGLE_OAUTH_TOKEN_DOC_ID, refreshToken: tokenData.refresh_token },
       connectedEmail
     );
 
@@ -960,7 +1032,8 @@ router.post(
       const MAX_RETRIES = 4;
       const BASE_DELAY_MS = 500;
       const userRef = db.collection('Users').doc(uid);
-      const tokenRef = userRef.collection('emailTokens').doc('microsoft');
+      const tokenRef = userRef.collection(OAUTH_TOKEN_SUBCOLLECTION).doc('microsoft');
+      const legacyTokenRef = userRef.collection(LEGACY_EMAIL_TOKEN_SUBCOLLECTION).doc('microsoft');
 
       for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
         if (attempt > 0) {
@@ -991,6 +1064,7 @@ router.post(
             accessToken: finalAccessToken,
             email: userEmail ?? '',
             lastRefreshedAt: now,
+            updatedAt: now,
           };
 
           if (finalRefreshToken) {
@@ -1004,7 +1078,8 @@ router.post(
 
           const batch = db.batch();
           batch.update(userRef, { connectedEmails: [...filtered, meta], updatedAt: now });
-          batch.set(tokenRef, tokenData);
+          batch.set(tokenRef, tokenData, { merge: true });
+          batch.delete(legacyTokenRef);
           await batch.commit();
           return;
         } catch (err) {
@@ -1057,7 +1132,8 @@ router.post(
       const MAX_RETRIES = 4;
       const BASE_DELAY_MS = 500;
       const userRef = db.collection('Users').doc(uid);
-      const tokenRef = userRef.collection('emailTokens').doc('yahoo');
+      const tokenRef = userRef.collection(OAUTH_TOKEN_SUBCOLLECTION).doc('yahoo');
+      const legacyTokenRef = userRef.collection(LEGACY_EMAIL_TOKEN_SUBCOLLECTION).doc('yahoo');
 
       for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
         if (attempt > 0) {
@@ -1085,7 +1161,17 @@ router.post(
 
           const batch = db.batch();
           batch.update(userRef, { connectedEmails: [...filtered, meta], updatedAt: now });
-          batch.set(tokenRef, { ...tokenFields, email: email ?? '', lastRefreshedAt: now });
+          batch.set(
+            tokenRef,
+            {
+              ...tokenFields,
+              email: email ?? '',
+              lastRefreshedAt: now,
+              updatedAt: now,
+            },
+            { merge: true }
+          );
+          batch.delete(legacyTokenRef);
           await batch.commit();
           return;
         } catch (err) {

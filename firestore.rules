@@ -98,6 +98,12 @@ service cloud.firestore {
         allow read: if isOwner(userId);   // User can check which providers are connected
         allow write: if false;            // Only Cloud Functions / Admin SDK can write tokens
       }
+
+      // New OAuth token storage - same security model as legacy emailTokens.
+      match /oauthTokens/{provider} {
+        allow read: if isOwner(userId);
+        allow write: if false;
+      }
       
       // User metrics (stats, analytics)
       match /metrics/{metricId} {

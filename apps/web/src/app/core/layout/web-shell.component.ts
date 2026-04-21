@@ -1031,9 +1031,9 @@ export class WebShellComponent {
       // Filter icon: not shown (Explore is parked)
       showFilter: false,
       filterActiveCount: 0,
-      // Help + Budget icons: visible on /usage (desktop nav portal handles desktop)
+      // Help icon only on /usage for mobile web; desktop uses the header portal.
       showHelp: isLoggedIn && this._isOnUsagePage(),
-      showBudget: isLoggedIn && this._isOnUsagePage() && this.usageService.isOrg(),
+      showBudget: false,
       // Avatar already lives in the mobile footer tab bar — hide it here
       showAvatar: !isLoggedIn,
       sticky: true,
@@ -1344,7 +1344,7 @@ export class WebShellComponent {
       size: 'xl',
       backdropDismiss: true,
       escDismiss: true,
-      ariaLabel: 'Agent budget controls',
+      ariaLabel: 'Budget settings',
       panelClass: 'agent-x-control-panel-modal',
     });
     await ref.closed;

@@ -11,6 +11,7 @@ import {
   createInvoiceItem,
   attachPaymentMethod,
   chargeOffSession,
+  getDefaultCardPaymentMethodId,
   _clearStripeClientCacheForTesting,
 } from '../stripe.service.js';
 
@@ -38,6 +39,7 @@ vi.mock('stripe', () => {
       },
       paymentMethods: {
         attach: vi.fn().mockResolvedValue({}),
+        retrieve: vi.fn().mockResolvedValue({ id: 'pm_card_visa', type: 'card' }),
       },
       invoices: {
         create: vi.fn().mockResolvedValue({
@@ -323,6 +325,52 @@ describe('Stripe Service', () => {
       );
 
       expect(result.success).toBe(false);
+    });
+  });
+
+  describe('getDefaultCardPaymentMethodId', () => {
+    beforeEach(() => {
+      _clearStripeClientCacheForTesting();
+    });
+
+    it('should return the default payment method when it is a card', async () => {
+      vi.mocked(Stripe).mockImplementationOnce(function MockStripeDefaultCard() {
+        return {
+          customers: {
+            retrieve: vi.fn().mockResolvedValue({
+              id: 'cus_test123',
+              deleted: false,
+              invoice_settings: { default_payment_method: 'pm_card_visa' },
+            }),
+          },
+          paymentMethods: {
+            retrieve: vi.fn().mockResolvedValue({ id: 'pm_card_visa', type: 'card' }),
+          },
+        } as unknown as Stripe;
+      });
+
+      await expect(getDefaultCardPaymentMethodId('cus_test123', 'staging')).resolves.toBe(
+        'pm_card_visa'
+      );
+    });
+
+    it('should return null when the default payment method is not a card', async () => {
+      vi.mocked(Stripe).mockImplementationOnce(function MockStripeBankDefault() {
+        return {
+          customers: {
+            retrieve: vi.fn().mockResolvedValue({
+              id: 'cus_test123',
+              deleted: false,
+              invoice_settings: { default_payment_method: 'pm_bank_123' },
+            }),
+          },
+          paymentMethods: {
+            retrieve: vi.fn().mockResolvedValue({ id: 'pm_bank_123', type: 'us_bank_account' }),
+          },
+        } as unknown as Stripe;
+      });
+
+      await expect(getDefaultCardPaymentMethodId('cus_test123', 'staging')).resolves.toBeNull();
     });
   });
 });

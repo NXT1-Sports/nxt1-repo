@@ -952,7 +952,6 @@ export class ProfileShellComponent implements OnInit {
   }
 
   protected async onResyncIntel(): Promise<void> {
-    const userId = this.profile.user()?.uid ?? '';
     const message = `Do a full resync of my Agent X Intel report. Gather all current data and regenerate the entire report from scratch.`;
     this.intel.startPendingGeneration();
     await this.bottomSheet.openSheet({
@@ -976,7 +975,6 @@ export class ProfileShellComponent implements OnInit {
 
   protected async onGenerateIntel(): Promise<void> {
     const hasReport = !!this.intel.athleteReport();
-    const userId = this.profile.user()?.uid ?? '';
     const activeSection = this.activeSideTab();
 
     const isAthleteSection = [

@@ -16,7 +16,6 @@ import type {
   TeamProfilePost,
   TeamProfilePostType,
   TeamProfileQuickStats,
-  TeamProfileSocialLink,
 } from '@nxt1/core/team-profile';
 import type { TeamCode, RosterEntry, TeamEvent } from '@nxt1/core/models';
 import { RosterEntryStatus } from '@nxt1/core/models';
@@ -194,12 +193,6 @@ function formatRecord(seasonRecord: TeamCode['seasonRecord']): TeamProfileTeam['
   };
 }
 
-function extractHandle(url: string | undefined): string | undefined {
-  if (!url) return undefined;
-  const match = url.match(/\/([^/?#]+)\/?$/);
-  return match ? match[1] : undefined;
-}
-
 /** Returns true for roles that represent athletes/players (vs. staff). */
 function isAthleteRole(role: string | undefined): boolean {
   const r = (role ?? '').toLowerCase();
@@ -232,23 +225,27 @@ function mapTeamCodeToTeam(
     : [];
   const socialLinks = teamCode.socialLinks as Record<string, string> | null | undefined;
 
-  const social: TeamProfileSocialLink[] = connectedSources.length
+  const normalizedConnectedSources = connectedSources.length
     ? connectedSources
         .filter((src) => Boolean(src?.platform) && Boolean(src?.profileUrl))
         .map((src) => ({
           platform: src.platform,
-          url: src.profileUrl,
-          username: extractHandle(src.profileUrl),
+          profileUrl: src.profileUrl,
+          faviconUrl: src.faviconUrl,
+          lastSyncedAt: src.lastSyncedAt,
+          syncStatus: src.syncStatus,
+          lastError: src.lastError,
+          scopeType: src.scopeType,
+          scopeId: src.scopeId,
           displayOrder: src.displayOrder,
-          verified: src.syncStatus === 'success',
         }))
     : socialLinks
       ? Object.entries(socialLinks)
           .filter(([, url]) => Boolean(url))
           .map(([platform, url]) => ({
             platform,
-            url,
-            username: extractHandle(url),
+            profileUrl: url,
+            scopeType: 'global' as const,
           }))
       : [];
 
@@ -288,7 +285,7 @@ function mapTeamCodeToTeam(
           email: teamCode.contactInfo.email,
         }
       : undefined,
-    social,
+    connectedSources: normalizedConnectedSources,
     links,
     sponsors:
       teamCode.sponsor?.name || teamCode.sponsor?.logoImg

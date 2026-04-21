@@ -61,6 +61,7 @@ export {
   type ProfileApi,
   type ApiResponse,
   type PaginatedResponse,
+  type AddSportRequest,
   type UpdateProfileRequest,
   type UpdateSportProfileRequest,
   type ProfileSearchParams,

@@ -18,14 +18,19 @@
 import { Component, ChangeDetectionStrategy, inject, computed, OnInit } from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
 import { IonHeader, IonToolbar } from '@ionic/angular/standalone';
+import { mapToConnectedSources } from '@nxt1/core';
 import {
   AgentXShellComponent,
   AgentXService,
+  ConnectedAccountsResyncService,
   NxtSidenavService,
   NxtLoggingService,
+  NxtToastService,
+  type AgentXConnectedAccountsSaveRequest,
   type AgentXUser,
 } from '@nxt1/ui';
 import { AuthFlowService } from '../../core/services/auth/auth-flow.service';
+import { EditProfileApiService } from '../../core/services/api/edit-profile-api.service';
 
 @Component({
   selector: 'app-agent-x',
@@ -38,7 +43,11 @@ import { AuthFlowService } from '../../core/services/auth/auth-flow.service';
       <ion-toolbar></ion-toolbar>
     </ion-header>
     <!-- Shell owns its own ion-content + ion-footer (proper Ionic page structure) -->
-    <nxt1-agent-x-shell [user]="userInfo()" (avatarClick)="onAvatarClick()" />
+    <nxt1-agent-x-shell
+      [user]="userInfo()"
+      (avatarClick)="onAvatarClick()"
+      (connectedAccountsSave)="onConnectedAccountsSave($event)"
+    />
   `,
   styles: [
     `
@@ -73,8 +82,11 @@ export class AgentXComponent implements OnInit {
   private readonly authFlow = inject(AuthFlowService);
   private readonly sidenavService = inject(NxtSidenavService);
   private readonly logger = inject(NxtLoggingService).child('AgentXComponent');
+  private readonly toast = inject(NxtToastService);
   private readonly route = inject(ActivatedRoute);
   private readonly agentX = inject(AgentXService);
+  private readonly editProfileApi = inject(EditProfileApiService);
+  private readonly connectedAccountsResync = inject(ConnectedAccountsResyncService);
 
   /**
    * Transform auth user to AgentXUser interface.
@@ -83,12 +95,47 @@ export class AgentXComponent implements OnInit {
     const user = this.authFlow.user();
     if (!user) return null;
 
+    const profile = this.authFlow.profile();
+
     return {
       profileImg: user.profileImg ?? null,
       displayName: user.displayName,
-      role: user.role,
+      role: profile?.role ?? user.role,
+      selectedSports: profile?.sports?.map(({ sport }) => sport).filter(Boolean) ?? [],
+      connectedSources: profile?.connectedSources ?? [],
+      connectedEmails: user.connectedEmails ?? [],
+      firebaseProviders: this.authFlow.firebaseUser()?.providerData ?? [],
     };
   });
+
+  protected async onConnectedAccountsSave(
+    request: AgentXConnectedAccountsSaveRequest
+  ): Promise<void> {
+    const user = this.authFlow.user();
+    if (!user?.uid) {
+      this.toast.error('Not signed in. Please refresh and try again.');
+      return;
+    }
+
+    const connectedSources = mapToConnectedSources(request.linkSources.links);
+    const result = await this.editProfileApi.updateSection(user.uid, 'connected-sources', {
+      connectedSources,
+    });
+
+    if (result.success) {
+      await this.authFlow.refreshUserProfile();
+      if (request.requestResync) {
+        await this.connectedAccountsResync.request(request.resyncSources ?? []);
+      } else {
+        this.toast.success('Connected accounts updated');
+      }
+    } else {
+      this.logger.error('Failed to save Agent X connected accounts', undefined, {
+        error: result.error,
+      });
+      this.toast.error(result.error ?? 'Failed to save connected accounts');
+    }
+  }
 
   ngOnInit(): void {
     const user = this.authFlow.user();

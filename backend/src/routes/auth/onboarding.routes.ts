@@ -13,7 +13,14 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { asyncHandler, sendError } from '@nxt1/core/errors/express';
 import { notFoundError } from '@nxt1/core/errors';
 import { USER_SCHEMA_VERSION, normalizeName, isTeamRole } from '@nxt1/core';
-import type { UserRole, SportProfile, Location, ContactInfo } from '@nxt1/core';
+import type {
+  UserRole,
+  SportProfile,
+  Location,
+  ContactInfo,
+  NotificationPreferences,
+  UserPreferences,
+} from '@nxt1/core';
 import { validateBody } from '../../middleware/validation.middleware.js';
 import { BulkOnboardingDto, OnboardingStepDto } from '../../dtos/onboarding.dto.js';
 import {
@@ -39,6 +46,39 @@ import {
 } from './shared.js';
 
 const router: RouterType = Router();
+
+const DEFAULT_ONBOARDING_NOTIFICATION_PREFERENCES: NotificationPreferences = {
+  push: true,
+  email: true,
+  marketing: true,
+};
+
+const DEFAULT_ONBOARDING_PREFERENCES: UserPreferences = {
+  notifications: DEFAULT_ONBOARDING_NOTIFICATION_PREFERENCES,
+  activityTracking: true,
+  analyticsTracking: true,
+  biometricLogin: false,
+  dismissedPrompts: [],
+  defaultSportIndex: 0,
+  theme: 'system',
+};
+
+function hasCompleteOnboardingPreferences(
+  preferences: Partial<UserPreferences> | undefined
+): preferences is UserPreferences {
+  return (
+    preferences !== undefined &&
+    preferences.notifications?.push !== undefined &&
+    preferences.notifications?.email !== undefined &&
+    preferences.notifications?.marketing !== undefined &&
+    preferences.activityTracking !== undefined &&
+    preferences.analyticsTracking !== undefined &&
+    preferences.biometricLogin !== undefined &&
+    preferences.dismissedPrompts !== undefined &&
+    preferences.defaultSportIndex !== undefined &&
+    preferences.theme !== undefined
+  );
+}
 
 // ============================================================================
 // POST /auth/profile/onboarding  — Bulk save (marks onboarding complete)
@@ -70,14 +110,16 @@ router.post(
       onboardingCompletedAt: now,
     };
 
-    // Preferences — canonical defaults, written only if not yet set
-    if (!currentUser?.preferences?.['notifications']) {
+    // Preferences — canonical defaults, backfilled without overriding existing opt-outs
+    const currentPreferences = currentUser?.preferences as Partial<UserPreferences> | undefined;
+    if (!hasCompleteOnboardingPreferences(currentPreferences)) {
       updateData.preferences = {
-        notifications: { push: true, email: true, marketing: true },
-        activityTracking: true,
-        analyticsTracking: true,
-        biometricLogin: false,
-        theme: 'system',
+        ...DEFAULT_ONBOARDING_PREFERENCES,
+        ...(currentPreferences ?? {}),
+        notifications: {
+          ...DEFAULT_ONBOARDING_NOTIFICATION_PREFERENCES,
+          ...(currentPreferences?.notifications ?? {}),
+        },
       };
     }
 

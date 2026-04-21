@@ -65,7 +65,7 @@ export class WebEmailConnectionService {
 
     try {
       if (provider.id === 'gmail') {
-        await this._connectGmail(userId);
+        await this._connectGoogleOAuth(userId);
       } else if (provider.id === 'microsoft') {
         await this._connectMicrosoft(userId);
       } else if (provider.id === 'yahoo') {

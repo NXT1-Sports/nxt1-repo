@@ -292,7 +292,7 @@ export const appConfig: ApplicationConfig = {
     { provide: APP_VERSION, useFactory: () => environment.appVersion },
 
     // OAuth handler for Connected Accounts sheet (settings context)
-    // Launches Google/Microsoft account picker and saves tokens to emailTokens subcollection.
+    // Launches Google/Microsoft account picker and saves tokens to oauthTokens subcollection.
     // Does NOT sign the user in — pure token acquisition via system browser.
     {
       provide: CONNECTED_ACCOUNTS_OAUTH_HANDLER,

@@ -157,8 +157,8 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/ass
             </div>
             <h3 class="welcome-heading">{{ agentX.currentTitle() }}</h3>
             <p class="welcome-text">
-              Your AI-powered recruiting assistant. Ask me anything about recruiting, create
-              graphics, or get personalized advice.
+              Your Agent X command center. Ask for recruiting strategy, create graphics, or get
+              personalized guidance.
             </p>
             @if (!agentX.isLoggedIn()) {
               <p class="welcome-sign-in">Sign in to unlock my full capabilities for you.</p>

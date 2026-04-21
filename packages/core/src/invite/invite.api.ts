@@ -12,7 +12,6 @@
 
 import type { HttpAdapter } from '../api/http-adapter';
 import type {
-  InviteStats,
   InviteLink,
   InviteFilter,
   InviteHistoryResponse,
@@ -196,35 +195,6 @@ export function createInviteApi(http: HttpAdapter, baseUrl: string) {
         if (isNxtApiError(error)) throw error;
         throw createApiError('SRV_INTERNAL_ERROR', {
           message: 'Failed to fetch invite history',
-          cause: error,
-        });
-      }
-    },
-
-    /**
-     * Get user's invite statistics.
-     *
-     * @returns User invite stats
-     * @throws NxtApiError on failure
-     */
-    async getStats(): Promise<InviteStats> {
-      try {
-        const url = buildUrl(INVITE_API_ENDPOINTS.STATS);
-        const response = await http.get<{ success: boolean; data: InviteStats; error?: string }>(
-          url
-        );
-
-        if (!response.success || !response.data) {
-          throw createApiError('SRV_INTERNAL_ERROR', {
-            message: response.error ?? 'Failed to fetch invite stats',
-          });
-        }
-
-        return response.data;
-      } catch (error) {
-        if (isNxtApiError(error)) throw error;
-        throw createApiError('SRV_INTERNAL_ERROR', {
-          message: 'Failed to fetch invite stats',
           cause: error,
         });
       }

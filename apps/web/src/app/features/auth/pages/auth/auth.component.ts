@@ -595,8 +595,11 @@ export class AuthComponent implements OnInit {
     try {
       const teamCode = this.validatedTeam()?.code;
       const referralId = this.pendingReferral?.code;
+      const intent = this.mode() === 'signup' ? 'signup' : 'signin';
       await this.authFlow.signInWithGoogle(
-        teamCode || referralId ? { teamCode, referralId } : undefined
+        teamCode || referralId || intent === 'signup'
+          ? { intent, teamCode, referralId }
+          : { intent }
       );
     } catch {
       // Error handled by service

@@ -18,7 +18,13 @@ import { Types } from 'mongoose';
 import { logger } from '../../utils/logger.js';
 import { COLLECTIONS } from './config.js';
 import { resolveAICost } from './cost-resolver.service.js';
-import { getBillingContext } from './budget.service.js';
+import { getBillingState, resolveBillingTarget } from './budget.service.js';
+import {
+  createPeriodKey,
+  createPeriodLedgerDocumentId,
+  createWalletDocumentId,
+  parseBillingOwnerKey,
+} from './types/index.js';
 import type { UsageEvent } from './types/index.js';
 import { UsageEventModel } from '../../models/usage-event.model.js';
 
@@ -262,7 +268,7 @@ async function applyReconciliationAdjustment(
   adjustmentCents: number,
   usageEventId: string
 ): Promise<void> {
-  const billingContext = await getBillingContext(db, userId);
+  const billingContext = await getBillingState(db, userId);
 
   if (!billingContext) {
     logger.warn('[helicone-webhook] No billing context for adjustment', {
@@ -273,34 +279,37 @@ async function applyReconciliationAdjustment(
     return;
   }
 
-  const docRef = db.collection(COLLECTIONS.BILLING_CONTEXTS).doc(userId);
-  const splitField =
-    billingContext.billingEntity === 'organization'
-      ? 'orgCurrentPeriodSpend'
-      : 'personalCurrentPeriodSpend';
-  const updates: Record<string, unknown> = {
-    currentPeriodSpend: FieldValue.increment(-adjustmentCents),
-    [splitField]: FieldValue.increment(-adjustmentCents),
-    updatedAt: FieldValue.serverTimestamp(),
-  };
+  const target = await resolveBillingTarget(db, userId);
+  const { ownerId, ownerType } = parseBillingOwnerKey(target.billingUserId);
+  const periodLedgerRef = db
+    .collection(COLLECTIONS.PERIOD_LEDGERS)
+    .doc(
+      createPeriodLedgerDocumentId(ownerType, ownerId, createPeriodKey(billingContext.periodStart))
+    );
+  const walletRef = db
+    .collection(COLLECTIONS.WALLETS)
+    .doc(createWalletDocumentId(ownerType, ownerId));
 
-  if (billingContext.paymentProvider === 'iap') {
-    // IAP wallet: credit positive adjustments back to wallet, debit negative ones
-    // Positive adjustment = we overcharged → add back to wallet, reduce spend
-    // Negative adjustment = we undercharged → deduct from wallet, increase spend
-    updates['walletBalanceCents'] = FieldValue.increment(adjustmentCents);
-  } else {
-    // Stripe billing: just adjust the spend tracking
-    // The actual Stripe invoice is handled separately
-  }
-
-  await docRef.update(updates);
+  await periodLedgerRef.set(
+    {
+      currentPeriodSpend: FieldValue.increment(-adjustmentCents),
+      updatedAt: FieldValue.serverTimestamp(),
+    },
+    { merge: true }
+  );
+  await walletRef.set(
+    {
+      balanceCents: FieldValue.increment(adjustmentCents),
+      updatedAt: FieldValue.serverTimestamp(),
+    },
+    { merge: true }
+  );
 
   logger.info('[helicone-webhook] Reconciliation adjustment applied', {
     userId,
     adjustmentCents,
     usageEventId,
     provider: billingContext.paymentProvider,
-    splitField,
+    billingUserId: target.billingUserId,
   });
 }

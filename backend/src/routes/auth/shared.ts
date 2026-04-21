@@ -86,7 +86,7 @@ export interface UserV2Document {
 
   // Connected email accounts for campaigns/outreach.
   // SECURITY: Only metadata (ConnectedEmail) is stored here.
-  // OAuth tokens live in: Users/{uid}/emailTokens/{provider} (subcollection).
+  // OAuth tokens live in: Users/{uid}/oauthTokens/{provider} (subcollection).
   // Firestore rules restrict that subcollection to backend/Functions only.
   connectedEmails?: ConnectedEmail[];
 

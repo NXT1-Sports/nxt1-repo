@@ -12,8 +12,39 @@ import { getStripeClient } from './stripe.service.js';
 import { getStripeConfig, COLLECTIONS } from './config.js';
 import { logger } from '../../utils/logger.js';
 import { NOTIFICATION_TYPES } from '@nxt1/core';
-import { addWalletTopUp, addFundsToOrgWallet, getBillingContext } from './budget.service.js';
+import { addWalletTopUp, addFundsToOrgWallet, getBillingState } from './budget.service.js';
+import {
+  createPeriodKey,
+  createPeriodLedgerDocumentId,
+  parseBillingOwnerKey,
+} from './types/index.js';
 import { PaymentLogModel } from '../../models/payment-log.model.js';
+
+interface CachedBillingInfo {
+  name: string;
+  addressLine1: string;
+  addressLine2: string;
+  country: string;
+}
+
+function buildCachedBillingInfo(customer: Stripe.Customer): CachedBillingInfo | null {
+  if (!customer.address) {
+    return null;
+  }
+
+  const cityStateZip = [customer.address.city, customer.address.state, customer.address.postal_code]
+    .filter(Boolean)
+    .join(', ');
+
+  return {
+    name: customer.name ?? '',
+    addressLine1: customer.address.line1 ?? '',
+    addressLine2: customer.address.line2
+      ? `${customer.address.line2}, ${cityStateZip}`
+      : cityStateZip,
+    country: customer.address.country ?? '',
+  };
+}
 
 /**
  * Verify webhook signature
@@ -276,38 +307,33 @@ export async function handleChargeRefunded(
     const billingUserId = customerSnap.docs[0]!.data()['userId'] as string;
 
     // Decrement currentPeriodSpend (floor at 0 — can't go negative)
-    const billingContext = await getBillingContext(db, billingUserId);
+    const billingContext = await getBillingState(db, billingUserId);
 
     if (billingContext) {
-      const billingRef = db.collection(COLLECTIONS.BILLING_CONTEXTS).doc(billingUserId);
+      const { ownerId, ownerType } = parseBillingOwnerKey(billingUserId);
+      const periodLedgerRef = db
+        .collection(COLLECTIONS.PERIOD_LEDGERS)
+        .doc(
+          createPeriodLedgerDocumentId(
+            ownerType,
+            ownerId,
+            createPeriodKey(billingContext.periodStart)
+          )
+        );
       const currentSpend = billingContext.currentPeriodSpend ?? 0;
       const decrement = Math.min(amountRefundedCents, currentSpend);
-      const splitField =
-        billingContext.billingEntity === 'organization'
-          ? 'orgCurrentPeriodSpend'
-          : 'personalCurrentPeriodSpend';
-      const currentSplitSpend =
-        (billingContext[splitField] as number | undefined) ??
-        billingContext.currentPeriodSpend ??
-        0;
-      const splitDecrement = Math.min(amountRefundedCents, currentSplitSpend);
 
-      const updates: Record<string, unknown> = {
-        currentPeriodSpend: FieldValue.increment(-decrement),
-        updatedAt: FieldValue.serverTimestamp(),
-      };
-
-      if (splitDecrement > 0) {
-        updates[splitField] = FieldValue.increment(-splitDecrement);
-      }
-
-      await billingRef.update(updates);
+      await periodLedgerRef.set(
+        {
+          currentPeriodSpend: FieldValue.increment(-decrement),
+          updatedAt: FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
 
       logger.info('[handleChargeRefunded] currentPeriodSpend decremented', {
         billingUserId,
         decrement,
-        splitField,
-        splitDecrement,
         amountRefundedCents,
       });
     }
@@ -383,7 +409,7 @@ export async function handleCustomerDeleted(
 /**
  * Handle setup_intent.succeeded event
  * Sets the payment method as the customer's default on Stripe AND syncs card
- * details to Firestore (StripeCustomers + BillingContexts / Organization).
+ * details to Firestore (StripeCustomers cache + Organization billing state).
  */
 export async function handleSetupIntentSucceeded(
   db: Firestore,
@@ -413,12 +439,14 @@ export async function handleSetupIntentSucceeded(
     await stripe.paymentMethods.attach(paymentMethodId, { customer: customerId });
 
     // Set default on Stripe + fetch full PM details in parallel
-    const [, pm] = await Promise.all([
+    const [updatedCustomer, pm] = await Promise.all([
       stripe.customers.update(customerId, {
         invoice_settings: { default_payment_method: paymentMethodId },
       }),
       stripe.paymentMethods.retrieve(paymentMethodId),
     ]);
+
+    const billingInfo = buildCachedBillingInfo(updatedCustomer);
 
     const cardDetails =
       pm.type === 'card' && pm.card
@@ -433,7 +461,7 @@ export async function handleSetupIntentSucceeded(
           }
         : undefined;
 
-    // Persist to Firestore: StripeCustomers cache + BillingContexts / Organization
+    // Persist to Firestore: StripeCustomers cache + Organization billing state
     const customerSnap = await db
       .collection(COLLECTIONS.STRIPE_CUSTOMERS)
       .where('stripeCustomerId', '==', customerId)
@@ -444,6 +472,7 @@ export async function handleSetupIntentSucceeded(
     if (!customerSnap.empty && cardDetails) {
       await customerSnap.docs[0]!.ref.update({
         defaultPaymentMethod: cardDetails,
+        ...(billingInfo ? { billingInfo } : {}),
         updatedAt: FieldValue.serverTimestamp(),
       });
     }
@@ -478,14 +507,28 @@ export async function handleCustomerUpdated(
   environment: 'staging' | 'production'
 ): Promise<void> {
   try {
+    const billingInfo = buildCachedBillingInfo(customer);
     const defaultPmId =
       typeof customer.invoice_settings?.default_payment_method === 'string'
         ? customer.invoice_settings.default_payment_method
         : customer.invoice_settings?.default_payment_method?.id;
 
+    const customerSnap = await db
+      .collection(COLLECTIONS.STRIPE_CUSTOMERS)
+      .where('stripeCustomerId', '==', customer.id)
+      .where('environment', '==', environment)
+      .limit(1)
+      .get();
+
     if (!defaultPmId) {
-      // No default PM set — nothing to sync
-      logger.info('[handleCustomerUpdated] No default_payment_method — skipping', {
+      if (!customerSnap.empty) {
+        await customerSnap.docs[0]!.ref.update({
+          ...(billingInfo ? { billingInfo } : {}),
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+      }
+
+      logger.info('[handleCustomerUpdated] No default_payment_method — synced billing info only', {
         customerId: customer.id,
       });
       return;
@@ -507,17 +550,10 @@ export async function handleCustomerUpdated(
           }
         : undefined;
 
-    // Update StripeCustomers cache
-    const customerSnap = await db
-      .collection(COLLECTIONS.STRIPE_CUSTOMERS)
-      .where('stripeCustomerId', '==', customer.id)
-      .where('environment', '==', environment)
-      .limit(1)
-      .get();
-
     if (!customerSnap.empty && cardDetails) {
       await customerSnap.docs[0]!.ref.update({
         defaultPaymentMethod: cardDetails,
+        ...(billingInfo ? { billingInfo } : {}),
         updatedAt: FieldValue.serverTimestamp(),
       });
     }
@@ -539,7 +575,7 @@ export async function handleCustomerUpdated(
 /**
  * Handle customer.subscription.created
  * Sets billing.subscriptionId + billing.customerId on the Organization doc
- * so getBillingContext treats it as org-level billing.
+ * so billing resolution treats it as org-level billing.
  */
 export async function handleSubscriptionCreated(
   db: Firestore,
@@ -583,7 +619,7 @@ export async function handleSubscriptionUpdated(
 
 /**
  * Handle customer.subscription.deleted
- * Clears billing.subscriptionId on the Organization so getBillingContext
+ * Clears billing.subscriptionId on the Organization so billing resolution
  * falls back to individual billing. Also notifies org admins.
  */
 export async function handleSubscriptionDeleted(
@@ -867,7 +903,7 @@ interface CardDetails {
 }
 
 /**
- * Shared helper: set billing.hasPaymentMethod (+ optional card details) on org or BillingContexts.
+ * Shared helper: set billing.hasPaymentMethod (+ optional card details) on org state.
  */
 async function setHasPaymentMethod(
   db: Firestore,
@@ -896,7 +932,8 @@ async function setHasPaymentMethod(
     return;
   }
 
-  // Fall back to individual user billing context
+  // Individual payment-method state is resolved from StripeCustomers/Stripe APIs.
+  // Do not mirror it into deprecated legacy documents.
   const customerSnap = await db
     .collection(COLLECTIONS.STRIPE_CUSTOMERS)
     .where('stripeCustomerId', '==', customerId)
@@ -907,19 +944,13 @@ async function setHasPaymentMethod(
   if (customerSnap.empty) return;
 
   const userId = customerSnap.docs[0]!.data()['userId'] as string;
-  const ctxSnap = await db
-    .collection(COLLECTIONS.BILLING_CONTEXTS)
-    .where('userId', '==', userId)
-    .limit(1)
-    .get();
-
-  if (!ctxSnap.empty) {
-    await ctxSnap.docs[0]!.ref.update({
-      hasPaymentMethod: value,
-      defaultPaymentMethod: pmUpdate.defaultPaymentMethod,
-      updatedAt: FieldValue.serverTimestamp(),
-    });
-  }
+  logger.info('[setHasPaymentMethod] Resolved individual payment-method state from Stripe only', {
+    userId,
+    customerId,
+    environment,
+    hasPaymentMethod: value,
+    hasCardDetails: Boolean(cardDetails),
+  });
 }
 
 /**
@@ -948,53 +979,74 @@ async function handleCheckoutSessionCompleted(
     return;
   }
 
+  await finalizeWalletCheckoutSession(db, session, environment, 'webhook');
+}
+
+export async function finalizeWalletCheckoutSession(
+  db: Firestore,
+  session: Stripe.Checkout.Session,
+  environment: 'staging' | 'production',
+  finalizationSource: 'webhook' | 'client_return' = 'webhook'
+): Promise<{
+  readonly kind: 'wallet_topup' | 'org_wallet_topup';
+  readonly userId: string;
+  readonly organizationId?: string;
+  readonly newBalance: number;
+}> {
+  const metadata = session.metadata ?? {};
+  const type = metadata['type'];
+
+  if (type !== 'wallet_topup' && type !== 'org_wallet_topup') {
+    throw new Error(`Unsupported checkout session type: ${type ?? 'unknown'}`);
+  }
+
   const userId = metadata['userId'];
   const amountCents = parseInt(metadata['amountCents'] ?? '0', 10);
 
   if (!userId || !amountCents || amountCents <= 0) {
-    logger.error('[handleCheckoutSessionCompleted] Missing or invalid metadata', {
-      sessionId: session.id,
-      userId,
-      amountCents,
-    });
-    return;
+    throw new Error(`Missing or invalid checkout metadata for session ${session.id}`);
   }
 
   if (session.payment_status !== 'paid') {
-    logger.warn('[handleCheckoutSessionCompleted] Payment not confirmed', {
-      sessionId: session.id,
-      paymentStatus: session.payment_status,
-    });
-    return;
+    throw new Error(`Checkout session ${session.id} is not paid`);
   }
 
   try {
     let newBalance: number;
+    let organizationId: string | undefined;
+    let alreadyFinalized = false;
 
     if (type === 'org_wallet_topup') {
-      const organizationId = metadata['organizationId'];
+      organizationId = metadata['organizationId'];
       if (!organizationId) {
-        logger.error('[handleCheckoutSessionCompleted] Missing organizationId for org top-up', {
-          sessionId: session.id,
-        });
-        return;
+        throw new Error(`Missing organizationId for org wallet top-up session ${session.id}`);
       }
-      ({ newBalance } = await addFundsToOrgWallet(
+      ({ newBalance, alreadyFinalized } = await addFundsToOrgWallet(
         db,
         organizationId,
         amountCents,
-        'stripe_checkout'
+        'stripe_checkout',
+        {
+          checkoutSessionId: session.id,
+          initiatedByUserId: userId,
+        }
       ));
 
       // Notify all roster members currently on personal billing override
       // so they know the org wallet is funded and can switch back.
-      notifyOrgMembersWalletRefilled(db, organizationId, newBalance).catch((err: unknown) =>
-        logger.error('[handleCheckoutSessionCompleted] Failed to notify org members', { err })
-      );
+      if (!alreadyFinalized) {
+        notifyOrgMembersWalletRefilled(db, organizationId, newBalance).catch((err: unknown) =>
+          logger.error('[handleCheckoutSessionCompleted] Failed to notify org members', { err })
+        );
+      }
 
       await PaymentLogModel.findOneAndUpdate(
         { invoiceId: session.id },
         {
+          $set: {
+            finalizationSource,
+            updatedAt: new Date(),
+          },
           $setOnInsert: {
             invoiceId: session.id,
             customerId: (session.customer as string) ?? '',
@@ -1019,9 +1071,13 @@ async function handleCheckoutSessionCompleted(
         organizationId,
         amountCents,
         newBalance,
+        finalizationSource,
       });
     } else {
-      ({ newBalance } = await addWalletTopUp(db, userId, amountCents, 'stripe'));
+      ({ newBalance, alreadyFinalized } = await addWalletTopUp(db, userId, amountCents, 'stripe', {
+        checkoutSessionId: session.id,
+        initiatedByUserId: userId,
+      }));
 
       // Retrieve PaymentIntent once: get receipt URL AND promote default payment method.
       const customerId =
@@ -1071,6 +1127,10 @@ async function handleCheckoutSessionCompleted(
       await PaymentLogModel.findOneAndUpdate(
         { invoiceId: session.id },
         {
+          $set: {
+            finalizationSource,
+            updatedAt: new Date(),
+          },
           $setOnInsert: {
             invoiceId: session.id,
             customerId: (session.customer as string) ?? '',
@@ -1095,8 +1155,17 @@ async function handleCheckoutSessionCompleted(
         userId,
         amountCents,
         newBalance,
+        finalizationSource,
+        alreadyFinalized,
       });
     }
+
+    return {
+      kind: type,
+      userId,
+      organizationId,
+      newBalance,
+    };
   } catch (error) {
     logger.error('[handleCheckoutSessionCompleted] Failed to credit wallet', {
       error,
@@ -1191,7 +1260,7 @@ async function handleInvoicePaid(db: Firestore, invoice: Stripe.Invoice): Promis
 
 /**
  * After an org wallet top-up, find all roster members currently on personal billing
- * override (usePersonalBilling=true) and send them an in-app notification so they
+ * override (`Users.activeBillingTarget.source='personal'`) and send them an in-app notification so they
  * can switch back to org billing from the usage overview.
  *
  * Fire-and-forget — called with .catch() by callers, never blocks the webhook response.
@@ -1203,20 +1272,19 @@ async function notifyOrgMembersWalletRefilled(
 ): Promise<void> {
   const { dispatch } = await import('../../services/notification.service.js');
 
-  // Find BILLING_CONTEXTS docs for this org's members who are on personal billing override
-  const ctxSnap = await db
-    .collection(COLLECTIONS.BILLING_CONTEXTS)
-    .where('organizationId', '==', organizationId)
-    .where('usePersonalBilling', '==', true)
+  const usersSnap = await db
+    .collection('Users')
+    .where('activeBillingTarget.organizationId', '==', organizationId)
+    .where('activeBillingTarget.source', '==', 'personal')
     .get();
 
-  if (ctxSnap.empty) return;
+  if (usersSnap.empty) return;
 
   const balanceDollars = (newBalanceCents / 100).toFixed(2);
 
   await Promise.allSettled(
-    ctxSnap.docs.map((doc) => {
-      const memberId = doc.data()['userId'] as string | undefined;
+    usersSnap.docs.map((doc) => {
+      const memberId = doc.id;
       if (!memberId) return Promise.resolve();
       return dispatch(db, {
         userId: memberId,
@@ -1231,7 +1299,7 @@ async function notifyOrgMembersWalletRefilled(
 
   logger.info('[notifyOrgMembersWalletRefilled] Notifications dispatched', {
     organizationId,
-    recipientCount: ctxSnap.size,
+    recipientCount: usersSnap.size,
     newBalanceCents,
   });
 }

@@ -47,7 +47,6 @@ import {
   countActiveFilters,
 } from '@nxt1/core';
 import { HapticsService } from '../services/haptics/haptics.service';
-import { NxtToastService } from '../services/toast/toast.service';
 import type { ScoutReportSortOption } from './scout-report-sort-selector.component';
 import { NxtLoggingService } from '../services/logging/logging.service';
 
@@ -59,7 +58,6 @@ import { NxtLoggingService } from '../services/logging/logging.service';
 export class ScoutReportsService {
   // TODO: inject ScoutReportsApiService when backend is ready
   private readonly haptics = inject(HapticsService);
-  private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('ScoutReportsService');
 
   // ============================================

@@ -263,6 +263,15 @@ function mapNotificationTypeToActivityType(type: NotificationType): string {
     account_created: 'system',
     email_verified: 'system',
     profile_incomplete: 'system',
+    payment_received: 'announcement',
+    payment_failed: 'announcement',
+    credits_low: 'announcement',
+    credits_added: 'announcement',
+    budget_warning: 'announcement',
+    budget_reached: 'announcement',
+    wallet_empty: 'announcement',
+    org_wallet_empty: 'announcement',
+    org_wallet_refilled: 'announcement',
   };
 
   return map[type] ?? 'update';

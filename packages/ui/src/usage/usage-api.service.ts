@@ -14,7 +14,7 @@ import {
   createUsageApi,
   type UsageApi,
   type UsageDashboardData,
-  type BillingContextSummary,
+  type BillingStateSummary,
   type UsageTimeframe,
 } from '@nxt1/core';
 
@@ -48,7 +48,8 @@ export class UsageApiService {
       post: <T>(url: string, body: unknown) => firstValueFrom(this.http.post<T>(url, body)),
       put: <T>(url: string, body: unknown) => firstValueFrom(this.http.put<T>(url, body)),
       patch: <T>(url: string, body: unknown) => firstValueFrom(this.http.patch<T>(url, body)),
-      delete: <T>(url: string) => firstValueFrom(this.http.delete<T>(url)),
+      delete: <T>(url: string, config?: { params?: Record<string, string | number | boolean> }) =>
+        firstValueFrom(this.http.delete<T>(url, config?.params ? { params: config.params } : {})),
     },
     this.baseUrl
   );
@@ -79,7 +80,7 @@ export class UsageApiService {
   /**
    * Bust the HTTP cache for all billing-related endpoints.
    * Call this before loadDashboard() when a mutation has changed the billing
-   * context (e.g. billing mode switch) so the next GET is fresh.
+   * state (e.g. billing mode switch) so the next GET is fresh.
    * Fires both requests in parallel for minimum latency.
    */
   bustDashboardCache(): Promise<void> {
@@ -109,6 +110,22 @@ export class UsageApiService {
 
   readonly getBudgets: UsageApi['getBudgets'] = this.api.getBudgets;
 
+  async getBudgetsFresh() {
+    const response = await firstValueFrom(
+      this.http.get<{
+        success: boolean;
+        data?: readonly import('@nxt1/core').UsageBudget[];
+        error?: string;
+      }>(`${this.baseUrl}/usage/budgets`, this.noCacheOptions)
+    );
+
+    if (!response.success || !response.data) {
+      throw new Error(response.error ?? 'Failed to fetch budgets');
+    }
+
+    return response.data;
+  }
+
   // ── Downloads & Coupons ──────────────────────
 
   readonly getReceiptUrl: UsageApi['getReceiptUrl'] = this.api.getReceiptUrl;
@@ -117,19 +134,19 @@ export class UsageApiService {
 
   // ── Budget Management ────────────────────────
 
-  readonly getBillingContext: UsageApi['getBillingContext'] = this.api.getBillingContext;
+  readonly getBillingState: UsageApi['getBillingState'] = this.api.getBillingState;
 
-  async getBillingContextFresh(): Promise<BillingContextSummary> {
+  async getBillingStateFresh(): Promise<BillingStateSummary> {
     const response = await firstValueFrom(
       this.http.get<{
         success: boolean;
-        data?: BillingContextSummary;
+        data?: BillingStateSummary;
         error?: string;
       }>(`${this.baseUrl}/billing/budget`, this.noCacheOptions)
     );
 
     if (!response.success || !response.data) {
-      throw new Error(response.error ?? 'Failed to fetch billing context');
+      throw new Error(response.error ?? 'Failed to fetch billing state');
     }
 
     return response.data;
@@ -137,6 +154,8 @@ export class UsageApiService {
   readonly updateBudget: UsageApi['updateBudget'] = this.api.updateBudget;
   readonly updateTeamBudget: UsageApi['updateTeamBudget'] = this.api.updateTeamBudget;
   readonly buyCredits: UsageApi['buyCredits'] = this.api.buyCredits;
+  readonly confirmCheckoutSession: UsageApi['confirmCheckoutSession'] =
+    this.api.confirmCheckoutSession;
   readonly deleteBudget: UsageApi['deleteBudget'] = this.api.deleteBudget;
   readonly deleteTeamBudget: UsageApi['deleteTeamBudget'] = this.api.deleteTeamBudget;
   readonly configureAutoTopUp: UsageApi['configureAutoTopUp'] = this.api.configureAutoTopUp;

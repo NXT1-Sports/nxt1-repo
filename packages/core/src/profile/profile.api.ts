@@ -13,7 +13,7 @@ import type {
   User,
   UserSummary,
   SportProfile,
-  SocialLink,
+  // Removing SocialLink from imports
   Location,
   ContactInfo,
   TeamHistoryEntry,
@@ -30,6 +30,7 @@ import type {
   ParentData,
   UserPreferences,
 } from '../models/user';
+import type { TeamSelectionFormData } from '../onboarding/onboarding-navigation.api';
 
 // ============================================
 // COMMON API RESPONSE TYPES
@@ -88,9 +89,9 @@ export interface UpdateProfileRequest {
   location?: Partial<Location>;
   contact?: Partial<ContactInfo>;
 
-  // ── Social Links ───────────────────────────────────────────────────────
-  /** Social links (agnostic array — supports any platform) */
-  social?: SocialLink[];
+  // ── Connected Sources ──────────────────────────────────────────────────
+  /** All connected accounts/links are inside connectedSources (agnostic array) */
+  connectedSources?: ConnectedSource[];
 
   // ── Sports ─────────────────────────────────────────────────────────────
   /** Full sports array replacement */
@@ -101,9 +102,6 @@ export interface UpdateProfileRequest {
   teamHistory?: TeamHistoryEntry[];
   awards?: UserAward[];
   academics?: Partial<AcademicInfo>;
-
-  // ── Connected Sources (Agent X) ────────────────────────────────────────
-  connectedSources?: ConnectedSource[];
 
   // ── Role-specific Data ─────────────────────────────────────────────────
   athlete?: Partial<AthleteData>;
@@ -122,6 +120,11 @@ export interface UpdateProfileRequest {
 export interface UpdateSportProfileRequest {
   sportIndex: number;
   updates: Partial<SportProfile>;
+}
+
+export interface AddSportRequest extends Partial<SportProfile> {
+  teamSelection?: TeamSelectionFormData;
+  connectedSources?: readonly ConnectedSource[];
 }
 
 export interface ProfileSearchParams {
@@ -204,10 +207,7 @@ export function createProfileApi(http: HttpAdapter, baseUrl: string) {
     /**
      * Add new sport to profile
      */
-    async addSport(
-      userId: string,
-      sport: Partial<SportProfile>
-    ): Promise<ApiResponse<SportProfile>> {
+    async addSport(userId: string, sport: AddSportRequest): Promise<ApiResponse<SportProfile>> {
       return http.post<ApiResponse<SportProfile>>(`${baseUrl}/auth/profile/${userId}/sport`, sport);
     },
 

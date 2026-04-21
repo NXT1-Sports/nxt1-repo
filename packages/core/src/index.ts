@@ -793,7 +793,6 @@ export {
   type TeamProfileTeam,
   type TeamProfileRecord,
   type TeamProfileBranding,
-  type TeamProfileSocialLink,
   type TeamProfileContact,
   type TeamProfileLinks,
   type TeamProfileSponsor,

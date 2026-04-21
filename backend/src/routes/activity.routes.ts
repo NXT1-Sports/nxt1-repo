@@ -18,7 +18,13 @@ import {
   RestoreActivityDto,
 } from '../dtos/social.dto.js';
 import { logger } from '../utils/logger.js';
-import { ACTIVITY_DEFAULT_TAB, ACTIVITY_TABS, type ActivityTabId } from '@nxt1/core';
+import {
+  ACTIVITY_DEFAULT_TAB,
+  ACTIVITY_TABS,
+  type ActivityPriority,
+  type ActivityTabId,
+  type ActivityType,
+} from '@nxt1/core';
 
 const router: ExpressRouter = Router();
 
@@ -27,11 +33,32 @@ const router: ExpressRouter = Router();
 // ============================================
 
 const ACTIVITY_COLLECTION = 'activity';
+const ACTIVITY_STATS_COLLECTION = 'stats';
+const ACTIVITY_BADGES_DOC_ID = 'activity_badges';
 const DEFAULT_PAGE_SIZE = 20;
 const MAX_PAGE_SIZE = 50;
 const VALID_TABS: readonly ActivityTabId[] = ACTIVITY_TABS.map((tab) => tab.id);
 const VALID_SORT_FIELDS = ['timestamp', 'priority'] as const;
 const VALID_SORT_ORDERS = ['asc', 'desc'] as const;
+const VALID_PRIORITIES = ['low', 'normal', 'high', 'urgent'] as const;
+const VALID_ACTIVITY_TYPES = [
+  'like',
+  'mention',
+  'announcement',
+  'milestone',
+  'reminder',
+  'system',
+  'update',
+  'agent_task',
+] as const;
+
+type ActivitySortField = (typeof VALID_SORT_FIELDS)[number];
+type ActivitySortOrder = (typeof VALID_SORT_ORDERS)[number];
+
+interface ActivityBadgeStatsDocument {
+  readonly badges?: Partial<Record<ActivityTabId, number>>;
+  readonly totalUnread?: number;
+}
 
 // ============================================
 // HELPERS
@@ -39,6 +66,14 @@ const VALID_SORT_ORDERS = ['asc', 'desc'] as const;
 
 function getUserActivityCollection(db: FirebaseFirestore.Firestore, uid: string) {
   return db.collection('Users').doc(uid).collection(ACTIVITY_COLLECTION);
+}
+
+function getUserActivityBadgeDoc(db: FirebaseFirestore.Firestore, uid: string) {
+  return db
+    .collection('Users')
+    .doc(uid)
+    .collection(ACTIVITY_STATS_COLLECTION)
+    .doc(ACTIVITY_BADGES_DOC_ID);
 }
 
 function clampPageSize(value: unknown): number {
@@ -51,12 +86,174 @@ function parseActivityTab(value: unknown): ActivityTabId | null {
   return VALID_TABS.includes(value as ActivityTabId) ? (value as ActivityTabId) : null;
 }
 
-function buildBadgeCounts(
-  items: ReadonlyArray<{ tab: ActivityTabId }>
+function parseSortField(value: unknown): ActivitySortField {
+  return typeof value === 'string' && VALID_SORT_FIELDS.includes(value as ActivitySortField)
+    ? (value as ActivitySortField)
+    : 'timestamp';
+}
+
+function parseSortOrder(value: unknown): ActivitySortOrder {
+  return typeof value === 'string' && VALID_SORT_ORDERS.includes(value as ActivitySortOrder)
+    ? (value as ActivitySortOrder)
+    : 'desc';
+}
+
+function parseBooleanQuery(value: unknown): boolean | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === 'true') return true;
+  if (value === 'false') return false;
+  return null;
+}
+
+function parsePriority(value: unknown): ActivityPriority | null | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'string') return null;
+  return VALID_PRIORITIES.includes(value as ActivityPriority) ? (value as ActivityPriority) : null;
+}
+
+function parseActivityTypes(value: unknown): readonly ActivityType[] | null | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'string') return null;
+
+  const types = value
+    .split(',')
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+
+  if (types.length === 0 || types.length > 10) {
+    return null;
+  }
+
+  return types.every((type) => VALID_ACTIVITY_TYPES.includes(type as ActivityType))
+    ? (types as ActivityType[])
+    : null;
+}
+
+function parseDateQuery(value: unknown): Date | null | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'string') return null;
+
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function normalizeBadges(
+  badges?: Partial<Record<ActivityTabId, number>>
 ): Record<ActivityTabId, number> {
   return {
-    alerts: items.filter((item) => item.tab === 'alerts').length,
+    alerts: Math.max(0, Number(badges?.['alerts'] ?? 0) || 0),
   };
+}
+
+function totalUnreadFromBadges(badges: Record<ActivityTabId, number>): number {
+  return Object.values(badges).reduce((sum, count) => sum + count, 0);
+}
+
+async function countUnreadBadges(
+  col: FirebaseFirestore.CollectionReference
+): Promise<Record<ActivityTabId, number>> {
+  const counts = await Promise.all(
+    VALID_TABS.map(async (tab) => {
+      const snapshot = await withFirestoreRetry(
+        () =>
+          col
+            .where('isArchived', '==', false)
+            .where('tab', '==', tab)
+            .where('isRead', '==', false)
+            .count()
+            .get(),
+        `count-unread/${tab}`
+      );
+
+      return [tab, snapshot.data().count] as const;
+    })
+  );
+
+  return normalizeBadges(Object.fromEntries(counts) as Partial<Record<ActivityTabId, number>>);
+}
+
+async function readProjectedBadges(
+  db: FirebaseFirestore.Firestore,
+  uid: string
+): Promise<{ badges: Record<ActivityTabId, number>; totalUnread: number; found: boolean }> {
+  const snapshot = await withFirestoreRetry(
+    () => getUserActivityBadgeDoc(db, uid).get(),
+    'activity-badges/read-projection'
+  );
+
+  if (!snapshot.exists) {
+    const badges = normalizeBadges();
+    return { badges, totalUnread: 0, found: false };
+  }
+
+  const data = snapshot.data() as ActivityBadgeStatsDocument | undefined;
+  const badges = normalizeBadges(data?.badges);
+  const totalUnread = Math.max(0, Number(data?.totalUnread ?? totalUnreadFromBadges(badges)) || 0);
+
+  return { badges, totalUnread, found: true };
+}
+
+async function readBadgesWithFallback(
+  db: FirebaseFirestore.Firestore,
+  uid: string,
+  col: FirebaseFirestore.CollectionReference
+): Promise<{ badges: Record<ActivityTabId, number>; totalUnread: number }> {
+  const projected = await readProjectedBadges(db, uid);
+  if (projected.found) {
+    return projected;
+  }
+
+  const badges = await countUnreadBadges(col);
+  return {
+    badges,
+    totalUnread: totalUnreadFromBadges(badges),
+  };
+}
+
+function buildFeedQuery(
+  col: FirebaseFirestore.CollectionReference,
+  options: {
+    readonly tab: ActivityTabId;
+    readonly isRead?: boolean;
+    readonly priority?: ActivityPriority;
+    readonly types?: readonly ActivityType[];
+    readonly since?: Date;
+    readonly until?: Date;
+    readonly sortOrder: ActivitySortOrder;
+  }
+): FirebaseFirestore.Query {
+  let query: FirebaseFirestore.Query = col
+    .where('isArchived', '==', false)
+    .where('tab', '==', options.tab);
+
+  if (options.isRead !== undefined) {
+    query = query.where('isRead', '==', options.isRead);
+  }
+
+  if (options.priority) {
+    query = query.where('priority', '==', options.priority);
+  }
+
+  if (options.types && options.types.length > 0) {
+    query =
+      options.types.length === 1
+        ? query.where('type', '==', options.types[0])
+        : query.where('type', 'in', [...options.types]);
+  }
+
+  if (options.since) {
+    query = query.where('timestamp', '>=', options.since);
+  }
+
+  if (options.until) {
+    query = query.where('timestamp', '<=', options.until);
+  }
+
+  return query.orderBy('timestamp', options.sortOrder);
+}
+
+function buildArchivedQuery(col: FirebaseFirestore.CollectionReference): FirebaseFirestore.Query {
+  return col.where('isArchived', '==', true).orderBy('timestamp', 'desc');
 }
 
 /**
@@ -145,16 +342,13 @@ router.get('/feed', appGuard, async (req: Request, res: Response) => {
     const tab = parseActivityTab(requestedTab) ?? ACTIVITY_DEFAULT_TAB;
     const page = Math.max(Number(req.query['page']) || 1, 1);
     const limit = clampPageSize(req.query['limit']);
-    const sortBy = (VALID_SORT_FIELDS as readonly string[]).includes(req.query['sortBy'] as string)
-      ? (req.query['sortBy'] as 'timestamp' | 'priority')
-      : 'timestamp';
-    const sortOrder = (VALID_SORT_ORDERS as readonly string[]).includes(
-      req.query['sortOrder'] as string
-    )
-      ? (req.query['sortOrder'] as 'asc' | 'desc')
-      : 'desc';
-    const isReadFilter = req.query['isRead'];
-    const priority = req.query['priority'] as string | undefined;
+    const sortBy = parseSortField(req.query['sortBy']);
+    const sortOrder = parseSortOrder(req.query['sortOrder']);
+    const isRead = parseBooleanQuery(req.query['isRead']);
+    const priority = parsePriority(req.query['priority']);
+    const types = parseActivityTypes(req.query['types']);
+    const since = parseDateQuery(req.query['since']);
+    const until = parseDateQuery(req.query['until']);
 
     if (requestedTab !== undefined && parseActivityTab(requestedTab) === null) {
       res.status(400).json({
@@ -164,41 +358,63 @@ router.get('/feed', appGuard, async (req: Request, res: Response) => {
       return;
     }
 
-    // Fetch all user activity docs (single-field index only, no composite needed)
-    const snapshot = await col.get();
-
-    // Filter in memory (avoids composite index requirements)
-    let filtered = snapshot.docs.map(docToItem).filter((item) => !item.isArchived);
-
-    filtered = filtered.filter((item) => item.tab === tab);
-
-    if (isReadFilter === 'true') {
-      filtered = filtered.filter((item) => item.isRead);
-    } else if (isReadFilter === 'false') {
-      filtered = filtered.filter((item) => !item.isRead);
+    if (isRead === null) {
+      res.status(400).json({ success: false, error: 'isRead must be true or false' });
+      return;
     }
 
-    if (priority) {
-      filtered = filtered.filter((item) => item.priority === priority);
+    if (priority === null) {
+      res.status(400).json({
+        success: false,
+        error: `priority must be one of: ${VALID_PRIORITIES.join(', ')}`,
+      });
+      return;
     }
 
-    // Sort
-    filtered.sort((a, b) => {
-      const aVal = a[sortBy as keyof typeof a] ?? '';
-      const bVal = b[sortBy as keyof typeof b] ?? '';
-      const cmp = aVal < bVal ? -1 : aVal > bVal ? 1 : 0;
-      return sortOrder === 'desc' ? -cmp : cmp;
+    if (types === null) {
+      res.status(400).json({
+        success: false,
+        error: `types must be a comma-separated list of up to 10 values from: ${VALID_ACTIVITY_TYPES.join(', ')}`,
+      });
+      return;
+    }
+
+    if (since === null || until === null) {
+      res.status(400).json({ success: false, error: 'since and until must be valid ISO dates' });
+      return;
+    }
+
+    if (since && until && since > until) {
+      res.status(400).json({ success: false, error: 'since must be earlier than until' });
+      return;
+    }
+
+    if (sortBy === 'priority') {
+      logger.warn('Activity feed requested unsupported priority sort; falling back to timestamp', {
+        uid,
+      });
+    }
+
+    const query = buildFeedQuery(col, {
+      tab,
+      ...(isRead !== undefined ? { isRead } : {}),
+      ...(priority ? { priority } : {}),
+      ...(types ? { types } : {}),
+      ...(since ? { since } : {}),
+      ...(until ? { until } : {}),
+      sortOrder,
     });
 
-    // Paginate
-    const total = filtered.length;
-    const totalPages = Math.ceil(total / limit);
     const offset = (page - 1) * limit;
-    const items = filtered.slice(offset, offset + limit);
+    const [totalSnapshot, itemsSnapshot, badgeState] = await Promise.all([
+      withFirestoreRetry(() => query.count().get(), 'activity-feed/count'),
+      withFirestoreRetry(() => query.offset(offset).limit(limit).get(), 'activity-feed/page'),
+      readBadgesWithFallback(db, uid, col),
+    ]);
 
-    // Badge counts from already-fetched data (no extra queries)
-    const allActive = snapshot.docs.map(docToItem).filter((i) => !i.isArchived && !i.isRead);
-    const badges = buildBadgeCounts(allActive);
+    const total = totalSnapshot.data().count;
+    const totalPages = total === 0 ? 0 : Math.ceil(total / limit);
+    const items = itemsSnapshot.docs.map(docToItem);
 
     res.json({
       success: true,
@@ -210,7 +426,7 @@ router.get('/feed', appGuard, async (req: Request, res: Response) => {
         totalPages,
         hasMore: page < totalPages,
       },
-      badges,
+      badges: badgeState.badges,
     });
   } catch (err) {
     const error = err instanceof Error ? err : new Error(String(err));
@@ -229,10 +445,7 @@ router.get('/badges', appGuard, async (req: Request, res: Response) => {
     const db = req.firebase.db;
     const col = getUserActivityCollection(db, uid);
 
-    const snapshot = await col.get();
-    const allActive = snapshot.docs.map(docToItem).filter((i) => !i.isArchived && !i.isRead);
-
-    const badges = buildBadgeCounts(allActive);
+    const { badges } = await readBadgesWithFallback(db, uid, col);
 
     res.json({ success: true, badges });
   } catch (err) {
@@ -252,25 +465,21 @@ router.get('/summary', appGuard, async (req: Request, res: Response) => {
     const db = req.firebase.db;
     const col = getUserActivityCollection(db, uid);
 
-    const snapshot = await col.get();
-    const allItems = snapshot.docs.map(docToItem);
-    const active = allItems.filter((i) => !i.isArchived);
-    const unread = active.filter((i) => !i.isRead);
+    const [badgeState, lastActivitySnapshot] = await Promise.all([
+      readBadgesWithFallback(db, uid, col),
+      withFirestoreRetry(
+        () => col.where('isArchived', '==', false).orderBy('timestamp', 'desc').limit(1).get(),
+        'activity-summary/last-activity'
+      ),
+    ]);
 
-    const badges = buildBadgeCounts(unread);
-
-    // Most recent timestamp
-    let lastActivity: string | undefined;
-    if (active.length > 0) {
-      const sorted = active
-        .filter((i) => i.timestamp)
-        .sort((a, b) => (a.timestamp! > b.timestamp! ? -1 : 1));
-      lastActivity = sorted[0]?.timestamp;
-    }
+    const lastActivity = lastActivitySnapshot.docs[0]
+      ? docToItem(lastActivitySnapshot.docs[0]).timestamp
+      : undefined;
 
     res.json({
       success: true,
-      data: { totalUnread: unread.length, badges, lastActivity },
+      data: { totalUnread: badgeState.totalUnread, badges: badgeState.badges, lastActivity },
     });
   } catch (err) {
     const error = err instanceof Error ? err : new Error(String(err));
@@ -354,10 +563,7 @@ router.post(
       }
       await batch.commit();
 
-      // Recompute badges from all docs (no composite index needed)
-      const allDocs = await col.get();
-      const unread = allDocs.docs.map(docToItem).filter((i) => !i.isArchived && !i.isRead);
-      const badges = buildBadgeCounts(unread);
+      const badges = await countUnreadBadges(col);
 
       res.json({ success: true, count: ids.length, badges });
     } catch (err) {
@@ -400,8 +606,7 @@ router.post(
       });
 
       if (toMark.length === 0) {
-        const unread = snapshot.docs.map(docToItem).filter((i) => !i.isArchived && !i.isRead);
-        const badges = buildBadgeCounts(unread);
+        const badges = await countUnreadBadges(col);
         res.json({ success: true, count: 0, badges });
         return;
       }
@@ -419,10 +624,7 @@ router.post(
         count += chunk.length;
       }
 
-      // Recompute badges after marking
-      const afterSnapshot = await withFirestoreRetry(() => col.get(), 'read-all/badge-fetch');
-      const unread = afterSnapshot.docs.map(docToItem).filter((i) => !i.isArchived && !i.isRead);
-      const badges = buildBadgeCounts(unread);
+      const badges = await countUnreadBadges(col);
 
       res.json({ success: true, count, badges });
     } catch (err) {
@@ -488,21 +690,16 @@ router.get('/archived', appGuard, async (req: Request, res: Response) => {
     const page = Math.max(Number(req.query['page']) || 1, 1);
     const limit = clampPageSize(req.query['limit']);
 
-    // Fetch all docs, filter + sort in memory (avoids composite index)
-    const snapshot = await col.get();
-    const archived = snapshot.docs
-      .map(docToItem)
-      .filter((i) => i.isArchived)
-      .sort((a, b) => {
-        const at = a.timestamp ?? '';
-        const bt = b.timestamp ?? '';
-        return at > bt ? -1 : at < bt ? 1 : 0;
-      });
-
-    const total = archived.length;
-    const totalPages = Math.ceil(total / limit);
+    const query = buildArchivedQuery(col);
     const offset = (page - 1) * limit;
-    const items = archived.slice(offset, offset + limit);
+    const [totalSnapshot, itemsSnapshot] = await Promise.all([
+      withFirestoreRetry(() => query.count().get(), 'activity-archived/count'),
+      withFirestoreRetry(() => query.offset(offset).limit(limit).get(), 'activity-archived/page'),
+    ]);
+
+    const total = totalSnapshot.data().count;
+    const totalPages = total === 0 ? 0 : Math.ceil(total / limit);
+    const items = itemsSnapshot.docs.map(docToItem);
 
     res.json({
       success: true,

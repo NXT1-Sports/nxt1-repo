@@ -95,6 +95,11 @@ import { GetApifyActorOutputTool } from '../tools/integrations/apify/get-apify-a
 import {
   FirecrawlMcpBridgeService,
   FirebaseMcpBridgeService,
+  GoogleWorkspaceMcpSessionService,
+  GoogleWorkspaceToolCatalogService,
+  DynamicGoogleWorkspaceTool,
+  ListGoogleWorkspaceToolsTool,
+  RunGoogleWorkspaceToolTool,
   RunwayMcpBridgeService,
   FirecrawlScrapeTool,
   FirecrawlSearchTool,
@@ -263,6 +268,16 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
     );
   }
 
+  let googleWorkspaceMcpSessionService: GoogleWorkspaceMcpSessionService | null = null;
+  try {
+    googleWorkspaceMcpSessionService = new GoogleWorkspaceMcpSessionService();
+    logger.info('Google Workspace MCP session service initialized');
+  } catch (error) {
+    logger.warn('Google Workspace MCP session service failed to initialize', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+
   // The shared scraper preserves direct HTML extraction and uses the MCP bridge
   // for rendered markdown when available.
   const scraperService = new ScraperService(firecrawlMcpBridge);
@@ -366,6 +381,38 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
     toolRegistry.register(new ListNxt1DataViewsTool(firebaseMcpBridge));
     toolRegistry.register(new QueryNxt1DataTool(firebaseMcpBridge));
     logger.info('MCP-bridged NXT1 data tools registered (list_nxt1_data_views, query_nxt1_data)');
+  }
+
+  // ── 1d.2. Google Workspace MCP tools (user-scoped productivity actions) ───
+  if (googleWorkspaceMcpSessionService) {
+    // Schema discovery tool (kept for debugging and edge cases)
+    toolRegistry.register(new ListGoogleWorkspaceToolsTool(googleWorkspaceMcpSessionService));
+    // Generic fallback remains available even if discovery fails.
+    toolRegistry.register(new RunGoogleWorkspaceToolTool(googleWorkspaceMcpSessionService));
+
+    try {
+      const googleWorkspaceCatalog = new GoogleWorkspaceToolCatalogService();
+      const discoveredGoogleWorkspaceTools = await googleWorkspaceCatalog.listTools();
+
+      for (const definition of discoveredGoogleWorkspaceTools) {
+        toolRegistry.register(
+          new DynamicGoogleWorkspaceTool(googleWorkspaceMcpSessionService, definition)
+        );
+      }
+
+      logger.info('Google Workspace MCP tools registered from live discovery', {
+        infrastructureTools: 2,
+        discoveredCount: discoveredGoogleWorkspaceTools.length,
+        discoveredToolNames: discoveredGoogleWorkspaceTools.map((tool) => tool.name),
+      });
+    } catch (error) {
+      logger.warn(
+        'Google Workspace dynamic tool discovery failed — generic MCP tools remain enabled',
+        {
+          error: error instanceof Error ? error.message : String(error),
+        }
+      );
+    }
   }
 
   // ── 1e. MCP-bridged Cloudflare Stream tools (ephemeral video processing) ──
@@ -480,6 +527,7 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
     await baseWorker.shutdown();
     await pubsub.shutdown();
     await queueService.shutdown();
+    await googleWorkspaceMcpSessionService?.shutdown();
     logger.info('Agent X queue engine shut down');
   };
 }

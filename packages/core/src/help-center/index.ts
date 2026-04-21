@@ -146,3 +146,18 @@ export {
   formatRelativeTime,
   formatArticleDate,
 } from './help-center.helpers';
+
+// ============================================
+// SHARED BILLING KNOWLEDGE
+// ============================================
+
+export {
+  getUsageBillingHelpContent,
+  SHARED_BILLING_HELP_CENTER_ARTICLE,
+  type BillingHelpSummaryCard,
+  type BillingHelpStep,
+  type BillingHelpFaq,
+  type BillingHelpContent,
+  type SharedBillingArticleDefinition,
+  type BillingHelpContext,
+} from './billing-knowledge';

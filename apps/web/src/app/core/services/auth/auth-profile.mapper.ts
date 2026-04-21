@@ -9,7 +9,7 @@
  * especially for coach/director avatar and sidebar navigation.
  */
 
-import { buildTeamSlug, type ConnectedSource } from '@nxt1/core';
+import { buildTeamSlug, type ConnectedEmail, type ConnectedSource } from '@nxt1/core';
 import { resolveCanonicalTeamRoute } from '@nxt1/core/helpers';
 import type { CachedUserProfile } from '@nxt1/core/auth';
 
@@ -54,6 +54,7 @@ export interface BackendProfileLike {
   readonly completeSignUp?: boolean;
   readonly isCollegeCoach?: boolean | null;
   readonly isRecruit?: boolean | null;
+  readonly connectedEmails?: readonly ConnectedEmail[];
   readonly connectedSources?: readonly ConnectedSource[];
   readonly teamCode?: BackendTeamCodeLike | string | null;
   readonly sports?: readonly BackendSportLike[] | Record<string, BackendSportLike>;
@@ -171,6 +172,8 @@ export function mapBackendProfileToCachedUserProfile(user: BackendProfileLike): 
         : null,
     managedTeamCodes: user.coach?.managedTeamCodes ?? null,
     primarySport,
+    selectedSports: sports.map((sport) => sport.sport),
+    connectedEmails: Array.isArray(user.connectedEmails) ? [...user.connectedEmails] : undefined,
     sports: sports.map((sport) => ({
       sport: sport.sport,
       positions: sport.positions,

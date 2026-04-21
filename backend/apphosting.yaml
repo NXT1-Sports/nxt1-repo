@@ -37,3 +37,7 @@ env:
     secret: GMAIL_APP_PASSWORD
     availability:
       - RUNTIME
+  - variable: GOOGLE_WORKSPACE_MCP_URL
+    secret: GOOGLE_WORKSPACE_MCP_URL
+    availability:
+      - RUNTIME

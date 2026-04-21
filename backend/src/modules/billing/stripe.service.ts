@@ -376,6 +376,55 @@ export async function createSetupIntent(
   return setupIntent.client_secret;
 }
 
+function getDefaultPaymentMethodId(
+  customer: Stripe.Customer | Stripe.DeletedCustomer | string
+): string | null {
+  if (typeof customer === 'string' || customer.deleted) {
+    return null;
+  }
+
+  const defaultPaymentMethod = customer.invoice_settings?.default_payment_method;
+  if (typeof defaultPaymentMethod === 'string') {
+    return defaultPaymentMethod;
+  }
+
+  return defaultPaymentMethod?.id ?? null;
+}
+
+export async function getDefaultCardPaymentMethodId(
+  customerId: string,
+  environment: 'staging' | 'production'
+): Promise<string | null> {
+  try {
+    const stripe = getStripeClient(environment);
+    const customer = await stripe.customers.retrieve(customerId);
+    const defaultPaymentMethodId = getDefaultPaymentMethodId(customer);
+
+    if (!defaultPaymentMethodId) {
+      return null;
+    }
+
+    const paymentMethod = await stripe.paymentMethods.retrieve(defaultPaymentMethodId);
+    if (paymentMethod.type !== 'card') {
+      logger.info('[getDefaultCardPaymentMethodId] Default payment method is not a card', {
+        customerId,
+        paymentMethodId: defaultPaymentMethodId,
+        paymentMethodType: paymentMethod.type,
+      });
+      return null;
+    }
+
+    return paymentMethod.id;
+  } catch (error) {
+    logger.warn('[getDefaultCardPaymentMethodId] Failed to resolve default card payment method', {
+      error,
+      customerId,
+      environment,
+    });
+    return null;
+  }
+}
+
 /**
  * Check whether a Stripe customer has at least one saved card.
  * Used to gate Org/Team users from running agent jobs before adding a payment method.

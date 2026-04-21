@@ -13,12 +13,15 @@ import { appGuard } from '../../middleware/auth.middleware.js';
 import { logger } from '../../utils/logger.js';
 import { validateBody } from '../../middleware/validation.middleware.js';
 import { UpdateProfileDto, UploadProfileImageDto } from '../../dtos/profile.dto.js';
+import { provisionOnboardingPrograms } from '../../services/onboarding-program-provisioning.service.js';
 import { createRosterEntryService } from '../../services/roster-entry.service.js';
 import * as teamCodeService from '../../services/team-code.service.js';
+import { mergeConnectedSources } from '@nxt1/core/profile';
 import { asyncHandler, sendError } from '@nxt1/core/errors/express';
 import { validationError, notFoundError, forbiddenError } from '@nxt1/core/errors';
-import type { SportProfile } from '@nxt1/core';
+import type { ConnectedSource, SportProfile } from '@nxt1/core';
 import type { UpdateSportProfileRequest } from '@nxt1/core';
+import type { TeamSelectionFormData } from '@nxt1/core/api';
 import { RosterEntryStatus } from '@nxt1/core/models';
 import { isTeamRole, PROFILE_UI_CONFIG } from '@nxt1/core';
 import { CLOUDFLARE_API_BASE_URL } from '../upload/shared.js';
@@ -39,6 +42,28 @@ const EVENTS_COLLECTION = 'Events';
 const RECRUITING_COLLECTION = 'Recruiting';
 const SCHEDULE_COLLECTION = 'Schedule';
 const NEWS_COLLECTION = 'News';
+type ManagedUserRole = 'athlete' | 'coach' | 'director';
+
+function normalizeIncomingConnectedSources(value: unknown): ConnectedSource[] {
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .filter(
+      (entry): entry is ConnectedSource =>
+        !!entry &&
+        typeof entry === 'object' &&
+        typeof entry.platform === 'string' &&
+        typeof entry.profileUrl === 'string'
+    )
+    .map((entry) => ({
+      platform: entry.platform.trim().toLowerCase(),
+      profileUrl: entry.profileUrl.trim(),
+      scopeType: entry.scopeType,
+      scopeId:
+        typeof entry.scopeId === 'string' && entry.scopeId.trim() ? entry.scopeId : undefined,
+    }))
+    .filter((entry) => entry.platform.length > 0 && entry.profileUrl.length > 0);
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -370,7 +395,12 @@ router.post(
       return;
     }
 
-    const sport = req.body as Partial<SportProfile> & { teamName?: string; teamType?: string };
+    const sport = req.body as Partial<SportProfile> & {
+      teamName?: string;
+      teamType?: string;
+      teamSelection?: TeamSelectionFormData;
+      connectedSources?: readonly ConnectedSource[];
+    };
 
     if (!sport.sport?.trim()) {
       sendError(
@@ -392,12 +422,146 @@ router.post(
     const currentData = currentDoc.data() as UserFirestoreDoc;
     const existingSports: SportProfile[] =
       (currentData['sports'] as SportProfile[] | undefined) ?? [];
+    const incomingConnectedSources = normalizeIncomingConnectedSources(sport.connectedSources);
     const newSport: SportProfile = { ...sport, order: existingSports.length } as SportProfile;
 
     const userRole = currentData['role'] as string | undefined;
     const isTeamRoleUser = userRole === 'coach' || userRole === 'director';
+    const managedRole: ManagedUserRole =
+      userRole === 'coach' || userRole === 'director' ? userRole : 'athlete';
+    const teamSelection =
+      sport.teamSelection &&
+      Array.isArray(sport.teamSelection.teams) &&
+      sport.teamSelection.teams.length > 0
+        ? sport.teamSelection
+        : undefined;
+    const location = currentData['location'] as { city?: string; state?: string } | undefined;
+    const fallbackCoachTitle =
+      existingSports.find((entry) => entry.team?.title)?.team?.title ||
+      (currentData['coachTitle'] as string | undefined);
+
+    let provisionedTeam: { teamId: string; organizationId: string; orgName: string } | undefined;
+    let provisionedTeamIds: string[] = [];
+
+    if (teamSelection) {
+      try {
+        const provisionResult = await provisionOnboardingPrograms({
+          db,
+          userId,
+          role: managedRole,
+          sports: [newSport],
+          currentUser: {
+            firstName: (currentData['firstName'] as string | undefined) ?? '',
+            lastName: (currentData['lastName'] as string | undefined) ?? '',
+            displayName: (currentData['displayName'] as string | undefined) ?? undefined,
+            email: (currentData['email'] as string | undefined) ?? undefined,
+            contact: {
+              phone:
+                (currentData['contact'] as { phone?: string } | undefined)?.phone ??
+                (currentData['phoneNumber'] as string | undefined),
+            },
+            profileImgs: (currentData['profileImgs'] as string[] | undefined) ?? [],
+          },
+          updateData: {
+            firstName: (currentData['firstName'] as string | undefined) ?? '',
+            lastName: (currentData['lastName'] as string | undefined) ?? '',
+            profileImgs: (currentData['profileImgs'] as string[] | undefined) ?? [],
+            coachTitle: fallbackCoachTitle,
+            athlete:
+              typeof currentData['classOf'] === 'number'
+                ? { classOf: currentData['classOf'] as number }
+                : undefined,
+            location: location
+              ? {
+                  city: location.city,
+                  state: location.state,
+                }
+              : undefined,
+          },
+          teamSelection: {
+            teams: teamSelection.teams ? [...teamSelection.teams] : undefined,
+          },
+        });
+
+        provisionedTeamIds = provisionResult.teamIds;
+        provisionedTeam = provisionResult.sportTeamMap.get(newSport.sport.trim().toLowerCase());
+
+        if (provisionedTeam) {
+          const primarySelection = teamSelection.teams[0];
+          newSport.team = {
+            ...(newSport.team ?? {}),
+            name: provisionedTeam.orgName,
+            teamId: provisionedTeam.teamId,
+            organizationId: provisionedTeam.organizationId,
+            type: (newSport.team?.type ||
+              primarySelection?.teamType ||
+              (isTeamRoleUser ? 'organization' : 'high-school')) as import('@nxt1/core').TeamType,
+          };
+        }
+      } catch (err) {
+        logger.error('[Profile] Failed to provision selected organization for new sport', {
+          error: err,
+          userId,
+          sport: newSport.sport,
+        });
+        sendError(
+          res,
+          validationError([
+            {
+              field: 'teamSelection',
+              message: 'Failed to connect this sport to the selected organization.',
+              rule: 'server',
+            },
+          ])
+        );
+        return;
+      }
+    }
 
     if (isTeamRoleUser) {
+      if (teamSelection) {
+        if (incomingConnectedSources.length > 0 && provisionedTeamIds.length > 0) {
+          await Promise.all(
+            provisionedTeamIds.map(async (teamId) => {
+              const teamRef = db.collection('Teams').doc(teamId);
+              const teamDoc = await teamRef.get();
+              const existingSources = normalizeIncomingConnectedSources(
+                teamDoc.data()?.['connectedSources']
+              );
+              await teamRef.update({
+                connectedSources: mergeConnectedSources(existingSources, incomingConnectedSources),
+                updatedAt: new Date().toISOString(),
+              });
+            })
+          );
+        }
+
+        // Add the new sport to the user's profile
+        await userRef.update({
+          sports: FieldValue.arrayUnion(newSport),
+          updatedAt: new Date().toISOString(),
+        });
+
+        // Sync roster entry profile data
+        const rosterEntryService = createRosterEntryService(db);
+        await rosterEntryService.syncUserProfileToRosterEntries(userId, {
+          ...currentData,
+          sports: [...existingSports, newSport],
+        });
+
+        const currentUnicode = currentData['unicode'] as string | null | undefined;
+        await invalidateProfileCaches(userId, currentUnicode);
+
+        res.status(201).json({
+          success: true,
+          data: {
+            sport: newSport.sport,
+            teamId: provisionedTeamIds[0] ?? provisionedTeam?.teamId,
+          },
+        });
+        return;
+      }
+
       // ── COACH / DIRECTOR: Atomic Team + RosterEntry ──────────────────────
       const rosterEntries = await db
         .collection('RosterEntries')
@@ -530,12 +694,36 @@ router.post(
           batch
         );
 
+        // Add the new sport to the user's profile atomically
+        batch.update(userRef, {
+          sports: FieldValue.arrayUnion(newSport),
+          updatedAt: new Date().toISOString(),
+        });
+
         await batch.commit();
 
         logger.info('[Profile] Atomic sport+team+roster created for coach/director', {
           userId,
           teamId: team.id,
           sport: newSport.sport,
+        });
+
+        if (incomingConnectedSources.length > 0 && team.id) {
+          const teamRef = db.collection('Teams').doc(team.id);
+          const teamDoc = await teamRef.get();
+          const existingSources = normalizeIncomingConnectedSources(
+            teamDoc.data()?.['connectedSources']
+          );
+          await teamRef.update({
+            connectedSources: mergeConnectedSources(existingSources, incomingConnectedSources),
+            updatedAt: new Date().toISOString(),
+          });
+        }
+
+        // Sync roster entry profile data
+        await rosterEntryService.syncUserProfileToRosterEntries(userId, {
+          ...currentData,
+          sports: [...existingSports, newSport],
         });
 
         const currentUnicode = currentData['unicode'] as string | null | undefined;
@@ -559,8 +747,20 @@ router.post(
     }
 
     // ── ATHLETE: Write sport directly to user.sports[] ────────────────────
+    const existingUserConnectedSources = normalizeIncomingConnectedSources(
+      currentData['connectedSources']
+    );
+
     await userRef.update({
       sports: FieldValue.arrayUnion(newSport),
+      ...(incomingConnectedSources.length > 0
+        ? {
+            connectedSources: mergeConnectedSources(
+              existingUserConnectedSources,
+              incomingConnectedSources
+            ),
+          }
+        : {}),
       updatedAt: new Date().toISOString(),
     });
 

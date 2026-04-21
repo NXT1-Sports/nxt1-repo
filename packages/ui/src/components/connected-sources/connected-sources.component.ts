@@ -55,6 +55,8 @@ export interface ConnectedSource {
   readonly scopeId?: string;
   /** Real favicon URL (Google Favicon API). When present, replaces the icon glyph. */
   readonly faviconUrl?: string;
+  /** Optional UI action label override for the disconnected state. */
+  readonly actionLabel?: string;
   /** Display name of the person who originally added this link (e.g., "Coach Smith") */
   readonly addedBy?: string;
   /** True when this source is immutable in the current flow. */
@@ -165,7 +167,7 @@ export const DEFAULT_PLATFORMS: readonly ConnectedSource[] = [
                   <nxt1-icon name="checkmarkCircle" [size]="16" class="nxt1-source-check" />
                 } @else {
                   <span class="nxt1-source-connect">{{
-                    source.connectionType === 'signin' ? 'Sign in' : 'Link'
+                    source.actionLabel ?? (source.connectionType === 'signin' ? 'Sign in' : 'Link')
                   }}</span>
                   <nxt1-icon name="chevronForward" [size]="14" class="nxt1-source-chevron" />
                 }

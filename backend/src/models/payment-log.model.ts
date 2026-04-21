@@ -41,6 +41,7 @@ export interface PaymentLogDocument {
   paymentMethodLabel?: string;
   /** Stripe event type that originated this log (e.g. 'wallet_topup', 'org_invoice_topup') */
   type?: string;
+  finalizationSource?: 'webhook' | 'client_return' | 'direct_charge';
   rawEvent: Record<string, unknown>;
   createdAt: Date;
   updatedAt?: Date;
@@ -69,6 +70,10 @@ const PaymentLogSchema = new Schema<PaymentLogDocument>(
     receiptUrl: { type: String },
     paymentMethodLabel: { type: String },
     type: { type: String },
+    finalizationSource: {
+      type: String,
+      enum: ['webhook', 'client_return', 'direct_charge'],
+    },
     rawEvent: { type: Schema.Types.Mixed, required: true },
     createdAt: { type: Date, required: true, default: Date.now },
     updatedAt: { type: Date },

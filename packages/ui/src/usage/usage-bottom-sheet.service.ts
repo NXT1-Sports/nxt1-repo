@@ -12,12 +12,14 @@
  */
 
 import { Injectable, inject } from '@angular/core';
-import { NxtBottomSheetService } from '../components/bottom-sheet';
+import { NxtBottomSheetService, SHEET_PRESETS } from '../components/bottom-sheet';
 import { USAGE_TIMEFRAME_OPTIONS, type UsageTimeframe } from '@nxt1/core';
 import type {
   BottomSheetAction,
   BottomSheetResult,
 } from '../components/bottom-sheet/bottom-sheet.types';
+import { BuyCreditsAutoTopupSheetComponent } from './buy-credits-autotopup-sheet.component';
+import type { BuyCreditsAutoTopupResult } from './buy-credits-flow.shared';
 
 export interface UsageBottomSheetResult {
   readonly action: string;
@@ -126,37 +128,13 @@ export class UsageBottomSheetService {
       return null;
     }
 
-    // Stripe credit packages: 100 credits per dollar
-    const packages = [
-      { credits: 500, price: '$4.99' },
-      { credits: 1_000, price: '$9.99' },
-      { credits: 2_500, price: '$24.99' },
-      { credits: 5_000, price: '$49.99' },
-      { credits: 10_000, price: '$99.99' },
-      { credits: 25_000, price: '$249.99' },
-      { credits: 50_000, price: '$499.99' },
-    ] as const;
-
-    const result = await this.bottomSheet.show<BottomSheetAction>({
-      title: 'Add Credits',
-      icon: 'card-outline',
-      subtitle: 'Credits let you unlock premium actions across NXT1.',
-      actions: packages.map((pkg) => ({
-        label: `${pkg.credits.toLocaleString()} Credits — ${pkg.price}`,
-        role: 'primary' as const,
-      })),
+    const result = await this.openBuyCreditsSheet({
+      autoTopupEnabled: false,
+      autoTopupThresholdCents: 500,
+      autoTopupAmountCents: 1_000,
     });
 
-    if (!result?.confirmed) return null;
-    const selectedLabel = (result.data as BottomSheetAction | undefined)?.label;
-    const selected = packages.find(
-      (pkg) => `${pkg.credits.toLocaleString()} Credits — ${pkg.price}` === selectedLabel
-    );
-    if (!selected) return null;
-
-    // Parse price to cents for the Stripe checkout
-    const priceCents = Math.round(parseFloat(selected.price.replace('$', '')) * 100);
-    return priceCents;
+    return result?.type === 'buy' ? result.amountCents : null;
   }
 
   /**
@@ -177,40 +155,45 @@ export class UsageBottomSheetService {
     amountCents: number | null;
     autoTopup: { enabled: boolean; thresholdCents: number; amountCents: number } | null;
   }> {
-    // Step 1: Credit package selection
-    const amountCents = await this.showBuyCreditsOptions();
-    if (amountCents === null) return { amountCents: null, autoTopup: null };
-
-    // Step 2: Offer auto top-up only when it's not already configured
-    if (!opts.autoTopupEnabled) {
-      const enableResult = await this.bottomSheet.show({
-        title: 'Set Up Auto Top-Up?',
-        icon: 'reload-outline',
-        subtitle: 'Automatically refill your wallet when balance runs low.',
-        actions: [
-          { label: 'Set up Auto Top-Up', role: 'primary', icon: 'checkmark-outline' },
-          { label: 'No thanks', role: 'secondary' },
-        ],
-      });
-
-      const confirmedAutoTopup =
-        enableResult?.confirmed &&
-        (enableResult.data as unknown as BottomSheetAction | undefined)?.label ===
-          'Set up Auto Top-Up';
-
-      if (confirmedAutoTopup) {
-        const thresholdCents = await this.showAutoTopupThreshold();
-        const topupAmountCents = await this.showAutoTopupAmount();
-        if (thresholdCents !== null && topupAmountCents !== null) {
-          return {
-            amountCents,
-            autoTopup: { enabled: true, thresholdCents, amountCents: topupAmountCents },
-          };
-        }
-      }
+    const result = await this.openBuyCreditsSheet(opts);
+    if (result?.type === 'buy') {
+      return { amountCents: result.amountCents, autoTopup: null };
     }
 
-    return { amountCents, autoTopup: null };
+    if (result?.type === 'auto-topup') {
+      return {
+        amountCents: null,
+        autoTopup: {
+          enabled: result.enabled,
+          thresholdCents: result.thresholdCents,
+          amountCents: result.amountCents,
+        },
+      };
+    }
+
+    return { amountCents: null, autoTopup: null };
+  }
+
+  private async openBuyCreditsSheet(opts: {
+    autoTopupEnabled: boolean;
+    autoTopupThresholdCents: number;
+    autoTopupAmountCents: number;
+  }): Promise<BuyCreditsAutoTopupResult> {
+    const result = await this.bottomSheet.openSheet<BuyCreditsAutoTopupResult>({
+      component: BuyCreditsAutoTopupSheetComponent,
+      componentProps: {
+        initialAutoTopupEnabled: opts.autoTopupEnabled,
+        initialThresholdCents: opts.autoTopupThresholdCents,
+        initialAutoTopupAmountCents: opts.autoTopupAmountCents,
+      },
+      ...SHEET_PRESETS.FULL,
+      showHandle: true,
+      handleBehavior: 'cycle',
+      backdropDismiss: true,
+      cssClass: 'usage-buy-credits-sheet',
+    });
+
+    return result.data ?? null;
   }
 
   /** Show threshold selector for auto top-up configuration. */

@@ -2,11 +2,12 @@
  * @fileoverview Add Sport Routes
  * @module @nxt1/mobile/features/add-sport
  *
- * 2-step wizard for adding a new sport (+ connected accounts) to an
+ * 3-step wizard for adding a new sport (+ organization + connected accounts) to an
  * already-onboarded user's profile.
  *
  *   /add-sport          → redirects to /add-sport/sport
  *   /add-sport/sport    → sport selection step
+ *   /add-sport/organization → organization / program selection step
  *   /add-sport/link-sources → connected accounts step
  */
 
@@ -23,6 +24,12 @@ export const ADD_SPORT_ROUTES: Routes = [
         path: 'sport',
         loadComponent: () => import('./steps/sport.page').then((m) => m.AddSportSportStepPage),
         title: 'Add Sport | NXT1 Sports',
+      },
+      {
+        path: 'organization',
+        loadComponent: () =>
+          import('./steps/organization.page').then((m) => m.AddSportOrganizationStepPage),
+        title: 'Select Organization | NXT1 Sports',
       },
       {
         path: 'link-sources',

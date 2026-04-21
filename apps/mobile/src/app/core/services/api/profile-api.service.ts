@@ -15,6 +15,7 @@ import {
   createProfileApi,
   type ProfileApi,
   type ApiResponse,
+  type AddSportRequest,
   type UpdateProfileRequest,
   type UpdateSportProfileRequest,
 } from '@nxt1/core/api';
@@ -185,7 +186,7 @@ export class ProfileApiService {
   /**
    * Add new sport to profile
    */
-  async addSport(userId: string, sport: Partial<SportProfile>): Promise<ApiResponse<SportProfile>> {
+  async addSport(userId: string, sport: AddSportRequest): Promise<ApiResponse<SportProfile>> {
     return this.api.addSport(userId, sport);
   }
 

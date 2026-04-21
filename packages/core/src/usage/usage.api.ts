@@ -21,7 +21,9 @@ import type {
   UsageChartDataPoint,
   UsageBreakdownRow,
   UsageBudget,
-  BillingContextSummary,
+  BillingMode,
+  BudgetInterval,
+  BillingStateSummary,
   UsageSection,
 } from './usage.types';
 import { USAGE_API_ENDPOINTS } from './usage.constants';
@@ -58,7 +60,9 @@ export function createUsageApi(http: HttpAdapter, baseUrl: string) {
     downloadInvoice: `${baseUrl}${USAGE_API_ENDPOINTS.downloadInvoice}`,
     redeemCoupon: `${baseUrl}${USAGE_API_ENDPOINTS.redeemCoupon}`,
     buyCredits: `${baseUrl}${USAGE_API_ENDPOINTS.buyCredits}`,
+    confirmCheckout: `${baseUrl}${USAGE_API_ENDPOINTS.confirmCheckout}`,
     budget: `${baseUrl}${USAGE_API_ENDPOINTS.budget}`,
+    budgetOrg: `${baseUrl}${USAGE_API_ENDPOINTS.budgetOrg}`,
     budgetTeam: `${baseUrl}${USAGE_API_ENDPOINTS.budgetTeam}`,
   } as const;
 
@@ -199,28 +203,51 @@ export function createUsageApi(http: HttpAdapter, baseUrl: string) {
 
     // ── Budget Management ──────────────────────────────
 
-    /** Fetch the user's billing context (budget, spend, billing entity) */
-    async getBillingContext(): Promise<BillingContextSummary> {
-      const response = await http.get<ApiResponse<BillingContextSummary>>(endpoints.budget);
+    /** Fetch the user's resolved billing state (budget, spend, billing entity) */
+    async getBillingState(): Promise<BillingStateSummary> {
+      const response = await http.get<ApiResponse<BillingStateSummary>>(endpoints.budget);
       if (!response.success || !response.data) {
-        throw new Error(response.error ?? 'Failed to fetch billing context');
+        throw new Error(response.error ?? 'Failed to fetch billing state');
       }
       return response.data;
     },
 
-    /** Update the user's monthly budget (in cents) */
-    async updateBudget(monthlyBudget: number): Promise<void> {
-      const response = await http.put<ApiResponse<void>>(endpoints.budget, { monthlyBudget });
+    /** Update the current budget configuration */
+    async updateBudget(config: {
+      organizationId: string;
+      monthlyBudget: number;
+      budgetInterval: BudgetInterval;
+      hardStop: boolean;
+    }): Promise<void> {
+      const response = await http.put<ApiResponse<void>>(
+        `${endpoints.budgetOrg}/${config.organizationId}`,
+        {
+          monthlyBudget: config.monthlyBudget,
+          budgetInterval: config.budgetInterval,
+          hardStop: config.hardStop ? 'hard' : 'soft',
+        }
+      );
       if (!response.success) {
         throw new Error(response.error ?? 'Failed to update budget');
       }
     },
 
-    /** Update a team's monthly budget (in cents) — team admin only */
-    async updateTeamBudget(teamId: string, monthlyBudget: number): Promise<void> {
-      const response = await http.put<ApiResponse<void>>(`${endpoints.budgetTeam}/${teamId}`, {
-        monthlyBudget,
-      });
+    /** Update a team's budget configuration — org admin only */
+    async updateTeamBudget(
+      organizationId: string,
+      teamId: string,
+      config: {
+        monthlyBudget: number;
+        budgetInterval: BudgetInterval;
+      }
+    ): Promise<void> {
+      const response = await http.put<ApiResponse<void>>(
+        `${endpoints.budgetOrg}/${organizationId}/team/${teamId}`,
+        {
+          monthlyLimit: config.monthlyBudget,
+          budgetInterval: config.budgetInterval,
+        }
+      );
       if (!response.success) {
         throw new Error(response.error ?? 'Failed to update team budget');
       }
@@ -251,19 +278,66 @@ export function createUsageApi(http: HttpAdapter, baseUrl: string) {
       return { type: 'redirect', url };
     },
 
-    /** Delete (disable) the user's budget by setting it to 0 */
-    async deleteBudget(): Promise<void> {
-      const response = await http.put<ApiResponse<void>>(endpoints.budget, { monthlyBudget: 0 });
+    async confirmCheckoutSession(
+      sessionId: string,
+      organizationId?: string
+    ): Promise<{
+      readonly kind: 'wallet_topup' | 'org_wallet_topup';
+      readonly newBalance: number;
+      readonly organizationId: string | null;
+    }> {
+      const body: Record<string, unknown> = { sessionId };
+      if (organizationId) body['organizationId'] = organizationId;
+
+      const response = await http.post<
+        ApiResponse<{
+          readonly kind: 'wallet_topup' | 'org_wallet_topup';
+          readonly newBalance: number;
+          readonly organizationId: string | null;
+        }>
+      >(endpoints.confirmCheckout, body);
+
+      if (!response.success || !response.data) {
+        throw new Error(response.error ?? 'Failed to confirm checkout session');
+      }
+
+      return response.data;
+    },
+
+    /** Delete a specific organization budget row. */
+    async deleteBudget(config: {
+      organizationId: string;
+      budgetInterval: BudgetInterval;
+    }): Promise<void> {
+      const response = await http.delete<ApiResponse<void>>(
+        `${endpoints.budgetOrg}/${config.organizationId}`,
+        {
+          params: {
+            budgetInterval: config.budgetInterval,
+          },
+        }
+      );
       if (!response.success) {
         throw new Error(response.error ?? 'Failed to delete budget');
       }
     },
 
-    /** Delete (disable) a team's budget by setting it to 0 */
-    async deleteTeamBudget(teamId: string): Promise<void> {
-      const response = await http.put<ApiResponse<void>>(`${endpoints.budgetTeam}/${teamId}`, {
-        monthlyBudget: 0,
-      });
+    /** Delete a specific team budget row. */
+    async deleteTeamBudget(
+      organizationId: string,
+      teamId: string,
+      config: {
+        budgetInterval: BudgetInterval;
+      }
+    ): Promise<void> {
+      const response = await http.delete<ApiResponse<void>>(
+        `${endpoints.budgetOrg}/${organizationId}/team/${teamId}`,
+        {
+          params: {
+            budgetInterval: config.budgetInterval,
+          },
+        }
+      );
       if (!response.success) {
         throw new Error(response.error ?? 'Failed to delete team budget');
       }
@@ -306,24 +380,24 @@ export function createUsageApi(http: HttpAdapter, baseUrl: string) {
     /**
      * Switch billing mode between personal wallet and org billing.
      * Only meaningful for users who belong to an org-billed team.
-     * Setting usePersonalBilling=true routes all subsequent AI charges
+     * Setting billingMode='personal' routes all subsequent AI charges
      * to the user's personal wallet until reverted.
      *
-     * Returns the freshly resolved billing context so the frontend can
+     * Returns the freshly resolved billing state so the frontend can
      * apply it directly — no subsequent GET required (eliminates cache races).
      */
-    async setBillingMode(usePersonalBilling: boolean): Promise<{
-      billingMode: string;
-      billingContext: BillingContextSummary;
+    async setBillingMode(billingMode: BillingMode): Promise<{
+      billingMode: BillingMode;
+      billingState: BillingStateSummary;
       allowedSections: readonly UsageSection[];
     }> {
       const response = await http.post<
         ApiResponse<{
-          billingMode: string;
-          billingContext: BillingContextSummary;
+          billingMode: BillingMode;
+          billingState: BillingStateSummary;
           allowedSections: readonly UsageSection[];
         }>
-      >(`${baseUrl}${USAGE_API_ENDPOINTS.billingMode}`, { usePersonalBilling });
+      >(`${baseUrl}${USAGE_API_ENDPOINTS.billingMode}`, { billingMode });
       if (!response.success || !response.data) {
         throw new Error(response.error ?? 'Failed to update billing mode');
       }

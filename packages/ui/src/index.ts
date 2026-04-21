@@ -107,11 +107,13 @@ export { NewsBoardComponent } from './components/news-board';
 export {
   NxtConnectedSourcesComponent,
   ConnectedAccountsSheetComponent,
+  ConnectedAccountsResyncService,
   ConnectedAccountsWebModalComponent,
   ConnectedAccountsModalService,
   DEFAULT_PLATFORMS,
   FirecrawlSignInService,
   FirecrawlSignInModalComponent,
+  type ConnectedAccountsResyncSource,
   type ConnectedSource,
   type ConnectedSourceTapEvent,
   type ConnectedAccountsModalOptions,
@@ -504,6 +506,7 @@ export {
   AgentXBundlesComponent,
   AgentXTaskListComponent,
   // Types
+  type AgentXConnectedAccountsSaveRequest,
   type AgentXUser,
   // Landing
   NxtAgentXLandingComponent,

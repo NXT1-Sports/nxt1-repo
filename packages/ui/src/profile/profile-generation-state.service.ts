@@ -141,7 +141,6 @@ export class ProfileGenerationStateService {
   private isPolling = false;
   /** Tracks whether backend progress has been received at least once */
   private hasReceivedBackendProgress = false;
-  private activeOperationSubscription: null = null;
   /** AbortController for the SSE resume stream opened by `attachToOperation()`. */
   private resumeStream: AbortController | null = null;
   /**
@@ -411,7 +410,6 @@ export class ProfileGenerationStateService {
       clearTimeout(this.trackingTimeout);
       this.trackingTimeout = null;
     }
-    this.activeOperationSubscription = null;
     this.isPolling = false;
     this.activePollResolve = null;
     this.logger.info('Profile generation tracking stopped (overlay unmounted)', {
@@ -489,7 +487,6 @@ export class ProfileGenerationStateService {
   /** Resolve the active poll promise and clear the polling flag. */
   private resolvePoll(result: 'completed' | 'failed' | 'timeout'): void {
     this.clearTrackingTimeout();
-    this.activeOperationSubscription = null;
     this.isPolling = false;
     this.activePollResolve?.(result);
     this.activePollResolve = null;

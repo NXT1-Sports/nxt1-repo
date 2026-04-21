@@ -4,11 +4,11 @@
  *
  * Sends an email through the user's connected email provider (Gmail or Microsoft).
  * Auto-detects the provider by looking up the user's connectedEmails in Firestore.
- * Delegates to the existing `sendEmailViaProvider()` from email-sync.service.ts.
+ * Delegates to the existing `sendEmailViaProvider()` from connected-mail.service.ts.
  */
 
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../../base.tool.js';
-import { sendEmailViaProvider } from '../../../../../services/email-sync.service.js';
+import { sendEmailViaProvider } from '../../../../../services/connected-mail.service.js';
 import type { Firestore } from 'firebase-admin/firestore';
 import { db as defaultDb } from '../../../../../utils/firebase.js';
 import { getAnalyticsLoggerService } from '../../../../../services/analytics-logger.service.js';

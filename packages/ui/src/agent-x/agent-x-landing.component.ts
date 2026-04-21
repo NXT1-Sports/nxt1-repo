@@ -93,7 +93,7 @@ const AGENT_X_FAQS: FaqItem[] = [
     id: 'what-is-agent-x',
     question: 'What is Agent X?',
     answer:
-      'Agent X is your AI-powered recruiting assistant built into NXT1. It can create highlight films, design recruiting graphics, draft emails to college coaches, generate evaluations, and more — all through a simple conversational interface.',
+      "Agent X is NXT1's AI command center. It can create highlight films, design recruiting graphics, draft emails to college coaches, generate evaluations, and run high-value workflows through plain-language prompts.",
   },
   {
     id: 'how-it-works',
@@ -167,7 +167,7 @@ const AGENT_X_FAQS: FaqItem[] = [
     <!-- FAQ -->
     <nxt1-faq-section
       title="Agent X FAQ"
-      subtitle="Common questions about your AI recruiting assistant."
+      subtitle="Common questions about Agent X."
       [items]="faqs"
     />
 
@@ -175,7 +175,7 @@ const AGENT_X_FAQS: FaqItem[] = [
     <nxt1-cta-banner
       variant="conversion"
       badgeLabel="Agent X"
-      title="Activate Your AI Recruiting Assistant."
+      title="Activate Agent X."
       subtitle="Use Agent X to create highlight films, generate recruiting graphics, draft coach outreach, and get AI-powered evaluations in one conversation."
       ctaLabel="Start with Agent X"
       ctaRoute="/auth"

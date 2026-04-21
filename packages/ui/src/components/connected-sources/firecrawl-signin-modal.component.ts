@@ -62,15 +62,17 @@ import { NxtIconComponent } from '../icon/icon.component';
           </div>
         }
 
-        <iframe
-          class="nxt1-fc-iframe"
-          [class.nxt1-fc-iframe--visible]="!iframeLoading()"
-          [src]="safeUrl()"
-          allow="clipboard-read; clipboard-write"
-          sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"
-          title="Sign in to {{ platformLabel() }}"
-          (load)="onIframeLoad()"
-        ></iframe>
+        @if (safeUrl(); as trustedUrl) {
+          <iframe
+            class="nxt1-fc-iframe"
+            [class.nxt1-fc-iframe--visible]="!iframeLoading()"
+            [src]="trustedUrl"
+            allow="clipboard-read; clipboard-write"
+            sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"
+            title="Sign in to {{ platformLabel() }}"
+            (load)="onIframeLoad()"
+          ></iframe>
+        }
       </div>
 
       <div class="nxt1-fc-footer">
@@ -251,15 +253,18 @@ export class FirecrawlSignInModalComponent {
 
   protected readonly headerTitle = computed(() => `Sign in to ${this.platformLabel()}`);
 
-  protected readonly safeUrl = computed<SafeResourceUrl>(() => {
+  protected readonly safeUrl = computed<SafeResourceUrl | null>(() => {
     const url = this.interactiveLiveViewUrl();
+    if (!url) {
+      return null;
+    }
 
     // Security: Only trust URLs from Firecrawl's known domain
     const isAllowed = FirecrawlSignInModalComponent.ALLOWED_ORIGINS.some((origin) =>
       url.startsWith(origin)
     );
     if (!isAllowed) {
-      return this.sanitizer.bypassSecurityTrustResourceUrl('about:blank');
+      return null;
     }
 
     return this.sanitizer.bypassSecurityTrustResourceUrl(url);

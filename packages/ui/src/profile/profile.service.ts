@@ -9,7 +9,7 @@
  * ⭐ SHARED BETWEEN WEB AND MOBILE ⭐
  */
 
-import { Injectable, inject, signal, computed, effect, DestroyRef } from '@angular/core';
+import { Injectable, inject, signal, computed } from '@angular/core';
 import { NxtThemeService } from '../services/theme';
 import {
   type ProfileTabId,
@@ -71,7 +71,6 @@ export class ProfileService {
   private readonly logger = inject(NxtLoggingService).child('ProfileService');
   private readonly toast = inject(NxtToastService);
   private readonly theme = inject(NxtThemeService);
-  private readonly destroyRef = inject(DestroyRef);
 
   // Optional API service for persisting active sport index
   private api?: ProfileUiApi;

@@ -360,6 +360,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
           photoURL: transferred.firebaseUser.photoURL,
           emailVerified: transferred.firebaseUser.emailVerified,
           metadata: transferred.firebaseUser.metadata,
+          providerData: transferred.firebaseUser.providerData,
         });
       }
 
@@ -476,6 +477,9 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
                 creationTime: firebaseUser.metadata?.creationTime,
                 lastSignInTime: firebaseUser.metadata?.lastSignInTime,
               },
+              providerData: (firebaseUser.providerData ?? []).map((provider) => ({
+                providerId: provider.providerId,
+              })),
             });
 
             // Store token for API calls
@@ -1020,11 +1024,21 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
       const { GoogleAuthProvider, signInWithPopup } = await import('@angular/fire/auth');
 
       const provider = new GoogleAuthProvider();
-      // Request email scope explicitly
+      // Identity scopes
+      provider.addScope('openid');
       provider.addScope('email');
       provider.addScope('profile');
+      // Gmail scopes (restricted)
       provider.addScope('https://www.googleapis.com/auth/gmail.send');
       provider.addScope('https://www.googleapis.com/auth/gmail.readonly');
+      // Drive scopes
+      provider.addScope('https://www.googleapis.com/auth/drive.file');
+      provider.addScope('https://www.googleapis.com/auth/drive.readonly');
+      // Google Workspace scopes
+      provider.addScope('https://www.googleapis.com/auth/calendar.events');
+      provider.addScope('https://www.googleapis.com/auth/documents');
+      provider.addScope('https://www.googleapis.com/auth/spreadsheets');
+      provider.addScope('https://www.googleapis.com/auth/presentations');
 
       // CRITICAL: Request offline access to get refresh token
       provider.setCustomParameters({
@@ -1094,6 +1108,19 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
 
           // Sync profile regardless of whether we just created or it already existed
           await this.syncUserProfile(result.user);
+        }
+
+        // Refresh token capture: the `beforeUserCreate` blocking Cloud Function
+        // captures the Google refresh token (offline access was requested on the
+        // provider above) and writes it to Users/{uid}/oauthTokens/google during
+        // account creation. No post-signup popup or backend token exchange is
+        // required here — a second popup would force another Google consent and
+        // double-write to the legacy emailTokens collection.
+        if (isNewUser || isNewlyCreated) {
+          this.logger.info(
+            'New Google account — refresh token persisted by beforeUserCreate Cloud Function',
+            { uid: result.user.uid }
+          );
         }
 
         // Step 2: Navigate — outside the sync/create try/catch so nav errors propagate cleanly
@@ -1189,18 +1216,40 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
       provider.addScope('offline_access'); // Required for refresh token
       provider.addScope('Mail.Send'); // Required for sending emails
       provider.addScope('Mail.Read'); // Required for reading emails
+      provider.addScope('Calendars.ReadWrite'); // Required for calendar Agent X actions
+      provider.addScope('Files.ReadWrite'); // Required for OneDrive Agent X actions
 
       this.logger.info('🚀 Starting Microsoft OAuth (popup)');
       const result = await signInWithPopup(this.firebaseAuth, provider);
+
+      // Extract the Microsoft access token from the credential
+      const microsoftCredential = OAuthProvider.credentialFromResult(result);
+      const popupAccessToken =
+        microsoftCredential?.accessToken ??
+        (result as { _tokenResponse?: { oauthAccessToken?: string } })._tokenResponse
+          ?.oauthAccessToken ??
+        null;
 
       this.logger.info('✅ Microsoft OAuth popup success', {
         uid: result.user.uid,
         email: result.user.email,
         displayName: result.user.displayName,
+        hasAccessToken: !!popupAccessToken,
       });
 
       // Process result using helper method
-      return await this.processMicrosoftAuthResult(result, teamCode, referralId);
+      const success = await this.processMicrosoftAuthResult(result, teamCode, referralId);
+
+      // Persist the access token to backend after successful auth
+      if (success && popupAccessToken) {
+        await this.persistMicrosoftAccessToken(popupAccessToken);
+      } else if (success && !popupAccessToken) {
+        this.logger.warn('Microsoft OAuth completed without an access token for backend connect', {
+          uid: result.user.uid,
+        });
+      }
+
+      return success;
     } catch (err: unknown) {
       const authErr = err as { code?: string; message?: string; customData?: unknown };
       this.logger.error('Microsoft sign in failed', err, {
@@ -1640,6 +1689,41 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
    */
   clearError(): void {
     this.authManager.setError(null);
+  }
+
+  private async persistMicrosoftAccessToken(accessToken: string): Promise<void> {
+    const idToken = await this.getIdToken();
+
+    if (!idToken) {
+      this.logger.warn('Skipping Microsoft token persistence: no Firebase ID token');
+      return;
+    }
+
+    try {
+      const response = await fetch(`${environment.apiURL}/auth/microsoft/connect-mail`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({ accessToken }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => response.statusText);
+        this.logger.warn('Backend Microsoft connect-mail call failed after OAuth sign-in', {
+          status: response.status,
+          errorText,
+        });
+        return;
+      }
+
+      this.logger.info('Persisted Microsoft access token after OAuth sign-in');
+    } catch (err) {
+      this.logger.warn('Failed to persist Microsoft access token after OAuth sign-in', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
   }
 
   /**

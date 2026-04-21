@@ -123,18 +123,17 @@ describe('LiveViewSessionService', () => {
       expect(mockScrape).toHaveBeenCalledWith(
         expect.stringContaining('example.com'),
         expect.objectContaining({
-          formats: ['markdown'],
           profile: {
             name: `nxt1-${TEST_USER_ID}`,
             saveChanges: true,
           },
         })
       );
-      // Should call interact() with a prompt to initialize the live view
+      // Should call interact() with a simple code payload to initialize the live view
       expect(mockInteract).toHaveBeenCalledWith(
-        TEST_SESSION_ID,
+        'fc-scrape-xyz',
         expect.objectContaining({
-          prompt: expect.stringContaining('load'),
+          code: expect.stringContaining('initialized'),
         })
       );
     });

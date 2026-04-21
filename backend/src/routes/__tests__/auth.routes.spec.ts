@@ -48,6 +48,66 @@ describe('Auth Routes', () => {
         expect(response.status).toBe(400);
       });
 
+      it('backfills missing preference defaults without overriding existing opt-outs', async () => {
+        __seedMockFirestoreDocument('Users/prefs123', {
+          id: 'prefs123',
+          role: 'athlete',
+          onboardingCompleted: false,
+          preferences: {
+            notifications: {
+              push: true,
+              email: true,
+            },
+            activityTracking: false,
+            theme: 'dark',
+          },
+        });
+
+        const response = await request(app).post('/api/v1/auth/profile/onboarding').send({
+          userId: 'prefs123',
+          userType: 'athlete',
+          sport: 'Basketball',
+        });
+
+        expect(response.status).toBe(200);
+
+        const userUpdate = __getMockFirestoreWrites().find(
+          (write) => write.path === 'Users/prefs123' && write.operation === 'update'
+        );
+
+        expect(userUpdate).toBeDefined();
+        expect(userUpdate?.payload).toMatchObject({
+          preferences: {
+            notifications: {
+              push: true,
+              email: true,
+              marketing: true,
+            },
+            activityTracking: false,
+            analyticsTracking: true,
+            biometricLogin: false,
+            dismissedPrompts: [],
+            defaultSportIndex: 0,
+            theme: 'dark',
+          },
+        });
+
+        const storedUser = __getMockFirestoreDocument('Users/prefs123');
+        expect(storedUser?.['preferences']).toMatchObject({
+          notifications: {
+            push: true,
+            email: true,
+            marketing: true,
+          },
+          activityTracking: false,
+          analyticsTracking: true,
+          biometricLogin: false,
+          dismissedPrompts: [],
+          defaultSportIndex: 0,
+          theme: 'dark',
+        });
+      });
+
       it('writes coach titles into sports.team and deletes the legacy root field', async () => {
         __seedMockFirestoreDocument('Users/coach123', {
           id: 'coach123',

@@ -7,7 +7,7 @@
 
 import type { StripeConfig } from './types/index.js';
 import { UsageFeature } from './types/index.js';
-import { getUnitCostByFeature, type UsageFeatureId } from '@nxt1/core';
+import { getUnitCostByFeature, type UsageFeatureId } from '@nxt1/core/usage';
 import { logger } from '../../utils/logger.js';
 
 /**
@@ -136,7 +136,11 @@ export function getUnitCost(feature: UsageFeature): number {
  */
 export const COLLECTIONS = {
   STRIPE_CUSTOMERS: 'StripeCustomers',
-  BILLING_CONTEXTS: 'BillingContexts',
+  WALLETS: 'Wallets',
+  BILLING_PREFERENCES: 'BillingPreferences',
+  PERIOD_LEDGERS: 'PeriodLedgers',
+  CHECKOUT_SESSION_FINALIZATIONS: 'StripeCheckoutFinalizations',
+  ORGANIZATION_BUDGETS: 'OrganizationBudgets',
   TEAM_BUDGET_ALLOCATIONS: 'teamBudgetAllocations',
   WALLET_HOLDS: 'WalletHolds',
 } as const;

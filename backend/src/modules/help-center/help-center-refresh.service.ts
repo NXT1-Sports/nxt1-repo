@@ -1,6 +1,6 @@
 /**
  * @fileoverview Help Center Refresh Service — Agent-Driven Content Generation
- * @module @nxt1/backend/modules/agent
+ * @module @nxt1/backend/modules/help-center
  *
  * Runs every Sunday at 2 AM UTC via Cloud Scheduler.
  *
@@ -28,13 +28,13 @@ import { HELP_CATEGORIES, HELP_CACHE_KEYS } from '@nxt1/core';
 import type { HelpCategoryId } from '@nxt1/core';
 import { HelpArticleModel } from '../../models/help-center/help-article.model.js';
 import { HelpFaqModel } from '../../models/help-center/help-faq.model.js';
-import { AgentMemoryModel } from './memory/vector.service.js';
+import { AgentMemoryModel } from '../agent/memory/vector.service.js';
 import { AnalyticsRollupModel } from '../../models/analytics-rollup.model.js';
 import { AnalyticsEventModel } from '../../models/analytics-event.model.js';
-import type { OpenRouterService } from './llm/openrouter.service.js';
-import { KnowledgeIngestionService } from './memory/knowledge-ingestion.service.js';
-import { KnowledgeRetrievalService } from './memory/knowledge-retrieval.service.js';
-import { WebSearchTool } from './tools/integrations/web/web-search.tool.js';
+import type { OpenRouterService } from '../agent/llm/openrouter.service.js';
+import { KnowledgeIngestionService } from '../agent/memory/knowledge-ingestion.service.js';
+import { KnowledgeRetrievalService } from '../agent/memory/knowledge-retrieval.service.js';
+import { WebSearchTool } from '../agent/tools/integrations/web/web-search.tool.js';
 import { getCacheService } from '../../services/cache.service.js';
 import { logger } from '../../utils/logger.js';
 

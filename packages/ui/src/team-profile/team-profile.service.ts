@@ -12,7 +12,7 @@
  * adapted for team-specific data shapes and tab structure.
  */
 
-import { Injectable, inject, signal, computed, DestroyRef } from '@angular/core';
+import { Injectable, inject, signal, computed } from '@angular/core';
 import {
   type TeamProfileTabId,
   type TeamProfilePageData,
@@ -42,7 +42,6 @@ export class TeamProfileService {
   private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
   private readonly breadcrumb = inject(NxtBreadcrumbService);
   private readonly theme = inject(NxtThemeService);
-  private readonly destroyRef = inject(DestroyRef);
   private readonly apiClient = inject(TeamProfileApiClient);
 
   // ============================================

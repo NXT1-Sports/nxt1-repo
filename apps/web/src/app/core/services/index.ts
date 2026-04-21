@@ -99,4 +99,4 @@ export { SettingsApiService } from './api/settings-api.service';
 // ============================================
 
 export { WebEmailConnectionService } from './web/email-connection.service';
-export { EmailTokensService } from './web/email-tokens.service';
+export { OAuthTokensService } from './web/oauth-tokens.service';

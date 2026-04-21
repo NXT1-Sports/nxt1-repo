@@ -215,17 +215,34 @@ Run from `nxt1-monorepo/backend/`:
 
 ### Development
 
-| Command               | Description                       |
-| --------------------- | --------------------------------- |
-| `npm run dev`         | Dev server with hot-reload        |
-| `npm run dev:staging` | Dev server with staging config    |
-| `npm run dev:prod`    | Dev server with production config |
-| `npm run build`       | Compile TypeScript to `dist/`     |
-| `npm run build:watch` | Watch mode compilation            |
-| `npm run typecheck`   | Type-check without emitting       |
-| `npm run lint`        | Run ESLint                        |
-| `npm run lint:fix`    | Auto-fix lint issues              |
-| `npm run clean`       | Remove dist/, node_modules/       |
+| Command       | Description                |
+| ------------- | -------------------------- |
+| `npm run dev` | Dev server with hot-reload |
+
+## Stateful MCP Runners
+
+Some community MCP servers assume local file storage for OAuth credentials or
+JSON state. The backend includes a reusable Cloud Run pattern for those cases
+under [backend/mcp/Dockerfile](/Users/johnkeller/My Mac
+(Johns-MacBook-Pro.local)/Main/NXT1/nxt1-monorepo/backend/mcp/Dockerfile) and
+[backend/scripts/deploy-stateful-mcp.sh](/Users/johnkeller/My Mac
+(Johns-MacBook-Pro.local)/Main/NXT1/nxt1-monorepo/backend/scripts/deploy-stateful-mcp.sh).
+
+Use this pattern only when the MCP already exposes HTTP on `$PORT` and persists
+simple flat files. Do not mount SQLite databases or other lock-heavy storage
+over Cloud Storage volumes.
+
+For Google Workspace MCP, use
+[backend/scripts/deploy-google-workspace-mcp.sh](/Users/johnkeller/My Mac
+(Johns-MacBook-Pro.local)/Main/NXT1/nxt1-monorepo/backend/scripts/deploy-google-workspace-mcp.sh).
+After deployment, set `GOOGLE_WORKSPACE_MCP_URL` in App Hosting / Secret Manager
+to the service `/mcp` URL and add the service `/oauth2callback` URL to the
+Google OAuth client. | `npm run dev:staging` | Dev server with staging config |
+| `npm run dev:prod` | Dev server with production config | | `npm run build` |
+Compile TypeScript to `dist/` | | `npm run build:watch` | Watch mode compilation
+| | `npm run typecheck` | Type-check without emitting | | `npm run lint` | Run
+ESLint | | `npm run lint:fix` | Auto-fix lint issues | | `npm run clean` |
+Remove dist/, node_modules/ |
 
 ### Testing
 

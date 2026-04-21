@@ -58,7 +58,7 @@ import { UsageService } from './usage.service';
         </div>
       }
 
-      @if (svc.usePersonalBilling()) {
+      @if (svc.billingMode() === 'personal') {
         <div class="billing-banner billing-banner--success">
           <div class="banner-body">
             <svg
@@ -340,11 +340,11 @@ export class UsageOrgMemberStubComponent {
 
   protected async onSwitchToPersonalBilling(): Promise<void> {
     await this.haptics.impact('medium');
-    await this.svc.switchBillingMode(true);
+    await this.svc.switchBillingMode('personal');
   }
 
   protected async onSwitchBackToOrg(): Promise<void> {
     await this.haptics.impact('light');
-    await this.svc.switchBillingMode(false);
+    await this.svc.switchBillingMode('organization');
   }
 }

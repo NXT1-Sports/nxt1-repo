@@ -44,6 +44,7 @@ import { NxtListSectionComponent } from '../components/list-section';
 import { NxtListRowComponent } from '../components/list-row';
 import {
   ConnectedAccountsModalService,
+  ConnectedAccountsResyncService,
   type ConnectedSource,
 } from '../components/connected-sources';
 import {
@@ -62,9 +63,10 @@ import { ANALYTICS_ADAPTER } from '../services/analytics/analytics-adapter.token
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import {
   TEAM_TYPE_CONFIGS,
+  buildLinkSourcesFormData,
+  mapToConnectedSources,
   titleCase,
   type InboxEmailProvider,
-  type UserSocialLink,
 } from '@nxt1/core';
 import { NxtSearchBarComponent } from '../components/search-bar';
 import { HapticButtonDirective } from '../services/haptics';
@@ -978,6 +980,7 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
   private readonly nxtModal = inject(NxtModalService);
   private readonly bottomSheet = inject(NxtBottomSheetService);
   private readonly connectedAccountsModal = inject(ConnectedAccountsModalService);
+  private readonly connectedAccountsResync = inject(ConnectedAccountsResyncService);
 
   protected readonly isDetectingLocation = signal(false);
   protected readonly maxGalleryImages = MAX_GALLERY_IMAGES;
@@ -1059,21 +1062,24 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
   });
 
   protected readonly connectedSources = computed<readonly ConnectedSource[]>(() => {
-    const links = (this.profile.rawUserData()?.social ?? []) as UserSocialLink[];
+    const sources = this.profile.rawUserData()?.connectedSources ?? [];
 
     // Use PLATFORM_REGISTRY to show all available platforms (global scope)
     const globalPlatforms = PLATFORM_REGISTRY.filter((p) => p.scope === 'global');
 
     return globalPlatforms.map((platform) => {
-      const match = links.find((l) => l.platform === platform.platform);
-      if (match?.url) {
+      const match = sources.find(
+        (source: ConnectedSource) =>
+          source.platform === platform.platform &&
+          (source.scopeType === undefined || source.scopeType === 'global')
+      );
+      if (match?.profileUrl) {
         return {
           platform: platform.platform,
           label: platform.label,
           icon: platform.icon as IconName,
           connected: true,
-          username: match.username,
-          url: match.url,
+          url: match.profileUrl,
           connectionType: platform.connectionType,
           faviconUrl: getPlatformFaviconUrl(platform.platform) ?? undefined,
         };
@@ -1095,7 +1101,7 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
   >(() => {
     const data = this.profile.formData();
     const rawUser = this.profile.rawUserData();
-    const links = (rawUser?.social ?? []) as UserSocialLink[];
+    const sources = rawUser?.connectedSources ?? [];
     const sport = data?.sportsInfo?.sport;
     const userType = rawUser?.userType; // 'athlete' | 'coach' | 'director' | 'fan'
 
@@ -1127,20 +1133,20 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
 
     // Helper to convert platform to ConnectedSource (handles scoped link lookup)
     const toSource = (platform: (typeof PLATFORM_REGISTRY)[0]): ConnectedSource => {
-      const match = links.find((l) => {
-        if (l.platform !== platform.platform) return false;
+      const match = sources.find((source: ConnectedSource) => {
+        if (source.platform !== platform.platform) return false;
+        const scopeType = source.scopeType ?? 'global';
         if (platform.scope === 'sport') {
-          return l.scopeType === 'sport' && l.scopeId === sportKey;
+          return scopeType === 'sport' && source.scopeId === sportKey;
         }
-        return !l.scopeType || l.scopeType === 'global';
+        return scopeType === 'global';
       });
       return {
         platform: platform.platform,
         label: platform.label,
         icon: platform.icon as IconName,
-        connected: !!match?.url,
-        username: match?.username,
-        url: match?.url,
+        connected: !!match?.profileUrl,
+        url: match?.profileUrl,
         connectionType: platform.connectionType,
         scopeType: platform.scope,
         scopeId: platform.scope === 'sport' ? (sportKey ?? undefined) : undefined,
@@ -1179,9 +1185,7 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
   });
 
   protected readonly connectedCount = computed(() => {
-    const socialCount = ((this.profile.rawUserData()?.social ?? []) as UserSocialLink[]).filter(
-      (l) => !!l.url || !!l.username
-    ).length;
+    const socialCount = this.profile.rawUserData()?.connectedSources?.length ?? 0;
     const emailCount = (this.profile.rawUserData()?.connectedEmails ?? []).filter(
       (e: { isActive: boolean }) => e.isActive
     ).length;
@@ -1296,22 +1300,10 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
   protected async openConnectedAccounts(): Promise<void> {
     const data = this.profile.formData();
     const rawUser = this.profile.rawUserData();
-
-    // Convert existing social links → LinkSourcesFormData
-    const existingLinks = (rawUser?.social ?? []) as UserSocialLink[];
-    const linkSourcesData: LinkSourcesFormData | null = existingLinks.length
-      ? {
-          links: existingLinks.map((l) => ({
-            platform: l.platform,
-            connected: !!(l.url || l.username),
-            connectionType: 'link' as const,
-            url: l.url,
-            username: l.username,
-            scopeType: l.scopeType ?? 'global',
-            scopeId: l.scopeId,
-          })),
-        }
-      : null;
+    const linkSourcesData = buildLinkSourcesFormData({
+      connectedSources: rawUser?.connectedSources ?? [],
+      connectedEmails: rawUser?.connectedEmails ?? [],
+    }) as LinkSourcesFormData | null;
 
     const sport = data?.sportsInfo?.sport;
     const selectedSports = sport ? [sport] : [];
@@ -1323,15 +1315,25 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
       scope: rawUser?.userType === 'coach' || rawUser?.userType === 'director' ? 'team' : 'athlete',
     });
 
-    if (result.saved && result.updatedLinks) {
+    if (result.linkSources) {
+      const connectedSources = mapToConnectedSources(result.linkSources.links);
+      const saved = await this.profile.saveConnectedSources(connectedSources);
+      if (!saved) {
+        return;
+      }
+
       this.logger.info('Connected accounts updated', {
-        count: result.updatedLinks.length,
+        count: connectedSources.length,
       });
       this.analytics?.trackEvent(APP_EVENTS.PROFILE_EDITED, {
         source: 'connected-accounts-modal',
         action: 'bulk-update',
       });
-      void this.loadProfile();
+      await this.loadProfile();
+
+      if (result.resync) {
+        await this.connectedAccountsResync.request(result.sources ?? []);
+      }
     }
   }
 

@@ -69,6 +69,8 @@ export interface SignUpCredentials {
  * OAuth provider options
  */
 export interface OAuthOptions {
+  /** Whether this OAuth flow was initiated from sign-in or sign-up UI */
+  readonly intent?: 'signin' | 'signup';
   /** Team code to associate with new account */
   readonly teamCode?: string;
   /** Referral ID for tracking */

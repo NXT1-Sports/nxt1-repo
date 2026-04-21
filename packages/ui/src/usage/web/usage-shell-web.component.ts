@@ -55,17 +55,20 @@ import { NxtOverlayService } from '../../components/overlay';
 import { NxtHeaderPortalService } from '../../services/header-portal';
 import { NxtToastService } from '../../services/toast/toast.service';
 import { HapticsService } from '../../services/haptics/haptics.service';
-import { UsageService, type UsageSection } from '../usage.service';
+import {
+  UsageService,
+  USAGE_CHECKOUT_POPUP_NAME,
+  USAGE_CHECKOUT_RETURN_MESSAGE,
+  type UsageSection,
+} from '../usage.service';
+import type { UsageBudget } from '@nxt1/core';
 import { USAGE_TEST_IDS } from '@nxt1/core/testing';
 import { UsageSkeletonComponent } from '../usage-skeleton.component';
 import { UsageHelpContentComponent } from '../usage-help-content.component';
 import { UsageErrorStateComponent } from '../usage-error-state.component';
-import { UsageBottomSheetService } from '../usage-bottom-sheet.service';
 import { AgentXControlPanelComponent, type AgentXControlPanelKind } from '../../agent-x';
-import {
-  BuyCreditsAutoTopupModalComponent,
-  type BuyCreditsAutoTopupResult,
-} from './buy-credits-autotopup-modal.component';
+import { BuyCreditsAutoTopupModalComponent } from './buy-credits-autotopup-modal.component';
+import type { BuyCreditsAutoTopupResult } from '../buy-credits-flow.shared';
 import { UsageOrgMemberStubComponent } from '../usage-org-member-stub.component';
 import {
   UsageOverviewComponent,
@@ -124,7 +127,7 @@ export type { UsageUser };
               <span>Add Credits</span>
             </button>
           } @else if (svc.isOrg() && svc.isOrgAdmin()) {
-            <button type="button" class="header-portal-buy-btn" (click)="onCreateBudget()">
+            <button type="button" class="header-portal-buy-btn" (click)="onBuyCredits()">
               <svg
                 xmlns="http://www.w3.org/2000/svg"
                 width="14"
@@ -137,12 +140,10 @@ export type { UsageUser };
                 stroke-linejoin="round"
                 aria-hidden="true"
               >
-                <circle cx="12" cy="12" r="3"></circle>
-                <path
-                  d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"
-                ></path>
+                <line x1="12" y1="5" x2="12" y2="19" />
+                <line x1="5" y1="12" x2="19" y2="12" />
               </svg>
-              <span>Manage Budget</span>
+              <span>Add Credits</span>
             </button>
           }
         </div>
@@ -217,7 +218,7 @@ export type { UsageUser };
             } @else {
               @switch (svc.activeSection()) {
                 @case ('overview') {
-                  @if (svc.isOrgMember() && !svc.usePersonalBilling()) {
+                  @if (svc.isOrgMember() && svc.billingMode() === 'organization') {
                     <!-- Org member on org billing: restricted overview — no financial data -->
                     <nxt1-usage-org-member-stub />
                   } @else {
@@ -228,7 +229,7 @@ export type { UsageUser };
                       [isOrgAdmin]="svc.isOrgAdmin()"
                       [orgWalletEmpty]="svc.orgWalletEmpty()"
                       [orgWalletRefilled]="svc.orgWalletRefilled()"
-                      [usePersonalBilling]="svc.usePersonalBilling()"
+                      [billingMode]="svc.billingMode()"
                       [hideBuyCredits]="true"
                       [paymentHistory]="svc.filteredPaymentHistory()"
                       [historyHasMore]="svc.historyHasMore()"
@@ -238,16 +239,6 @@ export type { UsageUser };
                       (downloadInvoice)="onDownloadInvoice($event)"
                       (loadMore)="svc.loadMoreHistory()"
                     />
-
-                    @if (svc.isOrg() && svc.isOrgAdmin()) {
-                      <nxt1-usage-budgets
-                        [budgets]="svc.budgets()"
-                        [readOnly]="false"
-                        (createBudget)="onCreateBudget()"
-                        (editBudget)="onEditBudget($event)"
-                        (editTeamBudget)="onEditTeamBudget($event)"
-                      />
-                    }
                   }
                   <!-- end @else (not org member) -->
                 }
@@ -276,11 +267,11 @@ export type { UsageUser };
 
                 @case ('budgets') {
                   <nxt1-usage-budgets
-                    [budgets]="svc.budgets()"
+                    [budgets]="svc.activeBudgets()"
                     [readOnly]="!svc.isOrgAdmin()"
                     (createBudget)="onCreateBudget()"
                     (editBudget)="onEditBudget($event)"
-                    (editTeamBudget)="onEditTeamBudget($event)"
+                    (removeBudget)="onDeleteBudget($event)"
                   />
                 }
 
@@ -443,7 +434,6 @@ export class UsageShellWebComponent implements OnInit, AfterViewInit, OnDestroy 
   private readonly headerPortal = inject(NxtHeaderPortalService);
   private readonly toast = inject(NxtToastService);
   private readonly haptics = inject(HapticsService);
-  private readonly usageBottomSheet = inject(UsageBottomSheetService);
   // private readonly bottomSheet = inject(NxtBottomSheetService);
   private readonly ngZone = inject(NgZone);
   private readonly platformId = inject(PLATFORM_ID);
@@ -451,6 +441,94 @@ export class UsageShellWebComponent implements OnInit, AfterViewInit, OnDestroy 
   private _hiddenAt: number | null = null;
   /** Minimum ms away before a visibility change triggers a background refresh */
   private static readonly STALE_THRESHOLD_MS = 30_000;
+
+  private handleCheckoutReturnFromUrl(): void {
+    if (!isPlatformBrowser(this.platformId)) {
+      return;
+    }
+
+    const currentUrl = new URL(window.location.href);
+    const creditsStatus = currentUrl.searchParams.get('credits');
+    const returnedOrganizationId = currentUrl.searchParams.get('organizationId');
+    const sessionId = currentUrl.searchParams.get('session_id');
+    if (!creditsStatus) {
+      return;
+    }
+
+    if (window.opener && window.name === USAGE_CHECKOUT_POPUP_NAME) {
+      window.opener.postMessage(
+        {
+          type: USAGE_CHECKOUT_RETURN_MESSAGE,
+          status: creditsStatus,
+          organizationId: returnedOrganizationId,
+          sessionId,
+        },
+        window.location.origin
+      );
+      window.close();
+      return;
+    }
+
+    if (creditsStatus === 'success') {
+      const currentOrganizationId = this.svc.billingContext()?.organizationId ?? null;
+      if (
+        returnedOrganizationId &&
+        currentOrganizationId &&
+        returnedOrganizationId !== currentOrganizationId
+      ) {
+        this.toast.info(
+          'Credits were added to a different organization wallet than the one open here.'
+        );
+      }
+      void this.svc.refreshAfterExternalBillingReturn({
+        sessionId,
+        organizationId: returnedOrganizationId,
+      });
+    }
+
+    currentUrl.searchParams.delete('credits');
+    currentUrl.searchParams.delete('amount');
+    currentUrl.searchParams.delete('organizationId');
+    currentUrl.searchParams.delete('session_id');
+    const nextUrl = `${currentUrl.pathname}${currentUrl.search}${currentUrl.hash}`;
+    window.history.replaceState({}, '', nextUrl);
+  }
+
+  private readonly onCheckoutWindowMessage = (event: MessageEvent): void => {
+    if (!isPlatformBrowser(this.platformId) || event.origin !== window.location.origin) {
+      return;
+    }
+
+    const data = event.data as
+      | {
+          type?: string;
+          status?: string;
+          organizationId?: string | null;
+          sessionId?: string | null;
+        }
+      | null
+      | undefined;
+    if (data?.type !== USAGE_CHECKOUT_RETURN_MESSAGE) {
+      return;
+    }
+
+    if (data.status === 'success') {
+      const currentOrganizationId = this.svc.billingContext()?.organizationId ?? null;
+      if (
+        data.organizationId &&
+        currentOrganizationId &&
+        data.organizationId !== currentOrganizationId
+      ) {
+        this.toast.info(
+          'Credits were added to a different organization wallet than the one open here.'
+        );
+      }
+      void this.svc.refreshAfterExternalBillingReturn({
+        sessionId: data.sessionId,
+        organizationId: data.organizationId,
+      });
+    }
+  };
 
   private readonly onVisibilityChange = (): void => {
     if (document.visibilityState === 'hidden') {
@@ -461,7 +539,7 @@ export class UsageShellWebComponent implements OnInit, AfterViewInit, OnDestroy 
     const awayMs = this._hiddenAt !== null ? Date.now() - this._hiddenAt : 0;
     this._hiddenAt = null;
     if (this.svc.consumePortalRefresh() || awayMs >= UsageShellWebComponent.STALE_THRESHOLD_MS) {
-      this.svc.loadDashboard(true);
+      void this.svc.refreshAfterExternalBillingReturn();
     }
   };
 
@@ -469,7 +547,7 @@ export class UsageShellWebComponent implements OnInit, AfterViewInit, OnDestroy 
     // Fires when the NXT1 tab regains focus after the Stripe portal tab closes.
     // Only reload when we know the portal was opened — not on every window focus.
     if (this.svc.consumePortalRefresh()) {
-      this.svc.loadDashboard(true);
+      void this.svc.refreshAfterExternalBillingReturn();
     }
   };
 
@@ -500,11 +578,13 @@ export class UsageShellWebComponent implements OnInit, AfterViewInit, OnDestroy 
   ngOnInit(): void {
     this.svc.loadDashboard(true);
     if (isPlatformBrowser(this.platformId)) {
+      this.handleCheckoutReturnFromUrl();
       // Register outside NgZone: these events fire often and should not
       // trigger zone-wide change detection cycles on every tab switch.
       this.ngZone.runOutsideAngular(() => {
         document.addEventListener('visibilitychange', this.onVisibilityChange);
         window.addEventListener('focus', this.onWindowFocus);
+        window.addEventListener('message', this.onCheckoutWindowMessage);
       });
     }
   }
@@ -521,6 +601,7 @@ export class UsageShellWebComponent implements OnInit, AfterViewInit, OnDestroy 
     if (isPlatformBrowser(this.platformId)) {
       document.removeEventListener('visibilitychange', this.onVisibilityChange);
       window.removeEventListener('focus', this.onWindowFocus);
+      window.removeEventListener('message', this.onCheckoutWindowMessage);
     }
   }
 
@@ -570,36 +651,41 @@ export class UsageShellWebComponent implements OnInit, AfterViewInit, OnDestroy 
 
   protected async onCreateBudget(): Promise<void> {
     await this.haptics.impact('light');
-    await this.openBudgetControlPanel();
+    await this.openBudgetControlPanel(undefined, 'new');
   }
 
-  protected async onEditBudget(_budgetId: string): Promise<void> {
+  protected async onEditBudget(budget: UsageBudget): Promise<void> {
     await this.haptics.impact('light');
-    await this.openBudgetControlPanel();
+    await this.openBudgetControlPanel(
+      budget.targetScope === 'team' ? budget.targetId : undefined,
+      'current'
+    );
   }
 
-  private async openBudgetControlPanel(): Promise<void> {
+  protected async onDeleteBudget(budget: UsageBudget): Promise<void> {
+    await this.haptics.impact('light');
+    await this.svc.deleteBudget(budget);
+  }
+
+  private async openBudgetControlPanel(
+    teamId?: string,
+    budgetDraftMode: 'current' | 'new' = 'current'
+  ): Promise<void> {
     const panel: AgentXControlPanelKind = 'budget';
     this.overlay.open({
       component: AgentXControlPanelComponent,
       inputs: {
         panel,
         presentation: 'modal',
+        budgetTargetTeamId: teamId ?? null,
+        budgetDraftMode,
       },
       size: 'xl',
       backdropDismiss: true,
       escDismiss: true,
-      ariaLabel: 'Agent budget controls',
+      ariaLabel: 'Budget settings',
       panelClass: 'agent-x-control-panel-modal',
     });
-  }
-
-  protected async onEditTeamBudget(teamId: string): Promise<void> {
-    await this.haptics.impact('light');
-    const amountCents = await this.usageBottomSheet.showBudgetLimit();
-    if (amountCents !== null) {
-      await this.svc.updateTeamBudget(teamId, amountCents);
-    }
   }
 
   protected async onManageBilling(): Promise<void> {
@@ -611,7 +697,7 @@ export class UsageShellWebComponent implements OnInit, AfterViewInit, OnDestroy 
     await this.haptics.impact('light');
     const ref = this.overlay.open<BuyCreditsAutoTopupModalComponent, BuyCreditsAutoTopupResult>({
       component: BuyCreditsAutoTopupModalComponent,
-      size: 'sm',
+      size: 'lg',
       backdropDismiss: true,
       escDismiss: true,
       ariaLabel: 'Add Credits',
@@ -639,9 +725,9 @@ export class UsageShellWebComponent implements OnInit, AfterViewInit, OnDestroy 
     }
   }
 
-  protected async onSwitchBillingMode(usePersonalBilling: boolean): Promise<void> {
+  protected async onSwitchBillingMode(billingMode: 'personal' | 'organization'): Promise<void> {
     await this.haptics.impact('medium');
-    await this.svc.switchBillingMode(usePersonalBilling);
+    await this.svc.switchBillingMode(billingMode);
   }
 
   protected async onSaveAutoTopUp(settings: {
@@ -662,9 +748,13 @@ export class UsageShellWebComponent implements OnInit, AfterViewInit, OnDestroy 
     this.overlay.open({
       component: UsageHelpContentComponent,
       size: 'lg',
-      showCloseButton: true,
       backdropDismiss: true,
       ariaLabel: 'How Billing Works',
+      panelClass: 'usage-help-modal',
+      inputs: {
+        isPersonal: this.svc.isPersonal(),
+        billingContext: this.svc.billingContext(),
+      },
     });
   }
 }

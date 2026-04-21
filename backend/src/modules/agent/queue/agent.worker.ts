@@ -52,7 +52,7 @@ import { isAgentYield } from '../exceptions/agent-yield.exception.js';
 import { notifyYield } from '../services/yield-notifier.service.js';
 import { estimateChargeAmountSync } from '../../billing/pricing.service.js';
 import {
-  getBillingContext,
+  getBillingState,
   createWalletHold,
   releaseWalletHold,
 } from '../../billing/budget.service.js';
@@ -215,7 +215,7 @@ export class AgentWorker {
     // For prepaid wallet users, create a hold at job start so the UI can display
     // the estimated in-flight cost under "Processing". Released or captured at end.
     let iapHoldId: string | null = null;
-    const billingCtxForHold = await getBillingContext(billingDb, payload.userId);
+    const billingCtxForHold = await getBillingState(billingDb, payload.userId);
     if (
       (billingCtxForHold?.paymentProvider === 'iap' &&
         billingCtxForHold.billingEntity === 'individual') ||

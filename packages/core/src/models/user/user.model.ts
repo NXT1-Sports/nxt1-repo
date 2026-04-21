@@ -45,6 +45,7 @@ import type {
   ParentData,
   AthleteData,
 } from './user-role-data.model';
+import type { BillingTargetReference } from '../../usage/billing-domain.types';
 
 // Re-export for convenience
 export { USER_SCHEMA_VERSION } from './user-base.model';
@@ -244,7 +245,7 @@ export interface User {
 
   // ============================================
   // CONNECTED EMAIL ACCOUNTS
-  // Metadata only — tokens live in users/{uid}/emailTokens/{provider}
+  // Metadata only — tokens live in users/{uid}/oauthTokens/{provider}
   // ============================================
   /** Email accounts connected for campaigns/messaging */
   connectedEmails?: ConnectedEmail[];
@@ -325,6 +326,12 @@ export interface User {
   // PREFERENCES
   // ============================================
   preferences?: UserPreferences;
+
+  // ============================================
+  // BILLING ROUTING
+  // ============================================
+  /** Active wallet target used for Agent X and usage billing deductions. */
+  activeBillingTarget?: BillingTargetReference;
 
   // ============================================
   // SUBSCRIPTION & PAYMENT

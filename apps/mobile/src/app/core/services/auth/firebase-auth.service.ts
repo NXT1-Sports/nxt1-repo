@@ -351,10 +351,21 @@ export class FirebaseAuthService implements OnDestroy {
     this.logger.debug('Using web Google Sign-In (fallback)');
     const webResult = await runInInjectionContext(this.injector, () => {
       const provider = new GoogleAuthProvider();
+      // Identity scopes
+      provider.addScope('openid');
       provider.addScope('profile');
       provider.addScope('email');
+      // Gmail scopes (restricted)
       provider.addScope('https://www.googleapis.com/auth/gmail.send');
       provider.addScope('https://www.googleapis.com/auth/gmail.readonly');
+      // Drive scopes
+      provider.addScope('https://www.googleapis.com/auth/drive.file');
+      provider.addScope('https://www.googleapis.com/auth/drive.readonly');
+      // Google Workspace scopes
+      provider.addScope('https://www.googleapis.com/auth/calendar.events');
+      provider.addScope('https://www.googleapis.com/auth/documents');
+      provider.addScope('https://www.googleapis.com/auth/spreadsheets');
+      provider.addScope('https://www.googleapis.com/auth/presentations');
       return signInWithPopup(this.auth, provider);
     });
 
@@ -509,7 +520,7 @@ export class FirebaseAuthService implements OnDestroy {
    *
    * Called after native Google Sign-In when a serverAuthCode is present.
    * The backend exchanges the one-time code for a long-lived refresh token
-   * and stores it in Users/{uid}/emailTokens/gmail so emails can be sent
+   * and stores it in Users/{uid}/oauthTokens/google so emails can be sent
    * on behalf of the user.
    *
    * Fire-and-forget — callers should not await this. A failure here must

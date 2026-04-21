@@ -226,7 +226,7 @@ router.post('/cron/refresh-help-center', cronGuard, async (_req: Request, res: R
   (async () => {
     try {
       const { HelpCenterRefreshService } =
-        await import('../../modules/agent/help-center-refresh.service.js');
+        await import('../../modules/help-center/help-center-refresh.service.js');
       const refreshService = new HelpCenterRefreshService(llmService!);
       const result = await refreshService.run();
       logger.info(

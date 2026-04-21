@@ -24,6 +24,7 @@ import {
   IsUUID,
   IsUrl,
   IsIn,
+  ValidateIf,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -126,6 +127,7 @@ export class ChatAttachmentDto {
 }
 
 export class AgentChatRequestDto {
+  @ValidateIf((o) => !o.resumeOperationId)
   @IsString()
   @IsNotEmpty()
   @Length(1, 5000, { message: 'Message must be between 1 and 5000 characters' })

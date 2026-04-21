@@ -109,8 +109,8 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/ass
             </div>
           } @else {
             <p class="team-section__empty">
-              No connected accounts yet — connect your team's social profiles to give recruits and
-              coaches a complete picture.
+              No connected accounts yet — connect your team's profiles and data sources to give
+              recruits and coaches a complete picture.
             </p>
           }
           <p class="team-connected-explainer">
@@ -759,32 +759,27 @@ export class TeamOverviewWebComponent {
     (): ReadonlyArray<{
       readonly key: string;
       readonly label: string;
-      readonly handle: string;
       readonly icon: string;
       readonly color: string;
       readonly url: string;
       readonly faviconUrl: string | null;
     }> => {
-      const social = this.teamProfile.team()?.social;
-      if (!social?.length) return [];
+      const connectedSources = this.teamProfile.team()?.connectedSources;
+      if (!connectedSources?.length) return [];
       const def = { label: '', icon: 'link', color: 'currentColor', handlePrefix: '' };
-      return social
+      return connectedSources
         .slice()
         .sort((a, b) => (a.displayOrder ?? 99) - (b.displayOrder ?? 99))
         .slice(0, 8)
-        .map((link) => {
-          const meta = TeamOverviewWebComponent.PLATFORM_META[link.platform.toLowerCase()] ?? def;
-          const handle = link.username
-            ? `${meta.handlePrefix}${link.username}`
-            : meta.label || link.platform;
+        .map((source, index) => {
+          const meta = TeamOverviewWebComponent.PLATFORM_META[source.platform.toLowerCase()] ?? def;
           return {
-            key: link.platform,
-            label: meta.label || link.platform,
-            handle,
+            key: `${source.platform}-${source.scopeType ?? 'global'}-${source.scopeId ?? index}`,
+            label: meta.label || source.platform,
             icon: meta.icon,
             color: meta.color,
-            url: link.url,
-            faviconUrl: getPlatformFaviconUrl(link.platform.toLowerCase()),
+            url: source.profileUrl,
+            faviconUrl: getPlatformFaviconUrl(source.platform.toLowerCase()),
           };
         });
     }

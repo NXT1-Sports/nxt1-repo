@@ -45,6 +45,13 @@ export interface McpToolCallResult {
   readonly isError?: boolean;
 }
 
+/** Tool definition exposed by an MCP server via tools/list. */
+export interface McpToolDefinition {
+  readonly name: string;
+  readonly description?: string;
+  readonly inputSchema?: Record<string, unknown>;
+}
+
 /** Options for a single tool execution. */
 export interface McpExecuteOptions {
   /** Per-call timeout in milliseconds. Defaults to 60_000 (1 minute). */
@@ -353,10 +360,28 @@ export abstract class BaseMcpClientService {
    * List all tools available on the connected MCP server.
    * Useful for discovery/diagnostics.
    */
-  async listTools(): Promise<ReadonlyArray<{ name: string; description?: string }>> {
+  async listToolDefinitions(): Promise<ReadonlyArray<McpToolDefinition>> {
     await this.ensureConnected();
     const result = await this.client!.listTools();
-    return result.tools.map((t) => ({ name: t.name, description: t.description }));
+    return result.tools.map((t) => ({
+      name: t.name,
+      ...(t.description ? { description: t.description } : {}),
+      ...(t.inputSchema && typeof t.inputSchema === 'object'
+        ? { inputSchema: t.inputSchema as Record<string, unknown> }
+        : {}),
+    }));
+  }
+
+  /**
+   * List all tools available on the connected MCP server.
+   * Useful for discovery/diagnostics.
+   */
+  async listTools(): Promise<ReadonlyArray<{ name: string; description?: string }>> {
+    const definitions = await this.listToolDefinitions();
+    return definitions.map((tool) => ({
+      name: tool.name,
+      ...(tool.description ? { description: tool.description } : {}),
+    }));
   }
 
   // ── Private Helpers ───────────────────────────────────────────────────

@@ -108,6 +108,22 @@ describe('OnboardingLinkDropStepComponent', () => {
     expect(emitted[0]?.links.some((link) => link.platform.startsWith('custom::'))).toBe(true);
   });
 
+  it('pins Google and Microsoft to the top of sign-in mode without duplicating them later', () => {
+    component.setMode('signin');
+    fixture.detectChanges();
+
+    const groups = component.platformGroups();
+    const firstGroup = groups[0];
+    const laterPlatforms = groups
+      .slice(1)
+      .flatMap((group) => group.sources.map((source) => source.platform));
+
+    expect(firstGroup?.key).toBe('priority-signin');
+    expect(firstGroup?.sources.map((source) => source.platform)).toEqual(['google', 'microsoft']);
+    expect(laterPlatforms).not.toContain('google');
+    expect(laterPlatforms).not.toContain('microsoft');
+  });
+
   // TODO: Signal effect flushing incompatible with overrideComponent in Jest/Vitest+JSDOM.
   // TestBed.flushEffects() / appRef.tick() does not reliably flush constructor effects
   // when overrideComponent modifies the host component's import graph. The linkSourcesData →

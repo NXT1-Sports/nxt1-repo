@@ -19,6 +19,7 @@
 // ── MCP Foundation (shared base) ─────────────────────────────────────────
 export {
   BaseMcpClientService,
+  type McpToolDefinition,
   type McpToolCallResult,
   type McpExecuteOptions,
 } from './base-mcp-client.service.js';
@@ -42,6 +43,99 @@ export { FirecrawlExtractTool } from './firecrawl/firecrawl-extract.tool.js';
 export { FirebaseMcpBridgeService } from './firebase-mcp/firebase-mcp-bridge.service.js';
 export { ListNxt1DataViewsTool } from './firebase-mcp/list-user-firebase-views.tool.js';
 export { QueryNxt1DataTool } from './firebase-mcp/query-user-firebase-data.tool.js';
+
+// ── Google Workspace MCP — User-scoped productivity actions ───────────────
+export {
+  GoogleWorkspaceMcpBridgeService,
+  GoogleWorkspaceDiscoveryBridgeService,
+  GoogleWorkspaceTokenManagerService,
+  GoogleWorkspaceMcpSessionService,
+  GoogleWorkspaceToolCatalogService,
+  DynamicGoogleWorkspaceTool,
+  ListGoogleWorkspaceToolsTool,
+  RunGoogleWorkspaceToolTool,
+  // First-class Gmail tools
+  QueryGmailEmailsTool,
+  GmailGetMessageDetailsTool,
+  GmailSendEmailTool,
+  CreateGmailDraftTool,
+  GmailReplyToEmailTool,
+  SearchGmailMessagesTool,
+  GetGmailMessageContentTool,
+  GetGmailMessagesContentBatchTool,
+  GetGmailThreadContentTool,
+  SendGmailMessageTool,
+  // First-class Calendar tools
+  GetCalendarEventsTool,
+  GetCalendarEventDetailsTool,
+  CreateCalendarEventTool,
+  DeleteCalendarEventTool,
+  ListCalendarsTool,
+  ManageCalendarEventTool,
+  // First-class Drive tools
+  DriveSearchFilesTool,
+  DriveReadFileContentTool,
+  DriveUploadFileTool,
+  DriveCreateFolderTool,
+  DriveDeleteFileTool,
+  DriveListSharedDrivesTool,
+  SearchDriveFilesTool,
+  GetDriveFileContentTool,
+  GetDriveFileDownloadUrlTool,
+  ListDriveItemsTool,
+  GetDriveShareableLinkTool,
+  CreateDriveFileTool,
+  CreateDriveFolderTool,
+  ImportToGoogleDocTool,
+  UpdateDriveFileTool,
+  // First-class Docs tools
+  DocsCreateDocumentTool,
+  DocsGetDocumentMetadataTool,
+  DocsGetContentAsMarkdownTool,
+  DocsAppendTextTool,
+  DocsPrependTextTool,
+  DocsInsertTextTool,
+  DocsBatchUpdateTool,
+  DocsInsertImageTool,
+  GetDocContentTool,
+  SearchDocsTool,
+  GetDocAsMarkdownTool,
+  ExportDocToPdfTool,
+  CreateDocTool,
+  ModifyDocTextTool,
+  // First-class Sheets tools
+  SheetsCreateSpreadsheetTool,
+  SheetsReadRangeTool,
+  SheetsWriteRangeTool,
+  SheetsAppendRowsTool,
+  SheetsClearRangeTool,
+  SheetsAddSheetTool,
+  SheetsDeleteSheetTool,
+  ReadSheetValuesTool,
+  ListSpreadsheetsTool,
+  GetSpreadsheetInfoTool,
+  ModifySheetValuesTool,
+  CreateSpreadsheetTool,
+  FormatSheetRangeTool,
+  CreateSheetTabTool,
+  AppendTableRowsTool,
+  // First-class Slides tools
+  GetPresentationTool,
+  GetSlidesTool,
+  CreateSlideTool,
+  AddTextToSlideTool,
+  AddFormattedTextToSlideTool,
+  AddBulletedListToSlideTool,
+  AddTableToSlideTool,
+  AddSlideNotesTool,
+  DuplicateSlideTool,
+  DeleteSlideTool,
+  CreatePresentationFromMarkdownTool,
+  GetSlidPageTool,
+  GetPageThumbnailTool,
+  CreatePresentationTool,
+  BatchUpdatePresentationTool,
+} from './google-workspace/index.js';
 
 // ── Cloudflare Stream — Video processing ─────────────────────────────────
 export { CloudflareMcpBridgeService } from './cloudflare-stream/cloudflare-mcp-bridge.service.js';

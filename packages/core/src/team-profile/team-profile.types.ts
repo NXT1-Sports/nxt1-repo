@@ -14,9 +14,9 @@
  * see @nxt1/core/manage-team.
  */
 
-import type { VerificationStatus, DataVerification } from '../models/user';
+import type { ConnectedSource, VerificationStatus, DataVerification } from '../models/user';
 import type { NewsArticle } from '../news/news.types';
-export type { VerificationStatus } from '../models/user';
+export type { ConnectedSource, VerificationStatus } from '../models/user';
 export type { DataVerification } from '../models/user';
 
 // ============================================
@@ -106,17 +106,6 @@ export interface TeamProfileBranding {
 }
 
 /**
- * Team social media link.
- */
-export interface TeamProfileSocialLink {
-  readonly platform: string;
-  readonly url: string;
-  readonly username?: string;
-  readonly displayOrder?: number;
-  readonly verified?: boolean;
-}
-
-/**
  * Team contact information.
  */
 export interface TeamProfileContact {
@@ -189,8 +178,8 @@ export interface TeamProfileTeam {
   readonly branding?: TeamProfileBranding;
   /** Contact information */
   readonly contact?: TeamProfileContact;
-  /** Social media links */
-  readonly social?: readonly TeamProfileSocialLink[];
+  /** Connected external sources shared with the user profile schema */
+  readonly connectedSources?: readonly ConnectedSource[];
   /** External links */
   readonly links?: TeamProfileLinks;
   /** Sponsors */

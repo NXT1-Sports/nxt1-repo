@@ -305,6 +305,16 @@ export class BuyCreditsDto {
   organizationId?: string;
 }
 
+export class ConfirmCheckoutSessionDto {
+  @IsString()
+  @IsNotEmpty()
+  sessionId!: string;
+
+  @IsOptional()
+  @IsString()
+  organizationId?: string;
+}
+
 export class AutoTopUpDto {
   @IsBoolean()
   enabled!: boolean;
@@ -322,10 +332,15 @@ export class AutoTopUpDto {
   amountCents!: number;
 }
 
+export enum BillingMode {
+  PERSONAL = 'personal',
+  ORGANIZATION = 'organization',
+}
+
 export class BillingModeDto {
-  /** When true, the current user routes their spend to their personal wallet instead of the org wallet */
-  @IsBoolean()
-  usePersonalBilling!: boolean;
+  /** Which wallet should handle subsequent charges for this user */
+  @IsEnum(BillingMode)
+  billingMode!: BillingMode;
 }
 
 export class InvoiceTopUpDto {

@@ -18,6 +18,7 @@ import {
   disconnectFromMongoDB,
 } from '../../backend/src/config/database.config.js';
 import { HelpArticleModel } from '../../backend/src/models/help-center/help-article.model.js';
+import { SHARED_BILLING_HELP_CENTER_ARTICLE } from '../../packages/core/src/help-center/billing-knowledge.js';
 
 // ─── Article Definitions ──────────────────────────────────────────────────────
 
@@ -28,22 +29,12 @@ const articles = [
   // ARTICLE A: How NXT1 Billing Works
   // ─────────────────────────────────────────────────────────────────────────────
   {
-    slug: 'how-nxt1-billing-works',
-    title: 'How NXT1 Billing Works',
-    excerpt:
-      'NXT1 uses usage-based billing — no subscription tiers, no monthly plans, no feature gates. Standard platform features are always free. Credits are only consumed when Agent X runs AI-powered operations. Here is everything you need to know about the Balance AI wallet, pending holds, auto top-up, and what happens when your balance runs out.',
+    slug: SHARED_BILLING_HELP_CENTER_ARTICLE.slug,
+    title: SHARED_BILLING_HELP_CENTER_ARTICLE.title,
+    excerpt: SHARED_BILLING_HELP_CENTER_ARTICLE.excerpt,
     type: 'article' as const,
     category: 'account' as const,
-    tags: [
-      'billing',
-      'Balance AI',
-      'wallet',
-      'credits',
-      'auto top-up',
-      'usage',
-      'payments',
-      'how billing works',
-    ],
+    tags: [...SHARED_BILLING_HELP_CENTER_ARTICLE.tags],
     targetUsers: ['all'] as const,
     readingTimeMinutes: 4,
     isFeatured: true,
@@ -54,113 +45,13 @@ const articles = [
     viewCount: 0,
     helpfulCount: 0,
     notHelpfulCount: 0,
-    tableOfContents: [
-      { id: 'usage-based-billing', title: 'Usage-Based Billing', level: 2 },
-      { id: 'balance-ai-wallet', title: 'The Balance AI Wallet', level: 2 },
-      { id: 'pending-holds', title: 'Pending Holds', level: 2 },
-      { id: 'auto-top-up', title: 'Auto Top-Up', level: 2 },
-      { id: 'when-balance-hits-zero', title: 'When Your Balance Hits Zero', level: 2 },
-      { id: 'individual-vs-org', title: 'Individual vs. Organization Billing', level: 2 },
-    ],
+    tableOfContents: [...SHARED_BILLING_HELP_CENTER_ARTICLE.tableOfContents],
     seo: {
-      metaTitle: 'How NXT1 Billing Works — Balance AI Wallet, Credits, and Usage-Based Pricing',
-      metaDescription:
-        "Learn how NXT1's usage-based billing works. Balance AI wallet, pending holds, auto top-up, and what happens when your balance runs out.",
-      keywords: [
-        'NXT1 billing',
-        'Balance AI',
-        'usage-based billing',
-        'NXT1 credits',
-        'how billing works',
-      ],
+      metaTitle: SHARED_BILLING_HELP_CENTER_ARTICLE.seo.metaTitle,
+      metaDescription: SHARED_BILLING_HELP_CENTER_ARTICLE.seo.metaDescription,
+      keywords: [...SHARED_BILLING_HELP_CENTER_ARTICLE.seo.keywords],
     },
-    content: `
-<h2 id="usage-based-billing">Usage-Based Billing</h2>
-
-<p>NXT1 does not have subscription tiers, monthly plans, or feature gates based on a pricing level. You are not paying a flat fee for access to the platform. You pay only for what you actually use.</p>
-
-<p>The distinction between free and paid on NXT1 is clear:</p>
-
-<p><strong>Always free — no credits required:</strong></p>
-<ul>
-  <li>Creating and maintaining your profile</li>
-  <li>Browsing teams, athletes, coaches, and explore</li>
-  <li>Messaging and team communications</li>
-  <li>Viewing your schedule, roster, and feed</li>
-  <li>Standard navigation throughout the platform</li>
-</ul>
-
-<p><strong>Credits consumed — Agent X AI operations:</strong></p>
-<ul>
-  <li>Generating Intel Reports and performance analyses</li>
-  <li>Drafting and sending recruiting outreach at scale</li>
-  <li>Creating AI graphics, branding assets, and highlight reels</li>
-  <li>Running advanced film analysis and scouting breakdowns</li>
-  <li>Any Agent X operation that involves significant AI compute</li>
-</ul>
-
-<p>Before any paid operation runs, Agent X shows you the estimated cost and will not proceed without sufficient balance in your wallet. There are no surprise charges.</p>
-
-<h2 id="balance-ai-wallet">The Balance AI Wallet</h2>
-
-<p>The <strong>Balance AI wallet</strong> is the single pre-paid fund source for all Agent X operations. Think of it like a digital wallet you load in advance — credits sit in the wallet until an operation draws from them.</p>
-
-<p><strong>To add funds:</strong></p>
-<ol>
-  <li>Go to <strong>Settings → Billing &amp; Usage → Add Funds</strong>.</li>
-  <li>Choose an amount to add.</li>
-  <li>Select a payment method (card, PayPal, Apple Pay, or Google Pay).</li>
-  <li>Funds are added to your wallet instantly.</li>
-</ol>
-
-<p>Your available balance is displayed at the top of the Billing &amp; Usage section at all times. You can check it any time without running a report or navigating through menus.</p>
-
-<p>Payment methods supported: Visa, Mastercard, American Express, and Discover (via Stripe), PayPal, Apple Pay (iOS), and Google Pay (Android). Cards are stored securely on Stripe's infrastructure — NXT1 never stores raw card numbers.</p>
-
-<h2 id="pending-holds">Pending Holds</h2>
-
-<p>When Agent X begins a paid operation, it <strong>reserves</strong> funds from your wallet equal to the estimated cost of that operation. This reserved amount is called a <strong>pending hold</strong>.</p>
-
-<p>The hold appears as a separate line in your Billing &amp; Usage dashboard and reduces your effective available balance for the duration of the operation. When the operation completes, the hold is released and replaced with the <strong>actual cost</strong> — which may be equal to, less than, or slightly more than the estimate depending on how the operation executed.</p>
-
-<p>You will never be charged more than what was held without a second confirmation. If an operation is cancelled before it completes, the hold is released in full and your balance is restored.</p>
-
-<p>The pending holds card on your Usage Dashboard shows the current total reserved across all active Agent X operations, so you always know what is committed vs. available.</p>
-
-<h2 id="auto-top-up">Auto Top-Up</h2>
-
-<p>Auto Top-Up prevents operations from being interrupted because your wallet balance dropped below what a task requires. When enabled, your wallet automatically reloads to a level you define whenever the balance falls below a threshold you set.</p>
-
-<p><strong>To configure Auto Top-Up:</strong></p>
-<ol>
-  <li>Go to <strong>Settings → Billing &amp; Usage → Auto Top-Up</strong>.</li>
-  <li>Set your <strong>trigger threshold</strong> — the balance level at which a reload fires (e.g., when balance drops below $10).</li>
-  <li>Set your <strong>reload amount</strong> — how much to add when the threshold is hit (e.g., reload $25).</li>
-  <li>Confirm the payment method to charge for automatic reloads.</li>
-</ol>
-
-<p>Auto Top-Up is particularly useful for programs using scheduled Agent X actions — automated weekly outreach, recurring performance reports, or scheduled communications. Without it, a scheduled operation will pause if the wallet is empty when it fires.</p>
-
-<h2 id="when-balance-hits-zero">When Your Balance Hits Zero</h2>
-
-<p>If your Balance AI wallet reaches $0:</p>
-<ul>
-  <li>All in-progress paid operations pause immediately.</li>
-  <li>New paid operations cannot start until the wallet is topped up.</li>
-  <li>You are never charged on credit — there is no debt mechanism. Operations stop. Nothing continues without funds.</li>
-  <li>Free platform features (messaging, browsing, profile editing) are unaffected and remain fully accessible.</li>
-</ul>
-
-<p>To resume: go to <strong>Settings → Billing &amp; Usage → Add Funds</strong>, add any amount, and the paused operations automatically resume if they are still in a resumable state. Operations that failed due to zero balance have a <strong>Retry</strong> button in your Agent X Active Operations view.</p>
-
-<h2 id="individual-vs-org">Individual vs. Organization Billing</h2>
-
-<p>Individual users have a single personal wallet that funds all their own operations.</p>
-
-<p>Coaches and Directors who manage programs have access to an <strong>organization wallet</strong> — a shared fund source that covers operations run by all members of the program. Directors can set per-team monthly spend sub-limits so each team draws from the org wallet within a controlled budget.</p>
-
-<p>If you are a Director managing a multi-team program, see <em>Organization Billing for Directors</em> for the full breakdown of org wallet management, team budget allocations, and admin controls.</p>
-    `.trim(),
+    content: SHARED_BILLING_HELP_CENTER_ARTICLE.content,
   },
 
   // ─────────────────────────────────────────────────────────────────────────────
