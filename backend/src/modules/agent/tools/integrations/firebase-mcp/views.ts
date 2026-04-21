@@ -390,8 +390,12 @@ const VIEW_DEFINITIONS: Record<FirebaseViewName, FirebaseViewDefinition> = {
       maxLimit: 1,
     },
     async resolve(db, scope) {
-      const snapshot = await db.collection(USERS_COLLECTION).doc(scope.userId).get();
+      const [snapshot, awardsSnap] = await Promise.all([
+        db.collection(USERS_COLLECTION).doc(scope.userId).get(),
+        db.collection('Awards').where('userId', '==', scope.userId).get(),
+      ]);
       const data = snapshot.exists ? sanitizeRecord({ id: snapshot.id, ...snapshot.data() }) : null;
+      const awardDocs = awardsSnap.docs.map((d) => sanitizeRecord({ id: d.id, ...d.data() }));
       const item = data
         ? sanitizeRecord({
             id: data['id'],
@@ -407,7 +411,7 @@ const VIEW_DEFINITIONS: Record<FirebaseViewName, FirebaseViewDefinition> = {
             sportInfo: data['sportInfo'],
             team: data['team'],
             coach: data['coach'],
-            awards: data['awards'],
+            awards: awardDocs.length > 0 ? awardDocs : (data['awards'] ?? []),
             teamHistory: data['teamHistory'],
             profileImgs: data['profileImgs'],
             city: data['city'],
@@ -780,7 +784,7 @@ const VIEW_DEFINITIONS: Record<FirebaseViewName, FirebaseViewDefinition> = {
       let query: Query = db
         .collection(POSTS_COLLECTION)
         .where('userId', '==', scope.userId)
-        .where('type', '==', 'highlight');
+        .where('type', '==', 'video');
 
       const sportId = parseStringFilter(input, 'sportId');
       if (sportId) query = query.where('sportId', '==', sportId);
@@ -805,6 +809,159 @@ const VIEW_DEFINITIONS: Record<FirebaseViewName, FirebaseViewDefinition> = {
       };
     },
   },
+  user_active_goals: {
+    metadata: {
+      name: 'user_active_goals',
+      title: 'User Active Goals',
+      description:
+        "Read the authenticated user's active Agent X goals. Use this to understand what the user is working toward before generating advice, playbooks, or outreach.",
+      filterHelp: ['No filters. Returns all active goals for the authenticated user.'],
+      defaultLimit: 10,
+      maxLimit: 20,
+    },
+    async resolve(db, scope) {
+      const userSnap = await db.collection(USERS_COLLECTION).doc(scope.userId).get();
+      if (!userSnap.exists) {
+        return { view: 'user_active_goals', count: 0, items: [] };
+      }
+
+      const rawGoals = (userSnap.data()?.['agentGoals'] ?? []) as Array<Record<string, unknown>>;
+      const items = rawGoals.map((g) =>
+        sanitizeRecord({
+          id: g['id'],
+          text: g['text'],
+          category: g['category'],
+          icon: g['icon'],
+          createdAt: g['createdAt'],
+        })
+      );
+
+      return { view: 'user_active_goals', count: items.length, items };
+    },
+  },
+
+  user_goal_history: {
+    metadata: {
+      name: 'user_goal_history',
+      title: 'User Goal History',
+      description:
+        "Read the authenticated user's goal history, including active and completed goals with their playbook cycle counts and progress metrics. " +
+        'Use this to understand long-term goal progress, identify completed goals, and provide context-aware coaching.',
+      filterHelp: [
+        'Supported filters: isCompleted (true/false), category.',
+        'Use cursor to paginate older records returned in descending lastSeenAt order.',
+      ],
+      defaultLimit: DEFAULT_FIREBASE_VIEW_LIMIT,
+      maxLimit: 20,
+    },
+    async resolve(db, scope, input) {
+      const limit = limitFor(input, this.metadata);
+      let query: Query = db
+        .collection(USERS_COLLECTION)
+        .doc(scope.userId)
+        .collection('goal_history')
+        .orderBy('lastSeenAt', 'desc');
+
+      const isCompleted = input.filters?.['isCompleted'];
+      if (typeof isCompleted === 'boolean') {
+        query = query.where('isCompleted', '==', isCompleted);
+      }
+
+      const category = parseStringFilter(input, 'category');
+      if (category) query = query.where('category', '==', category);
+
+      const cursor = parseIsoCursor(input);
+      if (cursor) query = query.where('lastSeenAt', '<', cursor);
+
+      const items = await queryDocuments(query, limit);
+      const redactedItems = items.map((item) =>
+        pickFields(item, [
+          'id',
+          'text',
+          'category',
+          'icon',
+          'playbookCount',
+          'itemsTotal',
+          'itemsCompleted',
+          'isCompleted',
+          'completedAt',
+          'firstSeenAt',
+          'lastSeenAt',
+          'latestPlaybookId',
+        ])
+      );
+
+      return {
+        view: 'user_goal_history',
+        count: redactedItems.length,
+        items: redactedItems,
+        nextCursor:
+          redactedItems.length === limit ? createdAtCursor(redactedItems, 'lastSeenAt') : undefined,
+        appliedFilters: input.filters,
+      };
+    },
+  },
+
+  user_current_playbook: {
+    metadata: {
+      name: 'user_current_playbook',
+      title: 'User Current Playbook',
+      description:
+        "Read the authenticated user's most recent Agent X weekly playbook, including all task items with their status (pending, in-progress, complete, snoozed). " +
+        'Use this to understand what tasks the user has been assigned, what they have completed, and what is still in progress this week.',
+      filterHelp: ['No filters. Always returns the single most recent playbook.'],
+      defaultLimit: 1,
+      maxLimit: 1,
+    },
+    async resolve(db, scope) {
+      const snap = await db
+        .collection(USERS_COLLECTION)
+        .doc(scope.userId)
+        .collection('agent_playbooks')
+        .orderBy('generatedAt', 'desc')
+        .limit(1)
+        .get();
+
+      if (snap.empty) {
+        return { view: 'user_current_playbook', count: 0, items: [] };
+      }
+
+      const doc = snap.docs[0];
+      const data = doc.data();
+      const rawItems = (data['items'] ?? []) as Array<Record<string, unknown>>;
+      const rawGoals = (data['goals'] ?? []) as Array<Record<string, unknown>>;
+
+      const playbook = sanitizeRecord({
+        playbookId: doc.id,
+        generatedAt: data['generatedAt'],
+        role: data['role'],
+        goals: rawGoals.map((g) =>
+          sanitizeRecord({ id: g['id'], text: g['text'], category: g['category'] })
+        ),
+        items: rawItems.map((item) =>
+          sanitizeRecord({
+            id: item['id'],
+            title: item['title'],
+            description: item['description'],
+            status: item['status'],
+            actionType: item['actionType'],
+            goalId: (item['goal'] as Record<string, unknown> | undefined)?.['id'],
+            goalText: (item['goal'] as Record<string, unknown> | undefined)?.['text'],
+          })
+        ),
+        summary: {
+          total: rawItems.length,
+          completed: rawItems.filter((i) => i['status'] === 'complete').length,
+          snoozed: rawItems.filter((i) => i['status'] === 'snoozed').length,
+          inProgress: rawItems.filter((i) => i['status'] === 'in-progress').length,
+          pending: rawItems.filter((i) => i['status'] === 'pending').length,
+        },
+      });
+
+      return { view: 'user_current_playbook', count: 1, items: [playbook] };
+    },
+  },
+
   team_profile_snapshot: {
     metadata: {
       name: 'team_profile_snapshot',
@@ -907,6 +1064,85 @@ const VIEW_DEFINITIONS: Record<FirebaseViewName, FirebaseViewDefinition> = {
       };
     },
   },
+  team_timeline_feed: {
+    metadata: {
+      name: 'team_timeline_feed',
+      title: 'Team Timeline Feed',
+      description:
+        "Read timeline posts associated with the authenticated viewer's accessible teams. Useful for reviewing team announcements, highlight posts, stat updates, and published team content.",
+      filterHelp: [
+        'Supported filters: teamId, type, visibility, sportId.',
+        'Omit teamId to search across all accessible teams.',
+        'Use cursor to paginate older posts returned in descending createdAt order.',
+      ],
+      defaultLimit: DEFAULT_FIREBASE_VIEW_LIMIT,
+      maxLimit: MAX_FIREBASE_VIEW_LIMIT,
+    },
+    async resolve(db, scope, input) {
+      const limit = limitFor(input, this.metadata);
+      const teamIds = resolveTeamIds(scope, input);
+      if (teamIds.length === 0) {
+        return {
+          view: 'team_timeline_feed',
+          count: 0,
+          items: [],
+          appliedFilters: input.filters,
+        };
+      }
+
+      const type = parseStringFilter(input, 'type');
+      const visibility = parseStringFilter(input, 'visibility');
+      const sportId = parseStringFilter(input, 'sportId');
+      const cursor = parseTimestampCursor(input);
+
+      const posts = await queryAcrossIds(
+        teamIds,
+        (teamId) => {
+          let query: Query = db.collection(POSTS_COLLECTION).where('teamId', '==', teamId);
+          if (type) query = query.where('type', '==', type);
+          if (visibility) query = query.where('visibility', '==', visibility);
+          if (sportId) query = query.where('sportId', '==', sportId);
+          query = query.orderBy('createdAt', 'desc');
+          if (cursor) query = query.where('createdAt', '<', cursor);
+          return query;
+        },
+        limit,
+        'createdAt'
+      );
+
+      const redactedItems = posts.map((item) =>
+        sanitizeRecord({
+          ...pickFields(item, [
+            'id',
+            'userId',
+            'teamId',
+            'content',
+            'type',
+            'visibility',
+            'sportId',
+            'images',
+            'videoUrl',
+            'hashtags',
+            'mentions',
+            'stats',
+            'title',
+            'createdAt',
+            'updatedAt',
+          ]),
+          videoUrl: item['videoUrl'] ?? item['mediaUrl'],
+        })
+      );
+
+      return {
+        view: 'team_timeline_feed',
+        count: redactedItems.length,
+        items: redactedItems,
+        nextCursor:
+          redactedItems.length === limit ? createdAtCursor(redactedItems, 'createdAt') : undefined,
+        appliedFilters: input.filters,
+      };
+    },
+  },
   team_highlight_videos: {
     metadata: {
       name: 'team_highlight_videos',
@@ -941,7 +1177,7 @@ const VIEW_DEFINITIONS: Record<FirebaseViewName, FirebaseViewDefinition> = {
           let query: Query = db
             .collection(POSTS_COLLECTION)
             .where('teamId', '==', teamId)
-            .where('type', '==', 'highlight');
+            .where('type', '==', 'video');
           if (sportId) query = query.where('sportId', '==', sportId);
           if (visibility) query = query.where('visibility', '==', visibility);
           query = query.orderBy('createdAt', 'desc');
@@ -1101,7 +1337,7 @@ const VIEW_DEFINITIONS: Record<FirebaseViewName, FirebaseViewDefinition> = {
           let query: Query = db
             .collection(POSTS_COLLECTION)
             .where('organizationId', '==', organizationId)
-            .where('type', '==', 'highlight');
+            .where('type', '==', 'video');
           if (sportId) query = query.where('sportId', '==', sportId);
           if (visibility) query = query.where('visibility', '==', visibility);
           query = query.orderBy('createdAt', 'desc');

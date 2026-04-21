@@ -39,7 +39,7 @@ import {
   NEWS_CATEGORIES,
   NEWS_PAGINATION_DEFAULTS,
 } from '@nxt1/core';
-import { APP_EVENTS, FIREBASE_EVENTS } from '@nxt1/core/analytics';
+import { APP_EVENTS } from '@nxt1/core/analytics';
 import { HapticsService } from '../services/haptics/haptics.service';
 import { NxtToastService } from '../services/toast/toast.service';
 import { NxtLoggingService } from '../services/logging/logging.service';

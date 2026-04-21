@@ -134,6 +134,18 @@ export {
   mergeBiometricConfig,
 } from './biometric-config';
 
+// Google OAuth constants
+export {
+  GOOGLE_OAUTH_SCOPES,
+  OAUTH_TOKEN_SUBCOLLECTION,
+  LEGACY_EMAIL_TOKEN_SUBCOLLECTION,
+  GOOGLE_OAUTH_TOKEN_DOC_ID,
+  getOAuthTokenDocId,
+  hasGrantedGoogleWorkspaceScopes,
+  type OAuthEmailProviderId,
+  type OAuthTokenDocId,
+} from './google-oauth.constants';
+
 // Auth API - Backend HTTP calls
 export {
   // Factory

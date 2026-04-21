@@ -35,9 +35,9 @@
  *
  * Instead, a two-document pattern is used:
  *   Users/{uid}                        ← connectedEmails[] metadata only
- *   Users/{uid}/emailTokens/{provider} ← refresh token (server-only)
+ *   Users/{uid}/oauthTokens/{provider} ← refresh token (server-only)
  *
- * Firestore security rules lock emailTokens to backend/Functions only.
+ * Firestore security rules lock oauthTokens to backend/Functions only.
  *
  * V3 document schema (mirrors UserV3Document in backend/src/routes/auth.routes.ts):
  *   email, onboardingCompleted, createdAt, updatedAt, _schemaVersion
@@ -48,6 +48,23 @@ import { beforeUserCreated, HttpsError } from 'firebase-functions/v2/identity';
 import { logger } from 'firebase-functions/v2';
 import * as admin from 'firebase-admin';
 import { DISPOSABLE_EMAIL_DOMAINS, USER_SCHEMA_VERSION } from '../constants';
+
+// ─── Inlined from @nxt1/core/auth (workspace packages are not available in Cloud Run) ───
+const OAUTH_TOKEN_SUBCOLLECTION = 'oauthTokens' as const;
+const GOOGLE_OAUTH_TOKEN_DOC_ID = 'google' as const;
+const GOOGLE_OAUTH_SCOPES = [
+  'https://mail.google.com/',
+  'https://www.googleapis.com/auth/gmail.send',
+  'https://www.googleapis.com/auth/gmail.readonly',
+  'https://www.googleapis.com/auth/calendar',
+  'https://www.googleapis.com/auth/drive',
+  'https://www.googleapis.com/auth/documents',
+  'https://www.googleapis.com/auth/spreadsheets',
+  'https://www.googleapis.com/auth/presentations',
+] as const;
+function hasGrantedGoogleWorkspaceScopes(grantedScopes: string): boolean {
+  return GOOGLE_OAUTH_SCOPES.some((scope) => grantedScopes.includes(scope));
+}
 
 const db = admin.firestore();
 
@@ -125,13 +142,13 @@ export const beforeUserCreate = beforeUserCreated(async (event) => {
           (event.additionalUserInfo?.profile as Record<string, string> | undefined)?.[
             'granted_scopes'
           ] ?? '';
-        const hasSendEmailPermission = grantedScopes.includes('gmail.send');
+        const hasGoogleWorkspacePermission = hasGrantedGoogleWorkspaceScopes(grantedScopes);
 
-        if (hasSendEmailPermission && refreshToken) {
+        if (hasGoogleWorkspacePermission && refreshToken) {
           const now = new Date().toISOString();
 
           // ✅ SECURITY: Only metadata goes on the user document.
-          // Token is written to the emailTokens subcollection, which Firestore
+          // Token is written to the oauthTokens subcollection, which Firestore
           // security rules restrict to server-only access (Cloud Functions / backend).
           const connectedEmailMeta = {
             email,
@@ -145,26 +162,34 @@ export const beforeUserCreate = beforeUserCreated(async (event) => {
           // Use a batch so both writes succeed or both fail atomically.
           const batch = db.batch();
           batch.set(db.collection('Users').doc(uid), newUser);
-          batch.set(db.collection('Users').doc(uid).collection('emailTokens').doc('gmail'), {
-            provider: 'gmail',
-            refreshToken,
-            lastRefreshedAt: now,
-          });
+          batch.set(
+            db
+              .collection('Users')
+              .doc(uid)
+              .collection(OAUTH_TOKEN_SUBCOLLECTION)
+              .doc(GOOGLE_OAUTH_TOKEN_DOC_ID),
+            {
+              provider: GOOGLE_OAUTH_TOKEN_DOC_ID,
+              refreshToken,
+              email,
+              lastRefreshedAt: now,
+            }
+          );
           await batch.commit();
 
-          logger.info('[beforeUserCreate] Google – V3 doc + Gmail token written to subcollection', {
+          logger.info('[beforeUserCreate] Google – V3 doc + OAuth token written to subcollection', {
             uid,
           });
         } else {
           // No token to save – backend /create-user will create the standard V3 doc.
-          if (hasSendEmailPermission) {
+          if (hasGoogleWorkspacePermission) {
             logger.info(
-              '[beforeUserCreate] Google – gmail.send scope but no refresh token, skipping write',
+              '[beforeUserCreate] Google – scope granted but no refresh token, skipping write',
               { uid }
             );
           } else {
             logger.info(
-              '[beforeUserCreate] Google – no gmail.send scope, skipping write (backend handles it)',
+              '[beforeUserCreate] Google – no configured Google workspace scope, skipping write (backend handles it)',
               { uid }
             );
           }
@@ -175,7 +200,7 @@ export const beforeUserCreate = beforeUserCreated(async (event) => {
         if (refreshToken) {
           const now = new Date().toISOString();
 
-          // ✅ SECURITY: Metadata on user doc, token in emailTokens subcollection.
+          // ✅ SECURITY: Metadata on user doc, token in oauthTokens subcollection.
           const connectedEmailMeta = {
             email,
             provider: 'microsoft',
@@ -188,11 +213,15 @@ export const beforeUserCreate = beforeUserCreated(async (event) => {
           // Atomic batch: user doc + token subcollection
           const batch = db.batch();
           batch.set(db.collection('Users').doc(uid), newUser);
-          batch.set(db.collection('Users').doc(uid).collection('emailTokens').doc('microsoft'), {
-            provider: 'microsoft',
-            refreshToken,
-            lastRefreshedAt: now,
-          });
+          batch.set(
+            db.collection('Users').doc(uid).collection(OAUTH_TOKEN_SUBCOLLECTION).doc('microsoft'),
+            {
+              provider: 'microsoft',
+              refreshToken,
+              email,
+              lastRefreshedAt: now,
+            }
+          );
           await batch.commit();
 
           logger.info('[beforeUserCreate] Microsoft – V3 doc + token written to subcollection', {

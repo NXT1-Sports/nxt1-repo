@@ -22,12 +22,11 @@ describe('Invite Routes', () => {
         { path: '/send', method: 'post' },
         { path: '/send-bulk', method: 'post' },
         { path: '/history', method: 'get' },
-        { path: '/stats', method: 'get' },
         { path: '/validate', method: 'post' },
         { path: '/accept', method: 'post' },
         { path: '/team/:teamId/members', method: 'get' },
       ],
-      8
+      7
     );
   });
 });

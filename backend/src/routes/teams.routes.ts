@@ -41,6 +41,13 @@ import {
 } from '../services/cache.service.js';
 import { markCacheHit } from '../middleware/cache-status.middleware.js';
 import type { TeamProfilePageData } from '@nxt1/core/team-profile';
+import { SyncDiffService } from '../modules/agent/sync/index.js';
+import {
+  buildDistilledProfileFromTeamRecord,
+  buildPreviousStateFromTeamRecord,
+} from '../modules/agent/sync/manual-sync-state.helpers.js';
+import { onDailySyncComplete } from '../modules/agent/triggers/trigger.listeners.js';
+import { createTimelineService } from '../services/timeline.service.js';
 
 const router: ExpressRouter = Router();
 
@@ -76,6 +83,58 @@ function validateRole(role: string): void {
       },
     ]);
   }
+}
+
+interface TeamIntelPermissionMemberLike {
+  readonly id?: string;
+  readonly uid?: string;
+  readonly userId?: string;
+  readonly role?: string | null;
+}
+
+interface TeamIntelPermissionInput {
+  readonly userId: string;
+  readonly legacyMembers?: readonly TeamIntelPermissionMemberLike[];
+  readonly roster?: readonly TeamIntelPermissionMemberLike[];
+}
+
+const TEAM_INTEL_MANAGER_ROLES = new Set([
+  'administrative',
+  'admin',
+  'coach',
+  'director',
+  'owner',
+  'head-coach',
+  'assistant-coach',
+  'staff',
+  'program-director',
+]);
+
+function normalizeTeamIntelRole(value: unknown): string {
+  if (typeof value !== 'string') return '';
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[_\s]+/g, '-');
+}
+
+export function canGenerateTeamIntelForUser({
+  userId,
+  legacyMembers = [],
+  roster = [],
+}: TeamIntelPermissionInput): boolean {
+  const hasLegacyPermission = legacyMembers.some((member) => {
+    const memberId = member.id ?? member.uid ?? member.userId;
+    const role = normalizeTeamIntelRole(member.role);
+    return memberId === userId && TEAM_INTEL_MANAGER_ROLES.has(role);
+  });
+
+  const hasRosterPermission = roster.some((entry) => {
+    const role = normalizeTeamIntelRole(entry.role);
+    return entry.userId === userId && TEAM_INTEL_MANAGER_ROLES.has(role);
+  });
+
+  return hasLegacyPermission || hasRosterPermission;
 }
 
 // ============================================
@@ -204,9 +263,18 @@ router.get(
 
     const teamAdapter = createTeamAdapter(db);
     let teamCode;
+
     try {
       teamCode = await teamAdapter.getTeamWithMembers(String(id));
     } catch {
+      teamCode = null;
+    }
+
+    if (!teamCode) {
+      teamCode = await teamAdapter.getTeamByCode(String(id).trim());
+    }
+
+    if (!teamCode) {
       res.status(404).json({ success: false, error: 'Team not found' });
       return;
     }
@@ -474,6 +542,22 @@ router.patch(
       unicode,
       division,
       conference,
+      mascot,
+      email,
+      phone,
+      website,
+      address,
+      city,
+      state,
+      wins,
+      losses,
+      ties,
+      season,
+      logoUrl,
+      galleryImages,
+      primaryColor,
+      secondaryColor,
+      accentColor,
     } = req.body;
 
     const userId = req.user!.uid;
@@ -481,21 +565,103 @@ router.patch(
 
     validateRequired(id, 'Team ID');
 
+    let previousTeam: Record<string, unknown> | null = null;
+    try {
+      const previousSnapshot = await teamCodeService.getTeamCodeById(db, String(id));
+      previousTeam = previousSnapshot.team as unknown as Record<string, unknown>;
+    } catch (err) {
+      logger.warn('[Teams API] Failed to load previous team snapshot for delta', {
+        teamId: id,
+        userId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
     const team = await teamCodeService.updateTeamCode(db, String(id), userId, {
       teamName: teamName?.trim(),
       teamType,
       sport: sportName?.trim(),
-      athleteMember: athleteMember !== undefined ? parseInt(athleteMember, 10) : undefined,
-      panelMember: panelMember !== undefined ? parseInt(panelMember, 10) : undefined,
+      athleteMember: athleteMember !== undefined ? parseInt(String(athleteMember), 10) : undefined,
+      panelMember: panelMember !== undefined ? parseInt(String(panelMember), 10) : undefined,
       isActive,
       unicode: unicode?.trim(),
       division: division?.trim(),
       conference: conference?.trim(),
+      mascot: typeof mascot === 'string' ? mascot.trim() : undefined,
+      email: typeof email === 'string' ? email.trim() : undefined,
+      phone: typeof phone === 'string' ? phone.trim() : undefined,
+      website: typeof website === 'string' ? website.trim() : undefined,
+      address: typeof address === 'string' ? address.trim() : undefined,
+      city: typeof city === 'string' ? city.trim() : undefined,
+      state: typeof state === 'string' ? state.trim() : undefined,
+      wins: wins !== undefined ? parseInt(String(wins), 10) : undefined,
+      losses: losses !== undefined ? parseInt(String(losses), 10) : undefined,
+      ties: ties !== undefined ? parseInt(String(ties), 10) : undefined,
+      season: typeof season === 'string' ? season.trim() : undefined,
+      logoUrl: typeof logoUrl === 'string' ? logoUrl.trim() : undefined,
+      galleryImages: Array.isArray(galleryImages)
+        ? galleryImages
+            .filter((item): item is string => typeof item === 'string')
+            .map((item) => item.trim())
+            .filter(Boolean)
+        : undefined,
+      primaryColor: typeof primaryColor === 'string' ? primaryColor.trim() : undefined,
+      secondaryColor: typeof secondaryColor === 'string' ? secondaryColor.trim() : undefined,
+      accentColor: typeof accentColor === 'string' ? accentColor.trim() : undefined,
     });
 
     logger.info('[Teams API] TeamCode updated', { teamId: id, userId });
 
     void invalidateTeamProfileCache(String(id), team.slug ?? undefined, team.teamCode ?? undefined);
+
+    if (previousTeam) {
+      try {
+        const diffService = new SyncDiffService();
+        const deltaSport =
+          (typeof team.sport === 'string' && team.sport.trim()) ||
+          (typeof sportName === 'string' && sportName.trim()) ||
+          'general';
+        const scopedDelta = {
+          ...diffService.diff(
+            userId,
+            deltaSport,
+            'manual-team',
+            buildPreviousStateFromTeamRecord(previousTeam),
+            buildDistilledProfileFromTeamRecord(
+              team as unknown as Record<string, unknown>,
+              deltaSport
+            )
+          ),
+          teamId: String(id),
+          organizationId:
+            typeof (team as { organizationId?: unknown }).organizationId === 'string'
+              ? ((team as { organizationId?: string }).organizationId ?? undefined)
+              : undefined,
+        };
+
+        if (!scopedDelta.isEmpty) {
+          logger.info('[Teams API] Manual team delta detected, firing sync trigger', {
+            teamId: id,
+            userId,
+            sport: scopedDelta.sport,
+            totalChanges: scopedDelta.summary.totalChanges,
+          });
+          void onDailySyncComplete(scopedDelta).catch((err) => {
+            logger.warn('[Teams API] Manual team sync trigger dispatch failed', {
+              teamId: id,
+              userId,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          });
+        }
+      } catch (err) {
+        logger.warn('[Teams API] Manual team delta computation failed', {
+          teamId: id,
+          userId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
 
     sendSuccess(res, team);
   })
@@ -568,6 +734,17 @@ router.post(
       team.id ?? '',
       team.slug ?? undefined,
       team.teamCode ?? undefined
+    );
+
+    void dispatch(db, {
+      userId,
+      type: NOTIFICATION_TYPES.TEAM_JOIN_REQUEST,
+      title: `You joined ${team.teamName}`,
+      body: `Welcome to ${team.teamName}!`,
+      data: team.id ? { teamId: team.id } : undefined,
+      source: { teamName: team.teamName },
+    }).catch((err) =>
+      logger.error('[Teams] Failed to dispatch team_join_request notification', { error: err })
     );
 
     // Fire-and-forget: notify team owner that a new member joined
@@ -687,6 +864,45 @@ router.delete(
       String(id),
       existingTeam?.slug ?? undefined,
       existingTeam?.teamCode ?? undefined
+    );
+
+    void (async () => {
+      const teamName = existingTeam?.teamName ?? 'the team';
+      const normalizedTargetUserId = String(targetUserId);
+      const isSelfLeave = removerId === normalizedTargetUserId;
+
+      await dispatch(db, {
+        userId: normalizedTargetUserId,
+        type: NOTIFICATION_TYPES.TEAM_MEMBER_LEFT,
+        title: isSelfLeave ? `You left ${teamName}` : `You were removed from ${teamName}`,
+        body: isSelfLeave
+          ? `Your membership in ${teamName} has been removed.`
+          : `Your membership in ${teamName} was updated by a team admin.`,
+        deepLink: '/activity',
+        data: { teamId: String(id) },
+        source: { teamName },
+      });
+
+      const teamDoc = await db.collection('Teams').doc(String(id)).get();
+      const ownerId = teamDoc.data()?.['createdBy'] as string | undefined;
+      if (isSelfLeave || !ownerId || ownerId === removerId || ownerId === normalizedTargetUserId) {
+        return;
+      }
+
+      await dispatch(db, {
+        userId: ownerId,
+        type: NOTIFICATION_TYPES.TEAM_MEMBER_LEFT,
+        title: 'A member left your team',
+        body: `${teamName} has one fewer active member.`,
+        data: { teamId: String(id), memberUserId: normalizedTargetUserId },
+        source: { teamName },
+      });
+    })().catch((err) =>
+      logger.error('[Teams] Failed to dispatch team_member_left notification', {
+        error: err,
+        teamId: id,
+        targetUserId,
+      })
     );
 
     sendSuccess(res, { message: 'Member removed successfully' });
@@ -915,33 +1131,14 @@ router.post(
           members?: Array<{
             id?: string;
             uid?: string;
+            userId?: string;
             role?: string;
           }>;
         }
       ).members ?? [];
     const roster = teamWithMembers.roster ?? [];
-    const privilegedLegacyRoles = new Set([
-      'admin',
-      'coach',
-      'owner',
-      'head_coach',
-      'head-coach',
-      'assistant-coach',
-    ]);
-    const privilegedRosterRoles = new Set(['owner', 'head-coach', 'assistant-coach']);
 
-    const hasLegacyPermission = legacyMembers.some((member) => {
-      const memberId = member.id ?? member.uid;
-      const role = member.role?.toLowerCase();
-      return memberId === userId && !!role && privilegedLegacyRoles.has(role);
-    });
-
-    const hasRosterPermission = roster.some((entry) => {
-      const role = String(entry.role ?? '').toLowerCase();
-      return entry.userId === userId && privilegedRosterRoles.has(role);
-    });
-
-    if (!hasLegacyPermission && !hasRosterPermission) {
+    if (!canGenerateTeamIntelForUser({ userId, legacyMembers, roster })) {
       throw forbiddenError('permission');
     }
 
@@ -950,11 +1147,164 @@ router.post(
     const report = await intelService.generateTeamIntel(id, db);
 
     logger.info('[Teams] Intel generated', { teamId: id, userId });
-    sendSuccess(res, {
+    res.json({
+      success: true,
       status: 'ready',
       message: 'Team Intel report generated successfully',
       reportId: (report as Record<string, unknown>)['id'],
       data: report,
+    });
+  })
+);
+
+/**
+ * PATCH /:id/intel/section/:sectionId
+ * Regenerate a single section of the team Intel report in-place.
+ * Requires authentication and admin/coach role.
+ */
+const VALID_TEAM_SECTIONS = new Set(['agent_overview', 'team', 'stats', 'recruiting', 'schedule']);
+
+router.patch(
+  '/:id/intel/section/:sectionId',
+  appGuard,
+  asyncHandler(async (req: Request, res: Response) => {
+    const { id, sectionId } = req.params as { id: string; sectionId: string };
+    const userId = req.user!.uid;
+    const db = req.firebase!.db;
+
+    if (!VALID_TEAM_SECTIONS.has(sectionId)) {
+      throw validationError([
+        {
+          field: 'sectionId',
+          message: `Invalid section id "${sectionId}". Valid sections: ${[...VALID_TEAM_SECTIONS].join(', ')}`,
+          rule: 'enum',
+        },
+      ]);
+    }
+
+    const teamAdapter = createTeamAdapter(db);
+    let teamWithMembers: Awaited<ReturnType<typeof teamAdapter.getTeamWithMembers>>;
+
+    try {
+      teamWithMembers = await teamAdapter.getTeamWithMembers(id);
+    } catch {
+      throw validationError([{ field: 'id', message: 'Team not found', rule: 'exists' }]);
+    }
+
+    const legacyMembers =
+      (
+        teamWithMembers as unknown as {
+          members?: Array<{ id?: string; uid?: string; userId?: string; role?: string }>;
+        }
+      ).members ?? [];
+    const roster = teamWithMembers.roster ?? [];
+
+    if (!canGenerateTeamIntelForUser({ userId, legacyMembers, roster })) {
+      throw forbiddenError('permission');
+    }
+
+    const { IntelGenerationService } = await import('../modules/agent/services/intel.service.js');
+    const intelService = new IntelGenerationService();
+
+    // Cast is safe — we validated sectionId against the valid set above
+    const report = await intelService.updateTeamIntelSection(
+      id,
+      sectionId as Parameters<typeof intelService.updateTeamIntelSection>[1],
+      db
+    );
+
+    logger.info('[Teams] Intel section updated', { teamId: id, userId, sectionId });
+    res.json({
+      success: true,
+      status: 'ready',
+      message: `Section "${sectionId}" updated successfully`,
+      sectionId,
+      data: report,
+    });
+  })
+);
+
+/**
+ * Get polymorphic team timeline
+ * GET /api/v1/teams/:teamCode/timeline
+ *
+ * Returns FeedItem[] sorted newest-first, assembled from:
+ *   Posts (teamId), Schedule (ownerType:team), TeamStats, News,
+ *   and Recruiting fan-out via RosterEntries.
+ *
+ * Query params:
+ *   - filter: 'all' | 'media' | 'stats' | 'games' | 'schedule' | 'recruiting' | 'news'
+ *   - limit: number (default 20, max 50)
+ *   - cursor: base64-encoded ISO timestamp for pagination
+ *   - sportId: optional sport filter
+ */
+router.get(
+  '/:teamCode/timeline',
+  optionalAuth,
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const { teamCode } = req.params;
+    const db = req.firebase!.db;
+
+    validateRequired(teamCode, 'teamCode');
+
+    const rawLimit = parseInt(String(req.query['limit'] ?? '20'), 10);
+    const limit = Math.min(isNaN(rawLimit) ? 20 : rawLimit, 50);
+    const filter = String(req.query['filter'] ?? 'all') as
+      | 'all'
+      | 'media'
+      | 'stats'
+      | 'games'
+      | 'schedule'
+      | 'recruiting'
+      | 'news';
+    const cursor = req.query['cursor'] ? String(req.query['cursor']) : undefined;
+    const sportId = req.query['sportId'] ? String(req.query['sportId']) : undefined;
+
+    const validFilters = new Set([
+      'all',
+      'media',
+      'stats',
+      'games',
+      'schedule',
+      'recruiting',
+      'news',
+    ]);
+    const resolvedFilter = validFilters.has(filter) ? filter : 'all';
+
+    const cache = getCacheService();
+    const cacheKey = `team:timeline:v1:${teamCode}:${resolvedFilter}:${sportId ?? ''}:${cursor ?? ''}`;
+    const cached = await cache.get(cacheKey);
+    if (cached) {
+      markCacheHit(req, 'redis', cacheKey);
+      sendSuccess(res, cached, { cached: true });
+      return;
+    }
+
+    const timelineService = createTimelineService(db);
+    const result = await timelineService.getTeamTimeline(String(teamCode), {
+      limit,
+      filter: resolvedFilter,
+      sportId,
+      cursor,
+    });
+
+    await cache.set(
+      cacheKey,
+      { items: result.data, nextCursor: result.nextCursor, hasMore: result.hasMore },
+      { ttl: CACHE_TTL.FEED }
+    );
+
+    logger.info('[Teams API] Team timeline assembled', {
+      teamCode,
+      filter: resolvedFilter,
+      count: result.data.length,
+      hasMore: result.hasMore,
+    });
+
+    sendSuccess(res, {
+      items: result.data,
+      nextCursor: result.nextCursor,
+      hasMore: result.hasMore,
     });
   })
 );

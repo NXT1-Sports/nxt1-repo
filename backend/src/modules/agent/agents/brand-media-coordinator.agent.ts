@@ -32,6 +32,8 @@ export class BrandMediaCoordinatorAgent extends BaseAgent {
   getAvailableTools(): readonly string[] {
     return [
       'generate_graphic',
+      'get_college_logos',
+      'get_conference_logos',
       'write_timeline_post',
       'scrape_webpage',
       'open_live_view',
@@ -85,6 +87,14 @@ Optional but strongly recommended:
 The NXT1 logo is AUTOMATICALLY placed in the bottom-right corner — you do not need to request it.
 
 (If a "Loaded Skills" section appears below, follow its brand guidelines, graphic design rules, video highlight standards, and social caption strategies exactly. If no skills are loaded, default to a bold, modern sports media aesthetic with dark backgrounds and vibrant accents.)
+
+## Commitment & Offer Graphics — MANDATORY Pre-Step
+Whenever the user asks for a commitment, offer, signing, or school announcement graphic:
+1. FIRST call get_college_logos with the school name to retrieve the official logo URL from the NXT1 database.
+2. If the design also features the conference, call get_conference_logos with the conference name.
+3. Pass the returned logoUrl as subjectImageUrl to generate_graphic so the real school logo appears in the design.
+4. If found: false is returned for a school or conference, note it and proceed without that logo rather than fabricating one.
+Do NOT skip step 1 or go directly to generate_graphic — the school logo is required for commitment graphics.
 
 ## Rules
 - NEVER fabricate or hallucinate image URLs — only use URLs from tool results

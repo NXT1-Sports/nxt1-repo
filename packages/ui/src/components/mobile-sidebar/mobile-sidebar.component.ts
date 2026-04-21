@@ -50,11 +50,14 @@ import { filter } from 'rxjs/operators';
 import { NxtLogoComponent } from '../logo';
 import { NxtIconComponent } from '../icon';
 import { NxtAvatarComponent } from '../avatar';
-import { NxtThemeSelectorComponent } from '../theme-selector';
+import { NxtFloatingActionBarComponent } from '../floating-action-bar';
 import { NxtThemeService } from '../../services/theme';
 import { HapticsService } from '../../services/haptics';
 import { NxtBrowserService } from '../../services/browser';
-import { SUPPORT_CONFIG } from '@nxt1/core/constants';
+import { AgentXOperationsLogComponent } from '../../agent-x/agent-x-operations-log.component';
+import { AgentXOperationChatComponent } from '../../agent-x/agent-x-operation-chat.component';
+import { NxtBottomSheetService, SHEET_PRESETS } from '../bottom-sheet';
+import type { OperationLogEntry } from '@nxt1/core';
 import type {
   MobileSidebarConfig,
   MobileSidebarItem,
@@ -65,6 +68,7 @@ import type {
 import { DEFAULT_MOBILE_SIDEBAR_CONFIG } from './mobile-sidebar.types';
 import type { DesktopSidebarSection } from '../desktop-sidebar/desktop-sidebar.types';
 import { formatSportDisplayName } from '@nxt1/core';
+import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/assets';
 
 @Component({
   selector: 'nxt1-mobile-sidebar',
@@ -75,7 +79,8 @@ import { formatSportDisplayName } from '@nxt1/core';
     NxtLogoComponent,
     NxtIconComponent,
     NxtAvatarComponent,
-    NxtThemeSelectorComponent,
+    NxtFloatingActionBarComponent,
+    AgentXOperationsLogComponent,
   ],
   template: `
     <!-- Overlay Backdrop -->
@@ -176,11 +181,10 @@ import { formatSportDisplayName } from '@nxt1/core';
                       [attr.aria-label]="'Switch to ' + formatSportDisplay(profile.sport)"
                     >
                       <nxt1-avatar
-                        [src]="profile.profileImg"
-                        [name]="profile.sport"
+                        [src]="profile.profileImg || user()?.profileImg"
+                        [name]="user()?.name"
                         [isTeamRole]="user()!.isTeamRole ?? false"
-                        [initials]="user()!.isTeamRole ? '' : getSportInitials(profile.sport)"
-                        [defaultIcon]="user()!.isTeamRole ? 'shield' : 'athlete'"
+                        [defaultIcon]="user()!.isTeamRole ? 'shield' : ''"
                         [customSize]="28"
                         [showSkeleton]="false"
                       />
@@ -246,248 +250,211 @@ import { formatSportDisplayName } from '@nxt1/core';
           </div>
         }
 
-        <!-- Navigation Sections -->
-        @for (section of sections(); track section.id; let isLast = $last) {
-          <div class="mobile-sidebar__section" [class.mobile-sidebar__section--bordered]="!isLast">
+        <!-- Navigation Sections (quick-actions renders inline here; follow-us lives in bottom panel) -->
+        @for (section of mainNavSections(); track section.id; let isLast = $last) {
+          <div
+            class="mobile-sidebar__section"
+            [class.mobile-sidebar__section--bordered]="!isLast"
+            [class.mobile-sidebar__section--grid]="section.layout === 'grid'"
+          >
             <!-- Section Label -->
             @if (section.label) {
               <div class="mobile-sidebar__section-label">{{ section.label }}</div>
             }
 
-            <!-- Section Items -->
-            <ul class="mobile-sidebar__items" role="menu">
-              @for (item of section.items; track item.id) {
-                @if (!item.hidden) {
-                  @if (item.divider) {
-                    <li class="mobile-sidebar__divider" role="separator"></li>
-                  } @else {
-                    <li role="none">
-                      <button
-                        type="button"
-                        class="mobile-sidebar__item"
-                        [class.mobile-sidebar__item--active]="isActiveItem(item)"
-                        [class.mobile-sidebar__item--expandable]="!!item.children?.length"
-                        [class.mobile-sidebar__item--disabled]="item.disabled"
-                        [disabled]="item.disabled"
-                        [attr.aria-current]="isActiveItem(item) ? 'page' : null"
-                        [attr.aria-expanded]="
-                          item.children?.length ? isItemExpanded(item.id) : null
-                        "
-                        [attr.aria-label]="item.ariaLabel ?? item.label"
-                        role="menuitem"
-                        (click)="onExpandableItemClick(item, section.id, $event)"
-                      >
-                        <!-- Icon -->
-                        <span
-                          class="mobile-sidebar__item-icon"
-                          [class.mobile-sidebar__item-icon--agent-x]="isAgentXIcon(item.icon)"
-                        >
-                          @if (isAgentXIcon(item.icon)) {
-                            <!-- Agent X Logo SVG - Theme-aware via currentColor (same as footer) -->
-                            <svg
-                              class="agent-x-logo"
-                              viewBox="0 0 612 792"
-                              width="40"
-                              height="40"
-                              fill="currentColor"
-                              stroke="currentColor"
-                              stroke-width="12"
-                              stroke-linejoin="round"
-                              aria-hidden="true"
-                            >
-                              <path
-                                d="M505.93,251.93c5.52-5.52,1.61-14.96-6.2-14.96h-94.96c-2.32,0-4.55.92-6.2,2.57l-67.22,67.22c-4.2,4.2-11.28,3.09-13.99-2.2l-32.23-62.85c-1.49-2.91-4.49-4.75-7.76-4.76l-83.93-.34c-6.58-.03-10.84,6.94-7.82,12.78l66.24,128.23c1.75,3.39,1.11,7.52-1.59,10.22l-137.13,137.13c-11.58,11.58-3.36,31.38,13.02,31.35l71.89-.13c2.32,0,4.54-.93,6.18-2.57l82.89-82.89c4.19-4.19,11.26-3.1,13.98,2.17l40.68,78.74c1.5,2.91,4.51,4.74,7.78,4.74h82.61c6.55,0,10.79-6.93,7.8-12.76l-73.61-143.55c-1.74-3.38-1.09-7.5,1.6-10.19l137.98-137.98ZM346.75,396.42l69.48,134.68c1.77,3.43-.72,7.51-4.58,7.51h-51.85c-2.61,0-5.01-1.45-6.23-3.76l-48.11-91.22c-2.21-4.19-7.85-5.05-11.21-1.7l-94.71,94.62c-1.32,1.32-3.11,2.06-4.98,2.06h-62.66c-4.1,0-6.15-4.96-3.25-7.85l137.28-137.14c5.12-5.12,6.31-12.98,2.93-19.38l-61.51-116.63c-1.48-2.8.55-6.17,3.72-6.17h56.6c2.64,0,5.05,1.47,6.26,3.81l39.96,77.46c2.19,4.24,7.86,5.12,11.24,1.75l81.05-80.97c1.32-1.32,3.11-2.06,4.98-2.06h63.61c3.75,0,5.63,4.54,2.97,7.19l-129.7,129.58c-2.17,2.17-2.69,5.49-1.28,8.21Z"
-                              />
-                              <polygon
-                                points="390.96 303.68 268.3 411.05 283.72 409.62 205.66 489.34 336.63 377.83 321.21 379.73 390.96 303.68"
-                              />
-                            </svg>
-                          } @else {
-                            <nxt1-icon [name]="item.icon" [size]="22" />
-                          }
-                        </span>
-
-                        <!-- Label -->
-                        <span class="mobile-sidebar__item-label">{{ item.label }}</span>
-
-                        <!-- Expand chevron for items with children -->
-                        @if (item.children?.length) {
-                          <nxt1-icon
-                            name="chevronDown"
-                            [size]="16"
-                            class="mobile-sidebar__item-chevron"
-                            [class.mobile-sidebar__item-chevron--expanded]="isItemExpanded(item.id)"
-                          />
-                        }
-
-                        <!-- Badge -->
-                        @if (item.badge && item.badge > 0) {
-                          <span class="mobile-sidebar__item-badge">
-                            {{ item.badge > 99 ? '99+' : item.badge }}
-                          </span>
-                        }
-                      </button>
-
-                      <!-- Child items (expandable sub-list) -->
-                      @if (item.children?.length) {
-                        <ul
-                          class="mobile-sidebar__children"
-                          [class.mobile-sidebar__children--collapsed]="!isItemExpanded(item.id)"
-                          role="group"
-                          [attr.aria-label]="item.label"
-                        >
-                          @for (child of item.children; track child.id) {
-                            @if (!child.hidden) {
-                              <li role="none">
-                                <button
-                                  type="button"
-                                  class="mobile-sidebar__item mobile-sidebar__item--child"
-                                  [class.mobile-sidebar__item--active]="isActiveItem(child)"
-                                  [class.mobile-sidebar__item--disabled]="child.disabled"
-                                  [disabled]="child.disabled"
-                                  [attr.aria-current]="isActiveItem(child) ? 'page' : null"
-                                  [attr.aria-label]="child.ariaLabel ?? child.label"
-                                  role="menuitem"
-                                  (click)="onItemClick(child, section.id, $event)"
-                                >
-                                  <span
-                                    class="mobile-sidebar__item-icon"
-                                    [class.mobile-sidebar__item-icon--agent-x]="
-                                      isAgentXIcon(child.icon)
-                                    "
-                                  >
-                                    @if (isAgentXIcon(child.icon)) {
-                                      <!-- Agent X Logo SVG for child items -->
-                                      <svg
-                                        class="agent-x-logo"
-                                        viewBox="0 0 612 792"
-                                        width="18"
-                                        height="18"
-                                        fill="currentColor"
-                                        stroke="currentColor"
-                                        stroke-width="12"
-                                        stroke-linejoin="round"
-                                        aria-hidden="true"
-                                      >
-                                        <path
-                                          d="M505.93,251.93c5.52-5.52,1.61-14.96-6.2-14.96h-94.96c-2.32,0-4.55.92-6.2,2.57l-67.22,67.22c-4.2,4.2-11.28,3.09-13.99-2.2l-32.23-62.85c-1.49-2.91-4.49-4.75-7.76-4.76l-83.93-.34c-6.58-.03-10.84,6.94-7.82,12.78l66.24,128.23c1.75,3.39,1.11,7.52-1.59,10.22l-137.13,137.13c-11.58,11.58-3.36,31.38,13.02,31.35l71.89-.13c2.32,0,4.54-.93,6.18-2.57l82.89-82.89c4.19-4.19,11.26-3.1,13.98,2.17l40.68,78.74c1.5,2.91,4.51,4.74,7.78,4.74h82.61c6.55,0,10.79-6.93,7.8-12.76l-73.61-143.55c-1.74-3.38-1.09-7.5,1.6-10.19l137.98-137.98ZM346.75,396.42l69.48,134.68c1.77,3.43-.72,7.51-4.58,7.51h-51.85c-2.61,0-5.01-1.45-6.23-3.76l-48.11-91.22c-2.21-4.19-7.85-5.05-11.21-1.7l-94.71,94.62c-1.32,1.32-3.11,2.06-4.98,2.06h-62.66c-4.1,0-6.15-4.96-3.25-7.85l137.28-137.14c5.12-5.12,6.31-12.98,2.93-19.38l-61.51-116.63c-1.48-2.8.55-6.17,3.72-6.17h56.6c2.64,0,5.05,1.47,6.26,3.81l39.96,77.46c2.19,4.24,7.86,5.12,11.24,1.75l81.05-80.97c1.32-1.32,3.11-2.06,4.98-2.06h63.61c3.75,0,5.63,4.54,2.97,7.19l-129.7,129.58c-2.17,2.17-2.69,5.49-1.28,8.21Z"
-                                        />
-                                        <polygon
-                                          points="390.96 303.68 268.3 411.05 283.72 409.62 205.66 489.34 336.63 377.83 321.21 379.73 390.96 303.68"
-                                        />
-                                      </svg>
-                                    } @else {
-                                      <nxt1-icon [name]="child.icon" [size]="18" />
-                                    }
-                                  </span>
-                                  <span class="mobile-sidebar__item-label">{{ child.label }}</span>
-                                </button>
-                              </li>
-                            }
-                          }
-                        </ul>
-                      }
-                    </li>
+            @if (section.layout === 'grid') {
+              <!-- Grid layout: single row of icon+label tiles -->
+              <div class="mobile-sidebar__grid" role="menu">
+                @for (item of section.items; track item.id) {
+                  @if (!item.hidden) {
+                    <button
+                      type="button"
+                      class="mobile-sidebar__grid-item"
+                      [class.mobile-sidebar__grid-item--active]="isActiveItem(item)"
+                      [class.mobile-sidebar__grid-item--disabled]="item.disabled"
+                      [disabled]="item.disabled"
+                      [attr.aria-current]="isActiveItem(item) ? 'page' : null"
+                      [attr.aria-label]="item.ariaLabel ?? item.label"
+                      role="menuitem"
+                      (click)="onItemClick(item, section.id, $event)"
+                    >
+                      <span class="mobile-sidebar__grid-icon-wrap">
+                        <nxt1-icon [name]="item.icon" [size]="18" />
+                      </span>
+                      <span class="mobile-sidebar__grid-label">{{ item.label }}</span>
+                    </button>
                   }
                 }
-              }
-            </ul>
-          </div>
-        }
+              </div>
+            } @else {
+              <!-- Section Items (list layout — default) -->
+              <ul class="mobile-sidebar__items" role="menu">
+                @for (item of section.items; track item.id) {
+                  @if (!item.hidden) {
+                    @if (item.divider) {
+                      <li class="mobile-sidebar__divider" role="separator"></li>
+                    } @else {
+                      <li role="none">
+                        <button
+                          type="button"
+                          class="mobile-sidebar__item"
+                          [class.mobile-sidebar__item--active]="isActiveItem(item)"
+                          [class.mobile-sidebar__item--expandable]="!!item.children?.length"
+                          [class.mobile-sidebar__item--disabled]="item.disabled"
+                          [disabled]="item.disabled"
+                          [attr.aria-current]="isActiveItem(item) ? 'page' : null"
+                          [attr.aria-expanded]="
+                            item.children?.length ? isItemExpanded(item.id) : null
+                          "
+                          [attr.aria-label]="item.ariaLabel ?? item.label"
+                          role="menuitem"
+                          (click)="onExpandableItemClick(item, section.id, $event)"
+                        >
+                          <!-- Icon -->
+                          <span
+                            class="mobile-sidebar__item-icon"
+                            [class.mobile-sidebar__item-icon--agent-x]="isAgentXIcon(item.icon)"
+                          >
+                            @if (isAgentXIcon(item.icon)) {
+                              <!-- Agent X Logo SVG - Theme-aware via currentColor (same as footer) -->
+                              <svg
+                                class="agent-x-logo"
+                                viewBox="0 0 612 792"
+                                width="40"
+                                height="40"
+                                fill="currentColor"
+                                stroke="currentColor"
+                                stroke-width="12"
+                                stroke-linejoin="round"
+                                aria-hidden="true"
+                              >
+                                <path [attr.d]="agentXLogoPath" />
+                                <polygon [attr.points]="agentXLogoPolygon" />
+                              </svg>
+                            } @else {
+                              <nxt1-icon [name]="item.icon" [size]="22" />
+                            }
+                          </span>
 
-        <!-- Theme Toggle -->
-        @if (config().showThemeToggle !== false) {
-          <div class="mobile-sidebar__section mobile-sidebar__section--bordered">
-            <div class="mobile-sidebar__theme">
-              <nxt1-theme-selector
-                variant="compact"
-                [showLabels]="false"
-                [showAppearance]="true"
-                [showSportThemes]="true"
-                [singleRow]="true"
-              />
-            </div>
-          </div>
-        }
+                          <!-- Label -->
+                          <span class="mobile-sidebar__item-label">{{ item.label }}</span>
 
-        <!-- App Download Promotion -->
-        <div class="mobile-sidebar__section mobile-sidebar__section--bordered">
-          <div class="mobile-sidebar__app-promo">
-            <div class="mobile-sidebar__app-promo-header">
-              <nxt1-icon name="download" [size]="20" />
-              <span class="mobile-sidebar__app-promo-title">Get the NXT1 App</span>
-            </div>
-            <p class="mobile-sidebar__app-promo-subtitle">The Sports Intelligence Platform</p>
-            <div class="mobile-sidebar__app-promo-buttons">
-              <a
-                [href]="appStoreUrl"
-                target="_blank"
-                rel="noopener noreferrer"
-                class="mobile-sidebar__store-btn"
-                aria-label="Download on the App Store"
-              >
-                <svg
-                  viewBox="0 0 24 24"
-                  fill="currentColor"
-                  aria-hidden="true"
-                  class="mobile-sidebar__store-icon"
-                >
-                  <path
-                    d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"
-                  />
-                </svg>
-                <div class="mobile-sidebar__store-text">
-                  <span class="mobile-sidebar__store-label">Download on</span>
-                  <span class="mobile-sidebar__store-name">App Store</span>
+                          <!-- Expand chevron for items with children -->
+                          @if (item.children?.length) {
+                            <nxt1-icon
+                              name="chevronDown"
+                              [size]="16"
+                              class="mobile-sidebar__item-chevron"
+                              [class.mobile-sidebar__item-chevron--expanded]="
+                                isItemExpanded(item.id)
+                              "
+                            />
+                          }
+
+                          <!-- Badge -->
+                          @if (item.badge && item.badge > 0) {
+                            <span class="mobile-sidebar__item-badge">
+                              {{ item.badge > 99 ? '99+' : item.badge }}
+                            </span>
+                          }
+                        </button>
+
+                        <!-- Child items (expandable sub-list) -->
+                        @if (item.children?.length) {
+                          <ul
+                            class="mobile-sidebar__children"
+                            [class.mobile-sidebar__children--collapsed]="!isItemExpanded(item.id)"
+                            role="group"
+                            [attr.aria-label]="item.label"
+                          >
+                            @for (child of item.children; track child.id) {
+                              @if (!child.hidden) {
+                                <li role="none">
+                                  <button
+                                    type="button"
+                                    class="mobile-sidebar__item mobile-sidebar__item--child"
+                                    [class.mobile-sidebar__item--active]="isActiveItem(child)"
+                                    [class.mobile-sidebar__item--disabled]="child.disabled"
+                                    [disabled]="child.disabled"
+                                    [attr.aria-current]="isActiveItem(child) ? 'page' : null"
+                                    [attr.aria-label]="child.ariaLabel ?? child.label"
+                                    role="menuitem"
+                                    (click)="onItemClick(child, section.id, $event)"
+                                  >
+                                    <span
+                                      class="mobile-sidebar__item-icon"
+                                      [class.mobile-sidebar__item-icon--agent-x]="
+                                        isAgentXIcon(child.icon)
+                                      "
+                                    >
+                                      @if (isAgentXIcon(child.icon)) {
+                                        <!-- Agent X Logo SVG for child items -->
+                                        <svg
+                                          class="agent-x-logo"
+                                          viewBox="0 0 612 792"
+                                          width="18"
+                                          height="18"
+                                          fill="currentColor"
+                                          stroke="currentColor"
+                                          stroke-width="12"
+                                          stroke-linejoin="round"
+                                          aria-hidden="true"
+                                        >
+                                          <path [attr.d]="agentXLogoPath" />
+                                          <polygon [attr.points]="agentXLogoPolygon" />
+                                        </svg>
+                                      } @else {
+                                        <nxt1-icon [name]="child.icon" [size]="18" />
+                                      }
+                                    </span>
+                                    <span class="mobile-sidebar__item-label">{{
+                                      child.label
+                                    }}</span>
+                                  </button>
+                                </li>
+                              }
+                            }
+                          </ul>
+                        }
+                      </li>
+                    }
+                  }
+                }
+              </ul>
+            }
+            <!-- end @else list layout -->
+          </div>
+
+          <!-- Agent Sessions — embedded directly below the quick-actions grid -->
+          @if (section.id === 'quick-actions') {
+            <div class="mobile-sidebar__agent-log">
+              <div class="mobile-sidebar__sessions-header">
+                <div class="mobile-sidebar__sessions-header-row">
+                  <h3 class="mobile-sidebar__sessions-title">Sessions</h3>
                 </div>
-              </a>
-              <a
-                [href]="googlePlayUrl"
-                target="_blank"
-                rel="noopener noreferrer"
-                class="mobile-sidebar__store-btn"
-                aria-label="Get it on Google Play"
-              >
-                <svg
-                  viewBox="0 0 24 24"
-                  fill="currentColor"
-                  aria-hidden="true"
-                  class="mobile-sidebar__store-icon"
+                <p class="mobile-sidebar__sessions-subtitle">Recent agent runs</p>
+                <button
+                  type="button"
+                  class="mobile-sidebar__new-session-btn"
+                  (click)="onNewSession()"
                 >
-                  <path
-                    d="M3 20.5v-17c0-.59.34-1.11.84-1.35L13.69 12l-9.85 9.85c-.5-.25-.84-.76-.84-1.35zm13.81-5.38L6.05 21.34l8.49-8.49 2.27 2.27zm3.35-4.31c.34.27.59.69.59 1.19s-.22.9-.57 1.18l-2.29 1.32-2.5-2.5 2.5-2.5 2.27 1.31zM6.05 2.66l10.76 6.22-2.27 2.27-8.49-8.49z"
-                  />
-                </svg>
-                <div class="mobile-sidebar__store-text">
-                  <span class="mobile-sidebar__store-label">Get it on</span>
-                  <span class="mobile-sidebar__store-name">Google Play</span>
-                </div>
-              </a>
+                  <nxt1-icon name="plusCircle" [size]="14" />
+                  New session
+                </button>
+              </div>
+              <nxt1-agent-x-operations-log [embedded]="true" (entryTap)="onLogEntryTap($event)" />
             </div>
-          </div>
-        </div>
-
-        <!-- Legal Footer -->
-        <footer class="mobile-sidebar__footer">
-          <nav class="mobile-sidebar__legal" aria-label="Legal">
-            <a routerLink="/terms" class="mobile-sidebar__legal-link" (click)="close()"
-              >Terms of Service</a
-            >
-            <a routerLink="/privacy" class="mobile-sidebar__legal-link" (click)="close()"
-              >Privacy Policy</a
-            >
-            <a
-              [href]="contactEmailHref"
-              class="mobile-sidebar__legal-link"
-              (click)="onContactClick($event)"
-              >Contact Us</a
-            >
-          </nav>
-          <p class="mobile-sidebar__copyright">
-            &copy; {{ currentYear }} NXT1 Sports. All rights reserved.
-          </p>
-        </footer>
+          }
+        }
       </nav>
+
+      <!-- Floating action bar (Get the App + three-dot panel with themes, follow-us, legal) -->
+      <nxt1-floating-action-bar
+        #floatingBar
+        [followItems]="followItems()"
+        [config]="floatingBarConfig()"
+        (linkClick)="close()"
+      />
     </aside>
   `,
   styles: [
@@ -626,6 +593,8 @@ import { formatSportDisplayName } from '@nxt1/core';
         overscroll-behavior: contain;
         scrollbar-width: thin;
         scrollbar-color: var(--mobile-sidebar-border) transparent;
+        /* Extra room at the bottom so content scrolls above the floating bar */
+        padding-bottom: 80px;
       }
 
       .mobile-sidebar__nav::-webkit-scrollbar {
@@ -690,8 +659,7 @@ import { formatSportDisplayName } from '@nxt1/core';
          USER SECTION
          ============================================ */
       .mobile-sidebar__user {
-        padding: var(--nxt1-spacing-3, 0.75rem) var(--nxt1-spacing-4, 1rem);
-        border-bottom: 1px solid var(--mobile-sidebar-border);
+        padding: var(--nxt1-spacing-2, 0.5rem) var(--nxt1-spacing-4, 1rem);
       }
 
       .mobile-sidebar__switcher-label {
@@ -885,7 +853,7 @@ import { formatSportDisplayName } from '@nxt1/core';
          NAVIGATION SECTIONS
          ============================================ */
       .mobile-sidebar__section {
-        padding: var(--nxt1-spacing-2, 0.5rem) 0;
+        padding: var(--nxt1-spacing-1, 0.25rem) 0;
       }
 
       .mobile-sidebar__section--bordered {
@@ -923,7 +891,7 @@ import { formatSportDisplayName } from '@nxt1/core';
         align-items: center;
         gap: var(--nxt1-spacing-6, 1.5rem);
         width: 100%;
-        padding: var(--nxt1-spacing-3, 0.75rem) var(--nxt1-spacing-6, 1.5rem);
+        padding: var(--nxt1-spacing-2, 0.5rem) var(--nxt1-spacing-6, 1.5rem);
         background: none;
         border: none;
         cursor: pointer;
@@ -1059,10 +1027,103 @@ import { formatSportDisplayName } from '@nxt1/core';
       }
 
       /* ============================================
+         GRID LAYOUT (Single-row quick-action tiles)
+         ============================================ */
+
+      /* No top padding — grid sits flush against the preceding border */
+      .mobile-sidebar__section--grid {
+        padding-top: 0;
+      }
+
+      .mobile-sidebar__grid {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: var(--nxt1-spacing-2, 0.5rem);
+        padding: var(--nxt1-spacing-3, 0.75rem);
+      }
+
+      .mobile-sidebar__grid-item {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: var(--nxt1-spacing-1_5, 0.375rem);
+        padding: 10px 6px;
+        background: none;
+        border: none;
+        border-radius: var(--mobile-sidebar-item-radius);
+        cursor: pointer;
+        color: var(--mobile-sidebar-text-secondary);
+        transition: all var(--mobile-sidebar-transition-fast);
+        min-width: 0;
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      .mobile-sidebar__grid-item:hover:not(:disabled) .mobile-sidebar__grid-icon-wrap {
+        background: var(--nxt1-color-surface-300);
+      }
+
+      .mobile-sidebar__grid-item:active:not(:disabled) {
+        transform: scale(var(--mobile-sidebar-press-scale));
+      }
+
+      .mobile-sidebar__grid-item--active .mobile-sidebar__grid-icon-wrap {
+        background: var(--mobile-sidebar-accent);
+      }
+
+      .mobile-sidebar__grid-item--active .mobile-sidebar__grid-icon-wrap nxt1-icon {
+        color: #000;
+      }
+
+      .mobile-sidebar__grid-item--active .mobile-sidebar__grid-label {
+        color: var(--mobile-sidebar-text-primary);
+        font-weight: var(--nxt1-fontWeight-semibold, 600);
+      }
+
+      .mobile-sidebar__grid-item--disabled {
+        opacity: var(--mobile-sidebar-disabled-opacity);
+        cursor: not-allowed;
+      }
+
+      /* Circular icon container — matches .theme-option__icon-wrapper in compact mode */
+      .mobile-sidebar__grid-icon-wrap {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        background: var(--nxt1-color-surface-200);
+        transition: background var(--mobile-sidebar-transition-fast);
+        flex-shrink: 0;
+        color: var(--mobile-sidebar-text-secondary);
+      }
+
+      .mobile-sidebar__grid-label {
+        font-size: 11px;
+        font-weight: var(--nxt1-fontWeight-medium, 500);
+        color: var(--mobile-sidebar-text-secondary);
+        text-align: center;
+        line-height: var(--nxt1-lineHeight-tight, 1.25);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        max-width: 100%;
+        transition: color var(--mobile-sidebar-transition-fast);
+      }
+
+      /* ============================================
          THEME TOGGLE
          ============================================ */
       .mobile-sidebar__theme {
-        padding: var(--nxt1-spacing-2, 0.5rem) var(--nxt1-spacing-4, 1rem);
+        padding: var(--nxt1-spacing-1_5, 0.375rem) var(--nxt1-spacing-4, 1rem);
+      }
+
+      /* When theme toggle is rendered above a section (e.g. before Follow Us),
+         add a bottom border to visually separate it */
+      .mobile-sidebar__theme--pre-section {
+        border-bottom: 1px solid var(--mobile-sidebar-border);
+        margin-bottom: var(--nxt1-spacing-1, 0.25rem);
       }
 
       /* ============================================
@@ -1200,28 +1261,74 @@ import { formatSportDisplayName } from '@nxt1/core';
           transition: none;
         }
       }
+
+      /* ── Embedded Agent Sessions log ── */
+      .mobile-sidebar__agent-log {
+        margin-top: var(--nxt1-spacing-2, 0.5rem);
+        border-top: 1px solid var(--mobile-sidebar-border);
+      }
+
+      .mobile-sidebar__sessions-header {
+        padding: var(--nxt1-spacing-3, 0.75rem) var(--nxt1-spacing-4, 1rem)
+          var(--nxt1-spacing-2, 0.5rem);
+      }
+
+      .mobile-sidebar__sessions-header-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: var(--nxt1-spacing-0_5, 0.125rem);
+      }
+
+      .mobile-sidebar__sessions-title {
+        font-size: var(--nxt1-fontSize-base, 1rem);
+        font-weight: var(--nxt1-fontWeight-semibold, 600);
+        color: var(--mobile-sidebar-text-primary);
+        margin: 0;
+      }
+
+      .mobile-sidebar__sessions-subtitle {
+        font-size: var(--nxt1-fontSize-sm, 0.875rem);
+        color: var(--mobile-sidebar-text-secondary);
+        margin: 0 0 var(--nxt1-spacing-2, 0.5rem);
+      }
+
+      .mobile-sidebar__new-session-btn {
+        display: flex;
+        align-items: center;
+        gap: var(--nxt1-spacing-2, 0.5rem);
+        width: 100%;
+        padding: var(--nxt1-spacing-2_5, 0.625rem) var(--nxt1-spacing-3, 0.75rem);
+        background: var(--nxt1-color-surface-200);
+        border: 1px solid var(--mobile-sidebar-border);
+        border-radius: var(--nxt1-borderRadius-xl, 0.75rem);
+        color: var(--mobile-sidebar-text-primary);
+        font-size: var(--nxt1-fontSize-sm, 0.875rem);
+        font-weight: var(--nxt1-fontWeight-medium, 500);
+        cursor: pointer;
+        transition: background var(--nxt1-duration-fast, 150ms) ease-out;
+        -webkit-tap-highlight-color: transparent;
+      }
+      .mobile-sidebar__new-session-btn:hover {
+        background: var(--mobile-sidebar-item-hover);
+      }
+      .mobile-sidebar__new-session-btn:active {
+        transform: scale(0.98);
+      }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class NxtMobileSidebarComponent implements OnDestroy {
+  protected readonly agentXLogoPath = AGENT_X_LOGO_PATH;
+  protected readonly agentXLogoPolygon = AGENT_X_LOGO_POLYGON;
   private readonly platformId = inject(PLATFORM_ID);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
   private readonly haptics = inject(HapticsService);
-  protected readonly theme = inject(NxtThemeService);
-
-  /** App store URLs */
-  protected readonly appStoreUrl = 'https://apps.apple.com/us/app/nxt-1/id6446410344';
-  protected readonly googlePlayUrl =
-    'https://play.google.com/store/apps/details?id=com.nxt1sports.app.twa';
-
-  /** Current year for copyright */
-  protected readonly currentYear = new Date().getFullYear();
-
-  /** Opens the mail client for support. */
-  protected readonly contactEmailHref = `mailto:${SUPPORT_CONFIG.SUPPORT_EMAIL}`;
   private readonly browser = inject(NxtBrowserService);
+  private readonly bottomSheet = inject(NxtBottomSheetService);
+  protected readonly theme = inject(NxtThemeService);
 
   // ============================================
   // INPUTS
@@ -1272,10 +1379,40 @@ export class NxtMobileSidebarComponent implements OnDestroy {
   private readonly _expandedItems = signal<ReadonlySet<string>>(new Set<string>());
 
   /** Whether sport profiles dropdown is expanded */
-  readonly sportsExpanded = signal(true);
+  readonly sportsExpanded = signal(false);
 
   /** Internal open state (synced with input) */
   readonly isOpen = computed(() => this.open());
+
+  // ============================================
+  // FLOATING ACTION BAR STATE
+  // ============================================
+
+  /** Main nav sections — excludes follow-us (it lives in the floating action bar panel) */
+  readonly mainNavSections = computed(() => this.sections().filter((s) => s.id !== 'follow-us'));
+
+  /** Follow items shaped for NxtFloatingActionBarComponent */
+  readonly followItems = computed(() => {
+    const section = this.sections().find((s) => s.id === 'follow-us');
+    if (!section) return [];
+    return section.items
+      .filter((item) => !!item.href)
+      .map((item) => ({
+        id: item.id,
+        label: item.label ?? '',
+        icon: item.icon ?? '',
+        href: item.href!,
+        ariaLabel: item.ariaLabel,
+        hidden: item.hidden,
+      }));
+  });
+
+  /** Config passed to NxtFloatingActionBarComponent */
+  readonly floatingBarConfig = computed(() => ({
+    showThemeToggle: this.config().showThemeToggle !== false,
+    followUsLabel: 'Follow Us',
+    showLegal: true,
+  }));
 
   // ============================================
   // HOST BINDINGS
@@ -1328,16 +1465,58 @@ export class NxtMobileSidebarComponent implements OnDestroy {
     this.closeRequest.emit();
   }
 
-  /** Handle contact link click — opens mail client and closes sidebar. */
-  onContactClick(event: Event): void {
-    event.preventDefault();
-    event.stopPropagation();
+  /** Navigate to Agent X and start a fresh session */
+  onNewSession(): void {
+    // Navigate first, then close sidebar underneath — same pattern as invite
+    void this.router.navigate(['/agent-x']);
     this.close();
-    void this.browser.openMailto({
-      to: SUPPORT_CONFIG.SUPPORT_EMAIL,
-      subject: 'Support Request - NXT1 Sports',
-      body: ['Hi NXT1 Support Team,', '', 'I need help with:', '', 'My account email:'].join('\n'),
-    });
+  }
+
+  /** Open an existing session from the log */
+  onLogEntryTap(entry: OperationLogEntry): void {
+    // Close sidebar first, then wait for the 250ms slide-out animation before opening sheet
+    this.close();
+    setTimeout(() => {
+      const operationStatus =
+        entry.status === 'in-progress'
+          ? 'processing'
+          : entry.status === 'complete'
+            ? 'complete'
+            : entry.status === 'error'
+              ? 'error'
+              : entry.status === 'awaiting_input'
+                ? 'awaiting_input'
+                : null;
+      const isFirestoreOperationId = (id: string | undefined): boolean => {
+        if (!id) return false;
+        const bare = id.startsWith('chat-') ? id.slice(5) : id;
+        return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(bare);
+      };
+      const resolvedOperationId = isFirestoreOperationId(entry.operationId)
+        ? entry.operationId
+        : undefined;
+
+      void this.bottomSheet.openSheet({
+        component: AgentXOperationChatComponent,
+        componentProps: {
+          contextId: resolvedOperationId ?? entry.threadId ?? entry.id,
+          contextTitle: entry.title,
+          contextIcon: entry.icon,
+          contextType: 'operation',
+          operationStatus: resolvedOperationId
+            ? operationStatus
+            : operationStatus === 'processing'
+              ? null
+              : operationStatus,
+          ...(entry.threadId ? { threadId: entry.threadId } : {}),
+        },
+        ...SHEET_PRESETS.FULL,
+        showHandle: true,
+        handleBehavior: 'cycle',
+        backdropDismiss: true,
+        cssClass: 'agent-x-operation-sheet',
+      });
+    }, 300);
   }
 
   /**
@@ -1421,9 +1600,11 @@ export class NxtMobileSidebarComponent implements OnDestroy {
 
     // Handle external links
     if (item.href) {
-      if (isPlatformBrowser(this.platformId)) {
-        window.open(item.href, '_blank', 'noopener,noreferrer');
-      }
+      void this.browser.openLink({
+        url: item.href,
+        source: 'mobile_sidebar',
+        surface: 'page',
+      });
       this.close();
       return;
     }

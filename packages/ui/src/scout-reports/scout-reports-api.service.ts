@@ -60,9 +60,6 @@ export class ScoutReportsApiService {
   readonly getReportsByCategory = this.api.getReportsByCategory;
   readonly getReport = this.api.getReport;
   readonly searchReports = this.api.searchReports;
-  readonly bookmarkReport = this.api.bookmarkReport;
-  readonly unbookmarkReport = this.api.unbookmarkReport;
   readonly trackView = this.api.trackView;
   readonly getSummary = this.api.getSummary;
-  readonly getBookmarkedReports = this.api.getBookmarkedReports;
 }

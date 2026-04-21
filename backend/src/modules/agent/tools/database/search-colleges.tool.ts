@@ -39,7 +39,7 @@
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
 import { CollegeModel } from '../../../../models/college.model.js';
 import { getFirestore } from 'firebase-admin/firestore';
-import { resolvePrimarySport } from '../../services/elite-context.js';
+import { resolvePrimarySport } from '../../memory/context-builder.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 

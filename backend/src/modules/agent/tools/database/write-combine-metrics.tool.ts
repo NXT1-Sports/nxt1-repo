@@ -17,10 +17,11 @@ import {
   resolveAuthorizedTargetSportSelection,
 } from '../../../../services/profile-write-access.service.js';
 import { CACHE_KEYS as USER_CACHE_KEYS } from '../../../../services/users.service.js';
-import { invalidateProfileCaches } from '../../../../routes/profile.routes.js';
+import { invalidateProfileCaches } from '../../../../routes/profile/shared.js';
 import { ContextBuilder } from '../../memory/context-builder.js';
-import { onDailySyncComplete } from '../../triggers/trigger.listeners.js';
+import { getAnalyticsLoggerService } from '../../../../services/analytics-logger.service.js';
 import { logger } from '../../../../utils/logger.js';
+import { resolveCreatedAt } from './doc-date-utils.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -133,6 +134,7 @@ export class WriteCombineMetricsTool extends BaseTool {
 
       let written = 0;
       let skipped = 0;
+      const writtenRecords: Record<string, unknown>[] = [];
 
       await Promise.all(
         metrics.map(async (metric) => {
@@ -152,6 +154,13 @@ export class WriteCombineMetricsTool extends BaseTool {
 
           const fieldKey = field.trim().toLowerCase();
           const docId = `${userId}_${sportId}_${fieldKey}`;
+          const docRef = metricsCol.doc(docId);
+          const existingData = (await docRef.get()).data();
+          const recordedAt = resolveCreatedAt(
+            existingData?.['dateRecorded'],
+            existingData?.['createdAt'],
+            now
+          );
           const record: Record<string, unknown> = {
             id: docId,
             userId,
@@ -161,7 +170,8 @@ export class WriteCombineMetricsTool extends BaseTool {
             value,
             source,
             verified: false,
-            dateRecorded: now,
+            createdAt: resolveCreatedAt(existingData?.['createdAt'], recordedAt, now),
+            dateRecorded: recordedAt,
             updatedAt: now,
             // Data lineage
             provider: source,
@@ -174,7 +184,8 @@ export class WriteCombineMetricsTool extends BaseTool {
           const category = this.str(m, 'category');
           if (category) record['category'] = category;
 
-          await metricsCol.doc(docId).set(record, { merge: true });
+          await docRef.set(record, { merge: true });
+          writtenRecords.push(record);
           written++;
         })
       );
@@ -197,50 +208,53 @@ export class WriteCombineMetricsTool extends BaseTool {
         // Best-effort
       }
 
-      // ── Delta Trigger (metrics — no structural diff yet, Phase 2) ─────
-      // SyncDiffService has no diffMetrics() yet. Fire a minimal delta so
-      // the trigger pipeline still runs for metric updates.
-      if (written > 0) {
-        try {
-          const delta = {
-            userId,
-            sport: sportId,
-            source,
-            syncedAt: now,
-            isEmpty: false,
-            identityChanges: [],
-            newCategories: [],
-            statChanges: [],
-            newRecruitingActivities: [],
-            newAwards: [],
-            newScheduleEvents: [],
-            newVideos: [],
-            summary: {
-              identityFieldsChanged: 0,
-              newCategoriesAdded: 0,
-              statsUpdated: 0,
-              newRecruitingActivities: 0,
-              newAwards: 0,
-              newScheduleEvents: 0,
-              newVideos: 0,
-              totalChanges: written,
-            },
-          } as const;
-          onDailySyncComplete(delta).catch((err) =>
-            logger.error('[WriteCombineMetrics] Trigger failed', {
-              userId,
-              sport: sportId,
-              error: err instanceof Error ? err.message : String(err),
+      if (writtenRecords.length > 0) {
+        const analytics = getAnalyticsLoggerService();
+        void Promise.allSettled(
+          writtenRecords.map((record) =>
+            analytics.safeTrack({
+              subjectId: userId,
+              subjectType: 'user',
+              domain: 'performance',
+              eventType: 'metric_recorded',
+              source: 'agent',
+              actorUserId: context.userId,
+              sessionId: context.sessionId ?? null,
+              threadId: context.threadId ?? null,
+              value:
+                typeof record['value'] === 'number' || typeof record['value'] === 'string'
+                  ? (record['value'] as number | string)
+                  : undefined,
+              tags: [
+                sportId,
+                typeof record['field'] === 'string' ? record['field'] : null,
+                typeof record['category'] === 'string' ? record['category'] : null,
+              ].filter((tag): tag is string => typeof tag === 'string' && tag.length > 0),
+              payload: {
+                sportId,
+                source,
+                sourceUrl,
+                metricField: record['field'],
+                label: record['label'],
+                unit: record['unit'],
+                category: record['category'],
+                value: record['value'],
+              },
+              metadata: {
+                toolName: this.name,
+              },
             })
-          );
-        } catch (err) {
-          logger.error('[WriteCombineMetrics] Delta trigger failed', {
+          )
+        ).catch((error) => {
+          logger.warn('[WriteCombineMetrics] Analytics tracking failed', {
             userId,
-            sport: sportId,
-            error: err instanceof Error ? err.message : String(err),
+            error: error instanceof Error ? error.message : String(error),
           });
-        }
+        });
       }
+
+      // Metrics writes are intentionally excluded from the deterministic sync-delta
+      // trigger flow until they have a dedicated first-class diff model.
 
       return {
         success: true,

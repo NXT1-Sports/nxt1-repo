@@ -14,7 +14,7 @@
  * @version 2.0.0
  */
 
-import type { PostType, UserReaction, VideoFormat } from '../../constants/user.constants';
+import type { PostType, VideoFormat } from '../../constants/user.constants';
 
 import { MEDIA_STATUSES, VIDEO_TYPES, STORAGE_LIMITS } from '../../constants/media.constants';
 
@@ -264,25 +264,6 @@ export interface Post {
   /** Share count */
   shares: number;
 
-  /** Total reactions */
-  reactions: number;
-
-  /** Breakdown by reaction type */
-  reactionCounts?: Partial<Record<Exclude<UserReaction, null>, number>>;
-
-  /** Comment count */
-  commentCount: number;
-
-  // =========== REPOST ===========
-  /** Is this a repost */
-  isRepost: boolean;
-
-  /** Original post ID if repost */
-  originalPostId?: string;
-
-  /** Original author if repost */
-  originalAuthorId?: string;
-
   // =========== METADATA ===========
   /** Attached data (stats, achievements, etc.) */
   attachedData?: PostAttachment[];
@@ -309,43 +290,6 @@ export interface Post {
 
   /** Schema version */
   _schemaVersion: number;
-}
-
-/**
- * User reaction to a post
- * Stored at: PostReactions/{postId}/reactions/{userId}
- */
-export interface PostReactionRecord {
-  userId: string;
-  postId: string;
-  reaction: UserReaction;
-  createdAt: Date | string;
-}
-
-/**
- * Post comment
- * Stored at: Posts/{postId}/comments/{commentId}
- */
-export interface PostComment {
-  id: string;
-  postId: string;
-  userId: string;
-  content: string;
-
-  /** Parent comment ID for replies */
-  parentId?: string;
-
-  /** Nested reply count */
-  replyCount: number;
-
-  /** Reactions on this comment */
-  reactions: number;
-
-  /** Is hidden by moderation */
-  isHidden: boolean;
-
-  createdAt: Date | string;
-  updatedAt: Date | string;
 }
 
 // ============================================
@@ -406,9 +350,6 @@ export function createDefaultPost(userId: string, type: PostType): Partial<Post>
     isPinned: false,
     views: 0,
     shares: 0,
-    reactions: 0,
-    commentCount: 0,
-    isRepost: false,
     isHidden: false,
     createdAt: now,
     updatedAt: now,
@@ -479,7 +420,7 @@ export interface FeedQuery {
   limit?: number;
 
   /** Sort order */
-  orderBy?: 'createdAt' | 'views' | 'reactions';
+  orderBy?: 'createdAt' | 'views';
   orderDirection?: 'asc' | 'desc';
 }
 

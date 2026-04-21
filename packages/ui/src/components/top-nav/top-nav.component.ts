@@ -70,6 +70,7 @@ import {
 import { NxtPlatformService } from '../../services/platform';
 import { NxtHeaderPortalService } from '../../services/header-portal';
 import { HapticsService } from '../../services/haptics';
+import { NxtBrowserService } from '../../services/browser';
 import type { ExploreItem } from '@nxt1/core';
 import type { TopNavItem, TopNavUserMenuItem, TopNavUserData, TopNavConfig } from '@nxt1/core';
 import {
@@ -479,11 +480,10 @@ import type {
                         [class.user-sport-item--active]="profile.isActive"
                       >
                         <nxt1-avatar
-                          [src]="profile.profileImg"
-                          [name]="profile.sport"
+                          [src]="profile.profileImg || user()?.profileImg"
+                          [name]="user()?.name"
                           [isTeamRole]="user()!.isTeamRole ?? false"
-                          [initials]="user()!.isTeamRole ? '' : getSportInitials(profile.sport)"
-                          [defaultIcon]="user()!.isTeamRole ? 'shield' : 'athlete'"
+                          [defaultIcon]="user()!.isTeamRole ? 'shield' : ''"
                           [customSize]="28"
                           [showSkeleton]="false"
                         />
@@ -690,11 +690,10 @@ import type {
                     [class.mobile-sport-item--active]="profile.isActive"
                   >
                     <nxt1-avatar
-                      [src]="profile.profileImg"
-                      [name]="profile.sport"
+                      [src]="profile.profileImg || user()?.profileImg"
+                      [name]="user()?.name"
                       [isTeamRole]="user()!.isTeamRole ?? false"
-                      [initials]="user()!.isTeamRole ? '' : getSportInitials(profile.sport)"
-                      [defaultIcon]="user()!.isTeamRole ? 'shield' : 'athlete'"
+                      [defaultIcon]="user()!.isTeamRole ? 'shield' : ''"
                       [customSize]="28"
                       [showSkeleton]="false"
                     />
@@ -829,6 +828,7 @@ export class NxtHeaderComponent implements OnDestroy {
   private readonly router = inject(Router);
   private readonly platform = inject(NxtPlatformService);
   private readonly haptics = inject(HapticsService);
+  private readonly browser = inject(NxtBrowserService);
   private readonly elementRef = inject(ElementRef);
   private readonly destroy$ = new Subject<void>();
 
@@ -909,6 +909,9 @@ export class NxtHeaderComponent implements OnDestroy {
 
   /** Emits when "Add Sport" / "Add Team" is clicked in the user dropdown */
   @Output() addSportClick = new EventEmitter<Event>();
+
+  /** Emits when the user avatar/info section is clicked */
+  @Output() userClick = new EventEmitter<Event>();
 
   // ============================================
   // INTERNAL STATE
@@ -1108,7 +1111,11 @@ export class NxtHeaderComponent implements OnDestroy {
     if (item.route && !navEvent.preventDefault) {
       this.router.navigate([item.route]);
     } else if (item.href) {
-      window.open(item.href, '_blank', 'noopener,noreferrer');
+      void this.browser.openLink({
+        url: item.href,
+        source: 'top_nav',
+        surface: 'page',
+      });
     }
   }
 
@@ -1131,7 +1138,11 @@ export class NxtHeaderComponent implements OnDestroy {
     if (childItem.route) {
       this.router.navigate([childItem.route]);
     } else if (childItem.href) {
-      window.open(childItem.href, '_blank', 'noopener,noreferrer');
+      void this.browser.openLink({
+        url: childItem.href,
+        source: 'top_nav_dropdown',
+        surface: 'page',
+      });
     } else if (childItem.action) {
       // Emit as navigation action
       this.navigate.emit({
@@ -1356,15 +1367,20 @@ export class NxtHeaderComponent implements OnDestroy {
   /**
    * Handle user info header click — navigate to profile or team
    */
-  onUserInfoClick(_event: Event): void {
+  onUserInfoClick(event: Event): void {
     this.haptics.impact('light');
     this.userMenuOpen.set(false);
     this.mobileMenuOpen.set(false);
     this.sportSwitcherExpanded.set(false);
 
+    if (this.userClick.observed) {
+      this.userClick.emit(event);
+      return;
+    }
+
     const route = this.user()?.profileRoute;
     if (route) {
-      this.router.navigate([route]);
+      void this.router.navigateByUrl(route);
     }
   }
 

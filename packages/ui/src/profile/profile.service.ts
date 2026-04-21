@@ -10,6 +10,7 @@
  */
 
 import { Injectable, inject, signal, computed } from '@angular/core';
+import { NxtThemeService } from '../services/theme';
 import {
   type ProfileTabId,
   type ProfilePageData,
@@ -18,12 +19,14 @@ import {
   type ProfileEvent,
   type ProfileStatItem,
   type ProfileSport,
+  type ProfilePostType,
   type ProfileSeasonGameLog,
   type AthleticStatsCategory,
   type AthleticStat,
   type VerifiedStat,
   type VerifiedMetric,
   type FeedPost,
+  type FeedItemPost,
   type User,
   type ScoutReport,
   type NewsArticle,
@@ -31,6 +34,7 @@ import {
   profileUserToFeedAuthor,
   buildUnifiedActivityFeed,
 } from '@nxt1/core';
+import { type FeedItem } from '@nxt1/core/posts';
 import { NxtLoggingService } from '../services/logging/logging.service';
 import { NxtToastService } from '../services/toast/toast.service';
 import { type RankingSource } from './rankings/profile-rankings.component';
@@ -40,23 +44,36 @@ type ProfileUserTeamExtension = {
   readonly managedTeams?: readonly unknown[];
 };
 
+type ProfileMutationResult<TData = unknown> = {
+  readonly success: boolean;
+  readonly data?: TData;
+  readonly error?: string;
+};
+
+type ProfileUiApi = {
+  readonly updateActiveSportIndex: (
+    userId: string,
+    activeSportIndex: number
+  ) => Promise<ProfileMutationResult>;
+  readonly pinPost?: (
+    userId: string,
+    postId: string,
+    isPinned: boolean
+  ) => Promise<ProfileMutationResult<{ postId: string; isPinned: boolean }>>;
+  readonly deletePost?: (
+    userId: string,
+    postId: string
+  ) => Promise<ProfileMutationResult<{ postId: string }>>;
+};
+
 @Injectable({ providedIn: 'root' })
 export class ProfileService {
   private readonly logger = inject(NxtLoggingService).child('ProfileService');
   private readonly toast = inject(NxtToastService);
+  private readonly theme = inject(NxtThemeService);
 
   // Optional API service for persisting active sport index
-  private api?: {
-    updateActiveSportIndex: (
-      userId: string,
-      activeSportIndex: number
-    ) => Promise<{
-      success: boolean;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      data?: any;
-      error?: string;
-    }>;
-  };
+  private api?: ProfileUiApi;
 
   // ============================================
   // PRIVATE WRITEABLE SIGNALS
@@ -67,6 +84,10 @@ export class ProfileService {
   // change-detection tick (SSR hydration, singleton reuse, etc.).
   private readonly _isLoading = signal(true);
   private readonly _isLoadingMore = signal(false);
+  /** Timeline-specific loading flag — true while the timeline sub-collection fetch is in-flight.
+   * Separate from _isLoading (profile-level) so the timeline can show its own skeleton
+   * after the profile card has already resolved. */
+  private readonly _timelineLoading = signal(true);
 
   /** Raw User from the API response — stored so sport switching can re-map tab data. */
   private readonly _rawUser = signal<User | null>(null);
@@ -79,11 +100,15 @@ export class ProfileService {
   private readonly _rankings = signal<RankingSource[]>([]);
   private readonly _scoutReports = signal<readonly ScoutReport[]>([]);
   private readonly _newsArticles = signal<readonly NewsArticle[]>([]);
-  private readonly _activityFeedItems = signal<readonly FeedPost[]>([]);
   /** Timeline posts loaded from the user’s timeline sub-collection */
-  private readonly _timelinePosts = signal<readonly ProfilePost[]>([]);
-  /** Videos loaded from the user’s videos sub-collection */
-  private readonly _videoPosts = signal<readonly ProfilePost[]>([]); /**
+  private readonly _timelinePosts = signal<readonly ProfilePost[]>(
+    []
+  ); /** Polymorphic timeline feed — all FeedItem types from the backend TimelineService */
+  private readonly _polymorphicTimeline = signal<readonly FeedItem[]>([]);
+  /** Whether the backend reported more pages available */
+  private readonly _timelineHasMore = signal(false);
+  /** Cursor for the next page of timeline results */
+  private readonly _timelineCursor = signal<string | undefined>(undefined); /**
    * Schedule events fetched from the API sub-collection.
    * `null` = not yet fetched (fall back to embedded sports[].upcomingEvents).
    * Non-null (even []) = authoritative API result; overrides embedded data.
@@ -122,6 +147,9 @@ export class ProfileService {
   /** Whether profile is loading */
   readonly isLoading = computed(() => this._isLoading());
 
+  /** Whether the timeline sub-collection is loading (separate from profile-level loading) */
+  readonly timelineLoading = computed(() => this._timelineLoading());
+
   /** Whether loading more content */
   readonly isLoadingMore = computed(() => this._isLoadingMore());
 
@@ -155,6 +183,13 @@ export class ProfileService {
   readonly pinnedVideo = computed(() => this._profileData()?.pinnedVideo ?? null);
 
   /** All posts — sourced from the user's timeline sub-collection */
+  /** Polymorphic timeline feed — preferred data source for the timeline tab */
+  readonly polymorphicTimeline = computed(() => this._polymorphicTimeline());
+  /** Whether the backend has more timeline pages to load */
+  readonly timelineHasMore = computed(() => this._timelineHasMore());
+  /** Cursor to pass with the next load-more request */
+  readonly timelineCursor = computed(() => this._timelineCursor());
+
   readonly allPosts = computed(() => this._timelinePosts());
 
   /**
@@ -180,18 +215,12 @@ export class ProfileService {
     });
   });
 
-  /** Videos from the dedicated videos sub-collection (falls back to timeline video-type posts) */
+  /** Videos — posts of type 'video' from the timeline, optionally filtered by active sport */
   readonly videoPosts = computed<readonly ProfilePost[]>(() => {
-    const dedicated = this._videoPosts();
     const sportFilter = this._activeSportFilter();
 
-    let videos =
-      dedicated.length > 0
-        ? dedicated
-        : this.allPosts().filter((p: ProfilePost) => p.type === 'video' || p.type === 'highlight');
+    let videos = this.allPosts().filter((p: ProfilePost) => p.type === 'video');
 
-    // Only filter when user has explicitly selected a sport (via sport switcher).
-    // Videos without a sport tag are shown for all sports.
     if (sportFilter) {
       videos = videos.filter((v) => {
         const videoSport =
@@ -387,13 +416,10 @@ export class ProfileService {
   readonly playerCard = computed(() => this._profileData()?.playerCard ?? null);
 
   /**
-   * Unified activity timeline feed.
-   * Merges all profile sections (posts, offers, events) + extra activity items
-   * (stat updates, metrics, awards, news, schedule, external syncs)
-   * into a single chronologically sorted FeedPost array.
-   *
-   * This powers the unified Timeline tab, showing EVERY update across
-   * the entire profile in one seamless feed.
+   * Unified activity timeline feed (legacy bridge).
+   * Merges posts + embedded offers/events from the main profile doc.
+   * @deprecated Pass [polymorphicFeed] to ProfileTimelineComponent instead.
+   * Kept so mobile shell can fall back gracefully during the transition period.
    */
   readonly unifiedTimeline = computed<readonly FeedPost[]>(() => {
     const data = this._profileData();
@@ -402,8 +428,6 @@ export class ProfileService {
     const author = profileUserToFeedAuthor(data.user);
     const sportFilter = this._activeSportFilter();
 
-    // Apply sport filter when user has explicitly selected a sport profile.
-    // Posts without a sport tag are always included (general content).
     let posts = this._timelinePosts();
     if (sportFilter) {
       posts = posts.filter((p) => {
@@ -417,18 +441,7 @@ export class ProfileService {
 
     const offers = data.offers ?? [];
     const events = data.events ?? [];
-
-    // Build unified feed from posts + offers + events
-    const baseFeed = buildUnifiedActivityFeed(posts, offers, events, author);
-
-    // Merge in extra activity items (stat updates, metrics, awards, news, etc.)
-    const extraItems = this._activityFeedItems();
-    if (extraItems.length === 0) return baseFeed;
-
-    // Combine and re-sort chronologically (newest first)
-    const combined = [...baseFeed, ...extraItems];
-    combined.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-    return combined;
+    return buildUnifiedActivityFeed(posts, offers, events, author);
   });
 
   /**
@@ -507,13 +520,12 @@ export class ProfileService {
    * Based on allPosts (unfiltered) so sport-filter doesn't hide the "Create" CTA.
    * For sport-filtered empty state, ProfileTimelineComponent.isFilteredEmpty handles it.
    */
-  readonly isEmpty = computed(() => this.allPosts().length === 0);
+  readonly isEmpty = computed(
+    () => this.allPosts().length === 0 && this._polymorphicTimeline().length === 0
+  );
 
-  /** Whether there are more posts to load */
-  readonly hasMore = computed(() => {
-    // TODO: Implement proper pagination
-    return this.allPosts().length >= 20;
-  });
+  /** Whether there are more posts to load (driven by backend cursor response) */
+  readonly hasMore = computed(() => this._timelineHasMore());
 
   /** Quick stats formatted for display */
   readonly quickStatsDisplay = computed<ProfileStatItem[]>(() => {
@@ -622,13 +634,16 @@ export class ProfileService {
    */
   startLoading(): void {
     this._isLoading.set(true);
+    this._timelineLoading.set(true);
     this._error.set(null);
     // Clear stale/mock data so the skeleton loader shows while fetching real data.
     // Without this, old mock data persists if the API call fails.
     this._profileData.set(null);
     // Clear stale sub-collection data from previous profile (singleton service).
     this._timelinePosts.set([]);
-    this._videoPosts.set([]);
+    this._polymorphicTimeline.set([]);
+    this._timelineHasMore.set(false);
+    this._timelineCursor.set(undefined);
     this._rankings.set([]);
     this._scoutReports.set([]);
     this._scheduleEvents.set(null);
@@ -648,17 +663,10 @@ export class ProfileService {
   setError(message: string | null): void {
     this._error.set(message);
     this._isLoading.set(false);
+    this._timelineLoading.set(false);
     if (message) {
       this.toast.error(message);
     }
-  }
-
-  /**
-   * Push videos loaded from the user’s videos sub-collection.
-   * Called by the platform wrapper after fetching GET /auth/profile/:userId/videos.
-   */
-  setVideoPosts(videos: readonly ProfilePost[]): void {
-    this._videoPosts.set(videos);
   }
 
   /**
@@ -677,9 +685,77 @@ export class ProfileService {
     this._activeSportFilter.set(sportId);
   }
 
+  private mapFeedItemToProfilePost(item: FeedItem): ProfilePost | null {
+    if (item.feedType !== 'POST') return null;
+
+    const post = item as FeedItemPost;
+    const primaryMedia = post.media[0];
+    const mediaRecord = primaryMedia as unknown as Record<string, unknown> | undefined;
+    const thumbnailUrl =
+      (mediaRecord?.['thumbnailUrl'] as string | undefined) ??
+      (primaryMedia?.type === 'image' ? primaryMedia.url : undefined);
+
+    return {
+      id: post.id,
+      type: post.postType as unknown as ProfilePostType,
+      body: post.content,
+      thumbnailUrl,
+      mediaUrl: primaryMedia?.url,
+      shareCount: post.engagement.shareCount,
+      viewCount: post.engagement.viewCount,
+      duration: mediaRecord?.['duration'] as number | undefined,
+      isPinned: post.isPinned,
+      iframeUrl: mediaRecord?.['iframeUrl'] as string | undefined,
+      hlsUrl: mediaRecord?.['hlsUrl'] as string | undefined,
+      dashUrl: mediaRecord?.['dashUrl'] as string | undefined,
+      cloudflareVideoId: mediaRecord?.['cloudflareVideoId'] as string | undefined,
+      cloudflareStatus: mediaRecord?.['processingStatus'] as string | undefined,
+      createdAt: post.createdAt,
+    };
+  }
+
   /**
-   * Push timeline posts loaded from the user’s timeline sub-collection.
+   * Push the full polymorphic timeline feed from the backend TimelineService.
    * Called by the platform wrapper after fetching GET /auth/profile/:userId/timeline.
+   * This is the primary setter — replaces the full feed on initial load or tab refresh.
+   */
+  setPolymorphicTimeline(
+    items: readonly FeedItem[],
+    meta?: { hasMore: boolean; nextCursor?: string }
+  ): void {
+    this._timelineLoading.set(false);
+    this._polymorphicTimeline.set(items);
+    this._timelinePosts.set(
+      items
+        .map((item) => this.mapFeedItemToProfilePost(item))
+        .filter((item): item is ProfilePost => item !== null)
+    );
+    this._timelineHasMore.set(meta?.hasMore ?? false);
+    this._timelineCursor.set(meta?.nextCursor);
+  }
+
+  /**
+   * Append the next page of timeline items (load more / infinite scroll).
+   * Preserves existing items and appends new ones, updating cursor state.
+   */
+  appendPolymorphicTimeline(
+    items: readonly FeedItem[],
+    meta: { hasMore: boolean; nextCursor?: string }
+  ): void {
+    this._polymorphicTimeline.update((existing) => [...existing, ...items]);
+    this._timelinePosts.update((existing) => [
+      ...existing,
+      ...items
+        .map((item) => this.mapFeedItemToProfilePost(item))
+        .filter((item): item is ProfilePost => item !== null),
+    ]);
+    this._timelineHasMore.set(meta.hasMore);
+    this._timelineCursor.set(meta.nextCursor);
+  }
+
+  /**
+   * Push timeline posts loaded from the user's timeline sub-collection.
+   * @deprecated Use setPolymorphicTimeline() instead — kept for backward compatibility.
    */
   setTimelinePosts(posts: readonly ProfilePost[]): void {
     this._timelinePosts.set(posts);
@@ -816,17 +892,7 @@ export class ProfileService {
    * Set the API service for persisting active sport index.
    * Platform-specific code should call this during initialization.
    */
-  setApiService(api: {
-    updateActiveSportIndex: (
-      userId: string,
-      activeSportIndex: number
-    ) => Promise<{
-      success: boolean;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      data?: any;
-      error?: string;
-    }>;
-  }): void {
+  setApiService(api: ProfileUiApi): void {
     this.api = api;
   }
 
@@ -842,6 +908,17 @@ export class ProfileService {
     this._profileData.set(data);
     this._isLoading.set(false);
     this._error.set(null);
+
+    // Apply organisation brand colors via the design token system.
+    // This sets --team-primary / --team-secondary on <html> so every
+    // component that references those tokens picks them up automatically
+    // without any per-component inline style hacks.
+    const school = data.user?.school;
+    if (school?.primaryColor) {
+      this.theme.applyOrgTheme(school.primaryColor, school.secondaryColor);
+    } else {
+      this.theme.clearOrgTheme();
+    }
   }
 
   // ============================================
@@ -868,13 +945,122 @@ export class ProfileService {
   }
 
   /**
+   * Register a platform-specific load-more handler.
+   * The web/mobile feature components call this during init to provide
+   * the actual cursor-based API fetch logic.
+   */
+  private _loadMoreHandler?: () => Promise<void>;
+
+  registerLoadMoreHandler(handler: () => Promise<void>): void {
+    this._loadMoreHandler = handler;
+  }
+
+  /** Set loading-more state (used by platform handlers). */
+  setLoadingMore(loading: boolean): void {
+    this._isLoadingMore.set(loading);
+  }
+
+  /**
    * Load more posts for infinite scroll.
+   * Platform shells wire `(loadMore)` output from ProfileTimelineComponent
+   * to this method. Calls the registered platform load-more handler if present.
    */
   async loadMorePosts(): Promise<void> {
     if (this._isLoadingMore()) return;
-    this.logger.warn(
-      'loadMorePosts() called — platform shell should implement pagination via the API service.'
+    if (!this._timelineHasMore()) return;
+    if (this._loadMoreHandler) {
+      await this._loadMoreHandler();
+    } else {
+      this.logger.warn('loadMorePosts() called \u2014 no load-more handler registered.');
+    }
+  }
+
+  async pinPost(post: ProfilePost): Promise<void> {
+    const userId = this.user()?.uid;
+    if (!userId || !this.api?.pinPost) {
+      this.logger.warn('pinPost() called without a configured API bridge', { postId: post.id });
+      this.toast.error('Post actions are not available right now.');
+      return;
+    }
+
+    const nextPinnedState = !post.isPinned;
+    const previousTimelinePosts = this._timelinePosts();
+    const previousTimelineFeed = this._polymorphicTimeline();
+
+    this._timelinePosts.update((posts) =>
+      posts.map((item) => (item.id === post.id ? { ...item, isPinned: nextPinnedState } : item))
     );
+    this._polymorphicTimeline.update((items) =>
+      items.map((item) =>
+        item.id === post.id ? ({ ...item, isPinned: nextPinnedState } as FeedItem) : item
+      )
+    );
+
+    this.logger.info('Updating post pin state', {
+      postId: post.id,
+      userId,
+      isPinned: nextPinnedState,
+    });
+
+    try {
+      const result = await this.api.pinPost(userId, post.id, nextPinnedState);
+      if (!result.success) {
+        throw new Error(result.error ?? 'Failed to update post pin state');
+      }
+
+      this.toast.success(nextPinnedState ? 'Post pinned.' : 'Post unpinned.');
+    } catch (err) {
+      this._timelinePosts.set(previousTimelinePosts);
+      this._polymorphicTimeline.set(previousTimelineFeed);
+
+      const message = err instanceof Error ? err.message : 'Failed to update post pin state';
+      this.logger.error('Failed to update post pin state', {
+        postId: post.id,
+        userId,
+        error: message,
+      });
+      this.toast.error(message);
+    }
+  }
+
+  async deletePost(post: ProfilePost): Promise<void> {
+    const userId = this.user()?.uid;
+    if (!userId || !this.api?.deletePost) {
+      this.logger.warn('deletePost() called without a configured API bridge', { postId: post.id });
+      this.toast.error('Post actions are not available right now.');
+      return;
+    }
+
+    const previousTimelinePosts = this._timelinePosts();
+    const previousTimelineFeed = this._polymorphicTimeline();
+
+    this._timelinePosts.update((posts) => posts.filter((item) => item.id !== post.id));
+    this._polymorphicTimeline.update((items) => items.filter((item) => item.id !== post.id));
+
+    this.logger.info('Deleting profile post', {
+      postId: post.id,
+      userId,
+    });
+
+    try {
+      const result = await this.api.deletePost(userId, post.id);
+      if (!result.success) {
+        throw new Error(result.error ?? 'Failed to delete post');
+      }
+
+      this.toast.success('Post deleted.');
+    } catch (err) {
+      this._timelinePosts.set(previousTimelinePosts);
+      this._polymorphicTimeline.set(previousTimelineFeed);
+
+      const message = err instanceof Error ? err.message : 'Failed to delete post';
+      this.logger.error('Failed to delete profile post', {
+        postId: post.id,
+        userId,
+        error: message,
+      });
+      this.toast.error(message);
+    }
   }
 
   /**
@@ -912,7 +1098,7 @@ export class ProfileService {
             this.logger.info('Active sport index persisted to database', {
               userId,
               activeSportIndex: index,
-              sportName: result.data?.sportName,
+              sportName: (result.data as { sportName?: string } | undefined)?.sportName,
             });
           } else {
             this.logger.warn('Failed to persist active sport index', {
@@ -960,11 +1146,9 @@ export class ProfileService {
     this._activeTab.set(PROFILE_DEFAULT_TAB);
     this._profileData.set(null);
     this._rawUser.set(null);
-    this._activityFeedItems.set([]);
     this._isEditMode.set(false);
     this._editSection.set(null);
     this._activeSportIndex.set(0);
-    this._videoPosts.set([]);
     this._athleticStatsOverride.set(null);
     this._metricsOverride.set(null);
     this._gameLogOverride.set(null);
@@ -973,5 +1157,7 @@ export class ProfileService {
     this._scheduleEvents.set(null);
     this._recruitingActivities.set(null);
     this._newsArticles.set([]);
+    // Remove org brand colors so they don't bleed onto the next page.
+    this.theme.clearOrgTheme();
   }
 }

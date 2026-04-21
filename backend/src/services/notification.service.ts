@@ -19,7 +19,7 @@
  * │   (THIS FILE — single atomic batch write for every feature)     │
  * │                                                                  │
  * │   1. Writes activity doc → users/{uid}/activity/{docId}          │
- * │   2. Writes push doc    → notifications/{docId}                  │
+ * │   2. Writes push doc    → Notifications/{docId}                  │
  * └──────────────────────────────────────────────┬───────────────────┘
  *                                                │
  *                                                ▼ (Firestore trigger)
@@ -70,7 +70,7 @@ export interface DispatchResult {
  * Dispatch a notification + activity item for any feature.
  *
  * This is the ONLY function in the entire backend that writes to the
- * `notifications` collection. All features delegate here.
+ * `Notifications` collection. All features delegate here.
  *
  * The activity write is the SSOT for the user's feed. The notification
  * doc triggers the `onNotificationCreated` Cloud Function which handles
@@ -263,6 +263,15 @@ function mapNotificationTypeToActivityType(type: NotificationType): string {
     account_created: 'system',
     email_verified: 'system',
     profile_incomplete: 'system',
+    payment_received: 'announcement',
+    payment_failed: 'announcement',
+    credits_low: 'announcement',
+    credits_added: 'announcement',
+    budget_warning: 'announcement',
+    budget_reached: 'announcement',
+    wallet_empty: 'announcement',
+    org_wallet_empty: 'announcement',
+    org_wallet_refilled: 'announcement',
   };
 
   return map[type] ?? 'update';

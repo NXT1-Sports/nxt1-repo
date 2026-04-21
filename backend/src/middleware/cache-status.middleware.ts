@@ -29,6 +29,9 @@ export function cacheStatusMiddleware(
 
   // Override res.json to add cache status
   res.json = function (body: Record<string, unknown>) {
+    // Guard against double-send (e.g. chained middleware calling res.json after headers sent)
+    if (res.headersSent) return res;
+
     // Determine cache status
     const cached = req.cacheHit || false;
     const cacheSource = req.cacheSource || 'none';

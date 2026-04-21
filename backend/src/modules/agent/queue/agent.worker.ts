@@ -48,11 +48,11 @@ import type { StreamEvent } from './event-writer.js';
 import { AgentPubSubService } from './pubsub.service.js';
 import type { AgentChatService } from '../services/agent-chat.service.js';
 import type { OpenRouterService } from '../llm/openrouter.service.js';
-import { isAgentYield } from '../errors/agent-yield.error.js';
+import { isAgentYield } from '../exceptions/agent-yield.exception.js';
 import { notifyYield } from '../services/yield-notifier.service.js';
 import { estimateChargeAmountSync } from '../../billing/pricing.service.js';
 import {
-  getBillingContext,
+  getBillingState,
   createWalletHold,
   releaseWalletHold,
 } from '../../billing/budget.service.js';
@@ -62,6 +62,8 @@ import {
   logAgentTaskCompletion,
   logAgentTaskFailure,
 } from '../../../services/agent-activity.service.js';
+import { getAgentAnalyticsGate } from '../services/agent-analytics-gate.js';
+import { processRecapForUser } from '../services/weekly-recap-email.service.js';
 import { logger } from '../../../utils/logger.js';
 
 // ─── Worker ─────────────────────────────────────────────────────────────────
@@ -121,6 +123,64 @@ export class AgentWorker {
     return getFirestore();
   }
 
+  private async processThreadSummarizationJob(
+    job: Job<AgentQueueJobData, AgentQueueJobResult>
+  ): Promise<AgentQueueJobResult> {
+    if (job.data.kind !== 'thread_summarization') {
+      throw new Error('Invalid thread summarization job payload');
+    }
+
+    if (!this.llmService) {
+      throw new Error('LLM service not initialized for thread summarization');
+    }
+
+    const startMs = Date.now();
+    await job.updateProgress({
+      status: 'thinking',
+      message: 'Summarizing idle thread memory',
+      percent: 10,
+      currentStep: 1,
+      totalSteps: 1,
+      updatedAt: new Date().toISOString(),
+    });
+
+    const { VectorMemoryService } = await import('../memory/vector.service.js');
+    const { MemorySummarizationService } =
+      await import('../memory/memory-summarization.service.js');
+
+    const vectorMemory = new VectorMemoryService(this.llmService);
+    const summarizer = new MemorySummarizationService(this.llmService, vectorMemory);
+    const memoriesCreated = await summarizer.processSingleThread(
+      job.data.threadId,
+      job.data.userId
+    );
+
+    await job.updateProgress({
+      status: 'completed',
+      message: 'Idle thread summarization complete',
+      percent: 100,
+      currentStep: 1,
+      totalSteps: 1,
+      updatedAt: new Date().toISOString(),
+    });
+
+    return {
+      result: {
+        summary:
+          memoriesCreated > 0
+            ? `Created ${memoriesCreated} durable memory entries from the idle chat.`
+            : 'No new durable facts were extracted from the idle chat.',
+        data: {
+          threadId: job.data.threadId,
+          memoriesCreated,
+        },
+        suggestions: [],
+      },
+      durationMs: Date.now() - startMs,
+      completedAt: new Date().toISOString(),
+    };
+  }
+
   // ─── Job Processor ──────────────────────────────────────────────────────
 
   /**
@@ -133,6 +193,16 @@ export class AgentWorker {
   private async processJob(
     job: Job<AgentQueueJobData, AgentQueueJobResult>
   ): Promise<AgentQueueJobResult> {
+    if (job.data.kind === 'thread_summarization') {
+      return this.processThreadSummarizationJob(job);
+    }
+
+    if (job.data.kind !== 'agent') {
+      throw new Error(
+        `Unsupported queue job kind: ${String((job.data as { kind?: unknown }).kind)}`
+      );
+    }
+
     const { payload } = job.data;
     const startMs = Date.now();
     const repo = this.getJobRepo(job);
@@ -145,7 +215,7 @@ export class AgentWorker {
     // For prepaid wallet users, create a hold at job start so the UI can display
     // the estimated in-flight cost under "Processing". Released or captured at end.
     let iapHoldId: string | null = null;
-    const billingCtxForHold = await getBillingContext(billingDb, payload.userId);
+    const billingCtxForHold = await getBillingState(billingDb, payload.userId);
     if (
       (billingCtxForHold?.paymentProvider === 'iap' &&
         billingCtxForHold.billingEntity === 'individual') ||
@@ -212,9 +282,9 @@ export class AgentWorker {
     };
 
     // ── Debounced Event Writer: streams granular events to Firestore subcollection ──
-    // The frontend subscribes to `agentJobs/{operationId}/events` via onSnapshot
+    // The frontend subscribes to `AgentJobs/{operationId}/events` via onSnapshot
     // to render a live "watch it work" chat experience.
-    const eventWriter = new DebouncedEventWriter(repo, payload.operationId);
+    const eventWriter = new DebouncedEventWriter(repo, payload.operationId, payload.userId);
 
     // ── Dual-write callback: Firestore (persistence) + Redis PubSub (real-time SSE pipe) ──
     // The Redis PubSub path enables Express to hold an SSE connection open and
@@ -386,6 +456,19 @@ export class AgentWorker {
         });
       }
 
+      // Track job failure in user's analytics record (fire-and-forget)
+      getAgentAnalyticsGate().trackJobFailed({
+        userId: payload.userId,
+        agentId: typeof payload.agent === 'string' ? payload.agent : 'unknown',
+        operationId: payload.operationId,
+        error: message,
+        durationMs: Date.now() - startMs,
+        threadId:
+          typeof (payload.context as Record<string, unknown> | undefined)?.['threadId'] === 'string'
+            ? ((payload.context as Record<string, unknown>)['threadId'] as string)
+            : undefined,
+      });
+
       // Release any IAP hold — job failed, funds should not stay locked
       if (iapHoldId) {
         releaseWalletHold(billingDb, iapHoldId).catch((e: unknown) => {
@@ -529,6 +612,12 @@ export class AgentWorker {
       });
     }
 
+    // ─── Weekly recap email (fire-and-forget) ─────────────────────────────
+    if (payload.triggerEvent?.type === 'weekly_recap') {
+      const { getFirestore } = await import('firebase-admin/firestore');
+      void processRecapForUser(payload.userId, summary, job.id?.toString(), getFirestore());
+    }
+
     // ─── Persist assistant response to MongoDB thread ─────────────────────
     const contextObj =
       typeof payload.context === 'object' && payload.context !== null ? payload.context : {};
@@ -536,6 +625,15 @@ export class AgentWorker {
       typeof (contextObj as Record<string, unknown>)['threadId'] === 'string'
         ? ((contextObj as Record<string, unknown>)['threadId'] as string)
         : undefined;
+
+    // Track job completion in user's analytics record (fire-and-forget)
+    getAgentAnalyticsGate().trackJobCompleted({
+      userId: payload.userId,
+      agentId: typeof payload.agent === 'string' ? payload.agent : 'unknown',
+      operationId: payload.operationId,
+      durationMs: Date.now() - startMs,
+      threadId,
+    });
     if (threadId && this.chatService) {
       try {
         // Extract agentId with runtime type check
@@ -700,18 +798,28 @@ export class AgentWorker {
     this.worker.on('completed', (job) => {
       if (job) {
         const duration = job.returnvalue?.durationMs ?? 0;
-        logger.info('Agent job completed', {
+        const operationId =
+          'payload' in job.data ? job.data.payload.operationId : `summarize:${job.data.threadId}`;
+
+        logger.info('Agent queue job completed', {
           jobId: job.id,
-          operationId: job.data.payload.operationId,
+          operationId,
           durationMs: duration,
         });
       }
     });
 
     this.worker.on('failed', (job, err) => {
-      logger.error('Agent job failed', {
+      const operationId =
+        job && 'payload' in job.data
+          ? job.data.payload.operationId
+          : job?.data.kind === 'thread_summarization'
+            ? `summarize:${job.data.threadId}`
+            : undefined;
+
+      logger.error('Agent queue job failed', {
         jobId: job?.id,
-        operationId: job?.data.payload.operationId,
+        operationId,
         error: err.message,
         stack: err.stack,
       });

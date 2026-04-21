@@ -55,7 +55,6 @@ export interface SportFirestoreDoc extends UserFirestoreDoc {
 
 export type PostType =
   | 'update'
-  | 'highlight'
   | 'milestone'
   | 'question'
   | 'media'
@@ -90,12 +89,8 @@ export interface PostDoc extends UserFirestoreDoc {
   /** Duration in seconds (for video posts). */
   durationSeconds?: number;
   mentions: string[];
-  hashtags: string[];
   isPinned: boolean;
-  commentsDisabled: boolean;
   stats: {
-    likes: number;
-    comments: number;
     shares: number;
     views: number;
   };
@@ -372,7 +367,7 @@ export interface UserSportDoc extends UserFirestoreDoc {
   season?: string;
   /** Display order / priority (0 = primary sport). */
   order: number;
-  accountType: 'athlete' | 'coach' | 'parent' | 'recruiter' | 'director';
+  accountType: 'athlete' | 'coach' | 'director';
   positions?: string[];
   classOf?: number;
   state?: string;

@@ -64,6 +64,7 @@ import {
   afterNextRender,
 } from '@angular/core';
 import { isPlatformBrowser, DOCUMENT } from '@angular/common';
+import { NxtLoggingService } from '../logging/logging.service';
 
 // ============================================
 // TYPES
@@ -349,6 +350,9 @@ export class NxtThemeService {
   private readonly doc = inject(DOCUMENT);
 
   /** SSR-provided theme preference (from cookie, optional) */
+  private readonly logger = inject(NxtLoggingService).child('NxtThemeService');
+
+  /** SSR-provided theme preference (from cookie, optional) */
   private readonly ssrTheme = inject(SSR_INITIAL_THEME, { optional: true });
 
   /** SSR-provided sport theme (from cookie, optional) */
@@ -479,6 +483,9 @@ export class NxtThemeService {
 
     if (this.statusBarSyncEnabled) {
       void this.syncStatusBar();
+      void this.syncKeyboard();
+      void this.syncNavigationBar();
+      void this.syncIOSAppearance();
     }
   }
 
@@ -537,6 +544,9 @@ export class NxtThemeService {
 
     if (this.statusBarSyncEnabled) {
       void this.syncStatusBar();
+      void this.syncKeyboard();
+      void this.syncNavigationBar();
+      void this.syncIOSAppearance();
     }
 
     this.logChange('Temporary override set', { theme });
@@ -552,6 +562,9 @@ export class NxtThemeService {
 
     if (this.statusBarSyncEnabled) {
       void this.syncStatusBar();
+      void this.syncKeyboard();
+      void this.syncNavigationBar();
+      void this.syncIOSAppearance();
     }
 
     this.logChange('Temporary override cleared', { restoredTo: this.effectiveTheme() });
@@ -573,7 +586,91 @@ export class NxtThemeService {
 
     if (this.statusBarSyncEnabled) {
       void this.syncStatusBar();
+      void this.syncKeyboard();
+      void this.syncNavigationBar();
+      void this.syncIOSAppearance();
     }
+  }
+
+  // ============================================
+  // PUBLIC API - Org / Team Brand Colors
+  // ============================================
+
+  /**
+   * Apply an organisation's brand colors to the document-level design token
+   * custom properties (`--team-primary`, `--team-secondary`, `--team-accent`,
+   * `--team-text-on-primary`).
+   *
+   * This is the correct, token-system-native way to activate organisation
+   * colors.  Every component that references `var(--team-primary)` or
+   * `var(--team-accent)` — including all surface/border/gradient tokens in
+   * `semantic.tokens.json` — will automatically pick up the injected value
+   * through the CSS cascade without any per-component inline style hacks.
+   *
+   * @param primary   - Hex color, e.g. `"#003087"`
+   * @param secondary - Optional hex color, e.g. `"#FFB612"`
+   *
+   * @example
+   * ```typescript
+   * // Called when profile / team data resolves
+   * this.theme.applyOrgTheme('#003087', '#FFB612');
+   * ```
+   */
+  applyOrgTheme(primary: string, secondary?: string | null): void {
+    if (!this.isBrowser) return;
+    if (!primary) return;
+
+    const root = document.documentElement;
+    root.style.setProperty('--team-primary', primary);
+    // --team-accent mirrors primary (semantic.tokens.json defines it as var(--team-accent))
+    root.style.setProperty('--team-accent', primary);
+
+    if (secondary) {
+      root.style.setProperty('--team-secondary', secondary);
+    } else {
+      root.style.removeProperty('--team-secondary');
+    }
+
+    // Compute accessible text-on-primary (black or white) via WCAG relative luminance
+    root.style.setProperty('--team-text-on-primary', this.contrastColor(primary));
+
+    this.logger.debug('Org theme applied', { primary, secondary: secondary ?? null });
+  }
+
+  /**
+   * Remove organisation brand colors from the document, restoring the
+   * default NXT1 volt palette fallbacks defined in the token system.
+   *
+   * Call this whenever leaving a profile or team page.
+   */
+  clearOrgTheme(): void {
+    if (!this.isBrowser) return;
+
+    const root = document.documentElement;
+    root.style.removeProperty('--team-primary');
+    root.style.removeProperty('--team-secondary');
+    root.style.removeProperty('--team-accent');
+    root.style.removeProperty('--team-text-on-primary');
+
+    this.logger.debug('Org theme cleared');
+  }
+
+  // ============================================
+  // PRIVATE HELPERS
+  // ============================================
+
+  /**
+   * Return `#000000` or `#ffffff` — whichever gives better contrast
+   * against `hex` per the WCAG simplified luminance formula.
+   */
+  private contrastColor(hex: string): string {
+    const clean = hex.replace('#', '');
+    if (clean.length !== 6) return '#000000';
+    const r = parseInt(clean.slice(0, 2), 16);
+    const g = parseInt(clean.slice(2, 4), 16);
+    const b = parseInt(clean.slice(4, 6), 16);
+    const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+    return luminance > 0.5 ? '#000000' : '#ffffff';
   }
 
   /**
@@ -586,6 +683,9 @@ export class NxtThemeService {
 
     if (this.statusBarSyncEnabled) {
       void this.syncStatusBar();
+      void this.syncKeyboard();
+      void this.syncNavigationBar();
+      void this.syncIOSAppearance();
     }
   }
 
@@ -636,13 +736,19 @@ export class NxtThemeService {
 
     this.statusBarSyncEnabled = true;
     void this.syncStatusBar();
+    void this.syncKeyboard();
+    void this.syncNavigationBar();
+    void this.syncIOSAppearance();
 
-    // Auto-sync status bar whenever theme changes
+    // Auto-sync all native chrome whenever theme changes
     effect(
       () => {
         const theme = this.effectiveTheme();
         const sportTheme = this._sportTheme();
         void this.syncStatusBar(theme, sportTheme);
+        void this.syncKeyboard(theme);
+        void this.syncNavigationBar(theme, sportTheme);
+        void this.syncIOSAppearance(theme);
       },
       { injector: this.injector }
     );
@@ -687,6 +793,102 @@ export class NxtThemeService {
   // ============================================
   // PRIVATE METHODS
   // ============================================
+
+  /**
+   * Sync the iOS/Android keyboard appearance with the current theme.
+   * Uses KeyboardStyle.Dark for dark/sport themes, KeyboardStyle.Light for light theme.
+   * Silent no-op on web (Keyboard plugin not available).
+   */
+  /**
+   * Persist the current theme to @capacitor/preferences so AppDelegate.swift
+   * can read it from UserDefaults and apply `window?.overrideUserInterfaceStyle`
+   * on cold launch. Also calls the NxtThemePlugin synchronously so the current
+   * session's native iOS system sheets (share sheet, camera, date picker, and
+   * UIAlertController from @capacitor/dialog) reflect the theme immediately
+   * without requiring an app relaunch.
+   *
+   * UserDefaults key written: `CapacitorStorage.nxt1-native-ui-style` ('light' | 'dark')
+   */
+  private async syncIOSAppearance(theme?: EffectiveTheme): Promise<void> {
+    if (!this.isBrowser) return;
+
+    const effectiveTheme = theme ?? this.effectiveTheme();
+
+    try {
+      const { Preferences } = await import('@capacitor/preferences');
+      await Preferences.set({ key: 'nxt1-native-ui-style', value: effectiveTheme });
+    } catch {
+      // Preferences plugin not available (web browser) - silently ignore
+    }
+
+    // Apply immediately to the live UIWindow so UIAlertController and other
+    // native overlays in this session pick up the new style without a relaunch.
+    try {
+      const { registerPlugin } = await import('@capacitor/core');
+      const NxtTheme = registerPlugin<{ setStyle: (opts: { style: string }) => Promise<void> }>(
+        'NxtTheme'
+      );
+      this.logger.debug('Calling NxtTheme.setStyle', { theme: effectiveTheme });
+      await NxtTheme.setStyle({ style: effectiveTheme });
+      this.logger.debug('NxtTheme.setStyle resolved');
+    } catch (e) {
+      this.logger.error('NxtTheme.setStyle failed', e);
+    }
+  }
+
+  private async syncKeyboard(theme?: EffectiveTheme): Promise<void> {
+    if (!this.isBrowser) return;
+
+    const effectiveTheme = theme ?? this.effectiveTheme();
+
+    try {
+      const { Keyboard, KeyboardStyle } = await import('@capacitor/keyboard');
+      const style = effectiveTheme === 'light' ? KeyboardStyle.Light : KeyboardStyle.Dark;
+      await Keyboard.setStyle({ style });
+    } catch {
+      // Keyboard plugin not available (web browser) or setStyle unsupported - silently ignore
+    }
+  }
+
+  /**
+   * Sync the Android navigation bar (back/home/recents) with the current theme.
+   * iOS does not expose a navigation bar — the call is safely ignored there.
+   * Silent no-op on web.
+   */
+  private async syncNavigationBar(
+    theme?: EffectiveTheme,
+    sportTheme?: SportTheme | null
+  ): Promise<void> {
+    if (!this.isBrowser) return;
+
+    const effectiveTheme = theme ?? this.effectiveTheme();
+    const activeSportTheme = sportTheme ?? this._sportTheme();
+
+    try {
+      const { StatusBar, Style } = await import('@capacitor/status-bar');
+
+      // NavigationBar style follows same logic as status bar:
+      // Light theme → dark icons; dark/sport theme → light icons
+      const useDarkContent = effectiveTheme === 'light' && activeSportTheme === null;
+      const style = useDarkContent ? Style.Light : Style.Dark;
+
+      // setNavigationBarColor + setNavigationBarStyle are Android-only; throws on iOS (caught below)
+      const activeTheme = activeSportTheme ? `sport-${activeSportTheme}` : effectiveTheme;
+      const bgColor = THEME_BG_COLORS[activeTheme] ?? THEME_BG_COLORS[effectiveTheme] ?? '#0a0a0a';
+
+      await (
+        StatusBar as unknown as { setNavigationBarColor: (o: { color: string }) => Promise<void> }
+      ).setNavigationBarColor({ color: bgColor });
+
+      await (
+        StatusBar as unknown as {
+          setNavigationBarStyle: (o: { style: typeof style }) => Promise<void>;
+        }
+      ).setNavigationBarStyle({ style });
+    } catch {
+      // iOS throws for navigation bar calls - expected behavior, silently ignore
+    }
+  }
 
   /**
    * Server-side initialization: read from injection tokens (cookies),

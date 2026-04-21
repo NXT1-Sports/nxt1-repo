@@ -41,6 +41,23 @@ export interface AppUser {
   connectedEmails?: ConnectedEmail[];
   /** Sport names extracted from user's SportProfile[] */
   selectedSports?: string[];
+  /** Normalized sport data preserved on the core auth user shape */
+  sports?: ReadonlyArray<{
+    readonly sport: string;
+    readonly positions?: readonly string[];
+    readonly isPrimary?: boolean;
+    readonly team?: {
+      readonly name?: string;
+      readonly logoUrl?: string | null;
+      readonly logo?: string | null;
+      readonly teamId?: string;
+      readonly id?: string;
+      readonly teamCode?: string;
+      readonly code?: string;
+      readonly slug?: string;
+      readonly unicode?: string;
+    };
+  }>;
   /** Connected sources for the link drop step */
   connectedSources?: ConnectedSource[];
   /** User's state from location profile */

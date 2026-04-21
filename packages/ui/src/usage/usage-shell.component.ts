@@ -30,8 +30,11 @@ import {
   output,
   computed,
   OnInit,
+  OnDestroy,
+  NgZone,
+  PLATFORM_ID,
 } from '@angular/core';
-import { CommonModule } from '@angular/common';
+import { CommonModule, isPlatformBrowser } from '@angular/common';
 import { IonContent } from '@ionic/angular/standalone';
 import { NxtBottomSheetService, SHEET_PRESETS } from '../components/bottom-sheet';
 import { NxtIconComponent } from '../components/icon';
@@ -44,20 +47,27 @@ import {
 } from '../components/option-scroller';
 import { NxtToastService } from '../services/toast/toast.service';
 import { HapticsService } from '../services/haptics/haptics.service';
-import { UsageService, type UsageSection } from './usage.service';
+import {
+  UsageService,
+  USAGE_CHECKOUT_POPUP_NAME,
+  USAGE_CHECKOUT_RETURN_MESSAGE,
+  type UsageSection,
+} from './usage.service';
+import type { UsageBudget } from '@nxt1/core';
 import { USAGE_TEST_IDS } from '@nxt1/core/testing';
 import { UsageSkeletonComponent } from './usage-skeleton.component';
 import { UsageHelpContentComponent } from './usage-help-content.component';
 import { UsageErrorStateComponent } from './usage-error-state.component';
 import { UsageBottomSheetService } from './usage-bottom-sheet.service';
 import { AgentXControlPanelComponent } from '../agent-x';
+import { UsageOrgMemberStubComponent } from './usage-org-member-stub.component';
 import {
   UsageOverviewComponent,
-  UsageChartComponent,
   UsageBreakdownTableComponent,
-  UsagePaymentHistoryComponent,
+  UsageChartComponent,
   UsagePaymentInfoComponent,
   UsageBudgetsComponent,
+  UsageAutoTopupComponent,
 } from './sections';
 
 /**
@@ -78,12 +88,13 @@ export interface UsageUser {
     NxtRefresherComponent,
     UsageSkeletonComponent,
     UsageErrorStateComponent,
+    UsageOrgMemberStubComponent,
     UsageOverviewComponent,
-    UsageChartComponent,
     UsageBreakdownTableComponent,
-    UsagePaymentHistoryComponent,
+    UsageChartComponent,
     UsagePaymentInfoComponent,
     UsageBudgetsComponent,
+    UsageAutoTopupComponent,
     NxtOptionScrollerComponent,
     NxtIconComponent,
   ],
@@ -124,7 +135,7 @@ export interface UsageUser {
       </nxt1-page-header>
     }
 
-    <!-- Mobile: Twitter/TikTok Style Tab Selector (outside ion-content like Agent X) -->
+    <!-- Mobile: Tab Selector — sectionNavs() already filters tabs per role -->
     <div class="mobile-tabs">
       <nxt1-option-scroller
         [options]="tabOptions()"
@@ -170,7 +181,7 @@ export interface UsageUser {
           />
         } @else {
           <div class="dashboard-layout">
-            <!-- Side Navigation (Desktop only) -->
+            <!-- Side Navigation (Desktop only) — sectionNavs() filters per role -->
             <nav
               class="section-nav"
               role="tablist"
@@ -198,22 +209,28 @@ export interface UsageUser {
               } @else {
                 @switch (svc.activeSection()) {
                   @case ('overview') {
-                    <nxt1-usage-overview
-                      [data]="svc.overview()"
-                      [isPersonal]="svc.isPersonal()"
-                      (viewPaymentHistory)="svc.setActiveSection('payment-history')"
-                      (buyCredit)="onBuyCredits()"
-                    />
-
-                    @if (svc.isOrg()) {
-                      <nxt1-usage-budgets
-                        [budgets]="svc.budgets()"
-                        [readOnly]="!svc.isOrgAdmin()"
-                        (createBudget)="onCreateBudget()"
-                        (editBudget)="onEditBudget($event)"
-                        (editTeamBudget)="onEditTeamBudget($event)"
+                    @if (svc.isOrgMember() && svc.billingMode() === 'organization') {
+                      <!-- Org member on org billing: restricted overview — no financial data -->
+                      <nxt1-usage-org-member-stub />
+                    } @else {
+                      <nxt1-usage-overview
+                        [data]="svc.overview()"
+                        [isPersonal]="svc.isPersonal()"
+                        [isOrg]="svc.isOrg()"
+                        [isOrgAdmin]="svc.isOrgAdmin()"
+                        [orgWalletEmpty]="svc.orgWalletEmpty()"
+                        [orgWalletRefilled]="svc.orgWalletRefilled()"
+                        [billingMode]="svc.billingMode()"
+                        [paymentHistory]="svc.filteredPaymentHistory()"
+                        [historyHasMore]="svc.historyHasMore()"
+                        (buyCredit)="onBuyCredits()"
+                        (switchToBillingMode)="onSwitchBillingMode($event)"
+                        (downloadReceipt)="onDownloadReceipt($event)"
+                        (downloadInvoice)="onDownloadInvoice($event)"
+                        (loadMore)="svc.loadMoreHistory()"
                       />
                     }
+                    <!-- end @else (not org member) -->
                   }
 
                   @case ('metered-usage') {
@@ -221,6 +238,7 @@ export interface UsageUser {
                       [chartData]="svc.chartData()"
                       [timeframe]="svc.timeframe()"
                       [yLabels]="svc.chartYLabels()"
+                      [chartMaxCents]="svc.chartMaxValue()"
                       (timeframeChange)="svc.setTimeframe($event)"
                       (viewBreakdown)="svc.setActiveSection('breakdown')"
                     />
@@ -237,23 +255,13 @@ export interface UsageUser {
                     />
                   }
 
-                  @case ('payment-history') {
-                    <nxt1-usage-payment-history
-                      [records]="svc.filteredPaymentHistory()"
-                      [hasMore]="svc.historyHasMore()"
-                      (downloadReceipt)="onDownloadReceipt($event)"
-                      (downloadInvoice)="onDownloadInvoice($event)"
-                      (loadMore)="svc.loadMoreHistory()"
-                    />
-                  }
-
                   @case ('budgets') {
                     <nxt1-usage-budgets
-                      [budgets]="svc.budgets()"
+                      [budgets]="svc.activeBudgets()"
                       [readOnly]="!svc.isOrgAdmin()"
                       (createBudget)="onCreateBudget()"
                       (editBudget)="onEditBudget($event)"
-                      (editTeamBudget)="onEditTeamBudget($event)"
+                      (removeBudget)="onDeleteBudget($event)"
                     />
                   }
 
@@ -262,6 +270,15 @@ export interface UsageUser {
                       [billingInfo]="svc.billingInfo()"
                       [paymentMethods]="svc.paymentMethods()"
                       (manageBilling)="onManageBilling()"
+                    />
+                  }
+
+                  @case ('auto-topup') {
+                    <nxt1-usage-auto-topup
+                      [enabled]="svc.autoTopUpEnabled()"
+                      [thresholdCents]="svc.autoTopUpThresholdCents()"
+                      [amountCents]="svc.autoTopUpAmountCents()"
+                      (save)="onSaveAutoTopUp($event)"
                     />
                   }
                 }
@@ -501,13 +518,125 @@ export interface UsageUser {
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class UsageShellComponent implements OnInit {
+export class UsageShellComponent implements OnInit, OnDestroy {
   protected readonly testIds = USAGE_TEST_IDS;
   protected readonly svc = inject(UsageService);
   private readonly toast = inject(NxtToastService);
   private readonly haptics = inject(HapticsService);
   private readonly bottomSheet = inject(NxtBottomSheetService);
   private readonly usageBottomSheet = inject(UsageBottomSheetService);
+  private readonly ngZone = inject(NgZone);
+  private readonly platformId = inject(PLATFORM_ID);
+
+  private _hiddenAt: number | null = null;
+  private static readonly STALE_THRESHOLD_MS = 30_000;
+
+  private handleCheckoutReturnFromUrl(): void {
+    if (!isPlatformBrowser(this.platformId)) {
+      return;
+    }
+
+    const currentUrl = new URL(window.location.href);
+    const creditsStatus = currentUrl.searchParams.get('credits');
+    const returnedOrganizationId = currentUrl.searchParams.get('organizationId');
+    const sessionId = currentUrl.searchParams.get('session_id');
+    if (!creditsStatus) {
+      return;
+    }
+
+    if (window.opener && window.name === USAGE_CHECKOUT_POPUP_NAME) {
+      window.opener.postMessage(
+        {
+          type: USAGE_CHECKOUT_RETURN_MESSAGE,
+          status: creditsStatus,
+          organizationId: returnedOrganizationId,
+          sessionId,
+        },
+        window.location.origin
+      );
+      window.close();
+      return;
+    }
+
+    if (creditsStatus === 'success') {
+      const currentOrganizationId = this.svc.billingContext()?.organizationId ?? null;
+      if (
+        returnedOrganizationId &&
+        currentOrganizationId &&
+        returnedOrganizationId !== currentOrganizationId
+      ) {
+        this.toast.info(
+          'Credits were added to a different organization wallet than the one open here.'
+        );
+      }
+      void this.svc.refreshAfterExternalBillingReturn({
+        sessionId,
+        organizationId: returnedOrganizationId,
+      });
+    }
+
+    currentUrl.searchParams.delete('credits');
+    currentUrl.searchParams.delete('amount');
+    currentUrl.searchParams.delete('organizationId');
+    currentUrl.searchParams.delete('session_id');
+    const nextUrl = `${currentUrl.pathname}${currentUrl.search}${currentUrl.hash}`;
+    window.history.replaceState({}, '', nextUrl);
+  }
+
+  private readonly onCheckoutWindowMessage = (event: MessageEvent): void => {
+    if (!isPlatformBrowser(this.platformId) || event.origin !== window.location.origin) {
+      return;
+    }
+
+    const data = event.data as
+      | {
+          type?: string;
+          status?: string;
+          organizationId?: string | null;
+          sessionId?: string | null;
+        }
+      | null
+      | undefined;
+    if (data?.type !== USAGE_CHECKOUT_RETURN_MESSAGE) {
+      return;
+    }
+
+    if (data.status === 'success') {
+      const currentOrganizationId = this.svc.billingContext()?.organizationId ?? null;
+      if (
+        data.organizationId &&
+        currentOrganizationId &&
+        data.organizationId !== currentOrganizationId
+      ) {
+        this.toast.info(
+          'Credits were added to a different organization wallet than the one open here.'
+        );
+      }
+      void this.svc.refreshAfterExternalBillingReturn({
+        sessionId: data.sessionId,
+        organizationId: data.organizationId,
+      });
+    }
+  };
+
+  private readonly onVisibilityChange = (): void => {
+    if (document.visibilityState === 'hidden') {
+      this._hiddenAt = Date.now();
+      return;
+    }
+
+    const awayMs = this._hiddenAt !== null ? Date.now() - this._hiddenAt : 0;
+    this._hiddenAt = null;
+    if (this.svc.consumePortalRefresh() || awayMs >= UsageShellComponent.STALE_THRESHOLD_MS) {
+      void this.svc.refreshAfterExternalBillingReturn();
+    }
+  };
+
+  private readonly onWindowFocus = (): void => {
+    if (this.svc.consumePortalRefresh()) {
+      void this.svc.refreshAfterExternalBillingReturn();
+    }
+  };
 
   // ============================================
   // INPUTS
@@ -574,7 +703,10 @@ export class UsageShellComponent implements OnInit {
 
     await this.bottomSheet.openSheet({
       component: UsageHelpContentComponent,
-      componentProps: { isPersonal: this.svc.isPersonal() },
+      componentProps: {
+        isPersonal: this.svc.isPersonal(),
+        billingContext: this.svc.billingContext(),
+      },
       ...SHEET_PRESETS.FULL,
       showHandle: true,
       handleBehavior: 'cycle',
@@ -588,7 +720,23 @@ export class UsageShellComponent implements OnInit {
   // ============================================
 
   ngOnInit(): void {
-    this.svc.loadDashboard();
+    this.svc.loadDashboard(true);
+    if (isPlatformBrowser(this.platformId)) {
+      this.handleCheckoutReturnFromUrl();
+      this.ngZone.runOutsideAngular(() => {
+        document.addEventListener('visibilitychange', this.onVisibilityChange);
+        window.addEventListener('focus', this.onWindowFocus);
+        window.addEventListener('message', this.onCheckoutWindowMessage);
+      });
+    }
+  }
+
+  ngOnDestroy(): void {
+    if (isPlatformBrowser(this.platformId)) {
+      document.removeEventListener('visibilitychange', this.onVisibilityChange);
+      window.removeEventListener('focus', this.onWindowFocus);
+      window.removeEventListener('message', this.onCheckoutWindowMessage);
+    }
   }
 
   // ============================================
@@ -624,10 +772,35 @@ export class UsageShellComponent implements OnInit {
       await handler();
       return;
     }
-    const amountCents = await this.usageBottomSheet.showBuyCreditsOptions();
+    const { amountCents, autoTopup } = await this.usageBottomSheet.showBuyCreditsWithAutoTopup({
+      autoTopupEnabled: this.svc.autoTopUpEnabled(),
+      autoTopupThresholdCents: this.svc.autoTopUpThresholdCents(),
+      autoTopupAmountCents: this.svc.autoTopUpAmountCents(),
+    });
     if (amountCents !== null) {
-      await this.svc.buyCredits(amountCents);
+      // Pass organizationId for org admins so the top-up targets the org wallet
+      const organizationId = this.svc.isOrgAdmin()
+        ? (this.svc.billingContext()?.organizationId ?? undefined)
+        : undefined;
+      await this.svc.buyCredits(amountCents, organizationId);
     }
+    if (autoTopup !== null) {
+      await this.svc.configureAutoTopUp(autoTopup);
+    }
+  }
+
+  protected async onSwitchBillingMode(billingMode: 'personal' | 'organization'): Promise<void> {
+    await this.haptics.impact('medium');
+    await this.svc.switchBillingMode(billingMode);
+  }
+
+  protected async onSaveAutoTopUp(settings: {
+    enabled: boolean;
+    thresholdCents: number;
+    amountCents: number;
+  }): Promise<void> {
+    await this.haptics.impact('light');
+    await this.svc.configureAutoTopUp(settings);
   }
 
   protected async onDownloadReceipt(recordId: string): Promise<void> {
@@ -642,35 +815,33 @@ export class UsageShellComponent implements OnInit {
 
   protected async onCreateBudget(): Promise<void> {
     await this.haptics.impact('light');
-    await this.openBudgetControlPanel();
+    await this.openBudgetControlPanel(undefined, 'new');
   }
 
-  protected async onEditBudget(_budgetId: string): Promise<void> {
+  protected async onEditBudget(budget: UsageBudget): Promise<void> {
     await this.haptics.impact('light');
-    const result = await this.usageBottomSheet.showBudgetOptions();
-    if (!result) return;
-
-    if (result.action === 'Edit budget') {
-      await this.openBudgetControlPanel();
-    } else if (result.action === 'Delete budget') {
-      await this.svc.deleteBudget();
-    }
+    await this.openBudgetControlPanel(
+      budget.targetScope === 'team' ? budget.targetId : undefined,
+      'current'
+    );
   }
 
-  protected async onEditTeamBudget(teamId: string): Promise<void> {
+  protected async onDeleteBudget(budget: UsageBudget): Promise<void> {
     await this.haptics.impact('light');
-    const amountCents = await this.usageBottomSheet.showBudgetLimit();
-    if (amountCents !== null) {
-      await this.svc.updateTeamBudget(teamId, amountCents);
-    }
+    await this.svc.deleteBudget(budget);
   }
 
-  private async openBudgetControlPanel(): Promise<void> {
+  private async openBudgetControlPanel(
+    teamId?: string,
+    budgetDraftMode: 'current' | 'new' = 'current'
+  ): Promise<void> {
     await this.bottomSheet.openSheet({
       component: AgentXControlPanelComponent,
       componentProps: {
         panel: 'budget',
         presentation: 'sheet',
+        budgetTargetTeamId: teamId ?? null,
+        budgetDraftMode,
       },
       ...SHEET_PRESETS.FULL,
       showHandle: true,

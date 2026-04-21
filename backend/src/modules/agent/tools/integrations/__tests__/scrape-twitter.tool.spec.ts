@@ -8,9 +8,14 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { ScrapeTwitterTool } from '../scrape-twitter.tool.js';
-import type { ApifyService, ApifyRunResult, ScweetTweet, ScweetUser } from '../apify.service.js';
-import type { ScraperMediaService, PersistedMedia } from '../scraper-media.service.js';
+import { ScrapeTwitterTool } from '../social/scrape-twitter.tool.js';
+import type {
+  ApifyService,
+  ApifyRunResult,
+  ScweetTweet,
+  ScweetUser,
+} from '../apify/apify.service.js';
+import type { ScraperMediaService, PersistedMedia } from '../social/scraper-media.service.js';
 
 // ─── Mock ApifyService ──────────────────────────────────────────────────
 

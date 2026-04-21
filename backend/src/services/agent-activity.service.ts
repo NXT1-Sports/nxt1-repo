@@ -11,7 +11,7 @@
  * so the AI controls its own notification copy. No hardcoded strings.
  *
  * Delegates to the unified `NotificationService.dispatch()` — no direct
- * Firestore writes to `notifications` or `users/{uid}/activity` here.
+ * Firestore writes to `Notifications` or `users/{uid}/activity` here.
  *
  * The activity write is the SSOT. Push delivery is best-effort via the
  * onNotificationCreated Cloud Function trigger — if FCM fails, the user
@@ -78,6 +78,7 @@ export async function logAgentTaskCompletion(
       ...(threadId ? { threadId } : {}),
       ...(imageUrl ? { imageUrl } : {}),
       ...(videoUrl ? { videoUrl } : {}),
+      ...(job.context?.['origin'] ? { origin: String(job.context['origin']) } : {}),
     },
     source: { userName: 'Agent X' },
     metadata: {

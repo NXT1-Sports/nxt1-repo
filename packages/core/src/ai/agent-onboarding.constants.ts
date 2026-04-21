@@ -70,6 +70,21 @@ export const AGENT_MAX_GOALS = 3;
 export const AGENT_MIN_GOALS = 1;
 
 // ============================================
+// ORG TYPE OPTIONS
+// ============================================
+
+/**
+ * Organization type options for program creation.
+ */
+export const ORG_TYPE_OPTIONS: readonly { id: string; label: string; icon: string }[] = [
+  { id: 'high-school', label: 'High School', icon: 'school-outline' },
+  { id: 'college', label: 'College / University', icon: 'business-outline' },
+  { id: 'club', label: 'Club / AAU', icon: 'people-circle-outline' },
+  { id: 'youth', label: 'Youth League', icon: 'football-outline' },
+  { id: 'professional', label: 'Professional', icon: 'trophy-outline' },
+] as const;
+
+// ============================================
 // COACH ROLE OPTIONS
 // ============================================
 

@@ -3,7 +3,7 @@
  * @module @nxt1/backend/modules/agent/queue
  *
  * Accumulates high-frequency LLM token deltas and flushes them to the
- * `agentJobs/{operationId}/events` subcollection at configurable intervals
+ * `AgentJobs/{operationId}/events` subcollection at configurable intervals
  * (default 300ms). This keeps the "live typing" feel while capping Firestore
  * writes to ~3-4/sec instead of hundreds.
  *
@@ -79,6 +79,7 @@ export class DebouncedEventWriter {
   constructor(
     private readonly repo: AgentJobRepository,
     private readonly operationId: string,
+    private readonly userId: string,
     flushIntervalMs?: number
   ) {
     this.flushIntervalMs = flushIntervalMs ?? DEFAULT_FLUSH_INTERVAL_MS;
@@ -185,6 +186,7 @@ export class DebouncedEventWriter {
     const jobEvent: Omit<JobEvent, 'createdAt'> = {
       seq: this.seq++,
       type: 'delta',
+      userId: this.userId,
       agentId,
       text,
     };
@@ -203,6 +205,7 @@ export class DebouncedEventWriter {
     const jobEvent: Omit<JobEvent, 'createdAt'> = stripUndefined({
       seq: this.seq++,
       type: event.type,
+      userId: this.userId,
       agentId: event.agentId,
       message: event.message ? sanitizeAgentOutputText(event.message) : undefined,
       text: event.text ? sanitizeAgentOutputText(event.text) : undefined,

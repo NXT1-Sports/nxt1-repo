@@ -25,27 +25,15 @@ import {
   IonListHeader,
   IonLabel,
   IonItem,
-  IonIcon,
   IonChip,
 } from '@ionic/angular/standalone';
-import { addIcons } from 'ionicons';
-import {
-  timeOutline,
-  eyeOutline,
-  shareOutline,
-  bookmarkOutline,
-  chevronForward,
-  documentTextOutline,
-  videocamOutline,
-  bookOutline,
-  schoolOutline,
-  helpCircleOutline,
-} from 'ionicons/icons';
 import { NxtPageHeaderComponent } from '../components/page-header';
 import { NxtIconComponent } from '../components/icon';
 import { NxtStateViewComponent } from '../components/state-view';
 import { HelpCenterService } from './help-center.service';
 import { HapticsService } from '../services/haptics/haptics.service';
+import { DomSanitizer, type SafeHtml } from '@angular/platform-browser';
+import { marked } from 'marked';
 import type { HelpArticle, HelpCategoryId } from '@nxt1/core';
 
 @Component({
@@ -58,7 +46,6 @@ import type { HelpArticle, HelpCategoryId } from '@nxt1/core';
     IonListHeader,
     IonLabel,
     IonItem,
-    IonIcon,
     IonChip,
     NxtPageHeaderComponent,
     NxtIconComponent,
@@ -83,14 +70,14 @@ import type { HelpArticle, HelpCategoryId } from '@nxt1/core';
             <!-- Metadata -->
             <div class="article-meta">
               <span class="article-meta__item">
-                <ion-icon name="time-outline" />
+                <nxt1-icon name="time" [size]="16" />
                 {{ article()!.readingTimeMinutes }} min read
               </span>
             </div>
           </header>
 
           <!-- Article Content -->
-          <article class="article-body" [innerHTML]="article()!.content"></article>
+          <article class="article-body" [innerHTML]="renderedContent()"></article>
 
           <!-- Feedback Section -->
           <div class="article-feedback">
@@ -126,8 +113,9 @@ import type { HelpArticle, HelpCategoryId } from '@nxt1/core';
 
               @for (related of relatedArticles(); track related.id) {
                 <ion-item class="related-item" button detail (click)="onRelatedClick(related)">
-                  <ion-icon
+                  <nxt1-icon
                     [name]="getTypeIcon(related.type)"
+                    [size]="22"
                     slot="start"
                     class="related-item__icon"
                   />
@@ -211,7 +199,7 @@ import type { HelpArticle, HelpCategoryId } from '@nxt1/core';
         color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
       }
 
-      .article-meta__item ion-icon {
+      .article-meta__item nxt1-icon {
         font-size: 16px;
       }
 
@@ -451,23 +439,9 @@ import type { HelpArticle, HelpCategoryId } from '@nxt1/core';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class HelpArticleDetailComponent {
-  constructor() {
-    addIcons({
-      timeOutline,
-      eyeOutline,
-      shareOutline,
-      bookmarkOutline,
-      chevronForward,
-      documentTextOutline,
-      videocamOutline,
-      bookOutline,
-      schoolOutline,
-      helpCircleOutline,
-    });
-  }
-
   protected readonly helpService = inject(HelpCenterService);
   private readonly haptics = inject(HapticsService);
+  private readonly sanitizer = inject(DomSanitizer);
 
   /** Article ID or slug */
   readonly articleId = input.required<string>();
@@ -485,6 +459,13 @@ export class HelpArticleDetailComponent {
   protected readonly article = computed(() => {
     const id = this.articleId();
     return this.helpService.getArticleById(id) ?? this.helpService.getArticleBySlug(id);
+  });
+
+  /** Markdown parsed to sanitized HTML */
+  protected readonly renderedContent = computed((): SafeHtml => {
+    const content = this.article()?.content ?? '';
+    const html = marked.parse(content, { async: false }) as string;
+    return this.sanitizer.bypassSecurityTrustHtml(html);
   });
 
   /** Related articles (same category, excluding current) */
@@ -545,15 +526,15 @@ export class HelpArticleDetailComponent {
   protected getTypeIcon(type: string): string {
     switch (type) {
       case 'video':
-        return 'videocam-outline';
+        return 'videocam';
       case 'guide':
-        return 'book-outline';
+        return 'newspaper';
       case 'tutorial':
-        return 'school-outline';
+        return 'graduationCap';
       case 'faq':
-        return 'help-circle-outline';
+        return 'help';
       default:
-        return 'document-text-outline';
+        return 'documentText';
     }
   }
 }

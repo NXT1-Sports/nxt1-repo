@@ -36,11 +36,8 @@ import {
   type ExploreItem,
   type ExploreFilters,
   type ScoutReport,
-  type FeedPost,
-  type FeedAuthor,
   EXPLORE_SEARCH_CONFIG,
   EXPLORE_TABS,
-  isFeedTab,
 } from '@nxt1/core';
 import { TEST_IDS } from '@nxt1/core/testing';
 import {
@@ -57,8 +54,6 @@ import { ExploreListWebComponent } from './explore-list-web.component';
 import { ExploreSkeletonComponent } from '../explore-skeleton.component';
 import { ScoutReportsContentComponent } from '../../scout-reports/scout-reports-content.component';
 import { NewsContentComponent } from '../../news/news-content.component';
-import { FeedListComponent } from '../../feed/feed-list.component';
-import { FeedService } from '../../feed/feed.service';
 import type { ExploreUser } from '../explore-shell.component';
 import { ExploreSidebarWebComponent } from './explore-sidebar-web.component';
 
@@ -73,7 +68,6 @@ import { ExploreSidebarWebComponent } from './explore-sidebar-web.component';
     ExploreSkeletonComponent,
     ScoutReportsContentComponent,
     NewsContentComponent,
-    FeedListComponent,
     ExploreSidebarWebComponent,
   ],
   template: `
@@ -232,26 +226,7 @@ import { ExploreSidebarWebComponent } from './explore-sidebar-web.component';
           <div class="explore-layout">
             <section class="explore-section-content" role="tabpanel">
               <!-- Discover Tab: Personalized posts feed -->
-              @if (explore.activeTab() === 'feed' && !explore.hasQuery()) {
-                <nxt1-feed-list
-                  [attr.data-testid]="testIds.FEED_PANEL"
-                  [polymorphicFeed]="feedService.polymorphicFeed()"
-                  [posts]="feedService.posts()"
-                  [isLoading]="feedService.isLoading()"
-                  [isLoadingMore]="feedService.isLoadingMore()"
-                  [isEmpty]="feedService.isEmpty()"
-                  [error]="feedService.error()"
-                  [hasMore]="feedService.hasMore()"
-                  [compactCards]="true"
-                  (postClick)="onPostSelect($event)"
-                  (authorClick)="onAuthorSelect($event)"
-                  (reactClick)="onLikeClick($event)"
-                  (repostClick)="onCommentClick($event)"
-                  (shareClick)="onShareClick($event)"
-                  (loadMore)="onFeedLoadMore()"
-                  (retry)="onFeedRetry()"
-                />
-              } @else if (explore.activeTab() === 'news' && !explore.hasQuery()) {
+              @if (explore.activeTab() === 'news' && !explore.hasQuery()) {
                 <!-- News Tab: Sports recruiting news -->
                 <nxt1-news-content
                   [attr.data-testid]="testIds.NEWS_PANEL"
@@ -469,7 +444,6 @@ import { ExploreSidebarWebComponent } from './explore-sidebar-web.component';
 })
 export class ExploreShellWebComponent implements OnInit, AfterViewInit, OnDestroy {
   protected readonly explore = inject(ExploreService);
-  protected readonly feedService = inject(FeedService);
   private readonly haptics = inject(HapticsService);
   private readonly scrollService = inject(NxtScrollService);
   private readonly logger = inject(NxtLoggingService).child('ExploreShellWeb');
@@ -487,8 +461,6 @@ export class ExploreShellWebComponent implements OnInit, AfterViewInit, OnDestro
   readonly itemClick = output<ExploreItem>();
   readonly scoutReportSelect = output<ScoutReport>();
   readonly scoutReportFiltersOpen = output<void>();
-  readonly postSelect = output<FeedPost>();
-  readonly authorSelect = output<FeedAuthor>();
   readonly newsArticleSelect = output<{ id: string; title: string }>();
   readonly detectLocation = output<void>();
 
@@ -522,14 +494,14 @@ export class ExploreShellWebComponent implements OnInit, AfterViewInit, OnDestro
 
   protected readonly tabOptions = computed<OptionScrollerItem[]>(() => {
     const counts = this.explore.tabCounts();
-    const visibleTabIds: ExploreTabId[] = ['feed', 'news'];
+    const visibleTabIds: ExploreTabId[] = ['news'];
 
     return visibleTabIds
       .map((tabId) => EXPLORE_TABS.find((tab) => tab.id === tabId))
       .filter((tab): tab is (typeof EXPLORE_TABS)[number] => tab !== undefined)
       .map((tab) => ({
         id: tab.id,
-        label: tab.id === 'news' ? 'Pulse' : tab.id === 'feed' ? 'Feed' : tab.label,
+        label: tab.id === 'news' ? 'Pulse' : tab.label,
         badge: counts[tab.id] > 0 ? counts[tab.id] : undefined,
       }));
   });
@@ -538,11 +510,9 @@ export class ExploreShellWebComponent implements OnInit, AfterViewInit, OnDestro
     this.logger.info('Explore shell (web) initialized');
 
     const activeTab = this.explore.activeTab();
-    const isAllowedTab = activeTab === 'feed' || activeTab === 'news';
-    if (!isAllowedTab) {
-      void this.explore.switchTab('feed');
+    if (activeTab !== 'news') {
+      void this.explore.switchTab('news');
     }
-    void this.ensureFeedLoadedForTab(this.explore.activeTab());
   }
 
   constructor() {
@@ -568,10 +538,7 @@ export class ExploreShellWebComponent implements OnInit, AfterViewInit, OnDestro
   protected async onSidebarFilterChange(filters: ExploreFilters): Promise<void> {
     const tab = this.explore.activeTab();
     this.explore.setFiltersForTab(tab, filters);
-
-    if (!isFeedTab(tab)) {
-      await this.explore.refresh();
-    }
+    await this.explore.refresh();
   }
 
   protected onDetectLocation(): void {
@@ -662,7 +629,6 @@ export class ExploreShellWebComponent implements OnInit, AfterViewInit, OnDestro
     await this.haptics.impact('light');
     const id = tabId as ExploreTabId;
     await this.explore.switchTab(id);
-    await this.ensureFeedLoadedForTab(id);
     this.tabChange.emit(id);
 
     await this.scrollActiveContentToTop();
@@ -678,7 +644,6 @@ export class ExploreShellWebComponent implements OnInit, AfterViewInit, OnDestro
    */
   protected async onForYouCategorySelect(tab: ExploreTabId): Promise<void> {
     await this.explore.switchTab(tab);
-    await this.ensureFeedLoadedForTab(tab);
     this.tabChange.emit(tab);
     await this.scrollActiveContentToTop();
   }
@@ -706,51 +671,6 @@ export class ExploreShellWebComponent implements OnInit, AfterViewInit, OnDestro
   private getShellContentElement(): HTMLElement | null {
     const host = this.elementRef.nativeElement;
     return host.closest('.shell__content');
-  }
-
-  // ── Feed / Following / News Handlers ──
-
-  protected onPostSelect(post: FeedPost): void {
-    this.logger.debug('Post selected', { id: post.id, type: post.type });
-    this.postSelect.emit(post);
-  }
-
-  protected onAuthorSelect(author: FeedAuthor): void {
-    this.logger.debug('Author selected', { uid: author.uid, profileCode: author.profileCode });
-    this.authorSelect.emit(author);
-  }
-
-  protected async onLikeClick(post: FeedPost): Promise<void> {
-    await this.haptics.impact('light');
-    await this.feedService.toggleLike(post);
-  }
-
-  protected async onCommentClick(post: FeedPost): Promise<void> {
-    await this.haptics.impact('light');
-    this.postSelect.emit(post);
-  }
-
-  protected async onShareClick(post: FeedPost): Promise<void> {
-    await this.haptics.impact('medium');
-    await this.feedService.sharePost(post);
-  }
-
-  protected async onFeedLoadMore(): Promise<void> {
-    await this.feedService.loadMore();
-  }
-
-  protected async onFeedRetry(): Promise<void> {
-    const tab = this.explore.activeTab();
-    if (tab !== 'feed') return;
-    await this.feedService.loadFeed();
-  }
-
-  private async ensureFeedLoadedForTab(tab: ExploreTabId): Promise<void> {
-    if (tab !== 'feed') return;
-
-    if (this.feedService.posts().length === 0) {
-      await this.feedService.loadFeed();
-    }
   }
 
   protected onNewsArticleSelect(article: { id: string; title: string }): void {

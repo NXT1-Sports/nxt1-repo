@@ -659,12 +659,64 @@ export const USAGE_TEST_IDS = {
   COUPON_INPUT: 'usage-coupon-input',
   COUPON_REDEEM: 'usage-coupon-redeem',
 
+  // Overview — billing mode banners & pill
+  OVERVIEW_ORG_WALLET_EMPTY_BANNER: 'usage-overview-org-wallet-empty-banner',
+  OVERVIEW_ORG_WALLET_REFILLED_BANNER: 'usage-overview-org-wallet-refilled-banner',
+  OVERVIEW_PERSONAL_BILLING_PILL: 'usage-overview-personal-billing-pill',
+
+  // Auto top-up section
+  AUTO_TOPUP_SECTION: 'usage-auto-topup-section',
+  AUTO_TOPUP_TOGGLE: 'usage-auto-topup-toggle',
+  AUTO_TOPUP_SETTINGS: 'usage-auto-topup-settings',
+  AUTO_TOPUP_THRESHOLD_PRESET: 'usage-auto-topup-threshold-preset',
+  AUTO_TOPUP_AMOUNT_PRESET: 'usage-auto-topup-amount-preset',
+  AUTO_TOPUP_SAVE_BTN: 'usage-auto-topup-save-btn',
+
+  // Org member stub (restricted view)
+  ORG_MEMBER_STUB: 'usage-org-member-stub',
+  ORG_MEMBER_SWITCH_BILLING_BTN: 'usage-org-member-switch-billing-btn',
+  ORG_MEMBER_SWITCH_BACK_BTN: 'usage-org-member-switch-back-btn',
+
+  // Buy Credits + Auto Top-Up combined modal
+  BUY_CREDITS_MODAL: 'usage-buy-credits-modal',
+  BUY_CREDITS_TAB_BUY: 'usage-buy-credits-tab-buy',
+  BUY_CREDITS_TAB_TOPUP: 'usage-buy-credits-tab-topup',
+  BUY_CREDITS_PACKAGE: 'usage-buy-credits-package',
+  BUY_CREDITS_CUSTOM_AMOUNT_INPUT: 'usage-buy-credits-custom-amount-input',
+  BUY_CREDITS_BUY_BTN: 'usage-buy-credits-buy-btn',
+  BUY_CREDITS_TOPUP_TOGGLE: 'usage-buy-credits-topup-toggle',
+  BUY_CREDITS_TOPUP_THRESHOLD: 'usage-buy-credits-topup-threshold',
+  BUY_CREDITS_TOPUP_AMOUNT: 'usage-buy-credits-topup-amount',
+  BUY_CREDITS_TOPUP_SAVE_BTN: 'usage-buy-credits-topup-save-btn',
+
   // Section navigation
   SECTION_NAV: 'usage-section-nav',
   SECTION_NAV_ITEM: 'usage-section-nav-item',
 
   // Shell-level
   HELP_BTN: 'usage-help-btn',
+} as const;
+
+/**
+ * Agent X Goal Tracking test IDs.
+ */
+export const AGENT_X_GOALS_TEST_IDS = {
+  /** Active goals list container */
+  ACTIVE_LIST: 'agent-x-goals-active-list',
+  /** Individual active goal card */
+  ACTIVE_ITEM: 'agent-x-goals-active-item',
+  /** Complete (checkmark) button on an active goal */
+  COMPLETE_BTN: 'agent-x-goals-complete-btn',
+  /** Goal history panel container */
+  HISTORY_CONTAINER: 'agent-x-goals-history-container',
+  /** Individual completed goal row in history */
+  HISTORY_ITEM: 'agent-x-goals-history-item',
+  /** Empty state shown when history is empty */
+  HISTORY_EMPTY: 'agent-x-goals-history-empty',
+  /** Error state shown on API failure */
+  HISTORY_ERROR: 'agent-x-goals-history-error',
+  /** "Days to complete" stat label on a history item */
+  HISTORY_ITEM_DAYS: 'agent-x-goals-history-item-days',
 } as const;
 
 /**
@@ -935,6 +987,8 @@ export const ADD_SPORT_TEST_IDS = {
   STEP_CONTENT: 'add-sport-step-content',
   /** Sport selection step */
   STEP_SPORT: 'add-sport-step-sport',
+  /** Organization / program selection step */
+  STEP_ORGANIZATION: 'add-sport-step-organization',
   /** Connected accounts step */
   STEP_LINK_SOURCES: 'add-sport-step-link-sources',
   /** Desktop footer / navigation buttons area */
@@ -1018,6 +1072,8 @@ export const INTEL_TEST_IDS = {
   SEASON_HISTORY_CARD: 'intel-season-history-card',
   /** Recruiting pipeline card */
   RECRUITING_PIPELINE_CARD: 'intel-recruiting-pipeline-card',
+  /** Active Intel report section card (sections-based view) */
+  ACTIVE_SECTION_CARD: 'intel-active-section-card',
 } as const;
 
 // ============================================
@@ -1099,6 +1155,75 @@ export const LIVE_VIEW_LAUNCHER_TEST_IDS = {
   RECENT_SECTION: 'live-view-launcher-recent-section',
 } as const;
 
+// ============================================
+// TEAM TIMELINE TEST IDS
+// ============================================
+
+export const TEAM_TIMELINE_TEST_IDS = {
+  /** Filter chip bar container */
+  FILTER_BAR: 'team-timeline-filter-bar',
+  /** Individual filter chip button — suffix with -{filterId} */
+  FILTER_CHIP: 'team-timeline-filter-chip',
+  /** Timeline feed list container */
+  LIST: 'team-timeline-list',
+  /** Individual timeline feed item */
+  LIST_ITEM: 'team-timeline-item',
+  /** Loading skeleton */
+  LOADING_SKELETON: 'team-timeline-loading-skeleton',
+  /** Empty state */
+  EMPTY_STATE: 'team-timeline-empty',
+  /** Empty state admin CTA */
+  EMPTY_CTA: 'team-timeline-empty-cta',
+  /** Error state */
+  ERROR_STATE: 'team-timeline-error',
+  /** Retry button */
+  RETRY_BTN: 'team-timeline-retry',
+  /** Load more trigger element */
+  LOAD_MORE: 'team-timeline-load-more',
+  /** Load more button */
+  LOAD_MORE_BTN: 'team-timeline-load-more-btn',
+} as const;
+
+// ============================================
+// HELP CENTER TEST IDS
+// ============================================
+const HELP_CENTER_TEST_IDS = {
+  /** Home page container */
+  HOME_CONTAINER: 'help-center-home',
+  /** Search input */
+  SEARCH_INPUT: 'help-center-search-input',
+  /** Category list */
+  CATEGORY_LIST: 'help-center-category-list',
+  /** Individual category card */
+  CATEGORY_CARD: 'help-center-category-card',
+  /** Article list */
+  ARTICLE_LIST: 'help-center-article-list',
+  /** Individual article card */
+  ARTICLE_CARD: 'help-center-article-card',
+  /** Article detail container */
+  ARTICLE_DETAIL: 'help-center-article-detail',
+  /** FAQ list */
+  FAQ_LIST: 'help-center-faq-list',
+  /** Individual FAQ item */
+  FAQ_ITEM: 'help-center-faq-item',
+  /** Search results container */
+  SEARCH_RESULTS: 'help-center-search-results',
+  /** Empty state */
+  EMPTY_STATE: 'help-center-empty-state',
+  /** Error state */
+  ERROR_STATE: 'help-center-error-state',
+  /** Loading skeleton */
+  LOADING_SKELETON: 'help-center-loading-skeleton',
+  /** Feedback helpful button */
+  FEEDBACK_HELPFUL: 'help-center-feedback-helpful',
+  /** Feedback not helpful button */
+  FEEDBACK_NOT_HELPFUL: 'help-center-feedback-not-helpful',
+  /** Quick actions container */
+  QUICK_ACTIONS: 'help-center-quick-actions',
+  /** Individual quick action */
+  QUICK_ACTION: 'help-center-quick-action',
+} as const;
+
 export const TEST_IDS = {
   AUTH: AUTH_TEST_IDS,
   AUTH_PAGE: AUTH_PAGE_TEST_IDS,
@@ -1115,6 +1240,7 @@ export const TEST_IDS = {
   AGENT_X_ACTION_CARD: AGENT_X_ACTION_CARD_TEST_IDS,
   AGENT_X_BILLING_CARD: AGENT_X_BILLING_CARD_TEST_IDS,
   AGENT_X_OPERATION_CHAT: AGENT_X_OPERATION_CHAT_TEST_IDS,
+  AGENT_X_GOALS: AGENT_X_GOALS_TEST_IDS,
   NEWS: NEWS_TEST_IDS,
   FEED_CARD: FEED_CARD_TEST_IDS,
   PROFILE_TIMELINE: PROFILE_TIMELINE_TEST_IDS,
@@ -1125,6 +1251,8 @@ export const TEST_IDS = {
   MEDIA_VIEWER: MEDIA_VIEWER_TEST_IDS,
   LIVE_VIEW: LIVE_VIEW_TEST_IDS,
   LIVE_VIEW_LAUNCHER: LIVE_VIEW_LAUNCHER_TEST_IDS,
+  TEAM_TIMELINE: TEAM_TIMELINE_TEST_IDS,
+  HELP_CENTER: HELP_CENTER_TEST_IDS,
 } as const;
 
 // Type exports for TypeScript

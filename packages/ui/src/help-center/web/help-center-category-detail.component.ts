@@ -22,7 +22,7 @@ import type { HelpArticle, HelpCategoryId } from '@nxt1/core';
   imports: [CommonModule, NxtDesktopPageHeaderComponent, NxtIconComponent],
   template: `
     <!-- Main Content -->
-    <main class="mx-auto max-w-4xl px-4 py-6 pb-24">
+    <main class="mx-auto max-w-4xl py-6 pb-24">
       <!-- Desktop Page Header -->
       <nxt1-desktop-page-header [title]="categoryTitle()" />
       <!-- Category Description -->

@@ -173,6 +173,8 @@ export interface OnboardingCompleteResponse {
   redirectPath: string;
   /** Job ID for linked account scrape (if any linked accounts were provided). */
   scrapeJobId?: string;
+  /** Thread ID for the Agent X conversation tied to the scrape job. */
+  scrapeThreadId?: string;
 }
 
 /**
@@ -582,7 +584,7 @@ export function createAuthApi(http: HttpAdapter, baseUrl: string) {
      */
     async updateRole(
       userId: string,
-      userType: 'athlete' | 'coach' | 'director' | 'recruiter' | 'parent'
+      userType: 'athlete' | 'coach' | 'director'
     ): Promise<OnboardingStepResponse> {
       return http.post(`${base}/auth/profile/onboarding-step`, {
         userId,
@@ -746,29 +748,6 @@ export function createAuthApi(http: HttpAdapter, baseUrl: string) {
       data: OnboardingProfileData
     ): Promise<OnboardingCompleteResponse> {
       return http.post(`${base}/auth/profile/onboarding`, { userId, ...data });
-    },
-
-    /**
-     * Preload scrape — fire the scraping pipeline early during onboarding Step 5.
-     * Returns a scrapeJobId that the frontend passes to the final onboarding
-     * completion call so the backend skips re-enqueuing.
-     */
-    async preloadScrape(
-      userId: string,
-      linkedAccounts: readonly { platform: string; profileUrl: string }[],
-      sport?: string,
-      role?: string
-    ): Promise<{ success: boolean; scrapeJobId?: string; skipped?: boolean }> {
-      try {
-        return await http.post(`${base}/auth/profile/preload-scrape`, {
-          userId,
-          linkedAccounts,
-          sport,
-          role,
-        });
-      } catch {
-        return { success: false };
-      }
     },
 
     /**

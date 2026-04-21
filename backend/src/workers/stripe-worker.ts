@@ -19,7 +19,7 @@ import {
   getOrCreateCustomer,
   createInvoiceItemWithRetry,
 } from '../modules/billing/stripe.service.js';
-import { getBillingContext } from '../modules/billing/budget.service.js';
+import { getBillingState } from '../modules/billing/budget.service.js';
 
 // Firebase initialization
 import { db } from '../utils/firebase.js';
@@ -41,7 +41,7 @@ async function processUsageEvent(message: UsageEventMessage): Promise<void> {
 
   try {
     // Try to acquire lock (prevents double processing)
-    const lockAcquired = await tryAcquireEventLock(firestore, usageEventId);
+    const lockAcquired = await tryAcquireEventLock(usageEventId);
 
     if (!lockAcquired) {
       logger.info('[processUsageEvent] Event already processed or being processed', {
@@ -51,7 +51,7 @@ async function processUsageEvent(message: UsageEventMessage): Promise<void> {
     }
 
     // Get usage event
-    const event = await getUsageEvent(firestore, usageEventId);
+    const event = await getUsageEvent(usageEventId);
 
     if (!event) {
       throw new Error(`Usage event ${usageEventId} not found`);
@@ -69,7 +69,7 @@ async function processUsageEvent(message: UsageEventMessage): Promise<void> {
     const userEmail = (userData?.['email'] as string) || `${event.userId}@nxt1.app`;
 
     // ── Determine billing entity (individual vs organization vs legacy team) ────────
-    const billingCtx = await getBillingContext(firestore, event.userId);
+    const billingCtx = await getBillingState(firestore, event.userId);
 
     // No billing context at worker time is an error — budget was pre-checked; this
     // shouldn't happen in normal flow, but guard defensively.
@@ -86,7 +86,7 @@ async function processUsageEvent(message: UsageEventMessage): Promise<void> {
         costCents: event.unitCostSnapshot * event.quantity,
         walletBalanceCents: billingCtx.walletBalanceCents,
       });
-      await updateUsageEventStatus(firestore, usageEventId, UsageEventStatus.SENT, {
+      await updateUsageEventStatus(usageEventId, UsageEventStatus.SENT, {
         stripeInvoiceItemId: undefined,
         errorMessage: undefined,
       });
@@ -94,7 +94,6 @@ async function processUsageEvent(message: UsageEventMessage): Promise<void> {
     }
 
     const isOrgBilled = billingCtx.billingEntity === 'organization' && billingCtx.organizationId;
-    const isTeamBilled = billingCtx.billingEntity === 'team' && billingCtx.teamId;
 
     let customerEmail = userEmail;
     let customerId: string;
@@ -125,30 +124,6 @@ async function processUsageEvent(message: UsageEventMessage): Promise<void> {
 
       logger.info('[processUsageEvent] Billing to org customer', {
         organizationId: billingCtx.organizationId,
-        teamId: billingCtx.teamId,
-        customerId,
-        generatingUserId: event.userId,
-      });
-    } else if (isTeamBilled && billingCtx.teamId) {
-      // Legacy team pays — get/create a Stripe customer for the team
-      const teamDoc = await firestore.collection('Teams').doc(billingCtx.teamId).get();
-      const teamData = teamDoc.data();
-      const teamEmail =
-        (teamData?.['billingEmail'] as string) || (teamData?.['email'] as string) || userEmail;
-      customerEmail = teamEmail;
-      customerUserId = `team:${billingCtx.teamId}`;
-
-      const teamCustomer = await getOrCreateCustomer(
-        firestore,
-        customerUserId,
-        customerEmail,
-        billingCtx.teamId,
-        environment
-      );
-      customerId = teamCustomer.customerId;
-      description = `${event.feature} usage - ${event.quantity}x (by ${userEmail})`;
-
-      logger.info('[processUsageEvent] Billing to team customer (legacy)', {
         teamId: billingCtx.teamId,
         customerId,
         generatingUserId: event.userId,
@@ -191,7 +166,7 @@ async function processUsageEvent(message: UsageEventMessage): Promise<void> {
     }
 
     // Update event status to SENT
-    await updateUsageEventStatus(firestore, usageEventId, UsageEventStatus.SENT, {
+    await updateUsageEventStatus(usageEventId, UsageEventStatus.SENT, {
       stripeInvoiceItemId: result.invoiceItemId,
       errorMessage: undefined,
     });
@@ -208,10 +183,10 @@ async function processUsageEvent(message: UsageEventMessage): Promise<void> {
 
     // Update event status to FAILED
     try {
-      const event = await getUsageEvent(firestore, usageEventId);
+      const event = await getUsageEvent(usageEventId);
       const retryCount = (event?.retryCount || 0) + 1;
 
-      await updateUsageEventStatus(firestore, usageEventId, UsageEventStatus.FAILED, {
+      await updateUsageEventStatus(usageEventId, UsageEventStatus.FAILED, {
         errorMessage: error instanceof Error ? error.message : 'Unknown error',
         retryCount,
       });

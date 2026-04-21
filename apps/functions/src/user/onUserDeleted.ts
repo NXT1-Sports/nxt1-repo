@@ -22,7 +22,6 @@ const SHADOW_USER_COLLECTION = 'users';
 const BATCH_SIZE = 250;
 
 const SINGLETON_COLLECTIONS = [
-  'user_analytics',
   'FcmTokens',
   'Subscriptions',
   'UserEntitlements',
@@ -36,7 +35,6 @@ const USER_ID_QUERY_COLLECTIONS = [
   'Videos',
   'Offers',
   'ScoutReports',
-  'Interactions',
   'PlayerStats',
   'GameStats',
   'RankingEntries',
@@ -45,8 +43,6 @@ const USER_ID_QUERY_COLLECTIONS = [
   'PostComments',
   'PostLikes',
   'Notifications',
-  'UsageEvents',
-  'PaymentLogs',
   'BillingContexts',
   'StripeCustomers',
 ] as const;
@@ -410,7 +406,7 @@ async function cleanupOrganizations(
 
 async function deleteUserStorage(userId: string): Promise<void> {
   try {
-    await bucket.deleteFiles({ prefix: `users/${userId}/` });
+    await bucket.deleteFiles({ prefix: `Users/${userId}/` });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (message.includes('No such object')) {

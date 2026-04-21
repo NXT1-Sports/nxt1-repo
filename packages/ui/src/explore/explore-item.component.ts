@@ -97,10 +97,6 @@ import { HapticsService } from '../services/haptics/haptics.service';
               <ion-icon name="eye-outline" />
               {{ formatViews(video.views) }}
             </span>
-            <span class="meta-item">
-              <ion-icon name="heart-outline" />
-              {{ formatViews(video.likes) }}
-            </span>
           </div>
         </div>
       }

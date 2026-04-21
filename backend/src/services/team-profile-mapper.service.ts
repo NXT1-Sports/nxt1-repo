@@ -16,7 +16,6 @@ import type {
   TeamProfilePost,
   TeamProfilePostType,
   TeamProfileQuickStats,
-  TeamProfileSocialLink,
 } from '@nxt1/core/team-profile';
 import type { TeamCode, RosterEntry, TeamEvent } from '@nxt1/core/models';
 import { RosterEntryStatus } from '@nxt1/core/models';
@@ -194,12 +193,6 @@ function formatRecord(seasonRecord: TeamCode['seasonRecord']): TeamProfileTeam['
   };
 }
 
-function extractHandle(url: string | undefined): string | undefined {
-  if (!url) return undefined;
-  const match = url.match(/\/([^/?#]+)\/?$/);
-  return match ? match[1] : undefined;
-}
-
 /** Returns true for roles that represent athletes/players (vs. staff). */
 function isAthleteRole(role: string | undefined): boolean {
   const r = (role ?? '').toLowerCase();
@@ -219,23 +212,42 @@ function mapTeamCodeToTeam(
   const state = teamCode.state ?? org?.state ?? '';
   const location = [city, state].filter(Boolean).join(', ');
   const logoUrl = teamCode.logoUrl ?? teamCode.teamLogoImg ?? org?.logoUrl ?? undefined;
-  const primaryColor = teamCode.primaryColor ?? org?.primaryColor ?? undefined;
-  const secondaryColor = teamCode.secondaryColor ?? org?.secondaryColor ?? undefined;
+  // Org colors are canonical — org takes precedence over team doc (mirrors profile-hydration behaviour)
+  const primaryColor = org?.primaryColor ?? teamCode.primaryColor ?? undefined;
+  const secondaryColor = org?.secondaryColor ?? teamCode.secondaryColor ?? undefined;
   const mascot = teamCode.mascot ?? org?.mascot ?? undefined;
 
   const teamName = teamCode.teamName ?? '';
   buildTeamDisplayName(org?.name, teamName); // computed for future use
 
-  const socialLinks = teamCode.socialLinks as Record<string, string> | null | undefined;
-  const social: TeamProfileSocialLink[] = socialLinks
-    ? Object.entries(socialLinks)
-        .filter(([, url]) => Boolean(url))
-        .map(([platform, url]) => ({
-          platform,
-          url,
-          handle: extractHandle(url),
-        }))
+  const connectedSources = Array.isArray(teamCode.connectedSources)
+    ? teamCode.connectedSources
     : [];
+  const socialLinks = teamCode.socialLinks as Record<string, string> | null | undefined;
+
+  const normalizedConnectedSources = connectedSources.length
+    ? connectedSources
+        .filter((src) => Boolean(src?.platform) && Boolean(src?.profileUrl))
+        .map((src) => ({
+          platform: src.platform,
+          profileUrl: src.profileUrl,
+          faviconUrl: src.faviconUrl,
+          lastSyncedAt: src.lastSyncedAt,
+          syncStatus: src.syncStatus,
+          lastError: src.lastError,
+          scopeType: src.scopeType,
+          scopeId: src.scopeId,
+          displayOrder: src.displayOrder,
+        }))
+    : socialLinks
+      ? Object.entries(socialLinks)
+          .filter(([, url]) => Boolean(url))
+          .map(([platform, url]) => ({
+            platform,
+            profileUrl: url,
+            scopeType: 'global' as const,
+          }))
+      : [];
 
   const links = teamCode.teamLinks
     ? {
@@ -260,7 +272,6 @@ function mapTeamCodeToTeam(
     state,
     location,
     logoUrl,
-    bannerImg: (teamCode as unknown as Record<string, unknown>)['bannerImg'] as string | undefined,
     galleryImages: teamCode.galleryImages ?? [],
     description: teamCode.description,
     record: formatRecord(teamCode.seasonRecord),
@@ -274,7 +285,7 @@ function mapTeamCodeToTeam(
           email: teamCode.contactInfo.email,
         }
       : undefined,
-    social,
+    connectedSources: normalizedConnectedSources,
     links,
     sponsors:
       teamCode.sponsor?.name || teamCode.sponsor?.logoImg
@@ -437,8 +448,8 @@ async function fetchTeamSchedule(
 ): Promise<TeamProfileScheduleEvent[]> {
   try {
     const snap = await db
-      .collection('Events')
-      .where('teamId', '==', teamId)
+      .collection('Schedule')
+      .where('ownerId', '==', teamId)
       .where('ownerType', '==', 'team')
       .get();
 
@@ -469,14 +480,7 @@ async function fetchTeamSchedule(
 // ─── Posts Fetching ───────────────────────────────────────────────────────────
 
 function toTeamPostType(raw: unknown): TeamProfilePost['type'] {
-  const allowed: TeamProfilePostType[] = [
-    'video',
-    'image',
-    'text',
-    'highlight',
-    'news',
-    'announcement',
-  ];
+  const allowed: TeamProfilePostType[] = ['video', 'image', 'text', 'news', 'announcement'];
   const t = String(raw ?? '').toLowerCase() as TeamProfilePost['type'];
   return allowed.includes(t) ? t : 'text';
 }
@@ -496,8 +500,6 @@ async function fetchTeamPosts(teamId: string, db: Firestore): Promise<TeamProfil
           thumbnailUrl: data['thumbnailUrl'] as string | undefined,
           mediaUrl: data['mediaUrl'] as string | undefined,
           externalLink: data['externalLink'] as string | undefined,
-          likeCount: (data['likeCount'] as number) ?? 0,
-          commentCount: (data['commentCount'] as number) ?? 0,
           shareCount: (data['shareCount'] as number) ?? 0,
           viewCount: data['viewCount'] as number | undefined,
           isPinned: Boolean(data['isPinned']),
@@ -646,8 +648,6 @@ export async function mapTeamCodeToProfile(
           roster.push(mapRosterEntryToRosterMember(entry, userDataMap));
         } else {
           staff.push(mapRosterEntryToStaffMember(entry, userDataMap));
-          // Staff are also roster members (for member checks)
-          roster.push(mapRosterEntryToRosterMember(entry, userDataMap));
         }
       }
     } else if (teamCode.memberIds && teamCode.memberIds.length > 0) {
@@ -695,20 +695,6 @@ export async function mapTeamCodeToProfile(
               phone: member.phoneNumber,
             });
           }
-          // Staff count as roster members too
-          const user2 = legacyUserMap.get(member.id);
-          roster.push(
-            user2
-              ? mapUserToRoster(member.id, user2, member as unknown as Record<string, unknown>)
-              : {
-                  id: member.id,
-                  firstName: member.firstName,
-                  lastName: member.lastName,
-                  role: 'athlete',
-                  isVerified: member.isVerify,
-                  joinedAt: toSafeISOString(member.joinTime),
-                }
-          );
         }
       }
 
@@ -717,7 +703,11 @@ export async function mapTeamCodeToProfile(
         if (processedIds.has(uid)) continue;
         const user = legacyUserMap.get(uid);
         if (user) {
-          roster.push(mapUserToRoster(uid, user));
+          if (isAthleteRole(String(user.role ?? ''))) {
+            roster.push(mapUserToRoster(uid, user));
+          } else {
+            staff.push(mapUserToStaff(uid, user));
+          }
         } else {
           roster.push({ id: uid, firstName: '', lastName: '', role: 'athlete' });
         }

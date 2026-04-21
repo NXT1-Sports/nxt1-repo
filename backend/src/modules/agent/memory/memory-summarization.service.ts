@@ -5,8 +5,8 @@
  * Processes inactive Agent X threads and extracts durable memories
  * (preferences, goals, recruiting context) into the vector memory store.
  *
- * Triggered by a daily cron job. For each unsummarized thread that has
- * been inactive for > 24 hours:
+ * Triggered primarily by delayed BullMQ jobs once a thread has been idle
+ * for at least 1 hour, with a small nightly cron safety net for missed threads.
  * 1. Fetches the full message history from AgentMessageModel.
  * 2. Sends the transcript to a cheap extraction model (chat tier).
  * 3. Parses structured facts from the LLM response.
@@ -17,7 +17,7 @@
  * - Uses the 'extraction' tier (Claude Haiku / GPT-4o-mini) to minimize cost.
  * - Processes threads sequentially to avoid overwhelming the LLM API.
  * - Skips threads with < 4 messages (too little signal).
- * - Limits to 50 threads per run to bound execution time.
+ * - The nightly cron fallback is capped at 5 threads per run to bound load.
  */
 
 import type { OpenRouterService } from '../llm/openrouter.service.js';
@@ -27,18 +27,19 @@ import { AgentThreadModel } from '../../../models/agent-thread.model.js';
 import { AgentMessageModel } from '../../../models/agent-message.model.js';
 import { AgentMemoryModel } from './vector.service.js';
 import { ContextBuilder } from './context-builder.js';
+import { THREAD_SUMMARIZATION_DELAY_MS } from '../queue/queue.types.js';
 import { logger } from '../../../utils/logger.js';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-/** Threads must be inactive for at least this long before summarization. */
-const INACTIVITY_THRESHOLD_MS = 24 * 60 * 60 * 1000; // 24 hours
+/** Threads must be idle for at least this long before summarization. */
+const INACTIVITY_THRESHOLD_MS = THREAD_SUMMARIZATION_DELAY_MS;
 
 /** Minimum messages in a thread to be worth summarizing. */
 const MIN_MESSAGES = 4;
 
-/** Maximum threads to process per cron run. */
-const MAX_THREADS_PER_RUN = 50;
+/** Maximum threads to process per cron safety-net run. */
+const MAX_THREADS_PER_RUN = 5;
 
 /** Maximum messages to include in the extraction prompt (truncate older ones). */
 const MAX_MESSAGES_FOR_EXTRACTION = 100;
@@ -139,7 +140,7 @@ export class MemorySummarizationService {
 
     for (const thread of threads) {
       try {
-        const created = await this.processThread(String(thread._id), thread.userId);
+        const created = await this.processSingleThread(String(thread._id), thread.userId);
         if (created === 0) {
           threadsSkipped++;
         }
@@ -167,10 +168,33 @@ export class MemorySummarizationService {
 
   /**
    * Process a single thread: fetch messages, extract facts, store memories.
+   * Safe for both delayed queue jobs and the nightly cron safety net.
    *
    * @returns Number of memories created for this thread.
    */
-  private async processThread(threadId: string, userId: string): Promise<number> {
+  async processSingleThread(threadId: string, userId: string): Promise<number> {
+    const thread = await AgentThreadModel.findOne({ _id: threadId, userId })
+      .select('lastMessageAt updatedAt messageCount')
+      .lean();
+
+    if (!thread) {
+      logger.warn('[MemorySummarization] Thread not found for summarization', { threadId, userId });
+      return 0;
+    }
+
+    const lastMessageAtMs = Date.parse(thread.lastMessageAt ?? '');
+    if (
+      Number.isFinite(lastMessageAtMs) &&
+      Date.now() - lastMessageAtMs < INACTIVITY_THRESHOLD_MS
+    ) {
+      logger.info('[MemorySummarization] Skipping active thread', {
+        threadId,
+        userId,
+        lastMessageAt: thread.lastMessageAt,
+      });
+      return 0;
+    }
+
     let context: AgentUserContext;
     try {
       context = await this.contextBuilder.buildContext(userId);
@@ -186,8 +210,7 @@ export class MemorySummarizationService {
       .lean();
 
     if (messages.length < MIN_MESSAGES) {
-      // Mark as summarized anyway to avoid re-checking
-      await AgentThreadModel.updateOne({ _id: threadId }, { memorySummarized: true });
+      await this.markThreadSummarizedIfUnchanged(threadId, thread.updatedAt);
       return 0;
     }
 
@@ -198,7 +221,7 @@ export class MemorySummarizationService {
       .join('\n');
 
     if (!transcript.trim()) {
-      await AgentThreadModel.updateOne({ _id: threadId }, { memorySummarized: true });
+      await this.markThreadSummarizedIfUnchanged(threadId, thread.updatedAt);
       return 0;
     }
 
@@ -224,7 +247,7 @@ export class MemorySummarizationService {
 
     if (!completion.content) {
       logger.warn('[MemorySummarization] Empty extraction response', { threadId, userId });
-      await AgentThreadModel.updateOne({ _id: threadId }, { memorySummarized: true });
+      await this.markThreadSummarizedIfUnchanged(threadId, thread.updatedAt);
       return 0;
     }
 
@@ -239,7 +262,7 @@ export class MemorySummarizationService {
         userId,
         raw: completion.content.slice(0, 500),
       });
-      await AgentThreadModel.updateOne({ _id: threadId }, { memorySummarized: true });
+      await this.markThreadSummarizedIfUnchanged(threadId, thread.updatedAt);
       return 0;
     }
 
@@ -257,7 +280,6 @@ export class MemorySummarizationService {
         continue;
       }
 
-      // Dedup: skip if an identical memory already exists for this user
       const existing = await AgentMemoryModel.findOne({
         userId,
         target,
@@ -296,8 +318,7 @@ export class MemorySummarizationService {
       }
     }
 
-    // Mark the thread as summarized
-    await AgentThreadModel.updateOne({ _id: threadId }, { memorySummarized: true });
+    await this.markThreadSummarizedIfUnchanged(threadId, thread.updatedAt);
 
     logger.info('[MemorySummarization] Thread processed', {
       threadId,
@@ -307,6 +328,18 @@ export class MemorySummarizationService {
     });
 
     return stored;
+  }
+
+  private async markThreadSummarizedIfUnchanged(
+    threadId: string,
+    updatedAt: string | undefined
+  ): Promise<void> {
+    const filter: Record<string, unknown> = { _id: threadId };
+    if (updatedAt) {
+      filter['updatedAt'] = updatedAt;
+    }
+
+    await AgentThreadModel.updateOne(filter, { $set: { memorySummarized: true } }).exec();
   }
 
   private resolveTarget(

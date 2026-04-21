@@ -38,7 +38,14 @@ import type {
   AcademicInfo,
 } from './user-base.model';
 import type { SportProfile, VerifiedMetric } from './user-sport.model';
-import type { CoachData, RecruiterData, DirectorData, ParentData } from './user-role-data.model';
+import type {
+  CoachData,
+  RecruiterData,
+  DirectorData,
+  ParentData,
+  AthleteData,
+} from './user-role-data.model';
+import type { BillingTargetReference } from '../../usage/billing-domain.types';
 
 // Re-export for convenience
 export { USER_SCHEMA_VERSION } from './user-base.model';
@@ -81,28 +88,6 @@ export interface UserPreferences {
 }
 
 // ============================================
-// COUNTERS
-// ============================================
-
-/**
- * Denormalized counters synced from analytics collection
- * Updated periodically by background sync job
- */
-export interface UserCounters {
-  profileViews: number;
-  videoViews: number;
-  postsCount: number;
-  sharesCount: number;
-  /** Number of highlight videos */
-  highlightCount?: number;
-  /** Total offers across all sports (denormalized) */
-  offerCount?: number;
-  /** Number of events attended */
-  eventCount?: number;
-  _lastSyncedAt?: Date | string;
-}
-
-// ============================================
 // MAIN USER INTERFACE
 // ============================================
 
@@ -137,7 +122,6 @@ export interface User {
   lastName: string;
   /** Preferred display name (if different from firstName + lastName) */
   displayName?: string;
-  username: string;
 
   /** Optional bio/about text */
   aboutMe?: string;
@@ -233,7 +217,7 @@ export interface User {
 
   // ============================================
   // CONNECTED EMAIL ACCOUNTS
-  // Metadata only — tokens live in users/{uid}/emailTokens/{provider}
+  // Metadata only — tokens live in users/{uid}/oauthTokens/{provider}
   // ============================================
   /** Email accounts connected for campaigns/messaging */
   connectedEmails?: ConnectedEmail[];
@@ -250,14 +234,28 @@ export interface User {
   // Note: 'athlete' nested object has been removed — athlete data lives at
   // top-level fields (academics, measurables, classOf, sports[]).
   // ============================================
+  athlete?: AthleteData;
+
   /** HS/Club coach-specific data - role: 'coach' */
   coach?: CoachData;
   /** Athletic/Program director data - role: 'director' */
   director?: DirectorData;
-  /** Recruiter data (college coach, scout, service) - role: 'recruiter' */
+  /** Recruiter data (college coach, scout, service) - @deprecated legacy Firestore field */
   recruiter?: RecruiterData;
-  /** Parent-specific data - role: 'parent' */
+  /** Parent-specific data - @deprecated legacy Firestore field */
   parent?: ParentData;
+
+  // ============================================
+  // REFERRAL
+  // ============================================
+  /** Unique referral code for this user — lazy-created on first invite generation. */
+  referralCode?: string;
+  /** How the user heard about the platform (e.g., 'friend', 'social', 'coach'). */
+  referralSource?: string;
+  /** Free-text details about the referral source (may be null). */
+  referralDetails?: string | null;
+  /** UID of the user who referred this user (set at registration time). */
+  referralId?: string;
 
   // ============================================
   // ONBOARDING
@@ -267,6 +265,34 @@ export interface User {
    * Once true, user has full access to the platform.
    */
   onboardingCompleted?: boolean;
+  /** ISO timestamp when onboarding was completed. */
+  onboardingCompletedAt?: string;
+
+  // ============================================
+  // PROFILE COMPLETENESS
+  // ============================================
+  /**
+   * Profile completeness score (0–100).
+   * Computed and written by the `onUserProfileUpdated` Cloud Function.
+   * Read by analytics service for reporting. Do NOT write from frontend.
+   */
+  profileCompleteness?: number;
+
+  // ============================================
+  // ONBOARDING FLAGS
+  // ============================================
+  /**
+   * Whether the "How did you hear about us?" prompt has been shown.
+   * Set to true after the user dismisses the prompt (write-once flag).
+   */
+  showedHearAbout?: boolean;
+
+  /**
+   * Whether an Agent X welcome graphic has been queued for generation.
+   * Set to true by agent-welcome.service when the welcome job is enqueued;
+   * cleared after the graphic is delivered.
+   */
+  welcomeGraphicQueued?: boolean;
 
   // ============================================
   // PREFERENCES
@@ -274,14 +300,15 @@ export interface User {
   preferences?: UserPreferences;
 
   // ============================================
+  // BILLING ROUTING
+  // ============================================
+  /** Active wallet target used for Agent X and usage billing deductions. */
+  activeBillingTarget?: BillingTargetReference;
+
+  // ============================================
   // SUBSCRIPTION & PAYMENT
   // Note: Full payment/subscription data is in Subscriptions collection
   // ============================================
-  // ============================================
-  // ANALYTICS & COUNTERS
-  // ============================================
-  _counters?: UserCounters;
-
   // ============================================
   // TIMESTAMPS
   // ============================================
@@ -357,14 +384,14 @@ export function isCoach(user: User): boolean {
 }
 
 /** Check if user is a college coach
- * @deprecated Use isRecruiter() instead */
+ * @deprecated Use isCoach() instead */
 export function isCollegeCoach(user: User): boolean {
-  return user.role === USER_ROLES.RECRUITER && !!user.recruiter;
+  return user.role === USER_ROLES.COACH && !!user.coach;
 }
 
-/** Check if user is a recruiter (college coach, scout, or recruiting service) */
+/** Check if user has recruiting capabilities (i.e., is a coach or director) */
 export function isRecruiter(user: User): boolean {
-  return user.role === USER_ROLES.RECRUITER && !!user.recruiter;
+  return user.role === USER_ROLES.COACH || user.role === USER_ROLES.DIRECTOR;
 }
 
 /** Check if user is a director */

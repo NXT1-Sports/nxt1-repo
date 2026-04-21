@@ -37,6 +37,7 @@ import {
   query,
   orderBy as firestoreOrderBy,
   onSnapshot as firestoreOnSnapshot,
+  getDocs as firestoreGetDocs,
 } from '@angular/fire/firestore';
 import { Capacitor } from '@capacitor/core';
 
@@ -55,29 +56,25 @@ import {
   INVITE_API_BASE_URL,
   MESSAGES_API_BASE_URL,
   USAGE_API_BASE_URL,
-  NEWS_API_BASE_URL,
-  NEWS_API_ADAPTER,
-  NEWS_SHARE_ADAPTER,
   PERFORMANCE_ADAPTER,
   INTEL_API_BASE_URL,
+  HELP_CENTER_API,
 } from '@nxt1/ui';
-import { FEED_API } from '@nxt1/ui/feed';
+import { TEAM_LOGO_UPLOADER } from '@nxt1/ui/manage-team';
 // Mobile-specific Activity API adapter (uses CapacitorHttpAdapter + auth)
-// News API adapter — wraps shared NewsApiService for NEWS_API_ADAPTER token
 // Settings persistence adapter (connects SettingsService → backend API)
 // Email connection service (OAuth connect flow for linked accounts in settings)
 // Edit Profile API configuration
 import { EditProfileService } from '@nxt1/ui/edit-profile';
 import {
   ActivityApiService as MobileActivityApiService,
-  PulseApiAdapterService,
+  HelpCenterApiService,
   SettingsApiService,
   MobileEmailConnectionService,
   EditProfileApiService,
   CrashlyticsService,
   AnalyticsService,
   PerformanceService,
-  FeedApiService,
   ShareService,
 } from './core/services';
 
@@ -104,8 +101,7 @@ function configureEditProfileApi(
         apiService.updateSection(userId, sectionId, data, sportIndex),
       updateActiveSportIndex: (userId, activeSportIndex) =>
         apiService.updateActiveSportIndex(userId, activeSportIndex),
-      uploadPhoto: (userId: string, type: 'profile' | 'banner', file: File | Blob) =>
-        apiService.uploadPhoto(userId, type, file),
+      uploadPhoto: (userId: string, file: File | Blob) => apiService.uploadPhoto(userId, file),
     });
   };
 }
@@ -207,7 +203,7 @@ export const appConfig: ApplicationConfig = {
     // Global error handler (shared with web)
     { provide: ErrorHandler, useClass: GlobalErrorHandler },
 
-    // Analytics adapter (used by @nxt1/ui shared services like FeedService)
+    // Analytics adapter (used by @nxt1/ui shared services)
     { provide: ANALYTICS_ADAPTER, useExisting: AnalyticsService },
 
     // Performance adapter (used by @nxt1/ui shared services like ActivityService)
@@ -243,6 +239,15 @@ export const appConfig: ApplicationConfig = {
             onError
           );
         },
+        getDocs: async (
+          path: string,
+          orderByField: string
+        ): Promise<ReadonlyArray<Record<string, unknown>>> => {
+          const ref = collection(firestore, path);
+          const q = query(ref, firestoreOrderBy(orderByField));
+          const snap = await firestoreGetDocs(q);
+          return snap.docs.map((d) => d.data());
+        },
       }),
       deps: [Firestore],
     },
@@ -252,18 +257,6 @@ export const appConfig: ApplicationConfig = {
 
     // Activity API adapter — use the mobile Capacitor adapter (auth headers, native SSL)
     { provide: ACTIVITY_API_ADAPTER, useExisting: MobileActivityApiService },
-
-    // News API base URL
-    { provide: NEWS_API_BASE_URL, useFactory: () => environment.apiUrl },
-
-    // News API adapter — root-level so shared NewsService (providedIn: 'root') resolves it
-    { provide: NEWS_API_ADAPTER, useExisting: PulseApiAdapterService },
-
-    // News share adapter — routes Pulse article sharing through the mobile ShareService
-    { provide: NEWS_SHARE_ADAPTER, useExisting: ShareService },
-
-    // Feed API adapter — root-level so shared FeedService (providedIn: 'root') resolves it
-    { provide: FEED_API, useExisting: FeedApiService },
 
     // Invite API base URL
     { provide: INVITE_API_BASE_URL, useFactory: () => environment.apiUrl },
@@ -277,6 +270,21 @@ export const appConfig: ApplicationConfig = {
     // Intel API base URL
     { provide: INTEL_API_BASE_URL, useFactory: () => environment.apiUrl },
 
+    // Help Center API adapter
+    { provide: HELP_CENTER_API, useExisting: HelpCenterApiService },
+
+    // Team logo uploader — bridges TEAM_LOGO_UPLOADER token → EditProfileApiService
+    {
+      provide: TEAM_LOGO_UPLOADER,
+      useFactory:
+        (editProfileApi: EditProfileApiService, auth: Auth) => (teamId: string, file: File) => {
+          const userId = auth.currentUser?.uid;
+          if (!userId) return Promise.resolve(null);
+          return editProfileApi.uploadTeamLogo(userId, teamId, file);
+        },
+      deps: [EditProfileApiService, Auth],
+    },
+
     // Settings persistence adapter (connects SettingsService → backend API)
     { provide: SETTINGS_PERSISTENCE_ADAPTER, useExisting: SettingsApiService },
 
@@ -284,7 +292,7 @@ export const appConfig: ApplicationConfig = {
     { provide: APP_VERSION, useFactory: () => environment.appVersion },
 
     // OAuth handler for Connected Accounts sheet (settings context)
-    // Launches Google/Microsoft account picker and saves tokens to emailTokens subcollection.
+    // Launches Google/Microsoft account picker and saves tokens to oauthTokens subcollection.
     // Does NOT sign the user in — pure token acquisition via system browser.
     {
       provide: CONNECTED_ACCOUNTS_OAUTH_HANDLER,

@@ -49,7 +49,7 @@ export const TERMS_CONTENT: LegalContent = {
       id: 'description',
       title: '2. Description of Service',
       paragraphs: [
-        'NXT1 Sports is a sports networking platform that connects athletes, coaches, scouts, and recruiters. The service includes profile creation, highlight reels, messaging, and discovery tools.',
+        'NXT1 Sports is a sports networking platform that connects athletes, coaches, and directors. The service includes profile creation, highlight reels, messaging, and discovery tools.',
         'We reserve the right to modify, suspend, or discontinue any part of the service at any time with reasonable notice.',
       ],
     },
@@ -257,13 +257,13 @@ export const ABOUT_CONTENT = {
   mission: {
     title: 'Our Mission',
     content:
-      'NXT1 Sports is the ultimate platform connecting athletes, coaches, and recruiters. We empower the next generation of sports stars by providing tools to showcase talent, build their brand, and connect with opportunities.',
+      'NXT1 Sports is the ultimate platform connecting athletes, coaches, and directors. We empower the next generation of sports stars by providing tools to showcase talent, build their brand, and connect with opportunities.',
   },
   whatWeDo: {
     title: 'What We Do',
     items: [
       'Help athletes create compelling digital profiles',
-      'Connect recruiters with top talent across all sports',
+      'Connect coaches with top talent across all sports',
       'Provide analytics and insights for performance tracking',
       'Build a community of sports enthusiasts',
       'Empower athletes with tools to control their narrative',

@@ -15,7 +15,7 @@ import type {
   ShellCommandCategory,
   ShellContentForRole,
 } from './agent-x.types';
-import { isTeamRole, USER_ROLES } from '../constants/user.constants';
+import { isTeamRole } from '../constants/user.constants';
 
 // ============================================
 // CONFIGURATION
@@ -1767,14 +1767,9 @@ export const RECRUITER_COORDINATORS: readonly ShellCommandCategory[] = [
  */
 export function getShellContentForRole(role: string | null | undefined): ShellContentForRole {
   const isTeam = isTeamRole(role);
-  const isRecruiterRole = role === USER_ROLES.RECRUITER;
 
   return {
-    coordinators: isTeam
-      ? TEAM_COORDINATORS
-      : isRecruiterRole
-        ? RECRUITER_COORDINATORS
-        : ATHLETE_COORDINATORS,
+    coordinators: isTeam ? TEAM_COORDINATORS : ATHLETE_COORDINATORS,
   };
 }
 
@@ -1786,10 +1781,20 @@ export function getShellContentForRole(role: string | null | undefined): ShellCo
  * Allowed MIME types for Agent X file attachments.
  */
 export const AGENT_X_ALLOWED_MIME_TYPES: readonly string[] = [
+  // Images
   'image/jpeg',
   'image/png',
   'image/webp',
   'image/gif',
+  // Videos
+  'video/mp4',
+  'video/quicktime',
+  'video/x-msvideo',
+  'video/x-ms-wmv',
+  'video/webm',
+  'video/3gpp',
+  'video/3gpp2',
+  // Documents
   'application/pdf',
   'text/plain',
   'text/csv',
@@ -1802,8 +1807,11 @@ export const AGENT_X_ALLOWED_MIME_TYPES: readonly string[] = [
 /** Maximum number of attachments per message. */
 export const AGENT_X_MAX_ATTACHMENTS = 5;
 
-/** Maximum single file size in bytes (20 MB). */
+/** Maximum single file size in bytes (20 MB) for non-video files. */
 export const AGENT_X_MAX_FILE_SIZE = 20 * 1024 * 1024;
+
+/** Maximum single video file size in bytes (500 MB) — videos upload via Cloudflare Stream TUS. */
+export const AGENT_X_MAX_VIDEO_FILE_SIZE = 500 * 1024 * 1024;
 
 /**
  * Resolve a MIME type to the high-level `AgentXAttachmentType`.
@@ -1833,8 +1841,10 @@ export const AGENT_X_ENDPOINTS = {
   CHAT: '/agent-x/chat',
   /** Resume a yielded job with user input */
   RESUME_JOB: '/agent-x/resume-job',
-  /** Upload file attachment for chat */
+  /** Upload file attachment for chat (images, docs, PDFs — non-video) */
   UPLOAD: '/agent-x/upload',
+  /** Provision a Cloudflare Stream TUS direct upload URL for video files */
+  CLOUDFLARE_DIRECT_URL: '/upload/cloudflare/direct-url',
   /** Get quick tasks endpoint */
   TASKS: '/agent-x/tasks',
   /** Get conversation history */
@@ -1867,6 +1877,10 @@ export const AGENT_X_ENDPOINTS = {
   LIVE_VIEW_CLOSE: '/agent-x/live-view/close',
   /** Approval request resolution base path */
   APPROVALS: '/agent-x/approvals',
+  /** Mark an active goal as complete (POST /:goalId/complete) */
+  GOAL_COMPLETE: '/agent-x/goals',
+  /** Paginated history of completed goals */
+  GOAL_HISTORY: '/agent-x/goal-history',
 } as const;
 
 /**

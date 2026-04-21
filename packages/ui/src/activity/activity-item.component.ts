@@ -32,7 +32,7 @@ import { IonRippleEffect } from '@ionic/angular/standalone';
 import { type ActivityItem } from '@nxt1/core';
 import { NxtIconComponent } from '../components/icon';
 import { NxtTrackClickDirective } from '../services/breadcrumb/breadcrumb.service';
-import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '../agent-x/fab/agent-x-logo.constants';
+import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/assets';
 import { ACTIVITY_TEST_IDS } from '@nxt1/core/testing';
 
 // Register all icons

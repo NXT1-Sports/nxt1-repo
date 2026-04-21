@@ -156,7 +156,6 @@ import { HapticsService } from '../services/haptics/haptics.service';
           [hasMore]="service.hasMore()"
           [activeCategory]="service.activeCategory()"
           (cardClick)="onReportClick($event)"
-          (bookmark)="onBookmarkClick($event)"
           (loadMore)="onLoadMore()"
           (retry)="onRetry()"
           (emptyCta)="onEmptyCta()"
@@ -502,15 +501,6 @@ export class ScoutReportsContentComponent implements OnInit {
     await this.haptics.impact('light');
     this.reportSelect.emit(report);
   }
-
-  protected async onBookmarkClick(reportId: string): Promise<void> {
-    await this.haptics.impact('medium');
-    await this.service.toggleBookmark(reportId);
-  }
-
-  // ============================================
-  // LIST ACTIONS
-  // ============================================
 
   protected async onLoadMore(): Promise<void> {
     await this.service.loadMore();

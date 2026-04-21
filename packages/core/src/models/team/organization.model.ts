@@ -125,6 +125,9 @@ export interface Organization {
   /** Primary owner user ID (creator) */
   ownerId: string;
 
+  /** Explicit billing owner UID used for Stripe and org-wallet actions */
+  billingOwnerUid?: string;
+
   // ============================================
   // BILLING & SUBSCRIPTION
   // ============================================

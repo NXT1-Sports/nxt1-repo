@@ -21,6 +21,7 @@ import { environment } from '../../../../environments/environment';
 import { BiometricService } from '../auth/biometric.service';
 import { AuthFlowService } from '../auth/auth-flow.service';
 import { FcmRegistrationService } from '../native/fcm-registration.service';
+import { AnalyticsService } from '../infrastructure/analytics.service';
 
 /** Shape of all settings API responses */
 interface ApiResponse<T> {
@@ -43,6 +44,7 @@ export class SettingsApiService implements SettingsPersistenceAdapter {
   private readonly authService = inject(AuthFlowService);
   private readonly alertController = inject(AlertController);
   private readonly fcmRegistration = inject(FcmRegistrationService);
+  private readonly analyticsService = inject(AnalyticsService);
 
   // ============================================================
   // SettingsPersistenceAdapter implementation
@@ -61,7 +63,12 @@ export class SettingsApiService implements SettingsPersistenceAdapter {
       throw new Error(response.error ?? 'Failed to load preferences');
     }
 
-    return this.mapToSettingsPreferences(response.data);
+    const prefs = this.mapToSettingsPreferences(response.data);
+
+    // Apply saved analytics opt-in/out state immediately on load (defaults to true)
+    this.analyticsService.setEnabled(prefs.analyticsTracking);
+
+    return prefs;
   }
 
   /**
@@ -93,10 +100,16 @@ export class SettingsApiService implements SettingsPersistenceAdapter {
       // Continue to persist preference to backend
     }
 
+    // Handle analytics tracking toggle — enable/disable client-side event relay immediately
+    if (key === 'analyticsTracking') {
+      this.analyticsService.setEnabled(value as boolean);
+      // Continue to persist preference to backend
+    }
+
     const { backendKey, backendValue } = this.mapToBackendPreference(key, value);
 
     if (!backendKey) {
-      // Key not persisted to backend (e.g. analyticsTracking / crashReporting)
+      // Key not persisted to backend (e.g. crashReporting)
       return;
     }
 
@@ -121,6 +134,22 @@ export class SettingsApiService implements SettingsPersistenceAdapter {
       return response.success ? (response.data ?? null) : null;
     } catch {
       return null;
+    }
+  }
+
+  /**
+   * Acknowledge a completed password change after Firebase confirms success.
+   * The current mobile UI still uses reset emails, so this method is ready for
+   * the future in-app reset completion flow.
+   */
+  async recordPasswordChanged(): Promise<void> {
+    const response = await this.http.post<ApiResponse<void>>(
+      `${this.baseUrl}/settings/password-changed`,
+      {}
+    );
+
+    if (!response.success) {
+      throw new Error(response.error ?? 'Failed to record password change');
     }
   }
 

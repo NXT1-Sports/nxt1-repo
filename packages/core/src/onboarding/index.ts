@@ -20,6 +20,21 @@
 // ============================================
 // PERSISTENCE API
 // ============================================
+
+// Platform registry re-exported here for backward compat (@nxt1/core/onboarding imports still work)
+export type {
+  PlatformConnectionType,
+  PlatformScope,
+  PlatformCategory,
+  PlatformDefinition,
+} from '../platforms';
+export {
+  PLATFORM_REGISTRY,
+  PLATFORM_CATEGORIES,
+  PLATFORM_FAVICON_DOMAINS,
+  getPlatformFaviconUrl,
+} from '../platforms';
+
 export {
   // Factory
   createOnboardingPersistenceApi,
@@ -125,16 +140,8 @@ export {
   type ReferralSourceData,
   type LinkSourcesFormData,
   type LinkSourceEntry,
-  type PlatformConnectionType,
-  type PlatformScope,
-  type PlatformCategory,
-  type PlatformDefinition,
-  PLATFORM_REGISTRY,
-  PLATFORM_CATEGORIES,
-  PLATFORM_FAVICON_DOMAINS,
   RECOMMENDED_PLATFORMS_BY_ROLE,
   getPlatformsForSports,
-  getPlatformFaviconUrl,
   getRecommendedPlatforms,
   type OnboardingFormData,
   type NavigationState,

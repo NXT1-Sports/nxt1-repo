@@ -40,6 +40,7 @@ import {
   type User as FirebaseUser,
 } from '@angular/fire/auth';
 import { Subscription } from 'rxjs';
+import { Preferences } from '@capacitor/preferences';
 
 @Injectable({ providedIn: 'root' })
 export class MobileAuthService implements OnDestroy {
@@ -247,6 +248,8 @@ export class MobileAuthService implements OnDestroy {
     try {
       await firebaseSignOut(this.auth);
       await this.authManager.reset();
+      // Mark as explicitly signed out so the auth page does not auto-trigger biometric
+      await Preferences.set({ key: 'nxt1_explicit_signout', value: 'true' });
       await this.navController.navigateRoot('/auth');
     } catch (error) {
       const message = getAuthErrorMessage(error);

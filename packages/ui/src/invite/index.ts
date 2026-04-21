@@ -25,7 +25,6 @@ export { InviteShellComponent, type InviteUser } from './invite-shell.component'
 export { InviteStatsCardComponent } from './invite-stats-card.component';
 export { InviteChannelGridComponent } from './invite-channel-grid.component';
 export { InviteQrCodeComponent } from './invite-qr-code.component';
-export { InviteAchievementsComponent } from './invite-achievements.component';
 export { InviteCelebrationComponent } from './invite-celebration.component';
 export { InviteSkeletonComponent } from './invite-skeleton.component';
 

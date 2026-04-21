@@ -21,10 +21,10 @@
  * │               Pure functions from @nxt1/core                │
  * ├─────────────────────────────────────────────────────────────┤
  * │                    AnalyticsService                         │
- * │               Firebase Analytics adapter                    │
+ * │            Shared analytics adapter / backend relay         │
  * └─────────────────────────────────────────────────────────────┘
  *
- * Firebase Analytics Events Tracked:
+ * Analytics Events Tracked:
  * - onboarding_started: When user enters onboarding
  * - onboarding_role_selected: When user picks their role
  * - onboarding_step_viewed: Each step render (for funnel)

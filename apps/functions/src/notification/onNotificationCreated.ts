@@ -3,7 +3,7 @@
  * @module @nxt1/functions/notification/onNotificationCreated
  *
  * The SINGLE Cloud Function responsible for all push delivery on the platform.
- * Triggered when ANY feature writes a document to the `notifications` collection
+ * Triggered when ANY feature writes a document to the `Notifications` collection
  * via the backend's unified `NotificationService.dispatch()`.
  *
  * Processing pipeline:
@@ -54,7 +54,7 @@ interface UserNotificationPreferences {
  * single function. Features never call FCM directly.
  */
 export const onNotificationCreatedV3 = onDocumentCreated(
-  'notifications/{notificationId}',
+  'Notifications/{notificationId}',
   async (event) => {
     const snapshot = event.data;
     if (!snapshot) return;
@@ -235,7 +235,7 @@ async function updateStatus(
 ): Promise<void> {
   try {
     await db
-      .collection('notifications')
+      .collection('Notifications')
       .doc(notificationId)
       .update({
         status,

@@ -8,11 +8,11 @@
  *
  * This prevents users from having funds permanently locked due to
  * third-party provider outages. The hold expiry duration is configurable
- * via the `platformConfig/billing` Firestore document (`holdExpiryMs`).
+ * via the `AppConfig/billing` Firestore document (`holdExpiryMs`).
  *
  * Collections affected:
- * - `walletHolds`      (marks stale holds as 'expired')
- * - `billingContexts`  (releases pendingHoldsCents back to available balance)
+ * - `WalletHolds`      (marks stale holds as 'expired')
+ * - `BillingContexts`  (releases pendingHoldsCents back to available balance)
  */
 
 import * as admin from 'firebase-admin';
@@ -24,7 +24,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 
 const WALLET_HOLDS_COLLECTION = 'WalletHolds';
 const BILLING_CONTEXTS_COLLECTION = 'BillingContexts';
-const PLATFORM_CONFIG_DOC = 'platformConfig/billing';
+const APP_CONFIG_BILLING_DOC = 'AppConfig/billing';
 
 /** Fallback: 10 minutes if Firestore config document doesn't exist */
 const DEFAULT_HOLD_EXPIRY_MS = 10 * 60 * 1000;
@@ -35,12 +35,12 @@ const BATCH_LIMIT = 200;
 // ─── Helper ─────────────────────────────────────────────────────────────────
 
 /**
- * Reads the holdExpiryMs from the dynamic platform config doc.
+ * Reads the holdExpiryMs from the dynamic AppConfig billing doc.
  * Falls back to DEFAULT_HOLD_EXPIRY_MS if the doc or field is missing.
  */
 async function getHoldExpiryMs(db: FirebaseFirestore.Firestore): Promise<number> {
   try {
-    const doc = await db.doc(PLATFORM_CONFIG_DOC).get();
+    const doc = await db.doc(APP_CONFIG_BILLING_DOC).get();
     if (doc.exists) {
       const data = doc.data();
       if (data && typeof data['holdExpiryMs'] === 'number' && data['holdExpiryMs'] > 0) {
@@ -48,7 +48,7 @@ async function getHoldExpiryMs(db: FirebaseFirestore.Firestore): Promise<number>
       }
     }
   } catch (err) {
-    logger.warn('Failed to read platform config, using default hold expiry', { err });
+    logger.warn('Failed to read AppConfig billing doc, using default hold expiry', { err });
   }
   return DEFAULT_HOLD_EXPIRY_MS;
 }
@@ -58,7 +58,7 @@ async function getHoldExpiryMs(db: FirebaseFirestore.Firestore): Promise<number>
 /**
  * Expire stale wallet holds — runs every 15 minutes.
  *
- * 1. Queries `walletHolds` for active holds older than the configured expiry.
+ * 1. Queries `WalletHolds` for active holds older than the configured expiry.
  * 2. Batch-updates them to status 'expired'.
  * 3. Releases the held amount back on each user's billingContext.
  */

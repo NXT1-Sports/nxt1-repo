@@ -88,7 +88,7 @@ const inFlightRequests = new Map<string, Observable<HttpEvent<unknown>>>();
 
 /**
  * Default URL patterns with TTLs
- * Configured for Agent X, Activity, Explore, and other common endpoints.
+ * Configured for Agent X, Activity, and other common endpoints.
  *
  * TTL Strategy (2026 Best Practices):
  * - SHORT_TTL (1 min): Real-time data (activity, notifications, badges)
@@ -97,22 +97,14 @@ const inFlightRequests = new Map<string, Observable<HttpEvent<unknown>>>();
  * - EXTENDED_TTL (24 hr): Sports list, positions, rarely changing data
  */
 const DEFAULT_TTL_CONFIG: CacheTTLConfig[] = [
-  // Feed - Short TTL (high churn, infinite-scroll heavy)
-  { pattern: /\/feed(?:\/|$)/, ttl: CACHE_CONFIG.SHORT_TTL },
-
   // Activity - Short TTL (real-time notifications)
   { pattern: /\/activity\/feed/, ttl: CACHE_CONFIG.SHORT_TTL },
   { pattern: /\/activity\/badges/, ttl: 30_000 }, // 30 seconds for badges
   { pattern: /\/activity\/summary/, ttl: CACHE_CONFIG.SHORT_TTL },
 
-  // News / Pulse
-  { pattern: /\/news\/trending(?:\/|$)/, ttl: 30 * 60_000 },
-  { pattern: /\/news\/search(?:\/|$)/, ttl: 5 * 60_000 },
-  { pattern: /\/news(?:\/|$)/, ttl: 5 * 60_000 },
-
   // Usage - mixed TTL by data volatility
   { pattern: /\/usage\/overview(?:\/|$)/, ttl: CACHE_CONFIG.SHORT_TTL },
-  { pattern: /\/usage\/dashboard(?:\/|$)/, ttl: 5 * 60_000 },
+  { pattern: /\/usage\/dashboard(?:\/|$)/, ttl: CACHE_CONFIG.SHORT_TTL },
   { pattern: /\/usage\/chart(?:\/|$)/, ttl: 5 * 60_000 },
   { pattern: /\/usage\/breakdown(?:\/|$)/, ttl: 5 * 60_000 },
   { pattern: /\/usage\/history(?:\/|$)/, ttl: CACHE_CONFIG.MEDIUM_TTL },
@@ -130,12 +122,58 @@ const DEFAULT_TTL_CONFIG: CacheTTLConfig[] = [
   // Colleges - Long TTL (static data)
   { pattern: /\/college\//, ttl: CACHE_CONFIG.LONG_TTL },
 
-  // Profiles - Medium TTL
+  // Profiles - timeline is SHORT TTL so Agent X posts appear immediately
+  { pattern: /\/auth\/profile\/[^/]+\/timeline/, ttl: CACHE_CONFIG.SHORT_TTL },
   { pattern: /\/auth\/profile/, ttl: CACHE_CONFIG.MEDIUM_TTL },
+  { pattern: /\/profile\/[^/]+\/timeline/, ttl: CACHE_CONFIG.SHORT_TTL },
   { pattern: /\/profile\//, ttl: CACHE_CONFIG.MEDIUM_TTL },
 
-  // Teams - Medium TTL
+  // Teams & Manage Team - Medium TTL
   { pattern: /\/teams(?:\/|$)/, ttl: CACHE_CONFIG.MEDIUM_TTL },
+
+  // Feed / Posts - Short TTL (social content refreshes frequently)
+  { pattern: /\/feed\/users\//, ttl: CACHE_CONFIG.SHORT_TTL },
+  { pattern: /\/feed\/teams\//, ttl: CACHE_CONFIG.SHORT_TTL },
+  { pattern: /\/feed\/posts\/[^/]+$/, ttl: CACHE_CONFIG.MEDIUM_TTL }, // single post detail
+  { pattern: /\/feed(?:\/|$)/, ttl: CACHE_CONFIG.SHORT_TTL },
+
+  // Explore - search/suggestions are SHORT, trending is slightly longer, detail pages are MEDIUM
+  { pattern: /\/explore\/search(?:\/|\?|$)/, ttl: 2 * 60_000 }, // 2 min — query-sensitive
+  { pattern: /\/explore\/suggestions(?:\/|\?|$)/, ttl: 2 * 60_000 },
+  { pattern: /\/explore\/counts(?:\/|\?|$)/, ttl: 2 * 60_000 },
+  { pattern: /\/explore\/trending(?:\/|$)/, ttl: CACHE_CONFIG.SHORT_TTL },
+  { pattern: /\/athletes\/[^/]+(?:\/|$)/, ttl: CACHE_CONFIG.MEDIUM_TTL }, // athlete detail
+  { pattern: /\/videos\/[^/]+(?:\/|$)/, ttl: CACHE_CONFIG.MEDIUM_TTL }, // video detail
+  { pattern: /\/leaderboards\//, ttl: CACHE_CONFIG.SHORT_TTL },
+  { pattern: /\/explore(?:\/|$)/, ttl: CACHE_CONFIG.SHORT_TTL },
+
+  // Scout Reports - long-lived analytical documents
+  { pattern: /\/api\/v1\/scout-reports\/search(?:\/|\?|$)/, ttl: 5 * 60_000 },
+  { pattern: /\/api\/v1\/scout-reports\/summary(?:\/|$)/, ttl: CACHE_CONFIG.MEDIUM_TTL },
+  { pattern: /\/api\/v1\/scout-reports\/[^/]+(?:\/|$)/, ttl: CACHE_CONFIG.LONG_TTL }, // detail
+  { pattern: /\/api\/v1\/scout-reports(?:\/|$)/, ttl: CACHE_CONFIG.MEDIUM_TTL }, // list
+
+  // News / Pulse - article content is stable, feed refreshes regularly
+  { pattern: /\/pulse\/search(?:\/|\?|$)/, ttl: 5 * 60_000 },
+  { pattern: /\/pulse\/trending(?:\/|$)/, ttl: CACHE_CONFIG.SHORT_TTL },
+  { pattern: /\/pulse\/[^/]+(?:\/|$)/, ttl: CACHE_CONFIG.LONG_TTL }, // single article
+  { pattern: /\/pulse(?:\/|$)/, ttl: CACHE_CONFIG.SHORT_TTL }, // news feed
+
+  // Settings - preferences/subscription are stable, check-update is dynamic
+  { pattern: /\/api\/v1\/settings\/check-update(?:\/|$)/, ttl: 60_000 }, // 1 min
+  { pattern: /\/api\/v1\/settings\/billing\/history(?:\/|$)/, ttl: CACHE_CONFIG.MEDIUM_TTL },
+  { pattern: /\/api\/v1\/settings\/subscription(?:\/|$)/, ttl: CACHE_CONFIG.MEDIUM_TTL },
+  { pattern: /\/api\/v1\/settings\/usage(?:\/|$)/, ttl: CACHE_CONFIG.SHORT_TTL },
+  { pattern: /\/api\/v1\/settings(?:\/|$)/, ttl: CACHE_CONFIG.MEDIUM_TTL },
+
+  // Notifications list - Short TTL (user expects near-real-time)
+  { pattern: /\/v1\/notifications\/settings(?:\/|$)/, ttl: CACHE_CONFIG.MEDIUM_TTL },
+  { pattern: /\/v1\/notifications(?:\/|$)/, ttl: 30_000 }, // 30 seconds
+
+  // Messages - unread count is very short TTL; conversation list is short TTL
+  // Note: thread messages are excluded (real-time), only counts/list are cached
+  { pattern: /\/messages\/unread-count(?:\/|$)/, ttl: 30_000 }, // 30 seconds
+  { pattern: /\/messages\/conversations(?:\/|\?|$)/, ttl: CACHE_CONFIG.SHORT_TTL },
 
   // Static data - Extended TTL
   { pattern: /\/sports/, ttl: CACHE_CONFIG.EXTENDED_TTL },
@@ -145,13 +183,25 @@ const DEFAULT_TTL_CONFIG: CacheTTLConfig[] = [
 const DEFAULT_INVALIDATION_CONFIG: readonly CacheInvalidationConfig[] = [
   { pattern: /\/auth\/profile|\/profile\//, invalidate: ['*auth/profile*', '*profile*'] },
   { pattern: /\/teams(?:\/|$)/, invalidate: ['*teams*'] },
-  { pattern: /\/feed|\/posts\//, invalidate: ['*feed*', '*posts*'] },
   { pattern: /\/activity\//, invalidate: ['*activity*'] },
-  { pattern: /\/news\//, invalidate: ['*news*'] },
+  { pattern: /\/usage\/billing-mode/, invalidate: ['*usage*', '*billing/budget*'] },
   { pattern: /\/usage\//, invalidate: ['*usage*'] },
   { pattern: /\/billing\/budget/, invalidate: ['*billing/budget*', '*usage*'] },
   { pattern: /\/help-center\//, invalidate: ['*help-center*'] },
   { pattern: /\/invite\//, invalidate: ['*invite*'] },
+  // Feed — invalidate on any write (like, share, create post)
+  { pattern: /\/feed\/posts\/[^/]+\/(like|share|report)/, invalidate: ['*feed*'] },
+  // Scout Reports — invalidate list/summary on any mutation
+  { pattern: /\/api\/v1\/scout-reports/, invalidate: ['*scout-reports*'] },
+  // Settings — invalidate the whole settings cache on any write
+  { pattern: /\/api\/v1\/settings/, invalidate: ['*settings*'] },
+  // Notifications — invalidate on read/mark-read
+  { pattern: /\/v1\/notifications\/read/, invalidate: ['*notifications*'] },
+  // Messages — invalidate conversations list on send/create/read/delete
+  {
+    pattern: /\/messages\/(send|create|read|delete|mute|pin)/,
+    invalidate: ['*messages/conversations*', '*messages/unread-count*'],
+  },
 ];
 
 /**
@@ -167,6 +217,14 @@ const DEFAULT_EXCLUDE_URLS: RegExp[] = [
   /\/admin\//,
   // Agent X — all endpoints are dynamic & user-specific, never cache
   /\/agent-x\//,
+  // Messages real-time thread — individual messages are never cached
+  /\/messages\/thread\//,
+  // News / Pulse AI generation — always hits the backend
+  /\/pulse\/generate/,
+  // Feed write operations — likes, shares, reports, views never cached
+  /\/feed\/posts\/[^/]+\/(like|share|report|view)/,
+  // Notifications write operations
+  /\/v1\/notifications\/(read|register-token|unsubscribe)/,
 ];
 
 /**
@@ -209,12 +267,15 @@ function isCacheable(req: HttpRequest<unknown>, excludePatterns: RegExp[]): bool
   // Only cache GET requests
   if (req.method !== 'GET') return false;
 
-  // Check for cache bypass header
-  if (req.headers.has('X-No-Cache') || req.headers.has('Cache-Control')) {
-    const cacheControl = req.headers.get('Cache-Control');
-    if (cacheControl?.includes('no-cache') || cacheControl?.includes('no-store')) {
-      return false;
-    }
+  // Explicit cache bypass — used by bustDashboardCache() and similar force-refresh calls
+  if (req.headers.has('X-No-Cache')) {
+    return false;
+  }
+
+  // Standard HTTP cache bypass
+  const cacheControl = req.headers.get('Cache-Control');
+  if (cacheControl?.includes('no-cache') || cacheControl?.includes('no-store')) {
+    return false;
   }
 
   // Check exclude patterns

@@ -73,6 +73,11 @@ export const IMAGE_PATHS = {
 // ============================================
 
 /**
+ * Shared inline SVG brand marks.
+ */
+export * from './logo/agent-x-logo.constants';
+
+/**
  * Inline SVG icon definitions.
  * Import from @nxt1/design-tokens/assets/icons for full type definitions.
  */

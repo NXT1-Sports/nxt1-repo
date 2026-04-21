@@ -1,9 +1,9 @@
 /**
- * @fileoverview Invite Celebration Component - XP Earned Overlay
+ * @fileoverview Invite Celebration Component - Confetti Overlay
  * @module @nxt1/ui/invite
  * @version 1.0.0
  *
- * Full-screen celebration overlay for XP rewards and achievements.
+ * Full-screen celebration overlay for invite success.
  * Features confetti animation and haptic feedback.
  *
  * ⭐ SHARED BETWEEN WEB AND MOBILE ⭐
@@ -22,8 +22,7 @@ import { CommonModule } from '@angular/common';
 import { INVITE_TEST_IDS } from '@nxt1/core/testing';
 import { IonIcon, IonRippleEffect } from '@ionic/angular/standalone';
 import { addIcons } from 'ionicons';
-import { sparkles, trophy, close, checkmarkCircle } from 'ionicons/icons';
-import type { InviteAchievement } from '@nxt1/core';
+import { sparkles, close, checkmarkCircle } from 'ionicons/icons';
 
 @Component({
   selector: 'nxt1-invite-celebration',
@@ -53,23 +52,7 @@ import type { InviteAchievement } from '@nxt1/core';
         </div>
 
         <h2 class="celebration-title">Invite Sent!</h2>
-        <p class="celebration-subtitle">You're on your way to becoming an Ambassador</p>
-
-        <!-- Achievement Unlocked (if any) -->
-        @if (achievement()) {
-          <div class="celebration-achievement">
-            <div class="celebration-achievement__badge" [style.background]="achievement()!.color">
-              <ion-icon [name]="achievement()!.icon"></ion-icon>
-            </div>
-            <div class="celebration-achievement__info">
-              <span class="celebration-achievement__label">Achievement Unlocked!</span>
-              <span class="celebration-achievement__name">{{ achievement()!.name }}</span>
-            </div>
-            @if (achievement()!.creditReward) {
-              <span class="celebration-achievement__xp">+{{ achievement()!.creditReward }}¢</span>
-            }
-          </div>
-        }
+        <p class="celebration-subtitle">Keep sharing to grow your network</p>
 
         <!-- Dismiss Button -->
         <button type="button" class="celebration-dismiss" (click)="onDismiss()">
@@ -284,71 +267,6 @@ import type { InviteAchievement } from '@nxt1/core';
       }
 
       /* ============================================
-       ACHIEVEMENT BANNER
-       ============================================ */
-
-      .celebration-achievement {
-        display: flex;
-        align-items: center;
-        gap: var(--nxt1-spacing-3);
-        width: 100%;
-        padding: var(--nxt1-spacing-3);
-        background: var(--nxt1-color-surface-200);
-        border-radius: var(--nxt1-radius-lg);
-        margin-bottom: var(--nxt1-spacing-5);
-        animation: slideUp 0.4s ease-out 0.2s both;
-      }
-
-      @keyframes slideUp {
-        from {
-          opacity: 0;
-          transform: translateY(10px);
-        }
-        to {
-          opacity: 1;
-          transform: translateY(0);
-        }
-      }
-
-      .celebration-achievement__badge {
-        width: 44px;
-        height: 44px;
-        border-radius: var(--nxt1-radius-md);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        color: white;
-        font-size: 22px;
-        flex-shrink: 0;
-      }
-
-      .celebration-achievement__info {
-        flex: 1;
-        min-width: 0;
-        display: flex;
-        flex-direction: column;
-      }
-
-      .celebration-achievement__label {
-        font-size: 10px;
-        color: var(--nxt1-color-text-tertiary);
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-      }
-
-      .celebration-achievement__name {
-        font-size: var(--nxt1-fontSize-sm);
-        font-weight: var(--nxt1-fontWeight-semibold);
-        color: var(--nxt1-color-text-primary);
-      }
-
-      .celebration-achievement__xp {
-        font-size: var(--nxt1-fontSize-sm);
-        font-weight: var(--nxt1-fontWeight-bold);
-        color: var(--nxt1-color-primary);
-      }
-
-      /* ============================================
        DISMISS BUTTON
        ============================================ */
 
@@ -382,14 +300,13 @@ export class InviteCelebrationComponent {
   protected readonly testIds = INVITE_TEST_IDS;
 
   readonly creditsEarned = input<number>(0);
-  readonly achievement = input<InviteAchievement | null>(null);
 
   readonly dismiss = output<void>();
 
   private readonly canvasRef = viewChild<ElementRef<HTMLCanvasElement>>('confettiCanvas');
 
   constructor() {
-    addIcons({ sparkles, trophy, close, checkmarkCircle });
+    addIcons({ sparkles, close, checkmarkCircle });
     afterNextRender(() => {
       this.startConfetti();
     });

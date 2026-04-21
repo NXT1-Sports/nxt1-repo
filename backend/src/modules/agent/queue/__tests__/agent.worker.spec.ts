@@ -93,6 +93,7 @@ function makeMockJob(payload: AgentJobPayload, environment: 'staging' | 'product
   return {
     id: payload.operationId,
     data: {
+      kind: 'agent' as const,
       payload,
       enqueuedAt: '2026-03-10T00:00:00Z',
       environment,

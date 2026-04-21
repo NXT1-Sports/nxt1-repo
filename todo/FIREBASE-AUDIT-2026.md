@@ -27,21 +27,21 @@ issues:
   without collection-specific protections.
 - Several collections that will need compound filtering do not yet have
   composite indexes.
-- `usageEvents` needs lifecycle and schema cleanup to ensure billing data is
+- `UsageEvents` needs lifecycle and schema cleanup to ensure billing data is
   accurate and queryable.
 - Deprecated team membership data still exists in Firestore and needs to be
   removed from the model and write paths.
 
 ## What Is Working Well
 
-- **Billing model:** `billingContexts` already supports individual and
+- **Billing model:** `BillingContexts` already supports individual and
   organization billing, budget caps, threshold notifications, and dual payment
   rails.
-- **Usage billing detail:** `usageEvents` stores raw provider cost, idempotency,
+- **Usage billing detail:** `UsageEvents` stores raw provider cost, idempotency,
   retries, and cost snapshots.
-- **Agent job structure:** `agentJobs` has operation IDs, progress state, result
+- **Agent job structure:** `AgentJobs` has operation IDs, progress state, result
   payloads, and lifecycle timestamps.
-- **Wallet linkage:** `walletHolds.jobId` links directly to agent jobs.
+- **Wallet linkage:** `WalletHolds.jobId` links directly to agent jobs.
 - **Organization claim flow:** `isClaimed` is the correct pattern for
   auto-created records.
 - **Search normalization:** fields like `nameLower` show the right Firestore
@@ -55,8 +55,8 @@ issues:
 
 - [ ] Replace string ISO timestamps with native Firestore `Timestamp` values in
       all write paths.
-- [ ] Audit `Users`, `Teams`, `Organizations`, `Rankings`, `billingContexts`,
-      `agentJobs`, and `pricingConfig` for string-based timestamps.
+- [ ] Audit `Users`, `Teams`, `Organizations`, `Rankings`, `BillingContexts`,
+      `AgentJobs`, and `PricingConfig` for string-based timestamps.
 - [ ] Migrate existing staging documents so `createdAt`, `updatedAt`,
       `completedAt`, `resolvedAt`, and any TTL field are stored as native
       timestamps.
@@ -66,19 +66,19 @@ issues:
 ### 2. Expand Firestore security rules beyond `Users`
 
 - [ ] Add explicit rules for `Teams`, `Organizations`, `Posts`, `Rankings`,
-      `usageEvents`, `walletHolds`, `billingContexts`, `stripeCustomers`,
-      `notifications`, and `paymentLogs`.
+      `UsageEvents`, `WalletHolds`, `BillingContexts`, `StripeCustomers`,
+      `notifications`, and `PaymentLogs`.
 - [ ] Ensure billing, wallet, and usage collections are backend-only writes.
 - [ ] Validate that public read collections are intentionally public, not
       accidentally open.
 - [ ] Add a rules review checklist to pre-launch validation.
 
-### 3. Fix `usageEvents` lifecycle accuracy
+### 3. Fix `UsageEvents` lifecycle accuracy
 
-- [ ] Audit why sampled `usageEvents` remain in `status: "PENDING"`.
+- [ ] Audit why sampled `UsageEvents` remain in `status: "PENDING"`.
 - [ ] Confirm the pipeline that transitions usage records into their final
       settled state.
-- [ ] Reconcile `usageEvents` with `billingContexts.currentPeriodSpend` so spend
+- [ ] Reconcile `UsageEvents` with `BillingContexts.currentPeriodSpend` so spend
       enforcement is based on committed usage.
 - [ ] Add alerting or scheduled checks for stuck pending usage events.
 
@@ -97,9 +97,9 @@ This is not a scaling project. This field should not exist anymore.
 - [ ] Keep `memberIds[]` only if it is still actively used and is truly the
       current source-of-truth helper field.
 
-### 5. Correct invalid relationship data in `usageEvents`
+### 5. Correct invalid relationship data in `UsageEvents`
 
-- [ ] Audit why sampled `usageEvents.teamId` matched `userId`.
+- [ ] Audit why sampled `UsageEvents.teamId` matched `userId`.
 - [ ] Fix the writer so `teamId` is either a real team reference or omitted when
       not applicable.
 - [ ] Backfill or null out invalid historical `teamId` values where they are
@@ -107,7 +107,7 @@ This is not a scaling project. This field should not exist anymore.
 
 ## High-Priority Fixes
 
-### 6. Standardize `usageEvents.metadata`
+### 6. Standardize `UsageEvents.metadata`
 
 - [ ] Define one canonical metadata schema for usage events.
 - [ ] Normalize agent-related fields such as `agent`, `model`, `agentTools`,
@@ -133,14 +133,14 @@ This is not a scaling project. This field should not exist anymore.
 ### 9. Add missing composite indexes
 
 - [ ] Add composite indexes for `Teams`, `Organizations`, `Rankings`,
-      `stripeCustomers`, `walletHolds`, `usageEvents`, `notifications`, and any
+      `StripeCustomers`, `WalletHolds`, `UsageEvents`, `notifications`, and any
       collection that will be filtered by more than one field.
 - [ ] Review the current `firestore.indexes.json` against actual API query
       patterns instead of waiting for console-generated failures.
 
 ### 10. Add expiry and cleanup for wallet holds
 
-- [ ] Add `expiresAt` as a native Firestore timestamp on `walletHolds`.
+- [ ] Add `expiresAt` as a native Firestore timestamp on `WalletHolds`.
 - [ ] Configure a TTL policy for stale unreleased holds.
 - [ ] Add monitoring for holds that do not transition out of pending or held
       states within the expected time window.
@@ -151,8 +151,8 @@ This is not a scaling project. This field should not exist anymore.
 
 - [ ] Choose a single Firestore collection naming convention.
 - [ ] Document whether the platform standard is PascalCase or camelCase.
-- [ ] Plan a safe migration for inconsistent names such as `agentJobs`,
-      `billingContexts`, `usageEvents`, and `walletHolds` if standardization is
+- [ ] Plan a safe migration for inconsistent names such as `AgentJobs`,
+      `BillingContexts`, `UsageEvents`, and `WalletHolds` if standardization is
       required.
 
 ### 12. Enforce team slug consistency
@@ -188,16 +188,16 @@ This is not a scaling project. This field should not exist anymore.
 ## Collections Reviewed In This Audit
 
 - `Users`
-- `billingContexts`
-- `agentJobs`
-- `pricingConfig`
-- `stripeCustomers`
+- `BillingContexts`
+- `AgentJobs`
+- `PricingConfig`
+- `StripeCustomers`
 - `Posts`
 - `Organizations`
-- `walletHolds`
+- `WalletHolds`
 - `Teams`
 - `Rankings`
-- `usageEvents`
+- `UsageEvents`
 
 ## Definition Of Done For Grade A+
 

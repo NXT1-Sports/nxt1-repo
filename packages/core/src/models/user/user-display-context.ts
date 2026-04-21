@@ -14,7 +14,7 @@
 
 import { isTeamRole } from '../../constants/user.constants';
 import { formatSportDisplayName, getPositionAbbreviation } from '../../constants/sport.constants';
-import { buildCanonicalTeamPath, buildTeamSlug } from '../../helpers/formatters';
+import { resolveCanonicalTeamRoute } from '../../helpers/formatters';
 import type { SidenavSportProfile } from '../platform/navigation.model';
 
 // ============================================
@@ -29,18 +29,27 @@ import type { SidenavSportProfile } from '../platform/navigation.model';
 export interface UserDisplayInput {
   readonly displayName?: string;
   readonly email?: string;
+  /** Canonical image array — first entry is the primary avatar */
+  readonly profileImgs?: string[] | readonly string[] | null;
+  /** Legacy singular field — used as fallback when profileImgs is absent */
   readonly profileImg?: string;
   readonly unicode?: string;
   readonly role?: string | null;
-  readonly teamCode?: {
-    readonly teamCode?: string;
-    readonly slug?: string;
-    readonly unicode?: string;
-    readonly teamName?: string;
-    readonly sport?: string;
-    readonly logoUrl?: string | null;
-    readonly teamLogoImg?: string | null;
-  } | null;
+  readonly teamCode?:
+    | {
+        readonly teamCode?: string;
+        readonly code?: string;
+        readonly teamId?: string;
+        readonly id?: string;
+        readonly slug?: string;
+        readonly unicode?: string;
+        readonly teamName?: string;
+        readonly sport?: string;
+        readonly logoUrl?: string | null;
+        readonly teamLogoImg?: string | null;
+      }
+    | string
+    | null;
   readonly managedTeamCodes?: string[] | null;
   readonly sports?: ReadonlyArray<{
     readonly sport: string;
@@ -51,6 +60,12 @@ export interface UserDisplayInput {
       readonly name?: string;
       readonly logoUrl?: string | null;
       readonly logo?: string | null;
+      readonly teamId?: string;
+      readonly id?: string;
+      readonly teamCode?: string;
+      readonly code?: string;
+      readonly slug?: string;
+      readonly unicode?: string;
     };
   }>;
   readonly primarySport?: string;
@@ -173,19 +188,26 @@ export function buildUserDisplayContext(
 // ============================================
 
 function buildTeamContext(user: UserDisplayInput, personalName: string): UserDisplayContext {
-  const teamCode = user.teamCode;
+  const rawTeamCode = user.teamCode;
+  const teamCode = rawTeamCode && typeof rawTeamCode === 'object' ? rawTeamCode : null;
+  const rawTeamReference = typeof rawTeamCode === 'string' ? rawTeamCode.trim() : '';
   const activeSport =
     user.sports?.find((sport) => sport.isPrimary || sport.order === 0) ?? user.sports?.[0];
-  const teamName = teamCode?.teamName?.trim() || activeSport?.team?.name?.trim();
-  const slug = teamCode?.slug?.trim() || (teamName ? buildTeamSlug(teamName) : '');
-  const teamIdentifier = teamCode?.teamCode?.trim() || teamCode?.unicode?.trim() || '';
+  const activeTeam = activeSport?.team;
+  const teamName = teamCode?.teamName?.trim() || activeTeam?.name?.trim();
+  const resolvedTeamRoute = resolveCanonicalTeamRoute({
+    slug: teamCode?.slug?.trim(),
+    teamName,
+    teamCode: teamCode?.teamCode?.trim() || activeTeam?.teamCode?.trim() || rawTeamReference,
+    code: teamCode?.code?.trim() || activeTeam?.code?.trim(),
+    teamId: teamCode?.teamId?.trim() || activeTeam?.teamId?.trim(),
+    id: teamCode?.id?.trim() || activeTeam?.id?.trim(),
+    unicode: teamCode?.unicode?.trim(),
+    managedTeamCodes: user.managedTeamCodes,
+  });
   const sport = teamCode?.sport?.trim() || activeSport?.sport?.trim() || user.primarySport?.trim();
   const logoUrl =
-    teamCode?.logoUrl ??
-    teamCode?.teamLogoImg ??
-    activeSport?.team?.logoUrl ??
-    activeSport?.team?.logo ??
-    null;
+    teamCode?.logoUrl ?? teamCode?.teamLogoImg ?? activeTeam?.logoUrl ?? activeTeam?.logo ?? null;
 
   // Name: ALWAYS the team name for team roles. If no team name set, show explicit fallback.
   const name = teamName || personalName;
@@ -242,11 +264,7 @@ function buildTeamContext(user: UserDisplayInput, personalName: string): UserDis
     sportLabel,
     actionLabel: 'Add Team',
     sportProfiles,
-    profileRoute: slug
-      ? teamIdentifier
-        ? buildCanonicalTeamPath({ slug, teamName: name, teamCode: teamIdentifier })
-        : `/team/${slug}`
-      : '/profile',
+    profileRoute: resolvedTeamRoute?.path ?? '/team',
   };
 }
 
@@ -255,7 +273,17 @@ function buildAthleteContext(
   fallback: UserDisplayFallback | null | undefined,
   personalName: string
 ): UserDisplayContext {
-  const profileImg = user?.profileImg || undefined;
+  // profileImgs[] is the canonical source; profileImg (singular) is the pre-mapped fallback
+  const profileImg = user?.profileImgs?.[0] ?? user?.profileImg ?? undefined;
+  const athleteTeamCode =
+    user?.teamCode && typeof user.teamCode === 'object' ? user.teamCode : null;
+  const isOnTeam = !!(
+    athleteTeamCode?.slug?.trim() ||
+    athleteTeamCode?.teamName?.trim() ||
+    athleteTeamCode?.teamCode?.trim() ||
+    athleteTeamCode?.unicode?.trim() ||
+    (typeof user?.teamCode === 'string' ? user.teamCode.trim() : '')
+  );
 
   // Resolve sport label from the primary sport + position
   let sportLabel: string | undefined;
@@ -292,7 +320,7 @@ function buildAthleteContext(
     handle: user?.unicode ? `@${user.unicode}` : undefined,
     verified: false,
     isTeamRole: false,
-    isOnTeam: !!(user?.teamCode?.slug || user?.teamCode?.teamName),
+    isOnTeam,
     switcherTitle: 'Sports',
     sportLabel,
     actionLabel: 'Add Sport',

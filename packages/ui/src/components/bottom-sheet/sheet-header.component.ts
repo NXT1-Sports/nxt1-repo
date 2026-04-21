@@ -59,7 +59,7 @@
 import { Component, ChangeDetectionStrategy, input, output, inject } from '@angular/core';
 import { NxtIconComponent } from '../icon/icon.component';
 import { HapticsService } from '../../services/haptics/haptics.service';
-import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '../../agent-x/fab/agent-x-logo.constants';
+import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/assets';
 
 /** Supported shapes for the optional header icon container. */
 export type SheetHeaderIconShape = 'circle' | 'rounded';

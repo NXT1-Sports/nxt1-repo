@@ -19,8 +19,8 @@ import {
   getRolePromptScaffolding,
   getSeasonInfo,
   resolvePrimarySport,
-} from './elite-context.js';
-import { ContextBuilder } from '../memory/context-builder.js';
+  ContextBuilder,
+} from '../memory/context-builder.js';
 import { VectorMemoryService } from '../memory/vector.service.js';
 import { OpenRouterService } from '../llm/openrouter.service.js';
 
@@ -138,7 +138,11 @@ export class AgentGenerationService {
     try {
       const builder = this.getOrCreateContextBuilder();
       const promptContext = await builder.buildPromptContext(uid, query, db);
-      return builder.compressToPrompt(promptContext.profile, promptContext.memories);
+      return builder.compressToPrompt(
+        promptContext.profile,
+        promptContext.memories,
+        promptContext.recentSyncSummaries ?? []
+      );
     } catch (err) {
       logger.warn('[AgentGenerationService] Failed to build vector-backed prompt context', {
         userId: uid,
@@ -243,6 +247,42 @@ export class AgentGenerationService {
       .map((g) => `- id: "${g.id}", label: "${g.text.slice(0, 40)}"`)
       .join('\n');
 
+    // ── Gather completed goal history context ─────────────────────────────
+    let completedGoalsContext = '';
+    try {
+      const historySnap = await db
+        .collection('Users')
+        .doc(uid)
+        .collection('goal_history')
+        .orderBy('completedAt', 'desc')
+        .limit(3)
+        .get();
+
+      if (!historySnap.empty) {
+        const completedEntries = historySnap.docs
+          .map((d) => {
+            const rec = d.data() as {
+              text: string;
+              category: string;
+              completedAt: string;
+              daysToComplete: number;
+            };
+            const dateStr = rec.completedAt
+              ? new Date(rec.completedAt).toLocaleDateString('en-US', {
+                  month: 'short',
+                  day: 'numeric',
+                  year: 'numeric',
+                })
+              : '';
+            return `- ${rec.text} (${rec.category})${dateStr ? ` — completed ${dateStr}` : ''}${rec.daysToComplete ? ` in ${rec.daysToComplete}d` : ''}`;
+          })
+          .join('\n');
+        completedGoalsContext = `\n\nPreviously completed goals (do NOT repeat these; build on this progress):\n${completedEntries}`;
+      }
+    } catch {
+      // Completed goal context is non-critical — continue without it
+    }
+
     // ── Gather past task context ──────────────────────────────────────────
     let pastTaskContext = '';
     try {
@@ -312,6 +352,7 @@ export class AgentGenerationService {
       ``,
       `═══ USER'S GOALS (Your #1 Priority) ═══`,
       goalsText,
+      completedGoalsContext,
       pastTaskContext,
       deltaContext,
       ``,
@@ -355,6 +396,7 @@ export class AgentGenerationService {
       .join('\n');
 
     let playbookItems: ShellWeeklyPlaybookItem[] = [];
+    let llmRawContent: string | null | undefined;
 
     try {
       const llm = this.getOrCreateLlmService();
@@ -377,12 +419,23 @@ export class AgentGenerationService {
             : {}),
         }
       );
+      llmRawContent = llmResult.content;
 
       try {
         const jsonText = stripMarkdownFences(llmResult.content ?? '');
         const parsed = JSON.parse(jsonText) as unknown;
-        if (Array.isArray(parsed)) {
-          playbookItems = parsed.map((item: Record<string, unknown>) => ({
+        // Handle both bare array and wrapped object e.g. { "items": [...] } or { "playbook": [...] }
+        let itemArray: unknown = parsed;
+        if (!Array.isArray(parsed) && parsed !== null && typeof parsed === 'object') {
+          const obj = parsed as Record<string, unknown>;
+          itemArray = obj['items'] ?? obj['playbook'] ?? obj['tasks'] ?? obj['data'] ?? null;
+          if (!Array.isArray(itemArray)) {
+            // Last resort: grab the first array-valued key
+            itemArray = Object.values(obj).find((v) => Array.isArray(v)) ?? null;
+          }
+        }
+        if (Array.isArray(itemArray)) {
+          playbookItems = (itemArray as Record<string, unknown>[]).map((item) => ({
             id: String(item['id'] ?? `wp-${crypto.randomUUID().slice(0, 8)}`),
             weekLabel: String(item['weekLabel'] ?? ''),
             title: String(item['title'] ?? ''),
@@ -424,6 +477,7 @@ export class AgentGenerationService {
       logger.warn('Playbook generation returned no AI items; refusing template fallback', {
         userId: uid,
         goalCount: agentGoals.length,
+        rawLlmOutput: (llmRawContent ?? '').slice(0, 500),
       });
       throw new Error('AI playbook generation unavailable');
     }
@@ -432,13 +486,89 @@ export class AgentGenerationService {
 
     // Persist and prune old playbooks (keep last 10)
     const playbooksRef = db.collection('Users').doc(uid).collection('agent_playbooks');
-    await playbooksRef.add({
+    const playbookRef = playbooksRef.doc(); // pre-allocate ID so goal_history can reference it
+    await playbookRef.set({
       items: playbookItems,
       goals: agentGoals,
       generatedAt,
       role,
       source: 'llm',
     });
+
+    // ── Auto-archive active goals to goal_history ─────────────────────────
+    // Each time a new playbook is generated we snapshot the goals that drove
+    // it.  If a goal_history record already exists for this goal ID we update
+    // it with the latest playbookId so the history stays current without
+    // duplicating.  We do NOT remove the goal from agentGoals here — users
+    // keep their goals active across multiple playbook cycles.
+    try {
+      const goalHistoryRef = db.collection('Users').doc(uid).collection('goal_history');
+      const goalBatch = db.batch();
+      for (const goal of agentGoals) {
+        const historyDocRef = goalHistoryRef.doc(goal.id);
+        const existing = await historyDocRef.get();
+        if (existing.exists) {
+          // Update the latest playbook reference and bump lastSeenAt
+          goalBatch.update(historyDocRef, {
+            // Keep metadata in sync if user edited the goal label/category
+            text: goal.text,
+            category: goal.category,
+            ...(goal.icon ? { icon: goal.icon } : {}),
+            latestPlaybookId: playbookRef.id,
+            lastSeenAt: generatedAt,
+            playbookCount: (existing.data()?.['playbookCount'] ?? 0) + 1,
+            // Reset item counters for the new playbook cycle
+            itemsTotal: playbookItems.filter((item) => item.goal?.id === goal.id).length,
+            itemsCompleted: 0,
+            isCompleted: false,
+            completedAt: null,
+          });
+        } else {
+          // First time this goal has driven a playbook — create the record
+          const itemsForGoal = playbookItems.filter((item) => item.goal?.id === goal.id).length;
+          goalBatch.set(historyDocRef, {
+            id: goal.id,
+            goalId: goal.id,
+            text: goal.text,
+            category: goal.category,
+            ...(goal.icon ? { icon: goal.icon } : {}),
+            createdAt: goal.createdAt ?? generatedAt,
+            latestPlaybookId: playbookRef.id,
+            firstSeenAt: generatedAt,
+            lastSeenAt: generatedAt,
+            playbookCount: 1,
+            itemsTotal: itemsForGoal,
+            itemsCompleted: 0,
+            role,
+            isCompleted: false,
+          });
+        }
+
+        // ── Append immutable cycle record ──────────────────────────────────
+        // One doc per playbook generation — never overwritten, gives full
+        // audit trail of exactly which items ran toward this goal each cycle.
+        const cycleRef = historyDocRef.collection('cycles').doc(playbookRef.id);
+        const goalItemsThisCycle = playbookItems.filter((item) => item.goal?.id === goal.id);
+        goalBatch.set(cycleRef, {
+          playbookId: playbookRef.id,
+          generatedAt,
+          itemsTotal: goalItemsThisCycle.length,
+          itemsCompleted: 0,
+          isCompleted: false,
+          completedAt: null,
+          completedItems: [],
+          pendingItems: goalItemsThisCycle.map((i) => ({ id: i.id, title: i.title })),
+        });
+      }
+      await goalBatch.commit();
+      logger.info('Goal history auto-archived', { userId: uid, goalCount: agentGoals.length });
+    } catch (historyErr) {
+      // Non-critical — playbook was already saved, just log the warning
+      logger.warn('Failed to auto-archive goal history', {
+        userId: uid,
+        error: historyErr instanceof Error ? historyErr.message : String(historyErr),
+      });
+    }
 
     try {
       const allPlaybooks = await playbooksRef.orderBy('generatedAt', 'desc').get();
@@ -461,20 +591,49 @@ export class AgentGenerationService {
     try {
       const { dispatch } = await import('../../../services/notification.service.js');
       const { NOTIFICATION_TYPES } = await import('@nxt1/core');
+
+      // ── Build personalized notification copy ──────────────────────────
+      // Derive the primary goal name from whichever goal has the most items
+      const goalItemCounts = new Map<string, { text: string; count: number }>();
+      for (const item of playbookItems) {
+        if (item.goal?.id && item.goal?.label) {
+          const existing = goalItemCounts.get(item.goal.id);
+          goalItemCounts.set(item.goal.id, {
+            text: item.goal.label,
+            count: (existing?.count ?? 0) + 1,
+          });
+        }
+      }
+      const primaryGoal = [...goalItemCounts.values()].sort((a, b) => b.count - a.count)[0];
+
+      // Notification title: goal-aware or fallback
+      const notifTitle = primaryGoal
+        ? `Your ${primaryGoal.text} plan is ready`
+        : '🗂 Your Weekly Playbook is Ready';
+
+      // Body: top 2 action titles as a teaser + total count
+      const topActions = playbookItems.slice(0, 2).map((i) => i.title);
+      const teaser =
+        topActions.length > 0
+          ? topActions.join(' · ') +
+            (playbookItems.length > 2 ? ` +${playbookItems.length - 2} more` : '')
+          : `${playbookItems.length} action items ready`;
+
       await dispatch(db, {
         userId: uid,
         type: NOTIFICATION_TYPES.AGENT_ACTION,
-        title: 'Built Your Weekly Playbook',
-        body: `Agent X updated your weekly playbook with ${playbookItems.length} new action items.`,
-        deepLink: '/agent-x',
+        title: notifTitle,
+        body: teaser,
+        deepLink: '/agent-x?tab=playbook',
         data: {
           operationId: operationId || 'playbook-gen',
+          tab: 'playbook',
         },
         source: { userName: 'Agent X' },
         metadata: {
           agentId: 'playbook_planner',
-          resultTitle: 'Built Your Weekly Playbook',
-          resultSummary: `Agent X updated your weekly playbook with ${playbookItems.length} new action items.`,
+          resultTitle: notifTitle,
+          resultSummary: teaser,
           operationId: operationId || 'playbook-gen',
           mode: 'playbook',
         },
@@ -597,6 +756,28 @@ export class AgentGenerationService {
       // Non-critical — continue without sync context
     }
 
+    // ── Fetch recently completed goals (last 7 days) ─────────────────────
+    let completedGoalsText = '';
+    try {
+      const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+      const completedGoalsSnap = await db
+        .collection('Users')
+        .doc(uid)
+        .collection('goal_history')
+        .where('isCompleted', '==', true)
+        .where('completedAt', '>=', sevenDaysAgo)
+        .orderBy('completedAt', 'desc')
+        .limit(3)
+        .get();
+
+      if (!completedGoalsSnap.empty) {
+        const names = completedGoalsSnap.docs.map((d) => `• ${String(d.data()['text'] ?? '')}`);
+        completedGoalsText = `\n\nRecently completed goals:\n${names.join('\n')}`;
+      }
+    } catch {
+      // Non-critical — continue without completed goals
+    }
+
     // ── Build LLM prompt ────────────────────────────────────────────────
     const promptLines = [
       `You are Agent X, the AI-powered sports assistant for NXT1. Generate a concise, hyper-personalized daily briefing.`,
@@ -608,6 +789,7 @@ export class AgentGenerationService {
       `═══ USER'S GOALS ═══`,
       goalsText,
       recentActivityText,
+      completedGoalsText,
       syncContext,
       ``,
       `Generate a briefing that feels personally crafted for this user — reference their sport, season phase, role, and goals. Never be generic.`,
@@ -767,24 +949,28 @@ export class AgentGenerationService {
    * Used by the daily sync pipeline after the scraper completes.
    * Silently skips if the user has no goals set.
    */
-  async generateDailyContent(uid: string): Promise<void> {
-    // Check if user has goals before generating
+  /**
+   * Generate a fresh daily briefing for a user.
+   * Called by the 8 AM daily cron and after a profile sync delta.
+   * Skips if a briefing was already generated within the last 20 hours
+   * (prevents Cloud Scheduler retries from billing duplicate LLM calls).
+   */
+  async generateDailyBriefing(uid: string): Promise<void> {
     const userDoc = await this.db.collection('Users').doc(uid).get();
     const userData = userDoc.data() ?? {};
     const agentGoals = (userData['agentGoals'] ?? []) as AgentDashboardGoal[];
 
     if (agentGoals.length === 0) {
-      logger.info('Skipping daily content generation — no goals set', { userId: uid });
+      logger.info('Skipping daily briefing generation — no goals set', { userId: uid });
       return;
     }
 
-    // Dedup guard: skip if already generated within the last 20 hours
-    // Prevents Cloud Scheduler retries from billing duplicate LLM calls
-    const lastGeneratedAt = userData['agentLastGeneratedAt'] as Timestamp | undefined;
-    if (lastGeneratedAt) {
-      const hoursSinceLast = (Date.now() - lastGeneratedAt.toMillis()) / (1000 * 60 * 60);
+    // Dedup guard: skip if briefing already generated within the last 20 hours
+    const lastBriefingAt = userData['agentBriefingGeneratedAt'] as Timestamp | undefined;
+    if (lastBriefingAt) {
+      const hoursSinceLast = (Date.now() - lastBriefingAt.toMillis()) / (1000 * 60 * 60);
       if (hoursSinceLast < 20) {
-        logger.info('Skipping daily content generation — already generated recently', {
+        logger.info('Skipping daily briefing generation — already generated recently', {
           userId: uid,
           hoursSinceLast: Math.round(hoursSinceLast),
         });
@@ -796,28 +982,191 @@ export class AgentGenerationService {
     await this.db
       .collection('Users')
       .doc(uid)
-      .update({ agentLastGeneratedAt: FieldValue.serverTimestamp() })
+      .update({ agentBriefingGeneratedAt: FieldValue.serverTimestamp() })
       .catch(() => {
         /* non-critical */
       });
 
-    // Generate both in parallel — briefing and playbook are independent
-    const [playbookResult, briefingResult] = await Promise.allSettled([
-      this.generatePlaybook(uid),
-      this.generateBriefing(uid, true),
-    ]);
-
-    if (playbookResult.status === 'rejected') {
-      logger.error('Daily playbook generation failed', {
-        userId: uid,
-        error: String(playbookResult.reason),
-      });
-    }
-    if (briefingResult.status === 'rejected') {
+    try {
+      await this.generateBriefing(uid, true);
+    } catch (err) {
       logger.error('Daily briefing generation failed', {
         userId: uid,
-        error: String(briefingResult.reason),
+        error: String(err),
       });
     }
+  }
+
+  /**
+   * Generate a fresh weekly action plan (playbook) for a user.
+   * Called by the Monday 8 AM cron, when goals change, or when
+   * the user completes all current playbook tasks.
+   *
+   * @param force - Skip the 144h dedup guard (used for goal-change and
+   *                all-tasks-complete triggers where we always want a fresh plan)
+   */
+  async generateWeeklyPlaybook(uid: string, force = false): Promise<void> {
+    const userDoc = await this.db.collection('Users').doc(uid).get();
+    const userData = userDoc.data() ?? {};
+    const agentGoals = (userData['agentGoals'] ?? []) as AgentDashboardGoal[];
+
+    if (agentGoals.length === 0) {
+      logger.info('Skipping weekly playbook generation — no goals set', { userId: uid });
+      return;
+    }
+
+    if (!force) {
+      // Dedup guard: skip if playbook was generated within the last 6 days (144h).
+      // The 24h buffer under 168h accounts for scheduler jitter across timezones.
+      const lastPlaybookAt = userData['agentPlaybookGeneratedAt'] as Timestamp | undefined;
+      if (lastPlaybookAt) {
+        const hoursSinceLast = (Date.now() - lastPlaybookAt.toMillis()) / (1000 * 60 * 60);
+        if (hoursSinceLast < 144) {
+          logger.info('Skipping weekly playbook generation — already generated recently', {
+            userId: uid,
+            hoursSinceLast: Math.round(hoursSinceLast),
+          });
+          return;
+        }
+      }
+    }
+
+    // Stamp before generating so concurrent retries also bail out
+    await this.db
+      .collection('Users')
+      .doc(uid)
+      .update({ agentPlaybookGeneratedAt: FieldValue.serverTimestamp() })
+      .catch(() => {
+        /* non-critical */
+      });
+
+    try {
+      await this.generatePlaybook(uid);
+    } catch (err) {
+      logger.error('Weekly playbook generation failed', {
+        userId: uid,
+        error: String(err),
+      });
+    }
+  }
+
+  /**
+   * Generate a personalized playbook progress nudge notification copy for a user.
+   *
+   * Agent X reads the user's compressed context (goals, profile, season) plus their
+   * live playbook progress and writes a short, punchy push notification — no hardcoded
+   * templates. Uses the `fast` LLM tier (cheap, ~200ms) since it's just two strings.
+   *
+   * @returns `{ title, body }` strings for the push notification, or null if the user
+   *          has no active playbook this week.
+   */
+  async generatePlaybookNudge(
+    uid: string,
+    db: Firestore
+  ): Promise<{ title: string; body: string } | null> {
+    const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+    const weekAgoIso = new Date(Date.now() - WEEK_MS).toISOString();
+
+    // ── 1. Load latest playbook for this week ──────────────────────────
+    const playbookSnap = await db
+      .collection('Users')
+      .doc(uid)
+      .collection('agent_playbooks')
+      .where('generatedAt', '>=', weekAgoIso)
+      .orderBy('generatedAt', 'desc')
+      .limit(1)
+      .get();
+
+    if (playbookSnap.empty) return null;
+
+    const items = (playbookSnap.docs[0].data()['items'] ?? []) as Array<{
+      status?: string;
+      title?: string;
+      goal?: { label?: string };
+    }>;
+
+    if (items.length === 0) return null;
+
+    // ── 2. Compute live progress ────────────────────────────────────────
+    const done = items.filter((i) => i.status === 'complete').length;
+    const snoozed = items.filter((i) => i.status === 'snoozed').length;
+    const remaining = items.filter((i) => i.status !== 'complete' && i.status !== 'snoozed').length;
+    const total = items.length;
+
+    const nextTask = items.find((i) => i.status !== 'complete' && i.status !== 'snoozed');
+    const goalLabels = [
+      ...new Set(items.map((i) => i.goal?.label).filter((l): l is string => Boolean(l))),
+    ].slice(0, 3);
+
+    // ── 3. Build compressed user context (goals, profile, season) ──────
+    let profileContext = '';
+    try {
+      profileContext = await this.buildPromptContextText(uid, 'playbook progress nudge', db);
+    } catch {
+      // Non-critical — continue with just playbook data
+    }
+
+    // ── 4. Call LLM at fast tier ────────────────────────────────────────
+    const prompt = [
+      `You are Agent X — a relentless AI sports assistant. Your job is to send a short push notification to a user to re-engage them with their weekly action plan.`,
+      ``,
+      `USER CONTEXT:`,
+      profileContext || '(profile not available)',
+      ``,
+      `PLAYBOOK PROGRESS THIS WEEK:`,
+      `- Total tasks: ${total}`,
+      `- Done: ${done}`,
+      `- Remaining: ${remaining}`,
+      `- Snoozed: ${snoozed}`,
+      goalLabels.length > 0 ? `- Goals in focus: ${goalLabels.join(', ')}` : '',
+      nextTask?.title ? `- Next pending task: "${nextTask.title}"` : '',
+      ``,
+      `Write a push notification that sounds exactly like Agent X checking in on them personally — not a generic reminder. Reference their actual goal or next task. Be direct, motivating, action-oriented. Max 60 chars for title, max 100 chars for body.`,
+      ``,
+      `Return ONLY valid JSON: { "title": "...", "body": "..." }`,
+    ]
+      .filter(Boolean)
+      .join('\n');
+
+    try {
+      const llm = this.getOrCreateLlmService();
+      const llmResult = await llm.complete(
+        [
+          {
+            role: 'system',
+            content:
+              'You are Agent X, a hyper-personalized AI sports assistant. Return only valid JSON. Be specific to this user — never generic.',
+          },
+          { role: 'user', content: prompt },
+        ],
+        {
+          tier: 'copywriting',
+          maxTokens: 120,
+          temperature: 0.8,
+          jsonMode: true,
+        }
+      );
+
+      const parsed = JSON.parse(stripMarkdownFences(llmResult.content ?? '')) as {
+        title?: string;
+        body?: string;
+      };
+
+      const title = String(parsed.title ?? '')
+        .trim()
+        .slice(0, 80);
+      const body = String(parsed.body ?? '')
+        .trim()
+        .slice(0, 150);
+
+      if (title && body) return { title, body };
+    } catch (err) {
+      logger.warn('generatePlaybookNudge: LLM failed, skipping user', {
+        userId: uid,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
+    return null;
   }
 }

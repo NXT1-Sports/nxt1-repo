@@ -101,10 +101,7 @@ const TRACKED_IDENTITY_FIELDS: readonly string[] = [
   'city',
   'state',
   'country',
-  'school',
-  'schoolLogoUrl',
   'profileImage',
-  'bannerImage',
   'aboutMe',
 ];
 
@@ -120,6 +117,8 @@ const TRACKED_ACADEMICS_FIELDS: readonly string[] = [
 
 const TRACKED_SPORT_INFO_FIELDS: readonly string[] = ['sport', 'jerseyNumber', 'side'];
 
+// Team metadata is authoritative on the Team and Organization docs.
+// The writer is responsible for building a direct-doc snapshot before diffing.
 const TRACKED_TEAM_FIELDS: readonly string[] = [
   'name',
   'type',
@@ -485,12 +484,16 @@ export class SyncDiffService {
     // Build set of existing schedule keys: "date_day::opponent"
     const existingKeys = new Set<string>();
     for (const entry of prev) {
-      existingKeys.add(this.scheduleKey(entry.date, entry.opponent));
+      existingKeys.add(this.scheduleKey(entry.date, entry.opponent, entry.eventType));
     }
 
     const newEvents: SyncNewScheduleEvent[] = [];
     for (const event of next) {
-      const key = this.scheduleKey(event.date, event.opponent);
+      const key = this.scheduleKey(
+        event.date,
+        event.opponent,
+        (event as { eventType?: string }).eventType
+      );
       if (!existingKeys.has(key)) {
         newEvents.push({
           date: event.date,
@@ -509,10 +512,11 @@ export class SyncDiffService {
    * Schedule dedup key: date (day portion) + opponent (lowercased).
    * Mirrors WriteCalendarEventsTool.dedupeKey() logic.
    */
-  private scheduleKey(date: string, opponent?: string): string {
+  private scheduleKey(date: string, opponent?: string, eventType?: string): string {
     const day = date.split('T')[0] || 'nodate';
+    const type = (eventType ?? 'other').toLowerCase().trim();
     const opp = (opponent ?? 'unknown').toLowerCase().trim();
-    return `${day}::${opp}`;
+    return `${day}::${type}::${opp}`;
   }
 
   // ─── Video Diffing ────────────────────────────────────────────────────

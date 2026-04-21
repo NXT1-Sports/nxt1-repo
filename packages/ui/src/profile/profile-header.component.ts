@@ -21,6 +21,7 @@ import { NxtAvatarComponent } from '../components/avatar';
 import { NxtIconComponent } from '../components/icon';
 import { NxtImageComponent } from '../components/image';
 import { ProfileService } from './profile.service';
+import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/assets';
 
 @Component({
   selector: 'nxt1-profile-header',
@@ -29,10 +30,8 @@ import { ProfileService } from './profile.service';
   template: `
     <header class="madden-card" [attr.data-tier]="currentTier()">
       <!-- ═══ BANNER (Dark cinematic) ═══ -->
-      <div class="mc-banner" [style.backgroundImage]="bannerStyle()">
-        @if (!user()?.bannerImg) {
-          <div class="mc-banner-grid" aria-hidden="true"></div>
-        }
+      <div class="mc-banner">
+        <div class="mc-banner-grid" aria-hidden="true"></div>
         <div class="mc-banner-fade" aria-hidden="true"></div>
       </div>
 
@@ -322,9 +321,8 @@ import { ProfileService } from './profile.service';
             fill="currentColor"
             aria-hidden="true"
           >
-            <path
-              d="M505.93,251.93c5.52-5.52,1.61-14.96-6.2-14.96h-94.96c-2.32,0-4.55.92-6.2,2.57l-67.22,67.22c-4.2,4.2-11.28,3.09-13.99-2.2l-32.23-62.85c-1.49-2.91-4.49-4.75-7.76-4.76l-83.93-.34c-6.58-.03-10.84,6.94-7.82,12.78l66.24,128.23c1.75,3.39,1.11,7.52-1.59,10.22l-137.13,137.13c-11.58,11.58-3.36,31.38,13.02,31.35l71.89-.13c2.32,0,4.54-.93,6.18-2.57l82.89-82.89c4.19-4.19,11.26-3.1,13.98,2.17l40.68,78.74c1.5,2.91,4.51,4.74,7.78,4.74h82.61c6.55,0,10.79-6.93,7.8-12.76l-73.61-143.55c-1.74-3.38-1.09-7.5,1.6-10.19l137.98-137.98Z"
-            />
+            <path [attr.d]="agentXLogoPath" />
+            <polygon [attr.points]="agentXLogoPolygon" />
           </svg>
           @if (playerCard()?.agentXSummary) {
             <span class="mc-agent-text">{{ playerCard()?.agentXSummary }}</span>
@@ -1113,6 +1111,8 @@ import { ProfileService } from './profile.service';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ProfileHeaderComponent {
+  protected readonly agentXLogoPath = AGENT_X_LOGO_PATH;
+  protected readonly agentXLogoPolygon = AGENT_X_LOGO_POLYGON;
   // ─── SERVICE ───
   protected readonly profile = inject(ProfileService);
 
@@ -1207,11 +1207,6 @@ export class ProfileHeaderComponent {
     const trait = this.playerCard()?.trait;
     if (!trait?.progressTotal) return 0;
     return Math.min(100, ((trait.progressCurrent ?? 0) / trait.progressTotal) * 100);
-  });
-
-  protected readonly bannerStyle = computed(() => {
-    const banner = this.user()?.bannerImg;
-    return banner ? `url(${banner})` : 'none';
   });
 
   // ─── HELPERS ───

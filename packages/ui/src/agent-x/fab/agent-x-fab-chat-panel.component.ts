@@ -41,6 +41,7 @@ import {
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import type { AgentXQuickTask } from '@nxt1/core';
+import type { AgentXMessage } from '@nxt1/core/ai';
 import { ATHLETE_QUICK_TASKS, COACH_QUICK_TASKS } from '@nxt1/core';
 import { NxtIconComponent } from '../../components/icon/icon.component';
 import { NxtChatBubbleComponent } from '../../components/chat-bubble';
@@ -48,8 +49,9 @@ import { NxtToastService } from '../../services/toast/toast.service';
 import { AgentXService } from '../agent-x.service';
 import type { ConfirmationActionEvent } from '../agent-x-confirmation-card.component';
 import type { DraftSubmittedEvent } from '../agent-x-draft-card.component';
+import type { AskUserReplyEvent } from '../agent-x-ask-user-card.component';
 import { AgentXFabService } from './agent-x-fab.service';
-import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from './agent-x-logo.constants';
+import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/assets';
 
 @Component({
   selector: 'nxt1-agent-x-fab-chat-panel',
@@ -155,8 +157,8 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from './agent-x-logo.constant
             </div>
             <h3 class="welcome-heading">{{ agentX.currentTitle() }}</h3>
             <p class="welcome-text">
-              Your AI-powered recruiting assistant. Ask me anything about recruiting, create
-              graphics, or get personalized advice.
+              Your Agent X command center. Ask for recruiting strategy, create graphics, or get
+              personalized guidance.
             </p>
             @if (!agentX.isLoggedIn()) {
               <p class="welcome-sign-in">Sign in to unlock my full capabilities for you.</p>
@@ -211,6 +213,8 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from './agent-x-logo.constant
                   [parts]="message.parts ?? []"
                   (confirmationAction)="onConfirmationAction($event)"
                   (draftSubmitted)="onDraftSubmitted($event)"
+                  (askUserReply)="onAskUserReply($event)"
+                  (retryRequested)="onRetryErrorMessage(message)"
                 />
               </div>
             }
@@ -932,7 +936,8 @@ export class AgentXFabChatPanelComponent {
    */
   protected async onSuggestionClick(task: AgentXQuickTask): Promise<void> {
     await this.agentX.selectTask(task);
-    await this.agentX.sendMessage();
+    // TODO(@fab-migration): FAB streaming not yet migrated to AgentXOperationChatComponent
+    this.toast.info('Open Agent X to continue your conversation.');
   }
 
   /**
@@ -958,7 +963,8 @@ export class AgentXFabChatPanelComponent {
    * Send the current message.
    */
   protected async onSend(): Promise<void> {
-    await this.agentX.sendMessage();
+    // TODO(@fab-migration): FAB streaming not yet migrated to AgentXOperationChatComponent
+    this.toast.info('Open Agent X to continue your conversation.');
 
     // Reset textarea height
     const textarea = this.chatInput()?.nativeElement;
@@ -995,20 +1001,43 @@ export class AgentXFabChatPanelComponent {
     this.toast.error('This draft can no longer be sent directly. Refresh and try again.');
   }
 
-  protected async onConfirmationAction(event: ConfirmationActionEvent): Promise<void> {
-    if (!event.approvalId) return;
+  /** Route an ask_user card reply into the chat as a user message. */
+  protected async onAskUserReply(event: AskUserReplyEvent): Promise<void> {
+    this.agentX.setUserMessage(event.answer);
+    // TODO(@fab-migration): FAB streaming not yet migrated to AgentXOperationChatComponent
+    this.toast.info('Open Agent X to continue your conversation.');
+  }
 
+  protected async onConfirmationAction(event: ConfirmationActionEvent): Promise<void> {
     const decision =
       event.actionId === 'approve' ? 'approved' : event.actionId === 'reject' ? 'rejected' : null;
 
     if (!decision) return;
 
     await this.agentX.resolveInlineApproval({
-      approvalId: event.approvalId,
+      approvalId: event.approvalId ?? '',
       decision,
       successMessage:
         decision === 'approved' ? 'Approved — Agent X is resuming' : 'Request rejected',
     });
+  }
+
+  /** Remove the error bubble and pre-populate the input with the failed message. */
+  protected onRetryErrorMessage(errorMsg: AgentXMessage): void {
+    const msgs = this.agentX.messages();
+    const errorIdx = msgs.findIndex((m) => m.id === errorMsg.id);
+    const lastUserMsg = [...msgs]
+      .slice(0, errorIdx)
+      .reverse()
+      .find((m) => m.role === 'user');
+
+    // Remove error bubble from history
+    this.agentX.removeMessage(errorMsg.id);
+
+    if (lastUserMsg) {
+      this.agentX.setUserMessage(lastUserMsg.content);
+    }
+    this.toast.info('Message restored — tap Send to retry.');
   }
 
   /**

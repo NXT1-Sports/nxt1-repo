@@ -35,6 +35,7 @@
 import { Injectable, inject, signal, computed } from '@angular/core';
 import { Platform } from '@ionic/angular/standalone';
 import { NxtToastService } from '@nxt1/ui';
+import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import { Share, ShareOptions, ShareResult } from '@capacitor/share';
 import { Haptics, ImpactStyle } from '@capacitor/haptics';
 import {
@@ -49,6 +50,8 @@ import {
   type ShareablePost,
   type ShareableContent,
   buildShareUrl,
+  buildUTMShareUrl,
+  UTM_MEDIUM,
   buildArticleShareTitle,
   buildArticleShareText,
   buildArticleShareDescription,
@@ -117,6 +120,7 @@ export interface ShareContentOptions {
 export class ShareService {
   private readonly toast = inject(NxtToastService);
   private readonly platform = inject(Platform);
+  private readonly logger = inject(NxtLoggingService).child('MobileShareService');
   private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
 
   /** Whether sharing is currently in progress */
@@ -322,8 +326,14 @@ export class ShareService {
    * @param content - Shareable content
    * @returns Full URL string
    */
-  private buildEnvironmentUrl(content: ShareableContent): string {
-    return buildShareUrl(content).replace('https://nxt1sports.com', environment.webUrl);
+  private buildEnvironmentUrl(content: ShareableContent, medium = UTM_MEDIUM.SHARE): string {
+    const url = buildShareUrl(content, environment.webUrl);
+    const sportContent =
+      'sport' in content && typeof content.sport === 'string'
+        ? content.sport.toLowerCase()
+        : undefined;
+
+    return buildUTMShareUrl(url, medium, content.type, sportContent);
   }
 
   /**
@@ -403,7 +413,9 @@ export class ShareService {
       }
 
       // Actual error - try clipboard fallback
-      console.error('[ShareService] Share failed:', error);
+      this.logger.warn('Native share failed, falling back to clipboard', {
+        error: errorMessage,
+      });
       return this.copyToClipboard(shareOptions.url || shareOptions.text || '');
     } finally {
       this._isSharing.set(false);
@@ -425,7 +437,9 @@ export class ShareService {
 
       return { completed: true, activityType: 'clipboard' };
     } catch (error) {
-      console.error('[ShareService] Clipboard write failed:', error);
+      this.logger.warn('Clipboard write failed', {
+        error: error instanceof Error ? error.message : 'Clipboard failed',
+      });
       this.toast.error("Couldn't copy the share link.");
 
       return {
@@ -453,7 +467,9 @@ export class ShareService {
 
       return true;
     } catch (error) {
-      console.error('[ShareService] Copy failed:', error);
+      this.logger.warn('Copy failed', {
+        error: error instanceof Error ? error.message : 'Copy failed',
+      });
 
       if (showFeedback) {
         this.toast.error("Couldn't copy to clipboard.");

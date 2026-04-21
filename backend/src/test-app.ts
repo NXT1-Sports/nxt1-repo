@@ -6,10 +6,8 @@ import helmet from 'helmet';
 import { createErrorHandler, notFoundHandler } from '@nxt1/core/errors/express';
 import { logger } from './utils/logger.js';
 import authRoutes from './routes/auth.routes.js';
-import uploadRoutes from './routes/upload.routes.js';
+import uploadRoutes from './routes/upload/index.js';
 import sitemapRoutes from './routes/sitemap.routes.js';
-import feedRoutes from './routes/feed.routes.js';
-import exploreRoutes from './routes/explore.routes.js';
 import activityRoutes from './routes/activity.routes.js';
 import analyticsRoutes from './routes/analytics.routes.js';
 import pulseRoutes from './routes/pulse.routes.js';
@@ -17,10 +15,13 @@ import inviteRoutes from './routes/invite.routes.js';
 import settingsRoutes from './routes/settings.routes.js';
 import helpCenterRoutes from './routes/help-center.routes.js';
 import editProfileRoutes from './routes/edit-profile.routes.js';
-import agentXRoutes from './routes/agent-x.routes.js';
+import agentXRoutes from './routes/agent-x/index.js';
 import billingRoutes from './routes/billing.routes.js';
-import webhookRoutes, { webhookRawBodyMiddleware } from './routes/webhook.routes.js';
-import cloudflareWebhookRoutes from './routes/cloudflare-webhook.routes.js';
+import {
+  webhookRoutes,
+  webhookRawBodyMiddleware,
+  cloudflareWebhookRoutes,
+} from './routes/webhooks/index.js';
 import usageRoutes from './routes/usage.routes.js';
 import { initializeCacheService } from './services/cache.service.js';
 
@@ -238,8 +239,6 @@ const routeConfigs = [
   ['/auth', authRoutes],
   ['/upload', uploadRoutes],
   ['/invite', inviteRoutes],
-  ['/feed', feedRoutes],
-  ['/explore', exploreRoutes],
   ['/activity', activityRoutes],
   ['/analytics', analyticsRoutes],
   ['/pulse', pulseRoutes],

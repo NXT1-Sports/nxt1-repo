@@ -3,6 +3,7 @@
  * @module @nxt1/ui/intel/api
  *
  * HTTP client for Intel report endpoints (athlete + team).
+ * Normalizes raw API responses into typed `AthleteIntelReport` / `TeamIntelReport` shapes.
  * Uses direct HttpClient injection matching the dominant pattern in packages/ui.
  */
 
@@ -13,40 +14,17 @@ import type {
   IntelGenerateResponse,
   IntelCitation,
   IntelDataAvailability,
-  IntelDataSource,
   IntelMissingDataPrompt,
   IntelQuickCommand,
-  IntelRosterProspect,
-  IntelSeasonSummary,
-  IntelTierClassification,
+  IntelBriefItem,
+  IntelBriefSection,
 } from '@nxt1/core';
 import { Injectable, inject, InjectionToken } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import { NxtLoggingService } from '../services/logging/logging.service';
 
-const INTEL_TIER_CLASSIFICATIONS = [
-  'Elite',
-  'Premium',
-  'Rising',
-  'Developing',
-  'On Radar',
-] as const satisfies readonly IntelTierClassification[];
-
-const INTEL_DATA_SOURCES = [
-  'self-reported',
-  'coach-verified',
-  'maxpreps',
-  'hudl',
-  '247sports',
-  'rivals',
-  'on3',
-  'perfect-game',
-  'prep-baseball',
-  'ncsa',
-  'usa-football',
-  'agent-x',
-] as const satisfies readonly IntelDataSource[];
+// ── Data availability keys validation ──────────────────────────────────────
 
 const INTEL_DATA_AVAILABILITY_KEYS = [
   'hasMetrics',
@@ -59,35 +37,8 @@ const INTEL_DATA_AVAILABILITY_KEYS = [
   'hasAwards',
 ] as const satisfies readonly (keyof IntelDataAvailability)[];
 
-function toStringArray(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  return value.filter((item): item is string => typeof item === 'string');
-}
-
-function toNumberRecord(value: unknown): Record<string, number> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return {};
-  }
-
-  return Object.entries(value).reduce<Record<string, number>>((acc, [key, entry]) => {
-    if (typeof entry === 'number' && Number.isFinite(entry)) {
-      acc[key] = entry;
-    }
-    return acc;
-  }, {});
-}
-
-function normalizeTierClassification(value: unknown): IntelTierClassification {
-  return typeof value === 'string' &&
-    INTEL_TIER_CLASSIFICATIONS.includes(value as IntelTierClassification)
-    ? (value as IntelTierClassification)
-    : 'Developing';
-}
-
-function normalizeDataSource(value: unknown): IntelDataSource {
-  return typeof value === 'string' && INTEL_DATA_SOURCES.includes(value as IntelDataSource)
-    ? (value as IntelDataSource)
-    : 'agent-x';
+function normalizeDataSource(value: unknown): string {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : 'agent-x';
 }
 
 function normalizeMissingDataCategory(value: unknown): keyof IntelDataAvailability {
@@ -97,37 +48,7 @@ function normalizeMissingDataCategory(value: unknown): keyof IntelDataAvailabili
     : 'hasMetrics';
 }
 
-function normalizeTopProspects(value: unknown): readonly IntelRosterProspect[] {
-  if (!Array.isArray(value)) return [];
-
-  return value
-    .filter((item): item is Record<string, unknown> => !!item && typeof item === 'object')
-    .map((item) => ({
-      userId: typeof item['userId'] === 'string' ? item['userId'] : '',
-      name: typeof item['name'] === 'string' ? item['name'] : '',
-      position: typeof item['position'] === 'string' ? item['position'] : '',
-      classYear: typeof item['classYear'] === 'string' ? item['classYear'] : '',
-      overallScore:
-        typeof item['overallScore'] === 'number' && Number.isFinite(item['overallScore'])
-          ? item['overallScore']
-          : 0,
-      tierClassification: normalizeTierClassification(item['tierClassification']),
-      profileCode: typeof item['profileCode'] === 'string' ? item['profileCode'] : undefined,
-    })) satisfies readonly IntelRosterProspect[];
-}
-
-function normalizeSeasonHistory(value: unknown): readonly IntelSeasonSummary[] {
-  if (!Array.isArray(value)) return [];
-
-  return value
-    .filter((item): item is Record<string, unknown> => !!item && typeof item === 'object')
-    .map((item) => ({
-      season: typeof item['season'] === 'string' ? item['season'] : '',
-      record: typeof item['record'] === 'string' ? item['record'] : '',
-      highlights: toStringArray(item['highlights']),
-      conference: typeof item['conference'] === 'string' ? item['conference'] : undefined,
-    })) satisfies readonly IntelSeasonSummary[];
-}
+// ── Field normalizers ───────────────────────────────────────────────────────
 
 function normalizeCitations(value: unknown): readonly IntelCitation[] {
   if (!Array.isArray(value)) return [];
@@ -139,6 +60,8 @@ function normalizeCitations(value: unknown): readonly IntelCitation[] {
       label: typeof item['label'] === 'string' ? item['label'] : 'Source',
       url: typeof item['url'] === 'string' ? item['url'] : undefined,
       lastSyncedAt: typeof item['lastSyncedAt'] === 'string' ? item['lastSyncedAt'] : undefined,
+      verified: typeof item['verified'] === 'boolean' ? item['verified'] : undefined,
+      faviconUrl: typeof item['faviconUrl'] === 'string' ? item['faviconUrl'] : undefined,
     })) satisfies readonly IntelCitation[];
 }
 
@@ -171,6 +94,113 @@ function normalizeQuickCommands(value: unknown): readonly IntelQuickCommand[] {
     })) satisfies readonly IntelQuickCommand[];
 }
 
+function normalizeBriefItems(value: unknown): readonly IntelBriefItem[] | undefined {
+  if (!Array.isArray(value) || value.length === 0) return undefined;
+  const items = value
+    .filter((item): item is Record<string, unknown> => !!item && typeof item === 'object')
+    .map((item) => ({
+      label: typeof item['label'] === 'string' ? item['label'] : '',
+      value: typeof item['value'] === 'string' ? item['value'] : '',
+      unit: typeof item['unit'] === 'string' ? item['unit'] : undefined,
+      source: typeof item['source'] === 'string' ? normalizeDataSource(item['source']) : undefined,
+      verified: typeof item['verified'] === 'boolean' ? item['verified'] : undefined,
+      faviconUrl: typeof item['faviconUrl'] === 'string' ? item['faviconUrl'] : undefined,
+      date: typeof item['date'] === 'string' ? item['date'] : undefined,
+      sublabel: typeof item['sublabel'] === 'string' ? item['sublabel'] : undefined,
+    })) satisfies readonly IntelBriefItem[];
+  return items.length > 0 ? items : undefined;
+}
+
+function normalizeSectionSources(value: unknown): readonly IntelCitation[] | undefined {
+  if (!Array.isArray(value) || value.length === 0) return undefined;
+  const sources = normalizeCitations(value);
+  return sources.length > 0 ? sources : undefined;
+}
+
+function normalizeSections(value: unknown): readonly IntelBriefSection[] {
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .filter((item): item is Record<string, unknown> => !!item && typeof item === 'object')
+    .map((item) => ({
+      id: typeof item['id'] === 'string' ? item['id'] : '',
+      title: typeof item['title'] === 'string' ? item['title'] : '',
+      icon: typeof item['icon'] === 'string' ? item['icon'] : 'document',
+      content: typeof item['content'] === 'string' ? item['content'] : '',
+      items: normalizeBriefItems(item['items']),
+      sources: normalizeSectionSources(item['sources']),
+    })) satisfies readonly IntelBriefSection[];
+}
+
+function normalizeGeneratedAt(value: unknown): string {
+  if (typeof value === 'string' && value.trim().length > 0) {
+    return value;
+  }
+
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value.toISOString();
+  }
+
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return new Date(value).toISOString();
+  }
+
+  if (value && typeof value === 'object') {
+    const candidate = value as {
+      toDate?: () => Date;
+      seconds?: number;
+      _seconds?: number;
+      nanoseconds?: number;
+      _nanoseconds?: number;
+    };
+
+    if (typeof candidate.toDate === 'function') {
+      const date = candidate.toDate();
+      if (date instanceof Date && !Number.isNaN(date.getTime())) {
+        return date.toISOString();
+      }
+    }
+
+    const seconds =
+      typeof candidate.seconds === 'number'
+        ? candidate.seconds
+        : typeof candidate._seconds === 'number'
+          ? candidate._seconds
+          : null;
+
+    if (seconds !== null) {
+      const nanos =
+        typeof candidate.nanoseconds === 'number'
+          ? candidate.nanoseconds
+          : typeof candidate._nanoseconds === 'number'
+            ? candidate._nanoseconds
+            : 0;
+
+      return new Date(seconds * 1000 + Math.floor(nanos / 1_000_000)).toISOString();
+    }
+  }
+
+  return new Date().toISOString();
+}
+
+// ── Report normalizers ──────────────────────────────────────────────────────
+
+function normalizeAthleteIntelReport(report: AthleteIntelReport): AthleteIntelReport {
+  const raw = report as Partial<AthleteIntelReport> & Record<string, unknown>;
+
+  return {
+    ...report,
+    sportName: typeof raw.sportName === 'string' ? raw.sportName : '',
+    primaryPosition: typeof raw.primaryPosition === 'string' ? raw.primaryPosition : '',
+    sections: normalizeSections(raw.sections),
+    generatedAt: normalizeGeneratedAt(raw.generatedAt),
+    citations: normalizeCitations(raw.citations),
+    missingDataPrompts: normalizeMissingDataPrompts(raw.missingDataPrompts),
+    quickCommands: normalizeQuickCommands(raw.quickCommands),
+    staleAt: typeof raw.staleAt === 'string' ? raw.staleAt : undefined,
+  };
+}
+
 function normalizeTeamIntelReport(report: TeamIntelReport): TeamIntelReport {
   const raw = report as Partial<TeamIntelReport> & Record<string, unknown>;
 
@@ -178,21 +208,12 @@ function normalizeTeamIntelReport(report: TeamIntelReport): TeamIntelReport {
     ...report,
     teamName: typeof raw.teamName === 'string' ? raw.teamName : '',
     sport: typeof raw.sport === 'string' ? raw.sport : '',
-    overallRecord: typeof raw.overallRecord === 'string' ? raw.overallRecord : '',
-    seasonOutlook: typeof raw.seasonOutlook === 'string' ? raw.seasonOutlook : '',
-    teamIdentity: typeof raw.teamIdentity === 'string' ? raw.teamIdentity : '',
-    strengths: toStringArray(raw.strengths),
-    areasForImprovement: toStringArray(raw.areasForImprovement),
-    topProspects: normalizeTopProspects(raw.topProspects),
-    rosterDepthSummary: typeof raw.rosterDepthSummary === 'string' ? raw.rosterDepthSummary : '',
-    classBreakdown: toNumberRecord(raw.classBreakdown),
-    seasonHistory: normalizeSeasonHistory(raw.seasonHistory),
-    historicalNarrative: typeof raw.historicalNarrative === 'string' ? raw.historicalNarrative : '',
-    recruitingPipeline: typeof raw.recruitingPipeline === 'string' ? raw.recruitingPipeline : '',
-    competitiveAnalysis: typeof raw.competitiveAnalysis === 'string' ? raw.competitiveAnalysis : '',
+    sections: normalizeSections(raw.sections),
+    generatedAt: normalizeGeneratedAt(raw.generatedAt),
     citations: normalizeCitations(raw.citations),
     missingDataPrompts: normalizeMissingDataPrompts(raw.missingDataPrompts),
     quickCommands: normalizeQuickCommands(raw.quickCommands),
+    staleAt: typeof raw.staleAt === 'string' ? raw.staleAt : undefined,
   };
 }
 
@@ -230,8 +251,9 @@ export class IntelApiClient {
         throw new Error(response.error ?? 'Failed to fetch athlete Intel');
       }
 
-      this.logger.info('Athlete Intel fetched', { userId, hasReport: !!response.data });
-      return response.data ?? null;
+      const report = response.data ? normalizeAthleteIntelReport(response.data) : null;
+      this.logger.info('Athlete Intel fetched', { userId, hasReport: !!report });
+      return report;
     } catch (error) {
       this.logger.error('Failed to fetch athlete Intel', error, { userId });
       throw error;
@@ -247,14 +269,53 @@ export class IntelApiClient {
         this.http.post<IntelGenerateResponse<AthleteIntelReport>>(url, {})
       );
 
-      if (!response.success || !response.data) {
+      const responseData = response.data as unknown;
+      const payload =
+        responseData &&
+        typeof responseData === 'object' &&
+        'data' in (responseData as Record<string, unknown>)
+          ? ((responseData as Record<string, unknown>)['data'] as AthleteIntelReport | undefined)
+          : (responseData as AthleteIntelReport | undefined);
+
+      if (!response.success || !payload) {
         throw new Error(response.error ?? 'Failed to generate athlete Intel');
       }
 
+      const report = normalizeAthleteIntelReport(payload);
       this.logger.info('Athlete Intel generated', { userId, reportId: response.reportId });
-      return response.data;
+      return report;
     } catch (error) {
       this.logger.error('Failed to generate athlete Intel', error, { userId });
+      throw error;
+    }
+  }
+
+  async updateAthleteIntelSection(userId: string, sectionId: string): Promise<AthleteIntelReport> {
+    this.logger.info('Updating athlete Intel section', { userId, sectionId });
+
+    try {
+      const url = `${this.baseUrl}/auth/profile/${encodeURIComponent(userId)}/intel/section/${encodeURIComponent(sectionId)}`;
+      const response = await firstValueFrom(
+        this.http.patch<IntelGenerateResponse<AthleteIntelReport>>(url, {})
+      );
+
+      const responseData = response.data as unknown;
+      const payload =
+        responseData &&
+        typeof responseData === 'object' &&
+        'data' in (responseData as Record<string, unknown>)
+          ? ((responseData as Record<string, unknown>)['data'] as AthleteIntelReport | undefined)
+          : (responseData as AthleteIntelReport | undefined);
+
+      if (!response.success || !payload) {
+        throw new Error(response.error ?? 'Failed to update Intel section');
+      }
+
+      const report = normalizeAthleteIntelReport(payload);
+      this.logger.info('Athlete Intel section updated', { userId, sectionId });
+      return report;
+    } catch (error) {
+      this.logger.error('Failed to update athlete Intel section', error, { userId, sectionId });
       throw error;
     }
   }
@@ -292,15 +353,53 @@ export class IntelApiClient {
         this.http.post<IntelGenerateResponse<TeamIntelReport>>(url, {})
       );
 
-      if (!response.success || !response.data) {
+      const responseData = response.data as unknown;
+      const payload =
+        responseData &&
+        typeof responseData === 'object' &&
+        'data' in (responseData as Record<string, unknown>)
+          ? ((responseData as Record<string, unknown>)['data'] as TeamIntelReport | undefined)
+          : (responseData as TeamIntelReport | undefined);
+
+      if (!response.success || !payload) {
         throw new Error(response.error ?? 'Failed to generate team Intel');
       }
 
-      const report = normalizeTeamIntelReport(response.data);
+      const report = normalizeTeamIntelReport(payload);
       this.logger.info('Team Intel generated', { teamId, reportId: response.reportId });
       return report;
     } catch (error) {
       this.logger.error('Failed to generate team Intel', error, { teamId });
+      throw error;
+    }
+  }
+
+  async updateTeamIntelSection(teamId: string, sectionId: string): Promise<TeamIntelReport> {
+    this.logger.info('Updating team Intel section', { teamId, sectionId });
+
+    try {
+      const url = `${this.baseUrl}/teams/${encodeURIComponent(teamId)}/intel/section/${encodeURIComponent(sectionId)}`;
+      const response = await firstValueFrom(
+        this.http.patch<IntelGenerateResponse<TeamIntelReport>>(url, {})
+      );
+
+      const responseData = response.data as unknown;
+      const payload =
+        responseData &&
+        typeof responseData === 'object' &&
+        'data' in (responseData as Record<string, unknown>)
+          ? ((responseData as Record<string, unknown>)['data'] as TeamIntelReport | undefined)
+          : (responseData as TeamIntelReport | undefined);
+
+      if (!response.success || !payload) {
+        throw new Error(response.error ?? 'Failed to update team Intel section');
+      }
+
+      const report = normalizeTeamIntelReport(payload);
+      this.logger.info('Team Intel section updated', { teamId, sectionId });
+      return report;
+    } catch (error) {
+      this.logger.error('Failed to update team Intel section', error, { teamId, sectionId });
       throw error;
     }
   }

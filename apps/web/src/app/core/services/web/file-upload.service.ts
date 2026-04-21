@@ -171,28 +171,6 @@ export class FileUploadService {
   }
 
   /**
-   * Upload cover photo
-   *
-   * @param userId - User's Firebase UID
-   * @param file - Image file to upload
-   * @returns Upload result with URL, or null on failure
-   */
-  async uploadCoverPhoto(userId: string, file: File): Promise<FileUploadResult | null> {
-    return this.uploadFile(userId, file, 'cover-photo');
-  }
-
-  /**
-   * Upload document (PDF, transcript, etc.)
-   *
-   * @param userId - User's Firebase UID
-   * @param file - Document file to upload
-   * @returns Upload result with URL, or null on failure
-   */
-  async uploadDocument(userId: string, file: File): Promise<FileUploadResult | null> {
-    return this.uploadFile(userId, file, 'document');
-  }
-
-  /**
    * Upload a highlight video via Cloudflare Stream direct TUS upload.
    * The backend provisions the upload session and the browser streams bytes directly to Cloudflare.
    */
@@ -326,7 +304,60 @@ export class FileUploadService {
   }
 
   /**
-   * Delete uploaded file
+   * Upload team logo via signed URL (direct-to-storage).
+   *
+   * Flow:
+   * 1. Backend issues a short-lived signed PUT URL for `Teams/{teamId}/logo/...`
+   * 2. Browser PUTs the file straight to Firebase Storage
+   * 3. Returns the public `firebasestorage.googleapis.com` URL
+   *
+   * @param userId  - Firebase UID of the authenticated user
+   * @param teamId  - Firestore Teams document ID
+   * @param file    - Image file chosen by the user
+   */
+  async uploadTeamLogo(userId: string, teamId: string, file: File): Promise<string | null> {
+    this.logger.info('Starting team logo upload', { userId, teamId, fileName: file.name });
+
+    try {
+      const signed = await this.api.getSignedUploadUrl(
+        userId,
+        'team-logo',
+        file.name,
+        file.type,
+        teamId
+      );
+
+      const putResponse = await fetch(signed.uploadUrl, {
+        method: 'PUT',
+        body: file,
+        headers: { 'Content-Type': file.type },
+      });
+
+      if (!putResponse.ok) {
+        this.logger.error('Team logo PUT to signed URL failed', {
+          status: putResponse.status,
+          teamId,
+        });
+        this.toast.error('Failed to upload team logo. Please try again.');
+        return null;
+      }
+
+      // Build the public Firebase Storage download URL
+      const bucket = environment.firebase.storageBucket;
+      const encodedPath = encodeURIComponent(signed.storagePath);
+      const publicUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodedPath}?alt=media`;
+
+      this.logger.info('Team logo uploaded', { teamId, storagePath: signed.storagePath });
+      return publicUrl;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Team logo upload failed';
+      this.logger.error('Team logo upload error', err);
+      this.toast.error(message);
+      return null;
+    }
+  }
+
+  /**
    *
    * @param userId - User's Firebase UID
    * @param storagePath - Storage path or URL of file to delete
@@ -371,7 +402,7 @@ export class FileUploadService {
   } {
     const rules = FILE_UPLOAD_RULES[category];
     return {
-      maxSize: formatFileSize(rules.maxSize),
+      maxSize: 'maxSize' in rules ? formatFileSize((rules as { maxSize: number }).maxSize) : '',
       allowedTypes: rules.allowedTypes,
     };
   }
@@ -444,12 +475,6 @@ export class FileUploadService {
             file.type,
             onProgress
           );
-          break;
-        case 'cover-photo':
-          result = await this.api.uploadCoverPhoto(userId, file, file.name, file.type, onProgress);
-          break;
-        case 'document':
-          result = await this.api.uploadDocument(userId, file, file.name, file.type, onProgress);
           break;
         default:
           throw new Error(`Unsupported category: ${category}`);

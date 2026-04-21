@@ -288,7 +288,7 @@ interface AvatarReactiveInputs {
         justify-content: center;
         width: var(--avatar-size);
         height: var(--avatar-size);
-        font-family: var(--nxt1-ui-font-family, system-ui, -apple-system, sans-serif);
+        font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', ui-sans-serif, system-ui, sans-serif);
       }
 
       /* ============================================

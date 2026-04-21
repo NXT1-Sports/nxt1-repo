@@ -13,6 +13,10 @@ export {
 
 export { ConnectedAccountsSheetComponent } from './connected-accounts-sheet.component';
 export {
+  ConnectedAccountsResyncService,
+  type ConnectedAccountsResyncSource,
+} from './connected-accounts-resync.service';
+export {
   ConnectedAccountsWebModalComponent,
   type ConnectedAccountsModalCloseData,
 } from './connected-accounts-web-modal.component';

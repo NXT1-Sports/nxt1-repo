@@ -37,6 +37,13 @@ export interface YieldNotification {
   readonly threadId?: string;
   /** The approval request ID (if reason is 'needs_approval'). */
   readonly approvalId?: string;
+  /**
+   * Origin of the yield.
+   * 'chat' = SSE inline chat (thread-based resume — do NOT call /resume-job).
+   * 'worker' = Background BullMQ job (resume via /resume-job/:operationId).
+   * When 'chat', the notification deep-links to the thread only.
+   */
+  readonly origin?: 'chat' | 'worker';
 }
 
 // ─── Notification Dispatch ──────────────────────────────────────────────────
@@ -48,7 +55,7 @@ export interface YieldNotification {
  * This is fire-and-forget — errors are logged but never propagated.
  */
 export async function notifyYield(db: Firestore, notification: YieldNotification): Promise<void> {
-  const { userId, reason, promptToUser, operationId, threadId, approvalId } = notification;
+  const { userId, reason, promptToUser, operationId, threadId, approvalId, origin } = notification;
 
   // ── Push Notification ─────────────────────────────────────────────────
   try {
@@ -67,8 +74,11 @@ export async function notifyYield(db: Firestore, notification: YieldNotification
       body,
       deepLink,
       data: {
-        operationId,
+        // For 'chat' origin, omit operationId from action data — the client
+        // resumes by sending the next message in the thread, not /resume-job.
+        ...(origin !== 'chat' ? { operationId } : {}),
         reason,
+        origin: origin ?? 'worker',
         ...(threadId ? { threadId, sessionId: threadId } : {}),
         ...(approvalId ? { approvalId, entityId: approvalId } : {}),
       },

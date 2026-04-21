@@ -6,7 +6,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Firestore } from 'firebase-admin/firestore';
 import Stripe from 'stripe';
-import { getOrCreateCustomer, createInvoiceItem, attachPaymentMethod } from '../stripe.service.js';
+import {
+  getOrCreateCustomer,
+  createInvoiceItem,
+  attachPaymentMethod,
+  chargeOffSession,
+  getDefaultCardPaymentMethodId,
+  _clearStripeClientCacheForTesting,
+} from '../stripe.service.js';
 
 // Mock Stripe
 vi.mock('stripe', () => {
@@ -32,6 +39,7 @@ vi.mock('stripe', () => {
       },
       paymentMethods: {
         attach: vi.fn().mockResolvedValue({}),
+        retrieve: vi.fn().mockResolvedValue({ id: 'pm_card_visa', type: 'card' }),
       },
       invoices: {
         create: vi.fn().mockResolvedValue({
@@ -195,6 +203,174 @@ describe('Stripe Service', () => {
       });
 
       await expect(attachPaymentMethod('cus_test123', 'invalid_pm', 'staging')).rejects.toThrow();
+    });
+  });
+
+  describe('chargeOffSession', () => {
+    beforeEach(() => {
+      // Clear the module-level Stripe client cache so each test gets a fresh client
+      // created from whatever vi.mocked(Stripe).mockImplementationOnce provides.
+      _clearStripeClientCacheForTesting();
+    });
+
+    it('should succeed when PaymentIntent status is succeeded', async () => {
+      vi.mocked(Stripe).mockImplementationOnce(function MockStripeSuccess() {
+        return {
+          customers: {
+            retrieve: vi.fn().mockResolvedValue({ id: 'cus_test123', deleted: false }),
+            update: vi.fn().mockResolvedValue({}),
+          },
+          paymentIntents: {
+            create: vi.fn().mockResolvedValue({
+              id: 'pi_test_success',
+              status: 'succeeded',
+            }),
+          },
+        } as unknown as Stripe;
+      });
+
+      const result = await chargeOffSession(
+        'cus_test123',
+        'pm_card_visa',
+        2000,
+        'NXT1 Wallet Auto Top-Up ($20.00)',
+        'auto-topup-user123-1234567890',
+        'staging'
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.paymentIntentId).toBe('pi_test_success');
+      expect(result.error).toBeUndefined();
+    });
+
+    it('should return failure when PaymentIntent requires_action (3DS)', async () => {
+      vi.mocked(Stripe).mockImplementationOnce(function MockStripe3DS() {
+        return {
+          customers: {
+            retrieve: vi.fn().mockResolvedValue({ id: 'cus_test123', deleted: false }),
+          },
+          paymentIntents: {
+            create: vi.fn().mockResolvedValue({
+              id: 'pi_test_3ds',
+              status: 'requires_action',
+            }),
+          },
+        } as unknown as Stripe;
+      });
+
+      const result = await chargeOffSession(
+        'cus_test123',
+        'pm_card_3ds',
+        2000,
+        'NXT1 Wallet Auto Top-Up',
+        'auto-topup-user123-9999',
+        'staging'
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.errorCode).toBe('requires_action');
+      expect(result.paymentIntentId).toBe('pi_test_3ds');
+    });
+
+    it('should return failure when Stripe throws a card_declined error', async () => {
+      vi.mocked(Stripe).mockImplementationOnce(function MockStripeDeclined() {
+        return {
+          customers: {
+            retrieve: vi.fn().mockResolvedValue({ id: 'cus_test123', deleted: false }),
+          },
+          paymentIntents: {
+            create: vi
+              .fn()
+              .mockRejectedValue({ code: 'card_declined', message: 'Your card was declined.' }),
+          },
+        } as unknown as Stripe;
+      });
+
+      const result = await chargeOffSession(
+        'cus_test123',
+        'pm_card_declined',
+        2000,
+        'NXT1 Wallet Auto Top-Up',
+        'auto-topup-user123-declined',
+        'staging'
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.errorCode).toBe('card_declined');
+      expect(result.error).toBe('Your card was declined.');
+    });
+
+    it('should reject invalid amountCents', async () => {
+      const result = await chargeOffSession(
+        'cus_test123',
+        'pm_card_visa',
+        0,
+        'NXT1 Wallet Auto Top-Up',
+        'key',
+        'staging'
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('Invalid amountCents');
+    });
+
+    it('should reject non-integer amountCents', async () => {
+      const result = await chargeOffSession(
+        'cus_test123',
+        'pm_card_visa',
+        19.99,
+        'NXT1 Wallet Auto Top-Up',
+        'key',
+        'staging'
+      );
+
+      expect(result.success).toBe(false);
+    });
+  });
+
+  describe('getDefaultCardPaymentMethodId', () => {
+    beforeEach(() => {
+      _clearStripeClientCacheForTesting();
+    });
+
+    it('should return the default payment method when it is a card', async () => {
+      vi.mocked(Stripe).mockImplementationOnce(function MockStripeDefaultCard() {
+        return {
+          customers: {
+            retrieve: vi.fn().mockResolvedValue({
+              id: 'cus_test123',
+              deleted: false,
+              invoice_settings: { default_payment_method: 'pm_card_visa' },
+            }),
+          },
+          paymentMethods: {
+            retrieve: vi.fn().mockResolvedValue({ id: 'pm_card_visa', type: 'card' }),
+          },
+        } as unknown as Stripe;
+      });
+
+      await expect(getDefaultCardPaymentMethodId('cus_test123', 'staging')).resolves.toBe(
+        'pm_card_visa'
+      );
+    });
+
+    it('should return null when the default payment method is not a card', async () => {
+      vi.mocked(Stripe).mockImplementationOnce(function MockStripeBankDefault() {
+        return {
+          customers: {
+            retrieve: vi.fn().mockResolvedValue({
+              id: 'cus_test123',
+              deleted: false,
+              invoice_settings: { default_payment_method: 'pm_bank_123' },
+            }),
+          },
+          paymentMethods: {
+            retrieve: vi.fn().mockResolvedValue({ id: 'pm_bank_123', type: 'us_bank_account' }),
+          },
+        } as unknown as Stripe;
+      });
+
+      await expect(getDefaultCardPaymentMethodId('cus_test123', 'staging')).resolves.toBeNull();
     });
   });
 });

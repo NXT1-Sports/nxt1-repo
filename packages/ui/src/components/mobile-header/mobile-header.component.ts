@@ -70,7 +70,7 @@ import { DEFAULT_MOBILE_HEADER_CONFIG } from './mobile-header.types';
           >
             <nxt1-icon name="chevronLeft" [size]="24" />
           </button>
-        } @else {
+        } @else if (config().showMenu !== false) {
           <button
             type="button"
             class="mobile-header__action-btn"

@@ -179,7 +179,6 @@ export {
 
   // Engagement events
   type ReactionAddedEvent,
-  type CommentAddedEvent,
 
   // Search events
   type SearchPerformedEvent,

@@ -49,7 +49,7 @@ import { NxtIconComponent } from '../icon/icon.component';
               <nxt1-icon name="arrow-back-outline" [size]="18" />
               Go Back
             </button>
-            <button [routerLink]="[homeRoute]" class="nf__btn nf__btn--fill">
+            <button (click)="goHome()" [routerLink]="[homeRoute]" class="nf__btn nf__btn--fill">
               <nxt1-icon name="home-outline" [size]="18" />
               Go Home
             </button>
@@ -305,5 +305,9 @@ export class NotFoundComponent {
     } else {
       void this.router.navigate([this.homeRoute]);
     }
+  }
+
+  goHome(): void {
+    void this.router.navigate([this.agentRoute]);
   }
 }

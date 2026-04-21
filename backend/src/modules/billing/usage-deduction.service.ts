@@ -16,7 +16,7 @@ import { getAndClearJobCost } from '../agent/queue/job-cost-tracker.js';
 import { calculateChargeAmount } from './pricing.service.js';
 import {
   recordSpend,
-  recordOrgSpend,
+  deductOrgWallet,
   captureWalletHold,
   releaseWalletHold,
   resolveBillingTarget,
@@ -71,7 +71,7 @@ export interface BillingDeductionResult {
  *
  * 1. Retrieves accumulated LLM cost from the in-memory tracker (or uses `knownCostUsd`).
  * 2. Applies the platform markup via `calculateChargeAmount()`.
- * 3. Either captures an IAP hold or directly records spend.
+ * 3. Either captures a wallet hold or directly records spend.
  * 4. Writes an audit-trail usage event.
  *
  * Designed to be called in a fire-and-forget `void (async () => { ... })()` wrapper
@@ -84,6 +84,7 @@ export async function executeBillingDeduction(
   const { db, userId, operationId, feature, environment, iapHoldId, metadata, knownCostUsd } =
     input;
   let resolvedTeamId = input.teamId;
+  let resolvedOrgId: string | undefined;
 
   try {
     // Step 1: Resolve raw cost
@@ -128,45 +129,37 @@ export async function executeBillingDeduction(
       return { charged: false, rawCostUsd: totalCostUsd, chargeAmountCents: 0 };
     }
 
-    // Step 4: Resolve billing target — needed for both spend recording and usage event teamId.
-    // Do this BEFORE deducting funds so org users hit recordOrgSpend (not the stale
-    // individual context that getOrCreateBillingContext would return).
-    let resolvedOrgId: string | undefined;
-    if (!resolvedTeamId) {
+    // Step 4: Resolve billing target before any direct debit so org-billed users
+    // always debit the org wallet, even when the caller already passed a teamId.
+    if (!iapHoldId || !resolvedTeamId) {
       try {
         const target = await resolveBillingTarget(db, userId);
-        resolvedTeamId = target.teamIds?.[0] ?? userId;
+        resolvedTeamId = resolvedTeamId ?? target.context.teamId ?? target.teamIds?.[0] ?? userId;
         if (target.type === 'organization') {
           resolvedOrgId = target.organizationId;
         }
       } catch {
-        resolvedTeamId = userId;
+        resolvedTeamId = resolvedTeamId ?? userId;
       }
     }
+
+    const effectiveTeamId =
+      resolvedTeamId && resolvedTeamId !== userId ? resolvedTeamId : undefined;
 
     // Step 4b: Deduct funds
     if (iapHoldId) {
       // Background job mode: capture the pre-authorized hold
       await captureWalletHold(db, iapHoldId, chargeAmountCents);
     } else if (resolvedOrgId) {
-      // Org billing: update user context + team allocation + org master budget in parallel.
-      // Bypasses getOrCreateBillingContext so a stale individual context does not
-      // prevent the org's currentPeriodSpend from being incremented.
-      await recordOrgSpend(
-        db,
-        userId,
-        resolvedOrgId,
-        resolvedTeamId !== userId ? resolvedTeamId : undefined,
-        chargeAmountCents
-      );
+      // Org billing: debit the org wallet and mirror spend onto user/team trackers.
+      await deductOrgWallet(db, resolvedOrgId, userId, effectiveTeamId, chargeAmountCents);
     } else {
       // Individual / IAP wallet billing
-      await recordSpend(db, userId, chargeAmountCents);
+      await recordSpend(db, userId, chargeAmountCents, effectiveTeamId);
     }
 
     // Step 5: Write audit trail usage event
     recordUsageEvent(
-      db,
       {
         userId,
         teamId: resolvedTeamId,
@@ -197,7 +190,7 @@ export async function executeBillingDeduction(
       rawCostUsd: totalCostUsd,
       chargeAmountCents,
       feature,
-      via: iapHoldId ? 'captureWalletHold' : resolvedOrgId ? 'recordOrgSpend' : 'recordSpend',
+      via: iapHoldId ? 'captureWalletHold' : resolvedOrgId ? 'deductOrgWallet' : 'recordSpend',
     });
 
     return { charged: true, rawCostUsd: totalCostUsd, chargeAmountCents };

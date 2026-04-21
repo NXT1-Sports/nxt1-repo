@@ -170,7 +170,7 @@ import { createAuthApi, createProfileApi } from '@nxt1/core';
 - Ionic 8 + Capacitor 7
 - Shared components with web
 - Native iOS/Android builds
-- Push notifications support
+- Push Notifications support
 
 ### backend (Express)
 

@@ -29,9 +29,16 @@ import {
   type SettingsNavigateEvent,
   type SettingsActionEvent,
 } from '@nxt1/ui';
-import type { SettingsUserInfo, SettingsSubscription, InboxEmailProvider } from '@nxt1/core';
+import {
+  buildLinkSourcesFormData,
+  mapToConnectedSources,
+  type SettingsUserInfo,
+  type SettingsSubscription,
+  type InboxEmailProvider,
+} from '@nxt1/core';
 import type { LinkSourcesFormData, OnboardingUserType } from '@nxt1/core/api';
 import { AuthFlowService } from '../../core/services/auth/auth-flow.service';
+import { EditProfileApiService } from '../../core/services/api/edit-profile-api.service';
 import { MobileEmailConnectionService } from '../../core/services/api/email-connection.service';
 
 @Component({
@@ -93,6 +100,7 @@ export class SettingsComponent {
   private readonly navController = inject(NavController);
   private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('SettingsComponent');
+  private readonly editProfileApi = inject(EditProfileApiService);
   private readonly emailConnection = inject(MobileEmailConnectionService);
 
   constructor() {
@@ -141,57 +149,12 @@ export class SettingsComponent {
     // Access full profile from ProfileService for sports & connectedSources
     const profile = this.authService.profile();
 
-    // Firebase OAuth provider IDs → platform IDs used in the link drop step
-    const PROVIDER_ID_MAP: Record<string, string> = {
-      'google.com': 'google',
-      'apple.com': 'apple',
-      'microsoft.com': 'microsoft',
-    };
-
-    // Signed-in OAuth providers from Firebase Auth (mark as connected)
     const firebaseUser = this.authService.firebaseUser();
-    const firebaseSigninLinks = (firebaseUser?.providerData ?? [])
-      .filter((p) => PROVIDER_ID_MAP[p.providerId])
-      .map((p) => ({
-        platform: PROVIDER_ID_MAP[p.providerId]!,
-        connected: true,
-        connectionType: 'signin' as const,
-        scopeType: 'global' as const,
-      }));
-
-    // Also check backend-stored email token connections (Agent X OAuth flow).
-    // provider: 'gmail' → platform: 'google', provider: 'microsoft' → platform: 'microsoft'
-    const EMAIL_PROVIDER_PLATFORM: Record<string, string> = {
-      gmail: 'google',
-      microsoft: 'microsoft',
-    };
-    const firebasePlatforms = new Set(firebaseSigninLinks.map((l) => l.platform));
-    const emailTokenLinks = (user.connectedEmails ?? [])
-      .filter((e) => e.isActive !== false && EMAIL_PROVIDER_PLATFORM[e.provider])
-      .filter((e) => !firebasePlatforms.has(EMAIL_PROVIDER_PLATFORM[e.provider]))
-      .map((e) => ({
-        platform: EMAIL_PROVIDER_PLATFORM[e.provider]!,
-        connected: true,
-        connectionType: 'signin' as const,
-        scopeType: 'global' as const,
-      }));
-
-    const signinLinks = [...firebaseSigninLinks, ...emailTokenLinks];
-
-    // Convert ConnectedSource[] → LinkSourcesFormData for the shared link drop step
-    const linkedSources = (profile?.connectedSources ?? []).map((src) => ({
-      platform: src.platform,
-      connected: true,
-      connectionType: 'link' as const,
-      url: src.profileUrl,
-      scopeType: src.scopeType ?? 'global',
-      scopeId: src.scopeId,
-    }));
-
-    const allLinks = [...linkedSources, ...signinLinks];
-    const linkSourcesData: LinkSourcesFormData | null = allLinks.length
-      ? { links: allLinks }
-      : null;
+    const linkSourcesData = buildLinkSourcesFormData({
+      connectedSources: profile?.connectedSources ?? [],
+      connectedEmails: user.connectedEmails ?? [],
+      firebaseProviders: firebaseUser?.providerData ?? [],
+    }) as LinkSourcesFormData | null;
 
     return {
       profileImg: user.profileImg ?? undefined,
@@ -200,7 +163,10 @@ export class SettingsComponent {
       role: (profile?.role as OnboardingUserType) ?? null,
       selectedSports: profile?.sports?.map((s) => s.sport).filter(Boolean) ?? [],
       linkSourcesData,
-      scope: 'athlete' as const,
+      scope:
+        profile?.role === 'coach' || profile?.role === 'director'
+          ? ('team' as const)
+          : ('athlete' as const),
     };
   });
 
@@ -212,7 +178,7 @@ export class SettingsComponent {
    * Handle back navigation using Ionic's navigation stack.
    */
   protected onBack(): void {
-    this.navController.back();
+    this.navController.navigateBack('/');
   }
 
   /**
@@ -271,6 +237,50 @@ export class SettingsComponent {
 
     // Handle specific actions
     switch (event.action) {
+      case 'saveConnectedAccounts': {
+        const user = this.authService.user();
+        const data = (
+          event as SettingsActionEvent & {
+            data?: {
+              linkSources?: LinkSourcesFormData;
+              requestResync?: boolean;
+              resyncSources?: readonly {
+                platform: string;
+                label?: string;
+                username?: string;
+                url?: string;
+                connected?: boolean;
+              }[];
+            };
+          }
+        ).data;
+
+        if (!user?.uid || !data?.linkSources) {
+          this.logger.warn('saveConnectedAccounts: missing user or link sources');
+          return;
+        }
+
+        const connectedSources = mapToConnectedSources(data.linkSources.links);
+        const result = await this.editProfileApi.updateSection(user.uid, 'connected-sources', {
+          connectedSources,
+        });
+
+        if (result.success) {
+          await this.authService.refreshUserProfile();
+          if (data.requestResync) {
+            await this.settingsService.requestConnectedAccountsResync(data.resyncSources ?? []);
+          } else {
+            this.toast.success('Connected accounts updated');
+          }
+        } else {
+          this.logger.error('Failed to save connected accounts', undefined, {
+            error: result.error,
+          });
+          this.toast.error(result.error ?? 'Failed to save connected accounts');
+        }
+        break;
+      }
+
       case 'deleteAccount':
         this.logger.info('Delete account confirmed');
         // TODO: Implement actual account deletion

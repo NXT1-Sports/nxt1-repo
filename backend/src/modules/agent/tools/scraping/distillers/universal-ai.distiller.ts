@@ -27,8 +27,15 @@ import { logger } from '../../../../../utils/logger.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
-/** Maximum markdown chars sent to the LLM after preprocessing. */
-const MAX_MARKDOWN_CHARS = 100_000;
+/**
+ * Maximum markdown chars sent to the LLM after preprocessing.
+ *
+ * 50k is sufficient for complete sports profiles after nav-chrome stripping.
+ * Halving from 100k cuts average LLM prompt latency ~50% and reduces token
+ * cost proportionally. Increase only if extraction quality regresses on
+ * exceptionally stats-dense pages.
+ */
+const MAX_MARKDOWN_CHARS = 50_000;
 
 /** Maximum tokens for the LLM response. Stats-heavy pages can produce large JSON. */
 const MAX_RESPONSE_TOKENS = 8192;

@@ -24,9 +24,9 @@ export {
   type TeamProfileTabId,
   type TeamProfileTab,
   // Team identity types
+  type ConnectedSource,
   type TeamProfileType,
   type TeamProfileBranding,
-  type TeamProfileSocialLink,
   type TeamProfileContact,
   type TeamProfileLinks,
   type TeamProfileSponsor,
@@ -57,6 +57,9 @@ export {
   type TeamProfileHeaderAction,
   // Response types
   type TeamProfilePageData,
+  // Timeline filter types
+  type TeamTimelineFilterId,
+  type TeamTimelineFilter,
   // Re-exported verification types
   type VerificationStatus,
   type DataVerification,
@@ -70,6 +73,9 @@ export {
   TEAM_PROFILE_TABS,
   TEAM_PROFILE_DEFAULT_TAB,
   TEAM_PROFILE_VERIFICATION_HIDDEN_TABS,
+  // Timeline filters
+  TEAM_TIMELINE_FILTERS,
+  TEAM_TIMELINE_DEFAULT_FILTER,
   // Post types
   TEAM_PROFILE_POST_TYPE_ICONS,
   TEAM_PROFILE_POST_TYPE_LABELS,
@@ -103,6 +109,8 @@ export {
   type TeamProfileApiResponse,
   type TeamProfilePaginatedResponse,
   type TeamProfileSearchParams,
+  type TeamTimelineParams,
+  type TeamTimelineResponse,
 } from './team-profile.api';
 
 // ============================================

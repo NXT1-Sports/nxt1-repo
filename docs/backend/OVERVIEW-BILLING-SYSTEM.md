@@ -28,7 +28,7 @@ a configurable value stored in Firestore.
 [Mobile iOS] → StoreKit 2 purchase
     → POST /api/v1/iap/verify-receipt
     → verify JWS signature (Apple root CAs)
-    → addWalletTopUp() → Firestore billingContexts.walletBalanceCents
+    → addWalletTopUp() → Firestore BillingContexts.walletBalanceCents
 
 [User triggers AI job]
     → estimateMaxCost() ← Gas-station pre-auth (worst-case estimate)
@@ -82,7 +82,7 @@ Manages a hierarchical budget structure:
 
 **Firestore collections used:**
 
-- `billingContexts` — per-user billing state (`walletBalanceCents`,
+- `BillingContexts` — per-user billing state (`walletBalanceCents`,
   `currentPeriodSpend`, `monthlyBudget`, `paymentProvider`)
 
 ---
@@ -94,7 +94,7 @@ collection (`wallets`). Provides a clean interface for top-up, deduct, check
 balance, and refund operations — all using Firestore transactions for atomicity.
 
 > Note: `budget.service.ts` also manages `walletBalanceCents` on
-> `billingContexts`. `wallet.service.ts` manages a parallel, lightweight
+> `BillingContexts`. `wallet.service.ts` manages a parallel, lightweight
 > `wallets` collection. Both are in sync via `iap.routes.ts` calling
 > `addWalletTopUp()` from `budget.service.ts`.
 
@@ -162,7 +162,7 @@ multiplier can be updated at runtime via admin API — no code deploy needed.
 | `calculateChargeAmount`    | `(db, actualCostUsd, feature) → ChargeCalculation`                         | Main pricing function. Reads the multiplier (feature-specific override first, then default), computes `charge = actualCostUsd × multiplier`, and rounds up to the nearest cent to protect margin. Returns full breakdown object. |
 | `estimateChargeAmountSync` | `(estimatedCostUsd, multiplier?) → { chargeAmountUsd, chargeAmountCents }` | Synchronous estimate — no DB read. Used for pre-task budget gates where latency matters and exact cost isn't available yet. Defaults to `3.0×` multiplier.                                                                       |
 
-**Pricing config in Firestore** (`pricingConfig/default`):
+**Pricing config in Firestore** (`PricingConfig/default`):
 
 ```json
 {
@@ -225,7 +225,7 @@ aborts early or errors out.
 
 ### 8. `usage.service.ts`
 
-**Purpose:** Creates and tracks `usageEvents` in Firestore. Every billable
+**Purpose:** Creates and tracks `UsageEvents` in Firestore. Every billable
 action generates a usage event that goes through a state machine
 (`PENDING → PROCESSING → SENT / FAILED`) and is forwarded to Stripe async via
 Pub/Sub.
@@ -238,7 +238,7 @@ Pub/Sub.
 | `getUserUsageEvents`     | `(db, userId, limit) → UsageEvent[]` | Fetch the latest usage events for a user, ordered by creation time descending.                                                                                                                                     |
 | `getTeamUsageEvents`     | `(db, teamId, limit) → UsageEvent[]` | Fetch usage events for a team.                                                                                                                                                                                     |
 
-**Firestore collection:** `usageEvents`  
+**Firestore collection:** `UsageEvents`  
 **Pub/Sub topic:** `usage-events`
 
 ---
@@ -257,7 +257,7 @@ this service.
 | `createInvoiceItem`   | `(customerId, amount, description, environment) → CreateInvoiceItemResult` | Add a line item to the customer's pending Stripe invoice.                                                                                                                        |
 | `generateInvoice`     | `(customerId, environment) → GenerateInvoiceResult`                        | Finalize and send the Stripe invoice. Triggers `invoice.finalized` webhook.                                                                                                      |
 
-**Firestore collection:** `stripeCustomers`
+**Firestore collection:** `StripeCustomers`
 
 ---
 
@@ -270,11 +270,11 @@ audit.
 | Function                 | Signature                                          | Description                                                                                                                                   |
 | ------------------------ | -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
 | `verifyWebhookSignature` | `(payload, signature, environment) → Stripe.Event` | Use `stripe.webhooks.constructEvent()` to verify the `Stripe-Signature` header. Throws if the signature is invalid — prevents replay attacks. |
-| `handleInvoiceFinalized` | `(db, invoice, environment) → void`                | Called when Stripe finalizes an invoice. Logs to `paymentLogs` collection.                                                                    |
+| `handleInvoiceFinalized` | `(db, invoice, environment) → void`                | Called when Stripe finalizes an invoice. Logs to `PaymentLogs` collection.                                                                    |
 | `handlePaymentSucceeded` | `(db, invoice, environment) → void`                | Called when payment is collected. Updates billing status and sends notification to user.                                                      |
 | `handlePaymentFailed`    | `(db, invoice, environment) → void`                | Called when payment fails. Logs failure and sends alert to org admin.                                                                         |
 
-**Firestore collection:** `paymentLogs`  
+**Firestore collection:** `PaymentLogs`  
 **Stripe events handled:** `invoice.finalized`, `invoice.payment_succeeded`,
 `invoice.payment_failed`
 
@@ -319,10 +319,10 @@ environment setup, price ID mapping, and retry policy.
 
 ### `iap.routes.ts`
 
-| Method | Path                         | Auth             | Description                                                                                                                                                                                                                                                  |
-| ------ | ---------------------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `POST` | `/api/v1/iap/verify-receipt` | `appGuard`       | Called by iOS app after a StoreKit 2 purchase. Body: `{ jwsTransaction: string }`. Verifies the JWS signature with Apple root CAs, maps `productId` to cents, guards against replay via `iap_processed_transactions`, credits wallet via `addWalletTopUp()`. |
-| `POST` | `/api/v1/iap/webhook`        | none (Apple S2S) | Apple App Store Server Notifications V2. Verifies the signed payload, handles `REFUND` events by calling `processWalletRefund()`. Always returns `200` to prevent Apple retry storms.                                                                        |
+| Method | Path                         | Auth             | Description                                                                                                                                                                                                                                                |
+| ------ | ---------------------------- | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST` | `/api/v1/iap/verify-receipt` | `appGuard`       | Called by iOS app after a StoreKit 2 purchase. Body: `{ jwsTransaction: string }`. Verifies the JWS signature with Apple root CAs, maps `productId` to cents, guards against replay via `IapProcessedTransactions`, credits wallet via `addWalletTopUp()`. |
+| `POST` | `/api/v1/iap/webhook`        | none (Apple S2S) | Apple App Store Server Notifications V2. Verifies the signed payload, handles `REFUND` events by calling `processWalletRefund()`. Always returns `200` to prevent Apple retry storms.                                                                      |
 
 **Product ID mapping** (defined in `iap.routes.ts`):
 
@@ -352,17 +352,17 @@ environment setup, price ID mapping, and retry policy.
 
 ## Firestore Collections Summary
 
-| Collection                   | Key                   | Purpose                                                                 |
-| ---------------------------- | --------------------- | ----------------------------------------------------------------------- |
-| `billingContexts`            | `userId`              | Central billing state (budget, spend, wallet balance, payment provider) |
-| `wallets`                    | `userId`              | Lightweight wallet balance (used by `wallet.service.ts`)                |
-| `usageEvents`                | auto-id               | All billable usage events with state machine                            |
-| `stripeCustomers`            | auto-id               | Stripe customer ID cache per user/environment                           |
-| `paymentLogs`                | auto-id               | Raw Stripe webhook event data                                           |
-| `iap_processed_transactions` | Apple `transactionId` | Idempotency guard for IAP receipts                                      |
-| `iapLogs`                    | Apple `transactionId` | Idempotency guard used by `wallet.service.ts`                           |
-| `walletRefunds`              | auto-id               | Audit log of all wallet refunds                                         |
-| `pricingConfig`              | `default`             | Multiplier config (`defaultMultiplier`, `featureOverrides`)             |
+| Collection                 | Key                   | Purpose                                                                 |
+| -------------------------- | --------------------- | ----------------------------------------------------------------------- |
+| `BillingContexts`          | `userId`              | Central billing state (budget, spend, wallet balance, payment provider) |
+| `wallets`                  | `userId`              | Lightweight wallet balance (used by `wallet.service.ts`)                |
+| `UsageEvents`              | auto-id               | All billable usage events with state machine                            |
+| `StripeCustomers`          | auto-id               | Stripe customer ID cache per user/environment                           |
+| `PaymentLogs`              | auto-id               | Raw Stripe webhook event data                                           |
+| `IapProcessedTransactions` | Apple `transactionId` | Idempotency guard for IAP receipts                                      |
+| `iapLogs`                  | Apple `transactionId` | Idempotency guard used by `wallet.service.ts`                           |
+| `walletRefunds`            | auto-id               | Audit log of all wallet refunds                                         |
+| `PricingConfig`            | `default`             | Multiplier config (`defaultMultiplier`, `featureOverrides`)             |
 
 ---
 

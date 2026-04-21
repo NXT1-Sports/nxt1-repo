@@ -467,10 +467,8 @@ export function buildUserUpdatePayload(state: OnboardingPersistenceState): Recor
     payload['contact'] = { phone: formData.profile.phoneNumber };
   }
 
-  // =========== SOCIAL & CONNECTED SOURCES ===========
-  // Social platforms (instagram, twitter, tiktok, youtube) → social{}
-  // Data platforms (hudl, maxpreps, etc.) → connectedSources[]
-  const socialData: Record<string, string | undefined> = {};
+  // =========== CONNECTED SOURCES ===========
+  // All platforms (instagram, twitter, hudl, maxpreps, etc.) → connectedSources[]
   const connectedSourcesList: Array<{
     platform: string;
     profileUrl: string;
@@ -479,27 +477,11 @@ export function buildUserUpdatePayload(state: OnboardingPersistenceState): Recor
     scopeId?: string;
   }> = [];
 
-  const socialPlatformIds = new Set([
-    'instagram',
-    'twitter',
-    'tiktok',
-    'youtube',
-    'snapchat',
-    'facebook',
-    'linkedin',
-    'threads',
-  ]);
-
   for (const link of formData.linkSources?.links ?? []) {
     if (!link.connected || link.connectionType === 'signin') continue;
 
     const value = link.url?.trim() || link.username?.trim();
     if (!value) continue;
-
-    if (socialPlatformIds.has(link.platform)) {
-      socialData[link.platform] = value;
-      continue;
-    }
 
     connectedSourcesList.push({
       platform: link.platform,
@@ -510,9 +492,6 @@ export function buildUserUpdatePayload(state: OnboardingPersistenceState): Recor
     });
   }
 
-  if (Object.keys(socialData).length > 0) {
-    payload['social'] = socialData;
-  }
   if (connectedSourcesList.length > 0) {
     payload['connectedSources'] = connectedSourcesList;
   }
@@ -591,11 +570,8 @@ export function buildUserUpdatePayload(state: OnboardingPersistenceState): Recor
   }
 
   // =========== PREFERENCES ===========
-  // NOTE: Preferences are written by the backend during onboarding
-  // completion (POST /auth/profile/onboarding). The frontend payload
-  // only includes non-preference fields. If the backend hasn't
-  // provisioned preferences yet, the GET /settings/preferences
-  // endpoint returns canonical defaults (marketing: true, etc.).
+  // Keep direct Firestore onboarding writes aligned with the backend
+  // /auth/profile/onboarding route and the /settings/preferences contract.
   payload['preferences'] = {
     notifications: {
       push: true,
@@ -603,6 +579,10 @@ export function buildUserUpdatePayload(state: OnboardingPersistenceState): Recor
       marketing: true,
     },
     activityTracking: true,
+    analyticsTracking: true,
+    biometricLogin: false,
+    dismissedPrompts: [],
+    defaultSportIndex: 0,
     theme: 'system',
   };
 

@@ -213,11 +213,11 @@ export class DynamicExportTool extends BaseTool {
       const timestamp = Date.now();
       const hash = createHash('md5').update(buffer).digest('hex').slice(0, 8);
 
-      // Thread-scoped path (auto-cleanup on thread deletion).
-      // Falls back to user-scoped exports/ when no thread context is available.
-      const storagePath = threadId
-        ? `users/${userId}/threads/${threadId}/exports/${timestamp}-${hash}.${extension}`
-        : `users/${userId}/exports/${timestamp}-${hash}.${extension}`;
+      // Thread-scoped path (auto-cleanup on thread deletion). threadId required.
+      if (!threadId) {
+        throw new Error('Export cannot be saved — no threadId in context');
+      }
+      const storagePath = `Users/${userId}/threads/${threadId}/exports/${timestamp}-${hash}.${extension}`;
 
       const bucket = getStorage().bucket();
       const file = bucket.file(storagePath);

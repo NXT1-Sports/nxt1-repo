@@ -385,45 +385,37 @@ export const DEFAULT_SOCIAL_LINKS: SocialLink[] = [
 /**
  * Default sidenav items for NXT1 application.
  * Can be used directly or as a template for customization.
- * Structure: Profile, Analytics, Settings, Help Center
  */
 export const DEFAULT_SIDENAV_ITEMS: SidenavSection[] = [
   {
-    id: 'main',
+    id: 'quick-actions',
+    layout: 'grid',
     items: [
-      {
-        id: 'connections',
-        label: 'Connections',
-        icon: 'link',
-        route: '/post/create',
-      },
-      // { id: 'analytics', label: 'Analytics', icon: 'barChart', route: '/analytics' },
       {
         id: 'invite-team',
         label: 'Invite team',
+        shortLabel: 'Invite',
         icon: 'plusCircle',
         action: 'invite-team',
       },
-    ],
-  },
-  {
-    id: 'support',
-    items: [
       {
         id: 'usage',
         label: 'Usage',
+        shortLabel: 'Usage',
         icon: 'creditCard',
         route: '/usage',
       },
       {
         id: 'help-center',
         label: 'Help Center',
+        shortLabel: 'Help',
         icon: 'help',
         route: '/help-center',
       },
       {
         id: 'settings',
         label: 'Settings',
+        shortLabel: 'Settings',
         icon: 'settings',
         route: '/settings',
       },

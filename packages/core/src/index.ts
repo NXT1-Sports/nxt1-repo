@@ -99,7 +99,6 @@ export {
   type Subscription,
   type NotificationPreferences,
   type UserPreferences,
-  type UserCounters,
   type AthleteData,
   type CoachData,
   type DirectorData,
@@ -279,8 +278,11 @@ export {
   buildTeamSlug,
   type CanonicalProfilePathInput,
   type CanonicalTeamPathInput,
+  type ResolveCanonicalTeamRouteInput,
+  type ResolvedCanonicalTeamRoute,
   buildCanonicalProfilePath,
   buildCanonicalTeamPath,
+  resolveCanonicalTeamRoute,
   camelToTitle,
   kebabToTitle,
   formatFullName,
@@ -541,6 +543,18 @@ export {
   buildInviteShareTitle,
   buildInviteShareText,
   buildInviteUiCopy,
+  formatReferralReward,
+  DEFAULT_REFERRAL_REWARD_CENTS,
+  // UTM tracking
+  UTM_SOURCE,
+  UTM_MEDIUM,
+  UTM_CAMPAIGN,
+  type UTMSource,
+  type UTMMedium,
+  type UTMCampaign,
+  type UTMParams,
+  appendUTMParams,
+  buildUTMShareUrl,
 } from './seo';
 
 // ============================================
@@ -778,7 +792,6 @@ export {
   type TeamProfileTeam,
   type TeamProfileRecord,
   type TeamProfileBranding,
-  type TeamProfileSocialLink,
   type TeamProfileContact,
   type TeamProfileLinks,
   type TeamProfileSponsor,
@@ -796,6 +809,13 @@ export {
   type TeamProfilePost,
   type TeamProfileHeaderAction,
   type TeamProfilePageData,
+  // Timeline
+  type TeamTimelineFilterId,
+  type TeamTimelineFilter,
+  type TeamTimelineParams,
+  type TeamTimelineResponse,
+  TEAM_TIMELINE_FILTERS,
+  TEAM_TIMELINE_DEFAULT_FILTER,
   // Constants
   TEAM_PROFILE_TABS,
   TEAM_PROFILE_DEFAULT_TAB,
@@ -1001,9 +1021,6 @@ export * from './scout-reports';
 export {
   // Post types
   type FeedPostType,
-  type FeedPostVisibility,
-  type FeedAuthorRole,
-  type FeedVerificationStatus,
   // Author types
   type FeedAuthor,
   // Media types
@@ -1025,13 +1042,9 @@ export {
   type FeedAcademicData,
   // Engagement types
   type FeedEngagement,
-  type FeedUserEngagement,
-  type FeedReactionType,
   // Tag types
   type FeedPostTagType,
   type FeedPostTag,
-  // Repost types
-  type FeedRepostData,
   // Main post type
   type FeedPost,
   // Filter types
@@ -1041,15 +1054,12 @@ export {
   type FeedResponse,
   type FeedPostResponse,
   type FeedActionResponse,
-  // Comment types
-  type FeedCommentAuthor,
-  type FeedComment,
-  type FeedCommentsResponse,
   // Polymorphic feed item types (2026 standard)
   type FeedItemType,
   type FeedItemBase,
   type FeedItemPost,
   type FeedItemEvent,
+  type FeedItemSchedule,
   type FeedItemStat,
   type FeedItemMetric,
   type FeedItemOffer,
@@ -1064,6 +1074,7 @@ export {
   type FeedItem,
   isFeedItemPost,
   isFeedItemEvent,
+  isFeedItemSchedule,
   isFeedItemStat,
   isFeedItemSharedReference,
   type FeedItemResponse,
@@ -1097,6 +1108,7 @@ export {
   // Polymorphic mappers (2026 standard)
   feedPostToFeedItem,
   eventDocToFeedItemEvent,
+  scheduleDocToFeedItemSchedule,
   statDocToFeedItemStat,
   recruitingDocToFeedItemVariant,
   metricGroupToFeedItemMetric,
@@ -1104,7 +1116,7 @@ export {
   profileOfferToFeedItemOffer,
   profileEventToFeedItemVariant,
   buildPolymorphicActivityFeed,
-} from './feed';
+} from './posts';
 
 // ============================================
 // NEWS (Sports Recruiting News)
@@ -1256,29 +1268,19 @@ export {
   type EditProfileField,
   type EditProfileFieldOption,
   type EditProfileFieldValidation,
-  type ProfileCompletionTier,
-  type ProfileCompletionData,
-  type SectionCompletionData,
-  type ProfileAchievement,
   type EditProfileBasicInfo,
   type EditProfilePhotos,
   type EditProfileSportsInfo,
   type EditProfileAcademics,
   type EditProfilePhysical,
-  type EditProfileSocialLinks,
-  type EditProfileSocialLinkEntry,
   type EditProfileContact,
   type EditProfileFormData,
   type EditProfileUpdateResponse,
   type EditProfileData,
   type EditProfileState,
   // Constants
-  PROFILE_COMPLETION_TIERS,
-  getCompletionTier,
-  getNextTier,
   EDIT_PROFILE_SECTIONS,
   getEditProfileSection,
-  EDIT_PROFILE_XP_REWARDS,
   EDIT_PROFILE_VALIDATION,
   // API Factory
   createEditProfileApi,

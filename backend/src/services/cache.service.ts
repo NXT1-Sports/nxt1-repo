@@ -100,7 +100,7 @@ function msToSeconds(ms: number): number {
  * - RANKINGS/LEADERBOARDS: Semi-static → LONG_TTL (1 hour)
  * - SEARCH/TRENDING: Semi-static → MEDIUM_TTL (15 minutes)
  * - PROFILES: User data, can change → MEDIUM_TTL (15 minutes)
- * - FEED/POSTS/COMMENTS: Fast-changing → SHORT_TTL (1 minute)
+ * - FEED/POSTS: Fast-changing → SHORT_TTL (1 minute)
  */
 export const CACHE_TTL = {
   // Static data (admin-managed) — 24 hours
@@ -120,7 +120,6 @@ export const CACHE_TTL = {
   // Fast-changing content
   FEED: msToSeconds(CACHE_CONFIG.SHORT_TTL * 2),
   POSTS: msToSeconds(CACHE_CONFIG.SHORT_TTL * 3),
-  COMMENTS: msToSeconds(CACHE_CONFIG.SHORT_TTL),
 
   // Counts/stats
   COUNTS: msToSeconds(CACHE_CONFIG.SHORT_TTL),

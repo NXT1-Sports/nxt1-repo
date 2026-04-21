@@ -5,3 +5,4 @@
 
 export * from './usage-event.types.js';
 export * from './stripe.types.js';
+export * from './normalized-billing.types.js';

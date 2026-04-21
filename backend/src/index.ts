@@ -35,10 +35,8 @@ import {
 
 // Routes
 import authRoutes from './routes/auth.routes.js';
-import uploadRoutes from './routes/upload.routes.js';
+import uploadRoutes from './routes/upload/index.js';
 import sitemapRoutes from './routes/sitemap.routes.js';
-import feedRoutes from './routes/feed.routes.js';
-import exploreRoutes from './routes/explore.routes.js';
 import activityRoutes from './routes/activity.routes.js';
 import analyticsRoutes from './routes/analytics.routes.js';
 import pulseRoutes from './routes/pulse.routes.js';
@@ -46,7 +44,7 @@ import inviteRoutes from './routes/invite.routes.js';
 import settingsRoutes from './routes/settings.routes.js';
 import helpCenterRoutes from './routes/help-center.routes.js';
 import editProfileRoutes from './routes/edit-profile.routes.js';
-import agentXRoutes from './routes/agent-x.routes.js';
+import agentXRoutes from './routes/agent-x/index.js';
 import messagesRoutes from './routes/messages.routes.js';
 
 import { bootstrapAgentQueue } from './modules/agent/queue/bootstrap.js';
@@ -56,13 +54,17 @@ import { ensureTopicExists } from './modules/billing/index.js';
 import programsRoutes from './routes/programs.routes.js';
 // Billing routes
 import billingRoutes from './routes/billing.routes.js';
-import webhookRoutes, { webhookRawBodyMiddleware } from './routes/webhook.routes.js';
-import sentryWebhookRoutes from './routes/sentry-webhook.routes.js';
-import heliconeRoutes from './routes/helicone.routes.js';
+import {
+  webhookRoutes,
+  webhookRawBodyMiddleware,
+  sentryWebhookRoutes,
+  heliconeRoutes,
+  cloudflareWebhookRoutes,
+} from './routes/webhooks/index.js';
 import usageRoutes from './routes/usage.routes.js';
 import iapRoutes from './routes/iap.routes.js';
-import cloudflareWebhookRoutes from './routes/cloudflare-webhook.routes.js';
 import teamsRoutes from './routes/teams.routes.js';
+import engagementRoutes from './routes/engagement.routes.js';
 // Staging-only dev utilities
 
 const app: ReturnType<typeof express> = express();
@@ -278,8 +280,6 @@ async function setupApplication() {
     // Invite links/QR flows need to stay frictionless for coaches and team admins.
     { path: '/invite', handler: inviteRoutes },
     // Content routes with standard API rate limiting
-    { path: '/feed', rateLimitType: 'api', handler: feedRoutes },
-    { path: '/explore', rateLimitType: 'api', handler: exploreRoutes },
     { path: '/activity', rateLimitType: 'api', handler: activityRoutes },
     { path: '/analytics', rateLimitType: 'api', handler: analyticsRoutes },
     { path: '/pulse', rateLimitType: 'api', handler: pulseRoutes },
@@ -306,6 +306,8 @@ async function setupApplication() {
     { path: '/cloudflare-webhook', rateLimitType: 'api', handler: cloudflareWebhookRoutes },
     // Team profile routes
     { path: '/teams', rateLimitType: 'api', handler: teamsRoutes },
+    // Universal feed item engagement (share + view impression tracking — all types)
+    { path: '/engagement', rateLimitType: 'api', handler: engagementRoutes },
     // SSR routes with lighter limits (for SEO crawlers)
   ];
 

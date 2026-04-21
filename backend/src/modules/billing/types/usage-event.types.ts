@@ -6,6 +6,10 @@
  */
 
 import type { Timestamp } from 'firebase-admin/firestore';
+import type { BillingMode, BudgetInterval } from '@nxt1/core/usage';
+
+// NOTE: UsageEvent and PaymentLog use plain Date (MongoDB). All other interfaces
+// (BillingState, StripeCustomer, WalletHold, etc.) keep Firestore Timestamp.
 
 /**
  * Billable features — aligned with USAGE_PRODUCT_CONFIGS in @nxt1/core/usage
@@ -63,7 +67,7 @@ export enum UsageEventStatus {
 export type UsageCostType = 'static' | 'dynamic';
 
 /**
- * Usage event stored in Firestore (SOURCE OF TRUTH)
+ * Usage event stored in MongoDB via Mongoose (SOURCE OF TRUTH)
  */
 export interface UsageEvent {
   /** Unique event ID */
@@ -115,16 +119,16 @@ export interface UsageEvent {
   retryCount?: number;
 
   /** Last retry timestamp */
-  lastRetryAt?: Timestamp;
+  lastRetryAt?: Date;
 
   /** Metadata for debugging */
   metadata?: Record<string, unknown>;
 
-  /** Created timestamp */
-  createdAt: Timestamp;
+  /** Created timestamp (plain Date — stored in MongoDB) */
+  createdAt: Date;
 
-  /** Updated timestamp */
-  updatedAt: Timestamp;
+  /** Updated timestamp (plain Date — stored in MongoDB) */
+  updatedAt: Date;
 }
 
 /**
@@ -221,8 +225,8 @@ export interface PaymentLog {
   /** Raw Stripe event data */
   rawEvent: Record<string, unknown>;
 
-  /** Created timestamp */
-  createdAt: Timestamp;
+  /** Created timestamp (plain Date — stored in MongoDB) */
+  createdAt: Date;
 }
 
 /**
@@ -237,19 +241,22 @@ export interface UsageEventMessage {
 // BILLING CONTEXT (Org vs Individual)
 // ============================================
 
-/** Who pays: the individual user, a team sub-allocation, or the parent organization */
-export type BillingEntity = 'individual' | 'team' | 'organization';
+/** Who pays: the individual user or the parent organization */
+export type BillingEntity = 'individual' | 'organization';
 
-/** How this billing context is funded */
+/** How this billing state is funded */
 export type PaymentProvider = 'stripe' | 'iap';
 
 /**
- * Billing context stored per user in Firestore (`billingContexts` collection).
+ * Resolved billing state projected from normalized wallet, preference, and ledger documents.
  * Determines whether a user's usage is billed to them or to their organization.
  */
-export interface BillingContext {
-  /** Firebase Auth UID */
-  userId: string;
+export interface BillingState {
+  /** Firebase Auth UID for individual-user billing contexts */
+  userId?: string;
+
+  /** Organization admin UID that owns billing setup for organization aggregate docs */
+  billingOwnerUid?: string;
 
   /** The team this user belongs to (if any) */
   teamId?: string;
@@ -257,8 +264,14 @@ export interface BillingContext {
   /** The organization that pays (if billingEntity is 'organization') */
   organizationId?: string;
 
+  /** Current wallet-routing mode for new charges */
+  billingMode?: BillingMode;
+
   /** Who is billed for this user's usage */
   billingEntity: BillingEntity;
+
+  /** Budget cadence for the current spending window */
+  budgetInterval?: BudgetInterval;
 
   /** Monthly spending budget in cents */
   monthlyBudget: number;
@@ -284,24 +297,42 @@ export interface BillingContext {
   /** Whether the IAP wallet user has been notified of a low balance */
   iapLowBalanceNotified: boolean;
 
+  /** Whether budget-threshold notifications are enabled for this billing context */
+  budgetAlertsEnabled?: boolean;
+
+  /** Wallet balance captured after the latest top-up, used for credits-low thresholds */
+  creditsAlertBaselineCents?: number;
+
+  /** Total rewarded individual referrals credited to this billing context */
+  totalReferralRewards?: number;
+
+  /** Whether the 80% remaining credits alert has fired for the current baseline */
+  creditsNotified80?: boolean;
+
+  /** Whether the 50% remaining credits alert has fired for the current baseline */
+  creditsNotified50?: boolean;
+
+  /** Whether the 25% remaining credits alert has fired for the current baseline */
+  creditsNotified25?: boolean;
+
   /** Whether the budget hard-stop is enabled (stops tasks at 100%) */
   hardStop: boolean;
 
-  /** How this context is funded ('stripe' = post-paid, 'iap' = pre-paid wallet) */
+  /** How this context is funded ('stripe' = post-paid/org wallet, 'iap' = personal prepaid wallet) */
   paymentProvider: PaymentProvider;
 
   /**
-   * Pre-paid wallet balance in cents (IAP users only).
-   * Decremented on each usage event. Rolls over indefinitely (no monthly reset).
-   * Ignored for stripe-billed entities.
+   * Pre-paid wallet balance in cents.
+   * For 'iap' individual users: decremented on each usage event.
+   * For 'organization' / 'team' entities: decremented via deductOrgWallet.
+   * Rolls over indefinitely (no monthly reset).
    */
   walletBalanceCents: number;
 
   /**
-   * Pending hold amount in cents (IAP users only).
-   * Represents funds that have been reserved by in-flight AI operations
-   * but not yet captured. Prevents race conditions where parallel requests
-   * all pass the balance check simultaneously.
+   * Pending hold amount in cents.
+   * Represents funds reserved by in-flight AI operations but not yet captured.
+   * Prevents race conditions where parallel requests all pass the balance check simultaneously.
    */
   pendingHoldsCents: number;
 
@@ -311,6 +342,28 @@ export interface BillingContext {
    * For example, default orgs can be named "Starter budget".
    */
   budgetName?: string;
+
+  /** Whether auto top-up is enabled for this billing context */
+  autoTopUpEnabled?: boolean;
+
+  /** Wallet balance threshold in cents that triggers an auto top-up */
+  autoTopUpThresholdCents?: number;
+
+  /** Amount in cents to reload when auto top-up fires */
+  autoTopUpAmountCents?: number;
+
+  /**
+   * True while an auto top-up Stripe charge is in-flight.
+   * Prevents duplicate charges when multiple deductions fire in quick succession.
+   */
+  autoTopUpInProgress?: boolean;
+
+  /**
+   * Server timestamp set when autoTopUpInProgress is locked.
+   * Used to detect and recover from stale locks caused by process crashes.
+   * Any lock held for more than 5 minutes is treated as expired.
+   */
+  autoTopUpLockedAt?: Timestamp;
 
   /** Created timestamp */
   createdAt: Timestamp;
@@ -329,6 +382,9 @@ export interface TeamBudgetAllocation {
 
   /** Parent organization ID */
   organizationId: string;
+
+  /** Budget cadence for this team allocation */
+  budgetInterval?: BudgetInterval;
 
   /** Monthly sub-limit in cents (0 = no sub-limit, draws from org pool) */
   monthlyLimit: number;
@@ -358,19 +414,70 @@ export interface TeamBudgetAllocation {
   updatedAt: Timestamp;
 }
 
+/**
+ * Organization-owned budget document.
+ * Each document represents exactly one target + cadence pair.
+ */
+export interface OrganizationBudgetDocument {
+  /** Document ID */
+  id: string;
+
+  /** Parent organization ID */
+  organizationId: string;
+
+  /** Budget target type */
+  targetType: 'organization' | 'team';
+
+  /** Target identifier — orgId for org budgets, teamId for team budgets */
+  targetId: string;
+
+  /** Budget cadence */
+  budgetInterval: BudgetInterval;
+
+  /** Limit in cents */
+  budgetLimit: number;
+
+  /** Whether this budget blocks usage when the limit is exceeded */
+  hardStop: boolean;
+
+  /** Accumulated spend this period */
+  currentPeriodSpend: number;
+
+  /** Current billing window start */
+  periodStart: string;
+
+  /** Current billing window end */
+  periodEnd: string;
+
+  /** Alert flags */
+  notified50: boolean;
+  notified80: boolean;
+  notified100: boolean;
+
+  /** Created timestamp */
+  createdAt: Timestamp;
+
+  /** Updated timestamp */
+  updatedAt: Timestamp;
+}
+
 // ============================================
 // BUDGET DEFAULTS
 // ============================================
 
 /**
  * Wallet hold — a temporary reservation of funds for an in-flight AI operation.
- * Stored in Firestore `walletHolds` collection.
+ * Stored in Firestore `WalletHolds` collection.
  */
 export interface WalletHold {
   /** Hold document ID */
   id: string;
   /** User who owns this hold */
   userId: string;
+  /** Billing owner ID for the reserved wallet */
+  ownerId?: string;
+  /** Billing owner type for the reserved wallet */
+  ownerType?: 'individual' | 'organization';
   /** Organization ID — set for org-entity users so hold ops update org master budget */
   organizationId?: string;
   /** Team ID — set for org-entity users with team sub-allocations */
@@ -404,13 +511,19 @@ export interface WalletHoldResult {
 }
 
 /** Default monthly budget for individual accounts (in cents) */
-export const DEFAULT_INDIVIDUAL_BUDGET = 500; // $5
+export const DEFAULT_INDIVIDUAL_BUDGET = 0;
+
+/** Fallback starter wallet balance for individual accounts (in cents) when AppConfig is unset */
+export const DEFAULT_INDIVIDUAL_STARTER_BALANCE = 500; // $5
 
 /** Default monthly budget for team/organization accounts (in cents) */
 export const DEFAULT_TEAM_BUDGET = 20000; // $200
 
 /** Default monthly budget for organization accounts (in cents) */
-export const DEFAULT_ORGANIZATION_BUDGET = 2000; // $20
+export const DEFAULT_ORGANIZATION_BUDGET = 0;
+
+/** Fallback starter wallet balance for organization accounts (in cents) when AppConfig is unset */
+export const DEFAULT_ORGANIZATION_STARTER_BALANCE = 2000; // $20
 
 /** Budget alert thresholds as percentages */
 export const BUDGET_ALERT_THRESHOLDS = [50, 80, 100] as const;

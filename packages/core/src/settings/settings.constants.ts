@@ -455,6 +455,7 @@ export const SETTINGS_API_ENDPOINTS = {
   UPDATE_PREFERENCES: '/api/v1/settings/preferences',
   UPDATE_PROFILE: '/api/v1/settings/profile',
   CHANGE_PASSWORD: '/api/v1/settings/password',
+  PASSWORD_CHANGED: '/api/v1/settings/password-changed',
   DELETE_ACCOUNT: '/api/v1/settings/account',
   GET_SUBSCRIPTION: '/api/v1/settings/subscription',
   GET_USAGE: '/api/v1/settings/usage',

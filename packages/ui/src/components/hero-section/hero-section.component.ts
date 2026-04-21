@@ -27,7 +27,7 @@
  *   secondaryCtaLabel="Log In"
  *   secondaryCtaRoute="/auth"
  * >
- *   <nxt1-analytics-dashboard-preview />
+ *   <app-feature-preview />
  * </nxt1-hero-section>
  * ```
  */

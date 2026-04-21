@@ -85,6 +85,16 @@ export {
 } from './manage-team.constants';
 
 // ============================================
+// HELPERS
+// ============================================
+
+export {
+  applyManageTeamFieldChange,
+  buildManageTeamUpdatePayload,
+  type ManageTeamUpdatePayload,
+} from './manage-team.helpers';
+
+// ============================================
 // API
 // ============================================
 

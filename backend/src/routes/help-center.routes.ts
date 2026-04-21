@@ -24,10 +24,9 @@ const router: ExpressRouter = Router();
  * Get help center home page data
  * GET /api/v1/help-center
  */
-router.get('/', optionalAuth, async (req: Request, res: Response): Promise<void> => {
+router.get('/', optionalAuth, async (_req: Request, res: Response): Promise<void> => {
   try {
-    const userType = (req.query['userType'] as string) || undefined;
-    const data = await helpCenterService.getHome(userType);
+    const data = await helpCenterService.getHome();
 
     res.json({ success: true, data });
   } catch (err) {
@@ -45,9 +44,8 @@ router.get('/categories/:id', optionalAuth, async (req: Request, res: Response):
     const categoryId = req.params['id'] as HelpCategoryId;
     const page = Math.max(1, parseInt(req.query['page'] as string) || 1);
     const limit = Math.min(50, Math.max(1, parseInt(req.query['limit'] as string) || 12));
-    const userType = (req.query['userType'] as string) || undefined;
 
-    const data = await helpCenterService.getCategoryDetail(categoryId, page, limit, userType);
+    const data = await helpCenterService.getCategoryDetail(categoryId, page, limit);
 
     if (!data) {
       res.status(404).json({ success: false, error: `Category "${categoryId}" not found` });

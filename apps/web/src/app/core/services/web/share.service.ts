@@ -20,6 +20,8 @@ import {
   type ShareablePost,
   type ShareableContent,
   buildShareUrl,
+  buildUTMShareUrl,
+  UTM_MEDIUM,
   buildArticleShareTitle,
   buildArticleShareText,
   buildArticleShareDescription,
@@ -188,7 +190,7 @@ export class ShareService {
       return { completed: false, error: 'Sharing is only available in the browser' };
     }
 
-    const url = buildShareUrl(content);
+    const url = this.buildShareDestinationUrl(content);
     const title = options?.title || content.title;
     const text = options?.text || content.description;
 
@@ -196,6 +198,25 @@ export class ShareService {
     this.trackShareEvent(content, result, options);
 
     return result;
+  }
+
+  async copy(text: string, showFeedback: boolean = true): Promise<boolean> {
+    const result = await this.copyToClipboard(text, showFeedback);
+    return result.completed;
+  }
+
+  private buildShareDestinationUrl(content: ShareableContent, medium = UTM_MEDIUM.SHARE): string {
+    const origin = this.isBrowser
+      ? (globalThis.location?.origin ?? 'https://nxt1sports.com')
+      : 'https://nxt1sports.com';
+
+    const url = buildShareUrl(content, origin);
+    const sportContent =
+      'sport' in content && typeof content.sport === 'string'
+        ? content.sport.toLowerCase()
+        : undefined;
+
+    return buildUTMShareUrl(url, medium, content.type, sportContent);
   }
 
   // ============================================
@@ -233,16 +254,23 @@ export class ShareService {
     return this.copyToClipboard(shareOptions.url || shareOptions.text || '');
   }
 
-  private async copyToClipboard(text: string): Promise<ShareResultData> {
+  private async copyToClipboard(
+    text: string,
+    showFeedback: boolean = true
+  ): Promise<ShareResultData> {
     try {
       if (navigator.clipboard?.writeText) {
         await navigator.clipboard.writeText(text);
       }
-      this.toast.success('Share link copied.');
+      if (showFeedback) {
+        this.toast.success('Share link copied.');
+      }
       this.logger.info('Share fallback: copy link');
       return { completed: true, method: 'copy_link' };
     } catch (error) {
-      this.toast.error("Couldn't copy the share link.");
+      if (showFeedback) {
+        this.toast.error("Couldn't copy the share link.");
+      }
       this.logger.warn('Share fallback copy failed', { error });
       return {
         completed: false,

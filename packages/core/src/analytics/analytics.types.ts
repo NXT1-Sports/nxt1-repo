@@ -1,6 +1,6 @@
 /**
  * @fileoverview Analytics Types
- * @module @nxt1/core/analytics-dashboard
+ * @module @nxt1/core/analytics
  *
  * Pure TypeScript types for the analytics feature.
  * Used by both the backend service and frontend display.
@@ -111,11 +111,9 @@ export interface VideoAnalytics {
 /** Analytics for a single post. */
 export interface PostAnalytics {
   readonly id: string;
-  readonly type: 'text' | 'image' | 'video' | 'graphic' | 'highlight';
+  readonly type: 'text' | 'image' | 'video' | 'graphic';
   readonly previewUrl?: string;
   readonly impressions: number;
-  readonly likes: number;
-  readonly comments: number;
   readonly shares: number;
   readonly engagementRate: number;
   readonly createdAt: string;
@@ -131,45 +129,6 @@ export interface RecruitingMilestone {
   readonly label: string;
   readonly achieved: boolean;
   readonly achievedAt?: string;
-}
-
-// ============================================
-// COACH / TEAM ANALYTICS
-// ============================================
-
-/** Per-athlete stats within a coach's roster view. */
-export interface AthleteRosterAnalytics {
-  readonly athleteId: string;
-  readonly name: string;
-  readonly profileImg?: string;
-  readonly sport?: string;
-  readonly position?: string;
-  readonly classOf?: number;
-  readonly profileViews: number;
-  readonly videoViews: number;
-  readonly totalEngagement: number;
-  readonly engagementShare: number;
-  readonly profileCompleteness: number;
-  readonly contentCount: number;
-  readonly lastActivity?: string;
-}
-
-/** Aggregated team-level overview metrics for a coach. */
-export interface TeamOverviewAnalytics {
-  readonly totalProfileViews: number;
-  readonly totalVideoViews: number;
-  readonly totalEngagement: number;
-  readonly activeAthletes: number;
-  readonly totalAthletes: number;
-  readonly avgEngagementPerAthlete: number;
-  readonly teamPageViews: number;
-}
-
-/** The top-performing athlete on a coach's roster. */
-export interface TopPerformer {
-  readonly athlete: AthleteRosterAnalytics;
-  readonly highlights: readonly string[];
-  readonly vsTeamAverage: number;
 }
 
 // ============================================
@@ -199,59 +158,4 @@ export interface AnalyticsRecommendation {
   readonly category: string;
   readonly actionLabel?: string;
   readonly actionRoute?: string;
-}
-
-// ============================================
-// FULL REPORTS
-// ============================================
-
-/** Complete analytics report for an athlete. */
-export interface AthleteAnalyticsReport {
-  readonly role: 'athlete';
-  readonly generatedAt: string;
-  readonly period: AnalyticsPeriod;
-  readonly dateRange: AnalyticsDateRange;
-  readonly overview: Record<string, MetricCard>;
-  readonly engagement: {
-    readonly viewsBySource: readonly ViewsBySource[];
-    readonly viewsByTime: readonly EngagementByTime[];
-    readonly viewerTypes: readonly AnalyticsViewerBreakdown[];
-    readonly geoDistribution: readonly GeoDistribution[];
-    readonly viewsOverTime: ChartConfig;
-  };
-  readonly content: {
-    readonly videos: readonly VideoAnalytics[];
-    readonly posts: readonly PostAnalytics[];
-    readonly graphics: readonly PostAnalytics[];
-    readonly topContent: readonly (VideoAnalytics | PostAnalytics)[];
-  };
-  readonly recruiting: {
-    readonly collegeInterests: readonly unknown[];
-    readonly emailCampaigns: readonly unknown[];
-    readonly milestones: readonly RecruitingMilestone[];
-    readonly offersReceived: number;
-    readonly campAttendance: number;
-    readonly collegeVisits: number;
-  };
-  readonly insights: readonly AnalyticsInsight[];
-  readonly recommendations: readonly AnalyticsRecommendation[];
-}
-
-/** Complete analytics report for a coach. */
-export interface CoachAnalyticsReport {
-  readonly role: 'coach';
-  readonly generatedAt: string;
-  readonly period: AnalyticsPeriod;
-  readonly dateRange: AnalyticsDateRange;
-  readonly overview: TeamOverviewAnalytics;
-  readonly overviewCards: Record<string, MetricCard>;
-  readonly topPerformer: TopPerformer | null;
-  readonly roster: readonly AthleteRosterAnalytics[];
-  readonly patterns: {
-    readonly viewsByTime: readonly EngagementByTime[];
-    readonly viewsByDay: readonly EngagementByTime[];
-    readonly viewsOverTime: ChartConfig;
-  };
-  readonly insights: readonly AnalyticsInsight[];
-  readonly recommendations: readonly AnalyticsRecommendation[];
 }

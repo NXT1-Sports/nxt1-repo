@@ -18,16 +18,35 @@ import {
   computed,
   inject,
   OnInit,
+  PLATFORM_ID,
+  ViewChild,
+  ElementRef,
 } from '@angular/core';
+import { isPlatformBrowser } from '@angular/common';
 import { IonSpinner } from '@ionic/angular/standalone';
-import type { ManageTeamSectionId, ManageTeamFormData } from '@nxt1/core';
+import { APP_EVENTS } from '@nxt1/core/analytics';
+import type {
+  ManageTeamSectionId,
+  ManageTeamFormData,
+  RosterActionEvent,
+  StaffActionEvent,
+} from '@nxt1/core';
 import { ManageTeamService } from './manage-team.service';
 import { ManageTeamSkeletonComponent } from './manage-team-skeleton.component';
+import { ManageTeamInfoSectionComponent } from './sections/manage-team-info-section.component';
+import { ManageTeamRosterSectionComponent } from './sections/manage-team-roster-section.component';
+import { ManageTeamStaffSectionComponent } from './sections/manage-team-staff-section.component';
 import { NxtSheetHeaderComponent } from '../components/bottom-sheet/sheet-header.component';
 import { NxtIconComponent } from '../components/icon';
 import { NxtListSectionComponent } from '../components/list-section';
 import { NxtListRowComponent } from '../components/list-row';
 import { NxtMediaGalleryComponent } from '../components/media-gallery';
+import { NxtModalService } from '../services/modal';
+import { NxtLoggingService } from '../services/logging/logging.service';
+import { ANALYTICS_ADAPTER } from '../services/analytics/analytics-adapter.token';
+import { NxtBreadcrumbService } from '../services/breadcrumb/breadcrumb.service';
+import { InviteBottomSheetService } from '../invite';
+import { TEAM_LOGO_UPLOADER } from './team-logo-uploader.token';
 
 /** Event emitted when shell requests close */
 export interface ManageTeamCloseEvent {
@@ -41,13 +60,26 @@ export interface ManageTeamCloseEvent {
   imports: [
     IonSpinner,
     ManageTeamSkeletonComponent,
+    ManageTeamInfoSectionComponent,
+    ManageTeamRosterSectionComponent,
+    ManageTeamStaffSectionComponent,
     NxtSheetHeaderComponent,
     NxtIconComponent,
     NxtListSectionComponent,
     NxtListRowComponent,
     NxtMediaGalleryComponent,
   ],
+  host: { class: 'nxt1-manage-team-shell' },
   template: `
+    <!-- Hidden file input for team logo upload (only rendered when uploader is available) -->
+    <input
+      #logoFileInput
+      type="file"
+      accept="image/jpeg,image/png,image/webp,image/svg+xml"
+      style="display:none"
+      (change)="onLogoFileChange($event)"
+    />
+
     <!-- Header (suppressed when headless — web modal provides its own) -->
     @if (showHeader() && !headless()) {
       @if (!isModalMode()) {
@@ -115,14 +147,16 @@ export interface ManageTeamCloseEvent {
           <nxt1-media-gallery
             [images]="teamImages()"
             [maxImages]="6"
-            (add)="emitAction('images', 'add')"
+            (add)="openImagePrompt()"
             (remove)="onRemoveImage($event)"
           />
 
-          <!-- Connected team accounts -->
-          <nxt1-list-section header="Connected accounts">
-            <nxt1-list-row label="Accounts" (tap)="emitAction('accounts', 'manage')">
-              <span class="nxt1-list-value nxt1-list-placeholder">Connect accounts</span>
+          <!-- Team setup / branding -->
+          <nxt1-list-section header="Team setup">
+            <nxt1-list-row label="Website & branding" (tap)="manageTeamSetup()">
+              <span class="nxt1-list-value" [class.nxt1-list-placeholder]="!accountsSummary()">
+                {{ accountsSummary() || 'Update team setup' }}
+              </span>
             </nxt1-list-row>
           </nxt1-list-section>
 
@@ -130,17 +164,17 @@ export interface ManageTeamCloseEvent {
           <div class="nxt1-mt-sections" [class.nxt1-mt-two-col]="webLayout()">
             <!-- About Info -->
             <nxt1-list-section header="About Info">
-              <nxt1-list-row label="Title" (tap)="emitAction('about', 'editTitle')">
+              <nxt1-list-row label="Title" (tap)="editTeamName()">
                 <span class="nxt1-list-value" [class.nxt1-list-placeholder]="!teamName()">
                   {{ teamName() || 'Add team name' }}
                 </span>
               </nxt1-list-row>
-              <nxt1-list-row label="Mascot" (tap)="emitAction('about', 'editMascot')">
+              <nxt1-list-row label="Mascot" (tap)="editMascot()">
                 <span class="nxt1-list-value" [class.nxt1-list-placeholder]="!mascot()">
                   {{ mascot() || 'Add mascot' }}
                 </span>
               </nxt1-list-row>
-              <nxt1-list-row label="Location" (tap)="emitAction('about', 'editLocation')">
+              <nxt1-list-row label="Location" (tap)="editLocation()">
                 <span class="nxt1-list-value" [class.nxt1-list-placeholder]="!locationSummary()">
                   {{ locationSummary() || 'Add location' }}
                 </span>
@@ -151,12 +185,12 @@ export interface ManageTeamCloseEvent {
             <div class="nxt1-mt-sections" [class.nxt1-mt-right-col]="webLayout()">
               <!-- Roster & Staff -->
               <nxt1-list-section header="Roster & Staff">
-                <nxt1-list-row label="Players" (tap)="emitAction('roster', 'invite')">
+                <nxt1-list-row label="Players" (tap)="toggleRosterSection()">
                   <span class="nxt1-list-value" [class.nxt1-list-placeholder]="!rosterSummary()">
                     {{ rosterSummary() || 'Invite team' }}
                   </span>
                 </nxt1-list-row>
-                <nxt1-list-row label="Staff" (tap)="emitAction('staff', 'manage')">
+                <nxt1-list-row label="Staff" (tap)="toggleStaffSection()">
                   <span class="nxt1-list-value" [class.nxt1-list-placeholder]="!staffSummary()">
                     {{ staffSummary() || 'Add staff' }}
                   </span>
@@ -165,12 +199,12 @@ export interface ManageTeamCloseEvent {
 
               <!-- Contact Info -->
               <nxt1-list-section header="Contact info">
-                <nxt1-list-row label="Email" (tap)="emitAction('contact', 'editEmail')">
+                <nxt1-list-row label="Email" (tap)="editEmail()">
                   <span class="nxt1-list-value" [class.nxt1-list-placeholder]="!emailSummary()">
                     {{ emailSummary() || 'Add email' }}
                   </span>
                 </nxt1-list-row>
-                <nxt1-list-row label="Phone" (tap)="emitAction('contact', 'editPhone')">
+                <nxt1-list-row label="Phone" (tap)="editPhone()">
                   <span class="nxt1-list-value" [class.nxt1-list-placeholder]="!phoneSummary()">
                     {{ phoneSummary() || 'Add phone number' }}
                   </span>
@@ -179,7 +213,7 @@ export interface ManageTeamCloseEvent {
 
               <!-- Stats -->
               <nxt1-list-section header="Stats">
-                <nxt1-list-row label="Record" (tap)="emitAction('stats', 'edit')">
+                <nxt1-list-row label="Record" (tap)="editRecord()">
                   <span class="nxt1-list-value" [class.nxt1-list-placeholder]="!statsSummary()">
                     {{ statsSummary() || 'Add record' }}
                   </span>
@@ -187,6 +221,32 @@ export interface ManageTeamCloseEvent {
               </nxt1-list-section>
             </div>
           </div>
+
+          @if (showInfoSection()) {
+            <nxt1-manage-team-info-section
+              [basicInfo]="service.formData()?.basicInfo ?? null"
+              [branding]="service.formData()?.branding ?? null"
+              [contact]="service.formData()?.contact ?? null"
+              (fieldChange)="onInfoSectionFieldChange($event)"
+              (logoClick)="openImagePrompt()"
+              (colorClick)="editBrandColor($event)"
+            />
+          }
+
+          @if (service.expandedSection() === 'roster') {
+            <nxt1-manage-team-roster-section
+              [players]="service.roster()"
+              (invite)="manageRosterInvite()"
+              (action)="onRosterAction($event)"
+            />
+          }
+
+          @if (service.expandedSection() === 'staff') {
+            <nxt1-manage-team-staff-section
+              [staff]="service.staff()"
+              (action)="onStaffAction($event)"
+            />
+          }
         </div>
       }
     </div>
@@ -281,8 +341,11 @@ export interface ManageTeamCloseEvent {
          CONTENT AREA
          ============================================ */
       .nxt1-mt-content {
-        flex: 1;
+        flex: 1 1 auto;
+        min-height: 0;
+        min-width: 0;
         overflow-y: auto;
+        overflow-x: hidden;
         -webkit-overflow-scrolling: touch;
       }
 
@@ -290,6 +353,7 @@ export interface ManageTeamCloseEvent {
         display: flex;
         flex-direction: column;
         gap: var(--nxt1-spacing-5);
+        min-width: 0;
         padding: var(--nxt1-spacing-4) var(--nxt1-spacing-4)
           calc(var(--nxt1-spacing-8) + env(safe-area-inset-bottom, 0px));
       }
@@ -382,10 +446,28 @@ export interface ManageTeamCloseEvent {
         align-items: start;
       }
 
+      .nxt1-mt-two-col > * {
+        min-width: 0;
+      }
+
       .nxt1-mt-right-col {
         display: flex;
         flex-direction: column;
         gap: var(--nxt1-spacing-4);
+        min-width: 0;
+      }
+
+      @media (max-width: 767px) {
+        .nxt1-mt-body {
+          gap: var(--nxt1-spacing-4);
+          padding: var(--nxt1-spacing-3) var(--nxt1-spacing-3)
+            calc(var(--nxt1-spacing-7) + env(safe-area-inset-bottom, 0px));
+        }
+
+        .nxt1-mt-two-col {
+          grid-template-columns: 1fr;
+          gap: var(--nxt1-spacing-4);
+        }
       }
 
       /* ============================================
@@ -403,10 +485,25 @@ export interface ManageTeamCloseEvent {
 export class ManageTeamShellComponent implements OnInit {
   readonly service = inject(ManageTeamService);
 
+  private readonly modal = inject(NxtModalService);
+  private readonly logger = inject(NxtLoggingService).child('ManageTeamShell');
+  private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
+  private readonly breadcrumb = inject(NxtBreadcrumbService);
+  private readonly inviteSheet = inject(InviteBottomSheetService);
+  private readonly logoUploader = inject(TEAM_LOGO_UPLOADER, { optional: true });
+  private readonly platformId = inject(PLATFORM_ID);
+
+  @ViewChild('logoFileInput') private readonly logoFileInputRef?: ElementRef<HTMLInputElement>;
+
+  private initialSectionHandled = false;
+
   // ─── Inputs ────────────────────────────────────────────────────────────────
 
   /** Team ID to manage (null for new team) */
   readonly teamId = input<string | null>(null);
+
+  /** Optional section to focus when the shell opens. */
+  readonly initialSection = input<ManageTeamSectionId | null>(null);
 
   /**
    * When headless=true, the shell renders no header.
@@ -474,6 +571,33 @@ export class ManageTeamShellComponent implements OnInit {
 
   protected readonly emailSummary = computed(() => this.service.formData()?.contact?.email ?? '');
   protected readonly phoneSummary = computed(() => this.service.formData()?.contact?.phone ?? '');
+  protected readonly accountsSummary = computed(() => {
+    const website = this.service.formData()?.contact?.website?.trim();
+    if (website) {
+      return website.replace(/^https?:\/\/(www\.)?/i, '');
+    }
+
+    const branding = this.service.formData()?.branding;
+    const configuredCount = [
+      branding?.logo,
+      branding?.primaryColor,
+      branding?.secondaryColor,
+    ].filter(Boolean).length;
+
+    return configuredCount > 0
+      ? `${configuredCount} brand setting${configuredCount === 1 ? '' : 's'}`
+      : '';
+  });
+  protected readonly showInfoSection = computed(() => {
+    const section = this.service.expandedSection();
+    return (
+      section === 'team-info' ||
+      section === 'about' ||
+      section === 'contact' ||
+      section === 'accounts' ||
+      section === 'images'
+    );
+  });
 
   protected readonly rosterSummary = computed(() => {
     const n = this.service.roster()?.length ?? 0;
@@ -494,8 +618,13 @@ export class ManageTeamShellComponent implements OnInit {
   ngOnInit(): void {
     const teamIdValue = typeof this.teamId === 'function' ? this.teamId() : this.teamId;
     if (teamIdValue) {
-      this.service.loadTeam(teamIdValue as string);
+      void this.service
+        .loadTeam(teamIdValue as string)
+        .then(() => this.openInitialSectionIfNeeded());
+      return;
     }
+
+    this.openInitialSectionIfNeeded();
   }
 
   // ─── Actions ────────────────────────────────────────────────────────────────
@@ -507,12 +636,384 @@ export class ManageTeamShellComponent implements OnInit {
     }
   }
 
-  emitAction(section: ManageTeamSectionId, action: string): void {
-    this.sectionAction.emit({ section, action });
+  emitAction(section: ManageTeamSectionId, action: string, data?: unknown): void {
+    this.sectionAction.emit({ section, action, data });
+    this.breadcrumb.trackUserAction('manage-team-shell-action', { section, action });
+    this.analytics?.trackEvent(APP_EVENTS.TEAM_MANAGED, {
+      action,
+      section,
+    });
+  }
+
+  protected async manageTeamSetup(): Promise<void> {
+    this.service.expandSection('team-info');
+    this.emitAction('accounts', 'manage');
+
+    const result = await this.modal.actionSheet({
+      title: 'Team Setup',
+      message: 'Choose what you want to update.',
+      actions: [
+        { text: 'Website', data: 'website' },
+        { text: 'Logo URL', data: 'logo' },
+        { text: 'Primary Color', data: 'primaryColor' },
+        { text: 'Secondary Color', data: 'secondaryColor' },
+        { text: 'Cancel', cancel: true },
+      ],
+      preferNative: 'native',
+    });
+
+    if (!result.selected || typeof result.data !== 'string') {
+      return;
+    }
+
+    switch (result.data) {
+      case 'website':
+        await this.editWebsite();
+        break;
+      case 'logo':
+        await this.openImagePrompt();
+        break;
+      case 'primaryColor':
+      case 'secondaryColor':
+        await this.editBrandColor(result.data);
+        break;
+      default:
+        break;
+    }
+  }
+
+  protected async editTeamName(): Promise<void> {
+    const result = await this.modal.prompt({
+      title: 'Team Name',
+      placeholder: 'Enter team name',
+      defaultValue: this.teamName(),
+      submitText: 'Done',
+      required: true,
+      preferNative: 'native',
+    });
+
+    if (result.confirmed) {
+      this.emitAction('about', 'editTitle');
+      this.service.updateField({ sectionId: 'about', fieldId: 'name', value: result.value });
+    }
+  }
+
+  protected async editMascot(): Promise<void> {
+    const result = await this.modal.prompt({
+      title: 'Mascot',
+      placeholder: 'e.g. Tigers',
+      defaultValue: this.mascot(),
+      submitText: 'Done',
+      preferNative: 'native',
+    });
+
+    if (result.confirmed) {
+      this.emitAction('about', 'editMascot');
+      this.service.updateField({ sectionId: 'about', fieldId: 'mascot', value: result.value });
+    }
+  }
+
+  protected async editLocation(): Promise<void> {
+    const city = await this.modal.prompt({
+      title: 'City',
+      placeholder: 'Team city',
+      defaultValue: this.service.formData()?.contact?.city ?? '',
+      submitText: 'Next',
+      preferNative: 'native',
+    });
+    if (!city.confirmed) return;
+
+    const state = await this.modal.prompt({
+      title: 'State',
+      placeholder: 'State or province',
+      defaultValue: this.service.formData()?.contact?.state ?? '',
+      submitText: 'Done',
+      preferNative: 'native',
+    });
+    if (!state.confirmed) return;
+
+    this.emitAction('about', 'editLocation');
+    this.service.updateField({ sectionId: 'contact', fieldId: 'city', value: city.value });
+    this.service.updateField({ sectionId: 'contact', fieldId: 'state', value: state.value });
+    this.service.expandSection('contact');
+  }
+
+  protected toggleRosterSection(): void {
+    this.emitAction('roster', 'open');
+    this.service.toggleSection('roster');
+  }
+
+  protected toggleStaffSection(): void {
+    this.emitAction('staff', 'open');
+    this.service.toggleSection('staff');
+  }
+
+  protected async editEmail(): Promise<void> {
+    const result = await this.modal.prompt({
+      title: 'Team Email',
+      placeholder: 'team@email.com',
+      defaultValue: this.emailSummary(),
+      inputType: 'email',
+      submitText: 'Done',
+      preferNative: 'native',
+    });
+
+    if (result.confirmed) {
+      this.emitAction('contact', 'editEmail');
+      this.service.updateField({ sectionId: 'contact', fieldId: 'email', value: result.value });
+      this.service.expandSection('contact');
+    }
+  }
+
+  protected async editPhone(): Promise<void> {
+    const result = await this.modal.prompt({
+      title: 'Team Phone',
+      placeholder: '(555) 123-4567',
+      defaultValue: this.phoneSummary(),
+      inputType: 'tel',
+      submitText: 'Done',
+      preferNative: 'native',
+    });
+
+    if (result.confirmed) {
+      this.emitAction('contact', 'editPhone');
+      this.service.updateField({ sectionId: 'contact', fieldId: 'phone', value: result.value });
+      this.service.expandSection('contact');
+    }
+  }
+
+  protected async editWebsite(): Promise<void> {
+    const result = await this.modal.prompt({
+      title: 'Team Website',
+      placeholder: 'https://yourteam.com',
+      defaultValue: this.service.formData()?.contact?.website ?? '',
+      inputType: 'url',
+      submitText: 'Done',
+      preferNative: 'native',
+    });
+
+    if (result.confirmed) {
+      this.service.updateField({ sectionId: 'contact', fieldId: 'website', value: result.value });
+      this.service.expandSection('team-info');
+    }
+  }
+
+  protected async editRecord(): Promise<void> {
+    const formData = this.service.formData();
+    if (!formData) return;
+
+    const wins = await this.modal.prompt({
+      title: 'Wins',
+      placeholder: '0',
+      defaultValue: String(formData.record.wins ?? 0),
+      inputType: 'number',
+      submitText: 'Next',
+      preferNative: 'native',
+    });
+    if (!wins.confirmed) return;
+
+    const losses = await this.modal.prompt({
+      title: 'Losses',
+      placeholder: '0',
+      defaultValue: String(formData.record.losses ?? 0),
+      inputType: 'number',
+      submitText: 'Next',
+      preferNative: 'native',
+    });
+    if (!losses.confirmed) return;
+
+    const ties = await this.modal.prompt({
+      title: 'Ties',
+      placeholder: '0',
+      defaultValue: String(formData.record.ties ?? 0),
+      inputType: 'number',
+      submitText: 'Done',
+      preferNative: 'native',
+    });
+    if (!ties.confirmed) return;
+
+    this.emitAction('stats', 'edit');
+    this.service.updateField({ sectionId: 'stats', fieldId: 'wins', value: wins.value });
+    this.service.updateField({ sectionId: 'stats', fieldId: 'losses', value: losses.value });
+    this.service.updateField({ sectionId: 'stats', fieldId: 'ties', value: ties.value });
+  }
+
+  protected async editBrandColor(
+    colorKey: 'primary' | 'secondary' | 'accent' | 'primaryColor' | 'secondaryColor'
+  ): Promise<void> {
+    const normalizedKey =
+      colorKey === 'primary'
+        ? 'primaryColor'
+        : colorKey === 'secondary'
+          ? 'secondaryColor'
+          : colorKey;
+    const currentValue =
+      normalizedKey === 'primaryColor'
+        ? (this.service.formData()?.branding?.primaryColor ?? '#ccff00')
+        : normalizedKey === 'secondaryColor'
+          ? (this.service.formData()?.branding?.secondaryColor ?? '#000000')
+          : (this.service.formData()?.branding?.accentColor ?? '#ffffff');
+
+    const result = await this.modal.prompt({
+      title: 'Brand Color',
+      message: 'Enter a hex color like #CCFF00',
+      placeholder: '#CCFF00',
+      defaultValue: currentValue,
+      submitText: 'Done',
+      preferNative: 'native',
+    });
+
+    if (result.confirmed) {
+      this.service.updateField({
+        sectionId: 'images',
+        fieldId: normalizedKey,
+        value: result.value,
+      });
+      this.service.expandSection('team-info');
+    }
+  }
+
+  protected async openImagePrompt(): Promise<void> {
+    const teamId = this.service.teamId();
+
+    // If a real upload adapter is provided and we have a teamId, use file picker
+    if (this.logoUploader && teamId && isPlatformBrowser(this.platformId)) {
+      this.logoFileInputRef?.nativeElement.click();
+      return;
+    }
+
+    // Fallback: prompt for a URL
+    const result = await this.modal.prompt({
+      title: 'Team Image URL',
+      placeholder: 'https://example.com/team-image.jpg',
+      inputType: 'url',
+      submitText: 'Add',
+      preferNative: 'native',
+    });
+
+    if (!result.confirmed) {
+      return;
+    }
+
+    const imageUrl = result.value.trim();
+    if (!imageUrl) {
+      return;
+    }
+
+    this.applyLogoUrl(imageUrl);
+  }
+
+  protected async onLogoFileChange(event: Event): Promise<void> {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    // Reset so the same file can be re-selected later
+    input.value = '';
+
+    if (!file || !this.logoUploader) return;
+
+    const teamId = this.service.teamId();
+    if (!teamId) return;
+
+    this.logger.info('Uploading team logo', { teamId, fileName: file.name });
+    const url = await this.logoUploader(teamId, file);
+
+    if (url) {
+      this.applyLogoUrl(url);
+      this.logger.info('Team logo uploaded', { teamId, url });
+    } else {
+      this.logger.warn('Team logo upload returned null', { teamId });
+    }
+  }
+
+  private applyLogoUrl(imageUrl: string): void {
+    const nextImages = Array.from(new Set([...this.teamImages(), imageUrl]));
+    this.emitAction('images', 'add', imageUrl);
+    this.service.updateField({ sectionId: 'images', fieldId: 'galleryImages', value: nextImages });
+    if (!this.service.formData()?.branding?.logo) {
+      this.service.updateField({ sectionId: 'images', fieldId: 'logo', value: imageUrl });
+    }
+    this.service.expandSection('images');
   }
 
   onRemoveImage(index: number): void {
-    this.sectionAction.emit({ section: 'images', action: 'remove', data: index });
+    const nextImages = [...this.teamImages()];
+    const [removedImage] = nextImages.splice(index, 1);
+
+    this.emitAction('images', 'remove', index);
+    this.service.updateField({ sectionId: 'images', fieldId: 'galleryImages', value: nextImages });
+
+    if (removedImage && this.service.formData()?.branding?.logo === removedImage) {
+      this.service.updateField({
+        sectionId: 'images',
+        fieldId: 'logo',
+        value: nextImages[0] ?? '',
+      });
+    }
+  }
+
+  protected onInfoSectionFieldChange(event: { field: string; value: string }): void {
+    const targetSection = event.field.startsWith('contact.') ? 'contact' : 'about';
+    const fieldId = event.field.replace('contact.', '');
+    this.service.updateField({ sectionId: targetSection, fieldId, value: event.value });
+  }
+
+  protected manageRosterInvite(): void {
+    this.emitAction('roster', 'invite');
+    this.service.requestAddPlayer();
+
+    const formData = this.service.formData();
+    const teamId = this.service.teamId();
+    const team = teamId
+      ? {
+          id: teamId,
+          name: formData?.basicInfo?.name?.trim() || 'Team',
+          sport: formData?.basicInfo?.sport?.trim() || 'Sports',
+          logoUrl: formData?.branding?.logo || undefined,
+          memberCount: this.service.roster().length,
+        }
+      : undefined;
+
+    void this.inviteSheet.open({
+      inviteType: team ? 'team' : 'general',
+      team,
+    });
+  }
+
+  protected onRosterAction(event: RosterActionEvent): void {
+    this.emitAction('roster', event.action, event);
+    this.logger.info('Roster action requested', { action: event.action, playerId: event.playerId });
+  }
+
+  protected onStaffAction(event: StaffActionEvent): void {
+    this.emitAction('staff', event.action, event);
+    this.logger.info('Staff action requested', { action: event.action, staffId: event.staffId });
+  }
+
+  private openInitialSectionIfNeeded(): void {
+    if (this.initialSectionHandled) return;
+
+    const section = this.initialSection();
+    if (!section) return;
+
+    this.initialSectionHandled = true;
+
+    switch (section) {
+      case 'roster':
+        this.service.expandSection('roster');
+        break;
+      case 'staff':
+        this.service.expandSection('staff');
+        break;
+      case 'about':
+      case 'contact':
+      case 'accounts':
+      case 'images':
+      case 'team-info':
+        this.service.expandSection(section === 'team-info' ? 'team-info' : section);
+        break;
+      default:
+        break;
+    }
   }
 
   onClose(saved: boolean): void {

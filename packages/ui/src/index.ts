@@ -107,11 +107,13 @@ export { NewsBoardComponent } from './components/news-board';
 export {
   NxtConnectedSourcesComponent,
   ConnectedAccountsSheetComponent,
+  ConnectedAccountsResyncService,
   ConnectedAccountsWebModalComponent,
   ConnectedAccountsModalService,
   DEFAULT_PLATFORMS,
   FirecrawlSignInService,
   FirecrawlSignInModalComponent,
+  type ConnectedAccountsResyncSource,
   type ConnectedSource,
   type ConnectedSourceTapEvent,
   type ConnectedAccountsModalOptions,
@@ -161,6 +163,11 @@ export {
   type ShareButtonSize,
   type ShareButtonVariant,
 } from './components/share-button';
+
+// ============================================
+// LINK EMBED (Inline news/article preview card)
+// ============================================
+export { LinkEmbedComponent, type LinkEmbedData } from './components/link-embed';
 
 // ============================================
 // SEARCH BAR (Shared Native HTML Search — No Shadow DOM)
@@ -230,7 +237,6 @@ export { NxtImmersiveHeroComponent, type ImmersiveHeroShot } from './components/
 export { NxtMediaEmpireHeroComponent } from './components/media-empire-hero';
 export { NxtBreakingNewsHeroComponent } from './components/breaking-news-hero';
 export { NxtScoutReportJournalismSectionComponent } from './components/scout-report-journalism-section';
-export { NxtCoSignCollaborationSectionComponent } from './components/co-sign-collaboration-section';
 export { NxtGraphicFactoryHeroComponent } from './components/graphic-factory-hero';
 export { NxtInfiniteContentEngineSectionComponent } from './components/infinite-content-engine-section';
 export {
@@ -372,6 +378,11 @@ export { NxtTeamLogoPickerComponent } from './components/team-logo-picker';
 export { NxtColorPickerComponent } from './components/color-picker';
 
 // ============================================
+// ENTITY HERO (Shared identity card above option scroller)
+// ============================================
+export { NxtEntityHeroComponent, type EntityHeroMetaItem } from './components/entity-hero';
+
+// ============================================
 // BOTTOM SHEET (2026 Native-Style Modal)
 // ============================================
 export {
@@ -402,6 +413,8 @@ export {
 export {
   // Component
   NxtMobileFooterComponent,
+  NxtActionFooterComponent,
+  type ActionFooterButton,
   // Types (from @nxt1/core)
   type NavIconName,
   type FooterTabItem,
@@ -493,6 +506,7 @@ export {
   AgentXBundlesComponent,
   AgentXTaskListComponent,
   // Types
+  type AgentXConnectedAccountsSaveRequest,
   type AgentXUser,
   // Landing
   NxtAgentXLandingComponent,
@@ -621,11 +635,9 @@ export {
   ProfileTimelineComponent,
   ProfileOffersComponent,
   ProfileSkeletonComponent,
-  RelatedAthletesComponent,
   // Types
   type ProfileShellUser,
   type ProfileSkeletonVariant,
-  type RelatedAthlete,
   type RankingSource,
   // Profile Generation (Agent X Onboarding Scrape)
   ProfileGenerationStateService,
@@ -739,6 +751,16 @@ export {
   // Factory
   createMobileHeaderConfig,
 } from './components/mobile-header';
+
+// ============================================
+// FLOATING ACTION BAR
+// ============================================
+export {
+  NxtFloatingActionBarComponent,
+  type FloatingActionBarConfig,
+  type FloatingBarFollowItem,
+  DEFAULT_FLOATING_ACTION_BAR_CONFIG,
+} from './components/floating-action-bar';
 
 // ============================================
 // MOBILE SIDEBAR (2026 YouTube-Style Slide-Out Drawer)
@@ -1099,7 +1121,6 @@ export {
   ScoutReportFilterPanelComponent,
   ScoutReportRatingDisplayComponent,
   ScoutReportQuickStatsComponent,
-  ScoutReportBookmarkButtonComponent,
   // Services
   ScoutReportsService,
   ScoutReportsApiService,
@@ -1113,14 +1134,12 @@ export {
 export { NxtActivityCardComponent } from './components/activity-card';
 
 // ============================================
-// FEED (Home Feed - Shared Web & Mobile)
+// POST CARDS (Profile & Team Timeline)
 // ============================================
 export {
   // Components
   FeedSkeletonComponent,
   FeedEmptyStateComponent,
-  FeedListComponent,
-  FeedShellComponent,
   // Polymorphic Smart Shell + Atomic Cards
   FeedCardShellComponent,
   FeedPostContentComponent,
@@ -1129,12 +1148,9 @@ export {
   FeedMetricsCardComponent,
   FeedAwardCardComponent,
   FeedNewsCardComponent,
-  // Services
-  FeedService,
   // Types
   type FeedSkeletonVariant,
-  // Mock Data (Development Only)
-} from './feed';
+} from './post-cards';
 
 // ============================================
 // NEWS (Sports Recruiting News - Shared Web & Mobile)
@@ -1179,6 +1195,9 @@ export {
   // Types
   type HelpNavigateEvent,
 
+  // Token
+  HELP_CENTER_API,
+
   // Legacy (deprecated - use platform-specific)
   HelpCenterShellComponent,
   HelpCategoryDetailComponent,
@@ -1191,8 +1210,6 @@ export {
 export {
   // Components
   EditProfileShellComponent,
-  EditProfileProgressComponent,
-  EditProfileSectionComponent,
   EditProfileSkeletonComponent,
   // Services
   EditProfileService,
@@ -1281,7 +1298,6 @@ export {
   InviteStatsCardComponent,
   InviteChannelGridComponent,
   InviteQrCodeComponent,
-  InviteAchievementsComponent,
   InviteCelebrationComponent,
   InviteSkeletonComponent,
   InviteModalComponent,

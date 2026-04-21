@@ -5,6 +5,16 @@
 
 // Types
 export type {
+  BillingOwnerType,
+  BillingTargetSource,
+  BillingTargetReference,
+  Wallet,
+  BillingPreference,
+  PeriodLedger,
+} from './billing-domain.types';
+
+export type {
+  UsageSection,
   UsagePeriod,
   UsageTimeframe,
   UsageOverview,
@@ -27,8 +37,10 @@ export type {
   UsageDashboardRequest,
   UsageDashboardResponse,
   UsageHistoryResponse,
+  BillingMode,
+  BudgetInterval,
   BillingEntity,
-  BillingContextSummary,
+  BillingStateSummary,
   PaymentProviderType,
 } from './usage.types';
 

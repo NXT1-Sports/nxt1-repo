@@ -258,6 +258,33 @@ export interface AgentSessionContext {
   readonly operationId?: string;
   /** The MongoDB thread ID for the current conversation. Used by tools for thread-scoped storage. */
   readonly threadId?: string;
+  /**
+   * UI mode hint passed from the SSE chat client (e.g. 'scout', 'athlete', 'recruiting').
+   * Sub-agents may use this to tailor their system prompt.
+   */
+  readonly mode?: string;
+  /**
+   * File attachments forwarded from the chat client (images, PDFs, etc.).
+   * When present, base.agent.ts builds a multipart LLM user message instead of plain text.
+   */
+  readonly attachments?: readonly { readonly url: string; readonly mimeType: string }[];
+  /**
+   * Video attachments forwarded from the chat client (mp4, mov, etc.).
+   * Videos cannot be passed as vision content — base.agent.ts injects their URLs
+   * as text references in the LLM user message so tools (e.g. write_athlete_videos)
+   * can use them without hallucinating a URL.
+   */
+  readonly videoAttachments?: readonly {
+    readonly url: string;
+    readonly mimeType: string;
+    readonly name: string;
+  }[];
+  /**
+   * Abort signal propagated from the SSE connection.
+   * When the client disconnects, this signal is triggered and cancels in-flight LLM calls.
+   * Note: AbortSignal is not serialisable — never persist this field.
+   */
+  readonly signal?: AbortSignal;
 }
 
 /** A single message within a session (lighter than the full AgentXMessage). */
@@ -469,11 +496,14 @@ export interface SyncDeltaReport {
   readonly sport: string;
   readonly source: string;
   readonly syncedAt: string;
+  /** Optional scope hints from the writer that triggered the sync. */
+  readonly teamId?: string;
+  readonly organizationId?: string;
 
   /** True if nothing changed since the last sync — Agent X stays asleep. */
   readonly isEmpty: boolean;
 
-  /** Identity fields that changed (e.g. school name, class year, city). */
+  /** Identity fields that changed (e.g. profile info, class year, location). */
   readonly identityChanges: ReadonlyArray<{
     readonly field: string;
     readonly oldValue: unknown;
@@ -737,14 +767,9 @@ export interface AgentUserContext {
   readonly state?: string;
 
   // ── Recruiting Context ────────────────────────────────────────
-  readonly targetDivisions?: readonly string[];
-  readonly targetColleges?: readonly string[];
   readonly recruitingStatus?: string;
-  readonly commitmentStatus?: string;
 
-  // ── Engagement & Platform Data ────────────────────────────────
-  readonly profileCompletionPercent?: number;
-  readonly totalProfileViews?: number;
+  // ── Platform Data ─────────────────────────────────────────────
   readonly lastActiveAt?: string;
 
   // ── Connected Accounts ────────────────────────────────────────
@@ -758,12 +783,29 @@ export interface AgentUserContext {
   // ── Team Context (from active sport) ──────────────────────────
   readonly teamId?: string;
   readonly organizationId?: string;
+
+  // ── Goal & Playbook Context ────────────────────────────────────
+  /** Up to 5 active goals from agentGoals. Token-efficient subset. */
+  readonly activeGoals?: ReadonlyArray<{
+    readonly id: string;
+    readonly text: string;
+    readonly category?: string;
+  }>;
+  /** Current week's playbook progress summary. */
+  readonly currentPlaybookSummary?: {
+    readonly playbookId: string;
+    readonly total: number;
+    readonly completed: number;
+    readonly snoozed: number;
+  };
 }
 
 /** Fully assembled prompt context used before planner/coordinator execution. */
 export interface AgentPromptContext {
   readonly profile: AgentUserContext;
   readonly memories: AgentRetrievedMemories;
+  /** Exact recent sync-change summaries pulled from short-lived Mongo diff events. */
+  readonly recentSyncSummaries?: readonly string[];
 }
 
 /** A third-party account the user has connected (Gmail, Twitter, Hudl, etc.). */
@@ -848,7 +890,7 @@ export interface AgentUsageLimits {
 // ─── Job Event Types (Firestore Subcollection) ─────────────────────────────
 
 /**
- * Event types written to the `agentJobs/{operationId}/events` subcollection.
+ * Event types written to the `AgentJobs/{operationId}/events` subcollection.
  * The frontend subscribes via Firestore `onSnapshot` to render live UI.
  *
  * @see backend/src/modules/agent/queue/job.repository.ts — canonical source
@@ -864,7 +906,7 @@ export type JobEventType =
   | 'done';
 
 /**
- * A single event document stored in `agentJobs/{operationId}/events/{autoId}`.
+ * A single event document stored in `AgentJobs/{operationId}/events/{autoId}`.
  * The frontend reads these via `onSnapshot`, ordered by `seq`, to reconstruct
  * the live agent execution as a chat-like experience.
  *

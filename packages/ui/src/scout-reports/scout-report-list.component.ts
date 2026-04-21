@@ -41,7 +41,6 @@ import {
 import { addIcons } from 'ionicons';
 import {
   searchOutline,
-  bookmarkOutline,
   diamondOutline,
   alertCircleOutline,
   refreshOutline,
@@ -123,7 +122,6 @@ import { ScoutReportEmptyStateComponent } from './scout-report-empty-state.compo
             [style.animation-delay.ms]="i * 50"
             class="report-list__item"
             (cardClick)="cardClick.emit($event)"
-            (bookmark)="bookmark.emit($event)"
           />
         }
       </div>
@@ -291,7 +289,6 @@ export class ScoutReportListComponent {
   constructor() {
     addIcons({
       searchOutline,
-      bookmarkOutline,
       diamondOutline,
       alertCircleOutline,
       refreshOutline,
@@ -333,9 +330,6 @@ export class ScoutReportListComponent {
 
   /** Emitted when a card is clicked */
   readonly cardClick = output<ScoutReport>();
-
-  /** Emitted when bookmark is toggled */
-  readonly bookmark = output<string>();
 
   /** Emitted to load more data */
   readonly loadMore = output<void>();

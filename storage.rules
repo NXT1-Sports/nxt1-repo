@@ -2,63 +2,68 @@ rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
 
-    // ─── Public read: profile & team media ────────────────────────────────
-    // Profiles/ProfileImages/{uid}/...
-    match /Profiles/ProfileImages/{uid}/{allPaths=**} {
-      allow read;
+    // ── Helpers ─────────────────────────────────────────────────────────
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    function isAdmin() {
+      return isAuthenticated()
+        && firestore.get(/databases/(default)/documents/Users/$(request.auth.uid)).data.role == 'admin';
+    }
+    function isImageType() {
+      return request.resource.contentType.matches('image/.*');
     }
 
-    // Profiles/FeedImages/{uid}/...  (posts & highlight images)
-    match /Profiles/FeedImages/{uid}/{allPaths=**} {
-      allow read;
+    // ── Users/{userId}/ ──────────────────────────────────────────────────────
+    // All user-owned content (profile photos, posts, thread media).
+    // Only the owning user can write. Public reads allowed (files are made
+    // public via makePublic() server-side before URLs are issued).
+    match /Users/{userId}/{allPaths=**} {
+      allow read:   if true;
+      allow write:  if isOwner(userId);
+      allow delete: if isOwner(userId) || isAdmin();
     }
 
-    // Teams/TeamLogos/...
-    match /Teams/TeamLogos/{allPaths=**} {
-      allow read;
+    // ── Profiles/ (legacy — read-only for backward compat) ───────────────────
+    // New uploads go to Users/{userId}/profile/. Existing files remain readable.
+    match /Profiles/{allPaths=**} {
+      allow read:  if isAuthenticated();
+      allow write: if false;
     }
 
-    // Teams/GalleryImages/{teamId}/...
-    match /Teams/GalleryImages/{teamId}/{allPaths=**} {
-      allow read;
+    // ── Teams/ ───────────────────────────────────────────────────────────
+    // Team logos and gallery images are public CDN assets (like Colleges/).
+    // Writes are server-side only (Firebase Admin SDK bypasses these rules),
+    // but the rule enforces no client-side writes.
+    match /Teams/{allPaths=**} {
+      allow read:  if true;
+      allow write: if isAdmin();
     }
 
-    // ─── Public read: static / shared assets ──────────────────────────────
+    // ── Colleges/ ────────────────────────────────────────────────────────
     match /Colleges/{allPaths=**} {
-      allow read;
+      allow read:  if true; // Public CDN assets
+      allow write: if isAdmin();
     }
 
+    // ── Conferences/ ─────────────────────────────────────────────────────
     match /Conferences/{allPaths=**} {
-      allow read;
+      allow read:  if true;
+      allow write: if isAdmin();
     }
 
+    // ── Fonts/ ───────────────────────────────────────────────────────────
     match /Fonts/{allPaths=**} {
-      allow read;
+      allow read:  if true;
+      allow write: if isAdmin();
     }
 
-    match /Sports/{allPaths=**} {
-      allow read;
-    }
-
-    match /SponsorLogos/{allPaths=**} {
-      allow read;
-    }
-
-    match /brand-assets/{allPaths=**} {
-      allow read;
-    }
-
-    match /HomePageMedia/{allPaths=**} {
-      allow read;
-    }
-
-    match /StartScreenMedia/{allPaths=**} {
-      allow read;
-    }
-
-    // ─── Everything else: authenticated users only ────────────────────────
+    // ── Default: deny everything else ───────────────────────────────────
     match /{allPaths=**} {
-      allow read, write: if request.auth != null;
+      allow read, write: if false;
     }
   }
 }

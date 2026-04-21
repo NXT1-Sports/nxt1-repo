@@ -12,8 +12,6 @@
 
 import type { HttpAdapter } from '../api/http-adapter';
 import type {
-  InviteStats,
-  InviteAchievement,
   InviteLink,
   InviteFilter,
   InviteHistoryResponse,
@@ -112,7 +110,7 @@ export function createInviteApi(http: HttpAdapter, baseUrl: string) {
      * Send invite(s) to recipients.
      *
      * @param request - Send invite request data
-     * @returns Send response with XP earned
+     * @returns Send response
      * @throws NxtApiError on failure
      */
     async sendInvite(request: SendInviteRequest): Promise<SendInviteResponse> {
@@ -140,7 +138,7 @@ export function createInviteApi(http: HttpAdapter, baseUrl: string) {
      * Send bulk team invites.
      *
      * @param request - Bulk invite request data
-     * @returns Send response with XP earned
+     * @returns Send response
      * @throws NxtApiError on failure
      */
     async sendBulkInvites(request: TeamBulkInviteRequest): Promise<SendInviteResponse> {
@@ -203,62 +201,46 @@ export function createInviteApi(http: HttpAdapter, baseUrl: string) {
     },
 
     /**
-     * Get user's invite statistics.
+     * Validate an invite/referral code and return all invite metadata.
+     * Works for both general invites (user referral codes) and team invites.
      *
-     * @returns User invite stats
-     * @throws NxtApiError on failure
+     * @param code - Invite or referral code (e.g. NXT-XXXXXX)
+     * @returns Validation result with inviter info and optional team context
      */
-    async getStats(): Promise<InviteStats> {
+    async validateCode(code: string): Promise<{
+      valid: boolean;
+      inviterUid?: string;
+      inviterName?: string;
+      inviterAvatar?: string | null;
+      type?: string;
+      teamCode?: string;
+      teamName?: string;
+      sport?: string;
+    }> {
       try {
-        const url = buildUrl(INVITE_API_ENDPOINTS.STATS);
-        const response = await http.get<{ success: boolean; data: InviteStats; error?: string }>(
-          url
-        );
-
-        if (!response.success || !response.data) {
-          throw createApiError('SRV_INTERNAL_ERROR', {
-            message: response.error ?? 'Failed to fetch invite stats',
-          });
-        }
-
-        return response.data;
-      } catch (error) {
-        if (isNxtApiError(error)) throw error;
-        throw createApiError('SRV_INTERNAL_ERROR', {
-          message: 'Failed to fetch invite stats',
-          cause: error,
-        });
-      }
-    },
-
-    /**
-     * Get user's invite achievements.
-     *
-     * @returns User achievements with progress
-     * @throws NxtApiError on failure
-     */
-    async getAchievements(): Promise<readonly InviteAchievement[]> {
-      try {
-        const url = buildUrl(INVITE_API_ENDPOINTS.ACHIEVEMENTS);
-        const response = await http.get<{
+        const url = buildUrl(INVITE_API_ENDPOINTS.VALIDATE_CODE);
+        const response = await http.post<{
           success: boolean;
-          data: InviteAchievement[];
+          data: {
+            valid: boolean;
+            inviterUid?: string;
+            inviterName?: string;
+            inviterAvatar?: string | null;
+            type?: string;
+            teamCode?: string;
+            teamName?: string;
+            sport?: string;
+          };
           error?: string;
-        }>(url);
+        }>(url, { code });
 
         if (!response.success || !response.data) {
-          throw createApiError('SRV_INTERNAL_ERROR', {
-            message: response.error ?? 'Failed to fetch achievements',
-          });
+          return { valid: false };
         }
 
         return response.data;
-      } catch (error) {
-        if (isNxtApiError(error)) throw error;
-        throw createApiError('SRV_INTERNAL_ERROR', {
-          message: 'Failed to fetch achievements',
-          cause: error,
-        });
+      } catch {
+        return { valid: false };
       }
     },
 
@@ -275,7 +257,8 @@ export function createInviteApi(http: HttpAdapter, baseUrl: string) {
       code: string,
       teamCode?: string,
       role?: string,
-      inviterUid?: string
+      inviterUid?: string,
+      isNewUser?: boolean
     ): Promise<{
       success: boolean;
       teamJoined?: string;
@@ -286,9 +269,6 @@ export function createInviteApi(http: HttpAdapter, baseUrl: string) {
           athlete: 'Athlete',
           coach: 'Coach',
           director: 'Administrative',
-          // Legacy role aliases
-          recruiter: 'Coach',
-          parent: 'Athlete',
         };
         const normalizedRole = role ? (roleMap[role.toLowerCase()] ?? 'Athlete') : undefined;
         const url = buildUrl(INVITE_API_ENDPOINTS.ACCEPT);
@@ -297,7 +277,7 @@ export function createInviteApi(http: HttpAdapter, baseUrl: string) {
           teamJoined?: string;
           joinedAsPending?: boolean;
           error?: string;
-        }>(url, { code, teamCode, role: normalizedRole, inviterUid });
+        }>(url, { code, teamCode, role: normalizedRole, inviterUid, isNewUser });
 
         if (!response.success) {
           throw createApiError('SRV_INTERNAL_ERROR', {

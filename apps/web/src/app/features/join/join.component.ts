@@ -3,19 +3,20 @@
  * @module @nxt1/web/features/join
  *
  * Handles incoming invite links:
- *   /join/:code?ref=<uid>&type=<general|team|...>&team=<firestoreId>&teamCode=<code>&teamName=<name>
+ *   /join/:code
  *
  * Flow (unauthenticated):
- * 1. Extracts referral params from URL (route param + query params)
- * 2. Stores invite data in sessionStorage with default role='Athlete'
- * 3. Redirects to /auth?mode=signup&invite=CODE
- * 4. During onboarding, user can select role (Athlete or Coach only for team invites)
- * 5. After signup, AuthFlowService reads sessionStorage and calls POST /invite/accept
+ * 1. Extracts invite code from URL path
+ * 2. Calls POST /invite/validate to resolve invite type, inviter, and team metadata
+ * 3. Stores invite data in sessionStorage with default role='Athlete'
+ * 4. Redirects to /auth?mode=signup&invite=CODE
+ * 5. During onboarding, user can select role (Athlete or Coach only for team invites)
+ * 6. After signup, AuthFlowService reads sessionStorage and calls POST /invite/accept
  *
  * Flow (already authenticated + team invite):
  * 1. Shows confirmation modal: "TeamName invited you to join"
- * 2. User clicks Accept → POST /invite/accept → navigate to /home
- * 3. User clicks Decline → navigate to /home
+ * 2. User clicks Accept → POST /invite/accept → navigate to /agent
+ * 3. User clicks Decline → navigate to /agent
  *
  * On SSR this component is a no-op; redirect logic only runs in browser.
  */
@@ -69,46 +70,114 @@ export const PENDING_REFERRAL_KEY = 'nxt1:pending_referral';
   selector: 'app-join',
   standalone: true,
   imports: [NxtLogoComponent],
+  styles: [
+    `
+      :host {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+        background: var(--nxt1-ui-bg-page);
+      }
+
+      .join-card {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: var(--nxt1-spacing-6, 1.5rem);
+        width: 100%;
+        max-width: 384px;
+        padding: var(--nxt1-spacing-8, 2rem);
+        background: var(--nxt1-ui-bg-card);
+        border: 1px solid var(--nxt1-ui-bg-card-border);
+        border-radius: var(--nxt1-ui-radius-2xl);
+        box-shadow: var(--nxt1-ui-shadow-xl);
+        text-align: center;
+      }
+
+      .join-copy {
+        display: flex;
+        flex-direction: column;
+        gap: var(--nxt1-spacing-2, 0.5rem);
+      }
+
+      .join-title {
+        font-size: var(--nxt1-fontSize-lg, 1.125rem);
+        font-weight: var(--nxt1-fontWeight-semibold, 600);
+        color: var(--nxt1-ui-text-primary);
+        margin: 0;
+      }
+
+      .join-subtitle {
+        font-size: var(--nxt1-fontSize-sm, 0.875rem);
+        color: var(--nxt1-ui-text-secondary);
+        margin: 0;
+      }
+
+      .join-subtitle strong {
+        color: var(--nxt1-ui-text-primary);
+        font-weight: var(--nxt1-fontWeight-semibold, 600);
+      }
+
+      .join-actions {
+        display: flex;
+        flex-direction: column;
+        gap: var(--nxt1-spacing-3, 0.75rem);
+        width: 100%;
+      }
+
+      .join-loading {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: var(--nxt1-spacing-4, 1rem);
+        text-align: center;
+      }
+
+      .join-loading-text {
+        font-size: var(--nxt1-fontSize-sm, 0.875rem);
+        color: var(--nxt1-ui-text-muted);
+        animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+      }
+
+      @keyframes pulse {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.4;
+        }
+      }
+    `,
+  ],
   template: `
-    <div
-      class="bg-background flex min-h-screen items-center justify-center"
-      data-testid="join-redirect-page"
-    >
+    <div data-testid="join-redirect-page">
       @if (confirmState()) {
         <!-- Confirmation modal for already-authenticated users -->
-        <div
-          class="flex max-w-sm flex-col items-center gap-6 rounded-2xl border border-white/10 bg-white/5 p-8 text-center shadow-xl"
-        >
+        <div class="join-card">
           <nxt1-logo variant="default" size="md" />
-          <div class="flex flex-col gap-2">
-            <h2 class="text-lg font-semibold text-text-primary">You've been invited!</h2>
-            <p class="text-sm text-text-secondary">
-              <strong class="text-text-primary">{{ confirmState()!.teamName }}</strong>
+          <div class="join-copy">
+            <h2 class="join-title">You've been invited!</h2>
+            <p class="join-subtitle">
+              <strong>{{ confirmState()!.teamName }}</strong>
               invited you to join their team.
             </p>
           </div>
-          <div class="flex w-full flex-col gap-3">
-            <button
-              class="bg-brand-primary w-full rounded-xl px-6 py-3 text-sm font-semibold text-black transition hover:opacity-90 disabled:opacity-50"
-              [disabled]="isAccepting()"
-              (click)="acceptInvite()"
-            >
+          <div class="join-actions">
+            <button class="nxt1-btn-primary" [disabled]="isAccepting()" (click)="acceptInvite()">
               {{ isAccepting() ? 'Joining…' : 'Accept & Join Team' }}
             </button>
-            <button
-              class="w-full rounded-xl border border-white/10 px-6 py-3 text-sm font-medium text-text-secondary transition hover:bg-white/5"
-              [disabled]="isAccepting()"
-              (click)="declineInvite()"
-            >
+            <button class="nxt1-btn-secondary" [disabled]="isAccepting()" (click)="declineInvite()">
               Decline
             </button>
           </div>
         </div>
       } @else {
         <!-- Loading / redirecting state -->
-        <div class="flex flex-col items-center gap-4 text-center">
+        <div class="join-loading">
           <nxt1-logo variant="default" size="lg" />
-          <p class="animate-pulse text-sm text-text-secondary">Preparing your invite…</p>
+          <p class="join-loading-text">Preparing your invite…</p>
         </div>
       }
     </div>
@@ -147,11 +216,11 @@ export class JoinComponent implements OnInit {
     } finally {
       this.isAccepting.set(false);
     }
-    this.router.navigate(['/home'], { replaceUrl: true });
+    this.router.navigate(['/agent'], { replaceUrl: true });
   }
 
   protected declineInvite(): void {
-    this.router.navigate(['/home'], { replaceUrl: true });
+    this.router.navigate(['/agent'], { replaceUrl: true });
   }
 
   async ngOnInit(): Promise<void> {
@@ -168,32 +237,41 @@ export class JoinComponent implements OnInit {
 
     if (!isPlatformBrowser(this.platformId)) return;
 
-    const ref = this.route.snapshot.queryParamMap.get('ref') ?? '';
-    const type = this.route.snapshot.queryParamMap.get('type') ?? 'general';
-    const teamId = this.route.snapshot.queryParamMap.get('team') ?? undefined;
-    let teamCode = this.route.snapshot.queryParamMap.get('teamCode') ?? undefined;
-    let teamName = this.route.snapshot.queryParamMap.get('teamName') ?? undefined;
-    let sport = this.route.snapshot.queryParamMap.get('sport') ?? undefined;
-
     if (!code) {
-      this.logger.warn('Join link missing required code', { code: !!code });
+      this.logger.warn('Join link missing required code');
       this.router.navigate(['/auth'], { queryParams: { mode: 'signup' }, replaceUrl: true });
       return;
     }
 
-    let inviterUid = ref;
-    if (!inviterUid) {
-      inviterUid = 'unknown';
-    }
+    // Resolve all invite metadata server-side — no query params needed
+    let inviterUid = 'unknown';
+    let type = 'general';
+    let teamCode: string | undefined;
+    let teamName: string | undefined;
+    let sport: string | undefined;
 
-    // For team invites, fetch full team data from backend
-    let teamData: ValidatedTeamInfo | undefined;
-    if (type === 'team') {
-      // Use the code from path as teamCode if not provided in query params
-      if (!teamCode) {
-        teamCode = code;
+    try {
+      const validateResult = await this.inviteApi.validateCode(code);
+      this.logger.debug('Invite validate response', { code, valid: validateResult.valid });
+
+      if (!validateResult.valid) {
+        this.logger.warn('Invalid invite code', { code });
+        this.router.navigate(['/auth'], { queryParams: { mode: 'signup' }, replaceUrl: true });
+        return;
       }
 
+      inviterUid = validateResult.inviterUid ?? 'unknown';
+      type = validateResult.type ?? 'general';
+      teamCode = validateResult.teamCode;
+      teamName = validateResult.teamName;
+      sport = validateResult.sport;
+    } catch (err) {
+      this.logger.warn('Invite validate failed — proceeding as general invite', { error: err });
+    }
+
+    // For team invites, fetch full team data (teamId, teamType) via validateTeamCode
+    let teamData: ValidatedTeamInfo | undefined;
+    if (type === 'team' && teamCode) {
       this.logger.info('Validating team code via API...', { teamCode });
 
       try {
@@ -258,7 +336,7 @@ export class JoinComponent implements OnInit {
       code,
       inviterUid,
       type,
-      teamId: teamData?.id || teamId,
+      teamId: teamData?.id,
       teamCode,
       teamName,
       sport,

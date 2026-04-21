@@ -15,73 +15,22 @@ import { Component, ChangeDetectionStrategy, inject, computed, output } from '@a
 import { CommonModule } from '@angular/common';
 import { NxtIconComponent } from '../../components/icon';
 import { NxtImageComponent } from '../../components/image';
-import { NxtImageCarouselComponent } from '../../components/image-carousel';
 import { TeamProfileService } from '../team-profile.service';
 
 @Component({
   selector: 'nxt1-team-mobile-hero',
   standalone: true,
-  imports: [CommonModule, NxtIconComponent, NxtImageComponent, NxtImageCarouselComponent],
+  imports: [CommonModule, NxtIconComponent, NxtImageComponent],
   template: `
     <section class="team-mobile-hero md:hidden" aria-label="Team summary">
-      <!-- Left column: gallery carousel or large logo with glow effects -->
-      <div class="team-mobile-hero__carousel">
-        @if (teamProfile.galleryImages().length > 0) {
-          <div class="carousel-glow-wrap">
-            <div class="carousel-glow-border" aria-hidden="true"></div>
-            <div class="carousel-glow-ambient" aria-hidden="true"></div>
-            <nxt1-image-carousel
-              [images]="teamProfile.galleryImages()"
-              [alt]="headerTeamName()"
-              [autoPlay]="true"
-              [autoPlayInterval]="5000"
-              [overlayTitle]="headerTeamName()"
-              [overlaySubtitle]="headerSubtitle()"
-              class="team-hero-carousel"
-            />
-            @if (teamProfile.team()?.verificationStatus === 'verified') {
-              <span class="carousel-verified-badge">
-                <nxt1-icon name="checkmarkCircle" [size]="14" />
-                Verified
-              </span>
-            }
-          </div>
-        } @else {
-          <div class="carousel-glow-wrap team-logo-hero-wrap">
-            <div class="carousel-glow-border" aria-hidden="true"></div>
-            <div class="carousel-glow-ambient" aria-hidden="true"></div>
-            <div class="team-logo-hero">
-              @if (teamProfile.team()?.logoUrl) {
-                <nxt1-image
-                  [src]="teamProfile.team()!.logoUrl!"
-                  [alt]="headerTeamName()"
-                  [width]="96"
-                  [height]="96"
-                  variant="avatar"
-                  fit="contain"
-                  [priority]="true"
-                  [showPlaceholder]="false"
-                />
-              } @else {
-                <div class="team-logo-hero__fallback">
-                  <nxt1-icon name="shield" [size]="48" />
-                </div>
-              }
-            </div>
-          </div>
-        }
-      </div>
-
-      <!-- Right column: logo + identity + follow + followers -->
-      <div class="team-mobile-hero__identity">
-        <!-- Team logo above name -->
+      <div class="team-mobile-hero__identity-card">
         @if (teamProfile.team()?.logoUrl) {
           <nxt1-image
             class="team-mobile-hero__logo"
             [src]="teamProfile.team()!.logoUrl!"
             [alt]="headerTeamName()"
-            [width]="60"
-            [height]="60"
+            [width]="68"
+            [height]="68"
             variant="avatar"
             fit="contain"
             [priority]="true"
@@ -89,13 +38,16 @@ import { TeamProfileService } from '../team-profile.service';
           />
         } @else {
           <div class="team-mobile-hero__logo-fallback">
-            <nxt1-icon name="shield" [size]="22" />
+            <nxt1-icon name="shield" [size]="24" />
           </div>
         }
-        <h1 class="team-mobile-hero__name">{{ headerTeamName() }}</h1>
-        @if (headerSubtitle()) {
-          <p class="team-mobile-hero__meta">{{ headerSubtitle() }}</p>
-        }
+
+        <div class="team-mobile-hero__identity-copy">
+          <h1 class="team-mobile-hero__name">{{ headerTeamName() }}</h1>
+          @if (headerSubtitle()) {
+            <p class="team-mobile-hero__meta">{{ headerSubtitle() }}</p>
+          }
+        </div>
       </div>
     </section>
   `,
@@ -186,81 +138,85 @@ import { TeamProfileService } from '../team-profile.service';
       /* ═══ MOBILE BREAKPOINT ═══ */
       @media (max-width: 768px) {
         .team-mobile-hero {
-          display: grid;
-          grid-template-columns: 148px minmax(0, 1fr);
-          gap: 12px;
-          align-items: start;
-          margin: 32px 12px 10px;
-        }
-
-        .team-mobile-hero__carousel {
-          width: 148px;
-        }
-        .team-mobile-hero__carousel .carousel-glow-wrap {
-          width: 148px;
-          max-width: none;
-          height: 220px;
-          border-radius: 14px;
-        }
-        .team-mobile-hero__carousel .team-hero-carousel {
-          width: 100%;
-          height: 100%;
-          border-radius: 14px;
+          display: block;
+          margin: 0 0 10px;
+          position: relative;
+          isolation: isolate;
           overflow: hidden;
-        }
-        .team-mobile-hero__carousel .team-hero-carousel ::ng-deep .carousel {
-          height: 100%;
-          border-radius: 14px;
-        }
-        .team-mobile-hero__carousel .team-hero-carousel ::ng-deep .carousel::before {
-          border-radius: 14px;
-        }
-        .team-mobile-hero__carousel .team-hero-carousel ::ng-deep .carousel-track {
-          height: 100%;
-        }
-        .team-mobile-hero__carousel .team-hero-carousel ::ng-deep .carousel-slide {
-          height: 100%;
-        }
-        .team-mobile-hero__carousel .team-hero-carousel ::ng-deep .carousel-img {
-          height: 100%;
-          object-fit: cover;
-          object-position: center top;
+          padding: 14px 16px;
         }
 
-        /* ── Logo fallback sizing ── */
-        .team-mobile-hero__carousel .team-logo-hero-wrap {
-          width: 148px;
-          max-width: none;
-          height: 220px;
-          border-radius: 14px;
-        }
-        .team-mobile-hero__carousel .team-logo-hero {
-          border-radius: 14px;
+        /* ── Team hero background: speed lines + accent glow (full width) ── */
+        .team-mobile-hero::before {
+          content: '';
+          position: absolute;
+          inset: 0;
+          z-index: -1;
+
+          background:
+            repeating-linear-gradient(
+              -52deg,
+              transparent 0 18px,
+              color-mix(in srgb, var(--m-accent, #d4ff00) 7%, transparent) 18px 19.5px,
+              transparent 19.5px 44px
+            ),
+            radial-gradient(
+              ellipse 80% 60% at -4% -8%,
+              color-mix(in srgb, var(--m-accent, #d4ff00) 22%, transparent) 0%,
+              color-mix(in srgb, var(--m-accent, #d4ff00) 8%, transparent) 38%,
+              transparent 68%
+            ),
+            radial-gradient(
+              ellipse 110% 55% at 50% 108%,
+              color-mix(in srgb, var(--m-accent, #d4ff00) 10%, transparent) 0%,
+              transparent 60%
+            ),
+            linear-gradient(
+              160deg,
+              var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.07)) 0%,
+              var(--nxt1-color-bg-primary, #0a0a0a) 100%
+            );
+
+          box-shadow:
+            inset 0 0 0 1px
+              color-mix(in srgb, var(--m-accent, #d4ff00) 18%, rgba(255, 255, 255, 0.06)),
+            0 2px 24px rgba(0, 0, 0, 0.45);
         }
 
-        /* ── Identity column ── */
-        .team-mobile-hero__identity {
+        .team-mobile-hero__identity-card {
+          display: flex;
+          align-items: flex-start;
+          gap: 12px;
+          width: 100%;
+          padding: 0;
+          border-radius: 0;
+          border: none;
+          background: transparent;
+        }
+        .team-mobile-hero__identity-copy {
           display: flex;
           flex-direction: column;
           gap: 5px;
           min-width: 0;
+          flex: 1;
           padding-top: 2px;
         }
         .team-mobile-hero__logo {
-          width: 60px;
-          height: 60px;
-          border-radius: 10px;
+          width: 68px;
+          height: 68px;
+          border-radius: 12px;
           flex-shrink: 0;
         }
         .team-mobile-hero__logo-fallback {
-          width: 60px;
-          height: 60px;
-          border-radius: 10px;
+          width: 68px;
+          height: 68px;
+          border-radius: 12px;
           background: var(--m-surface-2, rgba(255, 255, 255, 0.08));
           display: flex;
           align-items: center;
           justify-content: center;
           color: var(--m-text-3, rgba(255, 255, 255, 0.45));
+          flex-shrink: 0;
         }
         .team-mobile-hero__name {
           margin: 0;

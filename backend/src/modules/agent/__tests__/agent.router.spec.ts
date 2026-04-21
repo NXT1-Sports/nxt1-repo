@@ -12,7 +12,7 @@ import type { BaseAgent } from '../agents/base.agent.js';
 import type { OpenRouterService } from '../llm/openrouter.service.js';
 import type { ToolRegistry } from '../tools/tool-registry.js';
 import type { ContextBuilder } from '../memory/context-builder.js';
-import { AgentDelegationException } from '../errors/agent-delegation.error.js';
+import { AgentDelegationException } from '../exceptions/agent-delegation.exception.js';
 import type {
   AgentJobPayload,
   AgentJobUpdate,

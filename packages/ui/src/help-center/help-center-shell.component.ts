@@ -17,37 +17,13 @@ import {
   IonListHeader,
   IonLabel,
   IonItem,
-  IonIcon,
   IonSearchbar,
 } from '@ionic/angular/standalone';
-import { addIcons } from 'ionicons';
-import {
-  chevronForward,
-  chevronDownOutline,
-  searchOutline,
-  helpCircleOutline,
-  bookOutline,
-  videocamOutline,
-  personOutline,
-  schoolOutline,
-  settingsOutline,
-  shieldOutline,
-  buildOutline,
-  peopleOutline,
-  cardOutline,
-  homeOutline,
-  lockClosedOutline,
-  chatbubbleOutline,
-  rocketOutline,
-  fitnessOutline,
-  clipboardOutline,
-  diamondOutline,
-  constructOutline,
-} from 'ionicons/icons';
 import { NxtPageHeaderComponent } from '../components/page-header';
+import { NxtIconComponent } from '../components/icon';
 import { HelpCenterService } from './help-center.service';
 import { HapticsService } from '../services/haptics/haptics.service';
-import type { HelpArticle, HelpCategoryId } from '@nxt1/core';
+import type { HelpArticle, HelpCategory, HelpCategoryId } from '@nxt1/core';
 
 // Register icons
 /** Navigation events */
@@ -67,9 +43,9 @@ export interface HelpNavigateEvent {
     IonListHeader,
     IonLabel,
     IonItem,
-    IonIcon,
     IonSearchbar,
     NxtPageHeaderComponent,
+    NxtIconComponent,
   ],
   template: `
     <nxt1-page-header title="Help Center" [showBack]="showBack()" (backClick)="back.emit()" />
@@ -102,8 +78,9 @@ export interface HelpNavigateEvent {
             } @else {
               @for (article of helpService.filteredArticles(); track article.id) {
                 <ion-item class="help-item" button detail (click)="onArticleClick(article)">
-                  <ion-icon
+                  <nxt1-icon
                     [name]="getTypeIcon(article.type)"
+                    [size]="22"
                     slot="start"
                     class="help-item__icon"
                   />
@@ -124,7 +101,12 @@ export interface HelpNavigateEvent {
 
             @for (category of helpService.categories(); track category.id) {
               <ion-item class="help-item" button detail (click)="onCategoryClick(category.id)">
-                <ion-icon [name]="category.icon" slot="start" class="help-item__icon" />
+                <nxt1-icon
+                  [name]="getCategoryIconName(category)"
+                  [size]="getCategoryIconSize(category)"
+                  slot="start"
+                  class="help-item__icon"
+                />
                 <ion-label>
                   <h3>{{ category.label }}</h3>
                   @if (category.description) {
@@ -143,22 +125,20 @@ export interface HelpNavigateEvent {
               </ion-list-header>
 
               @for (faq of helpService.popularFaqs(); track faq.id) {
-                <ion-item
-                  class="help-item"
-                  button
-                  [detail]="true"
-                  [detailIcon]="
-                    expandedFaqId() === faq.id ? 'chevron-down-outline' : 'chevron-forward'
-                  "
-                  (click)="toggleFaq(faq.id)"
-                >
-                  <ion-icon name="help-circle-outline" slot="start" class="help-item__icon" />
+                <ion-item class="help-item" button [detail]="false" (click)="toggleFaq(faq.id)">
+                  <nxt1-icon name="help" [size]="22" slot="start" class="help-item__icon" />
                   <ion-label class="ion-text-wrap">
                     <h3>{{ faq.question }}</h3>
                     @if (expandedFaqId() === faq.id) {
                       <div class="faq-answer" [innerHTML]="faq.answer"></div>
                     }
                   </ion-label>
+                  <nxt1-icon
+                    [name]="expandedFaqId() === faq.id ? 'chevronDown' : 'chevronRight'"
+                    [size]="18"
+                    slot="end"
+                    class="help-item__chevron"
+                  />
                 </ion-item>
               }
             </ion-list>
@@ -171,8 +151,9 @@ export interface HelpNavigateEvent {
             </ion-list-header>
 
             <ion-item class="help-item" button detail (click)="onContactClick()">
-              <ion-icon
-                name="chatbubble-outline"
+              <nxt1-icon
+                name="chatBubble"
+                [size]="22"
                 slot="start"
                 class="help-item__icon help-item__icon--primary"
               />
@@ -287,6 +268,11 @@ export interface HelpNavigateEvent {
         margin-right: var(--nxt1-spacing-sm, 12px);
       }
 
+      .help-item__chevron {
+        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.35));
+        flex-shrink: 0;
+      }
+
       .help-item__icon--featured {
         color: var(--nxt1-color-primary, #c8ff00);
       }
@@ -356,32 +342,6 @@ export interface HelpNavigateEvent {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class HelpCenterShellComponent {
-  constructor() {
-    addIcons({
-      chevronForward,
-      chevronDownOutline,
-      searchOutline,
-      helpCircleOutline,
-      bookOutline,
-      videocamOutline,
-      personOutline,
-      schoolOutline,
-      settingsOutline,
-      shieldOutline,
-      buildOutline,
-      peopleOutline,
-      cardOutline,
-      homeOutline,
-      lockClosedOutline,
-      chatbubbleOutline,
-      rocketOutline,
-      fitnessOutline,
-      clipboardOutline,
-      diamondOutline,
-      constructOutline,
-    });
-  }
-
   protected readonly helpService = inject(HelpCenterService);
   private readonly haptics = inject(HapticsService);
 
@@ -433,15 +393,40 @@ export class HelpCenterShellComponent {
   protected getTypeIcon(type: string): string {
     switch (type) {
       case 'video':
-        return 'videocam-outline';
+        return 'videocam';
       case 'guide':
-        return 'book-outline';
+        return 'newspaper';
       case 'tutorial':
-        return 'school-outline';
+        return 'graduationCap';
       case 'faq':
-        return 'help-circle-outline';
+        return 'help';
       default:
-        return 'document-text-outline';
+        return 'documentText';
     }
+  }
+
+  /** Map ionicon category icon names to design token names */
+  protected getCategoryIconName(category: HelpCategory): string {
+    const iconMap: Record<string, string> = {
+      'rocket-outline': 'rocket',
+      'fitness-outline': 'barbell',
+      'clipboard-outline': 'clipboard',
+      'people-outline': 'users',
+      'shield-outline': 'shield',
+      'school-outline': 'school',
+      'person-outline': 'person',
+      'videocam-outline': 'videocam',
+      'diamond-outline': 'sparkles',
+      'settings-outline': 'settings',
+      'lock-closed-outline': 'lock',
+      'construct-outline': 'settings',
+      'agent-x': 'agent-x',
+    };
+    return iconMap[category.icon] ?? 'documentText';
+  }
+
+  /** Agent X has a portrait viewBox (612×792) — needs a larger size to render visibly. */
+  protected getCategoryIconSize(category: HelpCategory): number {
+    return category.icon === 'agent-x' ? 36 : 22;
   }
 }

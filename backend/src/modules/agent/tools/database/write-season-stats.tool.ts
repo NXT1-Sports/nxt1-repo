@@ -23,8 +23,9 @@ import {
   resolveAuthorizedTargetSportSelection,
 } from '../../../../services/profile-write-access.service.js';
 import { CACHE_KEYS as USER_CACHE_KEYS } from '../../../../services/users.service.js';
-import { invalidateProfileCaches } from '../../../../routes/profile.routes.js';
+import { invalidateProfileCaches } from '../../../../routes/profile/shared.js';
 import { ContextBuilder } from '../../memory/context-builder.js';
+import { getAnalyticsLoggerService } from '../../../../services/analytics-logger.service.js';
 import {
   SyncDiffService,
   type PreviousProfileState,
@@ -32,6 +33,7 @@ import {
 } from '../../sync/index.js';
 import { onDailySyncComplete } from '../../triggers/trigger.listeners.js';
 import { logger } from '../../../../utils/logger.js';
+import { resolveCreatedAt, seasonToDate } from './doc-date-utils.js';
 
 type SupportedTeamType = 'school' | 'club' | 'college';
 
@@ -251,7 +253,7 @@ export class WriteSeasonStatsTool extends BaseTool {
             provider: source,
             extractedAt: now,
             ...(sourceUrl ? { sourceUrl } : {}),
-            createdAt: existingData?.['createdAt'] ?? now,
+            createdAt: resolveCreatedAt(existingData?.['createdAt'], seasonToDate(season), now),
             updatedAt: now,
           },
           { merge: true }
@@ -323,6 +325,29 @@ export class WriteSeasonStatsTool extends BaseTool {
         logger.warn('[WriteSeasonStats] Delta computation failed', {
           userId,
           error: err instanceof Error ? err.message : String(err),
+        });
+      }
+
+      if (playerStatsWritten > 0) {
+        await getAnalyticsLoggerService().safeTrack({
+          subjectId: userId,
+          subjectType: 'user',
+          domain: 'performance',
+          eventType: 'metric_recorded',
+          source: accessGrant.isSelfWrite ? 'user' : 'agent',
+          actorUserId: context.userId,
+          value: playerStatsWritten,
+          tags: ['season-stats', sportId, source],
+          payload: {
+            toolName: this.name,
+            sportId,
+            source,
+            seasonsProcessed: allSeasons.size,
+            gameLogCategories: gameLogs.length,
+          },
+          metadata: {
+            initiatedBy: 'write-season-stats',
+          },
         });
       }
 

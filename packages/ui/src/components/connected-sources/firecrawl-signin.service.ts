@@ -119,6 +119,16 @@ export class FirecrawlSignInService {
    * @returns true if the sign-in was completed successfully
    */
   async launchSignIn(request: FirecrawlSignInRequest): Promise<boolean> {
+    if (!this.supportsInteractiveSigninOnCurrentDevice()) {
+      this.logger.info('Blocked Firecrawl sign-in on unsupported device context', {
+        platform: request.platform,
+      });
+      this.toast.info(
+        `${request.label} sign-in is desktop only right now. Use the desktop web app.`
+      );
+      return false;
+    }
+
     this._loading.set(true);
     this._activePlatform.set(request.platform);
     this.logger.info('Starting Firecrawl sign-in', {
@@ -389,5 +399,9 @@ export class FirecrawlSignInService {
     if (hasTouch && viewportWidth < 1024) return true;
 
     return false;
+  }
+
+  private supportsInteractiveSigninOnCurrentDevice(): boolean {
+    return !this.shouldUseBottomSheet();
   }
 }

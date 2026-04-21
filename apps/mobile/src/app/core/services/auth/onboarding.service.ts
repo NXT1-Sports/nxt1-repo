@@ -460,7 +460,7 @@ export class OnboardingService {
 
       for (const file of normalizedFiles) {
         try {
-          const result = await this.editProfileApi.uploadPhoto(user.uid, 'profile', file);
+          const result = await this.editProfileApi.uploadPhoto(user.uid, file);
           if (result.success && result.data) {
             uploadedUrls.push(result.data.url);
           } else {
@@ -900,8 +900,15 @@ export class OnboardingService {
             ?.filter((l) => l.connected)
             .map((l) => l.platform)
             .join(', ') ?? '';
-        this.profileGenerationState.startGeneration(result.scrapeJobId, platformNames);
-        this.logger.info('Backend scrape job started', { scrapeJobId: result.scrapeJobId });
+        this.profileGenerationState.attachToOperation(
+          result.scrapeJobId,
+          result.scrapeThreadId,
+          platformNames
+        );
+        this.logger.info('Backend scrape job started', {
+          scrapeJobId: result.scrapeJobId,
+          scrapeThreadId: result.scrapeThreadId,
+        });
       }
     } catch (saveError) {
       this.logger.warn('Failed to save profile data, continuing', { error: saveError });

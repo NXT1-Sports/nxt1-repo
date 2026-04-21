@@ -15,7 +15,6 @@
 import type {
   User,
   UserAward,
-  TeamHistoryEntry,
   DataVerification,
   ProfilePageData,
   ProfileUser,
@@ -34,13 +33,8 @@ import type {
   RecruitingActivity,
   ProfileSeasonGameLog,
 } from '@nxt1/core';
-import {
-  isTeamRole,
-  isAthleteRole,
-  USER_ROLES,
-  buildTeamSlug,
-  getPositionAbbreviation,
-} from '@nxt1/core';
+import { isTeamRole, isAthleteRole, USER_ROLES, getPositionAbbreviation } from '@nxt1/core';
+import { getPlatformFaviconUrl } from '@nxt1/core/platforms';
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 /** Map a UserAward (User model) → ProfileAward (UI model). */
@@ -54,36 +48,6 @@ function mapAward(award: UserAward, index: number): ProfileAward {
   };
 }
 
-/** Map a TeamHistoryEntry (User model) → ProfileTeamAffiliation (UI model). */
-function mapTeamHistory(entry: TeamHistoryEntry): ProfileTeamAffiliation {
-  const location =
-    typeof entry.location === 'string'
-      ? entry.location
-      : entry.location
-        ? [entry.location.city, entry.location.state].filter(Boolean).join(', ')
-        : undefined;
-
-  const seasonRecord =
-    entry.record?.wins !== undefined && entry.record?.losses !== undefined
-      ? entry.record.ties
-        ? `${entry.record.wins}-${entry.record.losses}-${entry.record.ties}`
-        : `${entry.record.wins}-${entry.record.losses}`
-      : undefined;
-
-  return {
-    name: entry.name,
-    type: (entry.type as ProfileTeamType | undefined) ?? 'other',
-    logoUrl: entry.logoUrl,
-    teamCode: buildTeamSlug(entry.name) || undefined,
-    location,
-    seasonRecord,
-    wins: entry.record?.wins,
-    losses: entry.record?.losses,
-    ties: entry.record?.ties,
-    sport: entry.sport,
-  };
-}
-
 /** Map a User.connectedSources entry → ProfileConnectedSource (UI model). */
 function mapConnectedSource(
   src: NonNullable<User['connectedSources']>[number]
@@ -91,12 +55,15 @@ function mapConnectedSource(
   return {
     platform: src.platform,
     profileUrl: src.profileUrl,
-    faviconUrl: src.faviconUrl ?? undefined,
+    faviconUrl: src.faviconUrl ?? getPlatformFaviconUrl(src.platform) ?? undefined,
     lastSyncedAt:
       src.lastSyncedAt instanceof Date
         ? src.lastSyncedAt.toISOString()
         : (src.lastSyncedAt ?? undefined),
     syncStatus: src.syncStatus,
+    displayOrder: src.displayOrder,
+    scopeType: src.scopeType,
+    scopeId: src.scopeId,
   };
 }
 
@@ -216,13 +183,17 @@ export function userToProfilePageData(user: User, isOwnProfile: boolean): Profil
       }
     : undefined;
 
-  // ── Team affiliations (from User.teamHistory) ─────────────────────────────
-  const legacySportHistory = (
-    activeSport as unknown as { teamHistory?: TeamHistoryEntry[] } | undefined
-  )?.teamHistory;
-  const teamHistory = user.teamHistory?.length ? user.teamHistory : legacySportHistory;
-  const teamAffiliations: readonly ProfileTeamAffiliation[] | undefined = teamHistory?.length
-    ? teamHistory.map(mapTeamHistory)
+  // ── Team affiliations (from sports[n].team) ──────────────────────────────
+  const teamAffiliations: readonly ProfileTeamAffiliation[] | undefined = user.sports?.length
+    ? user.sports
+        .filter((s) => s.team?.name)
+        .map((s) => ({
+          name: s.team!.name as string,
+          type: (s.team!.type as ProfileTeamType | undefined) ?? 'high-school',
+          logoUrl: s.team!.logoUrl ?? undefined,
+          organizationId: (s.team as unknown as { organizationId?: string })?.organizationId,
+          sport: s.sport ?? undefined,
+        }))
     : undefined;
 
   // ── Awards (from User.awards) ─────────────────────────────────────────────
@@ -231,9 +202,13 @@ export function userToProfilePageData(user: User, isOwnProfile: boolean): Profil
     : undefined;
 
   // ── Contact (from User.contact) ───────────────────────────────────────────
-  const contact: ProfileContact | undefined = user.contact?.email
-    ? { email: user.contact.email, phone: user.contact.phone ?? undefined }
-    : undefined;
+  const contact: ProfileContact | undefined =
+    user.contact?.email || user.contact?.phone
+      ? {
+          email: user.contact?.email ?? undefined,
+          phone: user.contact?.phone ?? undefined,
+        }
+      : undefined;
 
   // ── Coach contact (from active sport's coach field) ────────────────────────
   // User.sports[n].coach: CoachContact → ProfileCoachContact
@@ -299,9 +274,6 @@ export function userToProfilePageData(user: User, isOwnProfile: boolean): Profil
   const profileImgs: readonly string[] = user.profileImgs?.length ? user.profileImgs : [];
   // Primary profile image: first from array or undefined
   const profileImg = profileImgs[0] ?? undefined;
-
-  // ── Counters (from User._counters) ────────────────────────────────────────
-  const counters = user._counters;
 
   // ── Assemble ProfileUser ───────────────────────────────────────────────────
   const profileUser: ProfileUser = {
@@ -397,14 +369,14 @@ export function userToProfilePageData(user: User, isOwnProfile: boolean): Profil
     user: profileUser,
     aboutMe: profileUser.aboutMe ?? '',
     quickStats: {
-      profileViews: counters?.profileViews ?? 0,
-      videoViews: counters?.videoViews ?? 0,
-      totalPosts: counters?.postsCount ?? 0,
-      highlightCount: counters?.highlightCount ?? 0,
-      offerCount: counters?.offerCount ?? 0,
-      eventCount: counters?.eventCount ?? 0,
+      profileViews: 0,
+      videoViews: 0,
+      totalPosts: 0,
+      highlightCount: 0,
+      offerCount: 0,
+      eventCount: 0,
       collegeInterestCount: 0,
-      shareCount: counters?.sharesCount ?? 0,
+      shareCount: 0,
     },
     athleticStats: athleticStats.length ? athleticStats : undefined,
     metrics: metrics.length ? metrics : undefined,

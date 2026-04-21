@@ -7,7 +7,7 @@
 
 import type { StripeConfig } from './types/index.js';
 import { UsageFeature } from './types/index.js';
-import { getUnitCostByFeature, type UsageFeatureId } from '@nxt1/core';
+import { getUnitCostByFeature, type UsageFeatureId } from '@nxt1/core/usage';
 import { logger } from '../../utils/logger.js';
 
 /**
@@ -132,15 +132,17 @@ export function getUnitCost(feature: UsageFeature): number {
 }
 
 /**
- * Firestore collection names
+ * Firestore collection names (MongoDB-backed collections removed after migration)
  */
 export const COLLECTIONS = {
-  USAGE_EVENTS: 'usageEvents',
-  STRIPE_CUSTOMERS: 'stripeCustomers',
-  PAYMENT_LOGS: 'paymentLogs',
-  BILLING_CONTEXTS: 'billingContexts',
+  STRIPE_CUSTOMERS: 'StripeCustomers',
+  WALLETS: 'Wallets',
+  BILLING_PREFERENCES: 'BillingPreferences',
+  PERIOD_LEDGERS: 'PeriodLedgers',
+  CHECKOUT_SESSION_FINALIZATIONS: 'StripeCheckoutFinalizations',
+  ORGANIZATION_BUDGETS: 'OrganizationBudgets',
   TEAM_BUDGET_ALLOCATIONS: 'teamBudgetAllocations',
-  WALLET_HOLDS: 'walletHolds',
+  WALLET_HOLDS: 'WalletHolds',
 } as const;
 
 /**

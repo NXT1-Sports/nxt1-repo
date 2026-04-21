@@ -80,7 +80,12 @@
               "dijkstrajs",
               "pngjs",
               "@grpc/grpc-js",
-              "@grpc/proto-loader"
+              "@grpc/proto-loader",
+              "url-parse",
+              "is-stream",
+              "lodash.throttle",
+              "combine-errors",
+              "proper-lockfile"
             ]
           },
           "configurations": {

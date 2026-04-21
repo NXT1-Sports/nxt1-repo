@@ -1,5 +1,6 @@
 export interface CustomAnalyticsEvent {
   readonly _id: string;
+  readonly environment?: 'staging' | 'production';
   readonly userId: string;
   readonly category:
     | 'recruiting'

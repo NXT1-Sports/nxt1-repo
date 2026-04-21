@@ -124,6 +124,11 @@ export {
 // ============================================
 export {
   mapToConnectedSources,
+  mapConnectedSourcesToLinkSources,
+  mapFirebaseProvidersToLinkSources,
+  mapConnectedEmailsToLinkSources,
+  mergeLinkSources,
+  buildLinkSourcesFormData,
   connectedSourceKey,
   mergeConnectedSources,
 } from './connected-sources.helpers';

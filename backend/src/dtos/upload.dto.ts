@@ -27,7 +27,6 @@ import {
 export enum FileType {
   IMAGE = 'image',
   VIDEO = 'video',
-  DOCUMENT = 'document',
   AUDIO = 'audio',
 }
 
@@ -37,7 +36,6 @@ export enum UploadPurpose {
   POST_MEDIA = 'post-media',
   TEAM_LOGO = 'team-logo',
   HIGHLIGHT_VIDEO = 'highlight-video',
-  DOCUMENT = 'document',
   AVATAR = 'avatar',
 }
 

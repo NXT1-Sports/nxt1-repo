@@ -73,7 +73,6 @@ export const CACHE_KEYS = {
   // Posts/Feed
   FEED: 'feed:',
   POST_DETAILS: 'post:details:',
-  POST_COMMENTS: 'post:comments:',
 
   // Explore
   EXPLORE_TRENDING: 'explore:trending',

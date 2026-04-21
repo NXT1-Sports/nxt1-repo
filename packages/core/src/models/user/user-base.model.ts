@@ -132,7 +132,7 @@ export type { EmailProvider } from '../content/campaigns.model';
 /**
  * Connected email account metadata (stored on User doc).
  * Tokens are NEVER stored here — they live in:
- *   users/{uid}/emailTokens/{provider}
+ *   users/{uid}/oauthTokens/{provider}
  *
  * This is the 2026 security best practice: User doc is readable by
  * many services; tokens should only be accessible to backend email services.
@@ -156,7 +156,7 @@ export interface ConnectedEmail {
 
 /**
  * OAuth token data for a connected email account.
- * Stored in Firestore sub-collection: users/{uid}/emailTokens/{provider}
+ * Stored in Firestore sub-collection: users/{uid}/oauthTokens/{provider}
  * NEVER stored on the User document.
  */
 export interface EmailTokenData {

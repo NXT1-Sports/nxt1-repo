@@ -26,18 +26,16 @@
  * Use these to ensure consistency and extension compatibility.
  */
 export const STORAGE_PATHS = {
-  /** Profile photos - extension-monitored path */
-  PROFILE_PHOTO: 'users/{userId}/profile',
-  /** Cover photos - not monitored by extension */
-  COVER_PHOTO: 'users/{userId}/cover-photo',
+  /** Profile photos */
+  PROFILE_PHOTO: 'Profiles/ProfileImages/{userId}',
   /** Team logos */
   TEAM_LOGO: 'teams/{teamId}/logo',
   /** Team banners */
   TEAM_BANNER: 'teams/{teamId}/banner',
   /** Documents (PDFs, etc.) */
-  DOCUMENTS: 'users/{userId}/documents',
+  DOCUMENTS: 'Users/{userId}/documents',
   /** Video thumbnails */
-  VIDEO_THUMBNAILS: 'users/{userId}/video-thumbnails',
+  VIDEO_THUMBNAILS: 'Users/{userId}/video-thumbnails',
   /** Temporary uploads */
   TEMP: 'temp/{userId}',
 } as const;

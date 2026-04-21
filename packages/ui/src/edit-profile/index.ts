@@ -22,8 +22,6 @@
 // ============================================
 
 export { EditProfileShellComponent } from './edit-profile-shell.component';
-export { EditProfileProgressComponent } from './edit-profile-progress.component';
-export { EditProfileSectionComponent } from './edit-profile-section.component';
 export { EditProfileSkeletonComponent } from './edit-profile-skeleton.component';
 export { EditProfileWebModalComponent } from './edit-profile-web-modal.component';
 

@@ -48,6 +48,66 @@ describe('Auth Routes', () => {
         expect(response.status).toBe(400);
       });
 
+      it('backfills missing preference defaults without overriding existing opt-outs', async () => {
+        __seedMockFirestoreDocument('Users/prefs123', {
+          id: 'prefs123',
+          role: 'athlete',
+          onboardingCompleted: false,
+          preferences: {
+            notifications: {
+              push: true,
+              email: true,
+            },
+            activityTracking: false,
+            theme: 'dark',
+          },
+        });
+
+        const response = await request(app).post('/api/v1/auth/profile/onboarding').send({
+          userId: 'prefs123',
+          userType: 'athlete',
+          sport: 'Basketball',
+        });
+
+        expect(response.status).toBe(200);
+
+        const userUpdate = __getMockFirestoreWrites().find(
+          (write) => write.path === 'Users/prefs123' && write.operation === 'update'
+        );
+
+        expect(userUpdate).toBeDefined();
+        expect(userUpdate?.payload).toMatchObject({
+          preferences: {
+            notifications: {
+              push: true,
+              email: true,
+              marketing: true,
+            },
+            activityTracking: false,
+            analyticsTracking: true,
+            biometricLogin: false,
+            dismissedPrompts: [],
+            defaultSportIndex: 0,
+            theme: 'dark',
+          },
+        });
+
+        const storedUser = __getMockFirestoreDocument('Users/prefs123');
+        expect(storedUser?.['preferences']).toMatchObject({
+          notifications: {
+            push: true,
+            email: true,
+            marketing: true,
+          },
+          activityTracking: false,
+          analyticsTracking: true,
+          biometricLogin: false,
+          dismissedPrompts: [],
+          defaultSportIndex: 0,
+          theme: 'dark',
+        });
+      });
+
       it('writes coach titles into sports.team and deletes the legacy root field', async () => {
         __seedMockFirestoreDocument('Users/coach123', {
           id: 'coach123',
@@ -325,33 +385,6 @@ describe('Auth Routes', () => {
           activeSportIndex: 0,
         });
         expect(userUpdate?.payload).not.toHaveProperty('primarySport');
-      });
-    });
-
-    describe('POST /api/v1/auth/profile/preload-scrape', () => {
-      it('should skip preload for all roles and defer to final completion', async () => {
-        // Send a request masquerading as an athlete, it should still be skipped
-        const response = await request(app)
-          .post('/api/v1/auth/profile/preload-scrape')
-          .send({
-            userId: 'user123',
-            role: 'athlete',
-            sport: 'Basketball',
-            linkedAccounts: [
-              {
-                platform: 'instagram',
-                profileUrl: 'https://instagram.com/test-player',
-              },
-            ],
-          });
-
-        expect(response.status).toBe(200);
-        expect(response.body).toMatchObject({
-          success: true,
-          skipped: true,
-          reason: 'Deferred until onboarding completion for all roles',
-        });
-        expect(response.body['scrapeJobId']).toBeUndefined();
       });
     });
   });

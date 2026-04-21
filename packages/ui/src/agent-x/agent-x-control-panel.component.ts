@@ -14,15 +14,19 @@ import { NxtFormFieldComponent } from '../components/form-field';
 import { NxtSheetHeaderComponent } from '../components/bottom-sheet/sheet-header.component';
 import { NxtSheetFooterComponent } from '../components/bottom-sheet/sheet-footer.component';
 import { NxtModalFooterComponent } from '../components/overlay/modal-footer.component';
-import { NxtToastService } from '../services/toast/toast.service';
 import { UsageService } from '../usage/usage.service';
+import { TEST_IDS } from '@nxt1/core/testing';
 import {
   AGENT_X_GOAL_OPTIONS,
   AGENT_X_STATUS_DEFINITIONS,
   AgentXControlPanelStateService,
+  type AgentXBudgetDraftMode,
   type AgentXControlPanelKind,
   type AgentXControlPanelPresentation,
 } from './agent-x-control-panel-state.service';
+import { AgentXService } from './agent-x.service';
+import { formatPrice, type AgentDashboardGoal, type BudgetInterval } from '@nxt1/core';
+import { AgentXGoalHistoryComponent } from './agent-x-goal-history.component';
 
 interface AgentXControlPanelCloseResult {
   readonly panel: AgentXControlPanelKind;
@@ -41,6 +45,7 @@ interface AgentXControlPanelCloseResult {
     NxtSheetHeaderComponent,
     NxtSheetFooterComponent,
     NxtModalFooterComponent,
+    AgentXGoalHistoryComponent,
   ],
   host: {
     '[class.modal-presentation]': 'presentation === "modal"',
@@ -100,80 +105,197 @@ interface AgentXControlPanelCloseResult {
           }
 
           @if (panel === 'budget') {
-            <section class="budget-shell">
-              <div class="budget-hero">
-                <span class="budget-label">Monthly agent budget</span>
-                <strong class="budget-value">&#36;{{ draftBudget() }}</strong>
-                <p class="budget-copy">Set your monthly Agent X budget</p>
-              </div>
+            @if (budgetContextReady()) {
+              <section class="budget-shell">
+                <div class="budget-hero">
+                  <span class="budget-label">{{ selectedBudgetLabel() }}</span>
+                  <strong class="budget-value">&#36;{{ draftBudget() }}</strong>
+                  <p class="budget-copy">
+                    {{ selectedBudgetIntervalLabel() }} budget for
+                    {{
+                      selectedBudgetTarget().type === 'team' ? 'this team' : 'the full organization'
+                    }}
+                  </p>
+                </div>
 
-              <div class="budget-grid">
-                <section class="control-card">
-                  <label class="field-label" for="agent-x-budget-slider">Budget range</label>
-                  <ion-range
-                    id="agent-x-budget-slider"
-                    class="budget-range"
-                    [min]="25"
-                    [max]="2500"
-                    [step]="25"
-                    [snaps]="true"
-                    [pin]="true"
-                    [value]="draftBudget()"
-                    (ionChange)="onBudgetSliderInput($event)"
-                  >
-                    <ion-label slot="start">$25</ion-label>
-                    <ion-label slot="end">$2,500</ion-label>
-                  </ion-range>
-                </section>
+                @if (canSelectTeamBudget()) {
+                  <section class="control-card">
+                    <span class="field-label">Budget scope</span>
+                    <div class="budget-scope-grid">
+                      <nxt1-form-field
+                        label="Apply budget to"
+                        inputId="agent-x-budget-scope-select"
+                      >
+                        <div class="budget-select-wrap">
+                          <select
+                            id="agent-x-budget-scope-select"
+                            class="budget-select"
+                            [value]="selectedBudgetScope()"
+                            (change)="onBudgetScopeChange($event)"
+                          >
+                            <option value="organization">Organization</option>
+                            <option value="team">Specific team</option>
+                          </select>
+                          <span class="budget-select-icon" aria-hidden="true">▾</span>
+                        </div>
+                      </nxt1-form-field>
+
+                      @if (selectedBudgetScope() === 'team') {
+                        <nxt1-form-field label="Team" inputId="agent-x-budget-team-select">
+                          <div class="budget-select-wrap">
+                            <select
+                              id="agent-x-budget-team-select"
+                              class="budget-select"
+                              [value]="draftBudgetTargetId()"
+                              (change)="onBudgetTargetSelect($event)"
+                            >
+                              @for (target of availableTeamBudgetTargets(); track target.id) {
+                                <option [value]="target.id">{{ target.label }}</option>
+                              }
+                            </select>
+                            <span class="budget-select-icon" aria-hidden="true">▾</span>
+                          </div>
+                        </nxt1-form-field>
+                      }
+                    </div>
+                    <div class="budget-target-summary">
+                      <span class="budget-target-summary__label">Selected target</span>
+                      <strong class="budget-target-summary__title">{{
+                        selectedBudgetLabel()
+                      }}</strong>
+                      <span class="budget-target-summary__copy">
+                        {{ selectedBudgetTarget().detail }}
+                      </span>
+                    </div>
+                    <p class="field-help">
+                      Organization budgets cover the whole program. Team budgets let you cap a
+                      single roster independently.
+                    </p>
+                  </section>
+                }
 
                 <section class="control-card">
-                  <nxt1-form-field label="Custom budget" inputId="agent-x-budget-input">
-                    <input
-                      id="agent-x-budget-input"
-                      class="nxt1-input"
-                      type="number"
-                      inputmode="numeric"
-                      [value]="draftBudget()"
-                      (input)="onBudgetCustomInput($event)"
-                    />
-                  </nxt1-form-field>
+                  <span class="field-label">Budget cadence</span>
+                  <div class="budget-pill-group budget-pill-group--compact">
+                    @for (option of budgetIntervalOptions; track option.id) {
+                      <button
+                        type="button"
+                        class="budget-pill budget-pill--compact"
+                        [class.budget-pill--active]="draftBudgetInterval() === option.id"
+                        (click)="selectBudgetInterval(option.id)"
+                      >
+                        <span class="budget-pill-title">{{ option.label }}</span>
+                      </button>
+                    }
+                  </div>
+                  <p class="field-help">
+                    Daily resets every day, weekly resets on Monday, and monthly resets on the first
+                    of the month.
+                  </p>
                 </section>
 
                 <section class="control-card control-card--toggle">
                   <div class="toggle-copy-block">
-                    <div class="toggle-title">Auto top-off</div>
-                    <p class="toggle-copy">
-                      Refill your Agent X budget automatically when it gets close to empty.
-                    </p>
+                    <span class="field-label">Hard stop</span>
+                    @if (selectedBudgetTarget().type === 'organization') {
+                      <strong class="toggle-title">
+                        {{
+                          draftHardStop()
+                            ? 'Stop usage at the organization cap'
+                            : 'Allow alerts only'
+                        }}
+                      </strong>
+                      <p class="field-help">
+                        When enabled, Agent X actions stop once the organization budget is reached.
+                      </p>
+                    } @else {
+                      <strong class="toggle-title"
+                        >Team limits already stop overages automatically</strong
+                      >
+                      <p class="field-help">
+                        Team caps are always enforced. This toggle only applies to the master
+                        organization budget.
+                      </p>
+                    }
                   </div>
-                  <button
-                    type="button"
-                    role="switch"
-                    class="nxt1-toggle-switch"
-                    [class.nxt1-toggle-switch--on]="draftAutoTopOffEnabled()"
-                    [attr.aria-checked]="draftAutoTopOffEnabled()"
-                    (click)="onAutoTopOffClick()"
-                  >
-                    <span class="nxt1-toggle-switch__thumb"></span>
-                  </button>
+
+                  @if (selectedBudgetTarget().type === 'organization') {
+                    <button
+                      type="button"
+                      class="nxt1-toggle-switch"
+                      [class.nxt1-toggle-switch--on]="draftHardStop()"
+                      [attr.aria-pressed]="draftHardStop()"
+                      [attr.aria-label]="draftHardStop() ? 'Disable hard stop' : 'Enable hard stop'"
+                      (click)="toggleHardStop()"
+                    >
+                      <span class="nxt1-toggle-switch__thumb"></span>
+                    </button>
+                  }
                 </section>
 
-                @if (draftAutoTopOffEnabled()) {
+                <div class="budget-grid">
                   <section class="control-card">
-                    <nxt1-form-field label="Auto top-off amount" inputId="agent-x-topoff-input">
+                    <label class="field-label" for="agent-x-budget-slider">Budget range</label>
+                    <ion-range
+                      id="agent-x-budget-slider"
+                      class="budget-range"
+                      [min]="0"
+                      [max]="10000"
+                      [step]="25"
+                      [snaps]="true"
+                      [pin]="true"
+                      [value]="draftBudget()"
+                      (ionChange)="onBudgetSliderInput($event)"
+                    >
+                      <ion-label slot="start">$25</ion-label>
+                      <ion-label slot="end">$2,500</ion-label>
+                    </ion-range>
+                  </section>
+
+                  <section class="control-card">
+                    <nxt1-form-field label="Budget amount" inputId="agent-x-budget-input">
                       <input
-                        id="agent-x-topoff-input"
+                        id="agent-x-budget-input"
                         class="nxt1-input"
                         type="number"
                         inputmode="numeric"
-                        [value]="draftAutoTopOffAmount()"
-                        (input)="onTopOffInput($event)"
+                        [value]="draftBudget()"
+                        (input)="onBudgetCustomInput($event)"
                       />
                     </nxt1-form-field>
+                    <p class="field-help">
+                      Save {{ selectedBudgetIntervalLabel().toLowerCase() }} limits in dollars. Use
+                      $0 if you want to clear the current cap.
+                    </p>
                   </section>
-                }
-              </div>
-            </section>
+                </div>
+
+                <section class="control-card">
+                  <span class="field-label">Current snapshot</span>
+                  <div class="budget-summary-grid">
+                    <div class="budget-summary-card">
+                      <span class="budget-summary-label">Current spend</span>
+                      <strong class="budget-summary-value">
+                        {{ formatCurrency(selectedBudgetSpend()) }}
+                      </strong>
+                    </div>
+                    <div class="budget-summary-card">
+                      <span class="budget-summary-label">Existing limit</span>
+                      <strong class="budget-summary-value">
+                        {{ formatCurrency(selectedBudgetExistingLimit()) }}
+                      </strong>
+                    </div>
+                  </div>
+                </section>
+              </section>
+            } @else {
+              <section class="budget-shell">
+                <section class="control-card control-card--loading">
+                  <span class="field-label">Budget settings</span>
+                  <p class="field-help">Loading current budget data...</p>
+                </section>
+              </section>
+            }
           }
 
           @if (panel === 'goals') {
@@ -202,9 +324,9 @@ interface AgentXControlPanelCloseResult {
               </div>
 
               @if (selectedGoalLabels().length > 0) {
-                <div class="goals-pills">
+                <div class="goals-pills" [attr.data-testid]="testIds.ACTIVE_LIST">
                   @for (goal of selectedGoalLabels(); track goal.id) {
-                    <div class="goals-pill">
+                    <div class="goals-pill" [attr.data-testid]="testIds.ACTIVE_ITEM">
                       <svg
                         class="goals-pill-check"
                         viewBox="0 0 24 24"
@@ -219,6 +341,27 @@ interface AgentXControlPanelCloseResult {
                         <polyline points="20 6 9 17 4 12" />
                       </svg>
                       <span class="goals-pill-text">{{ goal.label }}</span>
+                      <button
+                        type="button"
+                        class="goals-pill-complete"
+                        [attr.data-testid]="testIds.COMPLETE_BTN"
+                        aria-label="Mark goal as complete"
+                        title="Mark as done"
+                        (click)="completeGoalFromPanel(goal.id)"
+                      >
+                        <svg
+                          viewBox="0 0 24 24"
+                          width="12"
+                          height="12"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2.5"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        >
+                          <polyline points="20 6 9 17 4 12" />
+                        </svg>
+                      </button>
                       <button
                         type="button"
                         class="goals-pill-remove"
@@ -250,6 +393,12 @@ interface AgentXControlPanelCloseResult {
                   Save Goals
                 </button>
               </div>
+
+              @defer (on interaction) {
+                <nxt1-agent-x-goal-history />
+              } @placeholder {
+                <button type="button" class="goals-history-trigger">View completed goals</button>
+              }
             </section>
           }
         </div>
@@ -524,6 +673,191 @@ interface AgentXControlPanelCloseResult {
         background: var(--nxt1-color-surface-100);
       }
 
+      .control-card--loading {
+        min-height: 148px;
+        justify-content: center;
+      }
+
+      .field-help {
+        margin: 0;
+        font-size: 13px;
+        line-height: 1.5;
+        color: var(--nxt1-color-text-secondary);
+      }
+
+      .budget-pill-group {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      .budget-scope-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .budget-select-wrap {
+        position: relative;
+      }
+
+      .budget-select {
+        width: 100%;
+        min-height: 48px;
+        padding: 0 44px 0 14px;
+        border: 1px solid var(--nxt1-color-border-subtle);
+        border-radius: 14px;
+        background: var(--nxt1-color-surface-200);
+        color: var(--nxt1-color-text-primary);
+        font-size: 14px;
+        font-weight: 600;
+        line-height: 1.2;
+        outline: none;
+        appearance: none;
+        -webkit-appearance: none;
+        transition:
+          border-color 0.16s ease,
+          box-shadow 0.16s ease,
+          background 0.16s ease;
+      }
+
+      .budget-select:hover {
+        border-color: var(--nxt1-color-primary);
+      }
+
+      .budget-select:focus {
+        border-color: var(--nxt1-color-primary);
+        box-shadow: 0 0 0 3px var(--nxt1-color-alpha-primary10, rgba(221, 255, 0, 0.08));
+      }
+
+      .budget-select option {
+        background: var(--nxt1-color-surface-300, #161616);
+        color: var(--nxt1-color-text-primary);
+      }
+
+      .budget-select-icon {
+        position: absolute;
+        top: 50%;
+        right: 14px;
+        transform: translateY(-50%);
+        pointer-events: none;
+        color: var(--nxt1-color-text-secondary);
+        font-size: 14px;
+      }
+
+      .budget-target-summary {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        padding: 14px 16px;
+        border: 1px solid var(--nxt1-color-border-subtle);
+        border-radius: 16px;
+        background: linear-gradient(
+          180deg,
+          var(--nxt1-color-surface-200) 0%,
+          var(--nxt1-color-surface-100) 100%
+        );
+      }
+
+      .budget-target-summary__label {
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--nxt1-color-text-secondary);
+      }
+
+      .budget-target-summary__title {
+        font-size: 16px;
+        line-height: 1.2;
+        color: var(--nxt1-color-text-primary);
+      }
+
+      .budget-target-summary__copy {
+        font-size: 13px;
+        line-height: 1.5;
+        color: var(--nxt1-color-text-secondary);
+      }
+
+      .budget-pill-group--compact {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+
+      .budget-pill {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 4px;
+        min-width: 0;
+        padding: 12px 14px;
+        border: 1px solid var(--nxt1-color-border-subtle);
+        border-radius: 16px;
+        background: var(--nxt1-color-surface-100);
+        color: var(--nxt1-color-text-primary);
+        cursor: pointer;
+        transition:
+          border-color 0.16s ease,
+          background 0.16s ease,
+          transform 0.16s ease;
+      }
+
+      .budget-pill:hover {
+        border-color: var(--nxt1-color-primary);
+      }
+
+      .budget-pill--compact {
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+      }
+
+      .budget-pill--active {
+        border-color: var(--nxt1-color-primary);
+        background: var(--nxt1-color-alpha-primary10, rgba(221, 255, 0, 0.08));
+        transform: translateY(-1px);
+      }
+
+      .budget-pill-title {
+        font-size: 13px;
+        font-weight: 700;
+        color: inherit;
+      }
+
+      .budget-pill-copy {
+        font-size: 12px;
+        line-height: 1.4;
+        color: var(--nxt1-color-text-secondary);
+      }
+
+      .budget-summary-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .budget-summary-card {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        padding: 14px;
+        border-radius: 16px;
+        background: var(--nxt1-color-surface-200);
+        border: 1px solid var(--nxt1-color-border-subtle);
+      }
+
+      .budget-summary-label {
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--nxt1-color-text-secondary);
+      }
+
+      .budget-summary-value {
+        font-size: 20px;
+        line-height: 1.1;
+        color: var(--nxt1-color-text-primary);
+      }
+
       .control-card--toggle {
         flex-direction: row;
         align-items: flex-start;
@@ -722,6 +1056,45 @@ interface AgentXControlPanelCloseResult {
         opacity: 0.9;
       }
 
+      .goals-history-trigger {
+        width: 100%;
+        background: none;
+        border: 1px dashed var(--nxt1-color-border-subtle);
+        border-radius: 12px;
+        padding: 12px;
+        font-size: 13px;
+        color: var(--nxt1-color-text-secondary);
+        cursor: pointer;
+        text-align: center;
+        transition:
+          border-color 0.15s,
+          color 0.15s;
+      }
+
+      .goals-history-trigger:hover {
+        border-color: var(--nxt1-color-primary);
+        color: var(--nxt1-color-primary);
+      }
+
+      .goals-pill-complete {
+        background: none;
+        border: none;
+        color: var(--nxt1-color-success, #22c55e);
+        cursor: pointer;
+        padding: 2px;
+        display: flex;
+        border-radius: 999px;
+        transition:
+          color 0.15s,
+          transform 0.15s;
+        flex-shrink: 0;
+      }
+
+      .goals-pill-complete:hover {
+        transform: scale(1.15);
+        color: var(--nxt1-color-success, #22c55e);
+      }
+
       .goal-option {
         cursor: pointer;
         transition:
@@ -768,6 +1141,12 @@ interface AgentXControlPanelCloseResult {
           padding-left: 18px;
           padding-right: 18px;
         }
+
+        .budget-scope-grid,
+        .budget-pill-group--compact,
+        .budget-summary-grid {
+          grid-template-columns: 1fr;
+        }
       }
     `,
   ],
@@ -775,9 +1154,11 @@ interface AgentXControlPanelCloseResult {
 })
 export class AgentXControlPanelComponent implements OnInit {
   private readonly modalController = inject(ModalController);
-  private readonly toast = inject(NxtToastService);
   private readonly state = inject(AgentXControlPanelStateService);
   private readonly usageService = inject(UsageService);
+  private readonly agentX = inject(AgentXService);
+
+  protected readonly testIds = TEST_IDS.AGENT_X_GOALS;
 
   readonly close = output<AgentXControlPanelCloseResult>();
 
@@ -785,13 +1166,15 @@ export class AgentXControlPanelComponent implements OnInit {
   @Input() presentation: AgentXControlPanelPresentation = 'modal';
   @Input() required = false;
   @Input() initialGoals: string[] = [];
+  @Input() budgetTargetTeamId: string | null = null;
+  @Input() budgetDraftMode: AgentXBudgetDraftMode = 'current';
 
   readonly title = computed(() => {
     switch (this.panel) {
       case 'status':
         return 'Agent X status';
       case 'budget':
-        return 'Agent budget';
+        return 'Budget settings';
       case 'goals':
         return 'Manage agent goals';
     }
@@ -802,7 +1185,7 @@ export class AgentXControlPanelComponent implements OnInit {
       case 'status':
         return 'Active means Agent X is running normally, Degraded means some actions may be slower, and Down means Agent X is temporarily unavailable.';
       case 'budget':
-        return 'Tune the budget ceiling, set an exact amount, and decide if Agent X should auto top-off.';
+        return 'Set the budget cadence, choose whether it applies to the full organization or a team, and save the limit in one step.';
       case 'goals':
         return this.required
           ? 'Pick at least one goal so Agent X knows what to work on for you.'
@@ -811,13 +1194,92 @@ export class AgentXControlPanelComponent implements OnInit {
   });
 
   readonly saving = signal(false);
-  readonly draftBudget = signal(150);
-  readonly draftAutoTopOffEnabled = signal(true);
-  readonly draftAutoTopOffAmount = signal(50);
+  readonly budgetContextReady = signal(false);
+  readonly draftBudget = signal(0);
+  readonly draftBudgetInterval = signal<BudgetInterval>('monthly');
+  readonly draftHardStop = signal(false);
+  readonly draftBudgetTargetId = signal('organization');
   readonly draftGoals = signal<string[]>([]);
   readonly customGoalText = signal('');
   readonly currentStatus = this.state.statusDefinition;
   readonly statusTone = this.state.statusTone;
+  readonly canSelectTeamBudget = computed(
+    () => this.panel === 'budget' && this.usageService.isOrgAdmin() && this.usageService.isOrg()
+  );
+  readonly availableTeamBudgetTargets = computed(() =>
+    this.budgetTargetOptions().filter((target) => target.type === 'team')
+  );
+  readonly budgetIntervalOptions: ReadonlyArray<{ id: BudgetInterval; label: string }> = [
+    { id: 'daily', label: 'Daily' },
+    { id: 'weekly', label: 'Weekly' },
+    { id: 'monthly', label: 'Monthly' },
+  ];
+  readonly budgetTargetOptions = computed(() => {
+    const billingContext = this.usageService.billingContext();
+    const organizationId = billingContext?.organizationId ?? 'organization';
+    const baseTarget = {
+      id: organizationId,
+      label: 'Organization',
+      type: 'organization' as const,
+      detail: 'Entire program budget',
+    };
+
+    if (!this.canSelectTeamBudget()) {
+      return [baseTarget] as const;
+    }
+
+    const availableTargets = billingContext?.availableBudgetTargets ?? [];
+
+    return [
+      baseTarget,
+      ...availableTargets
+        .filter((target) => target.type === 'team')
+        .map((target) => ({
+          id: target.id,
+          label: target.label,
+          type: 'team' as const,
+          detail: 'Team-specific cap',
+        })),
+    ] as const;
+  });
+  readonly selectedBudgetTarget = computed(() => {
+    const targets = this.budgetTargetOptions();
+    return targets.find((target) => target.id === this.draftBudgetTargetId()) ?? targets[0] ?? null;
+  });
+  readonly selectedBudgetLabel = computed(() => this.selectedBudgetTarget()?.label ?? 'Budget');
+  readonly selectedBudgetScope = computed<'organization' | 'team'>(() =>
+    this.selectedBudgetTarget()?.type === 'team' ? 'team' : 'organization'
+  );
+  readonly selectedBudgetIntervalLabel = computed(() => {
+    const interval = this.draftBudgetInterval();
+    return interval.charAt(0).toUpperCase() + interval.slice(1);
+  });
+  readonly selectedBudgetDocument = computed(() => {
+    const target = this.selectedBudgetTarget();
+    const interval = this.draftBudgetInterval();
+
+    if (!target) {
+      return null;
+    }
+
+    return (
+      this.usageService
+        .budgets()
+        .find(
+          (budget) =>
+            budget.targetScope === target.type &&
+            budget.targetId === target.id &&
+            budget.budgetInterval === interval
+        ) ?? null
+    );
+  });
+  readonly selectedBudgetSpend = computed(() => this.selectedBudgetDocument()?.spent ?? 0);
+  readonly selectedBudgetExistingLimit = computed(
+    () => this.selectedBudgetDocument()?.budgetLimit ?? 0
+  );
+  readonly selectedBudgetHardStop = computed(
+    () => this.selectedBudgetDocument()?.stopOnLimit ?? false
+  );
   readonly selectedGoalLabels = computed(() => {
     return this.draftGoals().map((id) => {
       if (id.startsWith('custom:')) {
@@ -832,17 +1294,23 @@ export class AgentXControlPanelComponent implements OnInit {
   readonly goalOptions = AGENT_X_GOAL_OPTIONS;
 
   ngOnInit(): void {
-    // Hydrate budget from backend billing context (cents → dollars) if available,
-    // otherwise fall back to local badge state
-    const billingCtx = this.usageService.billingContext();
-    const budgetDollars = billingCtx?.monthlyBudget
-      ? Math.round(billingCtx.monthlyBudget / 100)
-      : this.state.monthlyBudget();
-    this.draftBudget.set(budgetDollars);
-    this.draftAutoTopOffEnabled.set(this.state.autoTopOffEnabled());
-    this.draftAutoTopOffAmount.set(this.state.autoTopOffAmount());
+    void this.initializePanelState();
+  }
 
-    // Prefer initialGoals input (passed directly from shell) over state service
+  private async initializePanelState(): Promise<void> {
+    if (this.panel === 'budget') {
+      this.budgetContextReady.set(false);
+      await this.usageService.ensureBudgetEditorContext();
+      this.draftHardStop.set(this.selectedBudgetHardStop());
+      if (this.budgetDraftMode === 'new') {
+        this.applyNewBudgetDraft();
+      } else {
+        this.applyBudgetDraft(this.budgetTargetTeamId ?? 'organization');
+      }
+      this.budgetContextReady.set(true);
+      return;
+    }
+
     const goals = this.initialGoals.length > 0 ? this.initialGoals : this.state.goals();
     this.draftGoals.set([...goals]);
   }
@@ -863,15 +1331,51 @@ export class AgentXControlPanelComponent implements OnInit {
     }
   }
 
-  onTopOffInput(event: Event | CustomEvent<{ value: string | number | null }>): void {
-    const value = this.readNumberFromEvent(event);
-    if (value !== null) {
-      this.draftAutoTopOffAmount.set(value);
-    }
+  selectBudgetTarget(targetId: string): void {
+    this.hydrateBudgetDraft(targetId, this.draftBudgetInterval());
   }
 
-  onAutoTopOffClick(): void {
-    this.draftAutoTopOffEnabled.update((v) => !v);
+  onBudgetScopeChange(event: Event): void {
+    const target = event.target;
+    if (!(target instanceof HTMLSelectElement)) {
+      return;
+    }
+
+    if (target.value === 'team') {
+      const firstTeamTarget = this.availableTeamBudgetTargets()[0];
+      if (firstTeamTarget) {
+        this.hydrateBudgetDraft(
+          firstTeamTarget.id,
+          this.findFirstMissingInterval(firstTeamTarget.id)
+        );
+      }
+      return;
+    }
+
+    const organizationTargetId =
+      this.budgetTargetOptions().find((option) => option.type === 'organization')?.id ??
+      'organization';
+    this.hydrateBudgetDraft(
+      organizationTargetId,
+      this.findFirstMissingInterval(organizationTargetId)
+    );
+  }
+
+  onBudgetTargetSelect(event: Event): void {
+    const target = event.target;
+    if (!(target instanceof HTMLSelectElement)) {
+      return;
+    }
+
+    this.hydrateBudgetDraft(target.value, this.draftBudgetInterval());
+  }
+
+  selectBudgetInterval(interval: BudgetInterval): void {
+    this.hydrateBudgetDraft(this.draftBudgetTargetId(), interval);
+  }
+
+  toggleHardStop(): void {
+    this.draftHardStop.update((current) => !current);
   }
 
   toggleGoal(goalId: string): void {
@@ -904,6 +1408,12 @@ export class AgentXControlPanelComponent implements OnInit {
     }
   }
 
+  async completeGoalFromPanel(goalId: string): Promise<void> {
+    await this.agentX.completeGoal(goalId);
+    // Also remove from draft so the panel reflects the completion immediately
+    this.draftGoals.update((gs) => gs.filter((id) => id !== goalId));
+  }
+
   addCustomGoal(): void {
     const text = this.customGoalText().trim();
     if (!text || this.draftGoals().length >= 3) return;
@@ -916,20 +1426,31 @@ export class AgentXControlPanelComponent implements OnInit {
   async savePanel(): Promise<void> {
     if (this.panel === 'budget') {
       this.saving.set(true);
-      const budgetCents = Math.round(this.draftBudget() * 100);
+      const budgetCents = Math.max(0, Math.round(this.draftBudget() * 100));
+      const selectedTarget = this.selectedBudgetTarget();
+      const budgetInterval = this.draftBudgetInterval();
 
       try {
-        const success = await this.usageService.updateBudget(budgetCents);
+        const success =
+          selectedTarget?.type === 'team'
+            ? await this.usageService.updateTeamBudget(selectedTarget.id, {
+                monthlyBudget: budgetCents,
+                budgetInterval,
+              })
+            : await this.usageService.updateBudget({
+                monthlyBudget: budgetCents,
+                budgetInterval,
+                hardStop: this.draftHardStop(),
+              });
         if (!success) {
           this.saving.set(false);
           return; // UsageService already showed error toast
         }
 
-        // Only update badge state after backend confirms
         this.state.saveBudget({
           monthlyBudget: this.draftBudget(),
-          autoTopOffEnabled: this.draftAutoTopOffEnabled(),
-          autoTopOffAmount: this.draftAutoTopOffAmount(),
+          autoTopOffEnabled: false,
+          autoTopOffAmount: 0,
         });
         this.dismiss({ panel: 'budget', saved: true });
       } catch {
@@ -941,9 +1462,25 @@ export class AgentXControlPanelComponent implements OnInit {
     }
 
     if (this.panel === 'goals') {
-      this.state.saveGoals(this.draftGoals());
-      this.toast.success('Agent goals saved.');
-      this.dismiss({ panel: 'goals', saved: true });
+      this.saving.set(true);
+      try {
+        const now = new Date().toISOString();
+        const goals: AgentDashboardGoal[] = this.draftGoals().map((id) => {
+          if (id.startsWith('custom:')) {
+            const text = id.slice(7);
+            return { id, text, category: 'custom', createdAt: now };
+          }
+          const option = AGENT_X_GOAL_OPTIONS.find((g) => g.id === id);
+          return { id, text: option?.label ?? id, category: 'preset', createdAt: now };
+        });
+        const success = await this.agentX.setGoals(goals);
+        if (success) {
+          this.state.saveGoals(this.draftGoals());
+          this.dismiss({ panel: 'goals', saved: true });
+        }
+      } finally {
+        this.saving.set(false);
+      }
     }
   }
 
@@ -964,6 +1501,93 @@ export class AgentXControlPanelComponent implements OnInit {
     }
 
     this.close.emit(result);
+  }
+
+  formatCurrency(cents: number): string {
+    return formatPrice(cents);
+  }
+
+  private applyBudgetDraft(targetId: string): void {
+    this.hydrateBudgetDraft(targetId, this.draftBudgetInterval());
+  }
+
+  private hydrateBudgetDraft(targetId: string, interval: BudgetInterval): void {
+    const target =
+      this.budgetTargetOptions().find((option) => option.id === targetId) ??
+      this.budgetTargetOptions()[0] ??
+      null;
+
+    if (!target) {
+      return;
+    }
+
+    this.draftBudgetTargetId.set(target.id);
+    this.draftBudgetInterval.set(interval);
+
+    const existingBudget = this.usageService
+      .budgets()
+      .find(
+        (budget) =>
+          budget.targetScope === target.type &&
+          budget.targetId === target.id &&
+          budget.budgetInterval === interval
+      );
+
+    this.draftBudget.set(existingBudget ? Math.round(existingBudget.budgetLimit / 100) : 0);
+    this.draftHardStop.set(
+      target.type === 'organization' ? (existingBudget?.stopOnLimit ?? false) : true
+    );
+  }
+
+  private applyNewBudgetDraft(): void {
+    const targets = this.budgetTargetOptions();
+    const explicitTarget = this.budgetTargetTeamId
+      ? targets.find((target) => target.id === this.budgetTargetTeamId)
+      : null;
+    const organizationTarget = targets.find((target) => target.type === 'organization') ?? null;
+    const targetWithOpenInterval =
+      targets.find((target) =>
+        this.budgetIntervalOptions.some(
+          (option) =>
+            !this.usageService
+              .budgets()
+              .some(
+                (budget) =>
+                  budget.targetScope === target.type &&
+                  budget.targetId === target.id &&
+                  budget.budgetInterval === option.id
+              )
+        )
+      ) ?? null;
+    const preferredTarget =
+      explicitTarget ?? organizationTarget ?? targetWithOpenInterval ?? targets[0] ?? null;
+
+    if (!preferredTarget) {
+      return;
+    }
+
+    this.hydrateBudgetDraft(preferredTarget.id, this.findFirstMissingInterval(preferredTarget.id));
+  }
+
+  private findFirstMissingInterval(targetId: string): BudgetInterval {
+    const target = this.budgetTargetOptions().find((option) => option.id === targetId);
+    if (!target) {
+      return 'monthly';
+    }
+
+    return (
+      this.budgetIntervalOptions.find(
+        (option) =>
+          !this.usageService
+            .budgets()
+            .some(
+              (budget) =>
+                budget.targetScope === target.type &&
+                budget.targetId === target.id &&
+                budget.budgetInterval === option.id
+            )
+      )?.id ?? 'monthly'
+    );
   }
 
   private readNumberFromEvent(

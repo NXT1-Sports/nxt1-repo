@@ -41,6 +41,9 @@ import type {
   AgentXStreamCardEvent,
   AgentXStreamOperationEvent,
   AutoOpenPanelInstruction,
+  CompletedGoalRecord,
+  AgentCompleteGoalResponse,
+  AgentGoalHistoryResponse,
 } from './agent-x.types';
 import type { AgentMessage } from './chat.types';
 import { AGENT_X_ENDPOINTS } from './agent-x.constants';
@@ -254,6 +257,42 @@ export function createAgentXApi(http: HttpAdapter, baseUrl: string) {
         return response.success;
       } catch {
         return false;
+      }
+    },
+
+    /**
+     * Mark an active goal as completed.
+     * Archives the goal to `goal_history` subcollection and removes it from active goals.
+     *
+     * @param goalId - ID of the active goal to complete
+     * @param notes - Optional user notes about the completion
+     * @returns The completed goal record, or null on failure
+     */
+    async completeGoal(goalId: string, notes?: string): Promise<CompletedGoalRecord | null> {
+      try {
+        const response = await http.post<AgentCompleteGoalResponse>(
+          `${endpoint(AGENT_X_ENDPOINTS.GOAL_COMPLETE)}/${encodeURIComponent(goalId)}/complete`,
+          { goalId, ...(notes ? { notes } : {}) }
+        );
+        return response.success ? (response.data?.completedGoal ?? null) : null;
+      } catch {
+        return null;
+      }
+    },
+
+    /**
+     * Fetch the user's paginated history of completed goals.
+     *
+     * @returns Array of completed goal records ordered newest-first, or empty array on failure
+     */
+    async getGoalHistory(): Promise<readonly CompletedGoalRecord[]> {
+      try {
+        const response = await http.get<AgentGoalHistoryResponse>(
+          endpoint(AGENT_X_ENDPOINTS.GOAL_HISTORY)
+        );
+        return response.success ? (response.data?.history ?? []) : [];
+      } catch {
+        return [];
       }
     },
 

@@ -14,7 +14,7 @@
  *
  * Roles:
  *   coach / director  → "Add Team" label, linkScope = 'team'
- *   athlete / parent / recruiter → "Add Sport" label, linkScope = 'athlete'
+ *   athlete → "Add Sport" label, linkScope = 'athlete'
  */
 
 import { Component, ChangeDetectionStrategy, inject, ViewChild, OnInit } from '@angular/core';

@@ -100,6 +100,9 @@ export {
   type TeamEvent,
 } from './team/team-event.model';
 
+// Team stats model (sport-agnostic, Schedule collection)
+export { type TeamStatTrend, type TeamStatEntry, type TeamStatDoc } from './team/team-stats.model';
+
 // User model - Core types (use these)
 export {
   USER_SCHEMA_VERSION,
@@ -137,7 +140,19 @@ export {
   type VerifiedMetric,
   type VerifiedStat,
   type ScheduleEvent,
-  // @deprecated — use VerifiedMetric[] / VerifiedStat[] instead
+} from './user';
+
+// Schedule event — Firestore Schedule collection document type
+export {
+  type ScheduleEventType,
+  type ScheduleEventOwnerType,
+  type ScheduleEventStatus,
+  type ScheduleEventOutcome,
+  type ScheduleEventDoc,
+} from './user/schedule-event.model';
+
+// @deprecated — use VerifiedMetric[] / VerifiedStat[] instead
+export {
   type AthleticMetrics,
   type SeasonStats,
   // Agent X & Scouting (source-of-truth types)
@@ -157,7 +172,6 @@ export {
   // Preferences & Settings
   type NotificationPreferences,
   type UserPreferences,
-  type UserCounters,
   // Utility types
   type UserSummary,
   // Type guards
@@ -224,8 +238,6 @@ export {
   type Post,
   type PostMention,
   type PostAttachment,
-  type PostReactionRecord,
-  type PostComment,
   isProfileCard,
   isVideoMedia,
   isMediaReady,
@@ -320,6 +332,25 @@ export * from './platform/user-analytics.model';
 
 // Custom analytics model (flexible analytics event records)
 export type { CustomAnalyticsEvent } from './platform/custom-analytics.model';
+
+// Agent analytics event-sourcing ontology and rollups
+export {
+  ANALYTICS_DOMAINS,
+  ANALYTICS_SUBJECT_TYPES,
+  ANALYTICS_EVENT_TYPES,
+  ANALYTICS_SUMMARY_TIMEFRAMES,
+  getAnalyticsEventTypesForDomain,
+  getDefaultAnalyticsEventType,
+  isAnalyticsDomain,
+  isAnalyticsSubjectType,
+  isAnalyticsEventTypeForDomain,
+  type AnalyticsDomain,
+  type AnalyticsSubjectType,
+  type AnalyticsEventType,
+  type AnalyticsSummaryTimeframe,
+  type AnalyticsEventRecord,
+  type AnalyticsRollupRecord,
+} from './platform/analytics-event.model';
 
 // Notification model (push, email, SMS, in-app)
 export {

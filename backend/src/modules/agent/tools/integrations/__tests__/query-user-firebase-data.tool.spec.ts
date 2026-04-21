@@ -4,7 +4,7 @@ vi.mock('../../../../../utils/logger.js', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
-import { QueryNxt1DataTool } from '../query-user-firebase-data.tool.js';
+import { QueryNxt1DataTool } from '../firebase-mcp/query-user-firebase-data.tool.js';
 import type { ToolExecutionContext } from '../../base.tool.js';
 
 describe('QueryNxt1DataTool', () => {

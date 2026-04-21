@@ -280,7 +280,6 @@ function transformLegacyUser(docId: string, d: LegacyUser): TransformResult {
     username,
     unicode,
     aboutMe: cleanString(d['aboutMe']) || '',
-    bannerImg: cleanString(d['bannerImg']) || null,
     profileImgs,
     gender: cleanString(d['gender']) || undefined,
 

@@ -43,11 +43,19 @@ export const MAX_RECURRING_JOBS_PER_USER = 10 as const;
 /** Minimum interval between recurring job executions (1 hour in ms). */
 export const MIN_RECURRING_INTERVAL_MS = 3_600_000 as const;
 
+/** Delayed idle window before a thread is summarized into memory (1 hour in ms). */
+export const THREAD_SUMMARIZATION_DELAY_MS = 3_600_000 as const;
+
+/** BullMQ job name for event-driven idle thread summarization. */
+export const THREAD_SUMMARIZATION_JOB_NAME = 'THREAD_SUMMARIZATION' as const;
+
 /**
  * How long BullMQ holds the lock on an active job (ms).
  * Must exceed the longest expected agent execution time.
- * Agent jobs involve multiple LLM calls (60s each) + scraper calls (15s each)
- * across up to 10 ReAct iterations, so 5 minutes is a safe ceiling.
+ * BullMQ automatically renews the lock every `lockDuration / 2` ms as long as
+ * the async job processor is still running (the event loop is not blocked).
+ * This means jobs of ANY duration will never stall — the worker auto-heartbeats.
+ * The value here is the renewal INTERVAL (half = 2.5 min), not a hard ceiling.
  */
 export const JOB_LOCK_DURATION_MS = 300_000 as const;
 
@@ -59,11 +67,10 @@ export const JOB_TIMEOUT_MS = 300_000 as const;
 
 // ─── Job Data Shapes ────────────────────────────────────────────────────────
 
-/**
- * The data payload stored inside each BullMQ job.
- * This extends the core AgentJobPayload with queue-specific metadata.
- */
-export interface AgentQueueJobData {
+/** Queue payload for a normal Agent X background execution. */
+export interface StandardAgentQueueJobData {
+  /** Discriminator for the worker. */
+  readonly kind: 'agent';
   /** The original job payload from the API request or trigger. */
   readonly payload: AgentJobPayload;
   /** ISO timestamp of when the job was enqueued. */
@@ -71,6 +78,25 @@ export interface AgentQueueJobData {
   /** Which Firestore the job document lives in — used by the worker to write back to the correct DB. */
   readonly environment: 'staging' | 'production';
 }
+
+/** Queue payload for delayed thread summarization after the chat goes idle. */
+export interface ThreadSummarizationQueueJobData {
+  /** Discriminator for the worker. */
+  readonly kind: 'thread_summarization';
+  /** Mongo thread id to summarize. */
+  readonly threadId: string;
+  /** Owner of the thread. */
+  readonly userId: string;
+  /** Delay used when the job was scheduled (ms). */
+  readonly delayMs: number;
+  /** ISO timestamp of when the job was enqueued. */
+  readonly enqueuedAt: string;
+  /** Which Firestore environment the queue is operating against. */
+  readonly environment: 'staging' | 'production';
+}
+
+/** Union of all BullMQ payloads handled by the agent queue worker. */
+export type AgentQueueJobData = StandardAgentQueueJobData | ThreadSummarizationQueueJobData;
 
 /**
  * The return value from a completed BullMQ job.
@@ -132,7 +158,7 @@ export interface AgentJobStatusResponse {
 /**
  * Frontend-facing summary of a single recurring schedule.
  * Returned by the list_recurring_tasks tool and the REST API.
- * Metadata is persisted in Firestore (`recurring_tasks/{key}`).
+ * Metadata is persisted in Firestore (`RecurringTasks/{key}`).
  */
 export interface RecurringJobInfo {
   /** The BullMQ repeatable job key (used for removal). */

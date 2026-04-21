@@ -12,7 +12,7 @@ import type { AgentToolCategory } from '@nxt1/core';
 import type { AgentQueueService } from '../../queue/queue.service.js';
 import type { RecurringJobInfo } from '../../queue/queue.types.js';
 
-const RECURRING_TASKS_COLLECTION = 'recurring_tasks' as const;
+const RECURRING_TASKS_COLLECTION = 'RecurringTasks' as const;
 
 export class ListRecurringTasksTool extends BaseTool {
   readonly name = 'list_recurring_tasks';

@@ -32,23 +32,22 @@ import {
   computed,
   signal,
   effect,
+  DestroyRef,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { IonContent, IonIcon, IonSkeletonText } from '@ionic/angular/standalone';
 import { addIcons } from 'ionicons';
-import {
-  trophyOutline,
-  locationOutline,
-  peopleOutline,
-  statsChartOutline,
-  shareOutline,
-} from 'ionicons/icons';
+import { peopleOutline, shareOutline } from 'ionicons/icons';
 import { NxtPageHeaderComponent, type PageHeaderAction } from '../components/page-header';
 import { NxtRefresherComponent, type RefreshEvent } from '../components/refresh-container';
 import { NxtStateViewComponent } from '../components/state-view';
+import { NxtEntityHeroComponent, type EntityHeroMetaItem } from '../components/entity-hero';
+import { ProfileTimelineComponent } from '../profile/profile-timeline.component';
 import { NxtLoggingService } from '../services/logging/logging.service';
 import { NxtToastService } from '../services/toast/toast.service';
+import { NxtThemeService } from '../services/theme';
 import { formatSportDisplayName } from '@nxt1/core';
+import type { FeedItem } from '@nxt1/core';
 
 // Register icons
 /**
@@ -59,15 +58,18 @@ export interface TeamData {
   slug: string;
   teamName: string;
   sport?: string;
+  teamType?: string;
   location?: string;
   logoUrl?: string;
-  imageUrl?: string;
   record?: string;
   description?: string;
-  foundedYear?: number;
   coachName?: string;
   homeVenue?: string;
   rosterCount?: number;
+  /** Primary brand color (hex, e.g. "#003087") — sourced from the Organisation doc */
+  primaryColor?: string;
+  /** Secondary brand color (hex) — sourced from the Organisation doc */
+  secondaryColor?: string;
 }
 
 @Component({
@@ -81,6 +83,8 @@ export interface TeamData {
     NxtPageHeaderComponent,
     NxtRefresherComponent,
     NxtStateViewComponent,
+    NxtEntityHeroComponent,
+    ProfileTimelineComponent,
   ],
   template: `
     <!-- Top Navigation Header -->
@@ -125,34 +129,15 @@ export interface TeamData {
 
         <!-- Team Content -->
         @else if (team(); as teamData) {
-          <!-- Team Header -->
-          <div class="team-header">
-            @if (teamData.logoUrl || teamData.imageUrl) {
-              <div class="team-logo">
-                <img [src]="teamData.logoUrl || teamData.imageUrl" [alt]="teamData.teamName" />
-              </div>
-            }
-            <div class="team-info">
-              <h1 class="team-name">{{ teamData.teamName }}</h1>
-              @if (teamData.sport) {
-                <div class="team-sport">
-                  <ion-icon name="trophy-outline"></ion-icon>
-                  <span>{{ formatSportDisplayName(teamData.sport) }}</span>
-                </div>
-              }
-              @if (teamData.location) {
-                <div class="team-location">
-                  <ion-icon name="location-outline"></ion-icon>
-                  <span>{{ teamData.location }}</span>
-                </div>
-              }
-              @if (teamData.record) {
-                <div class="team-record">
-                  <ion-icon name="stats-chart-outline"></ion-icon>
-                  <span>Record: {{ teamData.record }}</span>
-                </div>
-              }
-            </div>
+          <!-- Team Header — shared entity hero card (same design as /profile) -->
+          <div class="team-hero-wrap">
+            <nxt1-entity-hero
+              [name]="teamData.teamName"
+              [subtitle]="heroSubtitle(teamData)"
+              [logoSrc]="teamData.logoUrl ?? null"
+              [metaItems]="teamMetaItems()"
+              (actionClick)="shareClick.emit()"
+            />
           </div>
 
           <!-- Team Stats Bar -->
@@ -162,12 +147,6 @@ export interface TeamData {
                 <ion-icon name="people-outline"></ion-icon>
                 <span class="stat-value">{{ teamData.rosterCount }}</span>
                 <span class="stat-label">Athletes</span>
-              </div>
-            }
-            @if (teamData.foundedYear) {
-              <div class="stat-item">
-                <span class="stat-value">{{ teamData.foundedYear }}</span>
-                <span class="stat-label">Founded</span>
               </div>
             }
           </div>
@@ -196,11 +175,22 @@ export interface TeamData {
             }
           </div>
 
-          <!-- Placeholder for future sections -->
-          <div class="team-sections">
-            <div class="section-placeholder">
-              <p class="placeholder-text">Roster, schedule, and highlights coming soon...</p>
-            </div>
+          <!-- Team Timeline — polymorphic post feed (same infrastructure as /profile) -->
+          <div class="team-timeline-section">
+            <nxt1-profile-timeline
+              [polymorphicFeed]="timelinePosts()"
+              [isLoading]="timelineLoading()"
+              [isLoadingMore]="timelineLoadingMore()"
+              [isEmpty]="timelinePosts().length === 0 && !timelineLoading() && !timelineError()"
+              [error]="timelineError()"
+              [hasMore]="timelineHasMore()"
+              [showMenu]="false"
+              emptyIcon="megaphone-outline"
+              emptyTitle="No posts yet"
+              emptyMessage="This team hasn't shared any posts, events, or highlights yet."
+              (loadMore)="timelineLoadMore.emit()"
+              (retry)="retryClick.emit()"
+            />
           </div>
         }
       </div>
@@ -209,7 +199,9 @@ export interface TeamData {
   styles: [
     `
       .team-content {
-        --background: var(--ion-background-color, #ffffff);
+        --background: var(--nxt1-color-bg-primary, var(--ion-background-color, #0a0a0a));
+        --m-accent: var(--team-primary, var(--nxt1-color-primary, #d4ff00));
+        --m-accent-secondary: var(--team-secondary, var(--nxt1-color-secondary, #ffffff));
       }
 
       .team-container {
@@ -264,54 +256,11 @@ export interface TeamData {
         border-radius: 8px;
       }
 
-      /* Team Header */
-      .team-header {
-        display: flex;
-        gap: 20px;
-        padding: 20px;
-        background: var(--ion-color-light, #f5f5f5);
-        border-radius: 12px;
-        margin-bottom: 24px;
-      }
-
-      .team-logo {
-        flex-shrink: 0;
-      }
-
-      .team-logo img {
-        width: 100px;
-        height: 100px;
-        object-fit: contain;
-        border-radius: 12px;
-        background: white;
-        padding: 8px;
-      }
-
-      .team-info {
-        flex: 1;
-      }
-
-      .team-name {
-        font-size: 28px;
-        font-weight: 700;
-        margin: 0 0 12px 0;
-        color: var(--ion-text-color);
-      }
-
-      .team-sport,
-      .team-location,
-      .team-record {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        margin-bottom: 8px;
-        color: var(--ion-color-medium);
-      }
-
-      .team-sport ion-icon,
-      .team-location ion-icon,
-      .team-record ion-icon {
-        font-size: 18px;
+      /* ── Entity hero wrapper ── */
+      .team-hero-wrap {
+        /* No horizontal padding — team-container already provides 16px sides */
+        margin-top: 36px;
+        margin-bottom: 0;
       }
 
       /* Team Stats */
@@ -396,32 +345,13 @@ export interface TeamData {
         color: var(--ion-color-medium-shade);
       }
 
-      /* Placeholder */
-      .team-sections {
-        padding: 40px 20px;
-      }
-
-      .section-placeholder {
-        text-align: center;
-      }
-
-      .placeholder-text {
-        font-size: 16px;
-        color: var(--ion-color-medium);
+      /* Team Timeline */
+      .team-timeline-section {
+        margin-top: 8px;
       }
 
       /* Responsive */
       @media (max-width: 640px) {
-        .team-header {
-          flex-direction: column;
-          align-items: center;
-          text-align: center;
-        }
-
-        .team-name {
-          font-size: 24px;
-        }
-
         .team-stats {
           flex-wrap: wrap;
         }
@@ -433,6 +363,8 @@ export interface TeamData {
 export class TeamShellComponent {
   private readonly logger = inject(NxtLoggingService).child('TeamShellComponent');
   private readonly toast = inject(NxtToastService);
+  private readonly theme = inject(NxtThemeService);
+  private readonly destroyRef = inject(DestroyRef);
 
   protected readonly formatSportDisplayName = formatSportDisplayName;
 
@@ -446,6 +378,19 @@ export class TeamShellComponent {
   /** Team data (can be passed from parent or loaded internally) */
   readonly teamData = input<TeamData | null>(null);
 
+  // ── Timeline inputs ──
+
+  /** Polymorphic post feed for the team timeline (FeedItem discriminated union) */
+  readonly timelinePosts = input<readonly FeedItem[]>([]);
+  /** Whether the timeline is performing an initial load */
+  readonly timelineLoading = input(false);
+  /** Whether an incremental "load more" fetch is in progress */
+  readonly timelineLoadingMore = input(false);
+  /** Error message from the timeline fetch (null = no error) */
+  readonly timelineError = input<string | null>(null);
+  /** Whether more timeline posts are available to load */
+  readonly timelineHasMore = input(false);
+
   // ============================================
   // OUTPUTS
   // ============================================
@@ -458,6 +403,9 @@ export class TeamShellComponent {
 
   /** Retry loading */
   readonly retryClick = output<void>();
+
+  /** Emitted when the user scrolls to the bottom and requests more timeline posts */
+  readonly timelineLoadMore = output<void>();
 
   // ============================================
   // STATE
@@ -481,18 +429,39 @@ export class TeamShellComponent {
     ];
   });
 
+  /** Hero subtitle: "High School Football", "Club Basketball", etc. */
+  protected heroSubtitle(t: TeamData): string {
+    const typeLabel = t.teamType
+      ? t.teamType
+          .split('-')
+          .map((p) => p.charAt(0).toUpperCase() + p.slice(1))
+          .join(' ')
+      : '';
+    const sportLabel = t.sport?.trim() ?? '';
+    return `${typeLabel} ${sportLabel}`.trim();
+  }
+
+  /** Meta rows for the shared entity hero (Location, Record, Coach) */
+  protected readonly teamMetaItems = computed<EntityHeroMetaItem[]>(() => {
+    const t = this.team();
+    if (!t) return [];
+    const items: EntityHeroMetaItem[] = [];
+    if (t.location) items.push({ key: 'Location', value: t.location });
+    if (t.record) items.push({ key: 'Record', value: t.record });
+    if (t.coachName) items.push({ key: 'Coach', value: t.coachName });
+    return items;
+  });
+
   // ============================================
   // LIFECYCLE
   // ============================================
 
   constructor() {
     addIcons({
-      trophyOutline,
-      locationOutline,
       peopleOutline,
-      statsChartOutline,
       shareOutline,
     });
+
     // Log component initialization
     effect(() => {
       this.logger.info('Team shell initialized', {
@@ -500,6 +469,21 @@ export class TeamShellComponent {
         hasData: !!this.team(),
       });
     });
+
+    // Apply org brand colors via the design token system whenever team data resolves.
+    // Sets --team-primary / --team-secondary on <html> so every component referencing
+    // those tokens picks them up through the CSS cascade automatically.
+    effect(() => {
+      const t = this.team();
+      if (t?.primaryColor) {
+        this.theme.applyOrgTheme(t.primaryColor, t.secondaryColor);
+      } else {
+        this.theme.clearOrgTheme();
+      }
+    });
+
+    // Clear org theme when navigating away so it doesn't bleed onto other pages.
+    this.destroyRef.onDestroy(() => this.theme.clearOrgTheme());
   }
 
   // ============================================

@@ -10,8 +10,13 @@ export { UsageShellComponent, type UsageUser } from './usage-shell.component';
 // Web-optimized shell (semantic HTML, design tokens, Grade A+ SEO)
 export { UsageShellWebComponent } from './web/usage-shell-web.component';
 
-// Buy Credits Modal (web overlay)
+// Buy Credits Modal (web overlay) — simple, kept for backward compat
 export { BuyCreditsModalComponent } from './web/buy-credits-modal.component';
+
+// Combined Buy Credits + Auto Top-Up Modal (web overlay) — preferred
+export { BuyCreditsAutoTopupModalComponent } from './web/buy-credits-autotopup-modal.component';
+export type { BuyCreditsAutoTopupResult, AutoTopupSettings } from './buy-credits-flow.shared';
+export { BuyCreditsAutoTopupSheetComponent } from './buy-credits-autotopup-sheet.component';
 
 // Landing Page (public marketing)
 export { NxtUsageLandingComponent } from './usage-landing.component';
@@ -20,6 +25,7 @@ export { NxtUsageDashboardPreviewComponent } from './usage-dashboard-preview.com
 // Skeleton
 export { UsageSkeletonComponent } from './usage-skeleton.component';
 export { UsageErrorStateComponent } from './usage-error-state.component';
+export { UsageOrgMemberStubComponent } from './usage-org-member-stub.component';
 
 // Help Content
 export { UsageHelpContentComponent } from './usage-help-content.component';
@@ -49,6 +55,7 @@ export {
   UsagePaymentHistoryComponent,
   UsagePaymentInfoComponent,
   UsageBudgetsComponent,
+  UsageAutoTopupComponent,
 } from './sections';
 
 // Stripe

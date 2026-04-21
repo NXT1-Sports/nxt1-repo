@@ -28,6 +28,7 @@ import type {
   AgentTask,
   AgentExecutionPlan,
   AgentSessionContext,
+  AgentSessionMessage,
   AgentRetrievedMemories,
   AgentUserContext,
 } from '@nxt1/core';
@@ -38,27 +39,22 @@ import type { BaseAgent } from './agents/base.agent.js';
 import type { SkillRegistry } from './skills/skill-registry.js';
 import type { OnStreamEvent } from './queue/event-writer.js';
 import { PlannerAgent } from './agents/planner.agent.js';
-import { isAgentYield, AgentYieldException } from './errors/agent-yield.error.js';
-import { isAgentDelegation } from './errors/agent-delegation.error.js';
+import { isAgentYield, AgentYieldException } from './exceptions/agent-yield.exception.js';
+import { isAgentDelegation } from './exceptions/agent-delegation.exception.js';
 import { SemanticCacheService } from './memory/semantic-cache.service.js';
+import { SessionMemoryService } from './memory/session.service.js';
 import { ApprovalGateService } from './services/approval-gate.service.js';
+import { parallelBatch } from './utils/parallel-batch.js';
+import { getAgentRunConfig, DEFAULT_AGENT_RUN_CONFIG } from './config/agent-app-config.js';
 import { logger } from '../../utils/logger.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
 /**
- * Maximum number of self-correction retries per task.
- * When a coordinator crashes, the router feeds the error back to the agent
- * with an augmented system message, giving it a chance to recover before
- * cascading failure to downstream tasks.
+ * Fallback values used when Firestore `AppConfig/agentConfig` is absent.
+ * Live values are read per-run from Firestore via getAgentRunConfig().
+ * These are only referenced by DEFAULT_AGENT_RUN_CONFIG in agent-app-config.ts.
  */
-const TASK_MAX_RETRIES = 2;
-
-/**
- * Maximum number of delegation hops before the router gives up.
- * Prevents infinite ping-pong between a coordinator and the Planner.
- */
-const MAX_DELEGATION_DEPTH = 2;
 
 type MutableAgentTask = AgentTask & {
   status: AgentTaskStatus;
@@ -76,7 +72,8 @@ export class AgentRouter {
     private readonly llm: OpenRouterService,
     private readonly toolRegistry: ToolRegistry,
     private readonly contextBuilder: ContextBuilder,
-    private readonly skillRegistry?: SkillRegistry
+    private readonly skillRegistry?: SkillRegistry,
+    private readonly sessionMemory?: SessionMemoryService
   ) {
     this.planner = new PlannerAgent(llm);
     this.semanticCache = new SemanticCacheService(llm);
@@ -100,7 +97,8 @@ export class AgentRouter {
       promptContext.profile,
       undefined,
       undefined,
-      promptContext.memories
+      promptContext.memories,
+      promptContext.recentSyncSummaries ?? []
     );
 
     const result = await this.planner.execute(enrichedIntent, context, []);
@@ -123,10 +121,18 @@ export class AgentRouter {
     onUpdate?: (update: AgentJobUpdate) => void,
     firestore?: FirebaseFirestore.Firestore,
     onStreamEvent?: OnStreamEvent,
-    environment: 'staging' | 'production' = 'production'
+    environment: 'staging' | 'production' = 'production',
+    signal?: AbortSignal
   ): Promise<AgentOperationResult> {
     const { operationId, userId, intent } = payload;
     const approvalGate = firestore ? new ApprovalGateService(firestore) : undefined;
+
+    // ── Load runtime config from AppConfig/agentConfig ────────────────────
+    const agentRunConfig = firestore
+      ? await getAgentRunConfig(firestore)
+      : DEFAULT_AGENT_RUN_CONFIG;
+    const taskMaxRetries = agentRunConfig.taskMaxRetries;
+    const maxDelegationDepth = agentRunConfig.maxDelegationDepth;
 
     // ── Resume detection: check if this is a resumed job ──────────────────
     const contextObj =
@@ -163,15 +169,80 @@ export class AgentRouter {
         ? ((contextObj as Record<string, unknown>)['threadId'] as string)
         : undefined;
 
+    // Extract SSE-specific context fields injected by the chat route
+    const mode =
+      typeof (contextObj as Record<string, unknown>)['mode'] === 'string'
+        ? ((contextObj as Record<string, unknown>)['mode'] as string)
+        : undefined;
+    const attachments = Array.isArray((contextObj as Record<string, unknown>)['attachments'])
+      ? ((contextObj as Record<string, unknown>)['attachments'] as readonly {
+          url: string;
+          mimeType: string;
+        }[])
+      : undefined;
+    const videoAttachments = Array.isArray(
+      (contextObj as Record<string, unknown>)['videoAttachments']
+    )
+      ? ((contextObj as Record<string, unknown>)['videoAttachments'] as readonly {
+          url: string;
+          mimeType: string;
+          name: string;
+        }[])
+      : undefined;
+
+    // ── Session Memory: hydrate prior conversation turns from Redis ─────────
+    // getOrCreate runs BEFORE the user message is appended so conversationHistory
+    // contains only prior turns — never the current message (no duplication).
+    let sessionContext: AgentSessionContext | undefined;
+    if (this.sessionMemory) {
+      try {
+        sessionContext = await this.sessionMemory.getOrCreate(userId, threadId);
+      } catch (err) {
+        logger.warn(
+          '[AgentRouter] Session memory getOrCreate failed — continuing without history',
+          {
+            userId,
+            threadId,
+            error: err instanceof Error ? err.message : String(err),
+          }
+        );
+      }
+    }
+
     const context = this.buildSessionContext(
       userId,
-      payload.sessionId,
+      sessionContext?.sessionId ?? payload.sessionId,
       operationId,
       threadId,
-      environment
+      environment,
+      signal,
+      mode,
+      attachments,
+      videoAttachments,
+      sessionContext?.conversationHistory
     );
 
-    // Inject thread history for conversation continuity
+    // Append user message to Redis BEFORE the DAG runs.
+    // This is awaited (not fire-and-forget) so any concurrent request reading
+    // the same thread session sees this turn in the history.
+    if (this.sessionMemory && threadId) {
+      try {
+        await this.sessionMemory.appendMessage(userId, threadId, {
+          role: 'user',
+          content: intent,
+          timestamp: new Date().toISOString(),
+        });
+      } catch (err) {
+        logger.warn('[AgentRouter] Failed to append user message to session', {
+          userId,
+          threadId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
+    // Inject thread history for conversation continuity (belt-and-suspenders
+    // during rollout — can be removed once Redis session memory is stable)
     let threadHistoryStr = '';
     if (threadId) {
       try {
@@ -181,12 +252,23 @@ export class AgentRouter {
       }
     }
 
+    // Inject cross-thread awareness so the agent can answer questions like
+    // "what were our recent chats about?" even in a brand-new thread.
+    let activeThreadsSummary = '';
+    try {
+      activeThreadsSummary = await this.contextBuilder.getActiveThreadsSummary(userId, 8);
+    } catch {
+      // Non-critical — continue without it
+    }
+
     const enrichedIntent = this.enrichIntentWithContext(
       intent,
       userContext,
       payload.context,
       threadHistoryStr,
-      promptContext.memories
+      promptContext.memories,
+      promptContext.recentSyncSummaries ?? [],
+      activeThreadsSummary
     );
 
     // ── Direct routing: skip planner when a specific agent is requested ───
@@ -235,6 +317,7 @@ export class AgentRouter {
         );
 
         this.emitUpdate(onUpdate, operationId, 'completed', result.summary);
+        this.appendAssistantMessage(userId, threadId, result.summary);
         return result;
       } catch (err) {
         // Let AgentYieldException propagate to the worker for suspend-and-resume
@@ -249,7 +332,7 @@ export class AgentRouter {
               ? ((contextObj as Record<string, unknown>)['delegationCount'] as number)
               : 0) + 1;
 
-          if (delegationCount > MAX_DELEGATION_DEPTH) {
+          if (delegationCount > maxDelegationDepth) {
             logger.warn('[AgentRouter] Delegation depth exceeded — aborting', {
               operationId,
               delegationCount,
@@ -299,6 +382,10 @@ export class AgentRouter {
           return this.run(delegatedPayload, onUpdate, firestore, onStreamEvent);
         }
 
+        // Re-throw AbortError so the caller (chat.routes.ts) detects the abort
+        // and skips persisting a fake failure message to the thread history.
+        if (err instanceof Error && err.name === 'AbortError') throw err;
+
         const message = err instanceof Error ? err.message : 'Agent execution failed';
         this.emitUpdate(onUpdate, operationId, 'failed', message);
         return {
@@ -313,8 +400,11 @@ export class AgentRouter {
     // Only applies to non-resumed, non-direct-agent jobs.
     // When a hit is found, the raw cached response is personalized for the
     // current user via a fast micro-LLM pass (the "Synthesizer Pattern").
+    // The intent is scoped by [role|sport] to prevent cross-role cache pollution
+    // (e.g. an athlete answer being served to a coach for the same raw intent).
+    const scopedIntent = this.buildScopedCacheKey(intent, userContext);
     try {
-      const cacheHit = await this.semanticCache.check(intent);
+      const cacheHit = await this.semanticCache.check(scopedIntent);
       if (cacheHit) {
         logger.info('[AgentRouter] Semantic cache hit — personalizing for user', {
           operationId,
@@ -425,7 +515,13 @@ export class AgentRouter {
         break;
       }
 
-      // Execute ready tasks sequentially (parallel execution is a future optimization)
+      // ── Parallel DAG frontier execution ───────────────────────────────────
+      // Tasks in `ready` have no remaining dependencies — they can all run
+      // concurrently. Capped at 3 to match WORKER_CONCURRENCY and bound LLM load.
+      // Each task owns its own status/error mutations (safe in single-threaded JS).
+      // cascadeFailure is idempotent so concurrent failures on shared dependents are safe.
+
+      // Mark all frontier tasks as in_progress and announce them before the batch starts.
       for (const task of ready) {
         task.status = 'in_progress' as AgentTaskStatus;
         this.emitUpdate(
@@ -435,23 +531,28 @@ export class AgentRouter {
           `Running task ${task.id}: ${task.description}`,
           { eventType: 'task_started', taskId: task.id }
         );
+      }
 
-        for (let attempt = 0; attempt <= TASK_MAX_RETRIES; attempt++) {
+      // Snapshot completedTaskResults for yield exception payloads — consistent
+      // across all parallel workers regardless of which task yields first.
+      const completedAtBatchStart = Object.fromEntries(
+        [...taskResults.entries()].map(([k, v]) => [k, v])
+      );
+
+      // Per-task async worker — runs the full retry loop for one DAG task.
+      const runTask = async (task: MutableAgentTask): Promise<void> => {
+        for (let attempt = 0; attempt <= taskMaxRetries; attempt++) {
           try {
             const agent = this.agents.get(task.assignedAgent);
             if (!agent) {
               throw new Error(`No agent registered for "${task.assignedAgent}".`);
             }
 
-            // Build the intent for this specific task, enriched with upstream results
-            // and the original job context (user profile, linked account URLs, etc.)
             let taskIntent = this.buildTaskIntent(task, taskResults, enrichedIntent);
 
-            // On retry attempts, augment the intent with the previous error so the
-            // coordinator can self-correct (e.g. use a different tool or approach).
             if (attempt > 0 && task._lastError) {
               taskIntent +=
-                `\n\n[System Intervention — Retry ${attempt}/${TASK_MAX_RETRIES}]\n` +
+                `\n\n[System Intervention — Retry ${attempt}/${taskMaxRetries}]\n` +
                 `Your previous execution of this task failed with the following error:\n` +
                 `"${task._lastError}"\n` +
                 `Please formulate an alternative strategy to accomplish this task. ` +
@@ -469,7 +570,7 @@ export class AgentRouter {
                 onUpdate,
                 operationId,
                 'acting',
-                `Task ${task.id}: retrying (attempt ${attempt + 1}/${TASK_MAX_RETRIES + 1})...`,
+                `Task ${task.id}: retrying (attempt ${attempt + 1}/${taskMaxRetries + 1})...`,
                 { eventType: 'task_retry', taskId: task.id, attempt }
               );
             }
@@ -507,8 +608,7 @@ export class AgentRouter {
               `Task ${task.id} completed: ${result.summary}`
             );
 
-            // Re-emit the planner card with updated done states so the UI
-            // checklist ticks off items in real-time as tasks finish.
+            // Re-emit the planner card with updated done states.
             if (onStreamEvent) {
               onStreamEvent({
                 type: 'card',
@@ -526,30 +626,26 @@ export class AgentRouter {
               });
             }
 
-            break; // Success — exit retry loop
+            return; // Success — exit retry loop
           } catch (err) {
-            // Attach DAG plan context to yield exceptions so the resume route
-            // can reconstruct the partial plan state and continue from here.
+            // Attach plan context to yield exceptions so the resume route can
+            // reconstruct from the correct DAG snapshot.
             if (isAgentYield(err)) {
               const yieldErr = err as AgentYieldException;
               throw new AgentYieldException({
                 ...yieldErr.payload,
                 planContext: {
                   currentTaskId: task.id,
-                  completedTaskResults: Object.fromEntries(
-                    [...taskResults.entries()].map(([k, v]) => [k, v])
-                  ),
+                  completedTaskResults: completedAtBatchStart,
                   enrichedIntent,
                 },
               });
             }
 
-            // In the DAG path, delegation means the Planner mis-routed a task.
-            // Treat it as an immediate task failure (no retries — the same agent
-            // would just delegate again).
+            // Delegation inside the DAG = mis-routed task — treat as failure.
             if (isAgentDelegation(err)) {
               const delErr =
-                err as import('./errors/agent-delegation.error.js').AgentDelegationException;
+                err as import('./exceptions/agent-delegation.exception.js').AgentDelegationException;
               logger.warn(
                 `[AgentRouter] Agent "${task.assignedAgent}" delegated inside DAG — treating as task failure`,
                 {
@@ -573,42 +669,47 @@ export class AgentRouter {
                 }
               );
               this.cascadeFailure(task.id, mutableTasks);
-              break; // Exit retry loop
+              return; // No retries for delegation failures
             }
 
             const message = err instanceof Error ? err.message : 'Unknown error';
-
-            // Store the error for the next retry attempt's augmented prompt
             task._lastError = message;
 
-            // If this was the last retry, cascade failure
-            if (attempt === TASK_MAX_RETRIES) {
+            if (attempt === taskMaxRetries) {
               task.status = 'failed' as AgentTaskStatus;
               logger.error('[AgentRouter] Task failed after retries exhausted', {
                 operationId,
                 taskId: task.id,
                 assignedAgent: task.assignedAgent,
-                attempts: TASK_MAX_RETRIES + 1,
+                attempts: taskMaxRetries + 1,
                 error: message,
               });
               this.emitUpdate(
                 onUpdate,
                 operationId,
                 'acting',
-                `Task ${task.id} failed after ${TASK_MAX_RETRIES + 1} attempts: ${message}`,
+                `Task ${task.id} failed after ${taskMaxRetries + 1} attempts: ${message}`,
                 {
                   eventType: 'task_failed',
                   taskId: task.id,
                   assignedAgent: task.assignedAgent,
-                  attempts: TASK_MAX_RETRIES + 1,
+                  attempts: taskMaxRetries + 1,
                   error: message,
                 }
               );
-
-              // Cascade failure to all downstream dependents
               this.cascadeFailure(task.id, mutableTasks);
             }
           }
+        }
+      };
+
+      const frontierResults = await parallelBatch(ready, runTask, { concurrency: 3 });
+
+      // Rethrow the first yield exception if any task in this frontier yielded.
+      // Yield suspends the entire job, so sibling task results are already in taskResults.
+      for (const fr of frontierResults) {
+        if (fr.status === 'rejected' && isAgentYield(fr.reason)) {
+          throw fr.reason;
         }
       }
     }
@@ -682,11 +783,12 @@ export class AgentRouter {
     const allCompleted = mutableTasks.every((t) => t.status === 'completed');
     if (allCompleted && taskResults.size > 0) {
       // Fire-and-forget — never block the response for cache storage
-      this.semanticCache.store(intent, aggregatedResult).catch(() => {
+      this.semanticCache.store(scopedIntent, aggregatedResult).catch(() => {
         /* noop */
       });
     }
 
+    this.appendAssistantMessage(userId, threadId, aggregatedResult.summary);
     return aggregatedResult;
   }
 
@@ -743,23 +845,47 @@ export class AgentRouter {
         ? ((resumeContextObj as Record<string, unknown>)['threadId'] as string)
         : undefined;
 
+    // Hydrate session for runResumed so the agent has prior turn context
+    let resumeSessionContext: AgentSessionContext | undefined;
+    if (this.sessionMemory) {
+      try {
+        resumeSessionContext = await this.sessionMemory.getOrCreate(userId, resumeThreadId);
+      } catch {
+        // Non-critical — continue without history
+      }
+    }
+
     const context = this.buildSessionContext(
       userId,
-      payload.sessionId,
+      resumeSessionContext?.sessionId ?? payload.sessionId,
       operationId,
       resumeThreadId,
-      environment
+      environment,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      resumeSessionContext?.conversationHistory
     );
     const approvalId =
       typeof (resumeContextObj as Record<string, unknown>)['approvalId'] === 'string'
         ? ((resumeContextObj as Record<string, unknown>)['approvalId'] as string)
         : undefined;
+    let resumeActiveThreadsSummary = '';
+    try {
+      resumeActiveThreadsSummary = await this.contextBuilder.getActiveThreadsSummary(userId, 8);
+    } catch {
+      // Non-critical — continue without it
+    }
+
     const enrichedIntent = this.enrichIntentWithContext(
       intent,
       userContext,
       payload.context,
       undefined,
-      promptContext.memories
+      promptContext.memories,
+      promptContext.recentSyncSummaries ?? [],
+      resumeActiveThreadsSummary
     );
     const approvalGate = firestore ? new ApprovalGateService(firestore) : undefined;
 
@@ -790,6 +916,7 @@ export class AgentRouter {
       );
 
       this.emitUpdate(onUpdate, operationId, 'completed', result.summary);
+      this.appendAssistantMessage(userId, resumeThreadId, result.summary);
       return result;
     } catch (err) {
       if (isAgentYield(err)) throw err;
@@ -808,26 +935,55 @@ export class AgentRouter {
    * This ensures the planner and sub-agents know who the user is
    * and have all the data needed to execute the request.
    */
+  /**
+   * Builds a cache key that is scoped by the user's role and primary sport.
+   * Embedding two different plain-English intents that differ only by
+   * role/sport would produce very similar vectors, causing cross-user hits.
+   * Prefixing with `[role|sport]` shifts the embedding into the correct
+   * semantic region so the cosine threshold never bridges role boundaries.
+   */
+  private buildScopedCacheKey(intent: string, userContext: AgentUserContext | undefined): string {
+    const role = userContext?.role ?? 'unknown';
+    const sport = userContext?.sport ?? 'general';
+    return `[${role}|${sport}] ${intent}`;
+  }
+
   private enrichIntentWithContext(
     intent: string,
     userContext: AgentUserContext,
     jobContext?: Record<string, unknown>,
     threadHistory?: string,
-    memories: AgentRetrievedMemories = { user: [], team: [], organization: [] }
+    memories: AgentRetrievedMemories = { user: [], team: [], organization: [] },
+    recentSyncSummaries: readonly string[] = [],
+    activeThreadsSummary?: string
   ): string {
-    const contextStr = this.contextBuilder.compressToPrompt(userContext, memories);
+    const contextStr = this.contextBuilder.compressToPrompt(
+      userContext,
+      memories,
+      recentSyncSummaries
+    );
     let enriched = `[User Profile]\n${contextStr}`;
 
     // Inject structured job context so the LLM has URLs, platform names, etc.
     if (jobContext && Object.keys(jobContext).length > 0) {
-      // Exclude internal keys from being shown to the LLM
-      const { threadId: _threadId, ...visibleContext } = jobContext;
+      // Exclude internal/system keys — these are not useful LLM context
+      const {
+        threadId: _threadId,
+        mode: _mode,
+        attachments: _attachments,
+        ...visibleContext
+      } = jobContext;
       if (Object.keys(visibleContext).length > 0) {
         enriched += `\n\n[Job Context]\n${JSON.stringify(visibleContext, null, 2)}`;
       }
     }
 
-    // Inject recent conversation history for continuity
+    // Inject cross-thread conversation awareness (recent session titles)
+    if (activeThreadsSummary) {
+      enriched += `\n\n[Recent Conversation Topics]${activeThreadsSummary}`;
+    }
+
+    // Inject current thread's message history for in-session continuity
     if (threadHistory) {
       enriched += `\n${threadHistory}`;
     }
@@ -884,19 +1040,57 @@ export class AgentRouter {
     sessionId?: string,
     operationId?: string,
     threadId?: string,
-    environment?: 'staging' | 'production'
+    environment?: 'staging' | 'production',
+    signal?: AbortSignal,
+    mode?: string,
+    attachments?: readonly { readonly url: string; readonly mimeType: string }[],
+    videoAttachments?: readonly {
+      readonly url: string;
+      readonly mimeType: string;
+      readonly name: string;
+    }[],
+    conversationHistory?: readonly AgentSessionMessage[]
   ): AgentSessionContext {
     const now = new Date().toISOString();
     return {
       sessionId: sessionId ?? crypto.randomUUID(),
       userId,
-      conversationHistory: [],
+      conversationHistory: conversationHistory ?? [],
       createdAt: now,
       lastActiveAt: now,
       ...(environment && { environment }),
       ...(operationId && { operationId }),
       ...(threadId && { threadId }),
+      ...(mode && { mode }),
+      ...(attachments?.length && { attachments }),
+      ...(videoAttachments?.length && { videoAttachments }),
+      ...(signal && { signal }),
     };
+  }
+
+  /**
+   * Fire-and-forget helper to persist the assistant's reply to Redis session memory.
+   * Never blocks the response — failures are logged as warnings only.
+   */
+  private appendAssistantMessage(
+    userId: string,
+    threadId: string | undefined,
+    summary: string
+  ): void {
+    if (!this.sessionMemory || !threadId) return;
+    this.sessionMemory
+      .appendMessage(userId, threadId, {
+        role: 'assistant',
+        content: summary,
+        timestamp: new Date().toISOString(),
+      })
+      .catch((err) => {
+        logger.warn('[AgentRouter] Failed to append assistant message to session', {
+          userId,
+          threadId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
   }
 
   /** Emit a step update to the onUpdate callback (for SSE / Firestore). */

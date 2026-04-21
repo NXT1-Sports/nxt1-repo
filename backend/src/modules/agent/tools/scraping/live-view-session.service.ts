@@ -28,7 +28,7 @@
 
 import Firecrawl from '@mendable/firecrawl-js';
 import type { ScrapeExecuteResponse } from '@mendable/firecrawl-js';
-import { PLATFORM_REGISTRY } from '@nxt1/core';
+import { PLATFORM_REGISTRY } from '@nxt1/core/platforms';
 import type {
   LiveViewSession,
   LiveViewDestinationTier,
@@ -293,8 +293,6 @@ export class LiveViewSessionService {
     let scrapeResult: { metadata?: { scrapeId?: string } };
     try {
       scrapeResult = await this.client.scrape(destination.resolvedUrl, {
-        formats: ['markdown'],
-        waitFor: 3000,
         profile: {
           name: resolvedProfileName,
           saveChanges: true,
@@ -311,8 +309,6 @@ export class LiveViewSessionService {
           }
         );
         scrapeResult = await this.client.scrape(destination.resolvedUrl, {
-          formats: ['markdown'],
-          waitFor: 3000,
           profile: {
             name: resolvedProfileName,
             saveChanges: false,
@@ -335,7 +331,7 @@ export class LiveViewSessionService {
     //   - `prompt` for AI-driven actions
     //   - `code` for Playwright-based control
     //
-    // We use a simple prompt to wait for the page to finish loading.
+    // We use a simple fast javascript code snippet to acquire the session quickly.
     // (The `agent-browser` bash CLI is only available in /v2/browser sessions.)
     //
     // If this fails with a profile write-lock (stale session that
@@ -344,7 +340,7 @@ export class LiveViewSessionService {
     let interactiveUrl: string | undefined;
     try {
       const initResult: ScrapeExecuteResponse = await this.client.interact(sessionId, {
-        prompt: 'Wait for the page to fully load.',
+        code: "return 'desktop-session-initialized';",
       });
       interactiveUrl = initResult.interactiveLiveViewUrl ?? '';
 
@@ -372,8 +368,6 @@ export class LiveViewSessionService {
         await this.destroySession(sessionId);
 
         const fallbackScrape = await this.client.scrape(destination.resolvedUrl, {
-          formats: ['markdown'],
-          waitFor: 3000,
           profile: {
             name: resolvedProfileName,
             saveChanges: false,
@@ -392,7 +386,7 @@ export class LiveViewSessionService {
 
         try {
           const fallbackInit: ScrapeExecuteResponse = await this.client.interact(sessionId, {
-            prompt: 'Wait for the page to fully load.',
+            code: "return 'desktop-session-initialized';",
           });
           interactiveUrl = fallbackInit.interactiveLiveViewUrl ?? '';
 

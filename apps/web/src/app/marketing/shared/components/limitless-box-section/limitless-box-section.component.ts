@@ -15,10 +15,7 @@ import {
   inject,
   signal,
 } from '@angular/core';
-import {
-  AGENT_X_LOGO_PATH,
-  AGENT_X_LOGO_POLYGON,
-} from '@nxt1/ui/agent-x/fab/agent-x-logo.constants';
+import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/assets';
 import { NxtSectionHeaderComponent } from '@nxt1/ui/components/section-header';
 
 interface FloatingCapability {

@@ -276,20 +276,39 @@ export function buildDynamicFooterTabs(
 
 /**
  * Check if a route is a main page where sidenav swipe should be enabled.
- * Returns true for exact matches only (not sub-routes like /home/details).
+ *
+ * Returns true for:
+ *  - Exact matches against MAIN_PAGE_ROUTES (e.g. /activity, /profile, /agent)
+ *  - Any /team/* route — coach/director tab root pages use dynamic slugs like
+ *    /team/my-team-slug, so a prefix match is required instead of an exact match.
+ *
+ * NOTE: This function only determines whether the route *could* be a main page.
+ * The caller (mobile shell) additionally checks canGoBack() so that a "main page"
+ * route navigated to with history still enables back-swipe instead of sidenav-swipe.
  *
  * @param route The current route path
- * @returns true if sidenav swipe-to-open should be enabled
+ * @returns true if sidenav swipe-to-open should be enabled when at the stack root
  *
  * @example
- * isMainPageRoute('/home')      // true - sidenav swipe enabled
- * isMainPageRoute('/profile')   // false - back swipe instead
- * isMainPageRoute('/settings')  // false - back swipe instead
+ * isMainPageRoute('/activity')        // true - tab root, sidenav swipe when no history
+ * isMainPageRoute('/team/my-team')    // true - coach tab root
+ * isMainPageRoute('/profile')         // true - athlete tab root
+ * isMainPageRoute('/profile/uid123')  // false - other user's profile, back swipe
+ * isMainPageRoute('/settings')        // false - sub-page, back swipe
  */
 export function isMainPageRoute(route: string): boolean {
   // Remove query params and hash from route for comparison
   const cleanRoute = route.split('?')[0].split('#')[0];
-  return MAIN_PAGE_ROUTES.some((mainRoute) => cleanRoute === mainRoute);
+
+  // Exact match for primary tab routes
+  if (MAIN_PAGE_ROUTES.some((mainRoute) => cleanRoute === mainRoute)) return true;
+
+  // Team pages for coaches/directors use dynamic slugs (/team/:slug or /team/:slug/:code).
+  // Any direct /team/* path is treated as a main-page-candidate so the sidenav swipe
+  // is enabled when the user lands there via the Team tab (canGoBack = false).
+  if (cleanRoute.startsWith('/team/')) return true;
+
+  return false;
 }
 
 // ============================================
@@ -837,6 +856,9 @@ export interface SidenavItem {
 
   /** Whether this is a section header (non-clickable) */
   isSection?: boolean;
+
+  /** Short label used when the item is displayed in compact grid mode */
+  shortLabel?: string;
 }
 
 /**
@@ -860,6 +882,9 @@ export interface SidenavSection {
 
   /** Section icon */
   icon?: SidenavIconName | string;
+
+  /** Layout style — 'grid' renders items as a compact icon+label tile grid */
+  layout?: 'grid' | 'list';
 }
 
 /**

@@ -8,15 +8,14 @@ import {
   User,
   type ProfilePost,
   type ProfileSeasonGameLog,
-  type NewsArticle,
-  type ScoutReport,
   type VerifiedStat,
   type VerifiedMetric,
 } from '@nxt1/core';
-import type { ProfileEvent } from '@nxt1/core/profile';
+import { type FeedItemResponse } from '@nxt1/core/posts';
 import { PROFILE_CACHE_KEYS } from '@nxt1/core/profile';
 import { CACHE_CONFIG } from '@nxt1/core/cache';
 import { AngularHttpAdapter } from '../../infrastructure';
+import { clearHttpCache } from '../../infrastructure/http/cache.interceptor';
 import { PerformanceService } from '..';
 import { TRACE_NAMES, ATTRIBUTE_NAMES, METRIC_NAMES } from '@nxt1/core/performance';
 
@@ -101,11 +100,14 @@ export class ProfileService {
   }
 
   /**
-   * Clear all cached profile data.
+   * Clear all cached profile data — both the service-level Map AND the
+   * HTTP interceptor LRU cache so reloadProfile() always fetches fresh data.
    * Used after Agent X profile generation to ensure fresh data is fetched.
    */
   invalidateAllProfileCache(): void {
     this.profileCache.clear();
+    // Also bust the HTTP-level LRU so the next GET bypasses the interceptor cache.
+    void clearHttpCache('*profile*');
   }
 
   /**
@@ -343,62 +345,99 @@ export class ProfileService {
     );
   }
 
+  pinPost(userId: string, postId: string, isPinned: boolean) {
+    this.invalidateCache(userId);
+    return from(
+      this.performance.trace(
+        TRACE_NAMES.PROFILE_UPDATE,
+        () => this.api.pinPost(userId, postId, isPinned),
+        {
+          attributes: {
+            [ATTRIBUTE_NAMES.FEATURE_NAME]: 'profile_timeline_post',
+            user_id: userId,
+            post_id: postId,
+            action: isPinned ? 'pin' : 'unpin',
+          },
+        }
+      )
+    );
+  }
+
+  deletePost(userId: string, postId: string) {
+    this.invalidateCache(userId);
+    return from(
+      this.performance.trace(
+        TRACE_NAMES.PROFILE_UPDATE,
+        () => this.api.deletePost(userId, postId),
+        {
+          attributes: {
+            [ATTRIBUTE_NAMES.FEATURE_NAME]: 'profile_timeline_post',
+            user_id: userId,
+            post_id: postId,
+            action: 'delete',
+          },
+        }
+      )
+    );
+  }
+
   /**
    * Map a raw Firestore timeline document to ProfilePost.
    * The seed/backend stores `content`; ProfilePost uses `body`.
    */
   private mapTimelineDoc(raw: Record<string, unknown>): ProfilePost {
-    const stats = (raw['stats'] as Record<string, number> | undefined) ?? {};
-    const playback =
-      raw['playback'] && typeof raw['playback'] === 'object'
-        ? (raw['playback'] as Record<string, unknown>)
-        : null;
+    // Backend returns FeedItemPost (polymorphic): engagement replaces legacy stats,
+    // postType replaces type, and media URLs live inside the media[] array.
+    const engagement = (raw['engagement'] as Record<string, number> | undefined) ?? {};
+
+    // FeedItemPost stores all URLs inside media[]. Pick the first media item.
+    const mediaArr = Array.isArray(raw['media'])
+      ? (raw['media'] as Array<Record<string, unknown>>)
+      : [];
+    const firstMedia = mediaArr[0] ?? null;
+    const mediaUrl = firstMedia?.['url'] as string | undefined;
+    const postType = (raw['postType'] as ProfilePost['type']) ?? 'text';
+
+    // For video use the explicit thumbnail; for images the url IS the display url
+    const thumbnailUrl =
+      (firstMedia?.['thumbnailUrl'] as string | undefined) ??
+      (postType === 'video' ? undefined : mediaUrl);
+
     return {
       id: (raw['id'] as string | undefined) ?? String(raw['_id'] ?? ''),
-      type: (raw['type'] as ProfilePost['type']) ?? 'text',
+      type: postType,
       title: raw['title'] as string | undefined,
       body: (raw['content'] as string | undefined) ?? '',
-      thumbnailUrl:
-        (raw['thumbnailUrl'] as string | undefined) ??
-        (raw['poster'] as string | undefined) ??
-        (raw['previewUrl'] as string | undefined),
-      mediaUrl:
-        (raw['mediaUrl'] as string | undefined) ??
-        (raw['videoUrl'] as string | undefined) ??
-        (playback?.['iframeUrl'] as string | undefined) ??
-        (playback?.['hlsUrl'] as string | undefined),
-      likeCount: stats['likes'] ?? 0,
-      commentCount: stats['comments'] ?? 0,
-      shareCount: stats['shares'] ?? 0,
-      viewCount: stats['views'],
-      duration:
-        (raw['duration'] as number | undefined) ?? (raw['durationSeconds'] as number | undefined),
+      thumbnailUrl,
+      mediaUrl,
+      likeCount: engagement['likeCount'] ?? 0,
+      shareCount: engagement['shareCount'] ?? 0,
+      viewCount: engagement['viewCount'],
+      duration: firstMedia?.['duration'] as number | undefined,
       isPinned: (raw['isPinned'] as boolean | undefined) ?? false,
       createdAt: (raw['createdAt'] as string | undefined) ?? new Date().toISOString(),
     };
   }
 
   /**
-   * Get timeline posts from the user's timeline sub-collection.
-   * Optionally filter by sportId: GET /api/v1/auth/profile/:userId/timeline?sportId=football
-   * GET /api/v1/auth/profile/:userId/timeline
+   * Get the polymorphic timeline feed for a user.
+   * Returns all FeedItem types (POST, EVENT, STAT, METRIC, OFFER, COMMITMENT,
+   * VISIT, CAMP, AWARD, etc.) sorted chronologically by the backend.
+   * Optionally filter by sportId: GET /auth/profile/:userId/timeline?sportId=football
    */
   getProfileTimeline(
     userId: string,
-    sportId?: string
-  ): Observable<{ success: boolean; data: ProfilePost[] }> {
-    const queryParams = sportId ? `?sportId=${encodeURIComponent(sportId)}` : '';
-    return this.http
-      .get<{
-        success: boolean;
-        data: Record<string, unknown>[];
-      }>(`${environment.apiURL}/auth/profile/${userId}/timeline${queryParams}`)
-      .pipe(
-        map((resp) => ({
-          success: resp.success,
-          data: (resp.data ?? []).map((d) => this.mapTimelineDoc(d)),
-        }))
-      );
+    sportId?: string,
+    cursor?: string
+  ): Observable<FeedItemResponse> {
+    const params = new URLSearchParams();
+    if (sportId) params.set('sportId', sportId);
+    if (cursor) params.set('cursor', cursor);
+    const queryString = params.toString();
+    const queryParams = queryString ? `?${queryString}` : '';
+    return this.http.get<FeedItemResponse>(
+      `${environment.apiURL}/auth/profile/${userId}/timeline${queryParams}`
+    );
   }
 
   getProfileStats(
@@ -426,114 +465,5 @@ export class ProfileService {
     return this.http.get<{ success: boolean; data: VerifiedMetric[] }>(
       `${environment.apiURL}/auth/profile/${userId}/sports/${encodeURIComponent(sportId)}/metrics`
     );
-  }
-
-  /**
-   * Get news articles from the user's news sub-collection.
-   * Optionally filter by sportId: GET /api/v1/auth/profile/:userId/news?sportId=football
-   * GET /api/v1/auth/profile/:userId/news
-   */
-  getProfileNews(
-    userId: string,
-    sportId?: string
-  ): Observable<{ success: boolean; data: NewsArticle[] }> {
-    const queryParams = sportId ? `?sportId=${encodeURIComponent(sportId)}` : '';
-    return this.http.get<{ success: boolean; data: NewsArticle[] }>(
-      `${environment.apiURL}/auth/profile/${userId}/news${queryParams}`
-    );
-  }
-
-  /**
-   * Get rankings from the user's rankings sub-collection.
-   * Optionally filter by sportId: GET /api/v1/auth/profile/:userId/rankings?sportId=football
-   * GET /api/v1/auth/profile/:userId/rankings
-   */
-  getProfileRankings(
-    userId: string,
-    sportId?: string
-  ): Observable<{ success: boolean; data: Record<string, unknown>[] }> {
-    const queryParams = sportId ? `?sportId=${encodeURIComponent(sportId)}` : '';
-    return this.http.get<{ success: boolean; data: Record<string, unknown>[] }>(
-      `${environment.apiURL}/auth/profile/${userId}/rankings${queryParams}`
-    );
-  }
-
-  /**
-   * Get scout reports from the user's scoutReports sub-collection.
-   * Optionally filter by sportId: GET /api/v1/auth/profile/:userId/scout-reports?sportId=football
-   * GET /api/v1/auth/profile/:userId/scout-reports
-   */
-  getProfileScoutReports(
-    userId: string,
-    sportId?: string
-  ): Observable<{ success: boolean; data: ScoutReport[] }> {
-    const queryParams = sportId ? `?sportId=${encodeURIComponent(sportId)}` : '';
-    return this.http.get<{ success: boolean; data: ScoutReport[] }>(
-      `${environment.apiURL}/auth/profile/${userId}/scout-reports${queryParams}`
-    );
-  }
-
-  /**
-   * Get videos from the user's videos sub-collection.
-   * Maps raw Firestore video docs to ProfilePost (type: 'video' | 'highlight').
-   * Optionally filter by sportId: GET /api/v1/auth/profile/:userId/videos?sportId=football
-   * GET /api/v1/auth/profile/:userId/videos
-   */
-  getProfileVideos(
-    userId: string,
-    sportId?: string
-  ): Observable<{ success: boolean; data: ProfilePost[] }> {
-    const queryParams = sportId ? `?sportId=${encodeURIComponent(sportId)}` : '';
-    return this.http
-      .get<{
-        success: boolean;
-        data: Record<string, unknown>[];
-      }>(`${environment.apiURL}/auth/profile/${userId}/videos${queryParams}`)
-      .pipe(
-        map((resp) => ({
-          success: resp.success,
-          data: (resp.data ?? []).map((d) => this.mapTimelineDoc(d)),
-        }))
-      );
-  }
-
-  /**
-   * Get scheduled events from the user's schedule sub-collection.
-   * Maps raw Firestore schedule docs to ProfileEvent.
-   * GET /api/v1/auth/profile/:userId/schedule?sportId=football
-   */
-  getProfileSchedule(
-    userId: string,
-    sportId?: string
-  ): Observable<{ success: boolean; data: ProfileEvent[] }> {
-    const SCHEDULE_TYPE_MAP: Record<string, ProfileEvent['type']> = {
-      game: 'game',
-      camp: 'camp',
-      visit: 'visit',
-      practice: 'practice',
-      tournament: 'game',
-      combine: 'combine',
-      showcase: 'showcase',
-    };
-    const queryParams = sportId ? `?sportId=${encodeURIComponent(sportId)}` : '';
-    return this.http
-      .get<{
-        success: boolean;
-        data: Record<string, unknown>[];
-      }>(`${environment.apiURL}/auth/profile/${userId}/schedule${queryParams}`)
-      .pipe(
-        map((resp) => ({
-          success: resp.success,
-          data: (resp.data ?? []).map((raw) => ({
-            id: String(raw['id'] ?? ''),
-            type: SCHEDULE_TYPE_MAP[String(raw['eventType'] ?? '')] ?? 'other',
-            name: String(raw['title'] ?? raw['name'] ?? ''),
-            location: String(raw['location'] ?? ''),
-            startDate: raw['date'] ? String(raw['date']) : new Date().toISOString(),
-            opponent: raw['opponent'] ? String(raw['opponent']) : undefined,
-            result: raw['result'] ? String(raw['result']) : undefined,
-          })) as ProfileEvent[],
-        }))
-      );
   }
 }

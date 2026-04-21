@@ -35,6 +35,9 @@ export { ConnectedAccountsPage } from './connected-accounts.page';
 // Live View page (Agent X)
 export { LiveViewPage } from './live-view.page';
 
+// Agent X Goals page (goal completion + history)
+export { AgentXGoalsPage } from './agent-x-goals.page';
+
 // Add additional page exports here as features are developed:
 // export * from './profile';
 // export * from './onboarding';

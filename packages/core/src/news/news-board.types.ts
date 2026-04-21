@@ -61,9 +61,6 @@ export interface NewsBoardItem {
   /** View count (shown in meta). */
   readonly viewCount?: number;
 
-  /** Comment count (shown in meta). */
-  readonly commentCount?: number;
-
   /** CTA button label (e.g. "Read Article"). Omit to hide. */
   readonly ctaLabel?: string;
 }

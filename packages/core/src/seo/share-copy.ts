@@ -34,6 +34,12 @@ export interface InviteShareSource {
   readonly inviteType?: InviteType | null;
   readonly senderRole?: UserRole | null;
   readonly team?: Pick<InviteTeam, 'name' | 'sport'> | null;
+  /**
+   * Referral reward amount in cents. When provided, share/UI copy reflects
+   * this exact dollar amount to keep frontend in sync with the backend's
+   * live `AppConfig/referralReward` value. Omit to hide reward claims.
+   */
+  readonly rewardCents?: number | null;
 }
 
 export interface InviteUiCopy {
@@ -41,6 +47,30 @@ export interface InviteUiCopy {
   readonly subtitle: string;
   readonly shareText: string;
   readonly howItWorksText: string;
+}
+
+/**
+ * Default referral reward in cents used when no live value is available.
+ * Keep in sync with `REFERRAL_REWARD_CENTS` in
+ * `backend/src/modules/billing/budget.service.ts`.
+ */
+export const DEFAULT_REFERRAL_REWARD_CENTS = 500;
+
+/**
+ * Format a cents amount as a short USD string for share/marketing copy.
+ * Whole-dollar amounts drop the decimals ("$5"), fractional amounts keep them ("$5.50").
+ */
+export function formatReferralReward(rewardCents: number | null | undefined): string {
+  const cents =
+    typeof rewardCents === 'number' && rewardCents > 0
+      ? rewardCents
+      : DEFAULT_REFERRAL_REWARD_CENTS;
+  const dollars = cents / 100;
+  const formatted =
+    dollars % 1 === 0
+      ? String(Math.round(dollars))
+      : dollars.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
+  return `$${formatted}`;
 }
 
 function normalizeText(value: string | undefined | null): string {
@@ -124,12 +154,12 @@ export function buildInviteUiCopy(source: InviteShareSource): InviteUiCopy {
     };
   }
 
+  const reward = formatReferralReward(source.rewardCents);
   return {
-    title: 'Earn $5 in Agent X Credits',
-    subtitle: 'You earn $5 in Agent X credits every time someone joins through your invite.',
+    title: `Earn ${reward} in Agent X Credits`,
+    subtitle: `You earn ${reward} in Agent X credits every time someone joins through your invite.`,
     shareText: buildInviteShareText(source),
-    howItWorksText:
-      'Share this QR code or link with friends and teammates. When they join through your invite, they land inside NXT1 and you earn $5 in Agent X credits.',
+    howItWorksText: `Share this QR code or link with friends and teammates. When they join through your invite, they land inside NXT1 and you earn ${reward} in Agent X credits.`,
   };
 }
 

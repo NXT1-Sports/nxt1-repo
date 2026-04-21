@@ -17,7 +17,7 @@
  */
 
 import { BaseTool, type ToolResult } from '../base.tool.js';
-import { AgentYieldException } from '../../errors/agent-yield.error.js';
+import { AgentYieldException } from '../../exceptions/agent-yield.exception.js';
 import type { AgentToolCategory, AgentIdentifier } from '@nxt1/core';
 import type { LLMMessage } from '../../llm/llm.types.js';
 
@@ -46,8 +46,10 @@ export class AskUserTool extends BaseTool {
   readonly name = 'ask_user';
   readonly description =
     'Ask the user a question when you need information that is not available in the context, profile data, or any tool result. ' +
-    'This will pause your execution and send the question to the user via push notification. ' +
-    "Use this sparingly — only when you truly cannot proceed without the user's input.";
+    'This will pause your execution, show the user a question card, and send a push notification. ' +
+    "Use this sparingly — only when you truly cannot proceed without the user's input. " +
+    'CRITICAL: Call this tool EXACTLY ONCE per turn. Combine all your questions into a single concise message. ' +
+    'Calling it immediately suspends the entire conversation and shows the user a question card.';
   readonly parameters = {
     type: 'object',
     properties: {

@@ -47,7 +47,6 @@ import {
   countActiveFilters,
 } from '@nxt1/core';
 import { HapticsService } from '../services/haptics/haptics.service';
-import { NxtToastService } from '../services/toast/toast.service';
 import type { ScoutReportSortOption } from './scout-report-sort-selector.component';
 import { NxtLoggingService } from '../services/logging/logging.service';
 
@@ -59,7 +58,6 @@ import { NxtLoggingService } from '../services/logging/logging.service';
 export class ScoutReportsService {
   // TODO: inject ScoutReportsApiService when backend is ready
   private readonly haptics = inject(HapticsService);
-  private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('ScoutReportsService');
 
   // ============================================
@@ -160,11 +158,6 @@ export class ScoutReportsService {
       ...cat,
       badge: badges[cat.id] ?? 0,
     }));
-  });
-
-  /** Bookmarked reports */
-  readonly bookmarkedReports = computed(() => {
-    return this._reports().filter((report) => report.isBookmarked);
   });
 
   /** Verified reports */
@@ -285,53 +278,6 @@ export class ScoutReportsService {
       await this.haptics.notification('success');
     } finally {
       this._isRefreshing.set(false);
-    }
-  }
-
-  /**
-   * Toggle bookmark on a report.
-   * Uses optimistic update with rollback on failure.
-   *
-   * @param reportId - Report ID to toggle bookmark
-   */
-  async toggleBookmark(reportId: string): Promise<void> {
-    const report = this._reports().find((r) => r.id === reportId);
-    if (!report) return;
-
-    const wasBookmarked = report.isBookmarked;
-    const previousReports = this._reports();
-
-    // Optimistic update
-    this._reports.update((reports) =>
-      reports.map((r) =>
-        r.id === reportId
-          ? {
-              ...r,
-              isBookmarked: !r.isBookmarked,
-              bookmarkCount: r.isBookmarked ? r.bookmarkCount - 1 : r.bookmarkCount + 1,
-            }
-          : r
-      )
-    );
-
-    // Haptic feedback
-    await this.haptics.impact(wasBookmarked ? 'light' : 'medium');
-
-    try {
-      // ⚠️ TEMPORARY: Simulate API call
-      await new Promise((resolve) => setTimeout(resolve, 200));
-
-      // Show success toast with XP info
-      if (!wasBookmarked) {
-        this.toast.success('Report saved! +15 XP');
-      } else {
-        this.toast.info('Report removed from saved');
-      }
-    } catch (err) {
-      // Rollback on failure
-      this._reports.set(previousReports);
-      this.toast.error('Failed to update bookmark');
-      this.logger.error('Failed to toggle bookmark', err, { reportId });
     }
   }
 

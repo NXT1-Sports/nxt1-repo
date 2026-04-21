@@ -61,6 +61,17 @@ export interface StreamListener {
   onError(error: string): void;
 }
 
+/**
+ * Callbacks for a per-operation observer registered via `watchOperation()`.
+ * Unlike `StreamListener`, there can be many observers for the same operation
+ * and they survive component unmount (since they're registered on the singleton).
+ */
+export interface OperationObserver {
+  onStep(step: AgentXToolStep): void;
+  onDone(metadata: Record<string, unknown> | null): void;
+  onError(error: string): void;
+}
+
 /** Snapshot returned to a remounting component. */
 export interface StreamSnapshot {
   content: string;
@@ -89,10 +100,74 @@ export class AgentXStreamRegistryService {
   /** Active and recently-completed streams, keyed by threadId. */
   private readonly entries = new Map<string, StreamEntry>();
 
+  /**
+   * Per-operation observers registered via `watchOperation()`.
+   * Keyed by operationId → Map<symbol (handle), observer>.
+   * Survives component unmount — unregister explicitly via the returned handle.
+   */
+  private readonly operationObservers = new Map<string, Map<symbol, OperationObserver>>();
+
+  /**
+   * Maps operationId → threadId once the SSE `onThread` event fires.
+   * Used to route registry step/done/error calls to the right observers.
+   */
+  private readonly operationToThread = new Map<string, string>();
+  private readonly threadToOperation = new Map<string, string>();
+
   /** Periodic prune timer. */
   private pruneTimer: ReturnType<typeof setInterval> | null = null;
 
   // ─── Registration (called when a stream starts) ──────────────────────
+
+  /**
+   * Register a per-operation observer that receives step/done/error callbacks
+   * for the given operationId regardless of which component is mounted.
+   *
+   * Returns an opaque handle — pass it to `unwatchOperation()` to unregister.
+   *
+   * If the stream has already completed (buffered entry exists and is done),
+   * `onDone` / `onError` is called synchronously before returning.
+   */
+  watchOperation(operationId: string, observer: OperationObserver): symbol {
+    if (!this.operationObservers.has(operationId)) {
+      this.operationObservers.set(operationId, new Map());
+    }
+    const handle = Symbol('op-observer');
+    this.operationObservers.get(operationId)!.set(handle, observer);
+
+    // Replay completion state if the stream already finished
+    const threadId = this.operationToThread.get(operationId);
+    if (threadId) {
+      const entry = this.entries.get(threadId);
+      if (entry?.done) {
+        if (entry.error) {
+          observer.onError(entry.error);
+        } else {
+          observer.onDone(entry.doneMetadata);
+        }
+      }
+    }
+
+    return handle;
+  }
+
+  /** Unregister a per-operation observer by its handle. */
+  unwatchOperation(operationId: string, handle: symbol): void {
+    this.operationObservers.get(operationId)?.delete(handle);
+    if (this.operationObservers.get(operationId)?.size === 0) {
+      this.operationObservers.delete(operationId);
+    }
+  }
+
+  /**
+   * Associate an operationId with a threadId.
+   * Called from the SSE `onThread` handler so step/done/error can be
+   * routed to the right operation observers.
+   */
+  linkOperation(operationId: string, threadId: string): void {
+    this.operationToThread.set(operationId, threadId);
+    this.threadToOperation.set(threadId, operationId);
+  }
 
   /**
    * Register a new stream. If one already exists for this threadId,
@@ -167,6 +242,12 @@ export class AgentXStreamRegistryService {
     }
 
     entry.listener?.onStep(step);
+
+    // Notify per-operation observers
+    const operationId = this.threadToOperation.get(threadId);
+    if (operationId) {
+      this.operationObservers.get(operationId)?.forEach((obs) => obs.onStep(step));
+    }
   }
 
   appendCard(threadId: string, card: AgentXRichCard): void {
@@ -187,6 +268,13 @@ export class AgentXStreamRegistryService {
     entry.doneMetadata = metadata;
     entry.completedAt = Date.now();
     entry.listener?.onDone(metadata);
+
+    // Notify per-operation observers
+    const operationId = this.threadToOperation.get(threadId);
+    if (operationId) {
+      this.operationObservers.get(operationId)?.forEach((obs) => obs.onDone(metadata));
+    }
+
     this.logger.info('Stream completed', { threadId });
   }
 
@@ -197,6 +285,13 @@ export class AgentXStreamRegistryService {
     entry.error = error;
     entry.completedAt = Date.now();
     entry.listener?.onError(error);
+
+    // Notify per-operation observers
+    const operationId = this.threadToOperation.get(threadId);
+    if (operationId) {
+      this.operationObservers.get(operationId)?.forEach((obs) => obs.onError(error));
+    }
+
     this.logger.info('Stream errored', { threadId, error });
   }
 

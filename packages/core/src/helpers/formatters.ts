@@ -282,6 +282,113 @@ export function buildCanonicalTeamPath(input: CanonicalTeamPathInput): string {
   return `/team/${slugSegment}/${encodeURIComponent(String(teamCode))}`;
 }
 
+export interface ResolveCanonicalTeamRouteInput {
+  slug?: string | null;
+  teamName?: string | null;
+  title?: string | null;
+  teamCode?: string | null;
+  code?: string | null;
+  teamId?: string | null;
+  id?: string | number | null;
+  unicode?: string | null;
+  managedTeamCodes?: readonly (string | null | undefined)[] | null;
+}
+
+export interface ResolvedCanonicalTeamRoute {
+  readonly slug: string;
+  readonly teamIdentifier: string | null;
+  readonly teamName?: string;
+  readonly path: string;
+}
+
+function normalizeTeamRouteValue(value: string | number | null | undefined): string {
+  return value == null ? '' : String(value).trim();
+}
+
+function isLikelyDocumentIdentifier(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+
+  return (
+    /^team[-_]/i.test(trimmed) ||
+    /^[A-Za-z0-9_-]{16,}$/.test(trimmed) ||
+    /^[0-9a-f]{20,}$/i.test(trimmed)
+  );
+}
+
+function isLikelySlugValue(value: string): boolean {
+  return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value.trim());
+}
+
+export function resolveCanonicalTeamRoute(
+  input: ResolveCanonicalTeamRouteInput
+): ResolvedCanonicalTeamRoute | null {
+  const teamName = normalizeTeamRouteValue(input.teamName ?? input.title);
+  const slug =
+    normalizeTeamRouteValue(input.slug) ||
+    buildTeamSlug(teamName || normalizeTeamRouteValue(input.id) || 'team');
+
+  const documentIdentifiers = [
+    normalizeTeamRouteValue(input.teamId),
+    normalizeTeamRouteValue(input.id),
+  ].filter(Boolean);
+
+  const blockedValues = new Set(
+    [...documentIdentifiers, ...(slug ? [slug] : [])].map((value) => value.toLowerCase())
+  );
+
+  const managedTeamIdentifier =
+    input.managedTeamCodes
+      ?.map((value) => normalizeTeamRouteValue(value))
+      .find((value) => Boolean(value) && !blockedValues.has(value.toLowerCase())) ?? '';
+
+  const explicitTeamIdentifier =
+    [normalizeTeamRouteValue(input.teamCode), normalizeTeamRouteValue(input.code)]
+      .filter(Boolean)
+      .find((value) => {
+        const normalizedValue = value.toLowerCase();
+        if (slug && normalizedValue === slug.toLowerCase()) return false;
+        if (blockedValues.has(normalizedValue) && managedTeamIdentifier) return false;
+        if (
+          managedTeamIdentifier &&
+          value !== managedTeamIdentifier &&
+          isLikelyDocumentIdentifier(value)
+        ) {
+          return false;
+        }
+
+        return !isLikelySlugValue(value) || /[A-Z0-9]/.test(value);
+      }) ?? '';
+
+  const unicode = normalizeTeamRouteValue(input.unicode);
+  const teamIdentifier =
+    explicitTeamIdentifier ||
+    managedTeamIdentifier ||
+    (unicode && (!slug || unicode.toLowerCase() !== slug.toLowerCase()) ? unicode : '') ||
+    documentIdentifiers[0] ||
+    '';
+
+  if (!slug && !teamName && !teamIdentifier) {
+    return null;
+  }
+
+  const path = teamIdentifier
+    ? buildCanonicalTeamPath({
+        slug,
+        teamName,
+        teamCode: teamIdentifier,
+        id: input.id,
+      })
+    : `/team/${slugify(slug || teamName || 'team') || 'team'}`;
+
+  return {
+    slug: slug || 'team',
+    teamIdentifier: teamIdentifier || null,
+    teamName: teamName || undefined,
+    path,
+  };
+}
+
 /**
  * Convert camelCase to Title Case
  */

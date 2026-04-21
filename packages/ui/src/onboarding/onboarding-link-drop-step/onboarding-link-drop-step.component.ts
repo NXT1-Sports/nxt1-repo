@@ -54,6 +54,7 @@ import { ANALYTICS_ADAPTER } from '../../services/analytics/analytics-adapter.to
 import { NxtBreadcrumbService } from '../../services/breadcrumb';
 import { NxtModalService } from '../../services/modal';
 import { NxtToastService } from '../../services/toast/toast.service';
+import { NxtPlatformService } from '../../services/platform';
 import {
   NxtConnectedSourcesComponent,
   type ConnectionMode,
@@ -98,6 +99,7 @@ interface ConnectedState {
 const CUSTOM_LINK_PREFIX = 'custom::';
 const HANDLE_BASED_PLATFORMS = new Set(['instagram', 'twitter', 'tiktok']);
 const HANDLE_BUILDABLE_URL_PLATFORMS = new Set(['instagram', 'twitter', 'tiktok', 'youtube']);
+const SIGNIN_PRIORITY_ORDER = ['google', 'microsoft'] as const;
 const RESERVED_HANDLE_SEGMENTS = new Set([
   'explore',
   'hashtag',
@@ -135,6 +137,37 @@ function connKey(platform: string, scopeType?: PlatformScope, scopeId?: string):
     return scopeId ? `${platform}::${scopeId}` : platform;
   }
   return platform;
+}
+
+function resolveConnectedState(
+  platform: string,
+  scopeType: PlatformScope,
+  scopeId: string | undefined,
+  connMap: Record<string, ConnectedState>
+): ConnectedState | undefined {
+  const exact = connMap[connKey(platform, scopeType, scopeId)];
+  if (exact) {
+    return exact;
+  }
+
+  // Team-scoped rows do not always know the canonical team identifier at render-time.
+  // When there is a single persisted team connection for the platform, reuse it so the
+  // visible row reflects the saved state and preserves the real scopeId for edits.
+  if (scopeType !== 'team') {
+    return undefined;
+  }
+
+  const teamMatches = Object.entries(connMap)
+    .filter(
+      ([key, entry]) =>
+        key.startsWith(`${platform}::`) &&
+        entry.scopeType === 'team' &&
+        entry.connected &&
+        !!entry.scopeId
+    )
+    .map(([, entry]) => entry);
+
+  return teamMatches[0];
 }
 
 /** Normalize sport display name → base key for platform matching */
@@ -350,6 +383,34 @@ function normalizePlatformConnectionValue(
       url: buildProfileUrl(platform.platform, handle) ?? undefined,
     },
   };
+}
+
+function sortPlatformsForDisplay(
+  platforms: readonly PlatformDefinition[],
+  mode: ConnectionMode
+): PlatformDefinition[] {
+  if (mode !== 'signin') {
+    return [...platforms];
+  }
+
+  const priority = new Map<string, number>(
+    SIGNIN_PRIORITY_ORDER.map((platform, index) => [platform, index])
+  );
+
+  return [...platforms].sort((left, right) => {
+    const leftPriority = priority.get(left.platform) ?? Number.MAX_SAFE_INTEGER;
+    const rightPriority = priority.get(right.platform) ?? Number.MAX_SAFE_INTEGER;
+
+    if (leftPriority !== rightPriority) {
+      return leftPriority - rightPriority;
+    }
+
+    return 0;
+  });
+}
+
+function isPinnedSigninPlatform(platformId: string): boolean {
+  return SIGNIN_PRIORITY_ORDER.includes(platformId as (typeof SIGNIN_PRIORITY_ORDER)[number]);
 }
 
 // ============================================
@@ -646,6 +707,7 @@ export class OnboardingLinkDropStepComponent {
   private readonly breadcrumb = inject(NxtBreadcrumbService);
   private readonly nxtModal = inject(NxtModalService);
   private readonly toast = inject(NxtToastService);
+  private readonly platform = inject(NxtPlatformService);
 
   /** Test IDs for interactive elements */
   protected readonly testIds = TEST_IDS.LINK_SOURCES;
@@ -765,8 +827,9 @@ export class OnboardingLinkDropStepComponent {
     const groups: PlatformGroup[] = [];
 
     // ---- 1. Collect all platforms for this view ----
-    const globalPlatforms = PLATFORM_REGISTRY.filter(
-      (p) => p.scope === 'global' && p.connectionType === mode
+    const globalPlatforms = sortPlatformsForDisplay(
+      PLATFORM_REGISTRY.filter((p) => p.scope === 'global' && p.connectionType === mode),
+      mode
     );
 
     let sportPlatforms: PlatformDefinition[] = [];
@@ -788,13 +851,32 @@ export class OnboardingLinkDropStepComponent {
         : [];
 
     const allPlatforms = [...globalPlatforms, ...sportPlatforms, ...teamPlatforms];
+    const pinnedSigninPlatforms =
+      mode === 'signin'
+        ? globalPlatforms.filter((platform) => isPinnedSigninPlatform(platform.platform))
+        : [];
+    const pinnedSigninPlatformIds = new Set(
+      pinnedSigninPlatforms.map((platform) => platform.platform)
+    );
+
+    if (pinnedSigninPlatforms.length > 0) {
+      groups.push({
+        key: 'priority-signin',
+        label: 'Sign-In Accounts',
+        sources: pinnedSigninPlatforms.map((platform) =>
+          this.toSourceForCurrentSport(platform, connMap, sportKey)
+        ),
+      });
+    }
 
     // ---- 2. Recommended group ----
     const allIds = new Set(allPlatforms.map((p) => p.platform));
     if (role) {
       const sportList = sportName ? [sportName] : sports.length === 1 ? [sports[0]] : [];
       const recommended = getRecommendedPlatforms(role, sportList, mode);
-      const filteredRecommended = recommended.filter((p) => allIds.has(p.platform));
+      const filteredRecommended = recommended.filter(
+        (p) => allIds.has(p.platform) && !pinnedSigninPlatformIds.has(p.platform)
+      );
 
       if (filteredRecommended.length > 0) {
         groups.push({
@@ -810,7 +892,10 @@ export class OnboardingLinkDropStepComponent {
     // ---- 3. Platforms grouped by category ----
     // Keep recommended platforms in their native sections too.
     // Shared platform IDs ensure a single connection state appears everywhere.
-    const remaining = allPlatforms;
+    // Pinned Google/Microsoft sign-in providers are shown only once at the top.
+    const remaining = allPlatforms.filter(
+      (platform) => !pinnedSigninPlatformIds.has(platform.platform)
+    );
 
     for (const cat of PLATFORM_CATEGORIES) {
       const catPlatforms = remaining.filter((p) => p.category === cat.category);
@@ -952,6 +1037,16 @@ export class OnboardingLinkDropStepComponent {
     const placeholder = platformDef?.placeholder ?? '@username';
     const isSignIn = source.connectionType === 'signin';
     const isUrl = placeholder.toLowerCase().includes('url');
+
+    if (this.isDesktopOnlySigninSource(source)) {
+      this.toast.info(
+        `${source.label} sign-in is desktop only right now. Use the desktop web app.`
+      );
+      this.logger.info('Desktop-only sign-in blocked on mobile context', {
+        platform: source.platform,
+      });
+      return;
+    }
 
     // ── Google / Microsoft: OAuth account-picker (settings) OR manual token entry (onboarding) ──
     if (isSignIn && (source.platform === 'google' || source.platform === 'microsoft')) {
@@ -1138,16 +1233,16 @@ export class OnboardingLinkDropStepComponent {
   ): ConnectedSource {
     const scopeType: PlatformScope = platform.scope;
     const scopeId = scopeType === 'sport' ? (sportKey ?? undefined) : undefined;
-    const key = connKey(platform.platform, scopeType, scopeId);
-    const conn = connMap[key];
+    const conn = resolveConnectedState(platform.platform, scopeType, scopeId, connMap);
 
     return {
       platform: platform.platform,
       label: platform.label,
       icon: platform.icon as ConnectedSource['icon'],
       connectionType: platform.connectionType,
+      actionLabel: this.getDisconnectedActionLabel(platform),
       scopeType,
-      scopeId,
+      scopeId: conn?.scopeId ?? scopeId,
       connected: conn?.connected ?? false,
       username: conn?.username,
       url: conn?.url,
@@ -1155,6 +1250,44 @@ export class OnboardingLinkDropStepComponent {
       addedBy: conn?.addedBy,
       locked: conn?.locked,
     };
+  }
+
+  private getDisconnectedActionLabel(platform: PlatformDefinition): string | undefined {
+    if (
+      platform.connectionType === 'signin' &&
+      platform.platform !== 'google' &&
+      platform.platform !== 'microsoft' &&
+      !this.supportsInteractiveDesktopSignin()
+    ) {
+      return 'Desktop Only';
+    }
+
+    return undefined;
+  }
+
+  private isDesktopOnlySigninSource(source: ConnectedSource): boolean {
+    return source.connectionType === 'signin' && source.actionLabel === 'Desktop Only';
+  }
+
+  private supportsInteractiveDesktopSignin(): boolean {
+    if (this.platform.isNative()) {
+      return false;
+    }
+
+    if (!this.platform.isBrowser()) {
+      return true;
+    }
+
+    const viewportWidth = this.platform.viewport().width;
+    if (viewportWidth < 768) {
+      return false;
+    }
+
+    if (this.platform.hasTouch() && viewportWidth < 1024) {
+      return false;
+    }
+
+    return true;
   }
 
   /**

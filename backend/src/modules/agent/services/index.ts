@@ -4,7 +4,6 @@
  */
 
 export { ApprovalGateService } from './approval-gate.service.js';
-export { TelemetryService } from './telemetry.service.js';
 export { AgentChatService } from './agent-chat.service.js';
 export { AgentGenerationService } from './generation.service.js';
 export type { PlaybookGenerationResult, BriefingGenerationResult } from './generation.service.js';
@@ -21,4 +20,4 @@ export {
   getSeasonInfo,
   getRecurringHabitsPrompt,
   resolvePrimarySport,
-} from './elite-context.js';
+} from '../memory/context-builder.js';

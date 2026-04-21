@@ -80,7 +80,6 @@ export const API_ENDPOINTS = {
     DETAILS: (id: string) => `/v1/post/${id}`,
     DELETE: (id: string) => `/v1/post/${id}`,
     LIKE: (id: string) => `/v1/post/${id}/like`,
-    COMMENT: (id: string) => `/v1/post/${id}/comment`,
   },
 
   // ==========================================

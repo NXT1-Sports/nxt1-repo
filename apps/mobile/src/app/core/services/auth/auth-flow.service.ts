@@ -571,9 +571,6 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
         await this.navigatePostAuth();
       }
 
-      // Register FCM token for push notifications (non-blocking)
-      void this.fcmRegistration.registerToken();
-
       return true;
     } catch (err) {
       // Track sign-in error
@@ -718,9 +715,6 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
         await this.navigatePostAuth();
       }
 
-      // Register FCM token for push notifications (non-blocking)
-      void this.fcmRegistration.registerToken();
-
       this.logger.info(`${method} sign-in complete`);
       return true;
     } catch (err: unknown) {
@@ -842,9 +836,6 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
           await this.navigateForward(AUTH_REDIRECTS.ONBOARDING);
         }
 
-        // Register FCM token for push notifications (non-blocking)
-        void this.fcmRegistration.registerToken();
-
         return true;
       } finally {
         // Always clear flag to prevent state leaks (via core state manager)
@@ -905,7 +896,8 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
         referral.code,
         referral.teamCode,
         roleOverride ?? referral.role,
-        referral.inviterUid
+        referral.inviterUid,
+        true // isNewUser — credit $5 reward only for new-user onboarding (Flow B)
       );
 
       this.logger.info('Invite accepted successfully', {
@@ -994,8 +986,13 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
       // Clear crashlytics user context
       await this.crashlytics.clearUser();
 
-      // Unregister FCM token (non-blocking)
-      void this.fcmRegistration.unregisterToken();
+      // Unregister FCM token BEFORE signing out — the Cloud Function requires
+      // a valid auth token, so this must complete while the user is still authenticated.
+      try {
+        await this.fcmRegistration.unregisterToken();
+      } catch (fcmError) {
+        this.logger.warn('FCM unregister failed during sign out, continuing', { error: fcmError });
+      }
 
       // Clear cached password
       this._cachedPassword = null;
@@ -1006,6 +1003,9 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
       await this.firebaseAuth.signOut();
       this.httpAdapter.setTokenProvider(null);
       await this.authManager.reset();
+      // Prevent biometric auto-trigger on the auth page after an explicit sign-out
+      const { Preferences: PrefsSignOut } = await import('@capacitor/preferences');
+      await PrefsSignOut.set({ key: 'nxt1_explicit_signout', value: 'true' });
       await this.navigateRoot(AUTH_ROUTES.ROOT);
     } catch (err) {
       const message = getAuthErrorMessage(err);

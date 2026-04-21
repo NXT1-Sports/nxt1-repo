@@ -1,3 +1,4 @@
+export { CloudflareMcpBridgeService } from './cloudflare-mcp-bridge.service.js';
 /**
  * @fileoverview Cloudflare Stream Tools — Barrel Export
  * @module @nxt1/backend/modules/agent/tools/integrations/cloudflare-stream
@@ -37,3 +38,4 @@ export { GenerateCaptionsTool } from './generate-captions.tool.js';
 export { CreateSignedUrlTool } from './create-signed-url.tool.js';
 export { EnableDownloadTool } from './enable-download.tool.js';
 export { ManageWatermarkTool } from './manage-watermark.tool.js';
+export { DeleteVideoTool } from './delete-video.tool.js';

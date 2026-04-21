@@ -109,7 +109,7 @@ export const OPERATIONS_LOG_TEST_IDS = {
   selector: 'nxt1-agent-x-operations-log',
   imports: [NxtIconComponent, NxtSheetHeaderComponent],
   template: `
-    @if (!embedded()) {
+    @if (!embedded() && !hideHeader()) {
       <!-- ═══ HEADER ═══ -->
       <nxt1-sheet-header
         title="Agent Sessions"
@@ -402,7 +402,7 @@ export const OPERATIONS_LOG_TEST_IDS = {
         flex: 1;
         overflow-y: auto;
         overflow-x: hidden;
-        padding: 0 var(--nxt1-spacing-4, 16px);
+        padding: 0 var(--log-scroll-padding-inline, var(--nxt1-spacing-4, 16px));
         padding-bottom: calc(var(--nxt1-spacing-6, 24px) + env(safe-area-inset-bottom, 0px));
         -webkit-overflow-scrolling: touch;
       }
@@ -757,6 +757,9 @@ export class AgentXOperationsLogComponent {
   /** When true, hides the sheet header and filters (used when embedded in sidebar). */
   readonly embedded = input(false);
 
+  /** When true, hides the header/filters without delegating tap handling (sidebar use-case). */
+  readonly hideHeader = input(false);
+
   /** Test IDs for template binding. */
   protected readonly testIds = OPERATIONS_LOG_TEST_IDS;
 
@@ -941,7 +944,11 @@ export class AgentXOperationsLogComponent {
       const liveStatuses = new Map<string, OperationLogStatus>();
       const liveEntries = new Map<string, OperationLogEntry>();
       for (const op of this._operations()) {
-        if (op.threadId && (op.status === 'in-progress' || op.status === 'awaiting_input')) {
+        // Capture ALL live statuses — not just in-progress/awaiting_input.
+        // This prevents a stale HTTP response (which may still say "in-progress"
+        // while SSE has already set the entry to "complete"/"error") from
+        // overwriting the real terminal state and leaving the spinner stuck.
+        if (op.threadId) {
           liveStatuses.set(op.threadId, op.status);
           liveEntries.set(op.threadId, op);
         }
@@ -954,16 +961,32 @@ export class AgentXOperationsLogComponent {
         let entries = response.data;
 
         if (liveStatuses.size > 0) {
-          // Re-apply live SSE statuses that the HTTP response may lag behind on
+          // Re-apply live SSE statuses that the HTTP response may lag behind on.
+          // Rule: prefer in-memory live status ONLY when it represents a more
+          // advanced state than HTTP. If HTTP already shows a terminal state
+          // (complete / error) but in-memory is still 'in-progress' (because
+          // the Firestore listener was interrupted before the done event), the
+          // backend is the source of truth — use the HTTP terminal state.
+          const terminalStates = new Set<OperationLogStatus>(['complete', 'error']);
           const httpThreadIds = new Set(entries.filter((e) => e.threadId).map((e) => e.threadId));
           entries = entries.map((entry) => {
             const live = entry.threadId ? liveStatuses.get(entry.threadId) : undefined;
-            return live ? { ...entry, status: live } : entry;
+            if (!live) return entry;
+            const httpIsTerminal = terminalStates.has(entry.status);
+            const liveIsTerminal = terminalStates.has(live);
+            // HTTP terminal beats stale in-memory in-progress
+            if (httpIsTerminal && !liveIsTerminal) return entry;
+            return { ...entry, status: live };
           });
 
           // Re-insert entries created by SSE that haven't been persisted yet
-          for (const [threadId] of liveStatuses) {
-            if (!httpThreadIds.has(threadId)) {
+          // (only for still-active entries — complete/error ones without a DB
+          // record are edge-case orphans and don't need to be surfaced)
+          for (const [threadId, status] of liveStatuses) {
+            if (
+              !httpThreadIds.has(threadId) &&
+              (status === 'in-progress' || status === 'awaiting_input')
+            ) {
               const existing = liveEntries.get(threadId);
               if (existing) entries = [existing, ...entries];
             }
@@ -1074,15 +1097,49 @@ export class AgentXOperationsLogComponent {
       return;
     }
 
+    // Map OperationLogStatus → chat component's operationStatus input.
+    // OperationLogEntry uses 'in-progress'; the chat component uses 'processing'.
+    const chatStatus =
+      entry.status === 'in-progress'
+        ? 'processing'
+        : entry.status === 'complete'
+          ? 'complete'
+          : entry.status === 'error'
+            ? 'error'
+            : entry.status === 'awaiting_input'
+              ? 'awaiting_input'
+              : null;
+
+    // Validate that the operationId is a real Firestore AgentJobs UUID (chat-{uuid}
+    // or a bare UUID). MongoDB ObjectIds are 24 hex chars and must never be
+    // used as Firestore document paths — they will always produce permission-denied.
+    const isFirestoreOperationId = (id: string | undefined): boolean => {
+      if (!id) return false;
+      const bare = id.startsWith('chat-') ? id.slice(5) : id;
+      // UUID v4 pattern
+      return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(bare);
+    };
+    const resolvedOperationId = isFirestoreOperationId(entry.operationId)
+      ? entry.operationId
+      : undefined;
+
     // If the operation is linked to a persisted thread, open that exact conversation.
     if (entry.threadId) {
       await this.bottomSheet.openSheet({
         component: AgentXOperationChatComponent,
         componentProps: {
-          contextId: entry.id,
+          contextId: resolvedOperationId ?? entry.threadId,
           contextTitle: entry.title,
           contextIcon: entry.icon,
           contextType: 'operation',
+          // Only pass operationStatus='processing' when there is a real Firestore
+          // operationId to subscribe to. MongoDB-thread-only entries have no
+          // AgentJobs document and must not trigger a Firestore subscription.
+          operationStatus: resolvedOperationId
+            ? chatStatus
+            : chatStatus === 'processing'
+              ? null
+              : chatStatus,
           threadId: entry.threadId,
         },
         ...SHEET_PRESETS.FULL,
@@ -1094,14 +1151,20 @@ export class AgentXOperationsLogComponent {
       return;
     }
 
-    // Fall back to an isolated operation chat when historical thread data is unavailable.
+    // Fall back to an isolated operation chat (no thread yet).
+    // Only attach Firestore listener when there is a real operationId (UUID).
     await this.bottomSheet.openSheet({
       component: AgentXOperationChatComponent,
       componentProps: {
-        contextId: entry.id,
+        contextId: resolvedOperationId ?? entry.id,
         contextTitle: entry.title,
         contextIcon: entry.icon,
         contextType: 'operation',
+        operationStatus: resolvedOperationId
+          ? chatStatus
+          : chatStatus === 'processing'
+            ? null
+            : chatStatus,
       },
       ...SHEET_PRESETS.FULL,
       showHandle: true,

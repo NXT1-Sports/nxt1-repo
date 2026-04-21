@@ -20,9 +20,10 @@ import {
   recordSpend,
   resolveBillingTarget,
   updateBudget,
-  updateTeamBudget,
   updateOrgBudget,
   updateTeamAllocation,
+  deleteOrgBudget,
+  deleteTeamAllocation,
   getOrgTeamAllocations,
   getPricingConfig,
   updatePricingConfig,
@@ -32,13 +33,14 @@ import {
   refundCharge,
   generateInvoice,
   getOrCreateCustomer,
-  getBillingContext,
+  getBillingState,
+  getPersonalBillingSummary,
 } from '../modules/billing/index.js';
 import { validateBody } from '../middleware/validation.middleware.js';
 import {
   CreateUsageEventDto,
+  BudgetIntervalDto,
   UpdateBudgetDto,
-  UpdateTeamBudgetDto,
   UpdateOrganizationBudgetDto,
   UpdateTeamAllocationDto,
   UpdatePricingConfigDto,
@@ -46,6 +48,50 @@ import {
 } from '../dtos/billing.dto.js';
 
 const router = Router();
+
+function getNormalizedBudgetIntervalQuery(value: unknown): BudgetIntervalDto | null {
+  if (
+    value === BudgetIntervalDto.DAILY ||
+    value === BudgetIntervalDto.WEEKLY ||
+    value === BudgetIntervalDto.MONTHLY
+  ) {
+    return value;
+  }
+
+  if (value === undefined || value === null || value === '') {
+    return BudgetIntervalDto.MONTHLY;
+  }
+
+  return null;
+}
+
+async function buildAvailableBudgetTargets(
+  db: FirebaseFirestore.Firestore,
+  organizationId: string
+): Promise<readonly { id: string; type: 'organization' | 'team'; label: string }[]> {
+  const teamsSnap = await db
+    .collection('Teams')
+    .where('organizationId', '==', organizationId)
+    .get();
+
+  return [
+    { id: organizationId, type: 'organization', label: 'Organization' },
+    ...teamsSnap.docs
+      .map((doc) => {
+        const data = doc.data() as Record<string, unknown>;
+        const label =
+          (typeof data['name'] === 'string' && data['name'].trim()) ||
+          (typeof data['teamName'] === 'string' && data['teamName'].trim()) ||
+          'Unknown Team';
+        return {
+          id: doc.id,
+          type: 'team' as const,
+          label,
+        };
+      })
+      .sort((left, right) => left.label.localeCompare(right.label)),
+  ];
+}
 
 // ============================================
 // CACHE CONFIGURATION
@@ -132,7 +178,7 @@ router.post(
           : {}),
       };
 
-      const eventId = await recordUsageEvent(db, input, environment);
+      const eventId = await recordUsageEvent(input, environment);
 
       // ── Record spend against budget ─────────────────────────
       await recordSpend(db, userId, costCents, teamId);
@@ -186,7 +232,7 @@ router.get('/usage/me', appGuard, async (req: Request, res: Response) => {
     }
 
     const limit = Number(req.query['limit']) || 50;
-    const events = await getUserUsageEvents(db, userId, limit);
+    const events = await getUserUsageEvents(userId, limit);
 
     return res.json({
       success: true,
@@ -242,7 +288,7 @@ router.get('/usage/team/:teamId', appGuard, async (req: Request, res: Response) 
     }
 
     const limit = Number(req.query['limit']) || 100;
-    const events = await getTeamUsageEvents(db, teamId, limit);
+    const events = await getTeamUsageEvents(teamId, limit);
 
     return res.json({
       success: true,
@@ -289,7 +335,13 @@ router.get('/budget', appGuard, async (req: Request, res: Response) => {
 
     if (!db) throw new Error('Firebase context not available');
 
-    // Resolve billing target (director → org, otherwise individual)
+    // Read the user's personal billing state for user-level preferences
+    const personalCtxData = await getPersonalBillingSummary(db, userId);
+    const autoTopUpEnabled = personalCtxData?.autoTopUpEnabled ?? false;
+    const autoTopUpThresholdCents = personalCtxData?.autoTopUpThresholdCents ?? 0;
+    const autoTopUpAmountCents = personalCtxData?.autoTopUpAmountCents ?? 0;
+
+    // Resolve billing target using the user's active billing target.
     const target = await resolveBillingTarget(db, userId);
     const ctx = target.context;
     const adminResult =
@@ -341,12 +393,21 @@ router.get('/budget', appGuard, async (req: Request, res: Response) => {
 
             return { isOrgAdmin: false, isTeamAdmin: false };
           })()
-        : { isOrgAdmin: true, isTeamAdmin: true };
+        : { isOrgAdmin: false, isTeamAdmin: false };
+
+    const walletBalance = ctx.walletBalanceCents ?? 0;
+    const availableBudgetTargets =
+      target.type === 'organization' && target.organizationId && adminResult.isOrgAdmin
+        ? await buildAvailableBudgetTargets(db, target.organizationId)
+        : undefined;
 
     return res.json({
       success: true,
       data: {
+        billingMode:
+          ctx.billingMode ?? (target.type === 'organization' ? 'organization' : 'personal'),
         billingEntity: ctx.billingEntity,
+        budgetInterval: ctx.budgetInterval ?? BudgetIntervalDto.MONTHLY,
         monthlyBudget: ctx.monthlyBudget,
         currentPeriodSpend: ctx.currentPeriodSpend,
         periodStart: ctx.periodStart,
@@ -359,9 +420,15 @@ router.get('/budget', appGuard, async (req: Request, res: Response) => {
         teamId: ctx.teamId,
         organizationId: ctx.organizationId,
         paymentProvider: ctx.paymentProvider,
-        walletBalanceCents: ctx.walletBalanceCents,
+        walletBalanceCents: walletBalance,
+        pendingHoldsCents: ctx.pendingHoldsCents ?? 0,
         isOrgAdmin: adminResult.isOrgAdmin,
         isTeamAdmin: adminResult.isTeamAdmin,
+        autoTopUpEnabled,
+        autoTopUpThresholdCents,
+        autoTopUpAmountCents,
+        orgWalletEmpty: ctx.billingEntity !== 'individual' && walletBalance <= 0,
+        availableBudgetTargets,
       },
     });
   } catch (error) {
@@ -386,69 +453,38 @@ router.put(
   async (req: Request, res: Response) => {
     try {
       const userId = req.user!.uid;
-      const { monthlyBudget } = req.body;
+      const { monthlyBudget, budgetInterval, hardStop } = req.body as UpdateBudgetDto;
       const db = req.firebase?.db;
 
       if (!db) throw new Error('Firebase context not available');
 
       // Resolve the correct billing target (directors → org context)
       const target = await resolveBillingTarget(db, userId);
+      const normalizedInterval = budgetInterval ?? BudgetIntervalDto.MONTHLY;
+      const normalizedHardStop = hardStop === undefined ? undefined : hardStop === 'hard';
 
       if (target.type === 'organization' && target.organizationId) {
-        await updateOrgBudget(db, target.organizationId, monthlyBudget);
+        await updateOrgBudget(
+          db,
+          target.organizationId,
+          monthlyBudget,
+          normalizedInterval,
+          normalizedHardStop
+        );
       } else {
-        await updateBudget(db, userId, monthlyBudget);
+        await updateBudget(db, userId, monthlyBudget, normalizedInterval, normalizedHardStop);
       }
 
-      return res.json({ success: true, monthlyBudget });
+      return res.json({
+        success: true,
+        monthlyBudget,
+        budgetInterval: normalizedInterval,
+        hardStop: normalizedHardStop,
+      });
     } catch (error) {
       logger.error('[PUT /budget] Failed to update budget', { error });
       return res.status(500).json({
         error: 'Failed to update budget',
-        message: error instanceof Error ? error.message : 'Unknown error',
-      });
-    }
-  }
-);
-
-/**
- * PUT /api/v1/billing/budget/team/:teamId
- * Update a team's monthly budget (team admin only)
- * Body: { monthlyBudget: number (cents) }
- */
-router.put(
-  '/budget/team/:teamId',
-  appGuard,
-  validateBody(UpdateTeamBudgetDto),
-  async (req: Request, res: Response) => {
-    try {
-      const teamId = req.params['teamId'] as string;
-      const { monthlyBudget } = req.body;
-      const db = req.firebase?.db;
-
-      if (!db) throw new Error('Firebase context not available');
-
-      // Verify the caller is a team admin
-      const teamDoc = await db.collection('Teams').doc(teamId).get();
-      const teamData = teamDoc.data();
-      const userId = req.user!.uid;
-      const adminIds: string[] = Array.isArray(teamData?.['adminIds'])
-        ? (teamData!['adminIds'] as string[])
-        : teamData?.['createdBy']
-          ? [teamData['createdBy'] as string]
-          : [];
-
-      if (!adminIds.includes(userId)) {
-        return res.status(403).json({ error: 'Only team admins can update the team budget' });
-      }
-
-      await updateTeamBudget(db, teamId, monthlyBudget);
-
-      return res.json({ success: true, teamId, monthlyBudget });
-    } catch (error) {
-      logger.error('[PUT /budget/team/:teamId] Failed to update team budget', { error });
-      return res.status(500).json({
-        error: 'Failed to update team budget',
         message: error instanceof Error ? error.message : 'Unknown error',
       });
     }
@@ -470,7 +506,7 @@ router.put(
       if (!orgId || orgId.length > 128) {
         return res.status(400).json({ error: 'Invalid organization ID' });
       }
-      const { monthlyBudget } = req.body;
+      const { monthlyBudget, budgetInterval, hardStop } = req.body as UpdateOrganizationBudgetDto;
       const db = req.firebase?.db;
 
       if (!db) throw new Error('Firebase context not available');
@@ -494,9 +530,17 @@ router.put(
           .json({ error: 'Only organization admins can update the org budget' });
       }
 
-      await updateOrgBudget(db, orgId, monthlyBudget);
+      const normalizedInterval = budgetInterval ?? BudgetIntervalDto.MONTHLY;
+      const normalizedHardStop = hardStop === undefined ? undefined : hardStop === 'hard';
+      await updateOrgBudget(db, orgId, monthlyBudget, normalizedInterval, normalizedHardStop);
 
-      return res.json({ success: true, organizationId: orgId, monthlyBudget });
+      return res.json({
+        success: true,
+        organizationId: orgId,
+        monthlyBudget,
+        budgetInterval: normalizedInterval,
+        hardStop: normalizedHardStop,
+      });
     } catch (error) {
       logger.error('[PUT /budget/org/:orgId] Failed to update org budget', { error });
       return res.status(500).json({
@@ -506,6 +550,60 @@ router.put(
     }
   }
 );
+
+/**
+ * DELETE /api/v1/billing/budget/org/:orgId
+ * Delete an organization's master budget row for a given cadence (org admin only)
+ * Query: ?budgetInterval=daily|weekly|monthly
+ */
+router.delete('/budget/org/:orgId', appGuard, async (req: Request, res: Response) => {
+  try {
+    const orgId = String(req.params['orgId'] ?? '').trim();
+    if (!orgId || orgId.length > 128) {
+      return res.status(400).json({ error: 'Invalid organization ID' });
+    }
+
+    const normalizedInterval = getNormalizedBudgetIntervalQuery(req.query['budgetInterval']);
+    if (!normalizedInterval) {
+      return res.status(400).json({
+        error: 'Budget interval must be one of: daily, weekly, monthly',
+      });
+    }
+
+    const db = req.firebase?.db;
+    if (!db) throw new Error('Firebase context not available');
+
+    const userId = req.user!.uid;
+    const orgDoc = await db.collection('Organizations').doc(orgId).get();
+    const orgData = orgDoc.data();
+
+    if (!orgData) {
+      return res.status(404).json({ error: 'Organization not found' });
+    }
+
+    const admins = (orgData['admins'] as Array<{ userId: string }>) ?? [];
+    const adminIds = admins.map((a) => a.userId).filter(Boolean);
+    const ownerId = orgData['ownerId'] as string | undefined;
+
+    if (!adminIds.includes(userId) && ownerId !== userId) {
+      return res.status(403).json({ error: 'Only organization admins can delete the org budget' });
+    }
+
+    await deleteOrgBudget(db, orgId, normalizedInterval);
+
+    return res.json({
+      success: true,
+      organizationId: orgId,
+      budgetInterval: normalizedInterval,
+    });
+  } catch (error) {
+    logger.error('[DELETE /budget/org/:orgId] Failed to delete org budget', { error });
+    return res.status(500).json({
+      error: 'Failed to delete organization budget',
+      message: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
 
 /**
  * PUT /api/v1/billing/budget/org/:orgId/team/:teamId
@@ -523,7 +621,7 @@ router.put(
       if (!orgId || orgId.length > 128 || !teamId || teamId.length > 128) {
         return res.status(400).json({ error: 'Invalid organization or team ID' });
       }
-      const { monthlyLimit } = req.body;
+      const { monthlyLimit, budgetInterval } = req.body as UpdateTeamAllocationDto;
       const db = req.firebase?.db;
 
       if (!db) throw new Error('Firebase context not available');
@@ -554,9 +652,16 @@ router.put(
         return res.status(400).json({ error: 'Team does not belong to this organization' });
       }
 
-      await updateTeamAllocation(db, teamId, orgId, monthlyLimit);
+      const normalizedInterval = budgetInterval ?? BudgetIntervalDto.MONTHLY;
+      await updateTeamAllocation(db, teamId, orgId, monthlyLimit, normalizedInterval);
 
-      return res.json({ success: true, teamId, organizationId: orgId, monthlyLimit });
+      return res.json({
+        success: true,
+        teamId,
+        organizationId: orgId,
+        monthlyLimit,
+        budgetInterval: normalizedInterval,
+      });
     } catch (error) {
       logger.error('[PUT /budget/org/:orgId/team/:teamId] Failed to update team allocation', {
         error,
@@ -568,6 +673,72 @@ router.put(
     }
   }
 );
+
+/**
+ * DELETE /api/v1/billing/budget/org/:orgId/team/:teamId
+ * Delete a team's sub-allocation row for a given cadence (org admin only)
+ * Query: ?budgetInterval=daily|weekly|monthly
+ */
+router.delete('/budget/org/:orgId/team/:teamId', appGuard, async (req: Request, res: Response) => {
+  try {
+    const orgId = String(req.params['orgId'] ?? '').trim();
+    const teamId = String(req.params['teamId'] ?? '').trim();
+    if (!orgId || orgId.length > 128 || !teamId || teamId.length > 128) {
+      return res.status(400).json({ error: 'Invalid organization or team ID' });
+    }
+
+    const normalizedInterval = getNormalizedBudgetIntervalQuery(req.query['budgetInterval']);
+    if (!normalizedInterval) {
+      return res.status(400).json({
+        error: 'Budget interval must be one of: daily, weekly, monthly',
+      });
+    }
+
+    const db = req.firebase?.db;
+    if (!db) throw new Error('Firebase context not available');
+
+    const userId = req.user!.uid;
+    const orgDoc = await db.collection('Organizations').doc(orgId).get();
+    const orgData = orgDoc.data();
+
+    if (!orgData) {
+      return res.status(404).json({ error: 'Organization not found' });
+    }
+
+    const admins = (orgData['admins'] as Array<{ userId: string }>) ?? [];
+    const adminIds = admins.map((a) => a.userId).filter(Boolean);
+    const ownerId = orgData['ownerId'] as string | undefined;
+
+    if (!adminIds.includes(userId) && ownerId !== userId) {
+      return res
+        .status(403)
+        .json({ error: 'Only organization admins can delete team allocations' });
+    }
+
+    const teamDoc = await db.collection('Teams').doc(teamId).get();
+    const teamData = teamDoc.data();
+    if (!teamData || teamData['organizationId'] !== orgId) {
+      return res.status(400).json({ error: 'Team does not belong to this organization' });
+    }
+
+    await deleteTeamAllocation(db, teamId, orgId, normalizedInterval);
+
+    return res.json({
+      success: true,
+      teamId,
+      organizationId: orgId,
+      budgetInterval: normalizedInterval,
+    });
+  } catch (error) {
+    logger.error('[DELETE /budget/org/:orgId/team/:teamId] Failed to delete team allocation', {
+      error,
+    });
+    return res.status(500).json({
+      error: 'Failed to delete team allocation',
+      message: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
 
 /**
  * GET /api/v1/billing/budget/org/:orgId/allocations
@@ -823,7 +994,7 @@ router.post('/cron/send-monthly-invoices', cronGuard, async (req: Request, res: 
     if (!db) return res.status(500).json({ error: 'Firebase context unavailable' });
 
     // Resolve who actually pays (director → org, individual → individual)
-    const billingCtx = await getBillingContext(db, userId);
+    const billingCtx = await getBillingState(db, userId);
     if (!billingCtx) {
       return res.status(404).json({ error: `No billing context for user ${userId}` });
     }

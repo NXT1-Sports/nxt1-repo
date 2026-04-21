@@ -9,3 +9,4 @@ export { UsageBreakdownTableComponent } from './usage-breakdown-table.component'
 export { UsagePaymentHistoryComponent } from './usage-payment-history.component';
 export { UsagePaymentInfoComponent } from './usage-payment-info.component';
 export { UsageBudgetsComponent } from './usage-budgets.component';
+export { UsageAutoTopupComponent } from './usage-auto-topup.component';

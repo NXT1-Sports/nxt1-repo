@@ -1,9 +1,9 @@
 /**
- * @fileoverview Write Athlete Videos Tool — Atomic writer for highlight/profile videos
+ * @fileoverview Write Athlete Videos Tool — Atomic writer for athlete video posts
  * @module @nxt1/backend/modules/agent/tools/database
  *
- * Writes distilled video links (Hudl highlights, YouTube, Vimeo, etc.) to the
- * top-level `Posts` collection with `type: 'highlight'`.
+ * Writes distilled video links (Hudl, YouTube, Vimeo, etc.) to the
+ * top-level `Posts` collection with `type: 'video'`.
  *
  * Each document follows the Posts schema: userId, type, visibility, sportId,
  * url, mediaUrl, thumbnailUrl, platform, stats, organizationId, teamId, etc.
@@ -21,11 +21,13 @@ import {
   resolveAuthorizedTargetSportSelection,
 } from '../../../../services/profile-write-access.service.js';
 import { CACHE_KEYS as USER_CACHE_KEYS } from '../../../../services/users.service.js';
-import { invalidateProfileCaches } from '../../../../routes/profile.routes.js';
+import { invalidateProfileCaches } from '../../../../routes/profile/shared.js';
 import { SyncDiffService, type PreviousVideoEntry } from '../../sync/index.js';
+import { getAnalyticsLoggerService } from '../../../../services/analytics-logger.service.js';
 import { onDailySyncComplete } from '../../triggers/trigger.listeners.js';
 import { logger } from '../../../../utils/logger.js';
 import { normalizeVideoUrl } from './dedup-utils.js';
+import { resolveCreatedAt } from './doc-date-utils.js';
 import { PostVisibility } from '@nxt1/core';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
@@ -41,8 +43,8 @@ export class WriteAthleteVideosTool extends BaseTool {
   readonly name = 'write_athlete_videos';
 
   readonly description =
-    'Writes athlete highlight and profile videos (Hudl, YouTube, Vimeo, etc.) to the Posts collection ' +
-    'as highlight posts.\n\n' +
+    'Writes athlete videos (Hudl, YouTube, Vimeo, etc.) to the Posts collection ' +
+    'as video posts.\n\n' +
     'Call this after reading the "videos" section via read_distilled_section.\n\n' +
     'Parameters:\n' +
     '- userId (required): Firebase UID.\n' +
@@ -86,7 +88,11 @@ export class WriteAthleteVideosTool extends BaseTool {
     required: ['userId', 'targetSport', 'source', 'videos'],
   } as const;
 
-  override readonly allowedAgents = ['data_coordinator', 'performance_coordinator'] as const;
+  override readonly allowedAgents = [
+    'data_coordinator',
+    'performance_coordinator',
+    'general',
+  ] as const;
   readonly isMutation = true;
   readonly category = 'database' as const;
 
@@ -143,11 +149,11 @@ export class WriteAthleteVideosTool extends BaseTool {
 
       context?.onProgress?.('Checking for duplicate videos…');
 
-      // Fetch existing highlight posts for dedup
+      // Fetch existing video posts for dedup
       const existingSnap = await this.db
         .collection(POSTS_COLLECTION)
         .where('userId', '==', userId)
-        .where('type', '==', 'highlight')
+        .where('type', '==', 'video')
         .where('sportId', '==', sportId)
         .get();
 
@@ -241,17 +247,17 @@ export class WriteAthleteVideosTool extends BaseTool {
           url: trimmedSrc, // VideoDoc canonical field
           mediaUrl: trimmedSrc, // Frontend mapTimelineDoc reads this
           src: trimmedSrc, // Legacy/internal reference
-          type: 'highlight', // PostType — scraped videos are highlights
-          visibility: PostVisibility.PUBLIC, // Scraped highlights are public
+          type: 'video', // PostType
+          visibility: PostVisibility.PUBLIC, // Video posts are public
           platform: provider, // hudl, youtube, etc.
           provider, // Legacy/internal reference
           source, // Scrape source slug
           isPublic: true, // Backwards compat
           tags: [], // Empty by default
-          stats: { views: 0, likes: 0, shares: 0, comments: 0 },
+          stats: { views: 0, likes: 0, shares: 0 },
           // Data lineage
           extractedAt: now,
-          createdAt: now,
+          createdAt: resolveCreatedAt(undefined, undefined, now),
           updatedAt: now,
         };
         if (sourceUrl) record['sourceUrl'] = sourceUrl;
@@ -351,6 +357,28 @@ export class WriteAthleteVideosTool extends BaseTool {
             error: err instanceof Error ? err.message : String(err),
           });
         }
+      }
+
+      if (written > 0) {
+        await getAnalyticsLoggerService().safeTrack({
+          subjectId: userId,
+          subjectType: 'user',
+          domain: 'system',
+          eventType: 'tool_write_completed',
+          source: accessGrant.isSelfWrite ? 'user' : 'agent',
+          actorUserId: context.userId,
+          value: written,
+          tags: ['videos', sportId, source],
+          payload: {
+            toolName: this.name,
+            sportId,
+            videosWritten: written,
+            videosSkipped: skipped,
+          },
+          metadata: {
+            initiatedBy: 'write-athlete-videos',
+          },
+        });
       }
 
       return {

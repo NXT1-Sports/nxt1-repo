@@ -44,6 +44,7 @@ interface PushData {
   readonly imageUrl?: string;
   readonly title?: string;
   readonly body?: string;
+  readonly origin?: string;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -178,6 +179,7 @@ export class PushHandlerService {
         content: body,
         imageUrl: data.imageUrl,
         source: 'foreground_push',
+        origin: data.origin,
       });
 
       this.queuePendingThreadFromDeepLink(data.deepLink, {
@@ -257,6 +259,7 @@ export class PushHandlerService {
         content: body,
         imageUrl: data.imageUrl,
         source: 'background_push',
+        origin: data.origin,
       });
 
       this.queuePendingThreadFromDeepLink(data.deepLink, {
@@ -324,6 +327,7 @@ export class PushHandlerService {
       imageUrl: typeof raw['imageUrl'] === 'string' ? raw['imageUrl'] : undefined,
       title: typeof raw['title'] === 'string' ? raw['title'] : undefined,
       body: typeof raw['body'] === 'string' ? raw['body'] : undefined,
+      origin: typeof raw['origin'] === 'string' ? raw['origin'] : undefined,
     };
   }
 
@@ -376,16 +380,27 @@ export class PushHandlerService {
    * Reusable for any agent notification — welcome, generated graphics,
    * scout reports, or any future media the agent produces.
    */
-  private injectAgentMessage(opts: { content: string; imageUrl?: string; source: string }): void {
+  private injectAgentMessage(opts: {
+    content: string;
+    imageUrl?: string;
+    source: string;
+    origin?: string;
+  }): void {
     this.agentX.pushMessage({
       role: 'assistant',
       content: opts.content,
       ...(opts.imageUrl ? { imageUrl: opts.imageUrl } : {}),
     });
 
-    this.analytics?.trackEvent(APP_EVENTS.AGENT_MEDIA_VIEWED, {
-      source: opts.source,
-      hasImage: !!opts.imageUrl,
-    });
+    if (opts.origin === 'registration') {
+      this.analytics?.trackEvent(APP_EVENTS.WELCOME_GRAPHIC_GENERATED, {
+        source: opts.source,
+      });
+    } else {
+      this.analytics?.trackEvent(APP_EVENTS.AGENT_MEDIA_VIEWED, {
+        source: opts.source,
+        hasImage: !!opts.imageUrl,
+      });
+    }
   }
 }

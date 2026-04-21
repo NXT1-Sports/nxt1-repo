@@ -9,7 +9,7 @@
 
 import { getStorage } from 'firebase-admin/storage';
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
-import type { RunwayMcpBridgeService } from '../integrations/runway-mcp-bridge.service.js';
+import type { RunwayMcpBridgeService } from '../integrations/runway/runway-mcp-bridge.service.js';
 
 export class RunwayCheckTaskTool extends BaseTool {
   readonly name = 'runway_check_task';
@@ -83,14 +83,11 @@ export class RunwayCheckTaskTool extends BaseTool {
           const extension = contentType.includes('image') ? 'png' : 'mp4';
           const timestamp = Date.now();
 
-          // Thread-scoped storage path with fallback
-          if (context?.userId && context?.threadId) {
-            storagePath = `users/${context.userId}/threads/${context.threadId}/media/${timestamp}-runway-${taskId}.${extension}`;
-          } else if (context?.userId) {
-            storagePath = `users/${context.userId}/media/${timestamp}-runway-${taskId}.${extension}`;
-          } else {
-            storagePath = `agent/media/${timestamp}-runway-${taskId}.${extension}`;
+          // Thread-scoped storage path — requires both userId and threadId
+          if (!context?.userId || !context?.threadId) {
+            throw new Error('Runway output cannot be saved — no userId/threadId in context');
           }
+          storagePath = `Users/${context.userId}/threads/${context.threadId}/media/${timestamp}-runway-${taskId}.${extension}`;
 
           const bucket = getStorage().bucket();
           const file = bucket.file(storagePath);

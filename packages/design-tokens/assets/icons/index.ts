@@ -493,6 +493,21 @@ export const UI_ICONS = {
   },
 
   /** Bell/Notification icon (outline) */
+  /** Hand-left icon — raised open palm, used for "awaiting input" state */
+  handLeft: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [
+      // Palm / base of hand
+      { d: 'M18 11V8a2 2 0 0 0-4 0v3' },
+      { d: 'M14 7V5a2 2 0 0 0-4 0v6' },
+      {
+        d: 'M10 6V4a2 2 0 0 0-4 0v8l-1.5-2.5a1.5 1.5 0 0 0-2.5 1.5l4 8A6 6 0 0 0 12 22h2a6 6 0 0 0 6-6v-5a2 2 0 0 0-4 0',
+      },
+    ],
+  },
+
   bell: {
     viewBox: '0 0 24 24',
     type: 'stroke' as const,
@@ -1361,6 +1376,19 @@ export const UI_ICONS = {
     ],
   },
 
+  /** Pulse news icon - custom NXT1 token for local and state sports updates */
+  pulseNews: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [
+      { d: 'M19 6H6a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7a1 1 0 0 0-1-1z' },
+      { d: 'M8 10h4' },
+      { d: 'M8 14h2.5l1.4-2 1.8 4 1.2-2H18' },
+      { d: 'M16.8 3.8l.5 1.1 1.1.5-1.1.5-.5 1.1-.5-1.1-1.1-.5 1.1-.5.5-1.1z' },
+    ],
+  },
+
   /** Repeat/Repost icon - for repost/loop actions */
   repeat: {
     viewBox: '0 0 24 24',
@@ -1666,6 +1694,20 @@ export const UI_ICONS = {
     type: 'stroke' as const,
     strokeWidth: 2,
     paths: [{ d: 'M9 18l6-6-6-6' }],
+  },
+
+  /** Agent X brand mark — official NXT1 Agent X logo (viewBox matches source SVG) */
+  agentX: {
+    viewBox: '0 0 612 792',
+    type: 'fill' as const,
+    paths: [
+      {
+        d: 'M505.93,251.93c5.52-5.52,1.61-14.96-6.2-14.96h-94.96c-2.32,0-4.55.92-6.2,2.57l-67.22,67.22c-4.2,4.2-11.28,3.09-13.99-2.2l-32.23-62.85c-1.49-2.91-4.49-4.75-7.76-4.76l-83.93-.34c-6.58-.03-10.84,6.94-7.82,12.78l66.24,128.23c1.75,3.39,1.11,7.52-1.59,10.22l-137.13,137.13c-11.58,11.58-3.36,31.38,13.02,31.35l71.89-.13c2.32,0,4.54-.93,6.18-2.57l82.89-82.89c4.19-4.19,11.26-3.1,13.98,2.17l40.68,78.74c1.5,2.91,4.51,4.74,7.78,4.74h82.61c6.55,0,10.79-6.93,7.8-12.76l-73.61-143.55c-1.74-3.38-1.09-7.5,1.6-10.19l137.98-137.98ZM346.75,396.42l69.48,134.68c1.77,3.43-.72,7.51-4.58,7.51h-51.85c-2.61,0-5.01-1.45-6.23-3.76l-48.11-91.22c-2.21-4.19-7.85-5.05-11.21-1.7l-94.71,94.62c-1.32,1.32-3.11,2.06-4.98,2.06h-62.66c-4.1,0-6.15-4.96-3.25-7.85l137.28-137.14c5.12-5.12,6.31-12.98,2.93-19.38l-61.51-116.63c-1.48-2.8.55-6.17,3.72-6.17h56.6c2.64,0,5.05,1.47,6.26,3.81l39.96,77.46c2.19,4.24,7.86,5.12,11.24,1.75l81.05-80.97c1.32-1.32,3.11-2.06,4.98-2.06h63.61c3.75,0,5.63,4.54,2.97,7.19l-129.7,129.58c-2.17,2.17-2.69,5.49-1.28,8.21Z',
+      },
+      {
+        d: 'M390.96,303.68 L268.3,411.05 L283.72,409.62 L205.66,489.34 L336.63,377.83 L321.21,379.73 Z',
+      },
+    ],
   },
 } as const;
 
@@ -1973,6 +2015,8 @@ export const ALIAS_ICONS = {
   // ---- Alert / Status ----
   'alert-circle-outline': UI_ICONS.alertCircle,
   'checkmark-circle-outline': UI_ICONS.checkmarkCircle,
+  /** Awaiting input — raised palm / stop hand */
+  'hand-left': UI_ICONS.handLeft,
 
   // ---- Navigation / Arrows ----
   'arrow-back-outline': UI_ICONS.chevronLeft,
@@ -2025,6 +2069,8 @@ export const ALIAS_ICONS = {
 
   // ---- Sports / Themes ----
   'sparkles-outline': UI_ICONS.sparkles,
+  'pulse-news': UI_ICONS.pulseNews,
+  'pulse-news-outline': UI_ICONS.pulseNews,
   'football-outline': UI_ICONS.football,
   'barbell-outline': UI_ICONS.barbell,
   'hardware-chip-outline': UI_ICONS.hardwareChip,
@@ -2072,6 +2118,8 @@ export const ALIAS_ICONS = {
   sports: ROLE_ICONS.athlete,
   /** People icon → users UI icon (for avatar badges) */
   people: UI_ICONS.users,
+  /** Pulse icon semantic alias */
+  pulse: UI_ICONS.pulseNews,
   /** Analytics icon → barChart UI icon */
   analytics: UI_ICONS.barChart,
   /** Flash icon → bolt UI icon */
@@ -2087,6 +2135,14 @@ export const ALIAS_ICONS = {
   'clipboard-outline': UI_ICONS.clipboard,
   'notifications-outline': UI_ICONS.notifications,
   'chevron-forward-outline': UI_ICONS.chevronForward,
+
+  // ---- Help Center Category Icons ----
+  /** Agent X brand mark — for Help Center Agent X & AI category */
+  'agent-x': UI_ICONS.agentX,
+  /** Settings outline alias */
+  'settings-outline': UI_ICONS.settings,
+  /** Construct/wrench alias — maps to settings icon */
+  'construct-outline': UI_ICONS.settings,
 } as const;
 
 // ============================================

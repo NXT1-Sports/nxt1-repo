@@ -11,11 +11,14 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { appGuard } from '../middleware/auth.middleware.js';
 import { asyncHandler, sendError } from '@nxt1/core/errors/express';
 import { notFoundError, validationError } from '@nxt1/core/errors';
+import { NOTIFICATION_TYPES } from '@nxt1/core';
 import { getCacheService } from '../services/cache.service.js';
+import { RosterEntryService } from '../services/roster-entry.service.js';
+import { dispatch } from '../services/notification.service.js';
 import { logger } from '../utils/logger.js';
 import type { UserPreferences, NotificationPreferences } from '@nxt1/core';
 import { auth as prodAuth } from '../utils/firebase.js';
-import { invalidateProfileCaches } from './profile.routes.js';
+import { invalidateProfileCaches } from './profile/shared.js';
 
 const router: ExpressRouter = Router();
 
@@ -322,6 +325,32 @@ router.post(
 );
 
 /**
+ * Record a completed password change.
+ * POST /api/v1/settings/password-changed
+ */
+router.post(
+  '/password-changed',
+  appGuard,
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const userId = req.user!.uid;
+    const db = req.firebase!.db;
+
+    await dispatch(db, {
+      userId,
+      type: NOTIFICATION_TYPES.PASSWORD_CHANGED,
+      title: 'Password Changed',
+      body: "Your password was updated. If this wasn't you, contact support immediately.",
+      deepLink: '/settings/account-information',
+      priority: 'high',
+      source: { userName: 'NXT1 Security' },
+    });
+
+    logger.info('[Settings] Password change recorded', { userId });
+    res.json({ success: true });
+  })
+);
+
+/**
  * Delete account
  * DELETE /api/v1/settings/account
  *
@@ -373,6 +402,42 @@ router.delete(
       // The bulk of user record cleanup (Teams, Organizations, Analytics, Following,
       // RosterEntries, and Storage bucket cleanup) is managed fully by the robust
       // `onUserDeletedV3` Cloud Function trigger to guarantee atomicity.
+
+      // ── Synchronous RosterEntry cleanup (safety net) ──
+      // The Cloud Function handles this too, but we do it here eagerly so that
+      // the team roster is updated immediately, even in envs where functions aren't
+      // running (local dev, CI). Non-blocking — failure does not abort account deletion.
+      try {
+        const rosterService = new RosterEntryService(db);
+        const userEntries = await rosterService.getUserTeams({ userId, includeInactive: false });
+
+        if (userEntries.length > 0) {
+          // Batch-delete all active/pending RosterEntries
+          const MAX_BATCH = 500;
+          let batch = db.batch();
+          let ops = 0;
+          for (const entry of userEntries) {
+            if (!entry.id) continue;
+            if (ops >= MAX_BATCH) {
+              await batch.commit();
+              batch = db.batch();
+              ops = 0;
+            }
+            batch.delete(db.collection('RosterEntries').doc(entry.id));
+            ops++;
+          }
+          if (ops > 0) await batch.commit();
+          logger.info('[Settings] RosterEntries removed for deleted user', {
+            userId,
+            count: userEntries.length,
+          });
+        }
+      } catch (rosterErr) {
+        logger.warn('[Settings] Could not remove RosterEntries (non-blocking)', {
+          userId,
+          error: rosterErr instanceof Error ? rosterErr.message : String(rosterErr),
+        });
+      }
 
       await userRef.delete();
       logger.debug('[Settings] Primary user document deleted', {

@@ -36,7 +36,7 @@ export class SocialCaptionStyleSkill extends BaseSkill {
 - NIL: #NIL #PersonalBrand #AthleteLife
 
 ### Platform-Specific Rules
-- **Instagram**: 2,200 char max. Hashtags in first comment or after line breaks.
+- **Instagram**: 2,200 char max. Hashtags after line breaks.
 - **Twitter/X**: 280 chars. No hashtag blocks — weave 1–2 naturally.
 - **TikTok**: Short overlay text. Caption under 150 chars. Trending sounds referenced.
 

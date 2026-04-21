@@ -16,7 +16,7 @@ import { UsageFeature, UsageEventStatus } from '../types/index.js';
 
 // Mock config to avoid env-var dependency for Stripe price IDs
 vi.mock('../config.js', () => ({
-  COLLECTIONS: { USAGE_EVENTS: 'usageEvents' },
+  COLLECTIONS: { USAGE_EVENTS: 'UsageEvents' },
   getStripePriceId: vi.fn().mockReturnValue('price_test123'),
   getUnitCost: vi.fn().mockReturnValue(0.5),
 }));
@@ -131,7 +131,7 @@ describe('Usage Service', () => {
       const eventId = await recordUsageEvent(mockDb, input, 'production');
 
       expect(eventId).toBe('test-event-id');
-      expect(mockDb.collection).toHaveBeenCalledWith('usageEvents');
+      expect(mockDb.collection).toHaveBeenCalledWith('UsageEvents');
     });
 
     it('should not create duplicate event with same idempotency key', async () => {

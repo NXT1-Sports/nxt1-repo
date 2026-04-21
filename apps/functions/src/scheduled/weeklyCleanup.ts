@@ -31,7 +31,7 @@ export const weeklyCleanup = onSchedule(
 
       // Delete processed notifications older than 90 days
       const oldNotifications = await db
-        .collection('notifications')
+        .collection('Notifications')
         .where('createdAt', '<', ninetyDaysAgo)
         .limit(500)
         .get();

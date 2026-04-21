@@ -239,10 +239,6 @@ export class UpdateProfileDto {
   @Length(0, 500, { message: 'About me cannot exceed 500 characters' })
   aboutMe?: string;
 
-  @IsUrl({}, { message: 'Invalid banner image URL' })
-  @IsOptional()
-  bannerImg?: string;
-
   @IsArray()
   @IsOptional()
   @ArrayMaxSize(10, { message: 'Maximum 10 profile images allowed' })

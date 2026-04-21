@@ -31,6 +31,7 @@ import type {
   AgentQueueJobResult,
   AgentJobProgress,
   AgentJobStatusResponse,
+  ThreadSummarizationQueueJobData,
 } from './queue.types.js';
 import {
   AGENT_QUEUE_NAME,
@@ -39,6 +40,8 @@ import {
   RETRY_BACKOFF_MS,
   COMPLETED_JOB_TTL_S,
   FAILED_JOB_TTL_S,
+  THREAD_SUMMARIZATION_DELAY_MS,
+  THREAD_SUMMARIZATION_JOB_NAME,
 } from './queue.types.js';
 
 // ─── Service ────────────────────────────────────────────────────────────────
@@ -46,8 +49,13 @@ import {
 export class AgentQueueService {
   private readonly queue: Queue<AgentQueueJobData, AgentQueueJobResult>;
   private readonly redisUrl: string;
+  private readonly jobRetryOverrides?: { maxAttempts?: number; retryBackoffMs?: number };
 
-  constructor(redisUrl?: string) {
+  constructor(
+    redisUrl?: string,
+    jobRetryOverrides?: { maxAttempts?: number; retryBackoffMs?: number }
+  ) {
+    this.jobRetryOverrides = jobRetryOverrides;
     this.redisUrl = redisUrl ?? process.env['REDIS_URL'] ?? 'redis://localhost:6379';
 
     // Parse URL into RedisOptions for BullMQ compatibility (includes auth)
@@ -73,6 +81,7 @@ export class AgentQueueService {
     environment: 'staging' | 'production' = 'production'
   ): Promise<string> {
     const jobData: AgentQueueJobData = {
+      kind: 'agent',
       payload,
       enqueuedAt: new Date().toISOString(),
       environment,
@@ -83,6 +92,46 @@ export class AgentQueueService {
     });
 
     return job.id ?? payload.operationId;
+  }
+
+  /**
+   * Schedule summarization for an idle conversation thread.
+   * Re-adding the same thread removes the prior delayed job first so the timer
+   * always reflects the latest message activity.
+   */
+  async enqueueThreadSummarization(
+    threadId: string,
+    userId: string,
+    delayMs: number = THREAD_SUMMARIZATION_DELAY_MS,
+    environment: 'staging' | 'production' = 'production'
+  ): Promise<string> {
+    const jobId = `summarize:${threadId}`;
+    const existingJob = await this.queue.getJob(jobId);
+
+    if (existingJob) {
+      const state = await existingJob.getState();
+      if (state !== 'active') {
+        await existingJob.remove().catch(() => undefined);
+      } else {
+        return jobId;
+      }
+    }
+
+    const jobData: ThreadSummarizationQueueJobData = {
+      kind: 'thread_summarization',
+      threadId,
+      userId,
+      delayMs,
+      enqueuedAt: new Date().toISOString(),
+      environment,
+    };
+
+    const job = await this.queue.add(THREAD_SUMMARIZATION_JOB_NAME, jobData, {
+      jobId,
+      delay: delayMs,
+    });
+
+    return job.id ?? jobId;
   }
 
   /**
@@ -100,7 +149,7 @@ export class AgentQueueService {
 
     return {
       jobId,
-      userId: (job.data as AgentQueueJobData).payload.userId,
+      userId: this.extractUserId(job.data as AgentQueueJobData),
       status: this.mapBullStateToOperationStatus(state, progress),
       progress,
       result: returnValue,
@@ -186,6 +235,7 @@ export class AgentQueueService {
     environment: 'staging' | 'production' = 'production'
   ): Promise<string> {
     const jobData: AgentQueueJobData = {
+      kind: 'agent',
       payload,
       enqueuedAt: new Date().toISOString(),
       environment,
@@ -256,11 +306,18 @@ export class AgentQueueService {
 
   private defaultJobOptions(): JobsOptions {
     return {
-      attempts: MAX_JOB_ATTEMPTS,
-      backoff: { type: 'exponential', delay: RETRY_BACKOFF_MS },
+      attempts: this.jobRetryOverrides?.maxAttempts ?? MAX_JOB_ATTEMPTS,
+      backoff: {
+        type: 'exponential',
+        delay: this.jobRetryOverrides?.retryBackoffMs ?? RETRY_BACKOFF_MS,
+      },
       removeOnComplete: { age: COMPLETED_JOB_TTL_S },
       removeOnFail: { age: FAILED_JOB_TTL_S },
     };
+  }
+
+  private extractUserId(jobData: AgentQueueJobData): string {
+    return jobData.kind === 'agent' ? jobData.payload.userId : jobData.userId;
   }
 
   /**

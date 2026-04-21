@@ -98,12 +98,6 @@ const ICON_PATHS = {
               </svg>
               {{ formatViews(video.views) }}
             </span>
-            <span class="meta-item">
-              <svg class="meta-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                <path [attr.d]="iconPaths.heart" />
-              </svg>
-              {{ formatViews(video.likes) }}
-            </span>
           </div>
         </div>
       }

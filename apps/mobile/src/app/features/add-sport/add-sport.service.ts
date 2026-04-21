@@ -2,15 +2,15 @@
  * @fileoverview AddSportService - State Management for the Add Sport Wizard
  * @module @nxt1/mobile/features/add-sport
  *
- * Lightweight 2-step wizard that lets users add a new sport to their profile
+ * Lightweight 3-step wizard that lets users add a new sport to their profile
  * after initial onboarding:
  *
  *   Step 1 – Sport selection  (/add-sport/sport)
- *   Step 2 – Connected accounts (/add-sport/link-sources)
+ *   Step 2 – Organization/program selection (/add-sport/organization)
+ *   Step 3 – Connected accounts (/add-sport/link-sources)
  *
  * Saves via:
- *   - ProfileApiService.addSport()            → adds the sport entry
- *   - ProfileApiService.updateProfile()       → merges connected sources
+ *   - ProfileApiService.addSport()            → adds the sport entry and persists connectedSources
  *   - ProfileService.refresh()                → refreshes user data in-app
  */
 
@@ -25,26 +25,30 @@ import {
   NxtBreadcrumbService,
   ANALYTICS_ADAPTER,
   type AnimationDirection,
+  type TeamSearchResult,
 } from '@nxt1/ui';
+import { PerformanceService } from '../../core/services/infrastructure/performance.service';
 
-import type { SportFormData, LinkSourcesFormData } from '@nxt1/core/api';
-
-import type { ConnectedSource } from '@nxt1/core/models';
+import type { SportFormData, LinkSourcesFormData, TeamSelectionFormData } from '@nxt1/core/api';
 
 import { DEFAULT_SPORTS, isTeamRole, type SportCell } from '@nxt1/core/constants';
 import type { OnboardingUserType } from '@nxt1/core';
+import { TRACE_NAMES, ATTRIBUTE_NAMES } from '@nxt1/core/performance';
 import { APP_EVENTS } from '@nxt1/core/analytics';
-import { mapToConnectedSources, mergeConnectedSources } from '@nxt1/core/profile';
+import { mapToConnectedSources } from '@nxt1/core/profile';
+import { validateTeamSelection } from '@nxt1/core/api';
 
 import { AuthFlowService } from '../../core/services/auth/auth-flow.service';
 import { ProfileApiService } from '../../core/services/api/profile-api.service';
 import { ProfileService } from '../../core/services/state/profile.service';
+import { CapacitorHttpAdapter } from '../../core/infrastructure';
+import { environment } from '../../../environments/environment';
 
 // ============================================
 // TYPES
 // ============================================
 
-type AddSportStep = 'sport' | 'link-sources';
+type AddSportStep = 'sport' | 'organization' | 'link-sources';
 
 interface QuickAddLinkTarget {
   quickAddLink(
@@ -54,7 +58,7 @@ interface QuickAddLinkTarget {
   >;
 }
 
-const STEPS: AddSportStep[] = ['sport', 'link-sources'];
+const STEPS: AddSportStep[] = ['sport', 'organization', 'link-sources'];
 
 function normalizeSportName(value: unknown): string {
   return typeof value === 'string' ? value.trim().toLowerCase() : '';
@@ -71,11 +75,13 @@ export class AddSportService {
   private readonly authFlow = inject(AuthFlowService);
   private readonly profileApi = inject(ProfileApiService);
   private readonly profileService = inject(ProfileService);
+  private readonly http = inject(CapacitorHttpAdapter);
   private readonly haptics = inject(HapticsService);
   private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('AddSport');
   private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
   private readonly breadcrumb = inject(NxtBreadcrumbService);
+  private readonly performance = inject(PerformanceService);
 
   // ============================================
   // WRITABLE SIGNALS
@@ -83,6 +89,7 @@ export class AddSportService {
 
   private readonly _currentStepIndex = signal(0);
   private readonly _sportFormData = signal<SportFormData | null>(null);
+  private readonly _teamSelectionFormData = signal<TeamSelectionFormData | null>(null);
   private readonly _linkSourcesFormData = signal<LinkSourcesFormData | null>(null);
   private readonly _isLoading = signal(false);
   private readonly _contentReady = signal(false);
@@ -101,6 +108,7 @@ export class AddSportService {
 
   readonly currentStepIndex = computed(() => this._currentStepIndex());
   readonly sportFormData = computed(() => this._sportFormData());
+  readonly teamSelectionFormData = computed(() => this._teamSelectionFormData());
   readonly linkSourcesFormData = computed(() => this._linkSourcesFormData());
   readonly isLoading = computed(() => this._isLoading());
   readonly contentReady = computed(() => this._contentReady());
@@ -116,6 +124,8 @@ export class AddSportService {
   readonly canGoBack = computed(() => this._currentStepIndex() > 0);
 
   readonly isLinkSourcesStep = computed(() => this.currentStep() === 'link-sources');
+
+  readonly isOrganizationStep = computed(() => this.currentStep() === 'organization');
 
   readonly canSubmitQuickLink = computed(
     () => this._quickAddLinkValue().trim().length > 0 && !this._isLoading()
@@ -159,8 +169,13 @@ export class AddSportService {
     return (data?.sports?.length ?? 0) > 0 && !!data?.sports?.[0]?.sport?.trim();
   });
 
+  readonly isOrganizationStepValid = computed(() =>
+    validateTeamSelection(this._teamSelectionFormData() ?? undefined)
+  );
+
   readonly isCurrentStepValid = computed(() => {
     if (this.currentStep() === 'sport') return this.isSportStepValid();
+    if (this.currentStep() === 'organization') return this.isOrganizationStepValid();
     // link-sources is always skippable
     return true;
   });
@@ -192,6 +207,7 @@ export class AddSportService {
   initialize(): void {
     this._currentStepIndex.set(0);
     this._sportFormData.set(null);
+    this._teamSelectionFormData.set(null);
     this._linkSourcesFormData.set(null);
     this._isLoading.set(false);
     this._contentReady.set(false);
@@ -226,9 +242,64 @@ export class AddSportService {
     this._sportFormData.set(data);
   }
 
+  onTeamSelectionChange(data: TeamSelectionFormData): void {
+    this._teamSelectionFormData.set(data);
+  }
+
   onLinkSourcesChange(data: LinkSourcesFormData): void {
     this._linkSourcesFormData.set(data);
   }
+
+  onCreateProgram(): void {
+    this.logger.info('Create program requested from add-sport');
+  }
+
+  onJoinProgram(): void {
+    this.logger.info('Join program requested from add-sport');
+  }
+
+  readonly searchTeamsFn = async (query: string): Promise<readonly TeamSearchResult[]> => {
+    this.logger.debug('Program search requested', { query });
+    try {
+      const url = `${environment.apiUrl}/programs/search`;
+      const response = await this.http.get<{
+        success: boolean;
+        data: Array<{
+          id: string;
+          name: string;
+          type: string;
+          location?: { state?: string; city?: string };
+          logoUrl?: string;
+          primaryColor?: string;
+          secondaryColor?: string;
+          mascot?: string;
+          teamCount?: number;
+          isClaimed?: boolean;
+        }>;
+      }>(url, { params: { q: query, limit: 20 } });
+
+      if (!response.success || !response.data) return [];
+
+      return response.data.map((org) => ({
+        id: org.id,
+        name: org.name,
+        sport: '',
+        teamType: org.type,
+        location:
+          org.location?.city && org.location?.state
+            ? `${org.location.city}, ${org.location.state}`
+            : (org.location?.state ?? ''),
+        logoUrl: org.logoUrl ?? undefined,
+        colors: [org.primaryColor, org.secondaryColor].filter(Boolean) as string[],
+        memberCount: org.teamCount ?? 0,
+        isSchool: org.type === 'high-school' || org.type === 'middle-school',
+        organizationId: org.id,
+      }));
+    } catch (err) {
+      this.logger.error('Program search failed', err, { query });
+      return [];
+    }
+  };
 
   // ============================================
   // QUICK-ADD LINK
@@ -264,8 +335,21 @@ export class AddSportService {
         this.toast.error(`You already have this ${label}. Please choose a different one.`);
         return;
       }
-      // Advance to link-sources step
+      // Advance to organization step
       this._currentStepIndex.set(1);
+      this._contentReady.set(false);
+      this._footerVisible.set(false);
+      this.breadcrumb.trackStateChange('add-sport:step-changed', { step: 'organization' });
+      this.analytics?.trackEvent(APP_EVENTS.ADD_SPORT_STEP_CHANGED, {
+        step: 'organization',
+        direction: 'forward',
+      });
+      await this.navigateToStep('organization', 'forward');
+      return;
+    }
+
+    if (this.currentStep() === 'organization') {
+      this._currentStepIndex.set(2);
       this._contentReady.set(false);
       this._footerVisible.set(false);
       this.breadcrumb.trackStateChange('add-sport:step-changed', { step: 'link-sources' });
@@ -298,15 +382,18 @@ export class AddSportService {
       return;
     }
 
-    this._currentStepIndex.set(0);
+    const previousStepIndex = this._currentStepIndex() - 1;
+    const previousStep = STEPS[previousStepIndex] ?? 'sport';
+
+    this._currentStepIndex.set(previousStepIndex);
     this._contentReady.set(false);
     this._footerVisible.set(false);
-    this.breadcrumb.trackStateChange('add-sport:step-changed', { step: 'sport' });
+    this.breadcrumb.trackStateChange('add-sport:step-changed', { step: previousStep });
     this.analytics?.trackEvent(APP_EVENTS.ADD_SPORT_STEP_CHANGED, {
-      step: 'sport',
+      step: previousStep,
       direction: 'backward',
     });
-    await this.navigateToStep('sport', 'backward');
+    await this.navigateToStep(previousStep, 'backward');
   }
 
   // ============================================
@@ -341,11 +428,24 @@ export class AddSportService {
     this.breadcrumb.trackStateChange('add-sport:saving', { sport: primarySport.sport });
 
     try {
+      const newSources = mapToConnectedSources(this._linkSourcesFormData()?.links ?? []);
+
       // 1. Add the new sport to the user's profile
-      const sportResponse = await this.profileApi.addSport(uid, {
-        sport: primarySport.sport,
-        positions: primarySport.positions ?? [],
-      });
+      const sportResponse = await this.performance.trace(
+        TRACE_NAMES.PROFILE_SPORT_ADD,
+        () =>
+          this.profileApi.addSport(uid, {
+            sport: primarySport.sport,
+            positions: primarySport.positions ?? [],
+            teamSelection: this._teamSelectionFormData() ?? undefined,
+            connectedSources: newSources,
+          }),
+        {
+          attributes: {
+            [ATTRIBUTE_NAMES.SPORT_TYPE]: primarySport.sport,
+          },
+        }
+      );
 
       if (!sportResponse.success) {
         this.logger.error('Failed to add sport', sportResponse);
@@ -355,28 +455,7 @@ export class AddSportService {
 
       this.logger.info('Sport added', { sport: primarySport.sport });
 
-      // 2. Save connected accounts (link sources) if any were provided
-      const linkSourcesData = this._linkSourcesFormData();
-      const connectedEntries = linkSourcesData?.links ?? [];
-      const newSources = mapToConnectedSources(connectedEntries);
-
-      if (newSources.length > 0) {
-        const existingUser = this.profileService.user();
-        const existingSources: ConnectedSource[] = existingUser?.connectedSources ?? [];
-        const mergedSources = mergeConnectedSources(existingSources, newSources);
-
-        const updateResponse = await this.profileApi.updateProfile(uid, {
-          connectedSources: mergedSources,
-        });
-
-        if (updateResponse.success) {
-          this.logger.info('Connected sources updated', { count: newSources.length });
-        } else {
-          this.logger.warn('Failed to update connected sources', { error: updateResponse.error });
-        }
-      }
-
-      // 3. Refresh user data
+      // 2. Refresh user data
       try {
         await this.profileService.refresh(uid);
       } catch (err) {

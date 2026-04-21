@@ -9,8 +9,10 @@
  */
 
 import { Router, type Request, type Response } from 'express';
+import { getAuth } from 'firebase-admin/auth';
 import { appGuard } from '../middleware/auth.middleware.js';
 import { validateBody } from '../middleware/validation.middleware.js';
+import { InviteEventModel } from '../models/invite-event.model.js';
 import {
   SendInviteDto,
   SendBulkInvitesDto,
@@ -25,29 +27,17 @@ import { logger } from '../utils/logger.js';
 import { INVITE_UI_CONFIG } from '@nxt1/core';
 import type { InviteType, InviteChannel, InviteStatus } from '@nxt1/core';
 import { invalidateTeamProfileCache } from '../services/cache.service.js';
-import { creditReferralReward } from '../modules/billing/index.js';
+import {
+  creditReferralReward,
+  getReferralRewardCents,
+  NEW_USER_MAX_AGE_MINUTES,
+} from '../modules/billing/index.js';
 
 const router = Router();
 
 // ============================================
 // FIRESTORE DOCUMENT TYPES
 // ============================================
-
-interface InviteStatsDoc {
-  userId: string;
-  totalSent: number;
-  accepted: number;
-  pending: number;
-  streakDays: number;
-  bestStreak: number;
-  weeklyCount: number;
-  monthlyCount: number;
-  channelsUsed: string[];
-  qrAccepted: number;
-  lastInviteAt: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
 
 interface UserDoc {
   referralCode?: string;
@@ -89,15 +79,18 @@ interface TeamDoc {
 }
 
 interface InviteDoc {
+  inviteCode?: string;
+  inviterUid?: string;
+  teamCode?: string;
   teamName?: string;
+  sport?: string;
 }
 
 // ============================================
 // CONSTANTS
 // ============================================
 
-const INVITES_COLLECTION = 'Invites';
-const INVITE_STATS_COLLECTION = 'InviteStats';
+const INVITE_LINKS_COLLECTION = 'InviteLinks';
 const USERS_COLLECTION = 'Users';
 const TEAMS_COLLECTION = 'Teams';
 
@@ -135,7 +128,8 @@ function getAppBaseUrl(isStaging: boolean, origin?: string): string {
   }
 
   return isStaging
-    ? (process.env['STAGING_APP_URL'] ?? 'https://staging.nxt1sports.com')
+    ? (process.env['STAGING_APP_URL'] ??
+        'https://nxt1-repo--nxt-1-staging-v2.us-central1.hosted.app')
     : 'https://nxt1sports.com';
 }
 
@@ -150,6 +144,16 @@ function getAppBaseUrl(isStaging: boolean, origin?: string): string {
 function generateReferralCode(): string {
   const raw = crypto.randomUUID().replace(/-/g, '').substring(0, 6).toUpperCase();
   return `NXT-${raw}`;
+}
+
+function getInviteEnvironment(isStaging: boolean): 'staging' | 'production' {
+  return isStaging ? 'staging' : 'production';
+}
+
+function toIsoString(value: Date | string | null | undefined): string | undefined {
+  if (!value) return undefined;
+  if (typeof value === 'string') return value;
+  return value.toISOString();
 }
 
 /**
@@ -168,37 +172,6 @@ async function getOrCreateReferralCode(
   const referralCode = generateReferralCode();
   await db.collection(USERS_COLLECTION).doc(userId).set({ referralCode }, { merge: true });
   return referralCode;
-}
-
-/**
- * Get or initialize invite stats document.
- */
-async function getOrCreateStats(
-  db: FirebaseFirestore.Firestore,
-  userId: string
-): Promise<FirebaseFirestore.DocumentReference> {
-  const ref = db.collection(INVITE_STATS_COLLECTION).doc(userId);
-  const doc = await ref.get();
-
-  if (!doc.exists) {
-    await ref.set({
-      userId,
-      totalSent: 0,
-      accepted: 0,
-      pending: 0,
-      streakDays: 0,
-      bestStreak: 0,
-      weeklyCount: 0,
-      monthlyCount: 0,
-      channelsUsed: [],
-      qrAccepted: 0,
-      lastInviteAt: null,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    });
-  }
-
-  return ref;
 }
 
 // ============================================
@@ -233,6 +206,7 @@ router.post('/link', appGuard, async (req: Request, res: Response) => {
     const referralCode = await getOrCreateReferralCode(db, userId);
     const origin = req.headers['origin'] as string | undefined;
     const baseUrl = getAppBaseUrl(isStaging, origin);
+    const referralRewardCents = await getReferralRewardCents(db);
 
     // When it's a team invite, look up teamCode + teamName to embed in the URL.
     // Priority order:
@@ -284,6 +258,11 @@ router.post('/link', appGuard, async (req: Request, res: Response) => {
               }
             );
             resolvedTeamId = sportTeamId;
+            // teamCode, teamName, sport are already stored on the user's sports entry —
+            // use them directly to avoid an extra Firestore read below.
+            teamCode = activeSport?.['team']?.['teamCode'] ?? undefined;
+            teamName = activeSport?.['team']?.['name'] ?? undefined;
+            teamSport = activeSport?.['sport'] ?? undefined;
           }
         }
 
@@ -314,9 +293,11 @@ router.post('/link', appGuard, async (req: Request, res: Response) => {
       if (resolvedTeamId) {
         const teamDoc = await db.collection(TEAMS_COLLECTION).doc(resolvedTeamId).get();
         const teamData = teamDoc.data() as TeamDoc | undefined;
-        teamCode = teamData?.teamCode ?? undefined;
-        teamName = teamData?.teamName ?? teamData?.name ?? undefined;
-        teamSport = teamData?.sport ?? undefined;
+        // Authoritative values from the Teams doc override any stale user-data copies.
+        // Fall back to what we already read from sports[activeSportIndex].team if missing.
+        teamCode = teamData?.teamCode ?? teamCode;
+        teamName = teamData?.teamName ?? teamData?.name ?? teamName;
+        teamSport = teamData?.sport ?? teamSport;
 
         logger.info('[POST /invite/link] Resolved team', {
           resolvedTeamId,
@@ -331,18 +312,39 @@ router.post('/link', appGuard, async (req: Request, res: Response) => {
     }
 
     // Build the invite URL.
-    // For team invites, use teamCode in path; for others, use user's referralCode.
     const params = new URLSearchParams();
     let pathCode: string;
 
+    // Calculate expiration (used for both team invite doc and response)
+    const expiresAt = new Date(
+      Date.now() + INVITE_UI_CONFIG.linkExpirationDays * 24 * 60 * 60 * 1000
+    ).toISOString();
+    const now = new Date().toISOString();
+
     if (type === 'team' && teamCode) {
-      // Team invite: /join/{teamCode}?type=team&sport={sport}&ref={userId}&teamName={name}
-      pathCode = teamCode;
-      params.set('type', 'team');
-      if (teamSport) params.set('sport', teamSport);
-      // Include inviter UID so join page can pass it to /invite/accept for $5 credit
-      params.set('ref', userId);
-      if (teamName) params.set('teamName', encodeURIComponent(teamName));
+      // Team invite: use the team's own code as the URL token so the link is
+      // stable and human-readable.  URL: /join/NXT-{teamCode}
+      pathCode = `NXT-${teamCode}`;
+
+      // Upsert invite doc keyed by (userId, teamCode) — regenerating the link replaces the old one
+      // Store `code` WITHOUT the NXT- prefix so /validate can match after stripping the prefix.
+      await db
+        .collection(INVITE_LINKS_COLLECTION)
+        .doc(`team-link-${userId}-${teamCode}`)
+        .set(
+          {
+            inviteCode: teamCode,
+            type: 'team',
+            inviterUid: userId,
+            teamCode,
+            teamName: teamName ?? '',
+            sport: teamSport ?? '',
+            expiresAt,
+            createdAt: now,
+            updatedAt: now,
+          },
+          { merge: true }
+        );
     } else {
       // General/profile invite: /join/{referralCode}?type=...
       pathCode = referralCode;
@@ -354,11 +356,6 @@ router.post('/link', appGuard, async (req: Request, res: Response) => {
     const url = `${baseUrl}${path}${query ? `?${query}` : ''}`;
     const shortUrl = url;
 
-    // Calculate expiration
-    const expiresAt = new Date(
-      Date.now() + INVITE_UI_CONFIG.linkExpirationDays * 24 * 60 * 60 * 1000
-    ).toISOString();
-
     logger.info('[POST /invite/link] Generated invite link', {
       userId,
       referralCode,
@@ -368,7 +365,7 @@ router.post('/link', appGuard, async (req: Request, res: Response) => {
 
     return res.json({
       success: true,
-      data: { url, shortUrl, referralCode, expiresAt, teamCode, teamName },
+      data: { url, shortUrl, referralCode, expiresAt, referralRewardCents, teamCode, teamName },
     });
   } catch (error) {
     logger.error('[POST /invite/link] Failed', { error });
@@ -387,6 +384,7 @@ router.post('/send', appGuard, validateBody(SendInviteDto), async (req: Request,
   try {
     const userId = req.user!.uid;
     const db = req.firebase.db;
+    const environment = getInviteEnvironment(req.isStaging);
     const { type, channel, recipients, teamId, message } = req.body as {
       type: InviteType;
       channel: InviteChannel;
@@ -421,19 +419,26 @@ router.post('/send', appGuard, validateBody(SendInviteDto), async (req: Request,
     }
 
     const referralCode = await getOrCreateReferralCode(db, userId);
-    const statsRef = await getOrCreateStats(db, userId);
-    const statsDoc = await statsRef.get();
-    const statsData = statsDoc.data() as InviteStatsDoc;
+    let teamCode: string | null = null;
+    let teamName: string | null = null;
 
-    const now = new Date().toISOString();
-    const batch = db.batch();
+    if (teamId) {
+      const teamDoc = await db.collection(TEAMS_COLLECTION).doc(teamId).get();
+      const teamData = teamDoc.data() as TeamDoc | undefined;
+      teamCode = teamData?.teamCode ?? null;
+      teamName = teamData?.teamName ?? teamData?.name ?? null;
+    }
+
+    const now = new Date();
     const invites: Array<Record<string, unknown>> = [];
+    const inviteDocs: Array<Record<string, unknown>> = [];
 
     for (const recipient of recipients) {
       const inviteId = crypto.randomUUID();
 
       const inviteDoc = {
         id: inviteId,
+        environment,
         type,
         channel,
         status: 'pending' as InviteStatus,
@@ -445,50 +450,25 @@ router.post('/send', appGuard, validateBody(SendInviteDto), async (req: Request,
         },
         senderId: userId,
         teamId: teamId ?? null,
+        teamCode,
+        teamName,
         message: message ?? null,
         referralCode,
         createdAt: now,
         updatedAt: now,
-        expiresAt: new Date(
-          Date.now() + INVITE_UI_CONFIG.linkExpirationDays * 24 * 60 * 60 * 1000
-        ).toISOString(),
+        expiresAt: new Date(Date.now() + INVITE_UI_CONFIG.linkExpirationDays * 24 * 60 * 60 * 1000),
       };
 
-      batch.set(db.collection(INVITES_COLLECTION).doc(inviteId), inviteDoc);
-      invites.push(inviteDoc);
+      inviteDocs.push(inviteDoc);
+      invites.push({
+        ...inviteDoc,
+        createdAt: now.toISOString(),
+        updatedAt: now.toISOString(),
+        expiresAt: toIsoString(inviteDoc.expiresAt as Date),
+      });
     }
 
-    // Update stats atomically
-    const channelsUsed: string[] = [...(statsData.channelsUsed ?? [])];
-    if (!channelsUsed.includes(channel)) channelsUsed.push(channel);
-
-    // Calculate streak
-    const lastInviteAt = statsData.lastInviteAt ? new Date(statsData.lastInviteAt).getTime() : 0;
-    const hoursSinceLast = (Date.now() - lastInviteAt) / (1000 * 60 * 60);
-    let streakDays = statsData.streakDays ?? 0;
-    if (hoursSinceLast > 48) {
-      streakDays = 1; // Reset streak
-    } else if (hoursSinceLast > 20) {
-      streakDays += 1; // Continue streak
-    }
-    const bestStreak = Math.max(statsData.bestStreak ?? 0, streakDays);
-
-    const newTotalSent = (statsData.totalSent ?? 0) + recipients.length;
-    const newPending = (statsData.pending ?? 0) + recipients.length;
-
-    batch.update(statsRef, {
-      totalSent: newTotalSent,
-      pending: newPending,
-      weeklyCount: (statsData.weeklyCount ?? 0) + recipients.length,
-      monthlyCount: (statsData.monthlyCount ?? 0) + recipients.length,
-      channelsUsed,
-      streakDays,
-      bestStreak,
-      lastInviteAt: now,
-      updatedAt: now,
-    });
-
-    await batch.commit();
+    await InviteEventModel.insertMany(inviteDocs, { ordered: true });
 
     logger.info('[POST /invite/send] Invites sent', {
       userId,
@@ -518,6 +498,7 @@ router.post(
     try {
       const userId = req.user!.uid;
       const db = req.firebase.db;
+      const environment = getInviteEnvironment(req.isStaging);
       const { teamId, recipients, channel, message } = req.body as {
         teamId: string;
         recipients: Array<{ id: string; name?: string; phone?: string; email?: string }>;
@@ -558,19 +539,16 @@ router.post(
 
       // Re-use the /send handler logic inline
       const referralCode = await getOrCreateReferralCode(db, userId);
-      const statsRef = await getOrCreateStats(db, userId);
-      const statsDoc = await statsRef.get();
-      const statsData = statsDoc.data() as InviteStatsDoc;
-
-      const now = new Date().toISOString();
-      const batch = db.batch();
+      const now = new Date();
       const invites: Array<Record<string, unknown>> = [];
+      const inviteDocs: Array<Record<string, unknown>> = [];
 
       for (const recipient of recipients) {
         const inviteId = crypto.randomUUID();
 
         const inviteDoc = {
           id: inviteId,
+          environment,
           type: 'team' as InviteType,
           channel,
           status: 'pending' as InviteStatus,
@@ -582,28 +560,27 @@ router.post(
           },
           senderId: userId,
           teamId,
+          teamCode: teamData?.teamCode ?? null,
           teamName: teamData?.name ?? null,
           message: message ?? null,
           referralCode,
           createdAt: now,
           updatedAt: now,
+          expiresAt: new Date(
+            Date.now() + INVITE_UI_CONFIG.linkExpirationDays * 24 * 60 * 60 * 1000
+          ),
         };
-        batch.set(db.collection(INVITES_COLLECTION).doc(inviteId), inviteDoc);
-        invites.push(inviteDoc);
+
+        inviteDocs.push(inviteDoc);
+        invites.push({
+          ...inviteDoc,
+          createdAt: now.toISOString(),
+          updatedAt: now.toISOString(),
+          expiresAt: toIsoString(inviteDoc.expiresAt as Date),
+        });
       }
 
-      const channelsUsed: string[] = [...(statsData.channelsUsed ?? [])];
-      if (!channelsUsed.includes(channel)) channelsUsed.push(channel);
-
-      batch.update(statsRef, {
-        totalSent: (statsData.totalSent ?? 0) + recipients.length,
-        pending: (statsData.pending ?? 0) + recipients.length,
-        channelsUsed,
-        lastInviteAt: now,
-        updatedAt: now,
-      });
-
-      await batch.commit();
+      await InviteEventModel.insertMany(inviteDocs, { ordered: true });
 
       logger.info('[POST /invite/send-bulk] Bulk invites sent', {
         userId,
@@ -631,35 +608,63 @@ router.post(
 router.get('/history', appGuard, async (req: Request, res: Response) => {
   try {
     const userId = req.user!.uid;
-    const db = req.firebase.db;
+    const environment = getInviteEnvironment(req.isStaging);
 
     const page = Math.max(1, Number(req.query['page']) || 1);
     const limit = Math.min(50, Math.max(1, Number(req.query['limit']) || 20));
     const type = req.query['type'] as InviteType | undefined;
     const channel = req.query['channel'] as InviteChannel | undefined;
     const status = req.query['status'] as InviteStatus | undefined;
+    const teamId = req.query['teamId'] as string | undefined;
+    const since = req.query['since'] as string | undefined;
+    const until = req.query['until'] as string | undefined;
 
-    let query: FirebaseFirestore.Query = db
-      .collection(INVITES_COLLECTION)
-      .where('senderId', '==', userId)
-      .orderBy('createdAt', 'desc');
+    const query: Record<string, unknown> = {
+      environment,
+      senderId: userId,
+    };
 
-    if (type) query = query.where('type', '==', type);
-    if (channel) query = query.where('channel', '==', channel);
-    if (status) query = query.where('status', '==', status);
+    if (type) query['type'] = type;
+    if (channel) query['channel'] = channel;
+    if (status) query['status'] = status;
+    if (teamId) query['teamId'] = teamId;
 
-    // Count total (for pagination metadata)
-    const countSnapshot = await query.count().get();
-    const total = countSnapshot.data().count;
+    if (since || until) {
+      const createdAt: Record<string, Date> = {};
+      if (since) {
+        const sinceDate = new Date(since);
+        if (!Number.isNaN(sinceDate.getTime())) createdAt['$gte'] = sinceDate;
+      }
+      if (until) {
+        const untilDate = new Date(until);
+        if (!Number.isNaN(untilDate.getTime())) createdAt['$lte'] = untilDate;
+      }
+      if (Object.keys(createdAt).length > 0) {
+        query['createdAt'] = createdAt;
+      }
+    }
 
-    // Paginate
     const offset = (page - 1) * limit;
-    const snapshot = await query.offset(offset).limit(limit).get();
+    const [total, docs] = await Promise.all([
+      InviteEventModel.countDocuments(query).exec(),
+      InviteEventModel.find(query).sort({ createdAt: -1 }).skip(offset).limit(limit).lean().exec(),
+    ]);
 
-    const items = snapshot.docs.map((doc) => {
-      const data = doc.data();
-      return { id: doc.id, ...data };
-    });
+    const items = docs.map((doc) => ({
+      id: doc.id,
+      type: doc.type,
+      channel: doc.channel,
+      status: doc.status,
+      recipient: doc.recipient,
+      senderId: doc.senderId,
+      teamId: doc.teamId ?? undefined,
+      teamName: doc.teamName ?? undefined,
+      message: doc.message ?? undefined,
+      referralCode: doc.referralCode ?? doc.inviteCode ?? '',
+      createdAt: toIsoString(doc.createdAt) ?? new Date(0).toISOString(),
+      updatedAt: toIsoString(doc.updatedAt) ?? new Date(0).toISOString(),
+      expiresAt: toIsoString(doc.expiresAt),
+    }));
 
     return res.json({
       success: true,
@@ -678,42 +683,6 @@ router.get('/history', appGuard, async (req: Request, res: Response) => {
 });
 
 /**
- * GET /api/v1/invite/stats
- * Get the authenticated user's invite statistics.
- */
-router.get('/stats', appGuard, async (req: Request, res: Response) => {
-  try {
-    const userId = req.user!.uid;
-    const db = req.firebase.db;
-
-    const statsRef = await getOrCreateStats(db, userId);
-    const statsDoc = await statsRef.get();
-    const data = statsDoc.data() as InviteStatsDoc;
-
-    const totalSent = data.totalSent ?? 0;
-    const accepted = data.accepted ?? 0;
-    const conversionRate = totalSent > 0 ? Math.round((accepted / totalSent) * 100) : 0;
-
-    return res.json({
-      success: true,
-      data: {
-        totalSent,
-        accepted,
-        pending: data.pending ?? 0,
-        streakDays: data.streakDays ?? 0,
-        bestStreak: data.bestStreak ?? 0,
-        weeklyCount: data.weeklyCount ?? 0,
-        monthlyCount: data.monthlyCount ?? 0,
-        conversionRate,
-      },
-    });
-  } catch (error) {
-    logger.error('[GET /invite/stats] Failed', { error });
-    return res.status(500).json({ success: false, error: 'Failed to fetch invite stats' });
-  }
-});
-
-/**
  * POST /api/v1/invite/validate
  * Validate a referral code and return inviter info.
  *
@@ -728,14 +697,55 @@ router.post('/validate', validateBody(ValidateInviteDto), async (req: Request, r
       return res.status(400).json({ success: false, error: 'Missing referral code' });
     }
 
-    // Find user with this referral code
+    // Normalize: strip leading "NXT-" prefix for team invite doc lookup.
+    const normalizedCode = code.toUpperCase().replace(/^NXT-/, '');
+    // Personal referral codes are stored WITH the "NXT-" prefix in Users.referralCode.
+    const codeUpper = code.toUpperCase();
+    const codeWithPrefix = codeUpper.startsWith('NXT-') ? codeUpper : `NXT-${codeUpper}`;
+
+    // Find user with this referral code (personal invite — stored as "NXT-XXXXXX")
     const usersSnapshot = await db
       .collection(USERS_COLLECTION)
-      .where('referralCode', '==', code.toUpperCase())
+      .where('referralCode', '==', codeWithPrefix)
       .limit(1)
       .get();
 
     if (usersSnapshot.empty) {
+      // Check the Invites collection for a team invite doc with this code.
+      // Try both the bare code ("CPEKC0") and the legacy prefixed form ("NXT-CPEKC0")
+      // so old docs created before the prefix-stripping fix still resolve.
+      const teamInviteSnap = await db
+        .collection(INVITE_LINKS_COLLECTION)
+        .where('inviteCode', '==', normalizedCode)
+        .where('type', '==', 'team')
+        .limit(1)
+        .get();
+
+      if (!teamInviteSnap.empty) {
+        const inviteData = teamInviteSnap.docs[0].data();
+        const inviterDoc = await db
+          .collection(USERS_COLLECTION)
+          .doc(inviteData['inviterUid'] as string)
+          .get();
+        const inviterData = inviterDoc.data() as UserDoc | undefined;
+
+        return res.json({
+          success: true,
+          data: {
+            valid: true,
+            inviterUid: inviteData['inviterUid'] as string,
+            inviterName:
+              `${inviterData?.firstName ?? ''} ${inviterData?.lastName ?? ''}`.trim() ||
+              'NXT1 User',
+            inviterAvatar: inviterData?.profileImgs?.[0] ?? null,
+            type: 'team',
+            teamCode: inviteData['teamCode'] as string,
+            teamName: inviteData['teamName'] as string,
+            sport: inviteData['sport'] as string,
+          },
+        });
+      }
+
       return res.json({ success: true, data: { valid: false } });
     }
 
@@ -776,28 +786,40 @@ router.post(
       const db = req.firebase.db;
       const {
         code,
-        teamCode,
+        teamCode: requestedTeamCode,
         role,
         inviterUid: passedInviterUid,
+        isNewUser,
       } = req.body as {
         code: string;
         teamCode?: string;
         role?: TeamMemberRole;
         inviterUid?: string;
+        isNewUser?: boolean;
       };
 
-      const normalizedCode = code.toUpperCase();
+      // Normalize codes:
+      //   normalizedCode — strip prefix for team invite doc lookup (stored without prefix)
+      //   codeWithPrefix — keep/add prefix for personal referral code lookup (stored as "NXT-XXXXXX")
+      const normalizedCode = code.toUpperCase().replace(/^NXT-/, '');
+      const codeWithPrefix = code.toUpperCase().startsWith('NXT-')
+        ? code.toUpperCase()
+        : `NXT-${code.toUpperCase()}`;
       const now = new Date().toISOString();
+      const environment = getInviteEnvironment(req.isStaging);
       let inviterId: string | undefined;
       let teamJoined: string | undefined;
       let joinedAsPending = false;
+      let resolvedTeamCode = requestedTeamCode;
+
+      let inviteLinkData: InviteDoc | undefined;
 
       // ── Resolve inviter ──
-      // Case A: code is a user referral code (NXT-XXXXXX) — look up from Users collection
-      // Case B: code is teamCode (team invite) — inviterUid passed from join page
+      // Case A: code is a personal referral code (stored as "NXT-XXXXXX" in Users.referralCode)
+      // Case B: code is a team invite token (stored without prefix in Invites.code)
       const usersSnapshot = await db
         .collection(USERS_COLLECTION)
-        .where('referralCode', '==', normalizedCode)
+        .where('referralCode', '==', codeWithPrefix)
         .limit(1)
         .get();
 
@@ -807,10 +829,29 @@ router.post(
         if (inviterId === userId) {
           return res.status(400).json({ success: false, error: 'Cannot accept your own invite' });
         }
-      } else if (passedInviterUid && passedInviterUid !== 'unknown') {
-        // Team invite: inviterUid was resolved on the join page
-        inviterId = passedInviterUid;
-      } else if (!teamCode) {
+      } else {
+        const inviteLinkSnap = await db
+          .collection(INVITE_LINKS_COLLECTION)
+          .where('inviteCode', '==', normalizedCode)
+          .where('type', '==', 'team')
+          .limit(1)
+          .get();
+
+        if (!inviteLinkSnap.empty) {
+          inviteLinkData = inviteLinkSnap.docs[0].data() as InviteDoc;
+          inviterId = inviteLinkData.inviterUid;
+          resolvedTeamCode = inviteLinkData.teamCode ?? resolvedTeamCode;
+          teamJoined = inviteLinkData.teamName ?? undefined;
+        } else if (passedInviterUid && passedInviterUid !== 'unknown') {
+          inviterId = passedInviterUid;
+        }
+      }
+
+      if (!usersSnapshot.empty && inviterId === userId) {
+        return res.status(400).json({ success: false, error: 'Cannot accept your own invite' });
+      }
+
+      if (!inviterId && !resolvedTeamCode) {
         // No teamCode and no valid referral code — nothing to do
         return res.status(404).json({ success: false, error: 'Invalid referral code' });
       }
@@ -818,15 +859,18 @@ router.post(
 
       // ── Check if already accepted (only when we have an inviter) ──
       if (inviterId) {
-        const existingAccept = await db
-          .collection(INVITES_COLLECTION)
-          .where('referralCode', '==', normalizedCode)
-          .where('recipient.id', '==', userId)
-          .where('status', '==', 'accepted')
-          .limit(1)
-          .get();
+        const existingEvent = await InviteEventModel.findOne({
+          environment,
+          status: 'accepted',
+          $or: [
+            { referralCode: codeWithPrefix, 'recipient.id': userId },
+            { teamCode: resolvedTeamCode ?? normalizedCode, 'recipient.id': userId },
+          ],
+        })
+          .lean()
+          .exec();
 
-        if (!existingAccept.empty) {
+        if (existingEvent) {
           return res.status(409).json({ success: false, error: 'Invite already accepted' });
         }
       }
@@ -835,18 +879,30 @@ router.post(
 
       // ── Update invite doc & track referral on the new user ──
       if (inviterId) {
-        const pendingInvites = await db
-          .collection(INVITES_COLLECTION)
-          .where('referralCode', '==', normalizedCode)
-          .where('status', '==', 'pending')
-          .limit(1)
-          .get();
+        const pendingEvent = await InviteEventModel.findOneAndUpdate(
+          {
+            environment,
+            status: { $ne: 'accepted' },
+            $or: [
+              { referralCode: codeWithPrefix, 'recipient.id': userId },
+              { teamCode: resolvedTeamCode ?? normalizedCode, 'recipient.id': userId },
+            ],
+          },
+          {
+            $set: {
+              status: 'accepted',
+              acceptedByUid: userId,
+              acceptedAt: new Date(now),
+              updatedAt: new Date(now),
+            },
+          },
+          { new: true }
+        )
+          .lean()
+          .exec();
 
-        if (!pendingInvites.empty) {
-          const inviteRef = pendingInvites.docs[0].ref;
-          const inviteData = pendingInvites.docs[0].data() as InviteDoc;
-          batch.update(inviteRef, { status: 'accepted', updatedAt: now });
-          teamJoined = inviteData.teamName ?? undefined;
+        if (pendingEvent) {
+          teamJoined = pendingEvent.teamName ?? teamJoined;
         }
 
         // Record the referral on the new user
@@ -859,15 +915,58 @@ router.post(
 
       await batch.commit();
 
+      let verifiedIsNewUser = false;
+      if (inviterId && isNewUser === true && !resolvedTeamCode) {
+        try {
+          const userRecord = await getAuth().getUser(userId);
+          const creationTime = userRecord.metadata.creationTime;
+
+          if (creationTime) {
+            const accountAgeMinutes = Math.max(
+              0,
+              (Date.now() - new Date(creationTime).getTime()) / 60_000
+            );
+            verifiedIsNewUser = accountAgeMinutes <= NEW_USER_MAX_AGE_MINUTES;
+
+            if (!verifiedIsNewUser) {
+              logger.warn('[POST /invite/accept] Skipping referral reward — account is not new', {
+                referrerId: inviterId,
+                userId,
+                accountAgeMinutes,
+                maxAgeMinutes: NEW_USER_MAX_AGE_MINUTES,
+              });
+            }
+          } else {
+            logger.warn('[POST /invite/accept] Skipping referral reward — missing creation time', {
+              referrerId: inviterId,
+              userId,
+            });
+          }
+        } catch (verificationError) {
+          logger.warn('[POST /invite/accept] Failed to verify new-user status', {
+            referrerId: inviterId,
+            userId,
+            error:
+              verificationError instanceof Error
+                ? verificationError.message
+                : String(verificationError),
+          });
+        }
+      }
+
       // ── Credit referral reward to the inviter's Agent X wallet ──
-      if (inviterId) {
+      // Rules:
+      //   1. Only when the invitee is a brand-new user completing onboarding (isNewUser = true).
+      //   2. Only for INDIVIDUAL referral invites (no teamCode in body).
+      //      Coach/Director team invites are a program-management action, not a referral.
+      //   3. Amount is read live from AppConfig/referralReward in Firestore (adjustable without deploy).
+      if (inviterId && verifiedIsNewUser && !resolvedTeamCode) {
         try {
           const rewardResult = await creditReferralReward(db, inviterId, userId);
           if (rewardResult.success) {
             logger.info('[POST /invite/accept] Referral reward credited', {
               referrerId: inviterId,
               newUserId: userId,
-              amountCents: 500,
               newBalanceCents: rewardResult.newBalanceCents,
             });
           }
@@ -880,10 +979,32 @@ router.post(
             error: rewardErr instanceof Error ? rewardErr.message : String(rewardErr),
           });
         }
+      } else if (inviterId && isNewUser === true && resolvedTeamCode) {
+        logger.debug(
+          '[POST /invite/accept] Skipping referral reward — team invite (coach/director flow)',
+          {
+            referrerId: inviterId,
+            userId,
+            teamCode: resolvedTeamCode,
+          }
+        );
+      } else if (inviterId && isNewUser === true && !resolvedTeamCode) {
+        logger.debug(
+          '[POST /invite/accept] Skipping referral reward — server did not verify new user',
+          {
+            referrerId: inviterId,
+            userId,
+          }
+        );
+      } else if (inviterId && !isNewUser) {
+        logger.debug('[POST /invite/accept] Skipping referral reward — existing user join', {
+          referrerId: inviterId,
+          userId,
+        });
       }
 
       // ── Team join (outside the batch; uses its own Firestore operations) ──
-      if (teamCode) {
+      if (resolvedTeamCode) {
         try {
           const userDoc = await db.collection(USERS_COLLECTION).doc(userId).get();
           const userData = userDoc.data() as UserDoc | undefined;
@@ -903,7 +1024,7 @@ router.post(
 
           const team = await teamCodeService.joinTeam(db, {
             userId,
-            teamCode,
+            teamCode: resolvedTeamCode,
             role: mappedRole,
             userProfile: {
               firstName: userData?.firstName ?? '',
@@ -1001,7 +1122,7 @@ router.post(
 
           logger.info('[POST /invite/accept] User joined team via invite', {
             userId,
-            teamCode,
+            teamCode: resolvedTeamCode,
             role: mappedRole,
             pending: joinedAsPending,
           });
@@ -1011,7 +1132,7 @@ router.post(
           // Non-blocking — if team join fails (e.g. team full), invite is still accepted
           logger.warn('[POST /invite/accept] Team join failed (non-blocking)', {
             userId,
-            teamCode,
+            teamCode: resolvedTeamCode,
             error: teamErr instanceof Error ? teamErr.message : String(teamErr),
           });
         }
@@ -1021,7 +1142,7 @@ router.post(
         userId,
         inviterId,
         code,
-        teamCode,
+        teamCode: resolvedTeamCode,
       });
 
       return res.json({

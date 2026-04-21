@@ -1,25 +1,14 @@
 /**
- * @fileoverview Web Crashlytics Service
+ * @fileoverview Web Crash Telemetry Service
  * @module @nxt1/web/core/services
  *
- * Web implementation of CrashlyticsAdapter using Google Analytics 4.
- *
- * Firebase Crashlytics doesn't support web natively, so we use GA4's
- * 'exception' event for error tracking. This provides:
- * - Error tracking in Google Analytics 4
- * - Correlation with Firebase Console (same project)
- * - User journey tracking via breadcrumbs
- *
- * For full crash analytics, native mobile apps still provide the best
- * experience via @capacitor-firebase/crashlytics.
- *
- * @author NXT1 Engineering
- * @version 1.0.0
+ * Web crash telemetry is now adapter-driven and backend-owned. The browser layer
+ * records structured exception events through the shared analytics service while
+ * native mobile continues to use dedicated crash reporting.
  */
 
 import { Injectable, inject, PLATFORM_ID } from '@angular/core';
 import { isPlatformBrowser, isPlatformServer } from '@angular/common';
-import { Analytics, logEvent, setUserId, setUserProperties } from '@angular/fire/analytics';
 
 import type {
   CrashlyticsAdapter,
@@ -39,11 +28,14 @@ import {
   DEFAULT_CRASHLYTICS_CONFIG,
   GA4_EVENTS,
 } from '@nxt1/core/crashlytics';
+import type { ILogger } from '@nxt1/core/logging';
+import { AnalyticsService } from './analytics.service';
+import { LoggingService } from './logging.service';
 
 /**
- * Web Crashlytics Service
+ * Web Crash Telemetry Service
  *
- * Implements CrashlyticsAdapter using Google Analytics 4 exception events.
+ * Implements CrashlyticsAdapter through the shared analytics relay.
  * SSR-safe with automatic fallback to no-op mode on server.
  *
  * @example
@@ -62,8 +54,9 @@ import {
 export class CrashlyticsService implements CrashlyticsAdapter {
   private readonly platformId = inject(PLATFORM_ID);
 
-  /** Firebase Analytics instance - may be null on server */
-  private readonly analytics = inject(Analytics, { optional: true });
+  /** Shared analytics relay for browser-side telemetry */
+  private readonly analyticsService = inject(AnalyticsService);
+  private readonly logger: ILogger = inject(LoggingService).child('CrashTelemetry');
 
   private _config: Required<CrashlyticsConfig> = { ...DEFAULT_CRASHLYTICS_CONFIG };
   private _ready = false;
@@ -96,8 +89,8 @@ export class CrashlyticsService implements CrashlyticsAdapter {
   // ==========================================
 
   /**
-   * Initialize Crashlytics (web version).
-   * For web, this sets up GA4 exception tracking.
+   * Initialize crash telemetry for web.
+   * For browser builds, exception metadata is relayed through the shared analytics service.
    */
   async initialize(config?: CrashlyticsConfig): Promise<void> {
     this._config = { ...DEFAULT_CRASHLYTICS_CONFIG, ...config };
@@ -115,7 +108,7 @@ export class CrashlyticsService implements CrashlyticsAdapter {
       // Set initial custom keys
       if (this._config.initialCustomKeys) {
         Object.assign(this._customKeys, this._config.initialCustomKeys);
-        await this.syncUserPropertiesToGA4();
+        await this.syncUserPropertiesToAnalytics();
       }
 
       // Setup global error handler integration
@@ -124,9 +117,9 @@ export class CrashlyticsService implements CrashlyticsAdapter {
       }
 
       this._ready = true;
-      this.logDebug('Web Crashlytics initialized (GA4 mode)');
+      this.logDebug('Web crash telemetry initialized');
     } catch (error) {
-      console.error('[Crashlytics:Web] Initialization failed:', error);
+      this.logger.error('Crash telemetry initialization failed', error);
       await this.noOpAdapter.initialize(this._config);
       this._ready = true;
     }
@@ -177,14 +170,10 @@ export class CrashlyticsService implements CrashlyticsAdapter {
       this._userId = userId;
       this._customKeys[CRASH_KEYS.USER_ID] = userId;
 
-      // Set in Firebase Analytics
-      if (this.analytics) {
-        setUserId(this.analytics, userId);
-      }
-
-      this.logDebug('User ID set:', userId);
+      this.analyticsService.setUserId(userId);
+      this.logDebug('User ID set', { userId });
     } catch (error) {
-      console.error('[Crashlytics:Web] setUserId failed:', error);
+      this.logger.warn('Crash telemetry setUserId failed', { error });
     }
   }
 
@@ -209,9 +198,9 @@ export class CrashlyticsService implements CrashlyticsAdapter {
         this._customKeys['user_name'] = user.displayName.substring(0, 50);
       }
 
-      await this.syncUserPropertiesToGA4();
+      await this.syncUserPropertiesToAnalytics();
     } catch (error) {
-      console.error('[Crashlytics:Web] setUser failed:', error);
+      this.logger.warn('Crash telemetry setUser failed', { error });
     }
   }
 
@@ -229,14 +218,10 @@ export class CrashlyticsService implements CrashlyticsAdapter {
       delete this._customKeys['user_email_domain'];
       delete this._customKeys['user_name'];
 
-      // Clear in Firebase Analytics
-      if (this.analytics) {
-        setUserId(this.analytics, '');
-      }
-
+      this.analyticsService.setUserId(null);
       this.logDebug('User cleared');
     } catch (error) {
-      console.error('[Crashlytics:Web] clearUser failed:', error);
+      this.logger.warn('Crash telemetry clearUser failed', { error });
     }
   }
 
@@ -261,10 +246,9 @@ export class CrashlyticsService implements CrashlyticsAdapter {
 
       this._customKeys[key] = safeValue;
 
-      // Sync relevant keys to GA4 user properties
-      await this.syncUserPropertiesToGA4();
+      await this.syncUserPropertiesToAnalytics();
     } catch (error) {
-      console.error('[Crashlytics:Web] setCustomKey failed:', error);
+      this.logger.warn('Crash telemetry setCustomKey failed', { error });
     }
   }
 
@@ -285,7 +269,7 @@ export class CrashlyticsService implements CrashlyticsAdapter {
         this._customKeys[key] = value!;
       });
 
-    await this.syncUserPropertiesToGA4();
+    await this.syncUserPropertiesToAnalytics();
   }
 
   // ==========================================
@@ -318,9 +302,9 @@ export class CrashlyticsService implements CrashlyticsAdapter {
         this._breadcrumbs = this._breadcrumbs.slice(-this._config.maxBreadcrumbs);
       }
 
-      this.logDebug('Breadcrumb added:', entry.message);
+      this.logDebug('Breadcrumb added', { message: entry.message });
     } catch (error) {
-      console.error('[Crashlytics:Web] addBreadcrumb failed:', error);
+      this.logger.warn('Crash telemetry addBreadcrumb failed', { error });
     }
   }
 
@@ -353,61 +337,47 @@ export class CrashlyticsService implements CrashlyticsAdapter {
     if (!this._enabled) return;
 
     try {
-      // Log to GA4 as exception event
-      if (this.analytics) {
-        const eventParams: Record<string, unknown> = {
-          description: exception.message.substring(0, 150), // GA4 limit
-          fatal: exception.severity === 'fatal',
-        };
+      const eventParams: Record<string, unknown> = {
+        description: exception.message.substring(0, 150),
+        fatal: exception.severity === 'fatal',
+      };
 
-        // Add custom dimensions
-        if (exception.code) {
-          eventParams['error_code'] = exception.code;
-        }
-        if (exception.category) {
-          eventParams['error_category'] = exception.category;
-        }
-        if (exception.name) {
-          eventParams['error_name'] = exception.name;
-        }
+      if (exception.code) {
+        eventParams['error_code'] = exception.code;
+      }
+      if (exception.category) {
+        eventParams['error_category'] = exception.category;
+      }
+      if (exception.name) {
+        eventParams['error_name'] = exception.name;
+      }
+      if (this._userId) {
+        eventParams['user_id'] = this._userId;
+      }
+      if (this._customKeys[CRASH_KEYS.SCREEN_NAME]) {
+        eventParams['screen_name'] = this._customKeys[CRASH_KEYS.SCREEN_NAME];
+      }
 
-        // Add user context
-        if (this._userId) {
-          eventParams['user_id'] = this._userId;
-        }
+      this.analyticsService.trackEvent(GA4_EVENTS.EXCEPTION, eventParams);
+      this.analyticsService.trackEvent(GA4_EVENTS.APP_ERROR, {
+        ...eventParams,
+        severity: exception.severity ?? 'error',
+        breadcrumb_count: this._breadcrumbs.length,
+        stack_available: !!exception.stacktrace,
+      });
 
-        // Add relevant custom keys
-        if (this._customKeys[CRASH_KEYS.SCREEN_NAME]) {
-          eventParams['screen_name'] = this._customKeys[CRASH_KEYS.SCREEN_NAME];
-        }
-
-        // Log the exception event
-        logEvent(this.analytics, GA4_EVENTS.EXCEPTION, eventParams);
-
-        // Also log as custom event for more detail
-        logEvent(this.analytics, GA4_EVENTS.APP_ERROR, {
-          ...eventParams,
-          severity: exception.severity ?? 'error',
-          breadcrumb_count: this._breadcrumbs.length,
-          stack_available: !!exception.stacktrace,
+      if (this._config.debug) {
+        this.logger.error('Crash exception recorded', {
+          message: exception.message,
+          stacktrace: exception.stacktrace,
+          customKeys: this._customKeys,
+          recentBreadcrumbs: this._breadcrumbs.slice(-10),
         });
       }
 
-      // Log to console in debug mode
-      if (this._config.debug) {
-        console.group('[Crashlytics:Web] Exception Recorded');
-        console.error('Message:', exception.message);
-        if (exception.stacktrace) {
-          console.error('Stack:', exception.stacktrace);
-        }
-        console.log('Context:', this._customKeys);
-        console.log('Breadcrumbs:', this._breadcrumbs.slice(-10));
-        console.groupEnd();
-      }
-
-      this.logDebug('Exception recorded:', exception.message);
+      this.logDebug('Exception recorded', { message: exception.message });
     } catch (error) {
-      console.error('[Crashlytics:Web] recordException failed:', error);
+      this.logger.warn('Crash telemetry recordException failed', { error });
     }
   }
 
@@ -436,7 +406,7 @@ export class CrashlyticsService implements CrashlyticsAdapter {
    * On web, this throws an error that should be caught by GlobalErrorHandler.
    */
   async crash(): Promise<void> {
-    console.warn('[Crashlytics:Web] Triggering test crash (non-fatal on web)');
+    this.logger.warn('Triggering test crash (non-fatal on web)');
     await this.log('Test crash triggered by developer');
 
     // Record as fatal exception
@@ -461,11 +431,10 @@ export class CrashlyticsService implements CrashlyticsAdapter {
   }
 
   /**
-   * Send unsent reports (no-op on web, GA4 sends automatically)
+   * Send unsent reports (no-op on web, relay events are fire-and-forget)
    */
   async sendUnsentReports(): Promise<void> {
-    // GA4 sends events automatically
-    this.logDebug('GA4 events are sent automatically');
+    this.logDebug('Web crash telemetry relay is fire-and-forget');
   }
 
   /**
@@ -568,15 +537,12 @@ export class CrashlyticsService implements CrashlyticsAdapter {
   // ==========================================
 
   /**
-   * Sync relevant custom keys to GA4 user properties
+   * Sync relevant custom keys to the shared analytics relay.
    */
-  private async syncUserPropertiesToGA4(): Promise<void> {
-    if (!this.analytics) return;
-
+  private async syncUserPropertiesToAnalytics(): Promise<void> {
     try {
-      const properties: Record<string, string | null> = {};
+      const properties: Record<string, string> = {};
 
-      // Map custom keys to GA4 user properties
       if (this._customKeys[CRASH_KEYS.USER_ROLE]) {
         properties['user_role'] = String(this._customKeys[CRASH_KEYS.USER_ROLE]);
       }
@@ -588,10 +554,10 @@ export class CrashlyticsService implements CrashlyticsAdapter {
       }
 
       if (Object.keys(properties).length > 0) {
-        setUserProperties(this.analytics, properties);
+        this.analyticsService.setUserProperties(properties);
       }
     } catch (error) {
-      console.error('[Crashlytics:Web] syncUserPropertiesToGA4 failed:', error);
+      this.logger.warn('Crash telemetry user property sync failed', { error });
     }
   }
 
@@ -628,9 +594,9 @@ export class CrashlyticsService implements CrashlyticsAdapter {
     }
   }
 
-  private logDebug(...args: unknown[]): void {
+  private logDebug(message: string, context?: Record<string, unknown>): void {
     if (this._config.debug) {
-      console.debug('[Crashlytics:Web]', ...args);
+      this.logger.debug(message, context);
     }
   }
 }

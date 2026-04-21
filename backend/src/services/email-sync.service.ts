@@ -8,7 +8,8 @@
  * dispatched through the same provider tokens.
  *
  * Token storage:
- *   Firestore → Users/{uid}/emailTokens/{provider}
+ *   Firestore → Users/{uid}/oauthTokens/{provider}
+ *   Fallback   → Users/{uid}/emailTokens/{provider}
  *   (server-only subcollection — Firestore rules block client reads)
  *
  * College coach matching:
@@ -16,7 +17,13 @@
  *   in MongoDB to flag conversations with verified college contacts.
  */
 
+import { randomUUID } from 'node:crypto';
 import axios from 'axios';
+import {
+  OAUTH_TOKEN_SUBCOLLECTION,
+  LEGACY_EMAIL_TOKEN_SUBCOLLECTION,
+  getOAuthTokenDocId,
+} from '@nxt1/core/auth';
 import type { Firestore } from 'firebase-admin/firestore';
 import { db as defaultDb } from '../utils/firebase.js';
 import { stagingDb } from '../utils/firebase-staging.js';
@@ -80,12 +87,50 @@ async function getEmailTokens(
   provider: EmailProvider,
   db: Firestore = defaultDb
 ): Promise<EmailTokens | null> {
-  const tokenRef = db.collection('Users').doc(userId).collection('emailTokens').doc(provider);
-  const snap = await tokenRef.get();
+  const tokenRef = db
+    .collection('Users')
+    .doc(userId)
+    .collection(OAUTH_TOKEN_SUBCOLLECTION)
+    .doc(getOAuthTokenDocId(provider));
+  const tokenSnap = await tokenRef.get();
+
+  if (tokenSnap.exists) {
+    const tokenData = tokenSnap.data() as EmailTokens;
+    return { ...tokenData, provider };
+  }
+
+  const legacyTokenRef = db
+    .collection('Users')
+    .doc(userId)
+    .collection(LEGACY_EMAIL_TOKEN_SUBCOLLECTION)
+    .doc(provider);
+  const snap = await legacyTokenRef.get();
 
   if (!snap.exists) return null;
 
   const data = snap.data() as EmailTokens;
+  const migratedStorageDoc = {
+    ...data,
+    provider: getOAuthTokenDocId(provider),
+  };
+
+  try {
+    const batch = db.batch();
+    batch.set(tokenRef, migratedStorageDoc, { merge: true });
+    batch.delete(legacyTokenRef);
+    await batch.commit();
+    logger.info('[EmailSync] Migrated legacy email token doc to oauthTokens', {
+      userId,
+      provider,
+    });
+  } catch (error) {
+    logger.warn('[EmailSync] Failed to migrate legacy email token doc', {
+      userId,
+      provider,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+
   return { ...data, provider };
 }
 
@@ -113,7 +158,11 @@ async function refreshGmailToken(
   const newAccessToken = data.access_token as string;
 
   // Persist refreshed token
-  const tokenRef = db.collection('Users').doc(userId).collection('emailTokens').doc('gmail');
+  const tokenRef = db
+    .collection('Users')
+    .doc(userId)
+    .collection(OAUTH_TOKEN_SUBCOLLECTION)
+    .doc(getOAuthTokenDocId('gmail'));
   await tokenRef.update({
     accessToken: newAccessToken,
     lastRefreshedAt: new Date().toISOString(),
@@ -154,7 +203,11 @@ async function refreshMicrosoftToken(
   const newAccessToken = data.access_token as string;
 
   // Persist refreshed token
-  const tokenRef = db.collection('Users').doc(userId).collection('emailTokens').doc('microsoft');
+  const tokenRef = db
+    .collection('Users')
+    .doc(userId)
+    .collection(OAUTH_TOKEN_SUBCOLLECTION)
+    .doc(getOAuthTokenDocId('microsoft'));
   await tokenRef.update({
     accessToken: newAccessToken,
     lastRefreshedAt: new Date().toISOString(),
@@ -641,6 +694,74 @@ export async function syncAllUserEmails(
   return results;
 }
 
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function normalizeEmailHtml(body: string): string {
+  if (/<[a-z][\s\S]*>/i.test(body)) {
+    return body;
+  }
+
+  return `<div>${escapeHtml(body).replace(/\n/g, '<br/>')}</div>`;
+}
+
+function buildTrackingBaseUrl(): string {
+  const rawBaseUrl = process.env['BACKEND_URL'] || 'http://localhost:3000';
+  return rawBaseUrl.endsWith('/') ? rawBaseUrl.slice(0, -1) : rawBaseUrl;
+}
+
+function buildTrackedEmailHtml(
+  body: string,
+  options: { userId: string; to: string; trackingId: string }
+): string {
+  const html = normalizeEmailHtml(body);
+  const baseUrl = buildTrackingBaseUrl();
+
+  const buildClickUrl = (destination: string): string => {
+    try {
+      const parsed = new URL(destination);
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+        return destination;
+      }
+
+      const clickUrl = new URL(`${baseUrl}/api/v1/analytics/track/click`);
+      clickUrl.searchParams.set('destination', parsed.toString());
+      clickUrl.searchParams.set('subjectId', options.userId);
+      clickUrl.searchParams.set('subjectType', 'user');
+      clickUrl.searchParams.set('surface', 'email');
+      clickUrl.searchParams.set('sourceRecordId', options.trackingId);
+      clickUrl.searchParams.set('recipientEmail', options.to);
+      return clickUrl.toString();
+    } catch {
+      return destination;
+    }
+  };
+
+  let rewrittenHtml = html.replace(
+    /href=(['"])(https?:\/\/[^'"\s>]+)\1/gi,
+    (_match, quote: string, href: string) => `href=${quote}${buildClickUrl(href)}${quote}`
+  );
+
+  rewrittenHtml = rewrittenHtml.replace(/(?<!["'=])(https?:\/\/[^\s<]+)/gi, (href: string) =>
+    buildClickUrl(href)
+  );
+
+  const openUrl = new URL(`${baseUrl}/api/v1/analytics/track/open`);
+  openUrl.searchParams.set('subjectId', options.userId);
+  openUrl.searchParams.set('subjectType', 'user');
+  openUrl.searchParams.set('surface', 'email');
+  openUrl.searchParams.set('sourceRecordId', options.trackingId);
+  openUrl.searchParams.set('recipientEmail', options.to);
+
+  return `${rewrittenHtml}<img src="${openUrl.toString()}" alt="" width="1" height="1" style="display:none;max-width:1px;max-height:1px;" />`;
+}
+
 // ─── Send Email ─────────────────────────────────────────────────────────────
 
 /**
@@ -653,18 +774,28 @@ export async function sendEmailViaProvider(
   subject: string,
   body: string,
   db: Firestore = defaultDb
-): Promise<{ success: boolean; externalMessageId?: string }> {
+): Promise<{
+  success: boolean;
+  externalMessageId?: string;
+  externalThreadId?: string;
+  trackingId: string;
+}> {
   const tokens = await getEmailTokens(userId, provider, db);
   if (!tokens) {
     throw new Error(`No ${provider} tokens for user ${userId}`);
   }
 
   const accessToken = await getValidAccessToken(userId, tokens, db);
+  const trackingId = randomUUID();
+  const trackedBody = buildTrackedEmailHtml(body, { userId, to, trackingId });
 
   if (provider === 'gmail') {
-    return sendGmailMessage(accessToken, to, subject, body);
+    const result = await sendGmailMessage(accessToken, to, subject, trackedBody);
+    return { ...result, trackingId };
   }
-  return sendMicrosoftMessage(accessToken, to, subject, body);
+
+  const result = await sendMicrosoftMessage(accessToken, to, subject, trackedBody);
+  return { ...result, trackingId };
 }
 
 /**
@@ -675,12 +806,13 @@ async function sendGmailMessage(
   to: string,
   subject: string,
   body: string
-): Promise<{ success: boolean; externalMessageId?: string }> {
+): Promise<{ success: boolean; externalMessageId?: string; externalThreadId?: string }> {
   // Construct RFC 2822 message
   const messageParts = [
     `To: ${to}`,
     `Subject: ${subject}`,
-    'Content-Type: text/plain; charset=utf-8',
+    'MIME-Version: 1.0',
+    'Content-Type: text/html; charset=utf-8',
     '',
     body,
   ];
@@ -692,7 +824,11 @@ async function sendGmailMessage(
     { headers: { Authorization: `Bearer ${accessToken}` } }
   );
 
-  return { success: true, externalMessageId: res.data.id };
+  return {
+    success: true,
+    externalMessageId: res.data.id,
+    externalThreadId: typeof res.data.threadId === 'string' ? res.data.threadId : undefined,
+  };
 }
 
 /**
@@ -703,13 +839,13 @@ async function sendMicrosoftMessage(
   to: string,
   subject: string,
   body: string
-): Promise<{ success: boolean; externalMessageId?: string }> {
+): Promise<{ success: boolean; externalMessageId?: string; externalThreadId?: string }> {
   const res = await axios.post(
     'https://graph.microsoft.com/v1.0/me/sendMail',
     {
       message: {
         subject,
-        body: { contentType: 'Text', content: body },
+        body: { contentType: 'HTML', content: body },
         toRecipients: [{ emailAddress: { address: to } }],
       },
     },

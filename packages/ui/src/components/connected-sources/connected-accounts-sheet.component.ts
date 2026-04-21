@@ -48,16 +48,12 @@ import { CONNECTED_ACCOUNTS_OAUTH_HANDLER } from './connected-accounts-modal.ser
         sheetHeaderAction
         type="button"
         class="nxt1-sheet-resync"
+        [class.nxt1-sheet-resync--active]="hasChanges()"
         [attr.data-testid]="testIds.RESYNC_BUTTON"
         (click)="requestResync()"
       >
         Re-sync
       </button>
-      @if (hasChanges()) {
-        <button sheetHeaderAction type="button" class="nxt1-sheet-done" (click)="dismiss()">
-          Done
-        </button>
-      }
     </nxt1-sheet-header>
 
     <div class="nxt1-sheet-scroll">
@@ -101,20 +97,6 @@ import { CONNECTED_ACCOUNTS_OAUTH_HANDLER } from './connected-accounts-modal.ser
         overflow: hidden;
       }
 
-      .nxt1-sheet-done {
-        appearance: none;
-        -webkit-appearance: none;
-        border: none;
-        background: none;
-        padding: 0;
-        font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-sm);
-        font-weight: var(--nxt1-fontWeight-bold);
-        color: var(--nxt1-color-primary);
-        cursor: pointer;
-        -webkit-tap-highlight-color: transparent;
-      }
-
       .nxt1-sheet-resync {
         appearance: none;
         -webkit-appearance: none;
@@ -127,6 +109,11 @@ import { CONNECTED_ACCOUNTS_OAUTH_HANDLER } from './connected-accounts-modal.ser
         color: var(--nxt1-color-text-secondary);
         cursor: pointer;
         -webkit-tap-highlight-color: transparent;
+        transition: color 0.15s ease;
+      }
+
+      .nxt1-sheet-resync--active {
+        color: var(--nxt1-color-primary);
       }
 
       .nxt1-sheet-scroll {
@@ -270,21 +257,12 @@ export class ConnectedAccountsSheetComponent implements OnInit {
 
   dismiss(): void {
     if (this._hasChanges()) {
-      const linkSources = this._latestLinkSources();
-      const connectedLinks = linkSources?.links.filter((l) => l.connected) ?? [];
-      const updatedLinks = connectedLinks.map((l, i) => ({
-        platform: l.platform,
-        url: l.url ?? l.username ?? '',
-        username: l.username,
-        scopeType: l.scopeType,
-        scopeId: l.scopeId,
-        displayOrder: i,
-      }));
+      const data = this.buildCloseData();
 
       this.breadcrumb.trackStateChange('connected-accounts-sheet:saved', {
-        count: updatedLinks.length,
+        count: data.updatedLinks.length,
       });
-      void this.modalCtrl.dismiss({ updatedLinks, linkSources }, 'save');
+      void this.modalCtrl.dismiss(data, 'save');
     } else {
       this.breadcrumb.trackStateChange('connected-accounts-sheet:cancelled');
       void this.modalCtrl.dismiss(null, 'cancel');
@@ -335,23 +313,52 @@ export class ConnectedAccountsSheetComponent implements OnInit {
   }
 
   requestResync(): void {
-    const linkSources = this._latestLinkSources() ?? this._linkSourcesData();
-    const connectedLinks = linkSources?.links.filter((l) => l.connected) ?? [];
+    const data = this.buildCloseData();
     this.logger.info('Connected accounts re-sync requested', {
-      connectedCount: connectedLinks.length,
+      connectedCount: data.sources.length,
     });
     this.breadcrumb.trackStateChange('connected-accounts-sheet:resync-requested');
-    void this.modalCtrl.dismiss(
-      {
-        sources: connectedLinks.map((l) => ({
-          platform: l.platform,
-          label: l.platform,
-          connected: l.connected,
-          username: l.username,
-          url: l.url,
-        })),
-      },
-      'resync'
-    );
+    void this.modalCtrl.dismiss(data, 'resync');
+  }
+
+  private buildCloseData(): {
+    readonly sources: readonly {
+      platform: string;
+      label: string;
+      connected: boolean;
+      username?: string;
+      url?: string;
+    }[];
+    readonly updatedLinks: readonly {
+      platform: string;
+      url: string;
+      username?: string;
+      scopeType?: string;
+      scopeId?: string;
+      displayOrder: number;
+    }[];
+    readonly linkSources?: LinkSourcesFormData;
+  } {
+    const linkSources = this._latestLinkSources() ?? this._linkSourcesData() ?? undefined;
+    const connectedLinks = linkSources?.links.filter((link) => link.connected) ?? [];
+
+    return {
+      sources: connectedLinks.map((link) => ({
+        platform: link.platform,
+        label: link.platform,
+        connected: link.connected,
+        username: link.username,
+        url: link.url,
+      })),
+      updatedLinks: connectedLinks.map((link, index) => ({
+        platform: link.platform,
+        url: link.url ?? link.username ?? '',
+        username: link.username,
+        scopeType: link.scopeType,
+        scopeId: link.scopeId,
+        displayOrder: index,
+      })),
+      linkSources,
+    };
   }
 }

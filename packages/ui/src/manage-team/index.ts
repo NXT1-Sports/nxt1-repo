@@ -49,6 +49,9 @@ export { ManageTeamApiClient, MANAGE_TEAM_API_BASE_URL } from './manage-team-api
 export { NxtManageTeamLandingComponent } from './manage-team-landing.component';
 export { NxtManageTeamDashboardPreviewComponent } from './manage-team-dashboard-preview.component';
 
+// Team logo upload adapter token
+export { TEAM_LOGO_UPLOADER, type TeamLogoUploader } from './team-logo-uploader.token';
+
 // Skeleton
 export { ManageTeamSkeletonComponent } from './manage-team-skeleton.component';
 

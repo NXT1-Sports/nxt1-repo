@@ -12,8 +12,39 @@ import { getStripeClient } from './stripe.service.js';
 import { getStripeConfig, COLLECTIONS } from './config.js';
 import { logger } from '../../utils/logger.js';
 import { NOTIFICATION_TYPES } from '@nxt1/core';
-import { addWalletTopUp } from './budget.service.js';
-import type { PaymentLog } from './types/index.js';
+import { addWalletTopUp, addFundsToOrgWallet, getBillingState } from './budget.service.js';
+import {
+  createPeriodKey,
+  createPeriodLedgerDocumentId,
+  parseBillingOwnerKey,
+} from './types/index.js';
+import { PaymentLogModel } from '../../models/payment-log.model.js';
+
+interface CachedBillingInfo {
+  name: string;
+  addressLine1: string;
+  addressLine2: string;
+  country: string;
+}
+
+function buildCachedBillingInfo(customer: Stripe.Customer): CachedBillingInfo | null {
+  if (!customer.address) {
+    return null;
+  }
+
+  const cityStateZip = [customer.address.city, customer.address.state, customer.address.postal_code]
+    .filter(Boolean)
+    .join(', ');
+
+  return {
+    name: customer.name ?? '',
+    addressLine1: customer.address.line1 ?? '',
+    addressLine2: customer.address.line2
+      ? `${customer.address.line2}, ${cityStateZip}`
+      : cityStateZip,
+    country: customer.address.country ?? '',
+  };
+}
 
 /**
  * Verify webhook signature
@@ -51,7 +82,7 @@ export function verifyWebhookSignature(
  * Handle invoice.finalized event
  */
 export async function handleInvoiceFinalized(
-  db: Firestore,
+  _db: Firestore,
   invoice: Stripe.Invoice,
   _environment: 'staging' | 'production'
 ): Promise<void> {
@@ -62,27 +93,28 @@ export async function handleInvoiceFinalized(
       amountDue: invoice.amount_due,
     });
 
-    // Log payment (even if not paid yet)
-    const now = FieldValue.serverTimestamp();
-    const paymentLog: Omit<PaymentLog, 'createdAt'> = {
-      invoiceId: invoice.id,
-      customerId: invoice.customer as string,
-      userId: invoice.metadata?.['userId'] || '',
-      teamId: invoice.metadata?.['teamId'],
-      amountDue: invoice.amount_due / 100, // Convert cents to dollars
-      amountPaid: invoice.amount_paid / 100,
-      currency: invoice.currency,
-      status: invoice.status === 'paid' ? 'PAID' : 'PENDING',
-      invoiceUrl: invoice.hosted_invoice_url || undefined,
-      rawEvent: invoice as unknown as Record<string, unknown>,
-    };
+    // Log payment (even if not paid yet) — upsert to handle duplicate webhook deliveries
+    await PaymentLogModel.findOneAndUpdate(
+      { invoiceId: invoice.id },
+      {
+        $setOnInsert: {
+          invoiceId: invoice.id,
+          customerId: invoice.customer as string,
+          userId: invoice.metadata?.['userId'] || '',
+          teamId: invoice.metadata?.['teamId'],
+          amountDue: invoice.amount_due / 100,
+          amountPaid: invoice.amount_paid / 100,
+          currency: invoice.currency,
+          status: invoice.status === 'paid' ? 'PAID' : 'PENDING',
+          invoiceUrl: invoice.hosted_invoice_url || undefined,
+          rawEvent: invoice as unknown as Record<string, unknown>,
+          createdAt: new Date(),
+        },
+      },
+      { upsert: true }
+    );
 
-    await db.collection(COLLECTIONS.PAYMENT_LOGS).add({
-      ...paymentLog,
-      createdAt: now,
-    });
-
-    logger.info('[handleInvoiceFinalized] Payment log created', {
+    logger.info('[handleInvoiceFinalized] Payment log upserted', {
       invoiceId: invoice.id,
     });
   } catch (error) {
@@ -109,48 +141,51 @@ export async function handleInvoicePaymentSucceeded(
       amountPaid: invoice.amount_paid,
     });
 
-    // Update or create payment log
-    const existingLog = await db
-      .collection(COLLECTIONS.PAYMENT_LOGS)
-      .where('invoiceId', '==', invoice.id)
-      .limit(1)
-      .get();
+    // Upsert payment log — update if exists, create if not
+    await PaymentLogModel.findOneAndUpdate(
+      { invoiceId: invoice.id },
+      {
+        $set: {
+          status: 'PAID',
+          amountPaid: invoice.amount_paid / 100,
+          rawEvent: invoice as unknown as Record<string, unknown>,
+          updatedAt: new Date(),
+        },
+        $setOnInsert: {
+          invoiceId: invoice.id,
+          customerId: invoice.customer as string,
+          userId: invoice.metadata?.['userId'] || '',
+          teamId: invoice.metadata?.['teamId'],
+          amountDue: invoice.amount_due / 100,
+          currency: invoice.currency,
+          invoiceUrl: invoice.hosted_invoice_url || undefined,
+          createdAt: new Date(),
+        },
+      },
+      { upsert: true }
+    );
 
-    if (!existingLog.empty) {
-      // Update existing log
-      const logDoc = existingLog.docs[0];
-      await logDoc?.ref.update({
-        status: 'PAID',
-        amountPaid: invoice.amount_paid / 100,
-        rawEvent: invoice as unknown as Record<string, unknown>,
-      });
+    logger.info('[handleInvoicePaymentSucceeded] Payment log upserted to PAID', {
+      invoiceId: invoice.id,
+    });
 
-      logger.info('[handleInvoicePaymentSucceeded] Payment log updated', {
-        invoiceId: invoice.id,
-      });
-    } else {
-      // Create new log
-      const now = FieldValue.serverTimestamp();
-      const paymentLog: Omit<PaymentLog, 'createdAt'> = {
-        invoiceId: invoice.id,
-        customerId: invoice.customer as string,
-        userId: invoice.metadata?.['userId'] || '',
-        teamId: invoice.metadata?.['teamId'],
-        amountDue: invoice.amount_due / 100,
-        amountPaid: invoice.amount_paid / 100,
-        currency: invoice.currency,
-        status: 'PAID',
-        invoiceUrl: invoice.hosted_invoice_url || undefined,
-        rawEvent: invoice as unknown as Record<string, unknown>,
-      };
-
-      await db.collection(COLLECTIONS.PAYMENT_LOGS).add({
-        ...paymentLog,
-        createdAt: now,
-      });
-
-      logger.info('[handleInvoicePaymentSucceeded] Payment log created', {
-        invoiceId: invoice.id,
+    const userId = invoice.metadata?.['userId'];
+    if (typeof userId === 'string' && userId.length > 0) {
+      const { dispatch } = await import('../../services/notification.service.js');
+      await dispatch(db, {
+        userId,
+        type: NOTIFICATION_TYPES.PAYMENT_RECEIVED,
+        title: 'Payment Received',
+        body: `Your payment of $${(invoice.amount_paid / 100).toFixed(2)} was received. Thank you!`,
+        deepLink: '/usage?section=payment-history',
+        source: { userName: 'NXT1 Billing' },
+        data: { invoiceId: invoice.id },
+      }).catch((notifyErr: unknown) => {
+        logger.error('[handleInvoicePaymentSucceeded] Failed to dispatch notification', {
+          error: notifyErr,
+          invoiceId: invoice.id,
+          userId,
+        });
       });
     }
   } catch (error) {
@@ -177,49 +212,33 @@ export async function handleInvoicePaymentFailed(
       amountDue: invoice.amount_due,
     });
 
-    // Update or create payment log
-    const existingLog = await db
-      .collection(COLLECTIONS.PAYMENT_LOGS)
-      .where('invoiceId', '==', invoice.id)
-      .limit(1)
-      .get();
+    // Upsert payment log — update if exists, create if not
+    await PaymentLogModel.findOneAndUpdate(
+      { invoiceId: invoice.id },
+      {
+        $set: {
+          status: 'FAILED',
+          rawEvent: invoice as unknown as Record<string, unknown>,
+          updatedAt: new Date(),
+        },
+        $setOnInsert: {
+          invoiceId: invoice.id,
+          customerId: invoice.customer as string,
+          userId: invoice.metadata?.['userId'] || '',
+          teamId: invoice.metadata?.['teamId'],
+          amountDue: invoice.amount_due / 100,
+          amountPaid: invoice.amount_paid / 100,
+          currency: invoice.currency,
+          invoiceUrl: invoice.hosted_invoice_url || undefined,
+          createdAt: new Date(),
+        },
+      },
+      { upsert: true }
+    );
 
-    if (!existingLog.empty) {
-      // Update existing log
-      const logDoc = existingLog.docs[0];
-      await logDoc?.ref.update({
-        status: 'FAILED',
-        rawEvent: invoice as unknown as Record<string, unknown>,
-      });
-
-      logger.info('[handleInvoicePaymentFailed] Payment log updated', {
-        invoiceId: invoice.id,
-      });
-    } else {
-      // Create new log
-      const now = FieldValue.serverTimestamp();
-      const paymentLog: Omit<PaymentLog, 'createdAt'> = {
-        invoiceId: invoice.id,
-        customerId: invoice.customer as string,
-        userId: invoice.metadata?.['userId'] || '',
-        teamId: invoice.metadata?.['teamId'],
-        amountDue: invoice.amount_due / 100,
-        amountPaid: invoice.amount_paid / 100,
-        currency: invoice.currency,
-        status: 'FAILED',
-        invoiceUrl: invoice.hosted_invoice_url || undefined,
-        rawEvent: invoice as unknown as Record<string, unknown>,
-      };
-
-      await db.collection(COLLECTIONS.PAYMENT_LOGS).add({
-        ...paymentLog,
-        createdAt: now,
-      });
-
-      logger.info('[handleInvoicePaymentFailed] Payment log created', {
-        invoiceId: invoice.id,
-      });
-    }
+    logger.info('[handleInvoicePaymentFailed] Payment log upserted to FAILED', {
+      invoiceId: invoice.id,
+    });
 
     // Notify user about failed payment via unified NotificationService
     const { dispatch } = await import('../../services/notification.service.js');
@@ -269,7 +288,7 @@ export async function handleChargeRefunded(
     const amountRefundedCents = charge.amount_refunded;
     if (!amountRefundedCents) return;
 
-    // Look up our internal billing user via stripeCustomers cache
+    // Look up our internal billing user via StripeCustomers cache
     const customerSnap = await db
       .collection(COLLECTIONS.STRIPE_CUSTOMERS)
       .where('stripeCustomerId', '==', customerId)
@@ -288,20 +307,29 @@ export async function handleChargeRefunded(
     const billingUserId = customerSnap.docs[0]!.data()['userId'] as string;
 
     // Decrement currentPeriodSpend (floor at 0 — can't go negative)
-    const billingSnap = await db
-      .collection(COLLECTIONS.BILLING_CONTEXTS)
-      .where('userId', '==', billingUserId)
-      .limit(1)
-      .get();
+    const billingContext = await getBillingState(db, billingUserId);
 
-    if (!billingSnap.empty) {
-      const currentSpend = (billingSnap.docs[0]!.data()['currentPeriodSpend'] as number) ?? 0;
+    if (billingContext) {
+      const { ownerId, ownerType } = parseBillingOwnerKey(billingUserId);
+      const periodLedgerRef = db
+        .collection(COLLECTIONS.PERIOD_LEDGERS)
+        .doc(
+          createPeriodLedgerDocumentId(
+            ownerType,
+            ownerId,
+            createPeriodKey(billingContext.periodStart)
+          )
+        );
+      const currentSpend = billingContext.currentPeriodSpend ?? 0;
       const decrement = Math.min(amountRefundedCents, currentSpend);
 
-      await billingSnap.docs[0]!.ref.update({
-        currentPeriodSpend: FieldValue.increment(-decrement),
-        updatedAt: FieldValue.serverTimestamp(),
-      });
+      await periodLedgerRef.set(
+        {
+          currentPeriodSpend: FieldValue.increment(-decrement),
+          updatedAt: FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
 
       logger.info('[handleChargeRefunded] currentPeriodSpend decremented', {
         billingUserId,
@@ -322,21 +350,18 @@ export async function handleChargeRefunded(
           : undefined;
 
     if (invoiceId) {
-      const logSnap = await db
-        .collection(COLLECTIONS.PAYMENT_LOGS)
-        .where('invoiceId', '==', invoiceId)
-        .limit(1)
-        .get();
+      await PaymentLogModel.findOneAndUpdate(
+        { invoiceId },
+        {
+          $set: {
+            status: 'REFUNDED',
+            amountRefunded: amountRefundedCents / 100,
+            updatedAt: new Date(),
+          },
+        }
+      );
 
-      if (!logSnap.empty) {
-        await logSnap.docs[0]!.ref.update({
-          status: 'REFUNDED',
-          amountRefunded: amountRefundedCents / 100,
-          updatedAt: FieldValue.serverTimestamp(),
-        });
-
-        logger.info('[handleChargeRefunded] Payment log marked REFUNDED', { invoiceId });
-      }
+      logger.info('[handleChargeRefunded] Payment log marked REFUNDED', { invoiceId });
     }
   } catch (error) {
     logger.error('[handleChargeRefunded] Failed to handle charge refund', {
@@ -383,10 +408,11 @@ export async function handleCustomerDeleted(
 
 /**
  * Handle setup_intent.succeeded event
- * Sets the payment method as the customer's default after a successful card save.
+ * Sets the payment method as the customer's default on Stripe AND syncs card
+ * details to Firestore (StripeCustomers cache + Organization billing state).
  */
 export async function handleSetupIntentSucceeded(
-  _db: Firestore,
+  db: Firestore,
   setupIntent: Stripe.SetupIntent,
   environment: 'staging' | 'production'
 ): Promise<void> {
@@ -407,13 +433,57 @@ export async function handleSetupIntentSucceeded(
     }
 
     const stripe = getStripeClient(environment);
-    await stripe.customers.update(customerId, {
-      invoice_settings: { default_payment_method: paymentMethodId },
-    });
 
-    logger.info('[handleSetupIntentSucceeded] Default payment method updated', {
+    // Ensure the payment method is attached to the customer before setting as default.
+    // The attach call is idempotent: if already attached it succeeds without error.
+    await stripe.paymentMethods.attach(paymentMethodId, { customer: customerId });
+
+    // Set default on Stripe + fetch full PM details in parallel
+    const [updatedCustomer, pm] = await Promise.all([
+      stripe.customers.update(customerId, {
+        invoice_settings: { default_payment_method: paymentMethodId },
+      }),
+      stripe.paymentMethods.retrieve(paymentMethodId),
+    ]);
+
+    const billingInfo = buildCachedBillingInfo(updatedCustomer);
+
+    const cardDetails =
+      pm.type === 'card' && pm.card
+        ? {
+            pmId: pm.id,
+            brand: pm.card.brand,
+            last4: pm.card.last4,
+            expMonth: pm.card.exp_month,
+            expYear: pm.card.exp_year,
+            funding: pm.card.funding,
+            country: pm.card.country,
+          }
+        : undefined;
+
+    // Persist to Firestore: StripeCustomers cache + Organization billing state
+    const customerSnap = await db
+      .collection(COLLECTIONS.STRIPE_CUSTOMERS)
+      .where('stripeCustomerId', '==', customerId)
+      .where('environment', '==', environment)
+      .limit(1)
+      .get();
+
+    if (!customerSnap.empty && cardDetails) {
+      await customerSnap.docs[0]!.ref.update({
+        defaultPaymentMethod: cardDetails,
+        ...(billingInfo ? { billingInfo } : {}),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+    }
+
+    await setHasPaymentMethod(db, customerId, environment, true, cardDetails);
+
+    logger.info('[handleSetupIntentSucceeded] Default payment method synced to Firestore', {
       customerId,
       paymentMethodId,
+      brand: cardDetails?.brand,
+      last4: cardDetails?.last4,
       setupIntentId: setupIntent.id,
     });
   } catch (error) {
@@ -426,19 +496,482 @@ export async function handleSetupIntentSucceeded(
 }
 
 /**
+ * Handle customer.updated event
+ * Fired by Stripe whenever customer data changes — most importantly when
+ * invoice_settings.default_payment_method is set after a SetupIntent.
+ * Uses metadata.userId for a direct lookup instead of an extra Stripe call.
+ */
+export async function handleCustomerUpdated(
+  db: Firestore,
+  customer: Stripe.Customer,
+  environment: 'staging' | 'production'
+): Promise<void> {
+  try {
+    const billingInfo = buildCachedBillingInfo(customer);
+    const defaultPmId =
+      typeof customer.invoice_settings?.default_payment_method === 'string'
+        ? customer.invoice_settings.default_payment_method
+        : customer.invoice_settings?.default_payment_method?.id;
+
+    const customerSnap = await db
+      .collection(COLLECTIONS.STRIPE_CUSTOMERS)
+      .where('stripeCustomerId', '==', customer.id)
+      .where('environment', '==', environment)
+      .limit(1)
+      .get();
+
+    if (!defaultPmId) {
+      if (!customerSnap.empty) {
+        await customerSnap.docs[0]!.ref.update({
+          ...(billingInfo ? { billingInfo } : {}),
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+      }
+
+      logger.info('[handleCustomerUpdated] No default_payment_method — synced billing info only', {
+        customerId: customer.id,
+      });
+      return;
+    }
+
+    const stripe = getStripeClient(environment);
+    const pm = await stripe.paymentMethods.retrieve(defaultPmId);
+
+    const cardDetails =
+      pm.type === 'card' && pm.card
+        ? {
+            pmId: pm.id,
+            brand: pm.card.brand,
+            last4: pm.card.last4,
+            expMonth: pm.card.exp_month,
+            expYear: pm.card.exp_year,
+            funding: pm.card.funding,
+            country: pm.card.country,
+          }
+        : undefined;
+
+    if (!customerSnap.empty && cardDetails) {
+      await customerSnap.docs[0]!.ref.update({
+        defaultPaymentMethod: cardDetails,
+        ...(billingInfo ? { billingInfo } : {}),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+    }
+
+    await setHasPaymentMethod(db, customer.id, environment, true, cardDetails);
+
+    logger.info('[handleCustomerUpdated] Default payment method synced', {
+      customerId: customer.id,
+      pmId: defaultPmId,
+      brand: cardDetails?.brand,
+      last4: cardDetails?.last4,
+    });
+  } catch (error) {
+    logger.error('[handleCustomerUpdated] Failed', { error, customerId: customer.id });
+    throw error;
+  }
+}
+
+/**
+ * Handle customer.subscription.created
+ * Sets billing.subscriptionId + billing.customerId on the Organization doc
+ * so billing resolution treats it as org-level billing.
+ */
+export async function handleSubscriptionCreated(
+  db: Firestore,
+  subscription: Stripe.Subscription,
+  environment: 'staging' | 'production'
+): Promise<void> {
+  try {
+    await syncSubscriptionToOrg(db, subscription, environment);
+    logger.info('[handleSubscriptionCreated] Subscription synced', {
+      subscriptionId: subscription.id,
+      customerId: subscription.customer,
+      status: subscription.status,
+    });
+  } catch (error) {
+    logger.error('[handleSubscriptionCreated] Failed', { error, subscriptionId: subscription.id });
+    throw error;
+  }
+}
+
+/**
+ * Handle customer.subscription.updated
+ * Syncs plan changes, status changes (trialing→active, active→past_due, etc.)
+ * and next billing date back to the Organization doc.
+ */
+export async function handleSubscriptionUpdated(
+  db: Firestore,
+  subscription: Stripe.Subscription,
+  environment: 'staging' | 'production'
+): Promise<void> {
+  try {
+    await syncSubscriptionToOrg(db, subscription, environment);
+    logger.info('[handleSubscriptionUpdated] Subscription synced', {
+      subscriptionId: subscription.id,
+      status: subscription.status,
+    });
+  } catch (error) {
+    logger.error('[handleSubscriptionUpdated] Failed', { error, subscriptionId: subscription.id });
+    throw error;
+  }
+}
+
+/**
+ * Handle customer.subscription.deleted
+ * Clears billing.subscriptionId on the Organization so billing resolution
+ * falls back to individual billing. Also notifies org admins.
+ */
+export async function handleSubscriptionDeleted(
+  db: Firestore,
+  subscription: Stripe.Subscription,
+  environment: 'staging' | 'production'
+): Promise<void> {
+  try {
+    const customerId =
+      typeof subscription.customer === 'string' ? subscription.customer : subscription.customer.id;
+
+    // Find the org by customerId
+    const orgSnap = await db
+      .collection('Organizations')
+      .where('billing.customerId', '==', customerId)
+      .limit(1)
+      .get();
+
+    if (orgSnap.empty) {
+      logger.warn('[handleSubscriptionDeleted] No org found for customer', {
+        customerId,
+        environment,
+      });
+      return;
+    }
+
+    const orgDoc = orgSnap.docs[0]!;
+    await orgDoc.ref.update({
+      'billing.subscriptionId': FieldValue.delete(),
+      'billing.subscriptionStatus': 'canceled',
+      'billing.nextBillingDate': FieldValue.delete(),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+
+    logger.info('[handleSubscriptionDeleted] Subscription cleared from org', {
+      orgId: orgDoc.id,
+      subscriptionId: subscription.id,
+    });
+
+    // Notify org admins
+    const orgData = orgDoc.data() as Record<string, unknown>;
+    const admins = (orgData['admins'] as Array<{ userId: string }> | undefined) ?? [];
+    const { dispatch } = await import('../../services/notification.service.js');
+    await Promise.all(
+      admins.map((admin) =>
+        dispatch(db, {
+          userId: admin.userId,
+          type: NOTIFICATION_TYPES.PAYMENT_FAILED,
+          title: 'Subscription Canceled',
+          body: 'Your organization subscription has been canceled. Individual billing is now active.',
+          deepLink: '/usage?section=payment-info',
+          priority: 'high',
+          source: { userName: 'NXT1 Billing' },
+        }).catch((err: unknown) =>
+          logger.error('[handleSubscriptionDeleted] Notify failed', { error: err })
+        )
+      )
+    );
+  } catch (error) {
+    logger.error('[handleSubscriptionDeleted] Failed', { error, subscriptionId: subscription.id });
+    throw error;
+  }
+}
+
+/**
+ * Shared helper: write subscription state to the matching Organization doc.
+ */
+async function syncSubscriptionToOrg(
+  db: Firestore,
+  subscription: Stripe.Subscription,
+  environment: 'staging' | 'production'
+): Promise<void> {
+  const customerId =
+    typeof subscription.customer === 'string' ? subscription.customer : subscription.customer.id;
+
+  // Find org by customerId
+  const orgSnap = await db
+    .collection('Organizations')
+    .where('billing.customerId', '==', customerId)
+    .limit(1)
+    .get();
+
+  if (orgSnap.empty) {
+    // If no org found, try falling back to StripeCustomers cache → user-level
+    const customerCache = await db
+      .collection(COLLECTIONS.STRIPE_CUSTOMERS)
+      .where('stripeCustomerId', '==', customerId)
+      .where('environment', '==', environment)
+      .limit(1)
+      .get();
+
+    if (!customerCache.empty) {
+      logger.info('[syncSubscriptionToOrg] No org found — subscription is user-level, skipping', {
+        customerId,
+      });
+    } else {
+      logger.warn('[syncSubscriptionToOrg] No org or user found for customer', { customerId });
+    }
+    return;
+  }
+
+  const orgDoc = orgSnap.docs[0]!;
+  const currentPeriodEnd = (subscription as unknown as Record<string, unknown>)[
+    'current_period_end'
+  ];
+  const nextBillingDate =
+    typeof currentPeriodEnd === 'number'
+      ? new Date(currentPeriodEnd * 1000).toISOString()
+      : undefined;
+
+  const update: Record<string, unknown> = {
+    'billing.subscriptionId': subscription.id,
+    'billing.customerId': customerId,
+    'billing.subscriptionStatus': subscription.status,
+    updatedAt: FieldValue.serverTimestamp(),
+  };
+  if (nextBillingDate) update['billing.nextBillingDate'] = nextBillingDate;
+
+  await orgDoc.ref.update(update);
+}
+
+/**
+ * Handle payment_method.attached
+ * Marks hasPaymentMethod = true and stores card details for frontend display.
+ */
+export async function handlePaymentMethodAttached(
+  db: Firestore,
+  paymentMethod: Stripe.PaymentMethod,
+  environment: 'staging' | 'production'
+): Promise<void> {
+  try {
+    const customerId =
+      typeof paymentMethod.customer === 'string'
+        ? paymentMethod.customer
+        : paymentMethod.customer?.id;
+
+    if (!customerId) return;
+
+    // Extract card details for display
+    const cardDetails =
+      paymentMethod.type === 'card' && paymentMethod.card
+        ? {
+            pmId: paymentMethod.id,
+            brand: paymentMethod.card.brand,
+            last4: paymentMethod.card.last4,
+            expMonth: paymentMethod.card.exp_month,
+            expYear: paymentMethod.card.exp_year,
+            funding: paymentMethod.card.funding,
+            country: paymentMethod.card.country,
+          }
+        : undefined;
+
+    // Always update StripeCustomers cache with card info for quick lookup
+    const customerSnap = await db
+      .collection(COLLECTIONS.STRIPE_CUSTOMERS)
+      .where('stripeCustomerId', '==', customerId)
+      .where('environment', '==', environment)
+      .limit(1)
+      .get();
+
+    if (!customerSnap.empty && cardDetails) {
+      await customerSnap.docs[0]!.ref.update({
+        defaultPaymentMethod: cardDetails,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+    }
+
+    await setHasPaymentMethod(db, customerId, environment, true, cardDetails);
+
+    logger.info('[handlePaymentMethodAttached] hasPaymentMethod set with card details', {
+      customerId,
+      paymentMethodId: paymentMethod.id,
+      brand: cardDetails?.brand,
+      last4: cardDetails?.last4,
+    });
+  } catch (error) {
+    logger.error('[handlePaymentMethodAttached] Failed', {
+      error,
+      paymentMethodId: paymentMethod.id,
+    });
+    throw error;
+  }
+}
+
+/**
+ * Handle payment_method.detached
+ * Clears hasPaymentMethod flag and card details.
+ * Also checks remaining payment methods via Stripe API — only clears if none left.
+ */
+export async function handlePaymentMethodDetached(
+  db: Firestore,
+  paymentMethod: Stripe.PaymentMethod,
+  environment: 'staging' | 'production'
+): Promise<void> {
+  try {
+    // On detach, customer is null per Stripe docs — look up via StripeCustomers by pmId
+    // First try the pmId stored in defaultPaymentMethod to find the right customer
+    const pmSnap = await db
+      .collection(COLLECTIONS.STRIPE_CUSTOMERS)
+      .where('defaultPaymentMethod.pmId', '==', paymentMethod.id)
+      .where('environment', '==', environment)
+      .limit(1)
+      .get();
+
+    if (pmSnap.empty) {
+      logger.info('[handlePaymentMethodDetached] PM not found in cache — skipping', {
+        paymentMethodId: paymentMethod.id,
+      });
+      return;
+    }
+
+    const customerDoc = pmSnap.docs[0]!;
+    const customerId = customerDoc.data()['stripeCustomerId'] as string;
+
+    // Check if customer still has other payment methods
+    const stripe = getStripeClient(environment);
+    const remainingPMs = await stripe.paymentMethods.list({
+      customer: customerId,
+      type: 'card',
+      limit: 1,
+    });
+
+    const hasRemaining = remainingPMs.data.length > 0;
+
+    if (hasRemaining) {
+      // Swap defaultPaymentMethod to the next available card
+      const nextPM = remainingPMs.data[0]!;
+      const nextCard = nextPM.card
+        ? {
+            pmId: nextPM.id,
+            brand: nextPM.card.brand,
+            last4: nextPM.card.last4,
+            expMonth: nextPM.card.exp_month,
+            expYear: nextPM.card.exp_year,
+            funding: nextPM.card.funding,
+            country: nextPM.card.country,
+          }
+        : undefined;
+
+      await customerDoc.ref.update({
+        defaultPaymentMethod: nextCard ?? FieldValue.delete(),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      await setHasPaymentMethod(db, customerId, environment, true, nextCard);
+
+      logger.info('[handlePaymentMethodDetached] Swapped to next payment method', {
+        customerId,
+        removedPmId: paymentMethod.id,
+        newPmId: nextPM.id,
+      });
+    } else {
+      // No cards left — clear everything
+      await customerDoc.ref.update({
+        defaultPaymentMethod: FieldValue.delete(),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      await setHasPaymentMethod(db, customerId, environment, false, undefined);
+
+      logger.info('[handlePaymentMethodDetached] All cards removed — hasPaymentMethod cleared', {
+        customerId,
+        paymentMethodId: paymentMethod.id,
+      });
+    }
+  } catch (error) {
+    logger.error('[handlePaymentMethodDetached] Failed', {
+      error,
+      paymentMethodId: paymentMethod.id,
+    });
+    throw error;
+  }
+}
+
+interface CardDetails {
+  pmId: string;
+  brand: string;
+  last4: string;
+  expMonth: number;
+  expYear: number;
+  funding: string;
+  country: string | null;
+}
+
+/**
+ * Shared helper: set billing.hasPaymentMethod (+ optional card details) on org state.
+ */
+async function setHasPaymentMethod(
+  db: Firestore,
+  customerId: string,
+  environment: 'staging' | 'production',
+  value: boolean,
+  cardDetails?: CardDetails
+): Promise<void> {
+  const pmUpdate = cardDetails
+    ? { defaultPaymentMethod: cardDetails }
+    : { defaultPaymentMethod: FieldValue.delete() };
+
+  // Try org first
+  const orgSnap = await db
+    .collection('Organizations')
+    .where('billing.customerId', '==', customerId)
+    .limit(1)
+    .get();
+
+  if (!orgSnap.empty) {
+    await orgSnap.docs[0]!.ref.update({
+      'billing.hasPaymentMethod': value,
+      'billing.defaultPaymentMethod': pmUpdate.defaultPaymentMethod,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+    return;
+  }
+
+  // Individual payment-method state is resolved from StripeCustomers/Stripe APIs.
+  // Do not mirror it into deprecated legacy documents.
+  const customerSnap = await db
+    .collection(COLLECTIONS.STRIPE_CUSTOMERS)
+    .where('stripeCustomerId', '==', customerId)
+    .where('environment', '==', environment)
+    .limit(1)
+    .get();
+
+  if (customerSnap.empty) return;
+
+  const userId = customerSnap.docs[0]!.data()['userId'] as string;
+  logger.info('[setHasPaymentMethod] Resolved individual payment-method state from Stripe only', {
+    userId,
+    customerId,
+    environment,
+    hasPaymentMethod: value,
+    hasCardDetails: Boolean(cardDetails),
+  });
+}
+
+/**
  * Handle checkout.session.completed
  *
  * Processes completed Stripe Checkout Sessions. Currently handles:
  * - `wallet_topup`: Credits the user's prepaid wallet balance via addWalletTopUp.
+ * - `org_wallet_topup`: Credits the organization's wallet via addFundsToOrgWallet.
+ *
+ * Also promotes the payment method used during checkout to the customer's
+ * default so future top-ups can skip Stripe Checkout entirely.
  */
 async function handleCheckoutSessionCompleted(
   db: Firestore,
-  session: Stripe.Checkout.Session
+  session: Stripe.Checkout.Session,
+  environment: 'staging' | 'production'
 ): Promise<void> {
   const metadata = session.metadata ?? {};
   const type = metadata['type'];
 
-  if (type !== 'wallet_topup') {
+  if (type !== 'wallet_topup' && type !== 'org_wallet_topup') {
     logger.info('[handleCheckoutSessionCompleted] Ignoring non-wallet checkout session', {
       sessionId: session.id,
       type,
@@ -446,52 +979,193 @@ async function handleCheckoutSessionCompleted(
     return;
   }
 
+  await finalizeWalletCheckoutSession(db, session, environment, 'webhook');
+}
+
+export async function finalizeWalletCheckoutSession(
+  db: Firestore,
+  session: Stripe.Checkout.Session,
+  environment: 'staging' | 'production',
+  finalizationSource: 'webhook' | 'client_return' = 'webhook'
+): Promise<{
+  readonly kind: 'wallet_topup' | 'org_wallet_topup';
+  readonly userId: string;
+  readonly organizationId?: string;
+  readonly newBalance: number;
+}> {
+  const metadata = session.metadata ?? {};
+  const type = metadata['type'];
+
+  if (type !== 'wallet_topup' && type !== 'org_wallet_topup') {
+    throw new Error(`Unsupported checkout session type: ${type ?? 'unknown'}`);
+  }
+
   const userId = metadata['userId'];
   const amountCents = parseInt(metadata['amountCents'] ?? '0', 10);
 
   if (!userId || !amountCents || amountCents <= 0) {
-    logger.error('[handleCheckoutSessionCompleted] Missing or invalid metadata', {
-      sessionId: session.id,
-      userId,
-      amountCents,
-    });
-    return;
+    throw new Error(`Missing or invalid checkout metadata for session ${session.id}`);
   }
 
   if (session.payment_status !== 'paid') {
-    logger.warn('[handleCheckoutSessionCompleted] Payment not confirmed', {
-      sessionId: session.id,
-      paymentStatus: session.payment_status,
-    });
-    return;
+    throw new Error(`Checkout session ${session.id} is not paid`);
   }
 
   try {
-    const { newBalance } = await addWalletTopUp(db, userId, amountCents, 'stripe');
+    let newBalance: number;
+    let organizationId: string | undefined;
+    let alreadyFinalized = false;
 
-    // Write payment log so the dashboard's Payment History section shows this top-up
-    const now = FieldValue.serverTimestamp();
-    await db.collection(COLLECTIONS.PAYMENT_LOGS).add({
-      invoiceId: session.id,
-      customerId: (session.customer as string) ?? '',
-      userId,
-      amountDue: amountCents / 100,
-      amountPaid: amountCents / 100,
-      currency: session.currency ?? 'usd',
-      status: 'PAID',
-      paymentMethodLabel: 'Card',
-      type: 'wallet_topup',
-      invoiceUrl: null,
-      rawEvent: session as unknown as Record<string, unknown>,
-      createdAt: now,
-    });
+    if (type === 'org_wallet_topup') {
+      organizationId = metadata['organizationId'];
+      if (!organizationId) {
+        throw new Error(`Missing organizationId for org wallet top-up session ${session.id}`);
+      }
+      ({ newBalance, alreadyFinalized } = await addFundsToOrgWallet(
+        db,
+        organizationId,
+        amountCents,
+        'stripe_checkout',
+        {
+          checkoutSessionId: session.id,
+          initiatedByUserId: userId,
+        }
+      ));
 
-    logger.info('[handleCheckoutSessionCompleted] Wallet topped up via Stripe Checkout', {
-      sessionId: session.id,
+      // Notify all roster members currently on personal billing override
+      // so they know the org wallet is funded and can switch back.
+      if (!alreadyFinalized) {
+        notifyOrgMembersWalletRefilled(db, organizationId, newBalance).catch((err: unknown) =>
+          logger.error('[handleCheckoutSessionCompleted] Failed to notify org members', { err })
+        );
+      }
+
+      await PaymentLogModel.findOneAndUpdate(
+        { invoiceId: session.id },
+        {
+          $set: {
+            finalizationSource,
+            updatedAt: new Date(),
+          },
+          $setOnInsert: {
+            invoiceId: session.id,
+            customerId: (session.customer as string) ?? '',
+            userId: `org:${organizationId}`,
+            organizationId,
+            amountDue: amountCents / 100,
+            amountPaid: amountCents / 100,
+            currency: session.currency ?? 'usd',
+            status: 'PAID',
+            paymentMethodLabel: 'Card',
+            type: 'org_wallet_topup',
+            invoiceUrl: null,
+            rawEvent: session as unknown as Record<string, unknown>,
+            createdAt: new Date(),
+          },
+        },
+        { upsert: true }
+      );
+
+      logger.info('[handleCheckoutSessionCompleted] Org wallet topped up', {
+        sessionId: session.id,
+        organizationId,
+        amountCents,
+        newBalance,
+        finalizationSource,
+      });
+    } else {
+      ({ newBalance, alreadyFinalized } = await addWalletTopUp(db, userId, amountCents, 'stripe', {
+        checkoutSessionId: session.id,
+        initiatedByUserId: userId,
+      }));
+
+      // Retrieve PaymentIntent once: get receipt URL AND promote default payment method.
+      const customerId =
+        typeof session.customer === 'string' ? session.customer : session.customer?.id;
+      const paymentIntentId =
+        typeof session.payment_intent === 'string'
+          ? session.payment_intent
+          : session.payment_intent?.id;
+
+      let receiptUrl: string | null = null;
+
+      if (customerId && paymentIntentId) {
+        try {
+          const stripe = getStripeClient(environment);
+          const pi = await stripe.paymentIntents.retrieve(paymentIntentId, {
+            expand: ['latest_charge'],
+          });
+
+          // Extract receipt URL from the latest charge.
+          const charge = pi.latest_charge;
+          if (charge && typeof charge !== 'string') {
+            receiptUrl = charge.receipt_url ?? null;
+          }
+
+          // Promote the payment method to customer default for future direct-charges.
+          const pmId =
+            typeof pi.payment_method === 'string' ? pi.payment_method : pi.payment_method?.id;
+          if (pmId) {
+            await stripe.customers.update(customerId, {
+              invoice_settings: { default_payment_method: pmId },
+            });
+            logger.info('[handleCheckoutSessionCompleted] Promoted payment method to default', {
+              sessionId: session.id,
+              customerId,
+              pmId,
+            });
+          }
+        } catch (pmErr) {
+          // Non-fatal — wallet already credited; log and continue.
+          logger.warn('[handleCheckoutSessionCompleted] Failed to retrieve PaymentIntent details', {
+            sessionId: session.id,
+            err: pmErr,
+          });
+        }
+      }
+
+      await PaymentLogModel.findOneAndUpdate(
+        { invoiceId: session.id },
+        {
+          $set: {
+            finalizationSource,
+            updatedAt: new Date(),
+          },
+          $setOnInsert: {
+            invoiceId: session.id,
+            customerId: (session.customer as string) ?? '',
+            userId,
+            amountDue: amountCents / 100,
+            amountPaid: amountCents / 100,
+            currency: session.currency ?? 'usd',
+            status: 'PAID',
+            paymentMethodLabel: 'Card',
+            type: 'wallet_topup',
+            receiptUrl,
+            invoiceUrl: null,
+            rawEvent: session as unknown as Record<string, unknown>,
+            createdAt: new Date(),
+          },
+        },
+        { upsert: true }
+      );
+
+      logger.info('[handleCheckoutSessionCompleted] Wallet topped up via Stripe Checkout', {
+        sessionId: session.id,
+        userId,
+        amountCents,
+        newBalance,
+        finalizationSource,
+        alreadyFinalized,
+      });
+    }
+
+    return {
+      kind: type,
       userId,
-      amountCents,
+      organizationId,
       newBalance,
-    });
+    };
   } catch (error) {
     logger.error('[handleCheckoutSessionCompleted] Failed to credit wallet', {
       error,
@@ -501,6 +1175,133 @@ async function handleCheckoutSessionCompleted(
     });
     throw error;
   }
+}
+
+/**
+ * Handle invoice.paid
+ *
+ * Credits the organization wallet when a Stripe Invoice with type='org_invoice_topup'
+ * is paid. This closes the loop for invoice-based top-ups requested via
+ * POST /usage/invoice-topup.
+ */
+async function handleInvoicePaid(db: Firestore, invoice: Stripe.Invoice): Promise<void> {
+  const metadata = invoice.metadata ?? {};
+  if (metadata['type'] !== 'org_invoice_topup') {
+    // Not one of our invoice top-ups — ignore
+    return;
+  }
+
+  const organizationId = metadata['organizationId'];
+  const amountCents = parseInt(metadata['amountCents'] ?? '0', 10);
+  const userId = metadata['userId'] ?? '';
+
+  if (!organizationId || !amountCents || amountCents <= 0) {
+    logger.error('[handleInvoicePaid] Missing metadata on org invoice', {
+      invoiceId: invoice.id,
+      metadata,
+    });
+    return;
+  }
+
+  try {
+    const { newBalance } = await addFundsToOrgWallet(
+      db,
+      organizationId,
+      amountCents,
+      'invoice_payment'
+    );
+
+    await PaymentLogModel.findOneAndUpdate(
+      { invoiceId: invoice.id },
+      {
+        $setOnInsert: {
+          invoiceId: invoice.id,
+          customerId: (invoice.customer as string) ?? '',
+          userId: `org:${organizationId}`,
+          organizationId,
+          amountDue: amountCents / 100,
+          amountPaid: amountCents / 100,
+          currency: invoice.currency ?? 'usd',
+          status: 'PAID',
+          paymentMethodLabel: metadata['poNumber']
+            ? `Invoice (PO #${metadata['poNumber']})`
+            : 'Invoice',
+          type: 'org_invoice_topup',
+          invoiceUrl: invoice.invoice_pdf,
+          rawEvent: invoice as unknown as Record<string, unknown>,
+          createdAt: new Date(),
+        },
+      },
+      { upsert: true }
+    );
+
+    logger.info('[handleInvoicePaid] Org wallet credited from invoice payment', {
+      invoiceId: invoice.id,
+      organizationId,
+      userId,
+      amountCents,
+      newBalance,
+    });
+
+    // Notify all roster members on personal billing override
+    notifyOrgMembersWalletRefilled(db, organizationId, newBalance).catch((err: unknown) =>
+      logger.error('[handleInvoicePaid] Failed to notify org members', { err })
+    );
+  } catch (error) {
+    logger.error('[handleInvoicePaid] Failed to credit org wallet', {
+      error,
+      invoiceId: invoice.id,
+      organizationId,
+      amountCents,
+    });
+    throw error;
+  }
+}
+
+/**
+ * After an org wallet top-up, find all roster members currently on personal billing
+ * override (`Users.activeBillingTarget.source='personal'`) and send them an in-app notification so they
+ * can switch back to org billing from the usage overview.
+ *
+ * Fire-and-forget — called with .catch() by callers, never blocks the webhook response.
+ */
+async function notifyOrgMembersWalletRefilled(
+  db: Firestore,
+  organizationId: string,
+  newBalanceCents: number
+): Promise<void> {
+  const { dispatch } = await import('../../services/notification.service.js');
+
+  const usersSnap = await db
+    .collection('Users')
+    .where('activeBillingTarget.organizationId', '==', organizationId)
+    .where('activeBillingTarget.source', '==', 'personal')
+    .get();
+
+  if (usersSnap.empty) return;
+
+  const balanceDollars = (newBalanceCents / 100).toFixed(2);
+
+  await Promise.allSettled(
+    usersSnap.docs.map((doc) => {
+      const memberId = doc.id;
+      if (!memberId) return Promise.resolve();
+      return dispatch(db, {
+        userId: memberId,
+        type: NOTIFICATION_TYPES.ORG_WALLET_REFILLED,
+        title: 'Org Wallet Refilled',
+        body: `Your organization's wallet has been topped up ($${balanceDollars}). You can switch back to org billing now.`,
+        deepLink: '/usage?section=overview',
+        data: { organizationId, newBalanceCents: String(newBalanceCents) },
+      });
+    })
+  );
+
+  logger.info('[notifyOrgMembersWalletRefilled] Notifications dispatched', {
+    organizationId,
+    recipientCount: usersSnap.size,
+    newBalanceCents,
+  });
 }
 
 /**
@@ -537,6 +1338,10 @@ export async function handleWebhookEvent(
       await handleChargeRefunded(db, event.data.object as Stripe.Charge, environment);
       break;
 
+    case 'customer.updated':
+      await handleCustomerUpdated(db, event.data.object as Stripe.Customer, environment);
+      break;
+
     case 'customer.deleted':
       await handleCustomerDeleted(
         db,
@@ -546,7 +1351,35 @@ export async function handleWebhookEvent(
       break;
 
     case 'checkout.session.completed':
-      await handleCheckoutSessionCompleted(db, event.data.object as Stripe.Checkout.Session);
+      await handleCheckoutSessionCompleted(
+        db,
+        event.data.object as Stripe.Checkout.Session,
+        environment
+      );
+      break;
+
+    case 'invoice.paid':
+      await handleInvoicePaid(db, event.data.object as Stripe.Invoice);
+      break;
+
+    case 'customer.subscription.created':
+      await handleSubscriptionCreated(db, event.data.object as Stripe.Subscription, environment);
+      break;
+
+    case 'customer.subscription.updated':
+      await handleSubscriptionUpdated(db, event.data.object as Stripe.Subscription, environment);
+      break;
+
+    case 'customer.subscription.deleted':
+      await handleSubscriptionDeleted(db, event.data.object as Stripe.Subscription, environment);
+      break;
+
+    case 'payment_method.attached':
+      await handlePaymentMethodAttached(db, event.data.object as Stripe.PaymentMethod, environment);
+      break;
+
+    case 'payment_method.detached':
+      await handlePaymentMethodDetached(db, event.data.object as Stripe.PaymentMethod, environment);
       break;
 
     default:

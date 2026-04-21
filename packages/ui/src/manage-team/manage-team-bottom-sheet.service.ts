@@ -69,7 +69,7 @@ export class ManageTeamBottomSheetService {
 
     const {
       teamId = null,
-      initialSection: _initialSection,
+      initialSection = null,
       title = teamId ? 'Manage Team' : 'Create Team',
       breakpoints = SHEET_PRESETS.FULL.breakpoints,
       initialBreakpoint = SHEET_PRESETS.FULL.initialBreakpoint,
@@ -81,6 +81,7 @@ export class ManageTeamBottomSheetService {
       componentProps: {
         teamId,
         title,
+        initialSection,
         isModalMode: true,
       },
       breakpoints,

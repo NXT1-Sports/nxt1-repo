@@ -35,6 +35,12 @@ export interface AgentXAttachment {
   readonly type: AgentXAttachmentType;
   /** File size in bytes. */
   readonly sizeBytes: number;
+  /**
+   * Cloudflare Stream video ID — present only for `type === 'video'` attachments
+   * uploaded via TUS. Used by Agent X tools such as `clip_video`, `generate_thumbnail`,
+   * and `generate_captions`.
+   */
+  readonly cloudflareVideoId?: string;
 }
 
 // ============================================
@@ -294,6 +300,8 @@ export interface AgentXChatRequest {
    * Used after approval resolution and SSE drop recovery.
    */
   readonly resumeOperationId?: string;
+  /** Replay dedup: skip persisted events up to and including this seq number. */
+  readonly afterSeq?: number;
 }
 
 /**
@@ -352,6 +360,7 @@ export interface AgentXToolStep {
 export type AgentXRichCardType =
   | 'planner'
   | 'confirmation'
+  | 'ask_user'
   | 'data-table'
   | 'citations'
   | 'parameter-form'
@@ -385,6 +394,7 @@ export interface AgentXRichCard {
     | AgentXPlannerPayload
     | AgentXDataTablePayload
     | AgentXConfirmationPayload
+    | AgentXAskUserPayload
     | AgentXCitationsPayload
     | AgentXParameterFormPayload
     | AgentXDraftPayload
@@ -445,6 +455,18 @@ export interface AgentXConfirmationPayload {
   readonly approvalId?: string;
   /** Operation id associated with the pending approval. */
   readonly operationId?: string;
+}
+
+// ── Ask User ──
+
+/** Payload for the `ask_user` card type — inline question from Agent X. */
+export interface AgentXAskUserPayload {
+  /** The question Agent X is asking. */
+  readonly question: string;
+  /** Optional additional context or instructions. */
+  readonly context?: string;
+  /** The thread ID — used when posting the user's reply. */
+  readonly threadId?: string;
 }
 
 // ── Citations ──
@@ -684,6 +706,12 @@ export interface AgentXStreamCardEvent {
   readonly type: AgentXRichCardType;
   /** Card title. */
   readonly title: string;
+  /**
+   * When true, the frontend should discard any text parts streamed before
+   * this card (e.g. when ask_user causes the LLM's streamed question text
+   * to be superseded by the interactive card).
+   */
+  readonly clearText?: boolean;
   /** Type-specific payload (e.g. planner checklist items). */
   readonly payload:
     | AgentXPlannerPayload
@@ -854,7 +882,7 @@ export interface ShellWeeklyPlaybookItem {
   readonly why: string;
   readonly details: string;
   readonly actionLabel: string;
-  readonly status: 'pending' | 'in-progress' | 'complete' | 'problem';
+  readonly status: 'pending' | 'in-progress' | 'complete' | 'snoozed' | 'problem';
   readonly goal?: ShellGoalTag;
   readonly coordinator?: ShellPlaybookCoordinator;
 }
@@ -875,6 +903,53 @@ export interface AgentDashboardGoal {
   readonly category: string;
   readonly icon?: string;
   readonly createdAt: string;
+  readonly completedAt?: string;
+  readonly isCompleted?: boolean;
+}
+
+/**
+ * A completed goal archived to `Users/{uid}/goal_history/{goalId}`.
+ * Written at completion time; never mutated after creation.
+ */
+export interface CompletedGoalRecord {
+  readonly id: string;
+  readonly goalId: string;
+  readonly text: string;
+  readonly category: string;
+  readonly icon?: string;
+  /** ISO timestamp when the goal was originally set */
+  readonly createdAt: string;
+  /** ISO timestamp when the user marked the goal complete */
+  readonly completedAt: string;
+  /** User role at time of completion (athlete | coach | director) */
+  readonly role: string;
+  /** Whole-day count from createdAt → completedAt */
+  readonly daysToComplete: number;
+}
+
+/** Request body for completing an active goal. */
+export interface AgentCompleteGoalRequest {
+  readonly goalId: string;
+  readonly notes?: string;
+}
+
+/** Response from GET /goal-history */
+export interface AgentGoalHistoryResponse {
+  readonly success: boolean;
+  readonly data?: {
+    readonly history: readonly CompletedGoalRecord[];
+    readonly totalCompleted: number;
+  };
+  readonly error?: string;
+}
+
+/** Response from POST /goals/:goalId/complete */
+export interface AgentCompleteGoalResponse {
+  readonly success: boolean;
+  readonly data?: {
+    readonly completedGoal: CompletedGoalRecord;
+  };
+  readonly error?: string;
 }
 
 /** Dashboard response aggregating all Agent X shell data. */
@@ -924,8 +999,41 @@ export interface AgentPlaybookResponse {
 }
 
 // ============================================
-// OPERATIONS LOG TYPES
+// WEEKLY RECAP TYPES
 // ============================================
+
+/**
+ * A persisted weekly recap document stored in:
+ * `Users/{uid}/agent_weekly_recaps/{recapId}`
+ *
+ * Capped at 52 documents (1 year of history).
+ */
+export interface AgentWeeklyRecap {
+  readonly id: string;
+  /** Sequential recap number (1-based, ever-increasing). */
+  readonly recapNumber: number;
+  /** ISO week label, e.g. "Week 28, 2025". */
+  readonly weekLabel: string;
+  /** User-facing subject line generated by Agent X. */
+  readonly subject: string;
+  /** Opening paragraph written by Agent X. */
+  readonly introParagraph: string;
+  /** Up to 5 completed actions this week. */
+  readonly completedActions: readonly string[];
+  /** Up to 5 key results / highlights. */
+  readonly resultsHighlights: readonly string[];
+  /** Up to 5 recommended next steps. */
+  readonly nextSteps: readonly string[];
+  /** CTA button label. */
+  readonly ctaText: string;
+  /** CTA destination URL (absolute). */
+  readonly ctaUrl: string;
+  /** Whether the email was actually sent (false if user opted out). */
+  readonly emailSent: boolean;
+  /** Job ID that produced this recap. */
+  readonly jobId?: string;
+  readonly createdAt: string;
+}
 
 /** Display status for an operation log entry (mapped from AgentOperationStatus). */
 export type OperationLogStatus =
@@ -959,6 +1067,8 @@ export interface OperationLogEntry {
   readonly duration?: string;
   /** MongoDB thread ID linking to the Agent X conversation for this operation. */
   readonly threadId?: string;
+  /** Firestore AgentJobs document ID — used for live onSnapshot event streaming. */
+  readonly operationId?: string;
   /**
    * How this operation was initiated.
    * - `'user'` — direct user prompt in chat UI

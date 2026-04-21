@@ -51,12 +51,6 @@ export const serverRoutes: ServerRoute[] = [
     renderMode: RenderMode.Server,
   },
 
-  // Explore/Discovery
-  {
-    path: 'explore',
-    renderMode: RenderMode.Server,
-  },
-
   // Help Center - All pages
   {
     path: 'help-center',
@@ -80,15 +74,6 @@ export const serverRoutes: ServerRoute[] = [
   // Main App Routes (wrapped in shell)
   {
     path: '',
-    renderMode: RenderMode.Server,
-  },
-  // Home redirects to /explore (backward compat — no dedicated render mode needed)
-  {
-    path: 'explore',
-    renderMode: RenderMode.Server,
-  },
-  {
-    path: 'explore/**',
     renderMode: RenderMode.Server,
   },
   {
@@ -129,23 +114,6 @@ export const serverRoutes: ServerRoute[] = [
   },
   {
     path: 'agent/**',
-    renderMode: RenderMode.Server,
-  },
-  {
-    path: 'pulse',
-    renderMode: RenderMode.Server,
-  },
-  {
-    path: 'pulse/**',
-    renderMode: RenderMode.Server,
-  },
-  // Legacy /news redirect
-  {
-    path: 'news',
-    renderMode: RenderMode.Server,
-  },
-  {
-    path: 'news/**',
     renderMode: RenderMode.Server,
   },
   {

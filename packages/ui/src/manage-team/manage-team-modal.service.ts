@@ -6,8 +6,8 @@
  * Unified entry point for Manage Team that auto-selects
  * the best presentation based on platform:
  *
- * - **Mobile / Native / Touch < 768px**: Ionic bottom sheet via ManageTeamBottomSheetService
- * - **Web Desktop >= 768px**: Pure Angular overlay via NxtOverlayService
+ * - **Native mobile app (Capacitor)**: Ionic bottom sheet via ManageTeamBottomSheetService
+ * - **Web browsers (desktop + mobile web)**: Pure Angular overlay via NxtOverlayService
  *
  * Follows the same adaptive pattern as EditProfileModalService.
  *
@@ -38,6 +38,7 @@ import { NxtLoggingService } from '../services/logging';
 import { NxtModalService } from '../services/modal';
 import { ANALYTICS_ADAPTER } from '../services/analytics/analytics-adapter.token';
 import { NxtBreadcrumbService } from '../services/breadcrumb/breadcrumb.service';
+import type { ManageTeamSectionId } from '@nxt1/core';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import { ManageTeamBottomSheetService } from './manage-team-bottom-sheet.service';
 import { ManageTeamService } from './manage-team.service';
@@ -48,7 +49,7 @@ export interface ManageTeamModalOptions {
   /** Team ID to manage. */
   readonly teamId?: string | null;
   /** Initial section to expand. */
-  readonly initialSection?: string;
+  readonly initialSection?: ManageTeamSectionId | null;
   /** Custom modal title. */
   readonly title?: string;
 }
@@ -71,9 +72,9 @@ export class ManageTeamModalService {
   private readonly breadcrumb = inject(NxtBreadcrumbService);
 
   /**
-   * Opens Manage Team with adaptive presentation:
-   * - Mobile/tablet: bottom sheet with drag handle (Ionic)
-   * - Desktop: centered overlay (pure Angular)
+   * Opens Manage Team with platform-appropriate presentation:
+   * - Native mobile app: bottom sheet with drag handle (Ionic)
+   * - Web browsers, including mobile web: overlay modal (pure Angular)
    */
   async open(options: ManageTeamModalOptions = {}): Promise<ManageTeamModalResult> {
     const presentation = this.shouldUseBottomSheet() ? 'bottom-sheet' : 'web-overlay';
@@ -99,6 +100,7 @@ export class ManageTeamModalService {
   private async openBottomSheet(options: ManageTeamModalOptions): Promise<ManageTeamModalResult> {
     const result = await this.bottomSheet.open({
       teamId: options.teamId,
+      initialSection: options.initialSection ?? undefined,
       title: options.title,
     });
     return { saved: result.saved };
@@ -114,8 +116,9 @@ export class ManageTeamModalService {
         component: ManageTeamWebModalComponent,
         inputs: {
           teamId: options.teamId ?? null,
+          initialSection: options.initialSection ?? undefined,
         },
-        size: 'xl',
+        size: this.platform.isBrowser() && this.platform.viewport().width < 768 ? 'full' : 'xl',
         backdropDismiss: true,
         escDismiss: true,
         showCloseButton: false,
@@ -145,26 +148,8 @@ export class ManageTeamModalService {
   // PLATFORM DETECTION
   // ============================================
 
-  /** Same logic as EditProfileModalService — consistent platform detection. */
+  /** Only native mobile apps should use the Ionic bottom sheet presentation. */
   private shouldUseBottomSheet(): boolean {
-    if (this.platform.isNative()) {
-      return true;
-    }
-
-    if (!this.platform.isBrowser()) {
-      return false;
-    }
-
-    const viewportWidth = this.platform.viewport().width;
-    if (viewportWidth < 768) {
-      return true;
-    }
-
-    const hasTouch = this.platform.hasTouch();
-    if (hasTouch && viewportWidth < 1024) {
-      return true;
-    }
-
-    return false;
+    return this.platform.isNative();
   }
 }

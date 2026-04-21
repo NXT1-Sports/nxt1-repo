@@ -227,7 +227,6 @@ export class ServerAuthService implements IAuthService, OnDestroy {
           connectedEmails: user.connectedEmails,
           selectedSports: user.selectedSports,
           unicode: user.unicode,
-          username: user.username,
         }
       : null;
 
@@ -239,6 +238,7 @@ export class ServerAuthService implements IAuthService, OnDestroy {
           photoURL: fbUser.photoURL,
           emailVerified: fbUser.emailVerified,
           metadata: fbUser.metadata,
+          providerData: fbUser.providerData,
         }
       : null;
 

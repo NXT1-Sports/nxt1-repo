@@ -12,7 +12,7 @@ import type { AgentToolCategory } from '@nxt1/core';
 import type { AgentQueueService } from '../../queue/queue.service.js';
 import { logger } from '../../../../utils/logger.js';
 
-const RECURRING_TASKS_COLLECTION = 'recurring_tasks' as const;
+const RECURRING_TASKS_COLLECTION = 'RecurringTasks' as const;
 
 export class CancelRecurringTaskTool extends BaseTool {
   readonly name = 'cancel_recurring_task';

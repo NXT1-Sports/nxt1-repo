@@ -13,12 +13,13 @@
             android:label="@string/title_activity_main"
             android:theme="@style/AppTheme.NoActionBarLaunch"
             android:launchMode="singleTask"
+            android:windowSoftInputMode="adjustNothing"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            
+
             <!-- Android App Links - Opens app from nxt1sports.com links -->
             <intent-filter android:autoVerify="true">
                 <action android:name="android.intent.action.VIEW" />
@@ -38,7 +39,7 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="https" android:host="app.nxt1sports.com" />
             </intent-filter>
-            
+
             <!-- Custom URL Scheme (nxt1://) for legacy deep links -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
@@ -60,12 +61,12 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
-    
+
     <!-- Geolocation Permissions (Required for @capacitor/geolocation) -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-feature android:name="android.hardware.location.gps" android:required="false" />
-    
+
     <!-- Camera Permissions (for profile photos and videos) -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />

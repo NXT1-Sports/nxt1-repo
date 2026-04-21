@@ -35,13 +35,13 @@ import {
 } from '@nxt1/core';
 import { NxtIconComponent } from '../../components/icon';
 import { NxtActivityCardComponent } from '../../components/activity-card';
-import { FeedCardShellComponent } from '../../feed/feed-card-shell.component';
-import { FeedPostContentComponent } from '../../feed/feed-post-content.component';
-import { FeedStatCardComponent } from '../../feed/feed-stat-card.component';
-import { FeedEventCardComponent } from '../../feed/feed-event-card.component';
-import { FeedMetricsCardComponent } from '../../feed/feed-metrics-card.component';
-import { FeedAwardCardComponent } from '../../feed/feed-award-card.component';
-import { FeedNewsCardComponent } from '../../feed/feed-news-card.component';
+import { FeedCardShellComponent } from '../../post-cards/feed-card-shell.component';
+import { FeedPostContentComponent } from '../../post-cards/feed-post-content.component';
+import { FeedStatCardComponent } from '../../post-cards/feed-stat-card.component';
+import { FeedEventCardComponent } from '../../post-cards/feed-event-card.component';
+import { FeedMetricsCardComponent } from '../../post-cards/feed-metrics-card.component';
+import { FeedAwardCardComponent } from '../../post-cards/feed-award-card.component';
+import { FeedNewsCardComponent } from '../../post-cards/feed-news-card.component';
 import { TeamProfileService } from '../team-profile.service';
 
 @Component({

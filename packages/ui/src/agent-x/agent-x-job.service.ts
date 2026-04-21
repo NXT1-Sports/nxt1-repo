@@ -29,8 +29,11 @@ import { firstValueFrom } from 'rxjs';
 import { NxtLoggingService } from '../services/logging/logging.service';
 import { ANALYTICS_ADAPTER } from '../services/analytics/analytics-adapter.token';
 import { NxtBreadcrumbService } from '../services/breadcrumb/breadcrumb.service';
+import { PERFORMANCE_ADAPTER } from '../services/performance';
 import { APP_EVENTS } from '@nxt1/core/analytics';
+import { ATTRIBUTE_NAMES, TRACE_NAMES } from '@nxt1/core/performance';
 import { AgentXControlPanelStateService } from './agent-x-control-panel-state.service';
+import { ProfileGenerationStateService } from '../profile/profile-generation-state.service';
 
 /**
  * Injection token for the Agent X API base URL.
@@ -98,8 +101,9 @@ export class AgentXJobService {
   private readonly logger = inject(NxtLoggingService).child('AgentXJobService');
   private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
   private readonly breadcrumb = inject(NxtBreadcrumbService);
+  private readonly performance = inject(PERFORMANCE_ADAPTER, { optional: true });
   private readonly controlPanelState = inject(AgentXControlPanelStateService);
-  private readonly tokenFactory = inject(AGENT_X_AUTH_TOKEN_FACTORY, { optional: true });
+  private readonly profileGeneration = inject(ProfileGenerationStateService);
 
   private readonly baseUrl = `${inject(AGENT_X_API_BASE_URL)}/agent-x`;
 
@@ -124,17 +128,35 @@ export class AgentXJobService {
     });
 
     try {
-      const response = await firstValueFrom(
-        this.http.post<{
-          success: boolean;
-          data?: { jobId: string; operationId: string; threadId?: string };
-          error?: string;
-          code?: string;
-        }>(`${this.baseUrl}/enqueue`, {
-          intent,
-          userContext: context,
-        })
-      );
+      const enqueueHttp = () =>
+        firstValueFrom(
+          this.http.post<{
+            success: boolean;
+            data?: { jobId: string; operationId: string; threadId?: string };
+            error?: string;
+            code?: string;
+          }>(`${this.baseUrl}/enqueue`, {
+            intent,
+            userContext: context,
+          })
+        );
+
+      const response = await (this.performance?.trace(
+        TRACE_NAMES.AGENT_X_JOB_ENQUEUE,
+        enqueueHttp,
+        {
+          attributes: {
+            [ATTRIBUTE_NAMES.FEATURE_NAME]: 'agent_x_jobs',
+            has_context: String(!!context && Object.keys(context).length > 0),
+            entry_point: 'background_enqueue',
+          },
+          onSuccess: async (result, trace) => {
+            await trace.putMetric('intent_length', intent.trim().length);
+            await trace.putMetric('context_keys', Object.keys(context ?? {}).length);
+            await trace.putMetric('success', result.success ? 1 : 0);
+          },
+        }
+      ) ?? enqueueHttp());
 
       if (!response.success || !response.data) {
         if (response.code && response.code.toLowerCase().includes('billing')) {
@@ -170,6 +192,7 @@ export class AgentXJobService {
         source: 'background-enqueue',
         intent: intent.slice(0, 80),
       });
+      this.profileGeneration.watchForProfileWrites(response.data.operationId);
 
       return response.data;
     } catch (err) {
@@ -208,12 +231,27 @@ export class AgentXJobService {
     void this.breadcrumb.trackStateChange('agent-x-job:approve', { operationId, decision });
 
     try {
-      const response = await firstValueFrom(
-        this.http.post<{ success: boolean; error?: string }>(
-          `${this.baseUrl}/operations/${encodeURIComponent(operationId)}/approve`,
-          { decision }
-        )
-      );
+      const approveHttp = () =>
+        firstValueFrom(
+          this.http.post<{ success: boolean; error?: string }>(
+            `${this.baseUrl}/operations/${encodeURIComponent(operationId)}/approve`,
+            { decision }
+          )
+        );
+
+      const response = await (this.performance?.trace(
+        TRACE_NAMES.AGENT_X_OPERATION_APPROVE,
+        approveHttp,
+        {
+          attributes: {
+            [ATTRIBUTE_NAMES.FEATURE_NAME]: 'agent_x_jobs',
+            decision,
+          },
+          onSuccess: async (result, trace) => {
+            await trace.putMetric('success', result.success ? 1 : 0);
+          },
+        }
+      ) ?? approveHttp());
 
       if (!response.success) {
         this.logger.warn('Approval decision rejected by backend', {
@@ -250,12 +288,27 @@ export class AgentXJobService {
     void this.breadcrumb.trackStateChange('agent-x-job:reply', { operationId });
 
     try {
-      const response = await firstValueFrom(
-        this.http.post<{ success: boolean; error?: string }>(
-          `${this.baseUrl}/operations/${encodeURIComponent(operationId)}/reply`,
-          { userResponse }
-        )
-      );
+      const replyHttp = () =>
+        firstValueFrom(
+          this.http.post<{ success: boolean; error?: string }>(
+            `${this.baseUrl}/operations/${encodeURIComponent(operationId)}/reply`,
+            { userResponse }
+          )
+        );
+
+      const response = await (this.performance?.trace(
+        TRACE_NAMES.AGENT_X_OPERATION_REPLY,
+        replyHttp,
+        {
+          attributes: {
+            [ATTRIBUTE_NAMES.FEATURE_NAME]: 'agent_x_jobs',
+          },
+          onSuccess: async (result, trace) => {
+            await trace.putMetric('response_length', userResponse.length);
+            await trace.putMetric('success', result.success ? 1 : 0);
+          },
+        }
+      ) ?? replyHttp());
 
       if (!response.success) {
         this.logger.warn('Reply rejected by backend', {
@@ -288,7 +341,17 @@ export class AgentXJobService {
     this.logger.info('Retrying failed operation', { operationId, intent: intent.slice(0, 80) });
     void this.breadcrumb.trackStateChange('agent-x-job:retry', { operationId });
 
-    const result = await this.enqueue(intent, { retryOf: operationId });
+    const retryTask = () => this.enqueue(intent, { retryOf: operationId });
+
+    const result = await (this.performance?.trace(TRACE_NAMES.AGENT_X_OPERATION_RETRY, retryTask, {
+      attributes: {
+        [ATTRIBUTE_NAMES.FEATURE_NAME]: 'agent_x_jobs',
+      },
+      onSuccess: async (retryResult, trace) => {
+        await trace.putMetric('intent_length', intent.trim().length);
+        await trace.putMetric('success', isEnqueueFailure(retryResult) ? 0 : 1);
+      },
+    }) ?? retryTask());
 
     if (isEnqueueFailure(result)) {
       return null;

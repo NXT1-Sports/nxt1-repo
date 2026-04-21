@@ -176,7 +176,7 @@ const FAQS: FaqItem[] = [
 
     <nxt1-audience-section
       title="Built for Every Coach"
-      subtitle="College recruiters, high school coaches, and recruiting coordinators — NXT1 works at every level."
+      subtitle="High school, club, and college coaches — NXT1 works at every level."
       [segments]="audiences"
     />
 

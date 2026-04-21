@@ -27,7 +27,7 @@ const CREDIT_PACKAGES = [5, 10, 25, 50, 100, 250, 500] as const;
   template: `
     <div class="buy-credits-modal">
       <nxt1-modal-header
-        title="Buy Credits"
+        title="Add Credits"
         icon="card-outline"
         [showIcon]="true"
         iconShape="circle"

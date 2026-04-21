@@ -215,6 +215,15 @@ export interface ShareableProfile extends ShareableContent {
 
   /** Location (City, State) */
   location?: string;
+
+  /** Athlete's first name (for og:profile:first_name) */
+  firstName?: string;
+
+  /** Athlete's last name (for og:profile:last_name) */
+  lastName?: string;
+
+  /** Username / profile handle (for og:profile:username) */
+  username?: string;
 }
 
 /**
@@ -309,6 +318,12 @@ export interface ShareableArticle extends ShareableContent {
 export * from './share-copy';
 
 // ============================================
+// UTM TRACKING
+// ============================================
+
+export * from './utm';
+
+// ============================================
 // HELPER FUNCTIONS (Pure TypeScript)
 // ============================================
 
@@ -333,13 +348,14 @@ const TWITTER_HANDLE = '@nxt1sports';
  * // Returns: 'https://nxt1sports.com/profile/john-smith'
  * ```
  */
-export function buildShareUrl(content: ShareableContent): string {
+export function buildShareUrl(content: ShareableContent, baseUrl: string = BASE_URL): string {
   const identifier = content.slug || content.id;
+  const resolvedBaseUrl = (baseUrl || BASE_URL).replace(/\/+$/, '');
 
   switch (content.type) {
     case 'profile': {
       const profile = content as ShareableProfile;
-      return `${BASE_URL}${buildCanonicalProfilePath({
+      return `${resolvedBaseUrl}${buildCanonicalProfilePath({
         athleteName: profile.athleteName,
         title: profile.title,
         sport: profile.sport,
@@ -349,7 +365,7 @@ export function buildShareUrl(content: ShareableContent): string {
     }
     case 'team': {
       const team = content as ShareableTeam;
-      return `${BASE_URL}${buildCanonicalTeamPath({
+      return `${resolvedBaseUrl}${buildCanonicalTeamPath({
         slug: team.slug,
         teamName: team.teamName,
         title: team.title,
@@ -359,13 +375,13 @@ export function buildShareUrl(content: ShareableContent): string {
     }
     case 'video':
     case 'highlight':
-      return `${BASE_URL}/video/${identifier}`;
+      return `${resolvedBaseUrl}/video/${identifier}`;
     case 'post':
-      return `${BASE_URL}/post/${identifier}`;
+      return `${resolvedBaseUrl}/post/${identifier}`;
     case 'article':
-      return `${BASE_URL}/explore/pulse/${content.id}`;
+      return `${resolvedBaseUrl}/explore/pulse/${content.id}`;
     default:
-      return `${BASE_URL}/${content.type}/${identifier}`;
+      return `${resolvedBaseUrl}/${content.type}/${identifier}`;
   }
 }
 
@@ -444,6 +460,10 @@ export function buildTeamSeoConfig(team: ShareableTeam): SeoConfig {
     twitter: {
       card: 'summary_large_image',
       site: TWITTER_HANDLE,
+      title: team.teamName,
+      description,
+      image: team.imageUrl || team.logoUrl || DEFAULT_OG_IMAGE,
+      imageAlt: `${team.teamName} team profile`,
     },
     structuredData: buildTeamStructuredData(team, url),
   };
@@ -576,26 +596,49 @@ function buildProfileStructuredData(
   profile: ShareableProfile,
   url: string
 ): Record<string, unknown> {
+  const BASE_URL = 'https://nxt1sports.com';
+  const breadcrumbs: Array<{ name: string; url: string }> = [
+    { name: 'NXT1 Sports', url: BASE_URL },
+    { name: 'Athletes', url: `${BASE_URL}/athletes` },
+  ];
+  if (profile.sport) {
+    breadcrumbs.push({
+      name: formatSportDisplayName(profile.sport),
+      url: `${BASE_URL}/athletes?sport=${encodeURIComponent(profile.sport)}`,
+    });
+  }
+  breadcrumbs.push({ name: profile.athleteName, url });
+
   return {
     '@context': 'https://schema.org',
-    '@type': 'Person',
-    name: profile.athleteName,
-    url,
-    image: profile.imageUrl,
-    description: buildProfileDescription(profile),
-    jobTitle: profile.position,
-    affiliation: profile.school
-      ? {
-          '@type': 'SportsTeam',
-          name: profile.school,
-        }
-      : undefined,
-    address: profile.location
-      ? {
-          '@type': 'PostalAddress',
-          addressLocality: profile.location,
-        }
-      : undefined,
+    '@graph': [
+      {
+        '@type': 'Person',
+        name: profile.athleteName,
+        url,
+        image: profile.imageUrl || undefined,
+        description: buildProfileDescription(profile),
+        jobTitle: profile.position || undefined,
+        identifier: profile.id,
+        knowsAbout: profile.sport ? formatSportDisplayName(profile.sport) : undefined,
+        alumniOf: profile.school
+          ? { '@type': 'EducationalOrganization', name: profile.school }
+          : undefined,
+        affiliation: profile.school ? { '@type': 'SportsTeam', name: profile.school } : undefined,
+        address: profile.location
+          ? { '@type': 'PostalAddress', addressLocality: profile.location }
+          : undefined,
+      },
+      {
+        '@type': 'BreadcrumbList',
+        itemListElement: breadcrumbs.map((item, index) => ({
+          '@type': 'ListItem',
+          position: index + 1,
+          name: item.name,
+          item: item.url,
+        })),
+      },
+    ],
   };
 }
 
@@ -604,20 +647,41 @@ function buildProfileStructuredData(
  * @see https://schema.org/SportsTeam
  */
 function buildTeamStructuredData(team: ShareableTeam, url: string): Record<string, unknown> {
+  const BASE_URL = 'https://nxt1sports.com';
+  const breadcrumbs: Array<{ name: string; url: string }> = [
+    { name: 'NXT1 Sports', url: BASE_URL },
+    { name: 'Teams', url: `${BASE_URL}/athletes` },
+  ];
+  if (team.sport) {
+    breadcrumbs.push({
+      name: formatSportDisplayName(team.sport),
+      url: `${BASE_URL}/athletes?sport=${encodeURIComponent(team.sport)}`,
+    });
+  }
+  breadcrumbs.push({ name: team.teamName, url });
+
   return {
     '@context': 'https://schema.org',
-    '@type': 'SportsTeam',
-    name: team.teamName,
-    url,
-    logo: team.logoUrl,
-    image: team.imageUrl,
-    sport: team.sport,
-    location: team.location
-      ? {
-          '@type': 'Place',
-          name: team.location,
-        }
-      : undefined,
+    '@graph': [
+      {
+        '@type': 'SportsTeam',
+        name: team.teamName,
+        url,
+        logo: team.logoUrl ? { '@type': 'ImageObject', url: team.logoUrl } : undefined,
+        image: team.imageUrl || team.logoUrl || undefined,
+        sport: team.sport ? formatSportDisplayName(team.sport) : undefined,
+        location: team.location ? { '@type': 'Place', name: team.location } : undefined,
+      },
+      {
+        '@type': 'BreadcrumbList',
+        itemListElement: breadcrumbs.map((item, index) => ({
+          '@type': 'ListItem',
+          position: index + 1,
+          name: item.name,
+          item: item.url,
+        })),
+      },
+    ],
   };
 }
 

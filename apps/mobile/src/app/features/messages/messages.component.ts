@@ -38,6 +38,8 @@ import { AuthFlowService } from '../../core/services/auth/auth-flow.service';
     <ion-content [fullscreen]="true">
       <nxt1-messages-shell
         [user]="userInfo()"
+        [showBack]="true"
+        (back)="onBack()"
         (avatarClick)="onAvatarClick()"
         (conversationClick)="onConversationClick($event)"
         (compose)="onCompose()"
@@ -105,6 +107,11 @@ export class MessagesComponent {
     this.logger.debug('Conversation selected', { conversationId: conversation.id });
     await this.haptics.impact('light');
     await this.navController.navigateForward(`/messages/${conversation.id}`);
+  }
+
+  /** Navigate back */
+  protected onBack(): void {
+    void this.navController.back();
   }
 
   /** Navigate to compose new message */

@@ -45,7 +45,6 @@ function mapPostToBoardItem(post: TeamProfilePost): NewsBoardItem {
     category: resolveCategory(post.type),
     publishedAt: post.createdAt,
     viewCount: undefined,
-    commentCount: post.commentCount || undefined,
     ctaLabel: undefined,
   };
 }

@@ -12,6 +12,7 @@
 import {
   Component,
   ChangeDetectionStrategy,
+  ViewEncapsulation,
   inject,
   input,
   output,
@@ -19,6 +20,8 @@ import {
   signal,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { DomSanitizer, type SafeHtml } from '@angular/platform-browser';
+import { marked } from 'marked';
 import { NxtDesktopPageHeaderComponent } from '../../components/desktop-page-header';
 import { NxtIconComponent } from '../../components/icon';
 import { HelpCenterService } from '../_shared/help-center.service';
@@ -28,6 +31,7 @@ import type { HelpArticle, HelpCategoryId } from '@nxt1/core';
   selector: 'nxt1-help-article-detail-web',
   standalone: true,
   imports: [CommonModule, NxtDesktopPageHeaderComponent, NxtIconComponent],
+  encapsulation: ViewEncapsulation.None,
   template: `
     @if (article()) {
       <!-- Main Content -->
@@ -60,7 +64,7 @@ import type { HelpArticle, HelpCategoryId } from '@nxt1/core';
         <!-- Article Body -->
         <article
           class="prose prose-invert prose-primary mb-8 max-w-none"
-          [innerHTML]="article()!.content"
+          [innerHTML]="renderedContent()"
         ></article>
 
         <!-- Feedback Section -->
@@ -181,138 +185,165 @@ import type { HelpArticle, HelpCategoryId } from '@nxt1/core';
 
       /* ============================================
        PROSE STYLING (100% Theme-Aware)
-       All colors from design tokens
+       ViewEncapsulation.None — scoped under nxt1-help-article-detail-web
        ============================================ */
-      .prose {
+      nxt1-help-article-detail-web .prose {
         color: var(--nxt1-color-text-secondary);
-        line-height: 1.75;
+        line-height: 1.8;
+        font-size: 1rem;
       }
 
-      .prose :where(h1, h2, h3, h4, h5, h6) {
+      nxt1-help-article-detail-web .prose h1,
+      nxt1-help-article-detail-web .prose h2,
+      nxt1-help-article-detail-web .prose h3,
+      nxt1-help-article-detail-web .prose h4,
+      nxt1-help-article-detail-web .prose h5,
+      nxt1-help-article-detail-web .prose h6 {
         color: var(--nxt1-color-text-primary);
-        font-weight: 600;
-        margin-top: 1.5em;
-        margin-bottom: 0.75em;
+        font-weight: 700;
+        margin-top: 2rem;
+        margin-bottom: 0.75rem;
+        line-height: 1.3;
       }
 
-      .prose h2 {
-        font-size: 1.5rem;
+      nxt1-help-article-detail-web .prose h2 {
+        font-size: 1.375rem;
+        padding-bottom: 0.5rem;
+        border-bottom: 1px solid var(--nxt1-color-border-subtle);
       }
 
-      .prose h3 {
-        font-size: 1.25rem;
+      nxt1-help-article-detail-web .prose h3 {
+        font-size: 1.15rem;
       }
 
-      .prose p {
-        margin-bottom: 1.25em;
+      nxt1-help-article-detail-web .prose p {
+        margin-top: 0;
+        margin-bottom: 1.25rem;
       }
 
-      .prose a {
+      nxt1-help-article-detail-web .prose > p:first-child {
+        font-size: 1.0625rem;
+        color: var(--nxt1-color-text-primary);
+        margin-bottom: 1.75rem;
+      }
+
+      nxt1-help-article-detail-web .prose a {
         color: var(--nxt1-color-primary);
         text-decoration: underline;
         text-decoration-color: transparent;
         transition: text-decoration-color var(--nxt1-duration-fast);
       }
 
-      .prose a:hover {
+      nxt1-help-article-detail-web .prose a:hover {
         text-decoration-color: var(--nxt1-color-primary);
       }
 
-      .prose :where(ul, ol) {
-        padding-left: 1.5em;
-        margin-bottom: 1.25em;
+      nxt1-help-article-detail-web .prose ul,
+      nxt1-help-article-detail-web .prose ol {
+        padding-left: 1.5rem;
+        margin-top: 0.5rem;
+        margin-bottom: 1.25rem;
       }
 
-      .prose ul {
+      nxt1-help-article-detail-web .prose ul {
         list-style-type: disc;
       }
 
-      .prose ul ::marker {
-        color: var(--nxt1-color-text-tertiary);
+      nxt1-help-article-detail-web .prose ul ::marker {
+        color: var(--nxt1-color-primary);
       }
 
-      .prose ol {
+      nxt1-help-article-detail-web .prose ol {
         list-style-type: decimal;
       }
 
-      .prose ol ::marker {
+      nxt1-help-article-detail-web .prose ol ::marker {
         color: var(--nxt1-color-text-tertiary);
       }
 
-      .prose li {
-        margin-bottom: 0.5em;
+      nxt1-help-article-detail-web .prose li {
+        margin-bottom: 0.45rem;
+        padding-left: 0.25rem;
       }
 
-      .prose code {
+      nxt1-help-article-detail-web .prose li + li {
+        margin-top: 0.25rem;
+      }
+
+      nxt1-help-article-detail-web .prose code {
         background: var(--nxt1-color-surface-200);
         color: var(--nxt1-color-text-primary);
-        padding: 0.125em 0.375em;
+        padding: 0.15em 0.4em;
         border-radius: var(--nxt1-radius-sm);
         font-size: 0.875em;
         font-family: var(--nxt1-fontFamily-mono);
       }
 
-      .prose pre {
+      nxt1-help-article-detail-web .prose pre {
         background: var(--nxt1-color-surface-100);
         border: 1px solid var(--nxt1-color-border-subtle);
-        padding: 1em;
+        padding: 1rem;
         border-radius: var(--nxt1-radius-default);
         overflow-x: auto;
-        margin-bottom: 1.25em;
+        margin-bottom: 1.5rem;
       }
 
-      .prose pre code {
+      nxt1-help-article-detail-web .prose pre code {
         background: transparent;
         padding: 0;
       }
 
-      .prose blockquote {
-        border-left: 4px solid var(--nxt1-color-primary);
+      nxt1-help-article-detail-web .prose blockquote {
+        border-left: 3px solid var(--nxt1-color-primary);
         background: var(--nxt1-color-alpha-primary5);
-        padding: 1em 1em 1em 1.5em;
-        margin-left: 0;
-        margin-right: 0;
+        padding: 1rem 1.25rem 1rem 1.5rem;
+        margin: 1.75rem 0;
         border-radius: 0 var(--nxt1-radius-default) var(--nxt1-radius-default) 0;
-        font-style: italic;
         color: var(--nxt1-color-text-secondary);
       }
 
-      .prose hr {
-        border: none;
-        border-top: 1px solid var(--nxt1-color-border-subtle);
-        margin: 2em 0;
+      nxt1-help-article-detail-web .prose blockquote p {
+        margin-bottom: 0;
+        font-style: italic;
       }
 
-      .prose strong {
+      nxt1-help-article-detail-web .prose hr {
+        border: none;
+        border-top: 1px solid var(--nxt1-color-border-subtle);
+        margin: 2.5rem 0;
+      }
+
+      nxt1-help-article-detail-web .prose strong {
         color: var(--nxt1-color-text-primary);
         font-weight: 600;
       }
 
-      .prose img {
+      nxt1-help-article-detail-web .prose img {
         border-radius: var(--nxt1-radius-default);
         max-width: 100%;
+        margin: 1.5rem 0;
       }
 
-      .prose table {
+      nxt1-help-article-detail-web .prose table {
         width: 100%;
         border-collapse: collapse;
-        margin-bottom: 1.25em;
+        margin-bottom: 1.5rem;
       }
 
-      .prose th,
-      .prose td {
+      nxt1-help-article-detail-web .prose th,
+      nxt1-help-article-detail-web .prose td {
         border: 1px solid var(--nxt1-color-border-subtle);
-        padding: 0.75em 1em;
+        padding: 0.75rem 1rem;
         text-align: left;
       }
 
-      .prose th {
+      nxt1-help-article-detail-web .prose th {
         background: var(--nxt1-color-surface-100);
         color: var(--nxt1-color-text-primary);
         font-weight: 600;
       }
 
-      .prose td {
+      nxt1-help-article-detail-web .prose td {
         background: var(--nxt1-color-bg-primary);
       }
 
@@ -336,6 +367,15 @@ import type { HelpArticle, HelpCategoryId } from '@nxt1/core';
         background: var(--nxt1-color-surface-200);
       }
 
+      .feedback-btn:disabled {
+        cursor: default;
+        opacity: 0.7;
+      }
+
+      .feedback-btn:disabled:hover {
+        background: transparent;
+      }
+
       .feedback-btn--helpful {
         border-color: var(--nxt1-color-success, #22c55e);
         background: color-mix(in srgb, var(--nxt1-color-success, #22c55e) 12%, transparent);
@@ -353,6 +393,7 @@ import type { HelpArticle, HelpCategoryId } from '@nxt1/core';
 })
 export class HelpArticleDetailWebComponent {
   private readonly helpService = inject(HelpCenterService);
+  private readonly sanitizer = inject(DomSanitizer);
 
   /** Article slug to display */
   readonly slug = input.required<string>();
@@ -368,6 +409,13 @@ export class HelpArticleDetailWebComponent {
 
   /** Article data */
   readonly article = computed(() => this.helpService.getArticleBySlug(this.slug()));
+
+  /** Markdown parsed to sanitized HTML */
+  readonly renderedContent = computed((): SafeHtml => {
+    const content = this.article()?.content ?? '';
+    const html = marked.parse(content, { async: false }) as string;
+    return this.sanitizer.bypassSecurityTrustHtml(html);
+  });
 
   /** Related articles (same category, excluding current) */
   readonly relatedArticles = computed(() => {
@@ -403,11 +451,19 @@ export class HelpArticleDetailWebComponent {
   }
 
   protected onHelpful(): void {
+    if (this.feedbackState() === 'helpful') return;
+    const articleId = this.article()?.id;
+    if (!articleId) return;
     this.feedbackState.set('helpful');
+    this.helpService.submitArticleFeedback(articleId, true);
   }
 
   protected onNotHelpful(): void {
+    if (this.feedbackState() === 'not-helpful') return;
+    const articleId = this.article()?.id;
+    if (!articleId) return;
     this.feedbackState.set('not-helpful');
+    this.helpService.submitArticleFeedback(articleId, false);
   }
 
   protected onRelatedClick(article: HelpArticle): void {

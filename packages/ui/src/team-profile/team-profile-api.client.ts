@@ -9,7 +9,7 @@
  * - Cache integration
  */
 
-import type { TeamProfilePageData } from '@nxt1/core';
+import type { TeamProfilePageData, TeamTimelineParams, TeamTimelineResponse } from '@nxt1/core';
 import { Injectable, inject, InjectionToken } from '@angular/core';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
@@ -141,6 +141,46 @@ export class TeamProfileApiClient {
         status: apiError.status,
         code: apiError.code,
       });
+      throw apiError;
+    }
+  }
+
+  /**
+   * Get team timeline feed with filter support
+   * GET /api/v1/teams/:teamCode/timeline
+   */
+  async getTeamTimeline(
+    teamCode: string,
+    params?: TeamTimelineParams
+  ): Promise<TeamTimelineResponse> {
+    if (!teamCode) throw new Error('Team code is required');
+
+    this.logger.debug('Fetching team timeline', { teamCode, params });
+
+    try {
+      const urlParams = new URLSearchParams();
+      if (params?.filter && params.filter !== 'all') urlParams.set('filter', params.filter);
+      if (params?.sportId) urlParams.set('sportId', params.sportId);
+      if (params?.cursor) urlParams.set('cursor', params.cursor);
+      const query = urlParams.toString();
+      const url = `${this.baseUrl}/teams/${encodeURIComponent(teamCode)}/timeline${query ? '?' + query : ''}`;
+
+      const response = await firstValueFrom(this.http.get<ApiResponse<TeamTimelineResponse>>(url));
+
+      if (!response.success || !response.data) {
+        throw new Error(response.error || 'Failed to fetch team timeline');
+      }
+
+      this.logger.info('Team timeline fetched', {
+        teamCode,
+        count: response.data.items.length,
+        hasMore: !!response.data.nextCursor,
+      });
+
+      return response.data;
+    } catch (error) {
+      const apiError = this.handleError(error);
+      this.logger.error('Failed to fetch team timeline', error, { teamCode });
       throw apiError;
     }
   }

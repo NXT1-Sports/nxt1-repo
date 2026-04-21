@@ -22,7 +22,7 @@ export interface UsageTimeframeOption {
 }
 
 export const USAGE_TIMEFRAME_OPTIONS: readonly UsageTimeframeOption[] = [
-  { id: 'current-month', label: 'Current month' },
+  { id: 'current-month', label: 'This month' },
   { id: 'last-month', label: 'Last month' },
   { id: 'last-3-months', label: 'Last 3 months' },
   { id: 'last-6-months', label: 'Last 6 months' },
@@ -315,10 +315,15 @@ export const USAGE_API_ENDPOINTS = {
   downloadInvoice: '/usage/invoice',
   redeemCoupon: '/usage/coupon/redeem',
   buyCredits: '/usage/buy-credits',
+  confirmCheckout: '/usage/checkout/confirm',
   budget: '/billing/budget',
+  budgetOrg: '/billing/budget/org',
   budgetTeam: '/billing/budget/team',
   recordUsage: '/billing/usage',
   setupIntent: '/usage/payment-methods/setup-intent',
+  autoTopUp: '/usage/auto-topup',
+  billingMode: '/usage/billing-mode',
+  invoiceTopUp: '/usage/invoice-topup',
 } as const;
 
 // ============================================

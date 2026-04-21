@@ -6,7 +6,14 @@
  * Zero dependencies - pure TypeScript.
  */
 
-import type { LinkType } from './browser.types';
+import type { LinkType, TrackingSurface, TrackingSubjectType } from './browser.types';
+
+export interface BuildTrackedLinkUrlOptions {
+  readonly source?: string;
+  readonly surface?: TrackingSurface;
+  readonly subjectType?: TrackingSubjectType;
+  readonly subjectId?: string;
+}
 
 // ============================================
 // URL VALIDATION
@@ -50,6 +57,47 @@ export function sanitizeUrl(url: string): string | null {
 
   const withProtocol = ensureProtocol(trimmed);
   return isValidUrl(withProtocol) ? withProtocol : null;
+}
+
+/**
+ * Build a backend-tracked click URL that safely redirects to the destination.
+ * Falls back to the destination when a valid tracking base is not available.
+ */
+export function buildTrackedLinkUrl(
+  baseUrl: string,
+  destinationUrl: string,
+  options: BuildTrackedLinkUrlOptions = {}
+): string {
+  const sanitizedDestination = sanitizeUrl(destinationUrl);
+  if (!sanitizedDestination) return destinationUrl;
+
+  const sanitizedBaseUrl = sanitizeUrl(baseUrl);
+  if (!sanitizedBaseUrl) return sanitizedDestination;
+
+  try {
+    const trackingUrl = new URL('/api/v1/analytics/track/click', `${sanitizedBaseUrl}/`);
+    trackingUrl.searchParams.set('destination', sanitizedDestination);
+
+    if (options.surface) {
+      trackingUrl.searchParams.set('surface', options.surface);
+    }
+
+    if (options.source) {
+      trackingUrl.searchParams.set('source', options.source);
+    }
+
+    if (options.subjectType) {
+      trackingUrl.searchParams.set('subjectType', options.subjectType);
+    }
+
+    if (options.subjectId) {
+      trackingUrl.searchParams.set('subjectId', options.subjectId);
+    }
+
+    return trackingUrl.toString();
+  } catch {
+    return sanitizedDestination;
+  }
 }
 
 // ============================================

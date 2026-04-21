@@ -157,6 +157,22 @@ export class ManageTeamApiClient {
       sportName?: string;
       division?: string;
       conference?: string;
+      mascot?: string;
+      email?: string;
+      phone?: string;
+      website?: string;
+      address?: string;
+      city?: string;
+      state?: string;
+      wins?: number;
+      losses?: number;
+      ties?: number;
+      season?: string;
+      logoUrl?: string;
+      galleryImages?: readonly string[];
+      primaryColor?: string;
+      secondaryColor?: string;
+      accentColor?: string;
     }
   ): Promise<void> {
     if (!teamId) {

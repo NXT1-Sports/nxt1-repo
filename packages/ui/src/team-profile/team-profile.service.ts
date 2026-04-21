@@ -23,15 +23,25 @@ import {
   type TeamProfileRecruitingActivity,
   type TeamProfileStatsCategory,
   type NewsArticle,
+  type FeedItem,
+  type TeamTimelineFilterId,
   TEAM_PROFILE_DEFAULT_TAB,
+  TEAM_TIMELINE_DEFAULT_FILTER,
   USER_ROLES,
 } from '@nxt1/core';
+import { APP_EVENTS } from '@nxt1/core/analytics';
 import { NxtLoggingService } from '../services/logging/logging.service';
+import { ANALYTICS_ADAPTER } from '../services/analytics/analytics-adapter.token';
+import { NxtBreadcrumbService } from '../services/breadcrumb/breadcrumb.service';
+import { NxtThemeService } from '../services/theme';
 import { TeamProfileApiClient, type TeamProfileApiError } from './team-profile-api.client';
 
 @Injectable({ providedIn: 'root' })
 export class TeamProfileService {
   private readonly logger = inject(NxtLoggingService).child('TeamProfileService');
+  private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
+  private readonly breadcrumb = inject(NxtBreadcrumbService);
+  private readonly theme = inject(NxtThemeService);
   private readonly apiClient = inject(TeamProfileApiClient);
 
   // ============================================
@@ -48,6 +58,16 @@ export class TeamProfileService {
   private readonly _activeTab = signal<TeamProfileTabId>(TEAM_PROFILE_DEFAULT_TAB);
   private readonly _teamData = signal<TeamProfilePageData | null>(null);
   private readonly _rosterSort = signal<string>('number');
+
+  // Timeline signals
+  private readonly _timeline = signal<readonly FeedItem[]>([]);
+  private readonly _timelineLoading = signal(false);
+  private readonly _timelineError = signal<string | null>(null);
+  private readonly _timelineCursor = signal<string | null>(null);
+  private readonly _timelineHasMore = signal(false);
+  private readonly _activeTimelineFilter = signal<TeamTimelineFilterId>(
+    TEAM_TIMELINE_DEFAULT_FILTER
+  );
 
   // ============================================
   // PUBLIC COMPUTED SIGNALS (READ-ONLY)
@@ -74,19 +94,23 @@ export class TeamProfileService {
   /** Quick stats/analytics */
   readonly quickStats = computed(() => this._teamData()?.quickStats ?? null);
 
-  /** Roster members */
-  readonly roster = computed<readonly TeamProfileRosterMember[]>(
-    () => this._teamData()?.roster ?? []
+  /** Roster members — athlete roles only. Coaches/directors belong in staff, not roster. */
+  readonly roster = computed<readonly TeamProfileRosterMember[]>(() =>
+    (this._teamData()?.roster ?? []).filter((member) => {
+      const role = String(member.role ?? '').toLowerCase();
+      return role === USER_ROLES.ATHLETE || role === 'player';
+    })
   );
 
   /** Athletes-only roster */
-  readonly athletes = computed<readonly TeamProfileRosterMember[]>(() =>
-    this.roster().filter((m) => m.role === USER_ROLES.ATHLETE)
-  );
+  readonly athletes = computed<readonly TeamProfileRosterMember[]>(() => this.roster());
 
   /** Coaches on the roster */
   readonly coaches = computed<readonly TeamProfileRosterMember[]>(() =>
-    this.roster().filter((m) => m.role === USER_ROLES.COACH)
+    (this._teamData()?.roster ?? []).filter((member) => {
+      const role = String(member.role ?? '').toLowerCase();
+      return role === USER_ROLES.COACH;
+    })
   );
 
   /** Roster count */
@@ -189,7 +213,7 @@ export class TeamProfileService {
 
   /** Video/highlight posts */
   readonly videoPosts = computed<readonly TeamProfilePost[]>(() =>
-    this.allPosts().filter((p) => p.type === 'video' || p.type === 'highlight')
+    this.allPosts().filter((p) => p.type === 'video')
   );
 
   /** News/announcement posts */
@@ -267,6 +291,21 @@ export class TeamProfileService {
 
   /** Whether there are more posts to load */
   readonly hasMore = computed(() => this.allPosts().length >= 20);
+
+  /** Polymorphic timeline feed items */
+  readonly timeline = computed(() => this._timeline());
+
+  /** Whether the timeline is loading */
+  readonly timelineLoading = computed(() => this._timelineLoading());
+
+  /** Timeline error message */
+  readonly timelineError = computed(() => this._timelineError());
+
+  /** Whether there are more timeline pages */
+  readonly timelineHasMore = computed(() => this._timelineHasMore());
+
+  /** Active timeline filter chip */
+  readonly activeTimelineFilter = computed(() => this._activeTimelineFilter());
 
   // ============================================
   // PUBLIC METHODS
@@ -456,6 +495,13 @@ export class TeamProfileService {
     this._isLoading.set(false);
     this._error.set(null);
     this.logger.info('Team loaded from external data');
+
+    const branding = data.team?.branding;
+    if (branding?.primaryColor) {
+      this.theme.applyOrgTheme(branding.primaryColor, branding.secondaryColor);
+    } else {
+      this.theme.clearOrgTheme();
+    }
   }
 
   /**
@@ -476,6 +522,86 @@ export class TeamProfileService {
   }
 
   /**
+   * Load team timeline feed.
+   * Called when user navigates to the timeline tab or changes filter.
+   */
+  async loadTimeline(teamCode: string, filter?: TeamTimelineFilterId): Promise<void> {
+    const activeFilter = filter ?? this._activeTimelineFilter();
+    this._timelineLoading.set(true);
+    this._timelineError.set(null);
+    this._timelineCursor.set(null);
+
+    this.logger.info('Loading team timeline', { teamCode, filter: activeFilter });
+    this.breadcrumb.trackStateChange('team-timeline loading', { teamCode, filter: activeFilter });
+
+    try {
+      const result = await this.apiClient.getTeamTimeline(teamCode, { filter: activeFilter });
+      this._timeline.set(result.items);
+      this._timelineCursor.set(result.nextCursor ?? null);
+      this._timelineHasMore.set(!!result.nextCursor);
+      this.logger.info('Team timeline loaded', {
+        teamCode,
+        count: result.items.length,
+        hasMore: !!result.nextCursor,
+      });
+      this.analytics?.trackEvent(APP_EVENTS.TEAM_TIMELINE_VIEWED, {
+        teamCode,
+        filter: activeFilter,
+        count: result.items.length,
+      });
+      this.breadcrumb.trackStateChange('team-timeline loaded', {
+        teamCode,
+        count: result.items.length,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to load timeline';
+      this._timelineError.set(message);
+      this.logger.error('Failed to load team timeline', err as Error, { teamCode });
+      this.breadcrumb.trackStateChange('team-timeline error', { teamCode });
+    } finally {
+      this._timelineLoading.set(false);
+    }
+  }
+
+  /**
+   * Load the next page of the timeline (infinite scroll).
+   */
+  async loadMoreTimeline(teamCode: string): Promise<void> {
+    if (this._timelineLoading() || !this._timelineHasMore()) return;
+    const cursor = this._timelineCursor();
+    if (!cursor) return;
+
+    this._timelineLoading.set(true);
+    this.logger.debug('Loading more timeline items', { teamCode, cursor });
+
+    try {
+      const result = await this.apiClient.getTeamTimeline(teamCode, {
+        filter: this._activeTimelineFilter(),
+        cursor,
+      });
+      this._timeline.update((prev) => [...prev, ...result.items]);
+      this._timelineCursor.set(result.nextCursor ?? null);
+      this._timelineHasMore.set(!!result.nextCursor);
+    } catch (err) {
+      this.logger.error('Failed to load more timeline items', err as Error, { teamCode });
+    } finally {
+      this._timelineLoading.set(false);
+    }
+  }
+
+  /**
+   * Switch the active timeline filter chip.
+   * Reloads timeline with the new filter.
+   */
+  async setTimelineFilter(teamCode: string, filter: TeamTimelineFilterId): Promise<void> {
+    if (this._activeTimelineFilter() === filter) return;
+    this._activeTimelineFilter.set(filter);
+    this.analytics?.trackEvent(APP_EVENTS.TEAM_TIMELINE_FILTER_APPLIED, { teamCode, filter });
+    this.breadcrumb.trackUserAction('team-timeline-filter', { teamCode, filter });
+    await this.loadTimeline(teamCode, filter);
+  }
+
+  /**
    * Reset all state.
    */
   reset(): void {
@@ -485,6 +611,13 @@ export class TeamProfileService {
     this._activeTab.set(TEAM_PROFILE_DEFAULT_TAB);
     this._teamData.set(null);
     this._rosterSort.set('number');
+    this._timeline.set([]);
+    this._timelineLoading.set(false);
+    this._timelineError.set(null);
+    this._timelineCursor.set(null);
+    this._timelineHasMore.set(false);
+    this._activeTimelineFilter.set(TEAM_TIMELINE_DEFAULT_FILTER);
+    this.theme.clearOrgTheme();
   }
 
   // ============================================

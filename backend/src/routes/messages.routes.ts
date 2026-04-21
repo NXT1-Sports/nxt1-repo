@@ -14,7 +14,7 @@ import { Router, type Request, type Response } from 'express';
 import { appGuard } from '../middleware/auth.middleware.js';
 import { logger } from '../utils/logger.js';
 import * as messagesService from '../services/messages.service.js';
-import { syncAllUserEmails } from '../services/email-sync.service.js';
+import { syncAllUserEmails } from '../services/connected-mail.service.js';
 import { type MessagesFilterId, MESSAGES_UI_CONFIG } from '@nxt1/core';
 
 const router = Router();

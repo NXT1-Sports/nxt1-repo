@@ -24,6 +24,7 @@ import {
   IsUUID,
   IsUrl,
   IsIn,
+  ValidateIf,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -55,7 +56,9 @@ export class ChatMessageDto {
 
   @IsString()
   @IsNotEmpty()
-  @Length(1, 10000)
+  // 50 000 chars accommodates long AI responses (markdown reports, code blocks, etc.)
+  // that legitimately exceed the previous 10 000-char ceiling when stored in history.
+  @Length(1, 50000)
   content!: string;
 
   @IsString()
@@ -114,11 +117,17 @@ export class ChatAttachmentDto {
 
   @IsNumber()
   @Min(1)
-  @Max(20 * 1024 * 1024) // 20 MB
+  @Max(500 * 1024 * 1024) // 500 MB — videos upload via Cloudflare Stream
   sizeBytes!: number;
+
+  /** Cloudflare Stream video ID — present only for video attachments uploaded via TUS. */
+  @IsString()
+  @IsOptional()
+  cloudflareVideoId?: string;
 }
 
 export class AgentChatRequestDto {
+  @ValidateIf((o) => !o.resumeOperationId)
   @IsString()
   @IsNotEmpty()
   @Length(1, 5000, { message: 'Message must be between 1 and 5000 characters' })
@@ -155,6 +164,12 @@ export class AgentChatRequestDto {
   @IsUUID('4')
   @IsOptional()
   resumeOperationId?: string;
+
+  /** Replay dedup: skip events with seq ≤ this value on reconnect. */
+  @IsNumber()
+  @IsOptional()
+  @Min(0)
+  afterSeq?: number;
 }
 
 export class AgentEnqueueRequestDto {
@@ -323,6 +338,17 @@ export class UpdateGoalDto {
 }
 
 // ============================================
+// COMPLETE GOAL DTO
+// ============================================
+
+export class CompleteGoalDto {
+  @IsString()
+  @IsOptional()
+  @Length(0, 500)
+  notes?: string;
+}
+
+// ============================================
 // PLAYBOOK ITEM STATUS DTOs
 // ============================================
 
@@ -330,12 +356,13 @@ export enum PlaybookItemStatus {
   PENDING = 'pending',
   IN_PROGRESS = 'in-progress',
   COMPLETE = 'complete',
+  SNOOZED = 'snoozed',
   PROBLEM = 'problem',
 }
 
 export class UpdatePlaybookItemStatusDto {
   @IsEnum(PlaybookItemStatus, {
-    message: 'Status must be one of: pending, in-progress, complete, problem',
+    message: 'Status must be one of: pending, in-progress, complete, snoozed, problem',
   })
   @IsNotEmpty()
   status!: PlaybookItemStatus;

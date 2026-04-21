@@ -226,92 +226,106 @@ const PROGRAM_TYPE_SUFFIX_PATTERNS: Readonly<Record<DraftProgramType, readonly R
           <div class="nxt1-no-results" data-testid="team-search-no-results">
             <p class="nxt1-no-results-text">No programs found</p>
             @if (searchQuery().trim().length >= 2) {
-              <div class="nxt1-draft-controls">
-                @if (!pendingDraftType()) {
-                  <p class="nxt1-draft-type-label">
-                    Select program type to add "{{ searchQuery().trim() }}":
-                  </p>
-                  <div class="nxt1-draft-chip-group">
-                    @for (option of draftProgramTypeOptions; track option.value) {
+              @if (!showCreateWizard()) {
+                <button
+                  type="button"
+                  class="nxt1-create-program-cta"
+                  nxtHaptic="light"
+                  data-testid="create-program-cta"
+                  (click)="showCreateWizard.set(true)"
+                >
+                  <nxt1-icon name="plus" size="18" />
+                  Create "{{ searchQuery().trim() }}"
+                </button>
+              } @else {
+                <div class="nxt1-draft-controls">
+                  @if (!pendingDraftType()) {
+                    <p class="nxt1-draft-type-label">Select program type:</p>
+                    <div class="nxt1-draft-chip-group">
+                      @for (option of draftProgramTypeOptions; track option.value) {
+                        <button
+                          type="button"
+                          class="nxt1-draft-chip"
+                          nxtHaptic="light"
+                          (click)="selectDraftType(option.value)"
+                        >
+                          {{ option.label }}
+                        </button>
+                      }
+                    </div>
+                  } @else {
+                    <div class="nxt1-draft-location">
                       <button
                         type="button"
-                        class="nxt1-draft-chip"
-                        nxtHaptic="light"
-                        (click)="selectDraftType(option.value)"
+                        class="nxt1-draft-type-back"
+                        (click)="selectDraftType('')"
                       >
-                        {{ option.label }}
+                        {{ getDraftTypeLabel(pendingDraftType()!) }}
                       </button>
-                    }
-                  </div>
-                } @else {
-                  <div class="nxt1-draft-location">
-                    <button
-                      type="button"
-                      class="nxt1-draft-type-back"
-                      (click)="selectDraftType('')"
-                    >
-                      {{ getDraftTypeLabel(pendingDraftType()!) }}
-                    </button>
-                    <p class="nxt1-draft-location-label">Program location</p>
-                    <nxt1-list-section>
-                      <nxt1-list-row
-                        label="Country"
-                        (tap)="openDraftCountryPicker()"
-                        data-testid="draft-program-country"
-                      >
-                        <span class="nxt1-list-value">
-                          {{ draftCountryDisplayValue() }}
-                        </span>
-                      </nxt1-list-row>
-                      <nxt1-list-row
-                        label="City"
-                        (tap)="openDraftCityPrompt()"
-                        data-testid="draft-program-city"
-                      >
-                        <span class="nxt1-list-value" [class.nxt1-list-placeholder]="!draftCity()">
-                          {{ draftCity() || 'Enter city' }}
-                        </span>
-                      </nxt1-list-row>
-                      @if (draftCountry() === 'US') {
+                      <p class="nxt1-draft-location-label">Program location</p>
+                      <nxt1-list-section>
                         <nxt1-list-row
-                          label="State"
-                          (tap)="openDraftStatePicker()"
-                          data-testid="draft-program-state"
+                          label="Country"
+                          (tap)="openDraftCountryPicker()"
+                          data-testid="draft-program-country"
+                        >
+                          <span class="nxt1-list-value">
+                            {{ draftCountryDisplayValue() }}
+                          </span>
+                        </nxt1-list-row>
+                        <nxt1-list-row
+                          label="City"
+                          (tap)="openDraftCityPrompt()"
+                          data-testid="draft-program-city"
                         >
                           <span
                             class="nxt1-list-value"
-                            [class.nxt1-list-placeholder]="!draftState()"
+                            [class.nxt1-list-placeholder]="!draftCity()"
                           >
-                            {{ draftStateDisplayValue() || 'Select state' }}
+                            {{ draftCity() || 'Enter city' }}
                           </span>
                         </nxt1-list-row>
-                      } @else {
-                        <nxt1-list-row
-                          label="State / Province"
-                          (tap)="openDraftStatePrompt()"
-                          data-testid="draft-program-state"
-                        >
-                          <span
-                            class="nxt1-list-value"
-                            [class.nxt1-list-placeholder]="!draftState()"
+                        @if (draftCountry() === 'US') {
+                          <nxt1-list-row
+                            label="State"
+                            (tap)="openDraftStatePicker()"
+                            data-testid="draft-program-state"
                           >
-                            {{ draftState() || 'Enter state / province' }}
-                          </span>
-                        </nxt1-list-row>
-                      }
-                    </nxt1-list-section>
-                    <button
-                      type="button"
-                      class="nxt1-draft-add-btn"
-                      nxtHaptic="medium"
-                      data-testid="draft-program-add"
-                      (click)="confirmDraftProgram()"
-                    >
-                      Add Program
-                    </button>
-                  </div>
-                }
-              </div>
+                            <span
+                              class="nxt1-list-value"
+                              [class.nxt1-list-placeholder]="!draftState()"
+                            >
+                              {{ draftStateDisplayValue() || 'Select state' }}
+                            </span>
+                          </nxt1-list-row>
+                        } @else {
+                          <nxt1-list-row
+                            label="State / Province"
+                            (tap)="openDraftStatePrompt()"
+                            data-testid="draft-program-state"
+                          >
+                            <span
+                              class="nxt1-list-value"
+                              [class.nxt1-list-placeholder]="!draftState()"
+                            >
+                              {{ draftState() || 'Enter state / province' }}
+                            </span>
+                          </nxt1-list-row>
+                        }
+                      </nxt1-list-section>
+                      <button
+                        type="button"
+                        class="nxt1-draft-add-btn"
+                        nxtHaptic="medium"
+                        data-testid="draft-program-add"
+                        (click)="confirmDraftProgram()"
+                      >
+                        Add Program
+                      </button>
+                    </div>
+                  }
+                </div>
+              }
             }
           </div>
         }
@@ -465,89 +479,99 @@ const PROGRAM_TYPE_SUFFIX_PATTERNS: Readonly<Record<DraftProgramType, readonly R
         } @else if (hasSearched()) {
           <div class="nxt1-no-results" data-testid="team-search-no-results">
             <p class="nxt1-no-results-text">No programs found for "{{ searchQuery() }}"</p>
-            <p class="nxt1-no-results-hint">Try a different search or add your program below.</p>
             @if (searchQuery().trim().length >= 2) {
-              <div class="nxt1-draft-controls">
-                @if (!pendingDraftType()) {
-                  <p class="nxt1-draft-type-label">
-                    Select program type to add "{{ searchQuery().trim() }}":
-                  </p>
-                  <div class="nxt1-draft-chip-group">
-                    @for (option of draftProgramTypeOptions; track option.value) {
+              @if (!showCreateWizard()) {
+                <button
+                  type="button"
+                  class="nxt1-create-program-cta"
+                  nxtHaptic="light"
+                  data-testid="create-program-cta"
+                  (click)="showCreateWizard.set(true)"
+                >
+                  <nxt1-icon name="plus" size="18" />
+                  Create "{{ searchQuery().trim() }}"
+                </button>
+              } @else {
+                <div class="nxt1-draft-controls">
+                  @if (!pendingDraftType()) {
+                    <p class="nxt1-draft-type-label">Select program type:</p>
+                    <div class="nxt1-draft-chip-group">
+                      @for (option of draftProgramTypeOptions; track option.value) {
+                        <button
+                          type="button"
+                          class="nxt1-draft-chip"
+                          nxtHaptic="light"
+                          (click)="selectDraftType(option.value)"
+                        >
+                          {{ option.label }}
+                        </button>
+                      }
+                    </div>
+                  } @else {
+                    <div class="nxt1-draft-location">
                       <button
                         type="button"
-                        class="nxt1-draft-chip"
-                        nxtHaptic="light"
-                        (click)="selectDraftType(option.value)"
+                        class="nxt1-draft-type-back"
+                        (click)="selectDraftType('')"
                       >
-                        {{ option.label }}
+                        {{ getDraftTypeLabel(pendingDraftType()!) }}
                       </button>
-                    }
-                  </div>
-                } @else {
-                  <div class="nxt1-draft-location">
-                    <button
-                      type="button"
-                      class="nxt1-draft-type-back"
-                      (click)="selectDraftType('')"
-                    >
-                      {{ getDraftTypeLabel(pendingDraftType()!) }}
-                    </button>
-                    <p class="nxt1-draft-location-label">Program location</p>
-                    <div class="nxt1-draft-location-fields">
-                      <select
-                        class="nxt1-draft-location-select"
-                        [value]="draftCountry()"
-                        (change)="onDraftCountryChangeNative($event)"
-                        data-testid="draft-program-country"
-                      >
-                        @for (c of countries; track c.code) {
-                          <option [value]="c.code">{{ c.name }}</option>
-                        }
-                      </select>
-                      <input
-                        type="text"
-                        class="nxt1-draft-location-input"
-                        placeholder="City"
-                        [value]="draftCity()"
-                        (input)="onDraftCityInputNative($event)"
-                        data-testid="draft-program-city"
-                      />
-                      @if (draftCountry() === 'US') {
+                      <p class="nxt1-draft-location-label">Program location</p>
+                      <div class="nxt1-draft-location-fields">
                         <select
                           class="nxt1-draft-location-select"
-                          [value]="draftState()"
-                          (change)="onDraftStateChangeNative($event)"
-                          data-testid="draft-program-state"
+                          [value]="draftCountry()"
+                          (change)="onDraftCountryChangeNative($event)"
+                          data-testid="draft-program-country"
                         >
-                          <option value="">State</option>
-                          @for (s of usStates; track s.abbreviation) {
-                            <option [value]="s.abbreviation">{{ s.name }}</option>
+                          @for (c of countries; track c.code) {
+                            <option [value]="c.code">{{ c.name }}</option>
                           }
                         </select>
-                      } @else {
                         <input
                           type="text"
                           class="nxt1-draft-location-input"
-                          placeholder="State / Province"
-                          [value]="draftState()"
-                          (input)="onDraftStateInputNative($event)"
-                          data-testid="draft-program-state"
+                          placeholder="City"
+                          [value]="draftCity()"
+                          (input)="onDraftCityInputNative($event)"
+                          data-testid="draft-program-city"
                         />
-                      }
+                        @if (draftCountry() === 'US') {
+                          <select
+                            class="nxt1-draft-location-select"
+                            [value]="draftState()"
+                            (change)="onDraftStateChangeNative($event)"
+                            data-testid="draft-program-state"
+                          >
+                            <option value="">State</option>
+                            @for (s of usStates; track s.abbreviation) {
+                              <option [value]="s.abbreviation">{{ s.name }}</option>
+                            }
+                          </select>
+                        } @else {
+                          <input
+                            type="text"
+                            class="nxt1-draft-location-input"
+                            placeholder="State / Province"
+                            [value]="draftState()"
+                            (input)="onDraftStateInputNative($event)"
+                            data-testid="draft-program-state"
+                          />
+                        }
+                      </div>
+                      <button
+                        type="button"
+                        class="nxt1-draft-add-btn"
+                        nxtHaptic="medium"
+                        data-testid="draft-program-add"
+                        (click)="confirmDraftProgram()"
+                      >
+                        Add Program
+                      </button>
                     </div>
-                    <button
-                      type="button"
-                      class="nxt1-draft-add-btn"
-                      nxtHaptic="medium"
-                      data-testid="draft-program-add"
-                      (click)="confirmDraftProgram()"
-                    >
-                      Add Program
-                    </button>
-                  </div>
-                }
-              </div>
+                  }
+                </div>
+              }
             }
           </div>
         }
@@ -1089,6 +1113,32 @@ const PROGRAM_TYPE_SUFFIX_PATTERNS: Readonly<Record<DraftProgramType, readonly R
         margin: 0;
       }
 
+      .nxt1-create-program-cta {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--nxt1-spacing-2, 8px);
+        margin-top: var(--nxt1-spacing-4, 16px);
+        padding: var(--nxt1-spacing-3, 12px) var(--nxt1-spacing-4, 16px);
+        background: transparent;
+        border: 1.5px dashed var(--nxt1-color-primary, #ccff00);
+        border-radius: var(--nxt1-borderRadius-lg, 12px);
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-sm, 0.875rem);
+        font-weight: 600;
+        color: var(--nxt1-color-primary, #ccff00);
+        cursor: pointer;
+        transition: all var(--nxt1-duration-fast, 150ms) var(--nxt1-easing-out, ease-out);
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      .nxt1-create-program-cta:hover {
+        background: var(--nxt1-color-alpha-primary10, rgba(204, 255, 0, 0.1));
+      }
+
+      .nxt1-create-program-cta:active {
+        transform: scale(0.97);
+      }
+
       .nxt1-no-results-hint {
         font-family: var(--nxt1-fontFamily-brand);
         font-size: var(--nxt1-fontSize-xs, 0.75rem);
@@ -1348,6 +1398,9 @@ export class OnboardingTeamSelectionStepComponent {
   /** Draft program country input (defaults to US) */
   readonly draftCountry = signal('US');
 
+  /** Whether the inline create-program wizard is expanded */
+  protected readonly showCreateWizard = signal(false);
+
   /** Debounce timer handle */
   private searchTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -1445,6 +1498,7 @@ export class OnboardingTeamSelectionStepComponent {
     this.searchResults.set([]);
     this.isSearching.set(false);
     this.hasSearched.set(false);
+    this.showCreateWizard.set(false);
     this.resetDraftLocation();
     if (this.searchTimer !== null) {
       clearTimeout(this.searchTimer);

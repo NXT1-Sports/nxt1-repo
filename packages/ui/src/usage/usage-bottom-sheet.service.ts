@@ -12,12 +12,14 @@
  */
 
 import { Injectable, inject } from '@angular/core';
-import { NxtBottomSheetService } from '../components/bottom-sheet';
+import { NxtBottomSheetService, SHEET_PRESETS } from '../components/bottom-sheet';
 import { USAGE_TIMEFRAME_OPTIONS, type UsageTimeframe } from '@nxt1/core';
 import type {
   BottomSheetAction,
   BottomSheetResult,
 } from '../components/bottom-sheet/bottom-sheet.types';
+import { BuyCreditsAutoTopupSheetComponent } from './buy-credits-autotopup-sheet.component';
+import type { BuyCreditsAutoTopupResult } from './buy-credits-flow.shared';
 
 export interface UsageBottomSheetResult {
   readonly action: string;
@@ -126,36 +128,105 @@ export class UsageBottomSheetService {
       return null;
     }
 
-    // Stripe credit packages: 100 credits per dollar
-    const packages = [
-      { credits: 500, price: '$4.99' },
-      { credits: 1_000, price: '$9.99' },
-      { credits: 2_500, price: '$24.99' },
-      { credits: 5_000, price: '$49.99' },
-      { credits: 10_000, price: '$99.99' },
-      { credits: 25_000, price: '$249.99' },
-      { credits: 50_000, price: '$499.99' },
-    ] as const;
+    const result = await this.openBuyCreditsSheet({
+      autoTopupEnabled: false,
+      autoTopupThresholdCents: 500,
+      autoTopupAmountCents: 1_000,
+    });
 
+    return result?.type === 'buy' ? result.amountCents : null;
+  }
+
+  /**
+   * Combined buy-credits + auto top-up flow for mobile.
+   *
+   * Step 1: Show credit packages (delegates to `showBuyCreditsOptions`).
+   * Step 2: If a package was selected AND auto top-up is not already on, offer
+   *         to configure it via a follow-up bottom sheet.
+   *
+   * Returns `{ amountCents, autoTopup }` where `autoTopup` is non-null only
+   * when the user configured it in step 2.
+   */
+  async showBuyCreditsWithAutoTopup(opts: {
+    autoTopupEnabled: boolean;
+    autoTopupThresholdCents: number;
+    autoTopupAmountCents: number;
+  }): Promise<{
+    amountCents: number | null;
+    autoTopup: { enabled: boolean; thresholdCents: number; amountCents: number } | null;
+  }> {
+    const result = await this.openBuyCreditsSheet(opts);
+    if (result?.type === 'buy') {
+      return { amountCents: result.amountCents, autoTopup: null };
+    }
+
+    if (result?.type === 'auto-topup') {
+      return {
+        amountCents: null,
+        autoTopup: {
+          enabled: result.enabled,
+          thresholdCents: result.thresholdCents,
+          amountCents: result.amountCents,
+        },
+      };
+    }
+
+    return { amountCents: null, autoTopup: null };
+  }
+
+  private async openBuyCreditsSheet(opts: {
+    autoTopupEnabled: boolean;
+    autoTopupThresholdCents: number;
+    autoTopupAmountCents: number;
+  }): Promise<BuyCreditsAutoTopupResult> {
+    const result = await this.bottomSheet.openSheet<BuyCreditsAutoTopupResult>({
+      component: BuyCreditsAutoTopupSheetComponent,
+      componentProps: {
+        initialAutoTopupEnabled: opts.autoTopupEnabled,
+        initialThresholdCents: opts.autoTopupThresholdCents,
+        initialAutoTopupAmountCents: opts.autoTopupAmountCents,
+      },
+      ...SHEET_PRESETS.FULL,
+      showHandle: true,
+      handleBehavior: 'cycle',
+      backdropDismiss: true,
+      cssClass: 'usage-buy-credits-sheet',
+    });
+
+    return result.data ?? null;
+  }
+
+  /** Show threshold selector for auto top-up configuration. */
+  async showAutoTopupThreshold(): Promise<number | null> {
+    const thresholds = [200, 500, 1_000, 2_500];
     const result = await this.bottomSheet.show<BottomSheetAction>({
-      title: 'Buy Credits',
-      icon: 'card-outline',
-      subtitle: 'Credits let you unlock premium actions across NXT1.',
-      actions: packages.map((pkg) => ({
-        label: `${pkg.credits.toLocaleString()} Credits — ${pkg.price}`,
+      title: 'Top up when balance drops below',
+      icon: 'arrow-down-circle-outline',
+      actions: thresholds.map((cents) => ({
+        label: `$${(cents / 100).toFixed(2)}`,
         role: 'primary' as const,
       })),
     });
-
     if (!result?.confirmed) return null;
-    const selectedLabel = (result.data as BottomSheetAction | undefined)?.label;
-    const selected = packages.find(
-      (pkg) => `${pkg.credits.toLocaleString()} Credits — ${pkg.price}` === selectedLabel
-    );
-    if (!selected) return null;
+    const label = (result.data as BottomSheetAction | undefined)?.label;
+    const match = label?.match(/^\$(\d+(?:\.\d+)?)$/);
+    return match ? Math.round(parseFloat(match[1]) * 100) : null;
+  }
 
-    // Parse price to cents for the Stripe checkout
-    const priceCents = Math.round(parseFloat(selected.price.replace('$', '')) * 100);
-    return priceCents;
+  /** Show amount selector for auto top-up configuration. */
+  async showAutoTopupAmount(): Promise<number | null> {
+    const amounts = [500, 1_000, 2_500, 5_000, 10_000];
+    const result = await this.bottomSheet.show<BottomSheetAction>({
+      title: 'Add this much each time',
+      icon: 'arrow-up-circle-outline',
+      actions: amounts.map((cents) => ({
+        label: `$${(cents / 100).toFixed(2)}`,
+        role: 'primary' as const,
+      })),
+    });
+    if (!result?.confirmed) return null;
+    const label = (result.data as BottomSheetAction | undefined)?.label;
+    const match = label?.match(/^\$(\d+(?:\.\d+)?)$/);
+    return match ? Math.round(parseFloat(match[1]) * 100) : null;
   }
 }

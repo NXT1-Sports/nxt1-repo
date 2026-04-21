@@ -41,7 +41,8 @@ vi.mock('../../../../utils/logger.js', () => ({
 const { AgentGenerationService } = await import('../generation.service.js');
 const { IntelGenerationService } = await import('../intel.service.js');
 const { ContextBuilder } = await import('../../memory/context-builder.js');
-const { getRecurringHabitsPrompt, resolvePrimarySport } = await import('../elite-context.js');
+const { getRecurringHabitsPrompt, resolvePrimarySport } =
+  await import('../../memory/context-builder.js');
 
 describe('RAG-backed prompt context helpers', () => {
   const fakeDb = {} as never;

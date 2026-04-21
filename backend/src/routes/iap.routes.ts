@@ -35,6 +35,7 @@ import { logger } from '../utils/logger.js';
 import { addWalletTopUp, processWalletRefund } from '../modules/billing/budget.service.js';
 import { IAPVerifyReceiptDto } from '../dtos/billing.dto.js';
 import { FieldValue } from 'firebase-admin/firestore';
+import { PaymentLogModel } from '../models/payment-log.model.js';
 
 // Static import — resolved via tsconfig paths → root node_modules
 import { Environment, SignedDataVerifier } from '@apple/app-store-server-library';
@@ -149,7 +150,7 @@ router.post(
 
       // Idempotency guard — prevent replay attacks from crediting the wallet multiple times
       // for the same Apple transaction (e.g., client retries or intercepted JWS reuse).
-      const txnDocRef = db.collection('iap_processed_transactions').doc(transactionId);
+      const txnDocRef = db.collection('IapProcessedTransactions').doc(transactionId);
       const existing = await txnDocRef.get();
       if (existing.exists) {
         logger.warn('[iap/verify-receipt] Duplicate transaction — already processed', {
@@ -167,18 +168,18 @@ router.post(
       const { newBalance } = await addWalletTopUp(db, userId, amountCents);
 
       // Write payment history record so the Usage dashboard history tab shows IAP purchases
-      await db.collection('paymentLogs').add({
+      await PaymentLogModel.create({
+        invoiceId: transactionId,
+        customerId: userId,
         userId,
-        amount: amountCents,
+        amountDue: amountCents / 100,
+        amountPaid: amountCents / 100,
         currency: 'usd',
-        status: 'completed',
+        status: 'PAID',
         paymentMethodLabel: 'Apple Pay',
-        provider: 'apple_iap',
-        productId,
-        transactionId,
-        createdAt: FieldValue.serverTimestamp(),
-        receiptUrl: null,
-        invoiceUrl: null,
+        type: 'apple_iap',
+        rawEvent: { productId, transactionId },
+        createdAt: new Date(),
       });
 
       // Persist the idempotency record after crediting

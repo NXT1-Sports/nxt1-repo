@@ -140,7 +140,7 @@ export interface ScheduleEvent {
   /** Unique identifier */
   id: string;
   /** Event type */
-  eventType: 'game' | 'camp' | 'visit' | 'tournament' | 'combine' | 'tryout' | 'practice' | 'other';
+  eventType: 'game' | 'scrimmage' | 'practice' | 'playoff' | 'other';
   /** Event title (e.g., 'vs. Mater Dei', 'Rivals Underclassmen Camp') */
   title: string;
   /** Event date (ISO string) */

@@ -20,11 +20,13 @@ import {
   resolveAuthorizedTargetSportSelection,
 } from '../../../../services/profile-write-access.service.js';
 import { CACHE_KEYS as USER_CACHE_KEYS } from '../../../../services/users.service.js';
-import { invalidateProfileCaches } from '../../../../routes/profile.routes.js';
+import { invalidateProfileCaches } from '../../../../routes/profile/shared.js';
 import { normalizeCollegeName } from './dedup-utils.js';
+import { getAnalyticsLoggerService } from '../../../../services/analytics-logger.service.js';
 import { logger } from '../../../../utils/logger.js';
 import { SyncDiffService, type PreviousProfileState } from '../../sync/index.js';
 import { onDailySyncComplete } from '../../triggers/trigger.listeners.js';
+import { resolveCreatedAt } from './doc-date-utils.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -203,7 +205,7 @@ export class WriteRecruitingActivityTool extends BaseTool {
           // Data lineage
           provider: source,
           extractedAt: now,
-          createdAt: now,
+          createdAt: resolveCreatedAt(undefined, this.str(a, 'date'), now),
           updatedAt: now,
         };
         if (sourceUrl) record['sourceUrl'] = sourceUrl;
@@ -277,6 +279,53 @@ export class WriteRecruitingActivityTool extends BaseTool {
         ]);
       } catch {
         // Best-effort
+      }
+
+      if (writtenRecords.length > 0) {
+        const analytics = getAnalyticsLoggerService();
+        await Promise.allSettled(
+          writtenRecords.map((record) => {
+            const category = String(record['category'] ?? 'activity_recorded');
+            const eventType =
+              category === 'offer'
+                ? 'offer_recorded'
+                : category === 'visit'
+                  ? 'visit_recorded'
+                  : category === 'contact'
+                    ? 'coach_contact_recorded'
+                    : category === 'commitment'
+                      ? 'commitment_recorded'
+                      : 'activity_recorded';
+
+            return analytics.safeTrack({
+              subjectId: userId,
+              subjectType: 'user',
+              domain: 'recruiting',
+              eventType,
+              source: 'agent',
+              actorUserId: context.userId,
+              sessionId: context.sessionId ?? null,
+              threadId: context.threadId ?? null,
+              tags: [sportId, category, source].filter(Boolean),
+              payload: {
+                sportId,
+                source,
+                sourceUrl,
+                collegeName: record['collegeName'],
+                division: record['division'],
+                conference: record['conference'],
+                coachName: record['coachName'],
+                coachTitle: record['coachTitle'],
+                scholarshipType: record['scholarshipType'],
+                date: record['date'],
+                notes: record['notes'],
+              },
+              metadata: {
+                toolName: this.name,
+              },
+            });
+          })
+        );
       }
 
       // ── Delta Detection & Trigger ─────────────────────────────────────

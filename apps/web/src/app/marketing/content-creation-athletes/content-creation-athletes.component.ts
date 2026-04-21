@@ -1,6 +1,5 @@
 import { ChangeDetectionStrategy, Component, OnInit, inject } from '@angular/core';
 import { NxtBrandKitIntegrationSectionComponent } from '@nxt1/ui/components/brand-kit-integration-section';
-import { NxtCoSignCollaborationSectionComponent } from '@nxt1/ui/components/co-sign-collaboration-section';
 import { NxtCtaBannerComponent } from '@nxt1/ui/components/cta-banner';
 import { NxtGraphicFactoryHeroComponent } from '@nxt1/ui/components/graphic-factory-hero';
 import { NxtInfiniteContentEngineSectionComponent } from '@nxt1/ui/components/infinite-content-engine-section';
@@ -17,14 +16,12 @@ import { SeoService } from '../../core/services';
     NxtBrandKitIntegrationSectionComponent,
     NxtInfiniteContentEngineSectionComponent,
     NxtSuccessStoriesComponent,
-    NxtCoSignCollaborationSectionComponent,
     NxtCtaBannerComponent,
     NxtGraphicFactoryHeroComponent,
     NxtVideoHighlightsHeroComponent,
   ],
   template: `
     <nxt1-media-empire-hero />
-    <nxt1-co-sign-collaboration-section [headingLevel]="2" />
     <nxt1-brand-kit-integration-section [headingLevel]="2" />
     <nxt1-infinite-content-engine-section [headingLevel]="2" />
     <nxt1-graphic-factory-hero [headingLevel]="2" titleId="graphic-factory-title" />

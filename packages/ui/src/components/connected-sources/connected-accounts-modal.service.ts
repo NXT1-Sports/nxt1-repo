@@ -44,6 +44,7 @@ import { ANALYTICS_ADAPTER } from '../../services/analytics/analytics-adapter.to
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import { NxtBottomSheetService, SHEET_PRESETS } from '../bottom-sheet';
 import { ConnectedAccountsSheetComponent } from './connected-accounts-sheet.component';
+import { ConnectedAccountsResyncService } from './connected-accounts-resync.service';
 import {
   ConnectedAccountsWebModalComponent,
   type ConnectedAccountsModalCloseData,
@@ -136,6 +137,7 @@ export class ConnectedAccountsModalService {
   private readonly breadcrumb = inject(NxtBreadcrumbService);
   private readonly firebaseUserFn = inject(CONNECTED_ACCOUNTS_FIREBASE_USER, { optional: true });
   private readonly firecrawlSignIn = inject(FirecrawlSignInService);
+  private readonly connectedAccountsResync = inject(ConnectedAccountsResyncService);
 
   /**
    * Opens Connected Accounts with adaptive presentation:
@@ -202,10 +204,20 @@ export class ConnectedAccountsModalService {
     });
 
     if (result.role === 'resync') {
+      const hasPendingSave =
+        result.data?.linkSources !== undefined && result.data?.updatedLinks !== undefined;
+
+      if (!hasPendingSave) {
+        await this.connectedAccountsResync.request(result.data?.sources ?? []);
+        return { saved: false };
+      }
+
       return {
         saved: false,
         resync: true,
         sources: result.data?.sources,
+        updatedLinks: result.data?.updatedLinks,
+        linkSources: result.data?.linkSources,
       };
     }
 
@@ -255,10 +267,19 @@ export class ConnectedAccountsModalService {
       }
 
       if (data.resync) {
+        const hasPendingSave = data.linkSources !== undefined && data.updatedLinks !== undefined;
+
+        if (!hasPendingSave) {
+          await this.connectedAccountsResync.request(data.sources ?? []);
+          return { saved: false };
+        }
+
         return {
           saved: false,
           resync: true,
           sources: data.sources,
+          updatedLinks: data.updatedLinks,
+          linkSources: data.linkSources,
         };
       }
 

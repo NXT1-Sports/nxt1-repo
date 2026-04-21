@@ -32,8 +32,6 @@ import { IonIcon } from '@ionic/angular/standalone';
 import { addIcons } from 'ionicons';
 import {
   eyeOutline,
-  bookmarkOutline,
-  heartOutline,
   shareOutline,
   trendingUpOutline,
   timeOutline,
@@ -240,8 +238,6 @@ export class ScoutReportQuickStatsComponent {
   constructor() {
     addIcons({
       eyeOutline,
-      bookmarkOutline,
-      heartOutline,
       shareOutline,
       trendingUpOutline,
       timeOutline,

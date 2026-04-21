@@ -378,7 +378,7 @@ export class GlobalErrorHandler implements ErrorHandler {
     // The LoggingService transports handle error reporting automatically
     // This method can be used for additional custom reporting if needed
 
-    // Example: Track in Firebase Analytics for fatal errors
+    // Example: Track fatal errors in the shared analytics pipeline if needed
     if (isPlatformBrowser(this.platformId) && severity === 'fatal') {
       // Analytics tracking is handled by analyticsTransport in LoggingService
     }
