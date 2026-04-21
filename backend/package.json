@@ -49,8 +49,8 @@
     "@imbsq/runway-mcp": "^1.0.0",
     "@mendable/firecrawl-js": "^4.16.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "@nxt1/cache": "*",
-    "@nxt1/core": "*",
+    "@nxt1/cache": "file:../packages/cache",
+    "@nxt1/core": "file:../packages/core",
     "apify-client": "^2.22.3",
     "axios": "^1.15.0",
     "bullmq": "^5.70.4",
@@ -78,7 +78,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@nxt1/config": "*",
+    "@nxt1/config": "file:../packages/config",
     "@types/cors": "^2.8.17",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/multer": "^2.0.0",
