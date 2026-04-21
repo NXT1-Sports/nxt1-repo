@@ -11,10 +11,15 @@ function fixImports(dir) {
     } else if (file.endsWith('.d.ts')) {
       let content = fs.readFileSync(fullPath, 'utf8');
       let changed = false;
-      content = content.replace(/from\s+['"](\.[^'"]+)['"]/g, (match, p1) => {
-        if (!p1.endsWith('.js') && !p1.endsWith('.json')) {
+      content = content.replace(/(from|import)\s*(\(?)\s*['"](\.[^'"]+)['"]\s*(\)?)/g, (match, keyword, openParen, p1, closeParen) => {
+        if (!p1.endsWith('.js') && !p1.endsWith('.mjs') && !p1.endsWith('.cjs') && !p1.endsWith('.json')) {
           changed = true;
-          return `from '${p1}.js'`;
+          const resolvedPath = path.join(dir, p1);
+          let target = p1 + '.js';
+          if (fs.existsSync(resolvedPath) && fs.statSync(resolvedPath).isDirectory()) {
+            target = p1 + '/index.js';
+          }
+          return `${keyword} ${openParen}'${target}'${closeParen}`;
         }
         return match;
       });
