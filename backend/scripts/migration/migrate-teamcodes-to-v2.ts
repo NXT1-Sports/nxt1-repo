@@ -38,6 +38,7 @@ import {
   migrationMeta,
   normalizeRole,
   rewriteStorageUrlWithPath,
+  getArg,
 } from './migration-utils.js';
 
 const TARGET_BUCKET =
@@ -386,21 +387,58 @@ async function main(): Promise<void> {
   // Org dedup: Map orgKey → generated orgId
   const orgCache = new Map<string, string>();
 
-  // Paginate legacy TeamCodes
+  // --unicodes= flag: targeted migration for specific teams by unicode value
+  const unicodesArg = getArg('unicodes');
+  const targetUnicodes = unicodesArg
+    ? unicodesArg
+        .split(',')
+        .map((u) => u.trim())
+        .filter(Boolean)
+    : [];
+
+  const targetedDocs: FirebaseFirestore.QueryDocumentSnapshot[] = [];
+  if (targetUnicodes.length > 0) {
+    console.log(`\n  Targeted migration — unicodes: ${targetUnicodes.join(', ')}\n`);
+    for (let i = 0; i < targetUnicodes.length; i += 30) {
+      const chunk = targetUnicodes.slice(i, i + 30);
+      const snap = await legacyDb
+        .collection(COLLECTIONS.LEGACY_TEAMCODES)
+        .where('unicode', 'in', chunk)
+        .get();
+      targetedDocs.push(...snap.docs);
+    }
+    console.log(`  Found: ${targetedDocs.length} matching TeamCode doc(s) in legacy\n`);
+    if (targetedDocs.length === 0) {
+      console.log('  ⚠️  No docs found. Check that unicode values exist in legacy TeamCodes.\n');
+      process.exit(0);
+    }
+  }
+
+  // Paginate legacy TeamCodes (or use targeted docs if --unicodes= is set)
   let cursor: FirebaseFirestore.DocumentSnapshot | undefined;
   let totalProcessed = 0;
+  let _targetedPageDone = false;
 
   while (true) {
-    let query = legacyDb
-      .collection(COLLECTIONS.LEGACY_TEAMCODES)
-      .orderBy('__name__')
-      .limit(PAGE_SIZE);
-
-    if (cursor) {
-      query = query.startAfter(cursor);
+    let snapshot: FirebaseFirestore.QuerySnapshot;
+    if (targetUnicodes.length > 0) {
+      // Targeted mode: process pre-fetched docs as a single page
+      if (_targetedPageDone) break;
+      snapshot = {
+        docs: targetedDocs,
+        empty: targetedDocs.length === 0,
+      } as unknown as FirebaseFirestore.QuerySnapshot;
+      _targetedPageDone = true;
+    } else {
+      // Normal paginated mode
+      let query = legacyDb
+        .collection(COLLECTIONS.LEGACY_TEAMCODES)
+        .orderBy('__name__')
+        .limit(PAGE_SIZE);
+      if (cursor) query = query.startAfter(cursor);
+      snapshot = await query.get();
     }
 
-    const snapshot = await query.get();
     if (snapshot.empty) break;
 
     for (const doc of snapshot.docs) {
@@ -521,9 +559,12 @@ async function main(): Promise<void> {
       }
     }
 
-    cursor = snapshot.docs[snapshot.docs.length - 1];
     if (limit > 0 && totalProcessed >= limit) break;
-    if (snapshot.docs.length < PAGE_SIZE) break;
+    // Only advance cursor in normal paginate mode
+    if (targetUnicodes.length === 0) {
+      cursor = snapshot.docs[snapshot.docs.length - 1];
+      if (snapshot.docs.length < PAGE_SIZE) break;
+    }
   }
 
   // Final flush
