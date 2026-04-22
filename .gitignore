@@ -2,12 +2,14 @@
 node_modules/
 .npm
 yarn.lock
+package-lock.json
 # Build outputs
 dist/
 lib/
 build/
 www/
 .turbo/
+.claude/
 # TypeScript compiled output in source directories (use dist/)
 packages/*/src/**/*.js
 packages/*/src/**/*.js.map
