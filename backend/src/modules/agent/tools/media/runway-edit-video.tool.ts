@@ -60,7 +60,7 @@ export class RunwayEditVideoTool extends BaseTool {
     required: ['promptText', 'video'],
   } as const;
 
-  override readonly allowedAgents = ['brand_media_coordinator'] as const;
+  override readonly allowedAgents = ['brand_coordinator'] as const;
   readonly isMutation = true;
   readonly category = 'media' as const;
 
@@ -90,7 +90,13 @@ export class RunwayEditVideoTool extends BaseTool {
       const seed = input['seed'] != null ? (input['seed'] as number) : undefined;
       const watermark = (input['watermark'] as boolean) ?? false;
 
-      context?.onProgress?.('Submitting video edit to Runway…');
+      context?.emitStage?.('submitting_job', {
+        icon: 'media',
+        phase: 'runway_edit_video',
+        model,
+        ratio,
+        duration,
+      });
 
       const result = (await this.bridge.editVideo({
         video: video.trim(),

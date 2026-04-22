@@ -17,6 +17,7 @@
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../../base.tool.js';
 import type { ApifyMcpBridgeService } from './apify-mcp-bridge.service.js';
 import { logger } from '../../../../../utils/logger.js';
+import { z } from 'zod';
 
 /** Maximum characters for a search query. */
 const MAX_QUERY_LENGTH = 200;
@@ -27,6 +28,11 @@ const MAX_RESULTS = 20;
 /** Default number of results. */
 const DEFAULT_RESULTS = 10;
 
+const SearchApifyActorsInputSchema = z.object({
+  query: z.string().trim().min(1).max(MAX_QUERY_LENGTH),
+  limit: z.coerce.number().int().optional(),
+});
+
 export class SearchApifyActorsTool extends BaseTool {
   readonly name = 'search_apify_actors';
   readonly description =
@@ -36,28 +42,13 @@ export class SearchApifyActorsTool extends BaseTool {
     'This is a free operation — no compute costs. ' +
     'Example queries: "instagram scraper", "youtube video downloader", "google maps reviews".';
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      query: {
-        type: 'string',
-        description:
-          'Search keywords describing the actor you need. ' +
-          'Be specific: "twitter profile scraper" is better than "social media".',
-      },
-      limit: {
-        type: 'number',
-        description: `Number of results to return (1–${MAX_RESULTS}). Defaults to ${DEFAULT_RESULTS}.`,
-      },
-    },
-    required: ['query'],
-  } as const;
+  readonly parameters = SearchApifyActorsInputSchema;
 
   override readonly allowedAgents = [
     'data_coordinator',
     'recruiting_coordinator',
-    'brand_media_coordinator',
-    'general',
+    'brand_coordinator',
+    'strategy_coordinator',
   ] as const;
 
   readonly isMutation = false;
@@ -74,17 +65,17 @@ export class SearchApifyActorsTool extends BaseTool {
     input: Record<string, unknown>,
     _context?: ToolExecutionContext
   ): Promise<ToolResult> {
-    const query = this.str(input, 'query');
-    if (!query) return this.paramError('query');
-
-    if (query.length > MAX_QUERY_LENGTH) {
+    const parsed = SearchApifyActorsInputSchema.safeParse(input);
+    if (!parsed.success) {
       return {
         success: false,
-        error: `Query must be ${MAX_QUERY_LENGTH} characters or fewer.`,
+        error: parsed.error.issues.map((issue) => issue.message).join(', '),
       };
     }
 
-    const limit = Math.min(Math.max(this.num(input, 'limit') ?? DEFAULT_RESULTS, 1), MAX_RESULTS);
+    const { query } = parsed.data;
+
+    const limit = Math.min(Math.max(parsed.data.limit ?? DEFAULT_RESULTS, 1), MAX_RESULTS);
 
     try {
       logger.info('[SearchApifyActors] Searching actors', { query, limit });

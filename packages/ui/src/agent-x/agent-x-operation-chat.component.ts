@@ -109,6 +109,7 @@ import type { DraftSubmittedEvent } from './agent-x-draft-card.component';
 import type { AgentYieldState } from '@nxt1/core';
 import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/assets';
 import type { AgentXPendingFile } from './agent-x-pending-file';
+import { getThinkingLabel, getToolStepDisplayLabel } from './agent-x-agent-presentation';
 
 // ============================================
 // INTERFACES
@@ -305,6 +306,7 @@ interface OperationMessage {
               [isOwn]="msg.role === 'user'"
               [content]="msg.content"
               [isTyping]="!!msg.isTyping"
+              [typingLabel]="msg.id === 'typing' ? thinkingLabel() : 'Thinking...'"
               [isError]="!!msg.error"
               [isSystem]="msg.role === 'system'"
               [steps]="msg.steps ?? []"
@@ -400,9 +402,7 @@ interface OperationMessage {
                 />
               </svg>
             </div>
-            <span class="thinking-block__label">{{
-              _videoUploadLabel() ?? 'Agent X is thinking…'
-            }}</span>
+            <span class="thinking-block__label">{{ thinkingLabel() }}</span>
           </div>
         }
 
@@ -1585,6 +1585,29 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     return last.role !== 'assistant' || !!last.isTyping;
   });
 
+  /** The latest active tool step driving the persistent thinking shimmer. */
+  protected readonly thinkingStep = computed<AgentXToolStep | null>(() => {
+    const messages = this.messages();
+    for (let messageIndex = messages.length - 1; messageIndex >= 0; messageIndex -= 1) {
+      const steps = messages[messageIndex]?.steps;
+      if (!steps?.length) continue;
+      for (let stepIndex = steps.length - 1; stepIndex >= 0; stepIndex -= 1) {
+        const step = steps[stepIndex];
+        if (step.status === 'active') {
+          return step;
+        }
+      }
+    }
+    return null;
+  });
+
+  /** Human-readable thinking shimmer label driven by structured agent progress. */
+  protected readonly thinkingLabel = computed(() => {
+    const uploadLabel = this._videoUploadLabel();
+    if (uploadLabel) return uploadLabel;
+    return getThinkingLabel(this.thinkingStep());
+  });
+
   /** Whether this is a background operation (vs a quick command). */
   protected get isOperation(): boolean {
     return this.contextType === 'operation';
@@ -2211,8 +2234,15 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       }
 
       const mapped: OperationMessage[] = items.map((msg) => {
-        // Convert persisted toolCalls into AgentXToolStep[] for the chat bubble
-        const steps: AgentXToolStep[] = (msg.toolCalls ?? []).map((tc, idx) => ({
+        const persistedSteps: AgentXToolStep[] = (msg.steps ?? []).map((step) => {
+          const normalized = {
+            ...step,
+            label: getToolStepDisplayLabel(step),
+          } satisfies AgentXToolStep;
+          return normalized;
+        });
+
+        const fallbackSteps: AgentXToolStep[] = (msg.toolCalls ?? []).map((tc, idx) => ({
           id: `tc-${idx}-${tc.toolName}`,
           label: tc.toolName.replace(/_/g, ' '),
           status: tc.status === 'success' ? ('success' as const) : ('error' as const),
@@ -2224,12 +2254,27 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
                 : undefined,
         }));
 
+        const steps = persistedSteps.length > 0 ? persistedSteps : fallbackSteps;
+        const persistedParts =
+          msg.parts?.map((part) =>
+            part.type === 'tool-steps'
+              ? {
+                  type: 'tool-steps' as const,
+                  steps: part.steps.map((step) => ({
+                    ...step,
+                    label: getToolStepDisplayLabel(step),
+                  })),
+                }
+              : part
+          ) ?? [];
+
         return {
           id: msg.id ?? this.uid(),
           role: msg.role === 'user' ? ('user' as const) : ('assistant' as const),
           content: msg.content,
           timestamp: msg.createdAt ? new Date(msg.createdAt) : new Date(),
           ...(steps.length > 0 ? { steps } : {}),
+          ...(persistedParts.length > 0 ? { parts: persistedParts } : {}),
           ...(typeof msg.resultData?.['imageUrl'] === 'string'
             ? { imageUrl: msg.resultData['imageUrl'] as string }
             : {}),
@@ -3109,18 +3154,28 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
           },
 
           onStep: (evt: AgentXStreamStepEvent) => {
-            const step: AgentXToolStep = {
+            const rawStep: AgentXToolStep = {
               id: evt.id,
               label: evt.label,
+              agentId: evt.agentId,
+              stageType: evt.stageType,
+              stage: evt.stage,
+              outcomeCode: evt.outcomeCode,
+              metadata: evt.metadata,
               status: evt.status,
+              icon: evt.icon,
               detail: evt.detail,
+            };
+            const step: AgentXToolStep = {
+              ...rawStep,
+              label: getToolStepDisplayLabel(rawStep),
             };
             const tid = this._resolvedThreadId();
             if (tid) this.streamRegistry.upsertStep(tid, step);
 
             // Bridge write_intel tool steps to IntelService so the Intel tab
             // shows the generating animation exactly when the agent is writing.
-            this.intelService?.notifyToolStep(evt.id, evt.label, evt.status, evt.detail);
+            this.intelService?.notifyToolStep(evt.id, step.label, evt.status, evt.detail);
             // Bridge all tool steps to ProfileGenerationStateService so the
             // profile generation banner gets live progress from SSE (not Firestore).
             if (this._currentOperationId) {
@@ -3155,7 +3210,12 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
           },
 
           onCard: (evt: AgentXStreamCardEvent) => {
-            const card: AgentXRichCard = { type: evt.type, title: evt.title, payload: evt.payload };
+            const card: AgentXRichCard = {
+              type: evt.type,
+              agentId: evt.agentId,
+              title: evt.title,
+              payload: evt.payload,
+            };
             const tid = this._resolvedThreadId();
             if (tid) this.streamRegistry.appendCard(tid, card);
 

@@ -24,27 +24,30 @@ const {
   mockSyncDiff: vi.fn().mockReturnValue({ isEmpty: true, summary: { totalChanges: 0 } }),
 }));
 
-vi.mock('../../../../../services/cache.service.js', () => ({
+vi.mock('../../../../../services/core/cache.service.js', () => ({
+  CACHE_TTL: {
+    COLLEGES: 86_400,
+  },
   getCacheService: () => ({
     del: vi.fn().mockResolvedValue(undefined),
   }),
 }));
 
-vi.mock('../../../../../services/organization.service.js', () => ({
+vi.mock('../../../../../services/team/organization.service.js', () => ({
   createOrganizationService: () => ({
     updateOrganization: mockUpdateOrganization,
   }),
 }));
 
-vi.mock('../../../../../services/agent-welcome.service.js', () => ({
+vi.mock('../../../services/agent-welcome.service.js', () => ({
   enqueueWelcomeGraphicIfReady: mockEnqueueWelcomeGraphicIfReady,
 }));
 
-vi.mock('../../../../../services/team-code.service.js', () => ({
+vi.mock('../../../../../services/team/team-code.service.js', () => ({
   invalidateTeamCache: mockInvalidateTeamCache,
 }));
 
-vi.mock('../../../../../services/users.service.js', () => ({
+vi.mock('../../../../../services/profile/users.service.js', () => ({
   CACHE_KEYS: {
     USER_BY_ID: (userId: string) => `user:${userId}`,
   },
@@ -54,7 +57,7 @@ vi.mock('../../../../../routes/profile/shared.js', () => ({
   invalidateProfileCaches: mockInvalidateProfileCaches,
 }));
 
-vi.mock('../../../../../services/profile-write-access.service.js', () => ({
+vi.mock('../../../../../services/profile/profile-write-access.service.js', () => ({
   createProfileWriteAccessService: () => ({
     assertCanManageProfileTarget: mockAssertCanManageProfileTarget,
   }),

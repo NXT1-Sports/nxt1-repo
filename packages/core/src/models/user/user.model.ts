@@ -29,7 +29,7 @@ import {
 import type {
   USER_SCHEMA_VERSION,
   Location,
-  ContactInfo,
+  UserContact,
   ConnectedSource,
   ConnectedEmail,
   VerificationStatus,
@@ -38,13 +38,7 @@ import type {
   AcademicInfo,
 } from './user-base.model';
 import type { SportProfile, VerifiedMetric } from './user-sport.model';
-import type {
-  CoachData,
-  RecruiterData,
-  DirectorData,
-  ParentData,
-  AthleteData,
-} from './user-role-data.model';
+import type { CoachData, DirectorData } from './user-role-data.model';
 import type { BillingTargetReference } from '../../usage/billing-domain.types';
 
 // Re-export for convenience
@@ -162,13 +156,13 @@ export interface User {
   // ============================================
   /**
    * Graduation year (e.g., 2027).
-   * Previously on AthleteData.classOf — moved here for top-level access.
+   * Previously stored on a nested athlete role object — moved here for top-level access.
    */
   classOf?: number;
 
   /**
    * Academic information at the top level.
-   * Historical documents may still also carry athlete.academics.
+   * Historical documents may still need migration from legacy nested data.
    */
   academics?: AcademicInfo;
 
@@ -191,7 +185,7 @@ export interface User {
   // LOCATION & CONTACT (structured)
   // ============================================
   location?: Location;
-  contact?: ContactInfo;
+  contact?: UserContact;
   preferredContactMethod?: 'email' | 'phone' | 'app';
 
   // ============================================
@@ -230,20 +224,13 @@ export interface User {
 
   // ============================================
   // ROLE-SPECIFIC DATA
-  // Only ONE of these should be populated based on user's role.
-  // Note: 'athlete' nested object has been removed — athlete data lives at
-  // top-level fields (academics, measurables, classOf, sports[]).
+  // Team-management data is populated based on the user's role.
+  // Athlete data lives at top-level fields (academics, measurables, classOf, sports[]).
   // ============================================
-  athlete?: AthleteData;
-
   /** HS/Club coach-specific data - role: 'coach' */
   coach?: CoachData;
   /** Athletic/Program director data - role: 'director' */
   director?: DirectorData;
-  /** Recruiter data (college coach, scout, service) - @deprecated legacy Firestore field */
-  recruiter?: RecruiterData;
-  /** Parent-specific data - @deprecated legacy Firestore field */
-  parent?: ParentData;
 
   // ============================================
   // REFERRAL
@@ -375,23 +362,12 @@ export interface UserSummary {
 
 /** Check if user is an athlete */
 export function isAthlete(user: User): boolean {
-  return user.role === USER_ROLES.ATHLETE && !!user.athlete;
+  return user.role === USER_ROLES.ATHLETE;
 }
 
 /** Check if user is a coach */
 export function isCoach(user: User): boolean {
   return user.role === USER_ROLES.COACH && !!user.coach;
-}
-
-/** Check if user is a college coach
- * @deprecated Use isRecruiter() instead */
-export function isCollegeCoach(user: User): boolean {
-  return isRecruiter(user);
-}
-
-/** Check if user has recruiting capabilities (college coach / director with recruiter profile) */
-export function isRecruiter(user: User): boolean {
-  return (user.role === USER_ROLES.COACH || user.role === USER_ROLES.DIRECTOR) && !!user.recruiter;
 }
 
 /** Check if user is a director */
@@ -413,7 +389,7 @@ export function isVerified(user: User): boolean {
 // HELPER FUNCTIONS
 // ============================================
 
-/** Get primary sport (first in array or legacy primarySport) */
+/** Get primary sport (first in array) */
 export function getPrimarySport(user: User): SportProfile | undefined {
   if (user.sports && user.sports.length > 0) {
     return user.sports.find((s) => s.order === 0) || user.sports[0];
@@ -473,13 +449,6 @@ export function getProfileImg(user: User): string | null {
 /** Get all profile images for carousel display */
 export function getProfileImages(user: User): string[] {
   return user.profileImgs ?? [];
-}
-
-/**
- * @deprecated Use getProfileImages instead
- */
-export function getGalleryImages(user: User): string[] {
-  return getProfileImages(user);
 }
 
 /** Get a social/connected source URL by platform name (case-insensitive) */

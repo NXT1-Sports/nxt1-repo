@@ -29,11 +29,21 @@ import { FieldValue, type Firestore } from 'firebase-admin/firestore';
 import { isTeamRole } from '@nxt1/core';
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
 import { logger } from '../../../../utils/logger.js';
+import { z } from 'zod';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
 const USERS_COLLECTION = 'Users';
 const TEAMS_COLLECTION = 'Teams';
+
+const WriteConnectedSourceInputSchema = z.object({
+  userId: z.string().trim().min(1),
+  url: z.string().trim().min(1),
+  platform: z.string().trim().min(1),
+  scopeId: z.string().trim().min(1).optional(),
+  faviconUrl: z.string().trim().min(1).optional(),
+  teamId: z.string().trim().min(1).optional(),
+});
 
 /** Platforms the agent knows by slug — used for validation and favicon fallback. */
 const KNOWN_PLATFORMS: Record<string, { displayName: string; faviconUrl: string }> = {
@@ -123,52 +133,15 @@ export class WriteConnectedSourceTool extends BaseTool {
     '- faviconUrl (optional): Override favicon URL. Auto-resolved for known platforms if omitted.\n' +
     '- teamId (optional): Firestore Team ID. Required for coach/director accounts lacking a pre-set teamId.';
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      userId: {
-        type: 'string',
-        description: 'Firebase UID of the target user.',
-      },
-      url: {
-        type: 'string',
-        description: 'The full URL of the external profile to register.',
-      },
-      platform: {
-        type: 'string',
-        description:
-          'Platform slug (e.g. "maxpreps", "hudl", "instagram", "twitter", "on3", "247sports"). ' +
-          'Use lowercase, no spaces.',
-      },
-      scopeId: {
-        type: 'string',
-        description:
-          'Sport slug this source is scoped to (e.g. "football", "basketball"). ' +
-          "Defaults to the user's primary sport when omitted.",
-      },
-      faviconUrl: {
-        type: 'string',
-        description:
-          'Favicon URL for the platform icon shown in the UI. ' +
-          'Auto-resolved for known platforms when omitted.',
-      },
-      teamId: {
-        type: 'string',
-        description:
-          'Firestore Team document ID. Required when the target user is a coach or director ' +
-          'and does not already have a teamId set on their profile.',
-      },
-    },
-    required: ['userId', 'url', 'platform'],
-  } as const;
+  readonly parameters = WriteConnectedSourceInputSchema;
 
   override readonly allowedAgents = [
-    'general',
+    'strategy_coordinator',
     'data_coordinator',
     'recruiting_coordinator',
     'performance_coordinator',
-    'compliance_coordinator',
-    'brand_media_coordinator',
+    'admin_coordinator',
+    'brand_coordinator',
   ] as const;
 
   readonly isMutation = true;
@@ -185,23 +158,28 @@ export class WriteConnectedSourceTool extends BaseTool {
     input: Record<string, unknown>,
     context?: ToolExecutionContext
   ): Promise<ToolResult> {
-    // ── Validate required params ────────────────────────────────────────
-    const userId = this.str(input, 'userId');
-    if (!userId) return this.paramError('userId');
+    const parsed = WriteConnectedSourceInputSchema.safeParse(input);
+    if (!parsed.success) {
+      return {
+        success: false,
+        error: parsed.error.issues
+          .map((issue) =>
+            issue.path.length > 0 ? `${issue.path.join('.')}: ${issue.message}` : issue.message
+          )
+          .join(', '),
+      };
+    }
 
-    const url = this.str(input, 'url');
-    if (!url) return this.paramError('url');
+    const { userId, url } = parsed.data;
 
     if (!this.isValidUrl(url)) {
       return { success: false, error: `"${url}" is not a valid URL.` };
     }
 
-    const platform = this.str(input, 'platform')?.toLowerCase();
-    if (!platform) return this.paramError('platform');
-
-    const scopeId = this.str(input, 'scopeId') ?? null;
-    const explicitFaviconUrl = this.str(input, 'faviconUrl') ?? null;
-    const explicitTeamId = this.str(input, 'teamId') ?? null;
+    const platform = parsed.data.platform.toLowerCase();
+    const scopeId = parsed.data.scopeId ?? null;
+    const explicitFaviconUrl = parsed.data.faviconUrl ?? null;
+    const explicitTeamId = parsed.data.teamId ?? null;
 
     // ── Resolve favicon URL ─────────────────────────────────────────────
     const faviconUrl = explicitFaviconUrl ?? KNOWN_PLATFORMS[platform]?.faviconUrl ?? undefined;

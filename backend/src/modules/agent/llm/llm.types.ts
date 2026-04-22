@@ -8,6 +8,7 @@
  */
 
 import type { ModelTier, AgentIdentifier } from '@nxt1/core';
+import type { ZodType } from 'zod';
 
 // ─── Model Catalogue ────────────────────────────────────────────────────────
 
@@ -181,7 +182,7 @@ export interface LLMToolCall {
 }
 
 /** Options passed to a completion request. */
-export interface LLMCompletionOptions {
+export interface LLMCompletionOptions<TStructuredOutput = unknown> {
   /** Which model tier to use (resolves to a concrete model via MODEL_CATALOGUE). */
   readonly tier: ModelTier;
   /** Override the resolved model with a specific slug. */
@@ -194,6 +195,11 @@ export interface LLMCompletionOptions {
   readonly tools?: readonly LLMToolSchema[];
   /** Whether to force JSON output format. */
   readonly jsonMode?: boolean;
+  /** Optional Zod schema for native structured JSON responses where supported. */
+  readonly outputSchema?: {
+    readonly name: string;
+    readonly schema: ZodType<TStructuredOutput>;
+  };
   /** Abort signal for cancellation. */
   readonly signal?: AbortSignal;
   /** Telemetry context — passed through to the onTelemetry callback. */
@@ -207,9 +213,11 @@ export interface LLMCompletionOptions {
 }
 
 /** The parsed response from an LLM completion. */
-export interface LLMCompletionResult {
+export interface LLMCompletionResult<TStructuredOutput = unknown> {
   /** The assistant's text content (null if only tool calls). */
   readonly content: string | null;
+  /** Parsed structured output when an outputSchema was provided and validation succeeded. */
+  readonly parsedOutput?: TStructuredOutput;
   /** Tool calls the assistant wants to make (empty if pure text response). */
   readonly toolCalls: readonly LLMToolCall[];
   /** The OpenRouter model that actually served the request. */

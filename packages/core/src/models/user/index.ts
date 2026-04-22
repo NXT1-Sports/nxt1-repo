@@ -21,7 +21,7 @@ export * from './user-base.model';
 // Re-export sport types (SportProfile, VerifiedMetric, VerifiedStat, ScheduleEvent, RecruitingActivity, etc.)
 export * from './user-sport.model';
 
-// Re-export role data types (AthleteData, CoachData, DirectorData)
+// Re-export role data types (CoachData, DirectorData)
 export * from './user-role-data.model';
 
 // Re-export collection types (PostDoc, VideoDoc, PlayerStatDoc, GameStatDoc, RankingEntryDoc, etc.)

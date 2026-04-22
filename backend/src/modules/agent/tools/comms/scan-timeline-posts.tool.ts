@@ -28,10 +28,12 @@ import type {
 } from '@nxt1/core';
 import { POSTS_COLLECTIONS } from '@nxt1/core/constants';
 import type { OpenRouterService } from '../../llm/openrouter.service.js';
+import { resolveStructuredOutput } from '../../llm/structured-output.js';
 import type { VectorMemoryService } from '../../memory/vector.service.js';
 import { AgentMemoryModel } from '../../memory/vector.service.js';
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
 import { logger } from '../../../../utils/logger.js';
+import { z } from 'zod';
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
 
@@ -50,6 +52,14 @@ const VALID_CATEGORIES: readonly AgentMemoryCategory[] = [
 ];
 
 const VALID_TARGETS: readonly AgentMemoryTarget[] = ['user', 'team', 'organization'];
+
+const extractedTimelineFactSchema = z.object({
+  content: z.string().trim().min(1),
+  category: z.enum(['preference', 'goal', 'recruiting_context', 'performance_data']),
+  target: z.enum(['user', 'team', 'organization']).default('user'),
+});
+
+const extractedTimelineFactsSchema = z.array(z.unknown());
 
 /**
  * System prompt for the post-scanning extraction model.
@@ -135,7 +145,7 @@ export class ScanTimelinePostsTool extends BaseTool {
 
   override readonly allowedAgents: readonly (AgentIdentifier | '*')[] = [
     'data_coordinator',
-    'general',
+    'strategy_coordinator',
     'recruiting_coordinator',
     'performance_coordinator',
   ];
@@ -176,7 +186,10 @@ export class ScanTimelinePostsTool extends BaseTool {
     const limit = Math.min(Math.max(limitRaw ?? 20, 1), MAX_POSTS);
 
     try {
-      context?.onProgress?.('Fetching timeline posts…');
+      context?.emitStage?.('fetching_data', {
+        icon: 'document',
+        phase: 'fetch_timeline_posts',
+      });
       const posts = await this.fetchPosts(userId, scope, teamId ?? undefined, limit);
 
       if (posts.length === 0) {
@@ -190,7 +203,11 @@ export class ScanTimelinePostsTool extends BaseTool {
         };
       }
 
-      context?.onProgress?.(`Analyzing ${posts.length} posts for key context…`);
+      context?.emitStage?.('submitting_job', {
+        icon: 'document',
+        postCount: posts.length,
+        phase: 'analyze_timeline_posts',
+      });
       const digest = this.buildDigest(posts);
 
       const completion = await this.llm.complete(
@@ -202,7 +219,10 @@ export class ScanTimelinePostsTool extends BaseTool {
           tier: 'extraction',
           temperature: 0,
           maxTokens: 2000,
-          jsonMode: true,
+          outputSchema: {
+            name: 'timeline_scan_facts',
+            schema: z.array(extractedTimelineFactSchema),
+          },
           telemetryContext: {
             operationId: `scan-timeline-posts-${userId}`,
             userId,
@@ -212,25 +232,20 @@ export class ScanTimelinePostsTool extends BaseTool {
         }
       );
 
-      if (!completion.content) {
-        return {
-          success: true,
-          data: {
-            postsScanned: posts.length,
-            memoriesStored: 0,
-            message: 'No durable facts could be extracted from the scanned posts.',
-          },
-        };
-      }
-
       let facts: Array<{ content: string; category: string; target?: string }>;
       try {
-        const parsed = JSON.parse(completion.content);
-        facts = Array.isArray(parsed) ? parsed : [];
+        facts = resolveStructuredOutput(
+          completion,
+          extractedTimelineFactsSchema,
+          'Scan timeline posts extraction'
+        ).flatMap((item) => {
+          const fact = extractedTimelineFactSchema.safeParse(item);
+          return fact.success ? [fact.data] : [];
+        });
       } catch {
         logger.warn('[ScanTimelinePostsTool] Failed to parse extraction JSON', {
           userId,
-          raw: completion.content.slice(0, 500),
+          raw: (completion.content ?? '').slice(0, 500),
         });
         return {
           success: true,
@@ -242,7 +257,11 @@ export class ScanTimelinePostsTool extends BaseTool {
         };
       }
 
-      context?.onProgress?.(`Storing ${facts.length} extracted facts to memory…`);
+      context?.emitStage?.('persisting_result', {
+        icon: 'document',
+        factCount: facts.length,
+        phase: 'store_timeline_facts',
+      });
       const stored = await this.storeFacts(facts, userId, teamId ?? undefined);
 
       logger.info('[ScanTimelinePostsTool] Scan complete', {

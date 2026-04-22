@@ -82,9 +82,6 @@ export interface CommunicationEvent extends AnalyticsEventBase {
   clickedUrl?: string;
 }
 
-/** @deprecated Use CommunicationEvent. Kept for backward compatibility. */
-export type CampaignEvent = CommunicationEvent;
-
 export interface AIUsageEvent extends AnalyticsEventBase {
   type: 'ai_task_start' | 'ai_task_complete';
   taskType: string;
@@ -105,7 +102,7 @@ export interface SessionEvent extends AnalyticsEventBase {
 export type AnalyticsEvent =
   | ViewEvent
   | EngagementEvent
-  | CampaignEvent
+  | CommunicationEvent
   | AIUsageEvent
   | SessionEvent;
 
@@ -126,11 +123,8 @@ export interface SourceBreakdown {
 }
 
 export interface ViewerBreakdown {
-  recruiter: number;
-  high_school_coach: number;
   coach: number;
   athlete: number;
-  parent: number;
   director: number;
   anonymous: number;
 }
@@ -347,11 +341,8 @@ export function createEmptySourceBreakdown(): SourceBreakdown {
 
 export function createEmptyViewerBreakdown(): ViewerBreakdown {
   return {
-    recruiter: 0,
-    high_school_coach: 0,
     coach: 0,
     athlete: 0,
-    parent: 0,
     director: 0,
     anonymous: 0,
   };
@@ -423,9 +414,6 @@ export function isEngagementEvent(event: AnalyticsEvent): event is EngagementEve
 export function isCommunicationEvent(event: AnalyticsEvent): event is CommunicationEvent {
   return ['email_sent', 'email_open', 'email_click', 'email_reply'].includes(event.type);
 }
-
-/** @deprecated Use isCommunicationEvent. Kept for backward compatibility. */
-export const isCampaignEvent = isCommunicationEvent;
 
 // ============================================
 // UTILITY TYPES

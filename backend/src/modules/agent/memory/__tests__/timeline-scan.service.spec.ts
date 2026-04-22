@@ -14,7 +14,7 @@ vi.mock('../../../../utils/logger.js', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
-vi.mock('../../../../models/agent-thread.model.js', () => ({
+vi.mock('../../../../models/agent/agent-thread.model.js', () => ({
   AgentThreadModel: {
     find: vi.fn().mockReturnValue({
       select: vi.fn().mockReturnThis(),
@@ -25,7 +25,7 @@ vi.mock('../../../../models/agent-thread.model.js', () => ({
 }));
 
 const { AgentMemoryModel } = await import('../vector.service.js');
-const { AgentThreadModel } = await import('../../../../models/agent-thread.model.js');
+const { AgentThreadModel } = await import('../../../../models/agent/agent-thread.model.js');
 import { TimelineScanService } from '../timeline-scan.service.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -124,7 +124,11 @@ describe('TimelineScanService', () => {
           expect.objectContaining({ role: 'system' }),
           expect.objectContaining({ role: 'user' }),
         ]),
-        expect.objectContaining({ tier: 'extraction', temperature: 0, jsonMode: true })
+        expect.objectContaining({
+          tier: 'extraction',
+          temperature: 0,
+          outputSchema: expect.objectContaining({ name: 'timeline_scan_facts' }),
+        })
       );
     });
 

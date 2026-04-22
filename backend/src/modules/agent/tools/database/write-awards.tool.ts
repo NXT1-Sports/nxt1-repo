@@ -9,18 +9,39 @@
 
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 import { BaseTool, type ToolExecutionContext, type ToolResult } from '../base.tool.js';
-import { getCacheService } from '../../../../services/cache.service.js';
+import { getCacheService } from '../../../../services/core/cache.service.js';
 import {
   createProfileWriteAccessService,
   resolveAuthorizedTargetSportSelection,
-} from '../../../../services/profile-write-access.service.js';
-import { CACHE_KEYS as USER_CACHE_KEYS } from '../../../../services/users.service.js';
+} from '../../../../services/profile/profile-write-access.service.js';
+import { CACHE_KEYS as USER_CACHE_KEYS } from '../../../../services/profile/users.service.js';
 import { invalidateProfileCaches } from '../../../../routes/profile/shared.js';
 import { logger } from '../../../../utils/logger.js';
 import { resolveCreatedAt, seasonToDate, yearToDate } from './doc-date-utils.js';
+import { z } from 'zod';
 
 export const AWARDS_COLLECTION = 'Awards';
 const MAX_AWARDS = 50;
+
+const AwardEntrySchema = z
+  .object({
+    title: z.string().trim().min(1).optional(),
+    category: z.string().trim().min(1).optional(),
+    season: z.string().trim().min(1).optional(),
+    year: z.string().trim().min(1).optional(),
+    issuer: z.string().trim().min(1).optional(),
+    description: z.string().trim().min(1).optional(),
+    sport: z.string().trim().min(1).optional(),
+  })
+  .passthrough();
+
+const WriteAwardsInputSchema = z.object({
+  userId: z.string().trim().min(1),
+  targetSport: z.string().trim().min(1),
+  source: z.string().trim().min(1),
+  sourceUrl: z.string().trim().min(1).optional(),
+  awards: z.array(AwardEntrySchema).min(1).max(MAX_AWARDS),
+});
 
 export class WriteAwardsTool extends BaseTool {
   readonly name = 'write_awards';
@@ -43,32 +64,7 @@ export class WriteAwardsTool extends BaseTool {
     '  • description (optional): Additional context about the award.\n' +
     '  • sport (optional): Overrides targetSport for this specific award.';
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      userId: { type: 'string' },
-      targetSport: { type: 'string' },
-      source: { type: 'string' },
-      sourceUrl: { type: 'string' },
-      awards: {
-        type: 'array',
-        items: {
-          type: 'object',
-          properties: {
-            title: { type: 'string' },
-            category: { type: 'string' },
-            season: { type: 'string' },
-            year: { type: 'string' },
-            issuer: { type: 'string' },
-            description: { type: 'string' },
-            sport: { type: 'string' },
-          },
-          required: ['title'],
-        },
-      },
-    },
-    required: ['userId', 'targetSport', 'source', 'awards'],
-  } as const;
+  readonly parameters = WriteAwardsInputSchema;
 
   override readonly allowedAgents = ['data_coordinator'] as const;
   readonly isMutation = true;
@@ -85,21 +81,11 @@ export class WriteAwardsTool extends BaseTool {
     input: Record<string, unknown>,
     context?: ToolExecutionContext
   ): Promise<ToolResult> {
-    const userId = this.str(input, 'userId');
-    if (!userId) return this.paramError('userId');
-    const targetSport = this.str(input, 'targetSport');
-    if (!targetSport) return this.paramError('targetSport');
-    const source = this.str(input, 'source');
-    if (!source) return this.paramError('source');
+    const parsed = WriteAwardsInputSchema.safeParse(input);
+    if (!parsed.success) return this.zodError(parsed.error);
 
-    const sourceUrl = this.str(input, 'sourceUrl') ?? undefined;
-    const awards = input['awards'];
-    if (!Array.isArray(awards) || awards.length === 0) {
-      return { success: false, error: 'awards must be a non-empty array.' };
-    }
-    if (awards.length > MAX_AWARDS) {
-      return { success: false, error: `awards exceeds maximum of ${MAX_AWARDS}.` };
-    }
+    const { userId, targetSport, source, awards } = parsed.data;
+    const sourceUrl = parsed.data.sourceUrl;
 
     if (!context?.userId) {
       return { success: false, error: 'Authenticated tool context is required.' };
@@ -145,7 +131,11 @@ export class WriteAwardsTool extends BaseTool {
     let skipped = 0;
 
     try {
-      context?.onProgress?.(`Writing ${awards.length} award(s)…`);
+      context?.emitStage?.('submitting_job', {
+        icon: 'database',
+        awardCount: awards.length,
+        phase: 'write_awards',
+      });
 
       await Promise.all(
         awards.map(async (entry) => {
@@ -221,7 +211,10 @@ export class WriteAwardsTool extends BaseTool {
     }
 
     try {
-      context?.onProgress?.('Invalidating award caches…');
+      context?.emitStage?.('persisting_result', {
+        icon: 'database',
+        phase: 'invalidate_award_caches',
+      });
       const cache = getCacheService();
       await Promise.all([
         cache.del(USER_CACHE_KEYS.USER_BY_ID(userId)),

@@ -60,6 +60,7 @@ import { environment } from '../../../../environments/environment';
 import { Subscription } from 'rxjs';
 import { NxtPlatformService, NxtLoggingService } from '@nxt1/ui';
 import { type ILogger } from '@nxt1/core/logging';
+import { GOOGLE_OAUTH_SCOPES } from '@nxt1/core/auth';
 import { NativeAuthService } from './native-auth.service';
 import { FirebaseUserInfo, NativeAuthResult } from '@nxt1/core';
 
@@ -351,21 +352,9 @@ export class FirebaseAuthService implements OnDestroy {
     this.logger.debug('Using web Google Sign-In (fallback)');
     const webResult = await runInInjectionContext(this.injector, () => {
       const provider = new GoogleAuthProvider();
-      // Identity scopes
-      provider.addScope('openid');
-      provider.addScope('profile');
-      provider.addScope('email');
-      // Gmail scopes (restricted)
-      provider.addScope('https://www.googleapis.com/auth/gmail.send');
-      provider.addScope('https://www.googleapis.com/auth/gmail.readonly');
-      // Drive scopes
-      provider.addScope('https://www.googleapis.com/auth/drive.file');
-      provider.addScope('https://www.googleapis.com/auth/drive.readonly');
-      // Google Workspace scopes
-      provider.addScope('https://www.googleapis.com/auth/calendar.events');
-      provider.addScope('https://www.googleapis.com/auth/documents');
-      provider.addScope('https://www.googleapis.com/auth/spreadsheets');
-      provider.addScope('https://www.googleapis.com/auth/presentations');
+      for (const scope of GOOGLE_OAUTH_SCOPES) {
+        provider.addScope(scope);
+      }
       return signInWithPopup(this.auth, provider);
     });
 

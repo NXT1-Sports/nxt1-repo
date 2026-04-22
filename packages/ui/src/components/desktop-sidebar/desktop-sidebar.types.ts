@@ -106,6 +106,9 @@ export interface DesktopSidebarUserData {
   /** Whether this user is a team-management role (coach/director) */
   readonly isTeamRole?: boolean;
 
+  /** Whether the team-role user currently has a real team association. */
+  readonly isOnTeam?: boolean;
+
   /** Whether the user may create a new team/sport profile from the switcher. */
   readonly canAddProfile?: boolean;
 }

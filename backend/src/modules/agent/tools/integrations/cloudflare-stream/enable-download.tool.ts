@@ -22,26 +22,12 @@ export class EnableDownloadTool extends BaseTool {
     'Once download URL is ready, the backend can pull the MP4 back to Firebase Storage. ' +
     'The video must be in "ready" state before calling this.';
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      videoId: {
-        type: 'string',
-        description: 'The Cloudflare video ID to enable downloads for.',
-      },
-      type: {
-        type: 'string',
-        enum: ['video', 'audio'],
-        description: '"video" for MP4 download (default), "audio" for M4A audio-only.',
-      },
-    },
-    required: ['videoId'],
-  } as const;
+  readonly parameters = EnableDownloadInputSchema;
 
   override readonly allowedAgents = [
-    'brand_media_coordinator',
+    'brand_coordinator',
     'data_coordinator',
-    'general',
+    'strategy_coordinator',
   ] as const;
 
   readonly isMutation = true;
@@ -74,11 +60,21 @@ export class EnableDownloadTool extends BaseTool {
       type: downloadType,
       userId: context?.userId,
     });
-    context?.onProgress?.(`Enabling ${downloadType} download…`);
+    context?.emitStage?.('submitting_job', {
+      icon: 'download',
+      videoId,
+      downloadType,
+      phase: 'enable_download',
+    });
 
     try {
       const download = await this.bridge.enableDownload(videoId, downloadType);
-      context?.onProgress?.(`Rendering ${downloadType} file…`);
+      context?.emitStage?.('checking_status', {
+        icon: 'download',
+        videoId,
+        downloadType,
+        phase: 'render_file',
+      });
 
       // Try to get the current download status/URL
       let downloadUrl: string | null = null;
@@ -101,7 +97,13 @@ export class EnableDownloadTool extends BaseTool {
       const startMs = Date.now();
 
       while (!downloadUrl && status === 'processing' && Date.now() - startMs < maxWaitMs) {
-        context?.onProgress?.(`Rendering ${downloadType}… ${percentComplete ?? 0}% complete`);
+        context?.emitStage?.('checking_status', {
+          icon: 'download',
+          videoId,
+          downloadType,
+          percentComplete: percentComplete ?? 0,
+          phase: 'render_progress',
+        });
         await new Promise((r) => setTimeout(r, pollInterval));
 
         try {
@@ -121,7 +123,12 @@ export class EnableDownloadTool extends BaseTool {
       }
 
       if (downloadUrl) {
-        context?.onProgress?.(`${downloadType === 'audio' ? 'Audio' : 'Video'} download ready!`);
+        context?.emitStage?.('checking_status', {
+          icon: 'download',
+          videoId,
+          downloadType,
+          phase: 'ready',
+        });
       }
 
       logger.info('[EnableDownload] Download enabled', {

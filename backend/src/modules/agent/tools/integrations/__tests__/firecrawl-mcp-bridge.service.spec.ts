@@ -13,7 +13,7 @@ const cache = {
   }),
 };
 
-vi.mock('../../../../../services/cache.service.js', () => ({
+vi.mock('../../../../../services/core/cache.service.js', () => ({
   CACHE_TTL: {
     SEARCH: 900,
     RANKINGS: 3600,

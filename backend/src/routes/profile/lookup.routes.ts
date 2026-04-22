@@ -9,10 +9,10 @@
  */
 
 import { Router, type Request, type Response } from 'express';
-import { appGuard, optionalAuth } from '../../middleware/auth.middleware.js';
+import { appGuard, optionalAuth } from '../../middleware/auth/auth.middleware.js';
 import { logger } from '../../utils/logger.js';
-import { getCacheService } from '../../services/cache.service.js';
-import { markCacheHit } from '../../middleware/cache-status.middleware.js';
+import { getCacheService } from '../../services/core/cache.service.js';
+import { markCacheHit } from '../../middleware/cache/cache-status.middleware.js';
 import { asyncHandler, sendError } from '@nxt1/core/errors/express';
 import { validationError, notFoundError } from '@nxt1/core/errors';
 import type { User, UserSummary, ProfileSearchParams } from '@nxt1/core';

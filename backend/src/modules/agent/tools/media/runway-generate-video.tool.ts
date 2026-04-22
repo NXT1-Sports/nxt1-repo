@@ -70,7 +70,7 @@ export class RunwayGenerateVideoTool extends BaseTool {
     required: ['promptText'],
   } as const;
 
-  override readonly allowedAgents = ['brand_media_coordinator'] as const;
+  override readonly allowedAgents = ['brand_coordinator'] as const;
   readonly isMutation = true;
   readonly category = 'media' as const;
 
@@ -97,7 +97,12 @@ export class RunwayGenerateVideoTool extends BaseTool {
       const audio = (input['audio'] as boolean) ?? false;
       const watermark = (input['watermark'] as boolean) ?? false;
 
-      context?.onProgress?.('Submitting video generation to Runway…');
+      context?.emitStage?.('submitting_job', {
+        icon: 'media',
+        phase: 'runway_generate_video',
+        hasPromptImage: !!promptImage,
+        ratio,
+      });
 
       let result: Record<string, unknown>;
 

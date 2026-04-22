@@ -11,8 +11,13 @@ import { BaseTool, type ToolResult } from '../base.tool.js';
 import type { AgentToolCategory } from '@nxt1/core';
 import type { AgentQueueService } from '../../queue/queue.service.js';
 import type { RecurringJobInfo } from '../../queue/queue.types.js';
+import { z } from 'zod';
 
 const RECURRING_TASKS_COLLECTION = 'RecurringTasks' as const;
+
+const ListRecurringTasksInputSchema = z.object({
+  userId: z.string().trim().min(1),
+});
 
 export class ListRecurringTasksTool extends BaseTool {
   readonly name = 'list_recurring_tasks';
@@ -20,16 +25,7 @@ export class ListRecurringTasksTool extends BaseTool {
     'List all active recurring scheduled tasks for a user. ' +
     "Returns each task's key, action summary, cron expression, and next execution time.";
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      userId: {
-        type: 'string',
-        description: 'The ID of the user whose recurring tasks to list.',
-      },
-    },
-    required: ['userId'],
-  };
+  readonly parameters = ListRecurringTasksInputSchema;
 
   readonly isMutation = false;
   readonly category: AgentToolCategory = 'automation';
@@ -44,8 +40,15 @@ export class ListRecurringTasksTool extends BaseTool {
   }
 
   async execute(input: Record<string, unknown>): Promise<ToolResult> {
-    const userId = this.str(input, 'userId');
-    if (!userId) return this.paramError('userId');
+    const parsed = ListRecurringTasksInputSchema.safeParse(input);
+    if (!parsed.success) {
+      return {
+        success: false,
+        error: parsed.error.issues.map((issue) => issue.message).join(', '),
+      };
+    }
+
+    const { userId } = parsed.data;
 
     try {
       // Firestore is the source of truth for task ownership and metadata.

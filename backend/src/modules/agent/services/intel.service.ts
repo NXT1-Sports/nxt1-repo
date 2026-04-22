@@ -10,12 +10,19 @@
  * Recruiting, Events, Awards, RosterEntries, TeamStats).
  */
 
-import { getFirestore, FieldValue, type Firestore } from 'firebase-admin/firestore';
+import {
+  getFirestore,
+  FieldValue,
+  type Firestore,
+  type WriteResult,
+} from 'firebase-admin/firestore';
 import { logger } from '../../../utils/logger.js';
 import { getSeasonInfo, resolvePrimarySport, ContextBuilder } from '../memory/context-builder.js';
 import { getPlatformFaviconUrl } from '@nxt1/core/platforms';
 import { VectorMemoryService } from '../memory/vector.service.js';
 import { OpenRouterService } from '../llm/openrouter.service.js';
+import { resolveStructuredOutput } from '../llm/structured-output.js';
+import { z } from 'zod';
 
 // ─── Section Order Constants ─────────────────────────────────────────────────
 
@@ -54,15 +61,6 @@ const TEAM_SECTION_META: Readonly<Record<TeamSectionId, { title: string; icon: s
 };
 
 // ─── Shared Helpers ─────────────────────────────────────────────────────────
-
-/** Strip markdown code fences from LLM JSON output. */
-function stripMarkdownFences(text: string): string {
-  let cleaned = text.trim();
-  if (cleaned.startsWith('```')) {
-    cleaned = cleaned.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
-  }
-  return cleaned;
-}
 
 /** Compute staleAt timestamp 30 days from now. */
 function computeStaleAt(): string {
@@ -118,38 +116,347 @@ interface NormalizedSection {
   }>;
 }
 
+const intelItemSchema = z.object({
+  label: z.string().optional(),
+  value: z.union([z.string(), z.number(), z.boolean()]).optional(),
+  unit: z.string().optional(),
+  source: z.string().optional(),
+  verified: z.boolean().optional(),
+  faviconUrl: z.string().optional(),
+  date: z.string().optional(),
+  sublabel: z.string().optional(),
+});
+
+const intelSourceSchema = z.object({
+  platform: z.string().optional(),
+  label: z.string().optional(),
+  url: z.string().optional(),
+  verified: z.boolean().optional(),
+  faviconUrl: z.string().optional(),
+});
+
+const intelSectionSchema = z.object({
+  id: z.string(),
+  title: z.string().optional(),
+  icon: z.string().optional(),
+  content: z.string().optional(),
+  items: z.array(intelItemSchema).optional(),
+  sources: z.array(intelSourceSchema).optional(),
+});
+
+const intelQuickCommandSchema = z.object({
+  id: z.string().optional(),
+  label: z.string().optional(),
+  description: z.string().optional(),
+  icon: z.string().optional(),
+  agentPrompt: z.string().optional(),
+});
+
+const intelReportResponseSchema = z.object({
+  sections: z.array(intelSectionSchema),
+  quickCommands: z.array(intelQuickCommandSchema).optional(),
+});
+
+interface AthleteIntelDraft {
+  readonly parsed: Record<string, unknown>;
+  readonly sport: string;
+  readonly primaryPosition: string;
+  readonly citations: Array<{
+    platform: string;
+    label: string;
+    url?: string;
+    lastSyncedAt?: string;
+    verified?: boolean;
+  }>;
+  readonly missingDataPrompts: Array<Record<string, string>>;
+  readonly dataAvailability: {
+    hasMetrics: boolean;
+    hasStats: boolean;
+    hasGameLogs: boolean;
+    hasRecruiting: boolean;
+    hasSchedule: boolean;
+    hasAcademics: boolean;
+    hasVideo: boolean;
+    hasAwards: boolean;
+  };
+}
+
+interface TeamIntelDraft {
+  readonly parsed: Record<string, unknown>;
+  readonly teamName: string;
+  readonly sport: string;
+  readonly citations: Array<{
+    platform: string;
+    label: string;
+    url?: string;
+    lastSyncedAt?: string;
+    verified?: boolean;
+  }>;
+}
+
+interface AthleteIntelSectionDraft {
+  readonly parsedSection: Record<string, unknown>;
+  readonly sectionAvailability: Record<string, boolean>;
+}
+
+interface TeamIntelSectionDraft {
+  readonly parsedSection: Record<string, unknown>;
+  readonly sectionRaw: Partial<RawTeamData>;
+}
+
+interface IntelReportDocument {
+  readonly id: string;
+  readonly ref: {
+    update(data: Record<string, unknown>): Promise<WriteResult>;
+  };
+}
+
 // ─── Intel Generation Service ───────────────────────────────────────────────
 
 export class IntelGenerationService {
+  private readonly firestore?: Firestore;
   private readonly llmService?: OpenRouterService;
+  private readonly injectedContextBuilder?: ContextBuilder;
   private ownedLlmService?: OpenRouterService;
-  private contextBuilder?: ContextBuilder;
+  private ownedLlmServiceFirestore?: Firestore;
+  private ownedContextBuilder?: ContextBuilder;
+  private ownedContextBuilderFirestore?: Firestore;
 
-  constructor(llmService?: OpenRouterService, contextBuilder?: ContextBuilder) {
+  constructor(
+    llmService?: OpenRouterService,
+    contextBuilder?: ContextBuilder,
+    firestore?: Firestore
+  ) {
+    this.firestore = firestore;
     this.llmService = llmService;
-    this.contextBuilder = contextBuilder;
+    this.injectedContextBuilder = contextBuilder;
   }
 
   private get db(): Firestore {
-    return getFirestore();
+    return this.firestore ?? getFirestore();
   }
 
   private resolveDb(dbOverride?: Firestore): Firestore {
     return dbOverride ?? this.db;
   }
 
-  private getOrCreateLlmService(): OpenRouterService {
+  private getOrCreateLlmService(dbOverride?: Firestore): OpenRouterService {
     if (this.llmService) return this.llmService;
-    if (!this.ownedLlmService) {
-      this.ownedLlmService = new OpenRouterService();
+    const db = this.resolveDb(dbOverride);
+    if (!this.ownedLlmService || this.ownedLlmServiceFirestore !== db) {
+      this.ownedLlmService = new OpenRouterService({ firestore: db });
+      this.ownedLlmServiceFirestore = db;
     }
     return this.ownedLlmService;
   }
 
-  private getOrCreateContextBuilder(): ContextBuilder {
-    if (this.contextBuilder) return this.contextBuilder;
-    this.contextBuilder = new ContextBuilder(new VectorMemoryService(this.getOrCreateLlmService()));
-    return this.contextBuilder;
+  private getOrCreateContextBuilder(dbOverride?: Firestore): ContextBuilder {
+    if (this.injectedContextBuilder) return this.injectedContextBuilder;
+    const db = this.resolveDb(dbOverride);
+    if (!this.ownedContextBuilder || this.ownedContextBuilderFirestore !== db) {
+      this.ownedContextBuilder = new ContextBuilder(
+        new VectorMemoryService(this.getOrCreateLlmService(db))
+      );
+      this.ownedContextBuilderFirestore = db;
+    }
+    return this.ownedContextBuilder;
+  }
+
+  private async generateAthleteIntelDraft(
+    userId: string,
+    userData: Record<string, unknown>,
+    raw: RawProfileData,
+    db: Firestore
+  ): Promise<AthleteIntelDraft> {
+    const citations = this.buildCitations(raw.connectedSources);
+
+    const dataAvailability = {
+      hasMetrics: raw.metrics.length > 0,
+      hasStats: raw.stats.length > 0,
+      hasGameLogs: false,
+      hasRecruiting: raw.recruiting.length > 0,
+      hasSchedule: raw.events.length > 0,
+      hasAcademics: !!(
+        (userData['academics'] as Record<string, unknown> | undefined)?.['gpa'] ||
+        userData['gpa'] ||
+        userData['satScore'] ||
+        userData['actScore']
+      ),
+      hasVideo: !!(userData['highlightVideoUrl'] || userData['profileVideoUrl']),
+      hasAwards: raw.awards.length > 0,
+    };
+
+    const missingDataPrompts = this.buildMissingDataPrompts(dataAvailability);
+    const { promptContextText, sport, primaryPosition } = await this.buildAthletePromptContext(
+      userId,
+      userData,
+      db
+    );
+
+    const prompt = this.buildAthleteIntelPrompt(
+      promptContextText,
+      sport,
+      primaryPosition,
+      raw,
+      dataAvailability,
+      citations
+    );
+
+    const llm = this.getOrCreateLlmService(db);
+    const result = await llm.complete(
+      [
+        {
+          role: 'system',
+          content:
+            'You are Agent X — the AI sports intelligence engine powering NXT1. ' +
+            'You generate PUBLIC scouting and recruiting intel reports written in the THIRD PERSON. ' +
+            'These reports are read by coaches, scouts, and recruiting programs — NOT addressed to the athlete. ' +
+            'Do NOT use "you", "your", or address the athlete directly at any point. ' +
+            'Refer to the athlete by name or as "the athlete" or "the prospect". ' +
+            'You never produce evaluation ratings, tier labels, or numeric scores. ' +
+            'ABSOLUTE RULE: Do NOT invent, hallucinate, or fabricate any data. ' +
+            "If a data field is 'NONE', write factual absence text only. " +
+            'Never invent stats, school names, offers, measurables, or awards. ' +
+            'Output valid JSON only.',
+        },
+        { role: 'user', content: prompt },
+      ],
+      {
+        tier: 'copywriting',
+        maxTokens: 4096,
+        temperature: 0.6,
+        outputSchema: {
+          name: 'athlete_intel_report',
+          schema: intelReportResponseSchema,
+        },
+      }
+    );
+
+    return {
+      parsed: resolveStructuredOutput(
+        result,
+        intelReportResponseSchema,
+        'Athlete intel report generation'
+      ),
+      sport,
+      primaryPosition,
+      citations,
+      missingDataPrompts,
+      dataAvailability,
+    };
+  }
+
+  private async saveAthleteIntelReport(
+    userId: string,
+    report: Record<string, unknown>,
+    db: Firestore
+  ): Promise<Record<string, unknown>> {
+    const docRef = db.collection('Users').doc(userId).collection('intel_reports').doc();
+
+    await docRef.set({
+      ...report,
+      id: docRef.id,
+      generatedAt: FieldValue.serverTimestamp(),
+    });
+
+    logger.info('[IntelGenerationService] Athlete Intel report generated', {
+      userId,
+      reportId: docRef.id,
+      sectionCount: (report['sections'] as unknown[]).length,
+    });
+
+    return { ...report, id: docRef.id, generatedAt: new Date().toISOString() };
+  }
+
+  private async generateTeamIntelDraft(
+    teamId: string,
+    teamData: Record<string, unknown>,
+    raw: RawTeamData,
+    db: Firestore
+  ): Promise<TeamIntelDraft> {
+    const citations = this.buildCitations(
+      (teamData['connectedSources'] as Record<string, unknown>[] | undefined) ?? []
+    );
+
+    let teamContextText = '';
+    try {
+      const builder = this.getOrCreateContextBuilder(db);
+      const query = [
+        'team intel report',
+        `sport: ${(teamData['teamName'] as string) || 'unknown'}`,
+        'retrieve roster, staff, stats, recruiting, schedule, program identity',
+      ].join(' | ');
+      teamContextText = await builder.buildTeamPromptContext(teamId, teamData, query);
+    } catch (err) {
+      logger.warn('[IntelGenerationService] Failed to build team prompt context', {
+        teamId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
+    const prompt = this.buildTeamIntelPrompt(teamData, raw, teamContextText);
+    const llm = this.getOrCreateLlmService(db);
+    const result = await llm.complete(
+      [
+        {
+          role: 'system',
+          content:
+            'You are Agent X — the AI sports intelligence engine powering NXT1. ' +
+            'You generate PUBLIC program intel reports written in the THIRD PERSON. ' +
+            'These reports are read by recruits, scouts, and opposing programs — NOT addressed to the coaching staff or athletes. ' +
+            'Do NOT use "you", "your", or address the team or coaches directly at any point. ' +
+            'Refer to the program by its team name. ' +
+            'You never produce evaluation ratings or numeric scores for athletes. ' +
+            'ABSOLUTE RULE: Do NOT invent, hallucinate, or fabricate any data. ' +
+            "If a data field is 'NONE', write factual absence text only. " +
+            'Never invent athlete names, win-loss records, commitments, or school names. ' +
+            'Output valid JSON only.',
+        },
+        { role: 'user', content: prompt },
+      ],
+      {
+        tier: 'copywriting',
+        maxTokens: 4096,
+        temperature: 0.6,
+        outputSchema: {
+          name: 'team_intel_report',
+          schema: intelReportResponseSchema,
+        },
+      }
+    );
+
+    return {
+      parsed: resolveStructuredOutput(
+        result,
+        intelReportResponseSchema,
+        'Team intel report generation'
+      ),
+      teamName: (teamData['teamName'] as string) || 'Unknown',
+      sport: (teamData['sport'] as string) || 'General',
+      citations,
+    };
+  }
+
+  private async saveTeamIntelReport(
+    teamId: string,
+    report: Record<string, unknown>,
+    db: Firestore
+  ): Promise<Record<string, unknown>> {
+    const docRef = db.collection('Teams').doc(teamId).collection('intel_reports').doc();
+
+    await docRef.set({
+      ...report,
+      id: docRef.id,
+      generatedAt: FieldValue.serverTimestamp(),
+    });
+
+    logger.info('[IntelGenerationService] Team Intel report generated', {
+      teamId,
+      reportId: docRef.id,
+      sectionCount: (report['sections'] as unknown[]).length,
+    });
+
+    return { ...report, id: docRef.id, generatedAt: new Date().toISOString() };
   }
 
   private buildAthleteScaffolding(sport: string, now: Date = new Date()): string {
@@ -197,7 +504,7 @@ export class IntelGenerationService {
     ].join(' | ');
 
     try {
-      const builder = this.getOrCreateContextBuilder();
+      const builder = this.getOrCreateContextBuilder(db);
       const promptContext = await builder.buildPromptContext(userId, query, db);
       const sport = promptContext.profile.sport || fallbackSport;
       return {
@@ -266,109 +573,26 @@ export class IntelGenerationService {
     // ── Gather all raw profile data in parallel from root collections ──
     const raw = await this.gatherAthleteData(userId, userData, db);
 
-    // ── Build citations from connected sources ──
-    const citations = this.buildCitations(raw.connectedSources);
-
-    // ── Determine data availability ──
-    const dataAvailability = {
-      hasMetrics: raw.metrics.length > 0,
-      hasStats: raw.stats.length > 0,
-      hasGameLogs: false,
-      hasRecruiting: raw.recruiting.length > 0,
-      hasSchedule: raw.events.length > 0,
-      hasAcademics: !!(
-        (userData['academics'] as Record<string, unknown> | undefined)?.['gpa'] ||
-        userData['gpa'] ||
-        userData['satScore'] ||
-        userData['actScore']
-      ),
-      hasVideo: !!(userData['highlightVideoUrl'] || userData['profileVideoUrl']),
-      hasAwards: raw.awards.length > 0,
-    };
-
-    // ── Build missing data prompts ──
-    const missingDataPrompts = this.buildMissingDataPrompts(dataAvailability);
-
-    // ── Build LLM prompt from vector-backed prompt context ──
-    const { promptContextText, sport, primaryPosition } = await this.buildAthletePromptContext(
-      userId,
-      userData,
-      db
-    );
-
-    const prompt = this.buildAthleteIntelPrompt(
-      promptContextText,
-      sport,
-      primaryPosition,
-      raw,
-      dataAvailability,
-      citations
-    );
-
-    // ── Call OpenRouter ──
-    let parsed: Record<string, unknown>;
+    let draft: AthleteIntelDraft;
     try {
-      const llm = this.getOrCreateLlmService();
-      const result = await llm.complete(
-        [
-          {
-            role: 'system',
-            content:
-              'You are Agent X — the AI sports intelligence engine powering NXT1. ' +
-              'You generate PUBLIC scouting and recruiting intel reports written in the THIRD PERSON. ' +
-              'These reports are read by coaches, scouts, and recruiting programs — NOT addressed to the athlete. ' +
-              'Do NOT use "you", "your", or address the athlete directly at any point. ' +
-              'Refer to the athlete by name or as "the athlete" or "the prospect". ' +
-              'You never produce evaluation ratings, tier labels, or numeric scores. ' +
-              'ABSOLUTE RULE: Do NOT invent, hallucinate, or fabricate any data. ' +
-              "If a data field is 'NONE', write factual absence text only. " +
-              'Never invent stats, school names, offers, measurables, or awards. ' +
-              'Output valid JSON only.',
-          },
-          { role: 'user', content: prompt },
-        ],
-        {
-          tier: 'copywriting',
-          maxTokens: 4096,
-          temperature: 0.6,
-          jsonMode: true,
-        }
-      );
-
-      if (!result.content) throw new Error('Empty LLM response');
-      parsed = JSON.parse(stripMarkdownFences(result.content));
+      draft = await this.generateAthleteIntelDraft(userId, userData, raw, db);
     } catch (err) {
       logger.error('[IntelGenerationService] LLM call failed for athlete', { userId, err });
       throw new Error('Intel generation failed — please try again', { cause: err });
     }
 
-    // ── Normalize and validate output ──
+    // ── Normalize after structured generation ──
     const report = this.normalizeAthleteReport(
       userId,
-      sport,
-      primaryPosition,
-      parsed,
-      citations,
-      missingDataPrompts,
-      dataAvailability
+      draft.sport,
+      draft.primaryPosition,
+      draft.parsed,
+      draft.citations,
+      draft.missingDataPrompts,
+      draft.dataAvailability
     );
 
-    // ── Persist to Firestore ──
-    const docRef = db.collection('Users').doc(userId).collection('intel_reports').doc();
-
-    await docRef.set({
-      ...report,
-      id: docRef.id,
-      generatedAt: FieldValue.serverTimestamp(),
-    });
-
-    logger.info('[IntelGenerationService] Athlete Intel report generated', {
-      userId,
-      reportId: docRef.id,
-      sectionCount: (report['sections'] as unknown[]).length,
-    });
-
-    return { ...report, id: docRef.id, generatedAt: new Date().toISOString() };
+    return this.saveAthleteIntelReport(userId, report, db);
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -405,89 +629,23 @@ export class IntelGenerationService {
     // ── Gather all raw team data in parallel from root collections ──
     const raw = await this.gatherTeamData(teamId, teamData, db);
 
-    // ── Build citations ──
-    const citations = this.buildCitations(
-      (teamData['connectedSources'] as Record<string, unknown>[] | undefined) ?? []
-    );
-
-    // ── Build team context via RAG + vector memory (mirrors athlete path) ──
-    let teamContextText = '';
+    let draft: TeamIntelDraft;
     try {
-      const builder = this.getOrCreateContextBuilder();
-      const query = [
-        'team intel report',
-        `sport: ${(teamData['teamName'] as string) || 'unknown'}`,
-        'retrieve roster, staff, stats, recruiting, schedule, program identity',
-      ].join(' | ');
-      teamContextText = await builder.buildTeamPromptContext(teamId, teamData, query);
-    } catch (err) {
-      logger.warn('[IntelGenerationService] Failed to build team prompt context', {
-        teamId,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
-
-    // ── Build LLM prompt ──
-    const prompt = this.buildTeamIntelPrompt(teamData, raw, teamContextText);
-
-    // ── Call OpenRouter ──
-    let parsed: Record<string, unknown>;
-    try {
-      const llm = this.getOrCreateLlmService();
-      const result = await llm.complete(
-        [
-          {
-            role: 'system',
-            content:
-              'You are Agent X — the AI sports intelligence engine powering NXT1. ' +
-              'You generate PUBLIC program intel reports written in the THIRD PERSON. ' +
-              'These reports are read by recruits, scouts, and opposing programs — NOT addressed to the coaching staff or athletes. ' +
-              'Do NOT use "you", "your", or address the team or coaches directly at any point. ' +
-              'Refer to the program by its team name. ' +
-              'You never produce evaluation ratings or numeric scores for athletes. ' +
-              'ABSOLUTE RULE: Do NOT invent, hallucinate, or fabricate any data. ' +
-              "If a data field is 'NONE', write factual absence text only. " +
-              'Never invent athlete names, win-loss records, commitments, or school names. ' +
-              'Output valid JSON only.',
-          },
-          { role: 'user', content: prompt },
-        ],
-        {
-          tier: 'copywriting',
-          maxTokens: 4096,
-          temperature: 0.6,
-          jsonMode: true,
-        }
-      );
-
-      if (!result.content) throw new Error('Empty LLM response');
-      parsed = JSON.parse(stripMarkdownFences(result.content));
+      draft = await this.generateTeamIntelDraft(teamId, teamData, raw, db);
     } catch (err) {
       logger.error('[IntelGenerationService] LLM call failed for team', { teamId, err });
       throw new Error('Intel generation failed — please try again', { cause: err });
     }
 
-    // ── Normalize and persist ──
-    const teamName = (teamData['teamName'] as string) || 'Unknown';
-    const sport = (teamData['sport'] as string) || 'General';
-
-    const report = this.normalizeTeamReport(teamId, teamName, sport, parsed, citations);
-
-    const docRef = db.collection('Teams').doc(teamId).collection('intel_reports').doc();
-
-    await docRef.set({
-      ...report,
-      id: docRef.id,
-      generatedAt: FieldValue.serverTimestamp(),
-    });
-
-    logger.info('[IntelGenerationService] Team Intel report generated', {
+    const report = this.normalizeTeamReport(
       teamId,
-      reportId: docRef.id,
-      sectionCount: (report['sections'] as unknown[]).length,
-    });
+      draft.teamName,
+      draft.sport,
+      draft.parsed,
+      draft.citations
+    );
 
-    return { ...report, id: docRef.id, generatedAt: new Date().toISOString() };
+    return this.saveTeamIntelReport(teamId, report, db);
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -1249,6 +1407,187 @@ Output this EXACT JSON structure with all 5 sections:
     }));
   }
 
+  private async generateAthleteIntelSectionDraft(
+    userId: string,
+    sectionId: AthleteSectionId,
+    userData: Record<string, unknown>,
+    db: Firestore
+  ): Promise<AthleteIntelSectionDraft> {
+    const sectionRaw = await this.gatherAthleteSectionData(userId, userData, sectionId, db);
+    const sectionAvailability = this.computeAthleteSectionAvailability(
+      sectionId,
+      userData,
+      sectionRaw
+    );
+
+    const { promptContextText, sport, primaryPosition } = await this.buildAthletePromptContext(
+      userId,
+      userData,
+      db
+    );
+
+    const prompt = this.buildAthleteSectionPrompt(
+      sectionId,
+      promptContextText,
+      sport,
+      primaryPosition,
+      sectionRaw,
+      userData
+    );
+
+    const llm = this.getOrCreateLlmService(db);
+    const result = await llm.complete(
+      [
+        {
+          role: 'system',
+          content:
+            'You are Agent X — the AI sports intelligence engine powering NXT1. ' +
+            'You generate PUBLIC scouting and recruiting intel reports written in the THIRD PERSON. ' +
+            'These reports are read by coaches, scouts, and recruiting programs — NOT addressed to the athlete. ' +
+            'Do NOT use "you", "your", or address the athlete directly at any point. ' +
+            'You never produce evaluation ratings, tier labels, or numeric scores. ' +
+            'ABSOLUTE RULE: Do NOT invent, hallucinate, or fabricate any data. ' +
+            "If a data field is 'NONE', write factual absence text only. " +
+            'Output valid JSON only — a single section object.',
+        },
+        { role: 'user', content: prompt },
+      ],
+      {
+        tier: 'copywriting',
+        maxTokens: 1200,
+        temperature: 0.6,
+        outputSchema: {
+          name: 'athlete_intel_section',
+          schema: intelSectionSchema,
+        },
+      }
+    );
+
+    return {
+      parsedSection: resolveStructuredOutput(
+        result,
+        intelSectionSchema,
+        `Athlete intel section generation (${sectionId})`
+      ),
+      sectionAvailability,
+    };
+  }
+
+  private async saveAthleteIntelSectionUpdate(
+    reportDoc: IntelReportDocument,
+    existingReport: Record<string, unknown>,
+    existingSections: NormalizedSection[],
+    sectionId: AthleteSectionId,
+    finalSection: NormalizedSection
+  ): Promise<Record<string, unknown>> {
+    const updatedSections = existingSections.map((section) =>
+      section.id === sectionId ? finalSection : section
+    );
+
+    if (!updatedSections.some((section) => section.id === sectionId)) {
+      const insertIdx = ATHLETE_SECTION_ORDER.indexOf(sectionId);
+      updatedSections.splice(insertIdx, 0, finalSection);
+    }
+
+    await reportDoc.ref.update({
+      sections: updatedSections,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+
+    logger.info('[IntelGenerationService] Athlete Intel section updated', {
+      reportId: reportDoc.id,
+      sectionId,
+    });
+
+    return {
+      ...existingReport,
+      id: reportDoc.id,
+      sections: updatedSections,
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  private async generateTeamIntelSectionDraft(
+    teamId: string,
+    sectionId: TeamSectionId,
+    teamData: Record<string, unknown>,
+    db: Firestore
+  ): Promise<TeamIntelSectionDraft> {
+    const sectionRaw = await this.gatherTeamSectionData(teamId, teamData, sectionId, db);
+    const prompt = this.buildTeamSectionPrompt(sectionId, teamData, sectionRaw);
+
+    const llm = this.getOrCreateLlmService(db);
+    const result = await llm.complete(
+      [
+        {
+          role: 'system',
+          content:
+            'You are Agent X — the AI sports intelligence engine powering NXT1. ' +
+            'You generate PUBLIC program intel reports written in the THIRD PERSON. ' +
+            'These reports are read by recruits, scouts, and opposing programs — NOT addressed to the coaching staff or athletes. ' +
+            'Do NOT use "you", "your", or address the team or coaches directly at any point. ' +
+            'You never produce evaluation ratings or numeric scores for athletes. ' +
+            'ABSOLUTE RULE: Do NOT invent, hallucinate, or fabricate any data. ' +
+            "If a data field is 'NONE', write factual absence text only. " +
+            'Output valid JSON only — a single section object.',
+        },
+        { role: 'user', content: prompt },
+      ],
+      {
+        tier: 'copywriting',
+        maxTokens: 1200,
+        temperature: 0.6,
+        outputSchema: {
+          name: 'team_intel_section',
+          schema: intelSectionSchema,
+        },
+      }
+    );
+
+    return {
+      parsedSection: resolveStructuredOutput(
+        result,
+        intelSectionSchema,
+        `Team intel section generation (${sectionId})`
+      ),
+      sectionRaw,
+    };
+  }
+
+  private async saveTeamIntelSectionUpdate(
+    reportDoc: IntelReportDocument,
+    existingReport: Record<string, unknown>,
+    existingSections: NormalizedSection[],
+    sectionId: TeamSectionId,
+    finalSection: NormalizedSection
+  ): Promise<Record<string, unknown>> {
+    const updatedSections = existingSections.map((section) =>
+      section.id === sectionId ? finalSection : section
+    );
+
+    if (!updatedSections.some((section) => section.id === sectionId)) {
+      const insertIdx = TEAM_SECTION_ORDER.indexOf(sectionId);
+      updatedSections.splice(insertIdx, 0, finalSection);
+    }
+
+    await reportDoc.ref.update({
+      sections: updatedSections,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+
+    logger.info('[IntelGenerationService] Team Intel section updated', {
+      reportId: reportDoc.id,
+      sectionId,
+    });
+
+    return {
+      ...existingReport,
+      id: reportDoc.id,
+      sections: updatedSections,
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
   // ═══════════════════════════════════════════════════════════════════════════
   // TARGETED SECTION UPDATE — ATHLETE
   // ═══════════════════════════════════════════════════════════════════════════
@@ -1290,62 +1629,9 @@ Output this EXACT JSON structure with all 5 sections:
     if (!userDoc.exists) throw new Error('User not found');
     const userData = userDoc.data() ?? {};
 
-    // ── Gather only the data relevant to this section ──
-    const sectionRaw = await this.gatherAthleteSectionData(userId, userData, sectionId, db);
-
-    // ── Determine section data availability ──
-    const sectionAvailability = this.computeAthleteSectionAvailability(
-      sectionId,
-      userData,
-      sectionRaw
-    );
-
-    // ── Build targeted prompt for just this section ──
-    const { promptContextText, sport, primaryPosition } = await this.buildAthletePromptContext(
-      userId,
-      userData,
-      db
-    );
-
-    const prompt = this.buildAthleteSectionPrompt(
-      sectionId,
-      promptContextText,
-      sport,
-      primaryPosition,
-      sectionRaw,
-      userData
-    );
-
-    // ── Call OpenRouter for single-section output ──
-    let parsedSection: Record<string, unknown>;
+    let draft: AthleteIntelSectionDraft;
     try {
-      const llm = this.getOrCreateLlmService();
-      const result = await llm.complete(
-        [
-          {
-            role: 'system',
-            content:
-              'You are Agent X — the AI sports intelligence engine powering NXT1. ' +
-              'You generate PUBLIC scouting and recruiting intel reports written in the THIRD PERSON. ' +
-              'These reports are read by coaches, scouts, and recruiting programs — NOT addressed to the athlete. ' +
-              'Do NOT use "you", "your", or address the athlete directly at any point. ' +
-              'You never produce evaluation ratings, tier labels, or numeric scores. ' +
-              'ABSOLUTE RULE: Do NOT invent, hallucinate, or fabricate any data. ' +
-              "If a data field is 'NONE', write factual absence text only. " +
-              'Output valid JSON only — a single section object.',
-          },
-          { role: 'user', content: prompt },
-        ],
-        {
-          tier: 'copywriting',
-          maxTokens: 1200,
-          temperature: 0.6,
-          jsonMode: true,
-        }
-      );
-
-      if (!result.content) throw new Error('Empty LLM response');
-      parsedSection = JSON.parse(stripMarkdownFences(result.content));
+      draft = await this.generateAthleteIntelSectionDraft(userId, sectionId, userData, db);
     } catch (err) {
       logger.error('[IntelGenerationService] Section LLM call failed for athlete', {
         userId,
@@ -1357,44 +1643,26 @@ Output this EXACT JSON structure with all 5 sections:
 
     // ── Normalize the single updated section ──
     const [normalizedSection] = this.normalizeSections(
-      [parsedSection],
+      [draft.parsedSection],
       [sectionId] as readonly string[],
       ATHLETE_SECTION_META
     );
 
     // Apply NO_DATA_OVERRIDE for the updated section if applicable
-    const noDataOverride = this.getAthleteNoDataOverride(sectionId, sectionAvailability);
+    const noDataOverride = this.getAthleteNoDataOverride(sectionId, draft.sectionAvailability);
     const finalSection: NormalizedSection = noDataOverride
       ? { ...normalizedSection, content: noDataOverride, items: undefined }
       : normalizedSection;
 
-    // ── Merge: replace only the target section, preserve all others ──
-    const updatedSections = existingSections.map((s) => (s.id === sectionId ? finalSection : s));
-
-    // If the section didn't exist in the old report (edge case), append it in correct order
-    if (!updatedSections.some((s) => s.id === sectionId)) {
-      const insertIdx = ATHLETE_SECTION_ORDER.indexOf(sectionId as AthleteSectionId);
-      updatedSections.splice(insertIdx, 0, finalSection);
-    }
-
-    // ── Persist: update the existing report doc in-place ──
-    await reportDoc.ref.update({
-      sections: updatedSections,
-      updatedAt: FieldValue.serverTimestamp(),
-    });
-
-    logger.info('[IntelGenerationService] Athlete Intel section updated', {
-      userId,
-      reportId: reportDoc.id,
+    const updatedReport = await this.saveAthleteIntelSectionUpdate(
+      reportDoc,
+      existingReport,
+      existingSections,
       sectionId,
-    });
+      finalSection
+    );
 
-    return {
-      ...existingReport,
-      id: reportDoc.id,
-      sections: updatedSections,
-      updatedAt: new Date().toISOString(),
-    };
+    return updatedReport;
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -1438,42 +1706,9 @@ Output this EXACT JSON structure with all 5 sections:
     if (!teamDoc.exists) throw new Error('Team not found');
     const teamData = teamDoc.data() ?? {};
 
-    // ── Gather only the data relevant to this section ──
-    const sectionRaw = await this.gatherTeamSectionData(teamId, teamData, sectionId, db);
-
-    // ── Build targeted prompt for just this section ──
-    const prompt = this.buildTeamSectionPrompt(sectionId, teamData, sectionRaw);
-
-    // ── Call OpenRouter for single-section output ──
-    let parsedSection: Record<string, unknown>;
+    let draft: TeamIntelSectionDraft;
     try {
-      const llm = this.getOrCreateLlmService();
-      const result = await llm.complete(
-        [
-          {
-            role: 'system',
-            content:
-              'You are Agent X — the AI sports intelligence engine powering NXT1. ' +
-              'You generate PUBLIC program intel reports written in the THIRD PERSON. ' +
-              'These reports are read by recruits, scouts, and opposing programs — NOT addressed to the coaching staff or athletes. ' +
-              'Do NOT use "you", "your", or address the team or coaches directly at any point. ' +
-              'You never produce evaluation ratings or numeric scores for athletes. ' +
-              'ABSOLUTE RULE: Do NOT invent, hallucinate, or fabricate any data. ' +
-              "If a data field is 'NONE', write factual absence text only. " +
-              'Output valid JSON only — a single section object.',
-          },
-          { role: 'user', content: prompt },
-        ],
-        {
-          tier: 'copywriting',
-          maxTokens: 1200,
-          temperature: 0.6,
-          jsonMode: true,
-        }
-      );
-
-      if (!result.content) throw new Error('Empty LLM response');
-      parsedSection = JSON.parse(stripMarkdownFences(result.content));
+      draft = await this.generateTeamIntelSectionDraft(teamId, sectionId, teamData, db);
     } catch (err) {
       logger.error('[IntelGenerationService] Section LLM call failed for team', {
         teamId,
@@ -1485,44 +1720,26 @@ Output this EXACT JSON structure with all 5 sections:
 
     // ── Normalize the single updated section ──
     const [normalizedSection] = this.normalizeSections(
-      [parsedSection],
+      [draft.parsedSection],
       [sectionId] as readonly string[],
       TEAM_SECTION_META
     );
 
     // Apply NO_DATA_OVERRIDE for the updated section if applicable
-    const noDataOverride = this.getTeamNoDataOverride(sectionId, sectionRaw);
+    const noDataOverride = this.getTeamNoDataOverride(sectionId, draft.sectionRaw);
     const finalSection: NormalizedSection = noDataOverride
       ? { ...normalizedSection, content: noDataOverride, items: undefined }
       : normalizedSection;
 
-    // ── Merge: replace only the target section, preserve all others ──
-    const updatedSections = existingSections.map((s) => (s.id === sectionId ? finalSection : s));
-
-    // If the section didn't exist in the old report (edge case), append it in correct order
-    if (!updatedSections.some((s) => s.id === sectionId)) {
-      const insertIdx = TEAM_SECTION_ORDER.indexOf(sectionId as TeamSectionId);
-      updatedSections.splice(insertIdx, 0, finalSection);
-    }
-
-    // ── Persist: update the existing report doc in-place ──
-    await reportDoc.ref.update({
-      sections: updatedSections,
-      updatedAt: FieldValue.serverTimestamp(),
-    });
-
-    logger.info('[IntelGenerationService] Team Intel section updated', {
-      teamId,
-      reportId: reportDoc.id,
+    const updatedReport = await this.saveTeamIntelSectionUpdate(
+      reportDoc,
+      existingReport,
+      existingSections,
       sectionId,
-    });
+      finalSection
+    );
 
-    return {
-      ...existingReport,
-      id: reportDoc.id,
-      sections: updatedSections,
-      updatedAt: new Date().toISOString(),
-    };
+    return updatedReport;
   }
 
   // ═══════════════════════════════════════════════════════════════════════════

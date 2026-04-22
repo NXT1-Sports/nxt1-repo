@@ -60,6 +60,10 @@ export interface InviteUser {
   readonly referralCode?: string;
   /** The sender's platform role — controls which design variant is shown. */
   readonly role?: UserRole;
+  readonly primaryPosition?: string | null;
+  readonly schoolName?: string | null;
+  readonly primarySport?: string | null;
+  readonly location?: string | null;
 }
 
 @Component({
@@ -494,6 +498,11 @@ export class InviteShellComponent implements OnInit {
     buildInviteUiCopy({
       inviteType: this.inviteType(),
       senderRole: this.user()?.role ?? null,
+      senderName: this.user()?.displayName ?? null,
+      senderPosition: this.user()?.primaryPosition ?? null,
+      senderSchool: this.user()?.schoolName ?? null,
+      senderSport: this.user()?.primarySport ?? null,
+      senderLocation: this.user()?.location ?? null,
       team: this.team(),
       rewardCents: this.invite.inviteLink()?.referralRewardCents ?? null,
     })
@@ -600,6 +609,11 @@ export class InviteShellComponent implements OnInit {
       title: buildInviteShareTitle({
         inviteType: this.inviteType(),
         senderRole: this.user()?.role ?? null,
+        senderName: this.user()?.displayName ?? null,
+        senderPosition: this.user()?.primaryPosition ?? null,
+        senderSchool: this.user()?.schoolName ?? null,
+        senderSport: this.user()?.primarySport ?? null,
+        senderLocation: this.user()?.location ?? null,
         team: this.team(),
       }),
       text: shareText,

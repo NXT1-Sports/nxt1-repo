@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { canGenerateTeamIntelForUser } from '../teams.routes.js';
+import { canGenerateTeamIntelForUser } from '../team/teams.routes.js';
 
 describe('canGenerateTeamIntelForUser', () => {
   it('allows administrative, coach, and director team managers to generate Intel', () => {

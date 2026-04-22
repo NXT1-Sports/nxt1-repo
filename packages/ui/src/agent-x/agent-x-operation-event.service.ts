@@ -43,6 +43,11 @@ import type { OperationLogStatus } from '@nxt1/core';
 import { NxtLoggingService } from '../services/logging/logging.service';
 import { NxtBreadcrumbService } from '../services/breadcrumb/breadcrumb.service';
 import { Subject } from 'rxjs';
+import {
+  getToolStepDisplayLabel,
+  normalizeAgentIdentifier,
+  normalizeToolStepIcon,
+} from './agent-x-agent-presentation';
 
 // ─── Title Updated Event ────────────────────────────────────────────────────
 
@@ -260,11 +265,16 @@ export class AgentXOperationEventService {
               q.push(stepId);
               pendingStepIds.set(event.toolName, q);
             }
-            steps.push({
-              id: stepId,
-              label: event.message ?? event.toolName ?? 'Processing...',
-              status: 'active' as AgentXToolStepStatus,
-            });
+            steps.push(
+              this.buildToolStep(
+                event,
+                stepId,
+                'active',
+                event.type === 'tool_call'
+                  ? `Running ${event.toolName ?? 'tool'}...`
+                  : (event.message ?? event.toolName ?? 'Processing...')
+              )
+            );
             break;
           }
 
@@ -273,11 +283,15 @@ export class AgentXOperationEventService {
             const q = event.toolName ? pendingStepIds.get(event.toolName) : undefined;
             const stepId = q?.shift() ?? `${event.toolName ?? 'step'}-${event.seq}`;
             const idx = steps.findIndex((s) => s.id === stepId);
-            const resolved: AgentXToolStep = {
-              id: stepId,
-              label: event.message ?? `${event.toolName ?? 'Step'} completed`,
-              status: event.toolSuccess === false ? 'error' : 'success',
-            };
+            const resolved = this.buildToolStep(
+              event,
+              stepId,
+              event.toolSuccess === false ? 'error' : 'success',
+              event.message ?? `${event.toolName ?? 'Step'} completed`,
+              event.type === 'tool_result' && event.toolResult
+                ? this.summarizeToolResult(event.toolResult)
+                : undefined
+            );
             if (idx >= 0) steps[idx] = resolved;
             else steps.push(resolved);
             break;
@@ -287,11 +301,12 @@ export class AgentXOperationEventService {
             const q = event.toolName ? pendingStepIds.get(event.toolName) : undefined;
             const stepId = q?.shift() ?? `${event.toolName ?? 'step'}-${event.seq}`;
             const idx = steps.findIndex((s) => s.id === stepId);
-            const errored: AgentXToolStep = {
-              id: stepId,
-              label: event.message ?? event.error ?? 'Step failed',
-              status: 'error' as AgentXToolStepStatus,
-            };
+            const errored = this.buildToolStep(
+              event,
+              stepId,
+              'error',
+              event.message ?? event.error ?? 'Step failed'
+            );
             if (idx >= 0) steps[idx] = errored;
             else steps.push(errored);
             break;
@@ -516,11 +531,14 @@ export class AgentXOperationEventService {
           queue.push(stepId);
           pendingStepIds.set(event.toolName, queue);
         }
-        callbacks.onStep({
-          id: stepId,
-          label: event.message ?? event.toolName ?? 'Processing...',
-          status: 'active' as AgentXToolStepStatus,
-        });
+        callbacks.onStep(
+          this.buildToolStep(
+            event,
+            stepId,
+            'active',
+            event.message ?? event.toolName ?? 'Processing...'
+          )
+        );
         break;
       }
 
@@ -531,11 +549,9 @@ export class AgentXOperationEventService {
           queue.push(stepId);
           pendingStepIds.set(event.toolName, queue);
         }
-        callbacks.onStep({
-          id: stepId,
-          label: `Running ${event.toolName ?? 'tool'}...`,
-          status: 'active' as AgentXToolStepStatus,
-        });
+        callbacks.onStep(
+          this.buildToolStep(event, stepId, 'active', `Running ${event.toolName ?? 'tool'}...`)
+        );
         break;
       }
 
@@ -543,36 +559,34 @@ export class AgentXOperationEventService {
         // Pair with the earliest pending step_active/tool_call for this tool
         const queue = event.toolName ? pendingStepIds.get(event.toolName) : undefined;
         const stepId = queue?.shift() ?? `${event.toolName ?? 'tool'}-${event.seq}`;
-        callbacks.onStep({
-          id: stepId,
-          label:
+        callbacks.onStep(
+          this.buildToolStep(
+            event,
+            stepId,
+            event.toolSuccess ? 'success' : 'error',
             event.message ??
-            `${event.toolName ?? 'Tool'} ${event.toolSuccess ? 'completed' : 'failed'}`,
-          status: event.toolSuccess ? 'success' : 'error',
-          detail: event.toolResult ? this.summarizeToolResult(event.toolResult) : undefined,
-        });
+              `${event.toolName ?? 'Tool'} ${event.toolSuccess ? 'completed' : 'failed'}`,
+            event.toolResult ? this.summarizeToolResult(event.toolResult) : undefined
+          )
+        );
         break;
       }
 
       case 'step_done': {
         const queue = event.toolName ? pendingStepIds.get(event.toolName) : undefined;
         const stepId = queue?.shift() ?? `${event.toolName ?? 'step'}-${event.seq}`;
-        callbacks.onStep({
-          id: stepId,
-          label: event.message ?? 'Step completed',
-          status: 'success' as AgentXToolStepStatus,
-        });
+        callbacks.onStep(
+          this.buildToolStep(event, stepId, 'success', event.message ?? 'Step completed')
+        );
         break;
       }
 
       case 'step_error': {
         const queue = event.toolName ? pendingStepIds.get(event.toolName) : undefined;
         const stepId = queue?.shift() ?? `${event.toolName ?? 'step'}-${event.seq}`;
-        callbacks.onStep({
-          id: stepId,
-          label: event.message ?? event.error ?? 'Step failed',
-          status: 'error' as AgentXToolStepStatus,
-        });
+        callbacks.onStep(
+          this.buildToolStep(event, stepId, 'error', event.message ?? event.error ?? 'Step failed')
+        );
         break;
       }
 
@@ -640,5 +654,31 @@ export class AgentXOperationEventService {
     // Fallback: show key count
     const keys = Object.keys(result);
     return keys.length > 0 ? `Returned ${keys.length} field(s)` : 'Completed';
+  }
+
+  private buildToolStep(
+    event: JobEvent,
+    id: string,
+    status: AgentXToolStepStatus,
+    label: string,
+    detail?: string
+  ): AgentXToolStep {
+    const step: AgentXToolStep = {
+      id,
+      label,
+      agentId: normalizeAgentIdentifier(event.agentId),
+      stageType: event.stageType,
+      stage: event.stage,
+      outcomeCode: event.outcomeCode,
+      metadata: event.metadata,
+      status,
+      icon: normalizeToolStepIcon(event.icon),
+      ...(detail ? { detail } : {}),
+    };
+
+    return {
+      ...step,
+      label: getToolStepDisplayLabel(step),
+    };
   }
 }

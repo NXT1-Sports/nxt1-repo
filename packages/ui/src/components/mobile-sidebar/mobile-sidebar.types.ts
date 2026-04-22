@@ -44,6 +44,9 @@ export interface MobileSidebarUserData extends DesktopSidebarUserData {
 
   /** CTA button text: "Add Team" for coaches, "Add Sport" for athletes */
   readonly actionLabel?: string;
+
+  /** Whether the user may create a new team/sport profile from the switcher. */
+  readonly canAddProfile?: boolean;
 }
 
 /**

@@ -20,45 +20,12 @@ export class GenerateThumbnailTool extends BaseTool {
     'The video must already be imported and ready in Cloudflare Stream. ' +
     'Returns a direct URL to the thumbnail/GIF — no additional processing needed.';
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      videoId: {
-        type: 'string',
-        description: 'The Cloudflare video ID.',
-      },
-      timeSeconds: {
-        type: 'number',
-        description: 'Timestamp in seconds to capture the thumbnail from (default: 0).',
-      },
-      height: {
-        type: 'number',
-        description: 'Height in pixels (100-1080). Width auto-scales to preserve aspect ratio.',
-      },
-      width: {
-        type: 'number',
-        description: 'Width in pixels (100-1920). Use height OR width, not both.',
-      },
-      animated: {
-        type: 'boolean',
-        description: 'Set to true for an animated GIF instead of a static JPG.',
-      },
-      animatedDurationSeconds: {
-        type: 'number',
-        description: 'Duration of the animated GIF in seconds (1-10, default: 4).',
-      },
-      animatedFps: {
-        type: 'number',
-        description: 'Frames per second for the animated GIF (1-15, default: 8).',
-      },
-    },
-    required: ['videoId'],
-  } as const;
+  readonly parameters = GenerateThumbnailInputSchema;
 
   override readonly allowedAgents = [
-    'brand_media_coordinator',
+    'brand_coordinator',
     'data_coordinator',
-    'general',
+    'strategy_coordinator',
   ] as const;
 
   readonly isMutation = false;

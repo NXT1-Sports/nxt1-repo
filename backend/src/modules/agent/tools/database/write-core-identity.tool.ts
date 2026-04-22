@@ -13,26 +13,28 @@
  */
 
 import { getFirestore, FieldValue, type Firestore } from 'firebase-admin/firestore';
-import { isTeamRole } from '@nxt1/core';
+import { isTeamRole, type UserRole } from '@nxt1/core';
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
 import { ScraperMediaService } from '../integrations/social/scraper-media.service.js';
-import { getCacheService } from '../../../../services/cache.service.js';
+import { getCacheService } from '../../../../services/core/cache.service.js';
 import {
   createProfileWriteAccessService,
   resolveAuthorizedTargetSportSelection,
-} from '../../../../services/profile-write-access.service.js';
+} from '../../../../services/profile/profile-write-access.service.js';
 
-import { createOrganizationService } from '../../../../services/organization.service.js';
-import { enqueueWelcomeGraphicIfReady } from '../../../../services/agent-welcome.service.js';
-import { invalidateTeamCache } from '../../../../services/team-code.service.js';
-import { CACHE_KEYS as USER_CACHE_KEYS } from '../../../../services/users.service.js';
+import { createOrganizationService } from '../../../../services/team/organization.service.js';
+import { enqueueWelcomeGraphicIfReady } from '../../services/agent-welcome.service.js';
+import { invalidateTeamCache } from '../../../../services/team/team-code.service.js';
+import { CACHE_KEYS as USER_CACHE_KEYS } from '../../../../services/profile/users.service.js';
 import { ContextBuilder } from '../../memory/context-builder.js';
 import { invalidateProfileCaches } from '../../../../routes/profile/shared.js';
-import { getAnalyticsLoggerService } from '../../../../services/analytics-logger.service.js';
+import { getAnalyticsLoggerService } from '../../../../services/core/analytics-logger.service.js';
+import { provisionOnboardingPrograms } from '../../../../services/platform/onboarding-program-provisioning.service.js';
 import { platformDisplayName } from './platform-utils.js';
 import { SyncDiffService, type PreviousProfileState } from '../../sync/index.js';
 import { onDailySyncComplete } from '../../triggers/trigger.listeners.js';
 import { logger } from '../../../../utils/logger.js';
+import { z } from 'zod';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -47,6 +49,103 @@ const VALIDATION = {
   MAX_AWARDS: 50,
   MAX_TEAM_HISTORY: 30,
 } as const;
+
+const StringOrNumberSchema = z.union([z.string().trim().min(1), z.number()]);
+
+const IdentitySectionSchema = z
+  .object({
+    firstName: z.string().trim().min(1).optional(),
+    lastName: z.string().trim().min(1).optional(),
+    displayName: z.string().trim().min(1).optional(),
+    aboutMe: z.string().trim().min(1).optional(),
+    height: z.string().trim().min(1).optional(),
+    weight: z.string().trim().min(1).optional(),
+    classOf: z.union([z.number(), z.string().trim().min(1)]).optional(),
+    city: z.string().trim().min(1).optional(),
+    state: z.string().trim().min(1).optional(),
+    country: z.string().trim().min(1).optional(),
+    profileImage: z.string().trim().min(1).optional(),
+  })
+  .passthrough();
+
+const AcademicsSectionSchema = z
+  .object({
+    gpa: StringOrNumberSchema.optional(),
+    weightedGpa: StringOrNumberSchema.optional(),
+    satScore: StringOrNumberSchema.optional(),
+    actScore: StringOrNumberSchema.optional(),
+    classRank: StringOrNumberSchema.optional(),
+    classSize: StringOrNumberSchema.optional(),
+    intendedMajor: z.string().trim().min(1).optional(),
+  })
+  .passthrough();
+
+const SportInfoSectionSchema = z
+  .object({
+    positions: z.array(z.string().trim().min(1)).optional(),
+    jerseyNumber: StringOrNumberSchema.optional(),
+    side: z.string().trim().min(1).optional(),
+  })
+  .passthrough();
+
+const TeamSectionSchema = z
+  .object({
+    name: z.string().trim().min(1).optional(),
+    type: z.string().trim().min(1).optional(),
+    mascot: z.string().trim().min(1).optional(),
+    conference: z.string().trim().min(1).optional(),
+    division: z.string().trim().min(1).optional(),
+    teamId: z.string().trim().min(1).optional(),
+    organizationId: z.string().trim().min(1).optional(),
+    logoUrl: z.string().trim().min(1).optional(),
+    primaryColor: z.string().trim().min(1).optional(),
+    secondaryColor: z.string().trim().min(1).optional(),
+    city: z.string().trim().min(1).optional(),
+    state: z.string().trim().min(1).optional(),
+    country: z.string().trim().min(1).optional(),
+    galleryImages: z.array(z.string().trim().min(1)).optional(),
+  })
+  .passthrough();
+
+const CoachSectionSchema = z
+  .object({
+    firstName: z.string().trim().min(1).optional(),
+    lastName: z.string().trim().min(1).optional(),
+    email: z.string().trim().min(1).optional(),
+    phone: z.string().trim().min(1).optional(),
+    title: z.string().trim().min(1).optional(),
+  })
+  .passthrough();
+
+const TeamHistoryEntrySchema = z
+  .object({
+    name: z.string().trim().min(1).optional(),
+    type: z.string().trim().min(1).optional(),
+    sport: z.string().trim().min(1).optional(),
+    location: z.string().trim().min(1).optional(),
+    record: z.string().trim().min(1).optional(),
+    startDate: z.string().trim().min(1).optional(),
+    endDate: z.string().trim().min(1).optional(),
+    isCurrent: z.boolean().optional(),
+  })
+  .passthrough();
+
+const WriteCoreIdentityInputSchema = z.object({
+  userId: z.string().trim().min(1),
+  source: z.string().trim().min(1),
+  profileUrl: z.string().trim().min(1),
+  faviconUrl: z.string().trim().min(1).optional(),
+  targetSport: z.string().trim().min(1),
+  identity: IdentitySectionSchema.optional(),
+  academics: AcademicsSectionSchema.optional(),
+  sportInfo: SportInfoSectionSchema.optional(),
+  team: TeamSectionSchema.optional(),
+  coach: CoachSectionSchema.optional(),
+  teamHistory: z.array(TeamHistoryEntrySchema).max(VALIDATION.MAX_TEAM_HISTORY).optional(),
+  profileImgs: z.array(z.string().trim().min(1)).optional(),
+  teamId: z.string().trim().min(1).optional(),
+  organizationId: z.string().trim().min(1).optional(),
+});
 
 // ─── Tool ───────────────────────────────────────────────────────────────────
 
@@ -74,104 +173,7 @@ export class WriteCoreIdentityTool extends BaseTool {
     '- teamId (optional): Firestore Team document ID. Pass this when available from user context — it is used as fallback for the team/org metadata cascade (mascot, colors, conference, division).\n' +
     '- organizationId (optional): Firestore Organization document ID. Same fallback purpose as teamId.';
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      userId: { type: 'string' },
-      source: { type: 'string' },
-      profileUrl: { type: 'string' },
-      faviconUrl: { type: 'string' },
-      targetSport: { type: 'string' },
-      identity: {
-        type: 'object',
-        properties: {
-          firstName: { type: 'string' },
-          lastName: { type: 'string' },
-          displayName: { type: 'string' },
-          aboutMe: { type: 'string' },
-          height: { type: 'string' },
-          weight: { type: 'string' },
-          classOf: { type: 'number' },
-          city: { type: 'string' },
-          state: { type: 'string' },
-          country: { type: 'string' },
-        },
-      },
-      academics: {
-        type: 'object',
-        properties: {
-          gpa: { type: 'number' },
-          weightedGpa: { type: 'number' },
-          satScore: { type: 'number' },
-          actScore: { type: 'number' },
-          classRank: { type: 'number' },
-          classSize: { type: 'number' },
-          intendedMajor: { type: 'string' },
-        },
-      },
-      sportInfo: {
-        type: 'object',
-        properties: {
-          positions: { type: 'array', items: { type: 'string' } },
-          jerseyNumber: { type: ['number', 'string'] },
-          side: { type: 'string' },
-        },
-      },
-      team: {
-        type: 'object',
-        properties: {
-          name: { type: 'string' },
-          type: { type: 'string' },
-          mascot: { type: 'string' },
-          conference: { type: 'string' },
-          division: { type: 'string' },
-          teamId: { type: 'string' },
-          logoUrl: { type: 'string' },
-          primaryColor: { type: 'string' },
-          secondaryColor: { type: 'string' },
-          city: { type: 'string' },
-          state: { type: 'string' },
-          country: { type: 'string' },
-          galleryImages: { type: 'array', items: { type: 'string' } },
-        },
-      },
-      coach: {
-        type: 'object',
-        properties: {
-          firstName: { type: 'string' },
-          lastName: { type: 'string' },
-          email: { type: 'string' },
-          phone: { type: 'string' },
-          title: { type: 'string' },
-        },
-        required: ['firstName', 'lastName'],
-      },
-      teamHistory: {
-        type: 'array',
-        items: {
-          type: 'object',
-          properties: {
-            name: { type: 'string' },
-            type: { type: 'string' },
-            sport: { type: 'string' },
-            location: { type: 'string' },
-            record: { type: 'string' },
-            startDate: { type: 'string' },
-            endDate: { type: 'string' },
-            isCurrent: { type: 'boolean' },
-          },
-          required: ['name'],
-        },
-      },
-      profileImgs: {
-        type: 'array',
-        items: { type: 'string' },
-      },
-      teamId: { type: 'string' },
-      organizationId: { type: 'string' },
-    },
-    required: ['userId', 'source', 'profileUrl', 'targetSport'],
-  } as const;
+  readonly parameters = WriteCoreIdentityInputSchema;
 
   override readonly allowedAgents = ['data_coordinator', 'performance_coordinator'] as const;
   readonly isMutation = true;
@@ -190,37 +192,34 @@ export class WriteCoreIdentityTool extends BaseTool {
     input: Record<string, unknown>,
     context?: ToolExecutionContext
   ): Promise<ToolResult> {
-    const userId = this.str(input, 'userId');
-    if (!userId) return this.paramError('userId');
-    const source = this.str(input, 'source');
-    if (!source) return this.paramError('source');
-    const profileUrl = this.str(input, 'profileUrl');
-    if (!profileUrl) return this.paramError('profileUrl');
-    const targetSport = this.str(input, 'targetSport');
-    if (!targetSport) return this.paramError('targetSport');
+    const parsed = WriteCoreIdentityInputSchema.safeParse(input);
+    if (!parsed.success) return this.zodError(parsed.error);
 
-    const faviconUrl = this.str(input, 'faviconUrl') ?? undefined;
-    const identity = this.obj(input, 'identity');
-    const academics = this.obj(input, 'academics');
-    const sportInfo = this.obj(input, 'sportInfo');
-    const team = this.obj(input, 'team');
-    const coach = this.obj(input, 'coach');
+    const { userId, source, profileUrl, targetSport } = parsed.data;
+    const faviconUrl = parsed.data.faviconUrl;
+    const identity = parsed.data.identity as Record<string, unknown> | undefined;
+    const academics = parsed.data.academics as Record<string, unknown> | undefined;
+    const sportInfo = parsed.data.sportInfo as Record<string, unknown> | undefined;
+    const team = parsed.data.team as Record<string, unknown> | undefined;
+    const coach = parsed.data.coach as Record<string, unknown> | undefined;
     const coachTitle = coach ? (this.str(coach, 'title') ?? undefined) : undefined;
-    const teamHistory = this.arr(input, 'teamHistory');
-    const rawProfileImgs = input['profileImgs'];
-    const profileImgs: string[] = Array.isArray(rawProfileImgs)
-      ? rawProfileImgs.filter((u): u is string => typeof u === 'string' && u.trim() !== '')
-      : [];
+    const teamHistory = parsed.data.teamHistory as Record<string, unknown>[] | undefined;
+    const profileImgs = parsed.data.profileImgs ?? [];
 
     // Optional team/org IDs for cascade fallback
-    const explicitTeamId = this.str(input, 'teamId') ?? undefined;
-    const explicitOrgId = this.str(input, 'organizationId') ?? undefined;
+    const explicitTeamId = parsed.data.teamId;
+    const explicitOrgId = parsed.data.organizationId;
 
     if (!context?.userId) {
       return { success: false, error: 'Authenticated tool context is required.' };
     }
 
-    context?.onProgress?.('Validating identity fields…');
+    context?.emitStage?.('fetching_data', {
+      icon: 'database',
+      userId,
+      targetSport,
+      phase: 'validate_identity_fields',
+    });
 
     // At least one data section must be provided
     if (
@@ -268,11 +267,11 @@ export class WriteCoreIdentityTool extends BaseTool {
       const authorizedOrgId = accessGrant.isSelfWrite
         ? undefined
         : authorizedSportSelection?.organizationId;
-      const scopedExplicitTeamId =
+      let scopedExplicitTeamId =
         accessGrant.isSelfWrite || !explicitTeamId || explicitTeamId === authorizedTeamId
           ? explicitTeamId
           : undefined;
-      const scopedExplicitOrgId =
+      let scopedExplicitOrgId =
         accessGrant.isSelfWrite || !explicitOrgId || explicitOrgId === authorizedOrgId
           ? explicitOrgId
           : undefined;
@@ -389,7 +388,12 @@ export class WriteCoreIdentityTool extends BaseTool {
           : [];
       const now = new Date().toISOString();
 
-      context?.onProgress?.('Merging identity, academics & sport data…');
+      context?.emitStage?.('submitting_job', {
+        icon: 'database',
+        userId,
+        targetSport,
+        phase: 'merge_identity_data',
+      });
 
       const payload: Record<string, unknown> = {};
       const writtenSections: string[] = [];
@@ -428,9 +432,12 @@ export class WriteCoreIdentityTool extends BaseTool {
 
       if (isNewSport) {
         // No roles create new sport entries from scraped data.
-        context?.onProgress?.(
-          `Skipping sport update: User does not have ${targetSport} on their profile.`
-        );
+        context?.emitStage?.('fetching_data', {
+          icon: 'database',
+          userId,
+          targetSport,
+          phase: 'skip_missing_sport_profile',
+        });
       } else if (sportInfo || effectiveTeam || coach) {
         const updatedSports = existingSports.map((s) => ({ ...s }));
         const sportObj = { ...(updatedSports[sportIndex] ?? {}) } as Record<string, unknown>;
@@ -453,6 +460,95 @@ export class WriteCoreIdentityTool extends BaseTool {
         }
 
         if (effectiveTeam) {
+          const hasMissingIds = !this.str(effectiveTeam, 'teamId') && !scopedExplicitTeamId;
+          const hasScrapedName = this.str(effectiveTeam, 'name')?.trim();
+
+          if (hasMissingIds && hasScrapedName) {
+            try {
+              context?.emitStage?.('fetching_data', {
+                icon: 'search',
+                userId,
+                targetSport,
+                teamName: hasScrapedName,
+                phase: 'resolve_team_identity',
+              });
+
+              const teamType = this.str(effectiveTeam, 'type') ?? 'high-school';
+              const teamCity = this.str(effectiveTeam, 'city');
+              const teamState = this.str(effectiveTeam, 'state');
+              const teamLocation = [teamCity, teamState].filter(Boolean).join(', ');
+              const organizationService = createOrganizationService(this.db);
+              const matchedOrganization = (
+                await organizationService.searchOrganizations(hasScrapedName, {
+                  ...(teamState ? { state: teamState } : {}),
+                  limit: 10,
+                })
+              ).find(
+                (organization) =>
+                  organization.name.trim().toLowerCase() === hasScrapedName.toLowerCase()
+              );
+
+              const provisionResult = await provisionOnboardingPrograms({
+                db: this.db,
+                userId: context.userId,
+                role: userRole as UserRole,
+                sports: [{ sport: targetSport, order: 0 }],
+                updateData: {},
+                teamSelection: {
+                  teams: [
+                    {
+                      id:
+                        matchedOrganization?.id ??
+                        `draft_${targetSport.toLowerCase()}_${Date.now().toString(36)}`,
+                      name: matchedOrganization?.name ?? hasScrapedName,
+                      teamType,
+                      location: teamLocation || undefined,
+                      ...(matchedOrganization
+                        ? { organizationId: matchedOrganization.id }
+                        : { isDraft: true }),
+                    },
+                  ],
+                },
+                ...(matchedOrganization
+                  ? {}
+                  : {
+                      createTeamProfile: {
+                        programName: hasScrapedName,
+                        teamType,
+                        city: teamCity ?? undefined,
+                        state: teamState ?? undefined,
+                      },
+                    }),
+              });
+
+              const mapping = provisionResult.sportTeamMap.get(targetSport.toLowerCase());
+              if (mapping) {
+                effectiveTeam['teamId'] = mapping.teamId;
+                effectiveTeam['organizationId'] = mapping.organizationId;
+                scopedExplicitTeamId = mapping.teamId;
+                scopedExplicitOrgId = mapping.organizationId;
+                logger.info('[WriteCoreIdentity] Resolved scraped team to canonical records', {
+                  userId,
+                  targetSport,
+                  teamName: hasScrapedName,
+                  teamId: mapping.teamId,
+                  organizationId: mapping.organizationId,
+                  reusedOrganizationId: matchedOrganization?.id,
+                });
+              }
+            } catch (err) {
+              logger.warn(
+                '[WriteCoreIdentity] Auto-provisioning failed for scraped team, falling back to raw strings.',
+                {
+                  userId,
+                  targetSport,
+                  teamName: hasScrapedName,
+                  error: err instanceof Error ? err.message : String(err),
+                }
+              );
+            }
+          }
+
           const existingTeam = (sportObj['team'] ?? {}) as Record<string, unknown>;
           sportObj['team'] = this.mergeTeamRef(
             existingTeam,
@@ -624,7 +720,12 @@ export class WriteCoreIdentityTool extends BaseTool {
 
       // ── Sync Team/Organization metadata ──────────────────────────────
       if (effectiveTeam) {
-        context?.onProgress?.('Syncing team organization metadata…');
+        context?.emitStage?.('submitting_job', {
+          icon: 'database',
+          userId,
+          targetSport,
+          phase: 'sync_team_metadata',
+        });
         await this.syncTeamMetadata(resolvedTeamRef, effectiveTeam, 'team', promotedTeamGallery);
         if (isCoachOrDirector) writtenSections.push('teamMetadata');
       }
@@ -643,13 +744,23 @@ export class WriteCoreIdentityTool extends BaseTool {
 
       // ── Write ────────────────────────────────────────────────────────
       if (shouldUpdateUserDoc) {
-        context?.onProgress?.('Writing profile to database…');
+        context?.emitStage?.('submitting_job', {
+          icon: 'database',
+          userId,
+          targetSport,
+          phase: 'write_profile',
+        });
         await userRef.update(payload);
       }
 
       // ── Cache invalidation ───────────────────────────────────────────
       if (shouldUpdateUserDoc) {
-        context?.onProgress?.('Invalidating caches…');
+        context?.emitStage?.('persisting_result', {
+          icon: 'database',
+          userId,
+          targetSport,
+          phase: 'invalidate_caches',
+        });
         try {
           const cache = getCacheService();
           await Promise.all([

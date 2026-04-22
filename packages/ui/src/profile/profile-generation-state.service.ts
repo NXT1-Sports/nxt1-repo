@@ -11,7 +11,7 @@
  * 2. Profile page detects `isGenerating()` and shows overlay
  * 3. Overlay calls `pollUntilDone()` which attaches to the live background
  *    operation event stream in Firestore
- * 4. When job completes/fails/times out, overlay dismisses and calls `reset()`
+ * 4. When the backend publishes a terminal state, overlay dismisses and calls `reset()`
  * 5. If user navigates away and returns, overlay re-mounts and resumes polling
  *    from current backend progress (no phase reset)
  *
@@ -66,9 +66,6 @@ const PHASE_CONFIG: Record<GenerationPhase, { message: string; progress: number 
   error: { message: 'Generation encountered an issue', progress: 0 },
 };
 
-/** Max tracking duration before auto-dismissing (5 minutes — scraping + AI analysis takes time) */
-const MAX_TRACK_DURATION_MS = 300_000;
-
 const PHASE_ORDER: Record<GenerationPhase, number> = {
   connecting: 0,
   scraping: 1,
@@ -112,6 +109,7 @@ export class ProfileGenerationStateService {
   private readonly _phase = signal<GenerationPhase>('connecting');
   private readonly _progress = signal(0);
   private readonly _message = signal('');
+  private readonly _stepMessage = signal('');
   private readonly _isGenerating = signal(false);
 
   // ── Public readonly computed signals ──────────────────────────────────
@@ -119,6 +117,7 @@ export class ProfileGenerationStateService {
   readonly phase = computed(() => this._phase());
   readonly progress = computed(() => this._progress());
   readonly message = computed(() => this._message());
+  readonly stepMessage = computed(() => this._stepMessage());
   readonly platforms = computed(() => this._platforms());
   /** The jobId of the active or most recently completed generation */
   readonly jobId = computed(() => this._jobId());
@@ -136,7 +135,7 @@ export class ProfileGenerationStateService {
   });
 
   // ── Live tracking state ──────────────────────────────────────────────
-  private trackingTimeout: ReturnType<typeof setTimeout> | null = null;
+  private backendStatusUnsubscribe: (() => void) | null = null;
   /** Guards against concurrent `pollUntilDone()` calls */
   private isPolling = false;
   /** Tracks whether backend progress has been received at least once */
@@ -167,6 +166,7 @@ export class ProfileGenerationStateService {
     this._platforms.set(platforms);
     this._isGenerating.set(true);
     this.hasReceivedBackendProgress = false;
+    this._stepMessage.set('Initializing Agent X operation...');
     this.setPhase('connecting');
   }
 
@@ -188,7 +188,7 @@ export class ProfileGenerationStateService {
     const observer: OperationObserver = {
       onStep: (step) => this._onRegistryStep(operationId, step),
       onDone: (_metadata) => this._onRegistryDone(operationId, true),
-      onError: (error) => this._onRegistryDone(operationId, false, error),
+      onError: (error) => this.handleTrackingTransportError(operationId, error),
     };
 
     const handle = this.streamRegistry.watchOperation(operationId, observer);
@@ -276,7 +276,7 @@ export class ProfileGenerationStateService {
         onDone: (_meta) => this._onRegistryDone(operationId, true),
         onError: (err) => {
           this.logger.warn('SSE resume stream error', { operationId, error: err.error });
-          this._onRegistryDone(operationId, false, err.error);
+          this.handleTrackingTransportError(operationId, err.error);
         },
         // No-op for delta/card/media/panel — this is a headless tracking stream.
         onDelta: () => undefined,
@@ -301,6 +301,7 @@ export class ProfileGenerationStateService {
       this.startGeneration(operationId, platforms);
     }
     this.hasReceivedBackendProgress = true;
+    this._stepMessage.set(this.resolveStepMessage(step));
     this.promotePhase(this.resolvePhaseFromStep(step.label, step.detail));
   }
 
@@ -351,14 +352,14 @@ export class ProfileGenerationStateService {
   }
 
   /**
-   * Track the Agent X job until completion, failure, or timeout.
+   * Track the Agent X job until the backend publishes a terminal state.
    * Called by the overlay component in `ngOnInit()`.
    *
    * Idempotent — if polling is already active, the call returns a promise
    * that resolves with the same result (prevents duplicate poll loops when
    * the overlay re-mounts after navigation).
    */
-  async pollUntilDone(): Promise<'completed' | 'failed' | 'timeout'> {
+  async pollUntilDone(): Promise<'completed' | 'failed'> {
     const jobId = this._jobId();
     if (!jobId) return 'failed';
 
@@ -385,17 +386,10 @@ export class ProfileGenerationStateService {
       }
     }
 
-    // Start a max-duration timeout so the banner self-dismisses if the SSE
-    // bridge never delivers a done event (e.g. user opened profile tab directly
-    // without going through Agent X chat).
+    this.startBackendTerminalTracking(jobId);
+
     return new Promise((resolve) => {
       this.activePollResolve = resolve;
-      this.clearTrackingTimeout();
-      this.trackingTimeout = setTimeout(() => {
-        this.logger.warn('Profile generation tracking timed out', { jobId });
-        this.finishGeneration('timeout');
-        this.resolvePoll('timeout');
-      }, MAX_TRACK_DURATION_MS);
     });
   }
 
@@ -406,10 +400,7 @@ export class ProfileGenerationStateService {
    * re-appears on return and resumes polling from current progress.
    */
   stopPolling(): void {
-    if (this.trackingTimeout) {
-      clearTimeout(this.trackingTimeout);
-      this.trackingTimeout = null;
-    }
+    this.stopBackendTerminalTracking();
     this.isPolling = false;
     this.activePollResolve = null;
     this.logger.info('Profile generation tracking stopped (overlay unmounted)', {
@@ -437,6 +428,7 @@ export class ProfileGenerationStateService {
     this._phase.set('connecting');
     this._progress.set(0);
     this._message.set('');
+    this._stepMessage.set('');
     this._isGenerating.set(false);
     this.hasReceivedBackendProgress = false;
   }
@@ -461,18 +453,17 @@ export class ProfileGenerationStateService {
   // ── Private helpers ──────────────────────────────────────────────────
 
   /** Resolve function for the current `pollUntilDone()` promise */
-  private activePollResolve: ((result: 'completed' | 'failed' | 'timeout') => void) | null = null;
+  private activePollResolve: ((result: 'completed' | 'failed') => void) | null = null;
 
   /**
    * Returns a promise that resolves when the current active poll finishes.
    * Used by concurrent `pollUntilDone()` calls to piggyback on the active loop.
    */
-  private awaitCurrentPoll(): Promise<'completed' | 'failed' | 'timeout'> {
+  private awaitCurrentPoll(): Promise<'completed' | 'failed'> {
     return new Promise((resolve) => {
       const check = (): void => {
         if (!this.isPolling) {
-          const phase = this._phase();
-          resolve(phase === 'complete' ? 'completed' : phase === 'error' ? 'failed' : 'timeout');
+          resolve(this.resolvePollResultFromPhase());
           return;
         }
         setTimeout(check, 500);
@@ -485,11 +476,15 @@ export class ProfileGenerationStateService {
   // via receiveStep() / receiveJobDone() instead of being read from Firestore.
 
   /** Resolve the active poll promise and clear the polling flag. */
-  private resolvePoll(result: 'completed' | 'failed' | 'timeout'): void {
-    this.clearTrackingTimeout();
+  private resolvePoll(result: 'completed' | 'failed'): void {
+    this.stopBackendTerminalTracking();
     this.isPolling = false;
     this.activePollResolve?.(result);
     this.activePollResolve = null;
+  }
+
+  private resolvePollResultFromPhase(): 'completed' | 'failed' {
+    return this._phase() === 'complete' ? 'completed' : 'failed';
   }
 
   private setPhase(phase: GenerationPhase): void {
@@ -538,6 +533,18 @@ export class ProfileGenerationStateService {
     return 'finalizing';
   }
 
+  private resolveStepMessage(step: AgentXToolStep): string {
+    const detail = (step.detail ?? '').trim();
+    if (detail.length > 0) return detail;
+
+    const label = (step.label ?? '').trim();
+    if (label.length > 0) {
+      return label.replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
+    }
+
+    return this._message() || 'Agent X is processing your profile data...';
+  }
+
   /** Returns true if the step label references a profile-write tool name. */
   private isProfileWriteStep(step: AgentXToolStep): boolean {
     const label = (step.label ?? '').toLowerCase();
@@ -547,10 +554,88 @@ export class ProfileGenerationStateService {
     return false;
   }
 
-  private clearTrackingTimeout(): void {
-    if (this.trackingTimeout) {
-      clearTimeout(this.trackingTimeout);
-      this.trackingTimeout = null;
+  private startBackendTerminalTracking(jobId: string): void {
+    if (this.backendStatusUnsubscribe || !this.firestoreAdapter) {
+      return;
+    }
+
+    this.backendStatusUnsubscribe = this.firestoreAdapter.onSnapshot(
+      `AgentJobs/${jobId}/events`,
+      'seq',
+      (docs: ReadonlyArray<Record<string, unknown>>) => {
+        const events = docs as unknown as readonly JobEvent[];
+        const doneEvent = [...events]
+          .reverse()
+          .find((event) => event.type === 'done' && typeof event.success === 'boolean');
+
+        if (!doneEvent || this._jobId() !== jobId || !this._isGenerating()) {
+          return;
+        }
+
+        this.logger.info('Profile generation terminal state confirmed by backend events', {
+          jobId,
+          success: doneEvent.success,
+        });
+
+        if (!this.isPolling && this.activePollResolve === null) {
+          return;
+        }
+
+        if (doneEvent.success) {
+          this.setPhase('complete');
+          void this.delay(1200).then(() => {
+            this.finishGeneration('completed');
+            this.resolvePoll('completed');
+          });
+          return;
+        }
+
+        this.setPhase('error');
+        this.finishGeneration('failed');
+        this.resolvePoll('failed');
+      },
+      (error: Error) => {
+        this.logger.warn('Backend profile generation terminal tracking failed', {
+          jobId,
+          error: error.message,
+        });
+        this.breadcrumb.trackStateChange('profile-generation:backend-tracking-error', {
+          jobId,
+          error: error.message,
+        });
+        this.stopBackendTerminalTracking();
+      }
+    );
+  }
+
+  private stopBackendTerminalTracking(): void {
+    if (!this.backendStatusUnsubscribe) {
+      return;
+    }
+
+    this.backendStatusUnsubscribe();
+    this.backendStatusUnsubscribe = null;
+  }
+
+  private handleTrackingTransportError(operationId: string, error: string): void {
+    if (this._jobId() !== operationId || !this._isGenerating()) {
+      return;
+    }
+
+    this.logger.warn(
+      'Profile generation tracking transport degraded; awaiting backend terminal state',
+      {
+        operationId,
+        error,
+      }
+    );
+    this.breadcrumb.trackStateChange('profile-generation:tracking-degraded', {
+      operationId,
+      error,
+    });
+
+    if (!this.hasReceivedBackendProgress) {
+      this._stepMessage.set('Waiting for backend progress confirmation...');
     }
   }
 
@@ -598,7 +683,7 @@ export class ProfileGenerationStateService {
     });
   }
 
-  private finishGeneration(result: 'completed' | 'failed' | 'timeout'): void {
+  private finishGeneration(result: 'completed' | 'failed'): void {
     const jobId = this._jobId();
     this.logger.info('Profile generation finished', { jobId, result });
     this.breadcrumb.trackStateChange('profile-generation:finished', { jobId, result });
@@ -608,8 +693,6 @@ export class ProfileGenerationStateService {
         : APP_EVENTS.PROFILE_GENERATION_FAILED,
       { jobId, result }
     );
-
-    this.clearTrackingTimeout();
     // NOTE: Do NOT set _isGenerating to false here.
     // The overlay's dismiss() → reset() handles that after the fade-out animation
     // completes and the dismissed event is emitted. Setting it here would destroy

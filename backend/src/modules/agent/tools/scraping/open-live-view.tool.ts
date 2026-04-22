@@ -82,8 +82,8 @@ export class OpenLiveViewTool extends BaseTool {
     'data_coordinator',
     'performance_coordinator',
     'recruiting_coordinator',
-    'general',
-    'brand_media_coordinator',
+    'strategy_coordinator',
+    'brand_coordinator',
   ] as const;
 
   private readonly db: Firestore;

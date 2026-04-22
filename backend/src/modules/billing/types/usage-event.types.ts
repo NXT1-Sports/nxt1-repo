@@ -12,42 +12,12 @@ import type { BillingMode, BudgetInterval } from '@nxt1/core/usage';
 // (BillingState, StripeCustomer, WalletHold, etc.) keep Firestore Timestamp.
 
 /**
- * Billable features — aligned with USAGE_PRODUCT_CONFIGS in @nxt1/core/usage
- * Each enum value maps to a product ID in the frontend pricing table.
+ * Billable feature identifier.
+ *
+ * This is intentionally open-ended so Agent X can emit new feature labels
+ * at runtime based on the work it actually completed.
  */
-export enum UsageFeature {
-  // ── Media ───────────────────────────
-  HIGHLIGHTS = 'highlights',
-  MOTION_GRAPHICS = 'motion-graphics',
-  GRAPHICS = 'graphics',
-  WRITE_UP_GRAPHIC = 'write-up-graphic',
-  MEDIA_BUNDLES = 'media-bundles',
-
-  // ── Recruiting ──────────────────────
-  SCOUT_REPORT_BUNDLE = 'scout-report-bundle',
-  MATCH_COLLEGES = 'match-colleges',
-  RECRUIT_STRATEGY = 'recruit-strategy',
-  COLLEGE_VIEWS = 'college-views',
-
-  // ── AI & Agent X ────────────────────
-  ACTIVITY_USAGE = 'activity-usage',
-  CHAT_CONVERSATION = 'chat-conversation',
-  PLAYBOOK_GENERATION = 'playbook-generation',
-  BRIEFING_GENERATION = 'briefing-generation',
-  SCOUT_REPORT = 'scout-report',
-  ATHLETE_INTEL = 'athlete-intel',
-  TEAM_INTEL = 'team-intel',
-
-  // ── Communication ───────────────────
-  EMAIL_CAMPAIGN = 'email-campaign',
-  FOLLOW_UPS = 'follow-ups',
-
-  // ── Profile ─────────────────────────
-  PROFILE_BANNERS = 'profile-banners',
-
-  // ── Teams ───────────────────────────
-  TEAM_PAGE_URL = 'team-page-url',
-}
+export type UsageFeature = string;
 
 /**
  * Status of usage event processing

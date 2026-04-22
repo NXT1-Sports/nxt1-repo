@@ -16,7 +16,7 @@
     "dev": "nodemon --watch src --ext ts,js,json --exec \"npm run build && npm start\"",
     "dev:staging": "NODE_ENV=staging nodemon --watch src --ext ts,js,json --exec \"npm run build && npm run start:staging\"",
     "dev:prod": "NODE_ENV=production nodemon --watch src --ext ts,js,json --exec \"npm run build && npm run start:prod\"",
-    "build": "npm --prefix .. run build -- --filter=@nxt1/core --filter=@nxt1/cache && rimraf tsconfig.tsbuildinfo && tsc && shx cp -r src/routes/iap-certs dist/routes/iap-certs",
+    "build": "npm --prefix .. run build -- --filter=@nxt1/core --filter=@nxt1/cache && rimraf tsconfig.tsbuildinfo && tsc && shx cp -r src/routes/billing/iap-certs dist/routes/billing/iap-certs",
     "build:watch": "tsc --watch",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -42,6 +42,9 @@
     "cache:clear:staging": "tsx scripts/clear-cache.ts --env=staging",
     "cache:clear:profiles": "tsx scripts/clear-cache.ts --pattern=profile:*",
     "cache:clear:teams": "tsx scripts/clear-cache.ts --pattern=team:*",
+    "seed:agent-config": "tsx --tsconfig tsconfig.scripts.json scripts/migrate-agent-config.ts",
+    "seed:agent-config:prod-v2": "GOOGLE_CLOUD_PROJECT=nxt-1-v2 GCLOUD_PROJECT=nxt-1-v2 tsx --tsconfig tsconfig.scripts.json scripts/migrate-agent-config.ts",
+    "seed:agent-config:staging-v2": "GOOGLE_CLOUD_PROJECT=nxt-1-staging-v2 GCLOUD_PROJECT=nxt-1-staging-v2 tsx --tsconfig tsconfig.scripts.json scripts/migrate-agent-config.ts --staging",
     "seed:knowledge": "tsx ../scripts/seed-knowledge/index.ts",
     "deploy:mcp:stateful": "bash ./scripts/deploy-stateful-mcp.sh",
     "deploy:mcp:google-workspace": "bash ./scripts/deploy-google-workspace-mcp.sh"

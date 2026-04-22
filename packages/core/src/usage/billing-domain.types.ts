@@ -13,7 +13,7 @@ import type { BudgetInterval, PaymentProviderType } from './usage.types';
 export type BillingOwnerType = 'individual' | 'organization';
 
 /** Why the active billing target resolved to the selected wallet. */
-export type BillingTargetSource = 'personal' | 'organization';
+export type BillingTargetSource = 'default' | 'personal' | 'organization';
 
 /**
  * Active billing target stored on the user profile.
@@ -23,6 +23,7 @@ export interface BillingTargetReference {
   readonly ownerId: string;
   readonly ownerType: BillingOwnerType;
   readonly source: BillingTargetSource;
+  readonly userSelected?: boolean;
   readonly organizationId?: string;
   readonly teamId?: string;
 }

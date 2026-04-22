@@ -7,7 +7,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ── Mocks (must precede tool import) ─────────────────────────────────────────
 
-vi.mock('../../../../../services/cache.service.js', () => ({
+vi.mock('../../../../../services/core/cache.service.js', () => ({
   getCacheService: () => ({
     get: vi.fn().mockResolvedValue(null),
     set: vi.fn().mockResolvedValue(undefined),
@@ -96,9 +96,9 @@ describe('WriteTimelinePostTool', () => {
       expect(tool.isMutation).toBe(true);
       expect(tool.category).toBe('communication');
       expect(tool.allowedAgents).toContain('data_coordinator');
-      expect(tool.allowedAgents).toContain('brand_media_coordinator');
+      expect(tool.allowedAgents).toContain('brand_coordinator');
       expect(tool.allowedAgents).toContain('recruiting_coordinator');
-      expect(tool.allowedAgents).toContain('general');
+      expect(tool.allowedAgents).toContain('strategy_coordinator');
     });
   });
 
@@ -151,7 +151,7 @@ describe('WriteTimelinePostTool', () => {
 
       const postDoc = mockDocRef.set.mock.calls[0][0] as Record<string, unknown>;
       expect(postDoc['content']).not.toContain('<script>');
-      expect(postDoc['content']).toContain('&lt;script&gt;');
+      expect(postDoc['content']).toContain('Hello alert(xss)');
     });
 
     it('should auto-extract hashtags and mentions from content', async () => {

@@ -25,11 +25,13 @@
 import { Redis } from 'ioredis';
 import { AgentQueueService } from './queue.service.js';
 import { logger } from '../../../utils/logger.js';
+import { getRuntimeEnvironment } from '../../../config/runtime-environment.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
 /** Redis PubSub channel prefix for agent streaming. */
-export const AGENT_STREAM_CHANNEL_PREFIX = 'agent:stream:';
+export const AGENT_STREAM_CHANNEL_PREFIX =
+  getRuntimeEnvironment() === 'production' ? 'agent:stream:prod:' : 'agent:stream:stg:';
 
 /** Reserved event type indicating the stream is complete (worker finished). */
 export const STREAM_TERMINAL_EVENTS = new Set(['done', 'error']);

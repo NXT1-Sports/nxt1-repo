@@ -5,7 +5,6 @@
 
 import {
   ANALYTICS_DOMAINS,
-  ANALYTICS_SUBJECT_TYPES,
   ANALYTICS_SUMMARY_TIMEFRAMES,
   isAnalyticsDomain,
   isAnalyticsSubjectType,
@@ -14,37 +13,23 @@ import { BaseTool, type ToolExecutionContext, type ToolResult } from '../base.to
 import {
   AnalyticsLoggerService,
   getAnalyticsLoggerService,
-} from '../../../../services/analytics-logger.service.js';
+} from '../../../../services/core/analytics-logger.service.js';
+import { z } from 'zod';
+
+const GetAnalyticsSummaryInputSchema = z.object({
+  userId: z.string().trim().min(1),
+  subjectId: z.string().trim().min(1).optional(),
+  subjectType: z.string().trim().min(1).optional(),
+  domain: z.string().trim().min(1),
+  timeframe: z.string().trim().min(1).optional(),
+});
 
 export class GetAnalyticsSummaryTool extends BaseTool {
   readonly name = 'get_analytics_summary';
   readonly description =
     'Gets a pre-aggregated analytics summary for a subject and domain, including total tracked events and counts by event type.';
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      userId: { type: 'string', description: 'Primary user or athlete ID.' },
-      subjectId: {
-        type: 'string',
-        description: 'Optional subject ID. Defaults to userId.',
-      },
-      subjectType: {
-        type: 'string',
-        enum: [...ANALYTICS_SUBJECT_TYPES],
-      },
-      domain: {
-        type: 'string',
-        enum: [...ANALYTICS_DOMAINS],
-      },
-      timeframe: {
-        type: 'string',
-        enum: [...ANALYTICS_SUMMARY_TIMEFRAMES],
-        description: 'Defaults to 30d.',
-      },
-    },
-    required: ['userId', 'domain'],
-  } as const;
+  readonly parameters = GetAnalyticsSummaryInputSchema;
 
   override readonly allowedAgents = ['*'] as const;
   readonly isMutation = false;
@@ -58,10 +43,10 @@ export class GetAnalyticsSummaryTool extends BaseTool {
     input: Record<string, unknown>,
     _context?: ToolExecutionContext
   ): Promise<ToolResult> {
-    const userId = this.str(input, 'userId');
-    if (!userId) return this.paramError('userId');
+    const parsed = GetAnalyticsSummaryInputSchema.safeParse(input);
+    if (!parsed.success) return this.zodError(parsed.error);
 
-    const domain = this.str(input, 'domain');
+    const { userId, domain } = parsed.data;
     if (!domain || !isAnalyticsDomain(domain)) {
       return {
         success: false,
@@ -69,11 +54,11 @@ export class GetAnalyticsSummaryTool extends BaseTool {
       };
     }
 
-    const subjectId = this.str(input, 'subjectId') ?? userId;
-    const rawSubjectType = this.str(input, 'subjectType');
+    const subjectId = parsed.data.subjectId ?? userId;
+    const rawSubjectType = parsed.data.subjectType;
     const subjectType =
       rawSubjectType && isAnalyticsSubjectType(rawSubjectType) ? rawSubjectType : 'user';
-    const timeframe = this.str(input, 'timeframe');
+    const timeframe = parsed.data.timeframe;
     const normalizedTimeframe =
       timeframe &&
       ANALYTICS_SUMMARY_TIMEFRAMES.includes(

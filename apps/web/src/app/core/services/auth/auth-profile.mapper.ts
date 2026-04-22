@@ -22,11 +22,16 @@ interface BackendSportLike {
     readonly logoUrl?: string | null;
     readonly logo?: string | null;
     readonly teamId?: string;
+    readonly organizationId?: string;
+    readonly primaryColor?: string | null;
+    readonly secondaryColor?: string | null;
     readonly id?: string;
     readonly teamCode?: string;
     readonly code?: string;
     readonly slug?: string;
     readonly unicode?: string;
+    readonly isOrganizationClaimed?: boolean;
+    readonly isUserOrganizationAdmin?: boolean;
   };
 }
 
@@ -43,6 +48,12 @@ interface BackendTeamCodeLike {
   readonly teamLogoImg?: string | null;
 }
 
+interface OrganizationAccessSummary {
+  readonly organizationId: string;
+  readonly isClaimed: boolean;
+  readonly isAdmin: boolean;
+}
+
 export interface BackendProfileLike {
   readonly id: string;
   readonly email?: string;
@@ -52,8 +63,6 @@ export interface BackendProfileLike {
   readonly role?: string | null;
   readonly onboardingCompleted?: boolean;
   readonly completeSignUp?: boolean;
-  readonly isCollegeCoach?: boolean | null;
-  readonly isRecruit?: boolean | null;
   readonly connectedEmails?: readonly ConnectedEmail[];
   readonly connectedSources?: readonly ConnectedSource[];
   readonly teamCode?: BackendTeamCodeLike | string | null;
@@ -127,11 +136,11 @@ export function mapBackendProfileToCachedUserProfile(user: BackendProfileLike): 
       normalizedTeamCode?.teamId?.trim() || sportTeam?.teamId?.trim() || rawTopTeam?.teamId?.trim(),
     id: normalizedTeamCode?.id?.trim() || sportTeam?.id?.trim() || rawTopTeam?.id?.trim(),
     unicode,
-    managedTeamCodes: user.coach?.managedTeamCodes,
   });
 
   const slug = resolvedTeamRoute?.slug || explicitSlug || derivedSlug || slugFromLegacyString || '';
   const canonicalTeamIdentifier = resolvedTeamRoute?.teamIdentifier ?? fallbackDocumentIdentifier;
+  const organizationAccess = buildOrganizationAccessSummary(sports);
 
   return {
     uid: user.id,
@@ -143,8 +152,6 @@ export function mapBackendProfileToCachedUserProfile(user: BackendProfileLike): 
     role: user.role ?? null,
     onboardingCompleted: user.onboardingCompleted,
     completeSignUp: user.completeSignUp,
-    isCollegeCoach: user.isCollegeCoach ?? null,
-    isRecruit: user.isRecruit ?? null,
     teamCode:
       teamName || slug || canonicalTeamIdentifier || unicode
         ? {
@@ -170,18 +177,60 @@ export function mapBackendProfileToCachedUserProfile(user: BackendProfileLike): 
               null,
           }
         : null,
-    managedTeamCodes: user.coach?.managedTeamCodes ?? null,
     primarySport,
     selectedSports: sports.map((sport) => sport.sport),
     connectedEmails: Array.isArray(user.connectedEmails) ? [...user.connectedEmails] : undefined,
+    organizationAccess,
     sports: sports.map((sport) => ({
       sport: sport.sport,
       positions: sport.positions,
       isPrimary: sport.order === 0,
-      team: sport.team,
+      team: sport.team
+        ? {
+            ...sport.team,
+            organizationId: sport.team.organizationId,
+            primaryColor: sport.team.primaryColor ?? null,
+            secondaryColor: sport.team.secondaryColor ?? null,
+            isOrganizationClaimed: sport.team.isOrganizationClaimed,
+            isUserOrganizationAdmin: sport.team.isUserOrganizationAdmin,
+          }
+        : undefined,
     })),
     connectedSources: Array.isArray(user.connectedSources) ? [...user.connectedSources] : undefined,
   };
+}
+
+function buildOrganizationAccessSummary(
+  sports: ReadonlyArray<BackendSportLike & { readonly sport: string }>
+): readonly OrganizationAccessSummary[] | undefined {
+  const byOrganizationId = new Map<string, OrganizationAccessSummary>();
+
+  for (const sport of sports) {
+    const organizationId = sport.team?.organizationId?.trim();
+    if (!organizationId) {
+      continue;
+    }
+
+    const nextSummary: OrganizationAccessSummary = {
+      organizationId,
+      isClaimed: sport.team?.isOrganizationClaimed === true,
+      isAdmin: sport.team?.isUserOrganizationAdmin === true,
+    };
+
+    const existingSummary = byOrganizationId.get(organizationId);
+    if (!existingSummary) {
+      byOrganizationId.set(organizationId, nextSummary);
+      continue;
+    }
+
+    byOrganizationId.set(organizationId, {
+      organizationId,
+      isClaimed: existingSummary.isClaimed || nextSummary.isClaimed,
+      isAdmin: existingSummary.isAdmin || nextSummary.isAdmin,
+    });
+  }
+
+  return byOrganizationId.size > 0 ? Array.from(byOrganizationId.values()) : undefined;
 }
 
 function isLikelySlugValue(value: string): boolean {

@@ -12,6 +12,15 @@
  */
 
 import type { AgentJobRepository, JobEvent, JobEventType } from './job.repository.js';
+import type {
+  AgentIdentifier,
+  AgentProgressMetadata,
+  AgentProgressStage,
+  AgentProgressStageType,
+  AgentXRichCard,
+  AgentXToolStepIcon,
+  OperationOutcomeCode,
+} from '@nxt1/core';
 import {
   sanitizeAgentOutputText,
   sanitizeAgentPayload,
@@ -23,7 +32,11 @@ import { logger } from '../../../utils/logger.js';
 /** Callback signature matching what the Router/BaseAgent emit. */
 export interface StreamEvent {
   readonly type: JobEventType;
-  readonly agentId?: string;
+  readonly agentId?: AgentIdentifier;
+  readonly stageType?: AgentProgressStageType;
+  readonly stage?: AgentProgressStage;
+  readonly outcomeCode?: OperationOutcomeCode;
+  readonly metadata?: AgentProgressMetadata;
   readonly message?: string;
   readonly text?: string;
   readonly toolName?: string;
@@ -32,8 +45,9 @@ export interface StreamEvent {
   readonly toolSuccess?: boolean;
   readonly success?: boolean;
   readonly error?: string;
+  readonly icon?: AgentXToolStepIcon;
   /** Rich card payload for `card` events (planner, data-table, etc.). */
-  readonly cardData?: Record<string, unknown>;
+  readonly cardData?: AgentXRichCard | Record<string, unknown>;
 }
 
 export type OnStreamEvent = (event: StreamEvent) => void;
@@ -207,6 +221,10 @@ export class DebouncedEventWriter {
       type: event.type,
       userId: this.userId,
       agentId: event.agentId,
+      stageType: event.stageType,
+      stage: event.stage,
+      outcomeCode: event.outcomeCode,
+      metadata: event.metadata ? sanitizeAgentPayload(event.metadata) : undefined,
       message: event.message ? sanitizeAgentOutputText(event.message) : undefined,
       text: event.text ? sanitizeAgentOutputText(event.text) : undefined,
       toolName: event.toolName,
@@ -215,7 +233,10 @@ export class DebouncedEventWriter {
       toolSuccess: event.toolSuccess,
       success: event.success,
       error: event.error ? sanitizeAgentOutputText(event.error) : undefined,
-      cardData: event.cardData ? sanitizeAgentPayload(event.cardData) : undefined,
+      icon: event.icon,
+      cardData: event.cardData
+        ? sanitizeAgentPayload(event.cardData as Record<string, unknown>)
+        : undefined,
     });
 
     // Fire-and-forget — never block the agent pipeline on Firestore writes

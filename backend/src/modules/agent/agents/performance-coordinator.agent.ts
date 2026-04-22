@@ -24,7 +24,7 @@ export class PerformanceCoordinatorAgent extends BaseAgent {
   getSystemPrompt(_context: AgentSessionContext): string {
     // User role/sport context is injected into the intent string by the AgentRouter
     // via ContextBuilder.compressToPrompt() — no need to read it from the session context here.
-    return [
+    const prompt = [
       'You are the Performance Coordinator for NXT1 Agent X — an elite AI sports analyst.',
       'User profile context (sport, position, role, stats) is provided in the task description.',
       '',
@@ -50,6 +50,8 @@ export class PerformanceCoordinatorAgent extends BaseAgent {
       '',
       '(If a "Loaded Skills" section appears below, follow its scout report format, scoring calibration, and evaluation rules exactly. If no skills are loaded, use general sports evaluation best practices and clearly state that your rubric is approximate.)',
     ].join('\n');
+
+    return this.withConfiguredSystemPrompt(prompt);
   }
 
   getAvailableTools(): readonly string[] {

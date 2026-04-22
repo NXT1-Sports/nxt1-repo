@@ -26,8 +26,13 @@
 import { getFirestore, FieldValue, Timestamp, type Firestore } from 'firebase-admin/firestore';
 import type {
   AgentJobPayload,
+  AgentProgressMetadata,
+  AgentProgressStage,
+  AgentProgressStageType,
+  AgentXToolStepIcon,
   AgentOperationStatus,
   AgentOperationResult,
+  OperationOutcomeCode,
   AgentYieldState,
 } from '@nxt1/core';
 import type { AgentJobProgress } from './queue.types.js';
@@ -77,6 +82,14 @@ export interface JobEvent {
   readonly type: JobEventType;
   /** Agent identifier if known (e.g. 'recruiting', 'performance'). */
   readonly agentId?: string;
+  /** Which execution layer emitted the event, when structured stages are available. */
+  readonly stageType?: AgentProgressStageType;
+  /** Typed machine-readable stage key for frontend dictionaries. */
+  readonly stage?: AgentProgressStage;
+  /** Structured outcome for notable or terminal states. */
+  readonly outcomeCode?: OperationOutcomeCode;
+  /** Additional typed hydration data for UI rendering. */
+  readonly metadata?: AgentProgressMetadata;
   /** Human-readable message for the UI. */
   readonly message?: string;
   /** Accumulated LLM text for `delta` events. */
@@ -93,6 +106,8 @@ export interface JobEvent {
   readonly success?: boolean;
   /** Error message for `step_error` / `done` events. */
   readonly error?: string;
+  /** Optional semantic icon key for custom step rendering. */
+  readonly icon?: AgentXToolStepIcon;
   /** Rich card payload for `card` events (planner, data-table, etc.). */
   readonly cardData?: Record<string, unknown>;
   /** Server timestamp set by Firestore. */

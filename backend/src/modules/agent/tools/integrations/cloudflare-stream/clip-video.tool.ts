@@ -22,38 +22,12 @@ export class ClipVideoTool extends BaseTool {
     'The source video must already be in Cloudflare (use import_video first). ' +
     'Returns a new Cloudflare video ID for the clip. Use enable_download to get the MP4.';
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      videoId: {
-        type: 'string',
-        description: 'The Cloudflare video ID of the source video to clip from.',
-      },
-      startTimeSeconds: {
-        type: 'number',
-        description: 'Start time of the clip in seconds (e.g. 30 for 0:30).',
-      },
-      endTimeSeconds: {
-        type: 'number',
-        description: 'End time of the clip in seconds (e.g. 75 for 1:15).',
-      },
-      watermarkProfileId: {
-        type: 'string',
-        description:
-          'Optional watermark profile ID to stamp onto the clip. Use manage_watermark to create one first.',
-      },
-      scheduleDeletionMinutes: {
-        type: 'number',
-        description: 'Auto-delete the clip from Cloudflare after this many minutes (default: 240).',
-      },
-    },
-    required: ['videoId', 'startTimeSeconds', 'endTimeSeconds'],
-  } as const;
+  readonly parameters = ClipVideoInputSchema;
 
   override readonly allowedAgents = [
-    'brand_media_coordinator',
+    'brand_coordinator',
     'data_coordinator',
-    'general',
+    'strategy_coordinator',
   ] as const;
 
   readonly isMutation = true;
@@ -105,9 +79,14 @@ export class ClipVideoTool extends BaseTool {
       watermarkProfileId,
       userId: context?.userId,
     });
-    context?.onProgress?.(
-      `Clipping ${startTimeSeconds}s–${endTimeSeconds}s (${clipDuration}s highlight)…`
-    );
+    context?.emitStage?.('processing_media', {
+      icon: 'media',
+      videoId,
+      startTimeSeconds,
+      endTimeSeconds,
+      clipDuration,
+      phase: 'clip_video',
+    });
 
     try {
       const clip = await this.bridge.clipVideo(

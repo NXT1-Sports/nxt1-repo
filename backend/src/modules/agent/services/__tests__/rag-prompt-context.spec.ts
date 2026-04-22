@@ -11,16 +11,16 @@ const mockCache = {
   mset: vi.fn(),
 };
 
-vi.mock('../../../../services/cache.service.js', () => ({
+vi.mock('../../../../services/core/cache.service.js', () => ({
   getCacheService: () => mockCache,
   CACHE_TTL: { PROFILES: 900 },
 }));
 
-vi.mock('../../../../services/users.service.js', () => ({
+vi.mock('../../../../services/profile/users.service.js', () => ({
   getUserById: vi.fn(),
 }));
 
-vi.mock('../../../../services/team-adapter.service.js', () => ({
+vi.mock('../../../../adapters/team.adapter.js', () => ({
   TeamServiceAdapter: class {
     getUserTeams = vi.fn().mockResolvedValue([]);
   },

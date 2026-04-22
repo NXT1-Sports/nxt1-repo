@@ -7,7 +7,7 @@
  */
 
 import { Router, type Request, type Response } from 'express';
-import { appGuard, optionalAuth } from '../../middleware/auth.middleware.js';
+import { appGuard, optionalAuth } from '../../middleware/auth/auth.middleware.js';
 import { logger } from '../../utils/logger.js';
 import { asyncHandler, sendError } from '@nxt1/core/errors/express';
 import { forbiddenError, validationError } from '@nxt1/core/errors';

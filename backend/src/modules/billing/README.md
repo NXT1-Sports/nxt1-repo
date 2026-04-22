@@ -44,14 +44,14 @@ modules/billing/
 ### 1. Record Usage
 
 ```typescript
-import { recordUsageEvent, UsageFeature } from './modules/billing';
+import { recordUsageEvent } from './modules/billing';
 
 const eventId = await recordUsageEvent(
   db,
   {
     userId: 'user123',
     teamId: 'team456',
-    feature: UsageFeature.AI_GRAPHIC,
+    feature: 'generate-graphic',
     quantity: 1,
     jobId: 'unique-job-id', // For idempotency
   },
@@ -165,31 +165,65 @@ STAGING_STRIPE_WEBHOOK_SECRET=whsec_...
 STAGING_STRIPE_PRICE_AI_GRAPHIC=price_...
 ```
 
-### Feature Configuration
+### Pricing Config In Firestore
 
-Edit `config.ts` to add new billable features:
+`AppConfig/pricingConfig` controls the default margin and override map:
+
+```json
+{
+  "defaultMultiplier": 3,
+  "featureOverrides": {
+    "brand_coordinator": 4,
+    "recruiting_coordinator": 3.5,
+    "playbook-generation": 2.5
+  }
+}
+```
+
+Notes:
+
+- `featureOverrides` is the existing field name, but it is now
+  coordinator-first.
+- For open-ended Agent X runs, overrides should usually be keyed by coordinator
+  IDs like `brand_coordinator`.
+- Explicit feature keys are still supported for fixed flows like
+  `playbook-generation` or other intentionally priced products.
+
+### Dynamic Feature Labels
+
+Agent X usage is no longer constrained to a hardcoded feature enum.
+
+- Generic agent/tool execution derives the billable feature automatically from
+  the successful tool that actually ran.
+- If no tool executes, billing falls back to the coordinator execution label.
+- Fixed product flows can still pass an explicit feature slug when needed.
+
+Use lowercase kebab-case labels, for example:
+
+- `generate-graphic`
+- `send-email`
+- `strategy-coordinator-execution`
+- `playbook-generation`
+
+### Static Product Configuration
+
+Only add static product configuration when you are shipping a non-agent feature
+that must map to a fixed Stripe product or static unit cost.
 
 ```typescript
-export enum UsageFeature {
-  AI_GRAPHIC = 'AI_GRAPHIC',
-  HIGHLIGHT = 'HIGHLIGHT',
-  MY_NEW_FEATURE = 'MY_NEW_FEATURE', // Add here
-}
-
-// Add unit cost
-export function getUnitCost(feature: UsageFeature): number {
+export function getUnitCost(feature: string): number {
   const costs = {
     // ...
-    [UsageFeature.MY_NEW_FEATURE]: 5.0, // $5.00 per unit
+    'my-fixed-product': 5.0,
   };
-  return costs[feature];
+  return costs[feature] ?? 0;
 }
 ```
 
 Then add environment variable:
 
 ```bash
-STRIPE_PRICE_MY_NEW_FEATURE=price_...
+STRIPE_PRICE_MY_FIXED_PRODUCT=price_...
 ```
 
 ## Testing
@@ -206,7 +240,7 @@ npm test
 # Test usage recording
 curl -X POST http://localhost:3000/api/v1/billing/usage \
   -H "Authorization: Bearer <token>" \
-  -d '{"feature":"AI_GRAPHIC","quantity":1}'
+  -d '{"feature":"generate-graphic","quantity":1}'
 
 # Test webhook
 stripe listen --forward-to http://localhost:3000/api/v1/billing/webhook
@@ -295,7 +329,7 @@ Key metrics to monitor:
 ## Related Documentation
 
 - [Full Documentation](../../../docs/USAGE-BILLING.md)
-- [API Routes](../../routes/billing.routes.ts)
+- [API Routes](../../routes/billing/billing.routes.ts)
 - [Worker](../../workers/stripe-worker.ts)
 
 ## License

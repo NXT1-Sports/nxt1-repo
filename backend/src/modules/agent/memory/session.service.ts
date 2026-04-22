@@ -40,7 +40,7 @@ import type { AgentSessionContext, AgentSessionMessage } from '@nxt1/core';
 import type { CacheService as ICacheService } from '@nxt1/cache';
 import type { ContextBuilder } from './context-builder.js';
 import { logger } from '../../../utils/logger.js';
-import { CACHE_TTL } from '../../../services/cache.service.js';
+import { CACHE_TTL } from '../../../services/core/cache.service.js';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 

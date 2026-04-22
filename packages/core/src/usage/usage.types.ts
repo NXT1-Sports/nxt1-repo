@@ -368,6 +368,8 @@ export interface BillingStateSummary {
   readonly autoTopUpThresholdCents?: number;
   /** Amount in cents to reload when auto top-up fires */
   readonly autoTopUpAmountCents?: number;
+  /** True when the current user's organization has an explicit billing owner configured. */
+  readonly hasOrganizationBilling?: boolean;
   /**
    * True when this user resolves to org billing AND the org wallet balance is 0.
    * Used to drive the "Your team is out of funds" banner in the Usage UI.

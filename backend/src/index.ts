@@ -22,49 +22,52 @@ import { logger } from './utils/logger.js';
 import { connectToMongoDB, disconnectFromMongoDB } from './config/database.config.js';
 
 // Import cache service
-import { initializeCacheService } from './services/cache.service.js';
+import { initializeCacheService } from './services/core/cache.service.js';
 
 // Middleware
-import { firebaseContext } from './middleware/firebase-context.middleware.js';
-import { performanceMiddleware, testPerformance } from './middleware/performance.middleware.js';
-import { getRedisRateLimiter } from './middleware/redis-rate-limit.middleware.js';
+import { firebaseContext } from './middleware/firebase/firebase-context.middleware.js';
+import {
+  performanceMiddleware,
+  testPerformance,
+} from './middleware/performance/performance.middleware.js';
+import { getRedisRateLimiter } from './middleware/rate-limit/redis-rate-limit.middleware.js';
 import {
   cacheStatusMiddleware,
   createCacheMiddleware,
-} from './middleware/cache-status.middleware.js';
+} from './middleware/cache/cache-status.middleware.js';
 
 // Routes
-import authRoutes from './routes/auth.routes.js';
-import uploadRoutes from './routes/upload/index.js';
-import sitemapRoutes from './routes/sitemap.routes.js';
-import activityRoutes from './routes/activity.routes.js';
-import analyticsRoutes from './routes/analytics.routes.js';
-import pulseRoutes from './routes/pulse.routes.js';
-import inviteRoutes from './routes/invite.routes.js';
-import settingsRoutes from './routes/settings.routes.js';
-import helpCenterRoutes from './routes/help-center.routes.js';
-import editProfileRoutes from './routes/edit-profile.routes.js';
-import agentXRoutes from './routes/agent-x/index.js';
-import messagesRoutes from './routes/messages.routes.js';
+import authRoutes from './routes/auth/index.js';
+import uploadRoutes from './routes/core/upload/index.js';
+import sitemapRoutes from './routes/core/sitemap.routes.js';
+import activityRoutes from './routes/feed/activity.routes.js';
+import analyticsRoutes from './routes/analytics/index.js';
+import pulseRoutes from './routes/feed/pulse.routes.js';
+import inviteRoutes from './routes/core/invite.routes.js';
+import settingsRoutes from './routes/core/settings.routes.js';
+import helpCenterRoutes from './routes/platform/help-center.routes.js';
+import editProfileRoutes from './routes/profile/edit-profile.routes.js';
+import agentXRoutes from './routes/agent/index.js';
+import messagesRoutes from './routes/communications/messages.routes.js';
 
 import { bootstrapAgentQueue } from './modules/agent/queue/bootstrap.js';
 import { ensureTopicExists } from './modules/billing/index.js';
 // Detail routes for explore
 // Programs (Organization search)
-import programsRoutes from './routes/programs.routes.js';
+import programsRoutes from './routes/team/programs.routes.js';
 // Billing routes
-import billingRoutes from './routes/billing.routes.js';
+import billingRoutes from './routes/billing/billing.routes.js';
 import {
   webhookRoutes,
   webhookRawBodyMiddleware,
   sentryWebhookRoutes,
   heliconeRoutes,
   cloudflareWebhookRoutes,
-} from './routes/webhooks/index.js';
-import usageRoutes from './routes/usage.routes.js';
-import iapRoutes from './routes/iap.routes.js';
-import teamsRoutes from './routes/teams.routes.js';
-import engagementRoutes from './routes/engagement.routes.js';
+} from './routes/platform/webhooks/index.js';
+import usageRoutes from './routes/billing/usage.routes.js';
+import iapRoutes from './routes/billing/iap.routes.js';
+import teamsRoutes from './routes/team/teams.routes.js';
+import engagementRoutes from './routes/feed/engagement.routes.js';
 // Staging-only dev utilities
 
 const app: ReturnType<typeof express> = express();

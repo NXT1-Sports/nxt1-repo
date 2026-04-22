@@ -33,7 +33,7 @@ import type {
   RecruitingActivity,
   ProfileSeasonGameLog,
 } from '@nxt1/core';
-import { isTeamRole, isAthleteRole, USER_ROLES, getPositionAbbreviation } from '@nxt1/core';
+import { isTeamRole, getPositionAbbreviation } from '@nxt1/core';
 import { getPlatformFaviconUrl } from '@nxt1/core/platforms';
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -256,19 +256,14 @@ export function userToProfilePageData(user: User, isOwnProfile: boolean): Profil
   const act = safeScore(academics?.actScore);
 
   // ── Role-derived fields ────────────────────────────────────────────────────
-  const isRecruiterRole = user.role === USER_ROLES.RECRUITER;
   const userIsTeamRole = isTeamRole(user.role);
-  const userIsAthleteRole = isAthleteRole(user.role);
 
-  // College team name: for recruiters (college coaches) use their institution; for athletes
-  // with a college affiliation use the college sport team name.
-  const collegeTeamName: string | undefined = isRecruiterRole
-    ? (user.recruiter?.institution ?? undefined)
-    : (user.sports?.find((s) => s.team?.type === 'college')?.team?.name ?? undefined);
+  // College team name comes from the user's college sport affiliation when present.
+  const collegeTeamName: string | undefined =
+    user.sports?.find((s) => s.team?.type === 'college')?.team?.name ?? undefined;
 
-  // Title: coaches, recruiters, and directors carry a role-specific title field.
-  const title: string | undefined =
-    user.coach?.title ?? user.recruiter?.title ?? user.director?.title ?? undefined;
+  // Title: coaches and directors carry role-specific title fields.
+  const title: string | undefined = user.coach?.title ?? user.director?.title ?? undefined;
 
   // ── Profile images ────────────────────────────────────────────────────────
   const profileImgs: readonly string[] = user.profileImgs?.length ? user.profileImgs : [];
@@ -288,9 +283,7 @@ export function userToProfilePageData(user: User, isOwnProfile: boolean): Profil
     profileImgs,
 
     // Role
-    role: (user.role ?? 'athlete') as unknown as ProfileUserRole,
-    isRecruit: userIsAthleteRole || !user.role,
-    isCollegeCoach: isRecruiterRole,
+    role: (user.role ?? 'athlete') as ProfileUserRole,
     isTeamManager: userIsTeamRole,
 
     // Status

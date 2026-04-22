@@ -1182,7 +1182,6 @@ export class ProfileComponent implements OnInit, OnDestroy {
         teamId: profile.teamCode?.teamId?.trim(),
         id: typeof profile.teamCode?.id === 'string' ? profile.teamCode.id.trim() : undefined,
         unicode: profile.teamCode?.unicode?.trim(),
-        managedTeamCodes: profile.coach?.managedTeamCodes,
       })?.path ?? null
     );
   }

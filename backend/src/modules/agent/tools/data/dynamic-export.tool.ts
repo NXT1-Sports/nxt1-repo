@@ -176,23 +176,29 @@ export class DynamicExportTool extends BaseTool {
 
     // ── Generate document ─────────────────────────────────────────────
     try {
-      const progress = context?.onProgress;
+      const emitStage = context?.emitStage;
       let buffer: Buffer;
       let mimeType: string;
       let extension: string;
 
       if (format === 'csv') {
-        progress?.(`Formatting ${rows!.length.toLocaleString()} rows as CSV…`);
+        emitStage?.('submitting_job', {
+          icon: 'document',
+          rowCount: rows!.length,
+          format: 'csv',
+          phase: 'format_export',
+        });
         buffer = this.exportService.generateCsv({ columns: columns!, rows: rows! });
         mimeType = 'text/csv';
         extension = 'csv';
       } else {
         const rowCount = rows?.length ?? 0;
-        progress?.(
-          rowCount > 0
-            ? `Building PDF with ${rowCount.toLocaleString()} rows…`
-            : 'Generating PDF document…'
-        );
+        emitStage?.('submitting_job', {
+          icon: 'document',
+          rowCount,
+          format: 'pdf',
+          phase: rowCount > 0 ? 'build_pdf_table' : 'build_pdf_document',
+        });
         buffer = await this.exportService.generatePdf({
           title,
           description,
@@ -207,7 +213,11 @@ export class DynamicExportTool extends BaseTool {
       }
 
       // ── Upload to Firebase Storage ────────────────────────────────
-      progress?.('Uploading to secure storage…');
+      emitStage?.('uploading_assets', {
+        icon: 'upload',
+        format,
+        phase: 'upload_export',
+      });
       const userId = context?.userId ?? 'anonymous';
       const threadId = context?.threadId;
       const timestamp = Date.now();
@@ -231,7 +241,11 @@ export class DynamicExportTool extends BaseTool {
       });
 
       // Make publicly accessible and build direct URL
-      progress?.('Creating secure download link…');
+      emitStage?.('persisting_result', {
+        icon: 'document',
+        format,
+        phase: 'create_download_link',
+      });
       await file.makePublic();
       const downloadUrl = `https://storage.googleapis.com/${bucket.name}/${storagePath}`;
 

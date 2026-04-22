@@ -821,8 +821,8 @@ export class ProfileComponent {
 
       const param = this.routeParam();
       if (!param && userId) {
-        // Clear service cache so the re-fetch hits the backend
-        this.profileApiService.invalidateCache(userId);
+        // Clear transport cache so the re-fetch hits the backend.
+        await this.profileApiService.invalidateCache(userId);
 
         // Reset UI state — forces full teardown of carousel/images so they
         // re-render from scratch with fresh data (prevents stale component state)
@@ -932,7 +932,7 @@ export class ProfileComponent {
       // Refresh team data after management changes
       const slug = this.teamSlug();
       if (slug) {
-        this.teamApi.invalidateCache(slug);
+        await this.teamApi.invalidateCache(slug);
         const response = await this.teamApi.getTeamBySlug(slug);
         if (response.success && response.data) {
           this.teamProfile.loadFromExternalData(response.data);
@@ -1102,7 +1102,6 @@ export class ProfileComponent {
         teamId: profile.teamCode?.teamId?.trim(),
         id: typeof profile.teamCode?.id === 'string' ? profile.teamCode.id.trim() : undefined,
         unicode: profile.teamCode?.unicode?.trim(),
-        managedTeamCodes: profile.coach?.managedTeamCodes,
       })?.path ?? null
     );
   }

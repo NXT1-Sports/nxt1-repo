@@ -14,13 +14,13 @@ const {
   mockAssertCanManageProfileTarget: vi.fn(),
 }));
 
-vi.mock('../../../../../services/cache.service.js', () => ({
+vi.mock('../../../../../services/core/cache.service.js', () => ({
   getCacheService: () => ({
     del: mockCacheDel,
   }),
 }));
 
-vi.mock('../../../../../services/users.service.js', () => ({
+vi.mock('../../../../../services/profile/users.service.js', () => ({
   CACHE_KEYS: {
     USER_BY_ID: (userId: string) => `user:${userId}`,
   },
@@ -30,7 +30,7 @@ vi.mock('../../../../../routes/profile/shared.js', () => ({
   invalidateProfileCaches: mockInvalidateProfileCaches,
 }));
 
-vi.mock('../../../../../services/profile-write-access.service.js', () => ({
+vi.mock('../../../../../services/profile/profile-write-access.service.js', () => ({
   createProfileWriteAccessService: () => ({
     assertCanManageAthleteProfileTarget: mockAssertCanManageProfileTarget,
   }),

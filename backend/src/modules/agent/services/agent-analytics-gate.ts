@@ -21,7 +21,7 @@ import type { AnalyticsDomain } from '@nxt1/core/models';
 import {
   getAnalyticsLoggerService,
   type AnalyticsLoggerService,
-} from '../../../services/analytics-logger.service.js';
+} from '../../../services/core/analytics-logger.service.js';
 
 // ─── Tools That Self-Track ────────────────────────────────────────────────────
 // These tools call safeTrack() internally with domain-specific payloads that

@@ -135,6 +135,9 @@ export class OnboardingCongratulationsPage implements OnInit {
   /** Whether goals are being saved */
   readonly isSaving = signal(false);
 
+  /** Reused across final-slide prewarm and CTA completion to avoid duplicate work. */
+  private initialPreparationPromise: Promise<void> | null = null;
+
   // ============================================
   // COMPUTED (from AuthFlowService)
   // ============================================
@@ -232,6 +235,10 @@ export class OnboardingCongratulationsPage implements OnInit {
       step: event.index,
       slideId: event.slideId,
     });
+
+    if (event.index === this.totalSlides() - 1) {
+      void this.prepareInitialAgentStateIfNeeded();
+    }
   }
 
   /** Footer Continue/Complete action */
@@ -257,34 +264,11 @@ export class OnboardingCongratulationsPage implements OnInit {
   private async saveGoalsAndNavigate(): Promise<void> {
     const goals = this.selectedGoals();
 
-    // Save goals if any were selected
-    if (goals.length > 0) {
-      this.isSaving.set(true);
-      try {
-        const dashboardGoals: AgentDashboardGoal[] = goals.map((g) => ({
-          id: g.id,
-          text: g.text,
-          category: g.category ?? 'custom',
-          createdAt: new Date().toISOString(),
-        }));
-
-        this.logger.info('Saving agent goals', { count: goals.length });
-        const saved = await this.agentX.setGoals(dashboardGoals);
-
-        if (saved) {
-          this.logger.info('Goals saved successfully');
-          // Generate initial briefing in background (non-blocking)
-          this.agentX.generateBriefing(true).catch((err) => {
-            this.logger.warn('Initial briefing generation failed (non-critical)', err);
-          });
-        } else {
-          this.logger.warn('Failed to save goals');
-        }
-      } catch (err) {
-        this.logger.error('Error saving goals', err);
-      } finally {
-        this.isSaving.set(false);
-      }
+    this.isSaving.set(true);
+    try {
+      await this.prepareInitialAgentStateIfNeeded();
+    } finally {
+      this.isSaving.set(false);
     }
 
     this.logger.info('Navigating to Agent X', { target: AUTH_REDIRECTS.AGENT });
@@ -310,5 +294,52 @@ export class OnboardingCongratulationsPage implements OnInit {
       animated: true,
       animationDirection: 'forward',
     });
+  }
+
+  private prepareInitialAgentStateIfNeeded(): Promise<void> {
+    if (this.initialPreparationPromise) {
+      return this.initialPreparationPromise;
+    }
+
+    this.initialPreparationPromise = this.prepareInitialAgentState();
+    return this.initialPreparationPromise;
+  }
+
+  private async prepareInitialAgentState(): Promise<void> {
+    const goals = this.selectedGoals();
+
+    if (goals.length > 0) {
+      const dashboardGoals: AgentDashboardGoal[] = goals.map((g) => ({
+        id: g.id,
+        text: g.text,
+        category: g.category ?? 'custom',
+        createdAt: new Date().toISOString(),
+      }));
+
+      try {
+        this.logger.info('Saving agent goals before Agent X handoff', { count: goals.length });
+        const saved = await this.agentX.setGoals(dashboardGoals);
+
+        if (saved) {
+          this.logger.info('Goals saved, generating initial briefing');
+          await this.agentX.generateBriefing(true);
+          await this.agentX.loadDashboard();
+        } else {
+          this.logger.warn('Goals failed to save before initial briefing generation');
+        }
+      } catch (err) {
+        this.logger.error('Error preparing Agent X state with goals', err);
+      }
+
+      return;
+    }
+
+    try {
+      this.logger.info('No goals set — generating initial welcome briefing');
+      await this.agentX.generateBriefing(false);
+      await this.agentX.loadDashboard();
+    } catch (err) {
+      this.logger.error('Error preparing Agent X state without goals', err);
+    }
   }
 }

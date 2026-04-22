@@ -112,9 +112,8 @@ export {
   type User,
   // Location & Contact
   type Location,
-  type SocialLinks,
+  type UserContact,
   type SocialLink as UserSocialLink,
-  type ContactInfo,
   type ConnectedSource,
   // Connected email (metadata only — tokens in sub-collection)
   type ConnectedEmail,
@@ -132,7 +131,6 @@ export {
   // @deprecated — use RecruitingActivity instead
   type RecruitingSummary,
   type AcademicInfo,
-  type SportVerification,
   // Agnostic verification (2026+)
   type DataVerification,
   type VerificationScope,
@@ -152,10 +150,7 @@ export {
   type ScheduleEventDoc,
 } from './user/schedule-event.model';
 
-// @deprecated — use VerifiedMetric[] / VerifiedStat[] instead
 export {
-  type AthleticMetrics,
-  type SeasonStats,
   // Agent X & Scouting (source-of-truth types)
   // Note: Display-DTO versions with same names exist in profile.types.ts
   // Import from @nxt1/core/models when you need domain types
@@ -165,11 +160,8 @@ export {
   type TeamHistoryEntry,
   type UserAward,
   // Role-specific data
-  type AthleteData,
   type CoachData,
   type DirectorData,
-  type RecruiterData,
-  type ParentData,
   // Preferences & Settings
   type NotificationPreferences,
   type UserPreferences,
@@ -178,8 +170,6 @@ export {
   // Type guards
   isAthlete,
   isCoach,
-  isCollegeCoach,
-  isRecruiter,
   isDirector,
   isOnboarded,
   isVerified,
@@ -195,7 +185,6 @@ export {
   getDisplayName,
   getProfileImg,
   getProfileImages,
-  getGalleryImages,
   getSocialUrl,
   getClassOf,
   getConnectedSource,

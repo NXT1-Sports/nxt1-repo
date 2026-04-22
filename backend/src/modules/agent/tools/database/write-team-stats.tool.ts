@@ -16,10 +16,11 @@
 
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
-import { getCacheService } from '../../../../services/cache.service.js';
-import { getAnalyticsLoggerService } from '../../../../services/analytics-logger.service.js';
+import { getCacheService } from '../../../../services/core/cache.service.js';
+import { getAnalyticsLoggerService } from '../../../../services/core/analytics-logger.service.js';
 import { logger } from '../../../../utils/logger.js';
 import { resolveCreatedAt, seasonToDate } from './doc-date-utils.js';
+import { z } from 'zod';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -28,6 +29,27 @@ const TEAMS_COLLECTION = 'Teams';
 const MAX_STATS_PER_CALL = 100;
 
 const VALID_TRENDS = new Set(['up', 'down', 'neutral']);
+
+const TeamStatEntrySchema = z
+  .object({
+    field: z.string().trim().min(1).optional(),
+    label: z.string().trim().min(1).optional(),
+    value: z.union([z.string(), z.number(), z.boolean()]).optional(),
+    unit: z.string().trim().min(1).optional(),
+    category: z.string().trim().min(1).optional(),
+    trend: z.string().trim().min(1).optional(),
+    trendValue: z.number().optional(),
+  })
+  .passthrough();
+
+const WriteTeamStatsInputSchema = z.object({
+  teamId: z.string().trim().min(1),
+  sportId: z.string().trim().min(1),
+  season: z.string().trim().min(1),
+  source: z.string().trim().min(1),
+  sourceUrl: z.string().trim().min(1).optional(),
+  stats: z.array(TeamStatEntrySchema).min(1).max(MAX_STATS_PER_CALL),
+});
 
 // ─── Tool ───────────────────────────────────────────────────────────────────
 
@@ -55,33 +77,7 @@ export class WriteTeamStatsTool extends BaseTool {
     '  • trend (optional): "up", "down", or "neutral".\n' +
     '  • trendValue (optional): Numeric change to display with the trend arrow.';
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      teamId: { type: 'string' },
-      sportId: { type: 'string' },
-      season: { type: 'string' },
-      source: { type: 'string' },
-      sourceUrl: { type: 'string' },
-      stats: {
-        type: 'array',
-        items: {
-          type: 'object',
-          properties: {
-            field: { type: 'string' },
-            label: { type: 'string' },
-            value: {},
-            unit: { type: 'string' },
-            category: { type: 'string' },
-            trend: { type: 'string', enum: ['up', 'down', 'neutral'] },
-            trendValue: { type: 'number' },
-          },
-          required: ['field', 'label', 'value', 'category'],
-        },
-      },
-    },
-    required: ['teamId', 'sportId', 'season', 'source', 'stats'],
-  } as const;
+  readonly parameters = WriteTeamStatsInputSchema;
 
   override readonly allowedAgents = ['data_coordinator', 'performance_coordinator'] as const;
   readonly isMutation = true;
@@ -98,23 +94,12 @@ export class WriteTeamStatsTool extends BaseTool {
     input: Record<string, unknown>,
     context?: ToolExecutionContext
   ): Promise<ToolResult> {
-    const teamId = this.str(input, 'teamId');
-    if (!teamId) return this.paramError('teamId');
-    const sportId = this.str(input, 'sportId');
-    if (!sportId) return this.paramError('sportId');
-    const season = this.str(input, 'season');
-    if (!season) return this.paramError('season');
-    const source = this.str(input, 'source');
-    if (!source) return this.paramError('source');
-    const sourceUrl = this.str(input, 'sourceUrl') ?? undefined;
+    const parsed = WriteTeamStatsInputSchema.safeParse(input);
+    if (!parsed.success) return this.zodError(parsed.error);
 
-    const rawStats = input['stats'];
-    if (!Array.isArray(rawStats) || rawStats.length === 0) {
-      return { success: false, error: 'stats must be a non-empty array.' };
-    }
-    if (rawStats.length > MAX_STATS_PER_CALL) {
-      return { success: false, error: `stats exceeds maximum of ${MAX_STATS_PER_CALL}.` };
-    }
+    const { teamId, sportId, season, source } = parsed.data;
+    const sourceUrl = parsed.data.sourceUrl;
+    const rawStats = parsed.data.stats;
 
     if (!context?.userId) {
       return { success: false, error: 'Authenticated tool context is required.' };
@@ -187,7 +172,12 @@ export class WriteTeamStatsTool extends BaseTool {
         return { success: false, error: 'No valid stat entries after validation.' };
       }
 
-      context?.onProgress?.(`Writing ${validStats.length} team stat(s) for ${season}…`);
+      context?.emitStage?.('submitting_job', {
+        icon: 'database',
+        statCount: validStats.length,
+        season,
+        phase: 'write_team_stats',
+      });
 
       // ── Upsert: merge new stats with existing by field key ─────────────
       const docRef = this.db.collection(TEAM_STATS_COLLECTION).doc(docId);

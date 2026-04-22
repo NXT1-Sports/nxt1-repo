@@ -70,6 +70,7 @@ export type {
   AgentXStreamCallbacks,
   // Tool step & rich card types
   AgentXToolStepStatus,
+  AgentXToolStepIcon,
   AgentXToolStep,
   AgentXRichCardType,
   AgentXPlannerItem,
@@ -147,6 +148,17 @@ export {
 // API
 export { createAgentXApi, type AgentXApi, type ThreadMessagesResponse } from './agent-x.api';
 
+// Shared copy resolvers
+export {
+  resolveAgentApprovalCopy,
+  resolveAgentApprovalPrompt,
+  resolveAgentYieldCopy,
+  resolveAgentSuccessNotificationCopy,
+  resolveAgentFailureNotificationCopy,
+  type AgentApprovalCopy,
+  type AgentNotificationCopy,
+} from './agent-copy';
+
 // Agent Onboarding Types
 export type {
   AgentOnboardingStepId,
@@ -197,6 +209,12 @@ export type {
 // Agentic types
 export type {
   AgentOperationStatus,
+  AgentProgressStageType,
+  AgentRouterStage,
+  ToolStage,
+  AgentProgressStage,
+  OperationOutcomeCode,
+  AgentProgressMetadata,
   AgentOperationStep,
   AgentOperation,
   AgentOperationResult,
@@ -240,9 +258,11 @@ export type {
   SyncNewCategory,
   SyncNewScheduleEvent,
   SyncNewVideo,
+  AgentApprovalReasonCode,
   AgentApprovalRequest,
   AgentApprovalStatus,
   AgentApprovalPolicy,
+  AgentNotificationOutcomeCode,
   AgentYieldReason,
   AgentYieldState,
   AgentUserContext,

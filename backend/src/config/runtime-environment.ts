@@ -25,12 +25,9 @@ export function getMongoDatabaseName(mongoUri?: string): string {
     return sharedName.trim();
   }
 
-  const baseName = extractMongoDatabaseNameFromUri(mongoUri) ?? 'nxt';
-  if (baseName.endsWith('_staging') || baseName.endsWith('_production')) {
-    return baseName;
-  }
-
-  return `${baseName}_${environment}`;
+  const baseNameRaw = extractMongoDatabaseNameFromUri(mongoUri) ?? 'nxt';
+  const baseNameWithoutSuffix = baseNameRaw.replace(/_(staging|production)$/, '');
+  return `${baseNameWithoutSuffix}_${environment}`;
 }
 
 function extractMongoDatabaseNameFromUri(mongoUri?: string): string | undefined {

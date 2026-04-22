@@ -6,12 +6,12 @@
  * across all API endpoints in the NXT1 backend.
  */
 
-import type { RateLimitType } from '../middleware/redis-rate-limit.middleware.js';
+import type { RateLimitType } from '../middleware/rate-limit/redis-rate-limit.middleware.js';
 
 /**
  * Rate limit configurations with their thresholds
  */
-export const RATE_LIMIT_THRESHOLDS = {
+const RATE_LIMIT_THRESHOLDS = {
   auth: { window: '15min', max: 5, description: 'Authentication endpoints' },
   billing: { window: '5min', max: 10, description: 'Payment processing' },
   email: { window: '1hour', max: 3, description: 'Email sending' },
@@ -24,7 +24,7 @@ export const RATE_LIMIT_THRESHOLDS = {
 /**
  * Complete route coverage mapping
  */
-export const ROUTE_COVERAGE = {
+const ROUTE_COVERAGE = {
   // ============================================
   // PROTECTED ENDPOINTS
   // ============================================

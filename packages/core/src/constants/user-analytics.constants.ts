@@ -106,19 +106,6 @@ export const VIEWER_TYPES = {
   DIRECTOR: 'director',
   ATHLETE: 'athlete',
   ANONYMOUS: 'anonymous',
-  // Legacy aliases (kept for backward compatibility with existing analytics data)
-  /** @deprecated Maps to COACH */
-  RECRUITER: 'coach',
-  /** @deprecated Maps to COACH */
-  HIGH_SCHOOL_COACH: 'coach',
-  /** @deprecated Maps to COACH */
-  COLLEGE_COACH: 'coach',
-  /** @deprecated Maps to COACH */
-  SCOUT: 'coach',
-  /** @deprecated Maps to ATHLETE */
-  PARENT: 'athlete',
-  /** @deprecated Maps to ATHLETE */
-  FAN: 'athlete',
 } as const;
 
 export type ViewerType = (typeof VIEWER_TYPES)[keyof typeof VIEWER_TYPES];

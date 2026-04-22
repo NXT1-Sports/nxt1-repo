@@ -16,13 +16,13 @@ import { SearchCollegeCoachesTool } from '../search-college-coaches.tool.js';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const mockAggregate = vi.fn<(...args: any[]) => any>();
 
-vi.mock('../../../../../models/college.model.js', () => ({
+vi.mock('../../../../../models/core/college.model.js', () => ({
   CollegeModel: { aggregate: (...args: unknown[]) => mockAggregate(...args) },
 }));
 
 // ─── Mock ContactModel ──────────────────────────────────────────────────────
 
-vi.mock('../../../../../models/contact.model.js', () => ({
+vi.mock('../../../../../models/core/contact.model.js', () => ({
   ContactModel: { collection: { name: 'contacts' } },
 }));
 
@@ -115,15 +115,26 @@ describe('SearchCollegeCoachesTool', () => {
     });
 
     it('should require collegeName parameter', () => {
-      expect((tool.parameters as Record<string, unknown>).required).toEqual(['collegeName']);
+      const parsed = (
+        tool.parameters as { safeParse: (input: Record<string, unknown>) => { success: boolean } }
+      ).safeParse({ sport: 'Baseball' });
+      expect(parsed.success).toBe(false);
     });
 
     it('should expose all expected parameters', () => {
-      const props = (tool.parameters as Record<string, Record<string, unknown>>).properties;
-      const expectedKeys = ['collegeName', 'sport', 'state', 'position', 'limit'];
-      for (const key of expectedKeys) {
-        expect(props).toHaveProperty(key);
-      }
+      const schema = tool.parameters as {
+        safeParse: (input: Record<string, unknown>) => { success: boolean };
+      };
+      expect(schema.safeParse({ collegeName: 'Ohio State' }).success).toBe(true);
+      expect(
+        schema.safeParse({
+          collegeName: 'Ohio State',
+          sport: 'Baseball',
+          state: 'OH',
+          position: 'Head Coach',
+          limit: 3,
+        }).success
+      ).toBe(true);
     });
 
     it('should describe itself for LLM routing', () => {
@@ -493,31 +504,50 @@ describe('SearchCollegeCoachesTool', () => {
   // ── Progress Callback ─────────────────────────────────────────────────
 
   describe('progress callback', () => {
-    it('should call onProgress with lookup message', async () => {
-      const onProgress = vi.fn();
+    it('should emit a lookup stage with college context', async () => {
+      const emitStage = vi.fn();
       mockAggregate.mockResolvedValue([makeCollegeWithContacts()]);
 
-      await tool.execute({ collegeName: 'Ohio State' }, { userId: 'u1', onProgress });
-      expect(onProgress).toHaveBeenCalledWith(expect.stringContaining('Ohio State'));
+      await tool.execute({ collegeName: 'Ohio State' }, { userId: 'u1', emitStage });
+      expect(emitStage).toHaveBeenCalledWith('fetching_data', {
+        icon: 'search',
+        collegeName: 'Ohio State',
+        sport: undefined,
+        position: undefined,
+        limit: 5,
+        phase: 'lookup_coaching_staff',
+      });
     });
 
-    it('should call onProgress with result count', async () => {
-      const onProgress = vi.fn();
+    it('should emit result count metadata', async () => {
+      const emitStage = vi.fn();
       const college = makeCollegeWithContacts({
         filteredContacts: [makeContact(), makeContact({ _id: 'c2' })],
       });
       mockAggregate.mockResolvedValue([college]);
 
-      await tool.execute({ collegeName: 'Ohio State' }, { userId: 'u1', onProgress });
-      expect(onProgress).toHaveBeenCalledWith(expect.stringContaining('2 coaches'));
+      await tool.execute({ collegeName: 'Ohio State' }, { userId: 'u1', emitStage });
+      expect(emitStage).toHaveBeenLastCalledWith('fetching_data', {
+        icon: 'search',
+        collegeName: 'Ohio State',
+        totalCoaches: 2,
+        collegeCount: 1,
+        phase: 'coaching_staff_found',
+      });
     });
 
-    it('should use singular "coach" for count of 1', async () => {
-      const onProgress = vi.fn();
+    it('should emit singular coach counts as metadata', async () => {
+      const emitStage = vi.fn();
       mockAggregate.mockResolvedValue([makeCollegeWithContacts()]);
 
-      await tool.execute({ collegeName: 'Ohio State' }, { userId: 'u1', onProgress });
-      expect(onProgress).toHaveBeenCalledWith(expect.stringContaining('1 coach'));
+      await tool.execute({ collegeName: 'Ohio State' }, { userId: 'u1', emitStage });
+      expect(emitStage).toHaveBeenLastCalledWith('fetching_data', {
+        icon: 'search',
+        collegeName: 'Ohio State',
+        totalCoaches: 1,
+        collegeCount: 1,
+        phase: 'coaching_staff_found',
+      });
     });
   });
 

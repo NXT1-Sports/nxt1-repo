@@ -46,7 +46,7 @@ describe('WriteIntelTool', () => {
     expect(tool.isMutation).toBe(true);
     expect(tool.category).toBe('database');
     expect(tool.allowedAgents).toContain('performance_coordinator');
-    expect(tool.allowedAgents).toContain('general');
+    expect(tool.allowedAgents).toContain('strategy_coordinator');
   });
 
   it('requires entityType and entityId', async () => {

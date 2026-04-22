@@ -15,19 +15,13 @@ import type {
   SportProfile,
   // Removing SocialLink from imports
   Location,
-  ContactInfo,
+  UserContact,
   TeamHistoryEntry,
   UserAward,
   ConnectedSource,
   AcademicInfo,
-  AthleteData,
   CoachData,
-  CollegeCoachData,
   DirectorData,
-  ScoutData,
-  RecruitingServiceData,
-  MediaData,
-  ParentData,
   UserPreferences,
 } from '../models/user';
 import type { TeamSelectionFormData } from '../onboarding/onboarding-navigation.api';
@@ -87,7 +81,7 @@ export interface UpdateProfileRequest {
 
   // ── Location & Contact ─────────────────────────────────────────────────
   location?: Partial<Location>;
-  contact?: Partial<ContactInfo>;
+  contact?: Partial<UserContact>;
 
   // ── Connected Sources ──────────────────────────────────────────────────
   /** All connected accounts/links are inside connectedSources (agnostic array) */
@@ -104,14 +98,8 @@ export interface UpdateProfileRequest {
   academics?: Partial<AcademicInfo>;
 
   // ── Role-specific Data ─────────────────────────────────────────────────
-  athlete?: Partial<AthleteData>;
   coach?: Partial<CoachData>;
-  collegeCoach?: Partial<CollegeCoachData>;
   director?: Partial<DirectorData>;
-  scout?: Partial<ScoutData>;
-  recruitingService?: Partial<RecruitingServiceData>;
-  media?: Partial<MediaData>;
-  parent?: Partial<ParentData>;
 
   // ── Preferences ────────────────────────────────────────────────────────
   preferences?: Partial<UserPreferences>;

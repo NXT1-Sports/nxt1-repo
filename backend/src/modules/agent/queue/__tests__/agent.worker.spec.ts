@@ -250,6 +250,80 @@ describe('AgentWorker', () => {
     expect(mockChatService.generateThreadTitle).not.toHaveBeenCalled();
   });
 
+  it('should persist streamed parts and tool steps for thread reload hydration', async () => {
+    const payload = makePayload({
+      context: { threadId: 'thread-123' },
+      intent: 'Find the top transfer portal athletes in the browser',
+    });
+    const job = makeMockJob(payload);
+
+    mockRouter.run.mockImplementationOnce(async (_p, _onUpdate, _db, onStreamEvent) => {
+      onStreamEvent({
+        type: 'delta',
+        agentId: 'router',
+        text: 'I opened the live browser and checked the page. ',
+      });
+      onStreamEvent({
+        type: 'step_active',
+        agentId: 'router',
+        toolName: 'read_live_view',
+        stageType: 'tool',
+        stage: 'fetching_data',
+        metadata: { source: 'live_view', hostname: 'on3.com' },
+        message: 'Reading current page...',
+        icon: 'search',
+      });
+      onStreamEvent({
+        type: 'tool_result',
+        agentId: 'router',
+        toolName: 'read_live_view',
+        toolSuccess: true,
+        toolResult: { count: 4 },
+        message: 'Read current page',
+        icon: 'search',
+      });
+
+      return {
+        ...mockRouterResult,
+        summary: 'Found 4 transfer portal athletes',
+      };
+    });
+
+    await capturedProcessor!(job);
+
+    expect(mockChatService.addMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadId: 'thread-123',
+        role: 'assistant',
+        content: 'I opened the live browser and checked the page. ',
+        steps: [
+          expect.objectContaining({
+            status: 'success',
+            label: 'Read current page',
+            detail: '4 result(s)',
+            icon: 'search',
+          }),
+        ],
+        parts: [
+          {
+            type: 'text',
+            content: 'I opened the live browser and checked the page. ',
+          },
+          {
+            type: 'tool-steps',
+            steps: [
+              expect.objectContaining({
+                status: 'success',
+                label: 'Read current page',
+                detail: '4 result(s)',
+              }),
+            ],
+          },
+        ],
+      })
+    );
+  });
+
   it('should call job.updateProgress at least once (final 100%)', async () => {
     const payload = makePayload();
     const job = makeMockJob(payload);
@@ -260,6 +334,7 @@ describe('AgentWorker', () => {
     expect(job.updateProgress).toHaveBeenCalledWith(
       expect.objectContaining({
         status: 'completed',
+        outcomeCode: 'success_default',
         percent: 100,
       })
     );

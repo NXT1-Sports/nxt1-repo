@@ -10,20 +10,20 @@ import { Router, type Router as ExpressRouter, type Request, type Response } fro
 import multer from 'multer';
 import sharp from 'sharp';
 import { getStorage } from 'firebase-admin/storage';
-import { appGuard } from '../middleware/auth.middleware.js';
+import { appGuard } from '../middleware/auth/auth.middleware.js';
 import { logger } from '../utils/logger.js';
 import { asyncHandler } from '@nxt1/core/errors/express';
 import { notFoundError, forbiddenError, fieldError } from '@nxt1/core/errors';
 import type { User, SportProfile, TeamType, UserRole, VerifiedMetric } from '@nxt1/core';
 import { formatFileSize, TEAM_TYPES, SPORT_POSITIONS, normalizeSportKey } from '@nxt1/core';
 import { invalidateProfileCaches } from './profile/shared.js';
-import { enqueueWelcomeGraphicIfReady } from '../services/agent-welcome.service.js';
-import { createRosterEntryService } from '../services/roster-entry.service.js';
+import { enqueueWelcomeGraphicIfReady } from '../modules/agent/services/agent-welcome.service.js';
+import { createRosterEntryService } from '../services/team/roster-entry.service.js';
 import {
   createProfileWriteAccessService,
   type ProfileWriteAccessGrant,
   getAuthorizedTargetSportSelections,
-} from '../services/profile-write-access.service.js';
+} from '../services/profile/profile-write-access.service.js';
 import type {
   EditProfileData,
   EditProfileFormData,

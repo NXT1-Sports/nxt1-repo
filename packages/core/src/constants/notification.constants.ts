@@ -71,6 +71,7 @@ export const NOTIFICATION_TYPES = {
   CARD_READY: 'card_ready',
   /** Unified Agent X action — covers task completions, briefings, welcome, etc. */
   AGENT_ACTION: 'agent_action',
+  DYNAMIC_AGENT_ALERT: 'dynamic_agent_alert',
   AI_NEEDS_INPUT: 'ai_needs_input',
   AI_NEEDS_APPROVAL: 'ai_needs_approval',
 
@@ -164,6 +165,7 @@ export const NOTIFICATION_TYPE_CATEGORY: Record<NotificationType, NotificationCa
   video_failed: 'content',
   card_ready: 'content',
   agent_action: 'content',
+  dynamic_agent_alert: 'content',
   ai_needs_input: 'content',
   ai_needs_approval: 'content',
   // Legacy (still referenced in existing activity docs)
@@ -267,6 +269,7 @@ export const NOTIFICATION_TYPE_TAB: Record<NotificationType, ActivityTabId> = {
   video_failed: 'alerts',
   card_ready: 'alerts',
   agent_action: 'alerts',
+  dynamic_agent_alert: 'alerts',
   ai_needs_input: 'alerts',
   ai_needs_approval: 'alerts',
   // Legacy
@@ -331,6 +334,7 @@ export const NOTIFICATION_DEEP_LINKS: Partial<Record<NotificationType, string>> 
   video_failed: '/agent-x?thread={sessionId}',
   card_ready: '/agent-x?thread={sessionId}',
   agent_action: '/agent-x?thread={sessionId}',
+  dynamic_agent_alert: '/agent-x?thread={sessionId}',
   ai_needs_input: '/agent-x?thread={sessionId}',
   ai_needs_approval: '/agent-x?thread={sessionId}',
   // Legacy

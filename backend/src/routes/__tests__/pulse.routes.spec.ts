@@ -10,7 +10,7 @@ describe('Pulse Routes', () => {
   let router: unknown;
 
   beforeAll(async () => {
-    const module = await import('../../routes/pulse.routes.js');
+    const module = await import('../../routes/feed/pulse.routes.js');
     router = module.default;
   }, 15_000);
 

@@ -291,7 +291,6 @@ export interface ResolveCanonicalTeamRouteInput {
   teamId?: string | null;
   id?: string | number | null;
   unicode?: string | null;
-  managedTeamCodes?: readonly (string | null | undefined)[] | null;
 }
 
 export interface ResolvedCanonicalTeamRoute {
@@ -303,17 +302,6 @@ export interface ResolvedCanonicalTeamRoute {
 
 function normalizeTeamRouteValue(value: string | number | null | undefined): string {
   return value == null ? '' : String(value).trim();
-}
-
-function isLikelyDocumentIdentifier(value: string): boolean {
-  const trimmed = value.trim();
-  if (!trimmed) return false;
-
-  return (
-    /^team[-_]/i.test(trimmed) ||
-    /^[A-Za-z0-9_-]{16,}$/.test(trimmed) ||
-    /^[0-9a-f]{20,}$/i.test(trimmed)
-  );
 }
 
 function isLikelySlugValue(value: string): boolean {
@@ -333,29 +321,12 @@ export function resolveCanonicalTeamRoute(
     normalizeTeamRouteValue(input.id),
   ].filter(Boolean);
 
-  const blockedValues = new Set(
-    [...documentIdentifiers, ...(slug ? [slug] : [])].map((value) => value.toLowerCase())
-  );
-
-  const managedTeamIdentifier =
-    input.managedTeamCodes
-      ?.map((value) => normalizeTeamRouteValue(value))
-      .find((value) => Boolean(value) && !blockedValues.has(value.toLowerCase())) ?? '';
-
   const explicitTeamIdentifier =
     [normalizeTeamRouteValue(input.teamCode), normalizeTeamRouteValue(input.code)]
       .filter(Boolean)
       .find((value) => {
         const normalizedValue = value.toLowerCase();
         if (slug && normalizedValue === slug.toLowerCase()) return false;
-        if (blockedValues.has(normalizedValue) && managedTeamIdentifier) return false;
-        if (
-          managedTeamIdentifier &&
-          value !== managedTeamIdentifier &&
-          isLikelyDocumentIdentifier(value)
-        ) {
-          return false;
-        }
 
         return !isLikelySlugValue(value) || /[A-Z0-9]/.test(value);
       }) ?? '';
@@ -363,7 +334,6 @@ export function resolveCanonicalTeamRoute(
   const unicode = normalizeTeamRouteValue(input.unicode);
   const teamIdentifier =
     explicitTeamIdentifier ||
-    managedTeamIdentifier ||
     (unicode && (!slug || unicode.toLowerCase() !== slug.toLowerCase()) ? unicode : '') ||
     documentIdentifiers[0] ||
     '';

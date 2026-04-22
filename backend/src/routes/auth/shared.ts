@@ -7,7 +7,14 @@
  */
 
 import { FieldValue } from 'firebase-admin/firestore';
-import type { UserRole, SportProfile, Location, ContactInfo, ConnectedEmail } from '@nxt1/core';
+import type {
+  UserRole,
+  SportProfile,
+  Location,
+  UserContact,
+  ConnectedEmail,
+  PortableTimestamp,
+} from '@nxt1/core';
 import {
   USER_SCHEMA_VERSION,
   normalizeName,
@@ -17,7 +24,7 @@ import {
 } from '@nxt1/core';
 
 // ── Re-export for consumers that import from this file ───────────────────────
-export type { UserRole, SportProfile, Location, ContactInfo, ConnectedEmail };
+export type { UserRole, SportProfile, Location, UserContact, ConnectedEmail };
 export { USER_SCHEMA_VERSION, normalizeName, isTeamRole };
 
 // ============================================================================
@@ -44,7 +51,7 @@ export interface UserV2Document {
 
   // V2: Single role field
   role?: UserRole;
-  lastLoginAt?: string;
+  lastLoginAt?: PortableTimestamp;
 
   // V2: Sports array
   sports?: SportProfile[];
@@ -52,7 +59,7 @@ export interface UserV2Document {
 
   // V2: Nested objects
   location?: Location;
-  contact?: ContactInfo;
+  contact?: UserContact;
 
   // Connected sources (all platforms - social, film, stats, recruiting)
   connectedSources?: ConnectedSourceRecord[];
@@ -69,8 +76,8 @@ export interface UserV2Document {
 
   // Onboarding
   onboardingCompleted: boolean;
-  onboardingCompletedAt?: string;
-  onboardingProgress?: Record<string, { completed: boolean; completedAt: string }>;
+  onboardingCompletedAt?: PortableTimestamp;
+  onboardingProgress?: Record<string, { completed: boolean; completedAt: PortableTimestamp }>;
 
   // Team association (for team-based access)
   teamCode?: {
@@ -94,8 +101,8 @@ export interface UserV2Document {
   preferences?: Record<string, unknown>;
 
   // Timestamps
-  createdAt: string;
-  updatedAt: string;
+  createdAt: PortableTimestamp;
+  updatedAt: PortableTimestamp;
 
   // Schema version for migrations
   _schemaVersion: number;
@@ -154,10 +161,9 @@ export function clearLegacyLocationFields(target: Record<string, unknown>): void
   target['state'] = FieldValue.delete();
 }
 
-export function sanitizeStoredTeam(
-  team?: SportProfile['team'] | SportProfile['clubTeam']
-): SportProfile['team'] | SportProfile['clubTeam'] | undefined {
-  if (!team?.type) return undefined;
+export function sanitizeStoredTeam(team?: SportProfile['team']): SportProfile['team'] | undefined {
+  const hasTeamAffiliation = Boolean(team?.name?.trim() || team?.organizationId || team?.teamId);
+  if (!team?.type || !hasTeamAffiliation) return undefined;
 
   return {
     type: team.type,
@@ -192,11 +198,15 @@ export function getLegacyCoachTitle(user?: UserV2Document): string | undefined {
 export function sanitizeSportsForStorage(sports?: SportProfile[]): SportProfile[] | undefined {
   if (!Array.isArray(sports)) return undefined;
 
-  return sports.map((sport) => ({
-    ...sport,
-    ...(sport.team ? { team: sanitizeStoredTeam(sport.team) } : {}),
-    ...(sport.clubTeam ? { clubTeam: sanitizeStoredTeam(sport.clubTeam) } : {}),
-  }));
+  return sports.map((sport) => {
+    const { team: _team, ...sportWithoutTeam } = sport;
+    const sanitizedTeam = sport.team ? sanitizeStoredTeam(sport.team) : undefined;
+
+    return {
+      ...sportWithoutTeam,
+      ...(sanitizedTeam ? { team: sanitizedTeam } : {}),
+    };
+  });
 }
 
 /**

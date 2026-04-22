@@ -108,8 +108,8 @@ export class ScrapeTwitterTool extends BaseTool {
   override readonly allowedAgents = [
     'data_coordinator',
     'recruiting_coordinator',
-    'brand_media_coordinator',
-    'general',
+    'brand_coordinator',
+    'strategy_coordinator',
   ] as const;
 
   readonly isMutation = false;
@@ -143,31 +143,57 @@ export class ScrapeTwitterTool extends BaseTool {
         ? { userId: context.userId, threadId: context.threadId }
         : undefined;
 
-    const progress = context?.onProgress;
+    const emitStage = context?.emitStage;
 
     try {
       switch (mode) {
         case 'search': {
           const query = this.str(input, 'query') ?? '';
-          progress?.(`Searching Twitter for "${query.slice(0, 60)}"…`);
+          emitStage?.('fetching_data', {
+            icon: 'search',
+            mode: 'search',
+            query: query.slice(0, 60),
+            platform: 'twitter',
+          });
           const searchResult = await this.handleSearch(input, staging);
-          if (searchResult.success) progress?.('Processing Twitter media…');
+          if (searchResult.success) {
+            emitStage?.('processing_media', {
+              icon: 'media',
+              mode: 'search',
+              platform: 'twitter',
+            });
+          }
           return searchResult;
         }
         case 'profile_tweets': {
           const usernames = this.extractUsernames(input);
-          progress?.(
-            `Fetching tweets from ${usernames.length ? '@' + usernames.join(', @') : 'user'}…`
-          );
+          emitStage?.('fetching_data', {
+            icon: 'search',
+            mode: 'profile_tweets',
+            usernames,
+            usernameCount: usernames.length,
+            platform: 'twitter',
+          });
           const tweetsResult = await this.handleProfileTweets(input, staging);
-          if (tweetsResult.success) progress?.('Processing Twitter media…');
+          if (tweetsResult.success) {
+            emitStage?.('processing_media', {
+              icon: 'media',
+              mode: 'profile_tweets',
+              usernames,
+              platform: 'twitter',
+            });
+          }
           return tweetsResult;
         }
         case 'followers': {
           const usernames = this.extractUsernames(input);
-          progress?.(
-            `Loading followers for ${usernames.length ? '@' + usernames.join(', @') : 'user'}…`
-          );
+          emitStage?.('fetching_data', {
+            icon: 'search',
+            mode: 'followers',
+            usernames,
+            usernameCount: usernames.length,
+            platform: 'twitter',
+          });
           return await this.handleFollowers(input);
         }
         default:

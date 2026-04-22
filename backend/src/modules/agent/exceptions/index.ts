@@ -13,3 +13,10 @@ export {
   isAgentDelegation,
   type AgentDelegationPayload,
 } from './agent-delegation.exception.js';
+export {
+  AgentEngineError,
+  getAgentEngineErrorCode,
+  isAgentEngineError,
+  type AgentEngineErrorCode,
+  type AgentEngineErrorOptions,
+} from './agent-engine.error.js';

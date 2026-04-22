@@ -18,7 +18,7 @@ import {
   createPeriodLedgerDocumentId,
   parseBillingOwnerKey,
 } from './types/index.js';
-import { PaymentLogModel } from '../../models/payment-log.model.js';
+import { PaymentLogModel } from '../../models/billing/payment-log.model.js';
 
 interface CachedBillingInfo {
   name: string;
@@ -171,7 +171,7 @@ export async function handleInvoicePaymentSucceeded(
 
     const userId = invoice.metadata?.['userId'];
     if (typeof userId === 'string' && userId.length > 0) {
-      const { dispatch } = await import('../../services/notification.service.js');
+      const { dispatch } = await import('../../services/communications/notification.service.js');
       await dispatch(db, {
         userId,
         type: NOTIFICATION_TYPES.PAYMENT_RECEIVED,
@@ -241,7 +241,7 @@ export async function handleInvoicePaymentFailed(
     });
 
     // Notify user about failed payment via unified NotificationService
-    const { dispatch } = await import('../../services/notification.service.js');
+    const { dispatch } = await import('../../services/communications/notification.service.js');
     await dispatch(db, {
       userId: invoice.customer as string,
       type: NOTIFICATION_TYPES.PAYMENT_FAILED,
@@ -662,7 +662,7 @@ export async function handleSubscriptionDeleted(
     // Notify org admins
     const orgData = orgDoc.data() as Record<string, unknown>;
     const admins = (orgData['admins'] as Array<{ userId: string }> | undefined) ?? [];
-    const { dispatch } = await import('../../services/notification.service.js');
+    const { dispatch } = await import('../../services/communications/notification.service.js');
     await Promise.all(
       admins.map((admin) =>
         dispatch(db, {
@@ -1270,7 +1270,7 @@ async function notifyOrgMembersWalletRefilled(
   organizationId: string,
   newBalanceCents: number
 ): Promise<void> {
-  const { dispatch } = await import('../../services/notification.service.js');
+  const { dispatch } = await import('../../services/communications/notification.service.js');
 
   const usersSnap = await db
     .collection('Users')

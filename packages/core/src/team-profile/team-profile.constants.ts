@@ -33,14 +33,14 @@ import type {
  */
 export const TEAM_PROFILE_TABS: readonly TeamProfileTab[] = [
   {
-    id: 'intel',
-    label: 'Intel',
-    icon: 'radar',
-  },
-  {
     id: 'timeline',
     label: 'Timeline',
     icon: 'newspaper',
+  },
+  {
+    id: 'intel',
+    label: 'Intel',
+    icon: 'radar',
   },
   {
     id: 'roster',
@@ -52,17 +52,12 @@ export const TEAM_PROFILE_TABS: readonly TeamProfileTab[] = [
     label: 'Connect',
     icon: 'paper-plane',
   },
-  {
-    id: 'schedule',
-    label: 'Schedule',
-    icon: 'calendar',
-  },
 ] as const;
 
 /**
  * Default selected tab.
  */
-export const TEAM_PROFILE_DEFAULT_TAB: TeamProfileTabId = 'intel';
+export const TEAM_PROFILE_DEFAULT_TAB: TeamProfileTabId = 'timeline';
 
 // ============================================
 // TEAM TIMELINE FILTER CONFIGURATION

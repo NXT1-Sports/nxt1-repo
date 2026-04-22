@@ -28,38 +28,12 @@ export class ImportVideoTool extends BaseTool {
     'generate_captions, or enable_download to work with it. ' +
     'Returns the Cloudflare video ID needed for subsequent operations.';
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      url: {
-        type: 'string',
-        description:
-          'The public or signed URL of the video to import (e.g. Firebase Storage download URL).',
-      },
-      name: {
-        type: 'string',
-        description: 'Optional name/label for the video in Cloudflare.',
-      },
-      scheduleDeletionMinutes: {
-        type: 'number',
-        description:
-          'Auto-delete the video from Cloudflare after this many minutes (default: 240 = 4 hours). ' +
-          'Keeps CF storage costs at zero.',
-      },
-      waitForReady: {
-        type: 'boolean',
-        description:
-          'If true, polls until the video finishes processing (streams progress updates). ' +
-          'Recommended for most workflows so follow-up tools can act immediately. Default: false.',
-      },
-    },
-    required: ['url'],
-  } as const;
+  readonly parameters = ImportVideoInputSchema;
 
   override readonly allowedAgents = [
-    'brand_media_coordinator',
+    'brand_coordinator',
     'data_coordinator',
-    'general',
+    'strategy_coordinator',
   ] as const;
 
   readonly isMutation = true;
@@ -100,7 +74,11 @@ export class ImportVideoTool extends BaseTool {
       userId: context?.userId,
       backendUrl,
     });
-    context?.onProgress?.('Importing video to Cloudflare Stream…');
+    context?.emitStage?.('submitting_job', {
+      icon: 'upload',
+      url,
+      phase: 'import_video',
+    });
 
     try {
       const meta: Record<string, string> = {
@@ -121,15 +99,23 @@ export class ImportVideoTool extends BaseTool {
       let duration: number | null = null;
 
       if (waitForReady) {
-        context?.onProgress?.('Video uploaded — waiting for Cloudflare to process…');
+        context?.emitStage?.('checking_status', {
+          icon: 'media',
+          videoId: video.uid,
+          phase: 'await_processing',
+        });
         const startMs = Date.now();
         let lastPct = -1;
 
         while (finalStatus !== 'ready' && finalStatus !== 'error') {
           if (Date.now() - startMs >= DEFAULT_MAX_WAIT_MS) {
-            context?.onProgress?.(
-              `Still processing after ${Math.round((Date.now() - startMs) / 1000)}s — returning current status.`
-            );
+            context?.emitStage?.('checking_status', {
+              icon: 'media',
+              videoId: video.uid,
+              elapsedSeconds: Math.round((Date.now() - startMs) / 1000),
+              processingState: finalStatus,
+              phase: 'processing_timeout',
+            });
             break;
           }
 
@@ -141,17 +127,31 @@ export class ImportVideoTool extends BaseTool {
           duration = check.duration ?? null;
 
           if (pct !== lastPct) {
-            context?.onProgress?.(`Processing video… ${pct}% complete`);
+            context?.emitStage?.('checking_status', {
+              icon: 'media',
+              videoId: video.uid,
+              percentComplete: pct,
+              processingState: finalStatus,
+              phase: 'processing_progress',
+            });
             lastPct = pct;
           }
         }
 
         if (finalStatus === 'ready') {
-          context?.onProgress?.(
-            'Video processing complete — ready for clipping, captions, and download!'
-          );
+          context?.emitStage?.('checking_status', {
+            icon: 'media',
+            videoId: video.uid,
+            processingState: finalStatus,
+            phase: 'ready',
+          });
         } else if (finalStatus === 'error') {
-          context?.onProgress?.('Video processing failed.');
+          context?.emitStage?.('checking_status', {
+            icon: 'media',
+            videoId: video.uid,
+            processingState: finalStatus,
+            phase: 'failed',
+          });
         }
       }
 

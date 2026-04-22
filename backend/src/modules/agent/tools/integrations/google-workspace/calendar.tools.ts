@@ -8,6 +8,36 @@
 
 import type { GoogleWorkspaceMcpSessionService } from './google-workspace-mcp-session.service.js';
 import { GoogleWorkspaceBaseTool } from './google-workspace-base.tool.js';
+import { z } from 'zod';
+
+const EmptyCalendarInputSchema = z.object({}).strict();
+const CalendarGetEventsInputSchema = z.object({
+  time_min: z.string().trim().min(1),
+  time_max: z.string().trim().min(1),
+  calendar_id: z.string().trim().min(1).optional(),
+  max_results: z.coerce.number().int().optional(),
+  show_deleted: z.boolean().optional(),
+});
+const CalendarGetEventDetailsInputSchema = z.object({
+  event_id: z.string().trim().min(1),
+  calendar_id: z.string().trim().min(1).optional(),
+});
+const CreateCalendarEventInputSchema = z.object({
+  summary: z.string().trim().min(1),
+  start_time: z.string().trim().min(1),
+  end_time: z.string().trim().min(1),
+  calendar_id: z.string().trim().min(1).optional(),
+  location: z.string().trim().min(1).optional(),
+  description: z.string().trim().min(1).optional(),
+  attendees: z.array(z.string().trim().min(1)).optional(),
+  send_notifications: z.boolean().optional(),
+  timezone: z.string().trim().min(1).optional(),
+});
+const DeleteCalendarEventInputSchema = z.object({
+  event_id: z.string().trim().min(1),
+  calendar_id: z.string().trim().min(1).optional(),
+  send_notifications: z.boolean().optional(),
+});
 
 // ─── calendar_get_events ────────────────────────────────────────────────────
 
@@ -20,35 +50,7 @@ export class GetCalendarEventsTool extends GoogleWorkspaceBaseTool {
   readonly isMutation = false;
   readonly category = 'communication' as const;
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      time_min: {
-        type: 'string',
-        description:
-          'Start of time range (inclusive) in RFC3339 format ' +
-          '(e.g. "2025-06-01T00:00:00Z"). Required.',
-      },
-      time_max: {
-        type: 'string',
-        description: 'End of time range (exclusive) in RFC3339 format. Required.',
-      },
-      calendar_id: {
-        type: 'string',
-        description: 'Calendar ID to query. Defaults to "primary".',
-      },
-      max_results: {
-        type: 'number',
-        description: 'Maximum events to return.',
-      },
-      show_deleted: {
-        type: 'boolean',
-        description: 'Whether to show deleted events.',
-      },
-    },
-    required: ['time_min', 'time_max'],
-    additionalProperties: false,
-  } as const;
+  readonly parameters = CalendarGetEventsInputSchema;
 
   constructor(sessionService: GoogleWorkspaceMcpSessionService) {
     super(sessionService);
@@ -66,21 +68,7 @@ export class GetCalendarEventDetailsTool extends GoogleWorkspaceBaseTool {
   readonly isMutation = false;
   readonly category = 'communication' as const;
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      event_id: {
-        type: 'string',
-        description: 'The calendar event ID to retrieve details for.',
-      },
-      calendar_id: {
-        type: 'string',
-        description: 'Calendar ID. Defaults to "primary".',
-      },
-    },
-    required: ['event_id'],
-    additionalProperties: false,
-  } as const;
+  readonly parameters = CalendarGetEventDetailsInputSchema;
 
   constructor(sessionService: GoogleWorkspaceMcpSessionService) {
     super(sessionService);
@@ -98,52 +86,7 @@ export class CreateCalendarEventTool extends GoogleWorkspaceBaseTool {
   readonly isMutation = true;
   readonly category = 'communication' as const;
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      summary: {
-        type: 'string',
-        description: 'Event title/summary.',
-      },
-      start_time: {
-        type: 'string',
-        description:
-          'Event start time in RFC3339 format (e.g. "2025-06-15T10:00:00-04:00"). ' +
-          'For all-day events use date format "2025-06-15".',
-      },
-      end_time: {
-        type: 'string',
-        description: 'Event end time in RFC3339 format.',
-      },
-      calendar_id: {
-        type: 'string',
-        description: 'Calendar ID. Defaults to "primary".',
-      },
-      location: {
-        type: 'string',
-        description: 'Event location.',
-      },
-      description: {
-        type: 'string',
-        description: 'Event description/notes.',
-      },
-      attendees: {
-        type: 'array',
-        items: { type: 'string' },
-        description: 'Array of attendee email addresses.',
-      },
-      send_notifications: {
-        type: 'boolean',
-        description: 'Whether to send email notifications to attendees.',
-      },
-      timezone: {
-        type: 'string',
-        description: 'IANA timezone (e.g. "America/New_York"). Defaults to calendar timezone.',
-      },
-    },
-    required: ['summary', 'start_time', 'end_time'],
-    additionalProperties: false,
-  } as const;
+  readonly parameters = CreateCalendarEventInputSchema;
 
   constructor(sessionService: GoogleWorkspaceMcpSessionService) {
     super(sessionService);
@@ -161,25 +104,7 @@ export class DeleteCalendarEventTool extends GoogleWorkspaceBaseTool {
   readonly isMutation = true;
   readonly category = 'communication' as const;
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      event_id: {
-        type: 'string',
-        description: 'The event ID to delete.',
-      },
-      calendar_id: {
-        type: 'string',
-        description: 'Calendar ID. Defaults to "primary".',
-      },
-      send_notifications: {
-        type: 'boolean',
-        description: 'Whether to send cancellation notifications to attendees. Defaults to true.',
-      },
-    },
-    required: ['event_id'],
-    additionalProperties: false,
-  } as const;
+  readonly parameters = DeleteCalendarEventInputSchema;
 
   constructor(sessionService: GoogleWorkspaceMcpSessionService) {
     super(sessionService);
@@ -198,7 +123,7 @@ function makeRemovedCalendarTool(
     readonly description = `[REMOVED] ${oldName} use ${replacement} instead.`;
     readonly isMutation = false;
     readonly category = 'communication' as const;
-    readonly parameters = { type: 'object' as const, properties: {} };
+    readonly parameters = EmptyCalendarInputSchema;
 
     override async execute(): Promise<{ success: false; error: string }> {
       return {

@@ -17,20 +17,15 @@
  */
 
 import type { Firestore } from 'firebase-admin/firestore';
-import type { AgentYieldReason } from '@nxt1/core';
-import { NOTIFICATION_TYPES } from '@nxt1/core';
-import { dispatch } from '../../../services/notification.service.js';
+import { NOTIFICATION_TYPES, resolveAgentYieldCopy } from '@nxt1/core';
+import { dispatch } from '../../../services/communications/notification.service.js';
 import { logger } from '../../../utils/logger.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
-export interface YieldNotification {
+interface YieldNotificationBase {
   /** The user to notify. */
   readonly userId: string;
-  /** Why the agent yielded. */
-  readonly reason: AgentYieldReason;
-  /** The question or action summary to show. */
-  readonly promptToUser: string;
   /** The operation ID for tracking. */
   readonly operationId: string;
   /** The MongoDB thread ID for deep linking. */
@@ -46,6 +41,18 @@ export interface YieldNotification {
   readonly origin?: 'chat' | 'worker';
 }
 
+export type YieldNotification =
+  | (YieldNotificationBase & {
+      /** Approval notifications use the structured action summary. */
+      readonly reason: 'needs_approval';
+      readonly actionSummary: string;
+    })
+  | (YieldNotificationBase & {
+      /** Input notifications still need the exact question text. */
+      readonly reason: 'needs_input';
+      readonly promptToUser: string;
+    });
+
 // ─── Notification Dispatch ──────────────────────────────────────────────────
 
 /**
@@ -55,23 +62,23 @@ export interface YieldNotification {
  * This is fire-and-forget — errors are logged but never propagated.
  */
 export async function notifyYield(db: Firestore, notification: YieldNotification): Promise<void> {
-  const { userId, reason, promptToUser, operationId, threadId, approvalId, origin } = notification;
+  const { userId, reason, operationId, threadId, approvalId, origin } = notification;
+  const copy =
+    reason === 'needs_approval'
+      ? resolveAgentYieldCopy({ reason, actionSummary: notification.actionSummary })
+      : resolveAgentYieldCopy({ reason, promptToUser: notification.promptToUser });
 
   // ── Push Notification ─────────────────────────────────────────────────
   try {
-    const isApproval = reason === 'needs_approval';
-    const title = isApproval ? 'Agent X needs your approval' : 'Agent X has a question for you';
-    const body = promptToUser.length > 200 ? promptToUser.slice(0, 197) + '...' : promptToUser;
-
     const deepLink = threadId ? `/agent-x?thread=${encodeURIComponent(threadId)}` : '/agent-x';
 
-    const notificationType = NOTIFICATION_TYPES.AGENT_ACTION;
+    const notificationType = NOTIFICATION_TYPES.DYNAMIC_AGENT_ALERT;
 
     await dispatch(db, {
       userId,
       type: notificationType,
-      title,
-      body,
+      title: copy.title,
+      body: copy.body,
       deepLink,
       data: {
         // For 'chat' origin, omit operationId from action data — the client
@@ -126,7 +133,11 @@ export async function notifyYield(db: Firestore, notification: YieldNotification
  * If any prerequisite is missing, this is a no-op (not an error).
  */
 async function sendYieldSms(db: Firestore, notification: YieldNotification): Promise<void> {
-  const { userId, reason, promptToUser, operationId } = notification;
+  const { userId, reason, operationId } = notification;
+  const copy =
+    reason === 'needs_approval'
+      ? resolveAgentYieldCopy({ reason, actionSummary: notification.actionSummary })
+      : resolveAgentYieldCopy({ reason, promptToUser: notification.promptToUser });
 
   // Check Twilio env vars
   const accountSid = process.env['TWILIO_ACCOUNT_SID'];
@@ -149,11 +160,6 @@ async function sendYieldSms(db: Firestore, notification: YieldNotification): Pro
   if (!phoneNumber || !smsEnabled) return;
 
   // Build the SMS body
-  const isApproval = reason === 'needs_approval';
-  const smsBody = isApproval
-    ? `[NXT1] Agent X needs your approval: ${promptToUser.slice(0, 120)}. Open the app to review.`
-    : `[NXT1] Agent X has a question: ${promptToUser.slice(0, 120)}. Open the app to respond.`;
-
   // Lazy-import Twilio to avoid cold-start overhead when SMS isn't used
   // @ts-expect-error -- twilio is an optional runtime dependency; types may not be installed
   const twilio = await import('twilio');
@@ -164,7 +170,7 @@ async function sendYieldSms(db: Firestore, notification: YieldNotification): Pro
   )(accountSid, authToken);
 
   await client.messages.create({
-    body: smsBody,
+    body: copy.smsBody,
     from: fromNumber,
     to: phoneNumber,
   });

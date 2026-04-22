@@ -6,9 +6,20 @@
  */
 
 import type { StripeConfig } from './types/index.js';
-import { UsageFeature } from './types/index.js';
-import { getUnitCostByFeature, type UsageFeatureId } from '@nxt1/core/usage';
+import { getUsageProductConfig } from '@nxt1/core/usage';
 import { logger } from '../../utils/logger.js';
+
+function getPricePrefix(environment: 'staging' | 'production'): 'STAGING' | 'PRODUCTION' {
+  return environment === 'staging' ? 'STAGING' : 'PRODUCTION';
+}
+
+function normalizeFeatureEnvSuffix(feature: string): string {
+  return feature
+    .trim()
+    .replace(/[^a-zA-Z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .toUpperCase();
+}
 
 /**
  * Get Stripe configuration for current environment
@@ -49,62 +60,21 @@ export function getStripeConfig(environment: 'staging' | 'production'): StripeCo
   }
 
   // Get price IDs based on environment
-  const pricePrefix = environment === 'staging' ? 'STAGING' : 'PRODUCTION';
-
   return {
     secretKey: secretKey || '',
     webhookSecret: webhookSecret || '',
     enabled: enabled && !!secretKey,
-    prices: {
-      // Media
-      [UsageFeature.HIGHLIGHTS]: process.env[`STRIPE_PRICE_ID_${pricePrefix}_HIGHLIGHTS`] || '',
-      [UsageFeature.MOTION_GRAPHICS]:
-        process.env[`STRIPE_PRICE_ID_${pricePrefix}_MOTION_GRAPHICS`] || '',
-      [UsageFeature.GRAPHICS]: process.env[`STRIPE_PRICE_ID_${pricePrefix}_GRAPHICS`] || '',
-      [UsageFeature.WRITE_UP_GRAPHIC]:
-        process.env[`STRIPE_PRICE_ID_${pricePrefix}_WRITE_UP_GRAPHIC`] || '',
-      [UsageFeature.MEDIA_BUNDLES]:
-        process.env[`STRIPE_PRICE_ID_${pricePrefix}_MEDIA_BUNDLES`] || '',
-
-      // Recruiting
-      [UsageFeature.SCOUT_REPORT_BUNDLE]:
-        process.env[`STRIPE_PRICE_ID_${pricePrefix}_SCOUT_REPORT_BUNDLE`] || '',
-      [UsageFeature.MATCH_COLLEGES]:
-        process.env[`STRIPE_PRICE_ID_${pricePrefix}_MATCH_COLLEGES`] || '',
-      [UsageFeature.RECRUIT_STRATEGY]:
-        process.env[`STRIPE_PRICE_ID_${pricePrefix}_RECRUIT_STRATEGY`] || '',
-      [UsageFeature.COLLEGE_VIEWS]:
-        process.env[`STRIPE_PRICE_ID_${pricePrefix}_COLLEGE_VIEWS`] || '',
-
-      // AI
-      [UsageFeature.ACTIVITY_USAGE]:
-        process.env[`STRIPE_PRICE_ID_${pricePrefix}_ACTIVITY_USAGE`] || '',
-
-      // Communication
-      [UsageFeature.EMAIL_CAMPAIGN]:
-        process.env[`STRIPE_PRICE_ID_${pricePrefix}_EMAIL_CAMPAIGN`] || '',
-      [UsageFeature.FOLLOW_UPS]: process.env[`STRIPE_PRICE_ID_${pricePrefix}_FOLLOW_UPS`] || '',
-
-      // Profile
-      [UsageFeature.PROFILE_BANNERS]:
-        process.env[`STRIPE_PRICE_ID_${pricePrefix}_PROFILE_BANNERS`] || '',
-
-      // Teams
-      [UsageFeature.TEAM_PAGE_URL]:
-        process.env[`STRIPE_PRICE_ID_${pricePrefix}_TEAM_PAGE_URL`] || '',
-    },
+    prices: {},
   };
 }
 
 /**
  * Get Stripe Price ID for a feature
  */
-export function getStripePriceId(
-  feature: UsageFeature,
-  environment: 'staging' | 'production'
-): string {
-  const config = getStripeConfig(environment);
-  const priceId = config.prices[feature];
+export function getStripePriceId(feature: string, environment: 'staging' | 'production'): string {
+  const pricePrefix = getPricePrefix(environment);
+  const envKey = `STRIPE_PRICE_ID_${pricePrefix}_${normalizeFeatureEnvSuffix(feature)}`;
+  const priceId = process.env[envKey] || '';
 
   // Dynamic-cost features (e.g. chat-conversation) may not have a Stripe
   // price mapping. Return empty string so usage events are still written
@@ -113,6 +83,7 @@ export function getStripePriceId(
     logger.warn('[getStripePriceId] No Stripe Price ID configured — dynamic pricing assumed', {
       feature,
       environment,
+      envKey,
     });
   }
   return priceId || '';
@@ -127,8 +98,16 @@ export function getStripePriceId(
  * `resolveAICost()` in cost-resolver.service.ts so the billed amount
  * reflects actual token usage instead of a fixed per-feature price.
  */
-export function getUnitCost(feature: UsageFeature): number {
-  return getUnitCostByFeature(feature as UsageFeatureId);
+export function getUnitCost(feature: string): number {
+  const config = getUsageProductConfig(feature);
+  if (!config) {
+    logger.warn('[getUnitCost] Unknown dynamic feature — defaulting static fallback to 0', {
+      feature,
+    });
+    return 0;
+  }
+
+  return config.unitPrice;
 }
 
 /**

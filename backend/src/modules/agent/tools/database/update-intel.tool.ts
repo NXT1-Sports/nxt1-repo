@@ -2,8 +2,27 @@ import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 import { BaseTool, type ToolExecutionContext, type ToolResult } from '../base.tool.js';
 import { IntelGenerationService } from '../../services/intel.service.js';
 import { logger } from '../../../../utils/logger.js';
+import { z } from 'zod';
 
 type IntelEntityType = 'athlete' | 'team';
+
+const UpdateIntelInputSchema = z.object({
+  entityType: z.string().trim().min(1),
+  entityId: z.string().trim().min(1).optional(),
+  sectionId: z.enum([
+    'agent_x_brief',
+    'athletic_measurements',
+    'season_stats',
+    'recruiting_activity',
+    'academic_profile',
+    'awards_honors',
+    'agent_overview',
+    'team',
+    'stats',
+    'recruiting',
+    'schedule',
+  ]),
+});
 
 export class UpdateIntelTool extends BaseTool {
   readonly name = 'update_intel';
@@ -15,50 +34,13 @@ export class UpdateIntelTool extends BaseTool {
     'Valid athlete sectionIds: agent_x_brief, athletic_measurements, season_stats, recruiting_activity, academic_profile, awards_honors. ' +
     'Valid team sectionIds: agent_overview, team, stats, recruiting, schedule.';
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      entityType: {
-        type: 'string',
-        enum: ['athlete', 'team'],
-        description: 'Whether the Intel is for an athlete profile or a team profile.',
-      },
-      entityId: {
-        type: 'string',
-        description:
-          'The athlete userId or teamId whose Intel section should be updated. ' +
-          'Omit this field when updating for the currently authenticated user — ' +
-          'the system will resolve their ID automatically.',
-      },
-      sectionId: {
-        type: 'string',
-        enum: [
-          'agent_x_brief',
-          'athletic_measurements',
-          'season_stats',
-          'recruiting_activity',
-          'academic_profile',
-          'awards_honors',
-          'agent_overview',
-          'team',
-          'stats',
-          'recruiting',
-          'schedule',
-        ],
-        description:
-          'The specific section of the Intel report to regenerate. ' +
-          'Athlete sections: agent_x_brief, athletic_measurements, season_stats, recruiting_activity, academic_profile, awards_honors. ' +
-          'Team sections: agent_overview, team, stats, recruiting, schedule.',
-      },
-    },
-    required: ['entityType', 'sectionId'],
-  } as const;
+  readonly parameters = UpdateIntelInputSchema;
 
   override readonly allowedAgents = [
     'data_coordinator',
     'performance_coordinator',
     'recruiting_coordinator',
-    'general',
+    'strategy_coordinator',
   ] as const;
   readonly isMutation = true;
   readonly category = 'database' as const;
@@ -71,11 +53,23 @@ export class UpdateIntelTool extends BaseTool {
     input: Record<string, unknown>,
     context?: ToolExecutionContext
   ): Promise<ToolResult> {
-    const entityTypeRaw = this.str(input, 'entityType');
+    const parsed = UpdateIntelInputSchema.safeParse(input);
+    if (!parsed.success) {
+      return {
+        success: false,
+        error: parsed.error.issues
+          .map((issue) =>
+            issue.path.length > 0 ? `${issue.path.join('.')}: ${issue.message}` : issue.message
+          )
+          .join(', '),
+      };
+    }
+
+    const entityTypeRaw = parsed.data.entityType;
     // Prefer LLM-supplied entityId; fall back to the authenticated user's UID for athlete.
     const entityId =
-      this.str(input, 'entityId') || (entityTypeRaw === 'athlete' ? (context?.userId ?? '') : '');
-    const sectionId = this.str(input, 'sectionId');
+      parsed.data.entityId || (entityTypeRaw === 'athlete' ? (context?.userId ?? '') : '');
+    const sectionId = parsed.data.sectionId;
 
     if (!entityTypeRaw || (entityTypeRaw !== 'athlete' && entityTypeRaw !== 'team')) {
       return {
@@ -84,14 +78,17 @@ export class UpdateIntelTool extends BaseTool {
       };
     }
     if (!entityId) return this.paramError('entityId');
-    if (!sectionId) return this.paramError('sectionId');
-
     const entityType = entityTypeRaw as IntelEntityType;
     const intelService = new IntelGenerationService();
 
     try {
       if (entityType === 'athlete') {
-        context?.onProgress?.(`Updating ${sectionId} section of athlete Intel report…`);
+        context?.emitStage?.('submitting_job', {
+          icon: 'document',
+          entityType: 'athlete',
+          sectionId,
+          phase: 'update_intel_section',
+        });
         logger.info('[UpdateIntelTool] Updating athlete Intel section', { entityId, sectionId });
 
         const report = await intelService.updateAthleteIntelSection(
@@ -121,7 +118,12 @@ export class UpdateIntelTool extends BaseTool {
       }
 
       // Team
-      context?.onProgress?.(`Updating ${sectionId} section of team Intel report…`);
+      context?.emitStage?.('submitting_job', {
+        icon: 'document',
+        entityType: 'team',
+        sectionId,
+        phase: 'update_intel_section',
+      });
       logger.info('[UpdateIntelTool] Updating team Intel section', { entityId, sectionId });
 
       const report = await intelService.updateTeamIntelSection(

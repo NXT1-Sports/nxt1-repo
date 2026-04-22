@@ -24,9 +24,12 @@ import type { DistilledProfile, DistilledTeam } from './distillers/index.js';
 import type { PageStructuredData } from './page-data.types.js';
 import { OpenRouterService } from '../../llm/openrouter.service.js';
 import { logger } from '../../../../utils/logger.js';
-import { getCacheService } from '../../../../services/cache.service.js';
+import { getCacheService } from '../../../../services/core/cache.service.js';
 import { createHash } from 'crypto';
-import { parallelBatch } from '../../../agent/utils/parallel-batch.js';
+import {
+  createParallelBatchProgressOptions,
+  parallelBatch,
+} from '../../../agent/utils/parallel-batch.js';
 
 // ─── Scrape Cooldown ────────────────────────────────────────────────────────
 
@@ -330,9 +333,14 @@ export class ScrapeAndIndexProfileTool extends BaseTool {
 
     try {
       // ── Step 1: Scrape the main page ────────────────────────────────
-      const progress = context?.onProgress;
       const hostname = new URL(cleanUrl).hostname;
-      progress?.(`Scraping ${hostname} (main page)…`);
+      context?.emitStage?.('fetching_data', {
+        source: 'scrape_and_index_profile',
+        phase: 'main_page',
+        hostname,
+        url: cleanUrl,
+        icon: 'search',
+      });
       const result = await this.scraper.scrape({ url: cleanUrl, signal: context?.signal });
 
       // ── Step 1b: Detect & fetch stats sub-pages in parallel ─────────
@@ -349,18 +357,33 @@ export class ScrapeAndIndexProfileTool extends BaseTool {
           count: statsUrls.length,
           urls: statsUrls,
         });
-        progress?.(
-          `Fetching ${statsUrls.length} stats sub-page${statsUrls.length > 1 ? 's' : ''} in parallel…`
-        );
+        context?.emitStage?.('fetching_data', {
+          source: 'scrape_and_index_profile',
+          phase: 'stats_subpages',
+          hostname,
+          total: statsUrls.length,
+          icon: 'search',
+        });
 
         const subPageResults = await parallelBatch(
           statsUrls,
           (statsUrl) => this.scraper.scrape({ url: statsUrl, signal: context?.signal }),
-          {
-            concurrency: 4, // matches the caps in detectStatsPageUrls
-            signal: context?.signal,
-            onProgress: (done, total) => progress?.(`Fetching stats sub-pages (${done}/${total})…`),
-          }
+          createParallelBatchProgressOptions(
+            (done, total) => {
+              context?.emitStage?.('fetching_data', {
+                source: 'scrape_and_index_profile',
+                phase: 'stats_subpages',
+                hostname,
+                completed: done,
+                total,
+                icon: 'search',
+              });
+            },
+            {
+              concurrency: 4, // matches the caps in detectStatsPageUrls
+              signal: context?.signal,
+            }
+          )
         );
 
         let pagesAppended = 0;
@@ -395,8 +418,12 @@ export class ScrapeAndIndexProfileTool extends BaseTool {
 
       // ── Step 2: AI Distillation (primary extraction path) ──────────
       if (this.llm) {
-        const charCount = combinedMarkdown.length.toLocaleString();
-        progress?.(`Running AI extraction (${charCount} chars)…`);
+        context?.emitStage?.('submitting_job', {
+          source: 'scrape_and_index_profile',
+          phase: 'ai_extraction',
+          characterCount: combinedMarkdown.length,
+          icon: 'document',
+        });
         const distilled = await distillWithAI(
           cleanUrl,
           combinedMarkdown,
@@ -415,6 +442,12 @@ export class ScrapeAndIndexProfileTool extends BaseTool {
             markdownContent: combinedMarkdown,
             rawStructuredData: null,
             expiry: Date.now() + CACHE_TTL_MS,
+          });
+          context?.emitStage?.('persisting_result', {
+            source: 'scrape_and_index_profile',
+            phase: 'cache_distilled_profile',
+            mode: 'distilled',
+            icon: 'database',
           });
 
           // Record cooldown so the same URL isn't re-scraped within 12h
@@ -449,6 +482,12 @@ export class ScrapeAndIndexProfileTool extends BaseTool {
         markdownContent: combinedMarkdown,
         rawStructuredData: null,
         expiry: Date.now() + CACHE_TTL_MS,
+      });
+      context?.emitStage?.('persisting_result', {
+        source: 'scrape_and_index_profile',
+        phase: 'cache_raw_profile',
+        mode: 'raw',
+        icon: 'database',
       });
 
       // Record cooldown even for raw fallback — the page was still fetched

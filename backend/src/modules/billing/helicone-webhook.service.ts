@@ -26,7 +26,7 @@ import {
   parseBillingOwnerKey,
 } from './types/index.js';
 import type { UsageEvent } from './types/index.js';
-import { UsageEventModel } from '../../models/usage-event.model.js';
+import { UsageEventModel } from '../../models/analytics/usage-event.model.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 

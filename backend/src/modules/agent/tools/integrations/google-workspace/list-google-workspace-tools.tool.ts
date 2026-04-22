@@ -1,6 +1,9 @@
 import { BaseTool, type ToolExecutionContext, type ToolResult } from '../../base.tool.js';
 import { logger } from '../../../../../utils/logger.js';
 import { GoogleWorkspaceMcpSessionService } from './google-workspace-mcp-session.service.js';
+import { z } from 'zod';
+
+const ListGoogleWorkspaceToolsInputSchema = z.object({}).strict();
 
 export class ListGoogleWorkspaceToolsTool extends BaseTool {
   readonly name = 'list_google_workspace_tools';
@@ -8,11 +11,7 @@ export class ListGoogleWorkspaceToolsTool extends BaseTool {
     'Lists the Google Workspace MCP tools currently available for the authenticated user, including their descriptions, input schemas, and whether each tool mutates data. ' +
     'Use this before executing a Google Workspace action when you need the exact tool name or parameter schema.';
 
-  readonly parameters = {
-    type: 'object',
-    properties: {},
-    additionalProperties: false,
-  } as const;
+  readonly parameters = ListGoogleWorkspaceToolsInputSchema;
 
   readonly isMutation = false;
   readonly category = 'system' as const;
@@ -22,14 +21,26 @@ export class ListGoogleWorkspaceToolsTool extends BaseTool {
   }
 
   async execute(
-    _input: Record<string, unknown>,
+    input: Record<string, unknown>,
     context?: ToolExecutionContext
   ): Promise<ToolResult> {
+    const parsed = ListGoogleWorkspaceToolsInputSchema.safeParse(input);
+    if (!parsed.success) {
+      return {
+        success: false,
+        error: parsed.error.issues.map((issue) => issue.message).join(', '),
+      };
+    }
+
     if (!context?.userId) {
       return { success: false, error: 'Authenticated user context is required.' };
     }
 
-    context.onProgress?.('Inspecting Google Workspace capabilities…');
+    context.emitStage?.('fetching_data', {
+      source: 'google_workspace',
+      phase: 'inspect_tools',
+      icon: 'document',
+    });
 
     try {
       const tools = await this.sessionService.listAllowedTools(context);

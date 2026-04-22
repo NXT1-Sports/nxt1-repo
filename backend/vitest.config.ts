@@ -25,6 +25,10 @@ export default defineConfig({
         find: '@nxt1/core',
         replacement: resolve('../packages/core/src'),
       },
+      {
+        find: '@nxt1/cache',
+        replacement: resolve('../packages/cache/src'),
+      },
     ],
   },
   test: {

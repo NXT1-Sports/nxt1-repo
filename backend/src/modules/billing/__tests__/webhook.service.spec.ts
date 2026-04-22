@@ -24,7 +24,7 @@ vi.mock('../stripe.service.js', () => ({
   getStripeClient: mockGetStripeClient,
 }));
 
-vi.mock('../../../models/payment-log.model.js', () => ({
+vi.mock('../../../models/billing/payment-log.model.js', () => ({
   PaymentLogModel: {
     findOneAndUpdate: mockPaymentLogFindOneAndUpdate,
   },
@@ -38,7 +38,7 @@ vi.mock('../../../utils/logger.js', () => ({
   },
 }));
 
-vi.mock('../../../services/notification.service.js', () => ({
+vi.mock('../../../services/communications/notification.service.js', () => ({
   dispatch: vi.fn().mockResolvedValue(undefined),
 }));
 

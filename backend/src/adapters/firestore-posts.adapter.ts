@@ -123,6 +123,11 @@ export function userProfileToFeedAuthor(profile: UserProfile): FeedAuthor {
   };
 }
 
+function buildCloudflareThumbnailUrl(cloudflareVideoId?: string): string | undefined {
+  if (!cloudflareVideoId) return undefined;
+  return `https://videodelivery.net/${cloudflareVideoId}/thumbnails/thumbnail.jpg`;
+}
+
 /**
  * Convert Firestore post document to FeedPost
  */
@@ -140,7 +145,8 @@ export function firestorePostToFeedPost(
   const iframeUrl = doc.playback?.iframeUrl ?? doc.mediaUrl ?? null;
   const hlsUrl = doc.playback?.hlsUrl ?? doc.videoUrl ?? null;
   const dashUrl = doc.playback?.dashUrl ?? null;
-  const thumbnailUrl = doc.thumbnailUrl ?? doc.poster;
+  const thumbnailUrl =
+    doc.thumbnailUrl ?? doc.poster ?? buildCloudflareThumbnailUrl(doc.cloudflareVideoId);
   const hasVideo = !!(iframeUrl || hlsUrl);
 
   // Determine Cloudflare processing status

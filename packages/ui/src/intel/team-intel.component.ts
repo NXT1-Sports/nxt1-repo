@@ -8,7 +8,7 @@
  *
  * ⭐ SHARED BETWEEN WEB AND MOBILE ⭐
  */
-import { Component, ChangeDetectionStrategy, inject, input, output } from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject, input, output, computed } from '@angular/core';
 import { NxtIconComponent } from '../components/icon';
 import { NxtMarkdownComponent } from '../components/markdown';
 import { ANALYTICS_ADAPTER } from '../services/analytics';
@@ -17,6 +17,78 @@ import { TEST_IDS } from '@nxt1/core/testing';
 import { IntelService } from './intel.service';
 import type { IntelMissingDataPrompt, IntelQuickCommand } from '@nxt1/core';
 import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/assets';
+
+const TEAM_INTEL_SECTION_META: Readonly<
+  Record<string, { title: string; emptyTitle: string; emptyMessage: string }>
+> = {
+  agent_overview: {
+    title: 'Overview',
+    emptyTitle: 'No overview yet',
+    emptyMessage: 'No overview has been added yet. Add updates to generate your intel.',
+  },
+  team: {
+    title: 'Team',
+    emptyTitle: 'No team intel yet',
+    emptyMessage:
+      'No team intel has been added yet. Add your coaches, roster, and program details to generate this section.',
+  },
+  stats: {
+    title: 'Stats',
+    emptyTitle: 'No stats intel yet',
+    emptyMessage:
+      'No stats have been added yet. Add results and season stats to generate this section.',
+  },
+  recruiting: {
+    title: 'Recruiting',
+    emptyTitle: 'No recruiting intel yet',
+    emptyMessage:
+      'No recruiting intel has been added yet. Add recruiting activity to generate this section.',
+  },
+  schedule: {
+    title: 'Schedule',
+    emptyTitle: 'No schedule intel yet',
+    emptyMessage:
+      'No schedule intel has been added yet. Add upcoming or completed games to generate this section.',
+  },
+};
+
+const TEAM_INTEL_LOW_SIGNAL_PATTERNS: readonly RegExp[] = [
+  /currently shows minimal/i,
+  /not yet fully documented/i,
+  /no coaching staff has been added yet/i,
+  /require additional data input/i,
+  /organizational management/i,
+];
+
+function sanitizeTeamIntelItems<T extends { label?: string; value?: string | number | null }>(
+  items: readonly T[] | undefined
+): readonly T[] {
+  if (!items?.length) return [];
+
+  return items.filter((item) => {
+    const label = String(item.label ?? '')
+      .trim()
+      .toLowerCase();
+    const value = String(item.value ?? '')
+      .trim()
+      .toLowerCase();
+
+    if (label !== 'team id') return true;
+
+    return value.length > 0 && value !== 'unknown' && value !== 'n/a';
+  });
+}
+
+function isLowSignalTeamIntelContent(
+  content: string | undefined,
+  itemCount: number,
+  sourceCount: number
+): boolean {
+  if (!content?.trim()) return false;
+  if (itemCount > 0 || sourceCount > 0) return false;
+
+  return TEAM_INTEL_LOW_SIGNAL_PATTERNS.some((pattern) => pattern.test(content));
+}
 
 @Component({
   selector: 'nxt1-team-intel',
@@ -54,7 +126,8 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/ass
           </div>
           <p class="intel-generating__title">Agent X is compiling your intel...</p>
           <p class="intel-generating__sub">
-            Analyzing roster, stats, recruiting activity, and more
+            <span class="intel-generating__spinner" aria-hidden="true"></span>
+            {{ intel.generationStep() || 'Analyzing roster, stats, recruiting activity, and more' }}
           </p>
           <div class="intel-generating__scan" aria-hidden="true"></div>
         </div>
@@ -114,126 +187,128 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/ass
             </div>
           }
           <!-- ── Active Section Card ── -->
-          @for (section of report()!.sections; track section.id) {
-            @if (activeSection() === section.id) {
-              <section
-                class="intel-focus-card intel-focus-card--feature"
-                [attr.data-testid]="testIds.ACTIVE_SECTION_CARD"
-              >
-                <div class="intel-section-topline">
-                  <h3 class="intel-card-title">
-                    <svg
-                      class="intel-agentx-icon"
-                      viewBox="0 0 612 792"
-                      width="22"
-                      height="22"
-                      fill="currentColor"
-                      stroke="currentColor"
-                      stroke-width="8"
-                      stroke-linejoin="round"
-                      aria-hidden="true"
-                    >
-                      <path [attr.d]="agentXLogoPath" />
-                      <polygon [attr.points]="agentXLogoPolygon" />
-                    </svg>
-                    {{ section.title }}
-                  </h3>
-                </div>
+          @if (activeSectionData(); as section) {
+            <section
+              class="intel-focus-card intel-focus-card--feature"
+              [attr.data-testid]="testIds.ACTIVE_SECTION_CARD"
+            >
+              <div class="intel-section-topline">
+                <h3 class="intel-card-title">
+                  <svg
+                    class="intel-agentx-icon"
+                    viewBox="0 0 612 792"
+                    width="22"
+                    height="22"
+                    fill="currentColor"
+                    stroke="currentColor"
+                    stroke-width="8"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path [attr.d]="agentXLogoPath" />
+                    <polygon [attr.points]="agentXLogoPolygon" />
+                  </svg>
+                  {{ section.title }}
+                </h3>
+              </div>
 
-                @if (section.content) {
-                  <nxt1-markdown class="intel-markdown" [content]="section.content" />
-                }
+              @if (section.content) {
+                <nxt1-markdown class="intel-markdown" [content]="section.content" />
+              }
 
-                @if (section.items?.length) {
-                  <div class="intel-items-grid">
-                    @for (item of section.items!; track item.label) {
-                      <div
-                        class="intel-item-card"
-                        [class.intel-item-card--verified]="item.verified"
-                      >
-                        <span class="intel-item-value">
-                          {{ item.value }}
-                          @if (item.unit) {
-                            <span class="intel-item-unit">{{ item.unit }}</span>
-                          }
-                          @if (item.verified) {
-                            <nxt1-icon
-                              name="checkmarkCircle"
-                              [size]="11"
-                              class="intel-verified-icon"
-                            />
-                          }
-                        </span>
-                        <span class="intel-item-label">{{ item.label }}</span>
-                        @if (item.sublabel) {
-                          <span class="intel-item-sublabel">{{ item.sublabel }}</span>
+              @if (section.items.length) {
+                <div class="intel-items-grid">
+                  @for (item of section.items; track item.label) {
+                    <div class="intel-item-card" [class.intel-item-card--verified]="item.verified">
+                      <span class="intel-item-value">
+                        {{ item.value }}
+                        @if (item.unit) {
+                          <span class="intel-item-unit">{{ item.unit }}</span>
                         }
-                        @if (item.source) {
-                          <span class="intel-source-chip">
-                            @if (item.faviconUrl) {
-                              <img
-                                class="intel-favicon"
-                                [src]="item.faviconUrl"
-                                [alt]="item.source"
-                                width="12"
-                                height="12"
-                                loading="lazy"
-                              />
-                            }
-                            {{ item.source }}
-                          </span>
+                        @if (item.verified) {
+                          <nxt1-icon
+                            name="checkmarkCircle"
+                            [size]="11"
+                            class="intel-verified-icon"
+                          />
                         }
-                      </div>
-                    }
-                  </div>
-                }
-
-                @if (section.sources?.length) {
-                  <div class="intel-source-chips" [attr.data-testid]="testIds.CITATIONS_SECTION">
-                    @for (citation of section.sources!; track citation.platform + citation.label) {
-                      @if (citation.url) {
-                        <a
-                          [href]="citation.url"
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          class="intel-citation-badge intel-citation-badge--linked"
-                          [class.intel-citation-badge--verified]="citation.verified"
-                        >
-                          @if (citation.faviconUrl) {
+                      </span>
+                      <span class="intel-item-label">{{ item.label }}</span>
+                      @if (item.sublabel) {
+                        <span class="intel-item-sublabel">{{ item.sublabel }}</span>
+                      }
+                      @if (item.source) {
+                        <span class="intel-source-chip">
+                          @if (item.faviconUrl) {
                             <img
                               class="intel-favicon"
-                              [src]="citation.faviconUrl"
-                              [alt]="citation.label || citation.platform"
+                              [src]="item.faviconUrl"
+                              [alt]="item.source"
                               width="12"
                               height="12"
                               loading="lazy"
                             />
                           }
-                          {{ citation.label || citation.platform }}
-                        </a>
-                      } @else {
-                        <span
-                          class="intel-citation-badge"
-                          [class.intel-citation-badge--verified]="citation.verified"
-                        >
-                          @if (citation.faviconUrl) {
-                            <img
-                              class="intel-favicon"
-                              [src]="citation.faviconUrl"
-                              [alt]="citation.label || citation.platform"
-                              width="12"
-                              height="12"
-                              loading="lazy"
-                            />
-                          }
-                          {{ citation.label || citation.platform }}
+                          {{ item.source }}
                         </span>
                       }
+                    </div>
+                  }
+                </div>
+              }
+
+              @if (section.sources.length) {
+                <div class="intel-source-chips" [attr.data-testid]="testIds.CITATIONS_SECTION">
+                  @for (citation of section.sources; track citation.platform + citation.label) {
+                    @if (citation.url) {
+                      <a
+                        [href]="citation.url"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        class="intel-citation-badge intel-citation-badge--linked"
+                        [class.intel-citation-badge--verified]="citation.verified"
+                      >
+                        @if (citation.faviconUrl) {
+                          <img
+                            class="intel-favicon"
+                            [src]="citation.faviconUrl"
+                            [alt]="citation.label || citation.platform"
+                            width="12"
+                            height="12"
+                            loading="lazy"
+                          />
+                        }
+                        {{ citation.label || citation.platform }}
+                      </a>
+                    } @else {
+                      <span
+                        class="intel-citation-badge"
+                        [class.intel-citation-badge--verified]="citation.verified"
+                      >
+                        @if (citation.faviconUrl) {
+                          <img
+                            class="intel-favicon"
+                            [src]="citation.faviconUrl"
+                            [alt]="citation.label || citation.platform"
+                            width="12"
+                            height="12"
+                            loading="lazy"
+                          />
+                        }
+                        {{ citation.label || citation.platform }}
+                      </span>
                     }
-                  </div>
-                }
-              </section>
-            }
+                  }
+                </div>
+              }
+
+              @if (!section.content && !section.items.length && !section.sources.length) {
+                <div class="intel-empty-section">
+                  <p class="intel-empty-section__title">{{ section.emptyTitle }}</p>
+                  <p class="intel-empty-section__message">{{ section.emptyMessage }}</p>
+                </div>
+              }
+            </section>
           }
 
           <!-- ── Update Intel Guide (admin only) ── -->
@@ -603,6 +678,24 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/ass
         color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
         font-weight: 600;
       }
+      .intel-empty-section {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+      }
+      .intel-empty-section__title {
+        margin: 0;
+        font-size: 15px;
+        font-weight: 700;
+        color: var(--intel-text);
+      }
+      .intel-empty-section__message {
+        margin: 0;
+        font-size: 14px;
+        line-height: 1.55;
+        color: var(--intel-text-secondary);
+      }
 
       /* ─── Agent X Generating Animation ─── */
       .intel-generating {
@@ -663,10 +756,23 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/ass
         text-align: center;
       }
       .intel-generating__sub {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
         font-size: 12px;
         color: var(--nxt1-color-text-muted, rgba(255, 255, 255, 0.45));
         margin: 0;
         text-align: center;
+      }
+      .intel-generating__spinner {
+        width: 13px;
+        height: 13px;
+        border-radius: 50%;
+        border: 1.5px solid rgba(204, 255, 0, 0.25);
+        border-top-color: var(--nxt1-color-primary, #ccff00);
+        animation: intel-step-spin 0.75s linear infinite;
+        flex-shrink: 0;
       }
       .intel-generating__scan {
         position: absolute;
@@ -691,6 +797,11 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/ass
         }
         100% {
           left: 160%;
+        }
+      }
+      @keyframes intel-step-spin {
+        to {
+          transform: rotate(360deg);
         }
       }
 
@@ -830,6 +941,51 @@ export class TeamIntelComponent {
   readonly quickCommandClick = output<IntelQuickCommand>();
 
   protected readonly report = this.intel.teamReport;
+  protected readonly activeSectionData = computed(() => {
+    const report = this.report();
+    if (!report) return null;
+
+    const activeId = this.activeSection();
+    const existing = report.sections.find((section) => section.id === activeId);
+    if (existing) {
+      const items = sanitizeTeamIntelItems(existing.items);
+      const sources = existing.sources ?? [];
+      const emptyMeta = TEAM_INTEL_SECTION_META[existing.id];
+      const useEmptyState = isLowSignalTeamIntelContent(
+        existing.content,
+        items.length,
+        sources.length
+      );
+
+      return {
+        ...existing,
+        title: emptyMeta?.title ?? existing.title,
+        content: useEmptyState ? '' : existing.content,
+        items,
+        sources: useEmptyState ? [] : sources,
+        emptyTitle: emptyMeta?.emptyTitle ?? 'No Intel generated yet',
+        emptyMessage:
+          emptyMeta?.emptyMessage ??
+          'No intel has been added yet. Add updates to generate your intel.',
+      };
+    }
+
+    const meta = TEAM_INTEL_SECTION_META[activeId] ?? {
+      title: activeId,
+      emptyTitle: 'No Intel generated yet',
+      emptyMessage: 'No intel has been added yet. Add updates to generate your intel.',
+    };
+
+    return {
+      id: activeId,
+      title: meta.title,
+      content: '',
+      items: [],
+      sources: [],
+      emptyTitle: meta.emptyTitle,
+      emptyMessage: meta.emptyMessage,
+    };
+  });
 
   protected onGenerate(): void {
     this.generateClick.emit();

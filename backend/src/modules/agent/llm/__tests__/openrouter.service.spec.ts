@@ -7,8 +7,13 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { z } from 'zod';
 import { OpenRouterService } from '../openrouter.service.js';
 import { MODEL_CATALOGUE } from '../llm.types.js';
+import {
+  DEFAULT_AGENT_APP_CONFIG,
+  setCachedAgentAppConfig,
+} from '../../config/agent-app-config.js';
 
 // ─── Mock Setup ─────────────────────────────────────────────────────────────
 
@@ -73,17 +78,20 @@ describe('OpenRouterService', () => {
     vi.stubEnv('OPENROUTER_SITE_NAME', 'NXT1 Test');
 
     // Mock global fetch
-    fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify(MOCK_RESPONSE), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      })
+    fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(() =>
+      Promise.resolve(
+        new Response(JSON.stringify(MOCK_RESPONSE), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      )
     );
 
     service = new OpenRouterService();
   });
 
   afterEach(() => {
+    setCachedAgentAppConfig(DEFAULT_AGENT_APP_CONFIG);
     vi.restoreAllMocks();
     vi.unstubAllEnvs();
   });
@@ -157,6 +165,59 @@ describe('OpenRouterService', () => {
     expect(body.model).toBe('openai/gpt-4o');
   });
 
+  it('should honor runtime model routing from cached agent config', async () => {
+    setCachedAgentAppConfig({
+      ...DEFAULT_AGENT_APP_CONFIG,
+      modelRouting: {
+        ...DEFAULT_AGENT_APP_CONFIG.modelRouting,
+        catalogue: {
+          ...DEFAULT_AGENT_APP_CONFIG.modelRouting.catalogue,
+          chat: 'openai/gpt-4o-mini',
+        },
+        fallbackChains: {
+          ...DEFAULT_AGENT_APP_CONFIG.modelRouting.fallbackChains,
+          chat: ['openai/gpt-4o-mini', 'anthropic/claude-haiku-4-5'],
+        },
+      },
+    });
+
+    await service.complete([{ role: 'user', content: 'test' }], { tier: 'chat' });
+
+    const body = JSON.parse((fetchSpy.mock.calls[0] as [string, RequestInit])[1].body as string);
+    expect(body.model).toBe('openai/gpt-4o-mini');
+  });
+
+  it('should hydrate model routing from Firestore-backed agent config before tier resolution', async () => {
+    setCachedAgentAppConfig(DEFAULT_AGENT_APP_CONFIG);
+
+    const hydrateAgentConfig = vi.fn(async () => {
+      const hydratedConfig = {
+        ...DEFAULT_AGENT_APP_CONFIG,
+        modelRouting: {
+          ...DEFAULT_AGENT_APP_CONFIG.modelRouting,
+          catalogue: {
+            ...DEFAULT_AGENT_APP_CONFIG.modelRouting.catalogue,
+            chat: 'openai/gpt-4o-mini',
+          },
+          fallbackChains: {
+            ...DEFAULT_AGENT_APP_CONFIG.modelRouting.fallbackChains,
+            chat: ['openai/gpt-4o-mini', 'anthropic/claude-haiku-4-5'],
+          },
+        },
+      };
+      setCachedAgentAppConfig(hydratedConfig);
+      return hydratedConfig;
+    });
+
+    const hydratedService = new OpenRouterService({ hydrateAgentConfig });
+
+    await hydratedService.complete([{ role: 'user', content: 'test' }], { tier: 'chat' });
+
+    const body = JSON.parse((fetchSpy.mock.calls[0] as [string, RequestInit])[1].body as string);
+    expect(body.model).toBe('openai/gpt-4o-mini');
+    expect(hydrateAgentConfig).toHaveBeenCalledTimes(1);
+  });
+
   // ─── Tool Calls ─────────────────────────────────────────────────────────
 
   it('should parse tool calls from the response', async () => {
@@ -227,6 +288,79 @@ describe('OpenRouterService', () => {
 
     const body = JSON.parse((fetchSpy.mock.calls[0] as [string, RequestInit])[1].body as string);
     expect(body.response_format).toEqual({ type: 'json_object' });
+  });
+
+  it('should emit native json_schema response_format when outputSchema is provided', async () => {
+    fetchSpy.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          ...MOCK_RESPONSE,
+          choices: [
+            {
+              index: 0,
+              message: {
+                role: 'assistant',
+                content: JSON.stringify({ summary: 'Ready', items: ['a', 'b'] }),
+              },
+              finish_reason: 'stop',
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }
+      )
+    );
+
+    await service.complete([{ role: 'user', content: 'test' }], {
+      tier: 'extraction',
+      outputSchema: {
+        name: 'test_payload',
+        schema: z.object({ summary: z.string(), items: z.array(z.string()) }),
+      },
+    });
+
+    const body = JSON.parse((fetchSpy.mock.calls[0] as [string, RequestInit])[1].body as string);
+    expect(body.response_format.type).toBe('json_schema');
+    expect(body.response_format.json_schema.name).toBe('test_payload');
+    expect(body.response_format.json_schema.strict).toBe(true);
+    expect(body.response_format.json_schema.schema.type).toBe('object');
+  });
+
+  it('should return parsedOutput when outputSchema is provided and content matches the schema', async () => {
+    fetchSpy.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          id: 'gen-123',
+          model: 'anthropic/claude-haiku-4-5',
+          choices: [
+            {
+              finish_reason: 'stop',
+              message: {
+                role: 'assistant',
+                content: JSON.stringify({ summary: 'Ready', items: ['a', 'b'] }),
+              },
+            },
+          ],
+          usage: { prompt_tokens: 10, completion_tokens: 12 },
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }
+      )
+    );
+
+    const result = await service.complete([{ role: 'user', content: 'test' }], {
+      tier: 'extraction',
+      outputSchema: {
+        name: 'test_payload',
+        schema: z.object({ summary: z.string(), items: z.array(z.string()) }),
+      },
+    });
+
+    expect(result.parsedOutput).toEqual({ summary: 'Ready', items: ['a', 'b'] });
   });
 
   // ─── prompt() Convenience Method ────────────────────────────────────────

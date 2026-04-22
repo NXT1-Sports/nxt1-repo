@@ -19,6 +19,13 @@ import type { AgentQueueService } from '../../queue/queue.service.js';
 import type { AgentJobPayload, AgentJobOrigin } from '@nxt1/core';
 import { logger } from '../../../../utils/logger.js';
 import { randomUUID } from 'node:crypto';
+import { z } from 'zod';
+
+const EnqueueHeavyTaskInputSchema = z.object({
+  intent: z.string().trim().min(1),
+  userId: z.string().trim().min(1),
+  context: z.record(z.string(), z.unknown()).optional(),
+});
 
 export class EnqueueHeavyTaskTool extends BaseTool {
   readonly name = 'enqueue_heavy_task';
@@ -31,30 +38,7 @@ export class EnqueueHeavyTaskTool extends BaseTool {
     'Returns an operationId the user can track. The chat should immediately ' +
     'acknowledge the task was queued and explain what will happen.';
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      intent: {
-        type: 'string',
-        description:
-          'A clear, complete description of what the user wants done. ' +
-          'This is forwarded verbatim to the PlannerAgent.',
-      },
-      userId: {
-        type: 'string',
-        description: 'The authenticated user ID (uid) requesting the operation.',
-      },
-      context: {
-        type: 'object',
-        description:
-          'Optional additional context to pass to the background job ' +
-          '(e.g., sport, position, target schools, threadId).',
-        additionalProperties: true,
-      },
-    },
-    required: ['intent', 'userId'],
-    additionalProperties: false,
-  };
+  readonly parameters = EnqueueHeavyTaskInputSchema;
 
   readonly isMutation = true;
   readonly category = 'automation' as const;
@@ -65,13 +49,20 @@ export class EnqueueHeavyTaskTool extends BaseTool {
   }
 
   async execute(input: Record<string, unknown>): Promise<ToolResult> {
-    const intent = input['intent'] as string | undefined;
-    const userId = input['userId'] as string | undefined;
-    const context = (input['context'] as Record<string, unknown>) ?? {};
-
-    if (!intent || !userId) {
-      return { success: false, error: 'Missing required fields: intent and userId' };
+    const parsed = EnqueueHeavyTaskInputSchema.safeParse(input);
+    if (!parsed.success) {
+      return {
+        success: false,
+        error: parsed.error.issues
+          .map((issue) =>
+            issue.path.length > 0 ? `${issue.path.join('.')}: ${issue.message}` : issue.message
+          )
+          .join(', '),
+      };
     }
+
+    const { intent, userId } = parsed.data;
+    const context = parsed.data.context ?? {};
 
     const operationId = randomUUID();
 

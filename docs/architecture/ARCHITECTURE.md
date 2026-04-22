@@ -684,16 +684,14 @@ export const appConfig: ApplicationConfig = {
 **Mobile - Service Usage:**
 
 ```typescript
+// Powered by the zero-config CapacitorHttpAdapter
 @Component({...})
 export class ProfilePage {
-  private cache = inject(MobileCacheService);
+  private api = inject(ProfileApiService);
 
   async loadProfile(userId: string) {
-    return this.cache.getOrFetch(
-      `profile:${userId}`,
-      () => this.api.getProfile(userId),
-      CACHE_CONFIG.MEDIUM_TTL
-    );
+    // 0ms latency thanks to automated RAM/Disk transport Cache intercepting GET requests
+    return this.api.getProfile(userId);
   }
 }
 ```

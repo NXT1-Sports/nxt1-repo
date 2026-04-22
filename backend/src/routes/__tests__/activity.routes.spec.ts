@@ -13,7 +13,7 @@ describe('Activity Routes', () => {
   let router: ReturnType<typeof import('express').Router>;
 
   beforeAll(async () => {
-    const module = await import('../../routes/activity.routes.js');
+    const module = await import('../../routes/feed/activity.routes.js');
     router = module.default;
   }, 15_000);
 

@@ -27,10 +27,12 @@
  * ```
  */
 
-import type { AgentIdentifier, AgentToolDefinition } from '@nxt1/core';
+import { type AgentIdentifier, type AgentToolDefinition } from '@nxt1/core';
 import type { IntelGenerationService } from '../services/intel.service.js';
 import { logger } from '../../../utils/logger.js';
 import type { BaseTool, ToolResult, ToolExecutionContext } from './base.tool.js';
+import { isToolDisabled } from '../config/agent-app-config.js';
+import { z } from 'zod';
 
 type AthleteIntelSectionId = Parameters<IntelGenerationService['updateAthleteIntelSection']>[1];
 type TeamIntelSectionId = Parameters<IntelGenerationService['updateTeamIntelSection']>[1];
@@ -51,6 +53,17 @@ const INTEL_SYNC_DISABLED_TOOLS = new Set(['write_intel', 'update_intel']);
 
 export class ToolRegistry {
   private readonly tools = new Map<string, BaseTool>();
+
+  private resolveParameters(tool: BaseTool): Record<string, unknown> {
+    return tool.parameters instanceof z.ZodType
+      ? (z.toJSONSchema(tool.parameters) as Record<string, unknown>)
+      : (tool.parameters as Record<string, unknown>);
+  }
+
+  private isAllowedForAgent(tool: BaseTool, agentId?: AgentIdentifier): boolean {
+    if (!agentId) return true;
+    return tool.allowedAgents.includes('*') || tool.allowedAgents.includes(agentId);
+  }
 
   /**
    * Minimum cosine similarity score required for a tool to be selected.
@@ -84,14 +97,13 @@ export class ToolRegistry {
     const definitions: AgentToolDefinition[] = [];
 
     for (const tool of this.tools.values()) {
-      const allowed =
-        !agentId || tool.allowedAgents.includes('*') || tool.allowedAgents.includes(agentId);
+      const allowed = this.isAllowedForAgent(tool, agentId);
 
-      if (allowed) {
+      if (allowed && !isToolDisabled(tool.name)) {
         definitions.push({
           name: tool.name,
           description: tool.description,
-          parameters: tool.parameters,
+          parameters: this.resolveParameters(tool),
           allowedAgents: tool.allowedAgents,
           isMutation: tool.isMutation,
           category: tool.category,
@@ -114,7 +126,7 @@ export class ToolRegistry {
   ): Promise<readonly AgentToolDefinition[]> {
     // Filter first by permissions
     const allowedTools = Array.from(this.tools.values()).filter(
-      (tool) => !agentId || tool.allowedAgents.includes('*') || tool.allowedAgents.includes(agentId)
+      (tool) => this.isAllowedForAgent(tool, agentId) && !isToolDisabled(tool.name)
     );
 
     // Compute cosine similarity for all allowed tools
@@ -143,7 +155,7 @@ export class ToolRegistry {
     return scoredTools.map(({ tool }) => ({
       name: tool.name,
       description: tool.description,
-      parameters: tool.parameters,
+      parameters: this.resolveParameters(tool),
       allowedAgents: tool.allowedAgents,
       isMutation: tool.isMutation,
       category: tool.category,
@@ -164,6 +176,9 @@ export class ToolRegistry {
     const tool = this.tools.get(name);
     if (!tool) {
       return { success: false, error: `Unknown tool: ${name}` };
+    }
+    if (isToolDisabled(tool.name)) {
+      return { success: false, error: `Tool is currently disabled: ${tool.name}` };
     }
     const result = await tool.execute(input, context);
 
@@ -220,11 +235,13 @@ export class ToolRegistry {
           throw new Error(errorMessage);
         }
 
-        context?.onProgress?.(
-          plan.entityType === 'athlete'
-            ? 'Generating Intel from the latest profile updates…'
-            : 'Generating Intel from the latest team updates…'
-        );
+        context?.emitStage?.('persisting_result', {
+          source: 'tool_registry',
+          phase: 'generate_intel_from_updates',
+          entityType: plan.entityType,
+          entityId: plan.entityId,
+          icon: 'database',
+        });
 
         const writeResult = await writeIntelTool.execute(
           {

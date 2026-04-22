@@ -16,19 +16,20 @@
 
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
-import { getCacheService } from '../../../../services/cache.service.js';
+import { getCacheService } from '../../../../services/core/cache.service.js';
 import {
   createProfileWriteAccessService,
   resolveAuthorizedTargetSportSelection,
-} from '../../../../services/profile-write-access.service.js';
-import { CACHE_KEYS as USER_CACHE_KEYS } from '../../../../services/users.service.js';
+} from '../../../../services/profile/profile-write-access.service.js';
+import { CACHE_KEYS as USER_CACHE_KEYS } from '../../../../services/profile/users.service.js';
 import { invalidateProfileCaches } from '../../../../routes/profile/shared.js';
 import { SyncDiffService, type PreviousScheduleEntry } from '../../sync/index.js';
-import { getAnalyticsLoggerService } from '../../../../services/analytics-logger.service.js';
+import { getAnalyticsLoggerService } from '../../../../services/core/analytics-logger.service.js';
 import { onDailySyncComplete } from '../../triggers/trigger.listeners.js';
 import { logger } from '../../../../utils/logger.js';
 import { normalizeOpponentName } from './dedup-utils.js';
 import { resolveCreatedAt } from './doc-date-utils.js';
+import { z } from 'zod';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -36,6 +37,29 @@ const EVENTS_COLLECTION = 'Events';
 const MAX_EVENTS = 200;
 
 const VALID_EVENT_TYPES = new Set(['camp', 'combine', 'showcase', 'tournament', 'tryout', 'other']);
+
+const CalendarEventEntrySchema = z
+  .object({
+    eventType: z.string().trim().min(1).optional(),
+    title: z.string().trim().min(1).optional(),
+    description: z.string().trim().min(1).optional(),
+    date: z.string().trim().min(1).optional(),
+    endDate: z.string().trim().min(1).optional(),
+    location: z.string().trim().min(1).optional(),
+    opponent: z.string().trim().min(1).optional(),
+    result: z.string().trim().min(1).optional(),
+    outcome: z.enum(['win', 'loss', 'draw']).optional(),
+  })
+  .passthrough();
+
+const WriteCalendarEventsInputSchema = z.object({
+  userId: z.string().trim().min(1),
+  targetSport: z.string().trim().min(1),
+  source: z.string().trim().min(1),
+  sourceUrl: z.string().trim().min(1).optional(),
+  profileUrl: z.string().trim().min(1).optional(),
+  events: z.array(CalendarEventEntrySchema).min(1).max(MAX_EVENTS),
+});
 
 // ─── Tool ───────────────────────────────────────────────────────────────────
 
@@ -63,38 +87,7 @@ export class WriteCalendarEventsTool extends BaseTool {
     '  • result (optional): Score result string (e.g. "W 3-1").\n' +
     '  • outcome (optional): "win", "loss", or "draw".';
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      userId: { type: 'string' },
-      targetSport: { type: 'string' },
-      source: { type: 'string' },
-      sourceUrl: { type: 'string' },
-      profileUrl: { type: 'string' },
-      events: {
-        type: 'array',
-        items: {
-          type: 'object',
-          properties: {
-            eventType: {
-              type: 'string',
-              enum: ['camp', 'combine', 'showcase', 'tournament', 'tryout', 'other'],
-            },
-            title: { type: 'string' },
-            description: { type: 'string' },
-            date: { type: 'string' },
-            endDate: { type: 'string' },
-            location: { type: 'string' },
-            opponent: { type: 'string' },
-            result: { type: 'string' },
-            outcome: { type: 'string', enum: ['win', 'loss', 'draw'] },
-          },
-          required: ['eventType', 'date'],
-        },
-      },
-    },
-    required: ['userId', 'targetSport', 'source', 'events'],
-  } as const;
+  readonly parameters = WriteCalendarEventsInputSchema;
 
   override readonly allowedAgents = ['data_coordinator', 'performance_coordinator'] as const;
   readonly isMutation = true;
@@ -111,21 +104,11 @@ export class WriteCalendarEventsTool extends BaseTool {
     input: Record<string, unknown>,
     context?: ToolExecutionContext
   ): Promise<ToolResult> {
-    const userId = this.str(input, 'userId');
-    if (!userId) return this.paramError('userId');
-    const targetSport = this.str(input, 'targetSport');
-    if (!targetSport) return this.paramError('targetSport');
-    const source = this.str(input, 'source');
-    if (!source) return this.paramError('source');
-    const sourceUrl = this.str(input, 'sourceUrl') ?? this.str(input, 'profileUrl') ?? undefined;
+    const parsed = WriteCalendarEventsInputSchema.safeParse(input);
+    if (!parsed.success) return this.zodError(parsed.error);
 
-    const events = input['events'];
-    if (!Array.isArray(events) || events.length === 0) {
-      return { success: false, error: 'events must be a non-empty array.' };
-    }
-    if (events.length > MAX_EVENTS) {
-      return { success: false, error: `events exceeds maximum of ${MAX_EVENTS}.` };
-    }
+    const { userId, targetSport, source, events } = parsed.data;
+    const sourceUrl = parsed.data.sourceUrl ?? parsed.data.profileUrl;
 
     if (!context?.userId) {
       return { success: false, error: 'Authenticated tool context is required.' };
@@ -149,7 +132,10 @@ export class WriteCalendarEventsTool extends BaseTool {
       }
       const now = new Date().toISOString();
 
-      context?.onProgress?.('Checking for duplicate schedule events…');
+      context?.emitStage?.('fetching_data', {
+        icon: 'database',
+        phase: 'check_duplicate_events',
+      });
 
       // Fetch existing events for dedup
       const existingSnap = await this.db
@@ -247,7 +233,11 @@ export class WriteCalendarEventsTool extends BaseTool {
       }
 
       if (written > 0) {
-        context?.onProgress?.(`Writing ${written} event(s) to database…`);
+        context?.emitStage?.('submitting_job', {
+          icon: 'database',
+          eventCount: written,
+          phase: 'write_calendar_events',
+        });
         await batch.commit();
       }
 

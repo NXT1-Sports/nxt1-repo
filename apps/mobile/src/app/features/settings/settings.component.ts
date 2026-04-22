@@ -117,7 +117,10 @@ export class SettingsComponent {
           profileImg: user.profileImg ?? null,
           role: user.role,
           emailVerified: user.emailVerified,
-          createdAt: user.createdAt,
+          createdAt:
+            user.createdAt instanceof Date
+              ? user.createdAt.toISOString()
+              : user.createdAt.toString(),
           lastLoginAt: firebaseUser?.metadata?.lastSignInTime ?? null,
           authProvider: user.provider,
           isNativeMobile: true,

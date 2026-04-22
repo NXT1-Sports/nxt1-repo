@@ -929,7 +929,9 @@ function buildPreferences(d: LegacyUser): Record<string, unknown> {
 }
 
 /**
- * Build role-specific data blocks (AthleteData, CoachData, RecruiterData, etc.)
+ * Build legacy nested role-data blocks for migration output.
+ * These fields mirror the old V2 document shape and exist only so the
+ * migration can preserve backward-compatible documents during conversion.
  */
 function buildRoleSpecificData(
   d: LegacyUser,

@@ -501,14 +501,10 @@ export function buildUserUpdatePayload(state: OnboardingPersistenceState): Recor
   const sportEntries = formData.sport?.sports || [];
   if (sportEntries.length > 0) {
     const sports = sportEntries.map((entry, index) => {
-      const isAthlete = userType === USER_ROLES.ATHLETE;
-
       const sportData: Record<string, unknown> = {
         sport: entry.sport,
         order: index,
         positions: entry.positions || [],
-        // Only athletes get legacy seasonStats here; metrics now live in sport-scoped records.
-        ...(isAthlete ? { seasonStats: [] } : {}),
         team: {
           name: entry.team?.name || '',
           type: entry.team?.type || 'high-school',

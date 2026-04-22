@@ -1,7 +1,6 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
-import { Observable, from, of } from 'rxjs';
-import { tap } from 'rxjs/operators';
+import { Observable, from } from 'rxjs';
 import { environment } from '../../../../environments/environment';
 import { createProfileApi, type ProfileApi, type ApiResponse } from '@nxt1/core/profile';
 import {
@@ -12,20 +11,10 @@ import {
   type VerifiedMetric,
 } from '@nxt1/core';
 import { type FeedItemResponse } from '@nxt1/core/posts';
-import { PROFILE_CACHE_KEYS } from '@nxt1/core/profile';
-import { CACHE_CONFIG } from '@nxt1/core/cache';
 import { AngularHttpAdapter } from '../../infrastructure';
 import { clearHttpCache } from '../../infrastructure/http/cache.interceptor';
 import { PerformanceService } from '..';
 import { TRACE_NAMES, ATTRIBUTE_NAMES, METRIC_NAMES } from '@nxt1/core/performance';
-
-/**
- * In-memory cache entry for profile responses.
- */
-interface ProfileCacheEntry {
-  data: ApiResponse<User>;
-  expiresAt: number;
-}
 
 /**
  * Angular Profile Service
@@ -34,10 +23,8 @@ interface ProfileCacheEntry {
  * Uses shared core logic to avoid code duplication between platforms.
  *
  * Caching strategy:
- * - Service-level: in-memory Map keyed by PROFILE_CACHE_KEYS with MEDIUM_TTL (15 min)
- * - HTTP-level: httpCacheInterceptor matches /auth/profile/* with MEDIUM_TTL
- * Both layers work together: service cache avoids Observable creation overhead;
- * HTTP cache deduplicates in-flight requests and survives across navigations.
+ * - Transport-level only: httpCacheInterceptor matches /auth/profile/* with MEDIUM_TTL
+ * - Manual refresh paths clear transport cache via clearHttpCache()
  */
 @Injectable({
   providedIn: 'root',
@@ -48,9 +35,6 @@ export class ProfileService {
   private readonly ssrUrl = environment.apiURL;
   private readonly performance = inject(PerformanceService);
 
-  /** Service-level in-memory cache — keyed by PROFILE_CACHE_KEYS prefix + unicode */
-  private readonly profileCache = new Map<string, ProfileCacheEntry>();
-
   constructor() {
     // Create profile API instance with Angular HTTP adapter
     const httpAdapter = inject(AngularHttpAdapter);
@@ -58,62 +42,30 @@ export class ProfileService {
   }
 
   /**
-   * Build a cache key using the shared PROFILE_CACHE_KEYS constant.
-   * Keeps key format consistent across web, mobile, and backend.
-   */
-  private cacheKey(prefix: string, id: string): string {
-    return `${prefix}${id}`;
-  }
-
-  /**
-   * Return a cached entry if it's still within MEDIUM_TTL, otherwise null.
-   */
-  private getFromCache(key: string): ApiResponse<User> | null {
-    const entry = this.profileCache.get(key);
-    if (!entry) return null;
-    if (Date.now() > entry.expiresAt) {
-      this.profileCache.delete(key);
-      return null;
-    }
-    return entry.data;
-  }
-
-  /**
-   * Store a response in the in-memory cache with MEDIUM_TTL expiry.
-   */
-  private setCache(key: string, data: ApiResponse<User>): void {
-    this.profileCache.set(key, {
-      data,
-      expiresAt: Date.now() + CACHE_CONFIG.MEDIUM_TTL,
-    });
-  }
-
-  /**
-   * Invalidate cached data for a specific user.
-   * Call after profile updates so the next fetch reflects changes.
+   * Invalidate transport-level cached data for a specific user.
+   * Call after profile updates so the next fetch reflects changes immediately.
    */
   invalidateCache(userId: string, unicode?: string | null): void {
-    this.profileCache.delete(this.cacheKey(PROFILE_CACHE_KEYS.BY_ID, userId));
+    const patterns = [`*auth/profile/${userId}*`, '*auth/profile/me*'];
     if (unicode) {
-      this.profileCache.delete(this.cacheKey(PROFILE_CACHE_KEYS.BY_UNICODE, unicode));
+      patterns.push(`*auth/profile/unicode/${unicode}*`);
     }
+
+    void Promise.all(patterns.map((pattern) => clearHttpCache(pattern)));
   }
 
   /**
-   * Clear all cached profile data — both the service-level Map AND the
-   * HTTP interceptor LRU cache so reloadProfile() always fetches fresh data.
+   * Clear all cached profile data from the shared HTTP interceptor cache so
+   * reloadProfile() always fetches fresh data.
    * Used after Agent X profile generation to ensure fresh data is fetched.
    */
   invalidateAllProfileCache(): void {
-    this.profileCache.clear();
-    // Also bust the HTTP-level LRU so the next GET bypasses the interceptor cache.
-    void clearHttpCache('*profile*');
+    void Promise.all([clearHttpCache('*auth/profile*'), clearHttpCache('*profile*')]);
   }
 
   /**
    * Get current authenticated user's own profile.
    * Uses the /profile/me endpoint — no userId required.
-   * Caches under the authenticated user's ID (from response).
    */
   getMe(): Observable<ApiResponse<User>> {
     return from(
@@ -122,26 +74,13 @@ export class ProfileService {
           [ATTRIBUTE_NAMES.FEATURE_NAME]: 'profile_me',
         },
       })
-    ).pipe(
-      tap((response) => {
-        if (response.success && response.data?.id) {
-          // Cache under the resolved user ID so further navigations to /:id hit cache
-          const key = this.cacheKey(PROFILE_CACHE_KEYS.BY_ID, response.data.id);
-          this.setCache(key, response);
-        }
-      })
     );
   }
 
   /**
    * Get user profile by unicode (shareable numeric code).
-   * Checks service-level cache before hitting the network.
    */
   getProfileByUnicode(unicode: string): Observable<ApiResponse<User>> {
-    const key = this.cacheKey(PROFILE_CACHE_KEYS.BY_UNICODE, unicode);
-    const cached = this.getFromCache(key);
-    if (cached) return of(cached);
-
     return from(
       this.performance.trace(
         TRACE_NAMES.PROFILE_LOAD,
@@ -153,33 +92,20 @@ export class ProfileService {
           },
         }
       )
-    ).pipe(
-      tap((response) => {
-        if (response.success) this.setCache(key, response);
-      })
     );
   }
 
   /**
    * Get user profile by user ID.
-   * Checks service-level in-memory cache (MEDIUM_TTL) before hitting the network.
-   * HTTP-level cache (httpCacheInterceptor) provides a second caching layer.
+   * HTTP-level cache (httpCacheInterceptor) provides the shared transport cache.
    */
   getProfile(userId: string): Observable<ApiResponse<User>> {
-    const key = this.cacheKey(PROFILE_CACHE_KEYS.BY_ID, userId);
-    const cached = this.getFromCache(key);
-    if (cached) return of(cached);
-
     return from(
       this.performance.trace(TRACE_NAMES.PROFILE_LOAD, () => this.api.getProfile(userId), {
         attributes: {
           [ATTRIBUTE_NAMES.FEATURE_NAME]: 'profile_view',
           profile_id: userId,
         },
-      })
-    ).pipe(
-      tap((response) => {
-        if (response.success) this.setCache(key, response);
       })
     );
   }

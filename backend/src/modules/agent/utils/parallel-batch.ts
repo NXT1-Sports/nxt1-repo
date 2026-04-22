@@ -186,3 +186,13 @@ export async function parallelBatch<TInput, TOutput>(
 
   return results;
 }
+
+export function createParallelBatchProgressOptions(
+  progressHandler: NonNullable<ParallelBatchOptions['onProgress']>,
+  options?: Omit<ParallelBatchOptions, 'onProgress'>
+): ParallelBatchOptions {
+  return {
+    ...options,
+    onProgress: progressHandler,
+  };
+}

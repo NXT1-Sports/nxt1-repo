@@ -68,6 +68,8 @@ type ProfileUiApi = {
 
 @Injectable({ providedIn: 'root' })
 export class ProfileService {
+  private static readonly TEAM_THEME_SOURCE = 'profile-service';
+
   private readonly logger = inject(NxtLoggingService).child('ProfileService');
   private readonly toast = inject(NxtToastService);
   private readonly theme = inject(NxtThemeService);
@@ -916,8 +918,10 @@ export class ProfileService {
     const school = data.user?.school;
     if (school?.primaryColor) {
       this.theme.applyOrgTheme(school.primaryColor, school.secondaryColor);
+      this.theme.activateTeamTheme(ProfileService.TEAM_THEME_SOURCE);
     } else {
       this.theme.clearOrgTheme();
+      this.theme.deactivateTeamTheme(ProfileService.TEAM_THEME_SOURCE);
     }
   }
 
@@ -1159,5 +1163,6 @@ export class ProfileService {
     this._newsArticles.set([]);
     // Remove org brand colors so they don't bleed onto the next page.
     this.theme.clearOrgTheme();
+    this.theme.deactivateTeamTheme(ProfileService.TEAM_THEME_SOURCE);
   }
 }

@@ -12,7 +12,6 @@
 
 import { getFirestore, FieldValue, Timestamp, type Firestore } from 'firebase-admin/firestore';
 import type { AgentDashboardGoal, ShellWeeklyPlaybookItem, ShellBriefingInsight } from '@nxt1/core';
-import { getShellContentForRole } from '@nxt1/core';
 import { logger } from '../../../utils/logger.js';
 import {
   getRecurringHabitsPrompt,
@@ -23,17 +22,54 @@ import {
 } from '../memory/context-builder.js';
 import { VectorMemoryService } from '../memory/vector.service.js';
 import { OpenRouterService } from '../llm/openrouter.service.js';
+import type { LLMCompletionOptions, LLMMessage } from '../llm/llm.types.js';
+import { resolveStructuredOutput } from '../llm/structured-output.js';
+import { z } from 'zod';
+import { getAgentAppConfig } from '../config/agent-app-config.js';
 
 // ─── Shared Helpers ─────────────────────────────────────────────────────────
 
-/** Strip markdown code fences from LLM JSON output. */
-function stripMarkdownFences(text: string): string {
-  let cleaned = text.trim();
-  if (cleaned.startsWith('```')) {
-    cleaned = cleaned.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
-  }
-  return cleaned;
-}
+const playbookGoalSchema = z.object({
+  id: z.string().optional(),
+  label: z.string().optional(),
+});
+
+const playbookCoordinatorSchema = z.object({
+  id: z.string().optional(),
+  label: z.string().optional(),
+  icon: z.string().optional(),
+});
+
+const playbookItemSchema = z.object({
+  id: z.string().optional(),
+  weekLabel: z.string().optional(),
+  title: z.string().optional(),
+  summary: z.string().optional(),
+  why: z.string().optional(),
+  details: z.string().optional(),
+  actionLabel: z.string().optional(),
+  goal: playbookGoalSchema.optional(),
+  coordinator: playbookCoordinatorSchema.optional(),
+});
+
+const playbookResponseSchema = z.array(playbookItemSchema);
+
+const briefingInsightSchema = z.object({
+  id: z.string().optional(),
+  text: z.string().optional(),
+  icon: z.string().optional(),
+  type: z.enum(['info', 'warning', 'success']).optional(),
+});
+
+const briefingResponseSchema = z.object({
+  previewText: z.string().optional(),
+  insights: z.array(briefingInsightSchema).optional(),
+});
+
+const playbookNudgeResponseSchema = z.object({
+  title: z.string().optional(),
+  body: z.string().optional(),
+});
 
 /** Extract human-readable delta sync parts from a sync report document. */
 function extractDeltaSyncParts(reportData: Record<string, unknown>): string[] {
@@ -102,17 +138,26 @@ export class AgentGenerationService {
    * (keyed by operationId) so billing deduction can pick them up.
    * When absent, falls back to creating a blind instance (legacy behavior).
    */
+  private readonly firestore?: Firestore;
   private readonly llmService?: OpenRouterService;
+  private readonly injectedContextBuilder?: ContextBuilder;
   private ownedLlmService?: OpenRouterService;
-  private contextBuilder?: ContextBuilder;
+  private ownedLlmServiceFirestore?: Firestore;
+  private ownedContextBuilder?: ContextBuilder;
+  private ownedContextBuilderFirestore?: Firestore;
 
-  constructor(llmService?: OpenRouterService, contextBuilder?: ContextBuilder) {
+  constructor(
+    llmService?: OpenRouterService,
+    contextBuilder?: ContextBuilder,
+    firestore?: Firestore
+  ) {
+    this.firestore = firestore;
     this.llmService = llmService;
-    this.contextBuilder = contextBuilder;
+    this.injectedContextBuilder = contextBuilder;
   }
 
   private get db(): Firestore {
-    return getFirestore();
+    return this.firestore ?? getFirestore();
   }
 
   /** Return a Firestore reference, preferring an explicit override. */
@@ -120,23 +165,31 @@ export class AgentGenerationService {
     return dbOverride ?? this.db;
   }
 
-  private getOrCreateLlmService(): OpenRouterService {
+  private getOrCreateLlmService(dbOverride?: Firestore): OpenRouterService {
     if (this.llmService) return this.llmService;
-    if (!this.ownedLlmService) {
-      this.ownedLlmService = new OpenRouterService();
+    const db = this.resolveDb(dbOverride);
+    if (!this.ownedLlmService || this.ownedLlmServiceFirestore !== db) {
+      this.ownedLlmService = new OpenRouterService({ firestore: db });
+      this.ownedLlmServiceFirestore = db;
     }
     return this.ownedLlmService;
   }
 
-  private getOrCreateContextBuilder(): ContextBuilder {
-    if (this.contextBuilder) return this.contextBuilder;
-    this.contextBuilder = new ContextBuilder(new VectorMemoryService(this.getOrCreateLlmService()));
-    return this.contextBuilder;
+  private getOrCreateContextBuilder(dbOverride?: Firestore): ContextBuilder {
+    if (this.injectedContextBuilder) return this.injectedContextBuilder;
+    const db = this.resolveDb(dbOverride);
+    if (!this.ownedContextBuilder || this.ownedContextBuilderFirestore !== db) {
+      this.ownedContextBuilder = new ContextBuilder(
+        new VectorMemoryService(this.getOrCreateLlmService(db))
+      );
+      this.ownedContextBuilderFirestore = db;
+    }
+    return this.ownedContextBuilder;
   }
 
   private async buildPromptContextText(uid: string, query: string, db: Firestore): Promise<string> {
     try {
-      const builder = this.getOrCreateContextBuilder();
+      const builder = this.getOrCreateContextBuilder(db);
       const promptContext = await builder.buildPromptContext(uid, query, db);
       return builder.compressToPrompt(
         promptContext.profile,
@@ -201,6 +254,143 @@ export class AgentGenerationService {
     );
 
     return lines.join('\n');
+  }
+
+  private async generateStructuredPayload<T>(
+    messages: readonly LLMMessage[],
+    options: LLMCompletionOptions<T>,
+    schema: z.ZodType<T>,
+    label: string,
+    dbOverride?: Firestore
+  ): Promise<{ parsed: T; rawContent: string | null }> {
+    const llmResult = await this.getOrCreateLlmService(dbOverride).complete(messages, options);
+    return {
+      parsed: resolveStructuredOutput(llmResult, schema, `${label} generation`),
+      rawContent: llmResult.content ?? null,
+    };
+  }
+
+  private async saveGeneratedPlaybook(
+    uid: string,
+    db: Firestore,
+    payload: {
+      readonly items: ShellWeeklyPlaybookItem[];
+      readonly goals: AgentDashboardGoal[];
+      readonly generatedAt: string;
+      readonly role: string;
+    }
+  ): Promise<void> {
+    const playbooksRef = db.collection('Users').doc(uid).collection('agent_playbooks');
+    const playbookRef = playbooksRef.doc();
+    await playbookRef.set({
+      items: payload.items,
+      goals: payload.goals,
+      generatedAt: payload.generatedAt,
+      role: payload.role,
+      source: 'llm',
+    });
+
+    try {
+      const goalHistoryRef = db.collection('Users').doc(uid).collection('goal_history');
+      const goalBatch = db.batch();
+      for (const goal of payload.goals) {
+        const historyDocRef = goalHistoryRef.doc(goal.id);
+        const existing = await historyDocRef.get();
+        if (existing.exists) {
+          goalBatch.update(historyDocRef, {
+            text: goal.text,
+            category: goal.category,
+            ...(goal.icon ? { icon: goal.icon } : {}),
+            latestPlaybookId: playbookRef.id,
+            lastSeenAt: payload.generatedAt,
+            playbookCount: (existing.data()?.['playbookCount'] ?? 0) + 1,
+            itemsTotal: payload.items.filter((item) => item.goal?.id === goal.id).length,
+            itemsCompleted: 0,
+            isCompleted: false,
+            completedAt: null,
+          });
+        } else {
+          const itemsForGoal = payload.items.filter((item) => item.goal?.id === goal.id).length;
+          goalBatch.set(historyDocRef, {
+            id: goal.id,
+            goalId: goal.id,
+            text: goal.text,
+            category: goal.category,
+            ...(goal.icon ? { icon: goal.icon } : {}),
+            createdAt: goal.createdAt ?? payload.generatedAt,
+            latestPlaybookId: playbookRef.id,
+            firstSeenAt: payload.generatedAt,
+            lastSeenAt: payload.generatedAt,
+            playbookCount: 1,
+            itemsTotal: itemsForGoal,
+            itemsCompleted: 0,
+            role: payload.role,
+            isCompleted: false,
+          });
+        }
+
+        const cycleRef = historyDocRef.collection('cycles').doc(playbookRef.id);
+        const goalItemsThisCycle = payload.items.filter((item) => item.goal?.id === goal.id);
+        goalBatch.set(cycleRef, {
+          playbookId: playbookRef.id,
+          generatedAt: payload.generatedAt,
+          itemsTotal: goalItemsThisCycle.length,
+          itemsCompleted: 0,
+          isCompleted: false,
+          completedAt: null,
+          completedItems: [],
+          pendingItems: goalItemsThisCycle.map((item) => ({ id: item.id, title: item.title })),
+        });
+      }
+      await goalBatch.commit();
+      logger.info('Goal history auto-archived', { userId: uid, goalCount: payload.goals.length });
+    } catch (historyErr) {
+      logger.warn('Failed to auto-archive goal history', {
+        userId: uid,
+        error: historyErr instanceof Error ? historyErr.message : String(historyErr),
+      });
+    }
+
+    try {
+      const allPlaybooks = await playbooksRef.orderBy('generatedAt', 'desc').get();
+      const toDelete = allPlaybooks.docs.slice(10);
+      await Promise.all(toDelete.map((doc) => doc.ref.delete()));
+    } catch (pruneErr) {
+      logger.warn('Failed to prune old playbook documents', {
+        userId: uid,
+        error: pruneErr instanceof Error ? pruneErr.message : String(pruneErr),
+      });
+    }
+  }
+
+  private async saveGeneratedBriefing(
+    uid: string,
+    db: Firestore,
+    payload: {
+      readonly previewText: string;
+      readonly insights: ShellBriefingInsight[];
+      readonly generatedAt: string;
+      readonly role: string;
+    }
+  ): Promise<void> {
+    const briefingsRef = db.collection('Users').doc(uid).collection('agent_briefings');
+    await briefingsRef.add({
+      previewText: payload.previewText,
+      insights: payload.insights,
+      generatedAt: payload.generatedAt,
+      role: payload.role,
+    });
+
+    try {
+      const allBriefings = await briefingsRef.orderBy('generatedAt', 'desc').get();
+      const toDelete = allBriefings.docs.slice(7);
+      await Promise.all(toDelete.map((doc) => doc.ref.delete()));
+    } catch (pruneErr) {
+      logger.warn('Failed to prune old briefing documents', {
+        userId: uid,
+        error: pruneErr instanceof Error ? pruneErr.message : String(pruneErr),
+      });
+    }
   }
 
   /**
@@ -338,9 +528,9 @@ export class AgentGenerationService {
       // Delta context is non-critical — continue without it
     }
 
-    const shellContent = getShellContentForRole(role);
-    const coordinatorsList = shellContent.coordinators
-      .map((c) => `- id: "${c.id}", label: "${c.label}", icon: "${c.icon}"`)
+    const agentConfig = await getAgentAppConfig(db);
+    const coordinatorsList = agentConfig.coordinators
+      .map((c) => `- id: "${c.id}", label: "${c.name}", icon: "${c.icon ?? 'sparkles'}"`)
       .join('\n');
 
     const prompt = [
@@ -399,8 +589,7 @@ export class AgentGenerationService {
     let llmRawContent: string | null | undefined;
 
     try {
-      const llm = this.getOrCreateLlmService();
-      const llmResult = await llm.complete(
+      const { parsed, rawContent } = await this.generateStructuredPayload(
         [
           {
             role: 'system',
@@ -413,59 +602,47 @@ export class AgentGenerationService {
           tier: 'chat',
           maxTokens: 2048,
           temperature: 0.7,
-          jsonMode: true,
+          outputSchema: {
+            name: 'agent_playbook_items',
+            schema: playbookResponseSchema,
+          },
           ...(operationId
-            ? { telemetryContext: { operationId, userId: uid, agentId: 'general' as const } }
+            ? {
+                telemetryContext: {
+                  operationId,
+                  userId: uid,
+                  agentId: 'strategy_coordinator' as const,
+                },
+              }
             : {}),
-        }
+        },
+        playbookResponseSchema,
+        'Playbook',
+        db
       );
-      llmRawContent = llmResult.content ?? null;
-
-      try {
-        const jsonText = stripMarkdownFences(llmResult.content ?? '');
-        const parsed = JSON.parse(jsonText) as unknown;
-        // Handle both bare array and wrapped object e.g. { "items": [...] } or { "playbook": [...] }
-        let itemArray: unknown = parsed;
-        if (!Array.isArray(parsed) && parsed !== null && typeof parsed === 'object') {
-          const obj = parsed as Record<string, unknown>;
-          itemArray = obj['items'] ?? obj['playbook'] ?? obj['tasks'] ?? obj['data'] ?? null;
-          if (!Array.isArray(itemArray)) {
-            // Last resort: grab the first array-valued key
-            itemArray = Object.values(obj).find((v) => Array.isArray(v)) ?? null;
-          }
-        }
-        if (Array.isArray(itemArray)) {
-          playbookItems = (itemArray as Record<string, unknown>[]).map((item) => ({
-            id: String(item['id'] ?? `wp-${crypto.randomUUID().slice(0, 8)}`),
-            weekLabel: String(item['weekLabel'] ?? ''),
-            title: String(item['title'] ?? ''),
-            summary: String(item['summary'] ?? ''),
-            why: String(item['why'] ?? ''),
-            details: String(item['details'] ?? ''),
-            actionLabel: String(item['actionLabel'] ?? 'Take Action'),
-            status: 'pending' as const,
-            goal:
-              item['goal'] && typeof item['goal'] === 'object'
-                ? {
-                    id: String((item['goal'] as Record<string, unknown>)['id'] ?? ''),
-                    label: String((item['goal'] as Record<string, unknown>)['label'] ?? ''),
-                  }
-                : undefined,
-            coordinator:
-              item['coordinator'] && typeof item['coordinator'] === 'object'
-                ? {
-                    id: String((item['coordinator'] as Record<string, unknown>)['id'] ?? ''),
-                    label: String((item['coordinator'] as Record<string, unknown>)['label'] ?? ''),
-                    icon: String(
-                      (item['coordinator'] as Record<string, unknown>)['icon'] ?? 'sparkles'
-                    ),
-                  }
-                : undefined,
-          }));
-        }
-      } catch (parseErr) {
-        logger.error('Failed to parse playbook JSON from LLM', { error: String(parseErr) });
-      }
+      llmRawContent = rawContent;
+      playbookItems = parsed.map((item) => ({
+        id: item.id ?? `wp-${crypto.randomUUID().slice(0, 8)}`,
+        weekLabel: item.weekLabel ?? '',
+        title: item.title ?? '',
+        summary: item.summary ?? '',
+        why: item.why ?? '',
+        details: item.details ?? '',
+        actionLabel: item.actionLabel ?? 'Take Action',
+        status: 'pending' as const,
+        goal:
+          item.goal?.id && item.goal.label
+            ? { id: item.goal.id, label: item.goal.label }
+            : undefined,
+        coordinator:
+          item.coordinator?.id && item.coordinator.label
+            ? {
+                id: item.coordinator.id,
+                label: item.coordinator.label,
+                icon: item.coordinator.icon ?? 'sparkles',
+              }
+            : undefined,
+      }));
     } catch (error) {
       logger.warn('OpenRouter not available for playbook generation', {
         userId: uid,
@@ -484,102 +661,12 @@ export class AgentGenerationService {
 
     const generatedAt = new Date().toISOString();
 
-    // Persist and prune old playbooks (keep last 10)
-    const playbooksRef = db.collection('Users').doc(uid).collection('agent_playbooks');
-    const playbookRef = playbooksRef.doc(); // pre-allocate ID so goal_history can reference it
-    await playbookRef.set({
+    await this.saveGeneratedPlaybook(uid, db, {
       items: playbookItems,
       goals: agentGoals,
       generatedAt,
       role,
-      source: 'llm',
     });
-
-    // ── Auto-archive active goals to goal_history ─────────────────────────
-    // Each time a new playbook is generated we snapshot the goals that drove
-    // it.  If a goal_history record already exists for this goal ID we update
-    // it with the latest playbookId so the history stays current without
-    // duplicating.  We do NOT remove the goal from agentGoals here — users
-    // keep their goals active across multiple playbook cycles.
-    try {
-      const goalHistoryRef = db.collection('Users').doc(uid).collection('goal_history');
-      const goalBatch = db.batch();
-      for (const goal of agentGoals) {
-        const historyDocRef = goalHistoryRef.doc(goal.id);
-        const existing = await historyDocRef.get();
-        if (existing.exists) {
-          // Update the latest playbook reference and bump lastSeenAt
-          goalBatch.update(historyDocRef, {
-            // Keep metadata in sync if user edited the goal label/category
-            text: goal.text,
-            category: goal.category,
-            ...(goal.icon ? { icon: goal.icon } : {}),
-            latestPlaybookId: playbookRef.id,
-            lastSeenAt: generatedAt,
-            playbookCount: (existing.data()?.['playbookCount'] ?? 0) + 1,
-            // Reset item counters for the new playbook cycle
-            itemsTotal: playbookItems.filter((item) => item.goal?.id === goal.id).length,
-            itemsCompleted: 0,
-            isCompleted: false,
-            completedAt: null,
-          });
-        } else {
-          // First time this goal has driven a playbook — create the record
-          const itemsForGoal = playbookItems.filter((item) => item.goal?.id === goal.id).length;
-          goalBatch.set(historyDocRef, {
-            id: goal.id,
-            goalId: goal.id,
-            text: goal.text,
-            category: goal.category,
-            ...(goal.icon ? { icon: goal.icon } : {}),
-            createdAt: goal.createdAt ?? generatedAt,
-            latestPlaybookId: playbookRef.id,
-            firstSeenAt: generatedAt,
-            lastSeenAt: generatedAt,
-            playbookCount: 1,
-            itemsTotal: itemsForGoal,
-            itemsCompleted: 0,
-            role,
-            isCompleted: false,
-          });
-        }
-
-        // ── Append immutable cycle record ──────────────────────────────────
-        // One doc per playbook generation — never overwritten, gives full
-        // audit trail of exactly which items ran toward this goal each cycle.
-        const cycleRef = historyDocRef.collection('cycles').doc(playbookRef.id);
-        const goalItemsThisCycle = playbookItems.filter((item) => item.goal?.id === goal.id);
-        goalBatch.set(cycleRef, {
-          playbookId: playbookRef.id,
-          generatedAt,
-          itemsTotal: goalItemsThisCycle.length,
-          itemsCompleted: 0,
-          isCompleted: false,
-          completedAt: null,
-          completedItems: [],
-          pendingItems: goalItemsThisCycle.map((i) => ({ id: i.id, title: i.title })),
-        });
-      }
-      await goalBatch.commit();
-      logger.info('Goal history auto-archived', { userId: uid, goalCount: agentGoals.length });
-    } catch (historyErr) {
-      // Non-critical — playbook was already saved, just log the warning
-      logger.warn('Failed to auto-archive goal history', {
-        userId: uid,
-        error: historyErr instanceof Error ? historyErr.message : String(historyErr),
-      });
-    }
-
-    try {
-      const allPlaybooks = await playbooksRef.orderBy('generatedAt', 'desc').get();
-      const toDelete = allPlaybooks.docs.slice(10);
-      await Promise.all(toDelete.map((doc) => doc.ref.delete()));
-    } catch (pruneErr) {
-      logger.warn('Failed to prune old playbook documents', {
-        userId: uid,
-        error: pruneErr instanceof Error ? pruneErr.message : String(pruneErr),
-      });
-    }
 
     logger.info('Agent playbook generated', {
       userId: uid,
@@ -589,7 +676,7 @@ export class AgentGenerationService {
 
     // Notify user that their Action Plan / Playbook is ready
     try {
-      const { dispatch } = await import('../../../services/notification.service.js');
+      const { dispatch } = await import('../../../services/communications/notification.service.js');
       const { NOTIFICATION_TYPES } = await import('@nxt1/core');
 
       // ── Build personalized notification copy ──────────────────────────
@@ -697,86 +784,90 @@ export class AgentGenerationService {
     const role = (userData['role'] ?? 'athlete') as string;
     const agentGoals: AgentDashboardGoal[] = (userData['agentGoals'] ?? []) as AgentDashboardGoal[];
     const primarySport = resolvePrimarySport(userData);
-    const promptContextText = await this.buildPromptContextText(
-      uid,
-      this.buildPlanningMemoryQuery('briefing', role, primarySport, agentGoals),
-      db
-    );
     const planningScaffolding = this.buildPlanningScaffolding(primarySport, userData);
-
     const goalsText =
       agentGoals.length > 0 ? agentGoals.map((g) => `• ${g.text}`).join('\n') : 'No goals set yet.';
+    const [promptContextText, recentActivityText, syncContext, completedGoalsText] =
+      await Promise.all([
+        this.buildPromptContextText(
+          uid,
+          this.buildPlanningMemoryQuery('briefing', role, primarySport, agentGoals),
+          db
+        ),
+        (async (): Promise<string> => {
+          try {
+            const recentBriefings = await db
+              .collection('Users')
+              .doc(uid)
+              .collection('agent_playbooks')
+              .orderBy('generatedAt', 'desc')
+              .limit(5)
+              .get();
 
-    // ── Fetch recent operations (last 24h activity) ─────────────────────
-    let recentActivityText = '';
-    try {
-      const recentBriefings = await db
-        .collection('Users')
-        .doc(uid)
-        .collection('agent_playbooks')
-        .orderBy('generatedAt', 'desc')
-        .limit(5)
-        .get();
+            const recentRealPlaybook = recentBriefings.docs.find((doc) => {
+              const items = (doc.data()['items'] ?? []) as ShellWeeklyPlaybookItem[];
+              return !isLegacyFallbackPlaybook(items);
+            });
 
-      const recentRealPlaybook = recentBriefings.docs.find((doc) => {
-        const items = (doc.data()['items'] ?? []) as ShellWeeklyPlaybookItem[];
-        return !isLegacyFallbackPlaybook(items);
-      });
+            if (!recentRealPlaybook) {
+              return '';
+            }
 
-      if (recentRealPlaybook) {
-        const items = (recentRealPlaybook.data()['items'] ?? []) as ShellWeeklyPlaybookItem[];
-        const completed = items.filter((i) => i.status === 'complete').slice(0, 5);
-        if (completed.length > 0) {
-          recentActivityText =
-            `\n\nRecently completed tasks:\n` + completed.map((t) => `• ${t.title}`).join('\n');
-        }
-      }
-    } catch {
-      // Non-critical — continue without recent activity
-    }
+            const items = (recentRealPlaybook.data()['items'] ?? []) as ShellWeeklyPlaybookItem[];
+            const completed = items.filter((item) => item.status === 'complete').slice(0, 5);
+            return completed.length > 0
+              ? `\n\nRecently completed tasks:\n${completed.map((task) => `• ${task.title}`).join('\n')}`
+              : '';
+          } catch {
+            return '';
+          }
+        })(),
+        (async (): Promise<string> => {
+          try {
+            const syncReport = await db
+              .collection('Users')
+              .doc(uid)
+              .collection('agent_sync_reports')
+              .orderBy('syncedAt', 'desc')
+              .limit(1)
+              .get();
 
-    // ── Fetch recent delta sync context ─────────────────────────────────
-    let syncContext = '';
-    try {
-      const syncReport = await db
-        .collection('Users')
-        .doc(uid)
-        .collection('agent_sync_reports')
-        .orderBy('syncedAt', 'desc')
-        .limit(1)
-        .get();
+            if (syncReport.empty) {
+              return '';
+            }
 
-      if (!syncReport.empty) {
-        const parts = extractDeltaSyncParts(syncReport.docs[0].data());
-        if (parts.length > 0) {
-          syncContext = `\n\nProfile sync detected: ${parts.join(', ')}.`;
-        }
-      }
-    } catch {
-      // Non-critical — continue without sync context
-    }
+            const parts = extractDeltaSyncParts(syncReport.docs[0].data());
+            return parts.length > 0 ? `\n\nProfile sync detected: ${parts.join(', ')}.` : '';
+          } catch {
+            return '';
+          }
+        })(),
+        (async (): Promise<string> => {
+          try {
+            const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+            const completedGoalsSnap = await db
+              .collection('Users')
+              .doc(uid)
+              .collection('goal_history')
+              .where('isCompleted', '==', true)
+              .where('completedAt', '>=', sevenDaysAgo)
+              .orderBy('completedAt', 'desc')
+              .limit(3)
+              .get();
 
-    // ── Fetch recently completed goals (last 7 days) ─────────────────────
-    let completedGoalsText = '';
-    try {
-      const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-      const completedGoalsSnap = await db
-        .collection('Users')
-        .doc(uid)
-        .collection('goal_history')
-        .where('isCompleted', '==', true)
-        .where('completedAt', '>=', sevenDaysAgo)
-        .orderBy('completedAt', 'desc')
-        .limit(3)
-        .get();
+            if (completedGoalsSnap.empty) {
+              return '';
+            }
 
-      if (!completedGoalsSnap.empty) {
-        const names = completedGoalsSnap.docs.map((d) => `• ${String(d.data()['text'] ?? '')}`);
-        completedGoalsText = `\n\nRecently completed goals:\n${names.join('\n')}`;
-      }
-    } catch {
-      // Non-critical — continue without completed goals
-    }
+            const names = completedGoalsSnap.docs.map(
+              (doc) => `• ${String(doc.data()['text'] ?? '')}`
+            );
+            return `\n\nRecently completed goals:\n${names.join('\n')}`;
+          } catch {
+            return '';
+          }
+        })(),
+      ]);
 
     // ── Build LLM prompt ────────────────────────────────────────────────
     const promptLines = [
@@ -792,7 +883,9 @@ export class AgentGenerationService {
       completedGoalsText,
       syncContext,
       ``,
-      `Generate a briefing that feels personally crafted for this user — reference their sport, season phase, role, and goals. Never be generic.`,
+      agentGoals.length > 0
+        ? `Generate a briefing that feels personally crafted for this user — reference their sport, season phase, role, and goals. Never be generic.`
+        : `Since this user has no goals set, focus the insights on welcoming them to Agent X, encouraging them to set goals, exploring the platform, or connecting accounts. Be helpful and onboarding-focused.`,
       ``,
       `Return ONLY a JSON object with:`,
       `- "previewText": one sentence summary of today's focus (max 80 chars) — personalized to their role and season`,
@@ -812,8 +905,7 @@ export class AgentGenerationService {
     let briefingPreviewText = `Good morning, ${displayName || 'athlete'}. Here's your daily focus.`;
 
     try {
-      const llm = this.getOrCreateLlmService();
-      const llmResult = await llm.complete(
+      const { parsed } = await this.generateStructuredPayload(
         [
           {
             role: 'system',
@@ -823,35 +915,36 @@ export class AgentGenerationService {
           { role: 'user', content: promptLines },
         ],
         {
-          tier: 'chat',
+          tier: 'extraction',
           maxTokens: 1024,
           temperature: 0.7,
-          jsonMode: true,
+          outputSchema: {
+            name: 'agent_briefing',
+            schema: briefingResponseSchema,
+          },
           ...(operationId
-            ? { telemetryContext: { operationId, userId: uid, agentId: 'general' as const } }
+            ? {
+                telemetryContext: {
+                  operationId,
+                  userId: uid,
+                  agentId: 'strategy_coordinator' as const,
+                },
+              }
             : {}),
-        }
+        },
+        briefingResponseSchema,
+        'Briefing',
+        db
       );
-
-      try {
-        const jsonText = stripMarkdownFences(llmResult.content ?? '');
-        const parsed = JSON.parse(jsonText) as Record<string, unknown>;
-        if (typeof parsed['previewText'] === 'string') {
-          briefingPreviewText = parsed['previewText'];
-        }
-        if (Array.isArray(parsed['insights'])) {
-          briefingInsights = (parsed['insights'] as Record<string, unknown>[]).map((ins, idx) => ({
-            id: String(ins['id'] ?? `bi-${idx + 1}`),
-            text: String(ins['text'] ?? ''),
-            icon: sanitizeBriefingIcon(ins['icon']),
-            type: (['info', 'warning', 'success'].includes(String(ins['type']))
-              ? ins['type']
-              : 'info') as ShellBriefingInsight['type'],
-          }));
-        }
-      } catch (parseErr) {
-        logger.error('Failed to parse briefing JSON from LLM', { error: String(parseErr) });
+      if (parsed.previewText) {
+        briefingPreviewText = parsed.previewText;
       }
+      briefingInsights = (parsed.insights ?? []).map((ins, idx) => ({
+        id: ins.id ?? `bi-${idx + 1}`,
+        text: ins.text ?? '',
+        icon: sanitizeBriefingIcon(ins.icon),
+        type: ins.type ?? 'info',
+      }));
     } catch {
       logger.warn('OpenRouter not available for briefing generation, using fallback');
     }
@@ -879,25 +972,12 @@ export class AgentGenerationService {
 
     const generatedAt = new Date().toISOString();
 
-    // ── Persist and prune briefings (keep last 7) ───────────────────────
-    const briefingsRef = db.collection('Users').doc(uid).collection('agent_briefings');
-    await briefingsRef.add({
+    await this.saveGeneratedBriefing(uid, db, {
       previewText: briefingPreviewText,
       insights: briefingInsights,
       generatedAt,
       role,
     });
-
-    try {
-      const allBriefings = await briefingsRef.orderBy('generatedAt', 'desc').get();
-      const toDelete = allBriefings.docs.slice(7);
-      await Promise.all(toDelete.map((doc) => doc.ref.delete()));
-    } catch (pruneErr) {
-      logger.warn('Failed to prune old briefing documents', {
-        userId: uid,
-        error: pruneErr instanceof Error ? pruneErr.message : String(pruneErr),
-      });
-    }
 
     logger.info('Agent briefing generated', {
       userId: uid,
@@ -906,7 +986,7 @@ export class AgentGenerationService {
 
     // Notify user that their Daily Briefing is ready
     try {
-      const { dispatch } = await import('../../../services/notification.service.js');
+      const { dispatch } = await import('../../../services/communications/notification.service.js');
       const { NOTIFICATION_TYPES } = await import('@nxt1/core');
       await dispatch(db, {
         userId: uid,
@@ -1129,8 +1209,7 @@ export class AgentGenerationService {
       .join('\n');
 
     try {
-      const llm = this.getOrCreateLlmService();
-      const llmResult = await llm.complete(
+      const { parsed } = await this.generateStructuredPayload(
         [
           {
             role: 'system',
@@ -1143,14 +1222,14 @@ export class AgentGenerationService {
           tier: 'copywriting',
           maxTokens: 120,
           temperature: 0.8,
-          jsonMode: true,
-        }
+          outputSchema: {
+            name: 'agent_playbook_nudge',
+            schema: playbookNudgeResponseSchema,
+          },
+        },
+        playbookNudgeResponseSchema,
+        'Playbook nudge'
       );
-
-      const parsed = JSON.parse(stripMarkdownFences(llmResult.content ?? '')) as {
-        title?: string;
-        body?: string;
-      };
 
       const title = String(parsed.title ?? '')
         .trim()

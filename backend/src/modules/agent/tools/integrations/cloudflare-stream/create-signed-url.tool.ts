@@ -19,31 +19,13 @@ export class CreateSignedUrlTool extends BaseTool {
     'The signed URL allows temporary viewing without exposing the raw video ID. ' +
     'Default expiry is 60 minutes. Can also allow downloads via the signed URL.';
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      videoId: {
-        type: 'string',
-        description: 'The Cloudflare video ID to create a signed URL for.',
-      },
-      expiresInMinutes: {
-        type: 'number',
-        description:
-          'How long the signed URL is valid, in minutes (default: 60, max: 43200 = 30 days).',
-      },
-      downloadable: {
-        type: 'boolean',
-        description: 'Whether the signed URL allows downloading the video (default: false).',
-      },
-    },
-    required: ['videoId'],
-  } as const;
+  readonly parameters = CreateSignedUrlInputSchema;
 
   override readonly allowedAgents = [
-    'brand_media_coordinator',
+    'brand_coordinator',
     'data_coordinator',
     'recruiting_coordinator',
-    'general',
+    'strategy_coordinator',
   ] as const;
 
   readonly isMutation = false;

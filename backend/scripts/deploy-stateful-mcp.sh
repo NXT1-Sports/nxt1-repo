@@ -186,7 +186,8 @@ BUCKET_NAME="${BUCKET_NAME:-${PROJECT_ID}-${SERVICE_NAME}-state}"
 IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${ARTIFACT_REPO}/${SERVICE_NAME}:latest"
 
 ENV_FILE="$(mktemp)"
-trap 'rm -f "${ENV_FILE}"' EXIT
+BUILD_CONFIG_FILE="$(mktemp)"
+trap 'rm -f "${ENV_FILE}" "${BUILD_CONFIG_FILE}"' EXIT
 
 {
   printf 'MCP_LAUNCH_COMMAND: %s\n' "$(yaml_quote "${LAUNCH_COMMAND}")"
@@ -200,11 +201,24 @@ trap 'rm -f "${ENV_FILE}"' EXIT
   fi
 } > "${ENV_FILE}"
 
+cat > "${BUILD_CONFIG_FILE}" <<EOF
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - mcp/Dockerfile
+      - -t
+      - ${IMAGE}
+      - .
+images:
+  - ${IMAGE}
+EOF
+
 BUILD_CMD=(
   gcloud builds submit "${BACKEND_DIR}"
   --project "${PROJECT_ID}"
-  --tag "${IMAGE}"
-  --file "${BACKEND_DIR}/mcp/Dockerfile"
+  --config "${BUILD_CONFIG_FILE}"
 )
 
 DEPLOY_CMD=(

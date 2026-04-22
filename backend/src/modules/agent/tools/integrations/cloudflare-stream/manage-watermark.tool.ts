@@ -20,28 +20,9 @@ export class ManageWatermarkTool extends BaseTool {
     'onto video clips. Create a watermark once, then pass its ID to clip_video. ' +
     'Action "create" requires name and imageUrl. Action "list" returns all existing profiles.';
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      action: {
-        type: 'string',
-        enum: ['create', 'list'],
-        description: '"create" to upload a new watermark, "list" to see existing ones.',
-      },
-      name: {
-        type: 'string',
-        description: 'Name for the watermark profile (required for "create").',
-      },
-      imageUrl: {
-        type: 'string',
-        description:
-          'URL to a transparent PNG image for the watermark (required for "create", max 2MB).',
-      },
-    },
-    required: ['action'],
-  } as const;
+  readonly parameters = ManageWatermarkInputSchema;
 
-  override readonly allowedAgents = ['brand_media_coordinator', 'general'] as const;
+  override readonly allowedAgents = ['brand_coordinator', 'strategy_coordinator'] as const;
 
   readonly isMutation = true;
   readonly category = 'media' as const;
@@ -84,7 +65,11 @@ export class ManageWatermarkTool extends BaseTool {
         imageUrl: imageUrl.slice(0, 100),
         userId: context?.userId,
       });
-      context?.onProgress?.(`Creating watermark profile "${name}"…`);
+      context?.emitStage?.('uploading_assets', {
+        icon: 'upload',
+        watermarkName: name,
+        phase: 'create_watermark',
+      });
 
       try {
         const watermark = await this.bridge.createWatermarkProfile(name, imageUrl);

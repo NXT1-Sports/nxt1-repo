@@ -144,6 +144,27 @@ import * as Sentry from '@sentry/angular';
 
 import { environment } from '../environments/environment';
 
+function normalizeFirestoreSnapshotValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((entry) => normalizeFirestoreSnapshotValue(entry));
+  }
+
+  if (value && typeof value === 'object') {
+    if (typeof (value as { toDate?: unknown }).toDate === 'function') {
+      return (value as { toDate: () => Date }).toDate().toISOString();
+    }
+
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([key, entry]) => [
+        key,
+        normalizeFirestoreSnapshotValue(entry),
+      ])
+    );
+  }
+
+  return value;
+}
+
 /**
  * Custom preloading strategy that waits until the browser is idle
  * before preloading lazy routes. This prevents chunk loading from
@@ -297,12 +318,19 @@ export const appConfig: ApplicationConfig = {
           onNext: (docs: ReadonlyArray<Record<string, unknown>>) => void,
           onError: (error: Error) => void
         ) => {
+          if (!/^AgentJobs\/[^/]+\/events$/.test(path)) {
+            throw new Error(`Unsupported Firestore subscription path: ${path}`);
+          }
           const ref = collection(firestore, path);
           const q = query(ref, firestoreOrderBy(orderByField));
           return firestoreOnSnapshot(
             q,
             (snap) => {
-              onNext(snap.docs.map((d) => d.data()));
+              onNext(
+                snap.docs.map(
+                  (d) => normalizeFirestoreSnapshotValue(d.data()) as Record<string, unknown>
+                )
+              );
             },
             onError
           );
@@ -311,10 +339,15 @@ export const appConfig: ApplicationConfig = {
           path: string,
           orderByField: string
         ): Promise<ReadonlyArray<Record<string, unknown>>> => {
+          if (!/^AgentJobs\/[^/]+\/events$/.test(path)) {
+            throw new Error(`Unsupported Firestore query path: ${path}`);
+          }
           const ref = collection(firestore, path);
           const q = query(ref, firestoreOrderBy(orderByField));
           const snap = await firestoreGetDocs(q);
-          return snap.docs.map((d) => d.data());
+          return snap.docs.map(
+            (d) => normalizeFirestoreSnapshotValue(d.data()) as Record<string, unknown>
+          );
         },
       }),
       deps: [Firestore],

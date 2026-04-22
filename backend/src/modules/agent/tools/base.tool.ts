@@ -27,11 +27,21 @@
  * ```
  */
 
-import type { AgentToolCategory, AgentIdentifier } from '@nxt1/core';
+import type {
+  AgentProgressMetadata,
+  AgentToolCategory,
+  AgentIdentifier,
+  AgentXToolStepIcon,
+  ToolStage,
+} from '@nxt1/core';
+import type { ZodError, ZodType } from 'zod';
+
+export type ToolParameterSchema = Readonly<Record<string, unknown>> | ZodType<unknown>;
 
 export interface ToolResult {
   readonly success: boolean;
   readonly data?: unknown;
+  readonly markdown?: string;
   readonly error?: string;
 }
 
@@ -58,14 +68,17 @@ export interface ToolExecutionContext {
    */
   readonly signal?: AbortSignal;
   /**
-   * Emit a progress update to the client during long-running tool execution.
-   * The label replaces the current step indicator text in the frontend
-   * (e.g. "Querying 4,200 prospects…", "Generating PDF…").
-   *
-   * Tools should call this at meaningful milestones — not every iteration.
-   * The callback is a no-op when the tool is executed outside an SSE context.
+   * Emit a structured tool stage update to the client during long-running work.
+   * This is the typed replacement for `onProgress` and allows the frontend to
+   * localize text, map icons, and attribute activity to sub-agents.
    */
-  readonly onProgress?: (label: string) => void;
+  readonly emitStage?: (
+    stage: ToolStage,
+    metadata?: AgentProgressMetadata & {
+      readonly icon?: AgentXToolStepIcon;
+      readonly subAgentId?: string;
+    }
+  ) => void;
 }
 
 export abstract class BaseTool {
@@ -76,7 +89,7 @@ export abstract class BaseTool {
   abstract readonly description: string;
 
   /** JSON Schema describing the tool's input parameters. */
-  abstract readonly parameters: Record<string, unknown>;
+  abstract readonly parameters: ToolParameterSchema;
 
   /** Whether this tool performs a write/mutation (triggers pre-tool guardrails). */
   abstract readonly isMutation: boolean;
@@ -174,6 +187,18 @@ export abstract class BaseTool {
     return {
       success: false,
       error: `Parameter "${param}" is required and must be a non-empty string.`,
+    };
+  }
+
+  /** Format a Zod parse error into a compact field-aware tool error. */
+  protected zodError(error: ZodError): ToolResult {
+    return {
+      success: false,
+      error: error.issues
+        .map((issue) =>
+          issue.path.length > 0 ? `${issue.path.join('.')}: ${issue.message}` : issue.message
+        )
+        .join(', '),
     };
   }
 }

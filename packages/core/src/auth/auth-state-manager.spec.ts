@@ -592,7 +592,7 @@ describe('createAuthStateManager', () => {
       await Promise.all([
         authManager.setUser(USER_FIXTURES.athlete),
         authManager.setUser(USER_FIXTURES.coach),
-        authManager.setUser(USER_FIXTURES.recruiter),
+        authManager.setUser(USER_FIXTURES.director),
       ]);
 
       // Final state should be deterministic (last one wins)

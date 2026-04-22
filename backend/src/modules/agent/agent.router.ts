@@ -21,12 +21,15 @@
 import type {
   AgentJobPayload,
   AgentJobUpdate,
+  AgentProgressMetadata,
   AgentPromptContext,
   AgentOperationResult,
   AgentIdentifier,
+  AgentRouterStage,
   AgentTaskStatus,
   AgentTask,
   AgentExecutionPlan,
+  OperationOutcomeCode,
   AgentSessionContext,
   AgentSessionMessage,
   AgentRetrievedMemories,
@@ -41,6 +44,7 @@ import type { OnStreamEvent } from './queue/event-writer.js';
 import { PlannerAgent } from './agents/planner.agent.js';
 import { isAgentYield, AgentYieldException } from './exceptions/agent-yield.exception.js';
 import { isAgentDelegation } from './exceptions/agent-delegation.exception.js';
+import { AgentEngineError } from './exceptions/agent-engine.error.js';
 import { SemanticCacheService } from './memory/semantic-cache.service.js';
 import { SessionMemoryService } from './memory/session.service.js';
 import { ApprovalGateService } from './services/approval-gate.service.js';
@@ -104,7 +108,7 @@ export class AgentRouter {
     const result = await this.planner.execute(enrichedIntent, context, []);
     const plan = result.data?.['plan'] as AgentExecutionPlan | undefined;
 
-    if (!plan || plan.tasks.length === 0) return 'general';
+    if (!plan || plan.tasks.length === 0) return 'strategy_coordinator';
     if (plan.tasks.length === 1) return plan.tasks[0].assignedAgent;
     return 'router';
   }
@@ -146,14 +150,21 @@ export class AgentRouter {
     }
 
     // ── Step 1: Build context ─────────────────────────────────────────────
-    this.emitUpdate(onUpdate, operationId, 'thinking', 'Building user context...');
+    this.emitUpdate(onUpdate, operationId, 'thinking', 'Building user context...', undefined, {
+      agentId: 'router',
+      stage: 'building_context',
+    });
 
     let promptContext: AgentPromptContext;
     try {
       promptContext = await this.contextBuilder.buildPromptContext(userId, intent, firestore);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Context building failed';
-      this.emitUpdate(onUpdate, operationId, 'failed', `Context error: ${message}`);
+      this.emitUpdate(onUpdate, operationId, 'failed', `Context error: ${message}`, undefined, {
+        agentId: 'router',
+        stage: 'building_context',
+        outcomeCode: 'context_build_failed',
+      });
       return {
         summary: `Failed to build user context: ${message}`,
         suggestions: ['Try again later or contact support.'],
@@ -273,21 +284,40 @@ export class AgentRouter {
 
     // ── Direct routing: skip planner when a specific agent is requested ───
     if (payload.agent) {
-      const directAgent = this.agents.get(payload.agent);
+      const directAgentId = payload.agent;
+      const directAgent = this.agents.get(directAgentId);
       if (!directAgent) {
         this.emitUpdate(
           onUpdate,
           operationId,
           'failed',
-          `No agent registered for "${payload.agent}".`
+          `No agent registered for "${directAgentId}".`,
+          undefined,
+          {
+            agentId: 'router',
+            stage: 'routing_to_agent',
+            outcomeCode: 'routing_failed',
+            metadata: { targetAgentId: directAgentId },
+          }
         );
         return {
-          summary: `No agent registered for "${payload.agent}".`,
+          summary: `No agent registered for "${directAgentId}".`,
           suggestions: ['Check agent configuration or contact support.'],
         };
       }
 
-      this.emitUpdate(onUpdate, operationId, 'acting', `Routing directly to ${payload.agent}...`);
+      this.emitUpdate(
+        onUpdate,
+        operationId,
+        'acting',
+        `Routing directly to ${directAgentId}...`,
+        undefined,
+        {
+          agentId: directAgentId,
+          stage: 'routing_to_agent',
+          metadata: { targetAgentId: directAgentId },
+        }
+      );
 
       try {
         let toolDefs = this.toolRegistry.getDefinitions(directAgent.id);
@@ -316,7 +346,12 @@ export class AgentRouter {
           approvalGate
         );
 
-        this.emitUpdate(onUpdate, operationId, 'completed', result.summary);
+        this.emitUpdate(onUpdate, operationId, 'completed', result.summary, undefined, {
+          agentId: directAgentId,
+          stage: 'agent_thinking',
+          outcomeCode: 'success_default',
+          metadata: { executionMode: 'direct' },
+        });
         this.appendAssistantMessage(userId, threadId, result.summary);
         return result;
       } catch (err) {
@@ -336,9 +371,20 @@ export class AgentRouter {
             logger.warn('[AgentRouter] Delegation depth exceeded — aborting', {
               operationId,
               delegationCount,
-              sourceAgent: payload.agent,
+              sourceAgent: directAgentId,
             });
-            this.emitUpdate(onUpdate, operationId, 'failed', 'Unable to route this request.');
+            this.emitUpdate(
+              onUpdate,
+              operationId,
+              'failed',
+              'Unable to route this request.',
+              undefined,
+              {
+                agentId: 'router',
+                stage: 'routing_to_agent',
+                outcomeCode: 'routing_failed',
+              }
+            );
             return {
               summary:
                 "I'm having trouble finding the right specialist for this request. " +
@@ -349,7 +395,7 @@ export class AgentRouter {
 
           logger.info('[AgentRouter] Delegation handoff — re-dispatching through Planner', {
             operationId,
-            sourceAgent: payload.agent,
+            sourceAgent: directAgentId,
             forwardingIntent: err.payload.forwardingIntent.slice(0, 100),
             delegationCount,
           });
@@ -358,12 +404,17 @@ export class AgentRouter {
             onUpdate,
             operationId,
             'thinking',
-            'Transferring your request to the right specialist...'
+            'Transferring your request to the right specialist...',
+            undefined,
+            {
+              agentId: 'router',
+              stage: 'routing_to_agent',
+            }
           );
 
           // Re-dispatch with agent lock removed so the Planner takes over.
           // Append a routing hint so the Planner avoids the agent that just bailed.
-          const sourceAgentId = payload.agent ?? err.payload.sourceAgent;
+          const sourceAgentId = (payload.agent ?? err.payload.sourceAgent) as AgentIdentifier;
           const routingHint = sourceAgentId
             ? `\n\n[System: The "${sourceAgentId}" agent could not handle this. Route to a different specialist.]`
             : '';
@@ -375,7 +426,7 @@ export class AgentRouter {
             context: {
               ...contextObj,
               delegationCount,
-              delegatedFrom: payload.agent,
+              delegatedFrom: directAgentId,
             },
           };
 
@@ -387,9 +438,14 @@ export class AgentRouter {
         if (err instanceof Error && err.name === 'AbortError') throw err;
 
         const message = err instanceof Error ? err.message : 'Agent execution failed';
-        this.emitUpdate(onUpdate, operationId, 'failed', message);
+        this.emitUpdate(onUpdate, operationId, 'failed', message, undefined, {
+          agentId: directAgentId,
+          stage: 'agent_thinking',
+          outcomeCode: 'task_failed',
+          metadata: { executionMode: 'direct' },
+        });
         return {
-          summary: `Agent ${payload.agent} failed: ${message}`,
+          summary: `Agent ${directAgentId} failed: ${message}`,
           suggestions: ['Try again later or contact support.'],
         };
       }
@@ -417,7 +473,13 @@ export class AgentRouter {
           onUpdate,
           operationId,
           'thinking',
-          'Found a cached answer — personalizing...'
+          'Found a cached answer — personalizing...',
+          undefined,
+          {
+            agentId: 'router',
+            stage: 'agent_thinking',
+            metadata: { source: 'semantic_cache' },
+          }
         );
 
         // Fast personalizer: rewrites the cached summary for this user's
@@ -430,7 +492,12 @@ export class AgentRouter {
           operationId
         );
 
-        this.emitUpdate(onUpdate, operationId, 'completed', personalized.summary);
+        this.emitUpdate(onUpdate, operationId, 'completed', personalized.summary, undefined, {
+          agentId: 'router',
+          stage: 'agent_thinking',
+          outcomeCode: 'success_default',
+          metadata: { source: 'semantic_cache' },
+        });
         return personalized;
       }
     } catch {
@@ -438,14 +505,28 @@ export class AgentRouter {
     }
 
     // ── Step 2: Plan ──────────────────────────────────────────────────────
-    this.emitUpdate(onUpdate, operationId, 'thinking', 'Decomposing your request into tasks...');
+    this.emitUpdate(
+      onUpdate,
+      operationId,
+      'thinking',
+      'Decomposing your request into tasks...',
+      undefined,
+      {
+        agentId: 'router',
+        stage: 'decomposing_intent',
+      }
+    );
 
     let planResult: AgentOperationResult;
     try {
       planResult = await this.planner.execute(enrichedIntent, context, []);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Planning failed';
-      this.emitUpdate(onUpdate, operationId, 'failed', `Planning error: ${message}`);
+      this.emitUpdate(onUpdate, operationId, 'failed', `Planning error: ${message}`, undefined, {
+        agentId: 'router',
+        stage: 'decomposing_intent',
+        outcomeCode: 'planning_failed',
+      });
       return {
         summary: `Failed to create execution plan: ${message}`,
         suggestions: ['Try rephrasing your request or try again later.'],
@@ -455,6 +536,18 @@ export class AgentRouter {
     const plan = planResult.data?.['plan'] as AgentExecutionPlan | undefined;
 
     if (!plan || plan.tasks.length === 0) {
+      this.emitUpdate(
+        onUpdate,
+        operationId,
+        'failed',
+        'Could not create an execution plan for this request.',
+        undefined,
+        {
+          agentId: 'router',
+          stage: 'decomposing_intent',
+          outcomeCode: 'planning_failed',
+        }
+      );
       return {
         summary: 'Could not create an execution plan for this request.',
         suggestions: ['Try rephrasing your request with more detail.'],
@@ -466,7 +559,12 @@ export class AgentRouter {
       operationId,
       'acting',
       `Plan: ${plan.tasks.length} task(s) — ${planResult.summary}`,
-      { eventType: 'plan_created', taskCount: plan.tasks.length }
+      { eventType: 'plan_created', taskCount: plan.tasks.length },
+      {
+        agentId: 'router',
+        stage: 'routing_to_agent',
+        metadata: { taskCount: plan.tasks.length },
+      }
     );
 
     // Stream a rich planner card so the frontend renders an interactive checklist
@@ -474,6 +572,7 @@ export class AgentRouter {
       onStreamEvent({
         type: 'card',
         cardData: {
+          agentId: 'router',
           type: 'planner',
           title: 'Execution Plan',
           payload: {
@@ -517,7 +616,7 @@ export class AgentRouter {
 
       // ── Parallel DAG frontier execution ───────────────────────────────────
       // Tasks in `ready` have no remaining dependencies — they can all run
-      // concurrently. Capped at 3 to match WORKER_CONCURRENCY and bound LLM load.
+      // concurrently. Capped at 5 to match WORKER_CONCURRENCY and bound LLM load.
       // Each task owns its own status/error mutations (safe in single-threaded JS).
       // cascadeFailure is idempotent so concurrent failures on shared dependents are safe.
 
@@ -529,7 +628,12 @@ export class AgentRouter {
           operationId,
           'acting',
           `Running task ${task.id}: ${task.description}`,
-          { eventType: 'task_started', taskId: task.id }
+          { eventType: 'task_started', taskId: task.id },
+          {
+            agentId: task.assignedAgent,
+            stage: 'agent_thinking',
+            metadata: { taskId: task.id },
+          }
         );
       }
 
@@ -543,9 +647,14 @@ export class AgentRouter {
       const runTask = async (task: MutableAgentTask): Promise<void> => {
         for (let attempt = 0; attempt <= taskMaxRetries; attempt++) {
           try {
-            const agent = this.agents.get(task.assignedAgent);
+            const assignedAgentId = task.assignedAgent;
+            const agent = this.agents.get(assignedAgentId);
             if (!agent) {
-              throw new Error(`No agent registered for "${task.assignedAgent}".`);
+              throw new AgentEngineError(
+                'AGENT_NOT_REGISTERED',
+                `No agent registered for "${assignedAgentId}".`,
+                { metadata: { assignedAgentId, taskId: task.id } }
+              );
             }
 
             let taskIntent = this.buildTaskIntent(task, taskResults, enrichedIntent);
@@ -571,7 +680,12 @@ export class AgentRouter {
                 operationId,
                 'acting',
                 `Task ${task.id}: retrying (attempt ${attempt + 1}/${taskMaxRetries + 1})...`,
-                { eventType: 'task_retry', taskId: task.id, attempt }
+                { eventType: 'task_retry', taskId: task.id, attempt },
+                {
+                  agentId: task.assignedAgent,
+                  stage: 'agent_thinking',
+                  metadata: { taskId: task.id, attempt },
+                }
               );
             }
 
@@ -605,7 +719,13 @@ export class AgentRouter {
               onUpdate,
               operationId,
               'acting',
-              `Task ${task.id} completed: ${result.summary}`
+              `Task ${task.id} completed: ${result.summary}`,
+              undefined,
+              {
+                agentId: task.assignedAgent,
+                stage: 'agent_thinking',
+                metadata: { taskId: task.id },
+              }
             );
 
             // Re-emit the planner card with updated done states.
@@ -613,6 +733,7 @@ export class AgentRouter {
               onStreamEvent({
                 type: 'card',
                 cardData: {
+                  agentId: 'router',
                   type: 'planner',
                   title: 'Execution Plan',
                   payload: {
@@ -666,6 +787,15 @@ export class AgentRouter {
                   taskId: task.id,
                   assignedAgent: task.assignedAgent,
                   error: task._lastError,
+                },
+                {
+                  agentId: 'router',
+                  stage: 'routing_to_agent',
+                  outcomeCode: 'routing_failed',
+                  metadata: {
+                    taskId: task.id,
+                    delegatedAgentId: task.assignedAgent,
+                  },
                 }
               );
               this.cascadeFailure(task.id, mutableTasks);
@@ -695,6 +825,15 @@ export class AgentRouter {
                   assignedAgent: task.assignedAgent,
                   attempts: taskMaxRetries + 1,
                   error: message,
+                },
+                {
+                  agentId: task.assignedAgent,
+                  stage: 'agent_thinking',
+                  outcomeCode: 'task_failed',
+                  metadata: {
+                    taskId: task.id,
+                    attempts: taskMaxRetries + 1,
+                  },
                 }
               );
               this.cascadeFailure(task.id, mutableTasks);
@@ -703,7 +842,7 @@ export class AgentRouter {
         }
       };
 
-      const frontierResults = await parallelBatch(ready, runTask, { concurrency: 3 });
+      const frontierResults = await parallelBatch(ready, runTask, { concurrency: 5 });
 
       // Rethrow the first yield exception if any task in this frontier yielded.
       // Yield suspends the entire job, so sibling task results are already in taskResults.
@@ -745,11 +884,26 @@ export class AgentRouter {
         totalTaskCount: mutableTasks.length,
       });
 
-      this.emitUpdate(onUpdate, operationId, 'failed', failureHeadline, {
-        eventType: 'plan_failed',
-        failedTasks: failedTaskDetails,
-        firstFailedTask: failedTaskDetails[0],
-      });
+      this.emitUpdate(
+        onUpdate,
+        operationId,
+        'failed',
+        failureHeadline,
+        {
+          eventType: 'plan_failed',
+          failedTasks: failedTaskDetails,
+          firstFailedTask: failedTaskDetails[0],
+        },
+        {
+          agentId: firstFailedTask.assignedAgent,
+          stage: 'agent_thinking',
+          outcomeCode: 'task_failed',
+          metadata: {
+            failedTaskId: firstFailedTask.id,
+            failedAgentId: firstFailedTask.assignedAgent,
+          },
+        }
+      );
 
       return {
         summary:
@@ -767,7 +921,10 @@ export class AgentRouter {
       };
     }
 
-    this.emitUpdate(onUpdate, operationId, 'completed', 'All tasks finished.');
+    this.emitUpdate(onUpdate, operationId, 'completed', 'All tasks finished.', undefined, {
+      agentId: 'router',
+      outcomeCode: 'success_default',
+    });
 
     const aggregatedResult: AgentOperationResult = {
       summary: summaries.join('\n\n'),
@@ -807,7 +964,10 @@ export class AgentRouter {
     environment: 'staging' | 'production' = 'production'
   ): Promise<AgentOperationResult> {
     const { operationId, userId, intent } = payload;
-    this.emitUpdate(onUpdate, operationId, 'acting', 'Resuming from your response...');
+    this.emitUpdate(onUpdate, operationId, 'acting', 'Resuming from your response...', undefined, {
+      agentId: yieldState.agentId,
+      stage: 'resuming_user_input',
+    });
 
     // Resolve the agent that was executing when the yield happened
     const agent = this.agents.get(yieldState.agentId);
@@ -816,7 +976,14 @@ export class AgentRouter {
         onUpdate,
         operationId,
         'failed',
-        `Cannot resume: no agent registered for "${yieldState.agentId}".`
+        `Cannot resume: no agent registered for "${yieldState.agentId}".`,
+        undefined,
+        {
+          agentId: 'router',
+          stage: 'resuming_user_input',
+          outcomeCode: 'routing_failed',
+          metadata: { targetAgentId: yieldState.agentId },
+        }
       );
       return {
         summary: `Cannot resume: agent "${yieldState.agentId}" is not registered.`,
@@ -915,13 +1082,21 @@ export class AgentRouter {
         approvalId
       );
 
-      this.emitUpdate(onUpdate, operationId, 'completed', result.summary);
+      this.emitUpdate(onUpdate, operationId, 'completed', result.summary, undefined, {
+        agentId: yieldState.agentId,
+        stage: 'resuming_user_input',
+        outcomeCode: 'success_default',
+      });
       this.appendAssistantMessage(userId, resumeThreadId, result.summary);
       return result;
     } catch (err) {
       if (isAgentYield(err)) throw err;
       const message = err instanceof Error ? err.message : 'Resume execution failed';
-      this.emitUpdate(onUpdate, operationId, 'failed', message);
+      this.emitUpdate(onUpdate, operationId, 'failed', message, undefined, {
+        agentId: yieldState.agentId,
+        stage: 'resuming_user_input',
+        outcomeCode: 'task_failed',
+      });
       return {
         summary: `Resumed agent "${yieldState.agentId}" failed: ${message}`,
         suggestions: ['Try again later or contact support.'],
@@ -974,7 +1149,12 @@ export class AgentRouter {
         ...visibleContext
       } = jobContext;
       if (Object.keys(visibleContext).length > 0) {
-        enriched += `\n\n[Job Context]\n${JSON.stringify(visibleContext, null, 2)}`;
+        let contextMd = '\n\n[Job Context]\n';
+        for (const [key, value] of Object.entries(visibleContext)) {
+          const formatted = typeof value === 'object' ? JSON.stringify(value) : String(value);
+          contextMd += `- **${key}**: ${formatted}\n`;
+        }
+        enriched += contextMd;
       }
     }
 
@@ -1099,17 +1279,33 @@ export class AgentRouter {
     operationId: string,
     status: AgentJobUpdate['status'],
     message: string,
-    payload?: Record<string, unknown>
+    payload?: Record<string, unknown>,
+    structured?: {
+      readonly agentId?: AgentIdentifier;
+      readonly stage?: AgentRouterStage;
+      readonly outcomeCode?: OperationOutcomeCode;
+      readonly metadata?: AgentProgressMetadata;
+    }
   ): void {
     if (!onUpdate) return;
     onUpdate({
       operationId,
       status,
+      agentId: structured?.agentId,
+      stageType: structured?.stage ? 'router' : undefined,
+      stage: structured?.stage,
+      outcomeCode: structured?.outcomeCode,
+      metadata: structured?.metadata,
       step: {
         id: crypto.randomUUID(),
         timestamp: new Date().toISOString(),
         status,
         message,
+        agentId: structured?.agentId,
+        stageType: structured?.stage ? 'router' : undefined,
+        stage: structured?.stage,
+        outcomeCode: structured?.outcomeCode,
+        metadata: structured?.metadata,
         payload,
       },
     });

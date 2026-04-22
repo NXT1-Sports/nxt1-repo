@@ -35,9 +35,37 @@ import type {
   AgentTaskStatus,
   AgentPlannerOutput,
   ModelRoutingConfig,
+  AgentDescriptor,
 } from '@nxt1/core';
-import { MODEL_ROUTING_DEFAULTS, AGENT_DESCRIPTORS } from '@nxt1/core';
+import { MODEL_ROUTING_DEFAULTS } from '@nxt1/core';
 import type { OpenRouterService } from '../llm/openrouter.service.js';
+import { z } from 'zod';
+import { getConfiguredCoordinatorDescriptors } from '../config/agent-app-config.js';
+import { AgentEngineError } from '../exceptions/agent-engine.error.js';
+
+const plannerResponseSchema = z
+  .object({
+    summary: z.string().optional(),
+    estimatedSteps: z.number().optional(),
+    tasks: z.array(
+      z.object({
+        id: z.union([z.string(), z.number()]).optional(),
+        assignedAgent: z.string().optional(),
+        description: z.string().optional(),
+        dependsOn: z.array(z.union([z.string(), z.number()])).optional(),
+      })
+    ),
+  })
+  .transform((data) => ({
+    summary: data.summary,
+    estimatedSteps: data.estimatedSteps,
+    tasks: data.tasks.map((task, idx) => ({
+      id: String(task.id ?? idx + 1),
+      assignedAgent: task.assignedAgent ?? 'strategy_coordinator',
+      description: task.description ?? '',
+      dependsOn: (task.dependsOn ?? []).map(String),
+    })),
+  }));
 
 export class PlannerAgent extends BaseAgent {
   readonly id: AgentIdentifier = 'router';
@@ -57,15 +85,14 @@ export class PlannerAgent extends BaseAgent {
    * knows which specialists it can assign tasks to.
    */
   getSystemPrompt(_context: AgentSessionContext): string {
-    const agentCatalogue = Object.values(AGENT_DESCRIPTORS)
-      .filter((a) => a.id !== 'router') // Don't assign tasks back to itself
+    const agentCatalogue = this.getCoordinatorDescriptors()
       .map(
         (a) =>
           `- **${a.name}** (id: "${a.id}"): ${a.description}\n  Capabilities: ${a.capabilities.join(', ')}`
       )
       .join('\n');
 
-    return `You are the Chief of Staff for Agent X, the AI engine of NXT1 Sports.
+    const prompt = `You are the Chief of Staff for Agent X, the AI engine of NXT1 Sports.
 
 Your ONLY job is to decompose the user's request into a structured execution plan (a To-Do list).
 You do NOT execute any actions. You ONLY plan and assign tasks to coordinators.
@@ -98,6 +125,12 @@ Respond with ONLY a JSON object matching this schema — no markdown, no explana
     }
   ]
 }`;
+
+    return this.withConfiguredSystemPrompt(prompt);
+  }
+
+  private getCoordinatorDescriptors(): readonly AgentDescriptor[] {
+    return getConfiguredCoordinatorDescriptors().filter((descriptor) => descriptor.id !== 'router');
   }
 
   /**
@@ -141,7 +174,10 @@ Respond with ONLY a JSON object matching this schema — no markdown, no explana
       tier: routing.tier,
       maxTokens: routing.maxTokens,
       temperature: routing.temperature,
-      jsonMode: true,
+      outputSchema: {
+        name: 'planner_execution_plan',
+        schema: plannerResponseSchema,
+      },
       ...(context.operationId && {
         telemetryContext: {
           operationId: context.operationId,
@@ -151,12 +187,15 @@ Respond with ONLY a JSON object matching this schema — no markdown, no explana
       }),
     });
 
-    if (!result.content) {
-      throw new Error('Planner LLM returned empty response.');
+    if (result.parsedOutput === undefined) {
+      throw new AgentEngineError(
+        'PLANNER_EMPTY_PLAN',
+        'Planner LLM returned no structured execution plan.'
+      );
     }
 
-    // ── Phase 2: Parse JSON response ──────────────────────────────────────
-    const parsed = this.parsePlanResponse(result.content);
+    // ── Phase 2: Resolve structured response ──────────────────────────────
+    const parsed = this.resolvePlanResponse(result);
 
     // ── Phase 3: Build the execution plan ─────────────────────────────────
     const now = new Date().toISOString();
@@ -195,52 +234,20 @@ Respond with ONLY a JSON object matching this schema — no markdown, no explana
   // ─── LLM Response Parser ───────────────────────────────────────────────
 
   /**
-   * Parse the raw LLM JSON string into a validated plan structure.
-   * Gracefully handles malformed responses with actionable error messages.
+   * Resolve the LLM structured payload into a validated plan structure.
    */
-  private parsePlanResponse(raw: string): PlannerLLMResponse {
-    let parsed: unknown;
-    try {
-      // Strip markdown code fences (```json ... ```) in case the model wraps the output
-      const cleaned = raw
-        .replace(/^```(?:json)?\s*/i, '')
-        .replace(/\s*```\s*$/, '')
-        .trim();
-      parsed = JSON.parse(cleaned);
-    } catch {
-      throw new Error(`Planner LLM returned invalid JSON. Raw output:\n${raw.slice(0, 500)}`);
+  private resolvePlanResponse(result: AgentPlannerLlmResult): PlannerLLMResponse {
+    const validated = plannerResponseSchema.safeParse(result.parsedOutput);
+    if (!validated.success) {
+      const firstIssue = validated.error.issues[0];
+      const path = firstIssue?.path.length ? firstIssue.path.join('.') : 'response';
+      throw new AgentEngineError(
+        'PLANNER_SCHEMA_INVALID',
+        `Planner LLM response failed schema validation at ${path}: ${firstIssue?.message ?? 'Invalid output.'}`
+      );
     }
 
-    if (!parsed || typeof parsed !== 'object') {
-      throw new Error('Planner LLM response is not an object.');
-    }
-
-    const obj = parsed as Record<string, unknown>;
-
-    if (!Array.isArray(obj['tasks'])) {
-      throw new Error('Planner LLM response missing "tasks" array.');
-    }
-
-    const tasks: PlannerLLMTask[] = (obj['tasks'] as unknown[]).map((t, idx) => {
-      if (!t || typeof t !== 'object') {
-        throw new Error(`Task at index ${idx} is not an object.`);
-      }
-      const task = t as Record<string, unknown>;
-      return {
-        id: String(task['id'] ?? idx + 1),
-        assignedAgent: String(task['assignedAgent'] ?? 'general'),
-        description: String(task['description'] ?? ''),
-        dependsOn: Array.isArray(task['dependsOn'])
-          ? (task['dependsOn'] as unknown[]).map(String)
-          : [],
-      };
-    });
-
-    return {
-      summary: typeof obj['summary'] === 'string' ? obj['summary'] : undefined,
-      estimatedSteps: typeof obj['estimatedSteps'] === 'number' ? obj['estimatedSteps'] : undefined,
-      tasks,
-    };
+    return validated.data;
   }
 
   // ─── Internal Helpers ───────────────────────────────────────────────────
@@ -255,13 +262,17 @@ Respond with ONLY a JSON object matching this schema — no markdown, no explana
     for (const task of tasks) {
       for (const dep of task.dependsOn) {
         if (!taskIds.has(dep)) {
-          throw new Error(
+          throw new AgentEngineError(
+            'PLANNER_DEPENDENCY_INVALID',
             `Task "${task.id}" depends on unknown task "${dep}". ` +
               `Valid IDs: ${[...taskIds].join(', ')}`
           );
         }
         if (dep === task.id) {
-          throw new Error(`Task "${task.id}" cannot depend on itself (circular dependency).`);
+          throw new AgentEngineError(
+            'PLANNER_CIRCULAR_DEPENDENCY',
+            `Task "${task.id}" cannot depend on itself (circular dependency).`
+          );
         }
       }
     }
@@ -285,7 +296,8 @@ Respond with ONLY a JSON object matching this schema — no markdown, no explana
 
     const dfs = (id: string): void => {
       if (visiting.has(id)) {
-        throw new Error(
+        throw new AgentEngineError(
+          'PLANNER_CIRCULAR_DEPENDENCY',
           `Circular dependency detected involving task "${id}". ` +
             `The execution plan must be a DAG.`
         );
@@ -321,4 +333,9 @@ interface PlannerLLMTask {
   readonly assignedAgent: string;
   readonly description: string;
   readonly dependsOn: readonly string[];
+}
+
+interface AgentPlannerLlmResult {
+  readonly content: string | null;
+  readonly parsedOutput?: PlannerLLMResponse;
 }

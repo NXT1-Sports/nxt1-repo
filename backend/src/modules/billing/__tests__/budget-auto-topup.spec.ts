@@ -18,13 +18,13 @@ vi.mock('../../../config/runtime-environment.js', () => ({
 }));
 
 // Mock notification service
-vi.mock('../../../services/notification.service.js', () => ({
+vi.mock('../../../services/communications/notification.service.js', () => ({
   dispatch: vi.fn().mockResolvedValue(undefined),
 }));
 
 // Mock PaymentLogModel
 const mockPaymentLogFindOneAndUpdate = vi.fn().mockResolvedValue(null);
-vi.mock('../../../models/payment-log.model.js', () => ({
+vi.mock('../../../models/billing/payment-log.model.js', () => ({
   PaymentLogModel: {
     findOneAndUpdate: mockPaymentLogFindOneAndUpdate,
   },
@@ -232,7 +232,7 @@ describe('triggerAutoTopUpIfEnabled (via deductWallet side-effects)', () => {
   });
 
   it('skips and sends no_payment_method notification when no default PM', async () => {
-    const { dispatch } = await import('../../../services/notification.service.js');
+    const { dispatch } = await import('../../../services/communications/notification.service.js');
 
     mockGetStripeClient.mockReturnValue({
       customers: {

@@ -4,7 +4,7 @@ const getAllTeamsMock = vi.hoisted(() => vi.fn());
 const getFirestoreMock = vi.hoisted(() => vi.fn());
 const stagingDbMock = vi.hoisted(() => ({ collection: vi.fn() }));
 
-vi.mock('../../../../../services/team-code.service.js', () => ({
+vi.mock('../../../../../services/team/team-code.service.js', () => ({
   getAllTeams: getAllTeamsMock,
 }));
 

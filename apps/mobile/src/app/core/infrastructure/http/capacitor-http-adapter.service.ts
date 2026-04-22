@@ -20,6 +20,13 @@ import { NxtLoggingService } from '@nxt1/ui';
 import type { ILogger } from '@nxt1/core/logging';
 import type { HttpAdapter, HttpRequestConfig, HttpAdapterError } from '@nxt1/core';
 import { parseApiError } from '@nxt1/core/errors';
+import { CACHE_KEYS, generateCacheKey } from '@nxt1/core/cache';
+import { MobileCacheService } from '../../services/infrastructure/cache.service';
+import {
+  getMobileHttpCacheInvalidationPatterns,
+  getMobileHttpCacheTtl,
+  shouldUseMobileHttpCache,
+} from './mobile-http-cache.policy';
 
 /**
  * Token provider function type
@@ -63,6 +70,8 @@ const DEFAULT_TIMEOUT = 30000;
 @Injectable({ providedIn: 'root' })
 export class CapacitorHttpAdapter implements HttpAdapter {
   private readonly logger: ILogger = inject(NxtLoggingService).child('CapacitorHttpAdapter');
+  private readonly mobileCache = inject(MobileCacheService);
+  private readonly httpCacheKeyPrefix = `${CACHE_KEYS.API_RESPONSE}mobile-http:`;
 
   /**
    * Whether we're running on a native platform (iOS/Android)
@@ -96,8 +105,13 @@ export class CapacitorHttpAdapter implements HttpAdapter {
    * ```
    */
   setTokenProvider(provider: TokenProvider | null): void {
+    const authContextChanged = this.tokenProvider !== provider;
     this.tokenProvider = provider;
     this.logger.debug('Token provider updated', { hasProvider: !!provider });
+
+    if (authContextChanged) {
+      void this.clearHttpResponseCache();
+    }
   }
 
   /**
@@ -125,50 +139,61 @@ export class CapacitorHttpAdapter implements HttpAdapter {
       isAuthed: !!headers['Authorization'],
     });
 
-    try {
-      if (this.isNative) {
-        const response = await CapacitorHttp.get({
+    const executeRequest = async (): Promise<T> => {
+      try {
+        if (this.isNative) {
+          const response = await CapacitorHttp.get({
+            url: fullUrl,
+            headers,
+            readTimeout: config?.timeout ?? DEFAULT_TIMEOUT,
+            connectTimeout: config?.timeout ?? DEFAULT_TIMEOUT,
+          });
+          return this.handleResponse<T>(response);
+        }
+
+        // Fallback to fetch for web/PWA
+        this.logger.debug('Using fetch fallback (browser mode)');
+        const response = await this.fetchWithTimeout(
+          fullUrl,
+          {
+            method: 'GET',
+            headers,
+            credentials: config?.withCredentials ? 'include' : 'same-origin',
+          },
+          config?.timeout ?? DEFAULT_TIMEOUT
+        );
+        return this.handleFetchResponse<T>(response);
+      } catch (err) {
+        // Handle native HTTP errors (timeout, network errors, etc.)
+        this.logger.error('❌ HTTP GET failed', {
           url: fullUrl,
-          headers,
-          readTimeout: config?.timeout ?? DEFAULT_TIMEOUT,
-          connectTimeout: config?.timeout ?? DEFAULT_TIMEOUT,
+          error: err instanceof Error ? err.message : String(err),
+          errorCode: (err as { code?: string })?.code,
+          errorMessage: (err as { errorMessage?: string })?.errorMessage,
+          message: (err as { message?: string })?.message,
         });
-        return this.handleResponse<T>(response);
+
+        // Re-throw as standardized error
+        if (err instanceof Error || (err as { message?: string })?.message) {
+          throw err;
+        }
+
+        // Capacitor native error format
+        const nativeError = err as { errorMessage?: string; code?: string };
+        throw new Error(nativeError.errorMessage || nativeError.code || 'Network request failed', {
+          cause: err,
+        });
       }
+    };
 
-      // Fallback to fetch for web/PWA
-      this.logger.debug('Using fetch fallback (browser mode)');
-      const response = await this.fetchWithTimeout(
-        fullUrl,
-        {
-          method: 'GET',
-          headers,
-          credentials: config?.withCredentials ? 'include' : 'same-origin',
-        },
-        config?.timeout ?? DEFAULT_TIMEOUT
-      );
-      return this.handleFetchResponse<T>(response);
-    } catch (err) {
-      // Handle native HTTP errors (timeout, network errors, etc.)
-      this.logger.error('❌ HTTP GET failed', {
-        url: fullUrl,
-        error: err instanceof Error ? err.message : String(err),
-        errorCode: (err as { code?: string })?.code,
-        errorMessage: (err as { errorMessage?: string })?.errorMessage,
-        message: (err as { message?: string })?.message,
-      });
-
-      // Re-throw as standardized error
-      if (err instanceof Error || (err as { message?: string })?.message) {
-        throw err;
-      }
-
-      // Capacitor native error format
-      const nativeError = err as { errorMessage?: string; code?: string };
-      throw new Error(nativeError.errorMessage || nativeError.code || 'Network request failed', {
-        cause: err,
-      });
+    if (!shouldUseMobileHttpCache('GET', fullUrl, config?.headers)) {
+      return executeRequest();
     }
+
+    const cacheKey = this.createHttpCacheKey(fullUrl, headers);
+    const ttl = getMobileHttpCacheTtl(fullUrl);
+
+    return this.mobileCache.getOrFetch<T>(cacheKey, executeRequest, ttl);
   }
 
   /**
@@ -177,9 +202,10 @@ export class CapacitorHttpAdapter implements HttpAdapter {
   async post<T>(url: string, body: unknown, config?: HttpRequestConfig): Promise<T> {
     const isFormData = body instanceof FormData;
     const headers = await this.buildHeaders(config, isFormData);
+    const fullUrl = this.buildUrl(url, config?.params);
 
     this.logger.debug('POST request', {
-      url: this.buildUrl(url, config?.params),
+      url: fullUrl,
       isNative: this.isNative,
       isAuthed: !!headers['Authorization'],
       isFormData,
@@ -190,7 +216,7 @@ export class CapacitorHttpAdapter implements HttpAdapter {
     if (isFormData) {
       this.logger.debug('Using fetch for FormData upload');
       const response = await this.fetchWithTimeout(
-        this.buildUrl(url, config?.params),
+        fullUrl,
         {
           method: 'POST',
           headers,
@@ -199,24 +225,28 @@ export class CapacitorHttpAdapter implements HttpAdapter {
         },
         config?.timeout ?? DEFAULT_TIMEOUT
       );
-      return this.handleFetchResponse<T>(response);
+      const data = await this.handleFetchResponse<T>(response);
+      await this.invalidateRelatedHttpCache(fullUrl);
+      return data;
     }
 
     if (this.isNative) {
       const response = await CapacitorHttp.post({
-        url: this.buildUrl(url, config?.params),
+        url: fullUrl,
         headers,
         data: body,
         readTimeout: config?.timeout ?? DEFAULT_TIMEOUT,
         connectTimeout: config?.timeout ?? DEFAULT_TIMEOUT,
       });
-      return this.handleResponse<T>(response);
+      const data = this.handleResponse<T>(response);
+      await this.invalidateRelatedHttpCache(fullUrl);
+      return data;
     }
 
     // Fallback to fetch for web/PWA
     this.logger.debug('Using fetch fallback (browser mode)');
     const response = await this.fetchWithTimeout(
-      this.buildUrl(url, config?.params),
+      fullUrl,
       {
         method: 'POST',
         headers,
@@ -225,7 +255,9 @@ export class CapacitorHttpAdapter implements HttpAdapter {
       },
       config?.timeout ?? DEFAULT_TIMEOUT
     );
-    return this.handleFetchResponse<T>(response);
+    const data = await this.handleFetchResponse<T>(response);
+    await this.invalidateRelatedHttpCache(fullUrl);
+    return data;
   }
 
   /**
@@ -233,21 +265,24 @@ export class CapacitorHttpAdapter implements HttpAdapter {
    */
   async put<T>(url: string, body: unknown, config?: HttpRequestConfig): Promise<T> {
     const headers = await this.buildHeaders(config);
+    const fullUrl = this.buildUrl(url, config?.params);
 
     if (this.isNative) {
       const response = await CapacitorHttp.put({
-        url: this.buildUrl(url, config?.params),
+        url: fullUrl,
         headers,
         data: body,
         readTimeout: config?.timeout ?? DEFAULT_TIMEOUT,
         connectTimeout: config?.timeout ?? DEFAULT_TIMEOUT,
       });
-      return this.handleResponse<T>(response);
+      const data = this.handleResponse<T>(response);
+      await this.invalidateRelatedHttpCache(fullUrl);
+      return data;
     }
 
     // Fallback to fetch for web/PWA
     const response = await this.fetchWithTimeout(
-      this.buildUrl(url, config?.params),
+      fullUrl,
       {
         method: 'PUT',
         headers,
@@ -256,7 +291,9 @@ export class CapacitorHttpAdapter implements HttpAdapter {
       },
       config?.timeout ?? DEFAULT_TIMEOUT
     );
-    return this.handleFetchResponse<T>(response);
+    const data = await this.handleFetchResponse<T>(response);
+    await this.invalidateRelatedHttpCache(fullUrl);
+    return data;
   }
 
   /**
@@ -264,21 +301,24 @@ export class CapacitorHttpAdapter implements HttpAdapter {
    */
   async patch<T>(url: string, body: unknown, config?: HttpRequestConfig): Promise<T> {
     const headers = await this.buildHeaders(config);
+    const fullUrl = this.buildUrl(url, config?.params);
 
     if (this.isNative) {
       const response = await CapacitorHttp.patch({
-        url: this.buildUrl(url, config?.params),
+        url: fullUrl,
         headers,
         data: body,
         readTimeout: config?.timeout ?? DEFAULT_TIMEOUT,
         connectTimeout: config?.timeout ?? DEFAULT_TIMEOUT,
       });
-      return this.handleResponse<T>(response);
+      const data = this.handleResponse<T>(response);
+      await this.invalidateRelatedHttpCache(fullUrl);
+      return data;
     }
 
     // Fallback to fetch for web/PWA
     const response = await this.fetchWithTimeout(
-      this.buildUrl(url, config?.params),
+      fullUrl,
       {
         method: 'PATCH',
         headers,
@@ -287,7 +327,9 @@ export class CapacitorHttpAdapter implements HttpAdapter {
       },
       config?.timeout ?? DEFAULT_TIMEOUT
     );
-    return this.handleFetchResponse<T>(response);
+    const data = await this.handleFetchResponse<T>(response);
+    await this.invalidateRelatedHttpCache(fullUrl);
+    return data;
   }
 
   /**
@@ -295,20 +337,23 @@ export class CapacitorHttpAdapter implements HttpAdapter {
    */
   async delete<T>(url: string, config?: HttpRequestConfig): Promise<T> {
     const headers = await this.buildHeaders(config);
+    const fullUrl = this.buildUrl(url, config?.params);
 
     if (this.isNative) {
       const response = await CapacitorHttp.delete({
-        url: this.buildUrl(url, config?.params),
+        url: fullUrl,
         headers,
         readTimeout: config?.timeout ?? DEFAULT_TIMEOUT,
         connectTimeout: config?.timeout ?? DEFAULT_TIMEOUT,
       });
-      return this.handleResponse<T>(response);
+      const data = this.handleResponse<T>(response);
+      await this.invalidateRelatedHttpCache(fullUrl);
+      return data;
     }
 
     // Fallback to fetch for web/PWA
     const response = await this.fetchWithTimeout(
-      this.buildUrl(url, config?.params),
+      fullUrl,
       {
         method: 'DELETE',
         headers,
@@ -316,7 +361,9 @@ export class CapacitorHttpAdapter implements HttpAdapter {
       },
       config?.timeout ?? DEFAULT_TIMEOUT
     );
-    return this.handleFetchResponse<T>(response);
+    const data = await this.handleFetchResponse<T>(response);
+    await this.invalidateRelatedHttpCache(fullUrl);
+    return data;
   }
 
   // ============================================
@@ -382,6 +429,47 @@ export class CapacitorHttpAdapter implements HttpAdapter {
 
     const separator = url.includes('?') ? '&' : '?';
     return `${url}${separator}${searchParams.toString()}`;
+  }
+
+  private createHttpCacheKey(url: string, headers: Record<string, string>): string {
+    const cacheVaryHeaders = Object.entries(headers)
+      .filter(
+        ([key]) => !['authorization', 'cache-control', 'x-no-cache'].includes(key.toLowerCase())
+      )
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, value]) => `${key}:${value}`)
+      .join('|');
+
+    return generateCacheKey(`${this.httpCacheKeyPrefix}${url}::${cacheVaryHeaders}`);
+  }
+
+  private async clearHttpResponseCache(): Promise<void> {
+    try {
+      await this.mobileCache.clear(`${this.httpCacheKeyPrefix}*`);
+      this.logger.debug('Cleared mobile HTTP response cache');
+    } catch (error) {
+      this.logger.warn('Failed to clear mobile HTTP response cache', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  private async invalidateRelatedHttpCache(url: string): Promise<void> {
+    const patterns = getMobileHttpCacheInvalidationPatterns(url);
+    if (patterns.length === 0) {
+      return;
+    }
+
+    try {
+      await Promise.all(patterns.map((pattern) => this.mobileCache.clear(pattern)));
+      this.logger.debug('Invalidated related mobile HTTP cache entries', { url, patterns });
+    } catch (error) {
+      this.logger.warn('Failed to invalidate related mobile HTTP cache entries', {
+        url,
+        patterns,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   /**

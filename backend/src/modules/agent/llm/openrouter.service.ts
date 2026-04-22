@@ -27,6 +27,7 @@
  * ```
  */
 
+import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 import type {
   LLMMessage,
   LLMCompletionOptions,
@@ -39,12 +40,14 @@ import type {
   LLMStreamDelta,
   LLMStreamResult,
 } from './llm.types.js';
+import { IMAGE_GENERATION_TIMEOUT_MS } from './llm.types.js';
 import {
-  MODEL_CATALOGUE,
-  MODEL_FALLBACK_CHAIN,
-  IMAGE_MODEL,
-  IMAGE_GENERATION_TIMEOUT_MS,
-} from './llm.types.js';
+  resolveModelFallbackChain,
+  resolveModelForTier,
+  getAgentAppConfig,
+} from '../config/agent-app-config.js';
+import { AgentEngineError } from '../exceptions/agent-engine.error.js';
+import { z } from 'zod';
 import { AGENT_MODEL_PRICING } from '@nxt1/core';
 import { logger } from '../../../utils/logger.js';
 
@@ -52,7 +55,7 @@ import { logger } from '../../../utils/logger.js';
 
 const DEFAULT_TIMEOUT_MS = 60_000;
 const MAX_RETRIES = 2;
-const RETRY_DELAY_MS = 1_500;
+const RETRY_DELAY_MS = 750;
 
 /** Status codes that are safe to retry on. */
 const RETRYABLE_STATUS_CODES = new Set([429, 500, 502, 503, 504]);
@@ -109,17 +112,38 @@ export class OpenRouterService {
   private readonly siteUrl: string;
   private readonly siteName: string;
   private readonly telemetryCallback?: LLMTelemetryCallback;
+  private readonly hydrateAgentConfig: () => Promise<void>;
 
-  constructor(options?: { onTelemetry?: LLMTelemetryCallback }) {
+  constructor(options?: {
+    onTelemetry?: LLMTelemetryCallback;
+    hydrateAgentConfig?: () => Promise<void>;
+    firestore?: Firestore;
+  }) {
     const apiKey = process.env['OPENROUTER_API_KEY'];
     if (!apiKey) {
-      throw new Error('OPENROUTER_API_KEY is not set. Add it to your .env file.');
+      throw new AgentEngineError(
+        'OPENROUTER_CONFIG_MISSING_API_KEY',
+        'OPENROUTER_API_KEY is not set. Add it to your .env file.'
+      );
     }
     this.apiKey = apiKey;
     this.backupApiKey = process.env['OPENROUTER_BACKUP_API_KEY'];
     this.siteUrl = process.env['OPENROUTER_SITE_URL'] ?? 'https://nxt1.com';
     this.siteName = process.env['OPENROUTER_SITE_NAME'] ?? 'NXT1 Sports';
     this.telemetryCallback = options?.onTelemetry;
+    this.hydrateAgentConfig =
+      options?.hydrateAgentConfig ??
+      (async () => {
+        await getAgentAppConfig(options?.firestore ?? getFirestore());
+      });
+  }
+
+  private async ensureAgentConfigLoaded(): Promise<void> {
+    try {
+      await this.hydrateAgentConfig();
+    } catch {
+      // Keep LLM calls functional even when Firestore is unavailable.
+    }
   }
 
   // ─── Public API ─────────────────────────────────────────────────────────
@@ -136,18 +160,19 @@ export class OpenRouterService {
    * @param options  - Model tier, temperature, max tokens, tool schemas, etc.
    * @returns Parsed completion result with content, tool calls, and telemetry data.
    */
-  async complete(
+  async complete<TStructuredOutput = unknown>(
     messages: readonly LLMMessage[],
-    options: LLMCompletionOptions
-  ): Promise<LLMCompletionResult> {
+    options: LLMCompletionOptions<TStructuredOutput>
+  ): Promise<LLMCompletionResult<TStructuredOutput>> {
+    await this.ensureAgentConfigLoaded();
+
     // If caller specified an exact model override, skip fallback chain
     if (options.modelOverride) {
       return this.completeWithModel(messages, options, options.modelOverride);
     }
 
     // Build fallback chain: primary model + alternatives for this tier
-    const originalChain = MODEL_FALLBACK_CHAIN[options.tier] ?? [MODEL_CATALOGUE[options.tier]];
-    const chain = originalChain;
+    const chain = resolveModelFallbackChain(options.tier);
     let lastError: Error | undefined;
 
     for (let i = 0; i < chain.length; i++) {
@@ -168,7 +193,7 @@ export class OpenRouterService {
             tier: options.tier,
             chainPosition: `${i + 1}/${chain.length}`,
           });
-          await this.sleep(RETRY_DELAY_MS * 3); // 4.5s backoff for rate limits
+          await this.sleep(RETRY_DELAY_MS * 3); // 2.25s backoff for rate limits
           try {
             return await this.completeWithModel(messages, options, model);
           } catch (retryErr) {
@@ -194,18 +219,24 @@ export class OpenRouterService {
       }
     }
 
-    throw lastError ?? new Error('OpenRouter request failed: no models available');
+    throw (
+      lastError ??
+      new AgentEngineError(
+        'OPENROUTER_NO_MODELS_AVAILABLE',
+        'OpenRouter request failed: no models available'
+      )
+    );
   }
 
   /**
    * Execute a completion with a specific model (no fallback logic).
    * Handles body building, retry, parsing, and telemetry emission.
    */
-  private async completeWithModel(
+  private async completeWithModel<TStructuredOutput = unknown>(
     messages: readonly LLMMessage[],
-    options: LLMCompletionOptions,
+    options: LLMCompletionOptions<TStructuredOutput>,
     model: string
-  ): Promise<LLMCompletionResult> {
+  ): Promise<LLMCompletionResult<TStructuredOutput>> {
     const startMs = Date.now();
 
     logger.info(`[DEBUGLOG] completeWithModel called!`, {
@@ -222,7 +253,22 @@ export class OpenRouterService {
     );
     const latencyMs = Date.now() - startMs;
 
-    let result = this.parseResponse(raw, model, latencyMs);
+    let result = this.parseResponse(
+      raw,
+      model,
+      latencyMs
+    ) as LLMCompletionResult<TStructuredOutput>;
+
+    if (options.outputSchema) {
+      result = {
+        ...result,
+        parsedOutput: this.parseStructuredOutput(
+          result.content,
+          options.outputSchema.name,
+          options.outputSchema.schema
+        ) as TStructuredOutput,
+      };
+    }
 
     // If the API response is missing usage (e.g. the Helicone proxy sometimes
     // omits it), fall back to a character-based estimate (~4 chars per token).
@@ -285,11 +331,11 @@ export class OpenRouterService {
    * Convenience: Send a single system + user prompt and get text back.
    * Used for structured JSON extraction (planning, classification, etc.).
    */
-  async prompt(
+  async prompt<TStructuredOutput = unknown>(
     systemPrompt: string,
     userMessage: string,
-    options: Omit<LLMCompletionOptions, 'tools'>
-  ): Promise<LLMCompletionResult> {
+    options: Omit<LLMCompletionOptions<TStructuredOutput>, 'tools'>
+  ): Promise<LLMCompletionResult<TStructuredOutput>> {
     const messages: LLMMessage[] = [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userMessage },
@@ -307,7 +353,9 @@ export class OpenRouterService {
    * @returns Image data (base64), metadata, and telemetry info.
    */
   async generateImage(options: ImageGenerationOptions): Promise<ImageGenerationResult> {
-    const model = options.modelOverride ?? IMAGE_MODEL;
+    await this.ensureAgentConfigLoaded();
+
+    const model = options.modelOverride ?? resolveModelForTier('image_generation');
     const startMs = Date.now();
 
     // Build user content — plain text or multimodal (text + reference images)
@@ -347,7 +395,7 @@ export class OpenRouterService {
     // Extract image from response (base64 inline_data or URL)
     const choice = raw.choices?.[0];
     if (!choice?.message) {
-      throw new Error('Image model returned no response.');
+      throw new AgentEngineError('OPENROUTER_EMPTY_RESPONSE', 'Image model returned no response.');
     }
 
     const { imageBase64, mimeType, textContent } = this.extractImageFromResponse(choice.message);
@@ -376,7 +424,7 @@ export class OpenRouterService {
     this.telemetryCallback?.({
       operationId: options.telemetryContext?.operationId ?? '',
       userId: options.telemetryContext?.userId ?? '',
-      agentId: options.telemetryContext?.agentId ?? 'brand_media_coordinator',
+      agentId: options.telemetryContext?.agentId ?? 'brand_coordinator',
       model: result.model,
       inputTokens: result.usage.inputTokens,
       outputTokens: result.usage.outputTokens,
@@ -413,13 +461,15 @@ export class OpenRouterService {
     options: LLMStreamOptions,
     onDelta: (delta: LLMStreamDelta) => void
   ): Promise<LLMStreamResult> {
+    await this.ensureAgentConfigLoaded();
+
     // If caller specified an exact model override, skip fallback chain
     if (options.modelOverride) {
       return this._completeStreamWithModel(messages, options, onDelta, options.modelOverride);
     }
 
     // Build fallback chain: primary model + alternatives for this tier
-    const chain = MODEL_FALLBACK_CHAIN[options.tier] ?? [MODEL_CATALOGUE[options.tier]];
+    const chain = resolveModelFallbackChain(options.tier);
     let lastError: Error | undefined;
 
     for (let i = 0; i < chain.length; i++) {
@@ -451,7 +501,13 @@ export class OpenRouterService {
       }
     }
 
-    throw lastError ?? new Error('OpenRouter stream failed: no models available');
+    throw (
+      lastError ??
+      new AgentEngineError(
+        'OPENROUTER_NO_MODELS_AVAILABLE',
+        'OpenRouter stream failed: no models available'
+      )
+    );
   }
 
   /**
@@ -528,7 +584,10 @@ export class OpenRouterService {
       }
 
       if (!response.body) {
-        throw new Error('OpenRouter returned no streaming body.');
+        throw new AgentEngineError(
+          'OPENROUTER_STREAM_BODY_MISSING',
+          'OpenRouter returned no streaming body.'
+        );
       }
 
       // Read the SSE stream from OpenRouter
@@ -631,7 +690,7 @@ export class OpenRouterService {
     this.telemetryCallback?.({
       operationId: options.telemetryContext?.operationId ?? '',
       userId: options.telemetryContext?.userId ?? '',
-      agentId: options.telemetryContext?.agentId ?? 'general',
+      agentId: options.telemetryContext?.agentId ?? 'strategy_coordinator',
       model: responseModel,
       inputTokens,
       outputTokens,
@@ -654,10 +713,10 @@ export class OpenRouterService {
 
   // ─── Request Builder ────────────────────────────────────────────────────
 
-  private buildRequestBody(
+  private buildRequestBody<TStructuredOutput = unknown>(
     messages: readonly LLMMessage[],
     model: string,
-    options: LLMCompletionOptions
+    options: LLMCompletionOptions<TStructuredOutput>
   ): Record<string, unknown> {
     let processedMessages = messages;
 
@@ -666,7 +725,8 @@ export class OpenRouterService {
     // Qwen, Llama, Gemini, etc.), we inject a system prompt suffix to enforce
     // JSON output, since they may silently ignore response_format.
     const supportsNativeJson = model.startsWith('anthropic/') || model.startsWith('openai/');
-    if (options.jsonMode && !supportsNativeJson) {
+    const requiresJsonOutput = options.jsonMode || !!options.outputSchema;
+    if (requiresJsonOutput && !supportsNativeJson) {
       processedMessages = this.injectJsonSystemPrompt(messages);
     }
 
@@ -682,7 +742,16 @@ export class OpenRouterService {
       body['tool_choice'] = 'auto';
     }
 
-    if (options.jsonMode) {
+    if (options.outputSchema && supportsNativeJson) {
+      body['response_format'] = {
+        type: 'json_schema',
+        json_schema: {
+          name: options.outputSchema.name,
+          strict: true,
+          schema: z.toJSONSchema(options.outputSchema.schema),
+        },
+      };
+    } else if (requiresJsonOutput) {
       body['response_format'] = { type: 'json_object' };
     }
 
@@ -804,7 +873,10 @@ export class OpenRouterService {
       }
     }
 
-    throw lastError ?? new Error('OpenRouter request failed after retries');
+    throw (
+      lastError ??
+      new AgentEngineError('OPENROUTER_REQUEST_FAILED', 'OpenRouter request failed after retries')
+    );
   }
 
   private async fetchOnce(
@@ -934,7 +1006,8 @@ export class OpenRouterService {
       }
     }
 
-    throw new Error(
+    throw new AgentEngineError(
+      'OPENROUTER_INVALID_RESPONSE',
       'Image model response did not contain recognisable image data. ' +
         'The model may not support image generation or the response format has changed.'
     );
@@ -947,7 +1020,7 @@ export class OpenRouterService {
   ): LLMCompletionResult {
     const choice = raw.choices?.[0];
     if (!choice) {
-      throw new Error('OpenRouter returned no choices.');
+      throw new AgentEngineError('OPENROUTER_EMPTY_RESPONSE', 'OpenRouter returned no choices.');
     }
 
     const message = choice.message;
@@ -998,6 +1071,41 @@ export class OpenRouterService {
     };
   }
 
+  private parseStructuredOutput<TStructuredOutput>(
+    content: string | null,
+    schemaName: string,
+    schema: z.ZodType<TStructuredOutput>
+  ): TStructuredOutput {
+    if (!content) {
+      throw new AgentEngineError(
+        'OPENROUTER_EMPTY_RESPONSE',
+        `OpenRouter returned empty content for structured output schema "${schemaName}".`
+      );
+    }
+
+    let parsedJson: unknown;
+    try {
+      parsedJson = JSON.parse(content);
+    } catch {
+      throw new AgentEngineError(
+        'OPENROUTER_INVALID_RESPONSE',
+        `OpenRouter returned invalid JSON for structured output schema "${schemaName}".`
+      );
+    }
+
+    const validated = schema.safeParse(parsedJson);
+    if (!validated.success) {
+      const firstIssue = validated.error.issues[0];
+      const path = firstIssue?.path.length ? firstIssue.path.join('.') : 'response';
+      throw new AgentEngineError(
+        'OPENROUTER_INVALID_RESPONSE',
+        `OpenRouter structured output failed schema "${schemaName}" at ${path}: ${firstIssue?.message ?? 'Invalid output.'}`
+      );
+    }
+
+    return validated.data;
+  }
+
   // ─── Text Embeddings ────────────────────────────────────────────────────
 
   /**
@@ -1036,7 +1144,10 @@ export class OpenRouterService {
 
     if (!response.ok) {
       const body = await response.text().catch(() => '');
-      throw new Error(`OpenRouter embeddings API error ${response.status}: ${body.slice(0, 200)}`);
+      throw new AgentEngineError(
+        'OPENROUTER_REQUEST_FAILED',
+        `OpenRouter embeddings API error ${response.status}: ${body.slice(0, 200)}`
+      );
     }
 
     const json = (await response.json()) as {
@@ -1045,7 +1156,10 @@ export class OpenRouterService {
 
     const embedding = json.data?.[0]?.embedding;
     if (!Array.isArray(embedding) || embedding.length === 0) {
-      throw new Error('OpenRouter embeddings API returned empty or invalid embedding.');
+      throw new AgentEngineError(
+        'OPENROUTER_INVALID_RESPONSE',
+        'OpenRouter embeddings API returned empty or invalid embedding.'
+      );
     }
 
     return embedding;

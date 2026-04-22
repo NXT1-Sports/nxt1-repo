@@ -26,6 +26,7 @@
 import { BaseTool, type ToolResult } from '../base.tool.js';
 import type { VectorMemoryService } from '../../memory/vector.service.js';
 import type { AgentMemoryCategory, AgentMemoryRecallOptions, AgentMemoryTarget } from '@nxt1/core';
+import { z } from 'zod';
 
 type SearchMemoryTarget = AgentMemoryTarget | 'all';
 
@@ -39,6 +40,16 @@ const VALID_CATEGORIES: readonly AgentMemoryCategory[] = [
   'system',
 ];
 
+const SearchMemoryInputSchema = z.object({
+  userId: z.string().trim().min(1),
+  query: z.string().trim().min(1),
+  topK: z.coerce.number().optional(),
+  target: z.enum(['user', 'team', 'organization', 'all']).optional(),
+  teamId: z.string().trim().min(1).optional(),
+  organizationId: z.string().trim().min(1).optional(),
+  category: z.enum(VALID_CATEGORIES).optional(),
+});
+
 export class SearchMemoryTool extends BaseTool {
   readonly name = 'search_memory';
   readonly description =
@@ -47,59 +58,16 @@ export class SearchMemoryTool extends BaseTool {
     'Use this only when you need deeper drill-down, scope-specific recall (user/team/organization), ' +
     'or a memory ID for delete_memory. Results are grouped by scope and ranked by similarity to your query.';
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      userId: {
-        type: 'string',
-        description: 'Firebase UID of the user whose memories to search.',
-      },
-      query: {
-        type: 'string',
-        description:
-          'Natural language query describing what you are looking for. ' +
-          'Example: "recruiting goals and target colleges" or "recent performance improvements".',
-      },
-      topK: {
-        type: 'number',
-        description: 'Number of memories to retrieve (1–20). Defaults to 5.',
-      },
-      target: {
-        type: 'string',
-        enum: ['user', 'team', 'organization', 'all'],
-        description:
-          'Optional: inspect a specific scope or use "all" to search every available scope. ' +
-          'When omitted, the tool searches user memories and any provided team/org scope.',
-      },
-      teamId: {
-        type: 'string',
-        description:
-          'Optional: required when target is "team". Also used to include team-scoped recall when target is omitted or "all".',
-      },
-      organizationId: {
-        type: 'string',
-        description:
-          'Optional: required when target is "organization". Also used to include organization-scoped recall when target is omitted or "all".',
-      },
-      category: {
-        type: 'string',
-        enum: VALID_CATEGORIES,
-        description:
-          'Optional: filter results to a specific memory category. ' +
-          'Omit to search across all categories.',
-      },
-    },
-    required: ['userId', 'query'],
-  } as const;
+  readonly parameters = SearchMemoryInputSchema;
 
   // All coordinators can recall context from the knowledge base
   override readonly allowedAgents = [
-    'general',
+    'strategy_coordinator',
     'recruiting_coordinator',
     'performance_coordinator',
-    'compliance_coordinator',
+    'admin_coordinator',
     'data_coordinator',
-    'brand_media_coordinator',
+    'brand_coordinator',
   ] as const;
 
   readonly isMutation = false;
@@ -113,31 +81,22 @@ export class SearchMemoryTool extends BaseTool {
   }
 
   async execute(input: Record<string, unknown>): Promise<ToolResult> {
-    // ── Input validation ───────────────────────────────────────────────
-    const query = this.str(input, 'query');
-    if (!query) {
-      return this.paramError('query');
+    const parsed = SearchMemoryInputSchema.safeParse(input);
+    if (!parsed.success) {
+      return {
+        success: false,
+        error: parsed.error.issues
+          .map((issue) =>
+            issue.path.length > 0 ? `${issue.path.join('.')}: ${issue.message}` : issue.message
+          )
+          .join(', '),
+      };
     }
 
-    const rawTopK = this.num(input, 'topK');
-    const topK = Math.min(Math.max(1, Math.round(rawTopK ?? 5)), 20);
+    const { query, userId, teamId, organizationId, category } = parsed.data;
+    const topK = Math.min(Math.max(1, Math.round(parsed.data.topK ?? 5)), 20);
 
-    const userId = this.str(input, 'userId') ?? '';
-    if (!userId) {
-      return this.paramError('userId');
-    }
-
-    const teamId = this.str(input, 'teamId') ?? undefined;
-    const organizationId = this.str(input, 'organizationId') ?? undefined;
-
-    const rawTarget = this.str(input, 'target');
-    const target: SearchMemoryTarget =
-      rawTarget === 'user' ||
-      rawTarget === 'team' ||
-      rawTarget === 'organization' ||
-      rawTarget === 'all'
-        ? rawTarget
-        : 'all';
+    const target: SearchMemoryTarget = parsed.data.target ?? 'all';
 
     if (target === 'team' && !teamId) {
       return this.paramError('teamId');
@@ -146,14 +105,6 @@ export class SearchMemoryTool extends BaseTool {
     if (target === 'organization' && !organizationId) {
       return this.paramError('organizationId');
     }
-
-    const rawCategory = input['category'];
-    const category =
-      typeof rawCategory === 'string' &&
-      VALID_CATEGORIES.includes(rawCategory as AgentMemoryCategory)
-        ? (rawCategory as AgentMemoryCategory)
-        : undefined;
-
     const recallOptions: AgentMemoryRecallOptions = {
       category,
       teamId,
@@ -167,8 +118,17 @@ export class SearchMemoryTool extends BaseTool {
       const grouped = await this.vectorMemory.recallByScope(userId, query, recallOptions);
       const flattened = [...grouped.user, ...grouped.team, ...grouped.organization];
 
+      const markdown = [
+        `## Memory Search Results for "${query}" (${flattened.length} found)`,
+        '',
+        ...flattened.map(
+          (m, i) => `### ${i + 1}. [${m.target}] ${m.category || 'General'}\n${m.content}`
+        ),
+      ].join('\n');
+
       return {
         success: true,
+        markdown,
         data: {
           query,
           count: flattened.length,

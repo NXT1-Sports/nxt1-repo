@@ -3,7 +3,7 @@
  * @module @nxt1/core/models/user
  *
  * Shared base types used across user model.
- * Location, social links, connected sources, verification, etc.
+ * Location, contact, connected sources, verification, etc.
  *
  * @author NXT1 Engineering
  * @version 2.0.0
@@ -29,28 +29,11 @@ export interface Location {
 }
 
 // ============================================
-// SOCIAL & CONTACT (legacy — still used by team-code.model & auth.routes)
+// CONTACT
 // ============================================
 
-/**
- * @deprecated Use SocialLink[] (agnostic array) instead.
- * Kept temporarily — team-code.model.ts and auth.routes.ts still reference this.
- */
-export interface SocialLinks {
-  twitter?: string | null;
-  instagram?: string | null;
-  tiktok?: string | null;
-  hudl?: string | null;
-  youtube?: string | null;
-  maxPreps?: string | null;
-  linkedin?: string | null;
-}
-
-/**
- * @deprecated Use a dedicated contact fields approach.
- * Kept temporarily — team-code.model.ts and auth.routes.ts still reference this.
- */
-export interface ContactInfo {
+/** Canonical user contact information. */
+export interface UserContact {
   email: string;
   phone?: string | null;
 }
@@ -61,7 +44,7 @@ export interface ContactInfo {
 
 /**
  * Platform-agnostic social link.
- * Replaces hardcoded SocialLinks interface.
+ * Replaces hardcoded per-platform social link maps.
  * Stored as an array on User.social.
  */
 export interface SocialLink {
@@ -214,19 +197,6 @@ export interface DataVerification {
   verifiedAt?: Date | string;
   /** When this verification expires (optional) */
   expiresAt?: Date | string;
-}
-
-/**
- * @deprecated Use `DataVerification[]` with `VerificationScope` instead.
- * Verification info for a sport profile's data.
- */
-export interface SportVerification {
-  /** Who verified stats */
-  statsVerifiedBy?: string;
-  /** URL to stats verification source */
-  statsVerifiedUrl?: string;
-  /** When the verification occurred */
-  verifiedAt?: Date | string;
 }
 
 // ============================================

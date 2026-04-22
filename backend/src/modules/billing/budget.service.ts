@@ -151,15 +151,29 @@ function buildOrganizationBillingTarget(
 function buildPersonalBillingTarget(
   userId: string,
   organizationId?: string,
-  teamId?: string
+  teamId?: string,
+  source: BillingTargetReference['source'] = 'default',
+  userSelected = false
 ): BillingTargetReference {
   return {
     ownerId: userId,
     ownerType: 'individual',
     organizationId,
     teamId,
-    source: 'personal',
+    source,
+    ...(userSelected ? { userSelected: true } : {}),
   };
+}
+
+function isExplicitPersonalBillingTarget(
+  target: BillingTargetReference | undefined
+): target is BillingTargetReference {
+  return (
+    target?.ownerType === 'individual' &&
+    target.source === 'personal' &&
+    target.userSelected === true &&
+    (typeof target.organizationId === 'string' || typeof target.teamId === 'string')
+  );
 }
 
 function getNormalizedBillingRefs(
@@ -744,7 +758,7 @@ export async function getBillingSummary(
  *
  * Resolution order:
  *   1. If a teamId is provided, look up the team's organizationId.
- *   2. If the organization exists and has billing enabled → billingEntity = 'organization'.
+ *   2. If the organization has an explicit billing owner → billingEntity = 'organization'.
  *   3. Otherwise → billingEntity = 'individual'.
  */
 export async function ensureUserBillingState(
@@ -765,8 +779,11 @@ export async function ensureUserBillingState(
 
     if (orgHasBilling) {
       const billingOwnerUid = await getOrganizationBillingOwnerUid(db, candidateOrganizationId);
+
       organizationTarget = buildOrganizationBillingTarget(candidateOrganizationId, effectiveTeamId);
-      await ensureNormalizedBillingOwner(db, organizationTarget, { billingOwnerUid });
+      await ensureNormalizedBillingOwner(db, organizationTarget, {
+        billingOwnerUid: billingOwnerUid,
+      });
     }
   }
 
@@ -788,12 +805,13 @@ export async function ensureUserBillingState(
     activeTarget = personalTarget;
     await setActiveBillingTarget(db, userId, activeTarget);
   } else if (organizationTarget && activeTarget.ownerType === 'individual') {
-    activeTarget = {
-      ...activeTarget,
-      organizationId: organizationTarget.organizationId,
-      teamId: effectiveTeamId,
-      source: 'personal',
-    };
+    activeTarget = buildPersonalBillingTarget(
+      userId,
+      organizationTarget.organizationId,
+      effectiveTeamId,
+      isExplicitPersonalBillingTarget(activeTarget) ? 'personal' : 'default',
+      isExplicitPersonalBillingTarget(activeTarget)
+    );
     await setActiveBillingTarget(db, userId, activeTarget);
   }
 
@@ -878,7 +896,7 @@ export function determinePostDeductionWalletAlertKind(
 }
 
 async function dispatchWalletEmptyNotification(db: Firestore, userId: string): Promise<void> {
-  const { dispatch } = await import('../../services/notification.service.js');
+  const { dispatch } = await import('../../services/communications/notification.service.js');
 
   await dispatch(db, {
     userId,
@@ -903,7 +921,7 @@ async function dispatchOrganizationWalletEmptyNotifications(
 ): Promise<void> {
   if (adminIds.length === 0) return;
 
-  const { dispatch } = await import('../../services/notification.service.js');
+  const { dispatch } = await import('../../services/communications/notification.service.js');
 
   await Promise.allSettled(
     adminIds.map((adminId) =>
@@ -926,7 +944,7 @@ async function notifyOrganizationMembersWalletEmpty(
   organizationId: string,
   options: WalletEmptyNotificationOptions = {}
 ): Promise<void> {
-  const { dispatch } = await import('../../services/notification.service.js');
+  const { dispatch } = await import('../../services/communications/notification.service.js');
   const excluded = new Set(options.userIdsToExclude ?? []);
 
   const usersSnap = await db
@@ -969,7 +987,7 @@ async function notifyOrganizationMembersWalletRefilled(
   organizationId: string,
   newBalanceCents: number
 ): Promise<void> {
-  const { dispatch } = await import('../../services/notification.service.js');
+  const { dispatch } = await import('../../services/communications/notification.service.js');
 
   const usersSnap = await db
     .collection('Users')
@@ -1016,7 +1034,7 @@ async function dispatchCreditsLowThresholdNotification(
   creditsLowAlert: CreditsLowAlert,
   newBalance: number
 ): Promise<void> {
-  const { dispatch } = await import('../../services/notification.service.js');
+  const { dispatch } = await import('../../services/communications/notification.service.js');
 
   await dispatch(db, {
     userId,
@@ -1041,7 +1059,7 @@ async function dispatchLowBalanceNotification(
   userId: string,
   newBalance: number
 ): Promise<void> {
-  const { dispatch } = await import('../../services/notification.service.js');
+  const { dispatch } = await import('../../services/communications/notification.service.js');
 
   await dispatch(db, {
     userId,
@@ -1068,7 +1086,7 @@ async function dispatchOrganizationCreditsLowThresholdNotifications(
 ): Promise<void> {
   if (adminIds.length === 0) return;
 
-  const { dispatch } = await import('../../services/notification.service.js');
+  const { dispatch } = await import('../../services/communications/notification.service.js');
 
   await Promise.allSettled(
     adminIds.map((adminId) =>
@@ -1096,7 +1114,7 @@ async function dispatchOrganizationLowBalanceNotifications(
 ): Promise<void> {
   if (adminIds.length === 0) return;
 
-  const { dispatch } = await import('../../services/notification.service.js');
+  const { dispatch } = await import('../../services/communications/notification.service.js');
 
   await Promise.allSettled(
     adminIds.map((adminId) =>
@@ -1285,6 +1303,43 @@ async function getOrganizationBillingOwnerUid(
   }
 
   return undefined;
+}
+
+export async function hasConfiguredOrganizationBilling(
+  db: Firestore,
+  organizationId: string
+): Promise<boolean> {
+  return (await getOrganizationAdminIds(db, organizationId)).length > 0;
+}
+
+function extractOrganizationAdminUserIds(admins: unknown): string[] {
+  if (!Array.isArray(admins)) {
+    return [];
+  }
+
+  return Array.from(
+    new Set(
+      admins
+        .map((admin) =>
+          typeof admin === 'object' && admin !== null && 'userId' in admin
+            ? (admin['userId'] as string | undefined)
+            : undefined
+        )
+        .filter((userId): userId is string => typeof userId === 'string' && userId.length > 0)
+    )
+  );
+}
+
+async function findOrganizationIdForAdminUser(
+  db: Firestore,
+  userId: string
+): Promise<string | undefined> {
+  const organizationSnapshot = await db.collection('Organizations').get();
+  const matchingDoc = organizationSnapshot.docs.find((doc) =>
+    extractOrganizationAdminUserIds(doc.data()?.['admins']).includes(userId)
+  );
+
+  return matchingDoc?.id;
 }
 
 // ============================================
@@ -2007,7 +2062,7 @@ async function triggerAutoTopUpIfEnabled(
       }
 
       // ── Write a PaymentLog entry so it appears in payment history ──
-      const { PaymentLogModel } = await import('../../models/payment-log.model.js');
+      const { PaymentLogModel } = await import('../../models/billing/payment-log.model.js');
       await PaymentLogModel.findOneAndUpdate(
         { invoiceId: result.paymentIntentId },
         {
@@ -2056,7 +2111,7 @@ async function triggerAutoTopUpIfEnabled(
       });
 
       // ── Write a failed PaymentLog entry ──
-      const { PaymentLogModel } = await import('../../models/payment-log.model.js');
+      const { PaymentLogModel } = await import('../../models/billing/payment-log.model.js');
       const failedId = result.paymentIntentId ?? `auto-topup-failed-${userId}-${Date.now()}`;
       await PaymentLogModel.findOneAndUpdate(
         { invoiceId: failedId },
@@ -2122,7 +2177,7 @@ async function sendAutoTopUpFailureNotification(
   outcome: 'failed' | 'no_payment_method',
   amountCents: number
 ): Promise<void> {
-  const { dispatch } = await import('../../services/notification.service.js');
+  const { dispatch } = await import('../../services/communications/notification.service.js');
   const amountStr = `$${(amountCents / 100).toFixed(2)}`;
 
   const messages: Record<
@@ -2256,7 +2311,7 @@ export async function addFundsToOrgWallet(
 
   const adminIds = await getOrganizationAdminIds(db, organizationId);
   if (adminIds.length > 0) {
-    const { dispatch } = await import('../../services/notification.service.js');
+    const { dispatch } = await import('../../services/communications/notification.service.js');
     const title =
       source === 'auto_topup' ? 'Organization Wallet Auto-Reloaded' : 'Organization Credits Added';
     const body =
@@ -2565,7 +2620,7 @@ async function checkAndNotifyOrganizationBudgetDoc(
   budget: OrganizationBudgetDocument,
   updates: Record<string, unknown>
 ): Promise<void> {
-  const { dispatch } = await import('../../services/notification.service.js');
+  const { dispatch } = await import('../../services/communications/notification.service.js');
 
   const orgDoc = await db.collection('Organizations').doc(organizationId).get();
   const orgData = orgDoc.data();
@@ -2636,7 +2691,7 @@ async function checkAndNotifyOrg(
 ): Promise<void> {
   if (!areBudgetAlertsEnabled(ctx)) return;
 
-  const { dispatch } = await import('../../services/notification.service.js');
+  const { dispatch } = await import('../../services/communications/notification.service.js');
 
   // Get org admins
   const orgDoc = await db.collection('Organizations').doc(organizationId).get();
@@ -2706,7 +2761,7 @@ async function checkAndNotifyTeam(
   allocation: TeamBudgetAllocation,
   updates: Record<string, unknown>
 ): Promise<void> {
-  const { dispatch } = await import('../../services/notification.service.js');
+  const { dispatch } = await import('../../services/communications/notification.service.js');
 
   const teamDoc = await db.collection('Teams').doc(teamId).get();
   const teamData = teamDoc.data();
@@ -2838,11 +2893,13 @@ export async function resolveBillingTarget(
   options?: { billingMode?: BillingMode }
 ): Promise<ResolvedBillingTarget> {
   const storedTarget = await getStoredBillingTarget(db, userId);
-  const effectiveBillingMode =
-    options?.billingMode ??
-    (storedTarget.ownerType === 'organization' ? 'organization' : 'personal');
+  const hasStoredPersonalSelection = isExplicitPersonalBillingTarget(storedTarget);
+  const hasStoredOrganizationTarget =
+    storedTarget.ownerType === 'organization' && typeof storedTarget.organizationId === 'string';
+  const shouldUsePersonalBilling =
+    options?.billingMode === 'personal' || (!options?.billingMode && hasStoredPersonalSelection);
 
-  if (effectiveBillingMode === 'personal') {
+  if (shouldUsePersonalBilling) {
     billingResolutionCache.delete(userId);
     const personalTarget = buildPersonalBillingTarget(
       userId,
@@ -2864,35 +2921,59 @@ export async function resolveBillingTarget(
   }
 
   if (storedTarget.ownerType === 'organization' && storedTarget.organizationId) {
-    const orgTarget = buildOrganizationBillingTarget(
-      storedTarget.organizationId,
-      storedTarget.teamId,
-      'organization'
-    );
-    await ensureNormalizedBillingOwner(db, orgTarget, {
-      billingOwnerUid: await getOrganizationBillingOwnerUid(db, storedTarget.organizationId),
-    });
-    const ctx = await getBillingStateForTarget(db, userId, orgTarget);
-    if (!ctx) {
-      throw new Error(`Organization billing context not found for ${storedTarget.organizationId}`);
-    }
+    const organizationAdminIds = await getOrganizationAdminIds(db, storedTarget.organizationId);
 
-    const teamsSnap = await db
-      .collection('Teams')
-      .where('organizationId', '==', storedTarget.organizationId)
-      .get();
-    const teamIds = teamsSnap.docs.map((doc) => doc.id);
-    if (storedTarget.teamId && !teamIds.includes(storedTarget.teamId)) {
-      teamIds.push(storedTarget.teamId);
-    }
+    if (organizationAdminIds.length === 0) {
+      const personalTarget = buildPersonalBillingTarget(
+        userId,
+        storedTarget.organizationId,
+        storedTarget.teamId
+      );
+      await ensureNormalizedBillingOwner(db, personalTarget);
+      await setActiveBillingTarget(db, userId, personalTarget);
+      logger.info(
+        '[resolveBillingTarget] Stored org billing target has no admins; falling back to personal',
+        {
+          userId,
+          organizationId: storedTarget.organizationId,
+        }
+      );
+    } else {
+      const orgTarget = buildOrganizationBillingTarget(
+        storedTarget.organizationId,
+        storedTarget.teamId,
+        'organization'
+      );
+      const billingOwnerUid = await getOrganizationBillingOwnerUid(db, storedTarget.organizationId);
+      await ensureNormalizedBillingOwner(
+        db,
+        orgTarget,
+        billingOwnerUid ? { billingOwnerUid } : undefined
+      );
+      const ctx = await getBillingStateForTarget(db, userId, orgTarget);
+      if (!ctx) {
+        throw new Error(
+          `Organization billing context not found for ${storedTarget.organizationId}`
+        );
+      }
 
-    return {
-      type: 'organization',
-      billingUserId: `org:${storedTarget.organizationId}`,
-      context: ctx,
-      organizationId: storedTarget.organizationId,
-      teamIds,
-    };
+      const teamsSnap = await db
+        .collection('Teams')
+        .where('organizationId', '==', storedTarget.organizationId)
+        .get();
+      const teamIds = teamsSnap.docs.map((doc) => doc.id);
+      if (storedTarget.teamId && !teamIds.includes(storedTarget.teamId)) {
+        teamIds.push(storedTarget.teamId);
+      }
+
+      return {
+        type: 'organization',
+        billingUserId: `org:${storedTarget.organizationId}`,
+        context: ctx,
+        organizationId: storedTarget.organizationId,
+        teamIds,
+      };
+    }
   }
 
   // ── Check resolution cache (mapping only, NOT the live context) ──
@@ -2929,7 +3010,16 @@ export async function resolveBillingTarget(
 
   // ── Try to resolve to an organization (directors always, others via roster) ──
   const orgTarget = await resolveUserOrgTarget(db, userId, role);
-  if (orgTarget) {
+  const resolvedOrgTargetId = orgTarget?.organizationId;
+  if (orgTarget && resolvedOrgTargetId) {
+    if (!options?.billingMode && !hasStoredPersonalSelection && !hasStoredOrganizationTarget) {
+      await setActiveBillingTarget(
+        db,
+        userId,
+        buildOrganizationBillingTarget(resolvedOrgTargetId, orgTarget.teamIds?.[0], 'organization')
+      );
+    }
+
     billingResolutionCache.set(userId, {
       type: orgTarget.type,
       billingUserId: orgTarget.billingUserId,
@@ -2958,7 +3048,20 @@ export async function resolveBillingTarget(
   // using the athlete's own context (which has teamId for sub-limit tracking).
   if (role !== 'director') {
     const athleteTarget = await resolveAthleteOrgTarget(db, userId);
-    if (athleteTarget) {
+    const resolvedAthleteOrgId = athleteTarget?.organizationId;
+    if (athleteTarget && resolvedAthleteOrgId) {
+      if (!options?.billingMode && !hasStoredPersonalSelection && !hasStoredOrganizationTarget) {
+        await setActiveBillingTarget(
+          db,
+          userId,
+          buildOrganizationBillingTarget(
+            resolvedAthleteOrgId,
+            athleteTarget.teamIds?.[0],
+            'organization'
+          )
+        );
+      }
+
       billingResolutionCache.set(userId, {
         type: athleteTarget.type,
         billingUserId: athleteTarget.billingUserId,
@@ -2995,7 +3098,7 @@ export async function resolveBillingTarget(
  *
  * Strategy:
  *   1. Find the user's active roster entry to get their teamId.
- *   2. Look up the team's organizationId and check for org billing.
+ *   2. Look up the team's organizationId and verify the org has an explicit billing owner.
  *   3. If org-billed, ensure the athlete's billing context is created with
  *      the correct teamId (so spend attribution walks the 3-tier hierarchy).
  *   4. Return type='organization' with the org's Stripe customer userId
@@ -3024,7 +3127,7 @@ async function resolveAthleteOrgTarget(
 
   if (!teamId) return null;
 
-  // Step 2: check if the team's org has billing enabled
+  // Step 2: check if the team's org has admins, which enables org billing.
   const teamDoc = await db.collection('Teams').doc(teamId).get();
   const teamData = teamDoc.data();
 
@@ -3032,33 +3135,31 @@ async function resolveAthleteOrgTarget(
 
   if (!orgId) return null;
 
-  let orgHasBilling = false;
-  if (orgId) {
-    const orgDoc = await db.collection('Organizations').doc(orgId).get();
-    const orgData = orgDoc.data();
-    orgHasBilling = !!orgData?.['billing']?.['subscriptionId'];
-  }
+  const organizationAdminIds = await getOrganizationAdminIds(db, orgId);
 
-  if (!orgHasBilling) return null;
+  if (organizationAdminIds.length === 0) return null;
 
   const athletePersonalTarget = buildPersonalBillingTarget(userId, orgId, teamId);
   const athleteOrganizationTarget = buildOrganizationBillingTarget(orgId, teamId);
+  const billingOwnerUid = await getOrganizationBillingOwnerUid(db, orgId);
   await ensureNormalizedBillingOwner(db, athletePersonalTarget);
-  await ensureNormalizedBillingOwner(db, athleteOrganizationTarget, {
-    billingOwnerUid: await getOrganizationBillingOwnerUid(db, orgId),
-  });
+  await ensureNormalizedBillingOwner(
+    db,
+    athleteOrganizationTarget,
+    billingOwnerUid ? { billingOwnerUid } : undefined
+  );
 
   const userDoc = await db.collection('Users').doc(userId).get();
   const userData = (userDoc.data() ?? {}) as BillingUserRoutingRecord;
-  if (!userData.activeBillingTarget || userData.activeBillingTarget.ownerType !== 'individual') {
-    await setActiveBillingTarget(db, userId, athleteOrganizationTarget);
-  } else if (
-    userData.activeBillingTarget.ownerType === 'individual' &&
-    userData.activeBillingTarget.source === 'personal'
+  if (
+    !userData.activeBillingTarget ||
+    userData.activeBillingTarget.ownerType !== 'individual' ||
+    !isExplicitPersonalBillingTarget(userData.activeBillingTarget)
   ) {
+    await setActiveBillingTarget(db, userId, athleteOrganizationTarget);
+  } else {
     await setActiveBillingTarget(db, userId, {
-      ...athletePersonalTarget,
-      source: 'personal',
+      ...buildPersonalBillingTarget(userId, orgId, teamId, 'personal', true),
     });
   }
 
@@ -3127,7 +3228,14 @@ async function resolveUserOrgTarget(
     organizationId = rosterSnap.docs[0]!.data()['organizationId'] as string | undefined;
   }
 
-  // Strategy 2: Fallback for directors and coaches — check organizations.ownerId
+  // Strategy 2: Fallback to explicit organization admin membership.
+  // Admin membership is sourced from Organizations.admins; adminUserIds is a
+  // derived index for queryability and legacy docs fall back to an in-memory scan.
+  if (!organizationId) {
+    organizationId = await findOrganizationIdForAdminUser(db, userId);
+  }
+
+  // Strategy 2.5: Fallback for directors and coaches — check organizations.ownerId
   // Coaches are set as ownerId during onboarding (same as directors).
   if (!organizationId && (role === 'director' || role === 'coach')) {
     const orgSnap = await db
@@ -3153,6 +3261,12 @@ async function resolveUserOrgTarget(
   }
 
   if (!organizationId) {
+    return null;
+  }
+
+  const organizationAdminIds = await getOrganizationAdminIds(db, organizationId);
+
+  if (organizationAdminIds.length === 0) {
     return null;
   }
 
@@ -3214,13 +3328,22 @@ async function getOrgBillingState(
  * Create an organization-level master billing context.
  */
 async function ensureOrgBillingState(db: Firestore, organizationId: string): Promise<void> {
-  const billingOwnerUid = await getOrganizationBillingOwnerUid(db, organizationId);
+  const organizationAdminIds = await getOrganizationAdminIds(db, organizationId);
+  if (organizationAdminIds.length === 0) {
+    throw new Error(`Organization ${organizationId} does not have any admins`);
+  }
   const organizationTarget = buildOrganizationBillingTarget(organizationId);
-  await ensureNormalizedBillingOwner(db, organizationTarget, { billingOwnerUid });
+  const billingOwnerUid = await getOrganizationBillingOwnerUid(db, organizationId);
+  await ensureNormalizedBillingOwner(
+    db,
+    organizationTarget,
+    billingOwnerUid ? { billingOwnerUid } : undefined
+  );
 
   logger.info('[createOrgBillingContext] Created org billing context', {
     organizationId,
-    billingOwnerUid,
+    adminCount: organizationAdminIds.length,
+    hasBillingOwnerUid: Boolean(billingOwnerUid),
   });
 }
 
@@ -3780,16 +3903,34 @@ export async function expireStaleHolds(db: Firestore): Promise<number> {
   const holdExpiryMs = config.holdExpiryMs || DEFAULT_HOLD_EXPIRY_MS;
   const cutoff = new Date(Date.now() - holdExpiryMs);
 
-  const snapshot = await db
-    .collection(COLLECTIONS.WALLET_HOLDS)
-    .where('status', '==', 'active')
-    .where('createdAt', '<', cutoff)
-    .limit(200)
-    .get();
+  const [expiresAtSnapshot, legacySnapshot] = await Promise.all([
+    db
+      .collection(COLLECTIONS.WALLET_HOLDS)
+      .where('status', '==', 'active')
+      .where('expiresAt', '<=', Timestamp.now())
+      .limit(200)
+      .get(),
+    db
+      .collection(COLLECTIONS.WALLET_HOLDS)
+      .where('status', '==', 'active')
+      .where('createdAt', '<', cutoff)
+      .limit(200)
+      .get(),
+  ]);
 
-  if (snapshot.empty) return 0;
+  const holdDocs = new Map<string, FirebaseFirestore.QueryDocumentSnapshot>();
+  for (const doc of expiresAtSnapshot.docs) {
+    holdDocs.set(doc.id, doc);
+  }
+  for (const doc of legacySnapshot.docs) {
+    holdDocs.set(doc.id, doc);
+  }
+
+  if (holdDocs.size === 0) return 0;
 
   let expiredCount = 0;
+  let totalReleasedCents = 0;
+  let legacyFallbackCount = 0;
   const batch = db.batch();
 
   const holdsByOwner = new Map<
@@ -3797,8 +3938,12 @@ export async function expireStaleHolds(db: Firestore): Promise<number> {
     { target: BillingTargetReference; totalHeldCents: number }
   >();
 
-  for (const doc of snapshot.docs) {
+  for (const doc of holdDocs.values()) {
     const hold = doc.data() as WalletHold;
+
+    if (!hold.expiresAt) {
+      legacyFallbackCount++;
+    }
 
     batch.update(doc.ref, {
       status: 'expired',
@@ -3814,6 +3959,7 @@ export async function expireStaleHolds(db: Firestore): Promise<number> {
     });
 
     expiredCount++;
+    totalReleasedCents += hold.amountCents;
   }
 
   await batch.commit();
@@ -3830,7 +3976,11 @@ export async function expireStaleHolds(db: Firestore): Promise<number> {
     );
   }
 
-  logger.info('[expireStaleHolds] Expired stale holds', { expiredCount });
+  logger.info('[expireStaleHolds] Expired stale holds', {
+    expiredCount,
+    totalReleasedCents,
+    legacyFallbackCount,
+  });
   return expiredCount;
 }
 
@@ -3920,7 +4070,7 @@ async function dispatchCreditsAddedNotification(
   newBalance: number,
   notificationVariant: 'standard' | 'auto_topup' = 'standard'
 ): Promise<void> {
-  const { dispatch } = await import('../../services/notification.service.js');
+  const { dispatch } = await import('../../services/communications/notification.service.js');
   const title = notificationVariant === 'auto_topup' ? 'Wallet Auto-Reloaded' : 'Credits Added';
   const body =
     notificationVariant === 'auto_topup'

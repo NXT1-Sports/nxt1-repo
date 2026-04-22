@@ -264,6 +264,11 @@ export class InviteQrCodeComponent {
   readonly referralCode = input<string | undefined>();
   readonly inviteType = input<InviteType>('general');
   readonly senderRole = input<UserRole | null>(null);
+  readonly senderName = input<string | null>(null);
+  readonly senderPosition = input<string | null>(null);
+  readonly senderSchool = input<string | null>(null);
+  readonly senderSport = input<string | null>(null);
+  readonly senderLocation = input<string | null>(null);
   readonly team = input<Pick<InviteTeam, 'name' | 'sport'> | null>(null);
 
   protected saved = signal(false);
@@ -300,6 +305,11 @@ export class InviteQrCodeComponent {
     const shareSource = {
       inviteType: this.inviteType(),
       senderRole: this.senderRole(),
+      senderName: this.senderName(),
+      senderPosition: this.senderPosition(),
+      senderSchool: this.senderSchool(),
+      senderSport: this.senderSport(),
+      senderLocation: this.senderLocation(),
       team: this.team(),
     } as const;
 

@@ -89,6 +89,7 @@ export class IntelService {
   private readonly _isLoading = signal(false);
   private readonly _isGenerating = signal(false);
   private readonly _isPendingGeneration = signal(false);
+  private readonly _generationStep = signal('');
   private readonly _error = signal<string | null>(null);
 
   // ============================================
@@ -100,6 +101,7 @@ export class IntelService {
   readonly isLoading = computed(() => this._isLoading());
   readonly isGenerating = computed(() => this._isGenerating());
   readonly isPendingGeneration = computed(() => this._isPendingGeneration());
+  readonly generationStep = computed(() => this._generationStep());
   readonly isAnythingGenerating = computed(
     () => this._isGenerating() || this._isPendingGeneration()
   );
@@ -165,27 +167,47 @@ export class IntelService {
     if (status === 'active') {
       this.logger.info('Agent X write_intel tool started — showing generating state', { toolId });
       this._isGenerating.set(true);
+      this._isPendingGeneration.set(false);
+      this._generationStep.set(this.resolveToolStepMessage(toolName, detail));
       this._error.set(null);
     } else if (status === 'success') {
       this.logger.info('Agent X write_intel tool completed — refreshing intel', { toolId });
+      this._generationStep.set('Finalizing Intel report...');
       // Refresh whichever report is currently active (athlete or team)
       const athleteReport = this._athleteReport();
       const teamReport = this._teamReport();
       if (athleteReport?.userId) {
         void this.loadAthleteIntel(athleteReport.userId, true).finally(() => {
           this._isGenerating.set(false);
+          this._generationStep.set('');
         });
       } else if (teamReport?.teamId) {
         void this.loadTeamIntel(teamReport.teamId, true).finally(() => {
           this._isGenerating.set(false);
+          this._generationStep.set('');
         });
       } else {
         this._isGenerating.set(false);
+        this._generationStep.set('');
       }
     } else if (status === 'error') {
       this.logger.warn('Agent X write_intel tool errored', { toolId, detail });
       this._isGenerating.set(false);
+      this._generationStep.set('');
     }
+  }
+
+  private resolveToolStepMessage(toolName: string, detail?: string): string {
+    const normalizedDetail = (detail ?? '').trim();
+    if (normalizedDetail.length > 0) return normalizedDetail;
+
+    const normalizedName = toolName.replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
+
+    if (normalizedName.length > 0) {
+      return `Agent X step: ${normalizedName}`;
+    }
+
+    return 'Agent X is generating your Intel report...';
   }
 
   // ============================================
@@ -314,6 +336,7 @@ export class IntelService {
     } finally {
       this._isLoading.set(false);
       this._isPendingGeneration.set(false);
+      this._generationStep.set('');
     }
   }
 
@@ -351,6 +374,7 @@ export class IntelService {
     } finally {
       this._isGenerating.set(false);
       this._isPendingGeneration.set(false);
+      this._generationStep.set('');
     }
   }
 
@@ -438,16 +462,19 @@ export class IntelService {
     this._isLoading.set(false);
     this._isGenerating.set(false);
     this._isPendingGeneration.set(false);
+    this._generationStep.set('');
     this._error.set(null);
   }
 
   /** Mark that the user has initiated generation (e.g. opened Agent X chat) but generation hasn't started yet. */
   startPendingGeneration(): void {
     this._isPendingGeneration.set(true);
+    this._generationStep.set('Waiting for Agent X to start...');
   }
 
   /** Clear the pending state once generation is complete or cancelled. */
   endPendingGeneration(): void {
     this._isPendingGeneration.set(false);
+    this._generationStep.set('');
   }
 }

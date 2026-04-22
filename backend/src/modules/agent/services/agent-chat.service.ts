@@ -38,8 +38,8 @@ import type {
   AgentMessageQuery,
   PaginatedResult,
 } from '@nxt1/core';
-import { AgentThreadModel } from '../../../models/agent-thread.model.js';
-import { AgentMessageModel } from '../../../models/agent-message.model.js';
+import { AgentThreadModel } from '../../../models/agent/agent-thread.model.js';
+import { AgentMessageModel } from '../../../models/agent/agent-message.model.js';
 import { logger } from '../../../utils/logger.js';
 import type { OpenRouterService } from '../llm/openrouter.service.js';
 import type { AgentQueueService } from '../queue/queue.service.js';
@@ -85,10 +85,11 @@ export class AgentChatService {
     category?: AgentThreadCategory;
   }): Promise<AgentThread> {
     const now = new Date().toISOString();
+    const normalizedTitle = params.title?.trim().slice(0, 80);
 
     const doc = await AgentThreadModel.create({
       userId: params.userId,
-      title: params.title ?? 'New Conversation',
+      ...(normalizedTitle ? { title: normalizedTitle } : {}),
       category: params.category,
       lastMessageAt: now,
       messageCount: 0,
@@ -118,11 +119,11 @@ export class AgentChatService {
     category?: AgentThreadCategory;
     origin?: AgentJobOrigin;
   }): Promise<{ thread: AgentThread; message: AgentMessage }> {
-    const title = params.prompt.trim().slice(0, 80) || 'New Conversation';
+    const title = params.prompt.trim().slice(0, 80);
 
     const thread = await this.createThread({
       userId: params.userId,
-      title,
+      ...(title ? { title } : {}),
       category: params.category,
     });
 
@@ -243,7 +244,7 @@ export class AgentChatService {
     if (!thread) return null;
 
     const promptPrefix = userMessage.trim().slice(0, 80);
-    if (thread.title !== promptPrefix && thread.title !== 'New Conversation') {
+    if (thread.title !== promptPrefix && thread.title.trim().length > 0) {
       return null;
     }
 
@@ -339,6 +340,8 @@ export class AgentChatService {
     operationId?: string;
     resultData?: Record<string, unknown>;
     toolCalls?: readonly AgentToolCallRecord[];
+    steps?: readonly import('@nxt1/core').AgentXToolStep[];
+    parts?: readonly import('@nxt1/core').AgentXMessagePart[];
     tokenUsage?: AgentMessageTokenUsage;
   }): Promise<AgentMessage> {
     const now = new Date().toISOString();
@@ -354,6 +357,8 @@ export class AgentChatService {
       operationId: params.operationId,
       resultData: params.resultData,
       toolCalls: params.toolCalls,
+      steps: params.steps,
+      parts: params.parts,
       tokenUsage: params.tokenUsage,
       createdAt: now,
     });
@@ -450,6 +455,8 @@ export class AgentChatService {
       operationId: doc.operationId,
       resultData: doc.resultData,
       toolCalls: doc.toolCalls,
+      steps: doc.steps,
+      parts: doc.parts,
       tokenUsage: doc.tokenUsage,
       embedding: doc.embedding,
       createdAt: doc.createdAt,

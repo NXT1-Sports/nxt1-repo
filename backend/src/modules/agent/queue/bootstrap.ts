@@ -88,6 +88,7 @@ import { ScrapeInstagramTool } from '../tools/integrations/social/scrape-instagr
 import { ApifyService } from '../tools/integrations/apify/apify.service.js';
 import { ScraperMediaService } from '../tools/integrations/social/scraper-media.service.js';
 import { ApifyMcpBridgeService } from '../tools/integrations/apify/apify-mcp-bridge.service.js';
+import { db as appDb } from '../../../utils/firebase.js';
 import { SearchApifyActorsTool } from '../tools/integrations/apify/search-apify-actors.tool.js';
 import { GetApifyActorDetailsTool } from '../tools/integrations/apify/get-apify-actor-details.tool.js';
 import { CallApifyActorTool } from '../tools/integrations/apify/call-apify-actor.tool.js';
@@ -132,7 +133,7 @@ import { VectorMemoryService } from '../memory/vector.service.js';
 import { SessionMemoryService } from '../memory/session.service.js';
 import { KnowledgeRetrievalService } from '../memory/knowledge-retrieval.service.js';
 import { AgentChatService } from '../services/agent-chat.service.js';
-import { getCacheService } from '../../../services/cache.service.js';
+import { getCacheService } from '../../../services/core/cache.service.js';
 import {
   SkillRegistry,
   ScoutingRubricSkill,
@@ -144,16 +145,16 @@ import {
   GlobalKnowledgeSkill,
 } from '../skills/index.js';
 import {
+  AdminCoordinatorAgent,
+  BrandCoordinatorAgent,
   DataCoordinatorAgent,
   PerformanceCoordinatorAgent,
   RecruitingCoordinatorAgent,
-  BrandMediaCoordinatorAgent,
-  ComplianceCoordinatorAgent,
-  GeneralAgent,
+  StrategyCoordinatorAgent,
 } from '../agents/index.js';
-import { setAgentDependencies } from '../../../routes/agent-x/shared.js';
-import { setWelcomeDependencies } from '../../../services/agent-welcome.service.js';
-import { setScrapeDependencies } from '../../../services/agent-scrape.service.js';
+import { setAgentDependencies } from '../../../routes/agent/shared.js';
+import { setWelcomeDependencies } from '../services/agent-welcome.service.js';
+import { setScrapeDependencies } from '../services/agent-scrape.service.js';
 import { stagingDb } from '../../../utils/firebase-staging.js';
 import { logger } from '../../../utils/logger.js';
 import { addJobCost } from './job-cost-tracker.js';
@@ -231,6 +232,7 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   }
   // ── 1. Core services ─────────────────────────────────────────────────
   const llm = new OpenRouterService({
+    firestore: appDb,
     onTelemetry: (record) => {
       // Accumulate cost per operationId so the billing module can deduct
       // the correct amount at job completion. Helicone handles all usage
@@ -468,9 +470,9 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   router.registerAgent(new DataCoordinatorAgent());
   router.registerAgent(new PerformanceCoordinatorAgent());
   router.registerAgent(new RecruitingCoordinatorAgent());
-  router.registerAgent(new BrandMediaCoordinatorAgent());
-  router.registerAgent(new ComplianceCoordinatorAgent());
-  router.registerAgent(new GeneralAgent());
+  router.registerAgent(new BrandCoordinatorAgent());
+  router.registerAgent(new AdminCoordinatorAgent());
+  router.registerAgent(new StrategyCoordinatorAgent());
 
   // ── 3. Queue infrastructure ──────────────────────────────────────────────────
   const { getFirestore } = await import('firebase-admin/firestore');

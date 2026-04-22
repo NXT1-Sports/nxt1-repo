@@ -66,8 +66,8 @@ export class AppComponent {
   private hasPerformedInitialNavigation = false;
 
   constructor() {
-    // Register Apple IAP as the global buy-credits handler on iOS.
-    // All surfaces (Agent X, Usage page, billing card) will use IAP instead of basic Stripe flow.
+    // Register Apple IAP on iOS so compatible buy-credits sheets can offer
+    // both the normal Stripe path and the native IAP path.
     if (this.iap.isSupported) {
       this.usageBottomSheet.registerBuyCreditsHandler(() => this.iap.showProductsAndPurchase());
     }

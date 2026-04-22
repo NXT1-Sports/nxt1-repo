@@ -19,8 +19,15 @@
  */
 
 import { Types } from 'mongoose';
-import { BaseTool, type ToolResult } from '../base.tool.js';
+import { BaseTool, type ToolExecutionContext, type ToolResult } from '../base.tool.js';
 import type { VectorMemoryService } from '../../memory/vector.service.js';
+import { z } from 'zod';
+
+const DeleteMemoryInputSchema = z.object({
+  userId: z.string().trim().min(1),
+  memoryId: z.string().trim().min(1),
+  reason: z.string().trim().min(1).optional(),
+});
 
 export class DeleteMemoryTool extends BaseTool {
   readonly name = 'delete_memory';
@@ -34,34 +41,16 @@ export class DeleteMemoryTool extends BaseTool {
     '- memoryId (required): The ID of the memory to delete (from search_memory results).\n' +
     '- reason (optional): Why the memory is being deleted (for logging).';
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      userId: {
-        type: 'string',
-        description: 'Firebase UID of the user who owns the memory.',
-      },
-      memoryId: {
-        type: 'string',
-        description: 'The exact memory ID to delete. Get this from search_memory results.',
-      },
-      reason: {
-        type: 'string',
-        description:
-          'Optional reason for deletion (e.g., "user requested removal", "outdated goal").',
-      },
-    },
-    required: ['userId', 'memoryId'],
-  } as const;
+  readonly parameters = DeleteMemoryInputSchema;
 
   // All coordinators can delete memories
   override readonly allowedAgents = [
-    'general',
+    'strategy_coordinator',
     'recruiting_coordinator',
     'performance_coordinator',
-    'compliance_coordinator',
+    'admin_coordinator',
     'data_coordinator',
-    'brand_media_coordinator',
+    'brand_coordinator',
   ] as const;
 
   readonly isMutation = true;
@@ -74,12 +63,19 @@ export class DeleteMemoryTool extends BaseTool {
     this.vectorMemory = vectorMemory;
   }
 
-  async execute(input: Record<string, unknown>): Promise<ToolResult> {
-    const userId = this.str(input, 'userId');
-    if (!userId) return this.paramError('userId');
+  async execute(
+    input: Record<string, unknown>,
+    context?: ToolExecutionContext
+  ): Promise<ToolResult> {
+    const parsed = DeleteMemoryInputSchema.safeParse(input);
+    if (!parsed.success) {
+      return {
+        success: false,
+        error: parsed.error.issues.map((issue) => issue.message).join(', '),
+      };
+    }
 
-    const memoryId = this.str(input, 'memoryId');
-    if (!memoryId) return this.paramError('memoryId');
+    const { userId, memoryId } = parsed.data;
 
     if (!Types.ObjectId.isValid(memoryId)) {
       return {
@@ -89,6 +85,11 @@ export class DeleteMemoryTool extends BaseTool {
     }
 
     try {
+      context?.emitStage?.('deleting_resource', {
+        icon: 'delete',
+        memoryId,
+      });
+
       const deleted = await this.vectorMemory.deleteById(memoryId, userId);
 
       if (!deleted) {

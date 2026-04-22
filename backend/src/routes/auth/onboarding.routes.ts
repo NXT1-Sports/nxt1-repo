@@ -9,7 +9,7 @@
 
 import { Router } from 'express';
 import type { Request, Response, Router as RouterType } from 'express';
-import { FieldValue } from 'firebase-admin/firestore';
+import { FieldValue, type FieldValue as FirestoreFieldValue } from 'firebase-admin/firestore';
 import { asyncHandler, sendError } from '@nxt1/core/errors/express';
 import { notFoundError } from '@nxt1/core/errors';
 import { USER_SCHEMA_VERSION, normalizeName, isTeamRole } from '@nxt1/core';
@@ -17,20 +17,21 @@ import type {
   UserRole,
   SportProfile,
   Location,
-  ContactInfo,
+  UserContact,
   NotificationPreferences,
+  PortableTimestamp,
   UserPreferences,
 } from '@nxt1/core';
-import { validateBody } from '../../middleware/validation.middleware.js';
+import { validateBody } from '../../middleware/validation/validation.middleware.js';
 import { BulkOnboardingDto, OnboardingStepDto } from '../../dtos/onboarding.dto.js';
 import {
   provisionOnboardingPrograms,
   type OnboardingProgramSelection,
   type OnboardingCreateTeamProfile,
-} from '../../services/onboarding-program-provisioning.service.js';
-import { createRosterEntryService } from '../../services/roster-entry.service.js';
-import { enqueueLinkedAccountScrape } from '../../services/agent-scrape.service.js';
-import { enqueueWelcomeGraphicIfReady } from '../../services/agent-welcome.service.js';
+} from '../../services/platform/onboarding-program-provisioning.service.js';
+import { createRosterEntryService } from '../../services/team/roster-entry.service.js';
+import { enqueueLinkedAccountScrape } from '../../modules/agent/services/agent-scrape.service.js';
+import { enqueueWelcomeGraphicIfReady } from '../../modules/agent/services/agent-welcome.service.js';
 import { invalidateProfileCaches } from '../profile/shared.js';
 import { logger } from '../../utils/logger.js';
 import {
@@ -61,6 +62,27 @@ const DEFAULT_ONBOARDING_PREFERENCES: UserPreferences = {
   dismissedPrompts: [],
   defaultSportIndex: 0,
   theme: 'system',
+};
+
+type FirestoreTimestampWrite = PortableTimestamp | FirestoreFieldValue;
+
+type OnboardingFirestoreUpdate = Record<string, unknown> & {
+  updatedAt?: FirestoreTimestampWrite;
+  lastLoginAt?: FirestoreTimestampWrite;
+  onboardingCompletedAt?: FirestoreTimestampWrite;
+  onboardingCompleted?: boolean;
+  _schemaVersion?: number;
+  preferences?: UserPreferences;
+  firstName?: string;
+  lastName?: string;
+  contact?: UserContact;
+  profileImgs?: string[];
+  gender?: string;
+  role?: UserRole;
+  sports?: SportProfile[];
+  activeSportIndex?: number;
+  location?: Location;
+  classOf?: number;
 };
 
 function hasCompleteOnboardingPreferences(
@@ -100,14 +122,13 @@ router.post(
     }
 
     const currentUser = userDoc.data() as UserV2Document | undefined;
-    const now = new Date().toISOString();
 
-    const updateData: Partial<UserV2Document> = {
-      updatedAt: now,
-      lastLoginAt: now,
+    const updateData: OnboardingFirestoreUpdate = {
+      updatedAt: FieldValue.serverTimestamp(),
+      lastLoginAt: FieldValue.serverTimestamp(),
       _schemaVersion: USER_SCHEMA_VERSION,
       onboardingCompleted: true,
-      onboardingCompletedAt: now,
+      onboardingCompletedAt: FieldValue.serverTimestamp(),
     };
 
     // Preferences — canonical defaults, backfilled without overriding existing opt-outs
@@ -132,7 +153,7 @@ router.post(
     if (displayName) (updateData as Record<string, unknown>)['displayName'] = displayName;
 
     // Contact
-    const incomingContact = profileData['contact'] as ContactInfo | undefined;
+    const incomingContact = profileData['contact'] as UserContact | undefined;
     const contactEmail =
       incomingContact?.email?.trim().toLowerCase() ||
       (profileData['contactEmail'] as string | undefined)?.trim().toLowerCase() ||
@@ -591,12 +612,14 @@ router.post(
     }
 
     const currentUser = userDoc.data() as UserV2Document | undefined;
-    const now = new Date().toISOString();
 
-    const updateData: Partial<UserV2Document> & { [key: string]: unknown } = {
-      updatedAt: now,
+    const updateData: OnboardingFirestoreUpdate = {
+      updatedAt: FieldValue.serverTimestamp(),
       _schemaVersion: USER_SCHEMA_VERSION,
-      [`onboardingProgress.${stepId}`]: { completed: true, completedAt: now },
+      [`onboardingProgress.${stepId}`]: {
+        completed: true,
+        completedAt: FieldValue.serverTimestamp(),
+      },
     };
 
     switch (stepId) {
@@ -822,7 +845,7 @@ router.post(
       }
 
       case 'contact': {
-        const contact: ContactInfo = {
+        const contact: UserContact = {
           email:
             (stepData['contactEmail'] as string)?.toLowerCase() ||
             currentUser?.contact?.email ||

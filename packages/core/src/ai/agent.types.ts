@@ -29,12 +29,62 @@ export type AgentOperationStatus =
   | 'failed'
   | 'cancelled';
 
+/** Which execution layer produced a structured progress event. */
+export type AgentProgressStageType = 'router' | 'tool';
+
+/** Router-level orchestration stages emitted during an agent run. */
+export type AgentRouterStage =
+  | 'building_context'
+  | 'decomposing_intent'
+  | 'routing_to_agent'
+  | 'agent_thinking'
+  | 'resuming_user_input'
+  | 'summarizing_memory';
+
+/** Tool-level execution stages emitted during long-running tool work. */
+export type ToolStage =
+  | 'fetching_data'
+  | 'processing_media'
+  | 'uploading_assets'
+  | 'submitting_job'
+  | 'checking_status'
+  | 'persisting_result'
+  | 'deleting_resource'
+  | 'invoking_sub_agent';
+
+/** Union of all structured progress stages understood by the frontend. */
+export type AgentProgressStage = AgentRouterStage | ToolStage;
+
+/** Structured outcome codes for terminal or notable operation states. */
+export type OperationOutcomeCode =
+  | 'success_default'
+  | 'routing_failed'
+  | 'context_build_failed'
+  | 'planning_failed'
+  | 'task_failed'
+  | 'approval_required'
+  | 'input_required'
+  | 'cancelled';
+
+/** Arbitrary metadata attached to a structured progress event. */
+export type AgentProgressMetadata = Readonly<Record<string, unknown>>;
+
 /** A single step/update within a running operation, streamed to the UI. */
 export interface AgentOperationStep {
   readonly id: string;
   readonly timestamp: string;
   readonly status: AgentOperationStatus;
   readonly message: string;
+  /** Active agent responsible for this step, when known. */
+  readonly agentId?: AgentIdentifier;
+  /** Which execution layer emitted this update. */
+  readonly stageType?: AgentProgressStageType;
+  /** Typed machine-readable stage key for frontend dictionaries. */
+  readonly stage?: AgentProgressStage;
+  /** Structured outcome for notable or terminal states. */
+  readonly outcomeCode?: OperationOutcomeCode;
+  /** Additional typed hydration data for UI rendering. */
+  readonly metadata?: AgentProgressMetadata;
   /** Optional structured data the UI can render (e.g., a list of drafted emails). */
   readonly payload?: Record<string, unknown>;
 }
@@ -72,18 +122,19 @@ export interface AgentOperationResult {
 /** Identifies which specialized coordinator handles a task. */
 export type AgentIdentifier =
   | 'router'
+  | 'admin_coordinator'
+  | 'brand_coordinator'
   | 'data_coordinator'
+  | 'strategy_coordinator'
   | 'recruiting_coordinator'
-  | 'brand_media_coordinator'
-  | 'performance_coordinator'
-  | 'compliance_coordinator'
-  | 'general';
+  | 'performance_coordinator';
 
 /** Metadata about a registered sub-agent. */
 export interface AgentDescriptor {
   readonly id: AgentIdentifier;
   readonly name: string;
   readonly description: string;
+  readonly icon?: string;
   /** The types of intents this agent is best suited for. */
   readonly capabilities: readonly string[];
 }
@@ -601,6 +652,16 @@ export interface AgentJobPayload {
 export interface AgentJobUpdate {
   readonly operationId: string;
   readonly status: AgentOperationStatus;
+  /** Active agent responsible for this update, when known. */
+  readonly agentId?: AgentIdentifier;
+  /** Which execution layer emitted this update. */
+  readonly stageType?: AgentProgressStageType;
+  /** Typed machine-readable stage key for frontend dictionaries. */
+  readonly stage?: AgentProgressStage;
+  /** Structured outcome for notable or terminal states. */
+  readonly outcomeCode?: OperationOutcomeCode;
+  /** Additional typed hydration data for UI rendering. */
+  readonly metadata?: AgentProgressMetadata;
   readonly step: AgentOperationStep;
 }
 
@@ -670,6 +731,8 @@ export interface AgentApprovalRequest {
   readonly userId: string;
   /** What the agent wants to do (human-readable). */
   readonly actionSummary: string;
+  /** Typed reason code used to keep approval UX copy consistent. */
+  readonly reasonCode?: AgentApprovalReasonCode;
   /** The tool that will be executed if approved. */
   readonly toolName: string;
   /** The exact input that will be passed to the tool. */
@@ -687,6 +750,22 @@ export interface AgentApprovalRequest {
 
 /** Status of an approval request. */
 export type AgentApprovalStatus = 'pending' | 'approved' | 'rejected' | 'expired' | 'auto_approved';
+
+/** Typed reason codes for approval-gated actions. */
+export type AgentApprovalReasonCode =
+  | 'send_email'
+  | 'update_profile'
+  | 'delete_content'
+  | 'post_to_social'
+  | 'send_sms'
+  | 'interact_with_live_view'
+  | 'run_tool';
+
+/** Typed outcome codes used for approval, yield, and activity notifications. */
+export type AgentNotificationOutcomeCode = Extract<
+  OperationOutcomeCode,
+  'success_default' | 'task_failed' | 'approval_required' | 'input_required'
+>;
 
 // ─── Suspend & Resume (Yield State) ─────────────────────────────────────────
 
@@ -736,8 +815,6 @@ export interface AgentApprovalPolicy {
   readonly autoApproveOnExpiry: boolean;
   /** Time in ms before auto-expiry (default: 24 hours). */
   readonly expiryMs: number;
-  /** Description shown to the user in the approval prompt. */
-  readonly userPrompt: string;
   /** Risk level indicator for the UI. */
   readonly riskLevel: 'low' | 'medium' | 'high' | 'critical';
 }
@@ -920,6 +997,14 @@ export interface JobEvent {
   readonly type: JobEventType;
   /** Agent identifier if known (e.g. 'recruiting', 'performance'). */
   readonly agentId?: string;
+  /** Which execution layer emitted the event, when structured stages are available. */
+  readonly stageType?: AgentProgressStageType;
+  /** Typed machine-readable stage key for frontend dictionaries. */
+  readonly stage?: AgentProgressStage;
+  /** Structured outcome for notable or terminal states. */
+  readonly outcomeCode?: OperationOutcomeCode;
+  /** Additional typed hydration data for UI rendering. */
+  readonly metadata?: AgentProgressMetadata;
   /** Human-readable message for the UI. */
   readonly message?: string;
   /** Accumulated LLM text for `delta` events. */
@@ -932,6 +1017,8 @@ export interface JobEvent {
   readonly toolResult?: Record<string, unknown>;
   /** Whether the tool_result was a success. */
   readonly toolSuccess?: boolean;
+  /** Optional semantic icon key for custom step rendering. */
+  readonly icon?: string;
   /** Whether the job finished successfully (for `done` events). */
   readonly success?: boolean;
   /** Error message for `step_error` / `done` events. */

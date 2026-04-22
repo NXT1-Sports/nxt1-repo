@@ -9,6 +9,34 @@
 
 import type { GoogleWorkspaceMcpSessionService } from './google-workspace-mcp-session.service.js';
 import { GoogleWorkspaceBaseTool } from './google-workspace-base.tool.js';
+import { z } from 'zod';
+
+const EmptyDriveInputSchema = z.object({}).strict();
+const DriveSearchFilesInputSchema = z.object({
+  query: z.string().trim().min(1),
+  page_size: z.coerce.number().int().optional(),
+  shared_drive_id: z.string().trim().min(1).optional(),
+});
+const DriveReadFileContentInputSchema = z.object({
+  file_id: z.string().trim().min(1),
+});
+const DriveUploadFileInputSchema = z.object({
+  filename: z.string().trim().min(1),
+  content_base64: z.string().trim().min(1),
+  parent_folder_id: z.string().trim().min(1).optional(),
+  shared_drive_id: z.string().trim().min(1).optional(),
+});
+const DriveCreateFolderInputSchema = z.object({
+  folder_name: z.string().trim().min(1),
+  parent_folder_id: z.string().trim().min(1).optional(),
+  shared_drive_id: z.string().trim().min(1).optional(),
+});
+const DriveDeleteFileInputSchema = z.object({
+  file_id: z.string().trim().min(1),
+});
+const DriveListSharedDrivesInputSchema = z.object({
+  page_size: z.coerce.number().int().optional(),
+});
 
 // ─── drive_search_files ─────────────────────────────────────────────────────
 
@@ -21,28 +49,7 @@ export class DriveSearchFilesTool extends GoogleWorkspaceBaseTool {
   readonly isMutation = false;
   readonly category = 'data' as const;
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      query: {
-        type: 'string',
-        description:
-          'Drive search query string. Supports operators like: ' +
-          "name contains 'report', mimeType='application/pdf', " +
-          "modifiedTime > '2025-01-01'.",
-      },
-      page_size: {
-        type: 'number',
-        description: 'Maximum files to return (default: 10).',
-      },
-      shared_drive_id: {
-        type: 'string',
-        description: 'Shared drive ID to scope the search to a specific shared drive.',
-      },
-    },
-    required: ['query'],
-    additionalProperties: false,
-  } as const;
+  readonly parameters = DriveSearchFilesInputSchema;
 
   constructor(sessionService: GoogleWorkspaceMcpSessionService) {
     super(sessionService);
@@ -58,17 +65,7 @@ export class DriveReadFileContentTool extends GoogleWorkspaceBaseTool {
   readonly isMutation = false;
   readonly category = 'data' as const;
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      file_id: {
-        type: 'string',
-        description: 'The Google Drive file ID.',
-      },
-    },
-    required: ['file_id'],
-    additionalProperties: false,
-  } as const;
+  readonly parameters = DriveReadFileContentInputSchema;
 
   constructor(sessionService: GoogleWorkspaceMcpSessionService) {
     super(sessionService);
@@ -86,29 +83,7 @@ export class DriveUploadFileTool extends GoogleWorkspaceBaseTool {
   readonly isMutation = true;
   readonly category = 'data' as const;
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      filename: {
-        type: 'string',
-        description: 'Name for the uploaded file (including extension, e.g. "report.pdf").',
-      },
-      content_base64: {
-        type: 'string',
-        description: 'File content encoded as base64.',
-      },
-      parent_folder_id: {
-        type: 'string',
-        description: 'Parent folder ID. Defaults to My Drive root.',
-      },
-      shared_drive_id: {
-        type: 'string',
-        description: 'Optional shared drive ID for shared drive placement.',
-      },
-    },
-    required: ['filename', 'content_base64'],
-    additionalProperties: false,
-  } as const;
+  readonly parameters = DriveUploadFileInputSchema;
 
   constructor(sessionService: GoogleWorkspaceMcpSessionService) {
     super(sessionService);
@@ -124,25 +99,7 @@ export class DriveCreateFolderTool extends GoogleWorkspaceBaseTool {
   readonly isMutation = true;
   readonly category = 'data' as const;
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      folder_name: {
-        type: 'string',
-        description: 'Name for the new folder.',
-      },
-      parent_folder_id: {
-        type: 'string',
-        description: 'Parent folder ID. Defaults to My Drive top level.',
-      },
-      shared_drive_id: {
-        type: 'string',
-        description: 'Optional shared drive ID.',
-      },
-    },
-    required: ['folder_name'],
-    additionalProperties: false,
-  } as const;
+  readonly parameters = DriveCreateFolderInputSchema;
 
   constructor(sessionService: GoogleWorkspaceMcpSessionService) {
     super(sessionService);
@@ -158,17 +115,7 @@ export class DriveDeleteFileTool extends GoogleWorkspaceBaseTool {
   readonly isMutation = true;
   readonly category = 'data' as const;
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      file_id: {
-        type: 'string',
-        description: 'The Drive file ID to delete.',
-      },
-    },
-    required: ['file_id'],
-    additionalProperties: false,
-  } as const;
+  readonly parameters = DriveDeleteFileInputSchema;
 
   constructor(sessionService: GoogleWorkspaceMcpSessionService) {
     super(sessionService);
@@ -184,16 +131,7 @@ export class DriveListSharedDrivesTool extends GoogleWorkspaceBaseTool {
   readonly isMutation = false;
   readonly category = 'data' as const;
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      page_size: {
-        type: 'number',
-        description: 'Maximum shared drives to return.',
-      },
-    },
-    additionalProperties: false,
-  } as const;
+  readonly parameters = DriveListSharedDrivesInputSchema;
 
   constructor(sessionService: GoogleWorkspaceMcpSessionService) {
     super(sessionService);
@@ -226,7 +164,7 @@ function makeRemovedTool(
     readonly description = `[REMOVED] ${oldName} is no longer available. Use ${replacement} instead.`;
     readonly isMutation = false;
     readonly category = 'data' as const;
-    readonly parameters = { type: 'object' as const, properties: {} };
+    readonly parameters = EmptyDriveInputSchema;
 
     override async execute(): Promise<{ success: false; error: string }> {
       return {

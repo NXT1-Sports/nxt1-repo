@@ -35,9 +35,14 @@
 import { isDeepStrictEqual } from 'node:util';
 import type { Firestore } from 'firebase-admin/firestore';
 import { FieldValue } from 'firebase-admin/firestore';
-import type { AgentApprovalRequest, AgentApprovalStatus, AgentApprovalPolicy } from '@nxt1/core';
-import { AGENT_APPROVAL_POLICIES, NOTIFICATION_TYPES } from '@nxt1/core';
-import { dispatch } from '../../../services/notification.service.js';
+import type {
+  AgentApprovalReasonCode,
+  AgentApprovalRequest,
+  AgentApprovalStatus,
+  AgentApprovalPolicy,
+} from '@nxt1/core';
+import { AGENT_APPROVAL_POLICIES, NOTIFICATION_TYPES, resolveAgentApprovalCopy } from '@nxt1/core';
+import { dispatch } from '../../../services/communications/notification.service.js';
 import { getAgentAnalyticsGate } from './agent-analytics-gate.js';
 import { logger } from '../../../utils/logger.js';
 
@@ -52,15 +57,13 @@ const LIVE_VIEW_APPROVAL_POLICY: AgentApprovalPolicy = {
   requiresApproval: true,
   autoApproveOnExpiry: false,
   expiryMs: 86_400_000,
-  userPrompt:
-    'Agent X wants to perform a potentially irreversible browser action. Review before continuing.',
   riskLevel: 'high',
 };
 
 export interface ApprovalRequirement {
   readonly policy: AgentApprovalPolicy;
+  readonly reasonCode: AgentApprovalReasonCode;
   readonly actionSummary: string;
-  readonly promptToUser: string;
 }
 
 export class ApprovalGateService {
@@ -89,11 +92,14 @@ export class ApprovalGateService {
   ): ApprovalRequirement | null {
     const staticPolicy = this.getApprovalPolicy(toolName);
     if (staticPolicy) {
-      const actionSummary = this.buildActionSummary(toolName, toolInput);
+      const copy = resolveAgentApprovalCopy({
+        toolName,
+        toolInput,
+      });
       return {
         policy: staticPolicy,
-        actionSummary,
-        promptToUser: this.buildPromptToUser(staticPolicy, actionSummary, toolInput),
+        reasonCode: copy.reasonCode,
+        actionSummary: copy.actionSummary,
       };
     }
 
@@ -103,11 +109,14 @@ export class ApprovalGateService {
         return null;
       }
 
-      const actionSummary = `Agent X wants to perform this browser action: ${prompt}`;
+      const copy = resolveAgentApprovalCopy({
+        toolName,
+        toolInput,
+      });
       return {
         policy: LIVE_VIEW_APPROVAL_POLICY,
-        actionSummary,
-        promptToUser: `${LIVE_VIEW_APPROVAL_POLICY.userPrompt} ${actionSummary}`,
+        reasonCode: copy.reasonCode,
+        actionSummary: copy.actionSummary,
       };
     }
 
@@ -153,13 +162,23 @@ export class ApprovalGateService {
   }): Promise<AgentApprovalRequest> {
     const requirement = this.getApprovalRequirement(params.toolName, params.toolInput);
     const policy = requirement?.policy ?? this.getApprovalPolicy(params.toolName);
+    const fallbackCopy = resolveAgentApprovalCopy({
+      toolName: params.toolName,
+      toolInput: params.toolInput,
+    });
+    const approvalCopy = requirement ?? {
+      policy: policy ?? LIVE_VIEW_APPROVAL_POLICY,
+      reasonCode: fallbackCopy.reasonCode,
+      actionSummary: fallbackCopy.actionSummary,
+    };
 
     const request: AgentApprovalRequest = {
       id: `approval_${crypto.randomUUID()}`,
       operationId: params.operationId,
       taskId: params.taskId,
       userId: params.userId,
-      actionSummary: params.actionSummary,
+      actionSummary: approvalCopy.actionSummary,
+      reasonCode: approvalCopy.reasonCode,
       toolName: params.toolName,
       toolInput: params.toolInput,
       reasoning: params.reasoning,
@@ -196,9 +215,9 @@ export class ApprovalGateService {
     try {
       await dispatch(this.db, {
         userId: params.userId,
-        type: NOTIFICATION_TYPES.AGENT_ACTION,
-        title: 'Agent X needs your approval',
-        body: params.actionSummary,
+        type: NOTIFICATION_TYPES.DYNAMIC_AGENT_ALERT,
+        title: fallbackCopy.notificationTitle,
+        body: fallbackCopy.notificationBody,
         deepLink: params.threadId
           ? `/agent-x?thread=${encodeURIComponent(params.threadId)}`
           : '/agent-x',
@@ -314,49 +333,6 @@ export class ApprovalGateService {
       .get();
 
     return snapshot.docs.map((doc) => doc.data() as AgentApprovalRequest);
-  }
-
-  private buildActionSummary(toolName: string, toolInput: Record<string, unknown>): string {
-    switch (toolName) {
-      case 'send_email': {
-        const toEmail =
-          typeof toolInput['toEmail'] === 'string' ? toolInput['toEmail'] : 'the recipient';
-        const subject =
-          typeof toolInput['subject'] === 'string' ? toolInput['subject'] : 'No subject';
-        return `Send an email to ${toEmail} with subject "${subject}".`;
-      }
-      case 'update_profile':
-        return 'Update the user profile with new information.';
-      case 'delete_content':
-        return 'Delete content that cannot be recovered.';
-      case 'post_to_social':
-        return "Publish a social media post on the user's behalf.";
-      case 'send_sms':
-        return "Send a text message on the user's behalf.";
-      case 'interact_with_live_view': {
-        const prompt =
-          typeof toolInput['prompt'] === 'string'
-            ? toolInput['prompt'].trim()
-            : 'perform a browser action';
-        return `Perform this browser action in live view: ${prompt}`;
-      }
-      default:
-        return `Run the ${toolName} tool.`;
-    }
-  }
-
-  private buildPromptToUser(
-    policy: AgentApprovalPolicy,
-    actionSummary: string,
-    toolInput: Record<string, unknown>
-  ): string {
-    if (policy.toolName === 'send_email') {
-      const toEmail =
-        typeof toolInput['toEmail'] === 'string' ? toolInput['toEmail'] : 'the recipient';
-      return `${policy.userPrompt} ${actionSummary} Recipient: ${toEmail}.`;
-    }
-
-    return `${policy.userPrompt} ${actionSummary}`;
   }
 
   /**

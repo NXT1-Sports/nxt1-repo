@@ -5,25 +5,25 @@ import express from 'express';
 import helmet from 'helmet';
 import { createErrorHandler, notFoundHandler } from '@nxt1/core/errors/express';
 import { logger } from './utils/logger.js';
-import authRoutes from './routes/auth.routes.js';
-import uploadRoutes from './routes/upload/index.js';
-import sitemapRoutes from './routes/sitemap.routes.js';
-import activityRoutes from './routes/activity.routes.js';
-import analyticsRoutes from './routes/analytics.routes.js';
-import pulseRoutes from './routes/pulse.routes.js';
-import inviteRoutes from './routes/invite.routes.js';
-import settingsRoutes from './routes/settings.routes.js';
-import helpCenterRoutes from './routes/help-center.routes.js';
-import editProfileRoutes from './routes/edit-profile.routes.js';
-import agentXRoutes from './routes/agent-x/index.js';
-import billingRoutes from './routes/billing.routes.js';
+import authRoutes from './routes/auth/index.js';
+import uploadRoutes from './routes/core/upload/index.js';
+import sitemapRoutes from './routes/core/sitemap.routes.js';
+import activityRoutes from './routes/feed/activity.routes.js';
+import analyticsRoutes from './routes/analytics/index.js';
+import pulseRoutes from './routes/feed/pulse.routes.js';
+import inviteRoutes from './routes/core/invite.routes.js';
+import settingsRoutes from './routes/core/settings.routes.js';
+import helpCenterRoutes from './routes/platform/help-center.routes.js';
+import editProfileRoutes from './routes/profile/edit-profile.routes.js';
+import agentXRoutes from './routes/agent/index.js';
+import billingRoutes from './routes/billing/billing.routes.js';
 import {
   webhookRoutes,
   webhookRawBodyMiddleware,
   cloudflareWebhookRoutes,
-} from './routes/webhooks/index.js';
-import usageRoutes from './routes/usage.routes.js';
-import { initializeCacheService } from './services/cache.service.js';
+} from './routes/platform/webhooks/index.js';
+import usageRoutes from './routes/billing/usage.routes.js';
+import { initializeCacheService } from './services/core/cache.service.js';
 
 type MockFirestoreSnapshot = {
   exists?: boolean;

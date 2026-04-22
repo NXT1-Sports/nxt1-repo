@@ -38,7 +38,7 @@ export interface ProfileTab {
   readonly disabled?: boolean;
   /**
    * Role categories this tab is visible for.
-   * - 'athlete' — athletes and parents
+   * - 'athlete' — athlete profiles
    * - 'team' — coaches and directors
    * When omitted, tab is visible for ALL roles.
    */
@@ -264,10 +264,6 @@ export interface ProfileUser {
   readonly profileImgs?: readonly string[];
   /** User role */
   readonly role: ProfileUserRole;
-  /** Whether this is a recruit/athlete */
-  readonly isRecruit: boolean;
-  /** Whether this is a college coach */
-  readonly isCollegeCoach?: boolean;
   /** Whether this is a team manager (coach or director) — uses isTeamRole() from @nxt1/core */
   readonly isTeamManager?: boolean;
   /** Verification status */

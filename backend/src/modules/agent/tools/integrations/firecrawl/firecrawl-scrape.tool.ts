@@ -83,10 +83,10 @@ export class FirecrawlScrapeTool extends BaseTool {
 
   override readonly allowedAgents = [
     'recruiting_coordinator',
-    'compliance_coordinator',
+    'admin_coordinator',
     'data_coordinator',
-    'brand_media_coordinator',
-    'general',
+    'brand_coordinator',
+    'strategy_coordinator',
   ] as const;
 
   readonly isMutation = false;
@@ -132,7 +132,12 @@ export class FirecrawlScrapeTool extends BaseTool {
     };
 
     logger.info('[FirecrawlScrape] Scraping URL', { url, format, userId: context?.userId });
-    context?.onProgress?.(`Scraping ${new URL(url).hostname}…`);
+    context?.emitStage?.('fetching_data', {
+      icon: 'search',
+      url,
+      hostname: new URL(url).hostname,
+      phase: 'scrape_page',
+    });
 
     try {
       const result = await this.bridge.scrape(url, options);

@@ -6,9 +6,14 @@
  * AbortSignal is already aborted before the tool's execute() runs.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { z } from 'zod';
 import { ToolRegistry } from '../tool-registry.js';
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
+import {
+  DEFAULT_AGENT_APP_CONFIG,
+  setCachedAgentAppConfig,
+} from '../../config/agent-app-config.js';
 
 // ─── Stub Tool ──────────────────────────────────────────────────────────────
 
@@ -32,6 +37,22 @@ class StubTool extends BaseTool {
   }
 }
 
+class ZodTool extends BaseTool {
+  readonly name = 'zod_tool';
+  readonly description = 'A stub tool with Zod parameters.';
+  readonly parameters = z.object({
+    query: z.string().min(1),
+    limit: z.number().int().min(1).max(10).optional(),
+  });
+  readonly allowedAgents = ['*'] as const;
+  readonly isMutation = false;
+  readonly category = 'analytics' as const;
+
+  async execute(): Promise<ToolResult> {
+    return { success: true, data: { ok: true } };
+  }
+}
+
 // ─── Tests ──────────────────────────────────────────────────────────────────
 
 describe('ToolRegistry', () => {
@@ -39,9 +60,44 @@ describe('ToolRegistry', () => {
   let stub: StubTool;
 
   beforeEach(() => {
+    setCachedAgentAppConfig(DEFAULT_AGENT_APP_CONFIG);
     registry = new ToolRegistry();
     stub = new StubTool();
     registry.register(stub);
+  });
+
+  afterEach(() => {
+    setCachedAgentAppConfig(DEFAULT_AGENT_APP_CONFIG);
+  });
+
+  describe('getDefinitions', () => {
+    it('should compile Zod parameter schemas into JSON Schema', () => {
+      registry.register(new ZodTool());
+
+      const definitions = registry.getDefinitions();
+      const zodDefinition = definitions.find((definition) => definition.name === 'zod_tool');
+
+      expect(zodDefinition?.parameters).toMatchObject({
+        type: 'object',
+        properties: {
+          query: { type: 'string' },
+        },
+      });
+    });
+
+    it('should hide disabled tools from exposed definitions', () => {
+      setCachedAgentAppConfig({
+        ...DEFAULT_AGENT_APP_CONFIG,
+        featureFlags: {
+          ...DEFAULT_AGENT_APP_CONFIG.featureFlags,
+          disabledTools: ['stub_tool'],
+        },
+      });
+
+      expect(registry.getDefinitions().some((definition) => definition.name === 'stub_tool')).toBe(
+        false
+      );
+    });
   });
 
   describe('execute', () => {
@@ -97,6 +153,22 @@ describe('ToolRegistry', () => {
 
       expect(result.success).toBe(false);
       expect(result.error).toBe('Unknown tool: nonexistent');
+    });
+
+    it('should refuse execution when the tool is disabled by feature flags', async () => {
+      setCachedAgentAppConfig({
+        ...DEFAULT_AGENT_APP_CONFIG,
+        featureFlags: {
+          ...DEFAULT_AGENT_APP_CONFIG.featureFlags,
+          disabledTools: ['stub_tool'],
+        },
+      });
+
+      const result = await registry.execute('stub_tool', {}, { userId: 'u1' });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('Tool is currently disabled: stub_tool');
+      expect(stub.executeFn).not.toHaveBeenCalled();
     });
   });
 });

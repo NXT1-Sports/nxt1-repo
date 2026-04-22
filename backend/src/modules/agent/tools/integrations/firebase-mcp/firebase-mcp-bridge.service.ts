@@ -11,7 +11,7 @@ import {
   incrementCacheHit,
   incrementCacheMiss,
   incrementCacheSet,
-} from '../../../../../services/cache.service.js';
+} from '../../../../../services/core/cache.service.js';
 import { logger } from '../../../../../utils/logger.js';
 import { db } from '../../../../../utils/firebase.js';
 import { stagingDb } from '../../../../../utils/firebase-staging.js';
@@ -54,47 +54,6 @@ function uniqueSorted(values: readonly string[]): string[] {
   return [...new Set(values.filter((value) => value.trim().length > 0))].sort((left, right) =>
     left.localeCompare(right)
   );
-}
-
-function describeView(view: FirebaseViewName): string {
-  switch (view) {
-    case 'user_profile_snapshot':
-      return 'your profile snapshot';
-    case 'user_timeline_feed':
-      return 'your timeline posts';
-    case 'user_schedule_events':
-      return 'your schedule';
-    case 'user_recruiting_status':
-      return 'your recruiting activity';
-    case 'user_season_stats':
-      return 'your season stats';
-    case 'user_physical_metrics':
-      return 'your physical metrics';
-    case 'user_team_membership':
-      return 'your team memberships';
-    case 'user_highlight_videos':
-      return 'your highlight videos';
-    case 'user_active_goals':
-      return 'your active Agent X goals';
-    case 'user_goal_history':
-      return 'your goal history and progress';
-    case 'user_current_playbook':
-      return "this week's playbook tasks";
-    case 'team_profile_snapshot':
-      return 'team profiles';
-    case 'team_roster_members':
-      return 'team roster members';
-    case 'team_highlight_videos':
-      return 'team highlight videos';
-    case 'organization_profile_snapshot':
-      return 'organization profiles';
-    case 'organization_roster_members':
-      return 'organization roster members';
-    case 'organization_highlight_videos':
-      return 'organization highlight videos';
-    default:
-      return 'NXT1 data';
-  }
 }
 
 function extractPayload(result: McpToolCallResult): unknown {
@@ -153,6 +112,24 @@ export class FirebaseMcpBridgeService extends BaseMcpClientService {
   private readonly scopeSecret = randomBytes(32).toString('hex');
   private readonly firestore = resolveFirestoreTarget();
 
+  private extractOrganizationAdminUserIds(admins: unknown): string[] {
+    if (!Array.isArray(admins)) {
+      return [];
+    }
+
+    return Array.from(
+      new Set(
+        admins
+          .map((admin) =>
+            typeof admin === 'object' && admin !== null && 'userId' in admin
+              ? (admin['userId'] as string | undefined)
+              : undefined
+          )
+          .filter((userId): userId is string => typeof userId === 'string' && userId.length > 0)
+      )
+    );
+  }
+
   protected getTransport(): Transport {
     const serverPath = fileURLToPath(new URL('./firebase-mcp-server.js', import.meta.url));
 
@@ -170,17 +147,21 @@ export class FirebaseMcpBridgeService extends BaseMcpClientService {
   }
 
   private async resolveAccessScope(context: ToolExecutionContext): Promise<FirebaseMcpScope> {
-    const [rosterSnapshot, adminOrganizations] = await Promise.all([
+    const [rosterSnapshot, organizationSnapshot] = await Promise.all([
       this.firestore
         .collection(ROSTER_ENTRIES_COLLECTION)
         .where('userId', '==', context.userId)
         .where('status', 'in', [RosterEntryStatus.ACTIVE, RosterEntryStatus.PENDING])
         .get(),
-      this.firestore
-        .collection(ORGANIZATIONS_COLLECTION)
-        .where('admins', 'array-contains', { userId: context.userId })
-        .get(),
+      this.firestore.collection(ORGANIZATIONS_COLLECTION).get(),
     ]);
+
+    const orgSnapshotDocs = new Map();
+    organizationSnapshot.docs
+      .filter((doc) =>
+        this.extractOrganizationAdminUserIds(doc.data()?.['admins']).includes(context.userId)
+      )
+      .forEach((doc) => orgSnapshotDocs.set(doc.id, doc));
 
     const teamIds = uniqueSorted(
       rosterSnapshot.docs
@@ -199,7 +180,7 @@ export class FirebaseMcpBridgeService extends BaseMcpClientService {
       .map((teamDoc) => teamDoc?.['organizationId'])
       .filter((organizationId): organizationId is string => typeof organizationId === 'string');
 
-    const adminOrganizationIds = adminOrganizations.docs.map((doc) => doc.id);
+    const adminOrganizationIds = Array.from(orgSnapshotDocs.values()).map((doc) => doc.id);
     const organizationIds = uniqueSorted([...teamOrganizationIds, ...adminOrganizationIds]);
 
     return {
@@ -214,6 +195,11 @@ export class FirebaseMcpBridgeService extends BaseMcpClientService {
   }
 
   async listViews(context: ToolExecutionContext): Promise<FirebaseMcpListViewsResult> {
+    context.emitStage?.('fetching_data', {
+      source: 'firebase_mcp',
+      phase: 'resolve_scope',
+      icon: 'database',
+    });
     const scope = await this.resolveAccessScope(context);
     const cache = getCacheService();
     const cacheKey = generateCacheKey(FIREBASE_MCP_CACHE_PREFIX.LIST_VIEWS, {
@@ -230,6 +216,11 @@ export class FirebaseMcpBridgeService extends BaseMcpClientService {
     }
 
     incrementCacheMiss();
+    context.emitStage?.('fetching_data', {
+      source: 'firebase_mcp',
+      phase: 'list_views',
+      icon: 'database',
+    });
     const result = await this.executeTool(
       'firebase_list_views',
       { scopeEnvelope: createSignedScopeEnvelope(scope, this.scopeSecret) },
@@ -246,7 +237,12 @@ export class FirebaseMcpBridgeService extends BaseMcpClientService {
     input: FirebaseMcpQueryInput,
     context: ToolExecutionContext
   ): Promise<FirebaseMcpQueryResult> {
-    context.onProgress?.('Resolving account, team, and organization access…');
+    context.emitStage?.('fetching_data', {
+      source: 'firebase_mcp',
+      phase: 'resolve_scope',
+      view: input.view,
+      icon: 'database',
+    });
     const scope = await this.resolveAccessScope(context);
 
     const scopeEnvelope = createSignedScopeEnvelope(scope, this.scopeSecret);
@@ -277,7 +273,12 @@ export class FirebaseMcpBridgeService extends BaseMcpClientService {
     }
 
     incrementCacheMiss();
-    context.onProgress?.(`Querying ${describeView(input.view)}…`);
+    context.emitStage?.('fetching_data', {
+      source: 'firebase_mcp',
+      phase: 'query_view',
+      view: input.view,
+      icon: 'database',
+    });
     logger.info('[FirebaseMCP] Querying named view', {
       view: input.view,
       userId: context.userId,

@@ -8,10 +8,15 @@
  */
 
 import type {
+  AgentProgressMetadata,
+  AgentProgressStage,
+  AgentProgressStageType,
   AgentJobPayload,
+  AgentIdentifier,
   AgentOperationStatus,
   AgentOperationResult,
   AgentExecutionPlan,
+  OperationOutcomeCode,
 } from '@nxt1/core';
 
 // ─── Queue Constants ────────────────────────────────────────────────────────
@@ -19,11 +24,14 @@ import type {
 /** BullMQ queue name for agent jobs. */
 export const AGENT_QUEUE_NAME = 'agent-jobs' as const;
 
+import { getRuntimeEnvironment } from '../../../config/runtime-environment.js';
+
 /** Redis key prefix for all agent queue data (keeps namespace clean). */
-export const AGENT_QUEUE_PREFIX = 'nxt1' as const;
+export const AGENT_QUEUE_PREFIX =
+  getRuntimeEnvironment() === 'production' ? 'nxt1_prod' : 'nxt1_stg';
 
 /** Maximum number of concurrent agent jobs a single worker can process. */
-export const WORKER_CONCURRENCY = 3 as const;
+export const WORKER_CONCURRENCY = 5 as const;
 
 /** How long to keep completed job data in Redis (24 hours in seconds). */
 export const COMPLETED_JOB_TTL_S = 86_400 as const;
@@ -122,6 +130,16 @@ export interface AgentJobProgress {
   readonly status: AgentOperationStatus;
   /** Human-readable status message for the frontend. */
   readonly message: string;
+  /** Active agent responsible for this update, when known. */
+  readonly agentId?: AgentIdentifier;
+  /** Which execution layer emitted this update. */
+  readonly stageType?: AgentProgressStageType;
+  /** Typed machine-readable stage key for frontend dictionaries. */
+  readonly stage?: AgentProgressStage;
+  /** Structured outcome for notable or terminal states. */
+  readonly outcomeCode?: OperationOutcomeCode;
+  /** Additional typed hydration data for UI rendering. */
+  readonly metadata?: AgentProgressMetadata;
   /** Completion percentage (0-100). */
   readonly percent: number;
   /** The current step index (1-based). */

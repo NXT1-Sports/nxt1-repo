@@ -31,9 +31,9 @@ export class DeleteVideoTool extends BaseTool {
   } as const;
 
   override readonly allowedAgents = [
-    'brand_media_coordinator',
+    'brand_coordinator',
     'data_coordinator',
-    'general',
+    'strategy_coordinator',
   ] as const;
 
   readonly isMutation = true;

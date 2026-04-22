@@ -55,7 +55,10 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/ass
           </div>
           <p class="intel-generating__title">Agent X is compiling your intel...</p>
           <p class="intel-generating__sub">
-            Analyzing performance data, recruiting activity, and more
+            <span class="intel-generating__spinner" aria-hidden="true"></span>
+            {{
+              intel.generationStep() || 'Analyzing performance data, recruiting activity, and more'
+            }}
           </p>
           <div class="intel-generating__scan" aria-hidden="true"></div>
         </div>
@@ -816,10 +819,23 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/ass
         text-align: center;
       }
       .intel-generating__sub {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
         font-size: 12px;
         color: var(--nxt1-color-text-muted, rgba(255, 255, 255, 0.45));
         margin: 0;
         text-align: center;
+      }
+      .intel-generating__spinner {
+        width: 13px;
+        height: 13px;
+        border-radius: 50%;
+        border: 1.5px solid rgba(204, 255, 0, 0.25);
+        border-top-color: var(--nxt1-color-primary, #ccff00);
+        animation: intel-step-spin 0.75s linear infinite;
+        flex-shrink: 0;
       }
       .intel-generating__scan {
         position: absolute;
@@ -844,6 +860,11 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/ass
         }
         100% {
           left: 160%;
+        }
+      }
+      @keyframes intel-step-spin {
+        to {
+          transform: rotate(360deg);
         }
       }
 

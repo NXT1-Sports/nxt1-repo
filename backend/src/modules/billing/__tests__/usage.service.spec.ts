@@ -10,7 +10,7 @@ import {
   tryAcquireEventLock,
   type CreateUsageEventInput,
 } from '../usage.service.js';
-import { UsageFeature, UsageEventStatus } from '../types/index.js';
+import { UsageEventStatus } from '../types/index.js';
 
 // vi.hoisted ensures variables are available before the hoisted vi.mock() factory runs
 const { mockUsageEventModel } = vi.hoisted(() => {
@@ -44,7 +44,7 @@ vi.mock('../pubsub.service.js', () => ({
 }));
 
 // Mock UsageEventModel (MongoDB)
-vi.mock('../../../models/usage-event.model.js', () => ({
+vi.mock('../../../models/analytics/usage-event.model.js', () => ({
   UsageEventModel: mockUsageEventModel,
 }));
 
@@ -88,7 +88,7 @@ describe('Usage Service', () => {
     const input: CreateUsageEventInput = {
       userId: 'user123',
       teamId: 'team456',
-      feature: UsageFeature.HIGHLIGHTS,
+      feature: 'highlights',
       quantity: 1,
       unitCostSnapshot: 0.5,
       currency: 'usd',
@@ -106,7 +106,7 @@ describe('Usage Service', () => {
     it('should omit teamId when usage is user-scoped', async () => {
       const userScopedInput: CreateUsageEventInput = {
         userId: 'user123',
-        feature: UsageFeature.HIGHLIGHTS,
+        feature: 'highlights',
         quantity: 1,
         unitCostSnapshot: 0.5,
         currency: 'usd',

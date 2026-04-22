@@ -9,6 +9,33 @@
 
 import type { GoogleWorkspaceMcpSessionService } from './google-workspace-mcp-session.service.js';
 import { GoogleWorkspaceBaseTool } from './google-workspace-base.tool.js';
+import { z } from 'zod';
+
+const EmptyDocsInputSchema = z.object({}).strict();
+const DocsCreateDocumentInputSchema = z.object({ title: z.string().trim().min(1) });
+const DocsByIdInputSchema = z.object({ document_id: z.string().trim().min(1) });
+const DocsAppendTextInputSchema = z.object({
+  document_id: z.string().trim().min(1),
+  text: z.string().trim().min(1),
+  ensure_newline: z.boolean().optional(),
+});
+const DocsInsertTextInputSchema = z.object({
+  document_id: z.string().trim().min(1),
+  text: z.string().trim().min(1),
+  index: z.coerce.number().int().optional(),
+  segment_id: z.string().trim().min(1).optional(),
+});
+const DocsBatchUpdateInputSchema = z.object({
+  document_id: z.string().trim().min(1),
+  requests: z.array(z.record(z.string(), z.unknown())).min(1),
+});
+const DocsInsertImageInputSchema = z.object({
+  document_id: z.string().trim().min(1),
+  image_url: z.string().trim().min(1),
+  index: z.coerce.number(),
+  width: z.coerce.number().optional(),
+  height: z.coerce.number().optional(),
+});
 
 // ─── docs_create_document ────────────────────────────────────────────────────
 
@@ -19,17 +46,7 @@ export class DocsCreateDocumentTool extends GoogleWorkspaceBaseTool {
   readonly isMutation = true;
   readonly category = 'data' as const;
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      title: {
-        type: 'string',
-        description: 'Title of the new document.',
-      },
-    },
-    required: ['title'],
-    additionalProperties: false,
-  } as const;
+  readonly parameters = DocsCreateDocumentInputSchema;
 
   constructor(sessionService: GoogleWorkspaceMcpSessionService) {
     super(sessionService);
@@ -46,17 +63,7 @@ export class DocsGetDocumentMetadataTool extends GoogleWorkspaceBaseTool {
   readonly isMutation = false;
   readonly category = 'data' as const;
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      document_id: {
-        type: 'string',
-        description: 'The Google Doc ID.',
-      },
-    },
-    required: ['document_id'],
-    additionalProperties: false,
-  } as const;
+  readonly parameters = DocsByIdInputSchema;
 
   constructor(sessionService: GoogleWorkspaceMcpSessionService) {
     super(sessionService);
@@ -74,17 +81,7 @@ export class DocsGetContentAsMarkdownTool extends GoogleWorkspaceBaseTool {
   readonly isMutation = false;
   readonly category = 'data' as const;
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      document_id: {
-        type: 'string',
-        description: 'The Google Doc ID.',
-      },
-    },
-    required: ['document_id'],
-    additionalProperties: false,
-  } as const;
+  readonly parameters = DocsByIdInputSchema;
 
   constructor(sessionService: GoogleWorkspaceMcpSessionService) {
     super(sessionService);
@@ -100,25 +97,7 @@ export class DocsAppendTextTool extends GoogleWorkspaceBaseTool {
   readonly isMutation = true;
   readonly category = 'data' as const;
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      document_id: {
-        type: 'string',
-        description: 'The Google Doc ID.',
-      },
-      text: {
-        type: 'string',
-        description: 'Text to append to the document.',
-      },
-      ensure_newline: {
-        type: 'boolean',
-        description: 'Ensure appended text starts on a new line. Defaults to true.',
-      },
-    },
-    required: ['document_id', 'text'],
-    additionalProperties: false,
-  } as const;
+  readonly parameters = DocsAppendTextInputSchema;
 
   constructor(sessionService: GoogleWorkspaceMcpSessionService) {
     super(sessionService);
@@ -134,25 +113,7 @@ export class DocsPrependTextTool extends GoogleWorkspaceBaseTool {
   readonly isMutation = true;
   readonly category = 'data' as const;
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      document_id: {
-        type: 'string',
-        description: 'The Google Doc ID.',
-      },
-      text: {
-        type: 'string',
-        description: 'Text to prepend to the document.',
-      },
-      ensure_newline: {
-        type: 'boolean',
-        description: 'Ensure text ends with a newline. Defaults to true.',
-      },
-    },
-    required: ['document_id', 'text'],
-    additionalProperties: false,
-  } as const;
+  readonly parameters = DocsAppendTextInputSchema;
 
   constructor(sessionService: GoogleWorkspaceMcpSessionService) {
     super(sessionService);
@@ -170,29 +131,7 @@ export class DocsInsertTextTool extends GoogleWorkspaceBaseTool {
   readonly isMutation = true;
   readonly category = 'data' as const;
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      document_id: {
-        type: 'string',
-        description: 'The Google Doc ID.',
-      },
-      text: {
-        type: 'string',
-        description: 'Text to insert.',
-      },
-      index: {
-        type: 'number',
-        description: 'Character index position where text will be inserted (1-based).',
-      },
-      segment_id: {
-        type: 'string',
-        description: 'Optional segment ID for headers/footers.',
-      },
-    },
-    required: ['document_id', 'text'],
-    additionalProperties: false,
-  } as const;
+  readonly parameters = DocsInsertTextInputSchema;
 
   constructor(sessionService: GoogleWorkspaceMcpSessionService) {
     super(sessionService);
@@ -210,22 +149,7 @@ export class DocsBatchUpdateTool extends GoogleWorkspaceBaseTool {
   readonly isMutation = true;
   readonly category = 'data' as const;
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      document_id: {
-        type: 'string',
-        description: 'The Google Doc ID.',
-      },
-      requests: {
-        type: 'array',
-        items: { type: 'object' },
-        description: 'Array of Google Docs API batchUpdate request objects.',
-      },
-    },
-    required: ['document_id', 'requests'],
-    additionalProperties: false,
-  } as const;
+  readonly parameters = DocsBatchUpdateInputSchema;
 
   constructor(sessionService: GoogleWorkspaceMcpSessionService) {
     super(sessionService);
@@ -241,33 +165,7 @@ export class DocsInsertImageTool extends GoogleWorkspaceBaseTool {
   readonly isMutation = true;
   readonly category = 'data' as const;
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      document_id: {
-        type: 'string',
-        description: 'The Google Doc ID.',
-      },
-      image_url: {
-        type: 'string',
-        description: 'Public URL of the image to insert.',
-      },
-      index: {
-        type: 'number',
-        description: 'Character index position where image will be inserted.',
-      },
-      width: {
-        type: 'number',
-        description: 'Optional image width in points.',
-      },
-      height: {
-        type: 'number',
-        description: 'Optional image height in points.',
-      },
-    },
-    required: ['document_id', 'image_url', 'index'],
-    additionalProperties: false,
-  } as const;
+  readonly parameters = DocsInsertImageInputSchema;
 
   constructor(sessionService: GoogleWorkspaceMcpSessionService) {
     super(sessionService);
@@ -292,7 +190,7 @@ function makeRemovedDocTool(oldName: string, replacement: string): typeof Google
     readonly description = `[REMOVED] ${oldName} — use ${replacement} instead.`;
     readonly isMutation = false;
     readonly category = 'data' as const;
-    readonly parameters = { type: 'object' as const, properties: {} };
+    readonly parameters = EmptyDocsInputSchema;
     override async execute(): Promise<{ success: false; error: string }> {
       return {
         success: false,

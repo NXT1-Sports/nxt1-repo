@@ -31,31 +31,12 @@ export class GetVideoDetailsTool extends BaseTool {
     'video finishes processing (shows live progress). Without waitForReady, returns the ' +
     'current status immediately.';
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      videoId: {
-        type: 'string',
-        description: 'The Cloudflare video ID to look up.',
-      },
-      waitForReady: {
-        type: 'boolean',
-        description:
-          'If true, polls until the video is ready or errored, streaming progress updates ' +
-          'to the user. Highly recommended after import_video or clip_video. Default: false.',
-      },
-      maxWaitSeconds: {
-        type: 'number',
-        description: 'Maximum seconds to wait when waitForReady is true (default: 300, max: 600).',
-      },
-    },
-    required: ['videoId'],
-  } as const;
+  readonly parameters = GetVideoDetailsInputSchema;
 
   override readonly allowedAgents = [
-    'brand_media_coordinator',
+    'brand_coordinator',
     'data_coordinator',
-    'general',
+    'strategy_coordinator',
   ] as const;
 
   readonly isMutation = false;
@@ -89,7 +70,12 @@ export class GetVideoDetailsTool extends BaseTool {
       waitForReady: shouldPoll,
       userId: context?.userId,
     });
-    context?.onProgress?.(shouldPoll ? 'Checking video status…' : 'Fetching video details…');
+    context?.emitStage?.('checking_status', {
+      icon: 'media',
+      videoId,
+      waitForReady: shouldPoll,
+      phase: shouldPoll ? 'poll_status' : 'fetch_details',
+    });
 
     try {
       const startMs = Date.now();
@@ -104,9 +90,14 @@ export class GetVideoDetailsTool extends BaseTool {
         while (state !== 'ready' && state !== 'error') {
           const elapsed = Date.now() - startMs;
           if (elapsed >= maxWaitMs) {
-            context?.onProgress?.(
-              `Still processing after ${Math.round(elapsed / 1000)}s — returning current status.`
-            );
+            context?.emitStage?.('checking_status', {
+              icon: 'media',
+              videoId,
+              elapsedSeconds: Math.round(elapsed / 1000),
+              processingState: state,
+              percentComplete: pct,
+              phase: 'processing_timeout',
+            });
             logger.warn('[GetVideoDetails] Max wait exceeded', { videoId, elapsed, state, pct });
             break;
           }
@@ -114,7 +105,13 @@ export class GetVideoDetailsTool extends BaseTool {
           // Report every meaningful change
           const currentPct = typeof pct === 'number' ? pct : Number(pct) || 0;
           if (currentPct !== lastReportedPct) {
-            context?.onProgress?.(`Video processing… ${currentPct}% complete`);
+            context?.emitStage?.('checking_status', {
+              icon: 'media',
+              videoId,
+              percentComplete: currentPct,
+              processingState: state,
+              phase: 'processing_progress',
+            });
             lastReportedPct = currentPct;
           }
 
@@ -126,10 +123,22 @@ export class GetVideoDetailsTool extends BaseTool {
         }
 
         if (state === 'ready') {
-          context?.onProgress?.('Video processing complete — ready!');
+          context?.emitStage?.('checking_status', {
+            icon: 'media',
+            videoId,
+            processingState: state,
+            percentComplete: pct,
+            phase: 'ready',
+          });
           logger.info('[GetVideoDetails] Video ready', { videoId, duration: video.duration });
         } else if (state === 'error') {
-          context?.onProgress?.('Video processing failed.');
+          context?.emitStage?.('checking_status', {
+            icon: 'media',
+            videoId,
+            processingState: state,
+            percentComplete: pct,
+            phase: 'failed',
+          });
           logger.error('[GetVideoDetails] Video errored', {
             videoId,
             error: video.status?.errorReasonText,

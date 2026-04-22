@@ -11,8 +11,14 @@ import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 import { BaseTool, type ToolExecutionContext, type ToolResult } from '../base.tool.js';
 import { IntelGenerationService } from '../../services/intel.service.js';
 import { logger } from '../../../../utils/logger.js';
+import { z } from 'zod';
 
 type IntelEntityType = 'athlete' | 'team';
+
+const WriteIntelInputSchema = z.object({
+  entityType: z.string().trim().min(1),
+  entityId: z.string().trim().min(1).optional(),
+});
 
 export class WriteIntelTool extends BaseTool {
   readonly name = 'write_intel';
@@ -22,30 +28,13 @@ export class WriteIntelTool extends BaseTool {
     'Handles all data gathering, narrative generation, and Firestore persistence automatically. ' +
     'Call this once you have confirmed the entityType and entityId with the user.';
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      entityType: {
-        type: 'string',
-        enum: ['athlete', 'team'],
-        description: 'Whether the Intel is for an athlete profile or a team profile.',
-      },
-      entityId: {
-        type: 'string',
-        description:
-          'The athlete userId or teamId to generate the Intel report for. ' +
-          'Omit this field when generating for the currently authenticated user — ' +
-          'the system will resolve their ID automatically.',
-      },
-    },
-    required: ['entityType'],
-  } as const;
+  readonly parameters = WriteIntelInputSchema;
 
   override readonly allowedAgents = [
     'data_coordinator',
     'performance_coordinator',
     'recruiting_coordinator',
-    'general',
+    'strategy_coordinator',
   ] as const;
   readonly isMutation = true;
   readonly category = 'database' as const;
@@ -58,10 +47,22 @@ export class WriteIntelTool extends BaseTool {
     input: Record<string, unknown>,
     context?: ToolExecutionContext
   ): Promise<ToolResult> {
-    const entityTypeRaw = this.str(input, 'entityType');
+    const parsed = WriteIntelInputSchema.safeParse(input);
+    if (!parsed.success) {
+      return {
+        success: false,
+        error: parsed.error.issues
+          .map((issue) =>
+            issue.path.length > 0 ? `${issue.path.join('.')}: ${issue.message}` : issue.message
+          )
+          .join(', '),
+      };
+    }
+
+    const entityTypeRaw = parsed.data.entityType;
     // Prefer LLM-supplied entityId; fall back to the authenticated user's UID for athlete.
     const entityId =
-      this.str(input, 'entityId') || (entityTypeRaw === 'athlete' ? (context?.userId ?? '') : '');
+      parsed.data.entityId || (entityTypeRaw === 'athlete' ? (context?.userId ?? '') : '');
 
     if (!entityTypeRaw || (entityTypeRaw !== 'athlete' && entityTypeRaw !== 'team')) {
       return {
@@ -76,7 +77,11 @@ export class WriteIntelTool extends BaseTool {
 
     try {
       if (entityType === 'athlete') {
-        context?.onProgress?.('Gathering athlete data and generating Intel…');
+        context?.emitStage?.('submitting_job', {
+          icon: 'document',
+          targetType: 'athlete',
+          phase: 'generate_intel',
+        });
         logger.info('[WriteIntelTool] Delegating to IntelGenerationService for athlete', {
           entityId,
         });
@@ -102,7 +107,11 @@ export class WriteIntelTool extends BaseTool {
       }
 
       // Team
-      context?.onProgress?.('Gathering team data and generating Intel…');
+      context?.emitStage?.('submitting_job', {
+        icon: 'document',
+        targetType: 'team',
+        phase: 'generate_intel',
+      });
       logger.info('[WriteIntelTool] Delegating to IntelGenerationService for team', { entityId });
 
       const report = await intelService.generateTeamIntel(entityId, this.db);

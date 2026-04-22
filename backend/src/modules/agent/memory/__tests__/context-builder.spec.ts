@@ -29,25 +29,25 @@ const mockCache = {
   mset: vi.fn(),
 };
 
-vi.mock('../../../../services/cache.service.js', () => ({
+vi.mock('../../../../services/core/cache.service.js', () => ({
   getCacheService: () => mockCache,
   CACHE_TTL: { PROFILES: 900 },
 }));
 
 const mockGetUserById = vi.fn();
-vi.mock('../../../../services/users.service.js', () => ({
+vi.mock('../../../../services/profile/users.service.js', () => ({
   getUserById: (...args: unknown[]) => mockGetUserById(...args),
 }));
 
 const mockGetUserTeams = vi.fn();
-vi.mock('../../../../services/team-adapter.service.js', () => ({
+vi.mock('../../../../adapters/team.adapter.js', () => ({
   TeamServiceAdapter: class {
     getUserTeams = mockGetUserTeams;
   },
 }));
 
 const mockListRecentSummaries = vi.fn().mockResolvedValue([]);
-vi.mock('../../../../services/sync-delta-event.service.js', () => ({
+vi.mock('../../../../services/core/sync-delta-event.service.js', () => ({
   getSyncDeltaEventService: () => ({
     listRecentSummaries: (...args: unknown[]) => mockListRecentSummaries(...args),
   }),

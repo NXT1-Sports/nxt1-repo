@@ -15,20 +15,21 @@
 
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
-import { getCacheService } from '../../../../services/cache.service.js';
+import { getCacheService } from '../../../../services/core/cache.service.js';
 import {
   createProfileWriteAccessService,
   resolveAuthorizedTargetSportSelection,
-} from '../../../../services/profile-write-access.service.js';
-import { CACHE_KEYS as USER_CACHE_KEYS } from '../../../../services/users.service.js';
+} from '../../../../services/profile/profile-write-access.service.js';
+import { CACHE_KEYS as USER_CACHE_KEYS } from '../../../../services/profile/users.service.js';
 import { invalidateProfileCaches } from '../../../../routes/profile/shared.js';
 import { SyncDiffService, type PreviousVideoEntry } from '../../sync/index.js';
-import { getAnalyticsLoggerService } from '../../../../services/analytics-logger.service.js';
+import { getAnalyticsLoggerService } from '../../../../services/core/analytics-logger.service.js';
 import { onDailySyncComplete } from '../../triggers/trigger.listeners.js';
 import { logger } from '../../../../utils/logger.js';
 import { normalizeVideoUrl } from './dedup-utils.js';
 import { resolveCreatedAt } from './doc-date-utils.js';
 import { PostVisibility } from '@nxt1/core';
+import { z } from 'zod';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -36,6 +37,25 @@ const POSTS_COLLECTION = 'Posts';
 const MAX_VIDEOS = 100;
 
 const VALID_PROVIDERS = new Set(['youtube', 'hudl', 'vimeo', 'twitter', 'other']);
+
+const VideoEntrySchema = z
+  .object({
+    src: z.string().trim().min(1).optional(),
+    provider: z.string().trim().min(1).optional(),
+    videoId: z.string().trim().min(1).optional(),
+    poster: z.string().trim().min(1).optional(),
+    title: z.string().trim().min(1).optional(),
+  })
+  .passthrough();
+
+const WriteAthleteVideosInputSchema = z.object({
+  userId: z.string().trim().min(1),
+  targetSport: z.string().trim().min(1),
+  source: z.string().trim().min(1),
+  sourceUrl: z.string().trim().min(1).optional(),
+  profileUrl: z.string().trim().min(1).optional(),
+  videos: z.array(VideoEntrySchema).min(1).max(MAX_VIDEOS),
+});
 
 // ─── Tool ───────────────────────────────────────────────────────────────────
 
@@ -59,39 +79,12 @@ export class WriteAthleteVideosTool extends BaseTool {
     '  • poster (optional): Thumbnail/poster image URL.\n' +
     '  • title (optional): Video title or description.';
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      userId: { type: 'string' },
-      targetSport: { type: 'string' },
-      source: { type: 'string' },
-      sourceUrl: { type: 'string' },
-      profileUrl: { type: 'string' },
-      videos: {
-        type: 'array',
-        items: {
-          type: 'object',
-          properties: {
-            src: { type: 'string' },
-            provider: {
-              type: 'string',
-              enum: ['youtube', 'hudl', 'vimeo', 'twitter', 'other'],
-            },
-            videoId: { type: 'string' },
-            poster: { type: 'string' },
-            title: { type: 'string' },
-          },
-          required: ['src', 'provider'],
-        },
-      },
-    },
-    required: ['userId', 'targetSport', 'source', 'videos'],
-  } as const;
+  readonly parameters = WriteAthleteVideosInputSchema;
 
   override readonly allowedAgents = [
     'data_coordinator',
     'performance_coordinator',
-    'general',
+    'strategy_coordinator',
   ] as const;
   readonly isMutation = true;
   readonly category = 'database' as const;
@@ -107,21 +100,11 @@ export class WriteAthleteVideosTool extends BaseTool {
     input: Record<string, unknown>,
     context?: ToolExecutionContext
   ): Promise<ToolResult> {
-    const userId = this.str(input, 'userId');
-    if (!userId) return this.paramError('userId');
-    const targetSport = this.str(input, 'targetSport');
-    if (!targetSport) return this.paramError('targetSport');
-    const source = this.str(input, 'source');
-    if (!source) return this.paramError('source');
-    const sourceUrl = this.str(input, 'sourceUrl') ?? this.str(input, 'profileUrl') ?? undefined;
+    const parsed = WriteAthleteVideosInputSchema.safeParse(input);
+    if (!parsed.success) return this.zodError(parsed.error);
 
-    const videos = input['videos'];
-    if (!Array.isArray(videos) || videos.length === 0) {
-      return { success: false, error: 'videos must be a non-empty array.' };
-    }
-    if (videos.length > MAX_VIDEOS) {
-      return { success: false, error: `videos exceeds maximum of ${MAX_VIDEOS}.` };
-    }
+    const { userId, targetSport, source, videos } = parsed.data;
+    const sourceUrl = parsed.data.sourceUrl ?? parsed.data.profileUrl;
 
     if (!context?.userId) {
       return { success: false, error: 'Authenticated tool context is required.' };
@@ -147,7 +130,10 @@ export class WriteAthleteVideosTool extends BaseTool {
       }
       const now = new Date().toISOString();
 
-      context?.onProgress?.('Checking for duplicate videos…');
+      context?.emitStage?.('fetching_data', {
+        icon: 'media',
+        phase: 'check_duplicate_videos',
+      });
 
       // Fetch existing video posts for dedup
       const existingSnap = await this.db
@@ -276,12 +262,19 @@ export class WriteAthleteVideosTool extends BaseTool {
       }
 
       if (written > 0) {
-        context?.onProgress?.(`Writing ${written} video(s) to database…`);
+        context?.emitStage?.('submitting_job', {
+          icon: 'media',
+          videoCount: written,
+          phase: 'write_athlete_videos',
+        });
         await batch.commit();
       }
 
       // Cache invalidation — route key format: profile:videos:{userId}[:{sportId}]:{limit}
-      context?.onProgress?.('Invalidating video caches…');
+      context?.emitStage?.('persisting_result', {
+        icon: 'database',
+        phase: 'invalidate_video_caches',
+      });
       try {
         const cache = getCacheService();
         const defaultLimit = 20;

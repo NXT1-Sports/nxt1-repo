@@ -71,8 +71,14 @@ import { NxtPlatformService } from '../../services/platform';
 import { NxtHeaderPortalService } from '../../services/header-portal';
 import { HapticsService } from '../../services/haptics';
 import { NxtBrowserService } from '../../services/browser';
-import type { ExploreItem } from '@nxt1/core';
-import type { TopNavItem, TopNavUserMenuItem, TopNavUserData, TopNavConfig } from '@nxt1/core';
+import type {
+  ExploreItem,
+  SidenavSportProfile,
+  TopNavItem,
+  TopNavUserMenuItem,
+  TopNavUserData,
+  TopNavConfig,
+} from '@nxt1/core';
 import {
   DEFAULT_TOP_NAV_ITEMS,
   DEFAULT_USER_MENU_ITEMS,
@@ -84,6 +90,7 @@ import type {
   TopNavSelectEvent,
   TopNavUserMenuEvent,
   TopNavSearchSubmitEvent,
+  TopNavSportProfileSelectEvent,
 } from './top-nav.types';
 
 @Component({
@@ -503,6 +510,7 @@ import type {
                         type="button"
                         class="user-sport-item"
                         [class.user-sport-item--active]="profile.isActive"
+                        (click)="onSportProfileClick(profile, $event)"
                       >
                         <nxt1-avatar
                           [src]="profile.profileImg || user()?.profileImg"
@@ -746,6 +754,7 @@ import type {
                     type="button"
                     class="mobile-sport-item flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition-colors"
                     [class.mobile-sport-item--active]="profile.isActive"
+                    (click)="onSportProfileClick(profile, $event)"
                   >
                     <nxt1-avatar
                       [src]="profile.profileImg || user()?.profileImg"
@@ -969,6 +978,9 @@ export class NxtHeaderComponent implements OnDestroy {
 
   /** Emits when "Add Sport" / "Add Team" is clicked in the user dropdown */
   @Output() addSportClick = new EventEmitter<Event>();
+
+  /** Emits when a sport/team profile is selected in the user switcher */
+  @Output() sportProfileSelect = new EventEmitter<TopNavSportProfileSelectEvent>();
 
   /** Emits when the user avatar/info section is clicked */
   @Output() userClick = new EventEmitter<Event>();
@@ -1451,6 +1463,18 @@ export class NxtHeaderComponent implements OnDestroy {
     event.stopPropagation();
     this.haptics.impact('light');
     this.sportSwitcherExpanded.update((v) => !v);
+  }
+
+  /**
+   * Handle a sport/team profile selection from the user switcher.
+   */
+  onSportProfileClick(profile: SidenavSportProfile, event: Event): void {
+    event.stopPropagation();
+    this.haptics.impact('light');
+    this.userMenuOpen.set(false);
+    this.mobileMenuOpen.set(false);
+    this.sportSwitcherExpanded.set(false);
+    this.sportProfileSelect.emit({ profile, event, timestamp: Date.now() });
   }
 
   /**

@@ -17,10 +17,12 @@
 import type { Firestore } from 'firebase-admin/firestore';
 import type { AgentWeeklyRecap } from '@nxt1/core';
 import { OpenRouterService } from '../llm/openrouter.service.js';
-import { sendPlatformEmail } from '../../../services/platform-email.service.js';
-import { dispatch } from '../../../services/notification.service.js';
+import { resolveStructuredOutput } from '../llm/structured-output.js';
+import { sendPlatformEmail } from '../../../services/communications/platform-email.service.js';
+import { dispatch } from '../../../services/communications/notification.service.js';
 import { NOTIFICATION_TYPES } from '@nxt1/core';
 import { logger } from '../../../utils/logger.js';
+import { z } from 'zod';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -49,14 +51,15 @@ interface GoalProgressSummary {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-/** Strip markdown code fences from LLM JSON output. */
-function stripMarkdownFences(text: string): string {
-  let cleaned = text.trim();
-  if (cleaned.startsWith('```')) {
-    cleaned = cleaned.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
-  }
-  return cleaned;
-}
+const recapEmailContentSchema = z.object({
+  subject: z.string().optional(),
+  introParagraph: z.string().optional(),
+  completedActions: z.array(z.string()).optional(),
+  resultsHighlights: z.array(z.string()).optional(),
+  nextSteps: z.array(z.string()).optional(),
+  ctaText: z.string().optional(),
+  ctaUrl: z.string().optional(),
+});
 
 /** ISO week label, e.g. "Week 28, 2025". */
 function getWeekLabel(): string {
@@ -218,9 +221,10 @@ export async function generateEmailContent(
   sport: string | undefined,
   agentResultSummary: string,
   history: AgentWeeklyRecap[],
+  db: Firestore,
   goalProgress?: GoalProgressSummary
 ): Promise<RecapEmailContent> {
-  const llm = new OpenRouterService();
+  const llm = new OpenRouterService({ firestore: db });
   const weekLabel = getWeekLabel();
 
   const historyContext =
@@ -275,11 +279,17 @@ Keep the tone professional yet energetic. Be specific — reference sports conte
       modelOverride: 'openai/gpt-4o-mini',
       temperature: 0.7,
       maxTokens: 700,
-      jsonMode: true,
+      outputSchema: {
+        name: 'weekly_recap_email',
+        schema: recapEmailContentSchema,
+      },
     });
 
-    const content = response.content ?? '';
-    const parsed = JSON.parse(stripMarkdownFences(content)) as RecapEmailContent;
+    const parsed = resolveStructuredOutput(
+      response,
+      recapEmailContentSchema,
+      'Weekly recap email generation'
+    ) as RecapEmailContent;
 
     return {
       subject: String(parsed.subject ?? `Your Week ${weekLabel} Recap`),
@@ -519,6 +529,7 @@ export async function processRecapForUser(
       primarySport,
       agentResultSummary,
       history,
+      db,
       goalProgress
     );
 

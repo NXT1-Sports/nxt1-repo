@@ -21,14 +21,6 @@ const MAX_UNICODE = 999999;
 const MAX_RETRIES = 10;
 
 /**
- * Validate unicode format (6 digits, 100000-999999)
- */
-export function isValidUnicode(unicode: string): boolean {
-  const num = parseInt(unicode, 10);
-  return /^\d{6}$/.test(unicode) && num >= MIN_UNICODE && num <= MAX_UNICODE;
-}
-
-/**
  * Generate random 6-digit unicode
  */
 function generateRandomUnicode(): string {
@@ -142,15 +134,6 @@ async function fallbackSequentialGeneration(db: Firestore, userId: string): Prom
   }
 
   throw new Error('All unicode codes exhausted');
-}
-
-/**
- * Check if user has unicode assigned
- */
-export async function hasUnicode(db: Firestore, userId: string): Promise<boolean> {
-  const userDoc = await db.collection('Users').doc(userId).get();
-  const userData = userDoc.data();
-  return !!userData?.['unicode'];
 }
 
 /**

@@ -155,13 +155,30 @@ Role-aware: Coaches/Directors receive only org and media data, never athlete sta
 
     // Athlete extraction: ONLY for athlete roles
     const athletePromise: Promise<AthleteExtraction | null> = isAthlete
-      ? this.athleteSpecialist.extract(content, extractionContext)
+      ? (() => {
+          context?.emitStage?.('invoking_sub_agent', {
+            icon: 'database',
+            subAgentId: 'athlete-specialist',
+            source: 'dispatch_extraction',
+          });
+          return this.athleteSpecialist.extract(content, extractionContext);
+        })()
       : Promise.resolve(null);
 
     // Org extraction: ALL roles benefit from org data
+    context?.emitStage?.('invoking_sub_agent', {
+      icon: 'document',
+      subAgentId: 'org-specialist',
+      source: 'dispatch_extraction',
+    });
     const orgPromise = this.orgSpecialist.extract(content, extractionContext);
 
     // Media extraction: ALL roles benefit from media data
+    context?.emitStage?.('invoking_sub_agent', {
+      icon: 'media',
+      subAgentId: 'media-specialist',
+      source: 'dispatch_extraction',
+    });
     const mediaPromise = this.mediaSpecialist.extract(content, extractionContext);
 
     // ── Execute in parallel with fault isolation ──────────────────────────

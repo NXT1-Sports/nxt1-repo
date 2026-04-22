@@ -13,12 +13,12 @@
  */
 
 import { Router, type Request, type Response } from 'express';
-import { optionalAuth } from '../../middleware/auth.middleware.js';
+import { optionalAuth } from '../../middleware/auth/auth.middleware.js';
 import { logger } from '../../utils/logger.js';
-import { getCacheService } from '../../services/cache.service.js';
-import { markCacheHit } from '../../middleware/cache-status.middleware.js';
+import { getCacheService } from '../../services/core/cache.service.js';
+import { markCacheHit } from '../../middleware/cache/cache-status.middleware.js';
 import { asyncHandler } from '@nxt1/core/errors/express';
-import { createTimelineService } from '../../services/timeline.service.js';
+import { createTimelineService } from '../../services/profile/timeline.service.js';
 import {
   userProfileToFeedAuthor,
   type UserProfile as PostsUserProfile,

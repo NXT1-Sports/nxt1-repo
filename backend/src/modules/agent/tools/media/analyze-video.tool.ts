@@ -108,11 +108,14 @@ export class AnalyzeVideoTool extends BaseTool {
 
     const trimmedUrl = url.trim();
     const trimmedPrompt = prompt.trim();
-    const progress = context?.onProgress;
 
     try {
       // ── Resolve video URLs ─────────────────────────────────────────
-      progress?.('Resolving video URL…');
+      context?.emitStage?.('fetching_data', {
+        icon: 'media',
+        url: trimmedUrl,
+        phase: 'resolve_video_url',
+      });
       const videoUrls = await this.resolveVideoUrls(trimmedUrl);
 
       if (videoUrls.length === 0) {
@@ -131,7 +134,12 @@ export class AnalyzeVideoTool extends BaseTool {
       });
 
       // ── Build multimodal message ───────────────────────────────────
-      progress?.(`Analyzing ${videoUrls.length === 1 ? 'video' : `${videoUrls.length} videos`}…`);
+      context?.emitStage?.('processing_media', {
+        icon: 'media',
+        url: trimmedUrl,
+        videoCount: videoUrls.length,
+        phase: 'analyze_video',
+      });
       const contentParts: LLMContentPart[] = [];
 
       // Add video URL parts (capped to avoid context overflow)

@@ -20,21 +20,12 @@ import {
 // ============================================
 
 describe('USER_ROLES', () => {
-  it('should have exactly 3 core roles', () => {
+  it('should only expose the 3 supported roles', () => {
     const coreRoles: UserRole[] = ['athlete', 'coach', 'director'];
+    expect(Object.keys(USER_ROLES)).toEqual(['ATHLETE', 'COACH', 'DIRECTOR']);
     coreRoles.forEach((role) => {
       expect(Object.values(USER_ROLES)).toContain(role);
     });
-  });
-
-  it('should have deprecated aliases pointing to correct values', () => {
-    expect(USER_ROLES.COLLEGE_COACH).toBe('coach');
-    expect(USER_ROLES.SCOUT).toBe('coach');
-    expect(USER_ROLES.RECRUITING_SERVICE).toBe('coach');
-    expect(USER_ROLES.MEDIA).toBe('coach');
-    expect(USER_ROLES.FAN).toBe('athlete');
-    expect(USER_ROLES.RECRUITER).toBe('coach');
-    expect(USER_ROLES.PARENT).toBe('athlete');
   });
 });
 

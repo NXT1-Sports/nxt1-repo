@@ -1,11 +1,6 @@
 import { BaseTool, type ToolExecutionContext, type ToolResult } from '../../base.tool.js';
 import type { FirebaseMcpBridgeService } from './firebase-mcp-bridge.service.js';
-import {
-  FirebaseFiltersSchema,
-  FirebaseViewNameSchema,
-  MAX_FIREBASE_VIEW_LIMIT,
-  type FirebaseMcpQueryInput,
-} from './shared.js';
+import { FirebaseMcpQueryInputSchema, type FirebaseMcpQueryInput } from './shared.js';
 import { logger } from '../../../../../utils/logger.js';
 
 export class QueryNxt1DataTool extends BaseTool {
@@ -14,34 +9,10 @@ export class QueryNxt1DataTool extends BaseTool {
     'Query named, read-only NXT1 data views scoped to the authenticated user and their accessible team and organization records. ' +
     'Use this instead of asking for raw database paths. Supported views include personal profile and performance data, team and organization snapshots, rosters, memberships, and highlight feeds.';
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      view: {
-        type: 'string',
-        enum: [...FirebaseViewNameSchema.options],
-        description:
-          'Named NXT1 data view to query. Example: "user_profile_snapshot", "team_roster_members", or "organization_highlight_videos".',
-      },
-      filters: {
-        type: 'object',
-        description:
-          'Optional view-specific filters. Examples: { sportId: "football" }, { category: "offer" }, { visibility: "public" }, { teamId: "team_123" }, { organizationId: "org_456" }.',
-      },
-      limit: {
-        type: 'number',
-        description: `Optional max rows to return. Hard-capped at ${MAX_FIREBASE_VIEW_LIMIT}.`,
-      },
-      cursor: {
-        type: 'string',
-        description: 'Optional pagination cursor returned by a previous query for the same view.',
-      },
-    },
-    required: ['view'],
-  } as const;
+  readonly parameters = FirebaseMcpQueryInputSchema;
 
   override readonly allowedAgents = [
-    'general',
+    'strategy_coordinator',
     'data_coordinator',
     'performance_coordinator',
     'recruiting_coordinator',
@@ -65,40 +36,28 @@ export class QueryNxt1DataTool extends BaseTool {
       };
     }
 
-    const rawView = this.str(input, 'view');
-    if (!rawView) return this.paramError('view');
-
-    const parsedView = FirebaseViewNameSchema.safeParse(rawView);
-    if (!parsedView.success) {
+    const parsedInput = FirebaseMcpQueryInputSchema.safeParse(input);
+    if (!parsedInput.success) {
       return {
         success: false,
-        error: `Parameter "view" must be one of: ${FirebaseViewNameSchema.options.join(', ')}.`,
+        error: parsedInput.error.issues.map((issue) => issue.message).join(', '),
       };
     }
 
-    const rawFilters = this.obj(input, 'filters') ?? undefined;
-    const filters = rawFilters ? FirebaseFiltersSchema.safeParse(rawFilters) : null;
-    if (filters && !filters.success) {
-      return {
-        success: false,
-        error:
-          'Parameter "filters" must be an object whose values are strings, numbers, booleans, or arrays of strings.',
-      };
-    }
-
-    const limit = this.num(input, 'limit') ?? undefined;
-    const cursor = this.str(input, 'cursor') ?? undefined;
-    const queryInput: FirebaseMcpQueryInput = {
-      view: parsedView.data,
-      ...(filters?.success ? { filters: filters.data } : {}),
-      ...(typeof limit === 'number' ? { limit } : {}),
-      ...(cursor ? { cursor } : {}),
-    };
+    const queryInput: FirebaseMcpQueryInput = parsedInput.data;
 
     try {
-      context.onProgress?.('Preparing NXT1 data request…');
+      context.emitStage?.('fetching_data', {
+        icon: 'database',
+        view: queryInput.view,
+        phase: 'prepare_request',
+      });
       const result = await this.bridge.queryView(queryInput, context);
-      context.onProgress?.('Formatting NXT1 data results…');
+      context.emitStage?.('persisting_result', {
+        icon: 'database',
+        view: queryInput.view,
+        phase: 'format_results',
+      });
 
       return {
         success: true,

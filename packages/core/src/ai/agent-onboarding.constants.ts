@@ -291,13 +291,12 @@ export const ATHLETE_PREDEFINED_GOALS: readonly AgentGoal[] = [
  * Sequential loading messages shown during the boot-up animation.
  */
 export const AGENT_LOADING_MESSAGES: readonly string[] = [
-  'Initializing Agent X...',
-  'Analyzing your goals...',
-  'Configuring AI models...',
-  'Loading recruiting database...',
-  'Calibrating sport intelligence...',
-  'Building your personalized dashboard...',
-  'Agent X is ready.',
+  'Syncing your profile with Agent X...',
+  'Tuning your sports intelligence...',
+  'Configuring your coordinators...',
+  'Reviewing your activity context...',
+  'Preparing your first dashboard update...',
+  'Finalizing your personalized setup...',
 ] as const;
 
 /**

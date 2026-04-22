@@ -218,12 +218,37 @@ import {
       </div>
     </div>
 
-    <nxt1-sheet-footer
-      [label]="footerLabel()"
-      [icon]="footerIcon()"
-      [disabled]="footerDisabled()"
-      (action)="onPrimaryAction()"
-    />
+    @if (activeTab() === 'buy' && showIapPayButton) {
+      <div class="bc-footer">
+        <button
+          type="button"
+          class="bc-footer-btn bc-footer-btn--secondary"
+          [disabled]="selectedBuyAmountCents() === null"
+          [attr.data-testid]="testIds.BUY_CREDITS_BUY_BTN"
+          (click)="onBuyWithStripe()"
+        >
+          Normal Pay
+        </button>
+        <button
+          type="button"
+          class="bc-footer-btn bc-footer-btn--primary"
+          [attr.data-testid]="testIds.BUY_CREDITS_IAP_BTN"
+          (click)="onBuyWithIap()"
+        >
+          IAP Pay
+        </button>
+      </div>
+    } @else {
+      <nxt1-sheet-footer
+        [label]="footerLabel()"
+        [icon]="footerIcon()"
+        [disabled]="footerDisabled()"
+        [attr.data-testid]="
+          activeTab() === 'buy' ? testIds.BUY_CREDITS_BUY_BTN : testIds.BUY_CREDITS_TOPUP_SAVE_BTN
+        "
+        (action)="onPrimaryAction()"
+      />
+    }
   `,
   styles: [
     `
@@ -540,13 +565,72 @@ import {
         border: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.06));
       }
 
+      .bc-footer {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        gap: var(--nxt1-spacing-3, 12px);
+        padding: var(--nxt1-spacing-4, 16px) var(--nxt1-spacing-5, 20px);
+        padding-bottom: calc(var(--nxt1-spacing-4, 16px) + env(safe-area-inset-bottom, 0px));
+        border-top: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
+        background: var(--nxt1-color-bg-primary, #0f172a);
+      }
+
+      .bc-footer-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 52px;
+        padding: 0 16px;
+        border-radius: var(--nxt1-radius-xl, 16px);
+        border: 1px solid transparent;
+        font-family: var(--nxt1-fontFamily-brand, system-ui, sans-serif);
+        font-size: var(--nxt1-fontSize-base, 1rem);
+        font-weight: var(--nxt1-fontWeight-bold, 700);
+        letter-spacing: 0.01em;
+        cursor: pointer;
+        transition:
+          opacity var(--nxt1-motion-duration-fast, 150ms) var(--nxt1-motion-easing-standard, ease),
+          transform var(--nxt1-motion-duration-fast, 150ms) var(--nxt1-motion-easing-standard, ease),
+          background var(--nxt1-motion-duration-fast, 150ms)
+            var(--nxt1-motion-easing-standard, ease),
+          border-color var(--nxt1-motion-duration-fast, 150ms)
+            var(--nxt1-motion-easing-standard, ease);
+      }
+
+      .bc-footer-btn:active:not(:disabled) {
+        transform: scale(0.98);
+      }
+
+      .bc-footer-btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+
+      .bc-footer-btn--secondary {
+        color: var(--nxt1-color-text-primary, #f1f5f9);
+        background: var(--nxt1-color-surface-100, rgba(255, 255, 255, 0.04));
+        border-color: var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
+      }
+
+      .bc-footer-btn--primary {
+        color: var(--nxt1-color-text-onPrimary, #000);
+        background: var(--nxt1-color-primary, #fff);
+      }
+
       .bc-tab:focus-visible,
       .bc-package:focus-visible,
       .bc-preset-btn:focus-visible,
       .bc-secondary-link:focus-visible,
-      .bc-toggle:focus-visible {
+      .bc-toggle:focus-visible,
+      .bc-footer-btn:focus-visible {
         outline: none;
         box-shadow: 0 0 0 3px var(--nxt1-color-alpha-primary20, rgba(255, 255, 255, 0.08));
+      }
+
+      @media (max-width: 480px) {
+        .bc-footer {
+          grid-template-columns: 1fr;
+        }
       }
     `,
   ],
@@ -555,6 +639,7 @@ export class BuyCreditsAutoTopupSheetComponent implements OnInit {
   @Input() initialAutoTopupEnabled = false;
   @Input() initialThresholdCents = 500;
   @Input() initialAutoTopupAmountCents = 1_000;
+  @Input() showIapPayButton = false;
 
   private readonly modalCtrl = inject(ModalController);
 
@@ -651,9 +736,7 @@ export class BuyCreditsAutoTopupSheetComponent implements OnInit {
 
   protected async onPrimaryAction(): Promise<void> {
     if (this.activeTab() === 'buy') {
-      const amountCents = this.selectedBuyAmountCents();
-      if (amountCents === null) return;
-      await this.dismiss({ type: 'buy', amountCents }, 'buy');
+      await this.onBuyWithStripe();
       return;
     }
 
@@ -666,6 +749,20 @@ export class BuyCreditsAutoTopupSheetComponent implements OnInit {
       },
       'auto-topup'
     );
+  }
+
+  protected async onBuyWithStripe(): Promise<void> {
+    const amountCents = this.selectedBuyAmountCents();
+    if (amountCents === null) return;
+    await this.dismiss({ type: 'buy', amountCents }, 'buy');
+  }
+
+  protected async onBuyWithIap(): Promise<void> {
+    if (!this.showIapPayButton) {
+      return;
+    }
+
+    await this.dismiss({ type: 'buy-iap' }, 'buy-iap');
   }
 
   protected formatCents(cents: number): string {

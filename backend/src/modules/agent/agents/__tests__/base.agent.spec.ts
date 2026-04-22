@@ -10,7 +10,7 @@ class FakeReadTool extends BaseTool {
   readonly parameters = { type: 'object', properties: {} } as const;
   readonly isMutation = false;
   readonly category = 'database' as const;
-  override readonly allowedAgents = ['general'] as const;
+  override readonly allowedAgents = ['strategy_coordinator'] as const;
 
   async execute(
     _input: Record<string, unknown>,
@@ -29,7 +29,7 @@ class FakeReadTool extends BaseTool {
 }
 
 class FakeAgent extends BaseAgent {
-  readonly id: AgentIdentifier = 'general';
+  readonly id: AgentIdentifier = 'strategy_coordinator';
   readonly name = 'Fake Agent';
 
   getSystemPrompt(): string {
@@ -147,12 +147,14 @@ describe('BaseAgent identifier scrubbing', () => {
     );
 
     const toolCallEvent = events.find((event) => event['type'] === 'tool_call');
-    const toolResultEvent = events.find((event) => event['type'] === 'tool_result');
+    const toolResultRecord = (result.data as Record<string, unknown>)['toolCallRecords'] as Array<
+      Record<string, unknown>
+    >;
     const deltaEvents = events.filter((event) => event['type'] === 'delta');
 
     expect(String(toolCallEvent?.['toolArgs'] ?? '')).not.toContain('user-123');
     expect(String(toolCallEvent?.['toolArgs'] ?? '')).not.toContain('team-789');
-    expect(toolResultEvent?.['toolResult']).toEqual({ name: 'Jordan Miles' });
+    expect(toolResultRecord[0]?.['output']).toEqual({ name: 'Jordan Miles' });
     expect(deltaEvents.some((event) => String(event['text'] ?? '').includes('user-123'))).toBe(
       false
     );

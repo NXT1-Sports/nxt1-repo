@@ -99,7 +99,7 @@ function createTestContext(overrides?: Partial<ToolExecutionContext>): ToolExecu
     userId: 'test-user-123',
     sessionId: 'test-session-456',
     environment: 'staging',
-    onProgress: vi.fn(),
+    emitStage: vi.fn(),
     ...overrides,
   };
 }
@@ -237,7 +237,7 @@ describe('First-class Google Workspace tools', () => {
     expect(result.error).toBe('Token expired');
   });
 
-  it('reports progress with service name for read tools', async () => {
+  it('emits a typed stage for read tools', async () => {
     const tool = new GetCalendarEventsTool(mockSession as never);
     const ctx = createTestContext();
     await tool.execute(
@@ -247,10 +247,16 @@ describe('First-class Google Workspace tools', () => {
       },
       ctx
     );
-    expect(ctx.onProgress).toHaveBeenCalledWith('Reading from Google calendar…');
+    expect(ctx.emitStage).toHaveBeenCalledWith('fetching_data', {
+      source: 'google_workspace',
+      phase: 'read_data',
+      service: 'calendar',
+      toolName: tool.mcpToolName,
+      icon: 'document',
+    });
   });
 
-  it('reports progress with service name for mutation tools', async () => {
+  it('emits a typed stage for mutation tools', async () => {
     const tool = new CreateCalendarEventTool(mockSession as never);
     const ctx = createTestContext();
     await tool.execute(
@@ -261,7 +267,13 @@ describe('First-class Google Workspace tools', () => {
       },
       ctx
     );
-    expect(ctx.onProgress).toHaveBeenCalledWith('Executing Google calendar action…');
+    expect(ctx.emitStage).toHaveBeenCalledWith('submitting_job', {
+      source: 'google_workspace',
+      phase: 'execute_action',
+      service: 'calendar',
+      toolName: 'create_calendar_event',
+      icon: 'document',
+    });
   });
 
   it('mutation flag matches the metadata for all tools', () => {

@@ -5,8 +5,8 @@
  * Backfills or repairs analytics rollups from the raw event stream.
  */
 
-import { AnalyticsEventModel } from '../models/analytics-event.model.js';
-import { getAnalyticsLoggerService } from '../services/analytics-logger.service.js';
+import { AnalyticsEventModel } from '../models/analytics/analytics-event.model.js';
+import { getAnalyticsLoggerService } from '../services/core/analytics-logger.service.js';
 import { logger } from '../utils/logger.js';
 
 export async function rebuildRecentAnalyticsRollups(limit: number = 250): Promise<void> {

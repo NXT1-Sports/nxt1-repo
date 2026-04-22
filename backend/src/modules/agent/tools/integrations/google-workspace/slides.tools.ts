@@ -11,6 +11,65 @@
 
 import type { GoogleWorkspaceMcpSessionService } from './google-workspace-mcp-session.service.js';
 import { GoogleWorkspaceBaseTool } from './google-workspace-base.tool.js';
+import { z } from 'zod';
+
+const EmptySlidesInputSchema = z.object({}).strict();
+const PresentationIdSchema = z.object({ presentation_id: z.string().trim().min(1) });
+const CreatePresentationInputSchema = z.object({ title: z.string().trim().min(1) });
+const CreateSlideInputSchema = z.object({
+  presentation_id: z.string().trim().min(1),
+  insertion_index: z.coerce.number().int().optional(),
+  predefined_layout: z.string().trim().min(1).optional(),
+});
+const SlideTextBoxInputSchema = z.object({
+  presentation_id: z.string().trim().min(1),
+  slide_id: z.string().trim().min(1),
+  text: z.string().trim().min(1),
+  x: z.coerce.number().optional(),
+  y: z.coerce.number().optional(),
+  width: z.coerce.number().optional(),
+  height: z.coerce.number().optional(),
+});
+const AddFormattedTextToSlideInputSchema = SlideTextBoxInputSchema.extend({
+  font_size: z.coerce.number().optional(),
+  bold: z.boolean().optional(),
+  italic: z.boolean().optional(),
+  color: z.string().trim().min(1).optional(),
+  alignment: z.enum(['LEFT', 'CENTER', 'RIGHT', 'JUSTIFIED']).optional(),
+});
+const AddBulletedListToSlideInputSchema = z.object({
+  presentation_id: z.string().trim().min(1),
+  slide_id: z.string().trim().min(1),
+  items: z.array(z.string().trim().min(1)).min(1),
+  x: z.coerce.number().optional(),
+  y: z.coerce.number().optional(),
+  width: z.coerce.number().optional(),
+  height: z.coerce.number().optional(),
+});
+const AddTableToSlideInputSchema = z.object({
+  presentation_id: z.string().trim().min(1),
+  slide_id: z.string().trim().min(1),
+  rows: z.coerce.number().int(),
+  columns: z.coerce.number().int(),
+  data: z.array(z.array(z.string())).optional(),
+  x: z.coerce.number().optional(),
+  y: z.coerce.number().optional(),
+  width: z.coerce.number().optional(),
+  height: z.coerce.number().optional(),
+});
+const AddSlideNotesInputSchema = z.object({
+  presentation_id: z.string().trim().min(1),
+  slide_id: z.string().trim().min(1),
+  notes: z.string().trim().min(1),
+});
+const SlideByIdInputSchema = z.object({
+  presentation_id: z.string().trim().min(1),
+  slide_id: z.string().trim().min(1),
+});
+const CreatePresentationFromMarkdownInputSchema = z.object({
+  title: z.string().trim().min(1),
+  markdown: z.string().trim().min(1),
+});
 
 // ─── get_presentation ────────────────────────────────────────────────────────
 
@@ -22,14 +81,7 @@ export class GetPresentationTool extends GoogleWorkspaceBaseTool {
   readonly isMutation = false;
   readonly category = 'data' as const;
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      presentation_id: { type: 'string', description: 'The Google Slides presentation ID.' },
-    },
-    required: ['presentation_id'],
-    additionalProperties: false,
-  } as const;
+  readonly parameters = PresentationIdSchema;
 
   constructor(sessionService: GoogleWorkspaceMcpSessionService) {
     super(sessionService);
@@ -45,14 +97,7 @@ export class GetSlidesTool extends GoogleWorkspaceBaseTool {
   readonly isMutation = false;
   readonly category = 'data' as const;
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      presentation_id: { type: 'string', description: 'The Google Slides presentation ID.' },
-    },
-    required: ['presentation_id'],
-    additionalProperties: false,
-  } as const;
+  readonly parameters = PresentationIdSchema;
 
   constructor(sessionService: GoogleWorkspaceMcpSessionService) {
     super(sessionService);
@@ -68,14 +113,7 @@ export class CreatePresentationTool extends GoogleWorkspaceBaseTool {
   readonly isMutation = true;
   readonly category = 'data' as const;
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      title: { type: 'string', description: 'Title of the new presentation.' },
-    },
-    required: ['title'],
-    additionalProperties: false,
-  } as const;
+  readonly parameters = CreatePresentationInputSchema;
 
   constructor(sessionService: GoogleWorkspaceMcpSessionService) {
     super(sessionService);
@@ -91,22 +129,7 @@ export class CreateSlideTool extends GoogleWorkspaceBaseTool {
   readonly isMutation = true;
   readonly category = 'data' as const;
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      presentation_id: { type: 'string', description: 'The Google Slides presentation ID.' },
-      insertion_index: {
-        type: 'number',
-        description: 'Zero-based position to insert the slide. Defaults to end.',
-      },
-      predefined_layout: {
-        type: 'string',
-        description: 'Optional predefined layout name, e.g. BLANK, TITLE, TITLE_AND_BODY, etc.',
-      },
-    },
-    required: ['presentation_id'],
-    additionalProperties: false,
-  } as const;
+  readonly parameters = CreateSlideInputSchema;
 
   constructor(sessionService: GoogleWorkspaceMcpSessionService) {
     super(sessionService);
@@ -122,20 +145,7 @@ export class AddTextToSlideTool extends GoogleWorkspaceBaseTool {
   readonly isMutation = true;
   readonly category = 'data' as const;
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      presentation_id: { type: 'string', description: 'The Google Slides presentation ID.' },
-      slide_id: { type: 'string', description: 'The ID of the slide to add text to.' },
-      text: { type: 'string', description: 'Text to add.' },
-      x: { type: 'number', description: 'Horizontal position in points from left edge.' },
-      y: { type: 'number', description: 'Vertical position in points from top edge.' },
-      width: { type: 'number', description: 'Width of the text box in points.' },
-      height: { type: 'number', description: 'Height of the text box in points.' },
-    },
-    required: ['presentation_id', 'slide_id', 'text'],
-    additionalProperties: false,
-  } as const;
+  readonly parameters = SlideTextBoxInputSchema;
 
   constructor(sessionService: GoogleWorkspaceMcpSessionService) {
     super(sessionService);
@@ -152,32 +162,7 @@ export class AddFormattedTextToSlideTool extends GoogleWorkspaceBaseTool {
   readonly isMutation = true;
   readonly category = 'data' as const;
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      presentation_id: { type: 'string', description: 'The Google Slides presentation ID.' },
-      slide_id: { type: 'string', description: 'The ID of the target slide.' },
-      text: { type: 'string', description: 'Text to add.' },
-      x: { type: 'number', description: 'Horizontal position in points.' },
-      y: { type: 'number', description: 'Vertical position in points.' },
-      width: { type: 'number', description: 'Width in points.' },
-      height: { type: 'number', description: 'Height in points.' },
-      font_size: { type: 'number', description: 'Font size in points.' },
-      bold: { type: 'boolean', description: 'Whether to bold the text.' },
-      italic: { type: 'boolean', description: 'Whether to italicize the text.' },
-      color: {
-        type: 'string',
-        description: 'Hex color string (e.g. #FF0000) or named color.',
-      },
-      alignment: {
-        type: 'string',
-        enum: ['LEFT', 'CENTER', 'RIGHT', 'JUSTIFIED'],
-        description: 'Text alignment.',
-      },
-    },
-    required: ['presentation_id', 'slide_id', 'text'],
-    additionalProperties: false,
-  } as const;
+  readonly parameters = AddFormattedTextToSlideInputSchema;
 
   constructor(sessionService: GoogleWorkspaceMcpSessionService) {
     super(sessionService);
@@ -193,24 +178,7 @@ export class AddBulletedListToSlideTool extends GoogleWorkspaceBaseTool {
   readonly isMutation = true;
   readonly category = 'data' as const;
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      presentation_id: { type: 'string', description: 'The Google Slides presentation ID.' },
-      slide_id: { type: 'string', description: 'The ID of the target slide.' },
-      items: {
-        type: 'array',
-        items: { type: 'string' },
-        description: 'Array of bullet point strings.',
-      },
-      x: { type: 'number', description: 'Horizontal position in points.' },
-      y: { type: 'number', description: 'Vertical position in points.' },
-      width: { type: 'number', description: 'Width in points.' },
-      height: { type: 'number', description: 'Height in points.' },
-    },
-    required: ['presentation_id', 'slide_id', 'items'],
-    additionalProperties: false,
-  } as const;
+  readonly parameters = AddBulletedListToSlideInputSchema;
 
   constructor(sessionService: GoogleWorkspaceMcpSessionService) {
     super(sessionService);
@@ -226,26 +194,7 @@ export class AddTableToSlideTool extends GoogleWorkspaceBaseTool {
   readonly isMutation = true;
   readonly category = 'data' as const;
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      presentation_id: { type: 'string', description: 'The Google Slides presentation ID.' },
-      slide_id: { type: 'string', description: 'The ID of the target slide.' },
-      rows: { type: 'number', description: 'Number of rows in the table.' },
-      columns: { type: 'number', description: 'Number of columns in the table.' },
-      data: {
-        type: 'array',
-        items: { type: 'array', items: { type: 'string' } },
-        description: '2D array of string cell values (rows x columns).',
-      },
-      x: { type: 'number', description: 'Horizontal position in points.' },
-      y: { type: 'number', description: 'Vertical position in points.' },
-      width: { type: 'number', description: 'Width in points.' },
-      height: { type: 'number', description: 'Height in points.' },
-    },
-    required: ['presentation_id', 'slide_id', 'rows', 'columns'],
-    additionalProperties: false,
-  } as const;
+  readonly parameters = AddTableToSlideInputSchema;
 
   constructor(sessionService: GoogleWorkspaceMcpSessionService) {
     super(sessionService);
@@ -261,16 +210,7 @@ export class AddSlideNotesTool extends GoogleWorkspaceBaseTool {
   readonly isMutation = true;
   readonly category = 'data' as const;
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      presentation_id: { type: 'string', description: 'The Google Slides presentation ID.' },
-      slide_id: { type: 'string', description: 'The ID of the target slide.' },
-      notes: { type: 'string', description: 'Speaker notes text to set.' },
-    },
-    required: ['presentation_id', 'slide_id', 'notes'],
-    additionalProperties: false,
-  } as const;
+  readonly parameters = AddSlideNotesInputSchema;
 
   constructor(sessionService: GoogleWorkspaceMcpSessionService) {
     super(sessionService);
@@ -286,15 +226,7 @@ export class DuplicateSlideTool extends GoogleWorkspaceBaseTool {
   readonly isMutation = true;
   readonly category = 'data' as const;
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      presentation_id: { type: 'string', description: 'The Google Slides presentation ID.' },
-      slide_id: { type: 'string', description: 'The ID of the slide to duplicate.' },
-    },
-    required: ['presentation_id', 'slide_id'],
-    additionalProperties: false,
-  } as const;
+  readonly parameters = SlideByIdInputSchema;
 
   constructor(sessionService: GoogleWorkspaceMcpSessionService) {
     super(sessionService);
@@ -310,15 +242,7 @@ export class DeleteSlideTool extends GoogleWorkspaceBaseTool {
   readonly isMutation = true;
   readonly category = 'data' as const;
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      presentation_id: { type: 'string', description: 'The Google Slides presentation ID.' },
-      slide_id: { type: 'string', description: 'The ID of the slide to delete.' },
-    },
-    required: ['presentation_id', 'slide_id'],
-    additionalProperties: false,
-  } as const;
+  readonly parameters = SlideByIdInputSchema;
 
   constructor(sessionService: GoogleWorkspaceMcpSessionService) {
     super(sessionService);
@@ -337,19 +261,7 @@ export class CreatePresentationFromMarkdownTool extends GoogleWorkspaceBaseTool 
   readonly isMutation = true;
   readonly category = 'data' as const;
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      title: { type: 'string', description: 'Title for the new presentation.' },
-      markdown: {
-        type: 'string',
-        description:
-          'Markdown content. Use --- to separate slides. Heading 1 (#) becomes slide title.',
-      },
-    },
-    required: ['title', 'markdown'],
-    additionalProperties: false,
-  } as const;
+  readonly parameters = CreatePresentationFromMarkdownInputSchema;
 
   constructor(sessionService: GoogleWorkspaceMcpSessionService) {
     super(sessionService);
@@ -371,7 +283,7 @@ function makeRemovedSlidesTool(
     readonly description = `[REMOVED] ${oldName} use ${replacement} instead.`;
     readonly isMutation = false;
     readonly category = 'data' as const;
-    readonly parameters = { type: 'object' as const, properties: {} };
+    readonly parameters = EmptySlidesInputSchema;
     override async execute(): Promise<{ success: false; error: string }> {
       return {
         success: false,

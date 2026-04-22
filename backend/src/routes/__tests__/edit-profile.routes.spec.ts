@@ -10,7 +10,7 @@ describe('Edit Profile Routes', () => {
   let router: unknown;
 
   beforeAll(async () => {
-    const module = await import('../../routes/edit-profile.routes.js');
+    const module = await import('../../routes/profile/edit-profile.routes.js');
     router = module.default;
   }, 15_000);
 

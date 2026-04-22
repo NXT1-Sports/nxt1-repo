@@ -200,8 +200,8 @@ export interface TeamData {
     `
       .team-content {
         --background: var(--nxt1-color-bg-primary, var(--ion-background-color, #0a0a0a));
-        --m-accent: var(--team-primary, var(--nxt1-color-primary, #d4ff00));
-        --m-accent-secondary: var(--team-secondary, var(--nxt1-color-secondary, #ffffff));
+        --m-accent: var(--nxt1-color-primary, #d4ff00);
+        --m-accent-secondary: var(--nxt1-color-secondary, #ffffff);
       }
 
       .team-container {
@@ -361,6 +361,8 @@ export interface TeamData {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class TeamShellComponent {
+  private static readonly TEAM_THEME_SOURCE = 'team-shell';
+
   private readonly logger = inject(NxtLoggingService).child('TeamShellComponent');
   private readonly toast = inject(NxtToastService);
   private readonly theme = inject(NxtThemeService);
@@ -477,13 +479,18 @@ export class TeamShellComponent {
       const t = this.team();
       if (t?.primaryColor) {
         this.theme.applyOrgTheme(t.primaryColor, t.secondaryColor);
+        this.theme.activateTeamTheme(TeamShellComponent.TEAM_THEME_SOURCE);
       } else {
         this.theme.clearOrgTheme();
+        this.theme.deactivateTeamTheme(TeamShellComponent.TEAM_THEME_SOURCE);
       }
     });
 
     // Clear org theme when navigating away so it doesn't bleed onto other pages.
-    this.destroyRef.onDestroy(() => this.theme.clearOrgTheme());
+    this.destroyRef.onDestroy(() => {
+      this.theme.clearOrgTheme();
+      this.theme.deactivateTeamTheme(TeamShellComponent.TEAM_THEME_SOURCE);
+    });
   }
 
   // ============================================

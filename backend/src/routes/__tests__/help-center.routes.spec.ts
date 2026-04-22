@@ -10,7 +10,7 @@ describe('Help Center Routes', () => {
   let router: unknown;
 
   beforeAll(async () => {
-    const module = await import('../../routes/help-center.routes.js');
+    const module = await import('../../routes/platform/help-center.routes.js');
     router = module.default;
   }, 15_000);
 

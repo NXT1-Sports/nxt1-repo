@@ -3,7 +3,26 @@
   "compilerOptions": {
     "rootDir": ".",
     "noEmit": true,
-    "outDir": "./dist-scripts"
+    "outDir": "./dist-scripts",
+    "paths": {
+      "@nxt1/core": [
+        "../packages/core/src/index.ts",
+        "../packages/core/dist/index.d.ts"
+      ],
+      "@nxt1/core/*": [
+        "../packages/core/src/*/index.ts",
+        "../packages/core/dist/*/index.d.ts",
+        "../packages/core/dist/*.d.ts"
+      ],
+      "@nxt1/cache": [
+        "../packages/cache/src/index.ts",
+        "../packages/cache/dist/index.d.ts"
+      ],
+      "@nxt1/cache/*": [
+        "../packages/cache/src/*.ts",
+        "../packages/cache/dist/*.d.ts"
+      ]
+    }
   },
   "include": ["src/**/*", "scripts/**/*"],
   "exclude": ["node_modules", "dist", "**/*.spec.ts", "**/*.test.ts"]

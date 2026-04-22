@@ -36,6 +36,7 @@ import {
   type AuthState as CoreAuthState,
   type AuthStateManager,
   type AuthUser,
+  normalizeRole,
   createAuthStateManager,
   createBrowserStorageAdapter,
   createMemoryStorageAdapter,
@@ -510,21 +511,10 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
    */
   private getUserRole(
     user: {
-      role?: UserRole | null;
-      isCollegeCoach?: boolean | null;
-      isRecruit?: boolean | null;
+      role?: string | null;
     } | null
   ): UserRole {
-    if (!user) return 'athlete';
-
-    // V2: Use role field directly if present
-    if (user.role) return user.role;
-
-    // Legacy fallback: Map boolean flags to role
-    if (user.isCollegeCoach) return 'coach';
-    if (user.isRecruit) return 'athlete';
-
-    return 'athlete';
+    return user?.role ? normalizeRole(user.role) : 'athlete';
   }
 
   // ============================================

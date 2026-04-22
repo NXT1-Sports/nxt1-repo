@@ -129,7 +129,7 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/ass
       </div>
 
       <!-- ═══ PLAYER PROFILE TABLE (Madden label:value style) ═══ -->
-      @if (user()?.isRecruit && hasMeasurables()) {
+      @if (user()?.role === 'athlete' && hasMeasurables()) {
         <div class="mc-section">
           <h3 class="mc-section-title">Player Profile</h3>
           <div class="mc-profile-table">

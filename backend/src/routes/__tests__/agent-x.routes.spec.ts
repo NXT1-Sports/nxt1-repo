@@ -15,12 +15,12 @@ import { AgentYieldException } from '../../modules/agent/exceptions/agent-yield.
 
 describe('Agent X Routes', () => {
   let router: unknown;
-  let setAgentDependencies: typeof import('../../routes/agent-x/shared.js').setAgentDependencies;
+  let setAgentDependencies: typeof import('../../routes/agent/shared.js').setAgentDependencies;
 
   beforeAll(async () => {
-    const module = await import('../../routes/agent-x/index.js');
+    const module = await import('../../routes/agent/index.js');
     router = module.default;
-    const shared = await import('../../routes/agent-x/shared.js');
+    const shared = await import('../../routes/agent/shared.js');
     setAgentDependencies = shared.setAgentDependencies;
   }, 15_000);
 
@@ -76,7 +76,7 @@ describe('Agent X Routes', () => {
       yieldState: {
         reason: 'needs_approval',
         promptToUser: 'Review this email before sending.',
-        agentId: 'general',
+        agentId: 'strategy_coordinator',
         messages: [{ role: 'user', content: 'Draft an email' }],
         pendingToolCall: {
           toolName: 'send_email',
@@ -177,7 +177,7 @@ describe('Agent X Routes', () => {
         new AgentYieldException({
           reason: 'needs_input',
           promptToUser: 'Which college should I target first?',
-          agentId: 'general',
+          agentId: 'strategy_coordinator',
           messages: [{ role: 'assistant', content: null }],
         })
       ),

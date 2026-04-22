@@ -871,7 +871,10 @@ interface AgentXDesktopResizeState {
                       <span class="expanded-panel__loader-text">Starting live view session…</span>
                     </div>
                   } @else {
-                    <nxt1-live-view-launcher (launch)="onLiveViewLaunch($event)" />
+                    <nxt1-live-view-launcher
+                      [role]="user()?.role ?? null"
+                      (launch)="onLiveViewLaunch($event)"
+                    />
                   }
                 }
                 @case ('live-view') {
@@ -889,6 +892,7 @@ interface AgentXDesktopResizeState {
                       class="expanded-panel__iframe"
                       [class.expanded-panel__iframe--visible]="!expandedPanelIframeLoading()"
                       [src]="safeUrl"
+                      scrolling="yes"
                       allow="clipboard-read; clipboard-write"
                       sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"
                       [title]="expandedPanelTitle()"
@@ -1861,17 +1865,23 @@ interface AgentXDesktopResizeState {
 
       .expanded-panel__body {
         flex: 1;
-        overflow: hidden;
+        min-height: 0;
+        overflow: auto;
+        overscroll-behavior: contain;
         position: relative;
         display: flex;
         flex-direction: column;
       }
 
       .expanded-panel__iframe {
+        display: block;
         width: 100%;
         height: 100%;
+        min-height: 0;
         border: none;
-        flex: 1;
+        flex: 1 1 auto;
+        overflow: auto;
+        overscroll-behavior: contain;
         opacity: 0;
         transition: opacity 0.2s ease;
       }
@@ -1899,7 +1909,7 @@ interface AgentXDesktopResizeState {
         width: 32px;
         height: 32px;
         border: 3px solid var(--agent-border);
-        border-top-color: var(--nxt1-primary, #6366f1);
+        border-top-color: var(--agent-primary);
         border-radius: 50%;
         animation: ep-spin 0.7s linear infinite;
       }
@@ -1952,7 +1962,7 @@ interface AgentXDesktopResizeState {
 
       .expanded-panel__doc-open {
         font-size: 13px;
-        color: var(--nxt1-primary, #6366f1);
+        color: var(--agent-primary);
         text-decoration: none;
         font-weight: 500;
       }

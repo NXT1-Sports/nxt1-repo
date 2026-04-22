@@ -12,7 +12,7 @@
  * adapted for team-specific data shapes and tab structure.
  */
 
-import { Injectable, inject, signal, computed } from '@angular/core';
+import { Injectable, inject, signal, computed, effect } from '@angular/core';
 import {
   type TeamProfileTabId,
   type TeamProfilePageData,
@@ -38,11 +38,26 @@ import { TeamProfileApiClient, type TeamProfileApiError } from './team-profile-a
 
 @Injectable({ providedIn: 'root' })
 export class TeamProfileService {
+  private static readonly TEAM_THEME_SOURCE = 'team-profile-service';
+
   private readonly logger = inject(NxtLoggingService).child('TeamProfileService');
   private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
   private readonly breadcrumb = inject(NxtBreadcrumbService);
   private readonly theme = inject(NxtThemeService);
   private readonly apiClient = inject(TeamProfileApiClient);
+
+  constructor() {
+    effect(() => {
+      const branding = this._teamData()?.team?.branding;
+      if (branding?.primaryColor) {
+        this.theme.applyOrgTheme(branding.primaryColor, branding.secondaryColor);
+        this.theme.activateTeamTheme(TeamProfileService.TEAM_THEME_SOURCE);
+      } else {
+        this.theme.clearOrgTheme();
+        this.theme.deactivateTeamTheme(TeamProfileService.TEAM_THEME_SOURCE);
+      }
+    });
+  }
 
   // ============================================
   // PRIVATE WRITEABLE SIGNALS
@@ -495,13 +510,6 @@ export class TeamProfileService {
     this._isLoading.set(false);
     this._error.set(null);
     this.logger.info('Team loaded from external data');
-
-    const branding = data.team?.branding;
-    if (branding?.primaryColor) {
-      this.theme.applyOrgTheme(branding.primaryColor, branding.secondaryColor);
-    } else {
-      this.theme.clearOrgTheme();
-    }
   }
 
   /**
@@ -567,11 +575,11 @@ export class TeamProfileService {
    * Load the next page of the timeline (infinite scroll).
    */
   async loadMoreTimeline(teamCode: string): Promise<void> {
-    if (this._timelineLoading() || !this._timelineHasMore()) return;
+    if (this._timelineLoading() || this._isLoadingMore() || !this._timelineHasMore()) return;
     const cursor = this._timelineCursor();
     if (!cursor) return;
 
-    this._timelineLoading.set(true);
+    this._isLoadingMore.set(true);
     this.logger.debug('Loading more timeline items', { teamCode, cursor });
 
     try {
@@ -585,7 +593,7 @@ export class TeamProfileService {
     } catch (err) {
       this.logger.error('Failed to load more timeline items', err as Error, { teamCode });
     } finally {
-      this._timelineLoading.set(false);
+      this._isLoadingMore.set(false);
     }
   }
 
@@ -598,7 +606,6 @@ export class TeamProfileService {
     this._activeTimelineFilter.set(filter);
     this.analytics?.trackEvent(APP_EVENTS.TEAM_TIMELINE_FILTER_APPLIED, { teamCode, filter });
     this.breadcrumb.trackUserAction('team-timeline-filter', { teamCode, filter });
-    await this.loadTimeline(teamCode, filter);
   }
 
   /**
@@ -618,6 +625,7 @@ export class TeamProfileService {
     this._timelineHasMore.set(false);
     this._activeTimelineFilter.set(TEAM_TIMELINE_DEFAULT_FILTER);
     this.theme.clearOrgTheme();
+    this.theme.deactivateTeamTheme(TeamProfileService.TEAM_THEME_SOURCE);
   }
 
   // ============================================

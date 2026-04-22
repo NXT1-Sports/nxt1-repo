@@ -23,12 +23,14 @@
 import type { OpenRouterService } from '../llm/openrouter.service.js';
 import type { VectorMemoryService } from './vector.service.js';
 import type { AgentMemoryCategory, AgentMemoryTarget, AgentUserContext } from '@nxt1/core';
-import { AgentThreadModel } from '../../../models/agent-thread.model.js';
-import { AgentMessageModel } from '../../../models/agent-message.model.js';
+import { AgentThreadModel } from '../../../models/agent/agent-thread.model.js';
+import { AgentMessageModel } from '../../../models/agent/agent-message.model.js';
 import { AgentMemoryModel } from './vector.service.js';
 import { ContextBuilder } from './context-builder.js';
 import { THREAD_SUMMARIZATION_DELAY_MS } from '../queue/queue.types.js';
+import { resolveStructuredOutput } from '../llm/structured-output.js';
 import { logger } from '../../../utils/logger.js';
+import { z } from 'zod';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -53,6 +55,14 @@ const VALID_CATEGORIES: readonly AgentMemoryCategory[] = [
 ];
 
 const VALID_TARGETS: readonly AgentMemoryTarget[] = ['user', 'team', 'organization'];
+
+const extractedSummaryFactSchema = z.object({
+  content: z.string().trim().min(1),
+  category: z.enum(['preference', 'goal', 'recruiting_context', 'performance_data']),
+  target: z.enum(['user', 'team', 'organization']).optional(),
+});
+
+const extractedSummaryFactsSchema = z.array(z.unknown());
 
 /** System prompt for the memory extraction LLM call. */
 const EXTRACTION_SYSTEM_PROMPT = `You are an AI memory extraction system for a sports recruiting platform called NXT1.
@@ -235,7 +245,10 @@ export class MemorySummarizationService {
         tier: 'extraction',
         temperature: 0,
         maxTokens: 2000,
-        jsonMode: true,
+        outputSchema: {
+          name: 'thread_memory_facts',
+          schema: z.array(extractedSummaryFactSchema),
+        },
         telemetryContext: {
           operationId: `memory-summarize-${threadId}`,
           userId,
@@ -245,22 +258,22 @@ export class MemorySummarizationService {
       }
     );
 
-    if (!completion.content) {
-      logger.warn('[MemorySummarization] Empty extraction response', { threadId, userId });
-      await this.markThreadSummarizedIfUnchanged(threadId, thread.updatedAt);
-      return 0;
-    }
-
-    // Parse the extracted facts
     let facts: Array<{ content: string; category: string; target?: string }>;
     try {
-      const parsed = JSON.parse(completion.content);
-      facts = Array.isArray(parsed) ? parsed : [];
+      const extracted = resolveStructuredOutput<unknown[]>(
+        completion,
+        extractedSummaryFactsSchema,
+        'Memory summarization extraction'
+      );
+      facts = extracted.flatMap((item) => {
+        const fact = extractedSummaryFactSchema.safeParse(item);
+        return fact.success ? [fact.data] : [];
+      });
     } catch {
       logger.warn('[MemorySummarization] Failed to parse extraction JSON', {
         threadId,
         userId,
-        raw: completion.content.slice(0, 500),
+        raw: (completion.content ?? '').slice(0, 500),
       });
       await this.markThreadSummarizedIfUnchanged(threadId, thread.updatedAt);
       return 0;

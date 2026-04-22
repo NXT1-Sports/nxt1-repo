@@ -13,6 +13,7 @@
 
 import type { OpenRouterService } from '../../llm/openrouter.service.js';
 import type { LLMMessage, LLMCompletionOptions } from '../../llm/llm.types.js';
+import { resolveStructuredOutput } from '../../llm/structured-output.js';
 import { OrgExtractionSchema, type OrgExtraction, buildOrgKey } from '../../schemas/index.js';
 import { logger } from '../../../../utils/logger.js';
 
@@ -77,7 +78,10 @@ export class OrgSpecialist {
       tier: 'extraction',
       maxTokens: 2048,
       temperature: 0,
-      jsonMode: true,
+      outputSchema: {
+        name: 'organization_extraction',
+        schema: OrgExtractionSchema,
+      },
       telemetryContext: {
         operationId: context.threadId ?? `org-extract-${Date.now()}`,
         userId: context.userId,
@@ -104,7 +108,7 @@ export class OrgSpecialist {
 
     const result = await this.llm.complete(messages, options);
 
-    if (!result.content) {
+    if (result.parsedOutput === undefined && !result.content) {
       logger.warn('[OrgSpecialist] LLM returned empty content', {
         userId: context.userId,
         model: result.model,
@@ -112,16 +116,20 @@ export class OrgSpecialist {
       return null;
     }
 
-    // Parse JSON from LLM response
-    let raw: unknown;
+    let raw: OrgExtraction;
     try {
-      raw = JSON.parse(result.content);
-    } catch {
-      logger.error('[OrgSpecialist] LLM returned invalid JSON', {
+      raw = resolveStructuredOutput<OrgExtraction>(
+        result,
+        OrgExtractionSchema,
+        'OrgSpecialist extraction'
+      );
+    } catch (error) {
+      logger.error('[OrgSpecialist] LLM returned invalid structured output', {
         userId: context.userId,
-        content: result.content.slice(0, 500),
+        content: (result.content ?? '').slice(0, 500),
+        error: error instanceof Error ? error.message : String(error),
       });
-      throw new Error('OrgSpecialist: LLM returned invalid JSON');
+      throw new Error('OrgSpecialist: LLM returned invalid structured output', { cause: error });
     }
 
     // Empty object = no data found
@@ -132,36 +140,20 @@ export class OrgSpecialist {
       return null;
     }
 
-    // Validate with Zod
-    const parsed = OrgExtractionSchema.safeParse(raw);
-
-    if (!parsed.success) {
-      logger.error('[OrgSpecialist] Zod validation failed', {
-        userId: context.userId,
-        errors: parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`),
-        rawKeys: typeof raw === 'object' && raw !== null ? Object.keys(raw) : [],
-      });
-      throw new Error(
-        `OrgSpecialist: Schema validation failed — ${parsed.error.issues
-          .map((i) => `${i.path.join('.')}: ${i.message}`)
-          .join('; ')}`
-      );
-    }
-
     // Build deterministic org key for deduplication
-    const orgKey = buildOrgKey(parsed.data.organizationName, parsed.data.location?.state);
+    const orgKey = buildOrgKey(raw.organizationName, raw.location?.state);
 
     logger.info('[OrgSpecialist] Extraction succeeded', {
       userId: context.userId,
-      orgName: parsed.data.organizationName,
+      orgName: raw.organizationName,
       orgKey,
-      programType: parsed.data.programType,
-      hasLocation: !!parsed.data.location,
-      hasBranding: !!parsed.data.branding,
+      programType: raw.programType,
+      hasLocation: !!raw.location,
+      hasBranding: !!raw.branding,
       model: result.model,
       tokens: result.usage?.totalTokens ?? 0,
     });
 
-    return { data: parsed.data, orgKey };
+    return { data: raw, orgKey };
   }
 }

@@ -31,7 +31,7 @@ export class RunwayUpscaleVideoTool extends BaseTool {
     required: ['promptImage'],
   } as const;
 
-  override readonly allowedAgents = ['brand_media_coordinator'] as const;
+  override readonly allowedAgents = ['brand_coordinator'] as const;
   readonly isMutation = true;
   readonly category = 'media' as const;
 
@@ -51,7 +51,11 @@ export class RunwayUpscaleVideoTool extends BaseTool {
 
       const model = (input['model'] as string) || 'gen4';
 
-      context?.onProgress?.('Submitting video upscale to Runway…');
+      context?.emitStage?.('submitting_job', {
+        icon: 'media',
+        phase: 'runway_upscale_video',
+        model,
+      });
 
       const result = (await this.bridge.upscaleVideo({
         video: promptImage.trim(),

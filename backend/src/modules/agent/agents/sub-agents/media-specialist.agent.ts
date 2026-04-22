@@ -12,6 +12,7 @@
 
 import type { OpenRouterService } from '../../llm/openrouter.service.js';
 import type { LLMMessage, LLMCompletionOptions } from '../../llm/llm.types.js';
+import { resolveStructuredOutput } from '../../llm/structured-output.js';
 import { MediaExtractionSchema, type MediaExtraction } from '../../schemas/index.js';
 import { logger } from '../../../../utils/logger.js';
 
@@ -75,7 +76,10 @@ export class MediaSpecialist {
       tier: 'extraction',
       maxTokens: 2048,
       temperature: 0,
-      jsonMode: true,
+      outputSchema: {
+        name: 'media_extraction',
+        schema: MediaExtractionSchema,
+      },
       telemetryContext: {
         operationId: context.threadId ?? `media-extract-${Date.now()}`,
         userId: context.userId,
@@ -102,7 +106,7 @@ export class MediaSpecialist {
 
     const result = await this.llm.complete(messages, options);
 
-    if (!result.content) {
+    if (result.parsedOutput === undefined && !result.content) {
       logger.warn('[MediaSpecialist] LLM returned empty content', {
         userId: context.userId,
         model: result.model,
@@ -110,16 +114,22 @@ export class MediaSpecialist {
       return null;
     }
 
-    // Parse JSON from LLM response
-    let raw: unknown;
+    let raw: MediaExtraction;
     try {
-      raw = JSON.parse(result.content);
-    } catch {
-      logger.error('[MediaSpecialist] LLM returned invalid JSON', {
+      raw = resolveStructuredOutput<MediaExtraction>(
+        result,
+        MediaExtractionSchema,
+        'MediaSpecialist extraction'
+      );
+    } catch (error) {
+      logger.error('[MediaSpecialist] LLM returned invalid structured output', {
         userId: context.userId,
-        content: result.content.slice(0, 500),
+        content: (result.content ?? '').slice(0, 500),
+        error: error instanceof Error ? error.message : String(error),
       });
-      throw new Error('MediaSpecialist: LLM returned invalid JSON');
+      throw new Error('MediaSpecialist: LLM returned invalid structured output', {
+        cause: error,
+      });
     }
 
     // Empty object = no data found
@@ -130,33 +140,17 @@ export class MediaSpecialist {
       return null;
     }
 
-    // Validate with Zod
-    const parsed = MediaExtractionSchema.safeParse(raw);
-
-    if (!parsed.success) {
-      logger.error('[MediaSpecialist] Zod validation failed', {
-        userId: context.userId,
-        errors: parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`),
-        rawKeys: typeof raw === 'object' && raw !== null ? Object.keys(raw) : [],
-      });
-      throw new Error(
-        `MediaSpecialist: Schema validation failed — ${parsed.error.issues
-          .map((i) => `${i.path.join('.')}: ${i.message}`)
-          .join('; ')}`
-      );
-    }
-
     logger.info('[MediaSpecialist] Extraction succeeded', {
       userId: context.userId,
-      videoCount: parsed.data.videos.length,
-      socialCount: parsed.data.socialProfiles.length,
-      sourceCount: parsed.data.connectedSources.length,
-      hasProfileImage: !!parsed.data.profileImageUrl,
-      hasBanner: !!parsed.data.bannerImageUrl,
+      videoCount: raw.videos.length,
+      socialCount: raw.socialProfiles.length,
+      sourceCount: raw.connectedSources.length,
+      hasProfileImage: !!raw.profileImageUrl,
+      hasBanner: !!raw.bannerImageUrl,
       model: result.model,
       tokens: result.usage?.totalTokens ?? 0,
     });
 
-    return parsed.data;
+    return raw;
   }
 }

@@ -218,6 +218,7 @@ export interface UsageUser {
                         [isPersonal]="svc.isPersonal()"
                         [isOrg]="svc.isOrg()"
                         [isOrgAdmin]="svc.isOrgAdmin()"
+                        [canSwitchToOrganizationBilling]="svc.canSwitchToOrganizationBilling()"
                         [orgWalletEmpty]="svc.orgWalletEmpty()"
                         [orgWalletRefilled]="svc.orgWalletRefilled()"
                         [billingMode]="svc.billingMode()"

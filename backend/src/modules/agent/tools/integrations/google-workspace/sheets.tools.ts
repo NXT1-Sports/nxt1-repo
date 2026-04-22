@@ -9,6 +9,33 @@
 
 import type { GoogleWorkspaceMcpSessionService } from './google-workspace-mcp-session.service.js';
 import { GoogleWorkspaceBaseTool } from './google-workspace-base.tool.js';
+import { z } from 'zod';
+
+const EmptySheetsInputSchema = z.object({}).strict();
+const SheetsCreateSpreadsheetInputSchema = z.object({ title: z.string().trim().min(1) });
+const SheetsReadRangeInputSchema = z.object({
+  spreadsheet_id: z.string().trim().min(1),
+  range: z.string().trim().min(1),
+});
+const SheetsValuesSchema = z.array(z.array(z.unknown())).min(1);
+const SheetsWriteRangeInputSchema = z.object({
+  spreadsheet_id: z.string().trim().min(1),
+  range: z.string().trim().min(1),
+  values: SheetsValuesSchema,
+  value_input_option: z.enum(['RAW', 'USER_ENTERED']).optional(),
+});
+const SheetsClearRangeInputSchema = z.object({
+  spreadsheet_id: z.string().trim().min(1),
+  range: z.string().trim().min(1),
+});
+const SheetsAddSheetInputSchema = z.object({
+  spreadsheet_id: z.string().trim().min(1),
+  title: z.string().trim().min(1),
+});
+const SheetsDeleteSheetInputSchema = z.object({
+  spreadsheet_id: z.string().trim().min(1),
+  sheet_id: z.coerce.number().int(),
+});
 
 // ─── sheets_create_spreadsheet ──────────────────────────────────────────────
 
@@ -19,14 +46,7 @@ export class SheetsCreateSpreadsheetTool extends GoogleWorkspaceBaseTool {
   readonly isMutation = true;
   readonly category = 'data' as const;
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      title: { type: 'string', description: 'Title of the new spreadsheet.' },
-    },
-    required: ['title'],
-    additionalProperties: false,
-  } as const;
+  readonly parameters = SheetsCreateSpreadsheetInputSchema;
 
   constructor(sessionService: GoogleWorkspaceMcpSessionService) {
     super(sessionService);
@@ -42,15 +62,7 @@ export class SheetsReadRangeTool extends GoogleWorkspaceBaseTool {
   readonly isMutation = false;
   readonly category = 'data' as const;
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      spreadsheet_id: { type: 'string', description: 'The Google Spreadsheet ID.' },
-      range: { type: 'string', description: "A1 notation range, e.g. 'Sheet1!A1:D10'." },
-    },
-    required: ['spreadsheet_id', 'range'],
-    additionalProperties: false,
-  } as const;
+  readonly parameters = SheetsReadRangeInputSchema;
 
   constructor(sessionService: GoogleWorkspaceMcpSessionService) {
     super(sessionService);
@@ -66,25 +78,7 @@ export class SheetsWriteRangeTool extends GoogleWorkspaceBaseTool {
   readonly isMutation = true;
   readonly category = 'data' as const;
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      spreadsheet_id: { type: 'string', description: 'The Google Spreadsheet ID.' },
-      range: { type: 'string', description: 'A1 notation range to write to.' },
-      values: {
-        type: 'array',
-        items: { type: 'array', items: {} },
-        description: '2D array of values (rows x columns).',
-      },
-      value_input_option: {
-        type: 'string',
-        enum: ['RAW', 'USER_ENTERED'],
-        description: "How to interpret values. Default: 'RAW'.",
-      },
-    },
-    required: ['spreadsheet_id', 'range', 'values'],
-    additionalProperties: false,
-  } as const;
+  readonly parameters = SheetsWriteRangeInputSchema;
 
   constructor(sessionService: GoogleWorkspaceMcpSessionService) {
     super(sessionService);
@@ -100,28 +94,7 @@ export class SheetsAppendRowsTool extends GoogleWorkspaceBaseTool {
   readonly isMutation = true;
   readonly category = 'data' as const;
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      spreadsheet_id: { type: 'string', description: 'The Google Spreadsheet ID.' },
-      range: {
-        type: 'string',
-        description: "A1 notation range identifying the table, e.g. 'Sheet1!A1'.",
-      },
-      values: {
-        type: 'array',
-        items: { type: 'array', items: {} },
-        description: '2D array of row values to append.',
-      },
-      value_input_option: {
-        type: 'string',
-        enum: ['RAW', 'USER_ENTERED'],
-        description: "How to interpret values. Default: 'RAW'.",
-      },
-    },
-    required: ['spreadsheet_id', 'range', 'values'],
-    additionalProperties: false,
-  } as const;
+  readonly parameters = SheetsWriteRangeInputSchema;
 
   constructor(sessionService: GoogleWorkspaceMcpSessionService) {
     super(sessionService);
@@ -137,15 +110,7 @@ export class SheetsClearRangeTool extends GoogleWorkspaceBaseTool {
   readonly isMutation = true;
   readonly category = 'data' as const;
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      spreadsheet_id: { type: 'string', description: 'The Google Spreadsheet ID.' },
-      range: { type: 'string', description: 'A1 notation range to clear.' },
-    },
-    required: ['spreadsheet_id', 'range'],
-    additionalProperties: false,
-  } as const;
+  readonly parameters = SheetsClearRangeInputSchema;
 
   constructor(sessionService: GoogleWorkspaceMcpSessionService) {
     super(sessionService);
@@ -161,15 +126,7 @@ export class SheetsAddSheetTool extends GoogleWorkspaceBaseTool {
   readonly isMutation = true;
   readonly category = 'data' as const;
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      spreadsheet_id: { type: 'string', description: 'The Google Spreadsheet ID.' },
-      title: { type: 'string', description: 'Title of the new sheet tab.' },
-    },
-    required: ['spreadsheet_id', 'title'],
-    additionalProperties: false,
-  } as const;
+  readonly parameters = SheetsAddSheetInputSchema;
 
   constructor(sessionService: GoogleWorkspaceMcpSessionService) {
     super(sessionService);
@@ -185,18 +142,7 @@ export class SheetsDeleteSheetTool extends GoogleWorkspaceBaseTool {
   readonly isMutation = true;
   readonly category = 'data' as const;
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      spreadsheet_id: { type: 'string', description: 'The Google Spreadsheet ID.' },
-      sheet_id: {
-        type: 'number',
-        description: 'Numeric sheet ID of the tab to delete (not the sheet name).',
-      },
-    },
-    required: ['spreadsheet_id', 'sheet_id'],
-    additionalProperties: false,
-  } as const;
+  readonly parameters = SheetsDeleteSheetInputSchema;
 
   constructor(sessionService: GoogleWorkspaceMcpSessionService) {
     super(sessionService);
@@ -226,7 +172,7 @@ function makeRemovedSheetTool(
     readonly description = `[REMOVED] ${oldName} use ${replacement} instead.`;
     readonly isMutation = false;
     readonly category = 'data' as const;
-    readonly parameters = { type: 'object' as const, properties: {} };
+    readonly parameters = EmptySheetsInputSchema;
     override async execute(): Promise<{ success: false; error: string }> {
       return {
         success: false,

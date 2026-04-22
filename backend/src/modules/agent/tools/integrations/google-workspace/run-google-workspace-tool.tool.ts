@@ -7,6 +7,12 @@ import {
   isGoogleWorkspaceAllowedToolName,
   truncateGoogleWorkspacePayload,
 } from './shared.js';
+import { z } from 'zod';
+
+const RunGoogleWorkspaceToolInputSchema = z.object({
+  toolName: z.string().trim().min(1),
+  arguments: z.record(z.string(), z.unknown()).optional().default({}),
+});
 
 export class RunGoogleWorkspaceToolTool extends BaseTool {
   readonly name = 'run_google_workspace_tool';
@@ -15,23 +21,7 @@ export class RunGoogleWorkspaceToolTool extends BaseTool {
     'Always use list_google_workspace_tools first when you need the exact parameter schema. ' +
     describeAllowedGoogleWorkspaceTools();
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      toolName: {
-        type: 'string',
-        description: 'The exact Google Workspace MCP tool name to execute.',
-      },
-      arguments: {
-        type: 'object',
-        description:
-          'A JSON object that matches the selected Google Workspace MCP tool schema exactly.',
-        additionalProperties: true,
-      },
-    },
-    required: ['toolName'],
-    additionalProperties: false,
-  } as const;
+  readonly parameters = RunGoogleWorkspaceToolInputSchema;
 
   readonly isMutation = true;
   readonly category = 'system' as const;
@@ -44,12 +34,19 @@ export class RunGoogleWorkspaceToolTool extends BaseTool {
     input: Record<string, unknown>,
     context?: ToolExecutionContext
   ): Promise<ToolResult> {
+    const parsed = RunGoogleWorkspaceToolInputSchema.safeParse(input);
+    if (!parsed.success) {
+      return {
+        success: false,
+        error: parsed.error.issues.map((issue) => issue.message).join(', '),
+      };
+    }
+
     if (!context?.userId) {
       return { success: false, error: 'Authenticated user context is required.' };
     }
 
-    const toolName = this.str(input, 'toolName');
-    if (!toolName) return this.paramError('toolName');
+    const { toolName, arguments: args } = parsed.data;
     if (!isGoogleWorkspaceAllowedToolName(toolName)) {
       return {
         success: false,
@@ -59,14 +56,15 @@ export class RunGoogleWorkspaceToolTool extends BaseTool {
       };
     }
 
-    const args = this.obj(input, 'arguments') ?? {};
     const metadata = getGoogleWorkspaceToolMetadata(toolName);
 
-    context.onProgress?.(
-      metadata.isMutation
-        ? `Executing Google ${metadata.service} action…`
-        : `Reading from Google ${metadata.service}…`
-    );
+    context.emitStage?.(metadata.isMutation ? 'submitting_job' : 'fetching_data', {
+      source: 'google_workspace',
+      phase: metadata.isMutation ? 'execute_action' : 'read_data',
+      service: metadata.service,
+      toolName,
+      icon: metadata.service === 'gmail' ? 'email' : 'document',
+    });
 
     try {
       const data = await this.sessionService.executeAllowedTool(toolName, args, context);

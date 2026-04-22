@@ -138,30 +138,6 @@ export const USER_FIXTURES = {
     role: 'director',
   }),
 
-  /** @deprecated parent role removed — maps to athlete */
-  parent: createMockAuthUser({
-    uid: 'parent-001',
-    email: 'parent@example.com',
-    displayName: 'Parent Johnson',
-    role: 'athlete',
-  }),
-
-  /** @deprecated recruiter role removed — maps to coach */
-  recruiter: createMockAuthUser({
-    uid: 'recruiter-001',
-    email: 'recruiter@example.com',
-    displayName: 'Recruiter Williams',
-    role: 'coach',
-  }),
-
-  /** @deprecated Use coach instead */
-  scout: createMockAuthUser({
-    uid: 'recruiter-001',
-    email: 'recruiter@example.com',
-    displayName: 'Recruiter Williams',
-    role: 'coach',
-  }),
-
   /** @deprecated No longer applicable — premium subscriptions removed */
   premiumAthlete: createMockAuthUser({
     uid: 'premium-athlete-001',
@@ -214,6 +190,11 @@ export const USER_FIXTURES = {
  * @returns FirebaseUserInfo object
  */
 export function createMockFirebaseUser(user: AuthUser): FirebaseUserInfo {
+  const creationTime =
+    typeof user.createdAt === 'string' ? user.createdAt : user.createdAt.toISOString();
+  const lastSignInTime =
+    typeof user.updatedAt === 'string' ? user.updatedAt : user.updatedAt.toISOString();
+
   return {
     uid: user.uid,
     email: user.email,
@@ -221,8 +202,8 @@ export function createMockFirebaseUser(user: AuthUser): FirebaseUserInfo {
     photoURL: user.profileImg ?? null,
     emailVerified: user.emailVerified,
     metadata: {
-      creationTime: user.createdAt,
-      lastSignInTime: user.updatedAt,
+      creationTime,
+      lastSignInTime,
     },
   };
 }

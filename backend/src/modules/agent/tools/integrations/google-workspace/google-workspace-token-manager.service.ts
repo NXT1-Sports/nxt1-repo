@@ -1,13 +1,14 @@
 import axios from 'axios';
 import {
+  GOOGLE_OAUTH_SCOPES,
   GOOGLE_OAUTH_TOKEN_DOC_ID,
   LEGACY_EMAIL_TOKEN_SUBCOLLECTION,
   OAUTH_TOKEN_SUBCOLLECTION,
 } from '@nxt1/core/auth';
 import type { Firestore, DocumentReference } from 'firebase-admin/firestore';
 import type { ToolExecutionContext } from '../../base.tool.js';
-import { db as defaultDb } from '../../../../../utils/firebase.js';
-import { stagingDb } from '../../../../../utils/firebase-staging.js';
+import { db as defaultDb, storage as defaultStorage } from '../../../../../utils/firebase.js';
+import { stagingDb, stagingStorage } from '../../../../../utils/firebase-staging.js';
 import { logger } from '../../../../../utils/logger.js';
 import type { GoogleWorkspaceOAuthTokenDocument } from './shared.js';
 
@@ -86,26 +87,112 @@ export class GoogleWorkspaceTokenManagerService {
     }
 
     if (tokenDoc.accessToken && !shouldRefreshAccessToken(tokenDoc.lastRefreshedAt)) {
+      await this.provisionMcpStorageLink(tokenDoc, context.environment);
       return { accessToken: tokenDoc.accessToken, email };
     }
 
     if (tokenDoc.refreshToken) {
-      context.onProgress?.('Refreshing Google Workspace access…');
-      const accessToken = await this.refreshAccessToken(
-        loaded,
-        context.userId,
+      context.emitStage?.('checking_status', {
+        source: 'google_workspace',
+        phase: 'refresh_access',
+        icon: 'document',
+      });
+      const refreshed = await this.refreshAccessToken(loaded, context.userId, context.environment);
+      await this.provisionMcpStorageLink(
+        {
+          ...tokenDoc,
+          accessToken: refreshed.accessToken,
+          ...(refreshed.grantedScopes ? { grantedScopes: refreshed.grantedScopes } : {}),
+          lastRefreshedAt: refreshed.lastRefreshedAt,
+        },
         context.environment
       );
-      return { accessToken, email };
+      return { accessToken: refreshed.accessToken, email };
     }
 
     if (tokenDoc.accessToken && (await this.isAccessTokenStillValid(tokenDoc.accessToken))) {
+      await this.provisionMcpStorageLink(tokenDoc, context.environment);
       return { accessToken: tokenDoc.accessToken, email };
     }
 
     throw new Error(
       'The connected Google Workspace access token has expired and no refresh token is available. Reconnect Google in settings to continue.'
     );
+  }
+
+  private async provisionMcpStorageLink(
+    tokenDoc: GoogleWorkspaceOAuthTokenDocument,
+    environment?: ToolExecutionContext['environment']
+  ): Promise<void> {
+    if (!tokenDoc.email || !tokenDoc.accessToken) return;
+
+    const credentials = resolveGoogleClientCredentials(environment);
+    if (!credentials.clientId) return;
+
+    const mcpStorageBucketName =
+      process.env['GOOGLE_WORKSPACE_MCP_STATE_BUCKET'] ??
+      (environment === 'staging' || process.env['NODE_ENV'] === 'staging'
+        ? 'nxt-1-staging-v2-mcp-gw-state'
+        : 'nxt1-mcp-gw-state');
+
+    const storageService =
+      environment === 'staging' || process.env['NODE_ENV'] === 'staging'
+        ? stagingStorage
+        : defaultStorage;
+
+    const safeEmail = tokenDoc.email.replace(/[^a-zA-Z0-9@._-]/g, '_');
+    const fileName = `${safeEmail}.json`;
+
+    // Scope metadata: prefer what we recorded, otherwise fall back to the full requested set.
+    // The refresh token is valid for whatever the user actually granted (Google enforces that
+    // server-side); the Python workspace-mcp only uses this list as a pre-flight gate, so an
+    // empty array here causes false-negative "auth required" messages.
+    const grantedScopes =
+      tokenDoc.grantedScopes && tokenDoc.grantedScopes.trim().length > 0
+        ? tokenDoc.grantedScopes.split(/\s+/).filter((scope) => scope.length > 0)
+        : [...GOOGLE_OAUTH_SCOPES];
+
+    // The precise file shape expected by the python workspace-mcp credential store.
+    const mcpCredentialsData: Record<string, unknown> = {
+      token: tokenDoc.accessToken,
+      refresh_token: tokenDoc.refreshToken ?? null,
+      token_uri: 'https://oauth2.googleapis.com/token',
+      client_id: credentials.clientId,
+      client_secret: credentials.clientSecret ?? null,
+      scopes: grantedScopes,
+      expiry: tokenDoc.lastRefreshedAt
+        ? new Date(new Date(tokenDoc.lastRefreshedAt).getTime() + 3500000).toISOString()
+        : null,
+    };
+
+    try {
+      const bucket = storageService.bucket(mcpStorageBucketName);
+      const file = bucket.file(fileName);
+      await file.save(JSON.stringify(mcpCredentialsData), {
+        contentType: 'application/json',
+        resumable: false,
+      });
+      logger.info(
+        '[GoogleWorkspaceTokenManager] Provisioned credentials to MCP Cloud Storage bucket',
+        {
+          email: tokenDoc.email,
+          bucket: mcpStorageBucketName,
+          fileName,
+        }
+      );
+    } catch (err) {
+      const message =
+        'Google Workspace is connected, but the backend could not provision this user into the MCP state store. ' +
+        `Expected credential file "${fileName}" in bucket "${mcpStorageBucketName}". ` +
+        'Check backend Firebase credentials and bucket IAM before retrying.';
+      logger.error('[GoogleWorkspaceTokenManager] Failed to sync credentials to MCP state store', {
+        email: tokenDoc.email,
+        bucket: mcpStorageBucketName,
+        fileName,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      throw new Error(message, { cause: err });
+    }
   }
 
   private async loadTokenDocument(
@@ -176,7 +263,7 @@ export class GoogleWorkspaceTokenManagerService {
     loaded: LoadedGoogleTokenDocument,
     userId: string,
     environment?: ToolExecutionContext['environment']
-  ): Promise<string> {
+  ): Promise<{ accessToken: string; grantedScopes?: string; lastRefreshedAt: string }> {
     const refreshToken = loaded.data.refreshToken;
     if (!refreshToken) {
       throw new Error(
@@ -206,6 +293,7 @@ export class GoogleWorkspaceTokenManagerService {
 
     const nextAccessToken = data['access_token'];
     const nextRefreshToken = data['refresh_token'];
+    const nextScopes = data['scope'];
     if (typeof nextAccessToken !== 'string' || nextAccessToken.length === 0) {
       throw new Error('Google did not return a valid access token during refresh.');
     }
@@ -218,6 +306,9 @@ export class GoogleWorkspaceTokenManagerService {
         ...(typeof nextRefreshToken === 'string' && nextRefreshToken.length > 0
           ? { refreshToken: nextRefreshToken }
           : {}),
+        ...(typeof nextScopes === 'string' && nextScopes.length > 0
+          ? { grantedScopes: nextScopes }
+          : {}),
       },
       { merge: true }
     );
@@ -227,9 +318,16 @@ export class GoogleWorkspaceTokenManagerService {
       environment:
         environment ?? (process.env['NODE_ENV'] === 'staging' ? 'staging' : 'production'),
       hasRotatedRefreshToken: typeof nextRefreshToken === 'string' && nextRefreshToken.length > 0,
+      hasUpdatedScopes: typeof nextScopes === 'string' && nextScopes.length > 0,
     });
 
-    return nextAccessToken;
+    return {
+      accessToken: nextAccessToken,
+      lastRefreshedAt: now,
+      ...(typeof nextScopes === 'string' && nextScopes.length > 0
+        ? { grantedScopes: nextScopes }
+        : {}),
+    };
   }
 
   private async isAccessTokenStillValid(accessToken: string): Promise<boolean> {

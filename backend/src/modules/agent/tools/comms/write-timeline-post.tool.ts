@@ -20,11 +20,11 @@ import {
   POST_LIMITS,
   POSTS_CACHE_PREFIX,
 } from '@nxt1/core/constants';
-import { sanitizeContent, extractMentions } from '@nxt1/core/validation';
+import { sanitizeText } from '@nxt1/core/helpers';
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
 import { ScraperMediaService } from '../integrations/social/scraper-media.service.js';
-import { getCacheService } from '../../../../services/cache.service.js';
-import { getAnalyticsLoggerService } from '../../../../services/analytics-logger.service.js';
+import { getCacheService } from '../../../../services/core/cache.service.js';
+import { getAnalyticsLoggerService } from '../../../../services/core/analytics-logger.service.js';
 import { logger } from '../../../../utils/logger.js';
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
@@ -49,6 +49,14 @@ const VALIDATION = {
 
 type ValidPostType = (typeof VALID_POST_TYPES)[number];
 type ValidVisibility = (typeof VALID_VISIBILITY)[number];
+
+function extractMentions(content: string): string[] {
+  return [
+    ...new Set(
+      Array.from(content.matchAll(/(^|[^\w])@([a-zA-Z0-9._]{1,30})/g), (match) => match[2])
+    ),
+  ];
+}
 
 // ─── Tool Class ────────────────────────────────────────────────────────────────
 
@@ -123,9 +131,9 @@ export class WriteTimelinePostTool extends BaseTool {
   readonly category: AgentToolCategory = 'communication';
   override readonly allowedAgents: readonly (AgentIdentifier | '*')[] = [
     'data_coordinator',
-    'brand_media_coordinator',
+    'brand_coordinator',
     'recruiting_coordinator',
-    'general',
+    'strategy_coordinator',
   ];
 
   constructor(private readonly db: Firestore) {
@@ -194,8 +202,11 @@ export class WriteTimelinePostTool extends BaseTool {
 
     // ── Build Firestore document ─────────────────────────────────────────
     try {
-      context?.onProgress?.('Preparing post content…');
-      const sanitized = sanitizeContent(content);
+      context?.emitStage?.('submitting_job', {
+        icon: 'document',
+        phase: 'prepare_post_content',
+      });
+      const sanitized = sanitizeText(content);
       const mentions = extractMentions(content);
 
       const visibilityMap: Record<ValidVisibility, PostVisibility> = {
@@ -217,7 +228,10 @@ export class WriteTimelinePostTool extends BaseTool {
 
       if (context?.userId) {
         if (images.urls.length > 0) {
-          context.onProgress?.('Uploading media to permanent storage…');
+          context.emitStage?.('uploading_assets', {
+            icon: 'upload',
+            phase: 'upload_post_media',
+          });
           promotedImages = await ScraperMediaService.promoteMedia(
             images.urls,
             context.userId,
@@ -262,7 +276,10 @@ export class WriteTimelinePostTool extends BaseTool {
         },
       };
 
-      context?.onProgress?.('Publishing post to timeline…');
+      context?.emitStage?.('submitting_job', {
+        icon: 'document',
+        phase: 'publish_timeline_post',
+      });
       const docRef = await this.db.collection(POSTS_COLLECTIONS.POSTS).doc(postIdForMedia);
       await docRef.set(postDoc);
       const postId = docRef.id;
@@ -278,7 +295,10 @@ export class WriteTimelinePostTool extends BaseTool {
       });
 
       // ── Cache invalidation ─────────────────────────────────────────────
-      context?.onProgress?.('Invalidating feed caches…');
+      context?.emitStage?.('persisting_result', {
+        icon: 'database',
+        phase: 'invalidate_feed_caches',
+      });
       await this.invalidateFeedCaches(postVisibility, userId, teamId ?? undefined);
 
       // Track profile-post creation in user's engagement record.

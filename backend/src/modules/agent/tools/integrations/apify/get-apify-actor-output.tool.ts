@@ -22,6 +22,7 @@ import {
   type MediaThreadContext,
 } from '../social/scraper-media.service.js';
 import { logger } from '../../../../../utils/logger.js';
+import { z } from 'zod';
 
 /** Maximum items per page (hard cap). */
 const MAX_PAGE_SIZE = 200;
@@ -34,6 +35,12 @@ const MAX_OUTPUT_CHARS = 50_000;
 
 /** Max media items to persist per page. */
 const MAX_MEDIA_ITEMS = 10;
+
+const GetApifyActorOutputInputSchema = z.object({
+  datasetId: z.string().trim().min(1),
+  offset: z.coerce.number().int().optional(),
+  limit: z.coerce.number().int().optional(),
+});
 
 /** Common media URL patterns. */
 const MEDIA_URL_REGEX =
@@ -77,32 +84,13 @@ export class GetApifyActorOutputTool extends BaseTool {
     'Supports offset and limit for pagination (max 200 items per page). ' +
     'Media URLs in results are automatically re-hosted to permanent Firebase Storage URLs.';
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      datasetId: {
-        type: 'string',
-        description:
-          'The Apify dataset ID from a previous actor run. ' +
-          'This is returned in the call_apify_actor response.',
-      },
-      offset: {
-        type: 'number',
-        description: 'Starting index for pagination (0-based). Defaults to 0.',
-      },
-      limit: {
-        type: 'number',
-        description: `Number of items to fetch (1–${MAX_PAGE_SIZE}). Defaults to ${DEFAULT_PAGE_SIZE}.`,
-      },
-    },
-    required: ['datasetId'],
-  } as const;
+  readonly parameters = GetApifyActorOutputInputSchema;
 
   override readonly allowedAgents = [
     'data_coordinator',
     'recruiting_coordinator',
-    'brand_media_coordinator',
-    'general',
+    'brand_coordinator',
+    'strategy_coordinator',
   ] as const;
 
   readonly isMutation = false;
@@ -121,18 +109,27 @@ export class GetApifyActorOutputTool extends BaseTool {
     input: Record<string, unknown>,
     context?: ToolExecutionContext
   ): Promise<ToolResult> {
-    const datasetId = this.str(input, 'datasetId');
-    if (!datasetId) return this.paramError('datasetId');
+    const parsed = GetApifyActorOutputInputSchema.safeParse(input);
+    if (!parsed.success) {
+      return {
+        success: false,
+        error: parsed.error.issues.map((issue) => issue.message).join(', '),
+      };
+    }
 
-    const offset = Math.max(this.num(input, 'offset') ?? 0, 0);
-    const limit = Math.min(
-      Math.max(this.num(input, 'limit') ?? DEFAULT_PAGE_SIZE, 1),
-      MAX_PAGE_SIZE
-    );
+    const { datasetId } = parsed.data;
+
+    const offset = Math.max(parsed.data.offset ?? 0, 0);
+    const limit = Math.min(Math.max(parsed.data.limit ?? DEFAULT_PAGE_SIZE, 1), MAX_PAGE_SIZE);
 
     try {
       logger.info('[GetApifyActorOutput] Fetching output', { datasetId, offset, limit });
-      context?.onProgress?.(`Fetching dataset page (offset: ${offset}, limit: ${limit})…`);
+      context?.emitStage?.('fetching_data', {
+        icon: 'search',
+        datasetId,
+        offset,
+        limit,
+      });
 
       const result = await this.bridge.getActorOutput(datasetId, offset, limit);
 

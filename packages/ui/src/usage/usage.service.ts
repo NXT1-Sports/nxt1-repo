@@ -10,6 +10,7 @@
  */
 
 import { Injectable, inject, signal, computed, effect, NgZone, OnDestroy } from '@angular/core';
+import { Capacitor } from '@capacitor/core';
 import {
   type BudgetInterval,
   formatPrice,
@@ -313,6 +314,11 @@ export class UsageService implements OnDestroy {
   /** Current charge-routing mode resolved by the backend. */
   readonly billingMode = computed<BillingMode>(
     () => this._billingContext()?.billingMode ?? 'personal'
+  );
+
+  /** Whether the current user has an organization-funded billing option available. */
+  readonly canSwitchToOrganizationBilling = computed(
+    () => this._billingContext()?.hasOrganizationBilling ?? false
   );
 
   /** Whether the current user is actively routing charges to the personal wallet. */
@@ -695,12 +701,13 @@ export class UsageService implements OnDestroy {
   async openBillingPortal(): Promise<void> {
     this.logger.info('Opening Stripe billing portal');
     this.breadcrumb.trackStateChange('usage:opening-billing-portal');
+    const isNativePlatform = typeof window !== 'undefined' && Capacitor.isNativePlatform();
 
     // On web, window.open() called after an async operation is blocked by popup blockers.
     // Pre-open a blank window synchronously before the API call, then redirect it to the URL.
     // On native (Capacitor), window.open is not used — the Capacitor Browser plugin handles it.
     const preOpenedWindow =
-      typeof window !== 'undefined' && typeof window.open === 'function'
+      !isNativePlatform && typeof window !== 'undefined' && typeof window.open === 'function'
         ? window.open('about:blank', '_blank')
         : null;
 
@@ -717,7 +724,7 @@ export class UsageService implements OnDestroy {
         preOpenedWindow.location.href = url;
       } else {
         // Native (Capacitor): use the in-app browser plugin
-        this.browser.open({ url, presentationStyle: 'fullscreen' });
+        await this.browser.open({ url, presentationStyle: 'fullscreen' });
       }
     } catch (err) {
       preOpenedWindow?.close();
@@ -871,10 +878,11 @@ export class UsageService implements OnDestroy {
     this.breadcrumb.trackStateChange('usage:buying-credits', { amountCents, organizationId });
 
     const hasSavedDefaultMethod = this.defaultPaymentMethod() !== null;
+    const isNativePlatform = typeof window !== 'undefined' && Capacitor.isNativePlatform();
     const canOpenBrowserWindow = typeof window !== 'undefined' && typeof window.open === 'function';
 
     const preOpenedWindow =
-      !hasSavedDefaultMethod && canOpenBrowserWindow
+      !isNativePlatform && !hasSavedDefaultMethod && canOpenBrowserWindow
         ? window.open('about:blank', USAGE_CHECKOUT_POPUP_NAME)
         : null;
 
@@ -903,10 +911,12 @@ export class UsageService implements OnDestroy {
         this._pendingPortalRefresh = true;
         if (preOpenedWindow) {
           preOpenedWindow.location.href = result.url;
+        } else if (isNativePlatform) {
+          await this.browser.open({ url: result.url, presentationStyle: 'fullscreen' });
         } else if (canOpenBrowserWindow && typeof window.location?.assign === 'function') {
           window.location.assign(result.url);
         } else {
-          this.browser.open({ url: result.url, presentationStyle: 'fullscreen' });
+          await this.browser.open({ url: result.url, presentationStyle: 'fullscreen' });
         }
       }
     } catch (err) {

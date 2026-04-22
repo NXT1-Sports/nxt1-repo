@@ -70,7 +70,7 @@ import {
   type AuthStateManager,
   type AuthUser,
   type ConnectedSource,
-  USER_ROLES,
+  normalizeRole,
   createAuthStateManager,
   createBrowserStorageAdapter,
   createMemoryStorageAdapter,
@@ -79,6 +79,7 @@ import {
 } from '@nxt1/core';
 import {
   type IAuthFlowService,
+  GOOGLE_OAUTH_SCOPES,
   type SignInCredentials,
   type SignUpCredentials,
   type OAuthOptions,
@@ -633,8 +634,6 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
               role: currentUser.role ?? null,
               onboardingCompleted: true, // Preserve the completed status
               completeSignUp: true,
-              isCollegeCoach: currentUser.role === USER_ROLES.COACH,
-              isRecruit: currentUser.role === USER_ROLES.ATHLETE,
               profileImg: currentUser.profileImg ?? null,
               sports: [],
             };
@@ -673,8 +672,6 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
           backendProfile
             ? {
                 role: backendProfile.role as UserRole | null | undefined,
-                isCollegeCoach: backendProfile.isCollegeCoach,
-                isRecruit: backendProfile.isRecruit,
               }
             : null
         ),
@@ -751,21 +748,10 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
    */
   private getUserRole(
     user: {
-      role?: UserRole | null;
-      isCollegeCoach?: boolean | null;
-      isRecruit?: boolean | null;
+      role?: string | null;
     } | null
   ): UserRole {
-    if (!user) return 'athlete';
-
-    // V2: Use role field directly if present
-    if (user.role) return user.role;
-
-    // Legacy fallback: Map boolean flags to role
-    if (user.isCollegeCoach) return 'coach';
-    if (user.isRecruit) return 'athlete';
-
-    return 'athlete';
+    return user?.role ? normalizeRole(user.role) : 'athlete';
   }
 
   // ============================================
@@ -1024,21 +1010,9 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
       const { GoogleAuthProvider, signInWithPopup } = await import('@angular/fire/auth');
 
       const provider = new GoogleAuthProvider();
-      // Identity scopes
-      provider.addScope('openid');
-      provider.addScope('email');
-      provider.addScope('profile');
-      // Gmail scopes (restricted)
-      provider.addScope('https://www.googleapis.com/auth/gmail.send');
-      provider.addScope('https://www.googleapis.com/auth/gmail.readonly');
-      // Drive scopes
-      provider.addScope('https://www.googleapis.com/auth/drive.file');
-      provider.addScope('https://www.googleapis.com/auth/drive.readonly');
-      // Google Workspace scopes
-      provider.addScope('https://www.googleapis.com/auth/calendar.events');
-      provider.addScope('https://www.googleapis.com/auth/documents');
-      provider.addScope('https://www.googleapis.com/auth/spreadsheets');
-      provider.addScope('https://www.googleapis.com/auth/presentations');
+      for (const scope of GOOGLE_OAUTH_SCOPES) {
+        provider.addScope(scope);
+      }
 
       // CRITICAL: Request offline access to get refresh token
       provider.setCustomParameters({
@@ -1757,6 +1731,24 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
     }
 
     return null;
+  }
+
+  /**
+   * Patch arbitrary fields onto the current auth user signal synchronously.
+   *
+   * Used for optimistic UI updates (e.g. the global sport/team switcher)
+   * where we need the `user()` signal to reflect a change immediately,
+   * before `refreshUserProfile()` completes its backend round-trip.
+   * A no-op if there is no current user.
+   */
+  patchUser(patch: Partial<AuthUser>): void {
+    const current = this.user();
+    if (!current) return;
+    const patched: AuthUser = { ...current, ...patch };
+    // Fire-and-forget — authManager.setUser is async but we don't need to
+    // await it here. The signal update propagates synchronously.
+    void this.authManager.setUser(patched);
+    void globalAuthUserCache.set(current.uid, patched as unknown as CachedUserProfile);
   }
 
   /**

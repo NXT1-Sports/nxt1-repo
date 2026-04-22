@@ -22,29 +22,31 @@ import {
   input,
   output,
   computed,
+  effect,
   signal,
   OnInit,
   AfterViewInit,
   OnDestroy,
   PLATFORM_ID,
   viewChild,
+  untracked,
   type TemplateRef,
 } from '@angular/core';
 import { CommonModule, isPlatformBrowser } from '@angular/common';
 import {
   type TeamProfileTabId,
   type TeamProfileTab,
+  type ProfilePost,
+  type ProfileTimelineFilterId,
   type TeamProfilePost,
   type TeamProfileRosterMember,
   type TeamTimelineFilterId,
   TEAM_PROFILE_TABS,
   TEAM_PROFILE_EMPTY_STATES,
-  TEAM_TIMELINE_FILTERS,
   type NewsArticle,
   getSeasonForDate,
 } from '@nxt1/core';
 import { NxtIconComponent } from '../../components/icon';
-import { NxtImageComponent } from '../../components/image';
 // NxtPageHeaderComponent not used — web team profile uses shell top nav on mobile and page header in wide layouts
 import { NxtRefresherComponent, type RefreshEvent } from '../../components/refresh-container';
 import {
@@ -57,6 +59,7 @@ import {
   type SectionNavItem,
   type SectionNavChangeEvent,
 } from '../../components/section-nav-web';
+import { NxtImageCarouselComponent } from '../../components/image-carousel';
 import { NxtStateViewComponent } from '../../components/state-view';
 import { NxtToastService } from '../../services/toast/toast.service';
 import { NxtLoggingService } from '../../services/logging/logging.service';
@@ -76,11 +79,64 @@ import { IntelService } from '../../intel/intel.service';
 import { TeamRosterWebComponent } from './team-roster-web.component';
 import { type ScheduleRow } from '@nxt1/core';
 import { mapTeamStatsToGameLogs, buildSeasonRecordMap } from '@nxt1/core';
-import { TeamTimelineWebComponent } from './team-timeline-web.component';
 import { TeamContactWebComponent } from './team-contact-web.component';
 import { ProfileVerificationBannerComponent } from '../../profile/components/profile-verification-banner.component';
 import { TeamProfileSkeletonComponent } from './team-profile-skeleton.component';
 import { ProfileScheduleComponent } from '../../profile/components/profile-schedule.component';
+import { ProfileTimelineComponent } from '../../profile/profile-timeline.component';
+
+const TEAM_INTEL_NAV_ITEMS: readonly SectionNavItem[] = [
+  { id: 'agent_overview', label: 'Overview' },
+  { id: 'team', label: 'Team' },
+  { id: 'stats', label: 'Stats' },
+  { id: 'recruiting', label: 'Recruiting' },
+  { id: 'schedule', label: 'Schedule' },
+] as const;
+
+const TEAM_TIMELINE_EMPTY_STATE_BY_SECTION: Readonly<
+  Record<string, { icon: string; title: string; message: string }>
+> = {
+  'all-posts': {
+    icon: 'newspaper',
+    title: 'No updates yet',
+    message: 'Team updates and announcements will appear here.',
+  },
+  pinned: {
+    icon: 'pin',
+    title: 'No pinned updates yet',
+    message: 'Pin a team update to keep it at the top of the timeline.',
+  },
+  media: {
+    icon: 'image',
+    title: 'No media yet',
+    message: 'Photos and videos posted by the team will appear here.',
+  },
+  stats: {
+    icon: 'stats-chart-outline',
+    title: 'No stats yet',
+    message: 'Team stat updates will appear here once they are posted or synced.',
+  },
+  games: {
+    icon: 'trophy-outline',
+    title: 'No game updates yet',
+    message: 'Completed game results and recaps will appear here.',
+  },
+  schedule: {
+    icon: 'calendar-outline',
+    title: 'No schedule updates yet',
+    message: 'Upcoming games and schedule changes will appear here.',
+  },
+  recruiting: {
+    icon: 'trophy',
+    title: 'No recruiting activity yet',
+    message: 'Recruiting activity will appear here when the team posts or syncs it.',
+  },
+  news: {
+    icon: 'newspaper-outline',
+    title: 'No news yet',
+    message: 'Team news and announcements will appear here.',
+  },
+};
 
 @Component({
   selector: 'nxt1-team-profile-shell-web',
@@ -88,20 +144,20 @@ import { ProfileScheduleComponent } from '../../profile/components/profile-sched
   imports: [
     CommonModule,
     NxtIconComponent,
-    NxtImageComponent,
     NxtRefresherComponent,
     NxtOptionScrollerComponent,
     NxtSectionNavWebComponent,
+    NxtImageCarouselComponent,
     NxtStateViewComponent,
     // Extracted section components
     TeamMobileHeroComponent,
     TeamIntelComponent,
     TeamRosterWebComponent,
-    TeamTimelineWebComponent,
     TeamContactWebComponent,
     ProfileVerificationBannerComponent,
     TeamProfileSkeletonComponent,
     ProfileScheduleComponent,
+    ProfileTimelineComponent,
   ],
   template: `
     <!-- Portal: center — Team name + subtitle teleported into top nav -->
@@ -127,22 +183,6 @@ import { ProfileScheduleComponent } from '../../profile/components/profile-sched
             <path d="M15 18l-6-6 6-6" />
           </svg>
         </button>
-        @if (teamProfile.team()?.logoUrl) {
-          <nxt1-image
-            class="header-portal-logo"
-            [src]="teamProfile.team()!.logoUrl!"
-            [alt]="teamProfile.team()!.teamName"
-            [width]="32"
-            [height]="32"
-            variant="avatar"
-            fit="contain"
-            [showPlaceholder]="false"
-          />
-        } @else {
-          <div class="header-portal-logo-fallback">
-            <nxt1-icon name="shield" [size]="16" />
-          </div>
-        }
         <div class="header-portal-name-block">
           <span class="header-portal-title">{{ portalTeamName() }}</span>
           @if (portalTeamSubtitle()) {
@@ -293,18 +333,6 @@ import { ProfileScheduleComponent } from '../../profile/components/profile-sched
                       @if (activeSideTab() === 'contact') {
                         <nxt1-team-contact-web (manageTeam)="manageTeamClick.emit()" />
                       } @else {
-                        @if (isTeamAdmin() && !platform.isMobile()) {
-                          <div class="desktop-intel-action-bar">
-                            <button
-                              type="button"
-                              class="desktop-intel-action-bar__btn"
-                              (click)="onGenerateTeamIntel()"
-                            >
-                              <nxt1-icon name="flash-outline" [size]="16" />
-                              {{ teamFooterButtonLabel() }}
-                            </button>
-                          </div>
-                        }
                         <nxt1-team-intel
                           [teamId]="teamProfile.team()!.id"
                           [activeSection]="activeIntelSection()"
@@ -317,29 +345,35 @@ import { ProfileScheduleComponent } from '../../profile/components/profile-sched
                     }
 
                     @case ('timeline') {
-                      <!-- Filter chips: all | media | stats | games | schedule | recruiting | news -->
-                      <div class="timeline-filter-bar" data-testid="team-timeline-filter-bar">
-                        @for (filter of timelineFilters; track filter.id) {
+                      @if (isTeamAdmin() && !platform.isMobile()) {
+                        <div class="desktop-intel-action-bar">
                           <button
                             type="button"
-                            class="timeline-filter-chip"
-                            [class.timeline-filter-chip--active]="
-                              teamProfile.activeTimelineFilter() === filter.id
-                            "
-                            [attr.data-testid]="'team-timeline-filter-chip-' + filter.id"
-                            (click)="onTimelineFilterChange(filter.id)"
+                            class="desktop-intel-action-bar__btn"
+                            (click)="onAddUpdate()"
                           >
-                            {{ filter.label }}
+                            <nxt1-icon name="plus" [size]="16" />
+                            Add Update
                           </button>
-                        }
-                      </div>
+                        </div>
+                      }
 
-                      <nxt1-team-timeline-web
-                        [activeSection]="activeSideTab()"
+                      <nxt1-profile-timeline
                         [polymorphicFeed]="teamProfile.timeline()"
                         [isLoading]="teamProfile.timelineLoading()"
-                        (postClick)="onPostClick($event)"
-                        (manageTeam)="manageTeamClick.emit()"
+                        [isLoadingMore]="teamProfile.isLoadingMore()"
+                        [isEmpty]="teamProfile.timeline().length === 0"
+                        [hasMore]="teamProfile.timelineHasMore()"
+                        [isOwnProfile]="isTeamAdmin()"
+                        [showMenu]="false"
+                        [showFilters]="false"
+                        [filter]="timelineSidebarFilter()"
+                        [emptyIcon]="teamTimelineEmptyState().icon"
+                        [emptyTitle]="teamTimelineEmptyState().title"
+                        [emptyMessage]="teamTimelineEmptyState().message"
+                        [emptyCta]="null"
+                        (postClick)="onTimelinePostClick($event)"
+                        (loadMore)="onLoadMore()"
                       />
                     }
 
@@ -356,6 +390,7 @@ import { ProfileScheduleComponent } from '../../profile/components/profile-sched
                       <nxt1-team-contact-web
                         [activeSection]="activeSideTab()"
                         (manageTeam)="manageTeamClick.emit()"
+                        (connectedAccountsClick)="connectedAccountsClick.emit()"
                       />
                     }
 
@@ -373,33 +408,41 @@ import { ProfileScheduleComponent } from '../../profile/components/profile-sched
 
             <div class="madden-split-right">
               <div class="madden-right-stack">
-                @if (organizationName()) {
-                  <div class="madden-team-stack">
-                    <div class="madden-team-block">
-                      @if (teamProfile.team()?.logoUrl) {
-                        <nxt1-image
-                          class="madden-team-logo"
-                          [src]="teamProfile.team()!.logoUrl!"
-                          [alt]="organizationName()"
-                          [width]="44"
-                          [height]="44"
-                          variant="avatar"
-                          fit="contain"
-                          [priority]="true"
-                          [showPlaceholder]="false"
-                        />
-                      } @else {
-                        <div class="madden-team-logo-placeholder">
-                          <nxt1-icon name="business" [size]="22" />
-                        </div>
-                      }
-                      <div class="madden-team-info">
-                        <div class="madden-team-headline">
-                          <span class="madden-team-name">{{ organizationName() }}</span>
-                        </div>
-                        @if (teamProfile.team()?.location) {
-                          <span class="madden-team-location">{{
-                            teamProfile.team()!.location
+                @if (teamDesktopImages().length > 0) {
+                  <div class="madden-team-media-card madden-team-media-card--gallery">
+                    <nxt1-image-carousel
+                      [images]="teamDesktopImages()"
+                      [alt]="portalTeamName()"
+                      [autoPlay]="true"
+                      [autoPlayInterval]="4200"
+                      [overlayTitle]="portalTeamName()"
+                      [overlaySubtitle]="teamCarouselSubtitle()"
+                      class="madden-team-carousel"
+                    />
+                  </div>
+                } @else if (teamProfile.team()?.logoUrl) {
+                  <div class="madden-team-media-card madden-team-media-card--logo">
+                    <img
+                      class="madden-team-media-card__logo"
+                      [src]="teamProfile.team()!.logoUrl!"
+                      [alt]="portalTeamName()"
+                      loading="eager"
+                      decoding="async"
+                    />
+                  </div>
+                } @else {
+                  <div class="madden-team-media-card madden-team-media-card--placeholder">
+                    <div class="madden-team-carousel-placeholder" aria-hidden="true">
+                      <div class="madden-team-carousel-placeholder__icon">
+                        <nxt1-icon name="business" [size]="40" />
+                      </div>
+                      <div class="madden-team-carousel-placeholder__text">
+                        <span class="madden-team-carousel-placeholder__title">{{
+                          portalTeamName()
+                        }}</span>
+                        @if (teamCarouselSubtitle()) {
+                          <span class="madden-team-carousel-placeholder__subtitle">{{
+                            teamCarouselSubtitle()
                           }}</span>
                         }
                       </div>
@@ -414,14 +457,14 @@ import { ProfileScheduleComponent } from '../../profile/components/profile-sched
         <!-- Projected content (e.g. CTA banner for logged-out users) -->
         <ng-content />
 
-        @if (isTeamAdmin() && teamProfile.activeTab() === 'intel' && platform.isMobile()) {
+        @if (isTeamAdmin() && teamProfile.activeTab() === 'timeline' && platform.isMobile()) {
           <div class="mobile-intel-footer">
             <button
               type="button"
               class="mobile-intel-footer__btn mobile-intel-footer__btn--primary"
-              (click)="onGenerateTeamIntel()"
+              (click)="onAddUpdate()"
             >
-              {{ teamFooterButtonLabel() }}
+              Add Update
             </button>
           </div>
         }
@@ -453,58 +496,13 @@ import { ProfileScheduleComponent } from '../../profile/components/profile-sched
         --m-text: var(--nxt1-color-text-primary, #ffffff);
         --m-text-2: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
         --m-text-3: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.45));
-        --m-accent: var(--team-accent, var(--nxt1-color-primary, #d4ff00));
+        --m-accent: var(--nxt1-color-primary, #d4ff00);
       }
 
       .header-actions {
         display: flex;
         align-items: center;
         gap: var(--nxt1-spacing-1, 4px);
-      }
-
-      /* ─── Timeline filter chips ─── */
-      .timeline-filter-bar {
-        display: flex;
-        gap: 8px;
-        padding: 12px 16px 0;
-        overflow-x: auto;
-        scrollbar-width: none;
-        -ms-overflow-style: none;
-        &::-webkit-scrollbar {
-          display: none;
-        }
-      }
-
-      .timeline-filter-chip {
-        flex: 0 0 auto;
-        padding: 6px 14px;
-        border-radius: 999px;
-        border: 1px solid var(--m-border, rgba(255, 255, 255, 0.1));
-        background: transparent;
-        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
-        font-size: 13px;
-        font-weight: 500;
-        cursor: pointer;
-        transition:
-          background 0.15s ease,
-          color 0.15s ease,
-          border-color 0.15s ease;
-
-        &:hover {
-          background: var(--m-surface, rgba(255, 255, 255, 0.04));
-        }
-
-        &:focus-visible {
-          outline: 2px solid var(--nxt1-color-primary, #d4ff00);
-          outline-offset: 2px;
-        }
-
-        &.timeline-filter-chip--active {
-          background: var(--nxt1-color-primary, #d4ff00);
-          color: #000;
-          border-color: transparent;
-          font-weight: 700;
-        }
       }
 
       .header-action-btn {
@@ -718,7 +716,7 @@ import { ProfileScheduleComponent } from '../../profile/components/profile-sched
         display: flex;
         flex-direction: column;
         align-items: center;
-        gap: var(--nxt1-spacing-3);
+        gap: var(--nxt1-spacing-2);
         width: 300px;
         padding-top: 20px;
         padding-bottom: 12px;
@@ -856,119 +854,25 @@ import { ProfileScheduleComponent } from '../../profile/components/profile-sched
         transform: scale(0.97);
       }
 
-      /* ─── CAROUSEL GLOW ─── */
-      @property --glow-angle {
-        syntax: '<angle>';
-        initial-value: 0deg;
-        inherits: false;
-      }
-      @keyframes glow-spin {
-        0% {
-          --glow-angle: 0deg;
-          opacity: 1;
-        }
-        80% {
-          --glow-angle: 288deg;
-          opacity: 1;
-        }
-        100% {
-          --glow-angle: 360deg;
-          opacity: 0;
-        }
-      }
-      @keyframes glow-swell {
-        0% {
-          opacity: 0;
-          transform: scale(0.96);
-        }
-        40% {
-          opacity: 0.65;
-          transform: scale(1.02);
-        }
-        100% {
-          opacity: 0.25;
-          transform: scale(1);
-        }
-      }
-      .carousel-glow-wrap {
+      .madden-team-media-card {
         position: relative;
         width: 100%;
+        border-radius: 16px;
+        border: 1px solid var(--m-border);
+        background:
+          radial-gradient(circle at top, rgba(255, 255, 255, 0.06), transparent 52%),
+          linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.02));
+        overflow: hidden;
+      }
+      .madden-team-media-card--gallery {
         height: 56vh;
-        border-radius: 18px;
-        isolation: isolate;
-        contain: layout style;
       }
-      .carousel-verified-badge {
-        position: absolute;
-        top: 10px;
-        left: 10px;
-        z-index: 4;
-        display: inline-flex;
-        align-items: center;
-        gap: 4px;
-        padding: 4px 10px 4px 6px;
-        border-radius: 999px;
-        background: rgba(0, 0, 0, 0.5);
-        backdrop-filter: blur(8px);
-        color: var(--m-accent);
-        font-family: var(--nxt1-fontFamily-brand);
-        font-size: 11.5px;
-        font-weight: 700;
-        letter-spacing: 0.03em;
-        pointer-events: none;
-      }
-      .carousel-glow-border {
-        position: absolute;
-        inset: -2px;
-        border-radius: 20px;
-        z-index: 0;
-        background: conic-gradient(
-          from var(--glow-angle, 0deg),
-          var(--m-accent) 0%,
-          transparent 12%,
-          transparent 33%,
-          var(--m-accent) 45%,
-          transparent 57%,
-          transparent 78%,
-          var(--m-accent) 90%,
-          transparent 100%
-        );
-        animation: glow-spin 2.4s cubic-bezier(0.4, 0, 0.2, 1) forwards;
-        will-change: --glow-angle, opacity;
-        border: 2px solid transparent;
-        pointer-events: none;
-      }
-      .carousel-glow-ambient {
-        position: absolute;
-        inset: -6px;
-        border-radius: 24px;
-        z-index: -1;
-        background: radial-gradient(
-          ellipse at 50% 30%,
-          color-mix(in srgb, var(--m-accent) 25%, transparent) 0%,
-          transparent 70%
-        );
-        filter: blur(18px);
-        opacity: 0;
-        animation: glow-swell 2.4s ease-out forwards;
-        will-change: opacity, transform;
-        pointer-events: none;
-      }
-      @media (prefers-reduced-motion: reduce) {
-        .carousel-glow-border {
-          animation: none;
-          background: none;
-          border: 2px solid color-mix(in srgb, var(--m-accent) 30%, transparent);
-          opacity: 1;
-        }
-        .carousel-glow-ambient {
-          animation: none;
-          opacity: 0.2;
-        }
+      .madden-team-media-card--logo,
+      .madden-team-media-card--placeholder {
+        min-height: 248px;
       }
       .madden-team-carousel {
         position: relative;
-        z-index: 1;
         width: 100%;
         height: 100%;
         border-radius: 16px;
@@ -989,74 +893,51 @@ import { ProfileScheduleComponent } from '../../profile/components/profile-sched
         height: 100%;
         object-position: center top;
       }
-
-      /* ─── TEAM LOGO DISPLAY (fallback for no gallery) ─── */
-      .team-logo-display {
-        width: 100%;
-        display: flex;
-        justify-content: center;
-        padding: 32px 0;
-      }
-
-      /* Organization block below team image (matches profile style) */
-      .madden-team-stack {
-        width: 100%;
+      .madden-team-carousel-placeholder {
+        position: relative;
         display: flex;
         flex-direction: column;
-        gap: 8px;
-      }
-      .madden-team-block {
-        flex-shrink: 0;
-        display: flex;
         align-items: center;
-        gap: 12px;
+        justify-content: center;
+        gap: 16px;
+        min-height: 248px;
         width: 100%;
-        padding: 12px 14px;
-        border-radius: 12px;
-        background: var(--m-surface);
-        border: 1px solid var(--m-border);
+        padding: 24px;
+        overflow: hidden;
+        text-align: center;
       }
-      .madden-team-logo {
-        width: 44px;
-        height: 44px;
-        border-radius: 10px;
-        object-fit: contain;
-        flex-shrink: 0;
+      .madden-team-media-card__logo {
+        display: block;
+        width: 100%;
+        height: 248px;
+        object-fit: cover;
+        object-position: center;
       }
-      .madden-team-logo-placeholder {
-        width: 44px;
-        height: 44px;
-        border-radius: 10px;
-        background: var(--m-surface-2);
+      .madden-team-carousel-placeholder__icon {
         display: flex;
         align-items: center;
         justify-content: center;
-        color: var(--m-text-3);
-        flex-shrink: 0;
+        width: 88px;
+        height: 88px;
+        border-radius: 50%;
+        background: color-mix(in srgb, var(--m-accent) 10%, transparent);
+        border: 1px solid color-mix(in srgb, var(--m-accent) 22%, var(--m-border));
+        color: var(--m-accent);
       }
-      .madden-team-info {
+      .madden-team-carousel-placeholder__text {
         display: flex;
         flex-direction: column;
-        min-width: 0;
-        gap: 2px;
+        gap: 6px;
+        max-width: 220px;
       }
-      .madden-team-headline {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        min-width: 0;
-      }
-      .madden-team-name {
-        font-size: 14px;
+      .madden-team-carousel-placeholder__title {
+        font-size: 1.25rem;
         font-weight: 700;
         color: var(--m-text);
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
       }
-      .madden-team-location {
-        font-size: 12px;
-        color: var(--m-text-3);
+      .madden-team-carousel-placeholder__subtitle {
+        font-size: 0.875rem;
+        color: var(--m-text-2);
       }
 
       /* ═══ RESPONSIVE ═══ */
@@ -1250,8 +1131,6 @@ import { ProfileScheduleComponent } from '../../profile/components/profile-sched
 })
 export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDestroy {
   protected readonly teamProfile = inject(TeamProfileService);
-  /** Timeline filter chips — stable reference, doesn't need to be computed */
-  protected readonly timelineFilters = TEAM_TIMELINE_FILTERS;
   private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('TeamProfileShellWeb');
   private readonly bottomSheet = inject(NxtBottomSheetService);
@@ -1303,6 +1182,7 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
   readonly menuClick = output<void>();
   readonly qrCodeClick = output<void>();
   readonly manageTeamClick = output<void>();
+  readonly connectedAccountsClick = output<void>();
   readonly inviteRosterClick = output<void>();
   readonly rosterMemberClick = output<TeamProfileRosterMember>();
   readonly postClick = output<TeamProfilePost>();
@@ -1408,6 +1288,27 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
     )
   );
 
+  protected readonly teamDesktopImages = computed<readonly string[]>(() => {
+    const team = this.teamProfile.team();
+    if (!team) return [];
+
+    const seen = new Set<string>();
+    const images: string[] = [];
+
+    for (const image of team.galleryImages ?? []) {
+      const normalized = image?.trim();
+      if (!normalized || seen.has(normalized)) continue;
+      seen.add(normalized);
+      images.push(normalized);
+    }
+
+    return images;
+  });
+
+  protected readonly teamCarouselSubtitle = computed(
+    () => this.headerSubtitle() || this.portalTeamSubtitle()
+  );
+
   /** Portal: top nav header title */
   protected readonly portalTeamName = computed(() => {
     const team = this.teamProfile.team();
@@ -1505,13 +1406,31 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
     return TEAM_PROFILE_EMPTY_STATES[tab] || TEAM_PROFILE_EMPTY_STATES['intel'];
   });
 
-  protected readonly teamFooterButtonLabel = computed(() =>
-    this.intel.teamReport() ? 'Update Intel' : 'Generate Intel'
-  );
-
   protected readonly useFullWidthIntelLayout = computed(
     () => this.teamProfile.activeTab() === 'intel'
   );
+
+  protected readonly timelineSidebarFilter = computed<ProfileTimelineFilterId>(() => {
+    const filterMap: Readonly<Record<string, ProfileTimelineFilterId>> = {
+      'all-posts': 'all',
+      pinned: 'pinned',
+      media: 'media',
+      stats: 'stats',
+      games: 'events',
+      schedule: 'all',
+      recruiting: 'recruiting',
+      news: 'news',
+    };
+
+    return filterMap[this.activeSideTab()] ?? 'all';
+  });
+
+  protected readonly teamTimelineEmptyState = computed(() => {
+    return (
+      TEAM_TIMELINE_EMPTY_STATE_BY_SECTION[this.activeSideTab()] ??
+      TEAM_TIMELINE_EMPTY_STATE_BY_SECTION['all-posts']
+    );
+  });
 
   /** Unique season labels derived from team schedule events (most recent first). */
   protected readonly scheduleSeasons = computed<readonly string[]>(() => {
@@ -1535,20 +1454,17 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
     const tab = this.teamProfile.activeTab();
 
     const sections: Record<string, SectionNavItem[]> = {
-      intel:
-        this.intel.teamSections().length > 0
-          ? this.intel.teamSections().map((s) => ({ id: s.id, label: s.title }))
-          : [{ id: 'agent_x_brief', label: 'Agent X Brief' }],
+      intel: [...TEAM_INTEL_NAV_ITEMS],
       timeline: [
-        {
-          id: 'pinned',
-          label: 'Pinned',
-          badge: this.teamProfile.pinnedPosts().length || undefined,
-        },
         {
           id: 'all-posts',
           label: 'All Posts',
           badge: this.teamProfile.allPosts().length || undefined,
+        },
+        {
+          id: 'pinned',
+          label: 'Pinned',
+          badge: this.teamProfile.pinnedPosts().length || undefined,
         },
         {
           id: 'media',
@@ -1564,6 +1480,11 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
                   !!post.mediaUrl
               ).length || undefined,
         },
+        { id: 'stats', label: 'Stats' },
+        { id: 'games', label: 'Games' },
+        { id: 'schedule', label: 'Schedule' },
+        { id: 'recruiting', label: 'Recruiting' },
+        { id: 'news', label: 'News' },
       ],
       roster: [
         { id: 'all', label: 'All', badge: this.teamProfile.rosterCount() || undefined },
@@ -1596,9 +1517,8 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
 
   protected readonly activeIntelSection = computed<string>(() => {
     const current = this.activeSideTab();
-    const sections = this.intel.teamSections();
-    if (sections.length === 0) return current || 'agent_x_brief';
-    return sections.some((s) => s.id === current) ? current : (sections[0]?.id ?? 'agent_x_brief');
+    if (TEAM_INTEL_NAV_ITEMS.some((item) => item.id === current)) return current;
+    return TEAM_INTEL_NAV_ITEMS[0]?.id ?? 'agent_overview';
   });
 
   /** Active side tab */
@@ -1609,6 +1529,26 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
     if (current && items.some((i) => i.id === current)) return current;
     return items[0]?.id ?? '';
   });
+
+  constructor() {
+    effect(() => {
+      const activeTab = this.teamProfile.activeTab();
+      const teamId = this.teamProfile.team()?.id;
+      const teamCode = this.teamProfile.team()?.slug ?? this.teamSlug();
+
+      if (activeTab === 'intel' && teamId) {
+        void this.intel.loadTeamIntel(teamId);
+      }
+
+      if (activeTab === 'timeline' && teamCode) {
+        untracked(() => {
+          if (this.teamProfile.timeline().length === 0 && !this.teamProfile.timelineLoading()) {
+            void this.teamProfile.loadTimeline(teamCode, 'all');
+          }
+        });
+      }
+    });
+  }
 
   // ============================================
   // LIFECYCLE
@@ -1635,11 +1575,29 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
     }
   }
 
-  protected onTimelineFilterChange(filterId: string): void {
+  private mapTimelineSectionToFilter(sectionId: string): TeamTimelineFilterId {
+    const sectionToFilter: Readonly<Record<string, TeamTimelineFilterId>> = {
+      'all-posts': 'all',
+      pinned: 'all',
+      media: 'media',
+      stats: 'stats',
+      games: 'games',
+      schedule: 'schedule',
+      recruiting: 'recruiting',
+      news: 'news',
+    };
+
+    return sectionToFilter[sectionId] ?? 'all';
+  }
+
+  private syncTimelineFilter(sectionId: string): void {
     const teamCode = this.teamProfile.team()?.slug ?? this.teamSlug();
     if (!teamCode) return;
-    // Cast is safe — filterId originates exclusively from TEAM_TIMELINE_FILTERS
-    this.teamProfile.setTimelineFilter(teamCode, filterId as TeamTimelineFilterId);
+    const filter = this.mapTimelineSectionToFilter(sectionId);
+
+    if (this.teamProfile.activeTimelineFilter() !== filter) {
+      void this.teamProfile.setTimelineFilter(teamCode, filter);
+    }
   }
 
   ngAfterViewInit(): void {
@@ -1650,6 +1608,7 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
   }
 
   ngOnDestroy(): void {
+    this.teamProfile.reset();
     this.headerPortal.clearAll();
   }
 
@@ -1665,15 +1624,16 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
 
     // Load timeline on first switch — data is lazy-fetched, not pre-loaded
     if (tabId === 'timeline') {
-      const teamCode = this.teamProfile.team()?.slug ?? this.teamSlug();
-      if (teamCode && this.teamProfile.timeline().length === 0) {
-        this.teamProfile.loadTimeline(teamCode);
-      }
+      this.syncTimelineFilter(this.activeSideTab());
     }
   }
 
   protected onSectionNavChange(event: SectionNavChangeEvent): void {
     this._activeSideTab.set(event.id);
+
+    if (this.teamProfile.activeTab() === 'timeline') {
+      this.syncTimelineFilter(event.id);
+    }
   }
 
   protected async handleRefresh(event: RefreshEvent): Promise<void> {
@@ -1762,12 +1722,59 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
     this.logger.debug('Post click', { postId: post.id });
   }
 
+  protected onTimelinePostClick(post: ProfilePost): void {
+    const teamPost = this.teamProfile.allPosts().find((item) => item.id === post.id);
+    if (!teamPost) return;
+    this.onPostClick(teamPost);
+  }
+
+  protected onLoadMore(): void {
+    const teamCode = this.teamProfile.team()?.slug ?? this.teamSlug();
+    if (!teamCode) return;
+    void this.teamProfile.loadMoreTimeline(teamCode);
+  }
+
+  protected onAddUpdate(): void {
+    void this.onCreatePostWithAgent();
+  }
+
+  private async onCreatePostWithAgent(): Promise<void> {
+    const hasReport = !!this.intel.teamReport();
+    const message = hasReport
+      ? 'I want to create a post for our team timeline. After creating the post, automatically review it and update any relevant sections of our Agent X Intel report with new stats, results, recruiting activity, or program updates from the post.'
+      : 'I want to create a post for our team timeline.';
+
+    if (this.platform.isMobile()) {
+      await this.bottomSheet.openSheet({
+        component: AgentXOperationChatComponent,
+        componentProps: {
+          contextId: 'team-timeline-post',
+          contextTitle: 'Create a Post',
+          contextIcon: 'create-outline',
+          contextType: 'command',
+          initialMessage: message,
+        },
+        ...SHEET_PRESETS.FULL,
+        showHandle: true,
+        handleBehavior: 'cycle',
+        backdropDismiss: true,
+        cssClass: 'agent-x-operation-sheet',
+      });
+    } else {
+      this.agentX.queueStartupMessage(message);
+      void this.router.navigate(['/agent']);
+    }
+  }
+
   protected async onGenerateTeamIntel(): Promise<void> {
     const team = this.teamProfile.team();
     if (!team) return;
     const hasReport = !!this.intel.teamReport();
+    const activeSection = this.activeIntelSection();
+    const activeSectionLabel =
+      TEAM_INTEL_NAV_ITEMS.find((item) => item.id === activeSection)?.label ?? 'Intel';
     const initialMessage = hasReport
-      ? `Update our Agent X Intel report.`
+      ? `Update the ${activeSectionLabel} section of our Agent X Intel report.`
       : `Generate an Agent X Intel report for our team.`;
     if (this.platform.isMobile()) {
       this.intel.startPendingGeneration();

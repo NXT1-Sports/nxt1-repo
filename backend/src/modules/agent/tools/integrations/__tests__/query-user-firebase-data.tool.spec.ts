@@ -14,7 +14,7 @@ describe('QueryNxt1DataTool', () => {
     userId: 'user_123',
     threadId: 'thread_456',
     sessionId: 'session_789',
-    onProgress: vi.fn(),
+    emitStage: vi.fn(),
   };
 
   let tool: QueryNxt1DataTool;
@@ -28,7 +28,7 @@ describe('QueryNxt1DataTool', () => {
     expect(tool.name).toBe('query_nxt1_data');
     expect(tool.isMutation).toBe(false);
     expect(tool.category).toBe('database');
-    expect(tool.allowedAgents).toContain('general');
+    expect(tool.allowedAgents).toContain('strategy_coordinator');
     expect(tool.allowedAgents).toContain('data_coordinator');
   });
 
@@ -75,14 +75,22 @@ describe('QueryNxt1DataTool', () => {
 
     await tool.execute({ view: 'team_roster_members' }, context);
 
-    expect(context.onProgress).toHaveBeenNthCalledWith(1, 'Preparing NXT1 data request…');
-    expect(context.onProgress).toHaveBeenLastCalledWith('Formatting NXT1 data results…');
+    expect(context.emitStage).toHaveBeenNthCalledWith(1, 'fetching_data', {
+      icon: 'database',
+      view: 'team_roster_members',
+      phase: 'prepare_request',
+    });
+    expect(context.emitStage).toHaveBeenLastCalledWith('persisting_result', {
+      icon: 'database',
+      view: 'team_roster_members',
+      phase: 'format_results',
+    });
   });
 
   it('rejects unsupported views before calling the bridge', async () => {
     const result = await tool.execute({ view: 'raw_firestore_access' }, context);
     expect(result.success).toBe(false);
-    expect(result.error).toContain('must be one of');
+    expect(result.error).toContain('Invalid option');
     expect(queryView).not.toHaveBeenCalled();
   });
 });

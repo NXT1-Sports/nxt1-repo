@@ -74,7 +74,8 @@ ion-alert.nxt-modal-prompt.md {
   --box-shadow:
     0 11px 15px -7px rgba(0, 0, 0, 0.2), 0 24px 38px 3px rgba(0, 0, 0, 0.14),
     0 9px 46px 8px rgba(0, 0, 0, 0.12);
-  border-radius: var(--nxt1-borderRadius-3xl, 2rem);
+  /* Keep radius on the internal dialog wrapper; host radius clips full-screen backdrop. */
+  --border-radius: var(--nxt1-borderRadius-3xl, 2rem);
 }
 
 /* ============================================

@@ -8,6 +8,7 @@ dist/
 lib/
 build/
 www/
+out-tsc/
 .turbo/
 .claude/
 # TypeScript compiled output in source directories (use dist/)
@@ -92,4 +93,4 @@ array_error.json
 error_stats.json
 staging_errors.json
 **/error_stats_*.json
-nxt1_collections_check.cjs
+nxt1_collections_check.cjsbackend/dist-scripts

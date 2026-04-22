@@ -44,13 +44,19 @@ import type {
   AgentUserContext,
 } from '@nxt1/core';
 import { getFirestore } from 'firebase-admin/firestore';
-import { getUserById, type UserData } from '../../../services/users.service.js';
-import { getCacheService, CACHE_TTL } from '../../../services/cache.service.js';
-import { TeamServiceAdapter } from '../../../services/team-adapter.service.js';
-import { getSyncDeltaEventService } from '../../../services/sync-delta-event.service.js';
-import { AgentMessageModel } from '../../../models/agent-message.model.js';
-import { AgentThreadModel } from '../../../models/agent-thread.model.js';
+import { getUserById, type UserData } from '../../../services/profile/users.service.js';
+import { getCacheService, CACHE_TTL } from '../../../services/core/cache.service.js';
+import { TeamServiceAdapter } from '../../../adapters/team.adapter.js';
+import { getSyncDeltaEventService } from '../../../services/core/sync-delta-event.service.js';
+import { AgentMessageModel } from '../../../models/agent/agent-message.model.js';
+import { AgentThreadModel } from '../../../models/agent/agent-thread.model.js';
 import type { VectorMemoryService } from './vector.service.js';
+import {
+  type AgentSeasonInfo,
+  getAgentAppConfig,
+  resolveRolePersona as resolveConfiguredRolePersona,
+  resolveSeasonInfo as resolveConfiguredSeasonInfo,
+} from '../config/agent-app-config.js';
 import { logger } from '../../../utils/logger.js';
 
 /** Cache key prefix for assembled agent context. Exported so callers can build/invalidate the same key without hardcoding. */
@@ -84,11 +90,9 @@ type TeamLike = {
 function parseHeightToInches(height: string | undefined): number | undefined {
   if (!height) return undefined;
 
-  // Already a plain number (total inches)
   const plain = Number(height);
   if (!isNaN(plain) && plain > 0) return plain;
 
-  // Feet'Inches" or Feet-Inches
   const match = height.match(/(\d+)\s*['-]\s*(\d+)/);
   if (match) {
     return Number(match[1]) * 12 + Number(match[2]);
@@ -124,10 +128,6 @@ export class ContextBuilder {
    * Build the full hydrated context for a user.
    * Checks Redis cache first; on miss fetches from the users service
    * (which itself caches the raw Firestore doc in Redis).
-   *
-   * @param userId - The Firebase UID of the user.
-   * @param firestore - Optional Firestore instance (for staging vs production).
-   * @returns A compressed, token-efficient context object.
    */
   async buildContext(
     userId: string,
@@ -135,7 +135,6 @@ export class ContextBuilder {
   ): Promise<AgentUserContext> {
     const cacheKey = `${AGENT_CONTEXT_PREFIX}${userId}`;
 
-    // ── Step 1: Check Redis for fully assembled context ───────────────────
     try {
       const cache = getCacheService();
       const cached = await cache.get<AgentUserContext>(cacheKey);
@@ -144,13 +143,12 @@ export class ContextBuilder {
         return cached;
       }
     } catch {
-      // Cache unavailable — fall through to fetch
       logger.warn('[ContextBuilder] Cache read failed, fetching fresh', { userId });
     }
 
     logger.info('[ContextBuilder] Cache MISS — building context', { userId });
+    await getAgentAppConfig(firestore ?? getFirestore());
 
-    // ── Step 2: Fetch user doc via users service (itself Redis-cached) ────
     const user = await getUserById(userId, firestore);
 
     if (!user) {
@@ -162,10 +160,8 @@ export class ContextBuilder {
       };
     }
 
-    // ── Step 3: Map the raw Firestore doc to AgentUserContext ─────────────
     let context = this.mapUserToContext(userId, user);
 
-    // ── Step 3b: Resolve teamId via RosterEntries if not on user doc ─────
     if (!context.teamId) {
       try {
         const db = firestore ?? getFirestore();
@@ -194,9 +190,6 @@ export class ContextBuilder {
       }
     }
 
-    // ── Step 3c: Hydrate activeGoals + currentPlaybookSummary ────────────
-    // agentGoals is already on the user doc (no extra Firestore read).
-    // Current playbook requires one sub-collection read, timeout-guarded.
     const rawGoals = (user['agentGoals'] as Array<Record<string, unknown>> | undefined) ?? [];
     const activeGoals = rawGoals.slice(0, 5).map((g) => ({
       id: String(g['id'] ?? ''),
@@ -238,7 +231,6 @@ export class ContextBuilder {
       // Non-critical — context is still valid without playbook summary
     }
 
-    // ── Step 4: Cache the assembled context ───────────────────────────────
     try {
       const cache = getCacheService();
       await cache.set(cacheKey, context, { ttl: AGENT_CONTEXT_TTL });
@@ -267,10 +259,6 @@ export class ContextBuilder {
     return { profile, memories, recentSyncSummaries };
   }
 
-  /**
-   * Invalidate the cached context for a user.
-   * Call this when the user updates their profile or connected accounts.
-   */
   async invalidateContext(userId: string): Promise<void> {
     try {
       const cache = getCacheService();
@@ -281,16 +269,6 @@ export class ContextBuilder {
     }
   }
 
-  /**
-   * Converts the hydrated context into a compressed string for injection
-   * into the agent's system prompt. This keeps token usage minimal.
-   *
-   * Example output:
-   * "User: John Doe | Role: Athlete | Sport: Football | Pos: QB | Class: 2027
-   *  School: Lincoln HS, Dallas TX | GPA: 3.8 | Height: 6'2" | Weight: 195lb
-   *  Targets: D1, D2 | Top Schools: Georgia, Texas, Ohio State
-   *  Status: Uncommitted | Profile: 85% complete"
-   */
   compressToPrompt(
     context: AgentUserContext,
     memories: AgentRetrievedMemories = EMPTY_RETRIEVED_MEMORIES,
@@ -949,382 +927,16 @@ export class ContextBuilder {
  * never producing "undefined" or broken sentences.
  */
 
-// ─── Types ──────────────────────────────────────────────────────────────────
-
-interface SeasonInfo {
-  readonly phase: string;
-  readonly focus: string;
-}
-
-// ─── Sport Season Calendar ──────────────────────────────────────────────────
-
-/** Shorthand season constructors for readability. */
-const off = (focus?: string): SeasonInfo => ({
-  phase: 'Off-Season',
-  focus: focus ?? 'Recovery, skill development, and strength training',
-});
-
-const pre = (focus?: string): SeasonInfo => ({
-  phase: 'Pre-Season',
-  focus: focus ?? 'Conditioning, team building, and scheme installation',
-});
-
-const ins = (focus?: string): SeasonInfo => ({
-  phase: 'In-Season',
-  focus: focus ?? 'Competition, game prep, film review, and peak performance',
-});
-
-const post = (focus?: string): SeasonInfo => ({
-  phase: 'Post-Season / Playoffs',
-  focus: focus ?? 'Playoff preparation, recovery management, and championship pursuit',
-});
-
-/**
- * Normalise a sport key so it matches our season map regardless of casing,
- * underscores, or gendered suffixes.
- *
- * "basketball_mens" → "basketball"
- * "Soccer Womens"   → "soccer"
- * "Track & Field"   → "track"
- */
-function normaliseSport(raw: string): string {
-  return raw
-    .toLowerCase()
-    .replace(/[\s_]+/g, '_')
-    .replace(/_?(mens|womens|men|women)$/i, '')
-    .replace(/_+$/, '')
-    .trim();
-}
-
-/**
- * Map of normalised sport key → 12-element array of season phases (Jan=0 … Dec=11).
- * Based on standard US high-school / college athletic calendars.
- */
-// prettier-ignore
-const SPORT_SEASONS: Record<string, readonly SeasonInfo[]> = {
-  football: [
-    /* Jan */ off(),
-    /* Feb */ off(),
-    /* Mar */ off('Spring practice and 7-on-7 prep'),
-    /* Apr */ off('Spring practice and 7-on-7 prep'),
-    /* May */ off('Camps, combines, and 7-on-7 tournaments'),
-    /* Jun */ off('Camps, combines, and 7-on-7 tournaments'),
-    /* Jul */ pre(),
-    /* Aug */ pre('Fall camp and final prep'),
-    /* Sep */ ins(),
-    /* Oct */ ins(),
-    /* Nov */ ins(),
-    /* Dec */ post(),
-  ],
-  basketball: [
-    /* Jan */ ins(),
-    /* Feb */ ins(),
-    /* Mar */ ins(),
-    /* Apr */ post(),
-    /* May */ off(),
-    /* Jun */ off('AAU/club season, camps, and skill work'),
-    /* Jul */ off('AAU/club season, camps, and skill work'),
-    /* Aug */ off('AAU/club season, open gyms'),
-    /* Sep */ off('Fall leagues and team tryouts'),
-    /* Oct */ pre(),
-    /* Nov */ ins(),
-    /* Dec */ ins(),
-  ],
-  baseball: [
-    /* Jan */ pre(),
-    /* Feb */ pre('Spring training and scrimmages'),
-    /* Mar */ ins(),
-    /* Apr */ ins(),
-    /* May */ ins(),
-    /* Jun */ ins('Summer showcases and travel ball'),
-    /* Jul */ off('Summer showcases and travel ball'),
-    /* Aug */ off('Fall workouts and showcases'),
-    /* Sep */ off('Fall ball and showcases'),
-    /* Oct */ off(),
-    /* Nov */ off(),
-    /* Dec */ off(),
-  ],
-  softball: [
-    /* Jan */ pre(),
-    /* Feb */ pre('Spring training and scrimmages'),
-    /* Mar */ ins(),
-    /* Apr */ ins(),
-    /* May */ ins(),
-    /* Jun */ off('Summer travel ball and showcases'),
-    /* Jul */ off('Summer travel ball and showcases'),
-    /* Aug */ off('Fall workouts'),
-    /* Sep */ off('Fall ball'),
-    /* Oct */ off(),
-    /* Nov */ off(),
-    /* Dec */ off(),
-  ],
-  soccer: [
-    /* Jan */ off(),
-    /* Feb */ off(),
-    /* Mar */ pre('Spring season / club season'),
-    /* Apr */ ins('Spring season / club season'),
-    /* May */ ins('Spring season / club season'),
-    /* Jun */ off('Summer camps and club tournaments'),
-    /* Jul */ off('Summer camps and club tournaments'),
-    /* Aug */ pre(),
-    /* Sep */ ins(),
-    /* Oct */ ins(),
-    /* Nov */ ins(),
-    /* Dec */ post(),
-  ],
-  lacrosse: [
-    /* Jan */ off('Winter training and indoor leagues'),
-    /* Feb */ pre(),
-    /* Mar */ ins(),
-    /* Apr */ ins(),
-    /* May */ ins(),
-    /* Jun */ off('Summer leagues and camps'),
-    /* Jul */ off('Summer leagues and camps'),
-    /* Aug */ off(),
-    /* Sep */ off('Fall ball'),
-    /* Oct */ off('Fall ball'),
-    /* Nov */ off(),
-    /* Dec */ off(),
-  ],
-  volleyball: [
-    /* Jan */ off(),
-    /* Feb */ off(),
-    /* Mar */ off('Club season and training'),
-    /* Apr */ off('Club season and training'),
-    /* May */ off('Club season and tournaments'),
-    /* Jun */ off('Club season and camps'),
-    /* Jul */ off('Camps and open gyms'),
-    /* Aug */ pre(),
-    /* Sep */ ins(),
-    /* Oct */ ins(),
-    /* Nov */ ins(),
-    /* Dec */ post(),
-  ],
-  wrestling: [
-    /* Jan */ ins(),
-    /* Feb */ ins(),
-    /* Mar */ post(),
-    /* Apr */ off(),
-    /* May */ off(),
-    /* Jun */ off('Freestyle/Greco season and camps'),
-    /* Jul */ off('Freestyle/Greco season and camps'),
-    /* Aug */ off('Freestyle/Greco season and camps'),
-    /* Sep */ off('Fall conditioning'),
-    /* Oct */ pre(),
-    /* Nov */ ins(),
-    /* Dec */ ins(),
-  ],
-  track: [
-    /* Jan */ off('Winter conditioning and indoor meets'),
-    /* Feb */ ins('Indoor season'),
-    /* Mar */ ins('Indoor/outdoor transition'),
-    /* Apr */ ins(),
-    /* May */ ins('Championship season'),
-    /* Jun */ off(),
-    /* Jul */ off('Summer training and camps'),
-    /* Aug */ off(),
-    /* Sep */ pre('Cross country / fall conditioning'),
-    /* Oct */ ins('Cross country season'),
-    /* Nov */ ins('Cross country season / regionals'),
-    /* Dec */ off(),
-  ],
-  swimming: [
-    /* Jan */ ins(),
-    /* Feb */ ins(),
-    /* Mar */ ins('Championship meets'),
-    /* Apr */ off(),
-    /* May */ off(),
-    /* Jun */ off('Summer club season'),
-    /* Jul */ off('Summer club season'),
-    /* Aug */ off('Summer club season'),
-    /* Sep */ pre(),
-    /* Oct */ ins(),
-    /* Nov */ ins(),
-    /* Dec */ ins(),
-  ],
-  golf: [
-    /* Jan */ off(),
-    /* Feb */ off(),
-    /* Mar */ ins('Spring season'),
-    /* Apr */ ins('Spring season'),
-    /* May */ ins('Spring season / championships'),
-    /* Jun */ off('Summer tournaments'),
-    /* Jul */ off('Summer tournaments'),
-    /* Aug */ off('Summer tournaments'),
-    /* Sep */ ins('Fall season'),
-    /* Oct */ ins('Fall season'),
-    /* Nov */ off(),
-    /* Dec */ off(),
-  ],
-  ice_hockey: [
-    /* Jan */ ins(),
-    /* Feb */ ins(),
-    /* Mar */ ins(),
-    /* Apr */ post(),
-    /* May */ off(),
-    /* Jun */ off(),
-    /* Jul */ off('Summer camps and development'),
-    /* Aug */ off('Summer camps and development'),
-    /* Sep */ pre(),
-    /* Oct */ ins(),
-    /* Nov */ ins(),
-    /* Dec */ ins(),
-  ],
-  tennis: [
-    /* Jan */ off('Winter training / indoor'),
-    /* Feb */ off('Winter training / indoor'),
-    /* Mar */ ins('Spring season'),
-    /* Apr */ ins('Spring season'),
-    /* May */ ins('Spring season / championships'),
-    /* Jun */ off('Summer tournaments and camps'),
-    /* Jul */ off('Summer tournaments and camps'),
-    /* Aug */ off(),
-    /* Sep */ ins('Fall season'),
-    /* Oct */ ins('Fall season'),
-    /* Nov */ off(),
-    /* Dec */ off(),
-  ],
-  rowing: [
-    /* Jan */ off('Winter erg training'),
-    /* Feb */ off('Winter erg training'),
-    /* Mar */ pre('Spring training'),
-    /* Apr */ ins('Spring racing season'),
-    /* May */ ins('Championship regattas'),
-    /* Jun */ off(),
-    /* Jul */ off(),
-    /* Aug */ off(),
-    /* Sep */ pre('Fall training'),
-    /* Oct */ ins('Fall racing / Head races'),
-    /* Nov */ ins('Fall racing'),
-    /* Dec */ off(),
-  ],
-  gymnastics: [
-    /* Jan */ ins(),
-    /* Feb */ ins(),
-    /* Mar */ ins(),
-    /* Apr */ ins('Championship season'),
-    /* May */ off(),
-    /* Jun */ off('Summer camps and development'),
-    /* Jul */ off('Summer camps and development'),
-    /* Aug */ off(),
-    /* Sep */ pre(),
-    /* Oct */ ins(),
-    /* Nov */ ins(),
-    /* Dec */ ins(),
-  ],
-  water_polo: [
-    /* Jan */ off(),
-    /* Feb */ off(),
-    /* Mar */ ins('Spring season'),
-    /* Apr */ ins('Spring season'),
-    /* May */ ins('Spring season'),
-    /* Jun */ off('Summer club season'),
-    /* Jul */ off('Summer club season'),
-    /* Aug */ off(),
-    /* Sep */ pre(),
-    /* Oct */ ins('Fall season'),
-    /* Nov */ ins('Fall season'),
-    /* Dec */ post(),
-  ],
-  bowling: [
-    /* Jan */ ins(),
-    /* Feb */ ins(),
-    /* Mar */ ins('Championship season'),
-    /* Apr */ off(),
-    /* May */ off(),
-    /* Jun */ off(),
-    /* Jul */ off(),
-    /* Aug */ off(),
-    /* Sep */ off(),
-    /* Oct */ pre(),
-    /* Nov */ ins(),
-    /* Dec */ ins(),
-  ],
-  cross_country: [
-    /* Jan */ off(),
-    /* Feb */ off(),
-    /* Mar */ off(),
-    /* Apr */ off('Spring distance training'),
-    /* May */ off('Summer base building'),
-    /* Jun */ off('Summer base building'),
-    /* Jul */ off('Summer mileage peak'),
-    /* Aug */ pre(),
-    /* Sep */ ins(),
-    /* Oct */ ins(),
-    /* Nov */ ins('Championship meets'),
-    /* Dec */ off(),
-  ],
-  field_hockey: [
-    /* Jan */ off(),
-    /* Feb */ off(),
-    /* Mar */ off('Spring leagues'),
-    /* Apr */ off('Spring leagues'),
-    /* May */ off(),
-    /* Jun */ off('Summer camps'),
-    /* Jul */ off('Summer camps'),
-    /* Aug */ pre(),
-    /* Sep */ ins(),
-    /* Oct */ ins(),
-    /* Nov */ post(),
-    /* Dec */ off(),
-  ],
-};
-
-/** Aliases for normalised keys that map to an existing calendar. */
-const SPORT_ALIASES: Readonly<Record<string, string>> = {
-  track_field: 'track',
-  swimming_diving: 'swimming',
-  hockey: 'ice_hockey',
-};
-
 /**
  * Get the season info for a sport at the current date.
  * Returns `null` if the sport is not in our calendar map (graceful degradation).
  */
-export function getSeasonInfo(sportRaw: string, now: Date = new Date()): SeasonInfo | null {
-  const key = normaliseSport(sportRaw);
-  const resolved = SPORT_ALIASES[key] ?? key;
-  const calendar = SPORT_SEASONS[resolved];
-  if (!calendar) return null;
-  return calendar[now.getMonth()] ?? null;
+export function getSeasonInfo(sportRaw: string, now: Date = new Date()): AgentSeasonInfo | null {
+  return resolveConfiguredSeasonInfo(sportRaw, now);
 }
 
-// ─── Role Tone / Persona ────────────────────────────────────────────────────
-
-const ROLE_PERSONAS: Readonly<Record<string, string>> = {
-  athlete: [
-    `Adopt an encouraging, urgent, and mentorship-driven tone.`,
-    `Speak like a trusted advisor who genuinely cares about this athlete's development, brand, and future.`,
-    `Use motivating language that makes them want to take action immediately.`,
-  ].join(' '),
-
-  coach: [
-    `Adopt a strategic, peer-to-peer, and professional tone.`,
-    `Speak like a fellow coach — data-driven, practical, and focused on winning,`,
-    `team culture, and player development. Be concise and actionable.`,
-  ].join(' '),
-
-  director: [
-    `Adopt an executive, strategic, and organizational tone.`,
-    `Think like a program administrator managing budgets, compliance, staff, and the big picture.`,
-    `Prioritize efficiency and institutional goals.`,
-  ].join(' '),
-
-  recruiter: [
-    `Adopt a sharp, evaluative, and professional tone.`,
-    `Think like a talent evaluator on the road — focused on prospect identification,`,
-    `relationship building, and competitive intel.`,
-  ].join(' '),
-  // @deprecated — legacy alias; maps to 'coach' tone
-  parent: [
-    `Adopt a supportive, informative, and guiding tone.`,
-    `Speak like a knowledgeable family advisor helping a parent navigate the sports landscape,`,
-    `finances, scheduling, and their child's wellbeing. Be reassuring and clear.`,
-  ].join(' '),
-};
-
 function getRolePersona(role: string): string {
-  return ROLE_PERSONAS[role] ?? ROLE_PERSONAS['athlete'];
+  return resolveConfiguredRolePersona(role);
 }
 
 // ─── Elite Context Builder ──────────────────────────────────────────────────

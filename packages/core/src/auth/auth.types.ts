@@ -10,6 +10,7 @@
 
 import type { UserRole } from '../constants/user.constants';
 import { ConnectedEmail, type ConnectedSource } from '../models';
+import type { PortableTimestamp } from '../models/portable-timestamp.model';
 
 // Re-export UserRole from single source of truth
 export type { UserRole } from '../constants/user.constants';
@@ -57,25 +58,37 @@ export interface AuthUser {
       readonly logoUrl?: string | null;
       readonly logo?: string | null;
       readonly teamId?: string;
+      readonly organizationId?: string;
+      readonly primaryColor?: string | null;
+      readonly secondaryColor?: string | null;
       readonly id?: string;
       readonly teamCode?: string;
       readonly code?: string;
       readonly slug?: string;
       readonly unicode?: string;
+      readonly isOrganizationClaimed?: boolean;
+      readonly isUserOrganizationAdmin?: boolean;
     };
+  }>;
+  organizationAccess?: ReadonlyArray<{
+    readonly organizationId: string;
+    readonly isClaimed: boolean;
+    readonly isAdmin: boolean;
   }>;
   /** User role in the application */
   role: UserRole;
+  /** Currently active sport index into `sports[]` (used by global sport/team switcher) */
+  activeSportIndex?: number;
   /** Whether user has completed onboarding */
   hasCompletedOnboarding: boolean;
   /** Auth provider used */
   provider: AuthProvider;
   /** Email verification status */
   emailVerified: boolean;
-  /** Account creation timestamp (ISO string) */
-  createdAt: string;
-  /** Last update timestamp (ISO string) */
-  updatedAt: string;
+  /** Account creation timestamp */
+  createdAt: PortableTimestamp;
+  /** Last update timestamp */
+  updatedAt: PortableTimestamp;
 
   connectedEmails?: ConnectedEmail[];
   /** Connected data sources (Hudl, MaxPreps, etc.) */

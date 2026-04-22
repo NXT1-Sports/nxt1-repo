@@ -22,6 +22,7 @@ interface UserDisplayTeamAffiliation {
   readonly logoUrl?: string | null;
   readonly logo?: string | null;
   readonly teamId?: string;
+  readonly organizationId?: string;
   readonly id?: string;
   readonly teamCode?: string;
   readonly code?: string;
@@ -49,6 +50,7 @@ export interface UserDisplayInput {
   readonly profileImg?: string;
   readonly unicode?: string;
   readonly role?: string | null;
+  readonly activeSportIndex?: number;
   readonly teamCode?:
     | {
         readonly teamCode?: string;
@@ -64,17 +66,22 @@ export interface UserDisplayInput {
       }
     | string
     | null;
-  readonly managedTeamCodes?: string[] | null;
   readonly sports?: ReadonlyArray<{
     readonly sport: string;
     readonly positions?: string[];
     readonly isPrimary?: boolean;
     readonly order?: number;
     readonly team?: UserDisplayTeamAffiliation;
-    readonly clubTeam?: UserDisplayTeamAffiliation;
   }>;
   readonly primarySport?: string;
+  readonly organizationAccess?: ReadonlyArray<{
+    readonly organizationId: string;
+    readonly isClaimed: boolean;
+    readonly isAdmin: boolean;
+  }>;
 }
+
+type UserDisplaySport = NonNullable<UserDisplayInput['sports']>[number];
 
 /**
  * Minimal Firebase user info used as fallback when backend profile
@@ -192,19 +199,28 @@ export function buildUserDisplayContext(
 }
 
 function canUserAddProfile(user: UserDisplayInput | null | undefined): boolean {
+  if (user?.organizationAccess?.length) {
+    for (const organization of user.organizationAccess) {
+      if (organization.isClaimed && !organization.isAdmin) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
   if (!user?.sports?.length) {
     return true;
   }
 
   for (const sport of user.sports) {
-    const affiliations = [sport.team, sport.clubTeam];
-    for (const affiliation of affiliations) {
-      if (
-        affiliation?.isOrganizationClaimed === true &&
-        affiliation.isUserOrganizationAdmin === false
-      ) {
-        return false;
-      }
+    const affiliation = sport.team;
+    if (
+      affiliation?.organizationId &&
+      affiliation.isOrganizationClaimed === true &&
+      affiliation.isUserOrganizationAdmin === false
+    ) {
+      return false;
     }
   }
 
@@ -215,45 +231,55 @@ function canUserAddProfile(user: UserDisplayInput | null | undefined): boolean {
 // PRIVATE BUILDERS
 // ============================================
 
+function getResolvedActiveSportIndex(user: UserDisplayInput | null | undefined): number {
+  const sports = user?.sports;
+  if (!sports?.length) return 0;
+
+  const explicitIndex = user?.activeSportIndex;
+  if (
+    typeof explicitIndex === 'number' &&
+    Number.isInteger(explicitIndex) &&
+    explicitIndex >= 0 &&
+    explicitIndex < sports.length
+  ) {
+    return explicitIndex;
+  }
+
+  const legacyIndex = sports.findIndex((sport) => sport.isPrimary || sport.order === 0);
+  return legacyIndex >= 0 ? legacyIndex : 0;
+}
+
+function getResolvedActiveSport(
+  user: UserDisplayInput | null | undefined
+): UserDisplaySport | undefined {
+  const sports = user?.sports;
+  if (!sports?.length) return undefined;
+  return sports[getResolvedActiveSportIndex(user)];
+}
+
 function buildTeamContext(user: UserDisplayInput, personalName: string): UserDisplayContext {
-  const rawTeamCode = user.teamCode;
-  const teamCode = rawTeamCode && typeof rawTeamCode === 'object' ? rawTeamCode : null;
-  const rawTeamReference = typeof rawTeamCode === 'string' ? rawTeamCode.trim() : '';
-  const activeSport =
-    user.sports?.find((sport) => sport.isPrimary || sport.order === 0) ?? user.sports?.[0];
+  const activeSportIndex = getResolvedActiveSportIndex(user);
+  const activeSport = getResolvedActiveSport(user);
   const activeTeam = activeSport?.team;
-  const teamName = teamCode?.teamName?.trim() || activeTeam?.name?.trim();
-  const hasManagedTeamCodes =
-    user.managedTeamCodes?.some((teamCodeValue) => teamCodeValue.trim().length > 0) ?? false;
-  const hasTeamAssociation = !!(
-    teamName ||
-    teamCode?.teamId?.trim() ||
-    teamCode?.teamCode?.trim() ||
-    teamCode?.code?.trim() ||
-    teamCode?.slug?.trim() ||
-    teamCode?.unicode?.trim() ||
-    rawTeamReference ||
+  // Account for varied payloads where team name could be `name` or `teamName`
+  const teamName = activeTeam?.name?.trim() || (activeTeam as any)?.teamName?.trim();
+  const hasCanonicalTeamReference = !!(
     activeTeam?.teamId?.trim() ||
+    activeTeam?.organizationId?.trim() ||
     activeTeam?.id?.trim() ||
-    activeTeam?.teamCode?.trim() ||
-    activeTeam?.code?.trim() ||
-    activeTeam?.slug?.trim() ||
-    activeTeam?.unicode?.trim() ||
-    hasManagedTeamCodes
+    activeTeam?.slug?.trim()
   );
+  const hasTeamAssociation = !!(teamName || hasCanonicalTeamReference);
   const resolvedTeamRoute = resolveCanonicalTeamRoute({
-    slug: teamCode?.slug?.trim(),
+    slug: activeTeam?.slug?.trim(),
     teamName,
-    teamCode: teamCode?.teamCode?.trim() || activeTeam?.teamCode?.trim() || rawTeamReference,
-    code: teamCode?.code?.trim() || activeTeam?.code?.trim(),
-    teamId: teamCode?.teamId?.trim() || activeTeam?.teamId?.trim(),
-    id: teamCode?.id?.trim() || activeTeam?.id?.trim(),
-    unicode: teamCode?.unicode?.trim(),
-    managedTeamCodes: user.managedTeamCodes,
+    teamId: activeTeam?.teamId?.trim() || activeTeam?.organizationId?.trim(),
+    id: activeTeam?.id?.trim(),
+    teamCode: activeTeam?.teamCode?.trim() || activeTeam?.code?.trim(),
+    unicode: activeTeam?.unicode?.trim(),
   });
-  const sport = teamCode?.sport?.trim() || activeSport?.sport?.trim() || user.primarySport?.trim();
-  const logoUrl =
-    teamCode?.logoUrl ?? teamCode?.teamLogoImg ?? activeTeam?.logoUrl ?? activeTeam?.logo ?? null;
+  const sport = activeSport?.sport?.trim() || user.primarySport?.trim();
+  const logoUrl = activeTeam?.logoUrl ?? activeTeam?.logo ?? null;
 
   // Name: ALWAYS the team name for team roles. If no team name set, show explicit fallback.
   const name = teamName || personalName;
@@ -271,25 +297,35 @@ function buildTeamContext(user: UserDisplayInput, personalName: string): UserDis
   // For team roles, sport profiles use: sport → team name, position → sport label.
   const primaryProfile: SidenavSportProfile | null =
     hasTeamAssociation && sport
-      ? {
-          id: 'team-primary',
-          sport: isPersonalIdentityFallback ? formatSportDisplayName(sport) : name,
-          position: isPersonalIdentityFallback ? undefined : formatSportDisplayName(sport),
-          isActive: true,
-          profileImg: isPersonalIdentityFallback ? undefined : profileImg,
-        }
+      ? (() => {
+          const primaryIndex = user.sports?.findIndex(
+            (s) => s.sport?.trim().toLowerCase() === sport?.trim().toLowerCase()
+          );
+
+          return {
+            id: 'team-primary',
+            originalIndex:
+              primaryIndex !== undefined && primaryIndex >= 0 ? primaryIndex : undefined,
+            sport: isPersonalIdentityFallback ? formatSportDisplayName(sport) : name,
+            position: isPersonalIdentityFallback ? undefined : formatSportDisplayName(sport),
+            isActive: primaryIndex === undefined ? true : primaryIndex === activeSportIndex,
+            profileImg: isPersonalIdentityFallback ? undefined : profileImg,
+          };
+        })()
       : null;
 
   // Exclude any sport that matches the primary teamCode sport to avoid duplicates
   const primarySportNorm = sport?.trim().toLowerCase();
   const additionalProfiles: SidenavSportProfile[] = hasTeamAssociation
     ? (user.sports
-        ?.filter((s) => s.sport?.trim().toLowerCase() !== primarySportNorm)
-        .map((s, i) => ({
+        ?.map((s, i) => ({ s, i }))
+        .filter(({ s }) => s.sport?.trim().toLowerCase() !== primarySportNorm)
+        .map(({ s, i }) => ({
           id: `team-sport-${i}`,
+          originalIndex: i,
           sport: isPersonalIdentityFallback ? formatSportDisplayName(s.sport) : name,
           position: isPersonalIdentityFallback ? undefined : formatSportDisplayName(s.sport),
-          isActive: false,
+          isActive: i === activeSportIndex,
           profileImg: isPersonalIdentityFallback ? undefined : profileImg,
         })) ?? [])
     : [];
@@ -313,7 +349,10 @@ function buildTeamContext(user: UserDisplayInput, personalName: string): UserDis
     actionLabel: 'Add Team',
     canAddProfile: canUserAddProfile(user),
     sportProfiles,
-    profileRoute: resolvedTeamRoute?.path ?? '/team',
+    profileRoute:
+      (hasCanonicalTeamReference || !!teamName) && resolvedTeamRoute?.path
+        ? resolvedTeamRoute.path
+        : '/team',
   };
 }
 
@@ -324,21 +363,20 @@ function buildAthleteContext(
 ): UserDisplayContext {
   // profileImgs[] is the canonical source; profileImg (singular) is the pre-mapped fallback
   const profileImg = user?.profileImgs?.[0] ?? user?.profileImg ?? undefined;
-  const athleteTeamCode =
-    user?.teamCode && typeof user.teamCode === 'object' ? user.teamCode : null;
-  const isOnTeam = !!(
-    athleteTeamCode?.slug?.trim() ||
-    athleteTeamCode?.teamName?.trim() ||
-    athleteTeamCode?.teamCode?.trim() ||
-    athleteTeamCode?.unicode?.trim() ||
-    (typeof user?.teamCode === 'string' ? user.teamCode.trim() : '')
-  );
+  const isOnTeam =
+    user?.sports?.some(
+      (sport) =>
+        !!(
+          sport.team?.teamId?.trim() ||
+          sport.team?.organizationId?.trim() ||
+          sport.team?.name?.trim()
+        )
+    ) ?? false;
 
   // Resolve sport label from the primary sport + position
   let sportLabel: string | undefined;
-  const activeSport = user?.sports?.find((s) => s.isPrimary || s.order === 0);
-  const firstSport = user?.sports?.[0];
-  const profile = activeSport ?? firstSport;
+  const activeSportIndex = getResolvedActiveSportIndex(user);
+  const profile = getResolvedActiveSport(user) ?? user?.sports?.[0];
 
   if (profile?.sport && profile.positions?.[0]) {
     sportLabel = `${formatSportDisplayName(profile.sport)} · ${getPositionAbbreviation(profile.positions[0], profile.sport) || profile.positions[0]}`;
@@ -352,11 +390,12 @@ function buildAthleteContext(
   const sportProfiles: SidenavSportProfile[] = deduplicateSportProfiles(
     user?.sports?.map((s, i) => ({
       id: `sport-${i}`,
+      originalIndex: i,
       sport: s.sport,
       position: s.positions?.[0]
         ? getPositionAbbreviation(s.positions[0], s.sport) || s.positions[0]
         : undefined,
-      isActive: !!(s.isPrimary || i === 0),
+      isActive: i === activeSportIndex,
       profileImg: undefined,
     })) ?? []
   );

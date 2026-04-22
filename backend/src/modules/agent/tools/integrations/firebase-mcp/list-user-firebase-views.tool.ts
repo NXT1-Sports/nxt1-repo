@@ -1,6 +1,9 @@
 import { BaseTool, type ToolExecutionContext, type ToolResult } from '../../base.tool.js';
 import type { FirebaseMcpBridgeService } from './firebase-mcp-bridge.service.js';
+import { z } from 'zod';
 import { logger } from '../../../../../utils/logger.js';
+
+const ListNxt1DataViewsInputSchema = z.object({});
 
 export class ListNxt1DataViewsTool extends BaseTool {
   readonly name = 'list_nxt1_data_views';
@@ -8,13 +11,10 @@ export class ListNxt1DataViewsTool extends BaseTool {
     'List the named, read-only NXT1 data views available for the current account, team, and organization scope. ' +
     'Use this before querying when you need to understand which data surfaces and accessible scopes are available.';
 
-  readonly parameters = {
-    type: 'object',
-    properties: {},
-  } as const;
+  readonly parameters = ListNxt1DataViewsInputSchema;
 
   override readonly allowedAgents = [
-    'general',
+    'strategy_coordinator',
     'data_coordinator',
     'performance_coordinator',
     'recruiting_coordinator',
@@ -39,9 +39,12 @@ export class ListNxt1DataViewsTool extends BaseTool {
     }
 
     try {
-      context.onProgress?.('Resolving account, team, and organization access…');
       const result = await this.bridge.listViews(context);
-      context.onProgress?.('Preparing available NXT1 data views…');
+      context.emitStage?.('fetching_data', {
+        source: 'firebase_mcp',
+        phase: 'prepare_views',
+        icon: 'database',
+      });
 
       return {
         success: true,

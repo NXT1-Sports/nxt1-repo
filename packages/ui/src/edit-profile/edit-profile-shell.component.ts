@@ -919,6 +919,13 @@ const PROGRAM_TYPE_SUFFIX_PATTERNS: Readonly<Record<DraftProgramType, readonly R
         flex-direction: column;
         gap: var(--nxt1-spacing-4);
       }
+
+      @media (max-width: 767px) {
+        .nxt1-ep-two-col {
+          grid-template-columns: 1fr;
+          gap: var(--nxt1-spacing-4);
+        }
+      }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,

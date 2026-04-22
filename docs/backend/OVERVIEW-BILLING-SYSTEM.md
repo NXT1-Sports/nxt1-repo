@@ -28,7 +28,7 @@ a configurable value stored in Firestore.
 [Mobile iOS] → StoreKit 2 purchase
     → POST /api/v1/iap/verify-receipt
     → verify JWS signature (Apple root CAs)
-    → addWalletTopUp() → Firestore BillingContexts.walletBalanceCents
+  → addWalletTopUp() → Firestore Wallets.balanceCents
 
 [User triggers AI job]
     → estimateMaxCost() ← Gas-station pre-auth (worst-case estimate)
@@ -82,8 +82,11 @@ Manages a hierarchical budget structure:
 
 **Firestore collections used:**
 
-- `BillingContexts` — per-user billing state (`walletBalanceCents`,
-  `currentPeriodSpend`, `monthlyBudget`, `paymentProvider`)
+- `Wallets` — prepaid balance and pending hold state per billing owner
+- `BillingPreferences` — billing settings (`monthlyBudget`, auto top-up, payment
+  rails, owner metadata)
+- `PeriodLedgers` — period-scoped spend tracking (`currentPeriodSpend`,
+  thresholds, period window)
 
 ---
 
@@ -93,10 +96,9 @@ Manages a hierarchical budget structure:
 collection (`wallets`). Provides a clean interface for top-up, deduct, check
 balance, and refund operations — all using Firestore transactions for atomicity.
 
-> Note: `budget.service.ts` also manages `walletBalanceCents` on
-> `BillingContexts`. `wallet.service.ts` manages a parallel, lightweight
-> `wallets` collection. Both are in sync via `iap.routes.ts` calling
-> `addWalletTopUp()` from `budget.service.ts`.
+> Note: the normalized billing model now uses `Wallets`, `BillingPreferences`,
+> and `PeriodLedgers` as the source of truth. `wallet.service.ts` remains a
+> focused wallet helper layered on top of that normalized Firestore state.
 
 | Function                 | Signature                                                       | Description                                                                                                                                                                                                                       |
 | ------------------------ | --------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -352,17 +354,18 @@ environment setup, price ID mapping, and retry policy.
 
 ## Firestore Collections Summary
 
-| Collection                 | Key                   | Purpose                                                                 |
-| -------------------------- | --------------------- | ----------------------------------------------------------------------- |
-| `BillingContexts`          | `userId`              | Central billing state (budget, spend, wallet balance, payment provider) |
-| `wallets`                  | `userId`              | Lightweight wallet balance (used by `wallet.service.ts`)                |
-| `UsageEvents`              | auto-id               | All billable usage events with state machine                            |
-| `StripeCustomers`          | auto-id               | Stripe customer ID cache per user/environment                           |
-| `PaymentLogs`              | auto-id               | Raw Stripe webhook event data                                           |
-| `IapProcessedTransactions` | Apple `transactionId` | Idempotency guard for IAP receipts                                      |
-| `iapLogs`                  | Apple `transactionId` | Idempotency guard used by `wallet.service.ts`                           |
-| `walletRefunds`            | auto-id               | Audit log of all wallet refunds                                         |
-| `PricingConfig`            | `default`             | Multiplier config (`defaultMultiplier`, `featureOverrides`)             |
+| Collection                 | Key                                 | Purpose                                                     |
+| -------------------------- | ----------------------------------- | ----------------------------------------------------------- |
+| `Wallets`                  | `{ownerType}_{ownerId}`             | Wallet balance and pending holds per billing owner          |
+| `BillingPreferences`       | `{ownerType}_{ownerId}`             | Billing settings, budget config, payment provider metadata  |
+| `PeriodLedgers`            | `{ownerType}_{ownerId}_{periodKey}` | Period-scoped spend ledger and threshold flags              |
+| `UsageEvents`              | auto-id                             | All billable usage events with state machine                |
+| `StripeCustomers`          | auto-id                             | Stripe customer ID cache per user/environment               |
+| `PaymentLogs`              | auto-id                             | Raw Stripe webhook event data                               |
+| `IapProcessedTransactions` | Apple `transactionId`               | Idempotency guard for IAP receipts                          |
+| `iapLogs`                  | Apple `transactionId`               | Idempotency guard used by `wallet.service.ts`               |
+| `walletRefunds`            | auto-id                             | Audit log of all wallet refunds                             |
+| `PricingConfig`            | `default`                           | Multiplier config (`defaultMultiplier`, `featureOverrides`) |
 
 ---
 

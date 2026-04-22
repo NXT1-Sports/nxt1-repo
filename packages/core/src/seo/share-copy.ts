@@ -33,6 +33,11 @@ export type ArticleShareSource = Omit<ShareableArticle, 'type' | 'description'> 
 export interface InviteShareSource {
   readonly inviteType?: InviteType | null;
   readonly senderRole?: UserRole | null;
+  readonly senderName?: string | null;
+  readonly senderPosition?: string | null;
+  readonly senderSchool?: string | null;
+  readonly senderSport?: string | null;
+  readonly senderLocation?: string | null;
   readonly team?: Pick<InviteTeam, 'name' | 'sport'> | null;
   /**
    * Referral reward amount in cents. When provided, share/UI copy reflects
@@ -92,16 +97,52 @@ function isTeamManagementRole(role: UserRole | null | undefined): boolean {
   return role === USER_ROLES.COACH || role === USER_ROLES.DIRECTOR;
 }
 
-function buildInviteTeamContext(
-  team: Pick<InviteTeam, 'name' | 'sport'> | null | undefined
-): string {
-  const teamName = normalizeText(team?.name);
-  const sport = formatShareSport(team?.sport);
+function buildBulletLine(parts: ReadonlyArray<string | null | undefined>): string {
+  return parts
+    .map((part) => normalizeText(part))
+    .filter(Boolean)
+    .join(' • ');
+}
 
-  if (teamName && sport) return `${teamName} · ${sport}`;
-  if (teamName) return teamName;
-  if (sport) return sport;
-  return 'this team';
+function buildProfileIdentityLine(profile: ProfileShareSource): string {
+  return buildBulletLine([profile.athleteName, profile.position, profile.school, profile.location]);
+}
+
+function buildTeamIdentityLine(team: TeamShareSource): string {
+  return buildBulletLine([team.teamName, formatShareSport(team.sport), team.location]);
+}
+
+function buildInviteIdentityLine(source: InviteShareSource): string {
+  if (source.inviteType === 'team') {
+    return buildBulletLine([
+      normalizeText(source.team?.name),
+      formatShareSport(source.team?.sport),
+      normalizeText(source.senderLocation),
+    ]);
+  }
+
+  if (source.senderRole === USER_ROLES.DIRECTOR) {
+    return buildBulletLine([source.senderName, source.senderSchool]);
+  }
+
+  if (isTeamManagementRole(source.senderRole)) {
+    return buildBulletLine([
+      source.senderName,
+      source.senderSchool,
+      formatShareSport(source.senderSport ?? source.team?.sport),
+    ]);
+  }
+
+  return buildBulletLine([
+    source.senderName,
+    source.senderPosition,
+    source.senderSchool,
+    source.senderLocation,
+  ]);
+}
+
+function appendIdentityLine(lead: string, identityLine: string): string {
+  return identityLine ? `${lead}\n${identityLine}` : lead;
 }
 
 export function buildInviteShareTitle(source: InviteShareSource): string {
@@ -119,14 +160,27 @@ export function buildInviteShareTitle(source: InviteShareSource): string {
 
 export function buildInviteShareText(source: InviteShareSource): string {
   if (source.inviteType === 'team') {
-    return `Step into ${buildInviteTeamContext(source.team)} on NXT1. The roster, communication, schedule, and team intelligence all run from one command center:`;
+    return appendIdentityLine(
+      'Get to know our athletes & program.\nPowered by NXT1, the sports intelligence platform.',
+      buildInviteIdentityLine(source)
+    );
+  }
+
+  if (source.senderRole === USER_ROLES.DIRECTOR) {
+    return appendIdentityLine(
+      'Add your program to our network on NXT1.',
+      buildInviteIdentityLine(source)
+    );
   }
 
   if (isTeamManagementRole(source.senderRole)) {
-    return 'Join my program on NXT1. Bring your roster, communication, and sports intelligence into one command center:';
+    return appendIdentityLine('Join our program on NXT1.', buildInviteIdentityLine(source));
   }
 
-  return 'Join me on NXT1. Build your name, stay locked in with your people, and tap into the sports intelligence platform built for what is next:';
+  return appendIdentityLine(
+    'Join me & sign up free on NXT1, the sports intelligence platform.',
+    buildInviteIdentityLine(source)
+  );
 }
 
 export function buildInviteUiCopy(source: InviteShareSource): InviteUiCopy {
@@ -168,16 +222,10 @@ export function buildProfileShareTitle(profile: ProfileShareSource): string {
 }
 
 export function buildProfileShareText(profile: ProfileShareSource): string {
-  const identity = [profile.position, formatShareSport(profile.sport)].filter(Boolean).join(' · ');
-  const profileContext = [
-    identity,
-    profile.school ? profile.school : '',
-    profile.classYear ? `Class of ${profile.classYear}` : '',
-  ]
-    .filter(Boolean)
-    .join(' | ');
-
-  return `See ${profile.athleteName}${profileContext ? `, ${profileContext}` : ''} on NXT1. Film, stats, and real-time sports intelligence in one profile built for the next level.`;
+  return appendIdentityLine(
+    'See my athletic profile & learn more about me on NXT1, the sports intelligence platform.',
+    buildProfileIdentityLine(profile)
+  );
 }
 
 export function buildProfileShareDescription(profile: ProfileShareSource): string {
@@ -199,15 +247,10 @@ export function buildTeamShareTitle(team: TeamShareSource): string {
 }
 
 export function buildTeamShareText(team: TeamShareSource): string {
-  const teamContext = [
-    formatShareSport(team.sport),
-    normalizeText(team.location),
-    team.record ? `Record ${team.record}` : '',
-  ]
-    .filter(Boolean)
-    .join(' | ');
-
-  return `Step inside ${team.teamName}${teamContext ? `, ${teamContext}` : ''} on NXT1. Track the roster, schedule, and highlights from one AI-powered team command center.`;
+  return appendIdentityLine(
+    'Get to know our athletes & program.\nPowered by NXT1, the sports intelligence platform.',
+    buildTeamIdentityLine(team)
+  );
 }
 
 export function buildTeamShareDescription(team: TeamShareSource): string {
@@ -229,12 +272,11 @@ export function buildPostShareTitle(post: PostShareSource): string {
 }
 
 export function buildPostShareText(post: PostShareSource): string {
-  const excerpt = truncateText(post.postText, 120);
-  if (!excerpt) {
-    return `See the latest from ${post.authorName} on NXT1. Open the full update, profile context, and live conversation in one place.`;
-  }
-
-  return `${post.authorName} on NXT1: "${excerpt}" See the full update, profile context, and live conversation in one place.`;
+  const identityLine = buildBulletLine([post.authorName]);
+  return appendIdentityLine(
+    'Check out my journey on NXT1, the sports intelligence platform.',
+    identityLine
+  );
 }
 
 export function buildPostShareDescription(post: PostShareSource): string {
@@ -249,8 +291,11 @@ export function buildArticleShareTitle(article: ArticleShareSource): string {
 }
 
 export function buildArticleShareText(article: ArticleShareSource): string {
-  const excerpt = truncateText(article.excerpt, 160);
-  return `Read "${article.title}" on NXT1 Pulse.${excerpt ? ` ${excerpt}` : ''} Get the full sports intelligence briefing and source context on NXT1.`;
+  const creditLine = buildBulletLine([article.title, article.source]);
+  return appendIdentityLine(
+    'Catch this story on NXT1, The sports intelligence platform.',
+    creditLine
+  );
 }
 
 export function buildArticleShareDescription(article: ArticleShareSource): string {

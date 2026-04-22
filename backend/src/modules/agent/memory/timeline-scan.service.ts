@@ -26,8 +26,10 @@ import { POSTS_COLLECTIONS } from '@nxt1/core/constants';
 import type { OpenRouterService } from '../llm/openrouter.service.js';
 import type { VectorMemoryService } from './vector.service.js';
 import { AgentMemoryModel } from './vector.service.js';
-import { AgentThreadModel } from '../../../models/agent-thread.model.js';
+import { AgentThreadModel } from '../../../models/agent/agent-thread.model.js';
+import { resolveStructuredOutput } from '../llm/structured-output.js';
 import { logger } from '../../../utils/logger.js';
+import { z } from 'zod';
 
 // ─── Constants (exported for cron route + tests) ───────────────────────────────
 
@@ -55,6 +57,14 @@ const VALID_CATEGORIES: readonly AgentMemoryCategory[] = [
 ];
 
 const VALID_TARGETS: readonly AgentMemoryTarget[] = ['user', 'team', 'organization'];
+
+const extractedTimelineFactSchema = z.object({
+  content: z.string().trim().min(1),
+  category: z.enum(['preference', 'goal', 'recruiting_context', 'performance_data']),
+  target: z.enum(['user', 'team', 'organization']).default('user'),
+});
+
+const extractedTimelineFactsSchema = z.array(z.unknown());
 
 /** How recently a user must have interacted with Agent X to be eligible for cron scanning. */
 const AGENT_ACTIVE_LOOKBACK_DAYS = 7;
@@ -157,7 +167,10 @@ export class TimelineScanService {
         tier: 'extraction',
         temperature: 0,
         maxTokens: 2000,
-        jsonMode: true,
+        outputSchema: {
+          name: 'timeline_scan_facts',
+          schema: extractedTimelineFactsSchema,
+        },
         telemetryContext: {
           operationId: `scan-timeline-posts-${userId}`,
           userId,
@@ -167,23 +180,17 @@ export class TimelineScanService {
       }
     );
 
-    if (!completion.content) {
-      return {
-        postsScanned: posts.length,
-        factsExtracted: 0,
-        memoriesStored: 0,
-        message: 'No durable facts could be extracted from the scanned posts.',
-      };
-    }
-
-    let facts: Array<{ content: string; category: string; target?: string }>;
+    let parsedFacts: z.infer<typeof extractedTimelineFactsSchema>;
     try {
-      const parsed = JSON.parse(completion.content);
-      facts = Array.isArray(parsed) ? parsed : [];
+      parsedFacts = resolveStructuredOutput(
+        completion,
+        extractedTimelineFactsSchema,
+        'Timeline scan extraction'
+      );
     } catch {
       logger.warn('[TimelineScanService] Failed to parse extraction JSON', {
         userId,
-        raw: completion.content.slice(0, 500),
+        raw: (completion.content ?? '').slice(0, 500),
       });
       return {
         postsScanned: posts.length,
@@ -192,6 +199,11 @@ export class TimelineScanService {
         message: 'Extraction model returned an unparseable response. No memories stored.',
       };
     }
+
+    const facts = parsedFacts.flatMap((item) => {
+      const fact = extractedTimelineFactSchema.safeParse(item);
+      return fact.success ? [fact.data] : [];
+    });
 
     const stored = await this.storeFacts(facts, userId, teamId);
 

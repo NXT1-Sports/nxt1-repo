@@ -23,7 +23,8 @@ import { ContextBuilder } from '../memory/context-builder.js';
 import { SyncMemoryExtractorService } from '../memory/sync-memory-extractor.service.js';
 import { VectorMemoryService } from '../memory/vector.service.js';
 import { logger } from '../../../utils/logger.js';
-import { getSyncDeltaEventService } from '../../../services/sync-delta-event.service.js';
+import { getSyncDeltaEventService } from '../../../services/core/sync-delta-event.service.js';
+import { db as appDb } from '../../../utils/firebase.js';
 
 /** Lazy singleton — avoids eager Firestore access at module load time. */
 let _triggerService: AgentTriggerService | null = null;
@@ -42,7 +43,7 @@ function getGenerationService(): AgentGenerationService {
 let _syncMemoryExtractor: SyncMemoryExtractorService | null = null;
 function getSyncMemoryExtractor(): SyncMemoryExtractorService {
   if (!_syncMemoryExtractor) {
-    const llm = new OpenRouterService();
+    const llm = new OpenRouterService({ firestore: appDb });
     const vectorMemory = new VectorMemoryService(llm);
     _syncMemoryExtractor = new SyncMemoryExtractorService(
       vectorMemory,
@@ -411,7 +412,7 @@ export async function runStaleProfileCheck(): Promise<void> {
  */
 export async function runPlaybookNudge(): Promise<void> {
   const { getFirestore, FieldValue } = await import('firebase-admin/firestore');
-  const { dispatch } = await import('../../../services/notification.service.js');
+  const { dispatch } = await import('../../../services/communications/notification.service.js');
   const { NOTIFICATION_TYPES } = await import('@nxt1/core');
 
   const db = getFirestore();

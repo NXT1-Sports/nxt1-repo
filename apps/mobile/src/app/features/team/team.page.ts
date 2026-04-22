@@ -660,7 +660,7 @@ export class TeamPage {
       // Refresh team data after management changes
       const slug = this.teamSlug();
       if (slug) {
-        this.teamApi.invalidateCache(slug);
+        await this.teamApi.invalidateCache(slug);
       }
 
       const teamCode = this.routeTeamCode();

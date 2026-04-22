@@ -14,9 +14,10 @@
 
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
-import { getCacheService } from '../../../../services/cache.service.js';
+import { getCacheService } from '../../../../services/core/cache.service.js';
 import { logger } from '../../../../utils/logger.js';
 import { resolveCreatedAt } from './doc-date-utils.js';
+import { z } from 'zod';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -25,6 +26,23 @@ const TEAMS_COLLECTION = 'Teams';
 const MAX_POSTS_PER_CALL = 10;
 
 const VALID_POST_TYPES = new Set(['text', 'image', 'video', 'announcement']);
+
+const TeamPostEntrySchema = z
+  .object({
+    type: z.string().trim().min(1).optional(),
+    content: z.string().trim().min(1).optional(),
+    mediaUrls: z.array(z.string().trim().min(1)).optional(),
+    title: z.string().trim().min(1).optional(),
+    sportId: z.string().trim().min(1).optional(),
+    isPinned: z.boolean().optional(),
+  })
+  .passthrough();
+
+const WriteTeamPostInputSchema = z.object({
+  teamId: z.string().trim().min(1),
+  teamCode: z.string().trim().min(1),
+  posts: z.array(TeamPostEntrySchema).min(1).max(MAX_POSTS_PER_CALL),
+});
 
 // ─── Tool ───────────────────────────────────────────────────────────────────
 
@@ -46,32 +64,7 @@ export class WriteTeamPostTool extends BaseTool {
     '  • sportId (optional): Sport this post is related to.\n' +
     '  • isPinned (optional): Pin post to top of timeline.';
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      teamId: { type: 'string' },
-      teamCode: { type: 'string' },
-      posts: {
-        type: 'array',
-        items: {
-          type: 'object',
-          properties: {
-            type: {
-              type: 'string',
-              enum: ['text', 'image', 'video', 'announcement'],
-            },
-            content: { type: 'string' },
-            mediaUrls: { type: 'array', items: { type: 'string' } },
-            title: { type: 'string' },
-            sportId: { type: 'string' },
-            isPinned: { type: 'boolean' },
-          },
-          required: ['type'],
-        },
-      },
-    },
-    required: ['teamId', 'teamCode', 'posts'],
-  } as const;
+  readonly parameters = WriteTeamPostInputSchema;
 
   override readonly allowedAgents = ['data_coordinator'] as const;
   readonly isMutation = true;
@@ -88,18 +81,11 @@ export class WriteTeamPostTool extends BaseTool {
     input: Record<string, unknown>,
     context?: ToolExecutionContext
   ): Promise<ToolResult> {
-    const teamId = this.str(input, 'teamId');
-    if (!teamId) return this.paramError('teamId');
-    const teamCode = this.str(input, 'teamCode');
-    if (!teamCode) return this.paramError('teamCode');
+    const parsed = WriteTeamPostInputSchema.safeParse(input);
+    if (!parsed.success) return this.zodError(parsed.error);
 
-    const rawPosts = input['posts'];
-    if (!Array.isArray(rawPosts) || rawPosts.length === 0) {
-      return { success: false, error: 'posts must be a non-empty array.' };
-    }
-    if (rawPosts.length > MAX_POSTS_PER_CALL) {
-      return { success: false, error: `posts exceeds maximum of ${MAX_POSTS_PER_CALL}.` };
-    }
+    const { teamId, teamCode } = parsed.data;
+    const rawPosts = parsed.data.posts;
 
     if (!context?.userId) {
       return { success: false, error: 'Authenticated tool context is required.' };
@@ -171,7 +157,11 @@ export class WriteTeamPostTool extends BaseTool {
         return { success: false, error: 'No valid posts after validation.' };
       }
 
-      context?.onProgress?.(`Writing ${written} team post(s)…`);
+      context?.emitStage?.('submitting_job', {
+        icon: 'document',
+        written,
+        phase: 'write_team_posts',
+      });
       await batch.commit();
 
       // Invalidate team timeline and profile caches

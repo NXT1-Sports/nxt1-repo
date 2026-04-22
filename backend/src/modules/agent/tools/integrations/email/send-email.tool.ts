@@ -8,13 +8,24 @@
  */
 
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../../base.tool.js';
-import { sendEmailViaProvider } from '../../../../../services/connected-mail.service.js';
+import { sendEmailViaProvider } from '../../../../../services/communications/connected-mail.service.js';
 import type { Firestore } from 'firebase-admin/firestore';
 import { db as defaultDb } from '../../../../../utils/firebase.js';
-import { getAnalyticsLoggerService } from '../../../../../services/analytics-logger.service.js';
+import { getAnalyticsLoggerService } from '../../../../../services/core/analytics-logger.service.js';
 import { logger } from '../../../../../utils/logger.js';
+import { z } from 'zod';
 
 type EmailProvider = 'gmail' | 'microsoft';
+
+const MAX_SUBJECT_LENGTH = 500;
+const MAX_BODY_LENGTH = 50_000;
+
+const SendEmailInputSchema = z.object({
+  userId: z.string().trim().min(1),
+  toEmail: z.string().trim().email(),
+  subject: z.string().trim().min(1).max(MAX_SUBJECT_LENGTH),
+  bodyHtml: z.string().trim().min(1).max(MAX_BODY_LENGTH),
+});
 
 export class SendEmailTool extends BaseTool {
   readonly name = 'send_email';
@@ -22,19 +33,7 @@ export class SendEmailTool extends BaseTool {
     "Sends an email via the user's connected email account (Gmail or Microsoft Outlook). " +
     'The provider is auto-detected from the user profile. ' +
     'Use this to send recruiting outreach emails, follow-ups, or any email on behalf of the user.';
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      userId: {
-        type: 'string',
-        description: 'The authenticated user ID (uid) who owns the connected email account.',
-      },
-      toEmail: { type: 'string', description: 'The recipient email address.' },
-      subject: { type: 'string', description: 'The subject line of the email.' },
-      bodyHtml: { type: 'string', description: 'The body content of the email.' },
-    },
-    required: ['userId', 'toEmail', 'subject', 'bodyHtml'],
-  } as const;
+  readonly parameters = SendEmailInputSchema;
   override readonly allowedAgents = ['recruiting_coordinator'] as const;
   readonly isMutation = true;
   readonly category = 'communication' as const;
@@ -46,56 +45,27 @@ export class SendEmailTool extends BaseTool {
     this.db = db ?? defaultDb;
   }
 
-  /** Maximum lengths to prevent abuse. */
-  private static readonly MAX_SUBJECT_LENGTH = 500;
-  private static readonly MAX_BODY_LENGTH = 50_000;
-
-  /** Basic email format validation. */
-  private static readonly EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
   async execute(
     input: Record<string, unknown>,
     context?: ToolExecutionContext
   ): Promise<ToolResult> {
-    const userId = input['userId'] as string | undefined;
-    const toEmail = input['toEmail'] as string | undefined;
-    const subject = input['subject'] as string | undefined;
-    const bodyHtml = input['bodyHtml'] as string | undefined;
+    const parsed = SendEmailInputSchema.safeParse(input);
+    if (!parsed.success) {
+      return {
+        success: false,
+        error: parsed.error.issues.map((issue) => issue.message).join(', '),
+      };
+    }
 
-    // ── Input validation ──────────────────────────────────────────────────
-    if (!userId || typeof userId !== 'string') {
-      return { success: false, error: 'Missing required field: userId.' };
-    }
-    if (typeof toEmail !== 'string' || !SendEmailTool.EMAIL_REGEX.test(toEmail)) {
-      return {
-        success: false,
-        error: 'Invalid or missing "toEmail": must be a valid email address.',
-      };
-    }
-    if (typeof subject !== 'string' || subject.trim().length === 0) {
-      return { success: false, error: 'Invalid or missing "subject": must be a non-empty string.' };
-    }
-    if (subject.length > SendEmailTool.MAX_SUBJECT_LENGTH) {
-      return {
-        success: false,
-        error: `"subject" exceeds maximum length of ${SendEmailTool.MAX_SUBJECT_LENGTH} characters.`,
-      };
-    }
-    if (typeof bodyHtml !== 'string' || bodyHtml.trim().length === 0) {
-      return {
-        success: false,
-        error: 'Invalid or missing "bodyHtml": must be a non-empty string.',
-      };
-    }
-    if (bodyHtml.length > SendEmailTool.MAX_BODY_LENGTH) {
-      return {
-        success: false,
-        error: `"bodyHtml" exceeds maximum length of ${SendEmailTool.MAX_BODY_LENGTH} characters.`,
-      };
-    }
+    const { userId, toEmail, subject, bodyHtml } = parsed.data;
 
     // ── Auto-detect provider from user's connected emails ─────────────────
-    context?.onProgress?.('Connecting to email provider…');
+    context?.emitStage?.('fetching_data', {
+      icon: 'email',
+      userId,
+      recipientEmail: toEmail,
+      phase: 'resolve_provider',
+    });
     let provider: EmailProvider;
     try {
       const userDoc = await this.db.collection('Users').doc(userId).get();
@@ -125,7 +95,13 @@ export class SendEmailTool extends BaseTool {
     }
 
     // ── Send via the unified email service ────────────────────────────────
-    context?.onProgress?.(`Sending email to ${toEmail}…`);
+    context?.emitStage?.('submitting_job', {
+      icon: 'email',
+      userId,
+      recipientEmail: toEmail,
+      subject,
+      phase: 'send_email',
+    });
     try {
       const result = await sendEmailViaProvider(
         userId,

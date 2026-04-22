@@ -8,7 +8,7 @@
  * Design decisions:
  *  - Uses the `balanced` model tier (Sonnet) for accurate extraction — this is
  *    the primary extraction path, not a fallback.
- *  - jsonMode: true forces the LLM to return parseable JSON.
+ *  - outputSchema enforces structured JSON output from the LLM.
  *  - The prompt embeds the full DistilledProfile schema so the LLM knows exactly
  *    what fields are valid.
  *  - Defensive parsing: if the LLM returns garbage, we return null rather than
@@ -20,10 +20,12 @@
  */
 
 import { OpenRouterService } from '../../../llm/openrouter.service.js';
+import { resolveStructuredOutput } from '../../../llm/structured-output.js';
 import type { DistilledProfile } from './distiller.types.js';
 import type { PageVideo } from '../page-data.types.js';
 import { asNumber } from './distiller-helpers.js';
 import { logger } from '../../../../../utils/logger.js';
+import { z } from 'zod';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -42,6 +44,23 @@ const MAX_RESPONSE_TOKENS = 8192;
 
 /** Kill switch: set AI_DISTILLER_ENABLED=false to disable AI distillation entirely. */
 const AI_DISTILLER_ENABLED = process.env['AI_DISTILLER_ENABLED'] !== 'false';
+
+const distilledSectionSchema = z.record(z.string(), z.unknown());
+
+const distilledProfileSchema = z.object({
+  profileType: z.enum(['athlete', 'team', 'organization']).optional(),
+  identity: distilledSectionSchema.optional(),
+  academics: distilledSectionSchema.optional(),
+  sportInfo: distilledSectionSchema.optional(),
+  team: distilledSectionSchema.optional(),
+  coach: distilledSectionSchema.optional(),
+  metrics: z.array(distilledSectionSchema).optional(),
+  seasonStats: z.array(distilledSectionSchema).optional(),
+  recruiting: z.array(distilledSectionSchema).optional(),
+  awards: z.array(distilledSectionSchema).optional(),
+  schedule: z.array(distilledSectionSchema).optional(),
+  media: distilledSectionSchema.optional(),
+});
 
 // ─── System Prompt ──────────────────────────────────────────────────────────
 
@@ -373,7 +392,10 @@ export async function distillWithAI(
       tier: 'extraction',
       maxTokens: MAX_RESPONSE_TOKENS,
       temperature: 0,
-      jsonMode: true,
+      outputSchema: {
+        name: 'distilled_profile',
+        schema: distilledProfileSchema,
+      },
       telemetryContext: {
         operationId: `ai-distill-${crypto.randomUUID()}`,
         userId: 'system',
@@ -381,12 +403,11 @@ export async function distillWithAI(
       },
     });
 
-    if (!result.content) {
-      logger.warn('[AI-Distiller] LLM returned empty content', { url, platform: platformSlug });
-      return null;
-    }
-
-    const parsed = JSON.parse(result.content) as Record<string, unknown>;
+    const parsed = resolveStructuredOutput(
+      result,
+      distilledProfileSchema,
+      'Universal AI distillation'
+    ) as Record<string, unknown>;
     const profile = buildDistilledProfile(parsed, url, platformSlug);
 
     if (profile) {

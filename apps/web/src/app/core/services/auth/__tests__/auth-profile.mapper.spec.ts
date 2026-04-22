@@ -12,41 +12,54 @@ describe('mapBackendProfileToCachedUserProfile', () => {
       lastName: 'Taylor',
       role: 'coach',
       onboardingCompleted: true,
-      teamCode: {
-        teamCode: 'ARG123',
-        teamId: 'team-doc-1',
-        slug: 'argyle',
-        unicode: 'argyle',
-        teamName: 'Argyle',
-        sport: 'Football',
-        logoUrl: 'https://cdn.example.com/argyle.png',
-      },
+      sports: [
+        {
+          sport: 'Football',
+          order: 0,
+          team: {
+            name: 'Argyle',
+            teamId: 'team-doc-1',
+            slug: 'argyle',
+            logoUrl: 'https://cdn.example.com/argyle.png',
+            organizationId: 'org-argyle',
+            primaryColor: '#5f259f',
+            secondaryColor: '#ffffff',
+          },
+        },
+      ],
     });
 
     const ctx = buildUserDisplayContext({
       displayName: mapped.displayName,
       email: mapped.email,
       role: mapped.role,
-      teamCode: mapped['teamCode'] as
-        | {
-            readonly teamCode?: string;
-            readonly slug?: string;
-            readonly unicode?: string;
-            readonly teamName?: string;
-            readonly sport?: string;
-            readonly logoUrl?: string | null;
-          }
-        | null
+      sports: mapped.sports as
+        | ReadonlyArray<{
+            readonly sport: string;
+            readonly positions?: string[];
+            readonly isPrimary?: boolean;
+            readonly order?: number;
+            readonly team?: {
+              readonly name?: string;
+              readonly logoUrl?: string | null;
+              readonly logo?: string | null;
+              readonly teamId?: string;
+              readonly organizationId?: string;
+              readonly slug?: string;
+            };
+          }>
         | undefined,
     });
 
-    expect(mapped['teamCode']).toMatchObject({
-      teamCode: 'ARG123',
+    expect(mapped.sports?.[0]?.team).toMatchObject({
       teamId: 'team-doc-1',
+      organizationId: 'org-argyle',
+      primaryColor: '#5f259f',
+      secondaryColor: '#ffffff',
       slug: 'argyle',
-      teamName: 'Argyle',
+      name: 'Argyle',
     });
-    expect(ctx?.profileRoute).toBe('/team/argyle/ARG123');
+    expect(ctx?.profileRoute).toBe('/team/argyle/team-doc-1');
   });
 
   it('supports legacy string team codes and still builds the canonical team route', () => {
@@ -73,18 +86,6 @@ describe('mapBackendProfileToCachedUserProfile', () => {
       displayName: mapped.displayName,
       email: mapped.email,
       role: mapped.role,
-      teamCode: mapped['teamCode'] as
-        | {
-            readonly teamCode?: string;
-            readonly teamId?: string;
-            readonly slug?: string;
-            readonly unicode?: string;
-            readonly teamName?: string;
-            readonly sport?: string;
-            readonly logoUrl?: string | null;
-          }
-        | null
-        | undefined,
       sports: mapped.sports as
         | ReadonlyArray<{
             readonly sport: string;
@@ -96,6 +97,8 @@ describe('mapBackendProfileToCachedUserProfile', () => {
               readonly logoUrl?: string | null;
               readonly logo?: string | null;
               readonly teamId?: string;
+              readonly organizationId?: string;
+              readonly slug?: string;
             };
           }>
         | undefined,
@@ -107,7 +110,7 @@ describe('mapBackendProfileToCachedUserProfile', () => {
       slug: 'argyle',
       teamName: 'Argyle',
     });
-    expect(ctx?.profileRoute).toBe('/team/argyle/ARG123');
+    expect(ctx?.profileRoute).toBe('/team/argyle/team-doc-legacy');
   });
 
   it('derives selectedSports from normalized backend sports', () => {
@@ -162,96 +165,7 @@ describe('mapBackendProfileToCachedUserProfile', () => {
     ]);
   });
 
-  it('prefers the real managed team code over a document id fallback', () => {
-    const mapped = mapBackendProfileToCachedUserProfile({
-      id: 'user-doc-fallback',
-      email: 'coach-doc-fallback@nxt1.com',
-      firstName: 'Fallback',
-      lastName: 'Coach',
-      role: 'coach',
-      teamCode: {
-        teamId: 'team-doc-999',
-        teamName: 'Argyle',
-      },
-      coach: {
-        managedTeamCodes: ['ARG123'],
-      },
-    });
-
-    const ctx = buildUserDisplayContext({
-      displayName: mapped.displayName,
-      email: mapped.email,
-      role: mapped.role,
-      teamCode: mapped['teamCode'] as
-        | {
-            readonly teamCode?: string;
-            readonly teamId?: string;
-            readonly slug?: string;
-            readonly unicode?: string;
-            readonly teamName?: string;
-            readonly sport?: string;
-            readonly logoUrl?: string | null;
-          }
-        | null
-        | undefined,
-      managedTeamCodes: mapped['managedTeamCodes'] as string[] | null | undefined,
-    });
-
-    expect(mapped['teamCode']).toMatchObject({
-      teamCode: 'ARG123',
-      teamId: 'team-doc-999',
-      slug: 'argyle',
-      teamName: 'Argyle',
-    });
-    expect(ctx?.profileRoute).toBe('/team/argyle/ARG123');
-  });
-
-  it('does not let a document-style teamCode override the public team code', () => {
-    const mapped = mapBackendProfileToCachedUserProfile({
-      id: 'user-teamcode-doc-id',
-      email: 'coach-doc-teamcode@nxt1.com',
-      firstName: 'Flash',
-      lastName: 'Coach',
-      role: 'coach',
-      teamCode: {
-        teamCode: 'team-doc-999',
-        teamId: 'team-doc-999',
-        teamName: 'Argyle',
-      },
-      coach: {
-        managedTeamCodes: ['ARG123'],
-      },
-    });
-
-    const ctx = buildUserDisplayContext({
-      displayName: mapped.displayName,
-      email: mapped.email,
-      role: mapped.role,
-      teamCode: mapped['teamCode'] as
-        | {
-            readonly teamCode?: string;
-            readonly teamId?: string;
-            readonly slug?: string;
-            readonly unicode?: string;
-            readonly teamName?: string;
-            readonly sport?: string;
-            readonly logoUrl?: string | null;
-          }
-        | null
-        | undefined,
-      managedTeamCodes: mapped['managedTeamCodes'] as string[] | null | undefined,
-    });
-
-    expect(mapped['teamCode']).toMatchObject({
-      teamCode: 'ARG123',
-      teamId: 'team-doc-999',
-      slug: 'argyle',
-      teamName: 'Argyle',
-    });
-    expect(ctx?.profileRoute).toBe('/team/argyle/ARG123');
-  });
-
-  it('avoids using a document fallback route in the shell when no public team code exists yet', () => {
+  it('ignores the top-level compatibility teamCode when no sport affiliation exists', () => {
     const mapped = mapBackendProfileToCachedUserProfile({
       id: 'user-doc-only-fallback',
       email: 'coach-doc-only@nxt1.com',
@@ -270,61 +184,6 @@ describe('mapBackendProfileToCachedUserProfile', () => {
       displayName: mapped.displayName,
       email: mapped.email,
       role: mapped.role,
-      teamCode: mapped['teamCode'] as
-        | {
-            readonly teamCode?: string;
-            readonly teamId?: string;
-            readonly slug?: string;
-            readonly unicode?: string;
-            readonly teamName?: string;
-            readonly sport?: string;
-            readonly logoUrl?: string | null;
-          }
-        | null
-        | undefined,
-      managedTeamCodes: mapped['managedTeamCodes'] as string[] | null | undefined,
-    });
-
-    expect(ctx?.profileRoute).toBe('/team/argyle/team-doc-999');
-  });
-
-  it('derives a slug from team name for legacy managed teams while keeping the identifier', () => {
-    const mapped = mapBackendProfileToCachedUserProfile({
-      id: 'user-2',
-      email: 'director@nxt1.com',
-      firstName: 'Program',
-      lastName: 'Director',
-      role: 'coach',
-      sports: [
-        {
-          sport: 'Football',
-          order: 0,
-          team: {
-            name: 'Argyle',
-            logoUrl: 'https://cdn.example.com/argyle.png',
-          },
-        },
-      ],
-      coach: {
-        managedTeamCodes: ['ARG123'],
-      },
-    });
-
-    const ctx = buildUserDisplayContext({
-      displayName: mapped.displayName,
-      email: mapped.email,
-      role: mapped.role,
-      teamCode: mapped['teamCode'] as
-        | {
-            readonly teamCode?: string;
-            readonly slug?: string;
-            readonly unicode?: string;
-            readonly teamName?: string;
-            readonly sport?: string;
-            readonly logoUrl?: string | null;
-          }
-        | null
-        | undefined,
       sports: mapped.sports as
         | ReadonlyArray<{
             readonly sport: string;
@@ -333,19 +192,16 @@ describe('mapBackendProfileToCachedUserProfile', () => {
             readonly order?: number;
             readonly team?: {
               readonly name?: string;
-              readonly logoUrl?: string | null;
-              readonly logo?: string | null;
+              readonly teamId?: string;
+              readonly organizationId?: string;
+              readonly slug?: string;
             };
           }>
         | undefined,
     });
 
-    expect(mapped['teamCode']).toMatchObject({
-      teamCode: 'ARG123',
-      slug: 'argyle',
-      teamName: 'Argyle',
-    });
-    expect(ctx?.profileRoute).toBe('/team/argyle/ARG123');
+    expect(ctx?.isOnTeam).toBe(false);
+    expect(ctx?.profileRoute).toBe('/team');
   });
 
   it('blocks add profile actions for governed organization members who are not admins', () => {
@@ -353,17 +209,7 @@ describe('mapBackendProfileToCachedUserProfile', () => {
       displayName: 'Alex Player',
       email: 'alex@nxt1.com',
       role: 'athlete',
-      sports: [
-        {
-          sport: 'Football',
-          order: 0,
-          team: {
-            name: 'Argyle',
-            isOrganizationClaimed: true,
-            isUserOrganizationAdmin: false,
-          },
-        },
-      ],
+      organizationAccess: [{ organizationId: 'org-1', isClaimed: true, isAdmin: false }],
     });
 
     expect(ctx?.canAddProfile).toBe(false);
@@ -374,11 +220,7 @@ describe('mapBackendProfileToCachedUserProfile', () => {
       displayName: 'Program Director',
       email: 'director@nxt1.com',
       role: 'coach',
-      teamCode: {
-        teamCode: 'ARG123',
-        teamName: 'Argyle',
-        sport: 'Football',
-      },
+      organizationAccess: [{ organizationId: 'org-1', isClaimed: true, isAdmin: true }],
       sports: [
         {
           sport: 'Football',
@@ -386,8 +228,7 @@ describe('mapBackendProfileToCachedUserProfile', () => {
           team: {
             name: 'Argyle',
             teamId: 'team-1',
-            isOrganizationClaimed: true,
-            isUserOrganizationAdmin: true,
+            organizationId: 'org-1',
           },
         },
       ],
@@ -413,5 +254,26 @@ describe('mapBackendProfileToCachedUserProfile', () => {
     expect(ctx?.sportProfiles).toEqual([]);
     expect(ctx?.actionLabel).toBe('Add Team');
     expect(ctx?.canAddProfile).toBe(true);
+  });
+
+  it('does not treat slug or unicode remnants as a real team association for team roles', () => {
+    const ctx = buildUserDisplayContext({
+      displayName: 'Bbb Bb',
+      email: 'jkellerr8@gmail.com',
+      role: 'director',
+      sports: [
+        {
+          sport: 'Football',
+          order: 0,
+        },
+      ],
+    });
+
+    expect(ctx?.isOnTeam).toBe(false);
+    expect(ctx?.name).toBe('Bbb Bb');
+    expect(ctx?.sportLabel).toBeUndefined();
+    expect(ctx?.sportProfiles).toEqual([]);
+    expect(ctx?.actionLabel).toBe('Add Team');
+    expect(ctx?.profileRoute).toBe('/team');
   });
 });

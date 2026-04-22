@@ -82,10 +82,19 @@ export class InviteMobileComponent implements OnInit {
     const user = this.profileService.user();
     if (!user) return null;
 
+    const primarySport = this.profileService.primarySport();
+    const location = [primarySport?.team?.city, primarySport?.team?.state]
+      .filter(Boolean)
+      .join(', ');
+
     return {
       displayName: user.displayName || 'NXT1 User',
       profileImg: user.profileImgs?.[0] ?? null,
       role: user.role ?? undefined,
+      primaryPosition: primarySport?.positions?.[0] ?? null,
+      schoolName: primarySport?.team?.name ?? null,
+      primarySport: primarySport?.sport ?? null,
+      location: location || null,
     };
   });
 

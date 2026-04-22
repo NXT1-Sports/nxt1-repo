@@ -33,7 +33,7 @@ import {
   incrementCacheHit,
   incrementCacheMiss,
   incrementCacheSet,
-} from '../../../../../services/cache.service.js';
+} from '../../../../../services/core/cache.service.js';
 import { logger } from '../../../../../utils/logger.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────

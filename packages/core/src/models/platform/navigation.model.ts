@@ -904,6 +904,9 @@ export interface SidenavSportProfile {
   /** Unique profile ID */
   id: string;
 
+  /** True array index in the backend user.sports list */
+  originalIndex?: number;
+
   /** Sport name (e.g., 'Football', 'Basketball') */
   sport: string;
 

@@ -19,11 +19,16 @@
  */
 
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
-import { CollegeModel } from '../../../../models/college.model.js';
+import { CollegeModel } from '../../../../models/core/college.model.js';
+import { z } from 'zod';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const MAX_NAMES = 20;
+
+const GetCollegeLogosInputSchema = z.object({
+  colleges: z.array(z.string().trim().min(1)).min(1),
+});
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -51,20 +56,7 @@ export class GetCollegeLogosTool extends BaseTool {
     'If found: false is returned for a school, omit the logo or fall back to web_search. ' +
     'Max 20 names per call.';
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      colleges: {
-        type: 'array',
-        items: { type: 'string' },
-        description:
-          'Array of college/university names to resolve logos for. ' +
-          'Examples: ["BYU", "Ohio State", "Alabama", "UCLA"]. ' +
-          'Uses text search — exact name match is not required.',
-      },
-    },
-    required: ['colleges'],
-  } as const;
+  readonly parameters = GetCollegeLogosInputSchema;
 
   override readonly allowedAgents = ['*'] as const;
   readonly isMutation = false;
@@ -74,16 +66,19 @@ export class GetCollegeLogosTool extends BaseTool {
     input: Record<string, unknown>,
     context?: ToolExecutionContext
   ): Promise<ToolResult> {
-    const rawColleges = this.arr(input, 'colleges');
-    if (!rawColleges) return this.paramError('colleges');
-
-    const names = (
-      rawColleges.filter((n) => typeof n === 'string' && n.trim().length > 0) as string[]
-    ).slice(0, MAX_NAMES);
-
-    if (names.length === 0) {
-      return { success: false, error: 'All provided college names were empty.' };
+    const parsed = GetCollegeLogosInputSchema.safeParse(input);
+    if (!parsed.success) {
+      return {
+        success: false,
+        error: parsed.error.issues
+          .map((issue) =>
+            issue.path.length > 0 ? `${issue.path.join('.')}: ${issue.message}` : issue.message
+          )
+          .join(', '),
+      };
     }
+
+    const names = parsed.data.colleges.slice(0, MAX_NAMES);
 
     let bucket: string;
     try {
@@ -95,7 +90,11 @@ export class GetCollegeLogosTool extends BaseTool {
       };
     }
 
-    context?.onProgress?.(`Resolving logos for ${names.length} college(s)…`);
+    context?.emitStage?.('fetching_data', {
+      icon: 'search',
+      collegeCount: names.length,
+      phase: 'resolve_college_logos',
+    });
 
     const results: Array<{ name: string; logoUrl: string | null; found: boolean }> = [];
     const missing: string[] = [];

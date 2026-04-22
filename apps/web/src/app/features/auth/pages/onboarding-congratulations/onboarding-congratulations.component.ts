@@ -48,6 +48,7 @@ import { Router } from '@angular/router';
 // Shared UI Components
 import { AuthShellComponent } from '@nxt1/ui/auth/auth-shell';
 import { OnboardingWelcomeComponent } from '@nxt1/ui/onboarding/onboarding-welcome';
+import { AgentOnboardingLoadingComponent } from '@nxt1/ui/agent-x/onboarding';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import { NxtThemeService } from '@nxt1/ui/services/theme';
 import { AgentXService } from '@nxt1/ui/agent-x';
@@ -64,7 +65,12 @@ import { SeoService } from '../../../../core/services';
 @Component({
   selector: 'app-onboarding-congratulations',
   standalone: true,
-  imports: [CommonModule, AuthShellComponent, OnboardingWelcomeComponent],
+  imports: [
+    CommonModule,
+    AuthShellComponent,
+    OnboardingWelcomeComponent,
+    AgentOnboardingLoadingComponent,
+  ],
   template: `
     <nxt1-auth-shell
       variant="card-glass"
@@ -73,15 +79,23 @@ import { SeoService } from '../../../../core/services';
       [maxWidth]="'760px'"
     >
       <div authContent class="onboarding-welcome-container">
-        <nxt1-onboarding-welcome
-          #welcomeSlides
-          [userRole]="userRole()"
-          [firstName]="firstName()"
-          (complete)="onComplete()"
-          (skip)="onSkip()"
-          (slideViewed)="onSlideViewed($event)"
-          (goalsChanged)="onGoalsChanged($event)"
-        />
+        @if (isTransitioningToAgent()) {
+          <nxt1-agent-onboarding-loading
+            [readyToComplete]="initialGenerationReady()"
+            (loadingComplete)="onLoadingComplete()"
+          />
+        } @else {
+          <nxt1-onboarding-welcome
+            #welcomeSlides
+            [userRole]="userRole()"
+            [firstName]="firstName()"
+            [showDotNavigation]="false"
+            (complete)="onComplete()"
+            (skip)="onSkip()"
+            (slideViewed)="onSlideViewed($event)"
+            (goalsChanged)="onGoalsChanged($event)"
+          />
+        }
       </div>
     </nxt1-auth-shell>
   `,
@@ -131,8 +145,17 @@ export class OnboardingCongratulationsComponent implements OnInit {
   /** Current slide index for tracking */
   readonly currentSlideIndex = signal(0);
 
+  /** True while the handoff animation runs before navigating to Agent X */
+  readonly isTransitioningToAgent = signal(false);
+
+  /** Set once the initial briefing work has actually finished. */
+  readonly initialGenerationReady = signal(false);
+
   /** Selected goals from the goals slide */
   private readonly selectedGoals = signal<AgentGoal[]>([]);
+
+  /** Reused across final-slide prewarm and CTA completion to avoid duplicate work. */
+  private initialPreparationPromise: Promise<void> | null = null;
 
   // ============================================
   // COMPUTED (from AuthFlowService)
@@ -193,14 +216,14 @@ export class OnboardingCongratulationsComponent implements OnInit {
 
   /** Handle complete (CTA button click) */
   async onComplete(): Promise<void> {
-    await this.saveGoalsAndNavigate();
+    await this.startAgentTransition();
   }
 
   /** Handle skip — advance to next slide, or finish if on last slide */
   async onSkip(): Promise<void> {
     if (this.isLastSlide()) {
       this.logger.info('User skipped last slide — completing');
-      await this.saveGoalsAndNavigate();
+      await this.startAgentTransition();
     } else {
       this.logger.info('User skipped slide', { index: this.currentSlideIndex() });
       this.welcomeSlidesRef?.nextSlide();
@@ -211,6 +234,22 @@ export class OnboardingCongratulationsComponent implements OnInit {
   onSlideViewed(event: { index: number; slideId: string }): void {
     this.currentSlideIndex.set(event.index);
     this.logger.debug('Slide viewed', event);
+
+    if (event.index === this.totalSlides() - 1) {
+      void this.prepareInitialAgentStateIfNeeded();
+    }
+  }
+
+  /** Navigate to Agent X after the loading transition completes */
+  async onLoadingComplete(): Promise<void> {
+    this.logger.info('Agent transition loading complete, navigating to dashboard');
+
+    // Keep the celebratory dark theme through the transition screen, then
+    // restore the user's preference once we hand off to the dashboard route.
+    this.themeService.clearTemporaryOverride();
+    this.logger.debug('Cleared temporary theme override, restored user preference');
+
+    await this.router.navigate([AUTH_REDIRECTS.AGENT], { replaceUrl: true });
   }
 
   // ============================================
@@ -218,16 +257,38 @@ export class OnboardingCongratulationsComponent implements OnInit {
   // ============================================
 
   /**
-   * Save goals to backend and navigate to Agent X.
-   * Uses replaceUrl to replace the navigation stack (no back to onboarding).
-   *
-   * Also clears the temporary theme override, restoring user's saved preference.
+   * Start the Agent X handoff transition and kick off initial generation work
+   * before navigation so the dashboard has time to hydrate.
    */
-  private async saveGoalsAndNavigate(): Promise<void> {
+  private async startAgentTransition(): Promise<void> {
+    if (this.isTransitioningToAgent()) {
+      this.logger.debug('Agent transition already in progress');
+      return;
+    }
+
+    this.isTransitioningToAgent.set(true);
+    this.initialGenerationReady.set(false);
+    void this.prepareInitialAgentStateIfNeeded();
+  }
+
+  private prepareInitialAgentStateIfNeeded(): Promise<void> {
+    if (this.initialPreparationPromise) {
+      return this.initialPreparationPromise;
+    }
+
+    this.initialPreparationPromise = this.prepareInitialAgentState().finally(() => {
+      this.initialGenerationReady.set(true);
+    });
+
+    return this.initialPreparationPromise;
+  }
+
+  private async prepareInitialAgentState(): Promise<void> {
     const goals = this.selectedGoals();
 
-    // Fire-and-forget: save goals in background, navigate immediately.
-    // The /agent page has its own loading state for playbook generation.
+    // Use the transition animation as the visible window, but keep it open
+    // until the first briefing has actually finished so the user lands on
+    // a hydrated Agent X shell.
     if (goals.length > 0) {
       const dashboardGoals: AgentDashboardGoal[] = goals.map((g) => ({
         id: g.id,
@@ -236,17 +297,30 @@ export class OnboardingCongratulationsComponent implements OnInit {
         createdAt: new Date().toISOString(),
       }));
 
-      this.logger.info('Saving agent goals in background', { count: goals.length });
-      this.agentX.setGoals(dashboardGoals).catch((err) => {
-        this.logger.error('Error saving goals (non-blocking)', err);
-      });
+      try {
+        this.logger.info('Saving agent goals before Agent X handoff', { count: goals.length });
+        const saved = await this.agentX.setGoals(dashboardGoals);
+
+        if (saved) {
+          this.logger.info('Goals saved, generating initial briefing');
+          await this.agentX.generateBriefing(true);
+          await this.agentX.loadDashboard();
+        } else {
+          this.logger.warn('Goals failed to save before initial briefing generation');
+        }
+      } catch (err) {
+        this.logger.error('Error preparing Agent X state with goals', err);
+      }
+
+      return;
     }
 
-    // ⭐ THEME RESTORATION: Clear temporary override, restore user's preference
-    // This ensures the app respects user's original theme choice going forward
-    this.themeService.clearTemporaryOverride();
-    this.logger.debug('Cleared temporary theme override, restored user preference');
-
-    await this.router.navigate([AUTH_REDIRECTS.AGENT], { replaceUrl: true });
+    try {
+      this.logger.info('No goals set — generating initial welcome briefing');
+      await this.agentX.generateBriefing(false);
+      await this.agentX.loadDashboard();
+    } catch (err) {
+      this.logger.error('Error preparing Agent X state without goals', err);
+    }
   }
 }

@@ -13,6 +13,10 @@ import * as admin from 'firebase-admin';
 import { onDocumentDeleted } from 'firebase-functions/v2/firestore';
 import { logger } from 'firebase-functions/v2';
 import { releaseUnicode } from './generateUnicode';
+import {
+  buildOrganizationCleanupPlan,
+  extractOrganizationAdminUserIds,
+} from './organizationCleanup';
 
 const db = admin.firestore();
 const bucket = admin.storage().bucket();
@@ -43,7 +47,6 @@ const USER_ID_QUERY_COLLECTIONS = [
   'PostComments',
   'PostLikes',
   'Notifications',
-  'BillingContexts',
   'StripeCustomers',
 ] as const;
 
@@ -317,84 +320,69 @@ async function cleanupTeams(
 async function cleanupOrganizations(
   userId: string
 ): Promise<{ updated: number; deactivated: number }> {
-  const [ownedSnapshot, createdSnapshot, adminSnapshot] = await Promise.all([
-    db.collection('Organizations').where('ownerId', '==', userId).get(),
-    db.collection('Organizations').where('createdBy', '==', userId).get(),
-    db
-      .collection('Organizations')
-      .where('adminUserIds', 'array-contains', userId)
-      .get()
-      .catch(() => null),
-  ]);
+  const [ownedSnapshot, createdSnapshot, billingOwnerSnapshot, allOrganizations] =
+    await Promise.all([
+      db.collection('Organizations').where('ownerId', '==', userId).get(),
+      db.collection('Organizations').where('createdBy', '==', userId).get(),
+      db.collection('Organizations').where('billingOwnerUid', '==', userId).get(),
+      db.collection('Organizations').get(),
+    ]);
 
   const orgDocs = new Map<string, FirebaseFirestore.QueryDocumentSnapshot>();
   ownedSnapshot.docs.forEach((doc) => orgDocs.set(doc.id, doc));
   createdSnapshot.docs.forEach((doc) => orgDocs.set(doc.id, doc));
-  adminSnapshot?.docs.forEach((doc) => orgDocs.set(doc.id, doc));
+  billingOwnerSnapshot.docs.forEach((doc) => orgDocs.set(doc.id, doc));
+  allOrganizations.docs
+    .filter((doc) => extractOrganizationAdminUserIds(doc.data()['admins']).includes(userId))
+    .forEach((doc) => orgDocs.set(doc.id, doc));
 
   let updated = 0;
   let deactivated = 0;
 
   for (const doc of orgDocs.values()) {
     const data = doc.data();
-    const admins = Array.isArray(data['admins']) ? data['admins'] : [];
-    const filteredAdmins = admins.filter((adminValue) => {
-      if (!adminValue || typeof adminValue !== 'object') {
-        return true;
-      }
+    const cleanupPlan = buildOrganizationCleanupPlan(userId, data);
 
-      return (adminValue as Record<string, unknown>)['userId'] !== userId;
-    });
-
-    // Always rebuild adminUserIds from the filtered admins array (source of truth)
-    const rebuiltAdminUserIds = filteredAdmins
-      .map((a) => {
-        if (a && typeof a === 'object') {
-          return (a as Record<string, unknown>)['userId'];
-        }
-        return undefined;
-      })
-      .filter((id): id is string => typeof id === 'string');
-
-    const shouldUpdateAdmins = filteredAdmins.length !== admins.length;
-    const ownerMatches = data['ownerId'] === userId;
-    const creatorMatches = data['createdBy'] === userId;
-
-    // Also check if user is directly in the adminUserIds scalar array
-    // (handles drift where adminUserIds contains the user but admins doesn't)
-    const existingAdminUserIds = Array.isArray(data['adminUserIds'])
-      ? (data['adminUserIds'] as string[])
-      : [];
-    const userInAdminUserIds = existingAdminUserIds.includes(userId);
-
-    if (!shouldUpdateAdmins && !ownerMatches && !creatorMatches && !userInAdminUserIds) {
+    if (!cleanupPlan.shouldUpdate) {
       continue;
     }
 
-    const replacementAdmin = filteredAdmins[0] as Record<string, unknown> | undefined;
     const updateData: Record<string, unknown> = {
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     };
 
-    if (shouldUpdateAdmins || userInAdminUserIds) {
-      updateData['admins'] = filteredAdmins;
-      // Always sync adminUserIds from the filtered admins to prevent drift
-      updateData['adminUserIds'] = rebuiltAdminUserIds;
+    if (cleanupPlan.nextAdmins) {
+      updateData['admins'] = cleanupPlan.nextAdmins;
     }
 
-    if (ownerMatches) {
-      updateData['ownerId'] =
-        typeof replacementAdmin?.['userId'] === 'string' ? replacementAdmin['userId'] : '';
+    if (cleanupPlan.clearAdminUserIds) {
+      updateData['adminUserIds'] = admin.firestore.FieldValue.delete();
+    }
 
-      if (!updateData['ownerId']) {
+    if (cleanupPlan.nextOwnerId !== undefined) {
+      updateData['ownerId'] = cleanupPlan.nextOwnerId;
+
+      if (cleanupPlan.deactivated) {
+        updateData['status'] = 'inactive';
+        deactivated++;
+      }
+    } else if (cleanupPlan.clearOwnerId) {
+      updateData['ownerId'] = admin.firestore.FieldValue.delete();
+
+      if (cleanupPlan.deactivated) {
         updateData['status'] = 'inactive';
         deactivated++;
       }
     }
 
-    if (creatorMatches) {
-      updateData['createdBy'] =
-        typeof replacementAdmin?.['userId'] === 'string' ? replacementAdmin['userId'] : '';
+    if (cleanupPlan.nextCreatedBy !== undefined) {
+      updateData['createdBy'] = cleanupPlan.nextCreatedBy;
+    } else if (cleanupPlan.clearCreatedBy) {
+      updateData['createdBy'] = admin.firestore.FieldValue.delete();
+    }
+
+    if (cleanupPlan.clearBillingOwnerUid) {
+      updateData['billingOwnerUid'] = admin.firestore.FieldValue.delete();
     }
 
     await doc.ref.update(updateData);

@@ -1,13 +1,36 @@
 import type { Firestore, Query, QueryDocumentSnapshot } from 'firebase-admin/firestore';
 import { Timestamp, getFirestore } from 'firebase-admin/firestore';
+import type { ToolStage } from '@nxt1/core';
 import { BaseTool, type ToolExecutionContext, type ToolResult } from '../base.tool.js';
 import { stagingDb } from '../../../../utils/firebase-staging.js';
 import { logger } from '../../../../utils/logger.js';
+import { z } from 'zod';
 
 const DEFAULT_LIMIT = 10;
 const MAX_LIMIT = 25;
 const SCAN_BATCH_SIZE = 200;
 const CANDIDATE_LIMIT = 5;
+
+const NumberLikeSchema = z.union([z.number(), z.string().trim().min(1)]);
+
+const QueryNxt1PlatformDataInputSchema = z.object({
+  entityType: z.string().trim().min(1),
+  query: z.string().trim().min(1).optional(),
+  userId: z.string().trim().min(1).optional(),
+  unicode: z.string().trim().min(1).optional(),
+  sport: z.string().trim().min(1).optional(),
+  state: z.string().trim().min(1).optional(),
+  role: z.string().trim().min(1).optional(),
+  teamId: z.string().trim().min(1).optional(),
+  organizationId: z.string().trim().min(1).optional(),
+  postType: z.string().trim().min(1).optional(),
+  category: z.string().trim().min(1).optional(),
+  season: z.string().trim().min(1).optional(),
+  status: z.string().trim().min(1).optional(),
+  field: z.string().trim().min(1).optional(),
+  eventType: z.string().trim().min(1).optional(),
+  limit: NumberLikeSchema.optional(),
+});
 
 const COLLECTIONS = {
   USERS: 'Users',
@@ -79,93 +102,10 @@ export class QueryNxt1PlatformDataTool extends BaseTool {
     'Use entityType "user_bundle" to pull one athlete or user across their related collections (profile, posts, recruiting, stats, metrics, roster memberships, and events). ' +
     'For count questions, answer from totalCount or bundle totals, not from the visible items array length.';
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      entityType: {
-        type: 'string',
-        enum: [
-          'users',
-          'teams',
-          'organizations',
-          'posts',
-          'recruiting',
-          'season_stats',
-          'physical_metrics',
-          'roster_entries',
-          'events',
-          'user_bundle',
-        ],
-        description: 'Which NXT1 platform dataset to query.',
-      },
-      query: {
-        type: 'string',
-        description:
-          'Optional free-text search. Examples: athlete name, organization name, post title, coach name, or event title.',
-      },
-      userId: {
-        type: 'string',
-        description: 'Optional user identifier to filter records or resolve a full user bundle.',
-      },
-      unicode: {
-        type: 'string',
-        description:
-          'Optional profile unicode for resolving a full user bundle or a specific user.',
-      },
-      sport: {
-        type: 'string',
-        description: 'Optional sport filter, for example Football or Basketball.',
-      },
-      state: {
-        type: 'string',
-        description: 'Optional state filter, for example TX or Texas.',
-      },
-      role: {
-        type: 'string',
-        description: 'Optional role filter, for example athlete, coach, parent, or recruiter.',
-      },
-      teamId: {
-        type: 'string',
-        description: 'Optional team identifier filter.',
-      },
-      organizationId: {
-        type: 'string',
-        description: 'Optional organization identifier filter.',
-      },
-      postType: {
-        type: 'string',
-        description: 'Optional post type filter, for example highlight or stat_update.',
-      },
-      category: {
-        type: 'string',
-        description: 'Optional category filter for recruiting, stats, metrics, or events.',
-      },
-      season: {
-        type: 'string',
-        description: 'Optional season filter for player stats.',
-      },
-      status: {
-        type: 'string',
-        description: 'Optional status filter for roster entries, organizations, or events.',
-      },
-      field: {
-        type: 'string',
-        description: 'Optional field filter for physical metrics, for example forty or vertical.',
-      },
-      eventType: {
-        type: 'string',
-        description: 'Optional event type filter.',
-      },
-      limit: {
-        type: 'number',
-        description: `Optional max rows to return. Hard-capped at ${MAX_LIMIT}.`,
-      },
-    },
-    required: ['entityType'],
-  } as const;
+  readonly parameters = QueryNxt1PlatformDataInputSchema;
 
   override readonly allowedAgents = [
-    'general',
+    'strategy_coordinator',
     'data_coordinator',
     'performance_coordinator',
     'recruiting_coordinator',
@@ -182,7 +122,10 @@ export class QueryNxt1PlatformDataTool extends BaseTool {
     input: Record<string, unknown>,
     context?: ToolExecutionContext
   ): Promise<ToolResult> {
-    const entityType = this.parseEntityType(input['entityType']);
+    const parsed = QueryNxt1PlatformDataInputSchema.safeParse(input);
+    if (!parsed.success) return this.zodError(parsed.error);
+
+    const entityType = this.parseEntityType(parsed.data.entityType);
     if (!entityType) {
       return {
         success: false,
@@ -191,7 +134,7 @@ export class QueryNxt1PlatformDataTool extends BaseTool {
       };
     }
 
-    const filters = this.parseFilters(input);
+    const filters = this.parseFilters(parsed.data);
     if (entityType === 'user_bundle' && !filters.userId && !filters.unicode && !filters.query) {
       return {
         success: false,
@@ -204,14 +147,22 @@ export class QueryNxt1PlatformDataTool extends BaseTool {
       const db = this.resolveDb(context);
 
       if (entityType === 'user_bundle') {
-        context?.onProgress?.('Resolving cross-collection user data across NXT1…');
+        context?.emitStage?.('fetching_data', {
+          icon: 'database',
+          entityType,
+          phase: 'resolve_user_bundle',
+        });
         return {
           success: true,
           data: await this.loadUserBundle(db, filters, context),
         };
       }
 
-      context?.onProgress?.(`Scanning NXT1 ${entityType.replace(/_/g, ' ')} across the platform…`);
+      context?.emitStage?.('fetching_data', {
+        icon: 'database',
+        entityType,
+        phase: 'scan_platform_collection',
+      });
       const result = await this.queryEntityCollection(db, entityType, filters, context);
       return {
         success: true,
@@ -254,23 +205,35 @@ export class QueryNxt1PlatformDataTool extends BaseTool {
     }
   }
 
-  private parseFilters(input: Record<string, unknown>): PlatformDataFilters {
+  private parseFilters(
+    input: z.infer<typeof QueryNxt1PlatformDataInputSchema>
+  ): PlatformDataFilters {
+    const limitValue =
+      typeof input.limit === 'number'
+        ? input.limit
+        : typeof input.limit === 'string'
+          ? Number(input.limit)
+          : undefined;
+
     return {
-      query: this.str(input, 'query'),
-      userId: this.str(input, 'userId'),
-      unicode: this.str(input, 'unicode'),
-      sport: this.str(input, 'sport'),
-      state: this.normalizeState(this.str(input, 'state')),
-      role: this.str(input, 'role')?.toLowerCase() ?? null,
-      teamId: this.str(input, 'teamId'),
-      organizationId: this.str(input, 'organizationId'),
-      postType: this.str(input, 'postType')?.toLowerCase() ?? null,
-      category: this.str(input, 'category')?.toLowerCase() ?? null,
-      season: this.str(input, 'season'),
-      status: this.str(input, 'status')?.toLowerCase() ?? null,
-      field: this.str(input, 'field')?.toLowerCase() ?? null,
-      eventType: this.str(input, 'eventType')?.toLowerCase() ?? null,
-      limit: Math.min(Math.max(this.num(input, 'limit') ?? DEFAULT_LIMIT, 1), MAX_LIMIT),
+      query: input.query ?? null,
+      userId: input.userId ?? null,
+      unicode: input.unicode ?? null,
+      sport: input.sport ?? null,
+      state: this.normalizeState(input.state ?? null),
+      role: input.role?.toLowerCase() ?? null,
+      teamId: input.teamId ?? null,
+      organizationId: input.organizationId ?? null,
+      postType: input.postType?.toLowerCase() ?? null,
+      category: input.category?.toLowerCase() ?? null,
+      season: input.season ?? null,
+      status: input.status?.toLowerCase() ?? null,
+      field: input.field?.toLowerCase() ?? null,
+      eventType: input.eventType?.toLowerCase() ?? null,
+      limit: Math.min(
+        Math.max(Number.isFinite(limitValue) ? (limitValue as number) : DEFAULT_LIMIT, 1),
+        MAX_LIMIT
+      ),
     };
   }
 
@@ -332,7 +295,12 @@ export class QueryNxt1PlatformDataTool extends BaseTool {
       limit: filters.limit,
     };
 
-    context?.onProgress?.('Loading related posts, recruiting, stats, metrics, roster, and events…');
+    context?.emitStage?.('fetching_data', {
+      icon: 'database',
+      entityType: 'user_bundle',
+      userId,
+      phase: 'load_related_entities',
+    });
     const [posts, recruiting, seasonStats, physicalMetrics, rosterEntries, events] =
       await Promise.all([
         this.scanCollection(
@@ -484,7 +452,11 @@ export class QueryNxt1PlatformDataTool extends BaseTool {
       }
     }
 
-    context?.onProgress?.('Scanning user profiles to resolve the requested athlete…');
+    context?.emitStage?.('fetching_data', {
+      icon: 'database',
+      entityType: 'users',
+      phase: 'resolve_requested_athlete',
+    });
     let totalCount = 0;
     const candidates: Record<string, unknown>[] = [];
     let lastDoc: QueryDocumentSnapshot | undefined;
@@ -578,8 +550,11 @@ export class QueryNxt1PlatformDataTool extends BaseTool {
       }
 
       scannedCount += snapshot.docs.length;
-      if (context?.onProgress && scannedCount % 1000 === 0) {
-        context.onProgress(`Scanned ${scannedCount} ${entityType.replace(/_/g, ' ')} records…`);
+      if (context?.emitStage && scannedCount % 1000 === 0) {
+        context.emitStage('fetching_data' satisfies ToolStage, {
+          scannedCount,
+          entityType,
+        });
       }
 
       for (const doc of snapshot.docs) {

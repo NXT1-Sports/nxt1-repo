@@ -13,6 +13,36 @@
 
 import type { GoogleWorkspaceMcpSessionService } from './google-workspace-mcp-session.service.js';
 import { GoogleWorkspaceBaseTool } from './google-workspace-base.tool.js';
+import { z } from 'zod';
+
+const EmptyGmailInputSchema = z.object({}).strict();
+const QueryGmailEmailsInputSchema = z.object({
+  query: z.string().trim().min(1),
+  max_results: z.coerce.number().int().optional(),
+});
+const GmailGetMessageDetailsInputSchema = z.object({
+  email_id: z.string().trim().min(1),
+});
+const GmailSendEmailInputSchema = z.object({
+  to: z.array(z.string().trim().min(1)).min(1),
+  subject: z.string().trim().min(1),
+  body: z.string().trim().min(1),
+  cc: z.array(z.string().trim().min(1)).optional(),
+  bcc: z.array(z.string().trim().min(1)).optional(),
+});
+const CreateGmailDraftInputSchema = z.object({
+  to: z.string().trim().min(1),
+  subject: z.string().trim().min(1),
+  body: z.string().trim().min(1),
+  cc: z.string().trim().min(1).optional(),
+  bcc: z.string().trim().min(1).optional(),
+});
+const GmailReplyToEmailInputSchema = z.object({
+  email_id: z.string().trim().min(1),
+  reply_body: z.string().trim().min(1),
+  send: z.boolean().optional(),
+  reply_all: z.boolean().optional(),
+});
 
 // ─── query_gmail_emails ─────────────────────────────────────────────────────
 
@@ -26,24 +56,7 @@ export class QueryGmailEmailsTool extends GoogleWorkspaceBaseTool {
   readonly isMutation = false;
   readonly category = 'communication' as const;
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      query: {
-        type: 'string',
-        description:
-          'Gmail search query. Supports standard operators: from:, to:, subject:, ' +
-          'has:attachment, after:2024/01/01, before:, is:unread, label:, etc. ' +
-          'Example: "from:coach@university.edu subject:recruiting after:2025/01/01".',
-      },
-      max_results: {
-        type: 'number',
-        description: 'Maximum number of messages to return (default: 10).',
-      },
-    },
-    required: ['query'],
-    additionalProperties: false,
-  } as const;
+  readonly parameters = QueryGmailEmailsInputSchema;
 
   constructor(sessionService: GoogleWorkspaceMcpSessionService) {
     super(sessionService);
@@ -62,17 +75,7 @@ export class GmailGetMessageDetailsTool extends GoogleWorkspaceBaseTool {
   readonly isMutation = false;
   readonly category = 'communication' as const;
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      email_id: {
-        type: 'string',
-        description: 'The Gmail email/message ID to retrieve (from query_gmail_emails results).',
-      },
-    },
-    required: ['email_id'],
-    additionalProperties: false,
-  } as const;
+  readonly parameters = GmailGetMessageDetailsInputSchema;
 
   constructor(sessionService: GoogleWorkspaceMcpSessionService) {
     super(sessionService);
@@ -90,36 +93,7 @@ export class GmailSendEmailTool extends GoogleWorkspaceBaseTool {
   readonly isMutation = true;
   readonly category = 'communication' as const;
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      to: {
-        type: 'array',
-        items: { type: 'string' },
-        description: 'Array of recipient email addresses.',
-      },
-      subject: {
-        type: 'string',
-        description: 'Email subject line.',
-      },
-      body: {
-        type: 'string',
-        description: 'Email body content.',
-      },
-      cc: {
-        type: 'array',
-        items: { type: 'string' },
-        description: 'Optional CC email addresses.',
-      },
-      bcc: {
-        type: 'array',
-        items: { type: 'string' },
-        description: 'Optional BCC email addresses.',
-      },
-    },
-    required: ['to', 'subject', 'body'],
-    additionalProperties: false,
-  } as const;
+  readonly parameters = GmailSendEmailInputSchema;
 
   constructor(sessionService: GoogleWorkspaceMcpSessionService) {
     super(sessionService);
@@ -137,33 +111,7 @@ export class CreateGmailDraftTool extends GoogleWorkspaceBaseTool {
   readonly isMutation = true;
   readonly category = 'communication' as const;
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      to: {
-        type: 'string',
-        description: 'Recipient email address.',
-      },
-      subject: {
-        type: 'string',
-        description: 'Email subject line.',
-      },
-      body: {
-        type: 'string',
-        description: 'Email body content.',
-      },
-      cc: {
-        type: 'string',
-        description: 'Optional CC email address.',
-      },
-      bcc: {
-        type: 'string',
-        description: 'Optional BCC email address.',
-      },
-    },
-    required: ['to', 'subject', 'body'],
-    additionalProperties: false,
-  } as const;
+  readonly parameters = CreateGmailDraftInputSchema;
 
   constructor(sessionService: GoogleWorkspaceMcpSessionService) {
     super(sessionService);
@@ -181,30 +129,7 @@ export class GmailReplyToEmailTool extends GoogleWorkspaceBaseTool {
   readonly isMutation = true;
   readonly category = 'communication' as const;
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      email_id: {
-        type: 'string',
-        description: 'The email ID to reply to.',
-      },
-      reply_body: {
-        type: 'string',
-        description: 'The reply message body.',
-      },
-      send: {
-        type: 'boolean',
-        description:
-          'If true, sends the reply immediately. If false, saves as draft. Defaults to true.',
-      },
-      reply_all: {
-        type: 'boolean',
-        description: 'If true, reply to all recipients. Defaults to false.',
-      },
-    },
-    required: ['email_id', 'reply_body'],
-    additionalProperties: false,
-  } as const;
+  readonly parameters = GmailReplyToEmailInputSchema;
 
   constructor(sessionService: GoogleWorkspaceMcpSessionService) {
     super(sessionService);
@@ -230,7 +155,7 @@ function makeRemovedGmailTool(
     readonly description = `[REMOVED] ${oldName} use ${replacement} instead.`;
     readonly isMutation = false;
     readonly category = 'communication' as const;
-    readonly parameters = { type: 'object' as const, properties: {} };
+    readonly parameters = EmptyGmailInputSchema;
 
     override async execute(): Promise<{ success: false; error: string }> {
       return {

@@ -225,10 +225,6 @@ export interface UserProfileResponse {
     teamName: string;
     isFreeTrial: boolean;
   };
-  /** @deprecated Use role instead */
-  isRecruit?: boolean;
-  /** @deprecated Use role instead */
-  isCollegeCoach?: boolean;
   /** @deprecated Use onboardingCompleted instead */
   completeSignUp?: boolean;
 }

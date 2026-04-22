@@ -30,18 +30,7 @@ export enum BudgetIntervalDto {
 // ENUMS
 // ============================================
 
-export enum UsageFeature {
-  AI_GRAPHIC = 'AI_GRAPHIC',
-  HIGHLIGHT = 'HIGHLIGHT',
-  VIDEO_ANALYSIS = 'VIDEO_ANALYSIS',
-  AGENT_X = 'AGENT_X',
-  EMAIL_CAMPAIGN = 'EMAIL_CAMPAIGN',
-  SOCIAL_POST = 'SOCIAL_POST',
-  TEAM_ANALYTICS = 'TEAM_ANALYTICS',
-  RECRUITING_REPORT = 'RECRUITING_REPORT',
-  TRANSCRIPT_GENERATION = 'TRANSCRIPT_GENERATION',
-  MUSIC_GENERATION = 'MUSIC_GENERATION',
-}
+export type UsageFeature = string;
 
 export enum BillingEntity {
   USER = 'user',
@@ -54,9 +43,7 @@ export enum BillingEntity {
 // ============================================
 
 export class CreateUsageEventDto {
-  @IsEnum(UsageFeature, {
-    message: 'Invalid feature. Must be one of: ' + Object.values(UsageFeature).join(', '),
-  })
+  @IsString({ message: 'Feature must be a string' })
   @IsNotEmpty()
   feature!: UsageFeature;
 
@@ -126,7 +113,7 @@ export class GetUsageEventsDto {
   @IsOptional()
   endDate?: string; // ISO 8601 date string
 
-  @IsEnum(UsageFeature, { message: 'Invalid feature filter' })
+  @IsString({ message: 'Feature filter must be a string' })
   @IsOptional()
   feature?: UsageFeature;
 }
@@ -242,7 +229,7 @@ export class UpdatePricingConfigDto {
   @IsOptional()
   defaultMultiplier?: number;
 
-  @IsObject({ message: 'featureOverrides must be an object mapping feature names to multipliers' })
+  @IsObject({ message: 'featureOverrides must be an object mapping override keys to multipliers' })
   @IsOptional()
   featureOverrides?: Record<string, number>;
 }

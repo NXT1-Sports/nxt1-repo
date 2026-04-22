@@ -24,6 +24,7 @@
 import { BaseTool, type ToolResult } from '../base.tool.js';
 import type { VectorMemoryService } from '../../memory/vector.service.js';
 import type { AgentMemoryCategory } from '@nxt1/core';
+import { z } from 'zod';
 
 /**
  * Categories the agent is allowed to write via this tool.
@@ -36,6 +37,13 @@ const WRITABLE_CATEGORIES: readonly AgentMemoryCategory[] = [
   'recruiting_context',
   'performance_data',
 ];
+
+const SaveMemoryInputSchema = z.object({
+  userId: z.string().trim().min(1),
+  content: z.string().trim().min(1),
+  category: z.enum(WRITABLE_CATEGORIES),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+});
 
 export class SaveMemoryTool extends BaseTool {
   readonly name = 'save_memory';
@@ -52,46 +60,16 @@ export class SaveMemoryTool extends BaseTool {
     '- category (required): One of preference, goal, recruiting_context, performance_data.\n' +
     '- metadata (optional): Key-value context (e.g. { sport, position, conference }).';
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      userId: {
-        type: 'string',
-        description: 'Firebase UID of the user whose memory to save.',
-      },
-      content: {
-        type: 'string',
-        description:
-          'A concise, factual summary of what to remember. Write in third person about the user. ' +
-          'Example: "User prefers SEC conference schools for recruiting." ' +
-          'Keep it under 200 words — one focused fact or preference per call.',
-      },
-      category: {
-        type: 'string',
-        enum: WRITABLE_CATEGORIES,
-        description:
-          'The memory category. Use "preference" for likes/dislikes/constraints, ' +
-          '"goal" for objectives and targets, "recruiting_context" for schools/conferences/contacts, ' +
-          '"performance_data" for stats/metrics/physical attributes.',
-      },
-      metadata: {
-        type: 'object',
-        description:
-          'Optional key-value metadata for richer context. ' +
-          'Examples: { "sport": "football", "position": "QB" } or { "conference": "SEC" }.',
-      },
-    },
-    required: ['userId', 'content', 'category'],
-  } as const;
+  readonly parameters = SaveMemoryInputSchema;
 
   // All coordinators can save memories
   override readonly allowedAgents = [
-    'general',
+    'strategy_coordinator',
     'recruiting_coordinator',
     'performance_coordinator',
-    'compliance_coordinator',
+    'admin_coordinator',
     'data_coordinator',
-    'brand_media_coordinator',
+    'brand_coordinator',
   ] as const;
 
   readonly isMutation = true;
@@ -105,28 +83,15 @@ export class SaveMemoryTool extends BaseTool {
   }
 
   async execute(input: Record<string, unknown>): Promise<ToolResult> {
-    // ── Validate content ────────────────────────────────────────────────
-    const content = this.str(input, 'content');
-    if (!content) return this.paramError('content');
-
-    // ── Validate category ───────────────────────────────────────────────
-    const categoryRaw = this.str(input, 'category');
-    if (!categoryRaw) return this.paramError('category');
-
-    if (!WRITABLE_CATEGORIES.includes(categoryRaw as AgentMemoryCategory)) {
+    const parsed = SaveMemoryInputSchema.safeParse(input);
+    if (!parsed.success) {
       return {
         success: false,
-        error: `Invalid category "${categoryRaw}". Allowed: ${WRITABLE_CATEGORIES.join(', ')}.`,
+        error: parsed.error.issues.map((issue) => issue.message).join(', '),
       };
     }
-    const category = categoryRaw as AgentMemoryCategory;
 
-    // ── Validate userId (provided by the LLM from session context) ──────
-    const userId = this.str(input, 'userId');
-    if (!userId) return this.paramError('userId');
-
-    // ── Optional metadata ───────────────────────────────────────────────
-    const metadata = this.obj(input, 'metadata') ?? undefined;
+    const { userId, content, category, metadata } = parsed.data;
 
     // ── Store in vector memory ──────────────────────────────────────────
     try {

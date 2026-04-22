@@ -149,12 +149,22 @@ export class GoogleWorkspaceMcpSessionService {
     if (cacheKey && allowReuse) {
       const existing = this.sessions.get(cacheKey);
       if (existing) {
+        // The Python workspace-mcp reads credentials from a GCS-backed file on
+        // every call. If we skip the token manager here, the bucket file goes
+        // stale and Python re-emits the OAuth authorization link even though
+        // the backend has a valid refresh token. Always re-run the token
+        // manager on reuse so the bucket file stays fresh.
+        await this.tokenManager.getValidAccessToken(context);
         existing.lastUsedAtMs = Date.now();
         return { ...existing, cacheKey };
       }
     }
 
-    context.onProgress?.('Connecting to Google Workspace…');
+    context.emitStage?.('checking_status', {
+      source: 'google_workspace',
+      phase: 'connect_session',
+      icon: 'document',
+    });
     const { accessToken, email } = await this.tokenManager.getValidAccessToken(context);
     const entry: GoogleWorkspaceSessionEntry = {
       bridge: new GoogleWorkspaceMcpBridgeService(this.endpointUrl, accessToken),

@@ -31,9 +31,13 @@ import {
 } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
 import { Router, ActivatedRoute } from '@angular/router';
-import { toSignal } from '@angular/core/rxjs-interop';
+import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { TeamProfileShellWebComponent } from '@nxt1/ui/team-profile';
 import { NxtCtaBannerComponent, type CtaAvatarImage } from '@nxt1/ui/components/cta-banner';
+import {
+  ConnectedAccountsModalService,
+  ConnectedAccountsResyncService,
+} from '@nxt1/ui/components/connected-sources';
 import { NxtPlatformService } from '@nxt1/ui/services/platform';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import { NxtToastService } from '@nxt1/ui/services/toast';
@@ -50,14 +54,17 @@ import {
 } from '../../core/components/share-actions-overlay.component';
 import { IMAGE_PATHS } from '@nxt1/design-tokens/assets';
 import {
+  buildLinkSourcesFormData,
   buildCanonicalProfilePath,
   buildCanonicalTeamPath,
   buildUTMShareUrl,
+  mapToConnectedSources,
   UTM_MEDIUM,
   UTM_CAMPAIGN,
   type TeamProfileTabId,
   type TeamProfileRosterMember,
   type TeamProfilePost,
+  type LinkSourcesFormData,
 } from '@nxt1/core';
 import { resolveCanonicalTeamRoute } from '@nxt1/core/helpers';
 import { APP_EVENTS } from '@nxt1/core/analytics';
@@ -68,6 +75,7 @@ import {
   AnalyticsService,
   ShareService,
   ProfilePageActionsService,
+  EditProfileApiService,
 } from '../../core/services';
 import { environment } from '../../../environments/environment';
 
@@ -97,6 +105,7 @@ const CTA_AVATARS: readonly CtaAvatarImage[] = [
       (copyLinkClick)="onCopyLink()"
       (qrCodeClick)="onQrCode()"
       (manageTeamClick)="onManageTeam()"
+      (connectedAccountsClick)="onConnectedAccounts()"
       (inviteRosterClick)="onInviteRoster()"
       (rosterMemberClick)="onRosterMemberClick($event)"
       (postClick)="onPostClick($event)"
@@ -154,6 +163,9 @@ export class TeamComponent implements OnInit {
   private readonly intelService = inject(IntelService);
   private readonly manageTeamModal = inject(ManageTeamModalService);
   private readonly inviteModal = inject(InviteBottomSheetService);
+  private readonly connectedAccountsModal = inject(ConnectedAccountsModalService);
+  private readonly connectedAccountsResync = inject(ConnectedAccountsResyncService);
+  private readonly editProfileApi = inject(EditProfileApiService);
   private readonly profilePageActions = inject(ProfilePageActionsService);
   private readonly overlay = inject(NxtOverlayService);
   private readonly platformId = inject(PLATFORM_ID);
@@ -278,67 +290,70 @@ export class TeamComponent implements OnInit {
   }
 
   ngOnInit(): void {
-    const slug = this.teamSlug();
-    const teamCode = this.routeTeamCode();
+    this.route.paramMap.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((params) => {
+      const slug = params.get('slug') || '';
+      const teamCode = params.get('teamCode') || '';
 
-    this.logger.info('Team component initialized', { teamSlug: slug, teamCode });
+      this.logger.info('Team component initialized/updated', { teamSlug: slug, teamCode });
 
-    // Guard: a slug containing '.' is a static asset (e.g. team-profile-skeleton.component.css.map)
-    // being requested relative to the current /team/* URL. Skip the API call.
-    if ((!slug && !teamCode) || slug.includes('.')) {
-      this.logger.warn(
-        'Invalid team identifier (static asset request caught by router), skipping load',
-        {
-          slug,
-          teamCode,
-        }
-      );
-      return;
-    }
+      // Guard: a slug containing '.' is a static asset (e.g. team-profile-skeleton.component.css.map)
+      // being requested relative to the current /team/* URL. Skip the API call.
+      if ((!slug && !teamCode) || slug.includes('.')) {
+        this.logger.warn(
+          'Invalid team identifier (static asset request caught by router), skipping load',
+          {
+            slug,
+            teamCode,
+          }
+        );
+        return;
+      }
 
-    const canonicalOwnTeamPath = !teamCode ? this.resolveCanonicalOwnTeamPath() : null;
-    if (canonicalOwnTeamPath) {
-      this.logger.info('Repairing legacy slug-only own-team route', {
-        from: this.router.url,
-        to: canonicalOwnTeamPath,
-      });
-      void this.router.navigateByUrl(canonicalOwnTeamPath, { replaceUrl: true });
-      return;
-    }
+      const canonicalOwnTeamPath = !teamCode ? this.resolveCanonicalOwnTeamPath() : null;
+      if (canonicalOwnTeamPath) {
+        this.logger.info('Repairing legacy slug-only own-team route', {
+          from: this.router.url,
+          to: canonicalOwnTeamPath,
+        });
+        void this.router.navigateByUrl(canonicalOwnTeamPath, { replaceUrl: true });
+        return;
+      }
 
-    // Set loading state immediately before async API call to prevent template flash
-    this.teamProfile.startLoading();
+      // Set loading state immediately before async API call to prevent template flash
+      // Only set if we are navigating to a strictly different team
+      this.teamProfile.startLoading();
 
-    // Load team data from API using the canonical route team code when available.
-    const loadPromise = teamCode
-      ? this.teamProfile.loadTeamById(teamCode, this.isTeamAdmin())
-      : this.teamProfile.loadTeam(slug, this.isTeamAdmin());
+      // Load team data from API using the canonical route team code when available.
+      const loadPromise = teamCode
+        ? this.teamProfile.loadTeamById(teamCode, this.isTeamAdmin())
+        : this.teamProfile.loadTeam(slug, this.isTeamAdmin());
 
-    loadPromise
-      .then(() => {
-        // SSR-deterministic SEO: updateSeo is also called from a constructor
-        // effect(), but effects may run after Angular serializes SSR HTML.
-        // Calling it here directly ensures meta tags are written synchronously
-        // when the HTTP response arrives, before serialization completes.
-        const loadedTeam = this.teamProfile.team();
-        if (loadedTeam) {
-          this.updateSeo(loadedTeam);
-        }
+      loadPromise
+        .then(() => {
+          // SSR-deterministic SEO: updateSeo is also called from a constructor
+          // effect(), but effects may run after Angular serializes SSR HTML.
+          // Calling it here directly ensures meta tags are written synchronously
+          // when the HTTP response arrives, before serialization completes.
+          const loadedTeam = this.teamProfile.team();
+          if (loadedTeam) {
+            this.updateSeo(loadedTeam);
+          }
 
-        // Load intel eagerly so the intel tab renders instantly with no skeleton flash.
-        const teamId = this.teamProfile.team()?.id;
-        if (teamId) void this.intelService.loadTeamIntel(teamId);
-
-        // Track page view after data loads — skip if user is an admin of this team
-        if (!this.isTeamAdmin()) {
+          // Load intel eagerly so the intel tab renders instantly with no skeleton flash.
           const teamId = this.teamProfile.team()?.id;
-          if (teamId) void this.teamProfile.trackPageView(teamId);
-        }
-      })
-      .catch((error) => {
-        this.logger.error('Failed to load team on init', { slug, teamCode, error });
-        this.toast.error('Failed to load team profile');
-      });
+          if (teamId) void this.intelService.loadTeamIntel(teamId);
+
+          // Track page view after data loads — skip if user is an admin of this team
+          if (!this.isTeamAdmin()) {
+            const teamId = this.teamProfile.team()?.id;
+            if (teamId) void this.teamProfile.trackPageView(teamId);
+          }
+        })
+        .catch((error) => {
+          this.logger.error('Failed to load team on init', { slug, teamCode, error });
+          this.toast.error('Failed to load team profile');
+        });
+    });
   }
 
   // ============================================
@@ -382,7 +397,7 @@ export class TeamComponent implements OnInit {
       user.sports?.find((sport) => sport.isPrimary || sport.order === 0) ?? user.sports?.[0];
 
     const resolvedTeamRoute = resolveCanonicalTeamRoute({
-      slug: this.teamSlug() || teamCodeData?.slug?.trim(),
+      slug: teamCodeData?.slug?.trim(),
       teamName: teamCodeData?.teamName ?? activeSport?.team?.name,
       teamCode:
         teamCodeData?.teamCode?.trim() || activeSport?.team?.teamCode?.trim() || rawTeamReference,
@@ -392,10 +407,18 @@ export class TeamComponent implements OnInit {
         (typeof teamCodeData?.id === 'string' ? teamCodeData.id.trim() : '') ||
         activeSport?.team?.id?.trim(),
       unicode: teamCodeData?.unicode?.trim(),
-      managedTeamCodes: user.managedTeamCodes,
     });
 
-    return resolvedTeamRoute?.teamIdentifier ? resolvedTeamRoute.path : null;
+    if (!resolvedTeamRoute?.teamIdentifier) return null;
+
+    // Only auto-repair to the user's own-team canonical path if the URL slug
+    // actually matches the resolved own-team slug. Otherwise the user is
+    // viewing a different team (via sidebar/switcher) and we must NOT redirect.
+    const currentSlug = this.teamSlug().trim().toLowerCase();
+    const ownSlug = resolvedTeamRoute.slug?.trim().toLowerCase();
+    if (!currentSlug || !ownSlug || currentSlug !== ownSlug) return null;
+
+    return resolvedTeamRoute.path;
   }
 
   private updateSeo(team: NonNullable<ReturnType<typeof this.teamProfile.team>>): void {
@@ -544,14 +567,56 @@ export class TeamComponent implements OnInit {
     });
 
     if (result.saved) {
-      // Reload team data to reflect management changes
-      const slug = this.teamSlug();
-      if (slug) {
-        this.teamProfile.startLoading();
-        this.teamProfile.loadTeam(slug, this.isTeamAdmin()).catch((error) => {
-          this.logger.error('Failed to reload team after manage', { slug, error });
-        });
+      await this.reloadTeamProfile('manage');
+    }
+  }
+
+  protected async onConnectedAccounts(): Promise<void> {
+    const user = this.authService.user();
+    if (!user?.uid) {
+      this.toast.error('Not signed in. Please refresh and try again.');
+      return;
+    }
+
+    const linkSourcesData = buildLinkSourcesFormData({
+      connectedSources: user.connectedSources ?? [],
+      connectedEmails: user.connectedEmails ?? [],
+      firebaseProviders: this.authService.firebaseUser()?.providerData ?? [],
+    }) as LinkSourcesFormData | null;
+
+    const result = await this.connectedAccountsModal.open({
+      role: user.role,
+      selectedSports: user.selectedSports ?? [],
+      linkSourcesData,
+      scope: 'team',
+    });
+
+    if (!result.saved || !result.linkSources) {
+      if (result.resync) {
+        await this.connectedAccountsResync.request(result.sources ?? []);
       }
+      return;
+    }
+
+    const connectedSources = mapToConnectedSources(result.linkSources.links);
+    const saveResult = await this.editProfileApi.updateSection(user.uid, 'connected-sources', {
+      connectedSources,
+    });
+
+    if (!saveResult.success) {
+      this.logger.error('Failed to save team connected accounts', undefined, {
+        error: saveResult.error,
+      });
+      this.toast.error(saveResult.error ?? 'Failed to save connected accounts');
+      return;
+    }
+
+    await this.authService.refreshUserProfile();
+    await this.reloadTeamProfile('connected-accounts');
+    this.toast.success('Connected accounts updated');
+
+    if (result.resync) {
+      await this.connectedAccountsResync.request(result.sources ?? connectedSources);
     }
   }
 
@@ -597,6 +662,29 @@ export class TeamComponent implements OnInit {
   protected onPostClick(post: TeamProfilePost): void {
     if (post.id) {
       this.router.navigate(['/post', post.id]);
+    }
+  }
+
+  private async reloadTeamProfile(source: 'manage' | 'connected-accounts'): Promise<void> {
+    const slug = this.teamSlug();
+    const teamCode = this.routeTeamCode();
+
+    if (!slug && !teamCode) return;
+
+    this.teamProfile.startLoading();
+
+    try {
+      if (teamCode) {
+        await this.teamProfile.loadTeamById(teamCode, this.isTeamAdmin());
+      } else {
+        await this.teamProfile.loadTeam(slug, this.isTeamAdmin());
+      }
+    } catch (error) {
+      this.logger.error('Failed to reload team profile', error, {
+        source,
+        slug,
+        teamCode,
+      });
     }
   }
 

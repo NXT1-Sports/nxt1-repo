@@ -26,7 +26,22 @@ import type {
   TeamProfileRecruitingActivity,
   TeamProfileStatsCategory,
 } from '../../team-profile/team-profile.types';
-import type { ConnectedSource, ContactInfo, SocialLinks } from '../user';
+import type { ConnectedSource } from '../user';
+
+export interface TeamSocialLinks {
+  twitter?: string | null;
+  instagram?: string | null;
+  tiktok?: string | null;
+  hudl?: string | null;
+  youtube?: string | null;
+  maxPreps?: string | null;
+  linkedin?: string | null;
+}
+
+export interface TeamContactInfo {
+  email: string;
+  phone?: string | null;
+}
 
 // ============================================
 // TEAM STATUS
@@ -205,13 +220,13 @@ export interface Team {
   // ============================================
 
   /** Social media links */
-  socialLinks?: SocialLinks;
+  socialLinks?: TeamSocialLinks;
 
   /** Connected sources (V2) — replaces socialLinks. Each entry is a platform URL with sync status. */
   connectedSources?: ConnectedSource[];
 
   /** Contact information */
-  contactInfo?: ContactInfo;
+  contactInfo?: TeamContactInfo;
 
   // ============================================
   // SPONSOR
@@ -327,18 +342,8 @@ export interface UpdateTeamInput {
   description?: string;
   galleryImages?: string[];
   expireAt?: Date | string;
-  socialLinks?: SocialLinks;
-  contactInfo?: ContactInfo;
+  socialLinks?: TeamSocialLinks;
+  contactInfo?: TeamContactInfo;
   teamLinks?: Team['teamLinks'];
   seasonRecord?: Team['seasonRecord'];
 }
-
-// ============================================
-// LEGACY TYPE EXPORTS (for backward compatibility)
-// ============================================
-
-/** @deprecated Use Team instead */
-export type TeamCode = Team;
-
-/** @deprecated Use Team instead */
-export type Code = Team;

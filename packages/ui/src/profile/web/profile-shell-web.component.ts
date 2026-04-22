@@ -88,6 +88,15 @@ import { AgentXOperationChatComponent } from '../../agent-x';
 
 import { ProfileTimelineComponent } from '../profile-timeline.component';
 import { ProfileSkeletonComponent } from '../profile-skeleton.component';
+
+const ATHLETE_INTEL_NAV_FALLBACK_ITEMS: readonly SectionNavItem[] = [
+  { id: 'agent_x_brief', label: 'Agent Overview' },
+  { id: 'athletic_measurements', label: 'Measurements' },
+  { id: 'season_stats', label: 'Stats' },
+  { id: 'recruiting_activity', label: 'Recruiting' },
+  { id: 'academic_profile', label: 'Academics' },
+  { id: 'awards_honors', label: 'Awards' },
+] as const;
 import { AthleteIntelComponent } from '../../intel/athlete-intel.component';
 import { IntelService } from '../../intel/intel.service';
 import { ProfileMobileHeroComponent } from '../components/profile-mobile-hero.component';
@@ -537,8 +546,8 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
         --m-text: var(--nxt1-color-text-primary, #ffffff);
         --m-text-2: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
         --m-text-3: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.45));
-        --m-accent: var(--team-primary, var(--nxt1-color-primary, #d4ff00));
-        --m-accent-secondary: var(--team-secondary, var(--nxt1-color-secondary, #ffffff));
+        --m-accent: var(--nxt1-color-primary, #d4ff00);
+        --m-accent-secondary: var(--nxt1-color-secondary, #ffffff);
       }
 
       .profile-main {
@@ -1607,8 +1616,12 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
   /** Section nav items — contextual to active top tab */
   protected readonly sideTabItems = computed((): SectionNavItem[] => {
     const tab = this.profile.activeTab();
+    const intelSections = this.intel.athleteSections();
     const sections: Record<string, SectionNavItem[]> = {
-      intel: this.intel.athleteSections().map((s) => ({ id: s.id, label: s.title })),
+      intel:
+        intelSections.length > 0
+          ? intelSections.map((section) => ({ id: section.id, label: section.title }))
+          : [...ATHLETE_INTEL_NAV_FALLBACK_ITEMS],
       timeline: [
         {
           id: 'all-posts',
@@ -1795,6 +1808,7 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
   }
 
   ngOnDestroy(): void {
+    this.profile.reset();
     this.headerPortal.clearAll();
   }
 

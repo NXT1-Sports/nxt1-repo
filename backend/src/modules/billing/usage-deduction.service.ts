@@ -14,6 +14,7 @@
 import type { Firestore } from 'firebase-admin/firestore';
 import { getAndClearJobCost } from '../agent/queue/job-cost-tracker.js';
 import { calculateChargeAmount } from './pricing.service.js';
+import { resolveBillableFeature } from './feature-resolution.service.js';
 import {
   recordSpend,
   deductOrgWallet,
@@ -22,7 +23,6 @@ import {
   resolveBillingTarget,
 } from './budget.service.js';
 import { recordUsageEvent } from './usage.service.js';
-import { UsageFeature } from './types/index.js';
 import { logger } from '../../utils/logger.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -34,8 +34,14 @@ export interface BillingDeductionInput {
   userId: string;
   /** Operation ID used as the job-cost-tracker key (must match telemetryContext.operationId) */
   operationId: string;
-  /** Feature label for the usage event */
-  feature: UsageFeature;
+  /** Optional fixed-flow feature label when the caller already knows the exact product. */
+  feature?: string;
+  /** Optional coordinator or agent ID used to resolve multiplier overrides */
+  coordinatorId?: string;
+  /** All tools invoked during the operation, in execution order. */
+  agentTools?: readonly string[];
+  /** Successful tools completed during the operation, in execution order. */
+  successfulTools?: readonly string[];
   /** Environment tag passed to recordUsageEvent */
   environment?: 'production' | 'staging';
   /**
@@ -81,12 +87,30 @@ export interface BillingDeductionResult {
 export async function executeBillingDeduction(
   input: BillingDeductionInput
 ): Promise<BillingDeductionResult> {
-  const { db, userId, operationId, feature, environment, iapHoldId, metadata, knownCostUsd } =
-    input;
+  const {
+    db,
+    userId,
+    operationId,
+    feature,
+    coordinatorId,
+    agentTools,
+    successfulTools,
+    environment,
+    iapHoldId,
+    metadata,
+    knownCostUsd,
+  } = input;
   let resolvedTeamId = input.teamId;
   let resolvedOrgId: string | undefined;
 
   try {
+    const resolvedFeature = resolveBillableFeature({
+      feature,
+      coordinatorId,
+      agentTools,
+      successfulTools,
+    });
+
     // Step 1: Resolve raw cost
     let totalCostUsd: number;
     if (knownCostUsd != null && knownCostUsd > 0) {
@@ -100,7 +124,8 @@ export async function executeBillingDeduction(
     logger.info('[billing] Deduction pipeline start', {
       operationId,
       userId,
-      feature,
+      feature: resolvedFeature,
+      coordinatorId,
       totalCostUsd,
       mode: iapHoldId ? 'hold-capture' : 'direct-debit',
     });
@@ -119,7 +144,12 @@ export async function executeBillingDeduction(
     }
 
     // Step 3: Apply platform markup
-    const { chargeAmountCents } = await calculateChargeAmount(db, totalCostUsd, feature);
+    const { chargeAmountCents } = await calculateChargeAmount(
+      db,
+      totalCostUsd,
+      resolvedFeature,
+      coordinatorId
+    );
 
     if (chargeAmountCents <= 0) {
       // Edge case: markup rounds to zero — release hold
@@ -158,12 +188,24 @@ export async function executeBillingDeduction(
       await recordSpend(db, userId, chargeAmountCents, effectiveTeamId);
     }
 
+    const usageMetadata = {
+      operationId,
+      ...(coordinatorId ? { coordinatorId } : {}),
+      ...metadata,
+      ...(metadata?.['agentTools'] === undefined && agentTools
+        ? { agentTools: [...agentTools] }
+        : {}),
+      ...(metadata?.['successfulTools'] === undefined && successfulTools
+        ? { successfulTools: [...successfulTools] }
+        : {}),
+    };
+
     // Step 5: Write audit trail usage event
     recordUsageEvent(
       {
         userId,
         ...(effectiveTeamId ? { teamId: effectiveTeamId } : {}),
-        feature,
+        feature: resolvedFeature,
         quantity: 1,
         unitCostSnapshot: chargeAmountCents,
         currency: 'usd',
@@ -171,7 +213,7 @@ export async function executeBillingDeduction(
         jobId: operationId,
         dynamicCostCents: chargeAmountCents,
         rawProviderCostUsd: totalCostUsd,
-        metadata: { operationId, ...metadata },
+        metadata: usageMetadata,
       },
       environment ?? 'production'
     ).catch((e: unknown) => {
@@ -189,7 +231,8 @@ export async function executeBillingDeduction(
       userId,
       rawCostUsd: totalCostUsd,
       chargeAmountCents,
-      feature,
+      feature: resolvedFeature,
+      coordinatorId,
       via: iapHoldId ? 'captureWalletHold' : resolvedOrgId ? 'deductOrgWallet' : 'recordSpend',
     });
 

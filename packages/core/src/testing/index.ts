@@ -684,6 +684,7 @@ export const USAGE_TEST_IDS = {
   BUY_CREDITS_PACKAGE: 'usage-buy-credits-package',
   BUY_CREDITS_CUSTOM_AMOUNT_INPUT: 'usage-buy-credits-custom-amount-input',
   BUY_CREDITS_BUY_BTN: 'usage-buy-credits-buy-btn',
+  BUY_CREDITS_IAP_BTN: 'usage-buy-credits-iap-btn',
   BUY_CREDITS_TOPUP_TOGGLE: 'usage-buy-credits-topup-toggle',
   BUY_CREDITS_TOPUP_THRESHOLD: 'usage-buy-credits-topup-threshold',
   BUY_CREDITS_TOPUP_AMOUNT: 'usage-buy-credits-topup-amount',

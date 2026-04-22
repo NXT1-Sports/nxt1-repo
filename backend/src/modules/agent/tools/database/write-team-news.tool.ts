@@ -14,15 +14,35 @@
 import crypto from 'crypto';
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
-import { getCacheService } from '../../../../services/cache.service.js';
+import { getCacheService } from '../../../../services/core/cache.service.js';
 import { logger } from '../../../../utils/logger.js';
 import { resolveCreatedAt } from './doc-date-utils.js';
+import { z } from 'zod';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
 const NEWS_COLLECTION = 'News';
 const TEAMS_COLLECTION = 'Teams';
 const MAX_ARTICLES_PER_CALL = 20;
+
+const TeamNewsArticleSchema = z
+  .object({
+    headline: z.string().trim().min(1).optional(),
+    source: z.string().trim().min(1).optional(),
+    publishedAt: z.string().trim().min(1).optional(),
+    url: z.string().trim().min(1).optional(),
+    excerpt: z.string().trim().min(1).optional(),
+    imageUrl: z.string().trim().min(1).optional(),
+    sourceLogoUrl: z.string().trim().min(1).optional(),
+    category: z.string().trim().min(1).optional(),
+  })
+  .passthrough();
+
+const WriteTeamNewsInputSchema = z.object({
+  teamId: z.string().trim().min(1),
+  teamCode: z.string().trim().min(1),
+  articles: z.array(TeamNewsArticleSchema).min(1).max(MAX_ARTICLES_PER_CALL),
+});
 
 // ─── Tool ───────────────────────────────────────────────────────────────────
 
@@ -46,33 +66,9 @@ export class WriteTeamNewsTool extends BaseTool {
     '  • sourceLogoUrl (optional): Source publication logo URL.\n' +
     '  • category (optional): Category tag (e.g. "game-recap", "roster", "awards").';
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      teamId: { type: 'string' },
-      teamCode: { type: 'string' },
-      articles: {
-        type: 'array',
-        items: {
-          type: 'object',
-          properties: {
-            headline: { type: 'string' },
-            source: { type: 'string' },
-            publishedAt: { type: 'string' },
-            url: { type: 'string' },
-            excerpt: { type: 'string' },
-            imageUrl: { type: 'string' },
-            sourceLogoUrl: { type: 'string' },
-            category: { type: 'string' },
-          },
-          required: ['headline', 'source', 'publishedAt'],
-        },
-      },
-    },
-    required: ['teamId', 'teamCode', 'articles'],
-  } as const;
+  readonly parameters = WriteTeamNewsInputSchema;
 
-  override readonly allowedAgents = ['data_coordinator', 'general'] as const;
+  override readonly allowedAgents = ['data_coordinator', 'strategy_coordinator'] as const;
   readonly isMutation = true;
   readonly category = 'database' as const;
 
@@ -87,21 +83,11 @@ export class WriteTeamNewsTool extends BaseTool {
     input: Record<string, unknown>,
     context?: ToolExecutionContext
   ): Promise<ToolResult> {
-    const teamId = this.str(input, 'teamId');
-    if (!teamId) return this.paramError('teamId');
-    const teamCode = this.str(input, 'teamCode');
-    if (!teamCode) return this.paramError('teamCode');
+    const parsed = WriteTeamNewsInputSchema.safeParse(input);
+    if (!parsed.success) return this.zodError(parsed.error);
 
-    const rawArticles = input['articles'];
-    if (!Array.isArray(rawArticles) || rawArticles.length === 0) {
-      return { success: false, error: 'articles must be a non-empty array.' };
-    }
-    if (rawArticles.length > MAX_ARTICLES_PER_CALL) {
-      return {
-        success: false,
-        error: `articles exceeds maximum of ${MAX_ARTICLES_PER_CALL}.`,
-      };
-    }
+    const { teamId, teamCode } = parsed.data;
+    const rawArticles = parsed.data.articles;
 
     if (!context?.userId) {
       return { success: false, error: 'Authenticated tool context is required.' };
@@ -171,7 +157,11 @@ export class WriteTeamNewsTool extends BaseTool {
         return { success: false, error: 'No valid articles after validation.' };
       }
 
-      context?.onProgress?.(`Writing ${written} news article(s)…`);
+      context?.emitStage?.('submitting_job', {
+        icon: 'document',
+        articleCount: written,
+        phase: 'write_team_news',
+      });
       await batch.commit();
 
       // Invalidate team timeline caches

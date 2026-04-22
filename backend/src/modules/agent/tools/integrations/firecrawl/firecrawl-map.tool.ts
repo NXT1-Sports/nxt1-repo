@@ -71,8 +71,8 @@ export class FirecrawlMapTool extends BaseTool {
   override readonly allowedAgents = [
     'recruiting_coordinator',
     'data_coordinator',
-    'compliance_coordinator',
-    'general',
+    'admin_coordinator',
+    'strategy_coordinator',
   ] as const;
 
   readonly isMutation = false;
@@ -117,7 +117,12 @@ export class FirecrawlMapTool extends BaseTool {
     };
 
     logger.info('[FirecrawlMap] Mapping website', { url, search, limit, userId: context?.userId });
-    context?.onProgress?.(`Mapping ${new URL(url).hostname}…`);
+    context?.emitStage?.('fetching_data', {
+      icon: 'search',
+      url,
+      hostname: new URL(url).hostname,
+      phase: 'map_site',
+    });
 
     try {
       const result = await this.bridge.map(url, options);

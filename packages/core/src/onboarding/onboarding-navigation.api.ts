@@ -642,10 +642,6 @@ export interface InitialStateOptions {
 
 /** User data for type detection */
 export interface UserDataForDetection {
-  isRecruit?: boolean;
-  isCollegeCoach?: boolean;
-  /** @deprecated Legacy field — no longer used */
-  isFan?: boolean;
   highSchool?: string;
   primarySport?: string;
   organization?: string;
@@ -1127,8 +1123,6 @@ export function detectUserTypeFromTeamCode(teamCode: string): OnboardingUserType
 export function detectUserTypeFromUserData(
   userData: UserDataForDetection
 ): OnboardingUserType | null {
-  if (userData.isRecruit === true) return 'athlete';
-  if (userData.isCollegeCoach === true) return 'coach';
   if (userData.highSchool || userData.primarySport) return 'athlete';
   if (userData.organization || userData.coachTitle) return 'coach';
   return null;

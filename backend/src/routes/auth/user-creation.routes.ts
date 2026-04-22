@@ -9,16 +9,16 @@
 
 import { Router } from 'express';
 import type { Request, Response, Router as RouterType } from 'express';
+import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { asyncHandler, sendError } from '@nxt1/core/errors/express';
 import { notFoundError, conflictError } from '@nxt1/core/errors';
 import { isValidTeamCode, USER_SCHEMA_VERSION, isTeamRole } from '@nxt1/core';
 import type { UserRole, SportProfile } from '@nxt1/core';
 import { RosterEntryStatus } from '@nxt1/core/models';
-import { validateBody } from '../../middleware/validation.middleware.js';
+import { validateBody } from '../../middleware/validation/validation.middleware.js';
 import { CreateUserDto, JoinTeamDto } from '../../dtos/auth.dto.js';
-import { createRosterEntryService } from '../../services/roster-entry.service.js';
+import { createRosterEntryService } from '../../services/team/roster-entry.service.js';
 import { logger } from '../../utils/logger.js';
-import type { UserV2Document } from './shared.js';
 
 const router: RouterType = Router();
 
@@ -83,13 +83,19 @@ router.post(
       return;
     }
 
-    const now = new Date().toISOString();
-
-    const newUser: UserV2Document = {
+    const newUser: {
+      [key: string]: unknown;
+      teamCode?: {
+        teamCode: string;
+        teamName: string;
+        teamId: string;
+      };
+      referralId?: string;
+    } = {
       email: sanitizedEmail,
       onboardingCompleted: false,
-      createdAt: now,
-      updatedAt: now,
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
       _schemaVersion: USER_SCHEMA_VERSION,
     };
 
@@ -184,8 +190,6 @@ router.post(
 
     const teamDoc = teamSnapshot.docs[0];
     const teamData = teamDoc.data();
-    const now = new Date().toISOString();
-
     await db.runTransaction(async (transaction) => {
       const userRef = db.collection('Users').doc(userId);
 
@@ -195,14 +199,14 @@ router.post(
           teamName: teamData['teamName'],
           teamId: teamDoc.id,
         },
-        updatedAt: now,
+        updatedAt: FieldValue.serverTimestamp(),
       };
 
       if (teamData['isFreeTrial'] && teamData['trialDays']) {
         const trialEnd = new Date();
         trialEnd.setDate(trialEnd.getDate() + (teamData['trialDays'] as number));
-        userUpdate['trialStartDate'] = now;
-        userUpdate['trialEndDate'] = trialEnd.toISOString();
+        userUpdate['trialStartDate'] = FieldValue.serverTimestamp();
+        userUpdate['trialEndDate'] = Timestamp.fromDate(trialEnd);
       }
 
       transaction.update(userRef, userUpdate);

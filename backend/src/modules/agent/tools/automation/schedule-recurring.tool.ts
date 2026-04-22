@@ -18,10 +18,17 @@ import type { AgentToolCategory, AgentJobPayload } from '@nxt1/core';
 import type { AgentQueueService } from '../../queue/queue.service.js';
 import { MIN_RECURRING_INTERVAL_MS, MAX_RECURRING_JOBS_PER_USER } from '../../queue/queue.types.js';
 import { logger } from '../../../../utils/logger.js';
+import { z } from 'zod';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 const RECURRING_TASKS_COLLECTION = 'RecurringTasks' as const;
+
+const ScheduleRecurringTaskInputSchema = z.object({
+  userId: z.string().trim().min(1),
+  actionSummary: z.string().trim().min(1),
+  cronExpression: z.string().trim().min(1),
+});
 
 /**
  * Parse a cron expression and estimate the minimum interval in ms
@@ -65,27 +72,7 @@ export class ScheduleRecurringTaskTool extends BaseTool {
     'Provide a human-readable action summary (what to do each time), a standard cron expression, ' +
     'and the userId. The minimum allowed interval is 1 hour.';
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      userId: {
-        type: 'string',
-        description: 'The ID of the user to create the schedule for.',
-      },
-      actionSummary: {
-        type: 'string',
-        description:
-          'A clear description of the recurring action (e.g. "Send weekly recruiting update to all D2 coaches in Ohio").',
-      },
-      cronExpression: {
-        type: 'string',
-        description:
-          'A standard 5-field cron expression (minute hour day-of-month month day-of-week). ' +
-          'Examples: "0 8 * * 1" = every Monday at 8 AM, "0 9 1 * *" = 1st of each month at 9 AM.',
-      },
-    },
-    required: ['userId', 'actionSummary', 'cronExpression'],
-  };
+  readonly parameters = ScheduleRecurringTaskInputSchema;
 
   readonly isMutation = true;
   readonly category: AgentToolCategory = 'automation';
@@ -100,14 +87,15 @@ export class ScheduleRecurringTaskTool extends BaseTool {
   }
 
   async execute(input: Record<string, unknown>): Promise<ToolResult> {
-    const userId = this.str(input, 'userId');
-    if (!userId) return this.paramError('userId');
+    const parsed = ScheduleRecurringTaskInputSchema.safeParse(input);
+    if (!parsed.success) {
+      return {
+        success: false,
+        error: parsed.error.issues.map((issue) => issue.message).join(', '),
+      };
+    }
 
-    const actionSummary = this.str(input, 'actionSummary');
-    if (!actionSummary) return this.paramError('actionSummary');
-
-    const cronExpression = this.str(input, 'cronExpression');
-    if (!cronExpression) return this.paramError('cronExpression');
+    const { userId, actionSummary, cronExpression } = parsed.data;
 
     // ── 1. Validate cron frequency ────────────────────────────────────
     const intervalMs = estimateCronIntervalMs(cronExpression);

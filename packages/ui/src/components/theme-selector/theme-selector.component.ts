@@ -35,6 +35,7 @@ import {
   Output,
   EventEmitter,
   inject,
+  computed,
 } from '@angular/core';
 import { NxtIconComponent } from '../icon';
 import { HapticsService } from '../../services/haptics';
@@ -54,8 +55,8 @@ export type ThemeSelectorVariant = 'default' | 'compact' | 'inline';
 
 /** Theme selection event */
 export interface ThemeSelectEvent {
-  type: 'appearance' | 'sport';
-  theme: ThemePreference | SportTheme | null;
+  type: 'appearance' | 'sport' | 'team';
+  theme: ThemePreference | SportTheme | 'team' | null;
   timestamp: number;
 }
 
@@ -86,15 +87,9 @@ export interface ThemeSelectEvent {
               <button
                 type="button"
                 class="theme-option"
-                [class.theme-option--selected]="
-                  themeService.preference() === option.id &&
-                  (!singleRow || !themeService.hasSportTheme())
-                "
+                [class.theme-option--selected]="isAppearanceSelected(option)"
                 role="radio"
-                [attr.aria-checked]="
-                  themeService.preference() === option.id &&
-                  (!singleRow || !themeService.hasSportTheme())
-                "
+                [attr.aria-checked]="isAppearanceSelected(option)"
                 [attr.aria-label]="option.label"
                 (click)="selectAppearance(option)"
               >
@@ -102,10 +97,7 @@ export interface ThemeSelectEvent {
                   <nxt1-icon [name]="option.icon" [size]="20" class="theme-option__icon" />
                 </div>
                 <span class="theme-option__label">{{ option.label }}</span>
-                @if (
-                  themeService.preference() === option.id &&
-                  (!singleRow || !themeService.hasSportTheme())
-                ) {
+                @if (isAppearanceSelected(option)) {
                   <div class="theme-option__check">
                     <nxt1-icon name="checkmark" [size]="14" class="theme-option__check-icon" />
                   </div>
@@ -136,9 +128,9 @@ export interface ThemeSelectEvent {
               <button
                 type="button"
                 class="sport-option"
-                [class.sport-option--selected]="!themeService.hasSportTheme()"
+                [class.sport-option--selected]="isDefaultSportSelected()"
                 role="radio"
-                [attr.aria-checked]="!themeService.hasSportTheme()"
+                [attr.aria-checked]="isDefaultSportSelected()"
                 aria-label="NXT1 Default (Volt Green)"
                 (click)="clearSportTheme()"
               >
@@ -146,10 +138,55 @@ export interface ThemeSelectEvent {
                   <nxt1-icon name="sparkles" [size]="18" class="sport-option__icon" />
                 </div>
                 <span class="sport-option__label">Default</span>
-                @if (!themeService.hasSportTheme()) {
+                @if (isDefaultSportSelected()) {
                   <nxt1-icon name="checkmarkCircle" [size]="18" class="sport-option__check" />
                 }
               </button>
+            }
+
+            @if (showTeamOption()) {
+              @if (singleRow) {
+                <button
+                  type="button"
+                  class="theme-option theme-option--sport"
+                  [class.theme-option--selected]="themeService.isTeamThemeActive()"
+                  role="radio"
+                  [attr.aria-checked]="themeService.isTeamThemeActive()"
+                  aria-label="Team"
+                  (click)="selectTeamTheme()"
+                >
+                  <div
+                    class="theme-option__icon-wrapper theme-option__icon-wrapper--sport"
+                    [style.--sport-accent]="teamOptionColor()"
+                  >
+                    <nxt1-icon name="shield" [size]="20" class="theme-option__icon" />
+                  </div>
+                  <span class="theme-option__label">Team</span>
+                  @if (themeService.isTeamThemeActive()) {
+                    <div class="theme-option__check">
+                      <nxt1-icon name="checkmark" [size]="14" class="theme-option__check-icon" />
+                    </div>
+                  }
+                </button>
+              } @else {
+                <button
+                  type="button"
+                  class="sport-option"
+                  [class.sport-option--selected]="themeService.isTeamThemeActive()"
+                  role="radio"
+                  [attr.aria-checked]="themeService.isTeamThemeActive()"
+                  aria-label="Team"
+                  (click)="selectTeamTheme()"
+                >
+                  <div class="sport-option__color" [style.--sport-color]="teamOptionColor()">
+                    <nxt1-icon name="shield" [size]="18" class="sport-option__icon" />
+                  </div>
+                  <span class="sport-option__label">Team</span>
+                  @if (themeService.isTeamThemeActive()) {
+                    <nxt1-icon name="checkmarkCircle" [size]="18" class="sport-option__check" />
+                  }
+                </button>
+              }
             }
 
             <!-- Sport themes -->
@@ -159,9 +196,9 @@ export interface ThemeSelectEvent {
                 <button
                   type="button"
                   class="theme-option theme-option--sport"
-                  [class.theme-option--selected]="themeService.sportTheme() === sport.id"
+                  [class.theme-option--selected]="isSportSelected(sport.id)"
                   role="radio"
-                  [attr.aria-checked]="themeService.sportTheme() === sport.id"
+                  [attr.aria-checked]="isSportSelected(sport.id)"
                   [attr.aria-label]="sport.label"
                   (click)="selectSport(sport)"
                 >
@@ -172,7 +209,7 @@ export interface ThemeSelectEvent {
                     <nxt1-icon [name]="sport.icon" [size]="20" class="theme-option__icon" />
                   </div>
                   <span class="theme-option__label">{{ sport.label }}</span>
-                  @if (themeService.sportTheme() === sport.id) {
+                  @if (isSportSelected(sport.id)) {
                     <div class="theme-option__check">
                       <nxt1-icon name="checkmark" [size]="14" class="theme-option__check-icon" />
                     </div>
@@ -182,9 +219,9 @@ export interface ThemeSelectEvent {
                 <button
                   type="button"
                   class="sport-option"
-                  [class.sport-option--selected]="themeService.sportTheme() === sport.id"
+                  [class.sport-option--selected]="isSportSelected(sport.id)"
                   role="radio"
-                  [attr.aria-checked]="themeService.sportTheme() === sport.id"
+                  [attr.aria-checked]="isSportSelected(sport.id)"
                   [attr.aria-label]="sport.label"
                   (click)="selectSport(sport)"
                 >
@@ -192,7 +229,7 @@ export interface ThemeSelectEvent {
                     <nxt1-icon [name]="sport.icon" [size]="18" class="sport-option__icon" />
                   </div>
                   <span class="sport-option__label">{{ sport.label }}</span>
-                  @if (themeService.sportTheme() === sport.id) {
+                  @if (isSportSelected(sport.id)) {
                     <nxt1-icon name="checkmarkCircle" [size]="18" class="sport-option__check" />
                   }
                 </button>
@@ -393,6 +430,17 @@ export interface ThemeSelectEvent {
 
       .theme-option:hover {
         background: var(--bg-hover);
+      }
+
+      .theme-option:disabled,
+      .sport-option:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+
+      .theme-option:disabled:hover,
+      .sport-option:disabled:hover {
+        background: transparent;
       }
 
       .theme-option:focus-visible {
@@ -688,6 +736,12 @@ export class NxtThemeSelectorComponent {
   /** Available sport theme options */
   protected readonly sportOptions: readonly SportThemeOption[] = SPORT_THEME_OPTIONS;
 
+  /** Whether the current context can expose the Team theme option. */
+  protected readonly showTeamOption = computed(() => this.themeService.hasTeamThemeOption());
+
+  /** Accent color chip for the Team option. */
+  protected readonly teamOptionColor = computed(() => this.themeService.teamThemePrimaryColor());
+
   /**
    * Handle appearance theme selection.
    * In singleRow mode (desktop), also clears sport theme so appearance change is visible.
@@ -700,12 +754,13 @@ export class NxtThemeSelectorComponent {
 
     // In singleRow mode (desktop), always clear sport theme first
     const hadSportTheme = this.singleRow && this.themeService.hasSportTheme();
+    const hadTeamTheme = this.themeService.isTeamThemeActive();
     if (hadSportTheme) {
       this.themeService.clearSportTheme();
     }
 
-    // Skip if same preference AND no sport theme was cleared
-    if (this.themeService.preference() === option.id && !hadSportTheme) {
+    // Skip if same preference and nothing contextual needs to be dismissed.
+    if (this.themeService.preference() === option.id && !hadSportTheme && !hadTeamTheme) {
       this.logger.debug('Same theme selected, skipping');
       return;
     }
@@ -725,7 +780,8 @@ export class NxtThemeSelectorComponent {
    * Handle sport theme selection.
    */
   protected selectSport(sport: SportThemeOption): void {
-    if (this.themeService.sportTheme() === sport.id) return;
+    const hadTeamTheme = this.themeService.isTeamThemeActive();
+    if (this.themeService.sportTheme() === sport.id && !hadTeamTheme) return;
 
     void this.haptics.impact('medium');
     this.themeService.setSportTheme(sport.id);
@@ -741,7 +797,9 @@ export class NxtThemeSelectorComponent {
    * Clear sport theme (revert to default NXT1 colors).
    */
   protected clearSportTheme(): void {
-    if (!this.themeService.hasSportTheme()) return;
+    const hadSportTheme = this.themeService.hasSportTheme();
+    const hadTeamTheme = this.themeService.isTeamThemeActive();
+    if (!hadSportTheme && !hadTeamTheme) return;
 
     void this.haptics.impact('light');
     this.themeService.clearSportTheme();
@@ -751,5 +809,37 @@ export class NxtThemeSelectorComponent {
       theme: null,
       timestamp: Date.now(),
     });
+  }
+
+  protected selectTeamTheme(): void {
+    if (this.themeService.isTeamThemeActive()) return;
+    void this.haptics.impact('light');
+    this.themeService.selectTeamTheme();
+
+    this.themeSelect.emit({
+      type: 'team',
+      theme: 'team',
+      timestamp: Date.now(),
+    });
+  }
+
+  protected isAppearanceSelected(option: ThemeOption): boolean {
+    if (this.themeService.isTeamThemeActive()) {
+      return false;
+    }
+
+    if (this.singleRow && this.themeService.hasSportTheme()) {
+      return false;
+    }
+
+    return this.themeService.preference() === option.id;
+  }
+
+  protected isDefaultSportSelected(): boolean {
+    return !this.themeService.hasSportTheme() && !this.themeService.isTeamThemeActive();
+  }
+
+  protected isSportSelected(sport: SportTheme): boolean {
+    return !this.themeService.isTeamThemeActive() && this.themeService.sportTheme() === sport;
   }
 }

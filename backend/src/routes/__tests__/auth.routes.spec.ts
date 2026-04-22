@@ -108,7 +108,7 @@ describe('Auth Routes', () => {
         });
       });
 
-      it('writes coach titles into sports.team and deletes the legacy root field', async () => {
+      it('does not persist placeholder teams for coach onboarding without a selected program', async () => {
         __seedMockFirestoreDocument('Users/coach123', {
           id: 'coach123',
           role: 'coach',
@@ -138,10 +138,6 @@ describe('Auth Routes', () => {
             {
               sport: 'Football',
               order: 0,
-              team: {
-                title: 'Head Coach',
-                type: 'high-school',
-              },
             },
           ],
           activeSportIndex: 0,
@@ -150,6 +146,9 @@ describe('Auth Routes', () => {
         expect(
           (userUpdate?.payload?.['sports'] as Array<Record<string, unknown>>)[0]
         ).not.toHaveProperty('positions');
+        expect(
+          (userUpdate?.payload?.['sports'] as Array<Record<string, unknown>>)[0]
+        ).not.toHaveProperty('team');
         expect(userUpdate?.payload).toHaveProperty('coachTitle');
         expect(userUpdate?.payload?.['coachTitle']).not.toBe('Head Coach');
         expect(response.body?.user).not.toHaveProperty('primarySport');
@@ -160,18 +159,17 @@ describe('Auth Routes', () => {
           {
             sport: 'Football',
             order: 0,
-            team: {
-              title: 'Head Coach',
-              type: 'high-school',
-            },
           },
         ]);
+        expect((storedUser?.['sports'] as Array<Record<string, unknown>>)[0]).not.toHaveProperty(
+          'team'
+        );
         expect((storedUser?.['sports'] as Array<Record<string, unknown>>)[0]).not.toHaveProperty(
           'positions'
         );
       });
 
-      it('preserves team-role title and omits positions on onboarding retries without userType', async () => {
+      it('drops placeholder teams on onboarding retries without userType', async () => {
         __seedMockFirestoreDocument('Users/coach123', {
           id: 'coach123',
           role: 'coach',
@@ -207,13 +205,8 @@ describe('Auth Routes', () => {
         expect(userUpdate).toBeDefined();
         const updatedSport = (userUpdate?.payload?.['sports'] as Array<Record<string, unknown>>)[0];
         expect(updatedSport).not.toHaveProperty('positions');
-        expect(updatedSport).toMatchObject({
-          sport: 'Football',
-          team: {
-            title: 'Head Coach',
-            type: 'high-school',
-          },
-        });
+        expect(updatedSport).toMatchObject({ sport: 'Football' });
+        expect(updatedSport).not.toHaveProperty('team');
       });
 
       it('preserves athlete classOf on onboarding retries without userType', async () => {
@@ -241,7 +234,7 @@ describe('Auth Routes', () => {
         });
       });
 
-      it('reuses existing sports on bulk retries when no sport payload is sent', async () => {
+      it('reuses existing sports on bulk retries without preserving placeholder teams', async () => {
         __seedMockFirestoreDocument('Users/coach123', {
           id: 'coach123',
           role: 'coach',
@@ -272,13 +265,8 @@ describe('Auth Routes', () => {
         expect(userUpdate).toBeDefined();
         const updatedSport = (userUpdate?.payload?.['sports'] as Array<Record<string, unknown>>)[0];
         expect(updatedSport).not.toHaveProperty('positions');
-        expect(updatedSport).toMatchObject({
-          sport: 'Football',
-          team: {
-            title: 'Head Coach',
-            type: 'high-school',
-          },
-        });
+        expect(updatedSport).toMatchObject({ sport: 'Football' });
+        expect(updatedSport).not.toHaveProperty('team');
       });
     });
 
@@ -385,6 +373,39 @@ describe('Auth Routes', () => {
           activeSportIndex: 0,
         });
         expect(userUpdate?.payload).not.toHaveProperty('primarySport');
+      });
+
+      it('does not persist placeholder team data on coach sport step updates without a selected program', async () => {
+        __seedMockFirestoreDocument('Users/coach123', {
+          id: 'coach123',
+          role: 'coach',
+          coachTitle: 'Head Coach',
+          onboardingCompleted: false,
+        });
+
+        const response = await request(app)
+          .post('/api/v1/auth/profile/onboarding-step')
+          .send({
+            userId: 'coach123',
+            stepId: 'sport',
+            stepData: {
+              primarySport: 'Football',
+            },
+          });
+
+        expect(response.status).toBe(200);
+
+        const userUpdate = __getMockFirestoreWrites().find(
+          (write) => write.path === 'Users/coach123' && write.operation === 'update'
+        );
+
+        expect(userUpdate).toBeDefined();
+        const updatedSport = (userUpdate?.payload?.['sports'] as Array<Record<string, unknown>>)[0];
+        expect(updatedSport).toMatchObject({
+          sport: 'Football',
+          order: 0,
+        });
+        expect(updatedSport).not.toHaveProperty('team');
       });
     });
   });

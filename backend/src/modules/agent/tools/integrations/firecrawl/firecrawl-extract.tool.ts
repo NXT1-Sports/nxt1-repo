@@ -85,8 +85,8 @@ export class FirecrawlExtractTool extends BaseTool {
   override readonly allowedAgents = [
     'recruiting_coordinator',
     'data_coordinator',
-    'compliance_coordinator',
-    'general',
+    'admin_coordinator',
+    'strategy_coordinator',
   ] as const;
 
   readonly isMutation = false;
@@ -153,7 +153,11 @@ export class FirecrawlExtractTool extends BaseTool {
       hasSchema: !!schema,
       userId: context?.userId,
     });
-    context?.onProgress?.(`Extracting data from ${validUrls.length} page(s)…`);
+    context?.emitStage?.('fetching_data', {
+      icon: 'search',
+      urlCount: validUrls.length,
+      phase: 'extract_data',
+    });
 
     try {
       const result = await this.bridge.extract(validUrls, prompt, options);

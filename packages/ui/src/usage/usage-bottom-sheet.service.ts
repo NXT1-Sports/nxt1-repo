@@ -31,20 +31,19 @@ export class UsageBottomSheetService {
   private readonly bottomSheet = inject(NxtBottomSheetService);
 
   /**
-   * Optional override for the buy-credits flow (e.g. Apple IAP on iOS).
-   * When registered, `showBuyCreditsOptions()` delegates to this handler
-   * (which handles the entire purchase internally) and returns `null`.
+   * Optional iOS-specific handler for Apple IAP.
+   * When registered, the buy-credits sheet exposes a dedicated IAP button
+   * alongside the standard Stripe purchase path.
    */
-  private _buyCreditsOverride: (() => Promise<void>) | null = null;
+  private _buyCreditsIapHandler: (() => Promise<void>) | null = null;
 
   /**
-   * Register a platform-specific buy-credits handler.
-   * On iOS the mobile app registers `IapService.showProductsAndPurchase()`
-   * so that every surface (Agent X, Usage, billing card) opens Apple IAP
-   * instead of the basic Stripe credit-package selector.
+   * Register a platform-specific Apple IAP handler.
+   * On iOS the mobile app registers `IapService.showProductsAndPurchase()` so
+   * compatible buy-credits sheets can expose both Stripe and Apple IAP.
    */
   registerBuyCreditsHandler(handler: () => Promise<void>): void {
-    this._buyCreditsOverride = handler;
+    this._buyCreditsIapHandler = handler;
   }
 
   /** Open timeframe selector */
@@ -117,22 +116,18 @@ export class UsageBottomSheetService {
     return match ? parseInt(match[1], 10) * 100 : null;
   }
 
-  /** Open credit package selector for buying credits (B2C).
-   * If a platform-specific handler is registered (e.g. Apple IAP), delegates
-   * to it and returns `null` (the handler completes the full purchase flow).
-   */
+  /** Open credit package selector for buying credits (B2C). */
   async showBuyCreditsOptions(): Promise<number | null> {
-    // Delegate to IAP / platform override when registered
-    if (this._buyCreditsOverride) {
-      await this._buyCreditsOverride();
-      return null;
-    }
-
     const result = await this.openBuyCreditsSheet({
       autoTopupEnabled: false,
       autoTopupThresholdCents: 500,
       autoTopupAmountCents: 1_000,
     });
+
+    if (result?.type === 'buy-iap') {
+      await this._buyCreditsIapHandler?.();
+      return null;
+    }
 
     return result?.type === 'buy' ? result.amountCents : null;
   }
@@ -156,6 +151,12 @@ export class UsageBottomSheetService {
     autoTopup: { enabled: boolean; thresholdCents: number; amountCents: number } | null;
   }> {
     const result = await this.openBuyCreditsSheet(opts);
+
+    if (result?.type === 'buy-iap') {
+      await this._buyCreditsIapHandler?.();
+      return { amountCents: null, autoTopup: null };
+    }
+
     if (result?.type === 'buy') {
       return { amountCents: result.amountCents, autoTopup: null };
     }
@@ -185,6 +186,7 @@ export class UsageBottomSheetService {
         initialAutoTopupEnabled: opts.autoTopupEnabled,
         initialThresholdCents: opts.autoTopupThresholdCents,
         initialAutoTopupAmountCents: opts.autoTopupAmountCents,
+        showIapPayButton: this._buyCreditsIapHandler !== null,
       },
       ...SHEET_PRESETS.FULL,
       showHandle: true,

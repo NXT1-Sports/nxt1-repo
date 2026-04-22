@@ -13,7 +13,9 @@ import type { OpenRouterService } from '../llm/openrouter.service.js';
 import { AgentMemoryModel } from './vector.service.js';
 import type { VectorMemoryService } from './vector.service.js';
 import { ContextBuilder } from './context-builder.js';
+import { resolveStructuredOutput } from '../llm/structured-output.js';
 import { logger } from '../../../utils/logger.js';
+import { z } from 'zod';
 
 interface ExtractedMemoryFact {
   readonly content: string;
@@ -55,15 +57,19 @@ const TEAM_IDENTITY_FIELDS = new Set([
   'sportInfo.side',
 ]);
 
-const VALID_CATEGORIES: readonly AgentMemoryCategory[] = [
-  'preference',
-  'goal',
-  'recruiting_context',
-  'performance_data',
-  'profile_update',
-];
+const extractedMemoryFactSchema = z.object({
+  content: z.string().trim().min(1),
+  category: z.enum([
+    'preference',
+    'goal',
+    'recruiting_context',
+    'performance_data',
+    'profile_update',
+  ]),
+  target: z.enum(['user', 'team', 'organization']),
+});
 
-const VALID_TARGETS: readonly AgentMemoryTarget[] = ['user', 'team', 'organization'];
+const extractedMemoryFactsSchema = z.array(z.unknown());
 
 const SYNC_MEMORY_SYSTEM_PROMPT = `You convert structured sports sync changes into long-term AI memory facts for NXT1.
 
@@ -420,7 +426,10 @@ export class SyncMemoryExtractorService {
         tier: 'extraction',
         temperature: 0,
         maxTokens: 1800,
-        jsonMode: true,
+        outputSchema: {
+          name: 'sync_memory_facts',
+          schema: z.array(extractedMemoryFactSchema),
+        },
         telemetryContext: {
           operationId: `sync-memory-${delta.userId}-${delta.syncedAt}`,
           userId: delta.userId,
@@ -430,47 +439,31 @@ export class SyncMemoryExtractorService {
       }
     );
 
-    if (!completion.content) {
-      return [];
-    }
-
-    let parsed: unknown;
+    let parsedFacts: z.infer<typeof extractedMemoryFactsSchema>;
     try {
-      parsed = JSON.parse(completion.content);
+      parsedFacts = resolveStructuredOutput(
+        completion,
+        extractedMemoryFactsSchema,
+        'Sync memory extraction'
+      );
     } catch {
       logger.warn('[SyncMemoryExtractor] Failed to parse AI memory extraction JSON', {
         userId: delta.userId,
-        raw: completion.content.slice(0, 500),
+        raw: (completion.content ?? '').slice(0, 500),
       });
       return [];
     }
 
-    if (!Array.isArray(parsed)) {
-      return [];
-    }
-
-    const extractedFacts: Array<ExtractedMemoryFact | null> = parsed.map((item) => {
-      if (!item || typeof item !== 'object') {
-        return null;
-      }
-
-      const record = item as Record<string, unknown>;
-      const content = typeof record['content'] === 'string' ? record['content'].trim() : '';
-      const category = record['category'];
-      const target = record['target'];
-
-      if (
-        !content ||
-        !VALID_CATEGORIES.includes(category as AgentMemoryCategory) ||
-        !VALID_TARGETS.includes(target as AgentMemoryTarget)
-      ) {
+    const extractedFacts: Array<ExtractedMemoryFact | null> = parsedFacts.map((item) => {
+      const fact = extractedMemoryFactSchema.safeParse(item);
+      if (!fact.success) {
         return null;
       }
 
       return {
-        content,
-        category: category as AgentMemoryCategory,
-        target: target as AgentMemoryTarget,
+        content: fact.data.content,
+        category: fact.data.category as AgentMemoryCategory,
+        target: fact.data.target as AgentMemoryTarget,
         metadata: {
           source: delta.source,
           syncedAt: delta.syncedAt,

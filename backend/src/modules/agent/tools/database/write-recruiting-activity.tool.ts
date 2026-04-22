@@ -14,19 +14,20 @@
 
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
-import { getCacheService } from '../../../../services/cache.service.js';
+import { getCacheService } from '../../../../services/core/cache.service.js';
 import {
   createProfileWriteAccessService,
   resolveAuthorizedTargetSportSelection,
-} from '../../../../services/profile-write-access.service.js';
-import { CACHE_KEYS as USER_CACHE_KEYS } from '../../../../services/users.service.js';
+} from '../../../../services/profile/profile-write-access.service.js';
+import { CACHE_KEYS as USER_CACHE_KEYS } from '../../../../services/profile/users.service.js';
 import { invalidateProfileCaches } from '../../../../routes/profile/shared.js';
 import { normalizeCollegeName } from './dedup-utils.js';
-import { getAnalyticsLoggerService } from '../../../../services/analytics-logger.service.js';
+import { getAnalyticsLoggerService } from '../../../../services/core/analytics-logger.service.js';
 import { logger } from '../../../../utils/logger.js';
 import { SyncDiffService, type PreviousProfileState } from '../../sync/index.js';
 import { onDailySyncComplete } from '../../triggers/trigger.listeners.js';
 import { resolveCreatedAt } from './doc-date-utils.js';
+import { z } from 'zod';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -34,6 +35,32 @@ const RECRUITING_COLLECTION = 'Recruiting';
 const MAX_ACTIVITIES = 100;
 
 const VALID_CATEGORIES = new Set(['offer', 'interest', 'visit', 'camp', 'commitment', 'contact']);
+
+const RecruitingActivityEntrySchema = z
+  .object({
+    category: z.string().trim().min(1).optional(),
+    collegeName: z.string().trim().min(1).optional(),
+    collegeLogoUrl: z.string().trim().min(1).optional(),
+    division: z.string().trim().min(1).optional(),
+    conference: z.string().trim().min(1).optional(),
+    city: z.string().trim().min(1).optional(),
+    state: z.string().trim().min(1).optional(),
+    date: z.string().trim().min(1).optional(),
+    scholarshipType: z.string().trim().min(1).optional(),
+    coachName: z.string().trim().min(1).optional(),
+    coachTitle: z.string().trim().min(1).optional(),
+    notes: z.string().trim().min(1).optional(),
+  })
+  .passthrough();
+
+const WriteRecruitingActivityInputSchema = z.object({
+  userId: z.string().trim().min(1),
+  targetSport: z.string().trim().min(1),
+  source: z.string().trim().min(1),
+  sourceUrl: z.string().trim().min(1).optional(),
+  profileUrl: z.string().trim().min(1).optional(),
+  activities: z.array(RecruitingActivityEntrySchema).min(1).max(MAX_ACTIVITIES),
+});
 
 // ─── Tool ───────────────────────────────────────────────────────────────────
 
@@ -63,41 +90,7 @@ export class WriteRecruitingActivityTool extends BaseTool {
     '  • coachTitle (optional): Coach title.\n' +
     '  • notes (optional): Additional notes.';
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      userId: { type: 'string' },
-      targetSport: { type: 'string' },
-      source: { type: 'string' },
-      sourceUrl: { type: 'string' },
-      profileUrl: { type: 'string' },
-      activities: {
-        type: 'array',
-        items: {
-          type: 'object',
-          properties: {
-            category: {
-              type: 'string',
-              enum: ['offer', 'interest', 'visit', 'camp', 'commitment', 'contact'],
-            },
-            collegeName: { type: 'string' },
-            collegeLogoUrl: { type: 'string' },
-            division: { type: 'string' },
-            conference: { type: 'string' },
-            city: { type: 'string' },
-            state: { type: 'string' },
-            date: { type: 'string' },
-            scholarshipType: { type: 'string' },
-            coachName: { type: 'string' },
-            coachTitle: { type: 'string' },
-            notes: { type: 'string' },
-          },
-          required: ['category'],
-        },
-      },
-    },
-    required: ['userId', 'targetSport', 'source', 'activities'],
-  } as const;
+  readonly parameters = WriteRecruitingActivityInputSchema;
 
   override readonly allowedAgents = ['data_coordinator', 'recruiting_coordinator'] as const;
   readonly isMutation = true;
@@ -114,21 +107,12 @@ export class WriteRecruitingActivityTool extends BaseTool {
     input: Record<string, unknown>,
     context?: ToolExecutionContext
   ): Promise<ToolResult> {
-    const userId = this.str(input, 'userId');
-    if (!userId) return this.paramError('userId');
-    const targetSport = this.str(input, 'targetSport');
-    if (!targetSport) return this.paramError('targetSport');
-    const source = this.str(input, 'source');
-    if (!source) return this.paramError('source');
-    const sourceUrl = this.str(input, 'sourceUrl') ?? this.str(input, 'profileUrl') ?? undefined;
+    const parsed = WriteRecruitingActivityInputSchema.safeParse(input);
+    if (!parsed.success) return this.zodError(parsed.error);
 
-    const activities = input['activities'];
-    if (!Array.isArray(activities) || activities.length === 0) {
-      return { success: false, error: 'activities must be a non-empty array.' };
-    }
-    if (activities.length > MAX_ACTIVITIES) {
-      return { success: false, error: `activities exceeds maximum of ${MAX_ACTIVITIES}.` };
-    }
+    const { userId, targetSport, source } = parsed.data;
+    const sourceUrl = parsed.data.sourceUrl ?? parsed.data.profileUrl;
+    const activities = parsed.data.activities;
 
     if (!context?.userId) {
       return { success: false, error: 'Authenticated tool context is required.' };
@@ -155,7 +139,10 @@ export class WriteRecruitingActivityTool extends BaseTool {
       }
       const now = new Date().toISOString();
 
-      context?.onProgress?.('Checking for duplicate recruiting entries…');
+      context?.emitStage?.('fetching_data', {
+        icon: 'database',
+        phase: 'check_duplicate_recruiting_entries',
+      });
 
       // Fetch existing recruiting activities for dedup
       const existingSnap = await this.db
@@ -245,9 +232,11 @@ export class WriteRecruitingActivityTool extends BaseTool {
       }
 
       if (written > 0) {
-        context?.onProgress?.(
-          `Writing ${written} recruiting activit${written === 1 ? 'y' : 'ies'}…`
-        );
+        context?.emitStage?.('submitting_job', {
+          icon: 'database',
+          activityCount: written,
+          phase: 'write_recruiting_activity',
+        });
         await batch.commit();
         logger.info('[WriteRecruitingActivity] Recruiting activities written', {
           userId,

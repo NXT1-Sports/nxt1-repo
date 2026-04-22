@@ -28,6 +28,3 @@ export {
   getErrorMap,
   combineValidations,
 } from './schemas';
-
-// Posts validation
-export { sanitizeContent, extractHashtags, extractMentions } from './posts.validation';

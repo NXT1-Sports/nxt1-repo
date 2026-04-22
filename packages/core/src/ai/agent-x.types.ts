@@ -7,7 +7,16 @@
  * 100% portable - works on web, mobile, and backend.
  */
 
-import type { AgentJobOrigin, AgentYieldState } from './agent.types';
+import type { PortableTimestamp } from '../models/portable-timestamp.model';
+import type {
+  AgentIdentifier,
+  AgentJobOrigin,
+  AgentProgressMetadata,
+  AgentProgressStage,
+  AgentProgressStageType,
+  AgentYieldState,
+  OperationOutcomeCode,
+} from './agent.types';
 
 // ============================================
 // ATTACHMENT TYPES
@@ -176,10 +185,10 @@ export interface LiveViewSession {
   readonly authStatus: LiveViewAuthStatus;
   /** What the frontend is allowed to do with this session. */
   readonly capabilities: LiveViewSessionCapabilities;
-  /** ISO 8601 timestamp when the session was created. */
-  readonly createdAt: string;
-  /** ISO 8601 timestamp when the session will auto-expire. */
-  readonly expiresAt: string;
+  /** Timestamp when the session was created. */
+  readonly createdAt: PortableTimestamp;
+  /** Timestamp when the session will auto-expire. */
+  readonly expiresAt: PortableTimestamp;
 }
 
 /**
@@ -341,6 +350,20 @@ export interface AgentXUserContext {
 /** Execution status of a single tool step. */
 export type AgentXToolStepStatus = 'pending' | 'active' | 'success' | 'error';
 
+/** Semantic icon ids for streamed tool steps. */
+export type AgentXToolStepIcon =
+  | 'default'
+  | 'delete'
+  | 'upload'
+  | 'download'
+  | 'search'
+  | 'processing'
+  | 'document'
+  | 'media'
+  | 'database'
+  | 'email'
+  | 'approval';
+
 /**
  * A single tool execution step shown as an inline log in the chat bubble.
  * Rendered in a Copilot-style accordion: spinner when active, checkmark on success.
@@ -350,8 +373,20 @@ export interface AgentXToolStep {
   readonly id: string;
   /** Short human-readable label (e.g. "Searching athlete database…"). */
   readonly label: string;
+  /** Which agent emitted the step, when known. */
+  readonly agentId?: AgentIdentifier;
+  /** Which execution layer emitted this step, when structured stages are available. */
+  readonly stageType?: AgentProgressStageType;
+  /** Typed machine-readable stage key for frontend dictionaries. */
+  readonly stage?: AgentProgressStage;
+  /** Structured outcome for notable or terminal states. */
+  readonly outcomeCode?: OperationOutcomeCode;
+  /** Additional typed hydration data for UI rendering. */
+  readonly metadata?: AgentProgressMetadata;
   /** Current execution status — updated in real time via SSE. */
   readonly status: AgentXToolStepStatus;
+  /** Optional semantic icon key for custom rendering. */
+  readonly icon?: AgentXToolStepIcon;
   /** Optional detail text shown when the accordion is expanded. */
   readonly detail?: string;
 }
@@ -387,6 +422,8 @@ export interface AgentXPlannerItem {
 export interface AgentXRichCard {
   /** Card type — drives Angular component selection. */
   readonly type: AgentXRichCardType;
+  /** Which agent generated the card, used for per-agent colorways. */
+  readonly agentId?: AgentIdentifier;
   /** Card title (shown as header). */
   readonly title: string;
   /** Type-specific payload. */
@@ -691,8 +728,20 @@ export interface AgentXStreamStepEvent {
   readonly id: string;
   /** Short human-readable label (e.g. "Querying athlete stats…"). */
   readonly label: string;
+  /** Which agent emitted the step, when known. */
+  readonly agentId?: AgentIdentifier;
+  /** Which execution layer emitted this step, when structured stages are available. */
+  readonly stageType?: AgentProgressStageType;
+  /** Typed machine-readable stage key for frontend dictionaries. */
+  readonly stage?: AgentProgressStage;
+  /** Structured outcome for notable or terminal states. */
+  readonly outcomeCode?: OperationOutcomeCode;
+  /** Additional typed hydration data for UI rendering. */
+  readonly metadata?: AgentProgressMetadata;
   /** Current step status — `active` when starting, `success`/`error` when done. */
   readonly status: AgentXToolStepStatus;
+  /** Optional semantic icon key for custom rendering. */
+  readonly icon?: AgentXToolStepIcon;
   /** Optional expanded detail (e.g. "Found 24 matching athletes"). */
   readonly detail?: string;
 }
@@ -702,6 +751,8 @@ export interface AgentXStreamStepEvent {
  * Sent when the backend wants to embed a rich interactive card in the chat.
  */
 export interface AgentXStreamCardEvent {
+  /** Which agent generated the card, used for per-agent colorways. */
+  readonly agentId?: AgentIdentifier;
   /** Card type discriminator. */
   readonly type: AgentXRichCardType;
   /** Card title. */
@@ -902,8 +953,8 @@ export interface AgentDashboardGoal {
   readonly text: string;
   readonly category: string;
   readonly icon?: string;
-  readonly createdAt: string;
-  readonly completedAt?: string;
+  readonly createdAt: PortableTimestamp;
+  readonly completedAt?: PortableTimestamp;
   readonly isCompleted?: boolean;
 }
 
@@ -917,10 +968,10 @@ export interface CompletedGoalRecord {
   readonly text: string;
   readonly category: string;
   readonly icon?: string;
-  /** ISO timestamp when the goal was originally set */
-  readonly createdAt: string;
-  /** ISO timestamp when the user marked the goal complete */
-  readonly completedAt: string;
+  /** Timestamp when the goal was originally set */
+  readonly createdAt: PortableTimestamp;
+  /** Timestamp when the user marked the goal complete */
+  readonly completedAt: PortableTimestamp;
   /** User role at time of completion (athlete | coach | director) */
   readonly role: string;
   /** Whole-day count from createdAt → completedAt */
@@ -1032,7 +1083,7 @@ export interface AgentWeeklyRecap {
   readonly emailSent: boolean;
   /** Job ID that produced this recap. */
   readonly jobId?: string;
-  readonly createdAt: string;
+  readonly createdAt: PortableTimestamp;
 }
 
 /** Display status for an operation log entry (mapped from AgentOperationStatus). */
@@ -1079,8 +1130,8 @@ export interface OperationLogEntry {
    */
   readonly origin?: AgentJobOrigin;
   /**
-   * `true` when the operation was initiated automatically (not by the user directly).
-   * Derived from origin: any non-`'user'` origin is considered scheduled/automated.
+   * `true` only for recurring time-based runs, such as cron-triggered operations.
+   * One-off backend-triggered jobs like welcome-graphic generation should remain `false`.
    */
   readonly isScheduled?: boolean;
   /**

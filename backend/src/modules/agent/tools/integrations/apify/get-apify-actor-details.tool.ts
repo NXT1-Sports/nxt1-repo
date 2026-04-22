@@ -15,9 +15,14 @@
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../../base.tool.js';
 import type { ApifyMcpBridgeService } from './apify-mcp-bridge.service.js';
 import { logger } from '../../../../../utils/logger.js';
+import { z } from 'zod';
 
 /** Max length for actor ID to prevent abuse. */
 const MAX_ACTOR_ID_LENGTH = 200;
+
+const GetApifyActorDetailsInputSchema = z.object({
+  actorId: z.string().trim().min(1).max(MAX_ACTOR_ID_LENGTH),
+});
 
 export class GetApifyActorDetailsTool extends BaseTool {
   readonly name = 'get_apify_actor_details';
@@ -28,24 +33,13 @@ export class GetApifyActorDetailsTool extends BaseTool {
     'Pass the actorId from search_apify_actors results. ' +
     'This is a free operation — no compute costs.';
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      actorId: {
-        type: 'string',
-        description:
-          'The Apify actor ID (e.g. "apify/instagram-scraper", "altimis/scweet"). ' +
-          'Get this from search_apify_actors results.',
-      },
-    },
-    required: ['actorId'],
-  } as const;
+  readonly parameters = GetApifyActorDetailsInputSchema;
 
   override readonly allowedAgents = [
     'data_coordinator',
     'recruiting_coordinator',
-    'brand_media_coordinator',
-    'general',
+    'brand_coordinator',
+    'strategy_coordinator',
   ] as const;
 
   readonly isMutation = false;
@@ -62,15 +56,15 @@ export class GetApifyActorDetailsTool extends BaseTool {
     input: Record<string, unknown>,
     _context?: ToolExecutionContext
   ): Promise<ToolResult> {
-    const actorId = this.str(input, 'actorId');
-    if (!actorId) return this.paramError('actorId');
-
-    if (actorId.length > MAX_ACTOR_ID_LENGTH) {
+    const parsed = GetApifyActorDetailsInputSchema.safeParse(input);
+    if (!parsed.success) {
       return {
         success: false,
-        error: `actorId must be ${MAX_ACTOR_ID_LENGTH} characters or fewer.`,
+        error: parsed.error.issues.map((issue) => issue.message).join(', '),
       };
     }
+
+    const { actorId } = parsed.data;
 
     try {
       logger.info('[GetApifyActorDetails] Fetching details', { actorId });

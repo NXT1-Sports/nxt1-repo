@@ -14,8 +14,9 @@
 
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
-import { getCacheService } from '../../../../services/cache.service.js';
+import { getCacheService } from '../../../../services/core/cache.service.js';
 import { logger } from '../../../../utils/logger.js';
+import { z } from 'zod';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -23,6 +24,24 @@ const ROSTER_ENTRIES_COLLECTION = 'RosterEntries';
 const MAX_ENTRIES_PER_CALL = 50;
 
 const VALID_STATUSES = new Set(['ghost', 'active', 'inactive', 'committed', 'transferred']);
+
+const RosterEntrySchema = z
+  .object({
+    playerId: z.string().trim().min(1).optional(),
+    status: z.string().trim().min(1).optional(),
+    jerseyNumber: z.string().trim().min(1).optional(),
+    position: z.string().trim().min(1).optional(),
+    year: z.string().trim().min(1).optional(),
+    sportId: z.string().trim().min(1).optional(),
+    note: z.string().trim().min(1).optional(),
+  })
+  .passthrough();
+
+const WriteRosterEntriesInputSchema = z.object({
+  teamId: z.string().trim().min(1),
+  teamCode: z.string().trim().min(1),
+  entries: z.array(RosterEntrySchema).min(1).max(MAX_ENTRIES_PER_CALL),
+});
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -58,33 +77,7 @@ export class WriteRosterEntriesTool extends BaseTool {
     '  • sportId (optional): Sport identifier.\n' +
     '  • note (optional): Internal scouting note (not shown to non-staff).';
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      teamId: { type: 'string' },
-      teamCode: { type: 'string' },
-      entries: {
-        type: 'array',
-        items: {
-          type: 'object',
-          properties: {
-            playerId: { type: 'string' },
-            status: {
-              type: 'string',
-              enum: ['ghost', 'active', 'inactive', 'committed', 'transferred'],
-            },
-            jerseyNumber: { type: 'string' },
-            position: { type: 'string' },
-            year: { type: 'string' },
-            sportId: { type: 'string' },
-            note: { type: 'string' },
-          },
-          required: ['playerId'],
-        },
-      },
-    },
-    required: ['teamId', 'teamCode', 'entries'],
-  } as const;
+  readonly parameters = WriteRosterEntriesInputSchema;
 
   override readonly allowedAgents = ['data_coordinator'] as const;
   readonly isMutation = true;
@@ -101,18 +94,11 @@ export class WriteRosterEntriesTool extends BaseTool {
     input: Record<string, unknown>,
     context?: ToolExecutionContext
   ): Promise<ToolResult> {
-    const teamId = this.str(input, 'teamId');
-    if (!teamId) return this.paramError('teamId');
-    const teamCode = this.str(input, 'teamCode');
-    if (!teamCode) return this.paramError('teamCode');
+    const parsed = WriteRosterEntriesInputSchema.safeParse(input);
+    if (!parsed.success) return this.zodError(parsed.error);
 
-    const rawEntries = input['entries'];
-    if (!Array.isArray(rawEntries) || rawEntries.length === 0) {
-      return { success: false, error: 'entries must be a non-empty array.' };
-    }
-    if (rawEntries.length > MAX_ENTRIES_PER_CALL) {
-      return { success: false, error: `entries exceeds maximum of ${MAX_ENTRIES_PER_CALL}.` };
-    }
+    const { teamId, teamCode } = parsed.data;
+    const rawEntries = parsed.data.entries;
 
     try {
       const now = new Date().toISOString();
@@ -179,7 +165,11 @@ export class WriteRosterEntriesTool extends BaseTool {
         return { success: false, error: 'No valid entries after validation.' };
       }
 
-      context?.onProgress?.(`Upserting ${written} roster entry entries…`);
+      context?.emitStage?.('submitting_job', {
+        icon: 'database',
+        entryCount: written,
+        phase: 'upsert_roster_entries',
+      });
       await batch.commit();
 
       // Invalidate recruiting timeline for this team

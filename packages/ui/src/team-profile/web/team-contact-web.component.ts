@@ -51,22 +51,24 @@ function deriveConnectedHandle(profileUrl: string, fallback: string, prefix = ''
             />
           </div>
           <h3>
-            {{
-              activeSection() === 'connected' ? 'No connected accounts yet' : 'Contact info not set'
-            }}
+            {{ activeSection() === 'connected' ? 'No social media added' : 'Contact info not set' }}
           </h3>
           <p>
             @if (activeSection() === 'connected') {
-              This team hasn't connected any sources yet.
+              This team hasn't added social media yet.
             } @else {
               This team hasn't added contact information yet.
             }
           </p>
           @if (teamProfile.isTeamAdmin()) {
-            <button type="button" class="madden-cta-btn" (click)="manageTeam.emit()">
-              {{
-                activeSection() === 'connected' ? 'Manage Connected Sources' : 'Add Contact Info'
-              }}
+            <button
+              type="button"
+              class="madden-cta-btn"
+              (click)="
+                activeSection() === 'connected' ? connectedAccountsClick.emit() : manageTeam.emit()
+              "
+            >
+              {{ activeSection() === 'connected' ? 'Add Social Media' : 'Add Contact Info' }}
             </button>
           }
         </div>
@@ -120,7 +122,7 @@ function deriveConnectedHandle(profileUrl: string, fallback: string, prefix = ''
               }
 
               @if (activeSection() === 'connected' && connectedAccountsList().length > 0) {
-                <h3 class="contact-section-title">Connected</h3>
+                <h3 class="contact-section-title">Social Media</h3>
                 <div class="contact-social-chips">
                   @for (acct of connectedAccountsList(); track acct.key) {
                     <a
@@ -293,6 +295,9 @@ function deriveConnectedHandle(profileUrl: string, fallback: string, prefix = ''
         font-weight: 700;
         color: var(--m-text);
         margin: 0 0 12px;
+      }
+      .contact-section-header {
+        display: none;
       }
 
       .contact-info-list {
@@ -475,6 +480,8 @@ export class TeamContactWebComponent {
 
   /** Emitted when admin clicks a manage CTA button */
   readonly manageTeam = output<void>();
+  /** Emitted when admin wants to manage connected accounts */
+  readonly connectedAccountsClick = output<void>();
 
   // ── Social Accounts ──
 

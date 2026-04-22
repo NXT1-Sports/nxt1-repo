@@ -6,13 +6,13 @@
 import type { DocumentData, Firestore } from 'firebase-admin/firestore';
 import { FieldValue } from 'firebase-admin/firestore';
 import { logger } from '../../utils/logger.js';
-import { getCacheService, CACHE_TTL } from '../../services/cache.service.js';
-import { CACHE_KEYS as USER_CACHE_KEYS } from '../../services/users.service.js';
+import { getCacheService, CACHE_TTL } from '../../services/core/cache.service.js';
+import { CACHE_KEYS as USER_CACHE_KEYS } from '../../services/profile/users.service.js';
 import { AGENT_CONTEXT_PREFIX } from '../../modules/agent/memory/context-builder.js';
-import { createRosterEntryService } from '../../services/roster-entry.service.js';
-import { createOrganizationService } from '../../services/organization.service.js';
-import { createProfileHydrationService } from '../../services/profile-hydration.service.js';
-import * as teamCodeService from '../../services/team-code.service.js';
+import { createRosterEntryService } from '../../services/team/roster-entry.service.js';
+import { createOrganizationService } from '../../services/team/organization.service.js';
+import { createProfileHydrationService } from '../../services/profile/profile-hydration.service.js';
+import * as teamCodeService from '../../services/team/team-code.service.js';
 import type { User, UserSummary, SportProfile, ProfileSearchParams } from '@nxt1/core';
 import { PROFILE_CACHE_KEYS } from '@nxt1/core';
 

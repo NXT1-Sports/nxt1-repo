@@ -30,11 +30,13 @@ export abstract class GoogleWorkspaceBaseTool extends BaseTool {
     }
 
     const metadata = getGoogleWorkspaceToolMetadata(this.mcpToolName);
-    context.onProgress?.(
-      metadata.isMutation
-        ? `Executing Google ${metadata.service} action…`
-        : `Reading from Google ${metadata.service}…`
-    );
+    context.emitStage?.(metadata.isMutation ? 'submitting_job' : 'fetching_data', {
+      source: 'google_workspace',
+      phase: metadata.isMutation ? 'execute_action' : 'read_data',
+      service: metadata.service,
+      toolName: this.mcpToolName,
+      icon: metadata.service === 'gmail' ? 'email' : 'document',
+    });
 
     try {
       const data = await this.sessionService.executeAllowedTool(this.mcpToolName, input, context);

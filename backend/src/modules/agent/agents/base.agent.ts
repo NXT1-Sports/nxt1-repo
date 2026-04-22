@@ -21,8 +21,11 @@ import type {
   AgentSessionContext,
   AgentOperationResult,
   AgentToolCallRecord,
+  AgentXToolStepIcon,
   ModelRoutingConfig,
+  ToolStage,
 } from '@nxt1/core';
+import { resolveAgentApprovalPrompt } from '@nxt1/core';
 import type { OpenRouterService } from '../llm/openrouter.service.js';
 import type { ToolRegistry } from '../tools/tool-registry.js';
 import type { ToolExecutionContext } from '../tools/base.tool.js';
@@ -43,6 +46,7 @@ import {
 } from '../utils/platform-identifier-sanitizer.js';
 import { parallelBatch } from '../utils/parallel-batch.js';
 import { getAgentAnalyticsGate } from '../services/agent-analytics-gate.js';
+import { resolveAgentSystemPrompt } from '../config/agent-app-config.js';
 import { logger } from '../../../utils/logger.js';
 
 /** Maximum tool-calling iterations before we force the agent to respond. */
@@ -110,6 +114,13 @@ export abstract class BaseAgent {
    */
   getSkills(): readonly string[] {
     return [];
+  }
+
+  protected withConfiguredSystemPrompt(
+    basePrompt: string,
+    templateValues?: Readonly<Record<string, string | undefined>>
+  ): string {
+    return resolveAgentSystemPrompt(this.id, basePrompt, templateValues);
   }
 
   /**
@@ -355,7 +366,7 @@ export abstract class BaseAgent {
         type: 'step_active',
         agentId: this.id,
         toolName: pendingToolCall.function.name,
-        message: `Running ${pendingToolCall.function.name} after approval...`,
+        icon: this.resolveToolStepIcon(pendingToolCall.function.name),
       });
 
       let observation = await this.executeTool(
@@ -369,7 +380,8 @@ export abstract class BaseAgent {
         },
         sessionContext,
         messages,
-        approvalGate
+        approvalGate,
+        onStreamEvent
       );
       observation = this.truncateObservation(observation);
 
@@ -378,7 +390,7 @@ export abstract class BaseAgent {
         agentId: this.id,
         toolName: pendingToolCall.function.name,
         toolSuccess: true,
-        message: `${pendingToolCall.function.name} completed`,
+        icon: this.resolveToolStepIcon(pendingToolCall.function.name),
       });
 
       messages.push({
@@ -496,13 +508,16 @@ export abstract class BaseAgent {
 
         // Synthesize a summary from tool observations when the LLM returns empty content
         let summary = sanitizeAgentOutputText(result.content ?? '');
-        if (!summary.trim()) {
+        const isSynthesized = !summary.trim();
+
+        if (isSynthesized) {
           summary = this.synthesizeSummary(toolCallRecords);
         }
 
         summary = sanitizeAgentOutputText(summary);
 
-        if (onStreamEvent && summary.trim()) {
+        // Only stream the summary if it was synthesized because result.content was already streamed
+        if (onStreamEvent && summary.trim() && isSynthesized) {
           onStreamEvent({ type: 'delta', text: summary, agentId: this.id });
         }
 
@@ -552,6 +567,7 @@ export abstract class BaseAgent {
           type: 'step_active',
           agentId: this.id,
           toolName: toolCall.function.name,
+          icon: this.resolveToolStepIcon(toolCall.function.name),
           message: `Running ${toolCall.function.name}...`,
         });
       }
@@ -578,7 +594,8 @@ export abstract class BaseAgent {
             yieldCtxSnapshot,
             sessionCtxForTools,
             messages,
-            approvalGate
+            approvalGate,
+            onStreamEvent
           ),
         { concurrency: result.toolCalls.length }
       );
@@ -657,6 +674,7 @@ export abstract class BaseAgent {
             toolName: toolCall.function.name,
             toolSuccess,
             toolResult,
+            icon: this.resolveToolStepIcon(toolCall.function.name),
             message: toolSuccess
               ? `${toolCall.function.name} completed`
               : `${toolCall.function.name} failed`,
@@ -1001,7 +1019,8 @@ export abstract class BaseAgent {
     yieldContext?: AskUserToolContext,
     sessionContext?: ToolSessionContext,
     currentMessages?: readonly LLMMessage[],
-    approvalGate?: ApprovalGateService
+    approvalGate?: ApprovalGateService,
+    onStreamEvent?: OnStreamEvent
   ): Promise<string> {
     const toolName = toolCall.function.name;
 
@@ -1036,6 +1055,10 @@ export abstract class BaseAgent {
     if (approvalGate) {
       const approvalRequirement = approvalGate.getApprovalRequirement(toolName, input);
       if (approvalRequirement) {
+        const approvalPrompt = resolveAgentApprovalPrompt({
+          reasonCode: approvalRequirement.reasonCode,
+          actionSummary: approvalRequirement.actionSummary,
+        });
         const approvalAlreadyGranted =
           typeof sessionContext?.approvalId === 'string'
             ? await approvalGate.isApprovalGranted(
@@ -1054,13 +1077,13 @@ export abstract class BaseAgent {
             toolName,
             toolInput: input,
             actionSummary: approvalRequirement.actionSummary,
-            reasoning: approvalRequirement.promptToUser,
+            reasoning: approvalRequirement.actionSummary,
             threadId: sessionContext?.threadId,
           });
 
           throw new AgentYieldException({
             reason: 'needs_approval',
-            promptToUser: approvalRequirement.promptToUser,
+            promptToUser: approvalPrompt,
             agentId: this.id,
             messages: currentMessages ?? yieldContext?.messages ?? [],
             pendingToolCall: {
@@ -1087,6 +1110,20 @@ export abstract class BaseAgent {
       ...(sessionContext?.environment && { environment: sessionContext.environment }),
       ...(sessionContext?.threadId && { threadId: sessionContext.threadId }),
       ...(sessionContext?.sessionId && { sessionId: sessionContext.sessionId }),
+      ...(onStreamEvent && {
+        emitStage: (stage, metadata) => {
+          onStreamEvent({
+            type: 'step_active',
+            agentId: this.id,
+            toolName,
+            stageType: 'tool',
+            stage,
+            metadata,
+            icon: metadata?.icon ?? this.resolveToolStepIcon(toolName, stage),
+            message: this.resolveToolStageLabel(toolName, stage, metadata),
+          });
+        },
+      }),
     };
 
     // AgentYieldException from AskUserTool must propagate out of the ReAct loop
@@ -1110,6 +1147,11 @@ export abstract class BaseAgent {
           operationId: sessionContext?.operationId,
         });
       }
+
+      if (result.success && result.markdown) {
+        return result.markdown;
+      }
+
       return JSON.stringify(
         result.success
           ? { success: true, ...(sanitizedData !== undefined ? { data: sanitizedData } : {}) }
@@ -1133,6 +1175,53 @@ export abstract class BaseAgent {
           err instanceof Error ? err.message : 'Tool execution failed'
         ),
       });
+    }
+  }
+
+  private resolveToolStepIcon(toolName: string, stage?: ToolStage): AgentXToolStepIcon {
+    const normalized = `${toolName} ${stage ?? ''}`.toLowerCase();
+
+    if (/(delete|remove|cancel)/.test(normalized)) return 'delete';
+    if (/(upload|cdn|storage)/.test(normalized)) return 'upload';
+    if (/(download|export)/.test(normalized)) return 'download';
+    if (/(search|query|find|fetch)/.test(normalized)) return 'search';
+    if (/(email|mail)/.test(normalized)) return 'email';
+    if (/(video|image|graphic|media)/.test(normalized)) return 'media';
+    if (/(database|firebase|mongo|memory)/.test(normalized)) return 'database';
+    if (/(document|pdf|doc)/.test(normalized)) return 'document';
+    if (/approval/.test(normalized)) return 'approval';
+
+    return 'processing';
+  }
+
+  private resolveToolStageLabel(
+    toolName: string,
+    stage: ToolStage,
+    metadata?: Record<string, unknown>
+  ): string {
+    if (stage === 'invoking_sub_agent') {
+      const subAgentId =
+        typeof metadata?.['subAgentId'] === 'string' ? (metadata['subAgentId'] as string) : null;
+      return subAgentId ? `Calling sub-agent: ${subAgentId}...` : 'Calling sub-agent...';
+    }
+
+    switch (stage) {
+      case 'fetching_data':
+        return `Fetching data for ${toolName}...`;
+      case 'processing_media':
+        return `Processing media for ${toolName}...`;
+      case 'uploading_assets':
+        return `Uploading assets for ${toolName}...`;
+      case 'submitting_job':
+        return `Submitting ${toolName}...`;
+      case 'checking_status':
+        return `Checking status for ${toolName}...`;
+      case 'persisting_result':
+        return `Saving results from ${toolName}...`;
+      case 'deleting_resource':
+        return `Deleting resources with ${toolName}...`;
+      default:
+        return `Running ${toolName}...`;
     }
   }
 }

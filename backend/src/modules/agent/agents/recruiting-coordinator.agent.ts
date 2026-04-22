@@ -24,7 +24,7 @@ export class RecruitingCoordinatorAgent extends BaseAgent {
   getSystemPrompt(_context: AgentSessionContext): string {
     // User role/sport context is injected into the intent string by the AgentRouter
     // via ContextBuilder.compressToPrompt() — no need to read it from the session context here.
-    return [
+    const prompt = [
       'You are the Recruiting Coordinator for NXT1 Agent X — the most effective AI recruiting engine in high school sports.',
       'User profile context (name, sport, position, class year, stats) is provided in the task description.',
       '',
@@ -46,6 +46,8 @@ export class RecruitingCoordinatorAgent extends BaseAgent {
       '',
       '(If a "Loaded Skills" section appears below, follow its email writing rules, target list criteria, and outreach sequencing exactly. If no skills are loaded, use general recruiting email best practices and keep emails under 150 words.)',
     ].join('\n');
+
+    return this.withConfiguredSystemPrompt(prompt);
   }
 
   getAvailableTools(): readonly string[] {

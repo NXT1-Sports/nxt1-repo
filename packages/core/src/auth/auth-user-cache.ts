@@ -58,11 +58,16 @@ export interface CachedSportData {
     readonly logoUrl?: string | null;
     readonly logo?: string | null;
     readonly teamId?: string;
+    readonly organizationId?: string;
+    readonly primaryColor?: string | null;
+    readonly secondaryColor?: string | null;
     readonly id?: string;
     readonly teamCode?: string;
     readonly code?: string;
     readonly slug?: string;
     readonly unicode?: string;
+    readonly isOrganizationClaimed?: boolean;
+    readonly isUserOrganizationAdmin?: boolean;
   };
 }
 
@@ -116,13 +121,14 @@ export interface CachedUserProfile {
   readonly onboardingCompleted?: boolean;
   readonly completeSignUp?: boolean;
 
-  // Legacy boolean flags (for backwards compatibility)
-  readonly isCollegeCoach?: boolean | null;
-  readonly isRecruit?: boolean | null;
-
   // Sports data
   readonly primarySport?: string;
   readonly sports?: readonly CachedSportData[];
+  readonly organizationAccess?: ReadonlyArray<{
+    readonly organizationId: string;
+    readonly isClaimed: boolean;
+    readonly isAdmin: boolean;
+  }>;
 
   // Any additional fields from backend
   readonly [key: string]: unknown;

@@ -238,7 +238,9 @@ export class TeamTimelineWebComponent {
    */
   protected readonly effectiveFeed = computed<readonly FeedItem[]>(() => {
     const poly = this.polymorphicFeed();
-    if (poly.length > 0) return poly;
+    if (poly.length > 0) {
+      return this.activeSection() === 'pinned' ? poly.filter((item) => item.isPinned) : poly;
+    }
 
     const team = this.teamProfile.team();
     if (!team) return [];

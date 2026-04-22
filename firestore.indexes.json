@@ -109,52 +109,6 @@
       "density": "SPARSE_ALL"
     },
     {
-      "collectionGroup": "billingContexts",
-      "queryScope": "COLLECTION",
-      "fields": [
-        {
-          "fieldPath": "billingEntity",
-          "order": "ASCENDING"
-        },
-        {
-          "fieldPath": "organizationId",
-          "order": "ASCENDING"
-        },
-        {
-          "fieldPath": "userId",
-          "order": "ASCENDING"
-        },
-        {
-          "fieldPath": "__name__",
-          "order": "ASCENDING"
-        }
-      ],
-      "density": "SPARSE_ALL"
-    },
-    {
-      "collectionGroup": "BillingContexts",
-      "queryScope": "COLLECTION",
-      "fields": [
-        {
-          "fieldPath": "billingEntity",
-          "order": "ASCENDING"
-        },
-        {
-          "fieldPath": "organizationId",
-          "order": "ASCENDING"
-        },
-        {
-          "fieldPath": "userId",
-          "order": "ASCENDING"
-        },
-        {
-          "fieldPath": "__name__",
-          "order": "ASCENDING"
-        }
-      ],
-      "density": "SPARSE_ALL"
-    },
-    {
       "collectionGroup": "Events",
       "queryScope": "COLLECTION",
       "fields": [

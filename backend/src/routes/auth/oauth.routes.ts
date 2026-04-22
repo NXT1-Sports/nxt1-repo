@@ -24,10 +24,10 @@ import {
 import { asyncHandler, sendError } from '@nxt1/core/errors/express';
 import { validationError, internalError } from '@nxt1/core/errors';
 import type { ConnectedEmail } from '@nxt1/core';
-import { validateBody } from '../../middleware/validation.middleware.js';
+import { validateBody } from '../../middleware/validation/validation.middleware.js';
 import { ConnectGmailDto, ConnectMicrosoftDto, ConnectYahooDto } from '../../dtos/auth.dto.js';
 import { invalidateProfileCaches } from '../profile/shared.js';
-import { appGuard } from '../../middleware/auth.middleware.js';
+import { appGuard } from '../../middleware/auth/auth.middleware.js';
 import { logger } from '../../utils/logger.js';
 import {
   isAllowedOrigin,

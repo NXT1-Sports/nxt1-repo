@@ -36,26 +36,12 @@ export class GenerateCaptionsTool extends BaseTool {
     'Japanese (ja), Korean (ko), Portuguese (pt), Russian (ru), Italian (it), ' +
     'Polish (pl), Dutch (nl), Czech (cs). Default is English.';
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      videoId: {
-        type: 'string',
-        description: 'The Cloudflare video ID. Must be in "ready" state.',
-      },
-      language: {
-        type: 'string',
-        enum: ['en', 'es', 'fr', 'de', 'ja', 'ko', 'pt', 'ru', 'it', 'pl', 'nl', 'cs'],
-        description: 'Language code for caption generation (default: "en").',
-      },
-    },
-    required: ['videoId'],
-  } as const;
+  readonly parameters = GenerateCaptionsInputSchema;
 
   override readonly allowedAgents = [
-    'brand_media_coordinator',
+    'brand_coordinator',
     'data_coordinator',
-    'general',
+    'strategy_coordinator',
   ] as const;
 
   readonly isMutation = true;
@@ -88,7 +74,13 @@ export class GenerateCaptionsTool extends BaseTool {
       language,
       userId: context?.userId,
     });
-    context?.onProgress?.(`Generating ${languageLabel} captions…`);
+    context?.emitStage?.('processing_media', {
+      icon: 'media',
+      videoId,
+      language,
+      languageLabel,
+      phase: 'generate_captions',
+    });
 
     try {
       const caption = await this.bridge.generateCaptions(videoId, language);

@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Firestore } from 'firebase-admin/firestore';
-import { UsageFeature } from '../types/index.js';
 
 const mockGetAndClearJobCost = vi.fn();
 const mockCalculateChargeAmount = vi.fn();
@@ -68,12 +67,19 @@ describe('executeBillingDeduction', () => {
       db,
       userId: 'user_123',
       operationId: 'op_123',
-      feature: UsageFeature.ACTIVITY_USAGE,
+      feature: 'activity-usage',
+      coordinatorId: 'brand_coordinator',
       teamId: 'team_supplied',
       knownCostUsd: 1.25,
     });
 
     expect(result).toEqual({ charged: true, rawCostUsd: 1.25, chargeAmountCents: 175 });
+    expect(mockCalculateChargeAmount).toHaveBeenCalledWith(
+      db,
+      1.25,
+      'activity-usage',
+      'brand_coordinator'
+    );
     expect(mockResolveBillingTarget).toHaveBeenCalledWith(db, 'user_123');
     expect(mockDeductOrgWallet).toHaveBeenCalledWith(
       db,
@@ -111,7 +117,7 @@ describe('executeBillingDeduction', () => {
       db,
       userId: 'user_456',
       operationId: 'op_456',
-      feature: UsageFeature.BRIEFING_GENERATION,
+      feature: 'briefing-generation',
       knownCostUsd: 0.75,
       environment: 'staging',
     });
@@ -142,13 +148,53 @@ describe('executeBillingDeduction', () => {
       db,
       userId: 'user_789',
       operationId: 'op_789',
-      feature: UsageFeature.TEAM_INTEL,
+      feature: 'team-intel',
       knownCostUsd: 0.5,
     });
 
     expect(mockRecordSpend).toHaveBeenCalledWith(db, 'user_789', 175, undefined);
     expect(mockRecordUsageEvent).toHaveBeenCalledWith(
       expect.not.objectContaining({ teamId: expect.anything() }),
+      'production'
+    );
+  });
+
+  it('derives the billed feature from the last meaningful successful tool', async () => {
+    const db = {} as Firestore;
+
+    mockResolveBillingTarget.mockResolvedValue({
+      type: 'individual',
+      billingUserId: 'user_999',
+      context: { teamId: undefined },
+      teamIds: [],
+    });
+
+    const { executeBillingDeduction } = await import('../usage-deduction.service.js');
+
+    await executeBillingDeduction({
+      db,
+      userId: 'user_999',
+      operationId: 'op_999',
+      coordinatorId: 'recruiting_coordinator',
+      agentTools: ['search_colleges', 'send_email'],
+      successfulTools: ['search_colleges', 'send_email'],
+      knownCostUsd: 0.9,
+    });
+
+    expect(mockCalculateChargeAmount).toHaveBeenCalledWith(
+      db,
+      0.9,
+      'send-email',
+      'recruiting_coordinator'
+    );
+    expect(mockRecordUsageEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        feature: 'send-email',
+        metadata: expect.objectContaining({
+          agentTools: ['search_colleges', 'send_email'],
+          successfulTools: ['search_colleges', 'send_email'],
+        }),
+      }),
       'production'
     );
   });

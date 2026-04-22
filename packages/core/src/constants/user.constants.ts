@@ -18,37 +18,9 @@ export const USER_ROLES = {
   ATHLETE: 'athlete',
   COACH: 'coach',
   DIRECTOR: 'director',
-
-  // ============================================
-  // LEGACY ALIASES (backward compatibility)
-  // Existing Firestore documents may still have these values.
-  // Use the 3 core roles above for all new code.
-  // ============================================
-  /** @deprecated Removed — maps to COACH */
-  RECRUITER: 'coach',
-  /** @deprecated Removed — maps to ATHLETE */
-  PARENT: 'athlete',
-  /** @deprecated Use COACH instead */
-  COLLEGE_COACH: 'coach',
-  /** @deprecated Use COACH instead */
-  RECRUITING_SERVICE: 'coach',
-  /** @deprecated Use COACH instead */
-  SCOUT: 'coach',
-  /** @deprecated Removed — maps to COACH */
-  MEDIA: 'coach',
-  /** @deprecated Removed — maps to ATHLETE */
-  FAN: 'athlete',
 } as const;
 
 export type UserRole = 'athlete' | 'coach' | 'director';
-
-/**
- * Sub-type for the legacy 'recruiter' role.
- * Stored on the user's recruiterData object to distinguish
- * college coaches from independent scouts and services.
- * @deprecated Recruiter role removed — use 'coach' instead
- */
-export type RecruiterType = 'college_coach' | 'independent_scout' | 'media_service';
 
 export interface RoleConfig {
   id: UserRole;
@@ -106,7 +78,7 @@ export function isTeamRole(role: string | null | undefined): boolean {
   return TEAM_MANAGEMENT_ROLES.includes(normalizeRole(role));
 }
 
-/** Check if a role is an individual profile role (athlete or parent). */
+/** Check if a role is an individual profile role after normalization. */
 export function isAthleteRole(role: string | null | undefined): boolean {
   if (!role) return false;
   return INDIVIDUAL_PROFILE_ROLES.includes(normalizeRole(role));
@@ -335,18 +307,6 @@ export const VISIT_TYPES = {
 } as const;
 
 export type VisitType = (typeof VISIT_TYPES)[keyof typeof VISIT_TYPES];
-
-// ============================================
-// PARENT RELATIONSHIPS
-// ============================================
-
-export const PARENT_RELATIONSHIPS = {
-  MOTHER: 'mother',
-  FATHER: 'father',
-  GUARDIAN: 'guardian',
-} as const;
-
-export type ParentRelationship = (typeof PARENT_RELATIONSHIPS)[keyof typeof PARENT_RELATIONSHIPS];
 
 // NOTE: NOTIFICATION_CHANNELS moved to notification.constants.ts
 // Import from: import { NOTIFICATION_CHANNELS } from '@nxt1/core/constants'
@@ -702,8 +662,8 @@ export type DismissablePrompt = (typeof DISMISSABLE_PROMPTS)[keyof typeof DISMIS
 
 export const ACCOUNT_TYPES = {
   ATHLETE: 'athlete',
-  PARENT: 'parent',
   COACH: 'coach',
+  DIRECTOR: 'director',
 } as const;
 
 export type AccountType = (typeof ACCOUNT_TYPES)[keyof typeof ACCOUNT_TYPES];
@@ -716,8 +676,8 @@ export interface AccountTypeOption {
 
 export const ACCOUNT_TYPE_OPTIONS: readonly AccountTypeOption[] = [
   { id: 'athlete', label: 'Athlete', description: 'I am the athlete' },
-  { id: 'parent', label: 'Parent', description: "I'm a parent managing this profile" },
   { id: 'coach', label: 'Coach', description: 'I coach this athlete' },
+  { id: 'director', label: 'Director', description: 'I oversee this athlete or program' },
 ] as const;
 
 // ============================================

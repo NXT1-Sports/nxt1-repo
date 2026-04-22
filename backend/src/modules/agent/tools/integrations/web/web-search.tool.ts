@@ -102,10 +102,10 @@ export class WebSearchTool extends BaseTool {
 
   override readonly allowedAgents = [
     'recruiting_coordinator',
-    'compliance_coordinator',
+    'admin_coordinator',
     'performance_coordinator',
     'data_coordinator',
-    'general',
+    'strategy_coordinator',
   ] as const;
 
   readonly isMutation = false;
@@ -148,7 +148,12 @@ export class WebSearchTool extends BaseTool {
     }
 
     // ── Execute search ─────────────────────────────────────────────────
-    context?.onProgress?.('Searching the web…');
+    context?.emitStage?.('fetching_data', {
+      icon: 'search',
+      query,
+      maxResults,
+      searchDepth,
+    });
     logger.debug('[WebSearch] Executing search', { query, maxResults, searchDepth });
 
     try {
@@ -199,13 +204,23 @@ export class WebSearchTool extends BaseTool {
         ...(r.published_date ? { publishedDate: r.published_date } : {}),
       }));
 
-      context?.onProgress?.(
-        `Analyzing ${results.length} result${results.length !== 1 ? 's' : ''}…`
-      );
+      context?.emitStage?.('fetching_data', {
+        icon: 'search',
+        query,
+        resultCount: results.length,
+        phase: 'analyze_results',
+      });
       logger.debug('[WebSearch] Search complete', { query, resultCount: results.length });
+
+      const markdown = [
+        `## Web Search Results for "${query}" (${results.length} found)`,
+        ...(data.answer ? ['', `**AI Answer:** ${data.answer}`, ''] : ['']),
+        ...results.map((r, i) => `### ${i + 1}. [${r.title}](${r.url})\n${r.excerpt}`),
+      ].join('\n');
 
       return {
         success: true,
+        markdown,
         data: {
           query,
           resultCount: results.length,

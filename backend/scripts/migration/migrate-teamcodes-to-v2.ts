@@ -6,9 +6,6 @@
  *   2. A **Team** doc linked to that Organization
  *   3. **RosterEntry** docs for every `members[]` entry
  *
- * Billing fields (`packageId`, `isFreeTrial`, `trialStartDate`, `expireAt`)
- * are written to `BillingContexts`.
- *
  * Idempotent — uses set({ merge: true }) and _legacyId tracking.
  *
  * Usage:
@@ -325,30 +322,6 @@ function buildRosterEntry(
   };
 }
 
-function buildBillingContext(
-  legacy: LegacyTeamCode,
-  organizationId: string,
-  teamId: string
-): Record<string, unknown> | null {
-  // Only create billing docs for teams with a packageId
-  if (!legacy.packageId) return null;
-
-  return {
-    entityType: 'organization',
-    entityId: organizationId,
-    teamId,
-    provider: 'legacy',
-    packageId: cleanString(legacy.packageId) ?? undefined,
-    status: legacy.isActive !== false ? 'active' : 'cancelled',
-    isFreeTrial: legacy.isFreeTrial ?? false,
-    trialStartDate: toISOString(legacy.trialStartDate) ?? undefined,
-    expireAt: toISOString(legacy.expireAt) ?? undefined,
-    createdAt:
-      toISOString(legacy.createAt) ?? toISOString(legacy.createdAt) ?? new Date().toISOString(),
-    ...migrationMeta(teamId, COLLECTIONS.LEGACY_TEAMCODES),
-  };
-}
-
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
@@ -368,7 +341,6 @@ async function main(): Promise<void> {
     organizationsSkipped: 0, // Deduped (already created for another team in same org)
     teamsCreated: 0,
     rosterEntriesCreated: 0,
-    billingContextsCreated: 0,
     membersSkippedNoId: 0,
     errors: 0,
   };
@@ -490,16 +462,6 @@ async function main(): Promise<void> {
           });
           stats.rosterEntriesCreated++;
         }
-
-        // ---------- 4. Billing Context ----------
-        const billingDoc = buildBillingContext(data, organizationId, teamId);
-        if (billingDoc) {
-          const billingId = `billing_${teamId}`;
-          const billingRef = targetDb.collection(COLLECTIONS.BILLING_CONTEXTS).doc(billingId);
-          writer.set(billingRef, billingDoc);
-          stats.billingContextsCreated++;
-        }
-
         await writer.flushIfNeeded();
       } catch (err) {
         stats.errors++;
@@ -529,7 +491,6 @@ async function main(): Promise<void> {
     ['Organizations deduped', stats.organizationsSkipped],
     ['Teams created', stats.teamsCreated],
     ['RosterEntries created', stats.rosterEntriesCreated],
-    ['Billing contexts created', stats.billingContextsCreated],
     ['Members skipped (no ID)', stats.membersSkippedNoId],
     ['Processing errors', stats.errors],
     ['Firestore writes', writes],

@@ -102,8 +102,8 @@ export class ScrapeInstagramTool extends BaseTool {
   override readonly allowedAgents = [
     'data_coordinator',
     'recruiting_coordinator',
-    'brand_media_coordinator',
-    'general',
+    'brand_coordinator',
+    'strategy_coordinator',
   ] as const;
 
   readonly isMutation = false;
@@ -136,29 +136,49 @@ export class ScrapeInstagramTool extends BaseTool {
         ? { userId: context.userId, threadId: context.threadId }
         : undefined;
 
-    const progress = context?.onProgress;
+    const emitStage = context?.emitStage;
 
     try {
       switch (mode) {
         case 'posts': {
           const usernames = this.extractInstagramUsernames(input);
-          progress?.(
-            `Scraping Instagram posts for ${usernames.length ? '@' + usernames.join(', @') : 'users'}…`
-          );
+          emitStage?.('fetching_data', {
+            icon: 'search',
+            mode: 'posts',
+            usernames,
+            usernameCount: usernames.length,
+            platform: 'instagram',
+          });
           const postsResult = await this.handlePosts(input, staging);
-          if (postsResult.success) progress?.('Processing Instagram media…');
+          if (postsResult.success) {
+            emitStage?.('processing_media', {
+              icon: 'media',
+              mode: 'posts',
+              usernames,
+              platform: 'instagram',
+            });
+          }
           return postsResult;
         }
         case 'profile': {
           const usernames = this.extractInstagramUsernames(input);
-          progress?.(
-            `Fetching Instagram profile${usernames.length > 1 ? 's' : ''} for ${usernames.length ? '@' + usernames.join(', @') : 'user'}…`
-          );
+          emitStage?.('fetching_data', {
+            icon: 'search',
+            mode: 'profile',
+            usernames,
+            usernameCount: usernames.length,
+            platform: 'instagram',
+          });
           return await this.handleProfile(input, staging);
         }
         case 'hashtag': {
           const query = this.str(input, 'query') ?? '';
-          progress?.(`Searching Instagram for ${query.startsWith('#') ? query : '#' + query}…`);
+          emitStage?.('fetching_data', {
+            icon: 'search',
+            mode: 'hashtag',
+            query,
+            platform: 'instagram',
+          });
           return await this.handleHashtag(input, staging);
         }
         default:

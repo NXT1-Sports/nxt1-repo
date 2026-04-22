@@ -93,7 +93,7 @@ import { UsagePaymentHistoryComponent } from './usage-payment-history.component'
       }
 
       <!-- ── Billing mode pill (when on personal override) ────────────── -->
-      @if (billingMode() === 'personal') {
+      @if (billingMode() === 'personal' && canSwitchToOrganizationBilling()) {
         <div class="mode-pill" [attr.data-testid]="testIds.OVERVIEW_PERSONAL_BILLING_PILL">
           <svg
             xmlns="http://www.w3.org/2000/svg"
@@ -432,6 +432,9 @@ export class UsageOverviewComponent {
 
   /** Whether this org member has admin rights to top up the org wallet */
   readonly isOrgAdmin = input<boolean>(false);
+
+  /** Whether the current user can switch to an organization-funded billing context */
+  readonly canSwitchToOrganizationBilling = input<boolean>(false);
 
   /** True when on org billing but org wallet is empty — show "switch to personal" banner */
   readonly orgWalletEmpty = input<boolean>(false);

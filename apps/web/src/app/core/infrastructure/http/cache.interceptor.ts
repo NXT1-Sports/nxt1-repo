@@ -189,7 +189,7 @@ const DEFAULT_INVALIDATION_CONFIG: readonly CacheInvalidationConfig[] = [
   { pattern: /\/billing\/budget/, invalidate: ['*billing/budget*', '*usage*'] },
   { pattern: /\/help-center\//, invalidate: ['*help-center*'] },
   { pattern: /\/invite\//, invalidate: ['*invite*'] },
-  // Feed — invalidate on any write (like, share, create post)
+  // Feed — invalidate on any write (like, share, report)
   { pattern: /\/feed\/posts\/[^/]+\/(like|share|report)/, invalidate: ['*feed*'] },
   // Scout Reports — invalidate list/summary on any mutation
   { pattern: /\/api\/v1\/scout-reports/, invalidate: ['*scout-reports*'] },

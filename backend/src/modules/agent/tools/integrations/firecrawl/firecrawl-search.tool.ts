@@ -89,10 +89,10 @@ export class FirecrawlSearchTool extends BaseTool {
 
   override readonly allowedAgents = [
     'recruiting_coordinator',
-    'compliance_coordinator',
+    'admin_coordinator',
     'data_coordinator',
     'performance_coordinator',
-    'general',
+    'strategy_coordinator',
   ] as const;
 
   readonly isMutation = false;
@@ -145,7 +145,11 @@ export class FirecrawlSearchTool extends BaseTool {
       tbs,
       userId: context?.userId,
     });
-    context?.onProgress?.('Searching the web…');
+    context?.emitStage?.('fetching_data', {
+      icon: 'search',
+      query,
+      phase: 'search_web',
+    });
 
     try {
       const results = await this.bridge.search(query, options);

@@ -11,22 +11,44 @@
 
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
-import { getCacheService } from '../../../../services/cache.service.js';
+import { getCacheService } from '../../../../services/core/cache.service.js';
 import {
   createProfileWriteAccessService,
   resolveAuthorizedTargetSportSelection,
-} from '../../../../services/profile-write-access.service.js';
-import { CACHE_KEYS as USER_CACHE_KEYS } from '../../../../services/users.service.js';
+} from '../../../../services/profile/profile-write-access.service.js';
+import { CACHE_KEYS as USER_CACHE_KEYS } from '../../../../services/profile/users.service.js';
 import { invalidateProfileCaches } from '../../../../routes/profile/shared.js';
 import { ContextBuilder } from '../../memory/context-builder.js';
-import { getAnalyticsLoggerService } from '../../../../services/analytics-logger.service.js';
+import { getAnalyticsLoggerService } from '../../../../services/core/analytics-logger.service.js';
 import { logger } from '../../../../utils/logger.js';
 import { resolveCreatedAt } from './doc-date-utils.js';
+import { z } from 'zod';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
 const PLAYER_METRICS_COLLECTION = 'PlayerMetrics';
 const MAX_METRICS = 50;
+
+const MetricValueSchema = z.union([z.string(), z.number()]);
+
+const MetricEntrySchema = z
+  .object({
+    field: z.string().trim().min(1).optional(),
+    label: z.string().trim().min(1).optional(),
+    value: MetricValueSchema.optional(),
+    unit: z.string().trim().min(1).optional(),
+    category: z.string().trim().min(1).optional(),
+  })
+  .passthrough();
+
+const WriteCombineMetricsInputSchema = z.object({
+  userId: z.string().trim().min(1),
+  targetSport: z.string().trim().min(1),
+  source: z.string().trim().min(1),
+  sourceUrl: z.string().trim().min(1).optional(),
+  profileUrl: z.string().trim().min(1).optional(),
+  metrics: z.array(MetricEntrySchema).min(1).max(MAX_METRICS),
+});
 
 // ─── Tool ───────────────────────────────────────────────────────────────────
 
@@ -50,31 +72,7 @@ export class WriteCombineMetricsTool extends BaseTool {
     '  unit: Optional (e.g. "seconds", "lbs", "inches").\n' +
     '  category: Optional (e.g. "speed", "strength", "agility").';
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      userId: { type: 'string' },
-      targetSport: { type: 'string' },
-      source: { type: 'string' },
-      sourceUrl: { type: 'string' },
-      profileUrl: { type: 'string' },
-      metrics: {
-        type: 'array',
-        items: {
-          type: 'object',
-          properties: {
-            field: { type: 'string' },
-            label: { type: 'string' },
-            value: { type: ['string', 'number'] },
-            unit: { type: 'string' },
-            category: { type: 'string' },
-          },
-          required: ['field', 'label', 'value'],
-        },
-      },
-    },
-    required: ['userId', 'targetSport', 'source', 'metrics'],
-  } as const;
+  readonly parameters = WriteCombineMetricsInputSchema;
 
   override readonly allowedAgents = ['data_coordinator', 'performance_coordinator'] as const;
   readonly isMutation = true;
@@ -91,21 +89,11 @@ export class WriteCombineMetricsTool extends BaseTool {
     input: Record<string, unknown>,
     context?: ToolExecutionContext
   ): Promise<ToolResult> {
-    const userId = this.str(input, 'userId');
-    if (!userId) return this.paramError('userId');
-    const targetSport = this.str(input, 'targetSport');
-    if (!targetSport) return this.paramError('targetSport');
-    const source = this.str(input, 'source');
-    if (!source) return this.paramError('source');
-    const sourceUrl = this.str(input, 'sourceUrl') ?? this.str(input, 'profileUrl') ?? undefined;
+    const parsed = WriteCombineMetricsInputSchema.safeParse(input);
+    if (!parsed.success) return this.zodError(parsed.error);
 
-    const metrics = input['metrics'];
-    if (!Array.isArray(metrics) || metrics.length === 0) {
-      return { success: false, error: 'metrics must be a non-empty array.' };
-    }
-    if (metrics.length > MAX_METRICS) {
-      return { success: false, error: `metrics array exceeds maximum of ${MAX_METRICS}.` };
-    }
+    const { userId, targetSport, source, metrics } = parsed.data;
+    const sourceUrl = parsed.data.sourceUrl ?? parsed.data.profileUrl;
 
     if (!context?.userId) {
       return { success: false, error: 'Authenticated tool context is required.' };
@@ -130,7 +118,11 @@ export class WriteCombineMetricsTool extends BaseTool {
       const now = new Date().toISOString();
       const metricsCol = this.db.collection(PLAYER_METRICS_COLLECTION);
 
-      context?.onProgress?.(`Writing ${metrics.length} combine metric(s)…`);
+      context?.emitStage?.('submitting_job', {
+        icon: 'database',
+        metricCount: metrics.length,
+        phase: 'write_combine_metrics',
+      });
 
       let written = 0;
       let skipped = 0;
@@ -191,7 +183,10 @@ export class WriteCombineMetricsTool extends BaseTool {
       );
 
       // Cache invalidation
-      context?.onProgress?.('Invalidating metrics caches…');
+      context?.emitStage?.('persisting_result', {
+        icon: 'database',
+        phase: 'invalidate_metric_caches',
+      });
       try {
         const cache = getCacheService();
         await Promise.all([

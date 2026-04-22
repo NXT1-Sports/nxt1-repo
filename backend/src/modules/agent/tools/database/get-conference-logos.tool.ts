@@ -21,11 +21,16 @@
  */
 
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
-import { CollegeModel } from '../../../../models/college.model.js';
+import { CollegeModel } from '../../../../models/core/college.model.js';
+import { z } from 'zod';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const MAX_NAMES = 20;
+
+const GetConferenceLogosInputSchema = z.object({
+  conferences: z.array(z.string().trim().min(1)).min(1),
+});
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -52,20 +57,7 @@ export class GetConferenceLogosTool extends BaseTool {
     'If found: false is returned, fall back to web_search for the logo URL. ' +
     'Max 20 names per call.';
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      conferences: {
-        type: 'array',
-        items: { type: 'string' },
-        description:
-          'Array of conference names to resolve logos for. ' +
-          'Examples: ["SEC", "Big Ten", "ACC", "GLIAC", "Big 12", "Pac-12"]. ' +
-          'Matched case-insensitively against conference names in the college database.',
-      },
-    },
-    required: ['conferences'],
-  } as const;
+  readonly parameters = GetConferenceLogosInputSchema;
 
   override readonly allowedAgents = ['*'] as const;
   readonly isMutation = false;
@@ -75,16 +67,19 @@ export class GetConferenceLogosTool extends BaseTool {
     input: Record<string, unknown>,
     context?: ToolExecutionContext
   ): Promise<ToolResult> {
-    const rawConferences = this.arr(input, 'conferences');
-    if (!rawConferences) return this.paramError('conferences');
-
-    const names = (
-      rawConferences.filter((n) => typeof n === 'string' && n.trim().length > 0) as string[]
-    ).slice(0, MAX_NAMES);
-
-    if (names.length === 0) {
-      return { success: false, error: 'All provided conference names were empty.' };
+    const parsed = GetConferenceLogosInputSchema.safeParse(input);
+    if (!parsed.success) {
+      return {
+        success: false,
+        error: parsed.error.issues
+          .map((issue) =>
+            issue.path.length > 0 ? `${issue.path.join('.')}: ${issue.message}` : issue.message
+          )
+          .join(', '),
+      };
     }
+
+    const names = parsed.data.conferences.slice(0, MAX_NAMES);
 
     let bucket: string;
     try {
@@ -96,7 +91,11 @@ export class GetConferenceLogosTool extends BaseTool {
       };
     }
 
-    context?.onProgress?.(`Resolving logos for ${names.length} conference(s)…`);
+    context?.emitStage?.('fetching_data', {
+      icon: 'search',
+      conferenceCount: names.length,
+      phase: 'resolve_conference_logos',
+    });
 
     const results: Array<{ name: string; logoUrl: string | null; found: boolean }> = [];
     const missing: string[] = [];

@@ -10,20 +10,47 @@
 
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 import { BaseTool, type ToolExecutionContext, type ToolResult } from '../base.tool.js';
-import { getCacheService } from '../../../../services/cache.service.js';
+import { getCacheService } from '../../../../services/core/cache.service.js';
 import {
   createProfileWriteAccessService,
   resolveAuthorizedTargetSportSelection,
-} from '../../../../services/profile-write-access.service.js';
-import { CACHE_KEYS as USER_CACHE_KEYS } from '../../../../services/users.service.js';
+} from '../../../../services/profile/profile-write-access.service.js';
+import { CACHE_KEYS as USER_CACHE_KEYS } from '../../../../services/profile/users.service.js';
 import { invalidateProfileCaches } from '../../../../routes/profile/shared.js';
 import { ContextBuilder } from '../../memory/context-builder.js';
-import { getAnalyticsLoggerService } from '../../../../services/analytics-logger.service.js';
+import { getAnalyticsLoggerService } from '../../../../services/core/analytics-logger.service.js';
 import { logger } from '../../../../utils/logger.js';
 import { resolveCreatedAt } from './doc-date-utils.js';
+import { z } from 'zod';
 
 const RANKINGS_COLLECTION = 'Rankings';
 const MAX_RANKINGS = 30;
+
+const RankingValueSchema = z.union([z.number(), z.string().trim().min(1)]);
+
+const RankingEntrySchema = z
+  .object({
+    name: z.string().trim().min(1).optional(),
+    nationalRank: RankingValueSchema.optional(),
+    stateRank: RankingValueSchema.optional(),
+    positionRank: RankingValueSchema.optional(),
+    stars: RankingValueSchema.optional(),
+    score: RankingValueSchema.optional(),
+    classOf: RankingValueSchema.optional(),
+    sport: z.string().trim().min(1).optional(),
+    rankedAt: z.string().trim().min(1).optional(),
+    date: z.string().trim().min(1).optional(),
+  })
+  .passthrough();
+
+const WriteRankingsInputSchema = z.object({
+  userId: z.string().trim().min(1),
+  targetSport: z.string().trim().min(1),
+  source: z.string().trim().min(1),
+  sourceUrl: z.string().trim().min(1).optional(),
+  profileUrl: z.string().trim().min(1).optional(),
+  rankings: z.array(RankingEntrySchema).min(1).max(MAX_RANKINGS),
+});
 
 export class WriteRankingsTool extends BaseTool {
   readonly name = 'write_rankings';
@@ -44,36 +71,7 @@ export class WriteRankingsTool extends BaseTool {
     '  • sport (optional): Overrides targetSport.\n' +
     '  • rankedAt or date (optional): ISO timestamp for when the ranking applied.';
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      userId: { type: 'string' },
-      targetSport: { type: 'string' },
-      source: { type: 'string' },
-      sourceUrl: { type: 'string' },
-      profileUrl: { type: 'string' },
-      rankings: {
-        type: 'array',
-        items: {
-          type: 'object',
-          properties: {
-            name: { type: 'string' },
-            nationalRank: { type: 'number' },
-            stateRank: { type: 'number' },
-            positionRank: { type: 'number' },
-            stars: { type: 'number' },
-            score: { type: 'number' },
-            classOf: { type: 'number' },
-            sport: { type: 'string' },
-            rankedAt: { type: 'string' },
-            date: { type: 'string' },
-          },
-          required: ['name'],
-        },
-      },
-    },
-    required: ['userId', 'targetSport', 'source', 'rankings'],
-  } as const;
+  readonly parameters = WriteRankingsInputSchema;
 
   override readonly allowedAgents = ['data_coordinator'] as const;
   readonly isMutation = true;
@@ -90,21 +88,12 @@ export class WriteRankingsTool extends BaseTool {
     input: Record<string, unknown>,
     context?: ToolExecutionContext
   ): Promise<ToolResult> {
-    const userId = this.str(input, 'userId');
-    if (!userId) return this.paramError('userId');
-    const targetSport = this.str(input, 'targetSport');
-    if (!targetSport) return this.paramError('targetSport');
-    const source = this.str(input, 'source');
-    if (!source) return this.paramError('source');
+    const parsed = WriteRankingsInputSchema.safeParse(input);
+    if (!parsed.success) return this.zodError(parsed.error);
 
-    const sourceUrl = this.str(input, 'sourceUrl') ?? this.str(input, 'profileUrl') ?? undefined;
-    const rankings = input['rankings'];
-    if (!Array.isArray(rankings) || rankings.length === 0) {
-      return { success: false, error: 'rankings must be a non-empty array.' };
-    }
-    if (rankings.length > MAX_RANKINGS) {
-      return { success: false, error: `rankings exceeds maximum of ${MAX_RANKINGS}.` };
-    }
+    const { userId, targetSport, source } = parsed.data;
+    const sourceUrl = parsed.data.sourceUrl ?? parsed.data.profileUrl;
+    const rankings = parsed.data.rankings;
 
     if (!context?.userId) {
       return { success: false, error: 'Authenticated tool context is required.' };
@@ -169,7 +158,11 @@ export class WriteRankingsTool extends BaseTool {
         }
       }
 
-      context?.onProgress?.(`Writing ${rankings.length} ranking snapshot(s)…`);
+      context?.emitStage?.('submitting_job', {
+        icon: 'database',
+        rankingCount: rankings.length,
+        phase: 'write_rankings',
+      });
 
       await Promise.all(
         rankings.map(async (entry) => {
@@ -250,7 +243,10 @@ export class WriteRankingsTool extends BaseTool {
         })
       );
 
-      context?.onProgress?.('Invalidating ranking caches…');
+      context?.emitStage?.('persisting_result', {
+        icon: 'database',
+        phase: 'invalidate_ranking_caches',
+      });
       try {
         const cache = getCacheService();
         await Promise.all([

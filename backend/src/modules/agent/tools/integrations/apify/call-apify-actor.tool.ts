@@ -34,6 +34,7 @@ import {
   type MediaThreadContext,
 } from '../social/scraper-media.service.js';
 import { logger } from '../../../../../utils/logger.js';
+import { z } from 'zod';
 
 // ─── Budget Constants ────────────────────────────────────────────────────────
 
@@ -51,6 +52,14 @@ const MAX_OUTPUT_CHARS = 50_000;
 
 /** Maximum number of media URLs to persist per call. */
 const MAX_MEDIA_ITEMS = 10;
+
+/** Max length for actor ID to prevent abuse. */
+const MAX_ACTOR_ID_LENGTH = 200;
+
+const CallApifyActorInputSchema = z.object({
+  actorId: z.string().trim().min(1).max(MAX_ACTOR_ID_LENGTH),
+  input: z.record(z.string(), z.unknown()),
+});
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -133,31 +142,13 @@ export class CallApifyActorTool extends BaseTool {
     'Media URLs (images/videos) in results are automatically re-hosted to permanent Firebase Storage URLs. ' +
     'This tool costs Apify compute credits — only call when you have the correct input parameters.';
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      actorId: {
-        type: 'string',
-        description:
-          'The Apify actor ID (e.g. "apify/instagram-scraper"). ' +
-          'Get this from search_apify_actors or use a known actor ID.',
-      },
-      input: {
-        type: 'object',
-        description:
-          "The actor's input parameters as a JSON object. " +
-          'Use get_apify_actor_details first to learn what parameters the actor accepts. ' +
-          'Budget fields (maxItems, memoryMbytes, timeoutSecs) are auto-capped for safety.',
-      },
-    },
-    required: ['actorId', 'input'],
-  } as const;
+  readonly parameters = CallApifyActorInputSchema;
 
   override readonly allowedAgents = [
     'data_coordinator',
     'recruiting_coordinator',
-    'brand_media_coordinator',
-    'general',
+    'brand_coordinator',
+    'strategy_coordinator',
   ] as const;
 
   readonly isMutation = true;
@@ -176,12 +167,15 @@ export class CallApifyActorTool extends BaseTool {
     input: Record<string, unknown>,
     context?: ToolExecutionContext
   ): Promise<ToolResult> {
-    // ── Input validation ───────────────────────────────────────────────
-    const actorId = this.str(input, 'actorId');
-    if (!actorId) return this.paramError('actorId');
+    const parsed = CallApifyActorInputSchema.safeParse(input);
+    if (!parsed.success) {
+      return {
+        success: false,
+        error: parsed.error.issues.map((issue) => issue.message).join(', '),
+      };
+    }
 
-    const rawInput = this.obj(input, 'input');
-    if (!rawInput) return this.paramError('input');
+    const { actorId, input: rawInput } = parsed.data;
 
     // ── Budget enforcement ─────────────────────────────────────────────
     const sanitizedInput = this.enforceBudget({ ...rawInput });
@@ -192,7 +186,11 @@ export class CallApifyActorTool extends BaseTool {
       userId: context?.userId,
     });
 
-    context?.onProgress?.(`Running Apify actor: ${actorId}…`);
+    context?.emitStage?.('submitting_job', {
+      icon: 'processing',
+      actorId,
+      phase: 'run_actor',
+    });
 
     try {
       // ── Execute via MCP bridge ─────────────────────────────────────
@@ -280,7 +278,11 @@ export class CallApifyActorTool extends BaseTool {
       const urls = extractMediaUrls(data, MAX_MEDIA_ITEMS);
       if (urls.length === 0) return [];
 
-      context.onProgress?.(`Saving ${urls.length} media file(s)…`);
+      context.emitStage?.('uploading_assets', {
+        icon: 'upload',
+        actorId,
+        mediaCount: urls.length,
+      });
 
       // Determine platform for storage path
       const platform = this.detectPlatform(actorId);

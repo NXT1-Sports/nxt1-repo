@@ -58,10 +58,18 @@ export class InviteComponent implements OnInit {
     const user = this.authService.user();
     if (!user) return null;
 
+    const primarySport = user.sports?.find((sport) => sport.isPrimary) ?? user.sports?.[0];
+    const location = [user.city, user.state].filter(Boolean).join(', ');
+
     return {
       displayName: user.displayName || 'NXT1 User',
       profileImg: user.profileImg ?? null,
       referralCode: this.generateReferralCode(user.uid),
+      role: user.role,
+      primaryPosition: primarySport?.positions?.[0] ?? null,
+      schoolName: primarySport?.team?.name ?? null,
+      primarySport: primarySport?.sport ?? null,
+      location: location || null,
     };
   });
 

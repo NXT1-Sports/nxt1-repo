@@ -97,7 +97,7 @@ describe('ScanTimelinePostsTool', () => {
       expect(tool.isMutation).toBe(true);
       expect(tool.category).toBe('communication');
       expect(tool.allowedAgents).toContain('data_coordinator');
-      expect(tool.allowedAgents).toContain('general');
+      expect(tool.allowedAgents).toContain('strategy_coordinator');
       expect(tool.allowedAgents).toContain('recruiting_coordinator');
       expect(tool.allowedAgents).toContain('performance_coordinator');
     });
@@ -155,7 +155,11 @@ describe('ScanTimelinePostsTool', () => {
           expect.objectContaining({ role: 'system' }),
           expect.objectContaining({ role: 'user' }),
         ]),
-        expect.objectContaining({ tier: 'extraction', temperature: 0, jsonMode: true })
+        expect.objectContaining({
+          tier: 'extraction',
+          temperature: 0,
+          outputSchema: expect.objectContaining({ name: 'timeline_scan_facts' }),
+        })
       );
     });
 

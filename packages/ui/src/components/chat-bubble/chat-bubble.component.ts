@@ -42,6 +42,7 @@ import {
   type AskUserReplyEvent,
 } from '../../agent-x/agent-x-ask-user-card.component';
 import { NxtMarkdownComponent } from '../markdown/markdown.component';
+import { buildAgentCardThemeStyle } from '../../agent-x/agent-x-agent-presentation';
 
 /** Visual variant controlling sizing, colors, and border‑radius. */
 export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | 'agent-fab';
@@ -89,7 +90,7 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
             stroke-linecap="round"
           />
         </svg>
-        <span class="typing-shimmer__text">Thinking…</span>
+        <span class="typing-shimmer__text">{{ typingLabel() }}</span>
       </div>
     } @else if (isSystem()) {
       <p class="bubble-text bubble-text--system">{{ content() }}</p>
@@ -108,59 +109,63 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
             <nxt1-agent-x-tool-steps [steps]="part.steps" />
           }
           @case ('card') {
-            @if (part.card.type === 'planner') {
-              <nxt1-agent-x-planner-card
-                [card]="part.card"
-                (itemToggled)="plannerItemToggled.emit($event)"
-              />
-            } @else if (part.card.type === 'data-table') {
-              <nxt1-agent-x-data-table-card [card]="part.card" />
-            } @else if (part.card.type === 'confirmation') {
-              <nxt1-agent-x-confirmation-card
-                [card]="part.card"
-                (actionSelected)="confirmationAction.emit($event)"
-              />
-            } @else if (part.card.type === 'citations') {
-              <nxt1-agent-x-citations-card
-                [card]="part.card"
-                (citationClicked)="citationClicked.emit($event)"
-              />
-            } @else if (part.card.type === 'parameter-form') {
-              <nxt1-agent-x-parameter-form-card
-                [card]="part.card"
-                (formSubmitted)="parameterFormSubmitted.emit($event)"
-              />
-            } @else if (part.card.type === 'draft') {
-              <nxt1-agent-x-draft-card
-                [card]="part.card"
-                (draftSubmitted)="draftSubmitted.emit($event)"
-              />
-            } @else if (part.card.type === 'profile') {
-              <nxt1-agent-x-profile-card
-                [card]="part.card"
-                (profileClicked)="profileClicked.emit($event)"
-              />
-            } @else if (part.card.type === 'film-timeline') {
-              <nxt1-agent-x-film-timeline-card
-                [card]="part.card"
-                (markerClicked)="filmMarkerClicked.emit($event)"
-              />
-            } @else if (part.card.type === 'billing-action') {
-              <nxt1-agent-x-billing-action-card
-                [card]="part.card"
-                (actionResolved)="billingActionResolved.emit($event)"
-              />
-            } @else if (part.card.type === 'ask_user') {
-              <nxt1-agent-x-ask-user-card
-                [card]="part.card"
-                (replySubmitted)="askUserReply.emit($event)"
-              />
-            } @else {
-              <div class="card-fallback">
-                <span class="card-fallback__icon">⚠️</span>
-                <span class="card-fallback__text">Unsupported card type: {{ part.card.type }}</span>
-              </div>
-            }
+            <div class="agent-card-shell" [style]="cardThemeStyle(part.card)">
+              @if (part.card.type === 'planner') {
+                <nxt1-agent-x-planner-card
+                  [card]="part.card"
+                  (itemToggled)="plannerItemToggled.emit($event)"
+                />
+              } @else if (part.card.type === 'data-table') {
+                <nxt1-agent-x-data-table-card [card]="part.card" />
+              } @else if (part.card.type === 'confirmation') {
+                <nxt1-agent-x-confirmation-card
+                  [card]="part.card"
+                  (actionSelected)="confirmationAction.emit($event)"
+                />
+              } @else if (part.card.type === 'citations') {
+                <nxt1-agent-x-citations-card
+                  [card]="part.card"
+                  (citationClicked)="citationClicked.emit($event)"
+                />
+              } @else if (part.card.type === 'parameter-form') {
+                <nxt1-agent-x-parameter-form-card
+                  [card]="part.card"
+                  (formSubmitted)="parameterFormSubmitted.emit($event)"
+                />
+              } @else if (part.card.type === 'draft') {
+                <nxt1-agent-x-draft-card
+                  [card]="part.card"
+                  (draftSubmitted)="draftSubmitted.emit($event)"
+                />
+              } @else if (part.card.type === 'profile') {
+                <nxt1-agent-x-profile-card
+                  [card]="part.card"
+                  (profileClicked)="profileClicked.emit($event)"
+                />
+              } @else if (part.card.type === 'film-timeline') {
+                <nxt1-agent-x-film-timeline-card
+                  [card]="part.card"
+                  (markerClicked)="filmMarkerClicked.emit($event)"
+                />
+              } @else if (part.card.type === 'billing-action') {
+                <nxt1-agent-x-billing-action-card
+                  [card]="part.card"
+                  (actionResolved)="billingActionResolved.emit($event)"
+                />
+              } @else if (part.card.type === 'ask_user') {
+                <nxt1-agent-x-ask-user-card
+                  [card]="part.card"
+                  (replySubmitted)="askUserReply.emit($event)"
+                />
+              } @else {
+                <div class="card-fallback">
+                  <span class="card-fallback__icon">⚠️</span>
+                  <span class="card-fallback__text"
+                    >Unsupported card type: {{ part.card.type }}</span
+                  >
+                </div>
+              }
+            </div>
           }
           @case ('image') {
             <div class="bubble-media">
@@ -218,50 +223,58 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
         </div>
       }
       @for (card of cards(); track $index) {
-        @if (card.type === 'planner') {
-          <nxt1-agent-x-planner-card
-            [card]="card"
-            (itemToggled)="plannerItemToggled.emit($event)"
-          />
-        } @else if (card.type === 'data-table') {
-          <nxt1-agent-x-data-table-card [card]="card" />
-        } @else if (card.type === 'confirmation') {
-          <nxt1-agent-x-confirmation-card
-            [card]="card"
-            (actionSelected)="confirmationAction.emit($event)"
-          />
-        } @else if (card.type === 'citations') {
-          <nxt1-agent-x-citations-card
-            [card]="card"
-            (citationClicked)="citationClicked.emit($event)"
-          />
-        } @else if (card.type === 'parameter-form') {
-          <nxt1-agent-x-parameter-form-card
-            [card]="card"
-            (formSubmitted)="parameterFormSubmitted.emit($event)"
-          />
-        } @else if (card.type === 'draft') {
-          <nxt1-agent-x-draft-card [card]="card" (draftSubmitted)="draftSubmitted.emit($event)" />
-        } @else if (card.type === 'profile') {
-          <nxt1-agent-x-profile-card [card]="card" (profileClicked)="profileClicked.emit($event)" />
-        } @else if (card.type === 'film-timeline') {
-          <nxt1-agent-x-film-timeline-card
-            [card]="card"
-            (markerClicked)="filmMarkerClicked.emit($event)"
-          />
-        } @else if (card.type === 'billing-action') {
-          <nxt1-agent-x-billing-action-card
-            [card]="card"
-            (actionResolved)="billingActionResolved.emit($event)"
-          />
-        } @else if (card.type === 'ask_user') {
-          <nxt1-agent-x-ask-user-card [card]="card" (replySubmitted)="askUserReply.emit($event)" />
-        } @else {
-          <div class="card-fallback">
-            <span class="card-fallback__icon">⚠️</span>
-            <span class="card-fallback__text">Unsupported card type: {{ card.type }}</span>
-          </div>
-        }
+        <div class="agent-card-shell" [style]="cardThemeStyle(card)">
+          @if (card.type === 'planner') {
+            <nxt1-agent-x-planner-card
+              [card]="card"
+              (itemToggled)="plannerItemToggled.emit($event)"
+            />
+          } @else if (card.type === 'data-table') {
+            <nxt1-agent-x-data-table-card [card]="card" />
+          } @else if (card.type === 'confirmation') {
+            <nxt1-agent-x-confirmation-card
+              [card]="card"
+              (actionSelected)="confirmationAction.emit($event)"
+            />
+          } @else if (card.type === 'citations') {
+            <nxt1-agent-x-citations-card
+              [card]="card"
+              (citationClicked)="citationClicked.emit($event)"
+            />
+          } @else if (card.type === 'parameter-form') {
+            <nxt1-agent-x-parameter-form-card
+              [card]="card"
+              (formSubmitted)="parameterFormSubmitted.emit($event)"
+            />
+          } @else if (card.type === 'draft') {
+            <nxt1-agent-x-draft-card [card]="card" (draftSubmitted)="draftSubmitted.emit($event)" />
+          } @else if (card.type === 'profile') {
+            <nxt1-agent-x-profile-card
+              [card]="card"
+              (profileClicked)="profileClicked.emit($event)"
+            />
+          } @else if (card.type === 'film-timeline') {
+            <nxt1-agent-x-film-timeline-card
+              [card]="card"
+              (markerClicked)="filmMarkerClicked.emit($event)"
+            />
+          } @else if (card.type === 'billing-action') {
+            <nxt1-agent-x-billing-action-card
+              [card]="card"
+              (actionResolved)="billingActionResolved.emit($event)"
+            />
+          } @else if (card.type === 'ask_user') {
+            <nxt1-agent-x-ask-user-card
+              [card]="card"
+              (replySubmitted)="askUserReply.emit($event)"
+            />
+          } @else {
+            <div class="card-fallback">
+              <span class="card-fallback__icon">⚠️</span>
+              <span class="card-fallback__text">Unsupported card type: {{ card.type }}</span>
+            </div>
+          }
+        </div>
       }
     }
 
@@ -370,6 +383,10 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
 
       .card-fallback__icon {
         font-size: 1rem;
+      }
+
+      .agent-card-shell {
+        display: block;
       }
 
       @media (prefers-reduced-motion: reduce) {
@@ -677,6 +694,9 @@ export class NxtChatBubbleComponent {
   /** Show typing indicator dots instead of text. */
   readonly isTyping = input(false);
 
+  /** Label shown inside the typing shimmer. */
+  readonly typingLabel = input('Thinking...');
+
   /** Error state. */
   readonly isError = input(false);
 
@@ -727,4 +747,8 @@ export class NxtChatBubbleComponent {
 
   /** Emitted when the user clicks "Try again" on an error bubble. */
   readonly retryRequested = output<void>();
+
+  protected cardThemeStyle(card: AgentXRichCard): string {
+    return buildAgentCardThemeStyle(card);
+  }
 }

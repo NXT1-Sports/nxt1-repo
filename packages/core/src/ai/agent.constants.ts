@@ -26,9 +26,41 @@ export const AGENT_DESCRIPTORS: Record<AgentIdentifier, AgentDescriptor> = {
       'Master orchestrator that classifies user intent and delegates tasks to the correct AI coordinator.',
     capabilities: ['intent_classification', 'delegation'],
   },
+  admin_coordinator: {
+    id: 'admin_coordinator',
+    name: 'Admin Coordinator',
+    icon: 'shield-checkmark',
+    description:
+      'Handles operational administration, compliance guardrails, scheduling constraints, policy enforcement, and structured workflow governance across Agent X.',
+    capabilities: [
+      'operations_governance',
+      'policy_enforcement',
+      'compliance_review',
+      'eligibility_verification',
+      'visit_scheduling',
+      'workflow_administration',
+    ],
+  },
+  brand_coordinator: {
+    id: 'brand_coordinator',
+    name: 'Brand Coordinator',
+    icon: 'color-wand',
+    description:
+      'Generates graphics, highlight assets, promo materials, social content, and branded creative deliverables for athletes, teams, and programs.',
+    capabilities: [
+      'graphic_generation',
+      'highlight_reel',
+      'promo_design',
+      'brand_asset',
+      'social_media_content',
+      'video_editing',
+      'nil_branding',
+    ],
+  },
   data_coordinator: {
     id: 'data_coordinator',
     name: 'Data Coordinator',
+    icon: 'server',
     description:
       'Ingests, extracts, and normalizes data from external platforms. Scrapes linked athletic profiles (MaxPreps, Hudl, 247Sports), parses roster pages, resolves player identities, and writes structured data to user profiles and team rosters.',
     capabilities: [
@@ -41,9 +73,25 @@ export const AGENT_DESCRIPTORS: Record<AgentIdentifier, AgentDescriptor> = {
       'stat_import',
     ],
   },
+  strategy_coordinator: {
+    id: 'strategy_coordinator',
+    name: 'Strategy Coordinator',
+    icon: 'compass',
+    description:
+      'Owns planning, prioritization, platform guidance, high-level recommendations, and general strategic support when a request does not belong to a specialized execution coordinator.',
+    capabilities: [
+      'general_qa',
+      'platform_help',
+      'strategic_planning',
+      'goal_prioritization',
+      'sports_guidance',
+      'google_workspace',
+    ],
+  },
   recruiting_coordinator: {
     id: 'recruiting_coordinator',
     name: 'Recruiting Coordinator',
+    icon: 'mail',
     description:
       'Manages recruiting outreach, drafts emails to college coaches, builds target lists, tracks responses, and runs outreach campaigns.',
     capabilities: [
@@ -56,24 +104,10 @@ export const AGENT_DESCRIPTORS: Record<AgentIdentifier, AgentDescriptor> = {
       'transfer_portal_search',
     ],
   },
-  brand_media_coordinator: {
-    id: 'brand_media_coordinator',
-    name: 'Brand & Media Coordinator',
-    description:
-      'Generates graphics, cuts highlight reels, designs promo materials, manages brand assets, creates social media content, and handles NIL branding.',
-    capabilities: [
-      'graphic_generation',
-      'highlight_reel',
-      'promo_design',
-      'brand_asset',
-      'social_media_content',
-      'video_editing',
-      'nil_branding',
-    ],
-  },
   performance_coordinator: {
     id: 'performance_coordinator',
     name: 'Performance Coordinator',
+    icon: 'pulse',
     description:
       'Evaluates players, analyzes film, generates Agent X Intel reports/Intel reports, creates scouting reports, compares prospects, tracks athletic progression, and provides biometric analysis. Use for any request to "write intel", "generate intel", "build a Intel report", or "create an Agent X Intel report" for an athlete or team.',
     capabilities: [
@@ -87,38 +121,6 @@ export const AGENT_DESCRIPTORS: Record<AgentIdentifier, AgentDescriptor> = {
       'intel_report',
       'agent_x_intel',
       'athlete_intel_report',
-    ],
-  },
-  compliance_coordinator: {
-    id: 'compliance_coordinator',
-    name: 'Compliance Coordinator',
-    description:
-      'Enforces NCAA/NAIA/NJCAA recruiting rules, validates contact windows, flags violations, tracks academic eligibility, and manages official visit schedules.',
-    capabilities: [
-      'ncaa_rules',
-      'contact_period_check',
-      'eligibility_verification',
-      'dead_period_enforcement',
-      'academic_tracking',
-      'visit_scheduling',
-    ],
-  },
-  general: {
-    id: 'general',
-    name: 'General Assistant',
-    description:
-      'Handles general questions, platform help, Google Workspace actions (Gmail, Calendar, Drive, Docs, Sheets, Slides), and tasks that do not fit a specialized coordinator. Route any request involving Gmail, Google Calendar, Google Drive, Google Docs, Google Sheets, or Google Slides to this agent.',
-    capabilities: [
-      'general_qa',
-      'platform_help',
-      'small_talk',
-      'google_workspace',
-      'gmail',
-      'google_calendar',
-      'google_drive',
-      'google_docs',
-      'google_sheets',
-      'google_slides',
     ],
   },
 } as const;
@@ -397,7 +399,6 @@ export const AGENT_APPROVAL_POLICIES: readonly AgentApprovalPolicy[] = [
     requiresApproval: true,
     autoApproveOnExpiry: false,
     expiryMs: 86_400_000, // 24 hours
-    userPrompt: 'Agent X drafted an email. Review and approve before sending.',
     riskLevel: 'high',
   },
   {
@@ -405,7 +406,6 @@ export const AGENT_APPROVAL_POLICIES: readonly AgentApprovalPolicy[] = [
     requiresApproval: true,
     autoApproveOnExpiry: false,
     expiryMs: 86_400_000,
-    userPrompt: 'Agent X drafted a text message. Review before sending.',
     riskLevel: 'high',
   },
   {
@@ -413,7 +413,6 @@ export const AGENT_APPROVAL_POLICIES: readonly AgentApprovalPolicy[] = [
     requiresApproval: true,
     autoApproveOnExpiry: false,
     expiryMs: 86_400_000,
-    userPrompt: 'Agent X created a social media post. Approve before publishing.',
     riskLevel: 'medium',
   },
   {
@@ -421,7 +420,6 @@ export const AGENT_APPROVAL_POLICIES: readonly AgentApprovalPolicy[] = [
     requiresApproval: true,
     autoApproveOnExpiry: true, // Auto-approve after 24h — low risk
     expiryMs: 86_400_000,
-    userPrompt: 'Agent X wants to update your profile. Review the changes.',
     riskLevel: 'low',
   },
   {
@@ -429,7 +427,6 @@ export const AGENT_APPROVAL_POLICIES: readonly AgentApprovalPolicy[] = [
     requiresApproval: true,
     autoApproveOnExpiry: false,
     expiryMs: 86_400_000,
-    userPrompt: 'Agent X wants to delete content. This cannot be undone.',
     riskLevel: 'critical',
   },
 ] as const;

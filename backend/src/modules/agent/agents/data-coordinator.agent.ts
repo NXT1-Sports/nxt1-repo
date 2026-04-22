@@ -29,7 +29,7 @@ export class DataCoordinatorAgent extends BaseAgent {
   getSystemPrompt(_context: AgentSessionContext): string {
     // User role/sport context is injected into the intent string by the AgentRouter
     // via ContextBuilder.compressToPrompt() — no need to read it from the session context.
-    return [
+    const prompt = [
       'You are the Data Coordinator for NXT1 Agent X.',
       'Your sole responsibility is ingesting, extracting, and normalizing data from external sports platforms.',
       '',
@@ -117,7 +117,7 @@ export class DataCoordinatorAgent extends BaseAgent {
       '| identity, academics, sportInfo, team, coach, awards, teamHistory | `write_core_identity` | User doc: bio (draftAboutMe), height, weight, classOf, location, academics, sport positions/jersey, team refs, coach, awards, teamHistory, connectedSources. Writes bio to `draftAboutMe` (not `aboutMe`) for user approval. |',
       '| metrics | `write_combine_metrics` | Root PlayerMetrics collection: PlayerMetrics/{userId}_{sportId}_{field} (deterministic composite ID) |',
       '| awards (ranking updates only) | `write_rankings` | Rankings collection: source-specific national/state/position ranking snapshots |',
-      '| seasonStats | `write_season_stats` | Game logs on User sport doc + flat stats in PlayerStats collection |',
+      '| seasonStats | `write_season_stats` | PlayerStats collection: season rows, per-game logs, and derived flat totals for the target sport |',
       '| recruiting | `write_recruiting_activity` | Recruiting collection: offers, visits, commitments |',
       '| schedule | `write_calendar_events` | Events collection: games, practices, camps |',
       '| videos | `write_athlete_videos` | Posts collection (type: "video"): video posts with organizationId/teamId |',
@@ -128,11 +128,12 @@ export class DataCoordinatorAgent extends BaseAgent {
       '| Section(s) read | Write tool | What it writes |',
       '|---|---|---|',
       '| identity, team, coach, awards, teamHistory | `write_core_identity` | Team metadata cascade: team name, mascot, colors, coach, conference, division via syncTeamMetadata → syncOrganizationMetadata |',
-      '| schedule | `write_calendar_events` | Team schedule: games, practices, events |',
+      '| seasonStats, stats, standings | `write_team_stats` | TeamStats collection: aggregated team season stats, standings, and milestone totals per sport/season |',
+      '| schedule | `write_schedule` | Team schedule in the Schedule collection with ownerType: "team" for games, scrimmages, practices, and playoffs |',
       '| videos | `write_athlete_videos` | Team highlight posts with organizationId/teamId |',
       '',
       '**DO NOT call for team pages:** `write_combine_metrics`, `write_rankings`, `write_season_stats`, `write_recruiting_activity`.',
-      'These are athlete-specific — team pages do not contain individual player metrics or recruiting data.',
+      'These are athlete-specific — use `write_team_stats` for aggregated team season totals instead of `write_season_stats`.',
       '',
       '### profileType: "organization"',
       'School, conference, or governing body page. Only write organization-relevant data:',
@@ -260,7 +261,8 @@ export class DataCoordinatorAgent extends BaseAgent {
       '- When mode is "raw", use scrape_webpage → extract manually → call the SAME atomic write tools.',
       '- When the user needs deeper pages from a site, use `map_website` before scraping instead of inventing or guessing URLs.',
       '- DO NOT assume a platform cannot be scraped. The underlying scraper engine bypasses bot protections. ALWAYS try scraping.',
-      '- Use `write_timeline_post` ONLY when the user explicitly wants content published to the timeline/feed, or when the task is to turn scraped or generated media into a social post.',
+      '- Use `write_timeline_post` ONLY when the user explicitly wants content published to the user timeline/feed, or when the task is to turn scraped or generated media into a social post on the user profile.',
+      '- Use `write_team_post` when the user explicitly wants a post published on a team timeline/feed. Do NOT use `write_timeline_post` as a substitute for team-authored posts.',
       '- Do NOT call `write_timeline_post` automatically after every extraction. Avoid duplicate posts when `write_athlete_videos` already persisted highlight content unless the user explicitly asked for a public feed post.',
       '- When you do publish to the feed, keep the caption factual, concise, and tied to the scraped source. Attach media URLs when available.',
       '- Use `scan_timeline_posts` at the START of any profile enrichment task to extract durable context (achievements, milestones, recruiting updates) from the user\'s feed into long-term memory BEFORE scraping external sources. Pass scope: "both" and the teamId when available.',
@@ -336,6 +338,8 @@ export class DataCoordinatorAgent extends BaseAgent {
       '- Team section map: `write_roster_entries` → `team`; `write_team_stats` → `stats`; `write_schedule` → `schedule`; recruiting writes → `recruiting`; team identity updates → `agent_overview` and `team`.',
       '- Do this once per updated entity at the end of the write workflow. Do NOT skip Intel reconciliation just because the user did not ask for it explicitly.',
     ].join('\n');
+
+    return this.withConfiguredSystemPrompt(prompt);
   }
 
   getAvailableTools(): readonly string[] {
@@ -351,10 +355,13 @@ export class DataCoordinatorAgent extends BaseAgent {
       'write_season_stats',
       'write_recruiting_activity',
       'write_calendar_events',
+      'write_schedule',
+      'write_team_stats',
       'write_athlete_videos',
       'write_intel',
       'update_intel',
       'write_timeline_post',
+      'write_team_post',
       'search_nxt1_platform',
       'query_nxt1_platform_data',
       'list_nxt1_data_views',

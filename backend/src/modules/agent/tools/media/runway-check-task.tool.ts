@@ -28,7 +28,7 @@ export class RunwayCheckTaskTool extends BaseTool {
     required: ['taskId'],
   } as const;
 
-  override readonly allowedAgents = ['brand_media_coordinator'] as const;
+  override readonly allowedAgents = ['brand_coordinator'] as const;
   readonly isMutation = false;
   readonly category = 'media' as const;
 
@@ -46,7 +46,10 @@ export class RunwayCheckTaskTool extends BaseTool {
         return { success: false, error: 'taskId is required.' };
       }
 
-      context?.onProgress?.('Checking Runway task status…');
+      context?.emitStage?.('checking_status', {
+        icon: 'media',
+        taskId: taskId.trim(),
+      });
 
       const task = await this.bridge.getTask(taskId.trim());
 
@@ -70,7 +73,10 @@ export class RunwayCheckTaskTool extends BaseTool {
       let storagePath: string | undefined;
 
       if (status === 'SUCCEEDED' && outputUrl) {
-        context?.onProgress?.('Persisting video to CDN…');
+        context?.emitStage?.('uploading_assets', {
+          icon: 'upload',
+          taskId: taskId.trim(),
+        });
 
         try {
           const response = await fetch(outputUrl);

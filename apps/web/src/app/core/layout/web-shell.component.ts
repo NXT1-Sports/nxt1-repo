@@ -70,6 +70,7 @@ import {
   type TopNavUserMenuItem,
   type TopNavConfig,
   type TopNavSelectEvent,
+  type TopNavSportProfileSelectEvent,
   type TopNavUserMenuEvent,
   createTopNavConfig,
 } from '@nxt1/ui/components/top-nav';
@@ -94,15 +95,19 @@ import {
   NxtMobileSidebarComponent,
   type MobileSidebarConfig,
   type MobileSidebarSelectEvent,
+  type MobileSidebarSportSelectEvent,
   type MobileSidebarUserData,
   createMobileSidebarConfig,
 } from '@nxt1/ui/components/mobile-sidebar';
+import { buildNavigationShellUserData } from '@nxt1/ui/components/user-display';
+import { ProfileService } from '@nxt1/ui/profile';
 // ── Services (separate from component barrel) ──
 import {
   NxtPlatformService,
   NxtLoggingService,
   NxtScrollService,
   NxtNotificationStateService,
+  NxtToastService,
 } from '@nxt1/ui/services';
 // ── Auth ──
 import { AuthModalService } from '@nxt1/ui/auth';
@@ -118,6 +123,7 @@ import { InviteShellComponent } from '@nxt1/ui/invite';
 import { NxtOverlayService } from '@nxt1/ui/components/overlay';
 // ── App-level imports ──
 import { AuthFlowService } from '../services/auth';
+import { EditProfileApiService } from '../services/api/edit-profile-api.service';
 
 import { BadgeCountService, ProfilePageActionsService } from '../services';
 import { NotificationPopoverComponent } from '../../features/activity/components';
@@ -127,6 +133,7 @@ import {
   formatSportDisplayName,
   normalizeSportKey,
   buildUserDisplayContext,
+  resolveCanonicalTeamRoute,
 } from '@nxt1/core';
 import type { SidenavSportProfile, UserDisplayInput, UserDisplayFallback } from '@nxt1/core';
 
@@ -443,6 +450,7 @@ const USER_MENU_ITEMS: TopNavUserMenuItem[] = [];
           (navigate)="onHeaderNavigate($event)"
           (userMenuAction)="onUserMenuAction($event)"
           (userClick)="onHeaderUserClick($event)"
+          (sportProfileSelect)="onHeaderSportProfileSelect($event)"
           (addSportClick)="onAddSportClick()"
           (notificationsClick)="onNotificationsClick()"
           (createClick)="onCreateClick()"
@@ -696,11 +704,14 @@ export class WebShellComponent {
   private readonly location = inject(Location);
   private readonly platform = inject(NxtPlatformService);
   private readonly authFlow = inject(AuthFlowService);
+  private readonly editProfileApiService = inject(EditProfileApiService);
   private readonly logger = inject(NxtLoggingService).child('WebShellComponent');
+  private readonly toast = inject(NxtToastService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly scrollService = inject(NxtScrollService);
   private readonly badgeCount = inject(BadgeCountService);
   private readonly profileActions = inject(ProfilePageActionsService);
+  private readonly profileService = inject(ProfileService);
   private readonly inviteOverlay = inject(NxtOverlayService);
   private readonly notificationState = inject(NxtNotificationStateService);
   private readonly activityService = inject(ActivityService);
@@ -766,41 +777,22 @@ export class WebShellComponent {
     return buildUserDisplayContext(user, fallback);
   });
 
+  private readonly _navigationShellUserData = computed(() => {
+    const ctx = this._userDisplayContext();
+    return ctx ? buildNavigationShellUserData(ctx) : null;
+  });
+
   /** Sidebar user data — team-role aware */
   readonly sidebarUserData = computed<DesktopSidebarUserData | null>(() => {
     // Return null during auth resolution to prevent premature rendering
     if (!this.authFlow.isAuthReady()) return null;
 
-    const ctx = this._userDisplayContext();
-    if (!ctx) return null;
-
-    return {
-      name: ctx.name,
-      profileImg: ctx.profileImg,
-      initials: ctx.initials,
-      handle: ctx.handle,
-      verified: ctx.verified,
-      isTeamRole: ctx.isTeamRole,
-    };
+    return this._navigationShellUserData()?.desktopSidebar ?? null;
   });
 
   /** Mobile sidebar user data — team-role aware, includes sport profiles for the sport switcher */
   readonly mobileSidebarUserData = computed<MobileSidebarUserData | null>(() => {
-    const ctx = this._userDisplayContext();
-    if (!ctx) return null;
-
-    return {
-      name: ctx.name,
-      profileImg: ctx.profileImg,
-      initials: ctx.initials,
-      handle: ctx.handle,
-      verified: ctx.verified,
-      sportLabel: ctx.sportLabel,
-      sportProfiles: ctx.sportProfiles as SidenavSportProfile[],
-      switcherTitle: ctx.switcherTitle,
-      isTeamRole: ctx.isTeamRole,
-      actionLabel: ctx.actionLabel,
-    };
+    return this._navigationShellUserData()?.mobileSidebar ?? null;
   });
 
   // ============================================
@@ -838,21 +830,7 @@ export class WebShellComponent {
     // This prevents flash of "Sign In" during Firebase auth hydration
     if (!this.authFlow.isAuthReady()) return null;
 
-    const ctx = this._userDisplayContext();
-    if (!ctx) return null;
-
-    return {
-      name: ctx.name,
-      email: ctx.email,
-      profileImg: ctx.profileImg,
-      verified: ctx.verified,
-      sportLabel: ctx.sportLabel,
-      profileRoute: ctx.profileRoute,
-      switcherTitle: ctx.switcherTitle,
-      isTeamRole: ctx.isTeamRole,
-      actionLabel: ctx.actionLabel,
-      sportProfiles: ctx.sportProfiles as SidenavSportProfile[],
-    };
+    return this._navigationShellUserData()?.topNav ?? null;
   });
 
   /**
@@ -926,6 +904,114 @@ export class WebShellComponent {
     }
 
     this.logger.warn('Team route unavailable for coach/director avatar navigation');
+  }
+
+  private async switchOwnSportProfile(profile: SidenavSportProfile): Promise<void> {
+    const userId = this.authFlow.user()?.uid;
+    const sportIndex = profile.originalIndex;
+
+    if (!userId) {
+      this.logger.warn('Cannot switch sport profile without an authenticated user', {
+        profileId: profile.id,
+        sport: profile.sport,
+      });
+      return;
+    }
+
+    if (sportIndex === undefined || sportIndex < 0) {
+      this.logger.warn('Cannot switch sport profile without a valid original index', {
+        userId,
+        profileId: profile.id,
+        sport: profile.sport,
+        originalIndex: sportIndex,
+      });
+      return;
+    }
+
+    this.logger.info('Switching sport profile from global navigation', {
+      userId,
+      profileId: profile.id,
+      sport: profile.sport,
+      sportIndex,
+      currentRoute: this._currentRoute(),
+    });
+
+    if (this._currentRoute() === '/profile') {
+      await this.profileService.setActiveSportIndex(sportIndex);
+      await this.authFlow.refreshUserProfile();
+      return;
+    }
+
+    // For team roles, compute the destination URL directly from the clicked
+    // sport's team data so navigation does NOT depend on refreshUserProfile()
+    // propagating the new activeSportIndex into the user() signal (race condition).
+    const targetRoute = this.resolveTeamRouteForSportIndex(sportIndex);
+
+    const result = await this.editProfileApiService.updateActiveSportIndex(userId, sportIndex);
+    if (!result.success) {
+      this.logger.warn('Failed to switch active sport profile', {
+        userId,
+        sportIndex,
+        sport: profile.sport,
+        error: result.error,
+      });
+      this.toast.error(result.error ?? 'Unable to switch profile right now.');
+      return;
+    }
+
+    // Optimistically patch the auth user signal so the switcher checkmark,
+    // sport label, and avatar immediately reflect the newly selected sport —
+    // no wait for refreshUserProfile() to round-trip from the backend.
+    this.authFlow.patchUser({ activeSportIndex: sportIndex });
+
+    if (targetRoute) {
+      await this.router.navigateByUrl(targetRoute);
+      return;
+    }
+
+    // Fallback: non-team role or no canonical route — use display-context path.
+    await this.authFlow.refreshUserProfile();
+    await this.navigateToOwnIdentity();
+  }
+
+  /**
+   * Compute the canonical team route for a given sport index using the current
+   * user signal. Used by the global sport switcher so that navigation is
+   * independent of any post-save refresh race.
+   */
+  private resolveTeamRouteForSportIndex(sportIndex: number): string | null {
+    const user = this.authFlow.user() as unknown as {
+      readonly sports?: ReadonlyArray<{
+        readonly sport?: string;
+        readonly team?: {
+          readonly name?: string;
+          readonly teamName?: string;
+          readonly slug?: string;
+          readonly teamId?: string;
+          readonly id?: string;
+          readonly teamCode?: string;
+          readonly code?: string;
+          readonly organizationId?: string;
+          readonly unicode?: string;
+        };
+      }> | null;
+    } | null;
+
+    const sport = user?.sports?.[sportIndex];
+    const team = sport?.team;
+    if (!team) return null;
+
+    const resolved = resolveCanonicalTeamRoute({
+      slug: team.slug?.trim(),
+      teamName: team.name?.trim() || team.teamName?.trim(),
+      teamCode: team.teamCode?.trim(),
+      code: team.code?.trim(),
+      teamId: team.teamId?.trim() || team.organizationId?.trim(),
+      id: team.id?.trim(),
+      unicode: team.unicode?.trim(),
+    });
+
+    return resolved?.path ?? null;
   }
 
   /** Mobile footer configuration */
@@ -1049,15 +1135,7 @@ export class WebShellComponent {
     // This prevents flash of "Sign In" during Firebase auth hydration
     if (!this.authFlow.isAuthReady()) return null;
 
-    const ctx = this._userDisplayContext();
-    if (!ctx) return null;
-
-    return {
-      name: ctx.name,
-      profileImg: ctx.profileImg,
-      initials: ctx.initials,
-      isTeamRole: ctx.isTeamRole,
-    };
+    return this._navigationShellUserData()?.mobileHeader ?? null;
   });
 
   // ============================================
@@ -1400,11 +1478,15 @@ export class WebShellComponent {
    * Handle mobile sidebar sport profile selection.
    * Navigates to profile (sport switching handled by backend).
    */
-  onMobileSidebarSportSelect(
-    event: import('@nxt1/ui/components/mobile-sidebar').MobileSidebarSportSelectEvent
-  ): void {
+  onMobileSidebarSportSelect(event: MobileSidebarSportSelectEvent): void {
     this.logger.debug('Sport profile selected', { sport: event.profile.sport });
-    void this.navigateToOwnIdentity();
+    this.closeMobileSidebar();
+    void this.switchOwnSportProfile(event.profile);
+  }
+
+  onHeaderSportProfileSelect(event: TopNavSportProfileSelectEvent): void {
+    this.logger.debug('Header sport profile selected', { sport: event.profile.sport });
+    void this.switchOwnSportProfile(event.profile);
   }
 
   /**

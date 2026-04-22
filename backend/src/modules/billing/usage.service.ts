@@ -20,7 +20,10 @@ import {
 } from './types/index.js';
 import { getStripePriceId, getUnitCost } from './config.js';
 import { publishUsageEvent } from './pubsub.service.js';
-import { UsageEventModel, type UsageEventDocument } from '../../models/usage-event.model.js';
+import {
+  UsageEventModel,
+  type UsageEventDocument,
+} from '../../models/analytics/usage-event.model.js';
 
 // Re-export types for external use
 export { UsageEventStatus };

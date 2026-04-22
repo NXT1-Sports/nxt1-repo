@@ -15,7 +15,22 @@ import type {
   TeamProfileRecruitingActivity,
   TeamProfileStatsCategory,
 } from '../../team-profile/team-profile.types';
-import type { ConnectedSource, ContactInfo, SocialLinks } from '../user';
+import type { ConnectedSource } from '../user';
+
+export interface TeamCodeSocialLinks {
+  twitter?: string | null;
+  instagram?: string | null;
+  tiktok?: string | null;
+  hudl?: string | null;
+  youtube?: string | null;
+  maxPreps?: string | null;
+  linkedin?: string | null;
+}
+
+export interface TeamCodeContactInfo {
+  email: string;
+  phone?: string | null;
+}
 
 // ============================================
 // TEAM MEMBER ROLES
@@ -28,13 +43,13 @@ import type { ConnectedSource, ContactInfo, SocialLinks } from '../user';
  * - admin: Team creator, team gets 6-digit unicode (e.g., "980718")
  * - athlete: Member unicode = team_unicode + "01" (e.g., "98071801")
  * - coach: Member unicode = team_unicode + "02" (e.g., "98071802")
- * - media: Member unicode = team_unicode + "03" (e.g., "98071803")
+ * - director: Member unicode = team_unicode + "03" (e.g., "98071803")
  */
 export enum ROLE {
   admin = 'Administrative',
   athlete = 'Athlete',
   coach = 'Coach',
-  media = 'Media',
+  director = 'Director',
 }
 
 /**
@@ -158,10 +173,10 @@ export interface Code {
     division?: string;
   }>;
   lastUpdatedStat?: string | Date | null;
-  socialLinks?: SocialLinks;
+  socialLinks?: TeamCodeSocialLinks;
   /** Connected sources (V2) — replaces socialLinks. Each entry is a platform URL with sync status. */
   connectedSources?: ConnectedSource[];
-  contactInfo?: ContactInfo;
+  contactInfo?: TeamCodeContactInfo;
   teamLinks?: {
     newsPageUrl?: string;
     schedulePageUrl?: string;

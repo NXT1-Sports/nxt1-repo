@@ -9,14 +9,14 @@
  */
 
 import { Router, type Request, type Response } from 'express';
-import { appGuard } from '../../middleware/auth.middleware.js';
+import { appGuard } from '../../middleware/auth/auth.middleware.js';
 import { logger } from '../../utils/logger.js';
-import { validateBody } from '../../middleware/validation.middleware.js';
+import { validateBody } from '../../middleware/validation/validation.middleware.js';
 import { UpdateProfileDto, UploadProfileImageDto } from '../../dtos/profile.dto.js';
-import { provisionOnboardingPrograms } from '../../services/onboarding-program-provisioning.service.js';
-import { assertCanMutateOwnSports } from '../../services/profile-sport-governance.service.js';
-import { createRosterEntryService } from '../../services/roster-entry.service.js';
-import * as teamCodeService from '../../services/team-code.service.js';
+import { provisionOnboardingPrograms } from '../../services/platform/onboarding-program-provisioning.service.js';
+import { assertCanMutateOwnSports } from '../../services/profile/profile-sport-governance.service.js';
+import { createRosterEntryService } from '../../services/team/roster-entry.service.js';
+import * as teamCodeService from '../../services/team/team-code.service.js';
 import { mergeConnectedSources } from '@nxt1/core/profile';
 import { asyncHandler, sendError } from '@nxt1/core/errors/express';
 import { validationError, notFoundError, forbiddenError } from '@nxt1/core/errors';
@@ -25,7 +25,7 @@ import type { UpdateSportProfileRequest } from '@nxt1/core';
 import type { TeamSelectionFormData } from '@nxt1/core/api';
 import { RosterEntryStatus } from '@nxt1/core/models';
 import { isTeamRole, PROFILE_UI_CONFIG } from '@nxt1/core';
-import { CLOUDFLARE_API_BASE_URL } from '../upload/shared.js';
+import { CLOUDFLARE_API_BASE_URL } from '../core/upload/shared.js';
 import {
   USERS_COLLECTION,
   FieldValue,
@@ -295,7 +295,7 @@ router.post(
       ...existingImgs.filter((img) => img !== imageUrl.trim()),
     ].slice(0, 5);
 
-    await userRef.update({ profileImgs: updatedImgs, updatedAt: new Date().toISOString() });
+    await userRef.update({ profileImgs: updatedImgs, updatedAt: FieldValue.serverTimestamp() });
 
     const rosterEntryService = createRosterEntryService(db);
     await rosterEntryService.syncUserProfileToRosterEntries(userId, {
@@ -368,7 +368,7 @@ router.put(
     const updatedSports = [...sports];
     updatedSports[sportIndex] = updatedSport;
 
-    await userRef.update({ sports: updatedSports, updatedAt: new Date().toISOString() });
+    await userRef.update({ sports: updatedSports, updatedAt: FieldValue.serverTimestamp() });
 
     const rosterEntryService = createRosterEntryService(db);
     await rosterEntryService.syncUserProfileToRosterEntries(userId, {
@@ -533,7 +533,7 @@ router.post(
               );
               await teamRef.update({
                 connectedSources: mergeConnectedSources(existingSources, incomingConnectedSources),
-                updatedAt: new Date().toISOString(),
+                updatedAt: FieldValue.serverTimestamp(),
               });
             })
           );
@@ -542,7 +542,7 @@ router.post(
         // Add the new sport to the user's profile
         await userRef.update({
           sports: FieldValue.arrayUnion(newSport),
-          updatedAt: new Date().toISOString(),
+          updatedAt: FieldValue.serverTimestamp(),
         });
 
         // Sync roster entry profile data
@@ -700,7 +700,7 @@ router.post(
         // Add the new sport to the user's profile atomically
         batch.update(userRef, {
           sports: FieldValue.arrayUnion(newSport),
-          updatedAt: new Date().toISOString(),
+          updatedAt: FieldValue.serverTimestamp(),
         });
 
         await batch.commit();
@@ -719,7 +719,7 @@ router.post(
           );
           await teamRef.update({
             connectedSources: mergeConnectedSources(existingSources, incomingConnectedSources),
-            updatedAt: new Date().toISOString(),
+            updatedAt: FieldValue.serverTimestamp(),
           });
         }
 
@@ -764,7 +764,7 @@ router.post(
             ),
           }
         : {}),
-      updatedAt: new Date().toISOString(),
+      updatedAt: FieldValue.serverTimestamp(),
     });
 
     const rosterEntryService = createRosterEntryService(db);
@@ -839,7 +839,7 @@ router.delete(
       .filter((_, idx) => idx !== sportIndex)
       .map((s, idx) => ({ ...s, order: idx }));
 
-    await userRef.update({ sports: updatedSports, updatedAt: new Date().toISOString() });
+    await userRef.update({ sports: updatedSports, updatedAt: FieldValue.serverTimestamp() });
 
     const rosterEntryService = createRosterEntryService(db);
     await rosterEntryService.syncUserProfileToRosterEntries(userId, {
@@ -927,7 +927,7 @@ router.patch(
 
       const userUpdates: Record<string, unknown> = {
         pinnedMetricGroups,
-        updatedAt: new Date().toISOString(),
+        updatedAt: FieldValue.serverTimestamp(),
       };
       if (countDelta !== 0) {
         userUpdates['pinnedCount'] = FieldValue.increment(countDelta);
@@ -993,7 +993,7 @@ router.patch(
     if (countDelta !== 0) {
       batch.update(userRef, {
         pinnedCount: FieldValue.increment(countDelta),
-        updatedAt: new Date().toISOString(),
+        updatedAt: FieldValue.serverTimestamp(),
       });
     }
     await batch.commit();
@@ -1076,7 +1076,7 @@ router.delete(
     if (wasItemPinned) {
       await userRef.update({
         pinnedCount: FieldValue.increment(-1),
-        updatedAt: new Date().toISOString(),
+        updatedAt: FieldValue.serverTimestamp(),
       });
     }
 

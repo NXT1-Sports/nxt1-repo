@@ -87,6 +87,7 @@ function createMockLLM(planJson: object): OpenRouterService {
   return {
     prompt: vi.fn().mockResolvedValue({
       content: JSON.stringify(planJson),
+      parsedOutput: planJson,
       toolCalls: [],
       model: 'anthropic/claude-haiku-4-5',
       usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
@@ -180,18 +181,20 @@ describe('AgentRouter', () => {
       expect(agentId).toBe('router');
     });
 
-    it('should return "general" when plan has no tasks', async () => {
+    it('should return "strategy_coordinator" when plan has no tasks', async () => {
       llm = createMockLLM({ tasks: [] });
 
       const router = new AgentRouter(llm, toolRegistry, contextBuilder);
       const agentId = await router.classify('ambiguous request', 'user-123');
 
-      expect(agentId).toBe('general');
+      expect(agentId).toBe('strategy_coordinator');
     });
 
     it('should build user context before classifying', async () => {
       llm = createMockLLM({
-        tasks: [{ id: '1', assignedAgent: 'general', description: 'test', dependsOn: [] }],
+        tasks: [
+          { id: '1', assignedAgent: 'strategy_coordinator', description: 'test', dependsOn: [] },
+        ],
       });
 
       const router = new AgentRouter(llm, toolRegistry, contextBuilder);
@@ -507,11 +510,13 @@ describe('AgentRouter', () => {
   describe('context enrichment', () => {
     it('should prepend user profile to intent before planning', async () => {
       llm = createMockLLM({
-        tasks: [{ id: '1', assignedAgent: 'general', description: 'test', dependsOn: [] }],
+        tasks: [
+          { id: '1', assignedAgent: 'strategy_coordinator', description: 'test', dependsOn: [] },
+        ],
       });
 
       const router = new AgentRouter(llm, toolRegistry, contextBuilder);
-      const generalAgent = createMockAgent('general');
+      const generalAgent = createMockAgent('strategy_coordinator');
       router.registerAgent(generalAgent);
 
       const payload: AgentJobPayload = {
@@ -543,10 +548,12 @@ describe('AgentRouter', () => {
   describe('update emissions', () => {
     it('should emit structured updates with operationId and timestamps', async () => {
       llm = createMockLLM({
-        tasks: [{ id: '1', assignedAgent: 'general', description: 'test', dependsOn: [] }],
+        tasks: [
+          { id: '1', assignedAgent: 'strategy_coordinator', description: 'test', dependsOn: [] },
+        ],
       });
 
-      const generalAgent = createMockAgent('general');
+      const generalAgent = createMockAgent('strategy_coordinator');
       const router = new AgentRouter(llm, toolRegistry, contextBuilder);
       router.registerAgent(generalAgent);
 
@@ -574,14 +581,24 @@ describe('AgentRouter', () => {
       expect(statuses).toContain('thinking');
       expect(statuses).toContain('acting');
       expect(statuses).toContain('completed');
+      expect(
+        updates.some(
+          (u) => u.stage === 'decomposing_intent' || u.step?.stage === 'decomposing_intent'
+        )
+      ).toBe(true);
+      expect(updates.at(-1)?.outcomeCode ?? updates.at(-1)?.step?.outcomeCode).toBe(
+        'success_default'
+      );
     });
 
     it('should work without onUpdate callback (no-op)', async () => {
       llm = createMockLLM({
-        tasks: [{ id: '1', assignedAgent: 'general', description: 'test', dependsOn: [] }],
+        tasks: [
+          { id: '1', assignedAgent: 'strategy_coordinator', description: 'test', dependsOn: [] },
+        ],
       });
 
-      const generalAgent = createMockAgent('general');
+      const generalAgent = createMockAgent('strategy_coordinator');
       const router = new AgentRouter(llm, toolRegistry, contextBuilder);
       router.registerAgent(generalAgent);
 
@@ -637,27 +654,29 @@ describe('AgentRouter', () => {
 
   describe('delegation handoff', () => {
     it('should re-dispatch through Planner when a direct agent throws AgentDelegationException', async () => {
-      // Direct agent path: brand_media_coordinator is set directly on payload.
-      // brand_media throws delegation → Router catches, strips agent lock,
+      // Direct agent path: brand_coordinator is set directly on payload.
+      // brand_coordinator throws delegation → Router catches, strips agent lock,
       // re-dispatches through Planner → Planner routes to recruiting_coordinator.
       const plannerCallCount = { value: 0 };
 
       llm = {
         prompt: vi.fn().mockImplementation(async () => {
+          const plan = {
+            summary: 'Recruiting task.',
+            tasks: [
+              {
+                id: '1',
+                assignedAgent: 'recruiting_coordinator',
+                description: 'Send emails',
+                dependsOn: [],
+              },
+            ],
+          };
           plannerCallCount.value++;
           // Only called during re-dispatch (Planner planning phase)
           return {
-            content: JSON.stringify({
-              summary: 'Recruiting task.',
-              tasks: [
-                {
-                  id: '1',
-                  assignedAgent: 'recruiting_coordinator',
-                  description: 'Send emails',
-                  dependsOn: [],
-                },
-              ],
-            }),
+            content: JSON.stringify(plan),
+            parsedOutput: plan,
             toolCalls: [],
             model: 'anthropic/claude-haiku-4-5',
             usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
@@ -669,11 +688,11 @@ describe('AgentRouter', () => {
         complete: vi.fn(),
       } as unknown as OpenRouterService;
 
-      const brandMediaAgent = createMockAgent('brand_media_coordinator');
+      const brandMediaAgent = createMockAgent('brand_coordinator');
       (brandMediaAgent.execute as ReturnType<typeof vi.fn>).mockRejectedValue(
         new AgentDelegationException({
           forwardingIntent: 'Send recruiting emails to D2 coaches',
-          sourceAgent: 'brand_media_coordinator',
+          sourceAgent: 'brand_coordinator',
         })
       );
 
@@ -691,7 +710,7 @@ describe('AgentRouter', () => {
         operationId: 'op-delegation-1',
         userId: 'user-123',
         intent: 'Send emails to coaches',
-        agent: 'brand_media_coordinator' as AgentJobPayload['agent'],
+        agent: 'brand_coordinator' as AgentJobPayload['agent'],
         origin: TEST_ORIGIN,
         priority: 'normal',
         createdAt: new Date().toISOString(),
@@ -708,25 +727,25 @@ describe('AgentRouter', () => {
     });
 
     it('should fail the task when delegation occurs in DAG execution (Planner path)', async () => {
-      // Direct agent path: brand_media delegates → Router re-dispatches through Planner
-      // → Planner routes to brand_media again → DAG catch treats it as immediate task failure
+      // Direct agent path: brand_coordinator delegates → Router re-dispatches through Planner
+      // → Planner routes to brand_coordinator again → DAG catch treats it as immediate task failure
       llm = createMockLLM({
         summary: 'Route to brand media.',
         tasks: [
           {
             id: '1',
-            assignedAgent: 'brand_media_coordinator',
+            assignedAgent: 'brand_coordinator',
             description: 'Handle it',
             dependsOn: [],
           },
         ],
       });
 
-      const brandMediaAgent = createMockAgent('brand_media_coordinator');
+      const brandMediaAgent = createMockAgent('brand_coordinator');
       (brandMediaAgent.execute as ReturnType<typeof vi.fn>).mockRejectedValue(
         new AgentDelegationException({
           forwardingIntent: 'I cannot handle this',
-          sourceAgent: 'brand_media_coordinator',
+          sourceAgent: 'brand_coordinator',
         })
       );
 
@@ -737,7 +756,7 @@ describe('AgentRouter', () => {
         operationId: 'op-delegation-loop',
         userId: 'user-123',
         intent: 'Do something ambiguous',
-        agent: 'brand_media_coordinator' as AgentJobPayload['agent'],
+        agent: 'brand_coordinator' as AgentJobPayload['agent'],
         origin: TEST_ORIGIN,
         priority: 'normal',
         createdAt: new Date().toISOString(),
@@ -747,22 +766,22 @@ describe('AgentRouter', () => {
       const result = await router.run(payload, (u) => updates.push(u));
 
       expect(result.summary).toContain('Execution plan failed.');
-      expect(result.summary).toContain('brand_media_coordinator');
+      expect(result.summary).toContain('brand_coordinator');
       expect(result.data).toMatchObject({
         operationStatus: 'failed',
         firstFailedTask: {
           id: '1',
-          assignedAgent: 'brand_media_coordinator',
+          assignedAgent: 'brand_coordinator',
         },
       });
-      // The brand_media agent should have been called at least twice (direct + DAG)
+      // The brand coordinator should have been called at least twice (direct + DAG)
       expect(brandMediaAgent.execute).toHaveBeenCalled();
       // Should have emitted a "misrouted" update from the DAG handler
       expect(updates.some((u) => u.step?.message?.includes('misrouted'))).toBe(true);
     });
 
     it('should include routing hint to avoid same-agent bounce', async () => {
-      // Direct-agent path: brand_media delegates, check the intent passed to Planner
+      // Direct-agent path: brand_coordinator delegates, check the intent passed to Planner
       llm = createMockLLM({
         summary: 'After delegation.',
         tasks: [
@@ -775,11 +794,11 @@ describe('AgentRouter', () => {
         ],
       });
 
-      const brandMediaAgent = createMockAgent('brand_media_coordinator');
+      const brandMediaAgent = createMockAgent('brand_coordinator');
       (brandMediaAgent.execute as ReturnType<typeof vi.fn>).mockRejectedValue(
         new AgentDelegationException({
           forwardingIntent: 'Send emails to coaches',
-          sourceAgent: 'brand_media_coordinator',
+          sourceAgent: 'brand_coordinator',
         })
       );
 
@@ -796,7 +815,7 @@ describe('AgentRouter', () => {
         operationId: 'op-delegation-hint',
         userId: 'user-123',
         intent: 'Send emails to coaches',
-        agent: 'brand_media_coordinator' as AgentJobPayload['agent'],
+        agent: 'brand_coordinator' as AgentJobPayload['agent'],
         origin: TEST_ORIGIN,
         priority: 'normal',
         createdAt: new Date().toISOString(),
@@ -811,7 +830,7 @@ describe('AgentRouter', () => {
       const hasRoutingHint = promptCalls.some(
         (call) =>
           typeof call[1] === 'string' &&
-          call[1].includes('brand_media_coordinator') &&
+          call[1].includes('brand_coordinator') &&
           call[1].includes('could not handle')
       );
       expect(hasRoutingHint).toBe(true);

@@ -21,19 +21,20 @@
 
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
-import { getCacheService } from '../../../../services/cache.service.js';
+import { getCacheService } from '../../../../services/core/cache.service.js';
 import {
   createProfileWriteAccessService,
   resolveAuthorizedTargetSportSelection,
-} from '../../../../services/profile-write-access.service.js';
-import { CACHE_KEYS as USER_CACHE_KEYS } from '../../../../services/users.service.js';
+} from '../../../../services/profile/profile-write-access.service.js';
+import { CACHE_KEYS as USER_CACHE_KEYS } from '../../../../services/profile/users.service.js';
 import { invalidateProfileCaches } from '../../../../routes/profile/shared.js';
 import { SyncDiffService, type PreviousScheduleEntry } from '../../sync/index.js';
-import { getAnalyticsLoggerService } from '../../../../services/analytics-logger.service.js';
+import { getAnalyticsLoggerService } from '../../../../services/core/analytics-logger.service.js';
 import { onDailySyncComplete } from '../../triggers/trigger.listeners.js';
 import { logger } from '../../../../utils/logger.js';
 import { normalizeOpponentName } from './dedup-utils.js';
 import { resolveCreatedAt } from './doc-date-utils.js';
+import { z } from 'zod';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -42,6 +43,40 @@ const TEAMS_COLLECTION = 'Teams';
 const MAX_EVENTS = 200;
 
 const VALID_SCHEDULE_TYPES = new Set(['game', 'scrimmage', 'practice', 'playoff', 'other']);
+
+const ScheduleEventEntrySchema = z
+  .object({
+    scheduleType: z.string().trim().min(1).optional(),
+    title: z.string().trim().min(1).optional(),
+    date: z.string().trim().min(1).optional(),
+    endDate: z.string().trim().min(1).optional(),
+    location: z.string().trim().min(1).optional(),
+    opponent: z.string().trim().min(1).optional(),
+    isHome: z.boolean().optional(),
+    result: z.string().trim().min(1).optional(),
+    outcome: z.enum(['win', 'loss', 'draw']).optional(),
+    status: z.enum(['upcoming', 'final', 'postponed', 'cancelled']).optional(),
+  })
+  .passthrough();
+
+const WriteScheduleInputSchema = z
+  .object({
+    userId: z.string().trim().min(1).optional(),
+    teamId: z.string().trim().min(1).optional(),
+    targetSport: z.string().trim().min(1),
+    source: z.string().trim().min(1),
+    sourceUrl: z.string().trim().min(1).optional(),
+    events: z.array(ScheduleEventEntrySchema).min(1).max(MAX_EVENTS),
+  })
+  .superRefine((value, ctx) => {
+    if (!value.userId && !value.teamId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Either userId or teamId is required.',
+        path: ['userId'],
+      });
+    }
+  });
 
 // ─── Tool ───────────────────────────────────────────────────────────────────
 
@@ -70,42 +105,7 @@ export class WriteScheduleTool extends BaseTool {
     '  • outcome (optional): "win", "loss", or "draw".\n' +
     '  • status (optional): "upcoming", "final", "postponed", or "cancelled".';
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      userId: { type: 'string' },
-      teamId: { type: 'string' },
-      targetSport: { type: 'string' },
-      source: { type: 'string' },
-      sourceUrl: { type: 'string' },
-      events: {
-        type: 'array',
-        items: {
-          type: 'object',
-          properties: {
-            scheduleType: {
-              type: 'string',
-              enum: ['game', 'scrimmage', 'practice', 'playoff', 'other'],
-            },
-            title: { type: 'string' },
-            date: { type: 'string' },
-            endDate: { type: 'string' },
-            location: { type: 'string' },
-            opponent: { type: 'string' },
-            isHome: { type: 'boolean' },
-            result: { type: 'string' },
-            outcome: { type: 'string', enum: ['win', 'loss', 'draw'] },
-            status: {
-              type: 'string',
-              enum: ['upcoming', 'final', 'postponed', 'cancelled'],
-            },
-          },
-          required: ['scheduleType', 'date'],
-        },
-      },
-    },
-    required: ['targetSport', 'source', 'events'],
-  } as const;
+  readonly parameters = WriteScheduleInputSchema;
 
   override readonly allowedAgents = ['data_coordinator', 'performance_coordinator'] as const;
   readonly isMutation = true;
@@ -122,26 +122,11 @@ export class WriteScheduleTool extends BaseTool {
     input: Record<string, unknown>,
     context?: ToolExecutionContext
   ): Promise<ToolResult> {
-    const userId = this.str(input, 'userId');
-    const teamId = this.str(input, 'teamId');
+    const parsed = WriteScheduleInputSchema.safeParse(input);
+    if (!parsed.success) return this.zodError(parsed.error);
 
-    if (!userId && !teamId) {
-      return { success: false, error: 'Either userId or teamId is required.' };
-    }
-
-    const targetSport = this.str(input, 'targetSport');
-    if (!targetSport) return this.paramError('targetSport');
-    const source = this.str(input, 'source');
-    if (!source) return this.paramError('source');
-    const sourceUrl = this.str(input, 'sourceUrl') ?? undefined;
-
-    const events = input['events'];
-    if (!Array.isArray(events) || events.length === 0) {
-      return { success: false, error: 'events must be a non-empty array.' };
-    }
-    if (events.length > MAX_EVENTS) {
-      return { success: false, error: `events exceeds maximum of ${MAX_EVENTS}.` };
-    }
+    const { userId, teamId, targetSport, source, events } = parsed.data;
+    const sourceUrl = parsed.data.sourceUrl;
 
     if (!context?.userId) {
       return { success: false, error: 'Authenticated tool context is required.' };
@@ -193,7 +178,10 @@ export class WriteScheduleTool extends BaseTool {
         targetUserData = teamData;
       }
 
-      context?.onProgress?.('Checking for duplicate schedule events…');
+      context?.emitStage?.('fetching_data', {
+        icon: 'database',
+        phase: 'check_duplicate_schedule_events',
+      });
 
       // ── Dedup: load existing docs for this owner + sport ──────────────
       const existingSnap = await this.db
@@ -299,7 +287,11 @@ export class WriteScheduleTool extends BaseTool {
       }
 
       if (written > 0) {
-        context?.onProgress?.(`Writing ${written} schedule event(s) to database…`);
+        context?.emitStage?.('submitting_job', {
+          icon: 'database',
+          eventCount: written,
+          phase: 'write_schedule_events',
+        });
         await batch.commit();
       }
 

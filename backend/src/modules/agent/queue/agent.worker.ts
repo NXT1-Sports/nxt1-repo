@@ -29,7 +29,13 @@
  */
 
 import { Worker, Job } from 'bullmq';
-import type { AgentJobUpdate, AgentOperationResult, AgentYieldState } from '@nxt1/core';
+import type {
+  AgentIdentifier,
+  AgentJobUpdate,
+  AgentOperationResult,
+  AgentYieldState,
+} from '@nxt1/core';
+import { resolveAgentApprovalCopy } from '@nxt1/core';
 import type { AgentRouter } from '../agent.router.js';
 import type { AgentQueueJobData, AgentQueueJobResult, AgentJobProgress } from './queue.types.js';
 import {
@@ -45,10 +51,12 @@ import { AgentQueueService } from './queue.service.js';
 import { AgentJobRepository } from './job.repository.js';
 import { DebouncedEventWriter } from './event-writer.js';
 import type { StreamEvent } from './event-writer.js';
+import { PersistedAssistantStreamBuilder } from './persisted-stream-message.js';
 import { AgentPubSubService } from './pubsub.service.js';
 import type { AgentChatService } from '../services/agent-chat.service.js';
 import type { OpenRouterService } from '../llm/openrouter.service.js';
 import { isAgentYield } from '../exceptions/agent-yield.exception.js';
+import { getAgentEngineErrorCode } from '../exceptions/agent-engine.error.js';
 import { notifyYield } from '../services/yield-notifier.service.js';
 import { estimateChargeAmountSync } from '../../billing/pricing.service.js';
 import {
@@ -56,15 +64,25 @@ import {
   createWalletHold,
   releaseWalletHold,
 } from '../../billing/budget.service.js';
-import { UsageFeature } from '../../billing/types/index.js';
 import { executeBillingDeduction } from '../../billing/usage-deduction.service.js';
-import {
-  logAgentTaskCompletion,
-  logAgentTaskFailure,
-} from '../../../services/agent-activity.service.js';
+import { logAgentTaskCompletion, logAgentTaskFailure } from '../services/agent-activity.service.js';
 import { getAgentAnalyticsGate } from '../services/agent-analytics-gate.js';
 import { processRecapForUser } from '../services/weekly-recap-email.service.js';
 import { logger } from '../../../utils/logger.js';
+
+const AGENT_IDENTIFIER_SET = new Set<AgentIdentifier>([
+  'router',
+  'admin_coordinator',
+  'brand_coordinator',
+  'data_coordinator',
+  'strategy_coordinator',
+  'recruiting_coordinator',
+  'performance_coordinator',
+]);
+
+function isAgentIdentifier(value: unknown): value is AgentIdentifier {
+  return typeof value === 'string' && AGENT_IDENTIFIER_SET.has(value as AgentIdentifier);
+}
 
 // ─── Worker ─────────────────────────────────────────────────────────────────
 
@@ -138,6 +156,10 @@ export class AgentWorker {
     await job.updateProgress({
       status: 'thinking',
       message: 'Summarizing idle thread memory',
+      agentId: 'router',
+      stageType: 'router',
+      stage: 'summarizing_memory',
+      metadata: { threadId: job.data.threadId },
       percent: 10,
       currentStep: 1,
       totalSteps: 1,
@@ -158,6 +180,11 @@ export class AgentWorker {
     await job.updateProgress({
       status: 'completed',
       message: 'Idle thread summarization complete',
+      agentId: 'router',
+      stageType: 'router',
+      stage: 'summarizing_memory',
+      outcomeCode: 'success_default',
+      metadata: { threadId: job.data.threadId, memoriesCreated },
       percent: 100,
       currentStep: 1,
       totalSteps: 1,
@@ -247,6 +274,8 @@ export class AgentWorker {
 
     let stepIndex = 0;
     let totalSteps = 1; // Updated once the plan is created
+    const invokedTools: string[] = [];
+    const successfulTools: string[] = [];
 
     // Build the onUpdate callback that feeds progress into BullMQ and Firestore
     const onUpdate = async (update: AgentJobUpdate): Promise<void> => {
@@ -265,6 +294,11 @@ export class AgentWorker {
       const progress: AgentJobProgress = {
         status: update.status,
         message: update.step.message,
+        agentId: update.agentId ?? update.step.agentId,
+        stageType: update.stageType ?? update.step.stageType,
+        stage: update.stage ?? update.step.stage,
+        outcomeCode: update.outcomeCode ?? update.step.outcomeCode,
+        metadata: update.metadata ?? update.step.metadata,
         percent: Math.min(99, Math.round((stepIndex / Math.max(totalSteps, 1)) * 100)),
         currentStep: stepIndex,
         totalSteps,
@@ -285,12 +319,22 @@ export class AgentWorker {
     // The frontend subscribes to `AgentJobs/{operationId}/events` via onSnapshot
     // to render a live "watch it work" chat experience.
     const eventWriter = new DebouncedEventWriter(repo, payload.operationId, payload.userId);
+    const persistedAssistantStream = new PersistedAssistantStreamBuilder();
 
     // ── Dual-write callback: Firestore (persistence) + Redis PubSub (real-time SSE pipe) ──
     // The Redis PubSub path enables Express to hold an SSE connection open and
     // forward tokens in real-time, giving the frontend the same streaming UX
     // regardless of whether the LLM loop runs inline or in BullMQ.
     const onStreamEvent = (event: StreamEvent): void => {
+      if (event.toolName && (event.type === 'tool_call' || event.type === 'step_active')) {
+        invokedTools.push(event.toolName);
+      }
+      if (event.toolName && event.type === 'tool_result' && event.toolSuccess !== false) {
+        successfulTools.push(event.toolName);
+      }
+
+      persistedAssistantStream.process(event);
+
       // 1. Firestore (existing — persistence for reconnection/replay)
       eventWriter.emit(event);
 
@@ -328,6 +372,10 @@ export class AgentWorker {
         const yieldPayload = err.payload;
         const now = new Date();
         const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000); // 24 hours
+        const yieldStatus =
+          yieldPayload.reason === 'needs_approval' ? 'awaiting_approval' : 'awaiting_input';
+        const yieldOutcomeCode =
+          yieldPayload.reason === 'needs_approval' ? 'approval_required' : 'input_required';
 
         const yieldState: AgentYieldState = {
           reason: yieldPayload.reason,
@@ -343,6 +391,21 @@ export class AgentWorker {
           yieldedAt: now.toISOString(),
           expiresAt: expiresAt.toISOString(),
         };
+
+        await job.updateProgress({
+          status: yieldStatus,
+          message: yieldPayload.promptToUser,
+          agentId: yieldPayload.agentId,
+          outcomeCode: yieldOutcomeCode,
+          metadata: {
+            reason: yieldPayload.reason,
+            approvalId: yieldPayload.approvalId,
+          },
+          percent: Math.min(99, Math.round((stepIndex / Math.max(totalSteps, 1)) * 100)),
+          currentStep: stepIndex,
+          totalSteps,
+          updatedAt: new Date().toISOString(),
+        });
 
         // Persist yield state to Firestore
         await repo.markYielded(payload.operationId, yieldState).catch((fsErr: unknown) => {
@@ -383,14 +446,32 @@ export class AgentWorker {
         // Multi-channel notification (push + SMS)
         try {
           const activityDb = await this.getActivityFirestore(job);
-          await notifyYield(activityDb, {
-            userId: payload.userId,
-            reason: yieldPayload.reason,
-            promptToUser: yieldPayload.promptToUser,
-            operationId: payload.operationId,
-            threadId,
-            approvalId: yieldPayload.approvalId,
-          });
+          const approvalCopy =
+            yieldPayload.reason === 'needs_approval' && yieldPayload.pendingToolCall
+              ? resolveAgentApprovalCopy({
+                  toolName: yieldPayload.pendingToolCall.toolName,
+                  toolInput: yieldPayload.pendingToolCall.toolInput,
+                })
+              : null;
+          if (yieldPayload.reason === 'needs_approval' && approvalCopy) {
+            await notifyYield(activityDb, {
+              userId: payload.userId,
+              reason: 'needs_approval',
+              operationId: payload.operationId,
+              threadId,
+              approvalId: yieldPayload.approvalId,
+              actionSummary: approvalCopy.actionSummary,
+            });
+          } else {
+            await notifyYield(activityDb, {
+              userId: payload.userId,
+              reason: 'needs_input',
+              operationId: payload.operationId,
+              threadId,
+              approvalId: yieldPayload.approvalId,
+              promptToUser: yieldPayload.promptToUser,
+            });
+          }
         } catch (notifyErr) {
           logger.warn('Failed to dispatch yield notification', {
             operationId: payload.operationId,
@@ -428,9 +509,34 @@ export class AgentWorker {
       }
 
       const message = err instanceof Error ? err.message : 'Agent pipeline error';
+      const errorCode = getAgentEngineErrorCode(err) ?? 'AGENT_PIPELINE_FAILED';
+      const failedAgentId = isAgentIdentifier(payload.agent)
+        ? payload.agent
+        : isAgentIdentifier((payload.context as Record<string, unknown> | undefined)?.['agentId'])
+          ? ((payload.context as Record<string, unknown>)['agentId'] as AgentIdentifier)
+          : undefined;
+
+      await job.updateProgress({
+        status: 'failed',
+        message,
+        agentId: failedAgentId,
+        outcomeCode: 'task_failed',
+        metadata: { errorCode },
+        percent: Math.min(100, Math.round((stepIndex / Math.max(totalSteps, 1)) * 100)),
+        currentStep: stepIndex,
+        totalSteps,
+        updatedAt: new Date().toISOString(),
+      });
 
       // Write terminal 'done' event with error so frontend's Firestore listener knows to stop
-      eventWriter.emit({ type: 'done', success: false, error: message });
+      eventWriter.emit({
+        type: 'done',
+        success: false,
+        error: message,
+        outcomeCode: 'task_failed',
+        metadata: { errorCode },
+        agentId: failedAgentId ?? 'router',
+      });
       await eventWriter.dispose();
 
       // Write failure to Firestore before re-throwing so BullMQ records the error
@@ -459,7 +565,7 @@ export class AgentWorker {
       // Track job failure in user's analytics record (fire-and-forget)
       getAgentAnalyticsGate().trackJobFailed({
         userId: payload.userId,
-        agentId: typeof payload.agent === 'string' ? payload.agent : 'unknown',
+        agentId: failedAgentId ?? 'router',
         operationId: payload.operationId,
         error: message,
         durationMs: Date.now() - startMs,
@@ -496,6 +602,21 @@ export class AgentWorker {
           : planFailed
             ? 'Execution plan failed.'
             : 'All tasks finished.';
+    const firstFailedAssignedAgent = (
+      resultData?.['firstFailedTask'] as { assignedAgent?: unknown } | undefined
+    )?.assignedAgent;
+    const finalAgentId =
+      maxIterationsReached || planFailed
+        ? isAgentIdentifier(firstFailedAssignedAgent)
+          ? firstFailedAssignedAgent
+          : isAgentIdentifier(payload.agent)
+            ? payload.agent
+            : 'router'
+        : isAgentIdentifier(payload.agent)
+          ? payload.agent
+          : 'router';
+    const terminalOutcomeCode =
+      maxIterationsReached || planFailed ? 'task_failed' : 'success_default';
 
     // ── Flush remaining deltas and write terminal 'done' event ──────────
     await eventWriter.flush().catch(() => undefined);
@@ -503,12 +624,16 @@ export class AgentWorker {
       type: 'done',
       success: !maxIterationsReached && !planFailed,
       message: terminalMessage,
+      outcomeCode: terminalOutcomeCode,
+      agentId: finalAgentId,
     });
     await eventWriter.dispose();
 
     const terminalProgress: AgentJobProgress = {
       status: maxIterationsReached || planFailed ? 'failed' : 'completed',
       message: maxIterationsReached || planFailed ? terminalMessage : 'All tasks finished.',
+      agentId: finalAgentId,
+      outcomeCode: terminalOutcomeCode,
       percent: 100,
       currentStep: totalSteps,
       totalSteps,
@@ -591,10 +716,12 @@ export class AgentWorker {
       db: billingDb,
       userId: payload.userId,
       operationId: payload.operationId,
-      feature: UsageFeature.ACTIVITY_USAGE,
+      coordinatorId: payload.agent,
+      agentTools: invokedTools,
+      successfulTools,
       environment: job.data.environment,
       iapHoldId: iapHoldId ?? undefined,
-      metadata: { agent: payload.agent },
+      metadata: { agent: payload.agent, agentTools: invokedTools, successfulTools },
     });
 
     // Dispatch activity feed item + push notification (fire-and-forget)
@@ -636,6 +763,7 @@ export class AgentWorker {
     });
     if (threadId && this.chatService) {
       try {
+        const persistedStreamSnapshot = persistedAssistantStream.snapshot();
         // Extract agentId with runtime type check
         const rawAgent =
           typeof result.data === 'object' && result.data !== null
@@ -659,11 +787,18 @@ export class AgentWorker {
           threadId,
           userId: payload.userId,
           role: 'assistant',
-          content: summary,
+          content:
+            persistedStreamSnapshot.content.length > 0 ? persistedStreamSnapshot.content : summary,
           origin: payload.origin,
           agentId,
           operationId: payload.operationId,
           toolCalls,
+          ...(persistedStreamSnapshot.steps.length > 0
+            ? { steps: persistedStreamSnapshot.steps }
+            : {}),
+          ...(persistedStreamSnapshot.parts.length > 0
+            ? { parts: persistedStreamSnapshot.parts }
+            : {}),
           resultData:
             typeof result.data === 'object' && result.data !== null
               ? (result.data as Record<string, unknown>)
@@ -748,17 +883,35 @@ export class AgentWorker {
       case 'step_active':
         return {
           event: 'step',
-          data: { id: event.agentId ?? 'unknown', label: event.message ?? '', status: 'active' },
+          data: {
+            id: event.agentId ?? 'unknown',
+            label: event.message ?? '',
+            agentId: event.agentId,
+            status: 'active',
+            icon: event.icon,
+          },
         };
       case 'step_done':
         return {
           event: 'step',
-          data: { id: event.agentId ?? 'unknown', label: event.message ?? '', status: 'success' },
+          data: {
+            id: event.agentId ?? 'unknown',
+            label: event.message ?? '',
+            agentId: event.agentId,
+            status: 'success',
+            icon: event.icon,
+          },
         };
       case 'step_error':
         return {
           event: 'step',
-          data: { id: event.agentId ?? 'unknown', label: event.message ?? '', status: 'error' },
+          data: {
+            id: event.agentId ?? 'unknown',
+            label: event.message ?? '',
+            agentId: event.agentId,
+            status: 'error',
+            icon: event.icon,
+          },
         };
       case 'tool_call':
         return {
@@ -766,7 +919,9 @@ export class AgentWorker {
           data: {
             id: event.toolName ?? 'tool',
             label: event.message ?? event.toolName ?? 'Running tool',
+            agentId: event.agentId,
             status: 'active',
+            icon: event.icon,
           },
         };
       case 'tool_result':
@@ -775,7 +930,9 @@ export class AgentWorker {
           data: {
             id: event.toolName ?? 'tool',
             label: event.message ?? event.toolName ?? 'Tool complete',
+            agentId: event.agentId,
             status: event.toolSuccess ? 'success' : 'error',
+            icon: event.icon,
           },
         };
       case 'done':

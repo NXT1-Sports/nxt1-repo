@@ -232,8 +232,6 @@ export const handlers = [
       role: 'athlete',
       onboardingCompleted: true,
       completeSignUp: true,
-      isCollegeCoach: false,
-      isRecruit: true,
       profileImg: MOCK_USER.profileImg ?? null,
       sports: [{ sport: 'Football', positions: ['Quarterback'], order: 0 }],
     });

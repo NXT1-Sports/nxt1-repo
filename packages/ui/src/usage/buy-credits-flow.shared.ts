@@ -13,6 +13,7 @@ export interface AutoTopupSettings {
 /** Union result type emitted by buy-credits surfaces. */
 export type BuyCreditsAutoTopupResult =
   | { readonly type: 'buy'; readonly amountCents: number }
+  | { readonly type: 'buy-iap' }
   | ({ readonly type: 'auto-topup' } & AutoTopupSettings)
   | null;
 

@@ -2,15 +2,23 @@ import type { Firestore } from 'firebase-admin/firestore';
 import { getFirestore } from 'firebase-admin/firestore';
 import type { TeamCode } from '@nxt1/core';
 import { BaseTool, type ToolExecutionContext, type ToolResult } from '../base.tool.js';
-import { getAllTeams } from '../../../../services/team-code.service.js';
+import { getAllTeams } from '../../../../services/team/team-code.service.js';
 import { stagingDb } from '../../../../utils/firebase-staging.js';
 import { logger } from '../../../../utils/logger.js';
+import { z } from 'zod';
 
 const DEFAULT_LIMIT = 10;
 const MAX_LIMIT = 25;
 const USER_SCAN_BATCH_SIZE = 200;
 
-type SearchEntityType = 'teams' | 'users' | 'all';
+const SearchNxt1PlatformInputSchema = z.object({
+  entityType: z.enum(['teams', 'users', 'all']),
+  query: z.string().trim().min(1).optional(),
+  sport: z.string().trim().min(1).optional(),
+  state: z.string().trim().min(1).optional(),
+  role: z.string().trim().min(1).optional(),
+  limit: z.coerce.number().int().optional(),
+});
 
 interface SearchPlatformResultItem {
   readonly id: string;
@@ -46,42 +54,10 @@ export class SearchNxt1PlatformTool extends BaseTool {
     'If entityType is "teams" and query is omitted, this tool returns a browseable list of active teams. ' +
     'For platform count questions, use the returned totalCount field instead of inferring from the visible items array.';
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      entityType: {
-        type: 'string',
-        enum: ['teams', 'users', 'all'],
-        description: 'What to search across the NXT1 platform.',
-      },
-      query: {
-        type: 'string',
-        description:
-          'Optional free-text search. Use for person or team names. Not required when browsing or counting users by sport, role, or state.',
-      },
-      sport: {
-        type: 'string',
-        description: 'Optional sport filter, for example Football or Basketball.',
-      },
-      state: {
-        type: 'string',
-        description: 'Optional state filter, for example TX or Texas.',
-      },
-      role: {
-        type: 'string',
-        description:
-          'Optional user-role filter for user searches, for example athlete, coach, or parent.',
-      },
-      limit: {
-        type: 'number',
-        description: `Optional max rows to return. Hard-capped at ${MAX_LIMIT}.`,
-      },
-    },
-    required: ['entityType'],
-  } as const;
+  readonly parameters = SearchNxt1PlatformInputSchema;
 
   override readonly allowedAgents = [
-    'general',
+    'strategy_coordinator',
     'data_coordinator',
     'performance_coordinator',
     'recruiting_coordinator',
@@ -98,19 +74,20 @@ export class SearchNxt1PlatformTool extends BaseTool {
     input: Record<string, unknown>,
     context?: ToolExecutionContext
   ): Promise<ToolResult> {
-    const entityType = this.parseEntityType(input['entityType']);
-    if (!entityType) {
+    const parsed = SearchNxt1PlatformInputSchema.safeParse(input);
+    if (!parsed.success) {
       return {
         success: false,
-        error: 'Parameter "entityType" must be one of: teams, users, all.',
+        error: parsed.error.issues.map((issue) => issue.message).join(', '),
       };
     }
 
-    const query = this.str(input, 'query');
-    const sport = this.str(input, 'sport');
-    const state = this.normalizeState(this.str(input, 'state'));
-    const role = this.str(input, 'role')?.toLowerCase();
-    const limit = Math.min(Math.max(this.num(input, 'limit') ?? DEFAULT_LIMIT, 1), MAX_LIMIT);
+    const entityType = parsed.data.entityType;
+    const query = parsed.data.query ?? null;
+    const sport = parsed.data.sport ?? null;
+    const state = this.normalizeState(parsed.data.state ?? null);
+    const role = parsed.data.role?.toLowerCase();
+    const limit = Math.min(Math.max(parsed.data.limit ?? DEFAULT_LIMIT, 1), MAX_LIMIT);
 
     if (
       (entityType === 'users' || entityType === 'all') &&
@@ -125,7 +102,10 @@ export class SearchNxt1PlatformTool extends BaseTool {
     }
 
     try {
-      context?.onProgress?.('Searching NXT1 teams and profiles…');
+      context?.emitStage?.('fetching_data', {
+        icon: 'database',
+        phase: 'search_platform',
+      });
       const db = this.resolveDb(context);
 
       const teamPromise =
@@ -178,10 +158,6 @@ export class SearchNxt1PlatformTool extends BaseTool {
     }
 
     return this.firestoreMap.production ?? getFirestore();
-  }
-
-  private parseEntityType(value: unknown): SearchEntityType | null {
-    return value === 'teams' || value === 'users' || value === 'all' ? value : null;
   }
 
   private async searchTeams(
