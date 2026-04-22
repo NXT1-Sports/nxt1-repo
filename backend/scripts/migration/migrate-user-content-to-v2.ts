@@ -349,20 +349,46 @@ async function migrateUserPosts(
 
     const v3Post: Record<string, unknown> = {
       id: postId,
+      // ── Author / User Info ───────────────────────────────────────────────
       authorId: uid,
+      userId: uid,
       authorName:
-        cleanString(p['authorName']) ||
+        cleanString(p['authorName'] ?? p['userName']) ||
         [cleanString(d['firstName']), cleanString(d['lastName'])].filter(Boolean).join(' '),
+      userName:
+        cleanString(p['userName'] ?? p['authorName']) ||
+        [cleanString(d['firstName']), cleanString(d['lastName'])].filter(Boolean).join(' '),
+      firstName: cleanString(p['firstName']) || cleanString(d['firstName'] as string) || undefined,
+      lastName: cleanString(p['lastName']) || cleanString(d['lastName'] as string) || undefined,
+      userUnicode:
+        cleanString(p['userUnicode']) || cleanString(d['userUnicode'] as string) || undefined,
       authorProfileImg:
         rewriteStorageUrlWithPath(
           cleanString(p['authorProfileImg']) || cleanString(d['profileImg']) || undefined,
           TARGET_BUCKET,
           { uid }
         ) || undefined,
-      content: cleanString(p['content'] ?? p['text'] ?? p['body']) || '',
+      profileImg:
+        rewriteStorageUrlWithPath(
+          cleanString(p['profileImg']) || cleanString(d['profileImg']) || undefined,
+          TARGET_BUCKET,
+          { uid }
+        ) || undefined,
+      // ── Content ──────────────────────────────────────────────────────────
+      title: cleanString(p['title']) || undefined,
+      content: cleanString(p['description'] ?? p['content'] ?? p['text'] ?? p['body']) || '',
       type: cleanString(p['type']) || 'text',
+      tags: Array.isArray(p['tags']) ? p['tags'] : [],
+      attachedProfileData: Array.isArray(p['attachedProfileData'])
+        ? p['attachedProfileData']
+        : undefined,
+      // ── Media ─────────────────────────────────────────────────────────────
+      // Legacy uses `mediaUrl` (singular, HLS m3u8) — merge with `mediaUrls` array if present.
       mediaUrls: rewriteStorageUrlsWithPath(
-        Array.isArray(p['mediaUrls']) ? (p['mediaUrls'] as string[]) : [],
+        [
+          ...(Array.isArray(p['mediaUrls']) ? (p['mediaUrls'] as string[]) : []),
+          ...(cleanString(p['mediaUrl']) ? [cleanString(p['mediaUrl']) as string] : []),
+        ],
         TARGET_BUCKET,
         { uid }
       ),
@@ -370,15 +396,48 @@ async function migrateUserPosts(
         rewriteStorageUrlWithPath(cleanString(p['thumbnailUrl']) || undefined, TARGET_BUCKET, {
           uid,
         }) || undefined,
+      // ── Sport ─────────────────────────────────────────────────────────────
       sport:
         cleanString(p['sport'])?.toLowerCase() ||
         cleanString(d['primarySport'])?.toLowerCase() ||
         undefined,
+      primarySport:
+        cleanString(p['primarySport'])?.toLowerCase() ||
+        cleanString(d['primarySport'])?.toLowerCase() ||
+        undefined,
+      secondarySport:
+        cleanString(p['secondarySport']) || cleanString(d['secondarySport'] as string) || undefined,
+      // ── Engagement ────────────────────────────────────────────────────────
       likes: typeof p['likes'] === 'number' ? p['likes'] : 0,
       comments: typeof p['comments'] === 'number' ? p['comments'] : 0,
       shares: typeof p['shares'] === 'number' ? p['shares'] : 0,
-      visibility: cleanString(p['visibility']) || 'public',
-      pinned: p['pinned'] === true,
+      reposts: typeof p['reposts'] === 'number' ? p['reposts'] : 0,
+      views: typeof p['views'] === 'number' ? p['views'] : undefined,
+      videoViews: typeof p['videoViews'] === 'number' ? p['videoViews'] : undefined,
+      // ── Visibility / State ────────────────────────────────────────────────
+      visibility: p['isPublic'] === false ? 'private' : cleanString(p['visibility']) || 'public',
+      isPublic: p['isPublic'] !== false,
+      isVisible: p['isVisible'] !== false,
+      pinned: p['isPinned'] === true || p['pinned'] === true,
+      status: cleanString(p['status']) || undefined,
+      // ── Repost ────────────────────────────────────────────────────────────
+      isRepost: p['isRepost'] === true,
+      originalPostId: cleanString(p['originalPostId']) || undefined,
+      repostedAt: toISOString(p['repostedAt']) || undefined,
+      reposterId: cleanString(p['reposterId']) || undefined,
+      reposterName: cleanString(p['reposterName']) || undefined,
+      reposterProfileImg:
+        rewriteStorageUrlWithPath(
+          cleanString(p['reposterProfileImg']) || undefined,
+          TARGET_BUCKET,
+          {}
+        ) || undefined,
+      reposterUsername: cleanString(p['reposterUsername']) || undefined,
+      // ── Content Review ────────────────────────────────────────────────────
+      contentReviewStatus: cleanString(p['contentReviewStatus']) || undefined,
+      contentReviewStartedAt: toISOString(p['contentReviewStartedAt']) || undefined,
+      contentReviewCompletedAt: toISOString(p['contentReviewCompletedAt']) || undefined,
+      // ── Timestamps ────────────────────────────────────────────────────────
       createdAt: toISOString(p['createdAt']) || now,
       updatedAt: toISOString(p['updatedAt']) || now,
       ...migrationMeta(uid, `${COLLECTIONS.LEGACY_USERS}/${uid}/Posts`),

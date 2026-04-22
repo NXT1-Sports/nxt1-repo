@@ -566,14 +566,19 @@ export function rewriteStorageUrlWithPath(
   }
 
   // ── GCS URL format ────────────────────────────────────────────────────────
-  // https://storage.googleapis.com/<bucket>/<path>
-  const gcsRe = /^(https:\/\/storage\.googleapis\.com\/)([^/]+)\/(.+)$/;
+  // https://storage.googleapis.com/<bucket>/<path>[?query]
+  // Note: separate path from query to avoid passing signed params into mapStoragePath.
+  const gcsRe = /^(https:\/\/storage\.googleapis\.com\/)([^/]+)\/([^?#]+)((?:\?[^#]*)?)$/;
   const gm = url.match(gcsRe);
   if (gm) {
-    const [, prefix, bucket, path] = gm;
+    const [, prefix, bucket, path, query] = gm;
     if (bucket !== LEGACY_STORAGE_BUCKET) return url;
+    // Signed GCS URLs carry a Signature computed over the legacy bucket path.
+    // Changing the bucket name alone invalidates that signature (StringToSign mismatch).
+    // Keep the original URL so the legacy-signed URL remains accessible.
+    if (query.includes('GoogleAccessId') && query.includes('Signature')) return url;
     const newPath = mapStoragePath(path, ctx);
-    return `${prefix}${targetBucket}/${newPath}`;
+    return `${prefix}${targetBucket}/${newPath}${query}`;
   }
 
   return url;
