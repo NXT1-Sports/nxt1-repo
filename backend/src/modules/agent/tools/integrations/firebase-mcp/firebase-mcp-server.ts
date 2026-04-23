@@ -14,6 +14,7 @@ import {
   verifySignedScopeEnvelope,
 } from './shared.js';
 import { executeFirebaseViewQuery, listFirebaseViewMetadata } from './views.js';
+import { AgentEngineError } from '../../../exceptions/agent-engine.error.js';
 
 const MCP_SERVER_NAME = 'firebase-readonly';
 const MCP_SERVER_VERSION = '1.0.0';
@@ -23,7 +24,10 @@ const FIREBASE_TARGET_ENV = 'FIREBASE_MCP_TARGET_APP';
 function getScopeSecret(): string {
   const secret = process.env[SCOPE_SECRET_ENV];
   if (!secret) {
-    throw new Error(`${SCOPE_SECRET_ENV} must be set for the Firebase MCP server`);
+    throw new AgentEngineError(
+      'FIREBASE_MCP_CONFIG_INVALID',
+      `${SCOPE_SECRET_ENV} must be set for the Firebase MCP server`
+    );
   }
   return secret;
 }
@@ -41,7 +45,10 @@ function resolveFirestoreTarget(): Firestore {
     return db;
   }
 
-  throw new Error(`Unsupported ${FIREBASE_TARGET_ENV} value: ${target}`);
+  throw new AgentEngineError(
+    'FIREBASE_MCP_CONFIG_INVALID',
+    `Unsupported ${FIREBASE_TARGET_ENV} value: ${target}`
+  );
 }
 
 function serializeResult(data: unknown) {

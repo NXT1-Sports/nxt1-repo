@@ -20,6 +20,7 @@ import type {
   FirecrawlMcpBridgeService,
   FirecrawlScrapeOptions,
 } from './firecrawl-mcp-bridge.service.js';
+import { z } from 'zod';
 import { logger } from '../../../../../utils/logger.js';
 
 /** Maximum characters of output to include in the LLM response. */
@@ -47,51 +48,18 @@ export class FirecrawlScrapeTool extends BaseTool {
     'For discovering URLs on a site first, use map_website instead. ' +
     'For searching the web without a specific URL, use search_web instead.';
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      url: {
-        type: 'string',
-        description:
-          'The full URL to scrape (e.g. "https://floridagators.com/sports/football/roster").',
-      },
-      format: {
-        type: 'string',
-        enum: ['markdown', 'json', 'branding'],
-        description:
-          '"markdown" (default) returns full page text. ' +
-          '"json" extracts structured data — pair with jsonPrompt for best results. ' +
-          '"branding" extracts brand identity (colors, fonts, logos).',
-      },
-      jsonPrompt: {
-        type: 'string',
-        description:
-          'When format is "json", describe what data to extract. ' +
-          'Example: "Extract all player names, positions, and jersey numbers from this roster page."',
-      },
-      onlyMainContent: {
-        type: 'boolean',
-        description: 'Strip navigation, footers, ads — keep only main content. Defaults to true.',
-      },
-      mobile: {
-        type: 'boolean',
-        description: 'Render the page as a mobile device. Defaults to false.',
-      },
-    },
-    required: ['url'],
-  } as const;
-
-  override readonly allowedAgents = [
-    'recruiting_coordinator',
-    'admin_coordinator',
-    'data_coordinator',
-    'brand_coordinator',
-    'strategy_coordinator',
-  ] as const;
+  readonly parameters = z.object({
+    url: z.string().trim().min(1),
+    format: z.enum(['markdown', 'json', 'branding']).optional(),
+    jsonPrompt: z.string().trim().min(1).optional(),
+    onlyMainContent: z.boolean().optional(),
+    mobile: z.boolean().optional(),
+  });
 
   readonly isMutation = false;
   readonly category = 'analytics' as const;
 
+  readonly entityGroup = 'platform_tools' as const;
   private readonly bridge: FirecrawlMcpBridgeService;
 
   constructor(bridge: FirecrawlMcpBridgeService) {

@@ -106,11 +106,28 @@ export function createTeamProfileApi(http: HttpAdapter, baseUrl: string) {
     },
 
     /**
-     * Get team profile by ID.
-     * Calls: GET /api/v1/teams/:id
+     * Get team profile by short team code (e.g. "57L791").
+     * This is the canonical method when routing via /team/:slug/:teamCode.
+     * Calls: GET /api/v1/teams/by-teamcode/:teamCode
+     */
+    async getTeamByTeamCode(
+      teamCode: string
+    ): Promise<TeamProfileApiResponse<TeamProfilePageData>> {
+      return http.get<TeamProfileApiResponse<TeamProfilePageData>>(
+        `${endpoint}/by-teamcode/${encodeURIComponent(teamCode)}`
+      );
+    },
+
+    /**
+     * Get team profile by Firestore document ID.
+     * Use only when you have an explicit Firestore doc ID, NOT a short team code.
+     * For team codes (e.g. "57L791") use getTeamByTeamCode() instead.
+     * Calls: GET /api/v1/teams/by-id/:id
      */
     async getTeamById(teamId: string): Promise<TeamProfileApiResponse<TeamProfilePageData>> {
-      return http.get<TeamProfileApiResponse<TeamProfilePageData>>(`${endpoint}/${teamId}`);
+      return http.get<TeamProfileApiResponse<TeamProfilePageData>>(
+        `${endpoint}/by-id/${encodeURIComponent(teamId)}`
+      );
     },
 
     /**

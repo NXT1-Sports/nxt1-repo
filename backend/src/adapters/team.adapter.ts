@@ -110,6 +110,8 @@ export class TeamServiceAdapter {
       lastName: string;
       email: string;
       phoneNumber?: string;
+      unicode?: string;
+      profileCode?: string;
     };
   }): Promise<RosterEntry> {
     logger.info('[TeamAdapter] User joining team', {
@@ -148,6 +150,8 @@ export class TeamServiceAdapter {
       status: RosterEntryStatus.PENDING,
       firstName: params.userProfile.firstName,
       lastName: params.userProfile.lastName,
+      unicode: params.userProfile.unicode ?? params.userId,
+      profileCode: params.userProfile.profileCode ?? params.userProfile.unicode ?? params.userId,
       email: params.userProfile.email,
       phoneNumber: params.userProfile.phoneNumber,
     });

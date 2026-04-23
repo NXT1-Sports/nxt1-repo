@@ -23,6 +23,7 @@
 import type { AgentIdentifier, AgentToolCategory } from '@nxt1/core';
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
 import { AgentDelegationException } from '../../exceptions/agent-delegation.exception.js';
+import { z } from 'zod';
 
 export class DelegateTaskTool extends BaseTool {
   readonly name = 'delegate_task';
@@ -33,22 +34,14 @@ export class DelegateTaskTool extends BaseTool {
     'you are not equipped to handle (e.g., a media agent asked to send emails). ' +
     "Provide the user's exact request so the correct specialist can take over.";
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      forwarding_intent: {
-        type: 'string',
-        description:
-          "The user's original request that should be forwarded to the correct specialist. " +
-          "Copy the user's words as closely as possible — do not summarize or interpret.",
-      },
-    },
-    required: ['forwarding_intent'],
-    additionalProperties: false,
-  };
+  readonly parameters = z.object({
+    forwarding_intent: z.string().trim().min(1),
+  });
 
   readonly isMutation = false;
   readonly category: AgentToolCategory = 'system';
+
+  readonly entityGroup = 'system_tools' as const;
 
   /** Available to every sub-agent — this is the universal escape hatch. */
   override readonly allowedAgents: readonly (AgentIdentifier | '*')[] = ['*'];

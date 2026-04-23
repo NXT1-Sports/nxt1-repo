@@ -16,6 +16,7 @@ export class ListGoogleWorkspaceToolsTool extends BaseTool {
   readonly isMutation = false;
   readonly category = 'system' as const;
 
+  readonly entityGroup = 'system_tools' as const;
   constructor(private readonly sessionService: GoogleWorkspaceMcpSessionService) {
     super();
   }

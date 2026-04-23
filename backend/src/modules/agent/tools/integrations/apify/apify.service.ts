@@ -42,6 +42,7 @@
 
 import { ApifyClient } from 'apify-client';
 import { logger } from '../../../../../utils/logger.js';
+import { AgentEngineError } from '../../../exceptions/agent-engine.error.js';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -261,7 +262,8 @@ export class ApifyService {
   constructor(token?: string) {
     const resolved = token?.trim() || process.env['APIFY_API_TOKEN']?.trim();
     if (!resolved) {
-      throw new Error(
+      throw new AgentEngineError(
+        'APIFY_CONFIG_MISSING_API_TOKEN',
         'APIFY_API_TOKEN is not configured. ' +
           'Set it in your .env file (https://console.apify.com → Settings → API Tokens).'
       );

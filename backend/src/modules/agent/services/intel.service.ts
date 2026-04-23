@@ -22,6 +22,7 @@ import { getPlatformFaviconUrl } from '@nxt1/core/platforms';
 import { VectorMemoryService } from '../memory/vector.service.js';
 import { OpenRouterService } from '../llm/openrouter.service.js';
 import { resolveStructuredOutput } from '../llm/structured-output.js';
+import { AgentEngineError } from '../exceptions/agent-engine.error.js';
 import { z } from 'zod';
 
 // ─── Section Order Constants ─────────────────────────────────────────────────
@@ -566,7 +567,11 @@ export class IntelGenerationService {
   ): Promise<Record<string, unknown>> {
     const db = this.resolveDb(dbOverride);
     const userDoc = await db.collection('Users').doc(userId).get();
-    if (!userDoc.exists) throw new Error('User not found');
+    if (!userDoc.exists) {
+      throw new AgentEngineError('INTEL_USER_NOT_FOUND', 'User not found', {
+        metadata: { userId },
+      });
+    }
 
     const userData = userDoc.data() ?? {};
 
@@ -578,7 +583,14 @@ export class IntelGenerationService {
       draft = await this.generateAthleteIntelDraft(userId, userData, raw, db);
     } catch (err) {
       logger.error('[IntelGenerationService] LLM call failed for athlete', { userId, err });
-      throw new Error('Intel generation failed — please try again', { cause: err });
+      throw new AgentEngineError(
+        'INTEL_GENERATION_FAILED',
+        'Intel generation failed — please try again',
+        {
+          cause: err,
+          metadata: { userId, entityType: 'athlete' },
+        }
+      );
     }
 
     // ── Normalize after structured generation ──
@@ -622,7 +634,11 @@ export class IntelGenerationService {
   ): Promise<Record<string, unknown>> {
     const db = this.resolveDb(dbOverride);
     const teamDoc = await db.collection('Teams').doc(teamId).get();
-    if (!teamDoc.exists) throw new Error('Team not found');
+    if (!teamDoc.exists) {
+      throw new AgentEngineError('INTEL_TEAM_NOT_FOUND', 'Team not found', {
+        metadata: { teamId },
+      });
+    }
 
     const teamData = teamDoc.data() ?? {};
 
@@ -634,7 +650,14 @@ export class IntelGenerationService {
       draft = await this.generateTeamIntelDraft(teamId, teamData, raw, db);
     } catch (err) {
       logger.error('[IntelGenerationService] LLM call failed for team', { teamId, err });
-      throw new Error('Intel generation failed — please try again', { cause: err });
+      throw new AgentEngineError(
+        'INTEL_GENERATION_FAILED',
+        'Intel generation failed — please try again',
+        {
+          cause: err,
+          metadata: { teamId, entityType: 'team' },
+        }
+      );
     }
 
     const report = this.normalizeTeamReport(
@@ -1615,8 +1638,10 @@ Output this EXACT JSON structure with all 5 sections:
       .get();
 
     if (snap.empty) {
-      throw new Error(
-        'No existing Intel report found. Use /generate to create the full report first.'
+      throw new AgentEngineError(
+        'INTEL_REPORT_NOT_FOUND',
+        'No existing Intel report found. Use /generate to create the full report first.',
+        { metadata: { userId, entityType: 'athlete' } }
       );
     }
 
@@ -1626,7 +1651,11 @@ Output this EXACT JSON structure with all 5 sections:
 
     // ── Load user doc ──
     const userDoc = await db.collection('Users').doc(userId).get();
-    if (!userDoc.exists) throw new Error('User not found');
+    if (!userDoc.exists) {
+      throw new AgentEngineError('INTEL_USER_NOT_FOUND', 'User not found', {
+        metadata: { userId },
+      });
+    }
     const userData = userDoc.data() ?? {};
 
     let draft: AthleteIntelSectionDraft;
@@ -1638,7 +1667,11 @@ Output this EXACT JSON structure with all 5 sections:
         sectionId,
         err,
       });
-      throw new Error(`Section update failed for ${sectionId} — please try again`, { cause: err });
+      throw new AgentEngineError(
+        'INTEL_SECTION_UPDATE_FAILED',
+        `Section update failed for ${sectionId} — please try again`,
+        { cause: err, metadata: { userId, sectionId, entityType: 'athlete' } }
+      );
     }
 
     // ── Normalize the single updated section ──
@@ -1692,8 +1725,10 @@ Output this EXACT JSON structure with all 5 sections:
       .get();
 
     if (snap.empty) {
-      throw new Error(
-        'No existing team Intel report found. Use /generate to create the full report first.'
+      throw new AgentEngineError(
+        'INTEL_REPORT_NOT_FOUND',
+        'No existing team Intel report found. Use /generate to create the full report first.',
+        { metadata: { teamId, entityType: 'team' } }
       );
     }
 
@@ -1703,7 +1738,11 @@ Output this EXACT JSON structure with all 5 sections:
 
     // ── Load team doc ──
     const teamDoc = await db.collection('Teams').doc(teamId).get();
-    if (!teamDoc.exists) throw new Error('Team not found');
+    if (!teamDoc.exists) {
+      throw new AgentEngineError('INTEL_TEAM_NOT_FOUND', 'Team not found', {
+        metadata: { teamId },
+      });
+    }
     const teamData = teamDoc.data() ?? {};
 
     let draft: TeamIntelSectionDraft;
@@ -1715,7 +1754,11 @@ Output this EXACT JSON structure with all 5 sections:
         sectionId,
         err,
       });
-      throw new Error(`Section update failed for ${sectionId} — please try again`, { cause: err });
+      throw new AgentEngineError(
+        'INTEL_SECTION_UPDATE_FAILED',
+        `Section update failed for ${sectionId} — please try again`,
+        { cause: err, metadata: { teamId, sectionId, entityType: 'team' } }
+      );
     }
 
     // ── Normalize the single updated section ──

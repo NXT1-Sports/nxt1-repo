@@ -8,6 +8,7 @@ import {
   filterGoogleWorkspaceToolDefinitions,
   isGoogleWorkspaceAllowedToolName,
 } from './shared.js';
+import { AgentEngineError } from '../../../exceptions/agent-engine.error.js';
 
 const GOOGLE_WORKSPACE_TOOL_TIMEOUT_MS = 90_000;
 const GOOGLE_WORKSPACE_SESSION_IDLE_TTL_MS = 2 * 60 * 1_000;
@@ -42,13 +43,17 @@ export class GoogleWorkspaceMcpSessionService {
       (process.env['NODE_ENV'] === 'production' ? '' : GOOGLE_WORKSPACE_MCP_DEFAULT_URL)
   ) {
     if (!endpointUrl) {
-      throw new Error(
+      throw new AgentEngineError(
+        'GOOGLE_WORKSPACE_CONFIG_INVALID',
         'GOOGLE_WORKSPACE_MCP_URL is required in production before Google Workspace MCP tools can be enabled.'
       );
     }
     const normalized = normalizeGoogleWorkspaceMcpUrl(endpointUrl);
     if (!normalized.startsWith('http://') && !normalized.startsWith('https://')) {
-      throw new Error('GOOGLE_WORKSPACE_MCP_URL must be an absolute http(s) URL.');
+      throw new AgentEngineError(
+        'GOOGLE_WORKSPACE_CONFIG_INVALID',
+        'GOOGLE_WORKSPACE_MCP_URL must be an absolute http(s) URL.'
+      );
     }
     this.endpointUrl = normalized;
   }
@@ -85,7 +90,13 @@ export class GoogleWorkspaceMcpSessionService {
     context: ToolExecutionContext
   ): Promise<unknown> {
     if (!isGoogleWorkspaceAllowedToolName(toolName)) {
-      throw new Error(`Google Workspace tool "${toolName}" is not allowed in Agent X.`);
+      throw new AgentEngineError(
+        'AGENT_TOOL_NOT_ALLOWED',
+        `Google Workspace tool "${toolName}" is not allowed in Agent X.`,
+        {
+          metadata: { toolName },
+        }
+      );
     }
 
     const session = await this.getSession(context);
@@ -97,7 +108,13 @@ export class GoogleWorkspaceMcpSessionService {
       });
       session.lastUsedAtMs = Date.now();
       if (result.isError) {
-        throw new Error(extractGoogleWorkspaceErrorMessage(result));
+        throw new AgentEngineError(
+          'GOOGLE_WORKSPACE_REQUEST_FAILED',
+          extractGoogleWorkspaceErrorMessage(result),
+          {
+            metadata: { toolName },
+          }
+        );
       }
       return extractGoogleWorkspacePayload(result);
     } catch (error) {
@@ -117,7 +134,14 @@ export class GoogleWorkspaceMcpSessionService {
           });
           retrySession.lastUsedAtMs = Date.now();
           if (retryResult.isError) {
-            throw new Error(extractGoogleWorkspaceErrorMessage(retryResult), { cause: error });
+            throw new AgentEngineError(
+              'GOOGLE_WORKSPACE_REQUEST_FAILED',
+              extractGoogleWorkspaceErrorMessage(retryResult),
+              {
+                cause: error,
+                metadata: { toolName, retried: true },
+              }
+            );
           }
           return extractGoogleWorkspacePayload(retryResult);
         } finally {

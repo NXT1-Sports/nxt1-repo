@@ -31,6 +31,7 @@ export class GenerateThumbnailTool extends BaseTool {
   readonly isMutation = false;
   readonly category = 'media' as const;
 
+  readonly entityGroup = 'user_tools' as const;
   private readonly bridge: CloudflareMcpBridgeService;
 
   constructor(bridge: CloudflareMcpBridgeService) {

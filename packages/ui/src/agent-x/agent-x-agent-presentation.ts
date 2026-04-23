@@ -372,10 +372,8 @@ export function getToolStepsSummaryLabel(steps: readonly AgentXToolStep[]): stri
   return outcomeLabel ?? 'Completed';
 }
 
-export function buildAgentCardThemeStyle(
-  card: AgentXRichCard | { readonly agentId?: AgentIdentifier }
-): string {
-  const theme = AGENT_THEMES[card.agentId ?? 'router'];
+export function buildAgentCardThemeStyle(card: Pick<AgentXRichCard, 'agentId'>): string {
+  const theme = AGENT_THEMES[card.agentId];
   return [
     `--nxt1-color-primary: ${theme.accent}`,
     `--nxt1-color-primary-hover: ${theme.accent}`,

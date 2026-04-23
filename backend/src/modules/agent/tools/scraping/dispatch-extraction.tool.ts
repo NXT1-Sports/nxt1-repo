@@ -15,6 +15,7 @@
 
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
 import type { OpenRouterService } from '../../llm/openrouter.service.js';
+import { z } from 'zod';
 import {
   AthleteSpecialist,
   OrgSpecialist,
@@ -61,35 +62,16 @@ organization (school/club info, branding, location), and media (videos, social p
 Uses fault-tolerant Promise.allSettled — partial results are returned if one specialist fails.
 Role-aware: Coaches/Directors receive only org and media data, never athlete stats.`;
 
-  readonly parameters = {
-    type: 'object' as const,
-    properties: {
-      content: {
-        type: 'string',
-        description:
-          'The distilled Markdown content from a scraped profile page. This is the full text output from scrape_and_index_profile or scrape_webpage.',
-      },
-      userRole: {
-        type: 'string',
-        description: 'The role of the user being onboarded: "athlete", "coach", or "director".',
-        enum: ['athlete', 'coach', 'director'],
-      },
-      sport: {
-        type: 'string',
-        description:
-          'The primary sport of the user (optional, improves extraction accuracy for athletes).',
-      },
-      sourceUrl: {
-        type: 'string',
-        description: 'The URL that was scraped (for logging and data lineage).',
-      },
-    },
-    required: ['content', 'userRole'],
-    additionalProperties: false,
-  };
+  readonly parameters = z.object({
+    content: z.string().min(1),
+    userRole: z.enum(['athlete', 'coach', 'director']),
+    sport: z.string().trim().min(1).optional(),
+    sourceUrl: z.string().trim().min(1).optional(),
+  });
 
   readonly isMutation = false;
   readonly category = 'analytics' as const;
+  readonly entityGroup = 'platform_tools' as const;
   override readonly allowedAgents = ['data_coordinator'] as const;
 
   private readonly athleteSpecialist: AthleteSpecialist;

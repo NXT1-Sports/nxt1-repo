@@ -26,6 +26,7 @@ export class RunGoogleWorkspaceToolTool extends BaseTool {
   readonly isMutation = true;
   readonly category = 'system' as const;
 
+  readonly entityGroup = 'system_tools' as const;
   constructor(private readonly sessionService: GoogleWorkspaceMcpSessionService) {
     super();
   }

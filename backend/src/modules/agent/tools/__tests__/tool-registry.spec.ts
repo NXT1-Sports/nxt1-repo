@@ -20,10 +20,11 @@ import {
 class StubTool extends BaseTool {
   readonly name = 'stub_tool';
   readonly description = 'A stub tool for testing.';
-  readonly parameters = { type: 'object', properties: {}, required: [] } as const;
+  readonly parameters = z.object({});
   readonly allowedAgents = ['*'] as const;
   readonly isMutation = false;
   readonly category = 'analytics' as const;
+  readonly entityGroup = 'platform_tools' as const;
 
   readonly executeFn = vi.fn<[Record<string, unknown>, ToolExecutionContext?], Promise<ToolResult>>(
     async () => ({ success: true, data: { ok: true } })
@@ -47,9 +48,42 @@ class ZodTool extends BaseTool {
   readonly allowedAgents = ['*'] as const;
   readonly isMutation = false;
   readonly category = 'analytics' as const;
+  readonly entityGroup = 'platform_tools' as const;
 
   async execute(): Promise<ToolResult> {
     return { success: true, data: { ok: true } };
+  }
+}
+
+class TeamTool extends BaseTool {
+  readonly name = 'team_tool';
+  readonly description = 'Team-scoped tool for tests.';
+  readonly parameters = z.object({ teamId: z.string().min(1) });
+  readonly allowedAgents = ['*'] as const;
+  readonly isMutation = false;
+  readonly category = 'database' as const;
+  readonly entityGroup = 'team_tools' as const;
+
+  async execute(): Promise<ToolResult> {
+    return { success: true };
+  }
+}
+
+class LegacySchemaTool extends BaseTool {
+  readonly name = 'legacy_schema_tool';
+  readonly description = 'Legacy schema tool for strict mode tests.';
+  readonly parameters = {
+    type: 'object',
+    properties: {},
+    required: [],
+  } as unknown as z.ZodType<unknown>;
+  readonly allowedAgents = ['*'] as const;
+  readonly isMutation = false;
+  readonly category = 'analytics' as const;
+  readonly entityGroup = 'platform_tools' as const;
+
+  async execute(): Promise<ToolResult> {
+    return { success: true };
   }
 }
 
@@ -97,6 +131,46 @@ describe('ToolRegistry', () => {
       expect(registry.getDefinitions().some((definition) => definition.name === 'stub_tool')).toBe(
         false
       );
+    });
+
+    it('should filter entity-scoped tools using access context', () => {
+      registry.register(new TeamTool());
+
+      const definitions = registry.getDefinitions(undefined, {
+        userId: 'u1',
+        role: 'athlete',
+        allowedEntityGroups: ['platform_tools', 'user_tools', 'system_tools'],
+      });
+
+      expect(definitions.some((definition) => definition.name === 'team_tool')).toBe(false);
+    });
+
+    it('should reject non-Zod schemas when strict Zod mode is enabled', () => {
+      setCachedAgentAppConfig({
+        ...DEFAULT_AGENT_APP_CONFIG,
+        featureFlags: {
+          ...DEFAULT_AGENT_APP_CONFIG.featureFlags,
+          strictZodToolSchemas: true,
+        },
+      });
+
+      expect(() => registry.register(new LegacySchemaTool())).toThrow(
+        /migration checklist|legacy_schema_tool|zod/i
+      );
+    });
+
+    it('should expose a per-tool migration checklist for legacy schemas', () => {
+      registry.register(new LegacySchemaTool());
+
+      expect(registry.getLegacyToolSchemaChecklist()).toEqual([
+        {
+          toolName: 'legacy_schema_tool',
+          migrationStatus: 'pending',
+          schemaType: 'raw_json_schema',
+          action:
+            'Replace parameters with a z.object(...) schema and rely on z.toJSONSchema conversion.',
+        },
+      ]);
     });
   });
 

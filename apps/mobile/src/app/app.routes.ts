@@ -121,13 +121,10 @@ export const routes: Routes = [
         loadChildren: () => import('./legal/privacy/privacy.routes').then((m) => m.PRIVACY_ROUTES),
       },
 
-      // Team - Team pages
+      // Team - Team pages (strict canonical route)
+      // Canonical URL: /team/:slug/:teamCode (e.g. /team/akron-buchtel/57L791)
       {
         path: 'team/:slug/:teamCode',
-        loadChildren: () => import('./features/team/team.routes').then((m) => m.TEAM_ROUTES),
-      },
-      {
-        path: 'team/:slug',
         loadChildren: () => import('./features/team/team.routes').then((m) => m.TEAM_ROUTES),
       },
 

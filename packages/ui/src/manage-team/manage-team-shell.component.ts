@@ -21,6 +21,7 @@ import {
   PLATFORM_ID,
   ViewChild,
   ElementRef,
+  signal,
 } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
 import { IonSpinner } from '@ionic/angular/standalone';
@@ -33,9 +34,6 @@ import type {
 } from '@nxt1/core';
 import { ManageTeamService } from './manage-team.service';
 import { ManageTeamSkeletonComponent } from './manage-team-skeleton.component';
-import { ManageTeamInfoSectionComponent } from './sections/manage-team-info-section.component';
-import { ManageTeamRosterSectionComponent } from './sections/manage-team-roster-section.component';
-import { ManageTeamStaffSectionComponent } from './sections/manage-team-staff-section.component';
 import { NxtSheetHeaderComponent } from '../components/bottom-sheet/sheet-header.component';
 import { NxtIconComponent } from '../components/icon';
 import { NxtListSectionComponent } from '../components/list-section';
@@ -47,6 +45,10 @@ import { ANALYTICS_ADAPTER } from '../services/analytics/analytics-adapter.token
 import { NxtBreadcrumbService } from '../services/breadcrumb/breadcrumb.service';
 import { InviteBottomSheetService } from '../invite';
 import { TEAM_LOGO_UPLOADER } from './team-logo-uploader.token';
+import { ConnectedAccountsModalService } from '../components/connected-sources';
+import { buildLinkSourcesFormData, mapToConnectedSources, TEAM_LEVEL_CONFIG } from '@nxt1/core';
+import type { LinkSourcesFormData } from '@nxt1/core/api';
+import { ManageTeamMembershipModalService } from './manage-team-membership-modal.service';
 
 /** Event emitted when shell requests close */
 export interface ManageTeamCloseEvent {
@@ -60,9 +62,6 @@ export interface ManageTeamCloseEvent {
   imports: [
     IonSpinner,
     ManageTeamSkeletonComponent,
-    ManageTeamInfoSectionComponent,
-    ManageTeamRosterSectionComponent,
-    ManageTeamStaffSectionComponent,
     NxtSheetHeaderComponent,
     NxtIconComponent,
     NxtListSectionComponent,
@@ -71,13 +70,13 @@ export interface ManageTeamCloseEvent {
   ],
   host: { class: 'nxt1-manage-team-shell' },
   template: `
-    <!-- Hidden file input for team logo upload (only rendered when uploader is available) -->
+    <!-- Hidden file input for logo/gallery upload (only rendered when uploader is available) -->
     <input
-      #logoFileInput
+      #mediaFileInput
       type="file"
       accept="image/jpeg,image/png,image/webp,image/svg+xml"
       style="display:none"
-      (change)="onLogoFileChange($event)"
+      (change)="onMediaFileChange($event)"
     />
 
     <!-- Header (suppressed when headless — web modal provides its own) -->
@@ -143,13 +142,47 @@ export interface ManageTeamCloseEvent {
         </div>
       } @else {
         <div class="nxt1-mt-body">
-          <!-- Images (Media Gallery) -->
-          <nxt1-media-gallery
-            [images]="teamImages()"
-            [maxImages]="6"
-            (add)="openImagePrompt()"
-            (remove)="onRemoveImage($event)"
-          />
+          <!-- Top media row: org logo slot (left) + team gallery (right) -->
+          <div class="nxt1-mt-media-top-row">
+            <button
+              type="button"
+              class="nxt1-org-logo-slot"
+              [class.nxt1-org-logo-slot--has-image]="!!organizationLogo()"
+              (click)="openLogoPrompt()"
+              aria-label="Add organization logo"
+            >
+              @if (organizationLogo()) {
+                <img
+                  [src]="organizationLogo()!"
+                  alt="Organization logo"
+                  class="nxt1-org-logo-image"
+                />
+                <span class="nxt1-org-logo-label">Logo</span>
+              } @else {
+                <nxt1-icon name="image" [size]="16" />
+                <span class="nxt1-org-logo-label">Add logo</span>
+              }
+            </button>
+
+            <div class="nxt1-mt-gallery-wrap">
+              <nxt1-media-gallery
+                [images]="galleryImages()"
+                [maxImages]="8"
+                [addLabel]="'Add image'"
+                (add)="openGalleryImagePrompt()"
+                (remove)="onRemoveImage($event)"
+              />
+            </div>
+          </div>
+
+          <!-- Connected Accounts -->
+          <nxt1-list-section header="Connected accounts">
+            <nxt1-list-row label="Accounts" (tap)="openConnectedAccounts()">
+              <span class="nxt1-list-value" [class.nxt1-list-placeholder]="connectedCount() === 0">
+                {{ connectedCount() > 0 ? connectedCount() + ' connected' : 'Connect accounts' }}
+              </span>
+            </nxt1-list-row>
+          </nxt1-list-section>
 
           <!-- Team setup / branding -->
           <nxt1-list-section header="Team setup">
@@ -164,7 +197,7 @@ export interface ManageTeamCloseEvent {
           <div class="nxt1-mt-sections" [class.nxt1-mt-two-col]="webLayout()">
             <!-- About Info -->
             <nxt1-list-section header="About Info">
-              <nxt1-list-row label="Title" (tap)="editTeamName()">
+              <nxt1-list-row label="Team name" (tap)="editTeamName()">
                 <span class="nxt1-list-value" [class.nxt1-list-placeholder]="!teamName()">
                   {{ teamName() || 'Add team name' }}
                 </span>
@@ -177,6 +210,21 @@ export interface ManageTeamCloseEvent {
               <nxt1-list-row label="Location" (tap)="editLocation()">
                 <span class="nxt1-list-value" [class.nxt1-list-placeholder]="!locationSummary()">
                   {{ locationSummary() || 'Add location' }}
+                </span>
+              </nxt1-list-row>
+              <nxt1-list-row label="Level" (tap)="editLevel()">
+                <span class="nxt1-list-value" [class.nxt1-list-placeholder]="!levelSummary()">
+                  {{ levelSummary() || 'Select level' }}
+                </span>
+              </nxt1-list-row>
+              <nxt1-list-row label="Division" (tap)="editDivision()">
+                <span class="nxt1-list-value" [class.nxt1-list-placeholder]="!divisionSummary()">
+                  {{ divisionSummary() || 'Add division' }}
+                </span>
+              </nxt1-list-row>
+              <nxt1-list-row label="Conference" (tap)="editConference()">
+                <span class="nxt1-list-value" [class.nxt1-list-placeholder]="!conferenceSummary()">
+                  {{ conferenceSummary() || 'Add conference' }}
                 </span>
               </nxt1-list-row>
             </nxt1-list-section>
@@ -221,32 +269,6 @@ export interface ManageTeamCloseEvent {
               </nxt1-list-section>
             </div>
           </div>
-
-          @if (showInfoSection()) {
-            <nxt1-manage-team-info-section
-              [basicInfo]="service.formData()?.basicInfo ?? null"
-              [branding]="service.formData()?.branding ?? null"
-              [contact]="service.formData()?.contact ?? null"
-              (fieldChange)="onInfoSectionFieldChange($event)"
-              (logoClick)="openImagePrompt()"
-              (colorClick)="editBrandColor($event)"
-            />
-          }
-
-          @if (service.expandedSection() === 'roster') {
-            <nxt1-manage-team-roster-section
-              [players]="service.roster()"
-              (invite)="manageRosterInvite()"
-              (action)="onRosterAction($event)"
-            />
-          }
-
-          @if (service.expandedSection() === 'staff') {
-            <nxt1-manage-team-staff-section
-              [staff]="service.staff()"
-              (action)="onStaffAction($event)"
-            />
-          }
         </div>
       }
     </div>
@@ -356,6 +378,65 @@ export interface ManageTeamCloseEvent {
         min-width: 0;
         padding: var(--nxt1-spacing-4) var(--nxt1-spacing-4)
           calc(var(--nxt1-spacing-8) + env(safe-area-inset-bottom, 0px));
+      }
+
+      .nxt1-mt-media-top-row {
+        display: grid;
+        grid-template-columns: 84px minmax(0, 1fr);
+        gap: var(--nxt1-spacing-3);
+        align-items: stretch;
+      }
+
+      .nxt1-org-logo-slot {
+        position: relative;
+        display: inline-flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: var(--nxt1-spacing-1);
+        width: 84px;
+        min-height: 84px;
+        border-radius: var(--nxt1-borderRadius-lg);
+        border: 1px dashed var(--nxt1-color-border-default);
+        background: var(--nxt1-color-surface-100);
+        color: var(--nxt1-color-text-secondary);
+        cursor: pointer;
+        overflow: hidden;
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      .nxt1-org-logo-slot:hover {
+        border-color: var(--nxt1-color-border-strong);
+        background: var(--nxt1-color-surface-200);
+      }
+
+      .nxt1-org-logo-slot--has-image {
+        border-style: solid;
+      }
+
+      .nxt1-org-logo-image {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+
+      .nxt1-org-logo-label {
+        position: absolute;
+        left: 50%;
+        bottom: var(--nxt1-spacing-1);
+        transform: translateX(-50%);
+        padding: 2px 6px;
+        border-radius: var(--nxt1-borderRadius-full);
+        background: rgba(0, 0, 0, 0.55);
+        color: #fff;
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-2xs);
+        line-height: 1;
+        white-space: nowrap;
+      }
+
+      .nxt1-mt-gallery-wrap {
+        min-width: 0;
       }
 
       /* ============================================
@@ -468,6 +549,15 @@ export interface ManageTeamCloseEvent {
           grid-template-columns: 1fr;
           gap: var(--nxt1-spacing-4);
         }
+
+        .nxt1-mt-media-top-row {
+          grid-template-columns: 72px minmax(0, 1fr);
+        }
+
+        .nxt1-org-logo-slot {
+          width: 72px;
+          min-height: 72px;
+        }
       }
 
       /* ============================================
@@ -491,9 +581,13 @@ export class ManageTeamShellComponent implements OnInit {
   private readonly breadcrumb = inject(NxtBreadcrumbService);
   private readonly inviteSheet = inject(InviteBottomSheetService);
   private readonly logoUploader = inject(TEAM_LOGO_UPLOADER, { optional: true });
+  private readonly connectedAccountsModal = inject(ConnectedAccountsModalService);
+  private readonly membershipModal = inject(ManageTeamMembershipModalService);
   private readonly platformId = inject(PLATFORM_ID);
 
-  @ViewChild('logoFileInput') private readonly logoFileInputRef?: ElementRef<HTMLInputElement>;
+  @ViewChild('mediaFileInput') private readonly mediaFileInputRef?: ElementRef<HTMLInputElement>;
+
+  private readonly pendingUploadTarget = signal<'logo' | 'gallery'>('gallery');
 
   private initialSectionHandled = false;
 
@@ -552,15 +646,24 @@ export class ManageTeamShellComponent implements OnInit {
   protected readonly teamName = computed(() => this.service.formData()?.basicInfo?.name ?? '');
   protected readonly mascot = computed(() => this.service.formData()?.basicInfo?.mascot ?? '');
   protected readonly sport = computed(() => this.service.formData()?.basicInfo?.sport ?? '');
-
-  protected readonly teamImages = computed(() => {
-    const branding = this.service.formData()?.branding;
-    if (branding?.galleryImages?.length) {
-      return branding.galleryImages;
-    }
-    const logo = branding?.logo;
-    return logo ? ([logo] as readonly string[]) : ([] as readonly string[]);
+  protected readonly levelSummary = computed(() => {
+    const level = this.service.formData()?.basicInfo?.level;
+    if (!level) return '';
+    return TEAM_LEVEL_CONFIG[level]?.label ?? level;
   });
+  protected readonly divisionSummary = computed(
+    () => this.service.formData()?.basicInfo?.division?.trim() ?? ''
+  );
+  protected readonly conferenceSummary = computed(
+    () => this.service.formData()?.basicInfo?.conference?.trim() ?? ''
+  );
+
+  protected readonly organizationLogo = computed(
+    () => this.service.formData()?.branding?.logo ?? null
+  );
+  protected readonly galleryImages = computed(
+    () => this.service.formData()?.branding?.galleryImages ?? ([] as readonly string[])
+  );
 
   protected readonly locationSummary = computed(() => {
     const contact = this.service.formData()?.contact;
@@ -588,16 +691,7 @@ export class ManageTeamShellComponent implements OnInit {
       ? `${configuredCount} brand setting${configuredCount === 1 ? '' : 's'}`
       : '';
   });
-  protected readonly showInfoSection = computed(() => {
-    const section = this.service.expandedSection();
-    return (
-      section === 'team-info' ||
-      section === 'about' ||
-      section === 'contact' ||
-      section === 'accounts' ||
-      section === 'images'
-    );
-  });
+  protected readonly connectedCount = computed(() => this.service.connectedSources().length);
 
   protected readonly rosterSummary = computed(() => {
     const n = this.service.roster()?.length ?? 0;
@@ -671,7 +765,7 @@ export class ManageTeamShellComponent implements OnInit {
         await this.editWebsite();
         break;
       case 'logo':
-        await this.openImagePrompt();
+        await this.openLogoPrompt();
         break;
       case 'primaryColor':
       case 'secondaryColor':
@@ -680,6 +774,34 @@ export class ManageTeamShellComponent implements OnInit {
       default:
         break;
     }
+  }
+
+  protected async openConnectedAccounts(): Promise<void> {
+    const sport = this.service.formData()?.basicInfo?.sport;
+    const selectedSports = sport ? [sport] : [];
+
+    const linkSourcesData = buildLinkSourcesFormData({
+      connectedSources: this.service.connectedSources(),
+      connectedEmails: [],
+    }) as LinkSourcesFormData | null;
+
+    const result = await this.connectedAccountsModal.open({
+      role: 'coach',
+      selectedSports,
+      linkSourcesData,
+      scope: 'team',
+    });
+
+    if (!result.linkSources) {
+      return;
+    }
+
+    const connectedSources = mapToConnectedSources(result.linkSources.links);
+    this.service.setConnectedSources(connectedSources);
+    this.emitAction('accounts', 'editConnectedAccounts', {
+      count: connectedSources.length,
+    });
+    this.service.expandSection('accounts');
   }
 
   protected async editTeamName(): Promise<void> {
@@ -738,14 +860,95 @@ export class ManageTeamShellComponent implements OnInit {
     this.service.expandSection('contact');
   }
 
+  protected async editLevel(): Promise<void> {
+    const selected = await this.modal.actionSheet({
+      title: 'Team Level',
+      message: 'Select the team level.',
+      actions: [
+        ...Object.entries(TEAM_LEVEL_CONFIG)
+          .sort(([, a], [, b]) => a.order - b.order)
+          .map(([value, config]) => ({
+            text: config.label,
+            data: value,
+          })),
+        { text: 'Cancel', cancel: true },
+      ],
+      preferNative: 'native',
+    });
+
+    if (!selected.selected || typeof selected.data !== 'string') {
+      return;
+    }
+
+    this.emitAction('about', 'editLevel');
+    this.service.updateField({ sectionId: 'about', fieldId: 'level', value: selected.data });
+  }
+
+  protected async editDivision(): Promise<void> {
+    const result = await this.modal.prompt({
+      title: 'Division',
+      placeholder: 'e.g. NCAA D1, 4A, Metro East',
+      defaultValue: this.service.formData()?.basicInfo?.division ?? '',
+      submitText: 'Done',
+      preferNative: 'native',
+    });
+
+    if (!result.confirmed) {
+      return;
+    }
+
+    this.emitAction('about', 'editDivision');
+    this.service.updateField({ sectionId: 'about', fieldId: 'division', value: result.value });
+  }
+
+  protected async editConference(): Promise<void> {
+    const result = await this.modal.prompt({
+      title: 'Conference',
+      placeholder: 'e.g. Big 12, SEC, District 5',
+      defaultValue: this.service.formData()?.basicInfo?.conference ?? '',
+      submitText: 'Done',
+      preferNative: 'native',
+    });
+
+    if (!result.confirmed) {
+      return;
+    }
+
+    this.emitAction('about', 'editConference');
+    this.service.updateField({ sectionId: 'about', fieldId: 'conference', value: result.value });
+  }
+
   protected toggleRosterSection(): void {
     this.emitAction('roster', 'open');
-    this.service.toggleSection('roster');
+    void this.openMembershipEditor('roster');
   }
 
   protected toggleStaffSection(): void {
     this.emitAction('staff', 'open');
-    this.service.toggleSection('staff');
+    void this.openMembershipEditor('staff');
+  }
+
+  /**
+   * Open the shared membership editor overlay/modal.
+   * Web/mobile-web → NxtOverlayService; native → Ionic modal.
+   */
+  protected async openMembershipEditor(mode: 'roster' | 'staff'): Promise<void> {
+    const teamIdValue = typeof this.teamId === 'function' ? this.teamId() : this.teamId;
+    if (!teamIdValue) return;
+
+    this.logger.info('Opening membership editor', { mode, teamId: teamIdValue });
+    this.breadcrumb.trackUserAction('manage-team-membership-open', { mode });
+
+    const result = await this.membershipModal.open({
+      teamId: teamIdValue as string,
+      mode,
+      initialFilter: mode,
+    });
+
+    if (result.changed) {
+      // Reload the team to reflect updated roster/staff counts in the shell
+      void this.service.loadTeam(teamIdValue as string);
+    }
   }
 
   protected async editEmail(): Promise<void> {
@@ -873,21 +1076,22 @@ export class ManageTeamShellComponent implements OnInit {
     }
   }
 
-  protected async openImagePrompt(): Promise<void> {
+  protected async openLogoPrompt(): Promise<void> {
     const teamId = this.service.teamId();
 
     // If a real upload adapter is provided and we have a teamId, use file picker
     if (this.logoUploader && teamId && isPlatformBrowser(this.platformId)) {
-      this.logoFileInputRef?.nativeElement.click();
+      this.pendingUploadTarget.set('logo');
+      this.mediaFileInputRef?.nativeElement.click();
       return;
     }
 
     // Fallback: prompt for a URL
     const result = await this.modal.prompt({
-      title: 'Team Image URL',
-      placeholder: 'https://example.com/team-image.jpg',
+      title: 'Organization Logo URL',
+      placeholder: 'https://example.com/org-logo.jpg',
       inputType: 'url',
-      submitText: 'Add',
+      submitText: 'Set',
       preferNative: 'native',
     });
 
@@ -903,7 +1107,36 @@ export class ManageTeamShellComponent implements OnInit {
     this.applyLogoUrl(imageUrl);
   }
 
-  protected async onLogoFileChange(event: Event): Promise<void> {
+  protected async openGalleryImagePrompt(): Promise<void> {
+    const teamId = this.service.teamId();
+
+    if (this.logoUploader && teamId && isPlatformBrowser(this.platformId)) {
+      this.pendingUploadTarget.set('gallery');
+      this.mediaFileInputRef?.nativeElement.click();
+      return;
+    }
+
+    const result = await this.modal.prompt({
+      title: 'Gallery Image URL',
+      placeholder: 'https://example.com/team-gallery.jpg',
+      inputType: 'url',
+      submitText: 'Add',
+      preferNative: 'native',
+    });
+
+    if (!result.confirmed) {
+      return;
+    }
+
+    const imageUrl = result.value.trim();
+    if (!imageUrl) {
+      return;
+    }
+
+    this.applyGalleryImageUrl(imageUrl);
+  }
+
+  protected async onMediaFileChange(event: Event): Promise<void> {
     const input = event.target as HTMLInputElement;
     const file = input.files?.[0];
     // Reset so the same file can be re-selected later
@@ -914,47 +1147,41 @@ export class ManageTeamShellComponent implements OnInit {
     const teamId = this.service.teamId();
     if (!teamId) return;
 
-    this.logger.info('Uploading team logo', { teamId, fileName: file.name });
+    const target = this.pendingUploadTarget();
+    this.logger.info('Uploading team media', { teamId, fileName: file.name, target });
     const url = await this.logoUploader(teamId, file);
 
     if (url) {
-      this.applyLogoUrl(url);
-      this.logger.info('Team logo uploaded', { teamId, url });
+      if (target === 'logo') {
+        this.applyLogoUrl(url);
+      } else {
+        this.applyGalleryImageUrl(url);
+      }
+      this.logger.info('Team media uploaded', { teamId, url, target });
     } else {
-      this.logger.warn('Team logo upload returned null', { teamId });
+      this.logger.warn('Team media upload returned null', { teamId, target });
     }
   }
 
   private applyLogoUrl(imageUrl: string): void {
-    const nextImages = Array.from(new Set([...this.teamImages(), imageUrl]));
+    this.emitAction('images', 'logo-update', imageUrl);
+    this.service.updateField({ sectionId: 'images', fieldId: 'logo', value: imageUrl });
+    this.service.expandSection('images');
+  }
+
+  private applyGalleryImageUrl(imageUrl: string): void {
+    const nextImages = Array.from(new Set([...this.galleryImages(), imageUrl]));
     this.emitAction('images', 'add', imageUrl);
     this.service.updateField({ sectionId: 'images', fieldId: 'galleryImages', value: nextImages });
-    if (!this.service.formData()?.branding?.logo) {
-      this.service.updateField({ sectionId: 'images', fieldId: 'logo', value: imageUrl });
-    }
     this.service.expandSection('images');
   }
 
   onRemoveImage(index: number): void {
-    const nextImages = [...this.teamImages()];
-    const [removedImage] = nextImages.splice(index, 1);
+    const nextImages = [...this.galleryImages()];
+    nextImages.splice(index, 1);
 
     this.emitAction('images', 'remove', index);
     this.service.updateField({ sectionId: 'images', fieldId: 'galleryImages', value: nextImages });
-
-    if (removedImage && this.service.formData()?.branding?.logo === removedImage) {
-      this.service.updateField({
-        sectionId: 'images',
-        fieldId: 'logo',
-        value: nextImages[0] ?? '',
-      });
-    }
-  }
-
-  protected onInfoSectionFieldChange(event: { field: string; value: string }): void {
-    const targetSection = event.field.startsWith('contact.') ? 'contact' : 'about';
-    const fieldId = event.field.replace('contact.', '');
-    this.service.updateField({ sectionId: targetSection, fieldId, value: event.value });
   }
 
   protected manageRosterInvite(): void {

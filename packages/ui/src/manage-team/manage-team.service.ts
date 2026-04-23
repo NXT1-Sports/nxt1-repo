@@ -72,6 +72,9 @@ export class ManageTeamService {
   private readonly _dirtyFields = signal<Set<string>>(new Set());
   private readonly _validationErrors = signal<Record<string, string>>({});
   private readonly _teamId = signal<string | null>(null);
+  private readonly _connectedSources = signal<
+    NonNullable<Parameters<ManageTeamApiClient['updateTeamBasicInfo']>[1]['connectedSources']>
+  >([]);
 
   // ============================================
   // PUBLIC READONLY COMPUTED SIGNALS
@@ -112,6 +115,9 @@ export class ManageTeamService {
 
   /** Current team ID */
   readonly teamId = computed(() => this._teamId());
+
+  /** Team-level connected accounts/sources. */
+  readonly connectedSources = computed(() => this._connectedSources());
 
   /** Available tabs */
   readonly tabs = MANAGE_TEAM_TABS;
@@ -247,6 +253,7 @@ export class ManageTeamService {
       const result = await this.apiClient.getTeamForEditing(teamId);
       this._formData.set(result.formData);
       this._completion.set(result.completion);
+      this._connectedSources.set(result.connectedSources ?? []);
       this._dirtyFields.set(new Set());
 
       await trace?.putMetric('roster_count', result.formData.roster.length);
@@ -366,6 +373,26 @@ export class ManageTeamService {
     void this.haptics.impact('light');
   }
 
+  /** Update team connected accounts from the shared connected accounts modal. */
+  setConnectedSources(
+    sources: NonNullable<
+      Parameters<ManageTeamApiClient['updateTeamBasicInfo']>[1]['connectedSources']
+    >
+  ): void {
+    this._connectedSources.set([...sources]);
+
+    this._dirtyFields.update((fields) => {
+      const next = new Set(fields);
+      next.add('accounts.connectedSources');
+      return next;
+    });
+
+    this.breadcrumb.trackUserAction('manage-team-connected-sources-updated', {
+      count: sources.length,
+    });
+    void this.haptics.impact('light');
+  }
+
   // ============================================
   // ACTIONS - SAVING
   // ============================================
@@ -384,14 +411,27 @@ export class ManageTeamService {
     }
 
     const payload = buildManageTeamUpdatePayload(formData);
-    if (!payload.teamName) {
+    const payloadWithLegacy = payload as unknown as {
+      organizationLogoUrl?: string;
+      logoUrl?: string;
+      [key: string]: unknown;
+    };
+    const { logoUrl: legacyLogoUrl, ...payloadWithoutLegacyLogo } = payloadWithLegacy;
+
+    const requestPayload: Parameters<ManageTeamApiClient['updateTeamBasicInfo']>[1] = {
+      ...payloadWithoutLegacyLogo,
+      organizationLogoUrl: payloadWithLegacy.organizationLogoUrl ?? legacyLogoUrl ?? '',
+      connectedSources: this._connectedSources(),
+    };
+
+    if (!requestPayload.teamName) {
       const message = 'Team name is required';
       this._error.set(message);
       this.toast.error(message);
       return false;
     }
 
-    if (payload.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/i.test(payload.email)) {
+    if (requestPayload.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/i.test(requestPayload.email)) {
       const message = 'Enter a valid team email address';
       this._error.set(message);
       this.toast.error(message);
@@ -409,7 +449,7 @@ export class ManageTeamService {
       : null;
 
     try {
-      await this.apiClient.updateTeamBasicInfo(teamId, payload);
+      await this.apiClient.updateTeamBasicInfo(teamId, requestPayload);
 
       this._dirtyFields.set(new Set());
       this.analytics?.trackEvent(APP_EVENTS.TEAM_MANAGED, {

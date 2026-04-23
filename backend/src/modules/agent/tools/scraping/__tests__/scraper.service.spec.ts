@@ -530,8 +530,8 @@ describe('ScraperService', () => {
       expect(results[1].status).toBe('error');
     });
 
-    it('should call onProgress for each completed URL', async () => {
-      const onProgress = vi.fn();
+    it('should call onItemSettled for each completed URL', async () => {
+      const onItemSettled = vi.fn();
 
       await service.scrapeMany(
         [
@@ -539,11 +539,11 @@ describe('ScraperService', () => {
           { url: 'https://example.com/2' },
           { url: 'https://example.com/3' },
         ],
-        { onProgress }
+        { onItemSettled }
       );
 
-      expect(onProgress).toHaveBeenCalledTimes(3);
-      expect(onProgress).toHaveBeenLastCalledWith(3, 3, expect.any(String));
+      expect(onItemSettled).toHaveBeenCalledTimes(3);
+      expect(onItemSettled).toHaveBeenLastCalledWith(3, 3, expect.any(String));
     });
 
     it('should respect concurrency limit', async () => {
@@ -649,17 +649,17 @@ describe('ScraperService', () => {
       expect(result.errors[0]).toContain('Blocked host');
     });
 
-    it('should call onProgress for each URL', async () => {
+    it('should call onItemSettled for each URL', async () => {
       const scrapeMock = vi.fn().mockResolvedValue({ markdown: 'ok' });
       const bridge = { scrape: scrapeMock } as unknown as FirecrawlMcpBridgeService;
       const warmService = new ScraperService(bridge);
-      const onProgress = vi.fn();
+      const onItemSettled = vi.fn();
 
       await warmService.warmCache(['https://example.com/a', 'https://example.com/b'], {
-        onProgress,
+        onItemSettled,
       });
 
-      expect(onProgress).toHaveBeenCalledTimes(2);
+      expect(onItemSettled).toHaveBeenCalledTimes(2);
     });
   });
 });

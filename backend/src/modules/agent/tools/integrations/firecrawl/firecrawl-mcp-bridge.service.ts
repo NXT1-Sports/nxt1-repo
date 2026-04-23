@@ -28,6 +28,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { z } from 'zod';
 import { BaseMcpClientService, type McpToolCallResult } from '../base-mcp-client.service.js';
+import { AgentEngineError } from '../../../exceptions/agent-engine.error.js';
 import {
   CACHE_TTL,
   generateCacheKey,
@@ -258,7 +259,7 @@ function extractPayload(result: McpToolCallResult): unknown {
     .filter((block) => block.length > 0);
 
   if (textBlocks.length === 0) {
-    throw new Error('Firecrawl MCP returned no content');
+    throw new AgentEngineError('FIRECRAWL_RESPONSE_EMPTY', 'Firecrawl MCP returned no content');
   }
 
   const combined = textBlocks.join('\n');
@@ -280,7 +281,8 @@ export class FirecrawlMcpBridgeService extends BaseMcpClientService {
     super();
     const key = process.env['FIRECRAWL_API_KEY'];
     if (!key) {
-      throw new Error(
+      throw new AgentEngineError(
+        'FIRECRAWL_CONFIG_MISSING_API_KEY',
         'FIRECRAWL_API_KEY environment variable is required for the Firecrawl MCP bridge'
       );
     }
@@ -335,7 +337,11 @@ export class FirecrawlMcpBridgeService extends BaseMcpClientService {
         if (result.isError) {
           const payload = extractPayload(result);
           logger.error('[FirecrawlMCP] firecrawl_scrape returned error', { url, error: payload });
-          throw new Error(`Firecrawl scrape failed for "${url}": ${JSON.stringify(payload)}`);
+          throw new AgentEngineError(
+            'FIRECRAWL_REQUEST_FAILED',
+            `Firecrawl scrape failed for "${url}": ${JSON.stringify(payload)}`,
+            { metadata: { operation: 'firecrawl_scrape', url } }
+          );
         }
 
         return extractPayload(result);
@@ -375,7 +381,11 @@ export class FirecrawlMcpBridgeService extends BaseMcpClientService {
         if (result.isError) {
           const payload = extractPayload(result);
           logger.error('[FirecrawlMCP] firecrawl_search returned error', { query, error: payload });
-          throw new Error(`Firecrawl search failed for "${query}": ${JSON.stringify(payload)}`);
+          throw new AgentEngineError(
+            'FIRECRAWL_REQUEST_FAILED',
+            `Firecrawl search failed for "${query}": ${JSON.stringify(payload)}`,
+            { metadata: { operation: 'firecrawl_search', query } }
+          );
         }
 
         return extractPayload(result);
@@ -416,7 +426,11 @@ export class FirecrawlMcpBridgeService extends BaseMcpClientService {
         if (result.isError) {
           const payload = extractPayload(result);
           logger.error('[FirecrawlMCP] firecrawl_map returned error', { url, error: payload });
-          throw new Error(`Firecrawl map failed for "${url}": ${JSON.stringify(payload)}`);
+          throw new AgentEngineError(
+            'FIRECRAWL_REQUEST_FAILED',
+            `Firecrawl map failed for "${url}": ${JSON.stringify(payload)}`,
+            { metadata: { operation: 'firecrawl_map', url } }
+          );
         }
 
         return extractPayload(result);
@@ -440,8 +454,10 @@ export class FirecrawlMcpBridgeService extends BaseMcpClientService {
     options?: FirecrawlExtractOptions
   ): Promise<unknown> {
     if (urls.length > MAX_BATCH_URLS) {
-      throw new Error(
-        `Firecrawl extract limited to ${MAX_BATCH_URLS} URLs per call. Received: ${urls.length}`
+      throw new AgentEngineError(
+        'AGENT_VALIDATION_FAILED',
+        `Firecrawl extract limited to ${MAX_BATCH_URLS} URLs per call. Received: ${urls.length}`,
+        { metadata: { maxBatchUrls: MAX_BATCH_URLS, providedUrls: urls.length } }
       );
     }
 
@@ -465,7 +481,11 @@ export class FirecrawlMcpBridgeService extends BaseMcpClientService {
         prompt,
         error: payload,
       });
-      throw new Error(`Firecrawl extract failed: ${JSON.stringify(payload)}`);
+      throw new AgentEngineError(
+        'FIRECRAWL_REQUEST_FAILED',
+        `Firecrawl extract failed: ${JSON.stringify(payload)}`,
+        { metadata: { operation: 'firecrawl_extract', urlCount: urls.length } }
+      );
     }
 
     return this.validatePayload(ExtractResponseSchema, extractPayload(result), 'firecrawl_extract');
@@ -502,7 +522,11 @@ export class FirecrawlMcpBridgeService extends BaseMcpClientService {
     if (result.isError) {
       const payload = extractPayload(result);
       logger.error('[FirecrawlMCP] firecrawl_crawl returned error', { url, error: payload });
-      throw new Error(`Firecrawl crawl failed for "${url}": ${JSON.stringify(payload)}`);
+      throw new AgentEngineError(
+        'FIRECRAWL_REQUEST_FAILED',
+        `Firecrawl crawl failed for "${url}": ${JSON.stringify(payload)}`,
+        { metadata: { operation: 'firecrawl_crawl', url } }
+      );
     }
 
     return this.validatePayload(CrawlInitResponseSchema, extractPayload(result), 'firecrawl_crawl');
@@ -527,8 +551,10 @@ export class FirecrawlMcpBridgeService extends BaseMcpClientService {
         id,
         error: payload,
       });
-      throw new Error(
-        `Firecrawl crawl status check failed for job "${id}": ${JSON.stringify(payload)}`
+      throw new AgentEngineError(
+        'FIRECRAWL_REQUEST_FAILED',
+        `Firecrawl crawl status check failed for job "${id}": ${JSON.stringify(payload)}`,
+        { metadata: { operation: 'firecrawl_check_crawl_status', jobId: id } }
       );
     }
 
@@ -551,7 +577,11 @@ export class FirecrawlMcpBridgeService extends BaseMcpClientService {
       operation,
       issues: parsed.error.issues,
     });
-    throw new Error(`Firecrawl MCP returned invalid payload for ${operation}`);
+    throw new AgentEngineError(
+      'FIRECRAWL_INVALID_RESPONSE',
+      `Firecrawl MCP returned invalid payload for ${operation}`,
+      { metadata: { operation } }
+    );
   }
 
   private async withCache<T>(

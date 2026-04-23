@@ -139,6 +139,13 @@ const CTA_AVATARS: readonly CtaAvatarImage[] = [
         margin-inline: calc(-1 * var(--shell-content-padding-x, 0px));
       }
 
+      @media (max-width: 768px) {
+        :host {
+          /* Keep horizontal full-bleed, but do not pull content under the fixed top nav. */
+          margin-top: 0;
+        }
+      }
+
       nxt1-team-profile-shell-web {
         flex-shrink: 0;
       }
@@ -325,19 +332,33 @@ export class TeamComponent implements OnInit {
 
       // Load team data from API using the canonical route team code when available.
       const loadPromise = teamCode
-        ? this.teamProfile.loadTeamById(teamCode, this.isTeamAdmin())
+        ? this.teamProfile.loadTeamByCode(teamCode, this.isTeamAdmin())
         : this.teamProfile.loadTeam(slug, this.isTeamAdmin());
 
       loadPromise
         .then(() => {
+          const loadedTeam = this.teamProfile.team();
+          if (!loadedTeam) return;
+
+          // Immediate canonical repair: when arriving via a slug-only URL (no teamCode in route),
+          // navigate to /team/:slug/:teamCode as soon as the API response arrives — same microtask
+          // as the signal update, before Angular's next change-detection cycle renders the slug URL.
+          // This eliminates the address-bar flash caused by the async constructor-effect approach.
+          if (!teamCode && loadedTeam.teamCode?.trim()) {
+            const canonicalPath = buildCanonicalTeamPath({
+              slug: loadedTeam.slug || slug,
+              teamName: loadedTeam.teamName,
+              teamCode: loadedTeam.teamCode.trim(),
+            });
+            void this.router.navigateByUrl(canonicalPath, { replaceUrl: true });
+            return; // ngOnInit will re-fire with the correct teamCode param
+          }
+
           // SSR-deterministic SEO: updateSeo is also called from a constructor
           // effect(), but effects may run after Angular serializes SSR HTML.
           // Calling it here directly ensures meta tags are written synchronously
           // when the HTTP response arrives, before serialization completes.
-          const loadedTeam = this.teamProfile.team();
-          if (loadedTeam) {
-            this.updateSeo(loadedTeam);
-          }
+          this.updateSeo(loadedTeam);
 
           // Load intel eagerly so the intel tab renders instantly with no skeleton flash.
           const teamId = this.teamProfile.team()?.id;
@@ -641,18 +662,19 @@ export class TeamComponent implements OnInit {
    * Handle roster member click — navigate to their profile.
    */
   protected onRosterMemberClick(member: TeamProfileRosterMember): void {
-    if (member.profileCode) {
+    const canonicalUnicode = member.unicode || member.profileCode;
+    if (canonicalUnicode) {
       const teamSport = this.teamProfile.team()?.sport;
       const athleteName = member.displayName || `${member.firstName} ${member.lastName}`.trim();
       this.router.navigateByUrl(
         buildCanonicalProfilePath({
           athleteName,
           sport: teamSport,
-          unicode: member.profileCode,
+          unicode: canonicalUnicode,
         })
       );
     } else {
-      this.logger.debug('Roster member has no profile code', { memberId: member.id });
+      this.logger.debug('Roster member has no unicode', { memberId: member.id });
     }
   }
 
@@ -675,7 +697,7 @@ export class TeamComponent implements OnInit {
 
     try {
       if (teamCode) {
-        await this.teamProfile.loadTeamById(teamCode, this.isTeamAdmin());
+        await this.teamProfile.loadTeamByCode(teamCode, this.isTeamAdmin());
       } else {
         await this.teamProfile.loadTeam(slug, this.isTeamAdmin());
       }

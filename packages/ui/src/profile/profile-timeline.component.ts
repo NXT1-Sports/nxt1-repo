@@ -81,8 +81,8 @@ import { FeedNewsCardComponent } from '../post-cards/feed-news-card.component';
   ],
   template: `
     <div class="profile-timeline" [attr.data-testid]="timelineTestIds.CONTAINER">
-      <!-- Filter Tabs (only shown when filters enabled) -->
-      @if (showFilters()) {
+      <!-- Filter Tabs (only shown when filters are enabled and not externally controlled) -->
+      @if (showFilters() && !filter()) {
         <nav
           class="timeline-filters"
           role="tablist"

@@ -1,5 +1,6 @@
 import type { AgentToolCategory } from '@nxt1/core';
 import type { McpToolCallResult, McpToolDefinition } from '../base-mcp-client.service.js';
+import { AgentEngineError } from '../../../exceptions/agent-engine.error.js';
 
 export interface GoogleWorkspaceOAuthTokenDocument {
   readonly provider: 'google';
@@ -444,7 +445,13 @@ export function getGoogleWorkspaceToolMetadata(
 ): GoogleWorkspaceResolvedToolMetadata {
   const metadata = resolveGoogleWorkspaceToolMetadata(name);
   if (!metadata) {
-    throw new Error(`Unsupported Google Workspace tool: ${name}`);
+    throw new AgentEngineError(
+      'AGENT_VALIDATION_FAILED',
+      `Unsupported Google Workspace tool: ${name}`,
+      {
+        metadata: { toolName: name },
+      }
+    );
   }
   return metadata;
 }

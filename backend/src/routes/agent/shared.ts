@@ -11,7 +11,7 @@ import type { AgentChatService } from '../../modules/agent/services/agent-chat.s
 import type { ContextBuilder } from '../../modules/agent/memory/context-builder.js';
 import type { OpenRouterService } from '../../modules/agent/llm/openrouter.service.js';
 import type { ToolRegistry } from '../../modules/agent/tools/tool-registry.js';
-import type { AgentYieldState } from '@nxt1/core';
+import type { AgentIdentifier, AgentYieldState } from '@nxt1/core';
 import {
   AgentGenerationService,
   isLegacyFallbackPlaybook,
@@ -310,11 +310,18 @@ export function replayJobEventsAsSSE(
  * with the same threadId — thread history handles the resume naturally.
  */
 export function buildInlineAskUserCard(params: {
+  agentId: AgentIdentifier;
   question: string;
   context?: string;
   threadId?: string;
-}): { type: 'ask_user'; title: string; payload: Record<string, unknown> } {
+}): {
+  agentId: AgentIdentifier;
+  type: 'ask_user';
+  title: string;
+  payload: Record<string, unknown>;
+} {
   return {
+    agentId: params.agentId,
     type: 'ask_user',
     title: 'Agent X has a question',
     payload: {
@@ -329,18 +336,21 @@ export function buildInlineAskUserCard(params: {
  * Build an inline approval card for the SSE `card` event.
  */
 export function buildInlineApprovalCard(params: {
+  agentId: AgentIdentifier;
   toolName: string;
   approvalId: string;
   operationId: string;
   promptToUser: string;
   toolInput: Record<string, unknown>;
 }): {
+  agentId: AgentIdentifier;
   type: 'draft' | 'confirmation';
   title: string;
   payload: Record<string, unknown>;
 } {
   if (params.toolName === 'send_email') {
     return {
+      agentId: params.agentId,
       type: 'draft',
       title: 'Email Draft',
       payload: {
@@ -358,6 +368,7 @@ export function buildInlineApprovalCard(params: {
   }
 
   return {
+    agentId: params.agentId,
     type: 'confirmation',
     title: 'Approval Required',
     payload: {

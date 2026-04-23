@@ -103,6 +103,11 @@ export interface ConnectedAccountsModalOptions {
   readonly selectedSports?: readonly string[];
   readonly linkSourcesData?: LinkSourcesFormData | null;
   readonly scope?: 'athlete' | 'team';
+  /**
+   * When true in a browser context, always use the web overlay presentation
+   * instead of adaptive bottom-sheet behavior on narrow/touch viewports.
+   */
+  readonly preferWebOverlayOnBrowser?: boolean;
 }
 
 /** Result returned when the Connected Accounts modal is dismissed. */
@@ -151,7 +156,8 @@ export class ConnectedAccountsModalService {
     // Enrich with Firecrawl sign-in state (Hudl, X, MaxPreps) from backend
     enrichedOptions = await this.enrichWithFirecrawlState(enrichedOptions);
 
-    const presentation = this.shouldUseBottomSheet() ? 'bottom-sheet' : 'web-overlay';
+    const useBottomSheet = this.shouldUseBottomSheet(options);
+    const presentation = useBottomSheet ? 'bottom-sheet' : 'web-overlay';
 
     this.logger.info('Opening connected accounts', { presentation });
     this.breadcrumb.trackUserAction('connected-accounts-open', { presentation });
@@ -160,7 +166,7 @@ export class ConnectedAccountsModalService {
       presentation,
     });
 
-    if (this.shouldUseBottomSheet()) {
+    if (useBottomSheet) {
       return this.openBottomSheet(enrichedOptions);
     }
 
@@ -424,12 +430,16 @@ export class ConnectedAccountsModalService {
   // ============================================
 
   /** Same logic as EditProfileModalService — consistent platform detection. */
-  private shouldUseBottomSheet(): boolean {
+  private shouldUseBottomSheet(options: ConnectedAccountsModalOptions): boolean {
     if (this.platform.isNative()) {
       return true;
     }
 
     if (!this.platform.isBrowser()) {
+      return false;
+    }
+
+    if (options.preferWebOverlayOnBrowser === true) {
       return false;
     }
 

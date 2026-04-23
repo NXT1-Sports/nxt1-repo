@@ -110,38 +110,17 @@ export class ScanTimelinePostsTool extends BaseTool {
     '- teamId (optional): Required when scope is "team" or "both".\n' +
     '- limit (optional): Number of recent posts to scan (1–50, default 20).';
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      userId: {
-        type: 'string',
-        description: 'Firebase UID of the user whose timeline to scan.',
-      },
-      scope: {
-        type: 'string',
-        enum: ['user', 'team', 'both'],
-        description:
-          'Which timeline(s) to scan. "user" scans only the user\'s own posts. ' +
-          '"team" scans the team feed (requires teamId). "both" scans both.',
-        default: 'user',
-      },
-      teamId: {
-        type: 'string',
-        description:
-          'Team ID to scope team-feed scanning. Required when scope is "team" or "both".',
-      },
-      limit: {
-        type: 'number',
-        minimum: 1,
-        maximum: MAX_POSTS,
-        description: `Number of recent posts to include (1–${MAX_POSTS}, default 20).`,
-      },
-    },
-    required: ['userId'],
-  } as const;
+  readonly parameters = z.object({
+    userId: z.string().trim().min(1),
+    scope: z.enum(['user', 'team', 'both']).optional(),
+    teamId: z.string().trim().min(1).optional(),
+    limit: z.number().int().min(1).max(MAX_POSTS).optional(),
+  });
 
   readonly isMutation = true;
   readonly category: AgentToolCategory = 'communication';
+
+  readonly entityGroup = 'user_tools' as const;
 
   override readonly allowedAgents: readonly (AgentIdentifier | '*')[] = [
     'data_coordinator',

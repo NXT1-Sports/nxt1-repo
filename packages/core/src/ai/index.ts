@@ -100,10 +100,6 @@ export {
   AGENT_X_CONFIG,
   AGENT_X_MODES,
   AGENT_X_DEFAULT_MODE,
-  ATHLETE_QUICK_TASKS,
-  COACH_QUICK_TASKS,
-  COLLEGE_QUICK_TASKS,
-  ALL_QUICK_TASKS,
   AGENT_X_ENDPOINTS,
   AGENT_X_RATE_LIMITS,
   AGENT_X_CACHE_KEYS,
@@ -114,11 +110,6 @@ export {
   AGENT_X_MAX_FILE_SIZE,
   AGENT_X_MAX_VIDEO_FILE_SIZE,
   resolveAttachmentType,
-  // Role-specific shell content
-  ATHLETE_COORDINATORS,
-  TEAM_COORDINATORS,
-  RECRUITER_COORDINATORS,
-  getShellContentForRole,
 } from './agent-x.constants';
 
 // Content types (mode-specific)
@@ -222,6 +213,8 @@ export type {
   AgentDescriptor,
   AgentToolDefinition,
   AgentToolCategory,
+  AgentToolEntityGroup,
+  AgentToolAccessContext,
   AgentToolCallRecord,
   AgentMemoryTarget,
   AgentMemoryEntry,
@@ -280,6 +273,8 @@ export type {
 // Agentic constants
 export {
   AGENT_DESCRIPTORS,
+  COORDINATOR_AGENT_IDS,
+  COORDINATOR_DESCRIPTORS,
   MODEL_ROUTING_DEFAULTS,
   GUARDRAIL_DESCRIPTORS,
   AGENT_JOB_CONFIG,

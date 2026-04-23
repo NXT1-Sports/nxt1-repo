@@ -39,6 +39,7 @@ export class ImportVideoTool extends BaseTool {
   readonly isMutation = true;
   readonly category = 'media' as const;
 
+  readonly entityGroup = 'user_tools' as const;
   private readonly bridge: CloudflareMcpBridgeService;
 
   constructor(bridge: CloudflareMcpBridgeService) {

@@ -39,6 +39,7 @@ export class WriteIntelTool extends BaseTool {
   readonly isMutation = true;
   readonly category = 'database' as const;
 
+  readonly entityGroup = 'platform_tools' as const;
   constructor(private readonly db: Firestore = getFirestore()) {
     super();
   }

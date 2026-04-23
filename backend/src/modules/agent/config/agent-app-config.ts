@@ -27,9 +27,13 @@
 
 import {
   AGENT_DESCRIPTORS,
+  COORDINATOR_AGENT_IDS,
+  normalizeRole,
   type AgentDescriptor,
   type AgentIdentifier,
   type ModelTier,
+  type ShellCommandCategory,
+  type ShellActionChip,
 } from '@nxt1/core';
 import type { Firestore } from 'firebase-admin/firestore';
 import { z } from 'zod';
@@ -96,16 +100,102 @@ const sportAliasesSchema = z.record(z.string(), z.string().min(1));
 const sportSeasonsSchema = z.record(z.string(), z.array(seasonInfoSchema).length(12));
 const modelCatalogueSchema = z.record(z.string(), z.string().min(1));
 const modelFallbackChainSchema = z.record(z.string(), z.array(z.string().min(1)));
-const coordinatorIds = [
-  'admin_coordinator',
-  'brand_coordinator',
-  'data_coordinator',
-  'strategy_coordinator',
-  'recruiting_coordinator',
-  'performance_coordinator',
-] as const;
+const coordinatorIds = COORDINATOR_AGENT_IDS;
 
 type CoordinatorIdentifier = (typeof coordinatorIds)[number];
+
+const DASHBOARD_ATHLETE_ROLES = ['athlete'] as const;
+const DASHBOARD_TEAM_ROLES = ['coach', 'director'] as const;
+const DASHBOARD_ALL_ROLES = [...DASHBOARD_ATHLETE_ROLES, ...DASHBOARD_TEAM_ROLES] as const;
+
+function command(id: string, label: string, icon: string, subLabel?: string): ShellActionChip {
+  return {
+    id,
+    label,
+    icon,
+    ...(subLabel ? { subLabel } : {}),
+  };
+}
+
+export const DEFAULT_COORDINATOR_UI_CONFIG: Readonly<
+  Record<
+    CoordinatorIdentifier,
+    {
+      readonly availableForRoles: readonly string[];
+      readonly commands: readonly ShellActionChip[];
+      readonly scheduledActions: readonly ShellActionChip[];
+    }
+  >
+> = {
+  admin_coordinator: {
+    availableForRoles: DASHBOARD_ALL_ROLES,
+    commands: [
+      command('admin-compliance', 'Compliance Check', 'shieldCheck', 'NCAA and policy checks'),
+      command('admin-eligibility', 'Eligibility Review', 'clipboard', 'Verify eligibility status'),
+      command('admin-schedule', 'Scheduling Plan', 'calendar', 'Build practice and visit timing'),
+    ],
+    scheduledActions: [
+      command('admin-weekly-compliance', 'Weekly Compliance Audit', 'shieldCheck'),
+    ],
+  },
+  brand_coordinator: {
+    availableForRoles: DASHBOARD_ALL_ROLES,
+    commands: [
+      command('brand-post', 'Create Brand Post', 'sparkles', 'Generate social-ready creative'),
+      command(
+        'brand-highlight',
+        'Build Highlight Concept',
+        'videocam',
+        'Storyboard your next reel'
+      ),
+      command('brand-campaign', 'Launch Campaign Plan', 'rocket', 'Plan content by timeline'),
+    ],
+    scheduledActions: [command('brand-weekly-content', 'Weekly Content Plan', 'calendar')],
+  },
+  data_coordinator: {
+    availableForRoles: DASHBOARD_ALL_ROLES,
+    commands: [
+      command('data-sync', 'Sync External Profiles', 'sync', 'Refresh Hudl/MaxPreps style sources'),
+      command('data-import', 'Import Stats', 'analytics', 'Parse and normalize stat data'),
+      command('data-clean', 'Clean Data Gaps', 'server', 'Resolve missing fields quickly'),
+    ],
+    scheduledActions: [command('data-weekly-sync', 'Weekly Data Sync', 'sync')],
+  },
+  strategy_coordinator: {
+    availableForRoles: DASHBOARD_ALL_ROLES,
+    commands: [
+      command('strategy-priority', 'Priority Plan', 'compass', "Set this week's top moves"),
+      command('strategy-goals', 'Goal Breakdown', 'list', 'Turn goals into executable steps'),
+      command('strategy-qa', 'Ask Agent X', 'chatbubble', 'Get strategic guidance'),
+    ],
+    scheduledActions: [command('strategy-weekly-brief', 'Weekly Strategy Brief', 'calendar')],
+  },
+  recruiting_coordinator: {
+    availableForRoles: DASHBOARD_ALL_ROLES,
+    commands: [
+      command('recruiting-targets', 'Build Target List', 'search', 'Match schools by fit'),
+      command('recruiting-email', 'Draft Coach Outreach', 'mail', 'Generate personalized email'),
+      command('recruiting-followup', 'Follow-Up Sequence', 'send', 'Plan next outreach steps'),
+    ],
+    scheduledActions: [command('recruiting-weekly-outreach', 'Weekly Outreach', 'mail')],
+  },
+  performance_coordinator: {
+    availableForRoles: DASHBOARD_ALL_ROLES,
+    commands: [
+      command('performance-intel', 'Generate Intel Report', 'pulse', 'Write athlete/team intel'),
+      command('performance-film', 'Film Breakdown', 'videocam', 'Analyze clips for insights'),
+      command(
+        'performance-compare',
+        'Prospect Comparison',
+        'gitCompare',
+        'Stack players by metrics'
+      ),
+    ],
+    scheduledActions: [
+      command('performance-weekly-review', 'Weekly Performance Review', 'analytics'),
+    ],
+  },
+};
 
 const coordinatorDescriptorSchema = z.object({
   id: z.enum(coordinatorIds),
@@ -113,6 +203,27 @@ const coordinatorDescriptorSchema = z.object({
   description: z.string().min(1),
   icon: z.string().min(1).optional(),
   capabilities: z.array(z.string().min(1)).default([]),
+  availableForRoles: z.array(z.string().trim().min(1)).default([]),
+  commands: z
+    .array(
+      z.object({
+        id: z.string().trim().min(1),
+        label: z.string().trim().min(1),
+        subLabel: z.string().trim().min(1).optional(),
+        icon: z.string().trim().min(1),
+      })
+    )
+    .default([]),
+  scheduledActions: z
+    .array(
+      z.object({
+        id: z.string().trim().min(1),
+        label: z.string().trim().min(1),
+        subLabel: z.string().trim().min(1).optional(),
+        icon: z.string().trim().min(1),
+      })
+    )
+    .default([]),
 });
 
 const operationalLimitsSchema = z
@@ -167,11 +278,15 @@ const featureFlagsSchema = z
     disabledTools: z.array(z.string().trim().min(1)).default([]),
     disableImageGeneration: z.boolean().default(false),
     disableEmailSending: z.boolean().default(false),
+    strictZodToolSchemas: z.boolean().default(false),
+    strictEntityToolGovernance: z.boolean().default(false),
   })
   .default({
     disabledTools: [],
     disableImageGeneration: false,
     disableEmailSending: false,
+    strictZodToolSchemas: false,
+    strictEntityToolGovernance: false,
   });
 
 const coordinatorsSchema = z.array(coordinatorDescriptorSchema).default([]);
@@ -189,6 +304,8 @@ export const agentAppConfigSchema = z
   })
   .transform((data) => {
     return {
+      schemaVersion: data.schemaVersion,
+      updatedAt: data.updatedAt,
       operationalLimits: operationalLimitsSchema.parse(data.operationalLimits ?? {}),
       domainKnowledge: domainKnowledgeSchema.parse(data.domainKnowledge ?? {}),
       modelRouting: modelRoutingSchema.parse(data.modelRouting ?? {}),
@@ -225,12 +342,20 @@ export interface AgentDomainKnowledgeConfig {
 }
 
 export interface AgentAppConfig {
+  readonly schemaVersion?: number;
+  readonly updatedAt?: string;
   readonly operationalLimits: AgentRunConfig;
   readonly domainKnowledge: AgentDomainKnowledgeConfig;
   readonly modelRouting: AgentModelRoutingConfig;
   readonly prompts: AgentPromptConfig;
   readonly featureFlags: AgentFeatureFlagsConfig;
-  readonly coordinators: readonly AgentDescriptor[];
+  readonly coordinators: readonly ConfiguredCoordinatorDescriptor[];
+}
+
+export interface ConfiguredCoordinatorDescriptor extends AgentDescriptor {
+  readonly availableForRoles: readonly string[];
+  readonly commands: readonly ShellActionChip[];
+  readonly scheduledActions: readonly ShellActionChip[];
 }
 
 export interface AgentModelRoutingConfig {
@@ -247,11 +372,30 @@ export interface AgentFeatureFlagsConfig {
   readonly disabledTools: readonly string[];
   readonly disableImageGeneration: boolean;
   readonly disableEmailSending: boolean;
+  readonly strictZodToolSchemas: boolean;
+  readonly strictEntityToolGovernance: boolean;
 }
 
-const DEFAULT_COORDINATOR_DESCRIPTORS = coordinatorIds.map(
-  (id) => AGENT_DESCRIPTORS[id as AgentIdentifier]
-) as readonly AgentDescriptor[];
+const DEFAULT_COORDINATOR_DESCRIPTORS = coordinatorIds.map((id) => {
+  const descriptor = AGENT_DESCRIPTORS[id as AgentIdentifier];
+  const ui = DEFAULT_COORDINATOR_UI_CONFIG[id];
+  return {
+    ...descriptor,
+    availableForRoles: Object.freeze([...ui.availableForRoles]),
+    commands: Object.freeze([...ui.commands]),
+    scheduledActions: Object.freeze([...ui.scheduledActions]),
+  };
+}) as readonly ConfiguredCoordinatorDescriptor[];
+
+const DEFAULT_COORDINATOR_DESCRIPTOR_MAP = new Map<
+  CoordinatorIdentifier,
+  ConfiguredCoordinatorDescriptor
+>(
+  DEFAULT_COORDINATOR_DESCRIPTORS.map((descriptor) => [
+    descriptor.id as CoordinatorIdentifier,
+    descriptor,
+  ])
+);
 
 /** Built-in defaults used when the Firestore doc is absent or a field is invalid. */
 export const DEFAULT_AGENT_RUN_CONFIG: AgentRunConfig = {
@@ -283,6 +427,7 @@ const post = (focus?: string): AgentSeasonInfo => ({
 });
 
 export const DEFAULT_AGENT_APP_CONFIG: AgentAppConfig = {
+  schemaVersion: 1,
   operationalLimits: DEFAULT_AGENT_RUN_CONFIG,
   domainKnowledge: {
     rolePersonas: FALLBACK_ROLE_PERSONAS,
@@ -567,6 +712,8 @@ export const DEFAULT_AGENT_APP_CONFIG: AgentAppConfig = {
     disabledTools: [],
     disableImageGeneration: false,
     disableEmailSending: false,
+    strictZodToolSchemas: false,
+    strictEntityToolGovernance: false,
   },
   coordinators: DEFAULT_COORDINATOR_DESCRIPTORS,
 };
@@ -601,9 +748,10 @@ export function parseAgentAppConfig(
   const modelRouting = parsed.data.modelRouting;
   const prompts = parsed.data.prompts;
   const featureFlags = parsed.data.featureFlags;
-  const configuredCoordinatorMap = new Map<CoordinatorIdentifier, AgentDescriptor>(
-    parsed.data.coordinators.map((descriptor) => [descriptor.id, descriptor as AgentDescriptor])
-  );
+  const configuredCoordinatorMap = new Map<
+    CoordinatorIdentifier,
+    z.infer<typeof coordinatorDescriptorSchema>
+  >(parsed.data.coordinators.map((descriptor) => [descriptor.id, descriptor]));
 
   const mergedModelCatalogue = Object.freeze(
     MODEL_TIER_KEYS.reduce<Record<ModelTier, string>>(
@@ -633,6 +781,8 @@ export function parseAgentAppConfig(
   );
 
   return {
+    schemaVersion: parsed.data.schemaVersion,
+    updatedAt: parsed.data.updatedAt,
     operationalLimits,
     domainKnowledge: {
       rolePersonas:
@@ -678,16 +828,41 @@ export function parseAgentAppConfig(
       ),
       disableImageGeneration: featureFlags.disableImageGeneration,
       disableEmailSending: featureFlags.disableEmailSending,
+      strictZodToolSchemas: featureFlags.strictZodToolSchemas,
+      strictEntityToolGovernance: featureFlags.strictEntityToolGovernance,
     },
-    coordinators: coordinatorIds.map((id) => {
+    coordinators: coordinatorIds.map((id): ConfiguredCoordinatorDescriptor => {
       const configured = configuredCoordinatorMap.get(id);
-      const fallback = AGENT_DESCRIPTORS[id as AgentIdentifier];
+      const fallback =
+        DEFAULT_COORDINATOR_DESCRIPTOR_MAP.get(id) ??
+        ({
+          ...AGENT_DESCRIPTORS[id as AgentIdentifier],
+          availableForRoles: [] as const,
+          commands: [] as const,
+          scheduledActions: [] as const,
+        } as ConfiguredCoordinatorDescriptor);
       return configured
         ? {
             ...fallback,
             ...configured,
             capabilities:
               configured.capabilities.length > 0 ? configured.capabilities : fallback.capabilities,
+            availableForRoles: (() => {
+              const normalizedRoles = configured.availableForRoles
+                .map((rawRole) => rawRole.trim().toLowerCase())
+                .filter((rawRole) => rawRole.length > 0);
+              return normalizedRoles.length > 0
+                ? Object.freeze(normalizedRoles)
+                : fallback.availableForRoles;
+            })(),
+            commands:
+              configured.commands.length > 0
+                ? Object.freeze(configured.commands)
+                : fallback.commands,
+            scheduledActions:
+              configured.scheduledActions.length > 0
+                ? Object.freeze(configured.scheduledActions)
+                : fallback.scheduledActions,
           }
         : fallback;
     }),
@@ -798,10 +973,49 @@ export function isToolDisabled(
   return false;
 }
 
+export function isStrictZodToolSchemasEnabled(
+  config: AgentAppConfig = getCachedAgentAppConfig()
+): boolean {
+  return config.featureFlags.strictZodToolSchemas;
+}
+
+export function isStrictEntityToolGovernanceEnabled(
+  config: AgentAppConfig = getCachedAgentAppConfig()
+): boolean {
+  return config.featureFlags.strictEntityToolGovernance;
+}
+
 export function getConfiguredCoordinatorDescriptors(
   config: AgentAppConfig = getCachedAgentAppConfig()
-): readonly AgentDescriptor[] {
+): readonly ConfiguredCoordinatorDescriptor[] {
   return config.coordinators;
+}
+
+export function resolveConfiguredCoordinatorsForRole(
+  role: string,
+  config: AgentAppConfig = getCachedAgentAppConfig()
+): readonly ShellCommandCategory[] {
+  const normalizedRole = normalizeRole(role);
+
+  return config.coordinators
+    .filter((coordinator) => {
+      if (coordinator.availableForRoles.length === 0) {
+        return true;
+      }
+
+      const availableRoles = coordinator.availableForRoles.map((entry) =>
+        entry.toLowerCase().trim()
+      );
+      return availableRoles.includes(role.toLowerCase()) || availableRoles.includes(normalizedRole);
+    })
+    .map((coordinator) => ({
+      id: coordinator.id,
+      label: coordinator.name,
+      icon: coordinator.icon ?? 'sparkles',
+      description: coordinator.description,
+      commands: coordinator.commands,
+      scheduledActions: coordinator.scheduledActions,
+    }));
 }
 
 // ─── Reader ──────────────────────────────────────────────────────────────────

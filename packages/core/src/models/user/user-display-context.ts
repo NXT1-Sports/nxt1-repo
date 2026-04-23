@@ -263,12 +263,7 @@ function buildTeamContext(user: UserDisplayInput, personalName: string): UserDis
   const activeTeam = activeSport?.team;
   // Account for varied payloads where team name could be `name` or `teamName`
   const teamName = activeTeam?.name?.trim() || (activeTeam as any)?.teamName?.trim();
-  const hasCanonicalTeamReference = !!(
-    activeTeam?.teamId?.trim() ||
-    activeTeam?.organizationId?.trim() ||
-    activeTeam?.id?.trim() ||
-    activeTeam?.slug?.trim()
-  );
+  const hasCanonicalTeamReference = !!(activeTeam?.teamCode?.trim() || activeTeam?.code?.trim());
   const hasTeamAssociation = !!(teamName || hasCanonicalTeamReference);
   const resolvedTeamRoute = resolveCanonicalTeamRoute({
     slug: activeTeam?.slug?.trim(),
@@ -352,7 +347,7 @@ function buildTeamContext(user: UserDisplayInput, personalName: string): UserDis
     profileRoute:
       (hasCanonicalTeamReference || !!teamName) && resolvedTeamRoute?.path
         ? resolvedTeamRoute.path
-        : '/team',
+        : '/profile',
   };
 }
 

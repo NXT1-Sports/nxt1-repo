@@ -30,6 +30,8 @@ export interface TeamCodeSocialLinks {
 export interface TeamCodeContactInfo {
   email: string;
   phone?: string | null;
+  website?: string | null;
+  address?: string | null;
 }
 
 // ============================================
@@ -265,6 +267,7 @@ export interface UpdateTeamCodeInput {
   season?: string;
   logoUrl?: string;
   galleryImages?: readonly string[];
+  connectedSources?: readonly ConnectedSource[];
   primaryColor?: string;
   secondaryColor?: string;
   accentColor?: string;

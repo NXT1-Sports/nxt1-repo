@@ -55,6 +55,7 @@ type CachedRosterUserDataUpdate = {
   firstName?: string | null;
   lastName?: string | null;
   displayName?: string | null;
+  unicode?: string | null;
   email?: string | null;
   phoneNumber?: string | null;
   profileImgs?: string[] | null;
@@ -193,6 +194,9 @@ function buildCachedRosterUserDataFromUserProfile(
     firstName: firstName ?? '',
     lastName: lastName ?? '',
     displayName: displayName ?? '',
+    unicode:
+      normalizeCachedNamePart(typeof userData['unicode'] === 'string' ? userData['unicode'] : '') ??
+      '',
     email: email ?? '',
     phoneNumber: phoneNumber ?? '',
     profileImgs: Array.isArray(userData['profileImgs'])
@@ -281,6 +285,13 @@ function docToRosterEntry(doc: FirebaseFirestore.DocumentSnapshot): RosterEntry 
       firstName: typeof data['firstName'] === 'string' ? data['firstName'] : undefined,
       lastName: typeof data['lastName'] === 'string' ? data['lastName'] : undefined,
     }),
+    unicode: typeof data['unicode'] === 'string' ? data['unicode'] : undefined,
+    profileCode:
+      typeof data['profileCode'] === 'string'
+        ? data['profileCode']
+        : typeof data['unicode'] === 'string'
+          ? data['unicode']
+          : undefined,
     profileImgs: Array.isArray(data['profileImgs'])
       ? (data['profileImgs'] as string[])
       : typeof data['profileImg'] === 'string' && data['profileImg'].trim().length > 0
@@ -364,6 +375,8 @@ export class RosterEntryService {
       firstName: input.firstName ?? '',
       lastName: input.lastName ?? '',
       displayName: normalizedDisplayName ?? '',
+      unicode: input.unicode,
+      profileCode: input.profileCode ?? input.unicode,
       email: input.email ?? '',
       phoneNumber: input.phoneNumber ?? '',
     };
@@ -418,6 +431,11 @@ export class RosterEntryService {
         firstName: (entryData['firstName'] as string) ?? '',
         lastName: (entryData['lastName'] as string) ?? '',
         displayName: (entryData['displayName'] as string) ?? '',
+        unicode: (entryData['unicode'] as string) ?? '',
+        profileCode:
+          (entryData['profileCode'] as string | undefined) ??
+          (entryData['unicode'] as string | undefined) ??
+          '',
         email: (entryData['email'] as string) ?? '',
         phoneNumber: (entryData['phoneNumber'] as string) ?? '',
         profileImgs: (entryData['profileImgs'] as string[] | undefined) ?? [],
@@ -623,7 +641,9 @@ export class RosterEntryService {
   }
 
   /**
-   * Approve roster entry (pending -> active)
+   * Approve roster entry (pending -> active).
+   * Bidirectional sync: sets sports[n].team on the user doc so the
+   * user's profile reflects their team affiliation.
    */
   async approveRosterEntry(input: ApproveRosterEntryInput): Promise<RosterEntry> {
     logger.info('[RosterEntryService] Approving roster entry', {
@@ -639,13 +659,19 @@ export class RosterEntryService {
     });
 
     const entry = await this.getRosterEntryById(input.entryId);
+
+    // Bidirectional sync — set sports[n].team on user doc
+    await this.syncUserSportTeamField(entry.userId, entry.sport, entry.teamId);
+
     await this.invalidateCaches(entry.userId, entry.teamId, entry.organizationId, input.entryId);
 
     return entry;
   }
 
   /**
-   * Remove user from team (soft delete)
+   * Remove user from team (soft delete).
+   * Bidirectional sync: clears sports[n].team on the user doc for the
+   * matching sport so the user's profile reflects they are no longer on the team.
    */
   async removeFromTeam(entryId: string): Promise<void> {
     logger.info('[RosterEntryService] Removing from team', { entryId });
@@ -657,6 +683,9 @@ export class RosterEntryService {
       leftAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
     });
+
+    // Bidirectional sync — clear sports[n].team on user doc
+    await this.syncUserSportTeamField(entry.userId, entry.sport, null);
 
     await this.invalidateCaches(entry.userId, entry.teamId, entry.organizationId, entryId);
   }
@@ -689,6 +718,10 @@ export class RosterEntryService {
           lastName:
             typeof cachedUserData.lastName === 'string' ? cachedUserData.lastName : undefined,
         }) ?? '';
+    }
+    if ('unicode' in cachedUserData) {
+      updateData['unicode'] = cachedUserData.unicode ?? '';
+      updateData['profileCode'] = cachedUserData.unicode ?? '';
     }
     if ('email' in cachedUserData) updateData['email'] = cachedUserData.email ?? '';
     if ('phoneNumber' in cachedUserData) {
@@ -885,6 +918,80 @@ export class RosterEntryService {
     if (role === 'athlete') {
       await this.syncAthleteSportProfiles(userId, readSportProfiles(userData), {
         clearMissing: true,
+      });
+    }
+  }
+
+  /**
+   * Sync sports[n].team on the user document for a specific sport.
+   *
+   * - Pass teamId to set the team (join / approve)
+   * - Pass null to clear the team (remove / leave)
+   *
+   * Skips silently if the user doc or sports array cannot be found, so
+   * a missing user doc never blocks a membership mutation.
+   */
+  private async syncUserSportTeamField(
+    userId: string,
+    sport: string | undefined,
+    teamId: string | null
+  ): Promise<void> {
+    if (!userId || !sport) return;
+
+    try {
+      const userRef = this.db.collection('Users').doc(userId);
+      const userSnap = await userRef.get();
+      if (!userSnap.exists) return;
+
+      const userData = userSnap.data() as Record<string, unknown>;
+      const sports = Array.isArray(userData['sports'])
+        ? (userData['sports'] as Record<string, unknown>[])
+        : [];
+
+      if (sports.length === 0) return;
+
+      const normalizedSport = sport.trim().toLowerCase();
+      let matchedIndex = -1;
+      for (let i = 0; i < sports.length; i++) {
+        const s = sports[i];
+        const sportName = typeof s['sport'] === 'string' ? s['sport'].trim().toLowerCase() : '';
+        if (sportName === normalizedSport) {
+          matchedIndex = i;
+          break;
+        }
+      }
+
+      if (matchedIndex === -1) return;
+
+      // Firestore does not support partial array element updates directly —
+      // we overwrite the full array with the one field changed.
+      const updatedSports = sports.map((s, idx) => {
+        if (idx !== matchedIndex) return s;
+        if (teamId === null) {
+          const { team: _removed, ...rest } = s as Record<string, unknown> & { team?: unknown };
+          void _removed;
+          return rest;
+        }
+        return { ...s, team: { teamId } };
+      });
+
+      await userRef.update({
+        sports: updatedSports,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+
+      logger.info('[RosterEntryService] Synced sports[n].team on user doc', {
+        userId,
+        sport,
+        teamId,
+      });
+    } catch (err) {
+      // Non-fatal — membership mutation already succeeded; log and continue
+      logger.warn('[RosterEntryService] Failed to sync sports[n].team on user doc', {
+        userId,
+        sport,
+        teamId,
+        err,
       });
     }
   }

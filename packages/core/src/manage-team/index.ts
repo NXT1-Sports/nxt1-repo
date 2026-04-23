@@ -65,6 +65,13 @@ export type {
   ScheduleActionEvent,
   StaffActionEvent,
   SponsorActionEvent,
+  // Membership editor types
+  MembershipSourceKind,
+  MembershipKind,
+  MembershipEditorItem,
+  MembershipEditorListResponse,
+  UpdateMembershipRequest,
+  MembershipEditorMode,
 } from './manage-team.types';
 
 // ============================================

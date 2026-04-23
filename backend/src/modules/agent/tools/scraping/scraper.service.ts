@@ -82,7 +82,7 @@
  *     { url: 'https://maxpreps.com/athlete/456' },
  *     { url: 'https://247sports.com/player/789' },
  *   ],
- *   { concurrency: 3, onProgress: (done, total) => console.log(`${done}/${total}`) },
+ *   { concurrency: 3, onItemSettled: (done, total) => console.log(`${done}/${total}`) },
  * );
  * ```
  */
@@ -101,6 +101,8 @@ import type { FirecrawlMcpBridgeService } from '../integrations/firecrawl/firecr
 import { validateUrl } from './url-validator.js';
 import { logger } from '../../../../utils/logger.js';
 import { parallelBatch } from '../../../agent/utils/parallel-batch.js';
+import type { BatchResult } from '../../../agent/utils/parallel-batch.js';
+import { AgentEngineError } from '../../../agent/exceptions/agent-engine.error.js';
 
 // ─── Service ────────────────────────────────────────────────────────────────
 
@@ -179,8 +181,12 @@ export class ScraperService {
       };
     }
 
-    throw new Error(
-      `Failed to scrape URL: ${sanitizedUrl}. Both Firecrawl and native fetch failed.`
+    throw new AgentEngineError(
+      'FIRECRAWL_REQUEST_FAILED',
+      `Failed to scrape URL: ${sanitizedUrl}. Both Firecrawl and native fetch failed.`,
+      {
+        metadata: { url: sanitizedUrl },
+      }
     );
   }
 
@@ -214,7 +220,8 @@ export class ScraperService {
     const sanitizedUrl = this.validateUrl(url);
 
     if (!this.mcpBridge) {
-      throw new Error(
+      throw new AgentEngineError(
+        'FIRECRAWL_CONFIG_MISSING_API_KEY',
         'scrapeWithSchema requires Firecrawl MCP bridge (FIRECRAWL_API_KEY must be configured)'
       );
     }
@@ -251,13 +258,16 @@ export class ScraperService {
       /** Max concurrent scrapes (default: 5). Higher values burn through Firecrawl credits faster. */
       readonly concurrency?: number;
       /** Called after each URL completes. `completed` and `total` are counts. */
-      readonly onProgress?: (completed: number, total: number, url: string) => void;
+      readonly onItemSettled?: (completed: number, total: number, url: string) => void;
     }
   ): Promise<ScrapeManyResult[]> {
-    const batchResults = await parallelBatch(requests, (req) => this.scrape(req), {
+    const batchResults: BatchResult<ScrapeResult>[] = await parallelBatch<
+      ScrapeRequest,
+      ScrapeResult
+    >(requests, (req) => this.scrape(req), {
       concurrency: options?.concurrency ?? 5,
-      onProgress: options?.onProgress
-        ? (completed, total, idx) => options.onProgress!(completed, total, requests[idx].url)
+      onItemSettled: options?.onItemSettled
+        ? (completed, total, idx) => options.onItemSettled!(completed, total, requests[idx].url)
         : undefined,
     });
 
@@ -287,7 +297,7 @@ export class ScraperService {
     urls: readonly string[],
     options?: {
       readonly concurrency?: number;
-      readonly onProgress?: (completed: number, total: number, url: string) => void;
+      readonly onItemSettled?: (completed: number, total: number, url: string) => void;
     }
   ): Promise<CacheWarmResult> {
     if (!this.mcpBridge) {
@@ -315,8 +325,8 @@ export class ScraperService {
       },
       {
         concurrency,
-        onProgress: (completed) => {
-          options?.onProgress?.(completed, total, batch[completed - 1] ?? '');
+        onItemSettled: (completed, _total, idx) => {
+          options?.onItemSettled?.(completed, total, batch[idx] ?? '');
         },
       }
     );

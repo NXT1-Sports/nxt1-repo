@@ -30,6 +30,8 @@ import { getStorage } from 'firebase-admin/storage';
 import { createHash } from 'node:crypto';
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
 import { ExportService, type ExportColumn, type ExportRow } from '../../services/export.service.js';
+import { AgentEngineError } from '../../exceptions/agent-engine.error.js';
+import { z } from 'zod';
 
 export class DynamicExportTool extends BaseTool {
   readonly name = 'dynamic_export';
@@ -44,74 +46,28 @@ export class DynamicExportTool extends BaseTool {
     'comparison tables, analytics summaries, team rosters, film breakdowns, budgets, ' +
     'schedules, or literally anything the user asks for.';
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      format: {
-        type: 'string',
-        enum: ['pdf', 'csv'],
-        description:
-          'Output file format. Use "csv" for tabular/spreadsheet data (opens in Excel/Sheets). ' +
-          'Use "pdf" for formatted reports with headings, paragraphs, and tables.',
-      },
-      fileName: {
-        type: 'string',
-        description:
-          'Human-readable file name without extension (e.g. "Top 50 QB Prospects Texas 2026"). ' +
-          'The correct extension (.pdf or .csv) is appended automatically.',
-      },
-      title: {
-        type: 'string',
-        description: 'Document title (rendered as the main heading in PDFs, ignored for CSVs).',
-      },
-      description: {
-        type: 'string',
-        description: 'Optional subtitle or summary paragraph below the PDF title.',
-      },
-      columns: {
-        type: 'array',
-        items: {
-          type: 'object',
-          properties: {
-            key: { type: 'string', description: 'Unique column identifier.' },
-            label: { type: 'string', description: 'Human-readable column header.' },
-          },
-          required: ['key', 'label'],
-        },
-        description:
-          'Column definitions for tabular data. Required for CSV exports. ' +
-          'For PDFs, include columns only if the document contains a data table.',
-      },
-      rows: {
-        type: 'array',
-        items: {
-          type: 'array',
-          items: { type: ['string', 'number', 'boolean', 'null'] },
-        },
-        description:
-          'Row data — each inner array must match column order. ' +
-          'For CSV: this is the entire spreadsheet body. ' +
-          'For PDF: this populates the embedded data table.',
-      },
-      bodyParagraphs: {
-        type: 'array',
-        items: { type: 'string' },
-        description:
-          'Free-form paragraphs rendered in the PDF body above the table. ' +
-          'Use for executive summaries, analysis narrative, recommendations, etc.',
-      },
-      bulletPoints: {
-        type: 'array',
-        items: { type: 'string' },
-        description: 'Bullet-point list rendered in the PDF body.',
-      },
-    },
-    required: ['format', 'fileName'],
-  } as const;
+  readonly parameters = z.object({
+    format: z.enum(['pdf', 'csv']),
+    fileName: z.string().trim().min(1),
+    title: z.string().trim().min(1).optional(),
+    description: z.string().trim().min(1).optional(),
+    columns: z
+      .array(
+        z.object({
+          key: z.string().trim().min(1),
+          label: z.string().trim().min(1),
+        })
+      )
+      .optional(),
+    rows: z.array(z.array(z.union([z.string(), z.number(), z.boolean(), z.null()]))).optional(),
+    bodyParagraphs: z.array(z.string()).optional(),
+    bulletPoints: z.array(z.string()).optional(),
+  });
 
   readonly isMutation = true;
   readonly category = 'data' as const;
 
+  readonly entityGroup = 'platform_tools' as const;
   /** All agents can generate exports. */
   override readonly allowedAgents = ['*'] as const;
 
@@ -225,7 +181,10 @@ export class DynamicExportTool extends BaseTool {
 
       // Thread-scoped path (auto-cleanup on thread deletion). threadId required.
       if (!threadId) {
-        throw new Error('Export cannot be saved — no threadId in context');
+        throw new AgentEngineError(
+          'AGENT_VALIDATION_FAILED',
+          'Export cannot be saved — no threadId in context'
+        );
       }
       const storagePath = `Users/${userId}/threads/${threadId}/exports/${timestamp}-${hash}.${extension}`;
 

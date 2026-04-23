@@ -23,6 +23,7 @@ export class ListNxt1DataViewsTool extends BaseTool {
   readonly isMutation = false;
   readonly category = 'database' as const;
 
+  readonly entityGroup = 'platform_tools' as const;
   constructor(private readonly bridge: FirebaseMcpBridgeService) {
     super();
   }

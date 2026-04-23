@@ -9,9 +9,14 @@ export { weeklyCleanup } from './weeklyCleanup';
 
 // DISABLED: orgs are now on a pre-paid wallet model — no end-of-month invoicing needed.
 // export { monthlyOrgInvoice } from './monthlyOrgInvoice';
-// Pulse news system: dispatcher (scheduler) + worker (task queue)
-export { pulseDispatcher, pulseWorker } from './dailyPulseUpdates';
+// Pulse news system: scheduler DISABLED, keep worker export for manual/task-driven execution.
+export { pulseWorker } from './dailyPulseUpdates';
+export { dailyBriefings } from './dailyBriefings';
+export { weeklyPlaybooks } from './weeklyPlaybooks';
+export { playbookNudge } from './playbookNudge';
+export { weeklyRecaps } from './weeklyRecaps';
 export { summarizeInactiveThreads } from './summarizeInactiveThreads';
+export { scanTimelinePosts } from './scanTimelinePosts';
 export { cleanupThreadMedia } from './cleanupThreadMedia';
 export { cleanupStaleAgentJobs } from './cleanupStaleAgentJobs';
 export { cleanupStaleWalletHolds } from './cleanupStaleWalletHolds';

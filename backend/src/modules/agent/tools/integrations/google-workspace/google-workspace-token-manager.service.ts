@@ -11,6 +11,7 @@ import { db as defaultDb, storage as defaultStorage } from '../../../../../utils
 import { stagingDb, stagingStorage } from '../../../../../utils/firebase-staging.js';
 import { logger } from '../../../../../utils/logger.js';
 import type { GoogleWorkspaceOAuthTokenDocument } from './shared.js';
+import { AgentEngineError } from '../../../exceptions/agent-engine.error.js';
 
 const GOOGLE_ACCESS_TOKEN_TTL_MS = 60 * 60 * 1_000;
 const GOOGLE_ACCESS_TOKEN_REFRESH_BUFFER_MS = 5 * 60 * 1_000;
@@ -81,7 +82,8 @@ export class GoogleWorkspaceTokenManagerService {
     const email = tokenDoc.email ?? '';
 
     if (!tokenDoc.accessToken && !tokenDoc.refreshToken) {
-      throw new Error(
+      throw new AgentEngineError(
+        'GOOGLE_WORKSPACE_AUTH_REQUIRED',
         'No Google Workspace token was found for this user. Reconnect Google in settings before using Google Workspace tools.'
       );
     }
@@ -115,7 +117,8 @@ export class GoogleWorkspaceTokenManagerService {
       return { accessToken: tokenDoc.accessToken, email };
     }
 
-    throw new Error(
+    throw new AgentEngineError(
+      'GOOGLE_WORKSPACE_AUTH_REQUIRED',
       'The connected Google Workspace access token has expired and no refresh token is available. Reconnect Google in settings to continue.'
     );
   }
@@ -191,7 +194,9 @@ export class GoogleWorkspaceTokenManagerService {
         fileName,
         error: err instanceof Error ? err.message : String(err),
       });
-      throw new Error(message, { cause: err });
+      throw new AgentEngineError('GOOGLE_WORKSPACE_REQUEST_FAILED', message, {
+        cause: err,
+      });
     }
   }
 
@@ -214,7 +219,8 @@ export class GoogleWorkspaceTokenManagerService {
 
     const legacySnapshot = await legacyRef.get();
     if (!legacySnapshot.exists) {
-      throw new Error(
+      throw new AgentEngineError(
+        'GOOGLE_WORKSPACE_AUTH_REQUIRED',
         'This user does not have Google Workspace connected yet. Ask them to connect Google in settings first.'
       );
     }
@@ -266,14 +272,16 @@ export class GoogleWorkspaceTokenManagerService {
   ): Promise<{ accessToken: string; grantedScopes?: string; lastRefreshedAt: string }> {
     const refreshToken = loaded.data.refreshToken;
     if (!refreshToken) {
-      throw new Error(
+      throw new AgentEngineError(
+        'GOOGLE_WORKSPACE_AUTH_REQUIRED',
         'Cannot refresh Google Workspace access because the refresh token is missing.'
       );
     }
 
     const credentials = resolveGoogleClientCredentials(environment);
     if (!credentials.clientId) {
-      throw new Error(
+      throw new AgentEngineError(
+        'GOOGLE_WORKSPACE_CONFIG_INVALID',
         'Google Workspace OAuth client credentials are not configured on the backend.'
       );
     }
@@ -295,7 +303,10 @@ export class GoogleWorkspaceTokenManagerService {
     const nextRefreshToken = data['refresh_token'];
     const nextScopes = data['scope'];
     if (typeof nextAccessToken !== 'string' || nextAccessToken.length === 0) {
-      throw new Error('Google did not return a valid access token during refresh.');
+      throw new AgentEngineError(
+        'GOOGLE_WORKSPACE_REQUEST_FAILED',
+        'Google did not return a valid access token during refresh.'
+      );
     }
 
     const now = new Date().toISOString();

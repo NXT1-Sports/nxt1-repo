@@ -35,15 +35,18 @@ import {
   signal,
   afterNextRender,
   effect,
-  viewChild,
   ElementRef,
+  PLATFORM_ID,
   EnvironmentInjector,
   runInInjectionContext,
+  OnInit,
+  OnDestroy,
 } from '@angular/core';
 import { Location } from '@angular/common';
 import { Router } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { IonContent } from '@ionic/angular/standalone';
+import { Capacitor } from '@capacitor/core';
 import { NxtPageHeaderComponent } from '../components/page-header';
 import { NxtRefresherComponent, type RefreshEvent } from '../components/refresh-container';
 import { NxtIconComponent } from '../components/icon';
@@ -51,11 +54,14 @@ import { AgentXService } from './agent-x.service';
 import { AgentXControlPanelComponent } from './agent-x-control-panel.component';
 import { AgentXInputBarComponent } from './agent-x-input-bar.component';
 import {
+  AgentXAttachmentsSheetComponent,
+  type ConnectedAppSource,
+} from './agent-x-attachments-sheet.component';
+import {
   AgentXControlPanelStateService,
   type AgentXControlPanelKind,
 } from './agent-x-control-panel-state.service';
 
-import { AGENT_X_ALLOWED_MIME_TYPES } from '@nxt1/core/ai';
 import {
   AgentXOperationChatComponent,
   type OperationQuickAction,
@@ -71,6 +77,10 @@ import { ActivityService } from '../activity/activity.service';
 import { buildLinkSourcesFormData, type OnboardingUserType } from '@nxt1/core';
 import type { LinkSourcesFormData } from '@nxt1/core/api';
 import type { ConnectedAccountsResyncSource } from '../components/connected-sources';
+import {
+  bindAgentXKeyboardOffset,
+  type AgentXKeyboardOffsetBinding,
+} from './agent-x-keyboard-offset.util';
 
 // ============================================
 // INTERFACES
@@ -163,7 +173,10 @@ export interface WeeklyPlaybookItem {
   template: `
     <!-- ═══ PAGE HEADER — Agent X Logo Centered ═══ -->
     @if (!hideHeader()) {
-      <nxt1-page-header (menuClick)="avatarClick.emit()">
+      <nxt1-page-header
+        [config]="{ variant: 'transparent', bordered: false }"
+        (menuClick)="avatarClick.emit()"
+      >
         <!-- Agent X Title in center title slot -->
         <div pageHeaderSlot="title" class="header-logo">
           <span class="header-title-text">Agent</span>
@@ -215,7 +228,7 @@ export interface WeeklyPlaybookItem {
 
       <div class="agent-x-container">
         @if (agentX.dashboardLoading() && !agentX.dashboardLoaded()) {
-          <nxt1-agent-x-dashboard-skeleton />
+          <nxt1-agent-x-dashboard-skeleton variant="mobile" />
         } @else if (agentX.dashboardError() && !agentX.dashboardLoaded()) {
           <div class="agent-error-container">
             <nxt1-state-view
@@ -279,7 +292,11 @@ export interface WeeklyPlaybookItem {
             </div>
 
             <div class="inline-goals">
-              <button type="button" class="inline-goals__manage-btn" (click)="onSetupGoals()">
+              <button
+                type="button"
+                class="inline-goals__manage-btn inline-goals__manage-btn--goals"
+                (click)="onSetupGoals()"
+              >
                 <nxt1-icon name="settings" [size]="14"></nxt1-icon>
                 <span>Manage Goals</span>
                 @if (agentX.goals().length > 0) {
@@ -288,24 +305,10 @@ export interface WeeklyPlaybookItem {
               </button>
               <button
                 type="button"
-                class="inline-goals__manage-btn"
+                class="inline-goals__manage-btn inline-goals__manage-btn--connected"
                 (click)="openConnectedAccounts()"
               >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  aria-hidden="true"
-                >
-                  <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-                  <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-                </svg>
+                <nxt1-icon name="link" [size]="14"></nxt1-icon>
                 <span>Connected Accounts</span>
               </button>
             </div>
@@ -537,29 +540,21 @@ export interface WeeklyPlaybookItem {
     </ion-content>
 
     <!-- ═══ FOOTER — Coordinators + Claude-style input box ═══ -->
-    <nxt1-agent-x-input-bar
-      [userMessage]="agentX.userMessage()"
-      [isLoading]="agentX.isLoading()"
-      [uploading]="agentX.uploading()"
-      [canSend]="agentX.canSend()"
-      [pendingFiles]="agentX.pendingFiles()"
-      [selectedTask]="agentX.selectedTask()?.title ?? null"
-      (messageChange)="onInputChange($event)"
-      (send)="onSendMessage()"
-      (toggleAttachments)="onToggleAttachments()"
-      (removeFile)="agentX.removeFile($event)"
-      (removeTask)="agentX.clearTask()"
-    />
-
-    <!-- Hidden file input -->
-    <input
-      #fileInput
-      class="file-input-hidden"
-      type="file"
-      [accept]="acceptedFileTypes"
-      multiple
-      (change)="onFileSelected($event)"
-    />
+    <div class="agent-x-shell-footer" role="group" aria-label="Agent input">
+      <nxt1-agent-x-input-bar
+        [userMessage]="agentX.userMessage()"
+        [isLoading]="agentX.isLoading()"
+        [uploading]="agentX.uploading()"
+        [canSend]="agentX.canSend()"
+        [pendingFiles]="agentX.pendingFiles()"
+        [selectedTask]="agentX.selectedTask()?.title ?? null"
+        (messageChange)="onInputChange($event)"
+        (send)="onSendMessage()"
+        (toggleAttachments)="onToggleAttachments()"
+        (removeFile)="agentX.removeFile($event)"
+        (removeTask)="agentX.clearTask()"
+      />
+    </div>
   `,
   styles: [
     `
@@ -568,6 +563,7 @@ export interface WeeklyPlaybookItem {
         flex-direction: column;
         height: 100%;
         width: 100%;
+        background: var(--nxt1-color-bg-primary, var(--ion-background-color, #0a0a0a));
 
         .file-input-hidden {
           position: absolute;
@@ -696,6 +692,23 @@ export interface WeeklyPlaybookItem {
 
       .agent-x-content {
         --background: var(--agent-bg);
+        flex: 1;
+        min-height: 0;
+      }
+
+      .agent-x-shell-footer {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 30;
+        background: transparent;
+        transform: translateY(calc(-1 * var(--agent-keyboard-offset, 0px)));
+        transition: transform 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+      }
+
+      :host-context(.keyboard-open) .agent-x-shell-footer {
+        transition-duration: 0.22s;
       }
 
       .agent-x-container {
@@ -1035,14 +1048,60 @@ export interface WeeklyPlaybookItem {
       .briefing-summary {
         width: 100%;
         font-size: 14px;
-        line-height: 1.5;
+        line-height: 1.55;
         color: var(--agent-text-secondary);
-        margin: 0 0 var(--nxt1-spacing-6, 24px);
+        margin: 0 0 var(--nxt1-spacing-2, 8px);
         display: -webkit-box;
         -webkit-line-clamp: 2;
         line-clamp: 2;
         -webkit-box-orient: vertical;
         overflow: hidden;
+      }
+
+      .briefing-content {
+        width: 100%;
+        margin-bottom: var(--nxt1-spacing-4, 16px);
+      }
+
+      .briefing-toggle {
+        background: transparent;
+        border: none;
+        padding: 0;
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--agent-primary);
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        font-family: inherit;
+      }
+
+      .briefing-list {
+        list-style: none;
+        padding: 0;
+        margin: 0 0 var(--nxt1-spacing-2, 8px);
+        width: 100%;
+      }
+
+      .briefing-list__item {
+        position: relative;
+        padding-left: var(--nxt1-spacing-4, 16px);
+        font-size: 14px;
+        line-height: 1.55;
+        color: var(--agent-text-secondary);
+        margin-bottom: var(--nxt1-spacing-2, 8px);
+      }
+
+      .briefing-list__item::before {
+        content: '';
+        position: absolute;
+        left: 0;
+        top: 8px;
+        width: 5px;
+        height: 5px;
+        border-radius: 50%;
+        background: var(--agent-primary);
       }
 
       .section-title {
@@ -1188,23 +1247,24 @@ export interface WeeklyPlaybookItem {
 
       .inline-goals {
         display: flex;
-        align-items: center;
-        gap: var(--nxt1-spacing-2, 8px);
+        align-items: stretch;
+        gap: var(--nxt1-spacing-2-5, 10px);
         margin-bottom: var(--nxt1-spacing-4, 16px);
       }
 
       .inline-goals__manage-btn {
         display: flex;
         align-items: center;
-        gap: var(--nxt1-spacing-2, 8px);
-        flex: 1;
+        justify-content: flex-start;
+        gap: 6px;
+        flex: 1 1 0;
         min-width: 0;
         white-space: nowrap;
         background: none;
         border: 1px solid var(--agent-border);
         border-radius: 10px;
-        padding: 10px 12px;
-        font-size: 13px;
+        padding: 10px 10px;
+        font-size: clamp(12px, 3.2vw, 13px);
         font-weight: 600;
         color: var(--agent-text-secondary);
         cursor: pointer;
@@ -1213,6 +1273,40 @@ export interface WeeklyPlaybookItem {
           color 0.15s ease,
           background 0.15s ease;
         font-family: inherit;
+      }
+
+      .inline-goals__manage-btn--connected {
+        flex: 1.12 1 0;
+        padding-inline: 10px;
+      }
+
+      .inline-goals__manage-btn--goals {
+        flex: 1.04 1 0;
+        justify-content: center;
+        gap: 10px;
+        padding-inline: 14px;
+      }
+
+      .inline-goals__manage-btn > nxt1-icon,
+      .inline-goals__manage-btn > svg {
+        flex-shrink: 0;
+      }
+
+      .inline-goals__manage-btn > span:not(.inline-goals__manage-count) {
+        min-width: 0;
+        white-space: nowrap;
+        line-height: 1.2;
+      }
+
+      @media (max-width: 360px) {
+        .inline-goals {
+          gap: 6px;
+        }
+
+        .inline-goals__manage-btn {
+          padding: 9px 8px;
+          font-size: 12px;
+        }
       }
 
       .inline-goals__manage-btn:active {
@@ -1670,7 +1764,7 @@ export interface WeeklyPlaybookItem {
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class AgentXShellComponent {
+export class AgentXShellComponent implements OnInit, OnDestroy {
   protected readonly agentX = inject(AgentXService);
   protected readonly controlPanelState = inject(AgentXControlPanelStateService);
   private readonly haptics = inject(HapticsService);
@@ -1680,6 +1774,10 @@ export class AgentXShellComponent {
   private readonly router = inject(Router);
   private readonly injector = inject(EnvironmentInjector);
   private readonly activityService = inject(ActivityService);
+  private readonly hostElement = inject(ElementRef<HTMLElement>);
+  private readonly platformId = inject(PLATFORM_ID);
+
+  private keyboardOffsetBinding?: AgentXKeyboardOffsetBinding;
 
   /** Unread activity count — drives the red dot on the bell icon. */
   protected readonly activityUnreadCount = computed(() => this.activityService.totalUnread());
@@ -1824,8 +1922,6 @@ export class AgentXShellComponent {
     afterNextRender(() => {
       this.agentX.startTitleAnimation();
       this.agentX.loadDashboard();
-
-      // Keyboard lift is now managed directly by the AgentXInputBarComponent.
     });
 
     effect(() => {
@@ -1846,6 +1942,22 @@ export class AgentXShellComponent {
         pending.threadId
       );
     });
+  }
+
+  async ngOnInit(): Promise<void> {
+    if (!Capacitor.isNativePlatform()) return;
+
+    this.keyboardOffsetBinding = await bindAgentXKeyboardOffset({
+      platformId: this.platformId,
+      hostElement: this.hostElement.nativeElement,
+      offsetCssVar: '--agent-keyboard-offset',
+      safeAreaCssVar: '--footer-safe-area',
+      keyboardOffsetTrimPx: 10,
+    });
+  }
+
+  ngOnDestroy(): void {
+    this.keyboardOffsetBinding?.teardown();
   }
 
   // ============================================
@@ -2138,33 +2250,34 @@ export class AgentXShellComponent {
     });
   }
 
-  /** Hidden file input reference for attachment picker. */
-  private readonly fileInput = viewChild<ElementRef<HTMLInputElement>>('fileInput');
-
-  /** Accepted MIME types for file attachments. */
-  protected readonly acceptedFileTypes = AGENT_X_ALLOWED_MIME_TYPES.join(',');
-
   /** Input change — update service and the keyboard-height CSS var is handled by the component. */
   protected onInputChange(value: string): void {
     this.agentX.setUserMessage(value);
   }
 
-  /** + button — open native file picker. */
+  /** + button — open attachments bottom sheet with file and source options. */
   protected async onToggleAttachments(): Promise<void> {
     await this.haptics.impact('light');
-    this.fileInput()?.nativeElement.click();
-  }
 
-  /**
-   * Handle file selection from native picker.
-   */
-  protected onFileSelected(event: Event): void {
-    const input = event.target as HTMLInputElement;
-    const files = Array.from(input.files ?? []);
-    if (files.length > 0) {
-      this.agentX.addFiles(files);
+    const result = await this.bottomSheet.openSheet({
+      component: AgentXAttachmentsSheetComponent,
+      componentProps: {
+        connectedSources: this.user()?.connectedSources ?? [],
+      },
+      breakpoints: [0, 0.25, 0.5],
+      initialBreakpoint: 0.25,
+      canDismiss: true,
+    });
+
+    if (result.data && result.role === 'files-selected') {
+      const files = result.data as File[];
+      if (files.length > 0) {
+        this.agentX.addFiles(files);
+      }
+    } else if (result.data && result.role === 'source-selected') {
+      const source = result.data as ConnectedAppSource;
+      this.toast.info(`Coming soon: Import from ${source.platform}`);
     }
-    input.value = '';
   }
 
   /**

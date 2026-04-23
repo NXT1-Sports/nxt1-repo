@@ -38,6 +38,7 @@ import type {
 } from '@nxt1/core';
 import type { OpenRouterService } from '../llm/openrouter.service.js';
 import { logger } from '../../../utils/logger.js';
+import { AgentEngineError } from '../exceptions/agent-engine.error.js';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -146,11 +147,17 @@ export class VectorMemoryService {
     const target = options.target ?? 'user';
 
     if (target === 'team' && !options.teamId) {
-      throw new Error('teamId is required when storing a team-scoped memory');
+      throw new AgentEngineError(
+        'AGENT_VALIDATION_FAILED',
+        'teamId is required when storing a team-scoped memory'
+      );
     }
 
     if (target === 'organization' && !options.organizationId) {
-      throw new Error('organizationId is required when storing an organization-scoped memory');
+      throw new AgentEngineError(
+        'AGENT_VALIDATION_FAILED',
+        'organizationId is required when storing an organization-scoped memory'
+      );
     }
 
     const embedding = await this.llm.embed(content);

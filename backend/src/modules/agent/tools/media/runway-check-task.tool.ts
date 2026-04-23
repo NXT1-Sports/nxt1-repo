@@ -10,6 +10,8 @@
 import { getStorage } from 'firebase-admin/storage';
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
 import type { RunwayMcpBridgeService } from '../integrations/runway/runway-mcp-bridge.service.js';
+import { z } from 'zod';
+import { AgentEngineError } from '../../exceptions/agent-engine.error.js';
 
 export class RunwayCheckTaskTool extends BaseTool {
   readonly name = 'runway_check_task';
@@ -17,21 +19,15 @@ export class RunwayCheckTaskTool extends BaseTool {
     'Check the status of a Runway generation task. When the task is complete, the output ' +
     'is automatically persisted to Firebase Storage and a permanent CDN URL is returned.';
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      taskId: {
-        type: 'string',
-        description: 'The Runway task ID returned by a generate/edit/upscale tool.',
-      },
-    },
-    required: ['taskId'],
-  } as const;
+  readonly parameters = z.object({
+    taskId: z.string().trim().min(1),
+  });
 
   override readonly allowedAgents = ['brand_coordinator'] as const;
   readonly isMutation = false;
   readonly category = 'media' as const;
 
+  readonly entityGroup = 'user_tools' as const;
   constructor(private readonly bridge: RunwayMcpBridgeService) {
     super();
   }
@@ -81,7 +77,10 @@ export class RunwayCheckTaskTool extends BaseTool {
         try {
           const response = await fetch(outputUrl);
           if (!response.ok) {
-            throw new Error(`Failed to download Runway output: ${response.status}`);
+            throw new AgentEngineError(
+              'RUNWAY_REQUEST_FAILED',
+              `Failed to download Runway output: ${response.status}`
+            );
           }
 
           const buffer = Buffer.from(await response.arrayBuffer());
@@ -91,7 +90,10 @@ export class RunwayCheckTaskTool extends BaseTool {
 
           // Thread-scoped storage path — requires both userId and threadId
           if (!context?.userId || !context?.threadId) {
-            throw new Error('Runway output cannot be saved — no userId/threadId in context');
+            throw new AgentEngineError(
+              'AGENT_VALIDATION_FAILED',
+              'Runway output cannot be saved — no userId/threadId in context'
+            );
           }
           storagePath = `Users/${context.userId}/threads/${context.threadId}/media/${timestamp}-runway-${taskId}.${extension}`;
 

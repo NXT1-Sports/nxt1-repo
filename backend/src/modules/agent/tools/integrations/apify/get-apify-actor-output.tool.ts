@@ -96,6 +96,7 @@ export class GetApifyActorOutputTool extends BaseTool {
   readonly isMutation = false;
   readonly category = 'analytics' as const;
 
+  readonly entityGroup = 'platform_tools' as const;
   private readonly bridge: ApifyMcpBridgeService;
   private readonly media: ScraperMediaService;
 

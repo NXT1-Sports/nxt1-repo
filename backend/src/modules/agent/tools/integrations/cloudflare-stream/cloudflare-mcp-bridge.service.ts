@@ -29,6 +29,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { z } from 'zod';
 import { BaseMcpClientService, type McpToolCallResult } from '../base-mcp-client.service.js';
+import { AgentEngineError } from '../../../exceptions/agent-engine.error.js';
 import { logger } from '../../../../../utils/logger.js';
 import {
   CfStreamVideoSchema,
@@ -83,7 +84,7 @@ function extractPayload(result: McpToolCallResult): unknown {
     .filter((block) => block.length > 0);
 
   if (textBlocks.length === 0) {
-    throw new Error('Cloudflare MCP returned no content');
+    throw new AgentEngineError('CLOUDFLARE_RESPONSE_EMPTY', 'Cloudflare MCP returned no content');
   }
 
   const combined = textBlocks.join('\n');
@@ -145,19 +146,22 @@ export class CloudflareMcpBridgeService extends BaseMcpClientService {
     super();
     const token = process.env['CLOUDFLARE_API_TOKEN'];
     if (!token) {
-      throw new Error(
+      throw new AgentEngineError(
+        'CLOUDFLARE_CONFIG_MISSING_API_TOKEN',
         'CLOUDFLARE_API_TOKEN environment variable is required for the Cloudflare MCP bridge'
       );
     }
     const accountId = process.env['CLOUDFLARE_ACCOUNT_ID'];
     if (!accountId) {
-      throw new Error(
+      throw new AgentEngineError(
+        'CLOUDFLARE_CONFIG_MISSING_ACCOUNT_ID',
         'CLOUDFLARE_ACCOUNT_ID environment variable is required for the Cloudflare MCP bridge'
       );
     }
     const customerCode = process.env['CLOUDFLARE_STREAM_CUSTOMER_CODE'];
     if (!customerCode) {
-      throw new Error(
+      throw new AgentEngineError(
+        'CLOUDFLARE_CONFIG_MISSING_CUSTOMER_CODE',
         'CLOUDFLARE_STREAM_CUSTOMER_CODE environment variable is required for the Cloudflare MCP bridge'
       );
     }
@@ -213,7 +217,11 @@ export class CloudflareMcpBridgeService extends BaseMcpClientService {
     if (result.isError) {
       const message = extractErrorMessage(result);
       logger.error(`[CloudflareMCP] ${operation} failed`, { error: message });
-      throw new Error(`Cloudflare ${operation} failed: ${message}`);
+      throw new AgentEngineError(
+        'CLOUDFLARE_REQUEST_FAILED',
+        `Cloudflare ${operation} failed: ${message}`,
+        { metadata: { operation } }
+      );
     }
 
     const payload = extractPayload(result);
@@ -239,7 +247,11 @@ export class CloudflareMcpBridgeService extends BaseMcpClientService {
       payload:
         typeof payload === 'string' ? payload.slice(0, 500) : JSON.stringify(payload).slice(0, 500),
     });
-    throw new Error(`Cloudflare MCP returned invalid payload for ${operation}`);
+    throw new AgentEngineError(
+      'CLOUDFLARE_INVALID_RESPONSE',
+      `Cloudflare MCP returned invalid payload for ${operation}`,
+      { metadata: { operation } }
+    );
   }
 
   // ── Stream Proxy Methods ────────────────────────────────────────────────
@@ -536,7 +548,11 @@ export class CloudflareMcpBridgeService extends BaseMcpClientService {
     const result = await this.executeTool('search', { query }, { timeoutMs: READ_TIMEOUT_MS });
 
     if (result.isError) {
-      throw new Error(`Cloudflare endpoint search failed: ${extractErrorMessage(result)}`);
+      throw new AgentEngineError(
+        'CLOUDFLARE_REQUEST_FAILED',
+        `Cloudflare endpoint search failed: ${extractErrorMessage(result)}`,
+        { metadata: { operation: 'searchEndpoints', query } }
+      );
     }
 
     return extractPayload(result);

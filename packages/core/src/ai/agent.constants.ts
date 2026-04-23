@@ -16,6 +16,17 @@ import type {
   GuardrailDescriptor,
 } from './agent.types';
 
+export const COORDINATOR_AGENT_IDS = [
+  'admin_coordinator',
+  'brand_coordinator',
+  'data_coordinator',
+  'strategy_coordinator',
+  'recruiting_coordinator',
+  'performance_coordinator',
+] as const;
+
+export type CoordinatorAgentIdentifier = (typeof COORDINATOR_AGENT_IDS)[number];
+
 // ─── Sub-Agent Registry ─────────────────────────────────────────────────────
 
 export const AGENT_DESCRIPTORS: Record<AgentIdentifier, AgentDescriptor> = {
@@ -124,6 +135,18 @@ export const AGENT_DESCRIPTORS: Record<AgentIdentifier, AgentDescriptor> = {
     ],
   },
 } as const;
+
+export const COORDINATOR_DESCRIPTORS: Readonly<
+  Record<CoordinatorAgentIdentifier, AgentDescriptor>
+> = Object.freeze(
+  COORDINATOR_AGENT_IDS.reduce(
+    (acc, id) => {
+      acc[id] = AGENT_DESCRIPTORS[id];
+      return acc;
+    },
+    {} as Record<CoordinatorAgentIdentifier, AgentDescriptor>
+  )
+);
 
 // ─── Model Routing Defaults ─────────────────────────────────────────────────
 

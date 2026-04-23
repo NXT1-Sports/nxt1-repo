@@ -76,7 +76,7 @@ export interface NativeAppConfig {
 const DEFAULT_CONFIG: Required<Omit<NativeAppConfig, 'onPause' | 'onResume' | 'onBackButton'>> = {
   statusBarStyle: 'light', // Light text for dark NXT1 theme
   statusBarColor: '#0a0a0a', // NXT1 dark background
-  autoHideSplash: true,
+  autoHideSplash: false,
   splashDelay: 500,
 };
 
@@ -86,6 +86,7 @@ export class NativeAppService {
   private readonly ionicPlatform = inject(Platform);
   private readonly ngZone = inject(NgZone);
   private readonly logger: ILogger = inject(NxtLoggingService).child('NativeAppService');
+  private launchStartedAt = 0;
 
   // ============================================
   // PRIVATE STATE
@@ -139,6 +140,7 @@ export class NativeAppService {
 
     // Merge config
     this._config = { ...DEFAULT_CONFIG, ...config };
+    this.launchStartedAt = Date.now();
 
     // Wait for platform ready
     await this.ionicPlatform.ready();
@@ -159,12 +161,34 @@ export class NativeAppService {
 
     // Wire keyboard awareness (sets CSS vars + class on <html>)
     this.setupKeyboardListeners();
+  }
 
-    // Hide splash screen immediately after features are initialized
-    // We control the timing rather than relying on Capacitor's auto-hide
-    if (this._config.autoHideSplash) {
-      await this.hideSplashScreen();
+  /**
+   * Completes the native launch sequence.
+   *
+   * Keeps the launch splash visible for at least the configured minimum delay,
+   * then dismisses it once the app has finished its own startup work.
+   */
+  async completeLaunch(): Promise<void> {
+    if (!this._isNative() || !this._config.autoHideSplash) {
+      return;
     }
+
+    await this.waitForMinimumSplashDelay();
+    await this.hideSplashScreen();
+  }
+
+  private async waitForMinimumSplashDelay(): Promise<void> {
+    const elapsed = Date.now() - this.launchStartedAt;
+    const remainingDelay = this._config.splashDelay - elapsed;
+
+    if (remainingDelay <= 0) {
+      return;
+    }
+
+    await new Promise<void>((resolve) => {
+      window.setTimeout(resolve, remainingDelay);
+    });
   }
 
   // ============================================
@@ -250,32 +274,19 @@ export class NativeAppService {
   // ============================================
 
   /**
-   * Hide the splash screen
+   * Hide the splash screen.
+   * iOS uses the native LaunchScreen.storyboard exclusively — Capacitor plugin not used.
    */
   async hideSplashScreen(): Promise<void> {
-    if (!this._isNative()) return;
-
-    try {
-      const { SplashScreen } = await import('@capacitor/splash-screen');
-      await SplashScreen.hide({ fadeOutDuration: 300 });
-      this.logger.debug('Splash screen hidden');
-    } catch (error) {
-      this.logger.warn('Failed to hide splash screen', { error });
-    }
+    // No-op: iOS splash is handled natively via LaunchScreen.storyboard
   }
 
   /**
-   * Show the splash screen (useful for background operations)
+   * Show the splash screen.
+   * iOS uses the native LaunchScreen.storyboard exclusively — Capacitor plugin not used.
    */
   async showSplashScreen(): Promise<void> {
-    if (!this._isNative()) return;
-
-    try {
-      const { SplashScreen } = await import('@capacitor/splash-screen');
-      await SplashScreen.show({ autoHide: false });
-    } catch (error) {
-      this.logger.warn('Failed to show splash screen', { error });
-    }
+    // No-op: iOS splash is handled natively via LaunchScreen.storyboard
   }
 
   // ============================================

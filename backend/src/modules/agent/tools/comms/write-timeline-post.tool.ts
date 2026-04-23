@@ -20,6 +20,7 @@ import {
   POST_LIMITS,
   POSTS_CACHE_PREFIX,
 } from '@nxt1/core/constants';
+import { z } from 'zod';
 import { sanitizeText } from '@nxt1/core/helpers';
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
 import { ScraperMediaService } from '../integrations/social/scraper-media.service.js';
@@ -79,56 +80,20 @@ export class WriteTimelinePostTool extends BaseTool {
     'Image and video URLs must be HTTPS Firebase Storage signed URLs ' +
     '(from generate_image, scrape_twitter, scrape_instagram, or other agent tools).';
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      userId: {
-        type: 'string',
-        description: 'The Firestore UID of the user who owns the post.',
-      },
-      content: {
-        type: 'string',
-        description:
-          `Post text content (${VALIDATION.CONTENT_MIN}-${VALIDATION.CONTENT_MAX} chars). ` +
-          'Supports #hashtags and @mentions which are auto-extracted.',
-      },
-      type: {
-        type: 'string',
-        enum: [...VALID_POST_TYPES],
-        description:
-          'Post type. Use "photo" when attaching images, "video" for video, ' +
-          '"text" for plain text, or a semantic type like "achievement", "stats", "highlight".',
-      },
-      visibility: {
-        type: 'string',
-        enum: [...VALID_VISIBILITY],
-        description:
-          'Post visibility: "public" (everyone), "team" (team members only), "private" (only the user).',
-      },
-      images: {
-        type: 'array',
-        items: { type: 'string' },
-        maxItems: VALIDATION.MAX_IMAGES,
-        description:
-          `Array of image URLs (max ${VALIDATION.MAX_IMAGES}). ` +
-          'Must be HTTPS Firebase Storage signed URLs from agent uploads ' +
-          '(scraped media or generated graphics).',
-      },
-      videoUrl: {
-        type: 'string',
-        description:
-          'Single video URL. Must be an HTTPS Firebase Storage signed URL from agent uploads.',
-      },
-      teamId: {
-        type: 'string',
-        description: 'Optional team ID to associate the post with a team.',
-      },
-    },
-    required: ['userId', 'content', 'type', 'visibility'],
-  };
+  readonly parameters = z.object({
+    userId: z.string().trim().min(1),
+    content: z.string().min(VALIDATION.CONTENT_MIN).max(VALIDATION.CONTENT_MAX),
+    type: z.enum(VALID_POST_TYPES),
+    visibility: z.enum(VALID_VISIBILITY),
+    images: z.array(z.string().trim().min(1)).max(VALIDATION.MAX_IMAGES).optional(),
+    videoUrl: z.string().trim().min(1).optional(),
+    teamId: z.string().trim().min(1).optional(),
+  });
 
   readonly isMutation = true;
   readonly category: AgentToolCategory = 'communication';
+
+  readonly entityGroup = 'user_tools' as const;
   override readonly allowedAgents: readonly (AgentIdentifier | '*')[] = [
     'data_coordinator',
     'brand_coordinator',

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { AgentIdentifier, AgentSessionContext, ModelRoutingConfig } from '@nxt1/core';
+import { z } from 'zod';
 import { BaseAgent } from '../base.agent.js';
 import { ToolRegistry } from '../../tools/tool-registry.js';
 import { BaseTool, type ToolExecutionContext, type ToolResult } from '../../tools/base.tool.js';
@@ -7,9 +8,10 @@ import { BaseTool, type ToolExecutionContext, type ToolResult } from '../../tool
 class FakeReadTool extends BaseTool {
   readonly name = 'fake_read_tool';
   readonly description = 'Returns structured profile data.';
-  readonly parameters = { type: 'object', properties: {} } as const;
+  readonly parameters = z.object({});
   readonly isMutation = false;
   readonly category = 'database' as const;
+  readonly entityGroup = 'platform_tools' as const;
   override readonly allowedAgents = ['strategy_coordinator'] as const;
 
   async execute(

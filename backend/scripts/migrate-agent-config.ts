@@ -7,12 +7,12 @@
  *   npx tsx scripts/migrate-agent-config.ts --staging    # target staging
  */
 
-import type { AgentSessionContext } from '@nxt1/core';
 import { db } from '../src/utils/firebase.js';
 import { stagingDb } from '../src/utils/firebase-staging.js';
 import {
   AGENT_CONFIG_DOC_ID,
   APP_CONFIG_COLLECTION,
+  DEFAULT_COORDINATOR_UI_CONFIG,
   DEFAULT_AGENT_APP_CONFIG,
 } from '../src/modules/agent/config/agent-app-config.js';
 import { PlannerAgent } from '../src/modules/agent/agents/planner.agent.js';
@@ -27,7 +27,7 @@ const args = process.argv.slice(2);
 const dryRun = !args.includes('--commit');
 const environment = args.includes('--staging') ? 'staging' : 'production';
 const firestore = environment === 'staging' ? stagingDb : db;
-const promptContext = {} as AgentSessionContext;
+const promptContext = {} as Parameters<PlannerAgent['getSystemPrompt']>[0];
 const EXPECTED_PROJECT_IDS = {
   production: 'nxt-1-v2',
   staging: 'nxt-1-staging-v2',
@@ -97,6 +97,16 @@ function buildPromptTemplates() {
 }
 
 function buildPayload() {
+  const featureFlags = {
+    ...DEFAULT_AGENT_APP_CONFIG.featureFlags,
+    ...(environment === 'staging'
+      ? {
+          strictZodToolSchemas: true,
+          strictEntityToolGovernance: true,
+        }
+      : {}),
+  };
+
   return {
     schemaVersion: 1,
     updatedAt: new Date().toISOString(),
@@ -104,8 +114,16 @@ function buildPayload() {
     domainKnowledge: DEFAULT_AGENT_APP_CONFIG.domainKnowledge,
     modelRouting: DEFAULT_AGENT_APP_CONFIG.modelRouting,
     prompts: buildPromptTemplates(),
-    featureFlags: DEFAULT_AGENT_APP_CONFIG.featureFlags,
-    coordinators: DEFAULT_AGENT_APP_CONFIG.coordinators,
+    featureFlags,
+    coordinators: DEFAULT_AGENT_APP_CONFIG.coordinators.map((coordinator) => {
+      const ui = DEFAULT_COORDINATOR_UI_CONFIG[coordinator.id];
+      return {
+        ...coordinator,
+        availableForRoles: ui?.availableForRoles ?? coordinator.availableForRoles,
+        commands: ui?.commands ?? coordinator.commands,
+        scheduledActions: ui?.scheduledActions ?? coordinator.scheduledActions,
+      };
+    }),
   } as const;
 }
 

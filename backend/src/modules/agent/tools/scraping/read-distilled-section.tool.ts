@@ -13,6 +13,7 @@
 import { BaseTool, type ToolResult } from '../base.tool.js';
 import { getCachedScrapeResult } from './scrape-and-index-profile.tool.js';
 import type { DistilledSectionKey } from './distillers/index.js';
+import { z } from 'zod';
 
 // ─── Tool ───────────────────────────────────────────────────────────────────
 
@@ -33,44 +34,26 @@ export class ReadDistilledSectionTool extends BaseTool {
     '- schedule → write_calendar_events\n' +
     '- recruiting → write_recruiting_activity';
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      url: {
-        type: 'string',
-        description: 'The exact URL that was previously scraped with scrape_and_index_profile.',
-      },
-      section: {
-        type: 'string',
-        description:
-          'The section to read. One of: identity, academics, sportInfo, team, coach, ' +
-          'metrics, seasonStats, schedule, recruiting, awards.',
-        enum: [
-          'identity',
-          'academics',
-          'sportInfo',
-          'team',
-          'coach',
-          'metrics',
-          'seasonStats',
-          'schedule',
-          'recruiting',
-          'awards',
-        ],
-      },
-    },
-    required: ['url', 'section'],
-  } as const;
-
-  override readonly allowedAgents = [
-    'data_coordinator',
-    'performance_coordinator',
-    'recruiting_coordinator',
-  ] as const;
+  readonly parameters = z.object({
+    url: z.string().trim().min(1),
+    section: z.enum([
+      'identity',
+      'academics',
+      'sportInfo',
+      'team',
+      'coach',
+      'metrics',
+      'seasonStats',
+      'schedule',
+      'recruiting',
+      'awards',
+    ]),
+  });
 
   readonly isMutation = false;
   readonly category = 'analytics' as const;
 
+  readonly entityGroup = 'platform_tools' as const;
   async execute(input: Record<string, unknown>): Promise<ToolResult> {
     const url = input['url'];
     const section = input['section'];

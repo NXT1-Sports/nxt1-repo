@@ -161,6 +161,12 @@ export interface RosterEntry {
   /** Cached display name */
   displayName?: string;
 
+  /** Cached canonical profile identifier */
+  unicode?: string;
+
+  /** Legacy cached profile identifier (compatibility only) */
+  profileCode?: string;
+
   /** Cached profile images */
   profileImgs?: string[];
 
@@ -203,6 +209,8 @@ export interface CreateRosterEntryInput {
   firstName?: string;
   lastName?: string;
   displayName?: string;
+  unicode: string;
+  profileCode?: string;
   email?: string;
   phoneNumber?: string;
   profileImgs?: string[];

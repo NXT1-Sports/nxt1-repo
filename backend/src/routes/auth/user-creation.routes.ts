@@ -247,6 +247,11 @@ router.post(
             .map((v) => String(v).trim())
             .filter(Boolean)
             .join(' '),
+        unicode: (freshUserData?.['unicode'] as string | undefined) ?? userId,
+        profileCode:
+          (freshUserData?.['profileCode'] as string | undefined) ??
+          (freshUserData?.['unicode'] as string | undefined) ??
+          userId,
         email: (freshUserData?.['email'] as string | undefined) ?? '',
       });
 

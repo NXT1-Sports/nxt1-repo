@@ -1,6 +1,7 @@
 import { createHmac } from 'node:crypto';
 import { Buffer } from 'node:buffer';
 import { z } from 'zod';
+import { AgentEngineError } from '../../../exceptions/agent-engine.error.js';
 
 export const FIREBASE_VIEW_NAMES = [
   'user_profile_snapshot',
@@ -198,7 +199,10 @@ export function verifySignedScopeEnvelope(
   const expectedSignature = buildScopeSignature(normalized, secret);
 
   if (parsed.signature !== expectedSignature) {
-    throw new Error('Invalid Firebase MCP scope signature');
+    throw new AgentEngineError(
+      'FIREBASE_MCP_INVALID_SCOPE',
+      'Invalid Firebase MCP scope signature'
+    );
   }
 
   return normalized;
@@ -230,6 +234,6 @@ export function decodeCursor(cursor?: string): string | null {
       ? parsed.sortValue
       : null;
   } catch {
-    throw new Error('Invalid Firebase MCP cursor');
+    throw new AgentEngineError('FIREBASE_MCP_INVALID_CURSOR', 'Invalid Firebase MCP cursor');
   }
 }

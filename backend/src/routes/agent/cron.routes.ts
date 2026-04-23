@@ -99,6 +99,37 @@ router.post('/cron/summarize-threads', cronGuard, async (_req: Request, res: Res
   }
 });
 
+// ─── POST /cron/scan-timeline-posts ──────────────────────────────────────
+
+router.post('/cron/scan-timeline-posts', cronGuard, async (_req: Request, res: Response) => {
+  try {
+    if (!llmService) {
+      res.status(503).json({ success: false, error: 'LLM service not initialized' });
+      return;
+    }
+
+    const { getFirestore } = await import('firebase-admin/firestore');
+    const { VectorMemoryService } = await import('../../modules/agent/memory/vector.service.js');
+    const { TimelineScanService, TIMELINE_SCAN_LOOKBACK_HOURS, MAX_USERS_PER_CRON_RUN } =
+      await import('../../modules/agent/memory/timeline-scan.service.js');
+
+    const db = getFirestore();
+    const vectorMemory = new VectorMemoryService(llmService);
+    const timelineScanner = new TimelineScanService(db, llmService, vectorMemory);
+
+    const result = await timelineScanner.scanActiveUsers(
+      TIMELINE_SCAN_LOOKBACK_HOURS,
+      MAX_USERS_PER_CRON_RUN
+    );
+
+    res.json({ success: true, data: result });
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('CRON scan-timeline-posts failed', { error: error.message, stack: error.stack });
+    res.status(500).json({ success: false, error: 'Timeline scan failed' });
+  }
+});
+
 // ─── POST /cron/cleanup-thread-media ─────────────────────────────────────
 
 router.post('/cron/cleanup-thread-media', cronGuard, async (_req: Request, res: Response) => {

@@ -24,6 +24,7 @@ import type {
   FirecrawlMcpBridgeService,
   FirecrawlExtractOptions,
 } from './firecrawl-mcp-bridge.service.js';
+import { z } from 'zod';
 import { logger } from '../../../../../utils/logger.js';
 
 /** Maximum URL length. */
@@ -53,45 +54,17 @@ export class FirecrawlExtractTool extends BaseTool {
     'Best for: roster tables, coaching directories, event schedules, pricing pages. ' +
     'Maximum 25 URLs per call. For discovering URLs first, use map_website.';
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      urls: {
-        type: 'array',
-        items: { type: 'string' },
-        description: `Array of URLs to extract data from (max ${MAX_URLS}).`,
-      },
-      prompt: {
-        type: 'string',
-        description:
-          'Describe what data to extract in plain language. ' +
-          'Example: "Extract all player names, jersey numbers, positions, and class year from this roster page."',
-      },
-      schema: {
-        type: 'object',
-        description:
-          'Optional JSON Schema for the output structure. Ensures consistent structured data. ' +
-          'Example: { "type": "object", "properties": { "players": { "type": "array", "items": { ... } } } }',
-      },
-      enableWebSearch: {
-        type: 'boolean',
-        description:
-          'Allow the extraction agent to search the web for additional context. Defaults to false.',
-      },
-    },
-    required: ['urls', 'prompt'],
-  } as const;
-
-  override readonly allowedAgents = [
-    'recruiting_coordinator',
-    'data_coordinator',
-    'admin_coordinator',
-    'strategy_coordinator',
-  ] as const;
+  readonly parameters = z.object({
+    urls: z.array(z.string().trim().min(1)).min(1).max(MAX_URLS),
+    prompt: z.string().trim().min(1),
+    schema: z.record(z.string(), z.unknown()).optional(),
+    enableWebSearch: z.boolean().optional(),
+  });
 
   readonly isMutation = false;
   readonly category = 'analytics' as const;
 
+  readonly entityGroup = 'platform_tools' as const;
   private readonly bridge: FirecrawlMcpBridgeService;
 
   constructor(bridge: FirecrawlMcpBridgeService) {

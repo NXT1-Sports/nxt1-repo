@@ -153,6 +153,8 @@ export interface AgentToolDefinition {
   readonly isMutation: boolean;
   /** Optional category for UI grouping. */
   readonly category?: AgentToolCategory;
+  /** Entity-scoped tool grouping used for runtime access policy. */
+  readonly entityGroup?: AgentToolEntityGroup;
 }
 
 /** Logical groupings for tools. */
@@ -165,6 +167,29 @@ export type AgentToolCategory =
   | 'automation'
   | 'data'
   | 'system';
+
+/**
+ * Entity-based governance group for Agent X tool access.
+ * This is the source of truth for runtime tool exposure policy.
+ */
+export type AgentToolEntityGroup =
+  | 'user_tools'
+  | 'team_tools'
+  | 'organization_tools'
+  | 'platform_tools'
+  | 'system_tools';
+
+/**
+ * Runtime policy context used to filter tool definitions for a request.
+ * `allowedEntityGroups` is evaluated before semantic matching.
+ */
+export interface AgentToolAccessContext {
+  readonly userId: string;
+  readonly role: string;
+  readonly teamId?: string;
+  readonly organizationId?: string;
+  readonly allowedEntityGroups: readonly AgentToolEntityGroup[];
+}
 
 /** The record of a single tool invocation during an operation. */
 export interface AgentToolCallRecord {
@@ -1023,6 +1048,8 @@ export interface JobEvent {
   readonly success?: boolean;
   /** Error message for `step_error` / `done` events. */
   readonly error?: string;
+  /** Machine-readable backend error code for `step_error` / `done` events. */
+  readonly errorCode?: string;
   /** Rich card payload for `card` events (planner, data-table, etc.). */
   readonly cardData?: Record<string, unknown>;
   /** Server timestamp (Firestore Timestamp — reads as { seconds, nanoseconds }). */

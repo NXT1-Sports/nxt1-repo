@@ -22,6 +22,7 @@ import type {
   FirecrawlMcpBridgeService,
   FirecrawlSearchOptions,
 } from './firecrawl-mcp-bridge.service.js';
+import { z } from 'zod';
 import { logger } from '../../../../../utils/logger.js';
 
 /** Maximum characters for a search query. */
@@ -54,50 +55,18 @@ export class FirecrawlSearchTool extends BaseTool {
     'Supports geographic filtering and time-based filtering (past day/week/month). ' +
     'For deep content from a specific URL, follow up with scrape_webpage.';
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      query: {
-        type: 'string',
-        description:
-          'The search query. Be specific and targeted. ' +
-          'Example: "Florida Gators 2026 football recruiting class" or ' +
-          '"NCAA Division 1 dead period dates basketball 2026".',
-      },
-      limit: {
-        type: 'number',
-        description: `Number of results (1–${MAX_RESULTS}). Defaults to ${DEFAULT_RESULTS}.`,
-      },
-      country: {
-        type: 'string',
-        description: 'Country code for localized results (e.g. "us", "gb"). Defaults to "us".',
-      },
-      timeFilter: {
-        type: 'string',
-        enum: ['past_day', 'past_week', 'past_month'],
-        description:
-          'Filter results by recency. "past_day" for breaking news, "past_week" for recent updates.',
-      },
-      extractContent: {
-        type: 'boolean',
-        description:
-          'When true, scrapes main content from each result page (slower but more detailed). Defaults to false.',
-      },
-    },
-    required: ['query'],
-  } as const;
-
-  override readonly allowedAgents = [
-    'recruiting_coordinator',
-    'admin_coordinator',
-    'data_coordinator',
-    'performance_coordinator',
-    'strategy_coordinator',
-  ] as const;
+  readonly parameters = z.object({
+    query: z.string().trim().min(1),
+    limit: z.number().int().min(1).max(MAX_RESULTS).optional(),
+    country: z.string().trim().min(1).optional(),
+    timeFilter: z.enum(['past_day', 'past_week', 'past_month']).optional(),
+    extractContent: z.boolean().optional(),
+  });
 
   readonly isMutation = false;
   readonly category = 'analytics' as const;
 
+  readonly entityGroup = 'platform_tools' as const;
   private readonly bridge: FirecrawlMcpBridgeService;
 
   constructor(bridge: FirecrawlMcpBridgeService) {

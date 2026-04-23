@@ -434,3 +434,44 @@ export class AcceptInviteDto {
   @IsOptional()
   isNewUser?: boolean;
 }
+
+// ============================================
+// MEMBERSHIP EDITOR DTOs
+// ============================================
+
+/**
+ * Body for PATCH /api/v1/teams/:teamId/membership/:entryId
+ * All fields are optional — only provided fields are updated.
+ */
+export class UpdateMembershipDto {
+  @IsString()
+  @IsOptional()
+  role?: string;
+
+  @IsString()
+  @IsOptional()
+  title?: string;
+
+  @IsOptional()
+  jerseyNumber?: string | number;
+
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  positions?: string[];
+
+  @IsString()
+  @IsOptional()
+  status?: string;
+}
+
+/**
+ * Body for POST /api/v1/teams/:teamId/membership/:entryId/approve
+ * approvedBy is populated from req.user on the server — no body required.
+ * This class exists for future extension (e.g., custom approval message).
+ */
+export class ApproveMembershipDto {
+  @IsString()
+  @IsOptional()
+  note?: string;
+}

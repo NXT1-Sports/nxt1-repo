@@ -158,7 +158,9 @@ import { EditProfileApiService } from '../services/api/edit-profile-api.service'
           - On sub-pages: swipeGesture=true (native iOS back gesture)
           This matches Instagram, Twitter, TikTok navigation behavior.
         -->
-        <ion-router-outlet [swipeGesture]="!isOnMainPage()"></ion-router-outlet>
+        <ion-router-outlet
+          [swipeGesture]="preferBackSwipe() || !isOnMainPage()"
+        ></ion-router-outlet>
       </div>
 
       <!-- Persistent Bottom Navigation removed -->
@@ -271,6 +273,20 @@ export class MobileShellComponent implements OnInit, OnDestroy {
   readonly isOnMainPage = computed(
     () => isMainPageRoute(this._currentRoute()) && !this._canGoBack()
   );
+
+  /**
+   * Routes where right-edge swipe must prioritize native back navigation.
+   * Prevents sidenav from hijacking swipe gestures on usage/profile/team pages.
+   */
+  readonly preferBackSwipe = computed(() => {
+    const cleanRoute = this._currentRoute().split('?')[0].split('#')[0];
+    return (
+      cleanRoute === '/usage' ||
+      cleanRoute === '/profile' ||
+      cleanRoute.startsWith('/profile/') ||
+      cleanRoute.startsWith('/team/')
+    );
+  });
 
   // ============================================
   // FOOTER CONFIGURATION
@@ -424,7 +440,7 @@ export class MobileShellComponent implements OnInit, OnDestroy {
    */
   readonly sidenavConfig = computed<SidenavConfig>(() => {
     const isIos = this.platform.os() === 'ios';
-    const enableSwipe = this.isOnMainPage();
+    const enableSwipe = this.isOnMainPage() && !this.preferBackSwipe();
 
     return createSidenavConfig({
       mode: 'push',

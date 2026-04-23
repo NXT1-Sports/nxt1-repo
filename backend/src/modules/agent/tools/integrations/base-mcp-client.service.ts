@@ -30,6 +30,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPError } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { logger } from '../../../../utils/logger.js';
+import { AgentEngineError } from '../../exceptions/agent-engine.error.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -419,10 +420,17 @@ export abstract class BaseMcpClientService {
         );
 
         if (this.reconnectAttempts > MAX_RECONNECT_ATTEMPTS) {
-          throw new Error(
+          throw new AgentEngineError(
+            'AGENT_SERVICE_UNAVAILABLE',
             `[MCP:${this.serverName}] Failed to connect after ${MAX_RECONNECT_ATTEMPTS} attempts: ` +
               (err instanceof Error ? err.message : String(err)),
-            { cause: err }
+            {
+              cause: err,
+              metadata: {
+                serverName: this.serverName,
+                reconnectAttempts: this.reconnectAttempts,
+              },
+            }
           );
         }
 
@@ -451,7 +459,13 @@ export abstract class BaseMcpClientService {
     externalSignal?: AbortSignal
   ): Promise<unknown> {
     if (!this.client) {
-      throw new Error(`[MCP:${this.serverName}] Client is not connected`);
+      throw new AgentEngineError(
+        'AGENT_SERVICE_UNAVAILABLE',
+        `[MCP:${this.serverName}] Client is not connected`,
+        {
+          metadata: { serverName: this.serverName },
+        }
+      );
     }
 
     // Create a timeout controller
@@ -460,7 +474,13 @@ export abstract class BaseMcpClientService {
 
     if (externalSignal?.aborted) {
       timeoutController.abort();
-      throw new Error(`[MCP:${this.serverName}] Tool "${toolName}" was cancelled before execution`);
+      throw new AgentEngineError(
+        'AGENT_PIPELINE_FAILED',
+        `[MCP:${this.serverName}] Tool "${toolName}" was cancelled before execution`,
+        {
+          metadata: { serverName: this.serverName, toolName },
+        }
+      );
     }
 
     // If the caller provided an external signal, propagate its abort
@@ -475,9 +495,13 @@ export abstract class BaseMcpClientService {
     } catch (err) {
       // Distinguish timeout from other errors
       if (timeoutController.signal.aborted && !externalSignal?.aborted) {
-        throw new Error(
+        throw new AgentEngineError(
+          'AGENT_PIPELINE_FAILED',
           `[MCP:${this.serverName}] Tool "${toolName}" timed out after ${timeoutMs}ms`,
-          { cause: err }
+          {
+            cause: err,
+            metadata: { serverName: this.serverName, toolName, timeoutMs },
+          }
         );
       }
       throw err;
@@ -495,7 +519,8 @@ export abstract class BaseMcpClientService {
       const elapsedMs = Date.now() - (this.circuitOpenedAtMs ?? 0);
       if (elapsedMs < this.circuitOpenDurationMs) {
         const retryAfterMs = Math.max(this.circuitOpenDurationMs - elapsedMs, 0);
-        throw new Error(
+        throw new AgentEngineError(
+          'AGENT_SERVICE_UNAVAILABLE',
           `[MCP:${this.serverName}] Circuit breaker OPEN for "${toolName}". Retry after ${retryAfterMs}ms.`
         );
       }
@@ -509,7 +534,8 @@ export abstract class BaseMcpClientService {
 
     if (this.circuitState === 'half-open') {
       if (this.halfOpenProbeInFlight) {
-        throw new Error(
+        throw new AgentEngineError(
+          'AGENT_SERVICE_UNAVAILABLE',
           `[MCP:${this.serverName}] Circuit breaker HALF_OPEN for "${toolName}". Probe already in flight.`
         );
       }

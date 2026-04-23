@@ -41,6 +41,7 @@ import type {
 import { GlobalKnowledgeModel } from './global-knowledge.model.js';
 import type { OpenRouterService } from '../llm/openrouter.service.js';
 import { logger } from '../../../utils/logger.js';
+import { AgentEngineError } from '../exceptions/agent-engine.error.js';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -86,7 +87,7 @@ export class KnowledgeIngestionService {
     } = request;
 
     if (!content || content.trim().length === 0) {
-      throw new Error('Cannot ingest empty content');
+      throw new AgentEngineError('AGENT_VALIDATION_FAILED', 'Cannot ingest empty content');
     }
 
     const contentHash = this.hashContent(content);

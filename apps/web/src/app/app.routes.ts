@@ -144,14 +144,10 @@ export const routes: Routes = [
         loadChildren: () => import('./marketing/nil/nil.routes'),
       },
 
-      // Team Profile - Public Team Pages (with shell)
+      // Team Profile - Public Team Pages (strict canonical route)
+      // Canonical URL: /team/:slug/:teamCode (e.g. /team/akron-buchtel/57L791)
       {
         path: 'team/:slug/:teamCode',
-        canMatch: [rejectFileExtensionSlugs],
-        loadChildren: () => import('./features/team/team.routes').then((m) => m.TEAM_ROUTES),
-      },
-      {
-        path: 'team/:slug',
         canMatch: [rejectFileExtensionSlugs],
         loadChildren: () => import('./features/team/team.routes').then((m) => m.TEAM_ROUTES),
       },

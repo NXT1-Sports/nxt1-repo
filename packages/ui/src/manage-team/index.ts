@@ -45,9 +45,17 @@ export { ManageTeamService } from './manage-team.service';
 // API Client
 export { ManageTeamApiClient, MANAGE_TEAM_API_BASE_URL } from './manage-team-api.client';
 
+// Membership editor
+export { ManageTeamMembershipService } from './manage-team-membership.service';
+export {
+  ManageTeamMembershipModalService,
+  type MembershipEditorModalOptions,
+  type MembershipEditorModalResult,
+} from './manage-team-membership-modal.service';
+export { ManageTeamMembershipEditorComponent } from './membership-editor/manage-team-membership-editor.component';
+
 // Landing Page (public marketing)
 export { NxtManageTeamLandingComponent } from './manage-team-landing.component';
-export { NxtManageTeamDashboardPreviewComponent } from './manage-team-dashboard-preview.component';
 
 // Team logo upload adapter token
 export { TEAM_LOGO_UPLOADER, type TeamLogoUploader } from './team-logo-uploader.token';

@@ -363,7 +363,12 @@ interface AgentXDesktopResizeState {
     >
       @if (agentX.dashboardLoading() && !agentX.dashboardLoaded()) {
         <div class="agent-loading-shell">
-          <nxt1-agent-x-dashboard-skeleton />
+          <nxt1-agent-x-dashboard-skeleton
+            variant="desktop"
+            [showSessionsRail]="showSessionsRail()"
+            [showActionPlan]="showActionPlanModal() && !expandedSidePanel()"
+            [showExpandedPanel]="!!expandedSidePanel()"
+          />
         </div>
       } @else if (agentX.dashboardError() && !agentX.dashboardLoaded()) {
         <div class="agent-error-shell">
@@ -961,7 +966,7 @@ interface AgentXDesktopResizeState {
     <main class="agent-mobile" role="main">
       @if (agentX.dashboardLoading() && !agentX.dashboardLoaded()) {
         <div class="m-container">
-          <nxt1-agent-x-dashboard-skeleton />
+          <nxt1-agent-x-dashboard-skeleton variant="mobile" />
         </div>
       } @else if (agentX.dashboardError() && !agentX.dashboardLoaded()) {
         <div class="m-container m-error-container">

@@ -15,6 +15,7 @@ import type { OpenRouterService } from '../../llm/openrouter.service.js';
 import type { LLMMessage, LLMCompletionOptions } from '../../llm/llm.types.js';
 import { resolveStructuredOutput } from '../../llm/structured-output.js';
 import { OrgExtractionSchema, type OrgExtraction, buildOrgKey } from '../../schemas/index.js';
+import { AgentEngineError } from '../../exceptions/agent-engine.error.js';
 import { logger } from '../../../../utils/logger.js';
 
 /** Max chars sent to the LLM (~30k chars ≈ ~8k tokens for Haiku). */
@@ -129,7 +130,16 @@ export class OrgSpecialist {
         content: (result.content ?? '').slice(0, 500),
         error: error instanceof Error ? error.message : String(error),
       });
-      throw new Error('OrgSpecialist: LLM returned invalid structured output', { cause: error });
+      throw new AgentEngineError(
+        'AGENT_SUB_AGENT_INVALID_OUTPUT',
+        'OrgSpecialist: LLM returned invalid structured output',
+        {
+          cause: error,
+          metadata: {
+            subAgent: 'org_specialist',
+          },
+        }
+      );
     }
 
     // Empty object = no data found

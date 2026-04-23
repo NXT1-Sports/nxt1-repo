@@ -110,6 +110,10 @@ import type { AgentYieldState } from '@nxt1/core';
 import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/assets';
 import type { AgentXPendingFile } from './agent-x-pending-file';
 import { getThinkingLabel, getToolStepDisplayLabel } from './agent-x-agent-presentation';
+import {
+  bindAgentXKeyboardOffset,
+  type AgentXKeyboardOffsetBinding,
+} from './agent-x-keyboard-offset.util';
 
 // ============================================
 // INTERFACES
@@ -472,28 +476,30 @@ interface OperationMessage {
         }
       </div>
 
-      <!-- ═══ INPUT ═══ -->
-      <nxt1-agent-x-input-bar
-        [userMessage]="inputValue()"
-        [isLoading]="_loading()"
-        [canSend]="canSend()"
-        [pendingFiles]="promptInputPendingFiles()"
-        [selectedTask]="null"
-        placeholder="Message A Coordinator"
-        (messageChange)="inputValue.set($event)"
-        (send)="send()"
-        (stop)="cancelStream()"
-        (toggleAttachments)="onUploadClick()"
-        (removeFile)="removePendingFile($event)"
-      />
-      <input
-        #fileInput
-        class="file-input-hidden"
-        type="file"
-        [accept]="acceptedFileTypes"
-        multiple
-        (change)="onFileSelected($event)"
-      />
+      <!-- ═══ INPUT FOOTER (floating, keyboard-aware) ═══ -->
+      <div class="chat-input-footer">
+        <nxt1-agent-x-input-bar
+          [userMessage]="inputValue()"
+          [isLoading]="_loading()"
+          [canSend]="canSend()"
+          [pendingFiles]="promptInputPendingFiles()"
+          [selectedTask]="null"
+          placeholder="Message A Coordinator"
+          (messageChange)="inputValue.set($event)"
+          (send)="send()"
+          (stop)="cancelStream()"
+          (toggleAttachments)="onUploadClick()"
+          (removeFile)="removePendingFile($event)"
+        />
+        <input
+          #fileInput
+          class="file-input-hidden"
+          type="file"
+          [accept]="acceptedFileTypes"
+          multiple
+          (change)="onFileSelected($event)"
+        />
+      </div>
 
       @if (isDragActive()) {
         <div
@@ -532,7 +538,6 @@ interface OperationMessage {
         height: 100%;
         min-height: 0;
         overflow: hidden;
-        background: var(--ion-background-color, var(--nxt1-color-bg-primary, #0a0a0a));
         color: var(--nxt1-color-text-primary, #fff);
 
         --op-surface: var(
@@ -559,7 +564,6 @@ interface OperationMessage {
 
       :host-context(.light),
       :host-context([data-theme='light']) {
-        background: var(--ion-background-color, var(--nxt1-color-bg-primary, #ffffff));
         color: var(--nxt1-color-text-primary, #1a1a1a);
 
         --op-surface: var(--nxt1-color-surface-100, rgba(0, 0, 0, 0.03));
@@ -665,11 +669,18 @@ interface OperationMessage {
         flex: 1 1 auto;
         min-height: 0;
         overflow-y: auto;
-        padding: 16px 20px;
+        padding: 16px 20px 8px;
         display: flex;
         flex-direction: column;
         gap: 20px;
         -webkit-overflow-scrolling: touch;
+      }
+
+      /* ── Floating input footer — transparent, lifts with keyboard ── */
+      .chat-input-footer {
+        background: transparent;
+        transform: translateY(calc(-1 * var(--chat-keyboard-offset, 0px)));
+        transition: transform 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
       }
 
       .messages-area--embedded {
@@ -1376,6 +1387,10 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   private readonly streamRegistry = inject(AgentXStreamRegistryService);
   private readonly operationEventService = inject(AgentXOperationEventService);
   private readonly agentXService = inject(AgentXService);
+  private readonly hostElement = inject(ElementRef);
+
+  /** Shared keyboard offset binding used by shell and operation chat. */
+  private keyboardOffsetBinding?: AgentXKeyboardOffsetBinding;
   private readonly videoUploadService = inject(AgentXVideoUploadService);
   private readonly intelService = inject(IntelService, { optional: true });
   private readonly profileGenerationState = inject(ProfileGenerationStateService, {
@@ -2064,6 +2079,23 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
         this.send();
       }, 150);
     }
+
+    void this.bindKeyboardOffset();
+  }
+
+  ngOnDestroy(): void {
+    this._clearPendingFiles();
+    this.keyboardOffsetBinding?.teardown();
+  }
+
+  /** Bind shared keyboard offset behavior so operation chat matches shell exactly. */
+  private async bindKeyboardOffset(): Promise<void> {
+    this.keyboardOffsetBinding = await bindAgentXKeyboardOffset({
+      platformId: this.platformId,
+      hostElement: this.hostElement.nativeElement,
+      offsetCssVar: '--chat-keyboard-offset',
+      keyboardOffsetTrimPx: 10,
+    });
   }
 
   /**
@@ -2265,7 +2297,18 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
                     label: getToolStepDisplayLabel(step),
                   })),
                 }
-              : part
+              : part.type === 'card'
+                ? {
+                    type: 'card' as const,
+                    card: {
+                      ...part.card,
+                      agentId:
+                        typeof (part.card as { agentId?: unknown }).agentId === 'string'
+                          ? (part.card as { agentId: AgentXRichCard['agentId'] }).agentId
+                          : 'router',
+                    },
+                  }
+                : part
           ) ?? [];
 
         return {
@@ -2920,10 +2963,6 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       types: nextPending.map((pending) => resolveAttachmentType(pending.file.type)),
     });
     return nextPending.length;
-  }
-
-  ngOnDestroy(): void {
-    this._clearPendingFiles();
   }
 
   /** Returns true when a message contains a data-table rich card (cards or parts). */
@@ -3906,6 +3945,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
    */
   private _injectBillingCard(reason: AgentXBillingActionReason, description?: string): void {
     const card: AgentXRichCard = {
+      agentId: 'router',
       type: 'billing-action',
       title: 'Action Required',
       payload: { reason, description },

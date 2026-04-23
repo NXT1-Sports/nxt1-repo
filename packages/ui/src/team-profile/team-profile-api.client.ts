@@ -106,8 +106,8 @@ export class TeamProfileApiClient {
   /**
    * Get team profile by Firestore document ID
    * GET /api/v1/teams/by-id/:id
-   * Prefer this over getTeamBySlug when you have the exact team ID —
-   * avoids ambiguity when multiple teams share the same name/slug.
+   * Use only when you have an explicit Firestore document ID.
+   * For short team codes (e.g. "57L791") use getTeamByTeamCode() instead.
    */
   async getTeamById(teamId: string): Promise<TeamProfilePageData> {
     if (!teamId) {
@@ -138,6 +138,47 @@ export class TeamProfileApiClient {
       const apiError = this.handleError(error);
       this.logger.error('Failed to fetch team profile by ID', error, {
         teamId,
+        status: apiError.status,
+        code: apiError.code,
+      });
+      throw apiError;
+    }
+  }
+
+  /**
+   * Get team profile by short team code (e.g. "57L791").
+   * This is the canonical method when loading via /team/:slug/:teamCode.
+   * GET /api/v1/teams/by-teamcode/:teamCode
+   */
+  async getTeamByTeamCode(teamCode: string): Promise<TeamProfilePageData> {
+    if (!teamCode) {
+      throw new Error('Team code is required');
+    }
+
+    this.logger.debug('Fetching team profile by team code', { teamCode });
+
+    try {
+      const url = `${this.baseUrl}/teams/by-teamcode/${encodeURIComponent(teamCode)}`;
+
+      const response = await firstValueFrom(this.http.get<ApiResponse<TeamProfilePageData>>(url));
+
+      if (!response.success || !response.data) {
+        throw new Error(response.error || 'Failed to fetch team profile');
+      }
+
+      const cached = response.meta?.cached || false;
+
+      this.logger.info('Team profile fetched by team code', {
+        teamCode,
+        cached,
+        rosterCount: response.data.roster.length,
+      });
+
+      return response.data;
+    } catch (error) {
+      const apiError = this.handleError(error);
+      this.logger.error('Failed to fetch team profile by team code', error, {
+        teamCode,
         status: apiError.status,
         code: apiError.code,
       });

@@ -136,6 +136,10 @@ export interface SportThemeOption {
   description: string;
 }
 
+interface NxtThemePluginHandle {
+  setStyle: (opts: { style: string }) => Promise<void>;
+}
+
 type TeamThemeReturnState = {
   readonly preference: ThemePreference;
   readonly sportTheme: SportTheme | null;
@@ -456,6 +460,15 @@ export class NxtThemeService {
 
   /** Whether status bar sync is enabled */
   private statusBarSyncEnabled = false;
+
+  /** Cached Capacitor bridge handle for the local iOS NxtTheme plugin. */
+  private nxtThemePlugin: NxtThemePluginHandle | null = null;
+
+  /** Stop retrying live iOS sync after a confirmed native unavailability. */
+  private nxtThemePluginUnavailable = false;
+
+  /** Prevent concurrent iOS native sync calls from racing plugin registration. */
+  private iosAppearanceSyncInFlight: Promise<void> | null = null;
 
   // ============================================
   // STATE (Signals)
@@ -1218,6 +1231,22 @@ export class NxtThemeService {
   private async syncIOSAppearance(theme?: EffectiveTheme): Promise<void> {
     if (!this.isBrowser) return;
 
+    if (this.iosAppearanceSyncInFlight !== null) {
+      await this.iosAppearanceSyncInFlight;
+      return;
+    }
+
+    this.iosAppearanceSyncInFlight = this.syncIOSAppearanceInternal(theme);
+    try {
+      await this.iosAppearanceSyncInFlight;
+    } finally {
+      this.iosAppearanceSyncInFlight = null;
+    }
+  }
+
+  private async syncIOSAppearanceInternal(theme?: EffectiveTheme): Promise<void> {
+    if (!this.isBrowser) return;
+
     const effectiveTheme = theme ?? this.effectiveTheme();
 
     try {
@@ -1229,15 +1258,39 @@ export class NxtThemeService {
 
     // Apply immediately to the live UIWindow so UIAlertController and other
     // native overlays in this session pick up the new style without a relaunch.
+    if (this.nxtThemePluginUnavailable) {
+      return;
+    }
+
     try {
-      const { registerPlugin } = await import('@capacitor/core');
-      const NxtTheme = registerPlugin<{ setStyle: (opts: { style: string }) => Promise<void> }>(
-        'NxtTheme'
-      );
+      const { Capacitor, registerPlugin } = await import('@capacitor/core');
+
+      if (!Capacitor.isNativePlatform() || Capacitor.getPlatform() !== 'ios') {
+        return;
+      }
+
+      if (!Capacitor.isPluginAvailable('NxtTheme')) {
+        this.nxtThemePluginUnavailable = true;
+        this.logger.warn('NxtTheme plugin is unavailable on iOS; skipping live native sync');
+        return;
+      }
+
+      if (this.nxtThemePlugin === null) {
+        this.nxtThemePlugin = registerPlugin<NxtThemePluginHandle>('NxtTheme');
+      }
+
       this.logger.debug('Calling NxtTheme.setStyle', { theme: effectiveTheme });
-      await NxtTheme.setStyle({ style: effectiveTheme });
+      await this.nxtThemePlugin.setStyle({ style: effectiveTheme });
       this.logger.debug('NxtTheme.setStyle resolved');
     } catch (e) {
+      const message = e instanceof Error ? e.message : String(e ?? '');
+      if (message.includes('not implemented')) {
+        this.nxtThemePluginUnavailable = true;
+        this.logger.warn('NxtTheme plugin is not implemented on iOS; disabling live native sync', {
+          message,
+        });
+        return;
+      }
       this.logger.error('NxtTheme.setStyle failed', e);
     }
   }

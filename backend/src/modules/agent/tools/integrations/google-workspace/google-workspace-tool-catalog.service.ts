@@ -4,6 +4,7 @@ import {
   filterGoogleWorkspaceToolDefinitions,
   type GoogleWorkspaceDiscoveredToolDefinition,
 } from './shared.js';
+import { AgentEngineError } from '../../../exceptions/agent-engine.error.js';
 
 const GOOGLE_WORKSPACE_MCP_DEFAULT_URL = 'http://127.0.0.1:8000/mcp';
 
@@ -18,14 +19,18 @@ function resolveGoogleWorkspaceMcpUrl(): string {
     (process.env['NODE_ENV'] === 'production' ? '' : GOOGLE_WORKSPACE_MCP_DEFAULT_URL);
 
   if (!endpointUrl) {
-    throw new Error(
+    throw new AgentEngineError(
+      'GOOGLE_WORKSPACE_CONFIG_INVALID',
       'GOOGLE_WORKSPACE_MCP_URL is required in production before Google Workspace MCP tools can be enabled.'
     );
   }
 
   const normalized = normalizeGoogleWorkspaceMcpUrl(endpointUrl);
   if (!normalized.startsWith('http://') && !normalized.startsWith('https://')) {
-    throw new Error('GOOGLE_WORKSPACE_MCP_URL must be an absolute http(s) URL.');
+    throw new AgentEngineError(
+      'GOOGLE_WORKSPACE_CONFIG_INVALID',
+      'GOOGLE_WORKSPACE_MCP_URL must be an absolute http(s) URL.'
+    );
   }
 
   return normalized;

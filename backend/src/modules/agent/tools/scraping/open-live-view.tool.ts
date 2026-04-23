@@ -28,6 +28,7 @@ import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 import { BaseTool, type ToolResult } from '../base.tool.js';
 import type { LiveViewSessionService, StartLiveViewRequest } from './live-view-session.service.js';
 import { logger } from '../../../../utils/logger.js';
+import { z } from 'zod';
 
 // ─── Connected Account shape (Firestore `Users/{uid}.connectedAccounts`) ────
 
@@ -52,32 +53,16 @@ export class OpenLiveViewTool extends BaseTool {
     'If the user has a connected account for the target platform (e.g. Hudl, Gmail), the session is pre-authenticated. ' +
     'Prefer this when the user wants to SEE and interact with the page rather than only extracting data from it.';
 
-  readonly parameters = {
-    type: 'object' as const,
-    properties: {
-      url: {
-        type: 'string',
-        description: 'The URL to open in the live view browser. Must be a valid HTTP(S) URL.',
-      },
-      platformKey: {
-        type: 'string',
-        description:
-          'Optional platform identifier (e.g. "hudl", "gmail", "maxpreps") to hint which ' +
-          'connected account credentials to use for authentication. If omitted, the service ' +
-          'attempts domain-matching against the PLATFORM_REGISTRY.',
-      },
-      userId: {
-        type: 'string',
-        description:
-          "The authenticated user's ID (uid). Extract from the [User Profile] context — NEVER ask the user.",
-      },
-    },
-    required: ['url', 'userId'],
-  };
+  readonly parameters = z.object({
+    url: z.string().trim().min(1),
+    platformKey: z.string().trim().min(1).optional(),
+    userId: z.string().trim().min(1),
+  });
 
   readonly isMutation = false;
   readonly category = 'analytics' as const;
 
+  readonly entityGroup = 'platform_tools' as const;
   override readonly allowedAgents = [
     'data_coordinator',
     'performance_coordinator',

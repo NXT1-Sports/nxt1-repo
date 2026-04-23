@@ -10,6 +10,7 @@
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../../base.tool.js';
 import type { CloudflareMcpBridgeService } from './cloudflare-mcp-bridge.service.js';
 import { logger } from '../../../../../utils/logger.js';
+import { z } from 'zod';
 
 export class DeleteVideoTool extends BaseTool {
   readonly name = 'delete_video';
@@ -19,26 +20,14 @@ export class DeleteVideoTool extends BaseTool {
     'artifact has been saved back to Firebase Storage (ephemeral cleanup). ' +
     'The videoId is the Cloudflare video UID (cloudflareVideoId from the upload).';
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      videoId: {
-        type: 'string',
-        description: 'The Cloudflare video ID (UID) to delete.',
-      },
-    },
-    required: ['videoId'],
-  } as const;
-
-  override readonly allowedAgents = [
-    'brand_coordinator',
-    'data_coordinator',
-    'strategy_coordinator',
-  ] as const;
+  readonly parameters = z.object({
+    videoId: z.string().trim().min(1),
+  });
 
   readonly isMutation = true;
   readonly category = 'media' as const;
 
+  readonly entityGroup = 'user_tools' as const;
   private readonly bridge: CloudflareMcpBridgeService;
 
   constructor(bridge: CloudflareMcpBridgeService) {

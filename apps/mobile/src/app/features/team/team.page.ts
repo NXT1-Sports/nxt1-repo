@@ -36,7 +36,7 @@ import {
 import { ActivatedRoute } from '@angular/router';
 import { toSignal, toObservable, takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { map, distinctUntilChanged, switchMap, tap, from, combineLatest, filter, of } from 'rxjs';
-import { IonHeader, IonContent, IonToolbar, NavController } from '@ionic/angular/standalone';
+import { IonContent, NavController } from '@ionic/angular/standalone';
 import {
   TeamProfileShellWebComponent,
   TeamProfileService,
@@ -79,85 +79,75 @@ import { environment } from '../../../environments/environment';
   selector: 'app-team',
   standalone: true,
   imports: [
-    IonHeader,
     IonContent,
-    IonToolbar,
     NxtPageHeaderComponent,
     NxtIconComponent,
     NxtRefresherComponent,
     TeamProfileShellWebComponent,
   ],
   template: `
-    <!-- Transparent dummy header: safe area only (matches profile.component.ts pattern) -->
-    <ion-header class="ion-no-border" [translucent]="true">
-      <ion-toolbar></ion-toolbar>
-    </ion-header>
+    <!-- Page header: sibling of ion-content — Ionic auto-calculates offset-top (matches profile-shell.component.ts pattern) -->
+    <nxt1-page-header [showBack]="true" (backClick)="onBackClick()" (menuClick)="onMenuClick()">
+      <!-- Title: "Team" + NXT1 brand logo (mirrors "Profile" + logo in profile-shell) -->
+      <div pageHeaderSlot="title" class="header-logo">
+        <span class="header-title-text">Team</span>
+        <svg
+          class="header-brand-logo"
+          viewBox="0 0 612 792"
+          width="40"
+          height="40"
+          fill="currentColor"
+          stroke="currentColor"
+          stroke-width="10"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <path [attr.d]="agentXLogoPath" />
+          <polygon [attr.points]="agentXLogoPolygon" />
+        </svg>
+      </div>
 
-    <!-- Outer content: overflow visible (non-scrolling), matches profile pattern -->
-    <ion-content [fullscreen]="true" class="team-outer-content">
-      <!-- Fixed page header (outside scrolling area — mirrors profile-shell.component.ts) -->
-      <nxt1-page-header [showBack]="true" (backClick)="onBackClick()" (menuClick)="onMenuClick()">
-        <!-- Title: "Team" + NXT1 brand logo (mirrors "Profile" + logo in profile-shell) -->
-        <div pageHeaderSlot="title" class="header-logo">
-          <span class="header-title-text">Team</span>
-          <svg
-            class="header-brand-logo"
-            viewBox="0 0 612 792"
-            width="40"
-            height="40"
-            fill="currentColor"
-            stroke="currentColor"
-            stroke-width="10"
-            stroke-linejoin="round"
-            aria-hidden="true"
-          >
-            <path [attr.d]="agentXLogoPath" />
-            <polygon [attr.points]="agentXLogoPolygon" />
-          </svg>
-        </div>
-
-        <!-- End: three-dots + pencil (admin only) -->
-        <div pageHeaderSlot="end" class="header-actions">
+      <!-- End: three-dots + pencil (admin only) -->
+      <div pageHeaderSlot="end" class="header-actions">
+        <button
+          type="button"
+          class="header-action-btn"
+          aria-label="More options"
+          (click)="onMoreMenu()"
+        >
+          <nxt1-icon name="moreHorizontal" [size]="22" />
+        </button>
+        @if (isTeamAdmin()) {
           <button
             type="button"
             class="header-action-btn"
-            aria-label="More options"
-            (click)="onMoreMenu()"
+            aria-label="Manage team"
+            (click)="onManageTeam()"
           >
-            <nxt1-icon name="moreHorizontal" [size]="22" />
+            <nxt1-icon name="pencil" [size]="20" />
           </button>
-          @if (isTeamAdmin()) {
-            <button
-              type="button"
-              class="header-action-btn"
-              aria-label="Manage team"
-              (click)="onManageTeam()"
-            >
-              <nxt1-icon name="pencil" [size]="20" />
-            </button>
-          }
-        </div>
-      </nxt1-page-header>
+        }
+      </div>
+    </nxt1-page-header>
 
-      <!-- Inner scrollable content (mirrors profile-shell ion-content pattern) -->
-      <ion-content [fullscreen]="true" class="team-scroll-content">
-        <nxt-refresher (onRefresh)="handleRefresh($event)" />
-        <nxt1-team-profile-shell-web
-          [teamSlug]="teamSlug()"
-          [teamId]="routeTeamCode()"
-          [isTeamAdmin]="isTeamAdmin()"
-          [skipInternalLoad]="true"
-          (backClick)="onBackClick()"
-          (tabChange)="onTabChange($event)"
-          (shareClick)="onShare()"
-          (copyLinkClick)="onCopyLink()"
-          (qrCodeClick)="onQrCode()"
-          (manageTeamClick)="onManageTeam()"
-          (rosterMemberClick)="onRosterMemberClick($event)"
-          (postClick)="onPostClick($event)"
-          (refreshRequest)="onRefreshRequest()"
-        />
-      </ion-content>
+    <!-- Scrollable content: sibling of nxt1-page-header, Ionic offsets it automatically -->
+    <ion-content [fullscreen]="true" class="team-scroll-content">
+      <nxt-refresher (onRefresh)="handleRefresh($event)" />
+      <nxt1-team-profile-shell-web
+        [teamSlug]="teamSlug()"
+        [teamId]="routeTeamCode()"
+        [isTeamAdmin]="isTeamAdmin()"
+        [skipInternalLoad]="true"
+        (backClick)="onBackClick()"
+        (tabChange)="onTabChange($event)"
+        (shareClick)="onShare()"
+        (copyLinkClick)="onCopyLink()"
+        (qrCodeClick)="onQrCode()"
+        (manageTeamClick)="onManageTeam()"
+        (rosterMemberClick)="onRosterMemberClick($event)"
+        (postClick)="onPostClick($event)"
+        (refreshRequest)="onRefreshRequest()"
+      />
     </ion-content>
     @if (teamFooterButtons().length > 0) {
       <div class="team-action-footer-bar">
@@ -181,31 +171,7 @@ import { environment } from '../../../environments/environment';
       height: 100%;
     }
 
-    /* Transparent dummy header — safe area only, not visible */
-    ion-header {
-      position: absolute;
-      top: 0;
-      left: 0;
-      right: 0;
-      z-index: -1;
-      --background: transparent;
-    }
-    ion-toolbar {
-      --background: transparent;
-      --min-height: 0;
-      --padding-top: 0;
-      --padding-bottom: 0;
-    }
-
-    /* Fullscreen content — outer container is non-scrolling (overflow visible) */
-    ion-content.team-outer-content {
-      --background: var(--nxt1-color-bg-primary, #0a0a0a);
-    }
-    ion-content.team-outer-content::part(scroll) {
-      overflow: visible;
-    }
-
-    /* Inner content — the real scrolling container */
+    /* Scrollable content — sibling of nxt1-page-header, Ionic auto-offsets */
     ion-content.team-scroll-content {
       --background: var(--nxt1-color-bg-primary, #0a0a0a);
     }
@@ -375,6 +341,16 @@ export class TeamPage {
         },
       ];
     }
+    if (this.teamProfile.activeTab() === 'timeline') {
+      return [
+        {
+          id: 'add-update',
+          label: '+ Add Update',
+          variant: 'primary',
+          onClick: () => void this.onAddUpdate(),
+        },
+      ];
+    }
     return [];
   });
 
@@ -411,15 +387,13 @@ export class TeamPage {
             previous.slug === current.slug && previous.teamCode === current.teamCode
         ),
         tap(() => this.teamProfile.startLoading()),
-        switchMap(({ slug, teamCode }) => {
-          if (!slug && !teamCode) {
-            this.teamProfile.setError('No team route provided');
-            return of({ success: false as const, error: 'No team route provided' });
+        switchMap(({ teamCode }) => {
+          if (!teamCode) {
+            this.teamProfile.setError('Team code route is required');
+            return of({ success: false as const, error: 'Team code route is required' });
           }
 
-          return from(
-            teamCode ? this.teamApi.getTeamById(teamCode) : this.teamApi.getTeamBySlug(slug)
-          );
+          return from(this.teamApi.getTeamByTeamCode(teamCode));
         }),
         takeUntilDestroyed(this.destroyRef)
       )
@@ -427,9 +401,12 @@ export class TeamPage {
         next: (response) => {
           if (response.success && response.data) {
             this.teamProfile.loadFromExternalData(response.data);
+            // syncCanonicalRoute handles mismatch between route teamCode and loaded teamCode
+            // (e.g. after manage-team updates the code).
+            this.syncCanonicalRoute(response.data.team);
             this.logger.info('Team profile loaded', {
-              slug: this.teamSlug(),
-              teamCode: this.routeTeamCode(),
+              routeTeamCode: this.routeTeamCode(),
+              loadedTeamCode: response.data.team?.teamCode,
               teamName: response.data.team?.teamName,
             });
 
@@ -452,7 +429,7 @@ export class TeamPage {
           } else {
             this.teamProfile.setError(response.error ?? 'Failed to load team profile');
             this.logger.error('Team profile API error', {
-              slug: this.teamSlug(),
+              routeTeamCode: this.routeTeamCode(),
               error: response.error,
             });
           }
@@ -460,7 +437,9 @@ export class TeamPage {
         error: (err: unknown) => {
           const message = err instanceof Error ? err.message : 'Failed to load team profile';
           this.teamProfile.setError(message);
-          this.logger.error('Team profile fetch failed', err, { slug: this.teamSlug() });
+          this.logger.error('Team profile fetch failed', err, {
+            routeTeamCode: this.routeTeamCode(),
+          });
         },
       });
   }
@@ -485,21 +464,22 @@ export class TeamPage {
    * Called by both the native refresher and the shell's (refreshRequest) output.
    */
   protected async onRefreshRequest(): Promise<void> {
-    const slug = this.teamSlug();
     const teamCode = this.routeTeamCode();
 
-    if (!slug && !teamCode) {
+    if (!teamCode) {
       return;
     }
 
     try {
-      const response = teamCode
-        ? await this.teamApi.getTeamById(teamCode)
-        : await this.teamApi.getTeamBySlug(slug);
+      const response = await this.teamApi.getTeamByTeamCode(teamCode);
 
       if (response.success && response.data) {
         this.teamProfile.loadFromExternalData(response.data);
-        this.logger.info('Team profile refreshed', { slug, teamCode });
+        this.syncCanonicalRoute(response.data.team);
+        this.logger.info('Team profile refreshed', {
+          routeTeamCode: teamCode,
+          loadedTeamCode: response.data.team?.teamCode,
+        });
 
         const teamId = response.data.team?.id;
         if (teamId) {
@@ -507,12 +487,43 @@ export class TeamPage {
         }
       }
     } catch (err) {
-      this.logger.error('Failed to refresh team profile', err, { slug, teamCode });
+      this.logger.error('Failed to refresh team profile', err, {
+        routeTeamCode: teamCode,
+      });
     }
   }
 
   protected onBackClick(): void {
     this.navController.back();
+  }
+
+  private syncCanonicalRoute(team: {
+    readonly slug?: string;
+    readonly teamName?: string;
+    readonly teamCode?: string;
+    readonly unicode?: string;
+    readonly id?: string;
+  }): void {
+    const resolvedTeamCode = team.teamCode?.trim();
+    if (!resolvedTeamCode) return;
+
+    const currentTeamCode = this.routeTeamCode().trim();
+    const currentSlug = this.teamSlug().trim();
+
+    const canonicalPath = buildCanonicalTeamPath({
+      slug: team.slug || currentSlug,
+      teamName: team.teamName,
+      teamCode: resolvedTeamCode,
+      unicode: team.unicode,
+      id: team.id,
+    });
+
+    if (currentTeamCode === resolvedTeamCode && currentSlug === (team.slug || currentSlug)) {
+      return;
+    }
+
+    // Mobile canonical repair: match web by enforcing /team/:slug/:teamCode.
+    void this.navController.navigateRoot(canonicalPath);
   }
 
   protected onMenuClick(): void {
@@ -600,6 +611,7 @@ export class TeamPage {
       slug: team.slug,
       teamName: team.teamName,
       teamCode: team.teamCode,
+      unicode: team.unicode,
       id: team.id,
     });
     const teamUrl = buildUTMShareUrl(
@@ -626,6 +638,7 @@ export class TeamPage {
       slug: team.slug,
       teamName: team.teamName,
       teamCode: team.teamCode,
+      unicode: team.unicode,
       id: team.id,
     });
     const qrUrl = buildUTMShareUrl(
@@ -665,7 +678,7 @@ export class TeamPage {
 
       const teamCode = this.routeTeamCode();
       const response = teamCode
-        ? await this.teamApi.getTeamById(teamCode)
+        ? await this.teamApi.getTeamByTeamCode(teamCode)
         : slug
           ? await this.teamApi.getTeamBySlug(slug)
           : null;
@@ -677,14 +690,15 @@ export class TeamPage {
   }
 
   protected onRosterMemberClick(member: TeamProfileRosterMember): void {
-    if (member.profileCode) {
+    const canonicalUnicode = member.unicode || member.profileCode;
+    if (canonicalUnicode) {
       const teamSport = this.teamProfile.team()?.sport;
       const athleteName = member.displayName || `${member.firstName} ${member.lastName}`.trim();
       void this.navController.navigateForward(
         buildCanonicalProfilePath({
           athleteName,
           sport: teamSport,
-          unicode: member.profileCode,
+          unicode: canonicalUnicode,
         })
       );
     }
@@ -694,6 +708,29 @@ export class TeamPage {
     if (post.id) {
       void this.navController.navigateForward(`/post/${post.id}`);
     }
+  }
+
+  protected async onAddUpdate(): Promise<void> {
+    const hasReport = !!this.intel.teamReport();
+    const message = hasReport
+      ? 'I want to create a post for our team timeline. After creating the post, automatically review it and update any relevant sections of our Agent X Intel report with new stats, results, recruiting activity, or program updates from the post.'
+      : 'I want to create a post for our team timeline.';
+
+    await this.bottomSheet.openSheet({
+      component: AgentXOperationChatComponent,
+      componentProps: {
+        contextId: 'team-timeline-post',
+        contextTitle: 'Create a Post',
+        contextIcon: 'create-outline',
+        contextType: 'command',
+        initialMessage: message,
+      },
+      ...SHEET_PRESETS.FULL,
+      showHandle: true,
+      handleBehavior: 'cycle',
+      backdropDismiss: true,
+      cssClass: 'agent-x-operation-sheet',
+    });
   }
 
   protected async onGenerateTeamIntel(): Promise<void> {

@@ -26,6 +26,7 @@
 
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../../base.tool.js';
 import { ApifyService, type InstagramPost, type InstagramProfile } from '../apify/apify.service.js';
+import { z } from 'zod';
 import {
   ScraperMediaService,
   type MediaInput,
@@ -57,58 +58,18 @@ export class ScrapeInstagramTool extends BaseTool {
     '3) "hashtag" — search Instagram by hashtag and return matching posts. ' +
     'Use this for brand auditing, recruiting intel, trending content analysis, and engagement scoring.';
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      mode: {
-        type: 'string',
-        enum: ['posts', 'profile', 'hashtag'],
-        description:
-          'Scraping mode: "posts" for a user\'s recent posts, ' +
-          '"profile" for profile details (bio, followers, etc.), ' +
-          '"hashtag" for hashtag feed search.',
-      },
-      usernames: {
-        type: 'array',
-        items: { type: 'string' },
-        description:
-          'For "posts" or "profile" mode: Instagram username(s) without @. ' +
-          'Example: ["nike", "ohiostatefb"]. Maximum 10 usernames per request.',
-      },
-      query: {
-        type: 'string',
-        description:
-          'For "hashtag" mode: the hashtag to search (with or without #). ' +
-          'Example: "#D1Commits" or "collegefootball".',
-      },
-      limit: {
-        type: 'number',
-        description:
-          'Maximum number of posts to return per user/hashtag. ' +
-          'Defaults to 30. Maximum 200. ' +
-          'Higher limits take longer and cost more.',
-      },
-      newer_than: {
-        type: 'string',
-        description:
-          'Only return posts newer than this date. ' +
-          'Accepts YYYY-MM-DD format or relative format (e.g. "7 days", "2 months"). ' +
-          'Example: "2025-01-01" or "30 days".',
-      },
-    },
-    required: ['mode'],
-  } as const;
-
-  override readonly allowedAgents = [
-    'data_coordinator',
-    'recruiting_coordinator',
-    'brand_coordinator',
-    'strategy_coordinator',
-  ] as const;
+  readonly parameters = z.object({
+    mode: z.enum(['posts', 'profile', 'hashtag']),
+    usernames: z.array(z.string().trim().min(1)).max(10).optional(),
+    query: z.string().trim().min(1).optional(),
+    limit: z.number().int().min(1).max(200).optional(),
+    newer_than: z.string().trim().min(1).optional(),
+  });
 
   readonly isMutation = false;
   readonly category = 'analytics' as const;
 
+  readonly entityGroup = 'platform_tools' as const;
   private readonly apify: ApifyService;
   private readonly media: ScraperMediaService;
 

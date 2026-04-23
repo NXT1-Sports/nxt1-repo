@@ -26,6 +26,7 @@ import type { LLMCompletionOptions, LLMMessage } from '../llm/llm.types.js';
 import { resolveStructuredOutput } from '../llm/structured-output.js';
 import { z } from 'zod';
 import { getAgentAppConfig } from '../config/agent-app-config.js';
+import { AgentEngineError } from '../exceptions/agent-engine.error.js';
 
 // ─── Shared Helpers ─────────────────────────────────────────────────────────
 
@@ -419,7 +420,10 @@ export class AgentGenerationService {
     );
 
     if (agentGoals.length === 0) {
-      throw new Error('Set at least one goal before generating a playbook');
+      throw new AgentEngineError(
+        'AGENT_VALIDATION_FAILED',
+        'Set at least one goal before generating a playbook'
+      );
     }
 
     const promptContextText = await this.buildPromptContextText(
@@ -656,7 +660,7 @@ export class AgentGenerationService {
         goalCount: agentGoals.length,
         rawLlmOutput: (llmRawContent ?? '').slice(0, 500),
       });
-      throw new Error('AI playbook generation unavailable');
+      throw new AgentEngineError('AGENT_SERVICE_UNAVAILABLE', 'AI playbook generation unavailable');
     }
 
     const generatedAt = new Date().toISOString();

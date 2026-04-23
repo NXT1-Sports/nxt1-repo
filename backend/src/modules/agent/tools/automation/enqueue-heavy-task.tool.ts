@@ -42,6 +42,7 @@ export class EnqueueHeavyTaskTool extends BaseTool {
 
   readonly isMutation = true;
   readonly category = 'automation' as const;
+  readonly entityGroup = 'platform_tools' as const;
   override readonly allowedAgents = ['*'] as const;
 
   constructor(private readonly queueService: AgentQueueService) {

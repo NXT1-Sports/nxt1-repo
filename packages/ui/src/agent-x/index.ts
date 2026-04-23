@@ -66,6 +66,11 @@ export { AgentXInputComponent } from './agent-x-input.component';
 export { AgentXPromptInputComponent } from './agent-x-prompt-input.component';
 export { AgentXInputBarComponent } from './agent-x-input-bar.component';
 export {
+  AgentXAttachmentsSheetComponent,
+  type ConnectedAppSource,
+  type AttachmentSheetResult,
+} from './agent-x-attachments-sheet.component';
+export {
   AgentXControlPanelStateService,
   AGENT_X_STATUS_DEFINITIONS,
   AGENT_X_GOAL_OPTIONS,

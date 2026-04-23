@@ -17,6 +17,8 @@ export {
   AgentEngineError,
   getAgentEngineErrorCode,
   isAgentEngineError,
+  mapAgentEngineErrorToOutcomeCode,
+  toAgentEngineError,
   type AgentEngineErrorCode,
   type AgentEngineErrorOptions,
 } from './agent-engine.error.js';

@@ -18,6 +18,7 @@
 import type {
   AgentIdentifier,
   AgentToolDefinition,
+  AgentToolEntityGroup,
   AgentSessionContext,
   AgentOperationResult,
   AgentToolCallRecord,
@@ -38,6 +39,7 @@ import {
   isAgentDelegation,
   AgentDelegationException,
 } from '../exceptions/agent-delegation.exception.js';
+import { AgentEngineError } from '../exceptions/agent-engine.error.js';
 import type { ApprovalGateService } from '../services/approval-gate.service.js';
 import { ASK_USER_CONTEXT_KEY, type AskUserToolContext } from '../tools/comms/ask-user.tool.js';
 import {
@@ -46,7 +48,7 @@ import {
 } from '../utils/platform-identifier-sanitizer.js';
 import { parallelBatch } from '../utils/parallel-batch.js';
 import { getAgentAnalyticsGate } from '../services/agent-analytics-gate.js';
-import { resolveAgentSystemPrompt } from '../config/agent-app-config.js';
+import { getCachedAgentAppConfig, resolveAgentSystemPrompt } from '../config/agent-app-config.js';
 import { logger } from '../../../utils/logger.js';
 
 /** Maximum tool-calling iterations before we force the agent to respond. */
@@ -87,6 +89,8 @@ interface ToolSessionContext {
   readonly operationId?: string;
   readonly environment?: 'staging' | 'production';
   readonly approvalId?: string;
+  readonly allowedToolNames?: readonly string[];
+  readonly allowedEntityGroups?: readonly AgentToolEntityGroup[];
   readonly bypassPermissionForTool?: {
     readonly toolName: string;
     readonly toolCallId: string;
@@ -136,7 +140,7 @@ export abstract class BaseAgent {
   async execute(
     intent: string,
     context: AgentSessionContext,
-    _toolDefinitions: readonly AgentToolDefinition[],
+    toolDefinitions: readonly AgentToolDefinition[],
     llm?: OpenRouterService,
     toolRegistry?: ToolRegistry,
     skillRegistry?: SkillRegistry,
@@ -144,7 +148,8 @@ export abstract class BaseAgent {
     approvalGate?: ApprovalGateService
   ): Promise<AgentOperationResult> {
     if (!llm || !toolRegistry) {
-      throw new Error(
+      throw new AgentEngineError(
+        'AGENT_DEPENDENCY_MISSING',
         `${this.name}.execute() requires llm and toolRegistry. ` + `Pass them from the AgentRouter.`
       );
     }
@@ -156,8 +161,7 @@ export abstract class BaseAgent {
     // System-category tools (e.g. delegate_task) are always included regardless
     // of the agent's getAvailableTools() list — they provide cross-cutting
     // infrastructure that every coordinator needs.
-    const toolSchemas: LLMToolSchema[] = toolRegistry
-      .getDefinitions(this.id)
+    const toolSchemas: LLMToolSchema[] = toolDefinitions
       .filter(
         (def) =>
           def.category === 'system' ||
@@ -217,6 +221,16 @@ export abstract class BaseAgent {
     ].join('\n');
 
     let systemContent = this.getSystemPrompt(context);
+    const appConfig = getCachedAgentAppConfig();
+    const configuredPrompt = appConfig.prompts.agentSystemPrompts[this.id];
+    if (configuredPrompt) {
+      logger.info(`[${this.id}] Applying configured system prompt override`, {
+        agentId: this.id,
+        configSchemaVersion: appConfig.schemaVersion,
+        configUpdatedAt: appConfig.updatedAt,
+      });
+    }
+
     if (skillBlock) systemContent += `\n${skillBlock}`;
     systemContent += delegationRule;
     systemContent +=
@@ -269,12 +283,23 @@ export abstract class BaseAgent {
       tools: allowedToolNames,
     });
 
+    const effectiveAllowedToolNames = toolSchemas.map((schema) => schema.function.name);
+    const effectiveAllowedEntityGroups = Array.from(
+      new Set(
+        toolDefinitions
+          .map((definition) => definition.entityGroup)
+          .filter((group): group is AgentToolEntityGroup => Boolean(group))
+      )
+    );
+
     return this.runLoop(
       messages,
       context,
       llm,
       toolRegistry,
       toolSchemas,
+      effectiveAllowedToolNames,
+      effectiveAllowedEntityGroups,
       routing,
       onStreamEvent,
       approvalGate
@@ -310,7 +335,8 @@ export abstract class BaseAgent {
     approvalId?: string
   ): Promise<AgentOperationResult> {
     if (!llm || !toolRegistry) {
-      throw new Error(
+      throw new AgentEngineError(
+        'AGENT_DEPENDENCY_MISSING',
         `${this.name}.resumeExecution() requires llm and toolRegistry. ` +
           `Pass them from the AgentRouter.`
       );
@@ -318,8 +344,7 @@ export abstract class BaseAgent {
 
     const routing = this.getModelRouting();
     const allowedToolNames = this.getAvailableTools();
-    const toolSchemas: LLMToolSchema[] = toolRegistry
-      .getDefinitions(this.id)
+    const toolSchemas: LLMToolSchema[] = _toolDefinitions
       .filter(
         (def) =>
           def.category === 'system' ||
@@ -406,6 +431,14 @@ export abstract class BaseAgent {
       llm,
       toolRegistry,
       toolSchemas,
+      toolSchemas.map((schema) => schema.function.name),
+      Array.from(
+        new Set(
+          _toolDefinitions
+            .map((definition) => definition.entityGroup)
+            .filter((group): group is AgentToolEntityGroup => Boolean(group))
+        )
+      ),
       routing,
       onStreamEvent,
       approvalGate
@@ -418,6 +451,8 @@ export abstract class BaseAgent {
     llm: OpenRouterService,
     toolRegistry: ToolRegistry,
     toolSchemas: readonly LLMToolSchema[],
+    allowedToolNames: readonly string[],
+    allowedEntityGroups: readonly AgentToolEntityGroup[],
     routing: ModelRoutingConfig,
     onStreamEvent?: OnStreamEvent,
     approvalGate?: ApprovalGateService
@@ -577,6 +612,8 @@ export abstract class BaseAgent {
         sessionId: context.sessionId,
         threadId: context.threadId,
         operationId: context.operationId,
+        allowedToolNames,
+        allowedEntityGroups,
       };
 
       // 3. Fire all tools in parallel (N is typically 1–5; no throttle needed).
@@ -1026,7 +1063,7 @@ export abstract class BaseAgent {
 
     // Re-check permissions: ensure the LLM isn't calling a tool outside its allowlist.
     // System-category tools (e.g. delegate_task) bypass the allowlist.
-    const allowedToolNames = this.getAvailableTools();
+    const allowedToolNames = sessionContext?.allowedToolNames ?? this.getAvailableTools();
     const tool = registry.get(toolName);
     const isSystemTool = tool?.category === 'system';
     const bypassPermissions =
@@ -1040,6 +1077,7 @@ export abstract class BaseAgent {
     ) {
       return JSON.stringify({
         error: `Tool "${toolName}" is not allowed for agent "${this.id}".`,
+        errorCode: 'AGENT_TOOL_NOT_ALLOWED',
       });
     }
 
@@ -1049,6 +1087,7 @@ export abstract class BaseAgent {
     } catch {
       return JSON.stringify({
         error: `Invalid JSON arguments for tool "${toolName}".`,
+        errorCode: 'AGENT_TOOL_ARGS_INVALID',
       });
     }
 
@@ -1110,6 +1149,12 @@ export abstract class BaseAgent {
       ...(sessionContext?.environment && { environment: sessionContext.environment }),
       ...(sessionContext?.threadId && { threadId: sessionContext.threadId }),
       ...(sessionContext?.sessionId && { sessionId: sessionContext.sessionId }),
+      ...(sessionContext?.allowedToolNames && {
+        allowedToolNames: sessionContext.allowedToolNames,
+      }),
+      ...(sessionContext?.allowedEntityGroups && {
+        allowedEntityGroups: sessionContext.allowedEntityGroups,
+      }),
       ...(onStreamEvent && {
         emitStage: (stage, metadata) => {
           onStreamEvent({

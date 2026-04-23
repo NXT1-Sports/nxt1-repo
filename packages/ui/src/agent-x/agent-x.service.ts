@@ -56,9 +56,6 @@ import {
   AGENT_X_MAX_FILE_SIZE,
   AGENT_X_MAX_VIDEO_FILE_SIZE,
   resolveAttachmentType,
-  ATHLETE_QUICK_TASKS,
-  COACH_QUICK_TASKS,
-  COLLEGE_QUICK_TASKS,
 } from '@nxt1/core';
 import { createAgentXApi } from '@nxt1/core/ai';
 import { HapticsService } from '../services/haptics/haptics.service';
@@ -158,6 +155,13 @@ export class AgentXService {
     operationId?: string;
     icon?: string;
   } | null>(null);
+
+  /** Quick tasks loaded from the backend. */
+  private readonly _quickTasks = signal<readonly AgentXQuickTask[]>([]);
+
+  constructor() {
+    void this.loadQuickTasks();
+  }
 
   // Animation interval reference
   private titleAnimationInterval?: ReturnType<typeof setInterval>;
@@ -354,9 +358,27 @@ export class AgentXService {
   // QUICK TASKS (by category)
   // ============================================
 
-  readonly athleteTasks = signal(ATHLETE_QUICK_TASKS);
-  readonly coachTasks = signal(COACH_QUICK_TASKS);
-  readonly collegeTasks = signal(COLLEGE_QUICK_TASKS);
+  readonly quickTasks = computed(() => this._quickTasks());
+  readonly athleteTasks = computed(() =>
+    this._quickTasks().filter((task) => task.category === 'athlete')
+  );
+  readonly coachTasks = computed(() =>
+    this._quickTasks().filter((task) => task.category === 'coach')
+  );
+  readonly collegeTasks = computed(() =>
+    this._quickTasks().filter((task) => task.category === 'college')
+  );
+
+  async loadQuickTasks(): Promise<void> {
+    try {
+      const tasks = await this.api.getQuickTasks();
+      this._quickTasks.set(tasks);
+      this.logger.debug('Quick tasks loaded', { count: tasks.length });
+    } catch (err) {
+      this._quickTasks.set([]);
+      this.logger.error('Failed to load quick tasks', err);
+    }
+  }
 
   // ============================================
   // USER MESSAGE TWO-WAY BINDING

@@ -8,6 +8,8 @@ export interface ManageTeamUpdatePayload {
   readonly teamName: string;
   readonly teamType: string;
   readonly sportName: string;
+  readonly division: string;
+  readonly conference: string;
   readonly mascot: string;
   readonly email: string;
   readonly phone: string;
@@ -19,7 +21,7 @@ export interface ManageTeamUpdatePayload {
   readonly losses: number;
   readonly ties: number;
   readonly season: string;
-  readonly logoUrl: string;
+  readonly organizationLogoUrl: string;
   readonly galleryImages: readonly string[];
   readonly primaryColor: string;
   readonly secondaryColor: string;
@@ -102,6 +104,36 @@ export function applyManageTeamFieldChange(
           basicInfo: {
             ...formData.basicInfo,
             sport: normalizeText(value),
+          },
+        };
+      }
+
+      if (normalizedFieldId === 'level') {
+        return {
+          ...formData,
+          basicInfo: {
+            ...formData.basicInfo,
+            level: normalizeText(value) as ManageTeamFormData['basicInfo']['level'],
+          },
+        };
+      }
+
+      if (normalizedFieldId === 'division') {
+        return {
+          ...formData,
+          basicInfo: {
+            ...formData.basicInfo,
+            division: normalizeText(value) || undefined,
+          },
+        };
+      }
+
+      if (normalizedFieldId === 'conference') {
+        return {
+          ...formData,
+          basicInfo: {
+            ...formData.basicInfo,
+            conference: normalizeText(value) || undefined,
           },
         };
       }
@@ -204,6 +236,8 @@ export function buildManageTeamUpdatePayload(
     teamName: normalizeText(formData.basicInfo.name),
     teamType: formData.basicInfo.level,
     sportName: normalizeText(formData.basicInfo.sport),
+    division: normalizeText(formData.basicInfo.division ?? ''),
+    conference: normalizeText(formData.basicInfo.conference ?? ''),
     mascot: normalizeText(formData.basicInfo.mascot ?? ''),
     email: normalizeText(formData.contact.email ?? ''),
     phone: normalizeText(formData.contact.phone ?? ''),
@@ -215,7 +249,7 @@ export function buildManageTeamUpdatePayload(
     losses: normalizeNumber(formData.record.losses),
     ties: normalizeNumber(formData.record.ties ?? 0),
     season: normalizeText(formData.basicInfo.season ?? ''),
-    logoUrl: normalizeText(formData.branding.logo ?? ''),
+    organizationLogoUrl: normalizeText(formData.branding.logo ?? ''),
     galleryImages: dedupeImages(formData.branding.galleryImages),
     primaryColor: normalizeText(formData.branding.primaryColor),
     secondaryColor: normalizeText(formData.branding.secondaryColor),

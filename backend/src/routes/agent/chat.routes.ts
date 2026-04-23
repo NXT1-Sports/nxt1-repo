@@ -611,7 +611,7 @@ router.post(
           const job = await jobRepository.getById(resumeOperationId);
           if (!job || job.userId !== user.uid) {
             res.write(
-              `event: error\ndata: ${JSON.stringify({ error: 'Operation not found or unauthorized' })}\n\n`
+              `event: error\ndata: ${JSON.stringify({ error: 'Operation not found or unauthorized', code: 'AGENT_OPERATION_NOT_FOUND' })}\n\n`
             );
             res.end();
             return;
@@ -983,6 +983,7 @@ router.post(
             const yieldCardData =
               yieldPayload.reason === 'needs_approval' && yieldPayload.pendingToolCall
                 ? buildInlineApprovalCard({
+                    agentId: yieldPayload.agentId,
                     toolName: yieldPayload.pendingToolCall.toolName,
                     approvalId: yieldPayload.approvalId ?? '',
                     operationId: chatOperationId,
@@ -991,6 +992,7 @@ router.post(
                   })
                 : {
                     ...buildInlineAskUserCard({
+                      agentId: yieldPayload.agentId,
                       question: yieldPayload.promptToUser,
                       context: '',
                       threadId: resolvedThreadId,

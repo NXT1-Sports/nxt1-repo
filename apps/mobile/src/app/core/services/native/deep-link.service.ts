@@ -115,20 +115,13 @@ export class DeepLinkService {
       }),
     },
 
-    // Canonical team pages
+    // Canonical team pages (/team/:slug/:teamCode)
     {
       pattern: /^\/team\/([^/]+)\/([^/]+)\/?$/,
       route: '/team/:slug/:teamCode',
       extractParams: (match) => ({
         slug: this.decodePathSegment(match[1]),
         teamCode: this.decodePathSegment(match[2]),
-      }),
-    },
-    {
-      pattern: /^\/team\/([^/]+)\/?$/,
-      route: '/team/:slug',
-      extractParams: (match) => ({
-        slug: this.decodePathSegment(match[1]),
       }),
     },
 

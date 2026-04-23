@@ -42,10 +42,29 @@ function summarizeToolResult(result: Record<string, unknown>): string {
   return keys.length > 0 ? `Returned ${keys.length} field(s)` : 'Completed';
 }
 
-function isRichCard(value: unknown): value is AgentXRichCard {
-  return (
-    !!value && typeof value === 'object' && typeof (value as { type?: unknown }).type === 'string'
-  );
+function toRichCard(value: unknown, fallbackAgentId?: string): AgentXRichCard | null {
+  if (!value || typeof value !== 'object') return null;
+
+  const raw = value as {
+    type?: unknown;
+    title?: unknown;
+    payload?: unknown;
+    agentId?: unknown;
+  };
+
+  if (typeof raw.type !== 'string') return null;
+  if (typeof raw.title !== 'string') return null;
+  if (raw.payload == null || typeof raw.payload !== 'object') return null;
+
+  return {
+    type: raw.type as AgentXRichCard['type'],
+    title: raw.title,
+    payload: raw.payload as AgentXRichCard['payload'],
+    agentId:
+      typeof raw.agentId === 'string'
+        ? (raw.agentId as AgentXRichCard['agentId'])
+        : ((fallbackAgentId ?? 'router') as AgentXRichCard['agentId']),
+  };
 }
 
 export class PersistedAssistantStreamBuilder {
@@ -140,10 +159,11 @@ export class PersistedAssistantStreamBuilder {
 
       case 'card': {
         const rawCard = event.cardData
-          ? sanitizeAgentPayload(event.cardData as Record<string, unknown>)
+          ? sanitizeAgentPayload(event.cardData as unknown as Record<string, unknown>)
           : null;
-        if (isRichCard(rawCard)) {
-          this.parts.push({ type: 'card', card: rawCard });
+        const card = toRichCard(rawCard, event.agentId);
+        if (card) {
+          this.parts.push({ type: 'card', card });
         }
         return;
       }

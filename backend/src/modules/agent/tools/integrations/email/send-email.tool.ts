@@ -38,6 +38,7 @@ export class SendEmailTool extends BaseTool {
   readonly isMutation = true;
   readonly category = 'communication' as const;
 
+  readonly entityGroup = 'user_tools' as const;
   private readonly db: Firestore;
 
   constructor(db?: Firestore) {

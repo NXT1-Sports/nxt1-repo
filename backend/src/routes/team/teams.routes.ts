@@ -11,6 +11,7 @@
  */
 
 import { Router, type Router as ExpressRouter, type Request, type Response } from 'express';
+import { FieldValue } from 'firebase-admin/firestore';
 import { appGuard, optionalAuth } from '../../middleware/auth/auth.middleware.js';
 import { validateBody, validateQuery } from '../../middleware/validation/validation.middleware.js';
 import {
@@ -22,8 +23,9 @@ import {
 } from '../../dtos/teams.dto.js';
 import { asyncHandler, sendSuccess } from '@nxt1/core/errors/express';
 import { forbiddenError, validationError } from '@nxt1/core/errors';
-import { ROLE } from '@nxt1/core/models';
+import { ROLE, RosterEntryStatus, type UserRole } from '@nxt1/core/models';
 import * as teamCodeService from '../../services/team/team-code.service.js';
+import { RosterEntryService } from '../../services/team/roster-entry.service.js';
 import { createTeamAdapter } from '../../adapters/team.adapter.js';
 import {
   mapTeamCodeToProfile,
@@ -86,6 +88,53 @@ function validateRole(role: string): void {
       },
     ]);
   }
+}
+
+function parseRosterEditorRole(role: string | undefined): UserRole | undefined {
+  if (role === undefined) return undefined;
+
+  const normalized = role.trim().toLowerCase();
+
+  switch (normalized) {
+    case 'athlete':
+      return 'athlete';
+    case 'coach':
+    case 'head-coach':
+    case 'assistant-coach':
+    case 'staff':
+      return 'coach';
+    case 'director':
+    case 'admin':
+    case 'administrative':
+    case 'owner':
+    case 'program-director':
+      return 'director';
+    default:
+      throw validationError([
+        {
+          field: 'role',
+          message: 'Role must be athlete, coach, or director',
+          rule: 'enum',
+        },
+      ]);
+  }
+}
+
+function parseRosterEditorStatus(status: string | undefined): RosterEntryStatus | undefined {
+  if (status === undefined) return undefined;
+
+  const normalized = status.trim().toLowerCase();
+  if (Object.values(RosterEntryStatus).includes(normalized as RosterEntryStatus)) {
+    return normalized as RosterEntryStatus;
+  }
+
+  throw validationError([
+    {
+      field: 'status',
+      message: `Status must be one of: ${Object.values(RosterEntryStatus).join(', ')}`,
+      rule: 'enum',
+    },
+  ]);
 }
 
 interface TeamIntelPermissionMemberLike {
@@ -556,8 +605,10 @@ router.patch(
       losses,
       ties,
       season,
+      organizationLogoUrl,
       logoUrl,
       galleryImages,
+      connectedSources,
       primaryColor,
       secondaryColor,
       accentColor,
@@ -579,6 +630,55 @@ router.patch(
         error: err instanceof Error ? err.message : String(err),
       });
     }
+
+    const normalizedConnectedSources = Array.isArray(connectedSources)
+      ? connectedSources
+          .filter(
+            (
+              source
+            ): source is {
+              platform: string;
+              profileUrl: string;
+              faviconUrl?: string;
+              lastSyncedAt?: string;
+              syncStatus?: 'pending' | 'synced' | 'failed';
+              lastError?: string;
+              scopeType?: 'global' | 'sport' | 'team';
+              scopeId?: string;
+              displayOrder?: number;
+            } => {
+              if (!source || typeof source !== 'object') return false;
+              const sourceObj = source as Record<string, unknown>;
+              return (
+                typeof sourceObj['platform'] === 'string' &&
+                sourceObj['platform'].trim().length > 0 &&
+                typeof sourceObj['profileUrl'] === 'string' &&
+                sourceObj['profileUrl'].trim().length > 0
+              );
+            }
+          )
+          .map((source) => ({
+            platform: source.platform.trim(),
+            profileUrl: source.profileUrl.trim(),
+            ...(typeof source.faviconUrl === 'string' && source.faviconUrl.trim().length > 0
+              ? { faviconUrl: source.faviconUrl.trim() }
+              : {}),
+            ...(typeof source.lastSyncedAt === 'string' && source.lastSyncedAt.trim().length > 0
+              ? { lastSyncedAt: source.lastSyncedAt.trim() }
+              : {}),
+            ...(source.syncStatus ? { syncStatus: source.syncStatus } : {}),
+            ...(typeof source.lastError === 'string' && source.lastError.trim().length > 0
+              ? { lastError: source.lastError.trim() }
+              : {}),
+            ...(source.scopeType ? { scopeType: source.scopeType } : {}),
+            ...(typeof source.scopeId === 'string' && source.scopeId.trim().length > 0
+              ? { scopeId: source.scopeId.trim() }
+              : {}),
+            ...(typeof source.displayOrder === 'number' && Number.isFinite(source.displayOrder)
+              ? { displayOrder: Math.max(0, Math.trunc(source.displayOrder)) }
+              : {}),
+          }))
+      : undefined;
 
     const team = await teamCodeService.updateTeamCode(db, String(id), userId, {
       teamName: teamName?.trim(),
@@ -612,6 +712,45 @@ router.patch(
       secondaryColor: typeof secondaryColor === 'string' ? secondaryColor.trim() : undefined,
       accentColor: typeof accentColor === 'string' ? accentColor.trim() : undefined,
     });
+
+    if (normalizedConnectedSources !== undefined) {
+      await db.collection('Teams').doc(String(id)).update({
+        connectedSources: normalizedConnectedSources,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+    }
+
+    const normalizedOrganizationLogoUrl =
+      typeof organizationLogoUrl === 'string' ? organizationLogoUrl.trim() : undefined;
+    const resolvedOrganizationId =
+      typeof (team as { organizationId?: unknown }).organizationId === 'string'
+        ? ((team as { organizationId?: string }).organizationId ?? '').trim()
+        : '';
+
+    if (normalizedOrganizationLogoUrl !== undefined && resolvedOrganizationId.length > 0) {
+      try {
+        await db
+          .collection('Organizations')
+          .doc(resolvedOrganizationId)
+          .update({
+            logoUrl: normalizedOrganizationLogoUrl || null,
+            updatedAt: FieldValue.serverTimestamp(),
+          });
+
+        logger.info('[Teams API] Organization logo updated from manage-team', {
+          teamId: id,
+          organizationId: resolvedOrganizationId,
+          userId,
+        });
+      } catch (err) {
+        logger.warn('[Teams API] Failed to update organization logo from manage-team', {
+          teamId: id,
+          organizationId: resolvedOrganizationId,
+          userId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
 
     logger.info('[Teams API] TeamCode updated', { teamId: id, userId });
 
@@ -1312,6 +1451,218 @@ router.get(
       nextCursor: result.nextCursor,
       hasMore: result.hasMore,
     });
+  })
+);
+
+// ============================================
+// MEMBERSHIP EDITOR ROUTES
+// ============================================
+
+/**
+ * Permission helper: checks that the requesting user is an active admin or coach
+ * on the team via RosterEntries (V2-first) with fallback to legacy team.members (V1).
+ */
+async function assertMembershipEditorPermission(
+  db: FirebaseFirestore.Firestore,
+  teamId: string,
+  requesterId: string
+): Promise<void> {
+  const rosterService = new RosterEntryService(db);
+  const entry = await rosterService.getActiveOrPendingRosterEntry(requesterId, teamId);
+  const entryRole = entry?.role ?? '';
+  const isEntryAdmin = ['admin', 'head-coach', 'coach', 'administrative'].includes(
+    entryRole.toLowerCase()
+  );
+  if (isEntryAdmin) return;
+
+  // V1 fallback: check team.members[]
+  const { team } = await teamCodeService.getTeamCodeById(db, teamId, false);
+  const legacyMember = team.members?.find(
+    (m: { id: string; role: string }) => m.id === requesterId
+  );
+  const legacyRole = legacyMember?.role ?? '';
+  const isLegacyAdmin = ['admin', 'head-coach', 'coach', 'administrative'].includes(
+    legacyRole.toLowerCase()
+  );
+  if (isLegacyAdmin) return;
+
+  throw forbiddenError('permission');
+}
+
+/**
+ * Map a RosterEntry document to the normalized MembershipEditorItem shape
+ * consumed by the shared UI editor component.
+ */
+function mapRosterEntryToEditorItem(
+  entryId: string,
+  entry: Record<string, unknown>
+): Record<string, unknown> {
+  const role = typeof entry['role'] === 'string' ? entry['role'] : '';
+  const isAthlete = role.toLowerCase() === 'athlete';
+  const status = typeof entry['status'] === 'string' ? entry['status'] : 'active';
+  const firstName = typeof entry['firstName'] === 'string' ? entry['firstName'] : '';
+  const lastName = typeof entry['lastName'] === 'string' ? entry['lastName'] : '';
+
+  return {
+    entryId,
+    userId: typeof entry['userId'] === 'string' ? entry['userId'] : undefined,
+    sourceKind: 'account-backed',
+    membershipKind: isAthlete ? 'roster' : 'staff',
+    firstName,
+    lastName,
+    displayName:
+      typeof entry['displayName'] === 'string'
+        ? entry['displayName']
+        : [firstName, lastName].filter(Boolean).join(' '),
+    profileImgs: Array.isArray(entry['profileImgs']) ? entry['profileImgs'] : [],
+    profileCode: typeof entry['profileCode'] === 'string' ? entry['profileCode'] : undefined,
+    role,
+    title: typeof entry['title'] === 'string' ? entry['title'] : undefined,
+    status,
+    isPending: status === 'pending',
+    jerseyNumber: isAthlete ? entry['jerseyNumber'] : undefined,
+    positions: isAthlete && Array.isArray(entry['positions']) ? entry['positions'] : undefined,
+    sport: typeof entry['sport'] === 'string' ? entry['sport'] : undefined,
+    classOf: isAthlete && typeof entry['classOf'] === 'number' ? entry['classOf'] : undefined,
+    email: typeof entry['email'] === 'string' ? entry['email'] : undefined,
+    phone: typeof entry['phone'] === 'string' ? entry['phone'] : undefined,
+    joinedAt: entry['joinedAt'] ? String(entry['joinedAt']) : undefined,
+    approvedAt: entry['approvedAt'] ? String(entry['approvedAt']) : undefined,
+  };
+}
+
+/**
+ * List all membership editor items for a team.
+ * GET /api/v1/teams/:teamId/membership
+ */
+router.get(
+  '/:teamId/membership',
+  appGuard,
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const teamId = String(req.params['teamId'] ?? '');
+    const requesterId = req.user!.uid;
+    const db = req.firebase!.db;
+
+    validateRequired(teamId, 'Team ID');
+    await assertMembershipEditorPermission(db, teamId, requesterId);
+
+    const rosterService = new RosterEntryService(db);
+    const entries = await rosterService.getTeamRoster({
+      teamId,
+      status: [RosterEntryStatus.ACTIVE, RosterEntryStatus.PENDING],
+    });
+
+    const members = entries.map((entry) => {
+      const raw = entry as unknown as Record<string, unknown>;
+      return mapRosterEntryToEditorItem(String(raw['id'] ?? raw['entryId'] ?? ''), raw);
+    });
+
+    const rosterCount = members.filter((member) => member['membershipKind'] === 'roster').length;
+    const staffCount = members.filter((member) => member['membershipKind'] === 'staff').length;
+    const pendingCount = members.filter((member) => member['isPending'] === true).length;
+
+    logger.info('[Teams API] Membership editor list', { teamId, total: members.length });
+    sendSuccess(res, { teamId, members, rosterCount, staffCount, pendingCount });
+  })
+);
+
+/**
+ * Edit a membership entry (role, title, jersey, positions, status).
+ * PATCH /api/v1/teams/:teamId/membership/:entryId
+ */
+router.patch(
+  '/:teamId/membership/:entryId',
+  appGuard,
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const teamId = String(req.params['teamId'] ?? '');
+    const entryId = String(req.params['entryId'] ?? '');
+    const requesterId = req.user!.uid;
+    const db = req.firebase!.db;
+
+    validateRequired(teamId, 'Team ID');
+    validateRequired(entryId, 'Entry ID');
+    await assertMembershipEditorPermission(db, teamId, requesterId);
+
+    const { role, title, jerseyNumber, positions, status } = req.body as {
+      role?: string;
+      title?: string;
+      jerseyNumber?: string | number;
+      positions?: string[];
+      status?: string;
+    };
+    const nextRole = parseRosterEditorRole(role);
+    const nextStatus = parseRosterEditorStatus(status);
+
+    const rosterService = new RosterEntryService(db);
+    const updated = await rosterService.updateRosterEntry(entryId, {
+      role: nextRole,
+      title,
+      jerseyNumber,
+      positions,
+      status: nextStatus,
+    });
+
+    const raw = updated as unknown as Record<string, unknown>;
+    const item = mapRosterEntryToEditorItem(entryId, raw);
+
+    logger.info('[Teams API] Membership entry updated', { teamId, entryId, requesterId });
+    sendSuccess(res, item);
+  })
+);
+
+/**
+ * Remove a member from the team (soft delete).
+ * DELETE /api/v1/teams/:teamId/membership/:entryId
+ */
+router.delete(
+  '/:teamId/membership/:entryId',
+  appGuard,
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const teamId = String(req.params['teamId'] ?? '');
+    const entryId = String(req.params['entryId'] ?? '');
+    const requesterId = req.user!.uid;
+    const db = req.firebase!.db;
+
+    validateRequired(teamId, 'Team ID');
+    validateRequired(entryId, 'Entry ID');
+    await assertMembershipEditorPermission(db, teamId, requesterId);
+
+    const rosterService = new RosterEntryService(db);
+    await rosterService.removeFromTeam(entryId);
+
+    logger.info('[Teams API] Membership entry removed', { teamId, entryId, requesterId });
+    sendSuccess(res, { message: 'Member removed successfully' });
+  })
+);
+
+/**
+ * Approve a pending membership entry.
+ * POST /api/v1/teams/:teamId/membership/:entryId/approve
+ */
+router.post(
+  '/:teamId/membership/:entryId/approve',
+  appGuard,
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const teamId = String(req.params['teamId'] ?? '');
+    const entryId = String(req.params['entryId'] ?? '');
+    const requesterId = req.user!.uid;
+    const db = req.firebase!.db;
+
+    validateRequired(teamId, 'Team ID');
+    validateRequired(entryId, 'Entry ID');
+    await assertMembershipEditorPermission(db, teamId, requesterId);
+
+    const rosterService = new RosterEntryService(db);
+    const approved = await rosterService.approveRosterEntry({
+      entryId,
+      approvedBy: requesterId,
+    });
+
+    const raw = approved as unknown as Record<string, unknown>;
+    const item = mapRosterEntryToEditorItem(entryId, raw);
+
+    logger.info('[Teams API] Membership entry approved', { teamId, entryId, requesterId });
+    sendSuccess(res, item);
   })
 );
 

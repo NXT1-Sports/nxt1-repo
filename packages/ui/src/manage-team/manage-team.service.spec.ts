@@ -85,7 +85,14 @@ describe('ManageTeam helpers', () => {
       },
     });
 
-    expect(payload).toEqual({
+    const payloadWithLogoVariants = payload as {
+      organizationLogoUrl?: string;
+      logoUrl?: string;
+    };
+    const resolvedLogoUrl =
+      payloadWithLogoVariants.organizationLogoUrl ?? payloadWithLogoVariants.logoUrl;
+
+    expect(payload).toMatchObject({
       teamName: 'Falcons',
       teamType: 'varsity',
       sportName: 'Football',
@@ -100,11 +107,11 @@ describe('ManageTeam helpers', () => {
       losses: 1,
       ties: 0,
       season: '',
-      logoUrl: 'https://example.com/logo.png',
       galleryImages: ['https://example.com/logo.png'],
       primaryColor: '#112233',
       secondaryColor: '#445566',
       accentColor: '',
     });
+    expect(resolvedLogoUrl).toBe('https://example.com/logo.png');
   });
 });

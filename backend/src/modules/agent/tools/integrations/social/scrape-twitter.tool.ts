@@ -25,6 +25,7 @@
 
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../../base.tool.js';
 import { ApifyService, type ScweetTweet, type ScweetUser } from '../apify/apify.service.js';
+import { z } from 'zod';
 import {
   ScraperMediaService,
   type MediaInput,
@@ -54,67 +55,20 @@ export class ScrapeTwitterTool extends BaseTool {
     'Returns structured JSON: tweet text, engagement metrics (likes, retweets, replies), timestamps, and URLs. ' +
     'Use this for recruiting intel, coach monitoring, trending topic analysis, and brand auditing.';
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      mode: {
-        type: 'string',
-        enum: ['search', 'profile_tweets', 'followers'],
-        description:
-          'Scraping mode: "search" for keyword/hashtag search, ' +
-          '"profile_tweets" for a user\'s timeline, "followers" for follower lists.',
-      },
-      query: {
-        type: 'string',
-        description:
-          'For "search" mode: the search query (keywords, hashtags, phrases). ' +
-          'Supports Twitter advanced search operators. ' +
-          'Example: "#NXT1 since:2025-06-01" or "Ohio State football commits".',
-      },
-      usernames: {
-        type: 'array',
-        items: { type: 'string' },
-        description:
-          'For "profile_tweets" or "followers" mode: Twitter username(s) without @. ' +
-          'Example: ["OhioStateFB", "CoachDay"].',
-      },
-      limit: {
-        type: 'number',
-        description:
-          'Maximum number of items to return. ' +
-          'Defaults to 50 for tweets, 100 for followers. ' +
-          'Higher limits take longer and cost more.',
-      },
-      since: {
-        type: 'string',
-        description:
-          'For "search" mode: start date in YYYY-MM-DD format. ' + 'Example: "2025-01-01".',
-      },
-      until: {
-        type: 'string',
-        description:
-          'For "search" mode: end date in YYYY-MM-DD format. ' + 'Example: "2025-12-31".',
-      },
-      language: {
-        type: 'string',
-        description:
-          'For "search" mode: ISO 639-1 language code to filter by. ' +
-          'Example: "en" for English.',
-      },
-    },
-    required: ['mode'],
-  } as const;
-
-  override readonly allowedAgents = [
-    'data_coordinator',
-    'recruiting_coordinator',
-    'brand_coordinator',
-    'strategy_coordinator',
-  ] as const;
+  readonly parameters = z.object({
+    mode: z.enum(['search', 'profile_tweets', 'followers']),
+    query: z.string().trim().min(1).optional(),
+    usernames: z.array(z.string().trim().min(1)).optional(),
+    limit: z.number().int().min(1).max(500).optional(),
+    since: z.string().trim().min(1).optional(),
+    until: z.string().trim().min(1).optional(),
+    language: z.string().trim().min(1).optional(),
+  });
 
   readonly isMutation = false;
   readonly category = 'analytics' as const;
 
+  readonly entityGroup = 'platform_tools' as const;
   private readonly apify: ApifyService;
   private readonly media: ScraperMediaService;
 

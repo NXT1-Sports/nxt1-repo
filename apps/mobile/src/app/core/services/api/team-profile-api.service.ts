@@ -44,7 +44,17 @@ export class TeamProfileApiService {
   }
 
   /**
-   * Fetch team profile data by ID.
+   * Fetch team profile by short team code (e.g. "57L791").
+   * Use this when routing via /team/:slug/:teamCode — never pass a teamCode
+   * to getTeamById(), which expects a Firestore document ID.
+   */
+  async getTeamByTeamCode(teamCode: string): Promise<TeamProfileApiResponse<TeamProfilePageData>> {
+    return this.api.getTeamByTeamCode(teamCode);
+  }
+
+  /**
+   * Fetch team profile data by Firestore document ID.
+   * Use only when you have an explicit Firestore doc ID, NOT a short team code.
    */
   async getTeamById(id: string): Promise<TeamProfileApiResponse<TeamProfilePageData>> {
     return this.api.getTeamById(id);

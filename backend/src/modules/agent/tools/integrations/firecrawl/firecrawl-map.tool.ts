@@ -20,6 +20,7 @@ import type {
   FirecrawlMcpBridgeService,
   FirecrawlMapOptions,
 } from './firecrawl-mcp-bridge.service.js';
+import { z } from 'zod';
 import { logger } from '../../../../../utils/logger.js';
 
 /** Maximum URL length for the base URL. */
@@ -41,43 +42,17 @@ export class FirecrawlMapTool extends BaseTool {
     '(e.g. search="roster" on a college athletics domain). ' +
     'After mapping, use scrape_webpage to get content from specific URLs.';
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      url: {
-        type: 'string',
-        description:
-          'The base URL of the website to map. ' +
-          'Example: "https://floridagators.com" or "https://texassports.com/sports/football".',
-      },
-      search: {
-        type: 'string',
-        description:
-          'Filter discovered URLs by keyword. ' +
-          'Example: "roster" to find roster pages, "coaches" for staff directories.',
-      },
-      limit: {
-        type: 'number',
-        description: `Maximum URLs to return (1–${MAX_MAP_LIMIT}). Defaults to ${DEFAULT_MAP_LIMIT}.`,
-      },
-      includeSubdomains: {
-        type: 'boolean',
-        description: 'Include URLs from subdomains. Defaults to false.',
-      },
-    },
-    required: ['url'],
-  } as const;
-
-  override readonly allowedAgents = [
-    'recruiting_coordinator',
-    'data_coordinator',
-    'admin_coordinator',
-    'strategy_coordinator',
-  ] as const;
+  readonly parameters = z.object({
+    url: z.string().trim().min(1),
+    search: z.string().trim().min(1).optional(),
+    limit: z.number().int().min(1).max(MAX_MAP_LIMIT).optional(),
+    includeSubdomains: z.boolean().optional(),
+  });
 
   readonly isMutation = false;
   readonly category = 'analytics' as const;
 
+  readonly entityGroup = 'platform_tools' as const;
   private readonly bridge: FirecrawlMcpBridgeService;
 
   constructor(bridge: FirecrawlMcpBridgeService) {

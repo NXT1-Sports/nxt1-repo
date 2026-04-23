@@ -79,13 +79,6 @@ export function getStripePriceId(feature: string, environment: 'staging' | 'prod
   // Dynamic-cost features (e.g. chat-conversation) may not have a Stripe
   // price mapping. Return empty string so usage events are still written
   // for dashboard aggregation — Stripe reporting skips events with no priceId.
-  if (!priceId) {
-    logger.warn('[getStripePriceId] No Stripe Price ID configured — dynamic pricing assumed', {
-      feature,
-      environment,
-      envKey,
-    });
-  }
   return priceId || '';
 }
 

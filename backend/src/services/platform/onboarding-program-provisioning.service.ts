@@ -43,6 +43,8 @@ export interface ProvisionOnboardingProgramsInput {
     firstName?: string;
     lastName?: string;
     displayName?: string;
+    unicode?: string;
+    profileCode?: string;
     email?: string;
     contact?: { phone?: string };
     profileImgs?: string[];
@@ -50,6 +52,7 @@ export interface ProvisionOnboardingProgramsInput {
   updateData: {
     firstName?: string;
     lastName?: string;
+    unicode?: string;
     profileImgs?: string[];
     coachTitle?: string;
     athlete?: { classOf?: number };
@@ -420,6 +423,13 @@ async function ensureRosterEntry(
           .map((value) => value.trim())
           .filter(Boolean)
           .join(' '),
+      unicode:
+        input.currentUser?.unicode?.trim() || input.updateData.unicode?.trim() || input.userId,
+      profileCode:
+        input.currentUser?.profileCode?.trim() ||
+        input.currentUser?.unicode?.trim() ||
+        input.updateData.unicode?.trim() ||
+        input.userId,
       email: input.currentUser?.email ?? '',
       profileImgs: input.updateData.profileImgs ?? input.currentUser?.profileImgs ?? [],
       classOf: input.updateData.athlete?.classOf,

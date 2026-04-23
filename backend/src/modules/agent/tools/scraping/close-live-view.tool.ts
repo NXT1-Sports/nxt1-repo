@@ -10,6 +10,7 @@
 import { BaseTool, type ToolResult } from '../base.tool.js';
 import type { LiveViewSessionService } from './live-view-session.service.js';
 import { logger } from '../../../../utils/logger.js';
+import { z } from 'zod';
 
 export class CloseLiveViewTool extends BaseTool {
   readonly name = 'close_live_view';
@@ -20,26 +21,15 @@ export class CloseLiveViewTool extends BaseTool {
     'or when you want to free up the session after completing a task. ' +
     'The sessionId is optional — if omitted, the tool closes ALL active sessions for the user.';
 
-  readonly parameters = {
-    type: 'object' as const,
-    properties: {
-      sessionId: {
-        type: 'string',
-        description:
-          'Optional. The sessionId returned by open_live_view. If omitted, ALL active sessions for the user are closed.',
-      },
-      userId: {
-        type: 'string',
-        description:
-          "The authenticated user's ID (uid). Extract from the [User Profile] context — NEVER ask the user.",
-      },
-    },
-    required: ['userId'],
-  };
+  readonly parameters = z.object({
+    sessionId: z.string().trim().min(1).optional(),
+    userId: z.string().trim().min(1),
+  });
 
   readonly isMutation = true;
   readonly category = 'analytics' as const;
 
+  readonly entityGroup = 'platform_tools' as const;
   override readonly allowedAgents = [
     'data_coordinator',
     'performance_coordinator',

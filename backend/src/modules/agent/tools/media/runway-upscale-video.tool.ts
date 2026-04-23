@@ -9,6 +9,7 @@
 
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
 import type { RunwayMcpBridgeService } from '../integrations/runway/runway-mcp-bridge.service.js';
+import { z } from 'zod';
 
 export class RunwayUpscaleVideoTool extends BaseTool {
   readonly name = 'runway_upscale_video';
@@ -16,25 +17,16 @@ export class RunwayUpscaleVideoTool extends BaseTool {
     'Upscale a video to higher resolution using Runway. Provide the URL of the existing video. ' +
     'Returns a task ID — use runway_check_task to poll for completion and retrieve the upscaled output.';
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      promptImage: {
-        type: 'string',
-        description: 'URL of the existing video to upscale.',
-      },
-      model: {
-        type: 'string',
-        description: 'Runway upscale model to use. Defaults to gen4.',
-      },
-    },
-    required: ['promptImage'],
-  } as const;
+  readonly parameters = z.object({
+    promptImage: z.string().trim().min(1),
+    model: z.string().trim().min(1).optional(),
+  });
 
   override readonly allowedAgents = ['brand_coordinator'] as const;
   readonly isMutation = true;
   readonly category = 'media' as const;
 
+  readonly entityGroup = 'user_tools' as const;
   constructor(private readonly bridge: RunwayMcpBridgeService) {
     super();
   }

@@ -34,7 +34,10 @@ import type {
   AgentSessionMessage,
   AgentRetrievedMemories,
   AgentUserContext,
+  AgentToolAccessContext,
+  AgentToolEntityGroup,
 } from '@nxt1/core';
+import { COORDINATOR_AGENT_IDS } from '@nxt1/core';
 import type { OpenRouterService } from './llm/openrouter.service.js';
 import type { ToolRegistry } from './tools/tool-registry.js';
 import type { ContextBuilder } from './memory/context-builder.js';
@@ -64,6 +67,14 @@ type MutableAgentTask = AgentTask & {
   status: AgentTaskStatus;
   _lastError?: string;
 };
+
+const routableCoordinatorSet = new Set<string>(COORDINATOR_AGENT_IDS);
+
+function isRoutableCoordinatorAgent(
+  agentId: string
+): agentId is Exclude<AgentIdentifier, 'router'> {
+  return routableCoordinatorSet.has(agentId);
+}
 
 // ─── Router ─────────────────────────────────────────────────────────────────
 
@@ -172,6 +183,7 @@ export class AgentRouter {
     }
 
     const userContext = promptContext.profile;
+    const toolAccessContext = this.buildToolAccessContext(userContext);
 
     // Extract threadId for conversation continuity + thread-scoped storage
     // (contextObj already extracted above for resume detection)
@@ -285,6 +297,26 @@ export class AgentRouter {
     // ── Direct routing: skip planner when a specific agent is requested ───
     if (payload.agent) {
       const directAgentId = payload.agent;
+      if (!isRoutableCoordinatorAgent(directAgentId)) {
+        const message =
+          `Direct routing target "${directAgentId}" is not allowed. ` +
+          `Allowed coordinator ids: ${COORDINATOR_AGENT_IDS.join(', ')}.`;
+        this.emitUpdate(onUpdate, operationId, 'failed', message, undefined, {
+          agentId: 'router',
+          stage: 'routing_to_agent',
+          outcomeCode: 'routing_failed',
+          metadata: {
+            targetAgentId: directAgentId,
+            allowedAgentIds: COORDINATOR_AGENT_IDS,
+          },
+        });
+
+        return {
+          summary: message,
+          suggestions: ['Select one of the supported coordinator commands and try again.'],
+        };
+      }
+
       const directAgent = this.agents.get(directAgentId);
       if (!directAgent) {
         this.emitUpdate(
@@ -320,7 +352,7 @@ export class AgentRouter {
       );
 
       try {
-        let toolDefs = this.toolRegistry.getDefinitions(directAgent.id);
+        let toolDefs = this.toolRegistry.getDefinitions(directAgent.id, toolAccessContext);
 
         // Dynamically filter tools by semantic intent matching, if intent embedding succceeds.
         try {
@@ -329,7 +361,8 @@ export class AgentRouter {
           toolDefs = await this.toolRegistry.match(
             intentEmbedding,
             (t) => this.llm.embed(t),
-            directAgent.id
+            directAgent.id,
+            toolAccessContext
           );
         } catch {
           // Ensure we don't blow up DAG execution if embedding service is down.
@@ -554,6 +587,31 @@ export class AgentRouter {
       };
     }
 
+    const invalidPlannedTask = plan.tasks.find(
+      (task) => !isRoutableCoordinatorAgent(task.assignedAgent)
+    );
+    if (invalidPlannedTask) {
+      const message =
+        `Planner produced non-routable agent assignment for task ${invalidPlannedTask.id}: ` +
+        `"${invalidPlannedTask.assignedAgent}". Allowed coordinators: ` +
+        `${COORDINATOR_AGENT_IDS.join(', ')}.`;
+      this.emitUpdate(onUpdate, operationId, 'failed', message, undefined, {
+        agentId: 'router',
+        stage: 'routing_to_agent',
+        outcomeCode: 'planning_failed',
+        metadata: {
+          taskId: invalidPlannedTask.id,
+          assignedAgentId: invalidPlannedTask.assignedAgent,
+          allowedAgentIds: COORDINATOR_AGENT_IDS,
+        },
+      });
+
+      return {
+        summary: message,
+        suggestions: ['Retry your request so Agent X can generate a valid coordinator plan.'],
+      };
+    }
+
     this.emitUpdate(
       onUpdate,
       operationId,
@@ -648,6 +706,21 @@ export class AgentRouter {
         for (let attempt = 0; attempt <= taskMaxRetries; attempt++) {
           try {
             const assignedAgentId = task.assignedAgent;
+            if (!isRoutableCoordinatorAgent(assignedAgentId)) {
+              throw new AgentEngineError(
+                'AGENT_NOT_REGISTERED',
+                `Task "${task.id}" assigned to non-routable agent "${assignedAgentId}". ` +
+                  `Allowed coordinators: ${COORDINATOR_AGENT_IDS.join(', ')}.`,
+                {
+                  metadata: {
+                    taskId: task.id,
+                    assignedAgentId,
+                    allowedAgentIds: COORDINATOR_AGENT_IDS,
+                  },
+                }
+              );
+            }
+
             const agent = this.agents.get(assignedAgentId);
             if (!agent) {
               throw new AgentEngineError(
@@ -690,13 +763,14 @@ export class AgentRouter {
             }
 
             // Dynamic Tool RAG: filter tools by semantic relevance to this task's intent
-            let toolDefs = this.toolRegistry.getDefinitions(agent.id);
+            let toolDefs = this.toolRegistry.getDefinitions(agent.id, toolAccessContext);
             try {
               const intentEmbedding = await this.llm.embed(taskIntent);
               toolDefs = await this.toolRegistry.match(
                 intentEmbedding,
                 (t) => this.llm.embed(t),
-                agent.id
+                agent.id,
+                toolAccessContext
               );
             } catch {
               // Embedding unavailable — fall back to all permitted tools
@@ -1057,14 +1131,16 @@ export class AgentRouter {
     const approvalGate = firestore ? new ApprovalGateService(firestore) : undefined;
 
     try {
-      let toolDefs = this.toolRegistry.getDefinitions(agent.id);
+      const toolAccessContext = this.buildToolAccessContext(userContext);
+      let toolDefs = this.toolRegistry.getDefinitions(agent.id, toolAccessContext);
 
       try {
         const intentEmbedding = await this.llm.embed(enrichedIntent);
         toolDefs = await this.toolRegistry.match(
           intentEmbedding,
           (t) => this.llm.embed(t),
-          agent.id
+          agent.id,
+          toolAccessContext
         );
       } catch {
         // Ignore embedding failures during resume and pass all possible tools.
@@ -1329,5 +1405,31 @@ export class AgentRouter {
         }
       }
     }
+  }
+
+  private buildToolAccessContext(userContext: AgentUserContext): AgentToolAccessContext {
+    const role = userContext.role.trim().toLowerCase();
+    const isTeamRole = role === 'coach' || role === 'director';
+    const allowedEntityGroups: AgentToolEntityGroup[] = ['platform_tools', 'system_tools'];
+
+    if (role === 'athlete') {
+      allowedEntityGroups.push('user_tools');
+    }
+
+    if (isTeamRole) {
+      allowedEntityGroups.push('team_tools', 'user_tools');
+    }
+
+    if (userContext.organizationId) {
+      allowedEntityGroups.push('organization_tools');
+    }
+
+    return {
+      userId: userContext.userId,
+      role: userContext.role,
+      teamId: userContext.teamId,
+      organizationId: userContext.organizationId,
+      allowedEntityGroups: Array.from(new Set(allowedEntityGroups)),
+    };
   }
 }

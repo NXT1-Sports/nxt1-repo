@@ -12,6 +12,7 @@ import type {
   RunwayGenerateVideoOptions,
   RunwayTextToVideoOptions,
 } from '../integrations/runway/runway-mcp-bridge.service.js';
+import { z } from 'zod';
 
 const IMAGE_TO_VIDEO_MODELS = ['gen4_turbo', 'gen4.5', 'veo3.1'] as const;
 const TEXT_TO_VIDEO_MODELS = ['gen3a_turbo', 'gen4.5', 'veo3', 'veo3.1', 'veo3.1_fast'] as const;
@@ -23,57 +24,28 @@ export class RunwayGenerateVideoTool extends BaseTool {
     'If promptImage is provided, this uses image-to-video models. If promptImage is omitted, this uses text-to-video models including VEO. ' +
     'Returns a task ID — use runway_check_task to poll for completion and retrieve the output URL.';
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      promptText: {
-        type: 'string',
-        description:
-          'Text description of the video to generate. Be specific about motion, camera angle, lighting, and subject.',
-      },
-      promptImage: {
-        type: 'string',
-        description:
-          'Optional URL of a reference image to drive the generation (image-to-video mode).',
-      },
-      model: {
-        type: 'string',
-        enum: ['gen4_turbo', 'gen4.5', 'gen3a_turbo', 'veo3', 'veo3.1', 'veo3.1_fast'],
-        description:
-          'Runway model to use. Image-to-video supports gen4_turbo, gen4.5, veo3.1. Text-to-video supports gen3a_turbo, gen4.5, veo3, veo3.1, veo3.1_fast.',
-      },
-      duration: {
-        type: 'number',
-        enum: [4, 5, 6, 8, 10],
-        description:
-          'Video duration in seconds. Gen4 models use 5 or 10. VEO models use 4, 6, or 8.',
-      },
-      ratio: {
-        type: 'string',
-        enum: ['1280:720', '720:1280', '1104:832', '832:1104', '960:960', '1584:672'],
-        description: 'Output aspect ratio (width:height). Defaults to 1280:720.',
-      },
-      seed: {
-        type: 'number',
-        description: 'Optional seed for reproducible results.',
-      },
-      audio: {
-        type: 'boolean',
-        description:
-          'Text-to-video only. Enable audio generation when supported by the selected model.',
-      },
-      watermark: {
-        type: 'boolean',
-        description: 'Whether to include a Runway watermark. Defaults to false.',
-      },
-    },
-    required: ['promptText'],
-  } as const;
+  readonly parameters = z.object({
+    promptText: z.string().trim().min(1),
+    promptImage: z.string().trim().min(1).optional(),
+    model: z
+      .enum(['gen4_turbo', 'gen4.5', 'gen3a_turbo', 'veo3', 'veo3.1', 'veo3.1_fast'])
+      .optional(),
+    duration: z
+      .union([z.literal(4), z.literal(5), z.literal(6), z.literal(8), z.literal(10)])
+      .optional(),
+    ratio: z
+      .enum(['1280:720', '720:1280', '1104:832', '832:1104', '960:960', '1584:672'])
+      .optional(),
+    seed: z.number().int().optional(),
+    audio: z.boolean().optional(),
+    watermark: z.boolean().optional(),
+  });
 
   override readonly allowedAgents = ['brand_coordinator'] as const;
   readonly isMutation = true;
   readonly category = 'media' as const;
 
+  readonly entityGroup = 'user_tools' as const;
   constructor(private readonly bridge: RunwayMcpBridgeService) {
     super();
   }

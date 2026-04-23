@@ -154,6 +154,7 @@ export class CallApifyActorTool extends BaseTool {
   readonly isMutation = true;
   readonly category = 'analytics' as const;
 
+  readonly entityGroup = 'platform_tools' as const;
   private readonly bridge: ApifyMcpBridgeService;
   private readonly media: ScraperMediaService;
 

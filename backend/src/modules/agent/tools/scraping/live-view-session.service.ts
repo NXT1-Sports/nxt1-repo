@@ -38,6 +38,7 @@ import type {
 import { FirecrawlProfileService } from './firecrawl-profile.service.js';
 import { validateUrl } from './url-validator.js';
 import { logger } from '../../../../utils/logger.js';
+import { AgentEngineError } from '../../exceptions/agent-engine.error.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -110,7 +111,8 @@ export class LiveViewSessionService {
   constructor(apiKey?: string) {
     const key = apiKey ?? process.env['FIRECRAWL_API_KEY'];
     if (!key) {
-      throw new Error(
+      throw new AgentEngineError(
+        'LIVE_VIEW_CONFIG_MISSING_API_KEY',
         'FIRECRAWL_API_KEY is required. Set it in environment variables or pass it to the constructor.'
       );
     }
@@ -134,7 +136,13 @@ export class LiveViewSessionService {
 
     const hiddenError = result.error?.trim();
     if (!result.success || result.killed || (result.exitCode ?? 0) !== 0 || hiddenError) {
-      throw new Error(hiddenError || result.stderr || 'Browser command failed');
+      throw new AgentEngineError(
+        'LIVE_VIEW_REQUEST_FAILED',
+        hiddenError || result.stderr || 'Browser command failed',
+        {
+          metadata: { sessionId },
+        }
+      );
     }
 
     return (result.stdout ?? result.result ?? '').trim();
@@ -321,7 +329,10 @@ export class LiveViewSessionService {
 
     let sessionId = scrapeResult.metadata?.scrapeId;
     if (!sessionId) {
-      throw new Error('Firecrawl scrape did not return a scrapeId — cannot start live view.');
+      throw new AgentEngineError(
+        'LIVE_VIEW_REQUEST_FAILED',
+        'Firecrawl scrape did not return a scrapeId — cannot start live view.'
+      );
     }
 
     // Fire an initial interact() call to activate the live-view session
@@ -376,9 +387,11 @@ export class LiveViewSessionService {
 
         const fallbackId = fallbackScrape.metadata?.scrapeId;
         if (!fallbackId) {
-          throw new Error('Firecrawl fallback scrape did not return a scrapeId.', {
-            cause: initErr,
-          });
+          throw new AgentEngineError(
+            'LIVE_VIEW_REQUEST_FAILED',
+            'Firecrawl fallback scrape did not return a scrapeId.',
+            { cause: initErr }
+          );
         }
 
         // Reassign sessionId for the rest of the flow
@@ -401,7 +414,8 @@ export class LiveViewSessionService {
             error: fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr),
           });
           await this.destroySession(sessionId);
-          throw new Error(
+          throw new AgentEngineError(
+            'LIVE_VIEW_REQUEST_FAILED',
             `Failed to navigate to ${destination.domainLabel}: ${fallbackErr instanceof Error ? fallbackErr.message : 'Navigation timeout'}`,
             { cause: fallbackErr }
           );
@@ -413,7 +427,8 @@ export class LiveViewSessionService {
           error: initErrMsg,
         });
         await this.destroySession(sessionId);
-        throw new Error(
+        throw new AgentEngineError(
+          'LIVE_VIEW_REQUEST_FAILED',
           `Failed to navigate to ${destination.domainLabel}: ${initErr instanceof Error ? initErr.message : 'Navigation timeout'}`,
           { cause: initErr }
         );
@@ -423,7 +438,8 @@ export class LiveViewSessionService {
     if (!interactiveUrl) {
       // Clean up since we can't present it
       await this.destroySession(sessionId);
-      throw new Error(
+      throw new AgentEngineError(
+        'LIVE_VIEW_REQUEST_FAILED',
         'Firecrawl did not return an interactive live view URL. Cannot start live view.'
       );
     }
@@ -536,7 +552,10 @@ export class LiveViewSessionService {
     if (tracked) {
       // Validate ownership for tracked sessions
       if (tracked.userId !== userId) {
-        throw new Error('Session not found or already expired');
+        throw new AgentEngineError(
+          'LIVE_VIEW_SESSION_NOT_FOUND',
+          'Session not found or already expired'
+        );
       }
       this.activeSessions.delete(sessionId);
     }
@@ -817,7 +836,10 @@ export class LiveViewSessionService {
       return resolved;
     }
 
-    throw new Error('No active live view session found. Use open_live_view to start one first.');
+    throw new AgentEngineError(
+      'LIVE_VIEW_SESSION_NOT_FOUND',
+      'No active live view session found. Use open_live_view to start one first.'
+    );
   }
 
   /**
@@ -827,15 +849,21 @@ export class LiveViewSessionService {
   private assertOwnership(sessionId: string, userId: string): void {
     const session = this.activeSessions.get(sessionId);
     if (!session) {
-      throw new Error('Session not found or already expired');
+      throw new AgentEngineError(
+        'LIVE_VIEW_SESSION_NOT_FOUND',
+        'Session not found or already expired'
+      );
     }
     if (session.userId !== userId) {
       // Return generic error to prevent session enumeration
-      throw new Error('Session not found or already expired');
+      throw new AgentEngineError(
+        'LIVE_VIEW_SESSION_NOT_FOUND',
+        'Session not found or already expired'
+      );
     }
     if (new Date() > session.expiresAt) {
       this.activeSessions.delete(sessionId);
-      throw new Error('Session has expired');
+      throw new AgentEngineError('LIVE_VIEW_SESSION_EXPIRED', 'Session has expired');
     }
   }
 }

@@ -690,6 +690,12 @@ router.post(
               (currentData['displayName'] as string | undefined) ??
               `${currentData['firstName'] || ''} ${currentData['lastName'] || ''}`
             ).trim(),
+            unicode: ((currentData['unicode'] as string | undefined) ?? userId).trim(),
+            profileCode: (
+              (currentData['profileCode'] as string | undefined) ??
+              (currentData['unicode'] as string | undefined) ??
+              userId
+            ).trim(),
             email: (currentData['email'] as string) || '',
             phoneNumber: (currentData['phoneNumber'] as string) || '',
             profileImgs: (currentData['profileImgs'] as string[]) || [],

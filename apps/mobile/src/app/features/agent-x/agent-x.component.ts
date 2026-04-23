@@ -17,7 +17,6 @@
 
 import { Component, ChangeDetectionStrategy, inject, computed, OnInit } from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
-import { IonHeader, IonToolbar } from '@ionic/angular/standalone';
 import { mapToConnectedSources } from '@nxt1/core';
 import {
   AgentXShellComponent,
@@ -35,14 +34,9 @@ import { EditProfileApiService } from '../../core/services/api/edit-profile-api.
 @Component({
   selector: 'app-agent-x',
   standalone: true,
-  imports: [IonHeader, IonToolbar, AgentXShellComponent],
+  imports: [AgentXShellComponent],
   template: `
-    <!-- Agent X Command Center -->
-    <!-- Transparent header for safe-area inset -->
-    <ion-header class="ion-no-border" [translucent]="true">
-      <ion-toolbar></ion-toolbar>
-    </ion-header>
-    <!-- Shell owns its own ion-content + ion-footer (proper Ionic page structure) -->
+    <!-- Shell owns its own ion-content + ion-footer -->
     <nxt1-agent-x-shell
       [user]="userInfo()"
       (avatarClick)="onAvatarClick()"
@@ -52,26 +46,16 @@ import { EditProfileApiService } from '../../core/services/api/edit-profile-api.
   styles: [
     `
       :host {
-        display: flex;
-        flex-direction: column;
+        display: block;
         height: 100%;
+        width: 100%;
+        background: var(--nxt1-color-bg-primary, var(--ion-background-color, #0a0a0a));
       }
-      ion-header {
-        position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        z-index: -1;
-        --background: transparent;
-      }
-      ion-toolbar {
-        --background: transparent;
-        --min-height: 0;
-        --padding-top: 0;
-        --padding-bottom: 0;
-      }
+
       nxt1-agent-x-shell {
+        display: block;
         flex: 1;
+        height: 100%;
         min-height: 0;
       }
     `,

@@ -59,6 +59,7 @@ import {
   PERFORMANCE_ADAPTER,
   INTEL_API_BASE_URL,
   HELP_CENTER_API,
+  TEAM_PROFILE_API_BASE_URL,
 } from '@nxt1/ui';
 import { TEAM_LOGO_UPLOADER } from '@nxt1/ui/manage-team';
 // Mobile-specific Activity API adapter (uses CapacitorHttpAdapter + auth)
@@ -231,6 +232,9 @@ export const appConfig: ApplicationConfig = {
 
     // Agent X API base URL
     { provide: AGENT_X_API_BASE_URL, useFactory: () => environment.apiUrl },
+
+    // Team Profile API base URL (team/timeline endpoints)
+    { provide: TEAM_PROFILE_API_BASE_URL, useFactory: () => environment.apiUrl },
 
     // Agent X Auth Token Factory (for SSE uploads and fallback requests)
     {

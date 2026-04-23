@@ -12,6 +12,7 @@ import type {
   RunwayMcpBridgeService,
   RunwayEditVideoOptions,
 } from '../integrations/runway/runway-mcp-bridge.service.js';
+import { z } from 'zod';
 
 export class RunwayEditVideoTool extends BaseTool {
   readonly name = 'runway_edit_video';
@@ -19,51 +20,22 @@ export class RunwayEditVideoTool extends BaseTool {
     'Edit or transform a video using Runway Gen-4 video-to-video. Provide a source image/frame URL ' +
     'and a text prompt describing the desired transformation. Returns a task ID — use runway_check_task to poll.';
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      promptText: {
-        type: 'string',
-        description: 'Text description of the desired video edit or transformation.',
-      },
-      promptImage: {
-        type: 'string',
-        description: 'URL of a reference image to guide the edit (optional).',
-      },
-      video: {
-        type: 'string',
-        description: 'URL of the source video to edit.',
-      },
-      model: {
-        type: 'string',
-        description: 'Runway model to use. Defaults to gen4.',
-      },
-      duration: {
-        type: 'number',
-        enum: [5, 10],
-        description: 'Output video duration in seconds. Defaults to 5.',
-      },
-      ratio: {
-        type: 'string',
-        enum: ['1280:720', '720:1280', '1280:768', '768:1280'],
-        description: 'Output aspect ratio (width:height). Defaults to 1280:720.',
-      },
-      seed: {
-        type: 'number',
-        description: 'Optional seed for reproducible results.',
-      },
-      watermark: {
-        type: 'boolean',
-        description: 'Whether to include a Runway watermark. Defaults to false.',
-      },
-    },
-    required: ['promptText', 'video'],
-  } as const;
+  readonly parameters = z.object({
+    promptText: z.string().trim().min(1),
+    promptImage: z.string().trim().min(1).optional(),
+    video: z.string().trim().min(1),
+    model: z.string().trim().min(1).optional(),
+    duration: z.union([z.literal(5), z.literal(10)]).optional(),
+    ratio: z.enum(['1280:720', '720:1280', '1280:768', '768:1280']).optional(),
+    seed: z.number().int().optional(),
+    watermark: z.boolean().optional(),
+  });
 
   override readonly allowedAgents = ['brand_coordinator'] as const;
   readonly isMutation = true;
   readonly category = 'media' as const;
 
+  readonly entityGroup = 'user_tools' as const;
   constructor(private readonly bridge: RunwayMcpBridgeService) {
     super();
   }

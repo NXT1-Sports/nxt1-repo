@@ -26,8 +26,9 @@ import { OpenRouterService } from '../../llm/openrouter.service.js';
 import { logger } from '../../../../utils/logger.js';
 import { getCacheService } from '../../../../services/core/cache.service.js';
 import { createHash } from 'crypto';
+import { z } from 'zod';
 import {
-  createParallelBatchProgressOptions,
+  createParallelBatchSettledOptions,
   parallelBatch,
 } from '../../../agent/utils/parallel-batch.js';
 
@@ -241,32 +242,15 @@ export class ScrapeAndIndexProfileTool extends BaseTool {
     'ALWAYS call this tool first before any write tools. Then use `read_distilled_section` to ' +
     'read each section, and call the appropriate write tool for that section.';
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      url: {
-        type: 'string',
-        description:
-          'The full URL of the sports profile page to scrape (athlete, team, or organization).',
-      },
-      force: {
-        type: 'boolean',
-        description:
-          'Set to true to bypass the 12-hour scrape cooldown. Use only for user-initiated manual refreshes, not automated syncs.',
-      },
-    },
-    required: ['url'],
-  } as const;
-
-  override readonly allowedAgents = [
-    'data_coordinator',
-    'performance_coordinator',
-    'recruiting_coordinator',
-  ] as const;
+  readonly parameters = z.object({
+    url: z.string().trim().min(1),
+    force: z.boolean().optional(),
+  });
 
   readonly isMutation = false;
   readonly category = 'analytics' as const;
 
+  readonly entityGroup = 'platform_tools' as const;
   private readonly scraper: ScraperService;
   private readonly llm: OpenRouterService | null;
 
@@ -368,8 +352,8 @@ export class ScrapeAndIndexProfileTool extends BaseTool {
         const subPageResults = await parallelBatch(
           statsUrls,
           (statsUrl) => this.scraper.scrape({ url: statsUrl, signal: context?.signal }),
-          createParallelBatchProgressOptions(
-            (done, total) => {
+          createParallelBatchSettledOptions(
+            (done: number, total: number) => {
               context?.emitStage?.('fetching_data', {
                 source: 'scrape_and_index_profile',
                 phase: 'stats_subpages',

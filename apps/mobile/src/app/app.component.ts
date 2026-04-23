@@ -173,6 +173,8 @@ export class AppComponent {
         // Dark theme status bar
         statusBarColor: '#0a0a0a',
         statusBarStyle: 'light',
+        // Keep the native launch visible long enough to avoid a blank handoff
+        splashDelay: 900,
         // Lifecycle handlers
         onPause: () => this.logger.debug('Backgrounded'),
         onResume: () => {
@@ -226,6 +228,8 @@ export class AppComponent {
       });
     } catch (error) {
       this.logger.error('Initialization error', error);
+    } finally {
+      await this.nativeApp.completeLaunch();
     }
   }
 }

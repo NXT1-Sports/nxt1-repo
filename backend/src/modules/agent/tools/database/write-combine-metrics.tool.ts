@@ -78,6 +78,7 @@ export class WriteCombineMetricsTool extends BaseTool {
   readonly isMutation = true;
   readonly category = 'database' as const;
 
+  readonly entityGroup = 'user_tools' as const;
   private readonly db: Firestore;
 
   constructor(db?: Firestore) {

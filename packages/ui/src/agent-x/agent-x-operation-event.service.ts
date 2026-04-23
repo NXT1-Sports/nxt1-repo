@@ -129,7 +129,12 @@ export interface OperationEventCallbacks {
   /** Called when a rich card (planner, data-table, etc.) should be rendered. */
   onCard?: (card: AgentXStreamCardEvent) => void;
   /** Called when the entire job finishes (success or failure). */
-  onDone: (event: { success: boolean; message?: string; error?: string }) => void;
+  onDone: (event: {
+    success: boolean;
+    message?: string;
+    error?: string;
+    errorCode?: string;
+  }) => void;
   /** Called if the Firestore listener encounters an error. */
   onError: (message: string) => void;
 }
@@ -564,8 +569,7 @@ export class AgentXOperationEventService {
             event,
             stepId,
             event.toolSuccess ? 'success' : 'error',
-            event.message ??
-              `${event.toolName ?? 'Tool'} ${event.toolSuccess ? 'completed' : 'failed'}`,
+            event.toolSuccess ? 'Step completed' : 'Step failed',
             event.toolResult ? this.summarizeToolResult(event.toolResult) : undefined
           )
         );
@@ -575,18 +579,14 @@ export class AgentXOperationEventService {
       case 'step_done': {
         const queue = event.toolName ? pendingStepIds.get(event.toolName) : undefined;
         const stepId = queue?.shift() ?? `${event.toolName ?? 'step'}-${event.seq}`;
-        callbacks.onStep(
-          this.buildToolStep(event, stepId, 'success', event.message ?? 'Step completed')
-        );
+        callbacks.onStep(this.buildToolStep(event, stepId, 'success', 'Step completed'));
         break;
       }
 
       case 'step_error': {
         const queue = event.toolName ? pendingStepIds.get(event.toolName) : undefined;
         const stepId = queue?.shift() ?? `${event.toolName ?? 'step'}-${event.seq}`;
-        callbacks.onStep(
-          this.buildToolStep(event, stepId, 'error', event.message ?? event.error ?? 'Step failed')
-        );
+        callbacks.onStep(this.buildToolStep(event, stepId, 'error', 'Step failed'));
         break;
       }
 
@@ -595,10 +595,17 @@ export class AgentXOperationEventService {
         if (
           cardData &&
           typeof cardData['type'] === 'string' &&
+          typeof cardData['agentId'] === 'string' &&
           typeof cardData['title'] === 'string' &&
           cardData['payload'] != null
         ) {
-          callbacks.onCard?.(cardData as unknown as AgentXStreamCardEvent);
+          callbacks.onCard?.({
+            agentId: normalizeAgentIdentifier(cardData['agentId']) ?? 'router',
+            type: cardData['type'] as AgentXStreamCardEvent['type'],
+            title: cardData['title'] as string,
+            payload: cardData['payload'] as AgentXStreamCardEvent['payload'],
+            ...(cardData['clearText'] === true ? { clearText: true } : {}),
+          });
         }
         break;
       }
@@ -616,6 +623,7 @@ export class AgentXOperationEventService {
           success: event.success ?? false,
           message: event.message,
           error: event.error,
+          errorCode: typeof event.errorCode === 'string' ? event.errorCode : undefined,
         });
         // Auto-unsubscribe when the operation is terminal
         this.unsubscribe(operationId);

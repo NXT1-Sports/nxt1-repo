@@ -106,6 +106,8 @@ export interface JobEvent {
   readonly success?: boolean;
   /** Error message for `step_error` / `done` events. */
   readonly error?: string;
+  /** Machine-readable backend error code for `step_error` / `done` events. */
+  readonly errorCode?: string;
   /** Optional semantic icon key for custom step rendering. */
   readonly icon?: AgentXToolStepIcon;
   /** Rich card payload for `card` events (planner, data-table, etc.). */

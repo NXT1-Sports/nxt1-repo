@@ -457,14 +457,14 @@ const TEAM_TIMELINE_EMPTY_STATE_BY_SECTION: Readonly<
         <!-- Projected content (e.g. CTA banner for logged-out users) -->
         <ng-content />
 
-        @if (isTeamAdmin() && teamProfile.activeTab() === 'timeline' && platform.isMobile()) {
-          <div class="mobile-intel-footer">
+        @if (isTeamAdmin() && teamProfile.activeTab() === 'timeline' && !platform.isMobile()) {
+          <div class="mobile-web-fab-bar">
             <button
               type="button"
-              class="mobile-intel-footer__btn mobile-intel-footer__btn--primary"
+              class="mobile-web-fab-bar__btn mobile-web-fab-bar__btn--primary"
               (click)="onAddUpdate()"
             >
-              Add Update
+              + Add Update
             </button>
           </div>
         }
@@ -958,6 +958,11 @@ const TEAM_TIMELINE_EMPTY_STATE_BY_SECTION: Readonly<
       @media (max-width: 768px) {
         .madden-top-tabs {
           padding-left: 8px;
+          margin-top: 4px;
+        }
+        /* Hide desktop inline action bar on mobile viewports — FAB handles it */
+        .desktop-intel-action-bar {
+          display: none;
         }
         :host {
           height: auto;
@@ -989,11 +994,12 @@ const TEAM_TIMELINE_EMPTY_STATE_BY_SECTION: Readonly<
           max-width: 100%;
           overflow-x: hidden;
           overflow-y: visible;
+          padding-left: 0;
         }
         .madden-content-layer {
           grid-template-columns: minmax(0, 1fr);
           gap: var(--nxt1-spacing-4, 16px);
-          padding-top: 18px;
+          padding-top: 4px;
           padding-left: 0;
           min-height: auto;
           overflow-x: hidden;
@@ -1091,39 +1097,41 @@ const TEAM_TIMELINE_EMPTY_STATE_BY_SECTION: Readonly<
         transform: translateY(-1px);
       }
 
-      /* ─── Mobile VP Intel Footer ─── */
-      .mobile-intel-footer {
-        position: fixed;
-        bottom: 0;
-        left: 0;
-        right: 0;
-        z-index: 100;
-        display: flex;
-        gap: 8px;
-        padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
-        background: var(--nxt1-color-bg-primary, #0a0a0a);
-        border-top: 1px solid var(--nxt1-color-border, rgba(255, 255, 255, 0.08));
+      /* ─── Mobile Web FAB Bar (web browser only, not native app) ─── */
+      .mobile-web-fab-bar {
+        /* Hidden on desktop — only appears at mobile breakpoints via @media below */
+        display: none;
       }
-      .mobile-intel-footer__btn {
-        flex: 1;
-        padding: 11px 12px;
-        border-radius: 8px;
+      .mobile-web-fab-bar__btn {
+        width: 100%;
+        padding: 14px 16px;
+        border-radius: 12px;
         border: none;
         cursor: pointer;
-        font-size: 0.875rem;
+        font-size: 0.9375rem;
         font-weight: 700;
         font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
-        letter-spacing: 0.02em;
+        letter-spacing: 0.04em;
         transition:
           filter 150ms ease,
           transform 150ms ease;
       }
-      .mobile-intel-footer__btn:active {
+      .mobile-web-fab-bar__btn:active {
         transform: scale(0.97);
       }
-      .mobile-intel-footer__btn--primary {
+      .mobile-web-fab-bar__btn--primary {
         background: var(--m-accent);
         color: var(--nxt1-color-text-onPrimary, #000);
+      }
+      @media (max-width: 768px) {
+        .mobile-web-fab-bar {
+          display: flex;
+          position: fixed;
+          bottom: calc(72px + env(safe-area-inset-bottom, 0px));
+          left: 16px;
+          right: 16px;
+          z-index: 100;
+        }
       }
     `,
   ],
@@ -1534,7 +1542,8 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
     effect(() => {
       const activeTab = this.teamProfile.activeTab();
       const teamId = this.teamProfile.team()?.id;
-      const teamCode = this.teamProfile.team()?.slug ?? this.teamSlug();
+      const teamCode =
+        this.teamProfile.team()?.teamCode ?? this.teamProfile.team()?.slug ?? this.teamSlug();
 
       if (activeTab === 'intel' && teamId) {
         void this.intel.loadTeamIntel(teamId);
@@ -1591,7 +1600,8 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
   }
 
   private syncTimelineFilter(sectionId: string): void {
-    const teamCode = this.teamProfile.team()?.slug ?? this.teamSlug();
+    const teamCode =
+      this.teamProfile.team()?.teamCode ?? this.teamProfile.team()?.slug ?? this.teamSlug();
     if (!teamCode) return;
     const filter = this.mapTimelineSectionToFilter(sectionId);
 
@@ -1729,7 +1739,8 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
   }
 
   protected onLoadMore(): void {
-    const teamCode = this.teamProfile.team()?.slug ?? this.teamSlug();
+    const teamCode =
+      this.teamProfile.team()?.teamCode ?? this.teamProfile.team()?.slug ?? this.teamSlug();
     if (!teamCode) return;
     void this.teamProfile.loadMoreTimeline(teamCode);
   }

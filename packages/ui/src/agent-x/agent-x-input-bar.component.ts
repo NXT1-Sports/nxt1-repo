@@ -17,22 +17,17 @@ import {
   viewChild,
   ElementRef,
   effect,
-  inject,
-  OnDestroy,
-  OnInit,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { IonFooter } from '@ionic/angular/standalone';
-import { Capacitor, type PluginListenerHandle } from '@capacitor/core';
 import { NxtIconComponent } from '../components/icon/icon.component';
 import type { AgentXPendingFile } from './agent-x-pending-file';
 
 @Component({
   selector: 'nxt1-agent-x-input-bar',
   standalone: true,
-  imports: [FormsModule, IonFooter, NxtIconComponent],
+  imports: [FormsModule, NxtIconComponent],
   template: `
-    <ion-footer class="ion-no-border agent-x-input-footer">
+    <div class="agent-x-input-root">
       <!-- Task pill (optional, inside card top) -->
       @if (selectedTask()) {
         <div class="input-task-pill">
@@ -139,7 +134,7 @@ import type { AgentXPendingFile } from './agent-x-pending-file';
           </div>
         </div>
       </div>
-    </ion-footer>
+    </div>
   `,
   styles: [
     `
@@ -154,6 +149,12 @@ import type { AgentXPendingFile } from './agent-x-pending-file';
         --input-primary: var(--nxt1-color-primary, #ccff00);
         --input-primary-glow: var(--nxt1-color-alpha-primary10, rgba(204, 255, 0, 0.1));
         --input-surface-hover: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.1));
+        background: transparent;
+      }
+
+      .agent-x-input-root {
+        background: transparent;
+        padding: 8px 12px calc(var(--footer-safe-area, env(safe-area-inset-bottom, 0px)) + 20px);
       }
 
       :host-context(.light),
@@ -164,19 +165,6 @@ import type { AgentXPendingFile } from './agent-x-pending-file';
         --input-text: var(--nxt1-color-text-primary, #1a1a1a);
         --input-muted: var(--nxt1-color-text-tertiary, rgba(0, 0, 0, 0.4));
         --input-surface-hover: var(--nxt1-color-surface-200, rgba(0, 0, 0, 0.06));
-      }
-
-      ion-footer.agent-x-input-footer {
-        --background: transparent;
-        --border-width: 0;
-        background: transparent;
-        padding: 8px 12px calc(var(--footer-safe-area, env(safe-area-inset-bottom, 0px)) + 10px);
-        transform: translateY(calc(-1 * var(--keyboard-height, 0px)));
-        transition: transform 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
-      }
-
-      ion-footer.agent-x-input-footer::before {
-        display: none !important;
       }
 
       /* ── Task pill ── */
@@ -289,11 +277,12 @@ import type { AgentXPendingFile } from './agent-x-pending-file';
       .input-card {
         background: var(--input-surface);
         border: 1px solid var(--input-border);
-        border-radius: 20px;
+        border-radius: 28px;
         padding: 12px 4px 6px 14px;
         display: flex;
         flex-direction: column;
         gap: 4px;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
       }
 
       .input-textarea {
@@ -336,7 +325,7 @@ import type { AgentXPendingFile } from './agent-x-pending-file';
         align-items: center;
         justify-content: space-between;
         padding-top: 2px;
-        margin: 0 -2px 0 -8px;
+        margin: 0 4px 0 4px;
       }
 
       .input-actions-right {
@@ -349,18 +338,20 @@ import type { AgentXPendingFile } from './agent-x-pending-file';
         display: flex;
         align-items: center;
         justify-content: center;
-        width: 38px;
-        height: 38px;
-        flex: 0 0 38px;
-        border-radius: 50%;
-        border: none;
-        background: transparent;
+        width: 36px;
+        height: 36px;
+        flex: 0 0 36px;
+        border-radius: 12px;
+        border: 1px solid var(--input-border);
+        background: var(--input-surface);
         color: var(--input-muted);
         -webkit-tap-highlight-color: transparent;
         cursor: pointer;
         transition:
           background 0.15s ease,
-          color 0.15s ease;
+          color 0.15s ease,
+          border-color 0.15s ease;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
       }
 
       .input-btn:active {
@@ -375,12 +366,16 @@ import type { AgentXPendingFile } from './agent-x-pending-file';
         transition:
           background 0.15s ease,
           color 0.15s ease,
-          opacity 0.15s ease;
+          border-color 0.15s ease,
+          opacity 0.15s ease,
+          box-shadow 0.15s ease;
       }
 
       .input-send-btn.active {
-        background: var(--input-text);
-        color: var(--input-bg);
+        background: var(--input-primary-glow);
+        color: var(--input-primary);
+        border-color: var(--input-primary);
+        box-shadow: 0 4px 12px rgba(204, 255, 0, 0.15);
       }
 
       .input-send-btn:disabled {
@@ -430,9 +425,7 @@ import type { AgentXPendingFile } from './agent-x-pending-file';
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class AgentXInputBarComponent implements OnInit, OnDestroy {
-  private readonly el = inject(ElementRef);
-
+export class AgentXInputBarComponent {
   // ── Ref for auto-resize ──
   private readonly textareaRef = viewChild<ElementRef<HTMLTextAreaElement>>('messageInput');
 
@@ -454,9 +447,6 @@ export class AgentXInputBarComponent implements OnInit, OnDestroy {
   readonly removeFile = output<number>();
   readonly removeTask = output<void>();
 
-  private keyboardShowListener?: PluginListenerHandle;
-  private keyboardHideListener?: PluginListenerHandle;
-
   constructor() {
     // Auto-resize textarea when message changes
     effect(() => {
@@ -467,38 +457,6 @@ export class AgentXInputBarComponent implements OnInit, OnDestroy {
       el.style.height = `${Math.min(el.scrollHeight, 140)}px`;
       if (!msg) el.style.height = '';
     });
-  }
-
-  async ngOnInit(): Promise<void> {
-    if (Capacitor.isNativePlatform()) {
-      try {
-        const { Keyboard } = await import('@capacitor/keyboard');
-
-        this.keyboardShowListener = await Keyboard.addListener('keyboardWillShow', (info) => {
-          // Subtract 10px so the footer doesn't overshoot above the keyboard
-          const offset = Math.max(0, info.keyboardHeight - 10);
-          this.el.nativeElement.style.setProperty('--keyboard-height', `${offset}px`);
-          // Remove safe-area-inset-bottom padding — keyboard covers the home bar
-          this.el.nativeElement.style.setProperty('--footer-safe-area', '0px');
-        });
-
-        this.keyboardHideListener = await Keyboard.addListener('keyboardWillHide', () => {
-          this.el.nativeElement.style.setProperty('--keyboard-height', '0px');
-          this.el.nativeElement.style.removeProperty('--footer-safe-area');
-        });
-      } catch {
-        // @capacitor/keyboard not available — silently ignore
-      }
-    }
-  }
-
-  ngOnDestroy(): void {
-    if (this.keyboardShowListener) {
-      this.keyboardShowListener.remove();
-    }
-    if (this.keyboardHideListener) {
-      this.keyboardHideListener.remove();
-    }
   }
 
   protected onEnterKey(event: Event): void {

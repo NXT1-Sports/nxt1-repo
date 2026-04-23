@@ -24,6 +24,7 @@
 
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../../base.tool.js';
 import { logger } from '../../../../../utils/logger.js';
+import { z } from 'zod';
 
 /** Tavily API endpoint. */
 const TAVILY_API_URL = 'https://api.tavily.com/search';
@@ -68,49 +69,17 @@ export class WebSearchTool extends BaseTool {
     'Returns a list of relevant web pages with titles, URLs, and excerpts. ' +
     'For deeper content on a specific URL, follow up with scrape_webpage.';
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      query: {
-        type: 'string',
-        description:
-          'The search query. Be specific and targeted. ' +
-          'Example: "FCS football recruiting contact period 2025" or ' +
-          '"University of Texas head football coach email 2025".',
-      },
-      maxResults: {
-        type: 'number',
-        description: `Number of results to return (1–${MAX_RESULTS_LIMIT}). Defaults to ${DEFAULT_MAX_RESULTS}.`,
-      },
-      searchDepth: {
-        type: 'string',
-        enum: ['basic', 'advanced'],
-        description:
-          '"basic" is faster and cheaper (keyword search). ' +
-          '"advanced" performs deeper analysis for complex research questions. ' +
-          'Defaults to "basic".',
-      },
-      includeAnswer: {
-        type: 'boolean',
-        description:
-          'When true, Tavily synthesizes a direct AI-generated answer from the top results. ' +
-          'Useful for factual questions. Defaults to false.',
-      },
-    },
-    required: ['query'],
-  } as const;
-
-  override readonly allowedAgents = [
-    'recruiting_coordinator',
-    'admin_coordinator',
-    'performance_coordinator',
-    'data_coordinator',
-    'strategy_coordinator',
-  ] as const;
+  readonly parameters = z.object({
+    query: z.string().trim().min(1),
+    maxResults: z.number().int().min(1).max(MAX_RESULTS_LIMIT).optional(),
+    searchDepth: z.enum(['basic', 'advanced']).optional(),
+    includeAnswer: z.boolean().optional(),
+  });
 
   readonly isMutation = false;
   readonly category = 'analytics' as const;
 
+  readonly entityGroup = 'platform_tools' as const;
   async execute(
     input: Record<string, unknown>,
     context?: ToolExecutionContext

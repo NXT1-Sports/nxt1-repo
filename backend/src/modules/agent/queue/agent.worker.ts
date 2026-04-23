@@ -35,6 +35,7 @@ import type {
   AgentOperationResult,
   AgentYieldState,
 } from '@nxt1/core';
+import { AgentEngineError } from '../exceptions/agent-engine.error.js';
 import { resolveAgentApprovalCopy } from '@nxt1/core';
 import type { AgentRouter } from '../agent.router.js';
 import type { AgentQueueJobData, AgentQueueJobResult, AgentJobProgress } from './queue.types.js';
@@ -145,11 +146,18 @@ export class AgentWorker {
     job: Job<AgentQueueJobData, AgentQueueJobResult>
   ): Promise<AgentQueueJobResult> {
     if (job.data.kind !== 'thread_summarization') {
-      throw new Error('Invalid thread summarization job payload');
+      throw new AgentEngineError(
+        'AGENT_JOB_PAYLOAD_INVALID',
+        'Invalid thread summarization job payload',
+        { metadata: { kind: (job.data as { kind?: unknown }).kind } }
+      );
     }
 
     if (!this.llmService) {
-      throw new Error('LLM service not initialized for thread summarization');
+      throw new AgentEngineError(
+        'AGENT_SERVICE_UNAVAILABLE',
+        'LLM service not initialized for thread summarization'
+      );
     }
 
     const startMs = Date.now();
@@ -225,8 +233,10 @@ export class AgentWorker {
     }
 
     if (job.data.kind !== 'agent') {
-      throw new Error(
-        `Unsupported queue job kind: ${String((job.data as { kind?: unknown }).kind)}`
+      throw new AgentEngineError(
+        'AGENT_JOB_KIND_UNSUPPORTED',
+        `Unsupported queue job kind: ${String((job.data as { kind?: unknown }).kind)}`,
+        { metadata: { kind: (job.data as { kind?: unknown }).kind } }
       );
     }
 
@@ -533,6 +543,7 @@ export class AgentWorker {
         type: 'done',
         success: false,
         error: message,
+        errorCode,
         outcomeCode: 'task_failed',
         metadata: { errorCode },
         agentId: failedAgentId ?? 'router',

@@ -248,6 +248,7 @@ export class SearchCollegesTool extends BaseTool {
   readonly isMutation = false;
   readonly category = 'database' as const;
 
+  readonly entityGroup = 'platform_tools' as const;
   // ─── Execute ────────────────────────────────────────────────────────
 
   async execute(

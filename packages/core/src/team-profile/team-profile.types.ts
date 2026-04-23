@@ -254,6 +254,7 @@ export interface TeamProfileRosterMember {
   readonly lastName: string;
   readonly displayName?: string;
   readonly profileImg?: string;
+  readonly unicode?: string;
   readonly profileCode?: string;
   readonly role: 'athlete' | 'coach' | 'media' | 'admin';
   readonly position?: string;

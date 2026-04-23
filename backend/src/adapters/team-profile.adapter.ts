@@ -285,6 +285,8 @@ function mapTeamCodeToTeam(
       ? {
           phone: teamCode.contactInfo.phone ?? undefined,
           email: teamCode.contactInfo.email,
+          website: teamCode.contactInfo.website ?? undefined,
+          address: teamCode.contactInfo.address ?? undefined,
         }
       : undefined,
     connectedSources: normalizedConnectedSources,
@@ -319,12 +321,15 @@ function mapUserToRoster(
   }
 ): TeamProfileRosterMember {
   const position = memberMeta?.position;
+  const unicode = user.unicode?.trim() || user.username?.trim() || undefined;
   return {
     id: userId,
     firstName: user.firstName ?? (user.displayName ?? user.name ?? '').split(' ')[0] ?? '',
     lastName:
       user.lastName ?? (user.displayName ?? user.name ?? '').split(' ').slice(1).join(' ') ?? '',
     profileImg: user.profileImgs?.[0],
+    unicode,
+    profileCode: unicode,
     role: 'athlete',
     jerseyNumber: user.jerseyNumber,
     position: Array.isArray(position)
@@ -389,6 +394,11 @@ function mapRosterEntryToRosterMember(
 ): TeamProfileRosterMember {
   const entryAny = entry as unknown as Record<string, unknown>;
   const user = userDataMap.get(entry.userId);
+  const unicode =
+    (typeof entryAny['unicode'] === 'string' ? entryAny['unicode'] : undefined)?.trim() ||
+    user?.unicode?.trim() ||
+    user?.username?.trim() ||
+    undefined;
   return {
     id: entry.userId,
     firstName:
@@ -403,6 +413,8 @@ function mapRosterEntryToRosterMember(
       '',
     displayName: user?.displayName ?? user?.name,
     profileImg: user?.profileImgs?.[0],
+    unicode,
+    profileCode: unicode,
     role: 'athlete',
     jerseyNumber: (entryAny['jerseyNumber'] as string | undefined) ?? user?.jerseyNumber,
     position: (entryAny['position'] as string | undefined) ?? user?.sports?.[0]?.positions?.[0],

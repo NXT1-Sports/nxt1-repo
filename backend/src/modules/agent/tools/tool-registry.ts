@@ -27,11 +27,21 @@
  * ```
  */
 
-import { type AgentIdentifier, type AgentToolDefinition } from '@nxt1/core';
+import {
+  type AgentIdentifier,
+  type AgentToolAccessContext,
+  type AgentToolDefinition,
+  type AgentToolEntityGroup,
+} from '@nxt1/core';
 import type { IntelGenerationService } from '../services/intel.service.js';
 import { logger } from '../../../utils/logger.js';
 import type { BaseTool, ToolResult, ToolExecutionContext } from './base.tool.js';
-import { isToolDisabled } from '../config/agent-app-config.js';
+import {
+  isStrictEntityToolGovernanceEnabled,
+  isStrictZodToolSchemasEnabled,
+  isToolDisabled,
+} from '../config/agent-app-config.js';
+import { AgentEngineError } from '../exceptions/agent-engine.error.js';
 import { z } from 'zod';
 
 type AthleteIntelSectionId = Parameters<IntelGenerationService['updateAthleteIntelSection']>[1];
@@ -51,18 +61,205 @@ type IntelSyncPlan =
 
 const INTEL_SYNC_DISABLED_TOOLS = new Set(['write_intel', 'update_intel']);
 
+const TOOL_ENTITY_GROUP_OVERRIDES: Readonly<Record<string, AgentToolEntityGroup>> = {
+  // Team-scoped writes
+  write_team_stats: 'team_tools',
+  write_team_post: 'team_tools',
+  write_team_news: 'team_tools',
+  write_roster_entries: 'team_tools',
+  write_schedule: 'team_tools',
+  write_calendar_events: 'team_tools',
+
+  // User/athlete scoped writes
+  write_core_identity: 'user_tools',
+  write_awards: 'user_tools',
+  write_combine_metrics: 'user_tools',
+  write_rankings: 'user_tools',
+  write_season_stats: 'user_tools',
+  write_recruiting_activity: 'user_tools',
+  write_athlete_videos: 'user_tools',
+  write_timeline_post: 'user_tools',
+
+  // Organization-scoped writes
+  write_connected_source: 'organization_tools',
+
+  // Cross-cutting infrastructure
+  delegate_task: 'system_tools',
+  ask_user: 'system_tools',
+};
+
+interface LegacyToolSchemaChecklistItem {
+  readonly toolName: string;
+  readonly migrationStatus: 'pending';
+  readonly schemaType: 'raw_json_schema';
+  readonly action: string;
+}
+
 export class ToolRegistry {
   private readonly tools = new Map<string, BaseTool>();
+  private readonly legacySchemaWarnings = new Set<string>();
+
+  private hasZodParameters(tool: BaseTool): boolean {
+    return tool.parameters instanceof z.ZodType;
+  }
+
+  private buildLegacyToolSchemaChecklist(
+    candidateTool?: BaseTool
+  ): readonly LegacyToolSchemaChecklistItem[] {
+    const pendingTools = new Map<string, BaseTool>();
+
+    for (const registeredTool of this.tools.values()) {
+      if (!this.hasZodParameters(registeredTool)) {
+        pendingTools.set(registeredTool.name, registeredTool);
+      }
+    }
+
+    if (candidateTool && !this.hasZodParameters(candidateTool)) {
+      pendingTools.set(candidateTool.name, candidateTool);
+    }
+
+    return [...pendingTools.values()].map((tool) => ({
+      toolName: tool.name,
+      migrationStatus: 'pending',
+      schemaType: 'raw_json_schema',
+      action:
+        'Replace parameters with a z.object(...) schema and rely on z.toJSONSchema conversion.',
+    }));
+  }
+
+  private formatLegacyToolChecklist(checklist: readonly LegacyToolSchemaChecklistItem[]): string {
+    if (checklist.length === 0) {
+      return 'No pending legacy schema tools.';
+    }
+
+    return checklist
+      .map((item, index) => `${index + 1}. ${item.toolName} -> ${item.action}`)
+      .join('\n');
+  }
+
+  getLegacyToolSchemaChecklist(): readonly LegacyToolSchemaChecklistItem[] {
+    return this.buildLegacyToolSchemaChecklist();
+  }
+
+  private toStrictJsonSchema(schema: Record<string, unknown>): Record<string, unknown> {
+    const clone = { ...schema } as Record<string, unknown>;
+
+    const schemaType = clone['type'];
+    const properties = clone['properties'];
+    const items = clone['items'];
+
+    if (schemaType === 'object') {
+      if (!Object.prototype.hasOwnProperty.call(clone, 'additionalProperties')) {
+        clone['additionalProperties'] = false;
+      }
+
+      if (properties && typeof properties === 'object' && !Array.isArray(properties)) {
+        const strictProperties: Record<string, unknown> = {};
+        for (const [key, value] of Object.entries(properties as Record<string, unknown>)) {
+          strictProperties[key] =
+            value && typeof value === 'object' && !Array.isArray(value)
+              ? this.toStrictJsonSchema(value as Record<string, unknown>)
+              : value;
+        }
+        clone['properties'] = strictProperties;
+      }
+    }
+
+    if (items && typeof items === 'object' && !Array.isArray(items)) {
+      clone['items'] = this.toStrictJsonSchema(items as Record<string, unknown>);
+    }
+
+    for (const combinator of ['allOf', 'anyOf', 'oneOf'] as const) {
+      const section = clone[combinator];
+      if (Array.isArray(section)) {
+        clone[combinator] = section.map((item) =>
+          item && typeof item === 'object' && !Array.isArray(item)
+            ? this.toStrictJsonSchema(item as Record<string, unknown>)
+            : item
+        );
+      }
+    }
+
+    return clone;
+  }
 
   private resolveParameters(tool: BaseTool): Record<string, unknown> {
-    return tool.parameters instanceof z.ZodType
-      ? (z.toJSONSchema(tool.parameters) as Record<string, unknown>)
-      : (tool.parameters as Record<string, unknown>);
+    if (tool.parameters instanceof z.ZodType) {
+      const jsonSchema = z.toJSONSchema(tool.parameters) as Record<string, unknown>;
+      return this.toStrictJsonSchema(jsonSchema);
+    }
+
+    const strictZod = isStrictZodToolSchemasEnabled();
+    if (strictZod) {
+      const checklist = this.buildLegacyToolSchemaChecklist(tool);
+      throw new AgentEngineError(
+        'TOOL_SCHEMA_NOT_ZOD',
+        `Strict Zod tool schema mode blocked "${tool.name}". Migration checklist:\n` +
+          this.formatLegacyToolChecklist(checklist),
+        {
+          metadata: {
+            toolName: tool.name,
+            strictMode: true,
+            checklist,
+          },
+        }
+      );
+    }
+
+    if (!this.legacySchemaWarnings.has(tool.name)) {
+      this.legacySchemaWarnings.add(tool.name);
+      logger.warn('[ToolRegistry] Legacy raw JSON schema detected for tool parameters', {
+        toolName: tool.name,
+        migrationChecklist: this.buildLegacyToolSchemaChecklist(tool),
+      });
+    }
+
+    return this.toStrictJsonSchema(tool.parameters as Record<string, unknown>);
+  }
+
+  private resolveEntityGroup(tool: BaseTool): AgentToolEntityGroup {
+    const explicitEntityGroup = (tool as BaseTool & { readonly entityGroup?: AgentToolEntityGroup })
+      .entityGroup;
+    if (explicitEntityGroup) return explicitEntityGroup;
+
+    const override = TOOL_ENTITY_GROUP_OVERRIDES[tool.name];
+    if (override) return override;
+
+    switch (tool.category) {
+      case 'system':
+        return 'system_tools';
+      case 'media':
+      case 'communication':
+        return 'user_tools';
+      default:
+        return 'platform_tools';
+    }
   }
 
   private isAllowedForAgent(tool: BaseTool, agentId?: AgentIdentifier): boolean {
     if (!agentId) return true;
     return tool.allowedAgents.includes('*') || tool.allowedAgents.includes(agentId);
+  }
+
+  private isAllowedForAccessContext(
+    tool: BaseTool,
+    accessContext?: AgentToolAccessContext
+  ): boolean {
+    if (!accessContext) return true;
+
+    const entityGroup = this.resolveEntityGroup(tool);
+    if (entityGroup === 'system_tools') return true;
+
+    if (!accessContext.allowedEntityGroups.includes(entityGroup)) {
+      return false;
+    }
+
+    if (isStrictEntityToolGovernanceEnabled()) {
+      if (entityGroup === 'team_tools' && !accessContext.teamId) return false;
+      if (entityGroup === 'organization_tools' && !accessContext.organizationId) return false;
+    }
+
+    return true;
   }
 
   /**
@@ -74,8 +271,53 @@ export class ToolRegistry {
   /** Register a tool instance. Throws if a tool with the same name already exists. */
   register(tool: BaseTool): void {
     if (this.tools.has(tool.name)) {
-      throw new Error(`Tool "${tool.name}" is already registered.`);
+      throw new AgentEngineError(
+        'TOOL_REGISTRY_DUPLICATE',
+        `Tool "${tool.name}" is already registered.`,
+        { metadata: { toolName: tool.name } }
+      );
     }
+
+    if (!(tool.parameters instanceof z.ZodType)) {
+      const checklist = this.buildLegacyToolSchemaChecklist(tool);
+      const message =
+        `Tool "${tool.name}" uses non-Zod parameters. Migration checklist:\n` +
+        this.formatLegacyToolChecklist(checklist);
+      if (isStrictZodToolSchemasEnabled()) {
+        throw new AgentEngineError('TOOL_SCHEMA_NOT_ZOD', message, {
+          metadata: {
+            toolName: tool.name,
+            strictMode: true,
+            checklist,
+          },
+        });
+      }
+      logger.warn('[ToolRegistry] Non-Zod tool parameters allowed in soft mode', {
+        toolName: tool.name,
+        migrationChecklist: checklist,
+      });
+    }
+
+    const explicitEntityGroup = (tool as BaseTool & { readonly entityGroup?: AgentToolEntityGroup })
+      .entityGroup;
+    if (!explicitEntityGroup) {
+      const derivedEntityGroup = this.resolveEntityGroup(tool);
+      if (isStrictEntityToolGovernanceEnabled()) {
+        throw new AgentEngineError(
+          'TOOL_ENTITY_GROUP_MISSING',
+          `Tool "${tool.name}" must declare an explicit entityGroup in strict governance mode.`,
+          {
+            metadata: { toolName: tool.name, derivedEntityGroup },
+          }
+        );
+      }
+
+      logger.warn('[ToolRegistry] Tool missing explicit entityGroup metadata', {
+        toolName: tool.name,
+        derivedEntityGroup,
+      });
+    }
+
     this.tools.set(tool.name, tool);
   }
 
@@ -93,11 +335,16 @@ export class ToolRegistry {
    * Convert all tools (or a filtered subset) into the AgentToolDefinition
    * format that can be sent to OpenRouter as function-calling schemas.
    */
-  getDefinitions(agentId?: AgentIdentifier): readonly AgentToolDefinition[] {
+  getDefinitions(
+    agentId?: AgentIdentifier,
+    accessContext?: AgentToolAccessContext
+  ): readonly AgentToolDefinition[] {
     const definitions: AgentToolDefinition[] = [];
 
     for (const tool of this.tools.values()) {
-      const allowed = this.isAllowedForAgent(tool, agentId);
+      const allowed =
+        this.isAllowedForAgent(tool, agentId) &&
+        this.isAllowedForAccessContext(tool, accessContext);
 
       if (allowed && !isToolDisabled(tool.name)) {
         definitions.push({
@@ -107,6 +354,7 @@ export class ToolRegistry {
           allowedAgents: tool.allowedAgents,
           isMutation: tool.isMutation,
           category: tool.category,
+          entityGroup: this.resolveEntityGroup(tool),
         });
       }
     }
@@ -122,11 +370,15 @@ export class ToolRegistry {
     intentVector: readonly number[],
     embedFn: (text: string) => Promise<readonly number[]>,
     agentId?: AgentIdentifier,
+    accessContext?: AgentToolAccessContext,
     threshold: number = ToolRegistry.DEFAULT_TOOL_THRESHOLD
   ): Promise<readonly AgentToolDefinition[]> {
     // Filter first by permissions
     const allowedTools = Array.from(this.tools.values()).filter(
-      (tool) => this.isAllowedForAgent(tool, agentId) && !isToolDisabled(tool.name)
+      (tool) =>
+        this.isAllowedForAgent(tool, agentId) &&
+        this.isAllowedForAccessContext(tool, accessContext) &&
+        !isToolDisabled(tool.name)
     );
 
     // Compute cosine similarity for all allowed tools
@@ -142,9 +394,11 @@ export class ToolRegistry {
             scoredTools.push({ tool, score });
           }
         } catch (err) {
-          // Log issue, but don't blow up the entire RAG pipeline
-          // You can use proper logger if you inject it into ToolRegistry
-          console.warn(`[ToolRegistry] Failed to match intent for tool \${tool.name}`, err);
+          // Log issue, but don't blow up the entire RAG pipeline.
+          logger.warn('[ToolRegistry] Failed to match intent for tool', {
+            toolName: tool.name,
+            error: err instanceof Error ? err.message : String(err),
+          });
         }
       })
     );
@@ -159,6 +413,7 @@ export class ToolRegistry {
       allowedAgents: tool.allowedAgents,
       isMutation: tool.isMutation,
       category: tool.category,
+      entityGroup: this.resolveEntityGroup(tool),
     }));
   }
 
@@ -177,6 +432,24 @@ export class ToolRegistry {
     if (!tool) {
       return { success: false, error: `Unknown tool: ${name}` };
     }
+
+    if (context?.allowedToolNames?.length && !context.allowedToolNames.includes(name)) {
+      return { success: false, error: `Tool is not allowed in this execution context: ${name}` };
+    }
+
+    if (context?.allowedEntityGroups?.length) {
+      const toolEntityGroup = this.resolveEntityGroup(tool);
+      if (
+        toolEntityGroup !== 'system_tools' &&
+        !context.allowedEntityGroups.includes(toolEntityGroup)
+      ) {
+        return {
+          success: false,
+          error: `Tool entity group is not allowed in this execution context: ${toolEntityGroup}`,
+        };
+      }
+    }
+
     if (isToolDisabled(tool.name)) {
       return { success: false, error: `Tool is currently disabled: ${tool.name}` };
     }
@@ -232,7 +505,14 @@ export class ToolRegistry {
         const missingReport = /No existing (team )?Intel report found/i.test(errorMessage);
 
         if (!missingReport) {
-          throw new Error(errorMessage);
+          throw new AgentEngineError('TOOL_INTEL_SYNC_FAILED', errorMessage, {
+            metadata: {
+              toolName,
+              entityType: plan.entityType,
+              entityId: plan.entityId,
+              sectionId,
+            },
+          });
         }
 
         context?.emitStage?.('persisting_result', {
@@ -252,7 +532,17 @@ export class ToolRegistry {
         );
 
         if (!writeResult.success) {
-          throw new Error(writeResult.error ?? 'Failed to generate Intel report');
+          throw new AgentEngineError(
+            'TOOL_INTEL_SYNC_FAILED',
+            writeResult.error ?? 'Failed to generate Intel report',
+            {
+              metadata: {
+                toolName,
+                entityType: plan.entityType,
+                entityId: plan.entityId,
+              },
+            }
+          );
         }
 
         logger.info('[ToolRegistry] Generated Intel after write', {

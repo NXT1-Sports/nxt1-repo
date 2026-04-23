@@ -17,6 +17,7 @@ import { db } from '../../../../../utils/firebase.js';
 import { stagingDb } from '../../../../../utils/firebase-staging.js';
 import type { ToolExecutionContext } from '../../base.tool.js';
 import { BaseMcpClientService, type McpToolCallResult } from '../base-mcp-client.service.js';
+import { AgentEngineError } from '../../../exceptions/agent-engine.error.js';
 import {
   type FirebaseMcpListViewsResult,
   FirebaseMcpListViewsResultSchema,
@@ -71,7 +72,10 @@ function extractPayload(result: McpToolCallResult): unknown {
     .trim();
 
   if (!textPayload) {
-    throw new Error('Firebase MCP returned no structured content');
+    throw new AgentEngineError(
+      'FIREBASE_MCP_RESPONSE_EMPTY',
+      'Firebase MCP returned no structured content'
+    );
   }
 
   return JSON.parse(textPayload);

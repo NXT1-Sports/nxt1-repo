@@ -17,6 +17,7 @@ import { z } from 'zod';
 import { BaseMcpClientService, type McpToolCallResult } from '../base-mcp-client.service.js';
 
 import { logger } from '../../../../../utils/logger.js';
+import { AgentEngineError } from '../../../exceptions/agent-engine.error.js';
 
 // ── Timeouts (ms) ────────────────────────────────────────────────────────────
 const VIDEO_GENERATE_TIMEOUT_MS = 120_000;
@@ -112,7 +113,7 @@ function extractPayload(result: McpToolCallResult): unknown {
     .filter((block) => block.length > 0);
 
   if (textBlocks.length === 0) {
-    throw new Error('Runway MCP returned no content');
+    throw new AgentEngineError('RUNWAY_RESPONSE_EMPTY', 'Runway MCP returned no content');
   }
 
   const combined = textBlocks.join('\n');
@@ -134,7 +135,8 @@ export class RunwayMcpBridgeService extends BaseMcpClientService {
     super();
     const key = process.env['RUNWAYML_API_SECRET'] ?? process.env['RUNWAY_API_KEY'];
     if (!key) {
-      throw new Error(
+      throw new AgentEngineError(
+        'RUNWAY_CONFIG_MISSING_API_KEY',
         'RUNWAYML_API_SECRET or RUNWAY_API_KEY environment variable is required for RunwayMcpBridgeService'
       );
     }
@@ -188,7 +190,11 @@ export class RunwayMcpBridgeService extends BaseMcpClientService {
       logger.error('[RunwayMCP] runway_generateVideo returned error', {
         error: payload,
       });
-      throw new Error(`Runway video generation failed: ${JSON.stringify(payload)}`);
+      throw new AgentEngineError(
+        'RUNWAY_REQUEST_FAILED',
+        `Runway video generation failed: ${JSON.stringify(payload)}`,
+        { metadata: { operation: 'runway_generateVideo' } }
+      );
     }
 
     return extractPayload(result);
@@ -222,7 +228,11 @@ export class RunwayMcpBridgeService extends BaseMcpClientService {
       logger.error('[RunwayMCP] runway_textToVideo returned error', {
         error: payload,
       });
-      throw new Error(`Runway text-to-video generation failed: ${JSON.stringify(payload)}`);
+      throw new AgentEngineError(
+        'RUNWAY_REQUEST_FAILED',
+        `Runway text-to-video generation failed: ${JSON.stringify(payload)}`,
+        { metadata: { operation: 'runway_textToVideo' } }
+      );
     }
 
     return extractPayload(result);
@@ -255,7 +265,11 @@ export class RunwayMcpBridgeService extends BaseMcpClientService {
       logger.error('[RunwayMCP] runway_generateImage returned error', {
         error: payload,
       });
-      throw new Error(`Runway image generation failed: ${JSON.stringify(payload)}`);
+      throw new AgentEngineError(
+        'RUNWAY_REQUEST_FAILED',
+        `Runway image generation failed: ${JSON.stringify(payload)}`,
+        { metadata: { operation: 'runway_generateImage' } }
+      );
     }
 
     return extractPayload(result);
@@ -292,7 +306,11 @@ export class RunwayMcpBridgeService extends BaseMcpClientService {
       logger.error('[RunwayMCP] runway_editVideo returned error', {
         error: payload,
       });
-      throw new Error(`Runway video editing failed: ${JSON.stringify(payload)}`);
+      throw new AgentEngineError(
+        'RUNWAY_REQUEST_FAILED',
+        `Runway video editing failed: ${JSON.stringify(payload)}`,
+        { metadata: { operation: 'runway_editVideo' } }
+      );
     }
 
     return extractPayload(result);
@@ -319,7 +337,11 @@ export class RunwayMcpBridgeService extends BaseMcpClientService {
       logger.error('[RunwayMCP] runway_upscaleVideo returned error', {
         error: payload,
       });
-      throw new Error(`Runway video upscale failed: ${JSON.stringify(payload)}`);
+      throw new AgentEngineError(
+        'RUNWAY_REQUEST_FAILED',
+        `Runway video upscale failed: ${JSON.stringify(payload)}`,
+        { metadata: { operation: 'runway_upscaleVideo' } }
+      );
     }
 
     return extractPayload(result);
@@ -341,7 +363,11 @@ export class RunwayMcpBridgeService extends BaseMcpClientService {
         taskId,
         error: payload,
       });
-      throw new Error(`Runway getTask failed for "${taskId}": ${JSON.stringify(payload)}`);
+      throw new AgentEngineError(
+        'RUNWAY_REQUEST_FAILED',
+        `Runway getTask failed for "${taskId}": ${JSON.stringify(payload)}`,
+        { metadata: { operation: 'runway_getTask', taskId } }
+      );
     }
 
     return extractPayload(result);
@@ -365,7 +391,11 @@ export class RunwayMcpBridgeService extends BaseMcpClientService {
         taskId,
         error: payload,
       });
-      throw new Error(`Runway cancelTask failed for "${taskId}": ${JSON.stringify(payload)}`);
+      throw new AgentEngineError(
+        'RUNWAY_REQUEST_FAILED',
+        `Runway cancelTask failed for "${taskId}": ${JSON.stringify(payload)}`,
+        { metadata: { operation: 'runway_cancelTask', taskId } }
+      );
     }
 
     return extractPayload(result);
@@ -388,7 +418,11 @@ export class RunwayMcpBridgeService extends BaseMcpClientService {
       logger.error('[RunwayMCP] runway_getOrg returned error', {
         error: payload,
       });
-      throw new Error(`Runway getOrg failed: ${JSON.stringify(payload)}`);
+      throw new AgentEngineError(
+        'RUNWAY_REQUEST_FAILED',
+        `Runway getOrg failed: ${JSON.stringify(payload)}`,
+        { metadata: { operation: 'runway_getOrg' } }
+      );
     }
 
     return extractPayload(result);

@@ -327,6 +327,64 @@ export class TeamProfileService {
   // ============================================
 
   /**
+   * Load team profile by short team code (e.g. "57L791").
+   * This is the canonical method for routes using /team/:slug/:teamCode.
+   * Calls GET /api/v1/teams/by-teamcode/:teamCode on the backend.
+   */
+  async loadTeamByCode(teamCode: string, isAdmin = false): Promise<void> {
+    if (!teamCode) {
+      this.setError('Team code is required');
+      return;
+    }
+
+    // SSR hydration guard: if data is already present for this team code (transferred
+    // from server render), skip the destructive reset to prevent mismatch.
+    const existing = this._teamData();
+    if (existing?.team?.teamCode === teamCode) {
+      this.logger.debug('Team already hydrated, skipping reload', { teamCode });
+      this._isLoading.set(false);
+      return;
+    }
+
+    this._isLoading.set(true);
+    this._error.set(null);
+    this._teamData.set(null);
+
+    this.logger.info('Loading team profile by team code', { teamCode, isAdmin });
+
+    try {
+      const data = await this.apiClient.getTeamByTeamCode(teamCode);
+
+      this._teamData.set(data);
+      this._isLoading.set(false);
+
+      if (data.team.id) {
+        this.apiClient.incrementTeamView(data.team.id).catch(() => {
+          // Ignore errors — view tracking is non-critical
+        });
+      }
+
+      this.logger.info('Team profile loaded by team code', {
+        teamCode,
+        teamId: data.team.id,
+        teamName: data.team.teamName,
+        rosterCount: data.roster.length,
+      });
+    } catch (error) {
+      const { message, code, status } = error as TeamProfileApiError;
+
+      this._error.set(message);
+      this._isLoading.set(false);
+
+      this.logger.error('Failed to load team profile by team code', error as unknown, {
+        teamCode,
+        code,
+        status,
+      });
+    }
+  }
+
+  /**
    * Load team profile by Firestore document ID.
    * Prefer over loadTeam(slug) when you have the exact team ID —
    * avoids slug ambiguity when multiple teams share the same name.
@@ -440,13 +498,15 @@ export class TeamProfileService {
 
   /**
    * Refresh team data.
-   * Re-fetches using ID if available, otherwise falls back to slug.
+   * Prefers teamCode if available, falls back to ID or slug.
    */
   async refresh(): Promise<void> {
     const team = this.team();
     if (!team) return;
 
-    if (team.id) {
+    if (team.teamCode) {
+      await this.loadTeamByCode(team.teamCode, this.isTeamAdmin());
+    } else if (team.id) {
       await this.loadTeamById(team.id, this.isTeamAdmin());
     } else {
       await this.loadTeam(team.slug, this.isTeamAdmin());

@@ -45,9 +45,10 @@ export interface StreamEvent {
   readonly toolSuccess?: boolean;
   readonly success?: boolean;
   readonly error?: string;
+  readonly errorCode?: string;
   readonly icon?: AgentXToolStepIcon;
   /** Rich card payload for `card` events (planner, data-table, etc.). */
-  readonly cardData?: AgentXRichCard | Record<string, unknown>;
+  readonly cardData?: AgentXRichCard;
 }
 
 export type OnStreamEvent = (event: StreamEvent) => void;
@@ -233,9 +234,10 @@ export class DebouncedEventWriter {
       toolSuccess: event.toolSuccess,
       success: event.success,
       error: event.error ? sanitizeAgentOutputText(event.error) : undefined,
+      errorCode: event.errorCode,
       icon: event.icon,
       cardData: event.cardData
-        ? sanitizeAgentPayload(event.cardData as Record<string, unknown>)
+        ? sanitizeAgentPayload(event.cardData as unknown as Record<string, unknown>)
         : undefined,
     });
 

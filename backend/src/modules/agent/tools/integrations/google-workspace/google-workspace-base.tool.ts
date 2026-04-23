@@ -14,6 +14,7 @@ import { GoogleWorkspaceMcpSessionService } from './google-workspace-mcp-session
 import { getGoogleWorkspaceToolMetadata, truncateGoogleWorkspacePayload } from './shared.js';
 
 export abstract class GoogleWorkspaceBaseTool extends BaseTool {
+  readonly entityGroup = 'platform_tools' as const;
   /** The exact MCP tool name to invoke on the Google Workspace MCP server. */
   abstract readonly mcpToolName: string;
 

@@ -16,6 +16,7 @@ import {
   TeamCode,
   TeamMember,
   ROLE,
+  type UserRole,
   type CreateTeamCodeInput,
   type UpdateTeamCodeInput,
   type JoinTeamInput,
@@ -47,6 +48,19 @@ const CACHE_KEYS = {
 
 const TEAM_CACHE_TTL = CACHE_TTL.PROFILES; // 300s
 const ALL_TEAMS_CACHE_TTL = 600; // 10 minutes for all teams
+
+function mapRoleToRosterUserRole(role: ROLE): UserRole {
+  switch (role) {
+    case ROLE.coach:
+      return 'coach';
+    case ROLE.admin:
+    case ROLE.director:
+      return 'director';
+    case ROLE.athlete:
+    default:
+      return 'athlete';
+  }
+}
 
 // ============================================
 // HELPER FUNCTIONS
@@ -466,6 +480,79 @@ export async function updateTeamCode(
   if (input.level !== undefined) updateData['level'] = input.level;
   if (input.division !== undefined) updateData['division'] = input.division;
   if (input.conference !== undefined) updateData['conference'] = input.conference;
+  if (input.mascot !== undefined) updateData['mascot'] = input.mascot;
+  if (input.city !== undefined) updateData['city'] = input.city;
+  if (input.state !== undefined) updateData['state'] = input.state;
+
+  if (input.logoUrl !== undefined) {
+    updateData['logoUrl'] = input.logoUrl;
+    updateData['teamLogoImg'] = input.logoUrl;
+  }
+
+  if (input.galleryImages !== undefined) {
+    updateData['galleryImages'] = input.galleryImages;
+  }
+
+  if (input.primaryColor !== undefined) {
+    updateData['primaryColor'] = input.primaryColor;
+    updateData['teamColor1'] = input.primaryColor;
+  }
+
+  if (input.secondaryColor !== undefined) {
+    updateData['secondaryColor'] = input.secondaryColor;
+    updateData['teamColor2'] = input.secondaryColor;
+  }
+
+  if (input.accentColor !== undefined) {
+    updateData['accentColor'] = input.accentColor;
+  }
+
+  const hasContactUpdates =
+    input.email !== undefined ||
+    input.phone !== undefined ||
+    input.website !== undefined ||
+    input.address !== undefined;
+
+  if (hasContactUpdates) {
+    const currentContactInfo =
+      typeof team.contactInfo === 'object' && team.contactInfo !== null
+        ? (team.contactInfo as unknown as Record<string, unknown>)
+        : {};
+
+    updateData['contactInfo'] = {
+      ...currentContactInfo,
+      ...(input.email !== undefined ? { email: input.email } : {}),
+      ...(input.phone !== undefined ? { phone: input.phone } : {}),
+      ...(input.website !== undefined ? { website: input.website } : {}),
+      ...(input.address !== undefined ? { address: input.address } : {}),
+    };
+  }
+
+  if (input.email !== undefined) updateData['email'] = input.email;
+  if (input.phone !== undefined) updateData['phone'] = input.phone;
+  if (input.website !== undefined) updateData['website'] = input.website;
+  if (input.address !== undefined) updateData['address'] = input.address;
+
+  const hasRecordUpdates =
+    input.wins !== undefined ||
+    input.losses !== undefined ||
+    input.ties !== undefined ||
+    input.season !== undefined;
+
+  if (hasRecordUpdates) {
+    const currentSeasonRecord =
+      typeof team.seasonRecord === 'object' && team.seasonRecord !== null
+        ? (team.seasonRecord as Record<string, unknown>)
+        : {};
+
+    updateData['seasonRecord'] = {
+      ...currentSeasonRecord,
+      ...(input.wins !== undefined ? { wins: input.wins } : {}),
+      ...(input.losses !== undefined ? { losses: input.losses } : {}),
+      ...(input.ties !== undefined ? { ties: input.ties } : {}),
+      ...(input.season !== undefined ? { season: input.season } : {}),
+    };
+  }
 
   if (Object.keys(updateData).length === 0) {
     return team;
@@ -675,6 +762,8 @@ export async function removeMember(
 
 /**
  * Update member role
+ * V2: Updates the RosterEntry (source of truth) rather than team.members[].
+ * Adjusts athleteMember / panelMember counters when role category changes.
  */
 export async function updateMemberRole(
   db: Firestore,
@@ -682,41 +771,73 @@ export async function updateMemberRole(
 ): Promise<TeamCode> {
   const { team } = await getTeamCodeById(db, input.teamId, false);
 
-  // Check permissions
-  const updater = team.members?.find((m: TeamMember) => m.id === input.updatedBy);
-  if (!updater) {
+  // Permission check — prefer RosterEntry (V2), fall back to legacy members[] (V1)
+  const rosterService = new RosterEntryService(db);
+  const updaterEntry = await rosterService.getActiveOrPendingRosterEntry(
+    input.updatedBy,
+    input.teamId
+  );
+  const updaterRole: ROLE = updaterEntry
+    ? (updaterEntry.role as ROLE)
+    : (team.members?.find((m: TeamMember) => m.id === input.updatedBy)?.role ?? ('' as ROLE));
+
+  if (!updaterRole) {
     throw forbiddenError('permission');
   }
 
-  const targetMember = team.members?.find((m: TeamMember) => m.id === input.userId);
-  if (!targetMember) {
+  const targetEntry = await rosterService.getActiveOrPendingRosterEntry(input.userId, input.teamId);
+  const targetLegacyMember = team.members?.find((m: TeamMember) => m.id === input.userId);
+  if (!targetEntry && !targetLegacyMember) {
     throw notFoundError('member');
   }
 
-  // Check role management permissions
-  if (!canManageRole(updater.role, input.newRole)) {
+  // Derive current role from RosterEntry or legacy member
+  const currentRole: ROLE = targetEntry
+    ? (targetEntry.role as ROLE)
+    : (targetLegacyMember?.role ?? ROLE.athlete);
+
+  if (!canManageRole(updaterRole, input.newRole)) {
     throw forbiddenError('role');
   }
 
   // Prevent changing last admin
-  if (targetMember.role === ROLE.admin && input.newRole !== ROLE.admin) {
+  if (currentRole === ROLE.admin && input.newRole !== ROLE.admin) {
     const adminCount = team.members?.filter((m) => m.role === ROLE.admin).length ?? 0;
     if (adminCount <= 1) {
       throw conflictError('Cannot change role of the last administrator');
     }
   }
 
-  // Update member role
-  const updatedMembers = team.members?.map((m: TeamMember) => {
-    if (m.id === input.userId) {
-      return { ...m, role: input.newRole };
-    }
-    return m;
-  });
+  // V2: Mutate via RosterEntry when the entry exists
+  if (targetEntry?.id) {
+    await rosterService.updateRosterEntry(targetEntry.id, {
+      role: mapRoleToRosterUserRole(input.newRole),
+    });
 
-  await db.collection('Teams').doc(input.teamId).update({
-    members: updatedMembers,
-  });
+    // Adjust team member counters if role category changed
+    const wasAthlete = currentRole === ROLE.athlete;
+    const isNowAthlete = input.newRole === ROLE.athlete;
+    if (wasAthlete !== isNowAthlete) {
+      const counterUpdate: Record<string, unknown> = {};
+      if (wasAthlete) {
+        counterUpdate['athleteMember'] = FieldValue.increment(-1);
+        counterUpdate['panelMember'] = FieldValue.increment(1);
+      } else {
+        counterUpdate['panelMember'] = FieldValue.increment(-1);
+        counterUpdate['athleteMember'] = FieldValue.increment(1);
+      }
+      await db.collection('Teams').doc(input.teamId).update(counterUpdate);
+    }
+  } else {
+    // V1 fallback: update team.members[] for legacy entries without a RosterEntry
+    const updatedMembers = team.members?.map((m: TeamMember) => {
+      if (m.id === input.userId) {
+        return { ...m, role: input.newRole };
+      }
+      return m;
+    });
+    await db.collection('Teams').doc(input.teamId).update({ members: updatedMembers });
+  }
 
   // Invalidate cache
   await invalidateTeamCache(input.teamId, team.teamCode, team.unicode);
@@ -724,7 +845,7 @@ export async function updateMemberRole(
   logger.info('Member role updated', {
     userId: input.userId,
     teamId: input.teamId,
-    oldRole: targetMember.role,
+    oldRole: currentRole,
     newRole: input.newRole,
     updatedBy: input.updatedBy,
   });
@@ -735,6 +856,8 @@ export async function updateMemberRole(
 
 /**
  * Bulk update member roles
+ * V2: Updates RosterEntries (source of truth) for account-backed members;
+ * falls back to team.members[] only for legacy members without a RosterEntry.
  */
 export async function bulkUpdateMemberRoles(
   db: Firestore,
@@ -744,9 +867,14 @@ export async function bulkUpdateMemberRoles(
 ): Promise<BulkUpdateResult> {
   const { team } = await getTeamCodeById(db, teamId, false);
 
-  // Check permissions
-  const updater = team.members?.find((m: TeamMember) => m.id === updatedBy);
-  if (!canManageTeam(updater)) {
+  // Permission check via RosterEntry (V2) with legacy fallback
+  const rosterService = new RosterEntryService(db);
+  const updaterEntry = await rosterService.getActiveOrPendingRosterEntry(updatedBy, teamId);
+  const updaterRole: ROLE = updaterEntry
+    ? (updaterEntry.role as ROLE)
+    : (team.members?.find((m: TeamMember) => m.id === updatedBy)?.role ?? ('' as ROLE));
+
+  if (!updaterRole || !canManageTeam({ role: updaterRole } as TeamMember)) {
     throw forbiddenError('admin');
   }
 
@@ -756,22 +884,12 @@ export async function bulkUpdateMemberRoles(
     errors: [],
   };
 
-  const updatedMembers = [...(team.members ?? [])];
+  const legacyMembersToUpdate = [...(team.members ?? [])];
+  let legacyChanged = false;
 
   for (const update of updates) {
     try {
-      const memberIndex = updatedMembers.findIndex((m) => m.id === update.userId);
-
-      if (memberIndex === -1) {
-        result.failedCount++;
-        result.errors.push({ userId: update.userId, error: 'Member not found' });
-        continue;
-      }
-
-      const targetMember = updatedMembers[memberIndex];
-
-      // Check role management permissions
-      if (!canManageRole(updater!.role, update.newRole)) {
+      if (!canManageRole(updaterRole, update.newRole)) {
         result.failedCount++;
         result.errors.push({
           userId: update.userId,
@@ -780,9 +898,27 @@ export async function bulkUpdateMemberRoles(
         continue;
       }
 
-      // Update role
-      updatedMembers[memberIndex] = { ...targetMember, role: update.newRole };
-      result.successCount++;
+      const targetEntry = await rosterService.getActiveOrPendingRosterEntry(update.userId, teamId);
+
+      if (targetEntry?.id) {
+        await rosterService.updateRosterEntry(targetEntry.id, {
+          role: mapRoleToRosterUserRole(update.newRole),
+        });
+        result.successCount++;
+      } else {
+        const memberIndex = legacyMembersToUpdate.findIndex((m) => m.id === update.userId);
+        if (memberIndex === -1) {
+          result.failedCount++;
+          result.errors.push({ userId: update.userId, error: 'Member not found' });
+          continue;
+        }
+        legacyMembersToUpdate[memberIndex] = {
+          ...legacyMembersToUpdate[memberIndex],
+          role: update.newRole,
+        };
+        legacyChanged = true;
+        result.successCount++;
+      }
     } catch (error) {
       result.failedCount++;
       result.errors.push({
@@ -792,15 +928,13 @@ export async function bulkUpdateMemberRoles(
     }
   }
 
-  // Apply updates if any succeeded
-  if (result.successCount > 0) {
-    await db.collection('Teams').doc(teamId).update({
-      members: updatedMembers,
-    });
-
-    // Invalidate cache
-    await invalidateTeamCache(teamId, team.teamCode, team.unicode);
+  // Write legacy members[] only if any legacy-path updates succeeded
+  if (legacyChanged) {
+    await db.collection('Teams').doc(teamId).update({ members: legacyMembersToUpdate });
   }
+
+  // Invalidate cache
+  await invalidateTeamCache(teamId, team.teamCode, team.unicode);
 
   logger.info('Bulk member role update', {
     teamId,

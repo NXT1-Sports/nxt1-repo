@@ -21,9 +21,12 @@ import type {
   OperationLogEntry,
   CompletedGoalRecord,
 } from '@nxt1/core';
-import { getShellContentForRole } from '@nxt1/core';
 import { logger } from '../../utils/logger.js';
 import { getStorage } from 'firebase-admin/storage';
+import {
+  getAgentAppConfig,
+  resolveConfiguredCoordinatorsForRole,
+} from '../../modules/agent/config/agent-app-config.js';
 import {
   validateJobOrigin,
   isScheduledOrigin,
@@ -251,7 +254,9 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
     const role: string = userData['role'] ?? 'athlete';
     const agentGoals: AgentDashboardGoal[] = userData['agentGoals'] ?? [];
 
-    const shellContent = getShellContentForRole(role);
+    const appConfig = await getAgentAppConfig(db);
+    const dynamicCoordinators = resolveConfiguredCoordinatorsForRole(role, appConfig);
+    const coordinators = dynamicCoordinators;
 
     const briefingDoc = await db
       .collection('Users')
@@ -328,7 +333,7 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
           generatedAt: playbookGeneratedAt,
           canRegenerate: agentGoals.length > 0,
         },
-        coordinators: shellContent.coordinators,
+        coordinators,
       },
     });
   } catch (err) {

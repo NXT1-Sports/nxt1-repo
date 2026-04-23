@@ -61,6 +61,7 @@ describe('mapTeamCodeToProfile', () => {
         firstName: 'Avery',
         lastName: 'Athlete',
         displayName: 'Avery Athlete',
+        unicode: 'avery-athlete',
         role: 'athlete',
         classOf: 2027,
         sports: [{ positions: ['QB'] }],
@@ -125,8 +126,42 @@ describe('mapTeamCodeToProfile', () => {
     );
 
     expect(result.roster.map((member) => member.id)).toEqual(['athlete-1']);
+    expect(result.roster[0]?.unicode).toBe('avery-athlete');
     expect(result.staff.map((member) => member.id)).toEqual(
       expect.arrayContaining(['coach-1', 'director-1'])
     );
+  });
+
+  it('maps unicode in legacy memberIds fallback roster payload', async () => {
+    getUsersByIdsMock.mockResolvedValue([
+      {
+        id: 'athlete-legacy-1',
+        firstName: 'Legacy',
+        lastName: 'Athlete',
+        displayName: 'Legacy Athlete',
+        unicode: 'legacy-athlete',
+        role: 'athlete',
+        classOf: 2028,
+      },
+    ]);
+
+    const db = createFirestoreMock([]);
+
+    const result = await mapTeamCodeToProfile(
+      {
+        id: 'team-legacy',
+        teamCode: 'TEAM01',
+        teamName: 'Legacy Lions',
+        teamType: 'high-school',
+        sport: 'Football',
+        memberIds: ['athlete-legacy-1'],
+      },
+      { includeRoster: true },
+      db as never
+    );
+
+    expect(result.roster).toHaveLength(1);
+    expect(result.roster[0]?.id).toBe('athlete-legacy-1');
+    expect(result.roster[0]?.unicode).toBe('legacy-athlete');
   });
 });

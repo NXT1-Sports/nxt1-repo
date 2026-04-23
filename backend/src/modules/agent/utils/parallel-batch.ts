@@ -23,7 +23,7 @@
  *   - The AbortSignal is checked before each work item starts. Items that are
  *     already in-flight are NOT cancelled — callers must propagate the signal
  *     to the underlying operations themselves (e.g. fetch({signal})).
- *   - onProgress is called after every item completes (fulfilled or rejected)
+ *   - onItemSettled is called after every item completes (fulfilled or rejected)
  *     so progress bars always reach 100% regardless of failures.
  *   - Input order is preserved in the output array.
  *
@@ -36,7 +36,7 @@
  *   {
  *     concurrency: 4,
  *     signal: context?.signal,
- *     onProgress: (done, total) => progress?.(`Fetching stats sub-pages ${done}/${total}…`),
+ *     onItemSettled: (done, total) => progress?.(`Fetching stats sub-pages ${done}/${total}…`),
  *   },
  * );
  * const succeeded = batchResults.filter(r => r.status === 'fulfilled');
@@ -99,7 +99,7 @@ export interface ParallelBatchOptions {
    * @param total     - Total number of items in the batch.
    * @param index     - Zero-based index of the item that just finished.
    */
-  readonly onProgress?: (completed: number, total: number, index: number) => void;
+  readonly onItemSettled?: (completed: number, total: number, index: number) => void;
 
   /**
    * When this signal fires, no NEW items will be started.
@@ -144,7 +144,7 @@ export async function parallelBatch<TInput, TOutput>(
     Math.min(options?.concurrency ?? 5, MAX_SAFE_CONCURRENCY)
   );
   const signal = options?.signal;
-  const onProgress = options?.onProgress;
+  const onItemSettled = options?.onItemSettled;
 
   // Pre-allocate the results array so output order matches input order.
   const results: BatchResult<TOutput>[] = new Array(total);
@@ -177,7 +177,7 @@ export async function parallelBatch<TInput, TOutput>(
       }
 
       completed++;
-      onProgress?.(completed, total, idx);
+      onItemSettled?.(completed, total, idx);
     }
   };
 
@@ -187,12 +187,12 @@ export async function parallelBatch<TInput, TOutput>(
   return results;
 }
 
-export function createParallelBatchProgressOptions(
-  progressHandler: NonNullable<ParallelBatchOptions['onProgress']>,
-  options?: Omit<ParallelBatchOptions, 'onProgress'>
+export function createParallelBatchSettledOptions(
+  settledHandler: NonNullable<ParallelBatchOptions['onItemSettled']>,
+  options?: Omit<ParallelBatchOptions, 'onItemSettled'>
 ): ParallelBatchOptions {
   return {
     ...options,
-    onProgress: progressHandler,
+    onItemSettled: settledHandler,
   };
 }

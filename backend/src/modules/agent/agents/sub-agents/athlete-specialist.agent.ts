@@ -15,6 +15,7 @@ import type { OpenRouterService } from '../../llm/openrouter.service.js';
 import type { LLMMessage, LLMCompletionOptions } from '../../llm/llm.types.js';
 import { resolveStructuredOutput } from '../../llm/structured-output.js';
 import { AthleteExtractionSchema, type AthleteExtraction } from '../../schemas/index.js';
+import { AgentEngineError } from '../../exceptions/agent-engine.error.js';
 import { logger } from '../../../../utils/logger.js';
 
 /** Max chars sent to the LLM (~30k chars ≈ ~8k tokens for Haiku). */
@@ -134,9 +135,11 @@ export class AthleteSpecialist {
         content: (result.content ?? '').slice(0, 500),
         error: error instanceof Error ? error.message : String(error),
       });
-      throw new Error('AthleteSpecialist: LLM returned invalid structured output', {
-        cause: error,
-      });
+      throw new AgentEngineError(
+        'AGENT_SUB_AGENT_INVALID_OUTPUT',
+        'AthleteSpecialist: LLM returned invalid structured output',
+        { cause: error, metadata: { userId: context.userId, sourceUrl: context.sourceUrl } }
+      );
     }
 
     // Empty object = no data found

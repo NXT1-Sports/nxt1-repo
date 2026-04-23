@@ -423,7 +423,7 @@ export interface AgentXRichCard {
   /** Card type — drives Angular component selection. */
   readonly type: AgentXRichCardType;
   /** Which agent generated the card, used for per-agent colorways. */
-  readonly agentId?: AgentIdentifier;
+  readonly agentId: AgentIdentifier;
   /** Card title (shown as header). */
   readonly title: string;
   /** Type-specific payload. */
@@ -752,7 +752,7 @@ export interface AgentXStreamStepEvent {
  */
 export interface AgentXStreamCardEvent {
   /** Which agent generated the card, used for per-agent colorways. */
-  readonly agentId?: AgentIdentifier;
+  readonly agentId: AgentIdentifier;
   /** Card type discriminator. */
   readonly type: AgentXRichCardType;
   /** Card title. */

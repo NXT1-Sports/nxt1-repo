@@ -82,6 +82,7 @@ export class GenerateGraphicTool extends BaseTool {
   readonly isMutation = true;
   readonly category = 'media' as const;
 
+  readonly entityGroup = 'user_tools' as const;
   constructor(private readonly llm: OpenRouterService) {
     super();
   }

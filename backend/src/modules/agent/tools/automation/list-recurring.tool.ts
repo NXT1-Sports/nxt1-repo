@@ -30,6 +30,8 @@ export class ListRecurringTasksTool extends BaseTool {
   readonly isMutation = false;
   readonly category: AgentToolCategory = 'automation';
 
+  readonly entityGroup = 'platform_tools' as const;
+
   private readonly db: Firestore;
   private readonly queueService: AgentQueueService;
 

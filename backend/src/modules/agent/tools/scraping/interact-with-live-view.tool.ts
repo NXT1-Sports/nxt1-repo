@@ -14,6 +14,7 @@
 import { BaseTool, type ToolResult } from '../base.tool.js';
 import type { LiveViewSessionService } from './live-view-session.service.js';
 import { logger } from '../../../../utils/logger.js';
+import { z } from 'zod';
 
 export class InteractWithLiveViewTool extends BaseTool {
   readonly name = 'interact_with_live_view';
@@ -29,40 +30,17 @@ export class InteractWithLiveViewTool extends BaseTool {
     'Approval-sensitive actions are evaluated centrally by the agent approval gate before this tool executes. ' +
     'For legacy callers outside the approval-aware runtime, destructive actions still require confirmed: true as a safety fallback.';
 
-  readonly parameters = {
-    type: 'object' as const,
-    properties: {
-      sessionId: {
-        type: 'string',
-        description:
-          "Optional. The sessionId returned by open_live_view. If omitted, the tool automatically uses the user's current active session.",
-      },
-      prompt: {
-        type: 'string',
-        description:
-          'A natural language description of what to do in the browser. Be specific and descriptive. ' +
-          'Examples: "Click the Log In button", "Type john@example.com into the email field", ' +
-          '"Scroll down to find the highlight reel section", "Click Continue with Google, then wait for the page to load". ' +
-          'You can describe multi-step sequences in a single prompt.',
-      },
-      userId: {
-        type: 'string',
-        description:
-          "The authenticated user's ID (uid). Extract from the [User Profile] context — NEVER ask the user.",
-      },
-      confirmed: {
-        type: 'boolean',
-        description:
-          'Compatibility fallback for callers outside the approval-aware runtime. ' +
-          'Set to true only after the user explicitly confirms a destructive browser action.',
-      },
-    },
-    required: ['prompt', 'userId'],
-  };
+  readonly parameters = z.object({
+    sessionId: z.string().trim().min(1).optional(),
+    prompt: z.string().trim().min(1),
+    userId: z.string().trim().min(1),
+    confirmed: z.boolean().optional(),
+  });
 
   readonly isMutation = true;
   readonly category = 'analytics' as const;
 
+  readonly entityGroup = 'platform_tools' as const;
   override readonly allowedAgents = [
     'data_coordinator',
     'performance_coordinator',

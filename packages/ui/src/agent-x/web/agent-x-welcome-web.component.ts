@@ -9,11 +9,11 @@
  * ⭐ WEB ONLY — Pure HTML/CSS, Zero Ionic, SSR-optimized ⭐
  */
 
-import { Component, ChangeDetectionStrategy, input, output } from '@angular/core';
+import { Component, ChangeDetectionStrategy, computed, inject, input, output } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import type { AgentXQuickTask } from '@nxt1/core';
-import { ATHLETE_QUICK_TASKS, COACH_QUICK_TASKS, COLLEGE_QUICK_TASKS } from '@nxt1/core';
 import { NxtIconComponent } from '../../components/icon/icon.component';
+import { AgentXService } from '../agent-x.service';
 
 /** SVG path data keyed by ionicon name used in quick tasks */
 const TASK_ICON_PATHS: Record<string, string> = {
@@ -59,7 +59,7 @@ const TASK_ICON_PATHS: Record<string, string> = {
               <h3 class="section-title">For Athletes</h3>
             }
             <div class="task-grid">
-              @for (task of athleteTasks; track task.id) {
+              @for (task of athleteTasks(); track task.id) {
                 <button type="button" class="task-card" (click)="onTaskClick(task)">
                   <svg
                     class="task-icon"
@@ -84,7 +84,7 @@ const TASK_ICON_PATHS: Record<string, string> = {
               <h3 class="section-title">For Coaches</h3>
             }
             <div class="task-grid">
-              @for (task of coachTasks; track task.id) {
+              @for (task of coachTasks(); track task.id) {
                 <button type="button" class="task-card" (click)="onTaskClick(task)">
                   <svg
                     class="task-icon"
@@ -109,7 +109,7 @@ const TASK_ICON_PATHS: Record<string, string> = {
               <h3 class="section-title">For Colleges</h3>
             }
             <div class="task-grid">
-              @for (task of collegeTasks; track task.id) {
+              @for (task of collegeTasks(); track task.id) {
                 <button type="button" class="task-card" (click)="onTaskClick(task)">
                   <svg
                     class="task-icon"
@@ -277,6 +277,8 @@ const TASK_ICON_PATHS: Record<string, string> = {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AgentXWelcomeWebComponent {
+  private readonly agentX = inject(AgentXService);
+
   // ============================================
   // INPUTS
   // ============================================
@@ -297,9 +299,9 @@ export class AgentXWelcomeWebComponent {
   // TASKS (from core constants)
   // ============================================
 
-  protected readonly athleteTasks = ATHLETE_QUICK_TASKS;
-  protected readonly coachTasks = COACH_QUICK_TASKS;
-  protected readonly collegeTasks = COLLEGE_QUICK_TASKS;
+  protected readonly athleteTasks = computed(() => this.agentX.athleteTasks());
+  protected readonly coachTasks = computed(() => this.agentX.coachTasks());
+  protected readonly collegeTasks = computed(() => this.agentX.collegeTasks());
 
   // ============================================
   // HELPERS

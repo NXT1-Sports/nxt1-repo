@@ -417,16 +417,14 @@ export interface SportProfile {
   traits?: AgentXTrait[];
 
   /**
-   * @deprecated V3: Team affiliation is now relational via RosterEntries collection.
-   * Kept temporarily for backward compatibility with existing reads.
-   * Migration: remove this field and use RosterEntries + organizationId instead.
+   * Current team affiliation for this sport.
+   * Kept in sync by RosterEntry mutations — set to teamId on join/approve,
+   * cleared (null) on remove. This is a live, first-class field used for
+   * display and filtering across the platform.
    */
   team?: TeamInfo;
 
-  /**
-   * @deprecated V3: Club team is now relational via RosterEntries collection.
-   * Kept temporarily for backward compatibility with existing reads.
-   */
+  /** Club team affiliation for this sport profile. */
   clubTeam?: TeamInfo;
 
   /** Head coach contact */

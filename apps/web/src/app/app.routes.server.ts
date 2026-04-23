@@ -151,14 +151,10 @@ export const serverRoutes: ServerRoute[] = [
   },
   /**
    * Team profile routes — Server-rendered for SEO (Open Graph, rich snippets).
-   * Hydration mismatch fixed via slug-aware guard in TeamProfileService.
+   * Strict canonical URL: /team/:slug/:teamCode.
    */
   {
     path: 'team/:slug/:teamCode',
-    renderMode: RenderMode.Server,
-  },
-  {
-    path: 'team/:slug',
     renderMode: RenderMode.Server,
   },
   {

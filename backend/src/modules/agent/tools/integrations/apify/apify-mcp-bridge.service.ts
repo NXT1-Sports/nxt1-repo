@@ -35,6 +35,7 @@ import {
   incrementCacheSet,
 } from '../../../../../services/core/cache.service.js';
 import { logger } from '../../../../../utils/logger.js';
+import { AgentEngineError } from '../../../exceptions/agent-engine.error.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -145,7 +146,7 @@ function extractPayload(result: McpToolCallResult): unknown {
     .filter((block) => block.length > 0);
 
   if (textBlocks.length === 0) {
-    throw new Error('Apify MCP returned no structured content');
+    throw new AgentEngineError('APIFY_RESPONSE_EMPTY', 'Apify MCP returned no structured content');
   }
 
   const combined = textBlocks.join('\n');
@@ -182,7 +183,10 @@ export class ApifyMcpBridgeService extends BaseMcpClientService {
     super();
     const token = process.env['APIFY_API_TOKEN'];
     if (!token) {
-      throw new Error('APIFY_API_TOKEN environment variable is required for the Apify MCP bridge');
+      throw new AgentEngineError(
+        'APIFY_CONFIG_MISSING_API_TOKEN',
+        'APIFY_API_TOKEN environment variable is required for the Apify MCP bridge'
+      );
     }
     this.apiToken = token;
   }
@@ -239,7 +243,13 @@ export class ApifyMcpBridgeService extends BaseMcpClientService {
         if (result.isError) {
           const payload = extractPayload(result);
           logger.error('[ApifyMCP] search-actors returned error', { query, error: payload });
-          throw new Error(`Apify actor search failed: ${JSON.stringify(payload)}`);
+          throw new AgentEngineError(
+            'APIFY_REQUEST_FAILED',
+            `Apify actor search failed: ${JSON.stringify(payload)}`,
+            {
+              metadata: { operation: 'search-actors', query },
+            }
+          );
         }
 
         return extractPayload(result);
@@ -274,8 +284,12 @@ export class ApifyMcpBridgeService extends BaseMcpClientService {
             actorId,
             error: payload,
           });
-          throw new Error(
-            `Failed to fetch actor details for "${actorId}": ${JSON.stringify(payload)}`
+          throw new AgentEngineError(
+            'APIFY_REQUEST_FAILED',
+            `Failed to fetch actor details for "${actorId}": ${JSON.stringify(payload)}`,
+            {
+              metadata: { operation: 'fetch-actor-details', actorId },
+            }
           );
         }
 
@@ -320,7 +334,13 @@ export class ApifyMcpBridgeService extends BaseMcpClientService {
     if (result.isError) {
       const payload = extractPayload(result);
       logger.error('[ApifyMCP] call-actor returned error', { actorId, error: payload });
-      throw new Error(`Actor "${actorId}" execution failed: ${JSON.stringify(payload)}`);
+      throw new AgentEngineError(
+        'APIFY_REQUEST_FAILED',
+        `Actor "${actorId}" execution failed: ${JSON.stringify(payload)}`,
+        {
+          metadata: { operation: 'call-actor', actorId },
+        }
+      );
     }
 
     return this.validatePayload(ActorExecutionResponseSchema, extractPayload(result), 'call-actor');
@@ -354,8 +374,12 @@ export class ApifyMcpBridgeService extends BaseMcpClientService {
             datasetId,
             error: payload,
           });
-          throw new Error(
-            `Failed to fetch output for dataset "${datasetId}": ${JSON.stringify(payload)}`
+          throw new AgentEngineError(
+            'APIFY_REQUEST_FAILED',
+            `Failed to fetch output for dataset "${datasetId}": ${JSON.stringify(payload)}`,
+            {
+              metadata: { operation: 'get-actor-output', datasetId },
+            }
           );
         }
 
@@ -374,7 +398,13 @@ export class ApifyMcpBridgeService extends BaseMcpClientService {
       operation,
       issues: parsed.error.issues,
     });
-    throw new Error(`Apify MCP returned invalid payload for ${operation}`);
+    throw new AgentEngineError(
+      'APIFY_INVALID_RESPONSE',
+      `Apify MCP returned invalid payload for ${operation}`,
+      {
+        metadata: { operation },
+      }
+    );
   }
 
   private async withCache<T>(

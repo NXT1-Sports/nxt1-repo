@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   AGENT_APP_CONFIG_CACHE_TTL_MS,
   DEFAULT_AGENT_APP_CONFIG,
@@ -10,6 +10,7 @@ import {
   resolveAgentSystemPrompt,
   resolveModelFallbackChain,
   resolveModelForTier,
+  resolveConfiguredCoordinatorsForRole,
   resolveRolePersona,
   resolveSeasonInfo,
   setCachedAgentAppConfig,
@@ -162,6 +163,87 @@ describe('agent-app-config', () => {
     expect(isToolDisabled('search_web')).toBe(false);
   });
 
+  it('parses coordinator UI metadata for dynamic dashboard rendering', () => {
+    const config = parseAgentAppConfig({
+      coordinators: [
+        {
+          id: 'recruiting_coordinator',
+          name: 'Recruiting Command',
+          description: 'Custom recruiting coordinator',
+          icon: 'mail',
+          capabilities: ['coach_outreach'],
+          availableForRoles: ['athlete', 'coach'],
+          commands: [
+            {
+              id: 'recruiting-email',
+              label: 'Draft Coach Outreach',
+              subLabel: 'Custom template',
+              icon: 'mail',
+            },
+          ],
+          scheduledActions: [
+            {
+              id: 'recruiting-weekly',
+              label: 'Weekly Outreach',
+              icon: 'calendar',
+            },
+          ],
+        },
+      ],
+    });
+
+    const recruiting = config.coordinators.find((item) => item.id === 'recruiting_coordinator');
+    expect(recruiting?.name).toBe('Recruiting Command');
+    expect(recruiting?.availableForRoles).toEqual(['athlete', 'coach']);
+    expect(recruiting?.commands[0]?.label).toBe('Draft Coach Outreach');
+    expect(recruiting?.scheduledActions[0]?.id).toBe('recruiting-weekly');
+  });
+
+  it('filters configured coordinators by role visibility', () => {
+    const config = parseAgentAppConfig({
+      coordinators: [
+        {
+          id: 'admin_coordinator',
+          name: 'Admin Coordinator',
+          description: 'Admin tasks',
+          icon: 'shield-checkmark',
+          capabilities: ['operations_governance'],
+          availableForRoles: ['coach'],
+          commands: [{ id: 'admin-check', label: 'Compliance Check', icon: 'shieldCheck' }],
+          scheduledActions: [],
+        },
+        {
+          id: 'recruiting_coordinator',
+          name: 'Recruiting Coordinator',
+          description: 'Recruiting tasks',
+          icon: 'mail',
+          capabilities: ['coach_outreach'],
+          availableForRoles: ['athlete'],
+          commands: [{ id: 'recruiting-email', label: 'Draft Outreach', icon: 'mail' }],
+          scheduledActions: [],
+        },
+      ],
+    });
+
+    const athleteCoordinators = resolveConfiguredCoordinatorsForRole('athlete', config);
+    const coachCoordinators = resolveConfiguredCoordinatorsForRole('coach', config);
+
+    expect(athleteCoordinators.map((item) => item.id)).toContain('recruiting_coordinator');
+    expect(athleteCoordinators.map((item) => item.id)).not.toContain('admin_coordinator');
+    expect(coachCoordinators.map((item) => item.id)).toContain('admin_coordinator');
+    expect(coachCoordinators.map((item) => item.id)).not.toContain('recruiting_coordinator');
+  });
+
+  it('hydrates default coordinator command packs when config omits coordinator UI details', () => {
+    const config = parseAgentAppConfig({});
+    const coordinator = config.coordinators.find((item) => item.id === 'strategy_coordinator');
+
+    expect(coordinator?.commands.length).toBeGreaterThan(0);
+    expect(coordinator?.availableForRoles).toContain('athlete');
+    expect(coordinator?.availableForRoles).toContain('coach');
+    expect(coordinator?.availableForRoles).toContain('director');
+  });
+
   it('reads AppConfig/agentConfig once and reuses the cached config within the TTL', async () => {
     resetCachedAgentAppConfig();
 
@@ -188,5 +270,80 @@ describe('agent-app-config', () => {
     expect(get).toHaveBeenCalledTimes(1);
     expect(first.domainKnowledge.rolePersonas.athlete).toBe('Firestore athlete persona.');
     expect(second.domainKnowledge.rolePersonas.athlete).toBe('Firestore athlete persona.');
+  });
+
+  it('reuses the cached AppConfig across 50 reads within the TTL window', async () => {
+    resetCachedAgentAppConfig();
+
+    const get = vi.fn().mockResolvedValue({
+      exists: true,
+      data: () => ({
+        domainKnowledge: {
+          rolePersonas: {
+            athlete: 'Firestore athlete persona.',
+          },
+        },
+      }),
+    });
+
+    const db = {
+      collection: vi.fn(() => ({
+        doc: vi.fn(() => ({ get })),
+      })),
+    } as never;
+
+    const reads = await Promise.all(
+      Array.from({ length: 50 }, () =>
+        getAgentAppConfig(db, { maxAgeMs: AGENT_APP_CONFIG_CACHE_TTL_MS })
+      )
+    );
+
+    expect(get).toHaveBeenCalledTimes(1);
+    expect(reads).toHaveLength(50);
+    expect(
+      reads.every(
+        (config) => config.domainKnowledge.rolePersonas.athlete === 'Firestore athlete persona.'
+      )
+    ).toBe(true);
+  });
+
+  it('reloads AppConfig after the TTL expires', async () => {
+    resetCachedAgentAppConfig();
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-04-22T12:00:00.000Z'));
+
+    let readCount = 0;
+    const get = vi.fn().mockImplementation(async () => {
+      readCount += 1;
+      const athletePersona =
+        readCount === 1 ? 'Firestore athlete persona v1.' : 'Firestore athlete persona v2.';
+
+      return {
+        exists: true,
+        data: () => ({
+          domainKnowledge: {
+            rolePersonas: {
+              athlete: athletePersona,
+            },
+          },
+        }),
+      };
+    });
+
+    const db = {
+      collection: vi.fn(() => ({
+        doc: vi.fn(() => ({ get })),
+      })),
+    } as never;
+
+    const first = await getAgentAppConfig(db, { maxAgeMs: AGENT_APP_CONFIG_CACHE_TTL_MS });
+    vi.advanceTimersByTime(AGENT_APP_CONFIG_CACHE_TTL_MS + 1);
+    const second = await getAgentAppConfig(db, { maxAgeMs: AGENT_APP_CONFIG_CACHE_TTL_MS });
+
+    expect(get).toHaveBeenCalledTimes(2);
+    expect(first.domainKnowledge.rolePersonas.athlete).toBe('Firestore athlete persona v1.');
+    expect(second.domainKnowledge.rolePersonas.athlete).toBe('Firestore athlete persona v2.');
+
+    vi.useRealTimers();
   });
 });

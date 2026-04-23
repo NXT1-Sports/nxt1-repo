@@ -5,10 +5,10 @@
  * Covers:
  *   - Empty input fast-path
  *   - Fulfilled and rejected results with correct shape
- *   - Input-order preservation in the output array
+ *   - onItemSettled callback (fired once per item, 1-based count, correct index)
  *   - Concurrency clamping ([1, 20])
  *   - Actual concurrency ceiling enforcement
- *   - onProgress callback (fired once per item, 1-based count, correct index)
+ *   - onItemSettled callback (fired once per item, 1-based count, correct index)
  *   - AbortSignal: new items not started after abort, in-flight items complete
  *   - Non-Error throws are wrapped in Error
  *   - Mixed success / failure batches aggregate correctly
@@ -177,15 +177,15 @@ describe('parallelBatch', () => {
     expect(maxObserved).toBeLessThanOrEqual(concurrency);
   });
 
-  // ── onProgress callback ────────────────────────────────────────────────────
+  // ── onItemSettled callback ─────────────────────────────────────────────────
 
-  it('calls onProgress once per item with 1-based completed count and correct index', async () => {
+  it('calls onItemSettled once per item with 1-based completed count and correct index', async () => {
     const progressCalls: Array<{ completed: number; total: number; index: number }> = [];
 
     const items = ['a', 'b', 'c'];
     await parallelBatch(items, async (x) => x, {
       concurrency: 1,
-      onProgress: (completed, total, index) => {
+      onItemSettled: (completed, total, index) => {
         progressCalls.push({ completed, total, index });
       },
     });
@@ -198,8 +198,8 @@ describe('parallelBatch', () => {
     expect(progressCalls[2]).toEqual({ completed: 3, total: 3, index: 2 });
   });
 
-  it('calls onProgress even when a worker rejects', async () => {
-    const onProgress = vi.fn();
+  it('calls onItemSettled even when a worker rejects', async () => {
+    const onItemSettled = vi.fn();
 
     await parallelBatch(
       [1, 2],
@@ -207,20 +207,20 @@ describe('parallelBatch', () => {
         if (x === 1) throw new Error('fail');
         return x;
       },
-      { onProgress }
+      { onItemSettled }
     );
 
-    expect(onProgress).toHaveBeenCalledTimes(2);
+    expect(onItemSettled).toHaveBeenCalledTimes(2);
   });
 
-  it('onProgress completed count reaches total (equals items.length) on the last call', async () => {
+  it('onItemSettled completed count reaches total (equals items.length) on the last call', async () => {
     const totals: number[] = [];
     const completeds: number[] = [];
 
     const items = Array.from({ length: 7 }, (_, i) => i);
     await parallelBatch(items, async (x) => x, {
       concurrency: 3,
-      onProgress: (completed, total) => {
+      onItemSettled: (completed, total) => {
         completeds.push(completed);
         totals.push(total);
       },

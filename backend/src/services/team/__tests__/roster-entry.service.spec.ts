@@ -165,6 +165,7 @@ describe('RosterEntryService', () => {
         organizationId: 'org-1',
         role: 'coach',
         sport: 'Basketball',
+        unicode: 'coach-1-unicode',
         title: 'Head Coach',
         status: RosterEntryStatus.ACTIVE,
         firstName: 'Pat',
@@ -179,12 +180,15 @@ describe('RosterEntryService', () => {
       sport: 'Basketball',
       title: 'Head Coach',
       status: RosterEntryStatus.ACTIVE,
+      unicode: 'coach-1-unicode',
+      profileCode: 'coach-1-unicode',
       displayName: 'Pat Summitt',
     });
     expect(payload).not.toHaveProperty('positions');
     expect(result.sport).toBe('Basketball');
     expect(result.title).toBe('Head Coach');
     expect(result.displayName).toBe('Pat Summitt');
+    expect(result.unicode).toBe('coach-1-unicode');
   });
 
   it('writes sport and positions for athlete roster entries', async () => {
@@ -202,6 +206,7 @@ describe('RosterEntryService', () => {
         organizationId: 'org-1',
         role: 'athlete',
         sport: 'Football',
+        unicode: 'athlete-1-unicode',
         positions: ['QB', 'QB', ' Safety '],
         status: RosterEntryStatus.PENDING,
         firstName: 'Peyton',
@@ -214,6 +219,8 @@ describe('RosterEntryService', () => {
     expect(payload).toMatchObject({
       role: 'athlete',
       sport: 'Football',
+      unicode: 'athlete-1-unicode',
+      profileCode: 'athlete-1-unicode',
       positions: ['QB', 'Safety'],
       status: RosterEntryStatus.PENDING,
       displayName: 'Peyton Manning',
@@ -231,6 +238,7 @@ describe('RosterEntryService', () => {
         firstName: 'Pat',
         lastName: 'Summitt',
         displayName: 'Pat Summitt',
+        unicode: 'legacy-unicode',
         joinedAt: new Date().toISOString(),
       },
     });
@@ -240,12 +248,15 @@ describe('RosterEntryService', () => {
       firstName: 'Patricia',
       lastName: 'Summitt',
       displayName: 'Coach Summitt',
+      unicode: 'coach-summitt',
     });
 
     expect(rosterEntries.get('entry-1')).toMatchObject({
       firstName: 'Patricia',
       lastName: 'Summitt',
       displayName: 'Coach Summitt',
+      unicode: 'coach-summitt',
+      profileCode: 'coach-summitt',
     });
   });
 
@@ -257,6 +268,7 @@ describe('RosterEntryService', () => {
         organizationId: 'org-1',
         role: 'athlete',
         sport: 'Football',
+        unicode: 'old-unicode',
         positions: ['QB'],
         jerseyNumber: '12',
         status: RosterEntryStatus.ACTIVE,
@@ -268,6 +280,7 @@ describe('RosterEntryService', () => {
         organizationId: 'org-1',
         role: 'athlete',
         sport: 'Baseball',
+        unicode: 'old-unicode',
         positions: ['P'],
         jerseyNumber: '8',
         status: RosterEntryStatus.ACTIVE,
@@ -281,6 +294,7 @@ describe('RosterEntryService', () => {
       firstName: 'Peyton',
       lastName: 'Manning',
       displayName: 'Peyton Manning',
+      unicode: 'peyton18',
       email: 'peyton@test.com',
       contact: { phone: '555-111-2222' },
       profileImgs: ['https://cdn.test/avatar.jpg'],
@@ -304,6 +318,8 @@ describe('RosterEntryService', () => {
       firstName: 'Peyton',
       lastName: 'Manning',
       displayName: 'Peyton Manning',
+      unicode: 'peyton18',
+      profileCode: 'peyton18',
       email: 'peyton@test.com',
       phoneNumber: '555-111-2222',
       profileImgs: ['https://cdn.test/avatar.jpg'],

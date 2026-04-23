@@ -1238,7 +1238,6 @@ export {
   ManageTeamSkeletonComponent,
   // Landing Page (Public Marketing)
   NxtManageTeamLandingComponent,
-  NxtManageTeamDashboardPreviewComponent,
   // Section Components (for custom layouts)
   ManageTeamInfoSectionComponent,
   ManageTeamRosterSectionComponent,

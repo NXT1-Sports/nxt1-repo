@@ -37,7 +37,7 @@ import type {
   ModelRoutingConfig,
   AgentDescriptor,
 } from '@nxt1/core';
-import { MODEL_ROUTING_DEFAULTS } from '@nxt1/core';
+import { COORDINATOR_AGENT_IDS, MODEL_ROUTING_DEFAULTS } from '@nxt1/core';
 import type { OpenRouterService } from '../llm/openrouter.service.js';
 import { z } from 'zod';
 import { getConfiguredCoordinatorDescriptors } from '../config/agent-app-config.js';
@@ -66,6 +66,43 @@ const plannerResponseSchema = z
       dependsOn: (task.dependsOn ?? []).map(String),
     })),
   }));
+
+const coordinatorIdSet = new Set<string>(COORDINATOR_AGENT_IDS);
+const plannerAgentAliases: Readonly<Record<string, (typeof COORDINATOR_AGENT_IDS)[number]>> = {
+  admin: 'admin_coordinator',
+  admincoordinator: 'admin_coordinator',
+  admin_coordinator: 'admin_coordinator',
+  brand: 'brand_coordinator',
+  brandcoordinator: 'brand_coordinator',
+  brand_coordinator: 'brand_coordinator',
+  data: 'data_coordinator',
+  datacoordinator: 'data_coordinator',
+  data_coordinator: 'data_coordinator',
+  strategy: 'strategy_coordinator',
+  strategist: 'strategy_coordinator',
+  strategycoordinator: 'strategy_coordinator',
+  strategy_coordinator: 'strategy_coordinator',
+  recruiting: 'recruiting_coordinator',
+  recruiter: 'recruiting_coordinator',
+  recruitingcoordinator: 'recruiting_coordinator',
+  recruiting_coordinator: 'recruiting_coordinator',
+  performance: 'performance_coordinator',
+  analyst: 'performance_coordinator',
+  performancecoordinator: 'performance_coordinator',
+  performance_coordinator: 'performance_coordinator',
+};
+
+function normalizePlannerAssignedAgent(agentIdRaw: string): AgentIdentifier | null {
+  const normalized = agentIdRaw.trim().toLowerCase();
+  if (!normalized) return null;
+  if (coordinatorIdSet.has(normalized)) {
+    return normalized as AgentIdentifier;
+  }
+
+  const aliasKey = normalized.replace(/[\s-]+/g, '_').replace(/_/g, '');
+  const aliased = plannerAgentAliases[aliasKey] ?? plannerAgentAliases[normalized];
+  return aliased ?? null;
+}
 
 export class PlannerAgent extends BaseAgent {
   readonly id: AgentIdentifier = 'router';
@@ -247,7 +284,34 @@ Respond with ONLY a JSON object matching this schema — no markdown, no explana
       );
     }
 
-    return validated.data;
+    const invalidAssignedAgents: string[] = [];
+    const normalizedTasks = validated.data.tasks.map((task) => {
+      const assignedAgent = normalizePlannerAssignedAgent(task.assignedAgent);
+      if (!assignedAgent) {
+        invalidAssignedAgents.push(task.assignedAgent);
+      }
+
+      return {
+        ...task,
+        assignedAgent,
+      };
+    });
+
+    if (invalidAssignedAgents.length > 0) {
+      throw new AgentEngineError(
+        'PLANNER_SCHEMA_INVALID',
+        `Planner assigned non-routable agents: ${invalidAssignedAgents.join(', ')}. ` +
+          `Allowed coordinators: ${COORDINATOR_AGENT_IDS.join(', ')}.`
+      );
+    }
+
+    return {
+      ...validated.data,
+      tasks: normalizedTasks.map((task) => ({
+        ...task,
+        assignedAgent: task.assignedAgent as AgentIdentifier,
+      })),
+    };
   }
 
   // ─── Internal Helpers ───────────────────────────────────────────────────
@@ -330,12 +394,12 @@ interface PlannerLLMResponse {
 
 interface PlannerLLMTask {
   readonly id: string;
-  readonly assignedAgent: string;
+  readonly assignedAgent: AgentIdentifier;
   readonly description: string;
   readonly dependsOn: readonly string[];
 }
 
 interface AgentPlannerLlmResult {
   readonly content: string | null;
-  readonly parsedOutput?: PlannerLLMResponse;
+  readonly parsedOutput?: unknown;
 }

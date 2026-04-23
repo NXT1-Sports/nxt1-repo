@@ -699,6 +699,7 @@ export class ProfileComponent {
       slug: team.slug,
       teamName: team.teamName,
       teamCode: team.teamCode,
+      unicode: team.unicode,
       id: team.id,
     });
     const teamUrl = buildUTMShareUrl(
@@ -725,6 +726,7 @@ export class ProfileComponent {
       slug: team.slug,
       teamName: team.teamName,
       teamCode: team.teamCode,
+      unicode: team.unicode,
       id: team.id,
     });
     const qrUrl = buildUTMShareUrl(
@@ -1095,13 +1097,10 @@ export class ProfileComponent {
   private buildTeamPathFromUser(profile: User): string | null {
     return (
       resolveCanonicalTeamRoute({
-        slug: profile.teamCode?.slug?.trim() || this.teamSlug(),
+        slug: profile.teamCode?.slug?.trim(),
         teamName: profile.teamCode?.teamName?.trim(),
         teamCode: profile.teamCode?.teamCode?.trim(),
         code: profile.teamCode?.code?.trim(),
-        teamId: profile.teamCode?.teamId?.trim(),
-        id: typeof profile.teamCode?.id === 'string' ? profile.teamCode.id.trim() : undefined,
-        unicode: profile.teamCode?.unicode?.trim(),
       })?.path ?? null
     );
   }

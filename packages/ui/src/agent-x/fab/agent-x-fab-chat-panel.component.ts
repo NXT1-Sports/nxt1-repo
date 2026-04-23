@@ -31,6 +31,7 @@
 import {
   Component,
   ChangeDetectionStrategy,
+  computed,
   inject,
   signal,
   viewChild,
@@ -42,7 +43,6 @@ import {
 import { FormsModule } from '@angular/forms';
 import type { AgentXQuickTask } from '@nxt1/core';
 import type { AgentXMessage } from '@nxt1/core/ai';
-import { ATHLETE_QUICK_TASKS, COACH_QUICK_TASKS } from '@nxt1/core';
 import { NxtIconComponent } from '../../components/icon/icon.component';
 import { NxtChatBubbleComponent } from '../../components/chat-bubble';
 import { NxtToastService } from '../../services/toast/toast.service';
@@ -166,7 +166,7 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/ass
 
             <!-- Suggestion Chips -->
             <div class="suggestion-chips">
-              @for (task of quickTasks; track task.id) {
+              @for (task of quickTasks(); track task.id) {
                 <button type="button" class="suggestion-chip" (click)="onSuggestionClick(task)">
                   {{ task.title }}
                 </button>
@@ -861,10 +861,10 @@ export class AgentXFabChatPanelComponent {
   protected readonly isVisible = signal(false);
 
   /** Quick tasks shown as suggestion chips */
-  protected readonly quickTasks: readonly AgentXQuickTask[] = [
-    ...ATHLETE_QUICK_TASKS.slice(0, 3),
-    ...COACH_QUICK_TASKS.slice(0, 1),
-  ];
+  protected readonly quickTasks = computed<readonly AgentXQuickTask[]>(() => [
+    ...this.agentX.athleteTasks().slice(0, 3),
+    ...this.agentX.coachTasks().slice(0, 1),
+  ]);
 
   constructor() {
     // Trigger open animation after mount

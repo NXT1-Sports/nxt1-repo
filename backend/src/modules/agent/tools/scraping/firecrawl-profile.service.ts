@@ -10,6 +10,7 @@
 import Firecrawl from '@mendable/firecrawl-js';
 import type { ScrapeExecuteResponse } from '@mendable/firecrawl-js';
 import { logger } from '../../../../utils/logger.js';
+import { AgentEngineError } from '../../exceptions/agent-engine.error.js';
 
 export interface FirecrawlSignInSession {
   readonly sessionId: string;
@@ -43,7 +44,8 @@ export class FirecrawlProfileService {
   constructor(apiKey?: string) {
     const key = apiKey ?? process.env['FIRECRAWL_API_KEY'];
     if (!key) {
-      throw new Error(
+      throw new AgentEngineError(
+        'LIVE_VIEW_CONFIG_MISSING_API_KEY',
         'FIRECRAWL_API_KEY is required. Set it in environment variables or pass it to the constructor.'
       );
     }
@@ -94,7 +96,10 @@ export class FirecrawlProfileService {
 
     const sessionId = scrapeResult.metadata?.scrapeId;
     if (!sessionId) {
-      throw new Error('Firecrawl scrape did not return a scrapeId. Cannot proceed with sign-in.');
+      throw new AgentEngineError(
+        'LIVE_VIEW_REQUEST_FAILED',
+        'Firecrawl scrape did not return a scrapeId. Cannot proceed with sign-in.'
+      );
     }
 
     const initResult: ScrapeExecuteResponse = isMobile
@@ -119,7 +124,8 @@ export class FirecrawlProfileService {
       } catch {
         // Best-effort cleanup
       }
-      throw new Error(
+      throw new AgentEngineError(
+        'LIVE_VIEW_REQUEST_FAILED',
         'Firecrawl did not return an interactive live view URL. Cannot proceed with sign-in.'
       );
     }

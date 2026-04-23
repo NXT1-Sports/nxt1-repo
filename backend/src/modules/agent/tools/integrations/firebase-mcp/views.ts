@@ -13,6 +13,7 @@ import {
   encodeCursor,
   normalizeViewLimit,
 } from './shared.js';
+import { AgentEngineError } from '../../../exceptions/agent-engine.error.js';
 
 const USERS_COLLECTION = 'Users';
 const POSTS_COLLECTION = 'Posts';
@@ -104,7 +105,10 @@ function parseTimestampCursor(input: FirebaseMcpQueryInput): Timestamp | null {
 
   const parsedDate = new Date(decoded);
   if (Number.isNaN(parsedDate.getTime())) {
-    throw new Error('Invalid Firebase MCP timestamp cursor');
+    throw new AgentEngineError(
+      'FIREBASE_MCP_INVALID_CURSOR',
+      'Invalid Firebase MCP timestamp cursor'
+    );
   }
 
   return Timestamp.fromDate(parsedDate);
@@ -140,7 +144,13 @@ function resolveScopedIds(
 ): string[] {
   if (requestedId) {
     if (!availableIds.includes(requestedId)) {
-      throw new Error(`Requested ${label} is outside the authenticated data scope.`);
+      throw new AgentEngineError(
+        'AGENT_VALIDATION_FAILED',
+        `Requested ${label} is outside the authenticated data scope.`,
+        {
+          metadata: { label, requestedId },
+        }
+      );
     }
     return [requestedId];
   }
@@ -1371,7 +1381,13 @@ export async function executeFirebaseViewQuery(
 ): Promise<FirebaseMcpQueryResult> {
   const definition = VIEW_DEFINITIONS[input.view];
   if (!definition) {
-    throw new Error(`Unsupported Firebase MCP view: ${input.view}`);
+    throw new AgentEngineError(
+      'FIREBASE_MCP_VIEW_UNSUPPORTED',
+      `Unsupported Firebase MCP view: ${input.view}`,
+      {
+        metadata: { view: input.view },
+      }
+    );
   }
 
   return definition.resolve(db, scope, input);

@@ -44,6 +44,8 @@ interface UserDoc {
   firstName?: string;
   lastName?: string;
   displayName?: string;
+  unicode?: string;
+  profileCode?: string;
   email?: string;
   profileImgs?: string[];
   role?: string;
@@ -1078,6 +1080,8 @@ router.post(
                     .map((value) => value.trim())
                     .filter(Boolean)
                     .join(' '),
+                unicode: userData?.unicode?.trim() || userId,
+                profileCode: userData?.profileCode?.trim() || userData?.unicode?.trim() || userId,
                 email: userData?.email ?? '',
               });
             } catch (rosterErr: unknown) {

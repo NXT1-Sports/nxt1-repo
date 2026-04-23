@@ -73,6 +73,7 @@ export class SearchMemoryTool extends BaseTool {
   readonly isMutation = false;
   readonly category = 'analytics' as const;
 
+  readonly entityGroup = 'platform_tools' as const;
   private readonly vectorMemory: VectorMemoryService;
 
   constructor(vectorMemory: VectorMemoryService) {

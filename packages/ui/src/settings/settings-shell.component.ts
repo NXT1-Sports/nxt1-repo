@@ -569,6 +569,8 @@ export class SettingsShellComponent implements OnInit, AfterViewInit, OnDestroy 
       selectedSports: currentUser?.selectedSports ?? [],
       linkSourcesData: currentUser?.linkSourcesData ?? null,
       scope: currentUser?.scope ?? 'athlete',
+      // In web shell mode (desktop + mobile viewport), always use modal.
+      preferWebOverlayOnBrowser: !this.showPageHeader(),
     });
 
     this.logger.debug('Connected accounts dismissed', {

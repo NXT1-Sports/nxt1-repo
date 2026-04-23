@@ -23,6 +23,7 @@
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
 import { CollegeModel } from '../../../../models/core/college.model.js';
 import { z } from 'zod';
+import { AgentEngineError } from '../../exceptions/agent-engine.error.js';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -41,7 +42,12 @@ function escapeRegex(s: string): string {
 function getBucket(): string {
   const bucket =
     process.env['STAGING_FIREBASE_STORAGE_BUCKET'] ?? process.env['FIREBASE_STORAGE_BUCKET'];
-  if (!bucket) throw new Error('Firebase Storage bucket env var is not configured.');
+  if (!bucket) {
+    throw new AgentEngineError(
+      'STORAGE_CONFIG_MISSING_BUCKET',
+      'Firebase Storage bucket env var is not configured.'
+    );
+  }
   return bucket;
 }
 
@@ -63,6 +69,7 @@ export class GetConferenceLogosTool extends BaseTool {
   readonly isMutation = false;
   readonly category = 'database' as const;
 
+  readonly entityGroup = 'platform_tools' as const;
   async execute(
     input: Record<string, unknown>,
     context?: ToolExecutionContext
