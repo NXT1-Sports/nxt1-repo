@@ -124,6 +124,21 @@ jobs:
           swift --version
           ls /Applications/ | grep -i Xcode
 
+      - name: Install Swift 6.2 toolchain
+        run: |
+          # IONGeolocationLib XCFramework requires Swift 6.2.3, but Xcode 16.4 ships 6.1.2
+          PKG_URL="https://download.swift.org/swift-6.2.3-release/xcode/swift-6.2.3-RELEASE/swift-6.2.3-RELEASE-osx.pkg"
+          curl -fsSL -o /tmp/swift-6.2.3.pkg "$PKG_URL"
+          sudo installer -pkg /tmp/swift-6.2.3.pkg -target /
+          # Find toolchain identifier and export for later steps
+          TOOLCHAIN_PLIST="/Library/Developer/Toolchains/swift-latest.xctoolchain/Info.plist"
+          ls /Library/Developer/Toolchains/
+          TOOLCHAIN_ID=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$TOOLCHAIN_PLIST")
+          echo "Resolved toolchain id: $TOOLCHAIN_ID"
+          echo "TOOLCHAINS=$TOOLCHAIN_ID" >> $GITHUB_ENV
+          # Verify
+          xcrun --toolchain "$TOOLCHAIN_ID" swift --version
+
       - name: Install CocoaPods
         working-directory: apps/mobile/ios/App
         run: |
@@ -182,6 +197,7 @@ jobs:
           APP_STORE_CONNECT_API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
           APP_STORE_CONNECT_API_KEY_CONTENT: ${{ secrets.APP_STORE_CONNECT_API_KEY_CONTENT }}
           FASTLANE_XCODEBUILD_SETTINGS_TIMEOUT: 120
+          # TOOLCHAINS env var is set by "Install Swift 6.2 toolchain" step
         run: fastlane ${{ steps.build-type.outputs.lane }}
 
       - name: Upload gym build log on failure
