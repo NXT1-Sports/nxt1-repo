@@ -160,9 +160,9 @@ platform :ios do
   # ============================================================================
   private_lane :app_store_connect_api_key do
     app_store_connect_api_key(
-      key_id: ENV["APPLE_API_KEY_ID"],
-      issuer_id: ENV["APPLE_API_ISSUER_ID"],
-      key_filepath: "~/.appstoreconnect/private_keys/AuthKey_#{ENV['APPLE_API_KEY_ID']}.p8",
+      key_id: ENV["APP_STORE_CONNECT_API_KEY_ID"],
+      issuer_id: ENV["APP_STORE_CONNECT_API_ISSUER_ID"],
+      key_filepath: "#{ENV['HOME']}/.appstoreconnect/private_keys/AuthKey_#{ENV['APP_STORE_CONNECT_API_KEY_ID']}.json",
       in_house: false
     )
   end
