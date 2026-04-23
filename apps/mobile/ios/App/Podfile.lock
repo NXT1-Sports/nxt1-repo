@@ -49,9 +49,9 @@ PODS:
   - CapacitorFirebasePerformance (8.2.0):
     - Capacitor
     - FirebasePerformance (~> 12.7.0)
-  - CapacitorGeolocation (8.2.0):
+  - CapacitorGeolocation (7.1.8):
     - Capacitor
-    - IONGeolocationLib (= 2.1.0)
+    - IONGeolocationLib (= 1.0.1)
   - CapacitorHaptics (8.0.2):
     - Capacitor
   - CapacitorKeyboard (8.0.3):
@@ -187,7 +187,7 @@ PODS:
     - GTMSessionFetcher/Core (< 4.0, >= 3.3)
   - GTMSessionFetcher/Core (3.5.0)
   - IONFilesystemLib (1.1.2)
-  - IONGeolocationLib (2.1.0)
+  - IONGeolocationLib (1.0.1)
   - MSAL (1.9.0):
     - MSAL/app-lib (= 1.9.0)
   - MSAL/app-lib (1.9.0)
@@ -220,7 +220,7 @@ DEPENDENCIES:
   - "CapacitorFirebaseCrashlytics (from `../../../../node_modules/@capacitor-firebase/crashlytics`)"
   - "CapacitorFirebaseMessaging (from `../../../../node_modules/@capacitor-firebase/messaging`)"
   - "CapacitorFirebasePerformance (from `../../../../node_modules/@capacitor-firebase/performance`)"
-  - "CapacitorGeolocation (from `../../../../node_modules/@capacitor/geolocation`)"
+  - "CapacitorGeolocation (from `../../node_modules/@capacitor/geolocation`)"
   - "CapacitorHaptics (from `../../../../node_modules/@capacitor/haptics`)"
   - "CapacitorKeyboard (from `../../../../node_modules/@capacitor/keyboard`)"
   - CapacitorNativeBiometric (from `../../../../node_modules/capacitor-native-biometric`)
@@ -296,7 +296,7 @@ EXTERNAL SOURCES:
   CapacitorFirebasePerformance:
     :path: "../../../../node_modules/@capacitor-firebase/performance"
   CapacitorGeolocation:
-    :path: "../../../../node_modules/@capacitor/geolocation"
+    :path: "../../node_modules/@capacitor/geolocation"
   CapacitorHaptics:
     :path: "../../../../node_modules/@capacitor/haptics"
   CapacitorKeyboard:
@@ -339,7 +339,7 @@ SPEC CHECKSUMS:
   CapacitorFirebaseCrashlytics: beb78c76d06bce7bb658038a93c12eb18b36cf09
   CapacitorFirebaseMessaging: 09f9402613a755af4ef37c6ce2fd7b4c02250246
   CapacitorFirebasePerformance: 483b53d0e2134479fe635e3b61ec5d6967602874
-  CapacitorGeolocation: b36f6287bfc9f2eefa04dc900496f2c8ae666136
+  CapacitorGeolocation: ab54d708e2fcf99a7bafe0219eaa6f7a932f001a
   CapacitorHaptics: 296f771ecd89c7a1bd92a7b6826a7d268e2e70f5
   CapacitorKeyboard: 31c8285d92c9d1410071d52449f16d2c6673b6f4
   CapacitorNativeBiometric: 78cf21304251a512e4597437325b5e9b0cd9f7b3
@@ -372,7 +372,7 @@ SPEC CHECKSUMS:
   GTMAppAuth: 217a876b249c3c585a54fd6f73e6b58c4f5c4238
   GTMSessionFetcher: 5aea5ba6bd522a239e236100971f10cb71b96ab6
   IONFilesystemLib: 21a63377696b2d8fab5632ecfb7d2ac67bddb68a
-  IONGeolocationLib: 6a7b6f76063fb1b01cfb14fae7d0f526e3c9b271
+  IONGeolocationLib: 20f9d0248a0b5264511fb57a37e25dd2badf797a
   MSAL: 1a32a1070ccf55d9641d31edd8869ea2b5a78beb
   nanopb: fad817b59e0457d11a5dfbde799381cd727c1275
   PromisesObjC: f5707f49cb48b9636751c5b2e7d227e43fba9f47
@@ -380,6 +380,6 @@ SPEC CHECKSUMS:
   RecaptchaInterop: 11e0b637842dfb48308d242afc3f448062325aba
   RecognizebvCapacitorPluginMsauth: c108ed22d9d2329bc729661356f9fce24354e2c2
 
-PODFILE CHECKSUM: 08029d7670a805bf5a0f4ad343dec67d33acbf5d
+PODFILE CHECKSUM: 76704e4cdf3644b5d6690680009032abf8829110
 
 COCOAPODS: 1.16.2
