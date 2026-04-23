@@ -367,7 +367,21 @@ export class AddSportService {
 
   async onSkip(): Promise<void> {
     await this.haptics.impact('light');
-    // Only link-sources is skippable
+    // Organization step is optional — skip to link-sources
+    if (this.isOrganizationStep()) {
+      this._currentStepIndex.set(2);
+      this._contentReady.set(false);
+      this._footerVisible.set(false);
+      this.breadcrumb.trackStateChange('add-sport:step-skipped', { step: 'organization' });
+      this.analytics?.trackEvent(APP_EVENTS.ADD_SPORT_STEP_CHANGED, {
+        step: 'link-sources',
+        direction: 'forward',
+        skipped: true,
+      });
+      await this.navigateToStep('link-sources', 'forward');
+      return;
+    }
+    // link-sources is always skippable
     if (this.isLastStep()) {
       await this.save();
     }

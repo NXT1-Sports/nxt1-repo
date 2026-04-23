@@ -410,6 +410,8 @@ export class MobileShellComponent implements OnInit, OnDestroy {
       verified: profile ? ctx.verified : (rawAuthUser?.emailVerified ?? ctx.verified),
       profileRoute: ctx.profileRoute,
       isTeamRole: ctx.isTeamRole,
+      isOnTeam: ctx.isOnTeam,
+      canAddProfile: ctx.canAddProfile,
       switcherTitle: ctx.switcherTitle,
       actionLabel: ctx.actionLabel,
       userId: rawProfile?.id ?? rawAuthUser?.uid,

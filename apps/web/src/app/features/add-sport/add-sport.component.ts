@@ -142,11 +142,15 @@ import { AddSportService } from './add-sport.service';
       >
         @if (!service.isMobile()) {
           <nxt1-onboarding-navigation-buttons
-            [showSkip]="service.isLastStep()"
+            [showSkip]="service.isLastStep() || service.isOrganizationStep()"
             [showBack]="false"
             [isLastStep]="service.isLastStep()"
             [loading]="service.isLoading()"
-            [disabled]="!service.isCurrentStepValid() && !service.isLastStep()"
+            [disabled]="
+              !service.isCurrentStepValid() &&
+              !service.isLastStep() &&
+              !service.isOrganizationStep()
+            "
             (skipClick)="service.onSkip()"
             (continueClick)="service.onContinue()"
           />
@@ -161,10 +165,12 @@ import { AddSportService } from './add-sport.service';
         [totalSteps]="service.totalSteps"
         [currentStepIndex]="service.currentStepIndex()"
         [completedStepIndices]="[]"
-        [showSkip]="service.isLastStep()"
+        [showSkip]="service.isLastStep() || service.isOrganizationStep()"
         [isLastStep]="service.isLastStep()"
         [loading]="service.isLoading()"
-        [disabled]="!service.isCurrentStepValid() && !service.isLastStep()"
+        [disabled]="
+          !service.isCurrentStepValid() && !service.isLastStep() && !service.isOrganizationStep()
+        "
         [showSignOut]="false"
         (skipClick)="service.onSkip()"
         (continueClick)="service.onContinue()"

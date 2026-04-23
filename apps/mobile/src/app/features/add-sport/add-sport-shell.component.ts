@@ -65,7 +65,7 @@ import { AddSportService } from './add-sport.service';
         [totalSteps]="addSport.totalSteps()"
         [currentStepIndex]="addSport.currentStepIndex()"
         [completedStepIndices]="[]"
-        [showSkip]="addSport.isLastStep()"
+        [showSkip]="addSport.isLastStep() || addSport.isOrganizationStep()"
         [isLastStep]="addSport.isLastStep()"
         [loading]="addSport.isLoading()"
         [disabled]="!addSport.isCurrentStepValid() || !addSport.contentReady()"

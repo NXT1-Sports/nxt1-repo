@@ -84,6 +84,7 @@ export class AddSportService {
   readonly currentStepIndex = computed(() => this._currentStepIndex());
   readonly currentStep = computed<AddSportStep>(() => STEPS[this._currentStepIndex()] ?? 'sport');
   readonly isLastStep = computed(() => this._currentStepIndex() === STEPS.length - 1);
+  readonly isOrganizationStep = computed(() => this.currentStep() === 'organization');
   readonly canGoBack = computed(() => this._currentStepIndex() > 0);
   readonly isLoading = computed(() => this._isLoading());
   readonly animationDirection = computed(() => this._animationDirection());
@@ -319,6 +320,18 @@ export class AddSportService {
   }
 
   onSkip(): void {
+    // Organization step is optional — skip to link-sources
+    if (this.isOrganizationStep()) {
+      this._animationDirection.set('forward');
+      this._currentStepIndex.set(2);
+      this.breadcrumb.trackStateChange('add-sport:step-skipped', { step: 'organization' });
+      this.analytics?.trackEvent(APP_EVENTS.ADD_SPORT_STEP_CHANGED, {
+        step: 'link-sources',
+        direction: 'forward',
+        skipped: true,
+      });
+      return;
+    }
     if (this.isLastStep()) {
       void this.save();
     }
