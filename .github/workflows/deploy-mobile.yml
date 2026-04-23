@@ -85,7 +85,7 @@ jobs:
   # ============================================================================
   build-ios:
     name: Build iOS
-    runs-on: macos-14
+    runs-on: macos-15
     needs: build-web-assets
     if: |
       github.event_name == 'push' ||
