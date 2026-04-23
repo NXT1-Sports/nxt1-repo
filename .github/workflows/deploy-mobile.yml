@@ -85,7 +85,7 @@ jobs:
   # ============================================================================
   build-ios:
     name: Build iOS
-    runs-on: macos-15
+    runs-on: macos-latest
     needs: build-web-assets
     if: |
       github.event_name == 'push' ||
@@ -118,9 +118,17 @@ jobs:
           bundler-cache: true
           working-directory: apps/mobile/ios/App
 
+      - name: Show Xcode version
+        run: |
+          xcodebuild -version
+          swift --version
+          ls /Applications/ | grep -i Xcode
+
       - name: Install CocoaPods
         working-directory: apps/mobile/ios/App
-        run: pod install
+        run: |
+          pod repo update
+          pod install --repo-update
 
       - name: Install Fastlane
         run: |
