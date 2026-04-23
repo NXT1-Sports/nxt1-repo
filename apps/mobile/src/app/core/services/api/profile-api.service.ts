@@ -161,10 +161,19 @@ export class ProfileApiService {
     };
   }
 
-  /** GET /auth/profile/:userId/timeline — returns all polymorphic FeedItem types */
-  async getProfileTimeline(userId: string, cursor?: string): Promise<FeedItemResponse> {
+  /**
+   * GET /auth/profile/:userId/timeline — returns all polymorphic FeedItem types.
+   * Optionally filter by sportId so each sport has its own cache key/result
+   * (matches the web implementation).
+   */
+  async getProfileTimeline(
+    userId: string,
+    sportId?: string,
+    cursor?: string
+  ): Promise<FeedItemResponse> {
     try {
       const params = new URLSearchParams();
+      if (sportId) params.set('sportId', sportId);
       if (cursor) params.set('cursor', cursor);
       const queryString = params.toString();
       const url = `${environment.apiUrl}/auth/profile/${userId}/timeline${

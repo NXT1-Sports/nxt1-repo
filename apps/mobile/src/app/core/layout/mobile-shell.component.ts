@@ -780,44 +780,59 @@ export class MobileShellComponent implements OnInit, OnDestroy {
   /**
    * Handle sport profile selection from sidenav switcher.
    * Switches the active sport index and navigates to the user's profile.
+   *
+   * Uses `originalIndex` from the sidenav profile (the canonical index into
+   * `user.sports[]`) and compares against `user.activeSportIndex` directly —
+   * NOT against derived `sport.order` (which is unreliable and was the source
+   * of state-stuck-on-first-sport bug).
    */
   async onSportProfileSelect(event: { profile: SidenavSportProfile; event: Event }): Promise<void> {
     const profile = this.profileService.user();
-    if (!profile) return;
+    if (!profile) {
+      this.sidenavService.close();
+      return;
+    }
 
-    const sports = profile.sports ?? [];
-    const selectedSport = event.profile.sport?.toLowerCase().replace(/\s+/g, '-');
-
-    // Find the index of the selected sport in the user's sports array
-    const sportIndex = sports.findIndex((s) => {
-      const name = (s.sport ?? '').toLowerCase().replace(/\s+/g, '-');
-      return name === selectedSport;
-    });
-
-    if (sportIndex >= 0 && sportIndex !== this.getActiveSportIndex(sports)) {
-      this.logger.info('Switching sport from sidenav', {
+    const sportIndex = event.profile.originalIndex;
+    if (sportIndex === undefined || sportIndex < 0) {
+      this.logger.warn('Cannot switch sport profile without a valid original index', {
+        profileId: profile.id,
         sport: event.profile.sport,
-        index: sportIndex,
       });
+      this.sidenavService.close();
+      return;
+    }
 
-      // Persist the active sport index
+    const currentIndex = profile.activeSportIndex ?? 0;
+    if (sportIndex !== currentIndex) {
       const uid = profile.id;
       if (uid) {
-        await this.editProfileApi.updateActiveSportIndex(uid, sportIndex);
-        await this.profileService.refresh(uid);
+        this.logger.info('Switching sport from sidenav', {
+          from: currentIndex,
+          to: sportIndex,
+          sport: event.profile.sport,
+        });
+
+        const result = await this.editProfileApi.updateActiveSportIndex(uid, sportIndex);
+        if (result.success) {
+          // Optimistically patch the state user signal so the sidenav
+          // highlight + profile page (which reacts via effect) immediately
+          // re-render with the new active sport. Do NOT call refresh() here
+          // \u2014 a backend round-trip could race and overwrite this with stale
+          // data, causing the highlight to flip back to the previous sport.
+          this.profileService.setUser({ ...profile, activeSportIndex: sportIndex });
+        } else {
+          this.logger.warn('Failed to switch active sport profile', {
+            uid,
+            sportIndex,
+            error: result.error,
+          });
+        }
       }
     }
 
     this.sidenavService.close();
     void this.navController.navigateForward(this.ownIdentityRoute());
-  }
-
-  /**
-   * Get the currently active sport index from the sports array.
-   */
-  private getActiveSportIndex(sports: Array<{ order?: number | null }>): number {
-    const idx = sports.findIndex((s) => s.order === 0);
-    return idx >= 0 ? idx : 0;
   }
 
   /**

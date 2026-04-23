@@ -25,6 +25,14 @@ export interface FirestorePostDoc {
   type: PostType;
   visibility: PostVisibility;
   teamId?: string;
+  /**
+   * Lowercase sport key (e.g. "football", "basketball") that filters this
+   * post onto the corresponding sport profile timeline. Required for the
+   * post to be visible under any per-sport profile view.
+   */
+  sportId?: string;
+  /** Backward-compatible alias of {@link sportId} read by older surfaces. */
+  sport?: string;
   images?: string[];
   mediaUrl?: string;
   videoUrl?: string;

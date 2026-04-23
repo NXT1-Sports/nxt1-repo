@@ -78,7 +78,12 @@ export class WriteTimelinePostTool extends BaseTool {
     '- achievement: Achievement or badge earned\n' +
     '- announcement: General announcement\n\n' +
     'Image and video URLs must be HTTPS Firebase Storage signed URLs ' +
-    '(from generate_image, scrape_twitter, scrape_instagram, or other agent tools).';
+    '(from generate_image, scrape_twitter, scrape_instagram, or other agent tools).\n\n' +
+    'Sport tagging:\n' +
+    'Pass `sportId` (lowercase, e.g. "football", "basketball") so the post ' +
+    'is filed under the correct sport profile. If omitted, it falls back to ' +
+    "the user's currently active sport. Posts without a sportId are NOT " +
+    'visible on any sport profile timeline.';
 
   readonly parameters = z.object({
     userId: z.string().trim().min(1),
@@ -88,6 +93,13 @@ export class WriteTimelinePostTool extends BaseTool {
     images: z.array(z.string().trim().min(1)).max(VALIDATION.MAX_IMAGES).optional(),
     videoUrl: z.string().trim().min(1).optional(),
     teamId: z.string().trim().min(1).optional(),
+    /**
+     * Sport identifier this post belongs to (lowercase, e.g. "football").
+     * Required so the post is filtered onto the correct sport profile when
+     * the user has multiple sports. If omitted, the tool resolves it from
+     * the user's currently active sport (`Users/{userId}.sports[activeSportIndex].sport`).
+     */
+    sportId: z.string().trim().min(1).optional(),
   });
 
   readonly isMutation = true;
@@ -164,6 +176,15 @@ export class WriteTimelinePostTool extends BaseTool {
     }
 
     const teamId = this.str(input, 'teamId');
+    const explicitSportId = this.str(input, 'sportId');
+
+    // Resolve sportId: explicit param wins, otherwise fall back to the user's
+    // currently active sport. Without this the post is invisible on every
+    // sport profile because the timeline endpoint filters by `sportId`.
+    const sportId = await this.resolveSportId(userId, explicitSportId);
+    if (!sportId) {
+      logger.warn('[WriteTimelinePostTool] No sport could be resolved for user', { userId });
+    }
 
     // ── Build Firestore document ─────────────────────────────────────────
     try {
@@ -226,6 +247,11 @@ export class WriteTimelinePostTool extends BaseTool {
         type,
         visibility: postVisibility,
         teamId: teamId ?? undefined,
+        // Sport scoping: required for the post to surface on the matching
+        // sport profile (queried via `where('sportId', '==', sportId)` in
+        // backend/src/services/profile/timeline.service.ts).
+        sportId: sportId ?? undefined,
+        sport: sportId ?? undefined,
         images: promotedImages,
         videoUrl: promotedVideoUrl ?? undefined,
         externalLinks: [],
@@ -254,6 +280,7 @@ export class WriteTimelinePostTool extends BaseTool {
         userId,
         type,
         visibility,
+        sportId: sportId ?? null,
         imageCount: images.urls.length,
         hasVideo: !!videoUrl,
         mentionCount: mentions.length,
@@ -296,6 +323,7 @@ export class WriteTimelinePostTool extends BaseTool {
           userId,
           type,
           visibility,
+          sportId: sportId ?? null,
           imageCount: images.urls.length,
           videoUrl: videoUrl ?? null,
           mentions,
@@ -315,8 +343,54 @@ export class WriteTimelinePostTool extends BaseTool {
 
   // ─── Private Helpers ───────────────────────────────────────────────────────
 
-  /**
-   * Validate the images array from input.
+  /**   * Resolve the sport this post should be tagged with.
+   *
+   * Priority:
+   *   1. Explicit `sportId` arg (already lowercased upstream by the caller).
+   *   2. The user's currently active sport on `Users/{userId}` —
+   *      `sports[activeSportIndex].sport`, falling back to the first sport
+   *      that has `isPrimary` true, then to `sports[0]`.
+   *
+   * Returned value is always lowercased to match the storage convention
+   * used by `where('sportId', '==', sportId.toLowerCase())` in the
+   * timeline / sub-feed routes.
+   */
+  private async resolveSportId(
+    userId: string,
+    explicit?: string | null
+  ): Promise<string | undefined> {
+    if (explicit && explicit.trim()) {
+      return explicit.trim().toLowerCase();
+    }
+
+    try {
+      const userDoc = await this.db.collection('Users').doc(userId).get();
+      if (!userDoc.exists) return undefined;
+      const data = userDoc.data() ?? {};
+      const sports = Array.isArray(data['sports'])
+        ? (data['sports'] as Array<Record<string, unknown>>)
+        : [];
+      if (sports.length === 0) return undefined;
+
+      const activeIndex =
+        typeof data['activeSportIndex'] === 'number' ? (data['activeSportIndex'] as number) : -1;
+      const candidate =
+        (activeIndex >= 0 && activeIndex < sports.length ? sports[activeIndex] : null) ??
+        sports.find((s) => s['isPrimary'] === true) ??
+        sports[0];
+
+      const sport = typeof candidate?.['sport'] === 'string' ? candidate['sport'] : undefined;
+      return sport ? sport.toLowerCase() : undefined;
+    } catch (err) {
+      logger.warn('[WriteTimelinePostTool] Failed to resolve sportId from user doc', {
+        userId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return undefined;
+    }
+  }
+
+  /**   * Validate the images array from input.
    * Returns validated URL array or an error string.
    */
   private validateImages(input: Record<string, unknown>): { urls: string[]; error?: string } {

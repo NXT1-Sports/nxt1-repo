@@ -32,6 +32,7 @@ import {
   inject,
   computed,
   signal,
+  effect,
   DestroyRef,
 } from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
@@ -80,6 +81,7 @@ import type { TeamProfileTabId, TeamProfileRosterMember, TeamProfilePost } from 
 // Mobile-specific services
 import { MobileAuthService } from '../../core/services/auth/mobile-auth.service';
 import { AuthFlowService } from '../../core/services/auth';
+import { ProfileService } from '../../core/services/state/profile.service';
 import { ShareService } from '../../core/services/native/share.service';
 import { ProfileApiService } from '../../core/services/api/profile-api.service';
 import { EditProfileApiService } from '../../core/services/api/edit-profile-api.service';
@@ -251,6 +253,7 @@ export class ProfileComponent {
 
   private readonly route = inject(ActivatedRoute);
   private readonly authService = inject(MobileAuthService);
+  private readonly stateProfileService = inject(ProfileService);
   private readonly editProfileSheet = inject(EditProfileBottomSheetService);
   private readonly manageTeamModal = inject(ManageTeamModalService);
   private readonly navController = inject(NavController);
@@ -405,6 +408,60 @@ export class ProfileComponent {
       // Calling teamProfile.startLoading() here fires when ANY profile component
       // (including other users' profiles) is destroyed, which resets the shared
       // TeamProfileService _isLoading=true while Component A is still visible.
+    });
+
+    /**
+     * Reactive sync: when the global sport switcher (sidenav) updates the
+     * active sport index on the state ProfileService, mirror that change into
+     * `fetchedProfile` so the page re-renders against the newly selected sport
+     * and re-fetches sport-scoped sub-collections (timeline, intel, etc.).
+     *
+     * Without this, switching sports from the sidenav left the profile page
+     * stuck on the first sport because `fetchedProfile` is page-scoped and
+     * does not auto-sync with the global state user.
+     */
+    effect(() => {
+      const stateUser = this.stateProfileService.user();
+      if (!stateUser || !this.isOwnProfile()) return;
+
+      const newIndex = stateUser.activeSportIndex ?? 0;
+      const fetched = this.fetchedProfile();
+      if (!fetched || fetched.id !== stateUser.id) return;
+
+      const currentIndex = fetched.activeSportIndex ?? 0;
+      if (currentIndex === newIndex) return;
+
+      this.logger.info('Syncing profile page to new active sport', {
+        from: currentIndex,
+        to: newIndex,
+      });
+
+      this.fetchedProfile.set({ ...fetched, activeSportIndex: newIndex });
+
+      // Re-push into UiProfileService so dependent UI (tabs, header) reflects it.
+      const profilePageData = userToProfilePageData(
+        { ...fetched, activeSportIndex: newIndex },
+        true
+      );
+      this.uiProfileService.loadFromExternalData(
+        profilePageData,
+        { ...fetched, activeSportIndex: newIndex },
+        true
+      );
+
+      // Re-fetch sport-scoped sub-collections for the newly active sport.
+      const newSport = fetched.sports?.[newIndex];
+      const sportId = newSport?.sport?.toLowerCase();
+      const fetchKey = `${fetched.id}:${sportId ?? ''}`;
+      if (this._lastFetchedKey !== fetchKey) {
+        this._lastFetchedKey = fetchKey;
+        this.fetchSubCollections(fetched.id, sportId).catch((err) => {
+          this.logger.error('Failed to fetch sub-collections after sport switch', err, {
+            userId: fetched.id,
+            sportId,
+          });
+        });
+      }
     });
 
     this.uiProfileService.setApiService({
@@ -602,7 +659,7 @@ export class ProfileComponent {
       sportId
         ? this.profileApiService.getProfileMetrics(userId, sportId)
         : Promise.resolve({ success: false as const, data: [] }),
-      this.profileApiService.getProfileTimeline(userId),
+      this.profileApiService.getProfileTimeline(userId, sportId),
     ]);
 
     if (gameLogs.success) {
@@ -634,9 +691,12 @@ export class ProfileComponent {
    */
   protected onTabChange(tab: ProfileTabId): void {
     if (tab === 'timeline') {
-      const userId = this.fetchedProfile()?.id;
+      const profile = this.fetchedProfile();
+      const userId = profile?.id;
       if (userId) {
-        void this.profileApiService.getProfileTimeline(userId).then((resp) => {
+        const activeSport = profile?.sports?.[profile.activeSportIndex ?? 0];
+        const sportId = activeSport?.sport?.toLowerCase();
+        void this.profileApiService.getProfileTimeline(userId, sportId).then((resp) => {
           if (resp.success)
             this.uiProfileService.setPolymorphicTimeline(resp.data, {
               hasMore: resp.hasMore,
