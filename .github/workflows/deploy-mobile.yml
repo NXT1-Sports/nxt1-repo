@@ -119,12 +119,14 @@ jobs:
           working-directory: apps/mobile/ios/App
 
       # IONGeolocationLib 1.0.1 (a dep of @capacitor/geolocation) ships a
-      # pre-compiled XCFramework built with Swift 6.2.3 (Xcode 17+).
-      # We must select Xcode 17 so the compiler matches the binary.
-      - name: Select Xcode (latest-stable → Xcode 17 / Swift 6.2.x)
+      # pre-compiled XCFramework built with exactly Swift 6.2.3 (swiftlang-6.2.3.3.21).
+      # Xcode 26.2 (released Dec 12 2025, build 17C52) is the ONLY version with that
+      # exact toolchain. 'latest-stable' picks Xcode 16.4 (the runner default, Swift 6.1.2)
+      # which is incompatible. Apple renamed Xcode 17 → Xcode 26 to match iOS/macOS versioning.
+      - name: Select Xcode 26.2 (Swift 6.2.3 — exact match for IONGeolocationLib 1.0.1)
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: 'latest-stable'
+          xcode-version: '26.2'
 
       - name: Show Xcode version
         run: |
