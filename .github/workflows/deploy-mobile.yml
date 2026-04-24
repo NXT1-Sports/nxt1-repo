@@ -9,7 +9,7 @@ name: Deploy Mobile
 
 on:
   push:
-    branches: [production]
+    branches: [main]
     paths:
       - 'apps/mobile/**'
       - 'packages/core/**'
