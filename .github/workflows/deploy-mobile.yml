@@ -13,6 +13,7 @@ on:
     paths:
       - 'apps/mobile/**'
       - 'packages/core/**'
+      - '.github/workflows/deploy-mobile.yml'
     tags:
       - 'mobile-v*'
   workflow_dispatch:
@@ -117,6 +118,10 @@ jobs:
       - name: Install Node dependencies
         run: npm ci
 
+      - name: Copy web assets to iOS native
+        working-directory: apps/mobile
+        run: npx cap copy ios
+
       - name: Setup Ruby
         uses: ruby/setup-ruby@v1
         with:
@@ -143,6 +148,7 @@ jobs:
         working-directory: apps/mobile/ios/App
         run: |
           pod repo update
+          pod update IONGeolocationLib --no-repo-update
           pod install --repo-update
 
       - name: Install Fastlane
