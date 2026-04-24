@@ -72,6 +72,7 @@
   "devDependencies": {
     "@angular-devkit/build-angular": "^21.2.7",
     "@angular-eslint/builder": "^21.2.0",
+    "@angular/cli": "^21.2.0",
     "@angular/animations": "^21.2.9",
     "@angular/common": "^21.2.9",
     "@angular/compiler": "^21.2.9",
