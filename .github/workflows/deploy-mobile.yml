@@ -143,6 +143,7 @@ jobs:
         working-directory: apps/mobile/ios/App
         run: |
           pod repo update
+          pod update IONGeolocationLib --no-repo-update
           pod install --repo-update
 
       - name: Install Fastlane
