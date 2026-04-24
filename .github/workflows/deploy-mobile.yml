@@ -13,6 +13,7 @@ on:
     paths:
       - 'apps/mobile/**'
       - 'packages/core/**'
+      - '.github/workflows/deploy-mobile.yml'
     tags:
       - 'mobile-v*'
   workflow_dispatch:
