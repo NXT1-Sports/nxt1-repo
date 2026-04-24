@@ -120,7 +120,7 @@ jobs:
 
       - name: Capacitor sync (copies web assets + config to iOS native)
         working-directory: apps/mobile
-        run: npx cap sync ios
+        run: npx cap copy ios
 
       - name: Setup Ruby
         uses: ruby/setup-ruby@v1
