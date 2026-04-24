@@ -117,6 +117,10 @@ jobs:
       - name: Install Node dependencies
         run: npm ci
 
+      - name: Capacitor sync (copies web assets + config to iOS native)
+        working-directory: apps/mobile
+        run: npx cap sync ios --no-build
+
       - name: Setup Ruby
         uses: ruby/setup-ruby@v1
         with:
