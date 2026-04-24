@@ -118,6 +118,21 @@ jobs:
           bundler-cache: true
           working-directory: apps/mobile/ios/App
 
+      - name: Select Xcode version (Swift 6.2.x required for IONGeolocationLib)
+        run: |
+          # IONGeolocationLib XCFramework requires Swift 6.2.x (Xcode 17+).
+          # Find the newest available Xcode 17.x; fall back to any Xcode newer than 16.4.
+          XCODE=$(ls -d /Applications/Xcode_17*.app 2>/dev/null | sort -V | tail -1)
+          if [ -z "$XCODE" ]; then
+            echo "Xcode 17 not found, falling back to newest available Xcode..."
+            XCODE=$(ls -d /Applications/Xcode_1*.app 2>/dev/null | sort -V | tail -1)
+          fi
+          if [ -z "$XCODE" ]; then
+            echo "ERROR: No compatible Xcode version found." && exit 1
+          fi
+          echo "Selecting Xcode: $XCODE"
+          sudo xcode-select -s "$XCODE/Contents/Developer"
+
       - name: Show Xcode version
         run: |
           xcodebuild -version
