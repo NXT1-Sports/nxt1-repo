@@ -120,8 +120,10 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
-          npm-version: '11'
           cache: 'npm'
+
+      - name: Update npm to v11
+        run: npm install -g npm@11
 
       - name: Cache Turbo
         uses: actions/cache@v5
@@ -159,8 +161,10 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
-          npm-version: '11'
           cache: 'npm'
+
+      - name: Update npm to v11
+        run: npm install -g npm@11
 
       - name: Cache Turbo
         uses: actions/cache@v5
@@ -194,8 +198,10 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
-          npm-version: '11'
           cache: 'npm'
+
+      - name: Update npm to v11
+        run: npm install -g npm@11
 
       - name: Cache Turbo
         uses: actions/cache@v5
@@ -234,8 +240,10 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
-          npm-version: '11'
           cache: 'npm'
+
+      - name: Update npm to v11
+        run: npm install -g npm@11
 
       - name: Cache Turbo
         uses: actions/cache@v5
@@ -284,8 +292,10 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
-          npm-version: '11'
           cache: 'npm'
+
+      - name: Update npm to v11
+        run: npm install -g npm@11
 
       - name: Cache Turbo
         uses: actions/cache@v5
@@ -330,8 +340,10 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
-          npm-version: '11'
           cache: 'npm'
+
+      - name: Update npm to v11
+        run: npm install -g npm@11
 
       - name: Cache Turbo
         uses: actions/cache@v5

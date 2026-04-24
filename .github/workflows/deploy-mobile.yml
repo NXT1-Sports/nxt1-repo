@@ -63,8 +63,10 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
-          npm-version: '11'
           cache: 'npm'
+
+      - name: Update npm to v11
+        run: npm install -g npm@11
 
       - name: Install dependencies
         run: npm ci
@@ -101,8 +103,10 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
-          npm-version: '11'
           cache: 'npm'
+
+      - name: Update npm to v11
+        run: npm install -g npm@11
 
       - name: Download web assets
         uses: actions/download-artifact@v8
@@ -238,8 +242,10 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
-          npm-version: '11'
           cache: 'npm'
+
+      - name: Update npm to v11
+        run: npm install -g npm@11
 
       - name: Setup Java
         uses: actions/setup-java@v4
