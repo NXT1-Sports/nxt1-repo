@@ -118,6 +118,14 @@ jobs:
           bundler-cache: true
           working-directory: apps/mobile/ios/App
 
+      # IONGeolocationLib 1.0.1 (a dep of @capacitor/geolocation) ships a
+      # pre-compiled XCFramework built with Swift 6.2.3 (Xcode 17+).
+      # We must select Xcode 17 so the compiler matches the binary.
+      - name: Select Xcode (latest-stable → Xcode 17 / Swift 6.2.x)
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: 'latest-stable'
+
       - name: Show Xcode version
         run: |
           xcodebuild -version
