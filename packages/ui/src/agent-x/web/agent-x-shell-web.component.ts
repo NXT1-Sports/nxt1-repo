@@ -54,6 +54,7 @@ import { NxtStateViewComponent } from '../../components/state-view';
 import { NxtHeaderPortalService } from '../../services/header-portal/header-portal.service';
 import { NxtOverlayService } from '../../components/overlay';
 import { ConnectedAccountsModalService } from '../../components/connected-sources';
+import type { ConnectedAccountsResyncSource } from '../../components/connected-sources';
 import { AgentXService } from '../agent-x.service';
 import { LiveViewSessionService } from '../live-view-session.service';
 import { AgentXDashboardSkeletonComponent } from '../agent-x-dashboard-skeleton.component';
@@ -71,7 +72,6 @@ import type { DraftSubmittedEvent } from '../agent-x-draft-card.component';
 import { AgentXPromptInputComponent } from '../agent-x-prompt-input.component';
 import {
   AgentXControlPanelStateService,
-  AGENT_X_GOAL_OPTIONS,
   type AgentXControlPanelKind,
 } from '../agent-x-control-panel-state.service';
 import { NxtToastService } from '../../services/toast/toast.service';
@@ -83,16 +83,17 @@ import {
   AgentXOperationEventService,
   type ThreadTitleUpdatedEvent,
 } from '../agent-x-operation-event.service';
-import type { CommandCategory, WeeklyPlaybookItem } from '../agent-x-shell.component';
+import type { CommandCategory } from '../agent-x-shell.component';
 import {
   type ShellWeeklyPlaybookItem,
-  type AgentDashboardGoal,
   type OperationLogEntry,
   type AgentYieldState,
 } from '@nxt1/core/ai';
-import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '../fab/agent-x-logo.constants';
-import type { OnboardingUserType } from '@nxt1/core';
+import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/assets';
+import { buildLinkSourcesFormData, buildTrackedLinkUrl, type OnboardingUserType } from '@nxt1/core';
+import type { LinkSourcesFormData } from '@nxt1/core/api';
 import { TEST_IDS } from '@nxt1/core/testing';
+import { NxtBrowserService } from '../../services/browser';
 
 /**
  * Content descriptor for the expanded side panel.
@@ -117,6 +118,26 @@ export interface AgentXUser {
   readonly profileImg?: string | null;
   readonly displayName?: string | null;
   readonly role?: string;
+  readonly selectedSports?: readonly string[];
+  readonly connectedSources?: readonly {
+    platform: string;
+    profileUrl: string;
+    scopeType?: 'global' | 'sport' | 'team';
+    scopeId?: string;
+  }[];
+  readonly connectedEmails?: readonly {
+    provider: string;
+    isActive?: boolean;
+  }[];
+  readonly firebaseProviders?: readonly {
+    providerId: string;
+  }[];
+}
+
+export interface AgentXConnectedAccountsSaveRequest {
+  readonly linkSources: LinkSourcesFormData;
+  readonly requestResync?: boolean;
+  readonly resyncSources?: readonly ConnectedAccountsResyncSource[];
 }
 
 interface AgentXDesktopSession {
@@ -133,6 +154,8 @@ interface AgentXDesktopSession {
   readonly operationStatus?: 'processing' | 'complete' | 'error' | 'awaiting_input' | null;
   readonly errorMessage?: string | null;
   readonly yieldState?: AgentYieldState;
+  /** When set, the mounted op-chat immediately connects to this resumed stream. */
+  readonly resumeOperationId?: string;
 }
 
 type AgentXDesktopResizablePanel = 'sessions' | 'action-plan' | 'expanded-panel';
@@ -141,6 +164,75 @@ interface AgentXDesktopResizeState {
   readonly panel: AgentXDesktopResizablePanel;
   readonly startX: number;
   readonly startWidth: number;
+}
+
+const FALLBACK_COORDINATOR_CATEGORIES: readonly CommandCategory[] = [
+  {
+    id: 'coord-admin',
+    label: 'Admin Coordinator',
+    icon: 'settings',
+    description: 'Manage scheduling, operations, and organizational tasks.',
+    commands: [],
+  },
+  {
+    id: 'coord-brand',
+    label: 'Brand Coordinator',
+    icon: 'image',
+    description: 'Build graphics, content ideas, and brand assets.',
+    commands: [],
+  },
+  {
+    id: 'coord-strategy',
+    label: 'Strategy Coordinator',
+    icon: 'rocket',
+    description: 'Plan next steps and high-level execution strategy.',
+    commands: [],
+  },
+  {
+    id: 'coord-recruiting',
+    label: 'Recruiting Coordinator',
+    icon: 'search',
+    description: 'Plan outreach, targeting, and recruiting tasks.',
+    commands: [],
+  },
+  {
+    id: 'coord-performance',
+    label: 'Performance Coordinator',
+    icon: 'analytics',
+    description: 'Review performance, film notes, and evaluations.',
+    commands: [],
+  },
+  {
+    id: 'coord-data',
+    label: 'Data Coordinator',
+    icon: 'barChart',
+    description: 'Track metrics, trends, and decision-ready data.',
+    commands: [],
+  },
+] as const;
+
+const COORDINATOR_ORDER: readonly string[] = [
+  'admin coordinator',
+  'brand coordinator',
+  'strategy coordinator',
+  'recruiting coordinator',
+  'performance coordinator',
+  'data coordinator',
+] as const;
+
+function sortCoordinatorCategories(
+  categories: readonly CommandCategory[]
+): readonly CommandCategory[] {
+  const rank = new Map<string, number>(
+    COORDINATOR_ORDER.map((label, index) => [label, index] as const)
+  );
+
+  return [...categories].sort((a, b) => {
+    const aRank = rank.get(a.label.trim().toLowerCase()) ?? Number.MAX_SAFE_INTEGER;
+    const bRank = rank.get(b.label.trim().toLowerCase()) ?? Number.MAX_SAFE_INTEGER;
+    if (aRank !== bRank) return aRank - bRank;
+    return a.label.localeCompare(b.label);
+  });
 }
 
 @Component({
@@ -323,29 +415,6 @@ interface AgentXDesktopResizeState {
               <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
             </svg>
           </button>
-          <button
-            type="button"
-            class="header-icon-btn"
-            (click)="openControlPanel('budget')"
-            aria-label="Budget"
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="20"
-              height="20"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              aria-hidden="true"
-            >
-              <path d="M2 7a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V7z" />
-              <path d="M2 7l16-2" />
-              <path d="M17 13.5a.5.5 0 1 1 0-1 .5.5 0 0 1 0 1z" />
-            </svg>
-          </button>
         }
       </div>
     </ng-template>
@@ -363,7 +432,12 @@ interface AgentXDesktopResizeState {
     >
       @if (agentX.dashboardLoading() && !agentX.dashboardLoaded()) {
         <div class="agent-loading-shell">
-          <nxt1-agent-x-dashboard-skeleton />
+          <nxt1-agent-x-dashboard-skeleton
+            variant="desktop"
+            [showSessionsRail]="showSessionsRail()"
+            [showActionPlan]="showActionPlanModal() && !expandedSidePanel()"
+            [showExpandedPanel]="!!expandedSidePanel()"
+          />
         </div>
       } @else if (agentX.dashboardError() && !agentX.dashboardLoaded()) {
         <div class="agent-error-shell">
@@ -434,7 +508,6 @@ interface AgentXDesktopResizeState {
             @if (showDesktopBriefing()) {
               <div class="chat-briefing">
                 <h2 class="chat-briefing__greeting">{{ greeting() }}</h2>
-                <!-- chat-briefing__content hidden for now — re-enable when ready
                 <div class="chat-briefing__content">
                   @if (!isBriefingExpanded()) {
                     <p class="chat-briefing__preview">
@@ -462,7 +535,6 @@ interface AgentXDesktopResizeState {
                     </button>
                   }
                 </div>
-                -->
               </div>
             }
             @for (session of activeDesktopSessions(); track session.mountKey) {
@@ -478,6 +550,7 @@ interface AgentXDesktopResizeState {
                 [scheduledActions]="session.scheduledActions ?? []"
                 [initialMessage]="session.initialMessage ?? ''"
                 [threadId]="session.threadId ?? ''"
+                [resumeOperationId]="session.resumeOperationId ?? ''"
                 [yieldState]="session.yieldState ?? null"
                 [operationStatus]="session.operationStatus ?? null"
                 [errorMessage]="session.errorMessage ?? null"
@@ -494,7 +567,7 @@ interface AgentXDesktopResizeState {
              ACTION PLAN PANEL (right column in desktop grid)
              ═══════════════════════════════════════════ -->
         @if (showActionPlanModal() && !expandedSidePanel()) {
-          <aside class="agent-column agent-action-plan-column" aria-label="Today's Action Plan">
+          <aside class="agent-column agent-action-plan-column" aria-label="This Week's Game Plan">
             <div
               class="agent-resize-handle agent-resize-handle--left"
               [class.agent-resize-handle--active]="activeDesktopResize()?.panel === 'action-plan'"
@@ -529,7 +602,7 @@ interface AgentXDesktopResizeState {
 
             <div class="action-plan-panel__header">
               <div class="action-plan-panel__header-top">
-                <h2 class="action-plan-panel__title">Today's Action Plan</h2>
+                <h2 class="action-plan-panel__title">This Week's Game Plan</h2>
               </div>
               @if (playbookTotalCount() > 0) {
                 <div class="action-plan-status">
@@ -604,6 +677,33 @@ interface AgentXDesktopResizeState {
                     }
                   </div>
                 </div>
+              } @else if (allTasksSnoozed()) {
+                <div
+                  class="action-empty-state action-empty-state--visible"
+                  role="status"
+                  aria-live="polite"
+                >
+                  <div class="action-empty-icon" aria-hidden="true">
+                    <svg
+                      class="agent-x-mark"
+                      width="40"
+                      height="40"
+                      viewBox="0 0 612 792"
+                      fill="currentColor"
+                      xmlns="http://www.w3.org/2000/svg"
+                    >
+                      <path [attr.d]="agentXLogoPath" />
+                      <polygon [attr.points]="agentXLogoPolygon" />
+                    </svg>
+                  </div>
+                  <h4 class="action-empty-title">All Tasks Snoozed</h4>
+                  <p class="action-empty-copy">
+                    You snoozed everything. Want Agent X to generate a fresh set of actions?
+                  </p>
+                  <button type="button" class="action-empty-btn" (click)="onRegeneratePlaybook()">
+                    Give Me More
+                  </button>
+                </div>
               } @else if (weeklyPlaybook().length > 0 && !allTasksComplete()) {
                 @for (task of filteredPlaybookItems(); track task.id; let i = $index) {
                   <div
@@ -638,13 +738,22 @@ interface AgentXDesktopResizeState {
                       >
                         {{ task.actionLabel }}
                       </button>
-                      <button
-                        type="button"
-                        class="action-btn snooze-btn"
-                        (click)="onSnoozeTask(task)"
-                      >
-                        Snooze for now
-                      </button>
+                      <div class="card-secondary-actions">
+                        <button
+                          type="button"
+                          class="action-btn done-btn"
+                          (click)="onMarkDoneTask(task)"
+                        >
+                          ✓ Done
+                        </button>
+                        <button
+                          type="button"
+                          class="action-btn snooze-btn"
+                          (click)="onSnoozeTask(task)"
+                        >
+                          Snooze
+                        </button>
+                      </div>
                     </div>
                   </div>
                 }
@@ -655,9 +764,19 @@ interface AgentXDesktopResizeState {
                   aria-live="polite"
                 >
                   <div class="action-empty-icon" aria-hidden="true">
-                    <nxt1-icon name="checkmarkCircle" [size]="30"></nxt1-icon>
+                    <svg
+                      class="agent-x-mark"
+                      width="40"
+                      height="40"
+                      viewBox="0 0 612 792"
+                      fill="currentColor"
+                      xmlns="http://www.w3.org/2000/svg"
+                    >
+                      <path [attr.d]="agentXLogoPath" />
+                      <polygon [attr.points]="agentXLogoPolygon" />
+                    </svg>
                   </div>
-                  <h4 class="action-empty-title">Today's Action Plan Complete</h4>
+                  <h4 class="action-empty-title">Week Complete 🏆</h4>
                   <p class="action-empty-copy">
                     You crushed it. Agent X is still monitoring for new opportunities.
                   </p>
@@ -826,7 +945,10 @@ interface AgentXDesktopResizeState {
                       <span class="expanded-panel__loader-text">Starting live view session…</span>
                     </div>
                   } @else {
-                    <nxt1-live-view-launcher (launch)="onLiveViewLaunch($event)" />
+                    <nxt1-live-view-launcher
+                      [role]="user()?.role ?? null"
+                      (launch)="onLiveViewLaunch($event)"
+                    />
                   }
                 }
                 @case ('live-view') {
@@ -844,6 +966,7 @@ interface AgentXDesktopResizeState {
                       class="expanded-panel__iframe"
                       [class.expanded-panel__iframe--visible]="!expandedPanelIframeLoading()"
                       [src]="safeUrl"
+                      scrolling="yes"
                       allow="clipboard-read; clipboard-write"
                       sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"
                       [title]="expandedPanelTitle()"
@@ -912,7 +1035,7 @@ interface AgentXDesktopResizeState {
     <main class="agent-mobile" role="main">
       @if (agentX.dashboardLoading() && !agentX.dashboardLoaded()) {
         <div class="m-container">
-          <nxt1-agent-x-dashboard-skeleton />
+          <nxt1-agent-x-dashboard-skeleton variant="mobile" />
         </div>
       } @else if (agentX.dashboardError() && !agentX.dashboardLoaded()) {
         <div class="m-container m-error-container">
@@ -989,10 +1112,10 @@ interface AgentXDesktopResizeState {
             </div>
           </section>
 
-          <!-- ═══ 2. TODAY'S ACTION PLAN ═══ -->
-          <section class="m-action-plan" aria-label="Today's Action Plan">
+          <!-- ═══ 2. THIS WEEK'S GAME PLAN ═══ -->
+          <section class="m-action-plan" aria-label="This Week's Game Plan">
             <div class="action-plan-header">
-              <h3 class="m-section-title action-plan-title">Today's Action Plan</h3>
+              <h3 class="m-section-title action-plan-title">This Week's Game Plan</h3>
               @if (playbookTotalCount() > 0) {
                 <div class="action-plan-status">
                   <div class="action-plan-status-main">
@@ -1042,6 +1165,23 @@ interface AgentXDesktopResizeState {
                   }
                 </div>
               </div>
+            } @else if (allTasksSnoozed()) {
+              <div
+                class="action-empty-state action-empty-state--visible"
+                role="status"
+                aria-live="polite"
+              >
+                <div class="action-empty-icon" aria-hidden="true">
+                  <nxt1-icon name="moonOutline" [size]="30"></nxt1-icon>
+                </div>
+                <h4 class="action-empty-title">All Tasks Snoozed</h4>
+                <p class="action-empty-copy">
+                  You snoozed everything. Want Agent X to generate a fresh set of actions?
+                </p>
+                <button type="button" class="action-empty-btn" (click)="onRegeneratePlaybook()">
+                  Give Me More
+                </button>
+              </div>
             } @else if (weeklyPlaybook().length > 0 && !allTasksComplete()) {
               @if (showCategoryPills()) {
                 <div class="category-pills" role="tablist" aria-label="Filter action plan">
@@ -1089,13 +1229,22 @@ interface AgentXDesktopResizeState {
                     >
                       {{ task.actionLabel }}
                     </button>
-                    <button
-                      type="button"
-                      class="action-btn snooze-btn"
-                      (click)="onSnoozeTask(task)"
-                    >
-                      Snooze for now
-                    </button>
+                    <div class="card-secondary-actions">
+                      <button
+                        type="button"
+                        class="action-btn done-btn"
+                        (click)="onMarkDoneTask(task)"
+                      >
+                        ✓ Done
+                      </button>
+                      <button
+                        type="button"
+                        class="action-btn snooze-btn"
+                        (click)="onSnoozeTask(task)"
+                      >
+                        Snooze
+                      </button>
+                    </div>
                   </div>
                 </div>
               }
@@ -1108,7 +1257,7 @@ interface AgentXDesktopResizeState {
                 <div class="action-empty-icon" aria-hidden="true">
                   <nxt1-icon name="checkmarkCircle" [size]="30"></nxt1-icon>
                 </div>
-                <h4 class="action-empty-title">Today's Action Plan Complete</h4>
+                <h4 class="action-empty-title">Week Complete 🏆</h4>
                 <p class="action-empty-copy">
                   You crushed it. Agent X is still monitoring for new opportunities.
                 </p>
@@ -1178,7 +1327,6 @@ interface AgentXDesktopResizeState {
         [uploading]="agentX.uploading()"
         (messageChange)="agentX.setUserMessage($event)"
         (send)="onMobileSendMessage()"
-        (stop)="agentX.cancelStream()"
         (removeTask)="agentX.clearTask()"
         (toggleTasks)="onToggleTasks()"
         (filesAdded)="agentX.addFiles($event)"
@@ -1188,11 +1336,6 @@ interface AgentXDesktopResizeState {
   `,
   styles: [
     `
-      /* ============================================
-         AGENT X WEB — AI Command Center
-         Zero Ionic, SSR-safe, design-token CSS
-         ============================================ */
-
       :host {
         display: flex;
         flex-direction: column;
@@ -1470,7 +1613,6 @@ interface AgentXDesktopResizeState {
         width: 100%;
       }
 
-      /* ── Unified chat area (no border, fills the column) ── */
       .agent-chat-unified {
         display: flex;
         flex-direction: column;
@@ -1479,7 +1621,6 @@ interface AgentXDesktopResizeState {
         overflow: hidden;
       }
 
-      /* ── Briefing block inside the chat stream ── */
       .chat-briefing {
         flex-shrink: 0;
         padding: var(--nxt1-spacing-6, 24px) var(--nxt1-spacing-5, 20px) var(--nxt1-spacing-4, 16px);
@@ -1566,7 +1707,6 @@ interface AgentXDesktopResizeState {
         min-height: 0;
       }
 
-      /* Remove the embedded border/radius so it blends seamlessly */
       :host ::ng-deep .agent-chat-unified .agent-x-operation-chat--embedded,
       :host
         ::ng-deep
@@ -1577,7 +1717,6 @@ interface AgentXDesktopResizeState {
         background: transparent;
       }
 
-      /* ── Header portal: center nav pills (centering from design-tokens .nxt1-header-portal__center) ── */
       .header-portal-center-nav {
         gap: 6px;
       }
@@ -1630,15 +1769,6 @@ interface AgentXDesktopResizeState {
         flex-shrink: 0;
       }
 
-      @keyframes pill-spin {
-        from {
-          transform: rotate(0deg);
-        }
-        to {
-          transform: rotate(360deg);
-        }
-      }
-
       .header-nav-pill-count {
         display: inline-flex;
         align-items: center;
@@ -1654,7 +1784,6 @@ interface AgentXDesktopResizeState {
         line-height: 1;
       }
 
-      /* ── Header portal: right-side icon buttons ── */
       .header-portal-actions {
         display: flex;
         align-items: center;
@@ -1692,7 +1821,6 @@ interface AgentXDesktopResizeState {
         transform: scale(0.95);
       }
 
-      /* Status dot button — fixed size, hint overlays to the left */
       .header-status-dot-btn {
         position: relative;
         display: flex;
@@ -1735,26 +1863,6 @@ interface AgentXDesktopResizeState {
       .status-dot--down {
         background: rgb(239, 68, 68);
         box-shadow: 0 0 6px rgba(239, 68, 68, 0.5);
-      }
-
-      /* ── Status hint label (overlays left of dot, no layout shift) ── */
-      @keyframes status-hint-reveal {
-        0% {
-          opacity: 0;
-          transform: translateY(-50%) translateX(4px);
-        }
-        10% {
-          opacity: 1;
-          transform: translateY(-50%) translateX(0);
-        }
-        72% {
-          opacity: 1;
-          transform: translateY(-50%) translateX(0);
-        }
-        100% {
-          opacity: 0;
-          transform: translateY(-50%) translateX(4px);
-        }
       }
 
       .status-hint {
@@ -1813,25 +1921,12 @@ interface AgentXDesktopResizeState {
         color: currentColor;
       }
 
-      /* ── Action Plan Panel (right column in desktop grid) ── */
-      @keyframes ap-slide-in {
-        from {
-          opacity: 0;
-          transform: translateX(12px);
-        }
-        to {
-          opacity: 1;
-          transform: translateX(0);
-        }
-      }
-
       .agent-action-plan-column {
         border-left: 1px solid var(--agent-border);
         background: var(--agent-bg);
         animation: ap-slide-in 0.22s ease;
       }
 
-      /* ── Expanded Side Panel (Firecrawl Live View / Media) ── */
       .agent-expanded-panel-column {
         border-left: 1px solid var(--agent-border);
         background: var(--agent-bg);
@@ -1844,17 +1939,23 @@ interface AgentXDesktopResizeState {
 
       .expanded-panel__body {
         flex: 1;
-        overflow: hidden;
+        min-height: 0;
+        overflow: auto;
+        overscroll-behavior: contain;
         position: relative;
         display: flex;
         flex-direction: column;
       }
 
       .expanded-panel__iframe {
+        display: block;
         width: 100%;
         height: 100%;
+        min-height: 0;
         border: none;
-        flex: 1;
+        flex: 1 1 auto;
+        overflow: auto;
+        overscroll-behavior: contain;
         opacity: 0;
         transition: opacity 0.2s ease;
       }
@@ -1882,15 +1983,9 @@ interface AgentXDesktopResizeState {
         width: 32px;
         height: 32px;
         border: 3px solid var(--agent-border);
-        border-top-color: var(--nxt1-primary, #6366f1);
+        border-top-color: var(--agent-primary);
         border-radius: 50%;
         animation: ep-spin 0.7s linear infinite;
-      }
-
-      @keyframes ep-spin {
-        to {
-          transform: rotate(360deg);
-        }
       }
 
       .expanded-panel__loader-text {
@@ -1941,7 +2036,7 @@ interface AgentXDesktopResizeState {
 
       .expanded-panel__doc-open {
         font-size: 13px;
-        color: var(--nxt1-primary, #6366f1);
+        color: var(--agent-primary);
         text-decoration: none;
         font-weight: 500;
       }
@@ -2005,7 +2100,6 @@ interface AgentXDesktopResizeState {
         gap: var(--nxt1-spacing-3, 12px);
       }
 
-      /* ── Manage Goals Section ── */
       .inline-goals {
         padding: var(--nxt1-spacing-3, 12px) var(--nxt1-spacing-5, 20px);
         border-bottom: 1px solid var(--agent-border);
@@ -2048,9 +2142,6 @@ interface AgentXDesktopResizeState {
         padding: 2px 8px;
       }
 
-      /* ──────────────────────────────────
-         1. ACTIVE OPERATIONS
-         ────────────────────────────────── */
       .operations-section {
         width: 100%;
         max-width: 480px;
@@ -2212,9 +2303,6 @@ interface AgentXDesktopResizeState {
         color: var(--agent-text-secondary);
       }
 
-      /* ──────────────────────────────────
-         2. DAILY BRIEFING
-         ────────────────────────────────── */
       .briefing-section {
         display: flex;
         flex-direction: column;
@@ -2311,7 +2399,6 @@ interface AgentXDesktopResizeState {
         line-height: 1.3;
       }
 
-      /* Expandable Briefing */
       .briefing-content {
         width: 100%;
         margin-bottom: var(--nxt1-spacing-6, 24px);
@@ -2342,7 +2429,6 @@ interface AgentXDesktopResizeState {
         gap: 4px;
       }
 
-      /* Briefing List */
       .briefing-list {
         list-style: none;
         padding: 0;
@@ -2375,9 +2461,6 @@ interface AgentXDesktopResizeState {
         background: var(--agent-text-muted);
       }
 
-      /* ──────────────────────────────────
-         SHARED SECTION TITLE
-         ────────────────────────────────── */
       .section-title {
         font-size: 13px;
         font-weight: 600;
@@ -2392,9 +2475,6 @@ interface AgentXDesktopResizeState {
         margin-bottom: 0;
       }
 
-      /* ──────────────────────────────────
-         3. ACTION CARDS
-         ────────────────────────────────── */
       .action-cards-section {
         width: 100%;
         max-width: 480px;
@@ -2463,7 +2543,6 @@ interface AgentXDesktopResizeState {
         transition: width 0.28s ease;
       }
 
-      /* ── Category Pill Filter (fixed bar above scroll) ── */
       .action-plan-pills-bar {
         flex-shrink: 0;
         padding: var(--nxt1-spacing-3, 12px) var(--nxt1-spacing-5, 20px) 0;
@@ -2619,16 +2698,6 @@ interface AgentXDesktopResizeState {
         margin-top: 1px;
       }
 
-      @keyframes agent-pulse {
-        0%,
-        100% {
-          box-shadow: 0 0 0 0 var(--agent-primary-glow);
-        }
-        50% {
-          box-shadow: 0 0 10px 4px var(--agent-primary-glow);
-        }
-      }
-
       .action-btn {
         display: inline-flex;
         align-items: center;
@@ -2655,11 +2724,18 @@ interface AgentXDesktopResizeState {
         background: var(--agent-primary);
         color: var(--nxt1-color-bg-primary, #0a0a0a);
         animation: agent-pulse 2.8s ease-in-out infinite;
+        width: 100%;
       }
       .action-btn.secondary-btn {
         background: var(--agent-surface-hover);
         border: 1px solid var(--agent-border);
         color: var(--agent-text-primary);
+      }
+
+      .action-btn.done-btn {
+        background: transparent;
+        border: 1px solid var(--agent-primary);
+        color: var(--agent-primary);
       }
 
       .action-btn.snooze-btn {
@@ -2668,11 +2744,16 @@ interface AgentXDesktopResizeState {
         color: var(--agent-text-secondary);
       }
 
-      .card-actions {
+      .card-secondary-actions {
         display: flex;
         align-items: center;
+        gap: 6px;
+      }
+
+      .card-actions {
+        display: flex;
+        flex-direction: column;
         gap: 8px;
-        flex-wrap: wrap;
       }
 
       .action-empty-state {
@@ -2723,7 +2804,6 @@ interface AgentXDesktopResizeState {
         max-width: 38ch;
       }
 
-      /* Generating State */
       .action-plan-generating {
         display: flex;
         flex-direction: column;
@@ -2734,17 +2814,6 @@ interface AgentXDesktopResizeState {
         border: 1px solid var(--agent-border);
         border-radius: var(--nxt1-radius-lg, 12px);
         animation: gen-fade-in 0.4s ease forwards;
-      }
-
-      @keyframes gen-fade-in {
-        from {
-          opacity: 0;
-          transform: translateY(8px);
-        }
-        to {
-          opacity: 1;
-          transform: translateY(0);
-        }
       }
 
       .generating-hero {
@@ -2766,30 +2835,11 @@ interface AgentXDesktopResizeState {
         animation: gen-pulse 2s ease-in-out infinite;
       }
 
-      @keyframes gen-pulse {
-        0%,
-        100% {
-          box-shadow: 0 0 0 0 rgba(var(--agent-primary-rgb, 198, 255, 0), 0.3);
-        }
-        50% {
-          box-shadow: 0 0 0 12px rgba(var(--agent-primary-rgb, 198, 255, 0), 0);
-        }
-      }
-
       .generating-x-mark {
         width: 32px;
         height: 32px;
         fill: var(--agent-primary);
         animation: gen-spin 3s linear infinite;
-      }
-
-      @keyframes gen-spin {
-        from {
-          transform: rotate(0deg);
-        }
-        to {
-          transform: rotate(360deg);
-        }
       }
 
       .generating-status {
@@ -2811,18 +2861,6 @@ interface AgentXDesktopResizeState {
       }
       .typing-dots span:nth-child(3) {
         animation-delay: 0.6s;
-      }
-
-      @keyframes typing-blink {
-        0% {
-          opacity: 0;
-        }
-        25% {
-          opacity: 1;
-        }
-        100% {
-          opacity: 1;
-        }
       }
 
       .generating-sub {
@@ -2848,17 +2886,6 @@ interface AgentXDesktopResizeState {
         animation: step-appear 0.4s ease forwards;
       }
 
-      @keyframes step-appear {
-        from {
-          opacity: 0;
-          transform: translateX(-8px);
-        }
-        to {
-          opacity: 1;
-          transform: translateX(0);
-        }
-      }
-
       .step-indicator {
         display: flex;
         align-items: center;
@@ -2876,39 +2903,15 @@ interface AgentXDesktopResizeState {
         animation: dot-pulse 1.6s ease-in-out infinite;
       }
 
-      @keyframes dot-pulse {
-        0%,
-        100% {
-          opacity: 0.4;
-          transform: scale(0.8);
-        }
-        50% {
-          opacity: 1;
-          transform: scale(1.2);
-        }
-      }
-
       .step-label {
         font-size: 13px;
         font-weight: 500;
         color: var(--agent-text-secondary);
       }
 
-      /* Card entry animation */
       .action-card--enter {
         opacity: 0;
         animation: card-slide-in 0.38s cubic-bezier(0.22, 1, 0.36, 1) forwards;
-      }
-
-      @keyframes card-slide-in {
-        from {
-          opacity: 0;
-          transform: translateY(16px) scale(0.97);
-        }
-        to {
-          opacity: 1;
-          transform: translateY(0) scale(1);
-        }
       }
 
       .action-empty-btn {
@@ -2939,11 +2942,6 @@ interface AgentXDesktopResizeState {
         transform: scale(0.96);
       }
 
-      /* ==============================
-         RESPONSIVE — Desktop / Mobile toggle
-         ============================== */
-
-      /* Mobile layout hidden on desktop */
       .agent-mobile {
         display: none;
       }
@@ -2955,7 +2953,6 @@ interface AgentXDesktopResizeState {
       }
 
       @media (max-width: 768px) {
-        /* Hide desktop, show mobile */
         .agent-desktop {
           display: none !important;
         }
@@ -2967,19 +2964,15 @@ interface AgentXDesktopResizeState {
         }
       }
 
-      /* ==============================
-         MOBILE LAYOUT STYLES
-         ============================== */
       .m-container {
         padding: 0 var(--nxt1-spacing-4, 16px);
-        /* Bottom space: input bar (~52px) + coordinator pills (~44px) + footer (~76px) + breathing room */
+
         padding-bottom: calc(
           var(--nxt1-footer-bottom, 20px) + var(--nxt1-pill-height, 44px) + 16px + 52px + 44px +
             32px
         );
       }
 
-      /* --- Briefing --- */
       .m-briefing {
         padding-top: var(--nxt1-spacing-5, 20px);
       }
@@ -3011,7 +3004,6 @@ interface AgentXDesktopResizeState {
         margin-bottom: var(--nxt1-spacing-4, 16px);
       }
 
-      /* --- Action Required Banner --- */
       .m-action-required-banner {
         display: flex;
         align-items: center;
@@ -3066,7 +3058,6 @@ interface AgentXDesktopResizeState {
         color: var(--agent-text-secondary);
       }
 
-      /* --- Section Titles --- */
       .m-section-title {
         font-size: 13px;
         font-weight: 600;
@@ -3084,7 +3075,6 @@ interface AgentXDesktopResizeState {
         margin-bottom: 0;
       }
 
-      /* --- Operations (Horizontal scroll) --- */
       .m-operations {
         margin-top: 20px;
       }
@@ -3203,7 +3193,6 @@ interface AgentXDesktopResizeState {
         gap: 6px;
       }
 
-      /* --- Action Plan (mobile) --- */
       .m-action-plan {
         margin-top: 24px;
       }
@@ -3257,14 +3246,13 @@ interface AgentXDesktopResizeState {
         margin-bottom: 16px;
       }
 
-      /* --- Floating Coordinator Chips --- */
       .m-floating-coordinators {
         position: fixed;
         left: var(--nxt1-footer-left, 16px);
         right: var(--nxt1-footer-right, 16px);
-        /* Positioned above the input bar: footer-bottom + pill-height + input-gap + input-height */
+
         bottom: calc(
-          var(--nxt1-footer-bottom, 20px) + var(--nxt1-pill-height, 44px) + 16px + 52px + 8px +
+          var(--nxt1-footer-bottom, 20px) + var(--nxt1-pill-height, 44px) + 16px + 52px + 0px +
             var(--keyboard-offset, 0px)
         );
         z-index: calc(var(--nxt1-z-index-fixed, 999) - 1);
@@ -3290,20 +3278,16 @@ interface AgentXDesktopResizeState {
 
       .m-coordinator-pill {
         --coordinator-pill-accent: var(--agent-primary);
+        --coordinator-pill-text: var(--nxt1-color-text-primary, #f5f7fa);
         --coordinator-pill-surface: color-mix(
           in srgb,
-          var(--coordinator-pill-accent) 18%,
-          var(--agent-glass-bg)
+          var(--coordinator-pill-accent) 16%,
+          var(--nxt1-color-background-primary, #0f1217)
         );
         --coordinator-pill-border: color-mix(
           in srgb,
-          var(--coordinator-pill-accent) 54%,
-          var(--agent-border)
-        );
-        --coordinator-pill-shadow: color-mix(
-          in srgb,
-          var(--coordinator-pill-accent) 22%,
-          transparent
+          var(--coordinator-pill-accent) 52%,
+          var(--nxt1-color-background-primary, #0f1217)
         );
         flex-shrink: 0;
         display: inline-flex;
@@ -3312,17 +3296,15 @@ interface AgentXDesktopResizeState {
         border-radius: var(--nxt1-radius-full, 9999px);
         padding: 11px 16px;
         background: var(--coordinator-pill-surface);
-        color: var(--agent-text-primary);
+        color: var(--coordinator-pill-text);
         font-size: 13px;
         font-weight: 600;
         line-height: 1;
         white-space: nowrap;
         box-shadow:
-          0 10px 24px var(--coordinator-pill-shadow),
-          inset 0 1px 0 color-mix(in srgb, var(--coordinator-pill-accent) 10%, white);
+          0 0 0 1px color-mix(in srgb, var(--coordinator-pill-accent) 24%, #000),
+          inset 0 1px 0 color-mix(in srgb, var(--coordinator-pill-accent) 12%, #fff);
         border-color: var(--coordinator-pill-border);
-        backdrop-filter: var(--nxt1-glass-backdrop, saturate(180%) blur(20px));
-        -webkit-backdrop-filter: var(--nxt1-glass-backdrop, saturate(180%) blur(20px));
         transition:
           border-color 0.15s ease,
           background 0.15s ease,
@@ -3336,15 +3318,40 @@ interface AgentXDesktopResizeState {
 
       .m-coordinator-pill:active {
         border-color: color-mix(in srgb, var(--coordinator-pill-accent) 72%, white);
-        background: color-mix(in srgb, var(--coordinator-pill-accent) 28%, var(--agent-glass-bg));
+        background: color-mix(
+          in srgb,
+          var(--coordinator-pill-accent) 22%,
+          var(--nxt1-color-background-primary, #0f1217)
+        );
         box-shadow:
-          0 12px 28px color-mix(in srgb, var(--coordinator-pill-accent) 26%, transparent),
-          inset 0 1px 0 color-mix(in srgb, var(--coordinator-pill-accent) 14%, white);
+          0 0 0 1px color-mix(in srgb, var(--coordinator-pill-accent) 28%, #000),
+          inset 0 1px 0 color-mix(in srgb, var(--coordinator-pill-accent) 14%, #fff);
         transform: scale(0.98);
+      }
+
+      .m-coordinator-pill[data-coordinator='coord-admin'] {
+        --coordinator-pill-accent: #3fa3ff;
+      }
+
+      .m-coordinator-pill[data-coordinator='coord-brand'] {
+        --coordinator-pill-accent: #ff7a45;
+      }
+
+      .m-coordinator-pill[data-coordinator='coord-strategy'] {
+        --coordinator-pill-accent: #9d7bff;
+      }
+
+      .m-coordinator-pill[data-coordinator='coord-performance'] {
+        --coordinator-pill-accent: #41b8ff;
+      }
+
+      .m-coordinator-pill[data-coordinator='coord-data'] {
+        --coordinator-pill-accent: #2fd39a;
       }
 
       .m-coordinator-pill[data-coordinator='coord-recruiting'] {
         --coordinator-pill-accent: #ccff00;
+        --coordinator-pill-text: #12170a;
       }
 
       .m-coordinator-pill[data-coordinator='coord-media'] {
@@ -3386,11 +3393,6 @@ interface AgentXDesktopResizeState {
       .m-coordinator-pill[data-coordinator='coord-compliance'] {
         --coordinator-pill-accent: #44d6c2;
       }
-
-      /* --- Input Bar (mobile) ---
-         The AgentXPromptInputComponent already has its own position:fixed
-         with footer-aware bottom offset at <767px.
-         Do NOT override its positioning — just let it be. */
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -3408,6 +3410,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   protected readonly controlPanelState = inject(AgentXControlPanelStateService);
   private readonly logger = inject(NxtLoggingService).child('AgentXShellWeb');
   private readonly breadcrumb = inject(NxtBreadcrumbService);
+  private readonly browser = inject(NxtBrowserService);
   private readonly overlay = inject(NxtOverlayService);
   private readonly connectedAccountsModal = inject(ConnectedAccountsModalService);
   private readonly headerPortal = inject(NxtHeaderPortalService);
@@ -3434,6 +3437,20 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     if (centerTpl) this.headerPortal.setCenterContent(centerTpl);
     const rightTpl = this.agentRightPortal();
     if (rightTpl) this.headerPortal.setRightContent(rightTpl);
+
+    // Drop-recovery: if the page was refreshed mid-stream, open an op-chat
+    // session that immediately attaches to the pending operation's stream.
+    const pendingOp = this.agentX.getAndClearDropRecoveryOp();
+    if (pendingOp) {
+      this.setDesktopSession({
+        contextId: pendingOp.operationId,
+        contextTitle: 'Resuming Operation',
+        contextIcon: 'sparkles',
+        contextType: 'operation',
+        threadId: pendingOp.threadId,
+        resumeOperationId: pendingOp.operationId,
+      });
+    }
 
     // Subscribe to real-time title updates — update the active desktop session
     // title when the backend auto-generates a concise thread title.
@@ -3471,6 +3488,9 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
 
   /** Hide the input bar (e.g. when logged out) */
   readonly hideInput = input(false);
+
+  /** Emitted when connected accounts need to be saved from the shell. */
+  readonly connectedAccountsSave = output<AgentXConnectedAccountsSaveRequest>();
 
   // ============================================
   // LOCAL STATE
@@ -3595,7 +3615,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   protected readonly actionPlanCompletionLabel = computed(() => {
     const completed = this.playbookCompletedCount();
     const total = this.playbookTotalCount();
-    return `${completed} of ${total} cleared today`;
+    return `${completed} of ${total} cleared this week`;
   });
   protected readonly actionPlanProgressPercent = computed(() => {
     const total = this.playbookTotalCount();
@@ -3870,27 +3890,35 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     this.agentX.weeklyPlaybook()
   );
 
-  /** Number of completed playbook tasks. */
+  /** Number of completed playbook tasks (snoozed don't count). */
   protected readonly playbookCompletedCount = computed(
     () => this.weeklyPlaybook().filter((t) => t.status === 'complete').length
   );
 
-  /** Total number of playbook tasks. */
-  protected readonly playbookTotalCount = computed(() => this.weeklyPlaybook().length);
-
-  /** Whether all playbook tasks are complete (show "Give Me More" state). */
-  protected readonly allTasksComplete = computed(
-    () =>
-      this.weeklyPlaybook().length > 0 &&
-      this.weeklyPlaybook().every((t) => t.status === 'complete')
+  /** Total number of active (non-snoozed) playbook tasks. */
+  protected readonly playbookTotalCount = computed(
+    () => this.weeklyPlaybook().filter((t) => t.status !== 'snoozed').length
   );
 
-  // ============================================
-  // COORDINATORS — Role-Aware Virtual Staff
-  // ============================================
+  /** Whether all active (non-snoozed) playbook tasks are complete. */
+  protected readonly allTasksComplete = computed(() => {
+    const items = this.weeklyPlaybook();
+    const active = items.filter((t) => t.status !== 'snoozed');
+    return active.length > 0 && active.every((t) => t.status === 'complete');
+  });
 
-  /** Coordinator cards — live from service only. */
-  protected readonly commandCategories = computed(() => this.agentX.coordinators());
+  /** Whether every playbook task has been snoozed (none active or complete). */
+  protected readonly allTasksSnoozed = computed(() => {
+    const items = this.weeklyPlaybook();
+    return items.length > 0 && items.every((t) => t.status === 'snoozed');
+  });
+
+  /** Coordinator cards with a fallback list so mobile web pills always render. */
+  protected readonly commandCategories = computed(() => {
+    const categories = this.agentX.coordinators();
+    const source = categories.length > 0 ? categories : FALLBACK_COORDINATOR_CATEGORIES;
+    return sortCoordinatorCategories(source);
+  });
 
   constructor() {
     this.resetToDefaultDesktopSession();
@@ -3921,6 +3949,23 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
         contextIcon: pending.icon ?? 'bolt',
         contextType: 'operation',
         threadId: pending.threadId,
+      });
+    });
+
+    // React to startup messages queued by external surfaces (e.g. profile timeline CTA).
+    // Fires after resetToDefaultDesktopSession() because effects run post-construction.
+    effect(() => {
+      const message = this.agentX.pendingStartupMessage();
+      if (!message) return;
+
+      this.agentX.clearStartupMessage();
+      this.setDesktopSession({
+        contextId: 'agent-x-chat',
+        contextTitle: 'Agent X',
+        contextIcon: 'bolt',
+        contextType: 'command',
+        initialMessage: message,
+        quickActions: this.commandQuickActions(),
       });
     });
 
@@ -3973,6 +4018,22 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
           hasSession: !!panel.session,
         });
       }
+    });
+
+    // React to inline approval resume — open op-chat pointing at the resumed stream.
+    effect(() => {
+      const resume = this.agentX.pendingResumeOp();
+      if (!resume) return;
+
+      this.agentX.clearPendingResumeOp();
+      this.setDesktopSession({
+        contextId: resume.operationId,
+        contextTitle: 'Resuming Operation',
+        contextIcon: 'sparkles',
+        contextType: 'operation',
+        threadId: resume.threadId,
+        resumeOperationId: resume.operationId,
+      });
     });
 
     effect(() => {
@@ -4040,7 +4101,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
         panel === 'status'
           ? 'Agent status information'
           : panel === 'budget'
-            ? 'Agent budget controls'
+            ? 'Budget settings'
             : 'Agent goals manager',
       panelClass: 'agent-x-control-panel-modal',
     });
@@ -4049,25 +4110,10 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
 
     // After saving goals, sync to backend and trigger generation
     if (panel === 'goals' && result?.data?.saved) {
-      const goalIds = this.controlPanelState.goals();
-      const dashboardGoals: AgentDashboardGoal[] = goalIds.map((id) => {
-        if (id.startsWith('custom:')) {
-          return { id, text: id.slice(7), category: 'custom', createdAt: new Date().toISOString() };
-        }
-        const option = AGENT_X_GOAL_OPTIONS.find((o) => o.id === id);
-        return {
-          id,
-          text: option?.label ?? id,
-          category: 'custom',
-          createdAt: new Date().toISOString(),
-        };
+      // Goals already persisted by AgentXControlPanelComponent — just refresh the briefing
+      this.agentX.generateBriefing(true).catch(() => {
+        /* noop */
       });
-
-      await this.agentX.setGoals(dashboardGoals);
-      // generateBriefing disabled — briefing display hidden
-      // this.agentX.generateBriefing(true).catch(() => {
-      //   /* noop */
-      // });
     }
   }
 
@@ -4075,11 +4121,26 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
    * Opens the shared Connected Accounts modal (same as /settings).
    */
   protected async openConnectedAccounts(): Promise<void> {
-    const role = (this.user()?.role as OnboardingUserType) ?? null;
-    await this.connectedAccountsModal.open({
+    const user = this.user();
+    const role = (user?.role as OnboardingUserType) ?? null;
+    const result = await this.connectedAccountsModal.open({
       role,
-      scope: 'athlete',
+      selectedSports: user?.selectedSports ?? [],
+      linkSourcesData: buildLinkSourcesFormData({
+        connectedSources: user?.connectedSources ?? [],
+        connectedEmails: user?.connectedEmails ?? [],
+        firebaseProviders: user?.firebaseProviders ?? [],
+      }) as LinkSourcesFormData | null,
+      scope: role === 'coach' || role === 'director' ? 'team' : 'athlete',
     });
+
+    if (result.linkSources) {
+      this.connectedAccountsSave.emit({
+        linkSources: result.linkSources,
+        requestResync: result.resync === true,
+        resyncSources: result.sources ?? [],
+      });
+    }
   }
 
   /**
@@ -4087,14 +4148,14 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
    * Routes through the SSE chat loop so the operations log sidebar
    * receives real-time status updates (in-progress, awaiting_input, etc.).
    */
-  protected async onPlaybookAction(task: WeeklyPlaybookItem): Promise<void> {
+  protected async onPlaybookAction(task: ShellWeeklyPlaybookItem): Promise<void> {
     if (task.id === 'goal-setup') {
       this.onSetupGoals();
       return;
     }
 
     if (this.agentX.dashboardLoaded()) {
-      const { intent, title } = this.agentX.preparePlaybookAction(task as ShellWeeklyPlaybookItem);
+      const { intent, title } = this.agentX.preparePlaybookAction(task);
       // Open a desktop session with initialMessage so the SSE chat loop
       // streams properly — giving the operations log real-time status events.
       this.setDesktopSession({
@@ -4105,8 +4166,14 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
         initialMessage: intent,
       });
     } else {
-      this.agentX.setUserMessage(`${task.actionLabel}: ${task.title}`);
-      await this.agentX.sendMessage();
+      const intent = `${task.actionLabel}: ${task.title}`;
+      this.setDesktopSession({
+        contextId: `playbook-${task.id}`,
+        contextTitle: task.title,
+        contextIcon: 'sparkles',
+        contextType: 'command',
+        initialMessage: intent,
+      });
     }
   }
 
@@ -4137,12 +4204,27 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     this.operationsLog()?.refresh();
   }
 
-  /**
-   * Handle draft email approval — call AgentXService to send via backend.
-   */
+  /** Handle draft approval from the desktop shell. */
   protected async onDraftSubmitted(event: DraftSubmittedEvent): Promise<void> {
-    if (!event.toEmail) return;
-    await this.agentX.sendDraft(event.toEmail, event.subject, event.content);
+    if (event.approvalId) {
+      await this.agentX.resolveInlineApproval({
+        approvalId: event.approvalId,
+        decision: 'approved',
+        toolInput: {
+          ...(event.toEmail ? { toEmail: event.toEmail } : {}),
+          subject: event.subject,
+          bodyHtml: event.content,
+        },
+        successMessage: 'Draft approved — Agent X is resuming',
+      });
+      return;
+    }
+
+    this.logger.warn('Desktop draft submission missing approvalId', {
+      toEmail: event.toEmail,
+      subject: event.subject?.slice(0, 50),
+    });
+    this.toast.error('This draft can no longer be sent directly. Refresh and try again.');
   }
 
   /**
@@ -4153,11 +4235,36 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
    * Handle session history entry tap (desktop) — open in right-side chat column.
    */
   protected onLogEntryTap(entry: OperationLogEntry): void {
+    const operationStatus =
+      entry.status === 'in-progress'
+        ? 'processing'
+        : entry.status === 'complete'
+          ? 'complete'
+          : entry.status === 'error'
+            ? 'error'
+            : entry.status === 'awaiting_input'
+              ? 'awaiting_input'
+              : null;
+
+    const isFirestoreOperationId = (id: string | undefined): boolean => {
+      if (!id) return false;
+      const bare = id.startsWith('chat-') ? id.slice(5) : id;
+      return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(bare);
+    };
+    const resolvedOperationId = isFirestoreOperationId(entry.operationId)
+      ? entry.operationId
+      : undefined;
+
     this.setDesktopSession({
-      contextId: entry.id,
+      contextId: resolvedOperationId ?? entry.threadId ?? entry.id,
       contextTitle: entry.title,
       contextIcon: entry.icon,
       contextType: 'operation',
+      operationStatus: resolvedOperationId
+        ? operationStatus
+        : operationStatus === 'processing'
+          ? null
+          : operationStatus,
       threadId: entry.threadId ?? '',
     });
   }
@@ -4206,6 +4313,15 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     await this.haptics.impact('light');
     this.agentX.snoozePlaybookItem(task.id);
     this.toast.success('Task snoozed');
+  }
+
+  /**
+   * Mark a task as explicitly done — user already completed it outside the app.
+   */
+  protected async onMarkDoneTask(task: ShellWeeklyPlaybookItem): Promise<void> {
+    await this.haptics.notification('success');
+    this.agentX.markPlaybookItemComplete(task.id);
+    this.toast.success('Task marked complete');
   }
 
   protected async onSendMessage(): Promise<void> {
@@ -4266,11 +4382,21 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
 
   // ── Expanded Side Panel methods ────────────────────────────────────
 
+  private buildTrackedPanelUrl(url: string): string {
+    const origin = globalThis.location?.origin;
+    if (!origin) return url;
+
+    return buildTrackedLinkUrl(origin, url, {
+      source: 'agent_x_panel',
+      surface: 'message',
+    });
+  }
+
   /** Copies the expanded panel URL to clipboard */
   protected async copyExpandedPanelUrl(url: string): Promise<void> {
     await this.haptics.impact('light');
     try {
-      await navigator.clipboard.writeText(url);
+      await navigator.clipboard.writeText(this.buildTrackedPanelUrl(url));
       this.toast.success('Link copied to clipboard');
     } catch {
       this.toast.error('Failed to copy link');
@@ -4333,10 +4459,18 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
         try {
           iframe.contentWindow.print();
         } catch {
-          window.open(panel.url, '_blank');
+          void this.browser.openLink({
+            url: panel.url,
+            source: 'agent_x_panel_download',
+            surface: 'message',
+          });
         }
       } else {
-        window.open(panel.url, '_blank');
+        void this.browser.openLink({
+          url: panel.url,
+          source: 'agent_x_panel_download',
+          surface: 'message',
+        });
       }
       return;
     }
@@ -4354,8 +4488,12 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       a.remove();
       this.toast.success('Download started');
     } catch {
-      // Fallback: open in new tab
-      window.open(panel.url, '_blank');
+      // Fallback: open in tracked browser flow
+      void this.browser.openLink({
+        url: panel.url,
+        source: 'agent_x_panel_download',
+        surface: 'message',
+      });
     }
   }
 

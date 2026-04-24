@@ -7,8 +7,8 @@
  * Renders the pulsing concentric rings with the Agent X bolt-mark logo
  * at center. Size is variant-driven — no duplicate markup needed.
  *
- * Uses the single-source-of-truth SVG constants from
- * `@nxt1/ui/agent-x/fab/agent-x-logo.constants`.
+ * Uses the single-source-of-truth SVG constants from the shared design-tokens
+ * assets package.
  *
  * ⭐ SHARED SUB-COMPONENT — Used by Welcome & Goals steps ⭐
  *
@@ -23,7 +23,7 @@
  */
 
 import { Component, ChangeDetectionStrategy, input } from '@angular/core';
-import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '../fab/agent-x-logo.constants';
+import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/assets';
 
 /** Orb size variant */
 export type OrbSize = 'lg' | 'md';

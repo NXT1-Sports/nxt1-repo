@@ -29,7 +29,7 @@ import {
 import type {
   USER_SCHEMA_VERSION,
   Location,
-  ContactInfo,
+  UserContact,
   ConnectedSource,
   ConnectedEmail,
   VerificationStatus,
@@ -37,14 +37,9 @@ import type {
   UserAward,
   AcademicInfo,
 } from './user-base.model';
-import type { SportProfile } from './user-sport.model';
-import type {
-  AthleteData,
-  CoachData,
-  RecruiterData,
-  DirectorData,
-  ParentData,
-} from './user-role-data.model';
+import type { SportProfile, VerifiedMetric } from './user-sport.model';
+import type { CoachData, DirectorData } from './user-role-data.model';
+import type { BillingTargetReference } from '../../usage/billing-domain.types';
 
 // Re-export for convenience
 export { USER_SCHEMA_VERSION } from './user-base.model';
@@ -55,11 +50,8 @@ export type { Gender } from '../../constants/user.constants';
 // TEAM CODE (legacy import)
 // ============================================
 
-import type { TeamCode } from '../team-code.model';
-export type { TeamCode } from '../team-code.model';
-
-// Legacy types
-import type { TeamCustomLink } from '../legacy/user-legacy.model';
+import type { TeamCode } from '../team/team-code.model';
+export type { TeamCode } from '../team/team-code.model';
 
 // ============================================
 // USER PREFERENCES
@@ -87,28 +79,6 @@ export interface UserPreferences {
   defaultSportIndex: number;
   theme?: Theme;
   language?: string;
-}
-
-// ============================================
-// COUNTERS
-// ============================================
-
-/**
- * Denormalized counters synced from analytics collection
- * Updated periodically by background sync job
- */
-export interface UserCounters {
-  profileViews: number;
-  videoViews: number;
-  postsCount: number;
-  sharesCount: number;
-  /** Number of highlight videos */
-  highlightCount?: number;
-  /** Total offers across all sports (denormalized) */
-  offerCount?: number;
-  /** Number of events attended */
-  eventCount?: number;
-  _lastSyncedAt?: Date | string;
 }
 
 // ============================================
@@ -146,13 +116,9 @@ export interface User {
   lastName: string;
   /** Preferred display name (if different from firstName + lastName) */
   displayName?: string;
-  username: string;
 
   /** Optional bio/about text */
   aboutMe?: string;
-
-  /** Banner/cover image URL */
-  bannerImg?: string | null;
 
   /** Profile images for carousel display (multiple images, max enforced by backend) */
   profileImgs?: string[];
@@ -176,25 +142,27 @@ export interface User {
   verificationStatus?: VerificationStatus;
 
   // ============================================
-  // PHYSICAL ATTRIBUTES (top-level for quick access)
+  // MEASURABLES (2026 Agentic Architecture)
   // ============================================
-  /** Height (e.g., '6\'2"' or '188cm') */
-  height?: string;
-  /** Weight (e.g., '185 lbs' or '84kg') */
-  weight?: string;
+  /**
+   * Verified athletic measurements (height, weight, combine metrics, etc.).
+   * Root-level because physical traits are per-human, not per-sport.
+   * Replaces legacy flat `height` / `weight` string fields.
+   */
+  measurables?: VerifiedMetric[];
 
   // ============================================
   // CLASS / GRADUATION (top-level, source of truth)
   // ============================================
   /**
    * Graduation year (e.g., 2027).
-   * Previously on AthleteData.classOf — moved here for top-level access.
+   * Previously stored on a nested athlete role object — moved here for top-level access.
    */
   classOf?: number;
 
   /**
    * Academic information at the top level.
-   * Historical documents may still also carry athlete.academics.
+   * Historical documents may still need migration from legacy nested data.
    */
   academics?: AcademicInfo;
 
@@ -217,7 +185,7 @@ export interface User {
   // LOCATION & CONTACT (structured)
   // ============================================
   location?: Location;
-  contact?: ContactInfo;
+  contact?: UserContact;
   preferredContactMethod?: 'email' | 'phone' | 'app';
 
   // ============================================
@@ -243,7 +211,7 @@ export interface User {
 
   // ============================================
   // CONNECTED EMAIL ACCOUNTS
-  // Metadata only — tokens live in users/{uid}/emailTokens/{provider}
+  // Metadata only — tokens live in users/{uid}/oauthTokens/{provider}
   // ============================================
   /** Email accounts connected for campaigns/messaging */
   connectedEmails?: ConnectedEmail[];
@@ -256,19 +224,25 @@ export interface User {
 
   // ============================================
   // ROLE-SPECIFIC DATA
-  // Only ONE of these should be populated based on user's role.
-  // Athletes also have sports[] for sport-specific data.
+  // Team-management data is populated based on the user's role.
+  // Athlete data lives at top-level fields (academics, measurables, classOf, sports[]).
   // ============================================
-  /** Athlete-specific data (academics, parent info) - role: 'athlete' */
-  athlete?: AthleteData;
   /** HS/Club coach-specific data - role: 'coach' */
   coach?: CoachData;
   /** Athletic/Program director data - role: 'director' */
   director?: DirectorData;
-  /** Recruiter data (college coach, scout, service) - role: 'recruiter' */
-  recruiter?: RecruiterData;
-  /** Parent-specific data - role: 'parent' */
-  parent?: ParentData;
+
+  // ============================================
+  // REFERRAL
+  // ============================================
+  /** Unique referral code for this user — lazy-created on first invite generation. */
+  referralCode?: string;
+  /** How the user heard about the platform (e.g., 'friend', 'social', 'coach'). */
+  referralSource?: string;
+  /** Free-text details about the referral source (may be null). */
+  referralDetails?: string | null;
+  /** UID of the user who referred this user (set at registration time). */
+  referralId?: string;
 
   // ============================================
   // ONBOARDING
@@ -278,6 +252,34 @@ export interface User {
    * Once true, user has full access to the platform.
    */
   onboardingCompleted?: boolean;
+  /** ISO timestamp when onboarding was completed. */
+  onboardingCompletedAt?: string;
+
+  // ============================================
+  // PROFILE COMPLETENESS
+  // ============================================
+  /**
+   * Profile completeness score (0–100).
+   * Computed and written by the `onUserProfileUpdated` Cloud Function.
+   * Read by analytics service for reporting. Do NOT write from frontend.
+   */
+  profileCompleteness?: number;
+
+  // ============================================
+  // ONBOARDING FLAGS
+  // ============================================
+  /**
+   * Whether the "How did you hear about us?" prompt has been shown.
+   * Set to true after the user dismisses the prompt (write-once flag).
+   */
+  showedHearAbout?: boolean;
+
+  /**
+   * Whether an Agent X welcome graphic has been queued for generation.
+   * Set to true by agent-welcome.service when the welcome job is enqueued;
+   * cleared after the graphic is delivered.
+   */
+  welcomeGraphicQueued?: boolean;
 
   // ============================================
   // PREFERENCES
@@ -285,14 +287,15 @@ export interface User {
   preferences?: UserPreferences;
 
   // ============================================
+  // BILLING ROUTING
+  // ============================================
+  /** Active wallet target used for Agent X and usage billing deductions. */
+  activeBillingTarget?: BillingTargetReference;
+
+  // ============================================
   // SUBSCRIPTION & PAYMENT
   // Note: Full payment/subscription data is in Subscriptions collection
   // ============================================
-  // ============================================
-  // ANALYTICS & COUNTERS
-  // ============================================
-  _counters?: UserCounters;
-
   // ============================================
   // TIMESTAMPS
   // ============================================
@@ -309,13 +312,6 @@ export interface User {
   // ============================================
   /** Team code reference */
   teamCode?: TeamCode | null;
-  /** Team code trial info */
-  teamCodeTrial?: {
-    id: string;
-    expireAt: Date | string;
-    isActive: boolean;
-    expiredAt?: Date | string;
-  };
 
   // ============================================
   // SUB-COLLECTIONS ARCHITECTURE
@@ -336,14 +332,6 @@ export interface User {
   //   users/{uid}/following/{userId}         — Follow relationships
   //   users/{uid}/sports/{sportId}/gameStats/ — Game stats
   // ============================================
-
-  /** Team links for coach pages */
-  teamLinks?: {
-    newsPageUrl?: string;
-    schedulePageUrl?: string;
-    registrationUrl?: string;
-    customLinks?: TeamCustomLink[];
-  };
 }
 
 // ============================================
@@ -372,28 +360,17 @@ export interface UserSummary {
 // TYPE GUARDS
 // ============================================
 
-/** Check if user is an athlete with athlete data populated */
+/** Check if user is an athlete */
 export function isAthlete(user: User): boolean {
-  return user.role === USER_ROLES.ATHLETE && !!user.athlete;
+  return user.role === USER_ROLES.ATHLETE;
 }
 
-/** Check if user is a coach with coach data populated */
+/** Check if user is a coach */
 export function isCoach(user: User): boolean {
   return user.role === USER_ROLES.COACH && !!user.coach;
 }
 
-/** Check if user is a college coach with college coach data populated */
-/** @deprecated Use isRecruiter() instead */
-export function isCollegeCoach(user: User): boolean {
-  return user.role === USER_ROLES.RECRUITER && !!user.recruiter;
-}
-
-/** Check if user is a recruiter (college coach, scout, or recruiting service) */
-export function isRecruiter(user: User): boolean {
-  return user.role === USER_ROLES.RECRUITER && !!user.recruiter;
-}
-
-/** Check if user is a director with director data populated */
+/** Check if user is a director */
 export function isDirector(user: User): boolean {
   return user.role === USER_ROLES.DIRECTOR && !!user.director;
 }
@@ -412,7 +389,7 @@ export function isVerified(user: User): boolean {
 // HELPER FUNCTIONS
 // ============================================
 
-/** Get primary sport (first in array or legacy primarySport) */
+/** Get primary sport (first in array) */
 export function getPrimarySport(user: User): SportProfile | undefined {
   if (user.sports && user.sports.length > 0) {
     return user.sports.find((s) => s.order === 0) || user.sports[0];
@@ -469,21 +446,9 @@ export function getProfileImg(user: User): string | null {
   return user.profileImgs?.[0] ?? null;
 }
 
-/** Get user's banner image URL */
-export function getBannerImg(user: User): string | null {
-  return user.bannerImg ?? null;
-}
-
 /** Get all profile images for carousel display */
 export function getProfileImages(user: User): string[] {
   return user.profileImgs ?? [];
-}
-
-/**
- * @deprecated Use getProfileImages instead
- */
-export function getGalleryImages(user: User): string[] {
-  return getProfileImages(user);
 }
 
 /** Get a social/connected source URL by platform name (case-insensitive) */

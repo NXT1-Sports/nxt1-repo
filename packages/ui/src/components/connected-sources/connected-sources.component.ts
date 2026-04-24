@@ -55,6 +55,12 @@ export interface ConnectedSource {
   readonly scopeId?: string;
   /** Real favicon URL (Google Favicon API). When present, replaces the icon glyph. */
   readonly faviconUrl?: string;
+  /** Optional UI action label override for the disconnected state. */
+  readonly actionLabel?: string;
+  /** Display name of the person who originally added this link (e.g., "Coach Smith") */
+  readonly addedBy?: string;
+  /** True when this source is immutable in the current flow. */
+  readonly locked?: boolean;
 }
 
 /**
@@ -152,11 +158,16 @@ export const DEFAULT_PLATFORMS: readonly ConnectedSource[] = [
               </div>
               <div class="nxt1-source-right">
                 @if (source.connected) {
-                  <span class="nxt1-source-username">{{ source.username || 'Connected' }}</span>
+                  <div class="nxt1-source-status">
+                    <span class="nxt1-source-username">{{ source.username || 'Connected' }}</span>
+                    @if (source.addedBy) {
+                      <span class="nxt1-source-added-by">Added by {{ source.addedBy }}</span>
+                    }
+                  </div>
                   <nxt1-icon name="checkmarkCircle" [size]="16" class="nxt1-source-check" />
                 } @else {
                   <span class="nxt1-source-connect">{{
-                    source.connectionType === 'signin' ? 'Sign in' : 'Link'
+                    source.actionLabel ?? (source.connectionType === 'signin' ? 'Sign in' : 'Link')
                   }}</span>
                   <nxt1-icon name="chevronForward" [size]="14" class="nxt1-source-chevron" />
                 }
@@ -372,6 +383,24 @@ export const DEFAULT_PLATFORMS: readonly ConnectedSource[] = [
       .nxt1-source-check {
         color: var(--nxt1-color-success, #22c55e);
         flex-shrink: 0;
+      }
+
+      .nxt1-source-status {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        min-width: 0;
+      }
+
+      .nxt1-source-added-by {
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-xs);
+        font-weight: var(--nxt1-fontWeight-regular);
+        color: var(--nxt1-color-text-tertiary);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 140px;
       }
 
       .nxt1-source-chevron {

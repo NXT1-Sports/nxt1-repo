@@ -50,7 +50,7 @@ import { NxtIconComponent } from '@nxt1/ui/components/icon';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import { AUTH_SERVICE, type IAuthService } from '../../../../core/services/auth/auth.interface';
 import { WebEmailConnectionService } from '../../../../core/services/web/email-connection.service';
-import { EmailTokensService } from '../../../../core/services/web/email-tokens.service';
+import { OAuthTokensService } from '../../../../core/services/web/oauth-tokens.service';
 
 @Component({
   selector: 'app-notification-popover',
@@ -389,8 +389,8 @@ export class NotificationPopoverComponent {
   private readonly logger = inject(NxtLoggingService).child('NotificationPopover');
   private readonly authService = inject(AUTH_SERVICE) as IAuthService;
   private readonly emailConnection = inject(WebEmailConnectionService);
-  private readonly emailTokens = inject(EmailTokensService);
-  protected readonly connectedEmails = this.emailTokens.connectedEmails;
+  private readonly oauthTokens = inject(OAuthTokensService);
+  protected readonly connectedEmails = this.oauthTokens.connectedEmails;
 
   /** Reference to the panel element for focus management */
   private readonly panelEl = viewChild<ElementRef<HTMLElement>>('panelEl');

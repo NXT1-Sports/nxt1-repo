@@ -276,7 +276,7 @@ export class SemanticCacheService {
       {
         role: 'system',
         content:
-          `You are Agent X — The First AI Born in the Locker Room. ` +
+          `You are Agent X — The Ultimate AI Sports Coordinators. ` +
           `You have already retrieved the correct factual answer from our sports database. ` +
           `Your ONLY job is to deliver this EXACT factual information to the user in a personalized, ` +
           `conversational way.\n\n` +

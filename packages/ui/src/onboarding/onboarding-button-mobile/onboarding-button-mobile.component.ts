@@ -109,7 +109,6 @@ import { OnboardingProgressPillsComponent } from '../onboarding-progress-pills';
           </button>
         </div>
 
-        <!-- TODO: Re-enable sign out link when ready
         @if (showSignOut) {
           <button
             type="button"
@@ -120,7 +119,6 @@ import { OnboardingProgressPillsComponent } from '../onboarding-progress-pills';
             Sign out and start over
           </button>
         }
-        -->
       </div>
     </div>
   `,

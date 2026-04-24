@@ -11,23 +11,16 @@
       "skipNativeAuth": false,
       "providers": ["apple.com", "google.com", "microsoft.com"]
     },
-    "SplashScreen": {
-      "launchShowDuration": 0,
-      "launchAutoHide": false,
-      "backgroundColor": "#0a0a0a",
-      "androidSplashResourceName": "splash",
-      "androidScaleType": "CENTER_CROP",
-      "showSpinner": false,
-      "splashFullScreen": true,
-      "splashImmersive": true
-    },
+
     "PushNotifications": {
       "presentationOptions": ["badge", "sound", "alert"]
     },
     "Keyboard": {
-      "resize": "ionic",
+      "resize": "none",
       "resizeOnFullScreen": true,
-      "style": "DEFAULT"
+      "style": "DEFAULT",
+      "scrollAssist": false,
+      "hideFormAccessoryBar": false
     },
     "StatusBar": {
       "style": "DARK",

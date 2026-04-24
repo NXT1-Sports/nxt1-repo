@@ -3,9 +3,16 @@ import 'zone.js';
 
 import { enableProdMode } from '@angular/core';
 import { bootstrapApplication } from '@angular/platform-browser';
+import * as Sentry from '@sentry/angular';
 import { AppComponent } from './app/app.component';
 import { appConfig } from './app/app.config';
 import { environment } from './environments/environment';
+
+Sentry.init({
+  dsn: 'https://909f2af54678f48dce1d03035e1e93ff@o4510767487385600.ingest.us.sentry.io/4510767490859008',
+  sendDefaultPii: true,
+});
+
 import { PerformanceService } from './app/core/services';
 import { Auth } from '@angular/fire/auth';
 

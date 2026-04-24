@@ -9,7 +9,15 @@
  * ⭐ MOBILE ONLY - Uses Ionic components ⭐
  */
 
-import { Component, ChangeDetectionStrategy, inject, output, input, signal } from '@angular/core';
+import {
+  Component,
+  ChangeDetectionStrategy,
+  inject,
+  output,
+  input,
+  signal,
+  computed,
+} from '@angular/core';
 import { CommonModule } from '@angular/common';
 import {
   IonContent,
@@ -17,38 +25,14 @@ import {
   IonListHeader,
   IonLabel,
   IonItem,
-  IonIcon,
   IonSearchbar,
 } from '@ionic/angular/standalone';
-import { addIcons } from 'ionicons';
-import {
-  chevronForward,
-  chevronDownOutline,
-  searchOutline,
-  helpCircleOutline,
-  bookOutline,
-  videocamOutline,
-  personOutline,
-  schoolOutline,
-  settingsOutline,
-  shieldOutline,
-  buildOutline,
-  peopleOutline,
-  cardOutline,
-  homeOutline,
-  lockClosedOutline,
-  chatbubbleOutline,
-  documentTextOutline,
-  rocketOutline,
-  fitnessOutline,
-  clipboardOutline,
-  diamondOutline,
-  constructOutline,
-} from 'ionicons/icons';
 import { NxtPageHeaderComponent } from '../../components/page-header';
+import { NxtStateViewComponent } from '../../components/state-view';
+import { NxtIconComponent } from '../../components/icon';
 import { HelpCenterService } from '../_shared/help-center.service';
 import { HapticsService } from '../../services/haptics/haptics.service';
-import type { HelpArticle, HelpCategoryId } from '@nxt1/core';
+import type { HelpArticle, HelpCategory, HelpCategoryId } from '@nxt1/core';
 
 // Register icons
 /** Navigation events */
@@ -68,14 +52,29 @@ export interface HelpNavigateEvent {
     IonListHeader,
     IonLabel,
     IonItem,
-    IonIcon,
     IonSearchbar,
     NxtPageHeaderComponent,
+    NxtStateViewComponent,
+    NxtIconComponent,
   ],
   template: `
     <nxt1-page-header title="Help Center" [showBack]="showBack()" (backClick)="back.emit()" />
 
     <ion-content class="help-content">
+      <!-- Error State -->
+      @if (helpService.error() && !hasData()) {
+        <div class="help-error">
+          <nxt1-state-view
+            variant="error"
+            title="Something went wrong"
+            [message]="helpService.error() ?? 'Failed to load help center'"
+            actionLabel="Try Again"
+            actionIcon="refresh"
+            (action)="helpService.loadHome()"
+          />
+        </div>
+      }
+
       <div class="help-container">
         <!-- Search Bar -->
         <div class="help-search">
@@ -94,23 +93,44 @@ export interface HelpNavigateEvent {
               <ion-label>Search Results</ion-label>
             </ion-list-header>
 
-            @if (helpService.filteredArticles().length === 0) {
+            @if (
+              helpService.filteredArticles().length === 0 && helpService.filteredFaqs().length === 0
+            ) {
               <ion-item class="help-item help-item--empty">
                 <ion-label class="ion-text-center">
-                  <p>No articles found</p>
+                  <p>No results found</p>
                 </ion-label>
               </ion-item>
             } @else {
               @for (article of helpService.filteredArticles(); track article.id) {
                 <ion-item class="help-item" button detail (click)="onArticleClick(article)">
-                  <ion-icon
+                  <nxt1-icon
                     [name]="getTypeIcon(article.type)"
+                    [size]="22"
                     slot="start"
                     class="help-item__icon"
                   />
                   <ion-label>
                     <h3>{{ article.title }}</h3>
                     <p>{{ article.excerpt }}</p>
+                  </ion-label>
+                </ion-item>
+              }
+              @for (faq of helpService.filteredFaqs(); track faq.id) {
+                <ion-item
+                  class="help-item"
+                  button
+                  [detail]="expandedFaqId() !== faq.id"
+                  (click)="toggleFaq(faq.id)"
+                >
+                  <nxt1-icon name="help" [size]="22" slot="start" class="help-item__icon" />
+                  <ion-label>
+                    <h3>{{ faq.question }}</h3>
+                    @if (expandedFaqId() === faq.id) {
+                      <div [innerHTML]="faq.answer" class="faq-answer"></div>
+                    } @else {
+                      <p>Popular Question</p>
+                    }
                   </ion-label>
                 </ion-item>
               }
@@ -125,7 +145,12 @@ export interface HelpNavigateEvent {
 
             @for (category of helpService.categories(); track category.id) {
               <ion-item class="help-item" button detail (click)="onCategoryClick(category.id)">
-                <ion-icon [name]="category.icon" slot="start" class="help-item__icon" />
+                <nxt1-icon
+                  [name]="getCategoryIconName(category)"
+                  [size]="getCategoryIconSize(category.icon)"
+                  slot="start"
+                  class="help-item__icon"
+                />
                 <ion-label>
                   <h3>{{ category.label }}</h3>
                   @if (category.description) {
@@ -153,7 +178,7 @@ export interface HelpNavigateEvent {
                   "
                   (click)="toggleFaq(faq.id)"
                 >
-                  <ion-icon name="help-circle-outline" slot="start" class="help-item__icon" />
+                  <nxt1-icon name="help" [size]="22" slot="start" class="help-item__icon" />
                   <ion-label class="ion-text-wrap">
                     <h3>{{ faq.question }}</h3>
                     @if (expandedFaqId() === faq.id) {
@@ -172,8 +197,9 @@ export interface HelpNavigateEvent {
             </ion-list-header>
 
             <ion-item class="help-item" button detail (click)="onContactClick()">
-              <ion-icon
-                name="chatbubble-outline"
+              <nxt1-icon
+                name="chatBubble"
+                [size]="22"
                 slot="start"
                 class="help-item__icon help-item__icon--primary"
               />
@@ -197,6 +223,10 @@ export interface HelpNavigateEvent {
 
       .help-content {
         --background: var(--nxt1-color-bg-primary, var(--ion-background-color));
+      }
+
+      .help-error {
+        padding: var(--nxt1-spacing-xl, 32px) var(--nxt1-spacing-md, 16px);
       }
 
       .help-container {
@@ -315,39 +345,20 @@ export interface HelpNavigateEvent {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class HelpCenterShellMobileComponent {
-  constructor() {
-    addIcons({
-      chevronForward,
-      chevronDownOutline,
-      searchOutline,
-      helpCircleOutline,
-      bookOutline,
-      videocamOutline,
-      personOutline,
-      schoolOutline,
-      settingsOutline,
-      shieldOutline,
-      buildOutline,
-      peopleOutline,
-      cardOutline,
-      homeOutline,
-      lockClosedOutline,
-      chatbubbleOutline,
-      documentTextOutline,
-      rocketOutline,
-      fitnessOutline,
-      clipboardOutline,
-      diamondOutline,
-      constructOutline,
-    });
-  }
-
   protected readonly helpService = inject(HelpCenterService);
   private readonly haptics = inject(HapticsService);
 
   readonly showBack = input(true);
   readonly back = output<void>();
   readonly navigate = output<HelpNavigateEvent>();
+
+  /** True when any content has been loaded — prevents error state from covering existing data */
+  protected readonly hasData = computed(
+    () =>
+      this.helpService.categories().length > 0 ||
+      this.helpService.popularFaqs().length > 0 ||
+      this.helpService.articles().length > 0
+  );
 
   protected onSearch(event: CustomEvent): void {
     const query = event.detail.value ?? '';
@@ -385,18 +396,43 @@ export class HelpCenterShellMobileComponent {
     });
   }
 
+  /** Agent X has a portrait viewBox (612×792) — needs a larger size to render visibly. */
+  protected getCategoryIconSize(iconName: string): number {
+    return iconName === 'agent-x' ? 36 : 24;
+  }
+
+  /** Map ionicon category icon names to design token names */
+  protected getCategoryIconName(category: HelpCategory): string {
+    const iconMap: Record<string, string> = {
+      'rocket-outline': 'rocket',
+      'fitness-outline': 'barbell',
+      'clipboard-outline': 'clipboard',
+      'people-outline': 'users',
+      'shield-outline': 'shield',
+      'school-outline': 'school',
+      'person-outline': 'person',
+      'videocam-outline': 'videocam',
+      'diamond-outline': 'sparkles',
+      'settings-outline': 'settings',
+      'lock-closed-outline': 'lock',
+      'construct-outline': 'settings',
+      'agent-x': 'agent-x',
+    };
+    return iconMap[category.icon] ?? 'documentText';
+  }
+
   protected getTypeIcon(type: string): string {
     switch (type) {
       case 'video':
-        return 'videocam-outline';
+        return 'videocam';
       case 'guide':
-        return 'book-outline';
+        return 'newspaper';
       case 'tutorial':
-        return 'school-outline';
+        return 'graduationCap';
       case 'faq':
-        return 'help-circle-outline';
+        return 'help';
       default:
-        return 'document-text-outline';
+        return 'documentText';
     }
   }
 }

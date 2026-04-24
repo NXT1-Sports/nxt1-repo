@@ -159,7 +159,7 @@ export const validateOnboarding = createValidator<OnboardingData>({
   },
   userType: {
     required: true,
-    validate: (t) => ['athlete', 'coach', 'director', 'recruiter', 'parent'].includes(t),
+    validate: (t) => ['athlete', 'coach', 'director'].includes(t),
     message: 'Please select a valid user type',
     code: 'INVALID_USER_TYPE',
   },

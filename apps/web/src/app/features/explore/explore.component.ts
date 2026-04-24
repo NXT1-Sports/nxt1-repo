@@ -29,7 +29,7 @@ import { ExploreShellWebComponent, type ExploreUser, ExploreService } from '@nxt
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import { ANALYTICS_ADAPTER } from '@nxt1/ui/services/analytics';
 import { NxtBreadcrumbService } from '@nxt1/ui/services/breadcrumb';
-import type { ExploreItem, ExploreTabId, ScoutReport, FeedPost, FeedAuthor } from '@nxt1/core';
+import type { ExploreItem, ExploreTabId, ScoutReport } from '@nxt1/core';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import { AUTH_SERVICE, type IAuthService } from '../../core/services/auth/auth.interface';
 import { SeoService } from '../../core/services';
@@ -49,8 +49,6 @@ const VALID_TAB_SLUGS = new Set(['pulse', 'discover']);
       (itemClick)="onItemClick($event)"
       (scoutReportSelect)="onScoutReportSelect($event)"
       (scoutReportFiltersOpen)="onScoutReportFiltersOpen()"
-      (postSelect)="onPostSelect($event)"
-      (authorSelect)="onAuthorSelect($event)"
       (newsArticleSelect)="onNewsArticleSelect($event)"
       (detectLocation)="onDetectLocation()"
     />
@@ -182,23 +180,6 @@ export class ExploreComponent implements OnInit {
   }
 
   // ── Feed / Following / News Handlers ──
-
-  /**
-   * Handle post selection - navigate to post detail.
-   */
-  protected onPostSelect(post: FeedPost): void {
-    this.logger.debug('Feed post selected', { id: post.id, type: post.type });
-    // Navigate to post detail when ready
-    // void this.router.navigate(['/post', post.id]);
-  }
-
-  /**
-   * Handle author selection - navigate to author profile.
-   */
-  protected onAuthorSelect(author: FeedAuthor): void {
-    this.logger.debug('Author selected', { uid: author.uid, profileCode: author.profileCode });
-    void this.router.navigate(['/profile', author.profileCode]);
-  }
 
   /**
    * Handle news article selection - navigate to article detail nested under Explore.

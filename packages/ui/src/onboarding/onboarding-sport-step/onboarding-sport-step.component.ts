@@ -5,13 +5,9 @@
  *
  * Role-aware sport selection step for onboarding.
  * Collects the primary sport plus role-specific details:
- * - Athletes/Parents: sport + position
+ * - Athletes: sport + position
  * - Coaches: sport + title
- *
- * Team info and positions are collected LATER based on role:
- * - Athletes: Asked for team/positions in athlete-specific flow
- * - Coaches: Asked for team they coach
- * - Fans: No team/positions needed
+ * - Directors: sport only
  *
  * ⭐ 2026 UX BEST PRACTICES:
  * - Progressive disclosure: Only ask what's needed NOW
@@ -72,7 +68,6 @@ import { NxtChipComponent } from '../../components/chip';
 import { NxtListRowComponent } from '../../components/list-row';
 import { NxtListSectionComponent } from '../../components/list-section';
 import { NxtModalService } from '../../services/modal';
-import { NxtPickerService } from '../../components/picker';
 
 // ============================================
 // CONSTANTS
@@ -410,7 +405,6 @@ export class OnboardingSportStepComponent {
 
   private readonly loggingService = inject(NxtLoggingService);
   private readonly nxtModal = inject(NxtModalService);
-  private readonly picker = inject(NxtPickerService);
 
   /** Namespaced logger for this component */
   private readonly logger: ILogger = this.loggingService.child('OnboardingSportStep');
@@ -478,7 +472,7 @@ export class OnboardingSportStepComponent {
 
   readonly showPositionSelection = computed(() => {
     const currentRole = this.role();
-    return currentRole === USER_ROLES.ATHLETE || currentRole === USER_ROLES.PARENT;
+    return currentRole === USER_ROLES.ATHLETE;
   });
 
   readonly showCoachTitleSelection = computed(() => this.role() === USER_ROLES.COACH);
@@ -554,12 +548,6 @@ export class OnboardingSportStepComponent {
     if (currentRole === USER_ROLES.DIRECTOR) {
       return 'Choose one sport for now. You can add more later.';
     }
-    if (currentRole === USER_ROLES.RECRUITER) {
-      return 'Choose one sport for now. You can add more later.';
-    }
-    if (currentRole === USER_ROLES.PARENT) {
-      return "Choose your athlete's sport and position.";
-    }
     if (currentRole === USER_ROLES.ATHLETE) {
       return 'Choose your sport and position.';
     }
@@ -569,8 +557,7 @@ export class OnboardingSportStepComponent {
   /** Whether to show the "Choose up to X" hint (athletes only) */
   readonly showMaxHint = computed((): boolean => {
     const currentRole = this.role();
-    const isAthlete =
-      !currentRole || currentRole === USER_ROLES.ATHLETE || currentRole === USER_ROLES.PARENT;
+    const isAthlete = !currentRole || currentRole === USER_ROLES.ATHLETE;
     return isAthlete && this.maxSports() > 1;
   });
 
@@ -768,26 +755,68 @@ export class OnboardingSportStepComponent {
   }
 
   /**
-   * Open position picker modal for position selection.
-   * Uses NxtPickerService.openPositionPicker which presents a
-   * platform-adaptive bottom sheet on mobile with grouped chips.
+   * Open native action sheet for position selection.
+   * Uses NxtModalService.actionSheet with preferNative: 'native' for
+   * consistent native-feel matching sport and coach title pickers.
+   *
+   * Supports multi-select by toggling positions and re-opening the sheet
+   * until the user cancels or hits the max (5). A checkmark prefix indicates
+   * already-selected positions.
    */
   async openPositionPicker(): Promise<void> {
     const sport = this.selectedSport();
     const groups = this.positionGroups();
     if (!sport || groups.length === 0 || this.totalPositionCount() === 0) return;
 
-    const result = await this.picker.openPositionPicker({
-      sport,
-      selectedPositions: [...this.selectedPositions()],
-      positionGroups: groups,
-      maxPositions: 5,
-    });
+    const allPositions = groups.flatMap((group) => group.positions);
+    const maxPositions = 5;
 
-    if (result.confirmed) {
-      this.selectedPositions.set(result.positions);
-      this.emitChange(this.selectedSports());
-      this.logger.debug('Positions selected via picker', { sport, positions: result.positions });
+    // Loop: keep presenting the action sheet until the user cancels
+    let keepSelecting = true;
+    while (keepSelecting) {
+      const current = this.selectedPositions();
+      const atMax = current.length >= maxPositions;
+      const title =
+        current.length > 0 ? `Positions (${current.length}/${maxPositions})` : 'Select Position';
+
+      const result = await this.nxtModal.actionSheet({
+        title,
+        actions: allPositions.map((position) => {
+          const isSelected = current.includes(position);
+          const display = formatPositionDisplay(position, sport);
+          return {
+            text: isSelected ? `✓ ${display}` : display,
+            data: position,
+            // Disable unselected positions when at max
+            ...(atMax && !isSelected ? { destructive: false } : {}),
+          };
+        }),
+        preferNative: 'native',
+      });
+
+      if (!result?.selected || !result.data) {
+        // User cancelled — stop selecting
+        keepSelecting = false;
+      } else {
+        const position = result.data as string;
+        const isAlreadySelected = current.includes(position);
+
+        if (isAlreadySelected) {
+          // Toggle off
+          this.selectedPositions.update((prev) => prev.filter((p) => p !== position));
+        } else if (current.length < maxPositions) {
+          // Toggle on (only if under max)
+          this.selectedPositions.update((prev) => [...prev, position]);
+        }
+
+        this.emitChange(this.selectedSports());
+        this.logger.debug('Position toggled via picker', {
+          sport,
+          position,
+          action: isAlreadySelected ? 'removed' : 'added',
+          total: this.selectedPositions().length,
+        });
+      }
     }
   }
 

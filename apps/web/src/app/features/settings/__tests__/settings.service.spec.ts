@@ -335,7 +335,7 @@ describe('SettingsService', () => {
       expect(agentXJobMock.enqueue).toHaveBeenCalledTimes(1);
       expect(agentXJobMock.enqueue.mock.calls[0]?.[0]).toContain('Re-sync my connected accounts');
       expect(agentXJobMock.enqueue.mock.calls[0]?.[1]).toMatchObject({
-        source: 'settings_connected_accounts',
+        source: 'connected_accounts',
         trigger: 'manual_resync',
         requestedAccounts: [
           expect.objectContaining({

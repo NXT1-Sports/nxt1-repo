@@ -54,6 +54,7 @@ import { ANALYTICS_ADAPTER } from '../../services/analytics/analytics-adapter.to
 import { NxtBreadcrumbService } from '../../services/breadcrumb';
 import { NxtModalService } from '../../services/modal';
 import { NxtToastService } from '../../services/toast/toast.service';
+import { NxtPlatformService } from '../../services/platform';
 import {
   NxtConnectedSourcesComponent,
   type ConnectionMode,
@@ -87,11 +88,18 @@ interface ConnectedState {
   scopeId?: string;
   username?: string;
   url?: string;
+  /** Display name of the person who originally added this link */
+  addedBy?: string;
+  /** User ID of the person who originally added this link */
+  addedById?: string;
+  /** True when this source came from existing team data and cannot be modified in onboarding */
+  locked?: boolean;
 }
 
 const CUSTOM_LINK_PREFIX = 'custom::';
 const HANDLE_BASED_PLATFORMS = new Set(['instagram', 'twitter', 'tiktok']);
 const HANDLE_BUILDABLE_URL_PLATFORMS = new Set(['instagram', 'twitter', 'tiktok', 'youtube']);
+const SIGNIN_PRIORITY_ORDER = ['google', 'microsoft'] as const;
 const RESERVED_HANDLE_SEGMENTS = new Set([
   'explore',
   'hashtag',
@@ -131,6 +139,37 @@ function connKey(platform: string, scopeType?: PlatformScope, scopeId?: string):
   return platform;
 }
 
+function resolveConnectedState(
+  platform: string,
+  scopeType: PlatformScope,
+  scopeId: string | undefined,
+  connMap: Record<string, ConnectedState>
+): ConnectedState | undefined {
+  const exact = connMap[connKey(platform, scopeType, scopeId)];
+  if (exact) {
+    return exact;
+  }
+
+  // Team-scoped rows do not always know the canonical team identifier at render-time.
+  // When there is a single persisted team connection for the platform, reuse it so the
+  // visible row reflects the saved state and preserves the real scopeId for edits.
+  if (scopeType !== 'team') {
+    return undefined;
+  }
+
+  const teamMatches = Object.entries(connMap)
+    .filter(
+      ([key, entry]) =>
+        key.startsWith(`${platform}::`) &&
+        entry.scopeType === 'team' &&
+        entry.connected &&
+        !!entry.scopeId
+    )
+    .map(([, entry]) => entry);
+
+  return teamMatches[0];
+}
+
 /** Normalize sport display name → base key for platform matching */
 function sportNameToKey(sportName: string): string {
   return sportName
@@ -151,6 +190,14 @@ function customPlatformId(id: string): string {
 
 function extractCustomLinkId(platform: string): string {
   return platform.slice(CUSTOM_LINK_PREFIX.length);
+}
+
+function buildLockedSourceMessage(source: ConnectedSource): string {
+  if (source.addedBy?.trim()) {
+    return `${source.label} was already connected by ${source.addedBy}. You can add new links here, but you can't change this one during onboarding.`;
+  }
+
+  return `${source.label} is already connected for this team. You can add new links here, but you can't change this one during onboarding.`;
 }
 
 function normalizeCustomLinkUrl(value: string): string {
@@ -338,6 +385,34 @@ function normalizePlatformConnectionValue(
   };
 }
 
+function sortPlatformsForDisplay(
+  platforms: readonly PlatformDefinition[],
+  mode: ConnectionMode
+): PlatformDefinition[] {
+  if (mode !== 'signin') {
+    return [...platforms];
+  }
+
+  const priority = new Map<string, number>(
+    SIGNIN_PRIORITY_ORDER.map((platform, index) => [platform, index])
+  );
+
+  return [...platforms].sort((left, right) => {
+    const leftPriority = priority.get(left.platform) ?? Number.MAX_SAFE_INTEGER;
+    const rightPriority = priority.get(right.platform) ?? Number.MAX_SAFE_INTEGER;
+
+    if (leftPriority !== rightPriority) {
+      return leftPriority - rightPriority;
+    }
+
+    return 0;
+  });
+}
+
+function isPinnedSigninPlatform(platformId: string): boolean {
+  return SIGNIN_PRIORITY_ORDER.includes(platformId as (typeof SIGNIN_PRIORITY_ORDER)[number]);
+}
+
 // ============================================
 // COMPONENT
 // ============================================
@@ -348,27 +423,29 @@ function normalizePlatformConnectionValue(
   imports: [NxtConnectedSourcesComponent],
   template: `
     <div class="nxt1-link-drop-step" [attr.data-testid]="testIds.CONTAINER">
-      <!-- Mode toggle: Linked / Signed In -->
-      <div class="nxt1-mode-toggle" [attr.data-testid]="testIds.MODE_TOGGLE">
-        <button
-          type="button"
-          class="nxt1-mode-btn"
-          [class.nxt1-mode-btn--active]="activeMode() === 'link'"
-          [attr.data-testid]="testIds.MODE_LINK_BTN"
-          (click)="setMode('link')"
-        >
-          Linked
-        </button>
-        <button
-          type="button"
-          class="nxt1-mode-btn"
-          [class.nxt1-mode-btn--active]="activeMode() === 'signin'"
-          [attr.data-testid]="testIds.MODE_SIGNIN_BTN"
-          (click)="setMode('signin')"
-        >
-          Signed In
-        </button>
-      </div>
+      <!-- Mode toggle: Linked / Signed In (hidden during onboarding) -->
+      @if (!hideSigninMode()) {
+        <div class="nxt1-mode-toggle" [attr.data-testid]="testIds.MODE_TOGGLE">
+          <button
+            type="button"
+            class="nxt1-mode-btn"
+            [class.nxt1-mode-btn--active]="activeMode() === 'link'"
+            [attr.data-testid]="testIds.MODE_LINK_BTN"
+            (click)="setMode('link')"
+          >
+            Linked
+          </button>
+          <button
+            type="button"
+            class="nxt1-mode-btn"
+            [class.nxt1-mode-btn--active]="activeMode() === 'signin'"
+            [attr.data-testid]="testIds.MODE_SIGNIN_BTN"
+            (click)="setMode('signin')"
+          >
+            Signed In
+          </button>
+        </div>
+      }
       <p class="nxt1-mode-hint">
         @if (activeMode() === 'link') {
           Linking accounts automatically pulls your information and stats into NXT1.
@@ -630,6 +707,7 @@ export class OnboardingLinkDropStepComponent {
   private readonly breadcrumb = inject(NxtBreadcrumbService);
   private readonly nxtModal = inject(NxtModalService);
   private readonly toast = inject(NxtToastService);
+  private readonly platform = inject(NxtPlatformService);
 
   /** Test IDs for interactive elements */
   protected readonly testIds = TEST_IDS.LINK_SOURCES;
@@ -640,6 +718,8 @@ export class OnboardingLinkDropStepComponent {
   readonly role = input<OnboardingUserType | null>(null);
   readonly disabled = input(false);
   readonly scope = input<'athlete' | 'team'>('athlete');
+  /** When true, hides the Signed In mode toggle (used during onboarding). */
+  readonly hideSigninMode = input(false);
   /**
    * When true, tapping Google / Microsoft in sign-in mode emits `oauthSigninRequest`
    * so the parent can launch the real OAuth account-picker instead of the token-entry modal.
@@ -747,8 +827,9 @@ export class OnboardingLinkDropStepComponent {
     const groups: PlatformGroup[] = [];
 
     // ---- 1. Collect all platforms for this view ----
-    const globalPlatforms = PLATFORM_REGISTRY.filter(
-      (p) => p.scope === 'global' && p.connectionType === mode
+    const globalPlatforms = sortPlatformsForDisplay(
+      PLATFORM_REGISTRY.filter((p) => p.scope === 'global' && p.connectionType === mode),
+      mode
     );
 
     let sportPlatforms: PlatformDefinition[] = [];
@@ -770,13 +851,32 @@ export class OnboardingLinkDropStepComponent {
         : [];
 
     const allPlatforms = [...globalPlatforms, ...sportPlatforms, ...teamPlatforms];
+    const pinnedSigninPlatforms =
+      mode === 'signin'
+        ? globalPlatforms.filter((platform) => isPinnedSigninPlatform(platform.platform))
+        : [];
+    const pinnedSigninPlatformIds = new Set(
+      pinnedSigninPlatforms.map((platform) => platform.platform)
+    );
+
+    if (pinnedSigninPlatforms.length > 0) {
+      groups.push({
+        key: 'priority-signin',
+        label: 'Sign-In Accounts',
+        sources: pinnedSigninPlatforms.map((platform) =>
+          this.toSourceForCurrentSport(platform, connMap, sportKey)
+        ),
+      });
+    }
 
     // ---- 2. Recommended group ----
     const allIds = new Set(allPlatforms.map((p) => p.platform));
     if (role) {
       const sportList = sportName ? [sportName] : sports.length === 1 ? [sports[0]] : [];
       const recommended = getRecommendedPlatforms(role, sportList, mode);
-      const filteredRecommended = recommended.filter((p) => allIds.has(p.platform));
+      const filteredRecommended = recommended.filter(
+        (p) => allIds.has(p.platform) && !pinnedSigninPlatformIds.has(p.platform)
+      );
 
       if (filteredRecommended.length > 0) {
         groups.push({
@@ -792,7 +892,10 @@ export class OnboardingLinkDropStepComponent {
     // ---- 3. Platforms grouped by category ----
     // Keep recommended platforms in their native sections too.
     // Shared platform IDs ensure a single connection state appears everywhere.
-    const remaining = allPlatforms;
+    // Pinned Google/Microsoft sign-in providers are shown only once at the top.
+    const remaining = allPlatforms.filter(
+      (platform) => !pinnedSigninPlatformIds.has(platform.platform)
+    );
 
     for (const cat of PLATFORM_CATEGORIES) {
       const catPlatforms = remaining.filter((p) => p.category === cat.category);
@@ -868,6 +971,9 @@ export class OnboardingLinkDropStepComponent {
             scopeId: link.scopeId,
             username: link.username,
             url: link.url,
+            addedBy: link.addedBy,
+            addedById: link.addedById,
+            locked: link.locked,
           };
         }
       }
@@ -911,6 +1017,16 @@ export class OnboardingLinkDropStepComponent {
 
     const { source } = event;
 
+    if (source.locked) {
+      this.toast.info(buildLockedSourceMessage(source));
+      this.logger.info('Locked onboarding source tap blocked', {
+        platform: source.platform,
+        scopeType: source.scopeType,
+        scopeId: source.scopeId,
+      });
+      return;
+    }
+
     // Handle custom link tap — prompt to edit or delete
     if (isCustomPlatform(source.platform)) {
       await this.editCustomLink(extractCustomLinkId(source.platform), source);
@@ -921,6 +1037,16 @@ export class OnboardingLinkDropStepComponent {
     const placeholder = platformDef?.placeholder ?? '@username';
     const isSignIn = source.connectionType === 'signin';
     const isUrl = placeholder.toLowerCase().includes('url');
+
+    if (this.isDesktopOnlySigninSource(source)) {
+      this.toast.info(
+        `${source.label} sign-in is desktop only right now. Use the desktop web app.`
+      );
+      this.logger.info('Desktop-only sign-in blocked on mobile context', {
+        platform: source.platform,
+      });
+      return;
+    }
 
     // ── Google / Microsoft: OAuth account-picker (settings) OR manual token entry (onboarding) ──
     if (isSignIn && (source.platform === 'google' || source.platform === 'microsoft')) {
@@ -1107,21 +1233,61 @@ export class OnboardingLinkDropStepComponent {
   ): ConnectedSource {
     const scopeType: PlatformScope = platform.scope;
     const scopeId = scopeType === 'sport' ? (sportKey ?? undefined) : undefined;
-    const key = connKey(platform.platform, scopeType, scopeId);
-    const conn = connMap[key];
+    const conn = resolveConnectedState(platform.platform, scopeType, scopeId, connMap);
 
     return {
       platform: platform.platform,
       label: platform.label,
       icon: platform.icon as ConnectedSource['icon'],
       connectionType: platform.connectionType,
+      actionLabel: this.getDisconnectedActionLabel(platform),
       scopeType,
-      scopeId,
+      scopeId: conn?.scopeId ?? scopeId,
       connected: conn?.connected ?? false,
       username: conn?.username,
       url: conn?.url,
       faviconUrl: getPlatformFaviconUrl(platform.platform) ?? undefined,
+      addedBy: conn?.addedBy,
+      locked: conn?.locked,
     };
+  }
+
+  private getDisconnectedActionLabel(platform: PlatformDefinition): string | undefined {
+    if (
+      platform.connectionType === 'signin' &&
+      platform.platform !== 'google' &&
+      platform.platform !== 'microsoft' &&
+      !this.supportsInteractiveDesktopSignin()
+    ) {
+      return 'Desktop Only';
+    }
+
+    return undefined;
+  }
+
+  private isDesktopOnlySigninSource(source: ConnectedSource): boolean {
+    return source.connectionType === 'signin' && source.actionLabel === 'Desktop Only';
+  }
+
+  private supportsInteractiveDesktopSignin(): boolean {
+    if (this.platform.isNative()) {
+      return false;
+    }
+
+    if (!this.platform.isBrowser()) {
+      return true;
+    }
+
+    const viewportWidth = this.platform.viewport().width;
+    if (viewportWidth < 768) {
+      return false;
+    }
+
+    if (this.platform.hasTouch() && viewportWidth < 1024) {
+      return false;
+    }
+
+    return true;
   }
 
   /**
@@ -1165,6 +1331,30 @@ export class OnboardingLinkDropStepComponent {
       const sportKey = this.activeSport() ? sportNameToKey(this.activeSport()!) : null;
       const scopeId = scopeType === 'sport' ? (sportKey ?? undefined) : undefined;
       const key = connKey(matchedPlatform.platform, scopeType, scopeId);
+      const existing = this._connectedMap()[key];
+      if (existing?.locked) {
+        this.toast.info(
+          buildLockedSourceMessage({
+            platform: matchedPlatform.platform,
+            label: matchedPlatform.label,
+            icon: matchedPlatform.icon as ConnectedSource['icon'],
+            connected: true,
+            connectionType: matchedPlatform.connectionType,
+            scopeType,
+            scopeId,
+            username: existing.username,
+            url: existing.url,
+            addedBy: existing.addedBy,
+            locked: true,
+          })
+        );
+        this.logger.info('Locked onboarding quick-add blocked', {
+          platform: matchedPlatform.platform,
+          scopeType,
+          scopeId,
+        });
+        return { added: false, reason: 'This account is already connected for the team.' };
+      }
       const normalized = normalizePlatformConnectionValue(matchedPlatform, url);
       if (normalized.reason || !normalized.value?.url) {
         return { added: false, reason: normalized.reason ?? 'Please enter a valid URL.' };
@@ -1374,6 +1564,9 @@ export class OnboardingLinkDropStepComponent {
       scopeId: data.scopeId,
       username: data.username,
       url: data.url,
+      addedBy: data.addedBy,
+      addedById: data.addedById,
+      locked: data.locked,
     }));
 
     const customLinks: LinkSourceEntry[] = this._customLinks().map((cl) => ({

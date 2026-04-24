@@ -28,10 +28,19 @@ import type {
   RosterPlayer,
   TeamSponsor,
 } from '@nxt1/core';
-import { MANAGE_TEAM_TABS } from '@nxt1/core';
+import {
+  MANAGE_TEAM_TABS,
+  applyManageTeamFieldChange,
+  buildManageTeamUpdatePayload,
+} from '@nxt1/core';
+import { APP_EVENTS } from '@nxt1/core/analytics';
+import { TRACE_NAMES } from '@nxt1/core/performance';
 import { HapticsService } from '../services/haptics/haptics.service';
 import { NxtToastService } from '../services/toast/toast.service';
 import { NxtLoggingService } from '../services/logging/logging.service';
+import { ANALYTICS_ADAPTER } from '../services/analytics/analytics-adapter.token';
+import { NxtBreadcrumbService } from '../services/breadcrumb/breadcrumb.service';
+import { PERFORMANCE_ADAPTER } from '../services/performance/performance-adapter.token';
 import { ManageTeamApiClient } from './manage-team-api.client';
 
 /**
@@ -43,6 +52,9 @@ export class ManageTeamService {
   private readonly haptics = inject(HapticsService);
   private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('ManageTeamService');
+  private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
+  private readonly breadcrumb = inject(NxtBreadcrumbService);
+  private readonly performance = inject(PERFORMANCE_ADAPTER, { optional: true });
   private readonly apiClient = inject(ManageTeamApiClient);
 
   // ============================================
@@ -60,6 +72,9 @@ export class ManageTeamService {
   private readonly _dirtyFields = signal<Set<string>>(new Set());
   private readonly _validationErrors = signal<Record<string, string>>({});
   private readonly _teamId = signal<string | null>(null);
+  private readonly _connectedSources = signal<
+    NonNullable<Parameters<ManageTeamApiClient['updateTeamBasicInfo']>[1]['connectedSources']>
+  >([]);
 
   // ============================================
   // PUBLIC READONLY COMPUTED SIGNALS
@@ -100,6 +115,9 @@ export class ManageTeamService {
 
   /** Current team ID */
   readonly teamId = computed(() => this._teamId());
+
+  /** Team-level connected accounts/sources. */
+  readonly connectedSources = computed(() => this._connectedSources());
 
   /** Available tabs */
   readonly tabs = MANAGE_TEAM_TABS;
@@ -222,23 +240,39 @@ export class ManageTeamService {
    */
   async loadTeam(teamId: string): Promise<void> {
     this.logger.info('Loading team', { teamId });
+    this.breadcrumb.trackStateChange('manage-team:loading', { teamId });
     this._isLoading.set(true);
     this._error.set(null);
     this._teamId.set(teamId);
+
+    const trace = this.performance
+      ? await this.performance.startTrace(TRACE_NAMES.TEAM_LOAD)
+      : null;
 
     try {
       const result = await this.apiClient.getTeamForEditing(teamId);
       this._formData.set(result.formData);
       this._completion.set(result.completion);
+      this._connectedSources.set(result.connectedSources ?? []);
       this._dirtyFields.set(new Set());
 
+      await trace?.putMetric('roster_count', result.formData.roster.length);
+      await trace?.putMetric('staff_count', result.formData.staff.length);
+      await trace?.putMetric('sponsor_count', result.formData.sponsors.length);
+
+      this.analytics?.trackEvent(APP_EVENTS.TEAM_MANAGED, {
+        action: 'loaded',
+        teamId,
+      });
       this.logger.info('Team loaded successfully', { teamId });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load team';
       this._error.set(message);
+      this.breadcrumb.trackStateChange('manage-team:error', { teamId, message });
       this.logger.error('Failed to load team', err, { teamId });
     } finally {
       this._isLoading.set(false);
+      await trace?.stop();
     }
   }
 
@@ -321,22 +355,42 @@ export class ManageTeamService {
     const { sectionId, fieldId } = event;
     this.logger.debug('Field updated', { sectionId, fieldId });
 
-    // Mark field as dirty
     this._dirtyFields.update((fields) => {
       const newFields = new Set(fields);
       newFields.add(`${sectionId}.${fieldId}`);
       return newFields;
     });
 
-    // Update form data based on section
     this._formData.update((data) => {
       if (!data) return data;
-
-      // Deep clone and update (simplified - real impl would be more sophisticated)
-      return { ...data };
+      return applyManageTeamFieldChange(data, event);
     });
 
-    this.haptics.impact('light');
+    this.breadcrumb.trackUserAction('manage-team-field-updated', {
+      sectionId,
+      fieldId,
+    });
+    void this.haptics.impact('light');
+  }
+
+  /** Update team connected accounts from the shared connected accounts modal. */
+  setConnectedSources(
+    sources: NonNullable<
+      Parameters<ManageTeamApiClient['updateTeamBasicInfo']>[1]['connectedSources']
+    >
+  ): void {
+    this._connectedSources.set([...sources]);
+
+    this._dirtyFields.update((fields) => {
+      const next = new Set(fields);
+      next.add('accounts.connectedSources');
+      return next;
+    });
+
+    this.breadcrumb.trackUserAction('manage-team-connected-sources-updated', {
+      count: sources.length,
+    });
+    void this.haptics.impact('light');
   }
 
   // ============================================
@@ -349,37 +403,77 @@ export class ManageTeamService {
   async saveChanges(): Promise<boolean> {
     if (!this.hasUnsavedChanges()) return true;
 
-    this.logger.info('Saving team changes');
+    const formData = this._formData();
+    const teamId = this._teamId();
+    if (!formData || !teamId) {
+      this._error.set('Team data is not available');
+      return false;
+    }
+
+    const payload = buildManageTeamUpdatePayload(formData);
+    const payloadWithLegacy = payload as unknown as {
+      organizationLogoUrl?: string;
+      logoUrl?: string;
+      [key: string]: unknown;
+    };
+    const { logoUrl: legacyLogoUrl, ...payloadWithoutLegacyLogo } = payloadWithLegacy;
+
+    const requestPayload: Parameters<ManageTeamApiClient['updateTeamBasicInfo']>[1] = {
+      ...payloadWithoutLegacyLogo,
+      organizationLogoUrl: payloadWithLegacy.organizationLogoUrl ?? legacyLogoUrl ?? '',
+      connectedSources: this._connectedSources(),
+    };
+
+    if (!requestPayload.teamName) {
+      const message = 'Team name is required';
+      this._error.set(message);
+      this.toast.error(message);
+      return false;
+    }
+
+    if (requestPayload.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/i.test(requestPayload.email)) {
+      const message = 'Enter a valid team email address';
+      this._error.set(message);
+      this.toast.error(message);
+      return false;
+    }
+
+    const dirtyCount = this._dirtyFields().size;
+    this.logger.info('Saving team changes', { teamId, dirtyCount });
+    this.breadcrumb.trackStateChange('manage-team:saving', { teamId, dirtyCount });
     this._isSaving.set(true);
     this._error.set(null);
 
+    const trace = this.performance
+      ? await this.performance.startTrace(TRACE_NAMES.PROFILE_UPDATE)
+      : null;
+
     try {
-      const formData = this._formData();
-      const teamId = this._teamId();
-      if (formData && teamId) {
-        await this.apiClient.updateTeamBasicInfo(teamId, {
-          teamName: formData.basicInfo.name,
-          teamType: formData.basicInfo.level,
-          sportName: formData.basicInfo.sport,
-        });
-      }
+      await this.apiClient.updateTeamBasicInfo(teamId, requestPayload);
 
-      // Clear dirty state
       this._dirtyFields.set(new Set());
-
-      this.haptics.notification('success');
+      this.analytics?.trackEvent(APP_EVENTS.TEAM_MANAGED, {
+        action: 'saved',
+        teamId,
+        dirtyCount,
+      });
+      this.logger.info('Team saved successfully', { teamId, dirtyCount });
       this.toast.success('Team saved successfully');
-      this.logger.info('Team saved successfully');
+      await trace?.putMetric('dirty_count', dirtyCount);
+      await this.refreshTeam();
+      await this.haptics.notification('success');
       return true;
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to save team';
       this._error.set(message);
       this.toast.error(message);
-      this.haptics.notification('error');
-      this.logger.error('Failed to save team', err);
+      await this.haptics.notification('error');
+      this.breadcrumb.trackStateChange('manage-team:save-error', { teamId, message });
+      this.logger.error('Failed to save team', err, { teamId });
       return false;
     } finally {
       this._isSaving.set(false);
+      await trace?.stop();
     }
   }
 
@@ -389,10 +483,11 @@ export class ManageTeamService {
   async discardChanges(): Promise<void> {
     this._dirtyFields.set(new Set());
     const teamId = this._teamId();
+    this.breadcrumb.trackUserAction('manage-team-discarded', { teamId });
     if (teamId) {
       await this.loadTeam(teamId);
     }
-    this.haptics.impact('medium');
+    await this.haptics.impact('medium');
   }
 
   // ============================================

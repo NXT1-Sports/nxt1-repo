@@ -63,7 +63,7 @@ import { TeamProfileService } from '../team-profile.service';
       } @else {
         <div class="madden-empty">
           <div class="madden-empty__icon" aria-hidden="true">
-            <nxt1-icon name="stats-chart" [size]="40" />
+            <nxt1-icon name="stats-chart-outline" [size]="40" />
           </div>
           <h3>No team stats</h3>
           <p>Team statistics and season records will appear here.</p>

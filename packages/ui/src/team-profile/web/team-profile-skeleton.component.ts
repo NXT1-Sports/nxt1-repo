@@ -21,19 +21,12 @@
  */
 
 import { Component, ChangeDetectionStrategy } from '@angular/core';
-import { ProfileSkeletonComponent } from '../../profile/profile-skeleton.component';
 
 @Component({
   selector: 'nxt1-team-profile-skeleton',
   standalone: true,
-  imports: [ProfileSkeletonComponent],
+  imports: [],
   template: `
-    <!-- Mobile: use the exact same full skeleton as /profile for perfect parity -->
-    <div class="sk-mobile-profile-match" aria-hidden="true">
-      <nxt1-profile-skeleton variant="full" />
-    </div>
-
-    <!-- Desktop / tablet: keep team-specific split skeleton -->
     <div class="sk-web" aria-hidden="true">
       <div class="sk-stage">
         <div class="sk-split">
@@ -56,24 +49,14 @@ import { ProfileSkeletonComponent } from '../../profile/profile-skeleton.compone
             </div>
 
             <!-- Mobile Hero (mobile only) -->
-            <!-- mirrors: nxt1-team-mobile-hero → back + logo + name + meta + follow, stats row -->
+            <!-- mirrors: nxt1-team-mobile-hero: logo(68x68) + name h1 + meta p -->
             <div class="sk-mobile-hero">
               <div class="sk-mh-inner">
-                <div class="sk-mh-back skeleton-animate"></div>
                 <div class="sk-mh-logo skeleton-animate"></div>
                 <div class="sk-mh-text">
                   <div class="sk-mh-name skeleton-animate"></div>
                   <div class="sk-mh-meta skeleton-animate"></div>
                 </div>
-              </div>
-              <!-- Stats row: Record, Athletes, Followers -->
-              <div class="sk-mh-stats">
-                @for (i of [1, 2, 3]; track i) {
-                  <div class="sk-mh-stat">
-                    <div class="sk-mh-stat-value skeleton-animate"></div>
-                    <div class="sk-mh-stat-label skeleton-animate"></div>
-                  </div>
-                }
               </div>
             </div>
 
@@ -183,10 +166,6 @@ import { ProfileSkeletonComponent } from '../../profile/profile-skeleton.compone
 
       :host {
         display: block;
-      }
-
-      .sk-mobile-profile-match {
-        display: none;
       }
 
       /* ─── Canonical Skeleton Animation ─── */
@@ -309,75 +288,46 @@ import { ProfileSkeletonComponent } from '../../profile/profile-skeleton.compone
       }
 
       /* ─── MOBILE HERO (mobile only) ─── */
-      /* mirrors: nxt1-team-mobile-hero layout */
+      /* mirrors: .team-mobile-hero__identity-card { display:flex; align-items:flex-start; gap:12px } */
       .sk-mobile-hero {
         display: none;
-        padding: 12px 12px 0;
+        padding: 0;
       }
 
       .sk-mh-inner {
         display: flex;
         align-items: center;
-        gap: 10px;
-      }
-
-      .sk-mh-back {
-        width: 32px;
-        height: 32px;
-        border-radius: 50%;
-        flex-shrink: 0;
+        gap: 12px;
       }
 
       .sk-mh-logo {
-        width: 48px;
-        height: 48px;
+        width: 68px;
+        height: 68px;
         border-radius: 12px;
         flex-shrink: 0;
       }
 
+      /* mirrors: .team-mobile-hero__identity-copy { display:flex; flex-direction:column; gap:5px; padding-top:2px } */
       .sk-mh-text {
         flex: 1;
         min-width: 0;
         display: flex;
         flex-direction: column;
-        gap: 4px;
+        gap: 5px;
+        padding-top: 2px;
       }
 
+      /* mirrors: .team-mobile-hero__name { font-size:22px; font-weight:800; line-height:1.12 } */
       .sk-mh-name {
-        width: 140px;
-        height: 20px;
-        border-radius: 6px;
+        width: 160px;
+        height: 26px;
+        border-radius: 4px;
       }
 
+      /* mirrors: .team-mobile-hero__meta { font-size:14px; font-weight:600 } */
       .sk-mh-meta {
-        width: 180px;
-        height: 12px;
-        border-radius: 4px;
-      }
-
-      .sk-mh-stats {
-        display: flex;
-        gap: 24px;
-        padding: 12px 4px 0;
-        justify-content: center;
-      }
-
-      .sk-mh-stat {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: 4px;
-      }
-
-      .sk-mh-stat-value {
-        width: 32px;
-        height: 18px;
-        border-radius: 4px;
-      }
-
-      .sk-mh-stat-label {
-        width: 52px;
-        height: 10px;
+        width: 110px;
+        height: 16px;
         border-radius: 3px;
       }
 
@@ -712,20 +662,47 @@ import { ProfileSkeletonComponent } from '../../profile/profile-skeleton.compone
       }
 
       @media (max-width: 768px) {
-        .sk-mobile-profile-match {
-          display: block;
-        }
-
-        .sk-web {
-          display: none;
-        }
-
         /* Show mobile hero, hide desktop header */
         .sk-page-header {
           display: none;
         }
         .sk-mobile-hero {
           display: block;
+          margin: 0 0 10px;
+          position: relative;
+          isolation: isolate;
+          overflow: hidden;
+          padding: 14px 16px;
+        }
+        .sk-mobile-hero::before {
+          content: '';
+          position: absolute;
+          inset: 0;
+          z-index: -1;
+          background:
+            repeating-linear-gradient(
+              -52deg,
+              transparent 0 18px,
+              color-mix(in srgb, var(--nxt1-color-primary, #d4ff00) 7%, transparent) 18px 19.5px,
+              transparent 19.5px 44px
+            ),
+            radial-gradient(
+              ellipse 80% 60% at -4% -8%,
+              color-mix(in srgb, var(--nxt1-color-primary, #d4ff00) 22%, transparent) 0%,
+              color-mix(in srgb, var(--nxt1-color-primary, #d4ff00) 8%, transparent) 38%,
+              transparent 68%
+            ),
+            radial-gradient(
+              ellipse 110% 55% at 50% 108%,
+              color-mix(in srgb, var(--nxt1-color-primary, #d4ff00) 10%, transparent) 0%,
+              transparent 60%
+            ),
+            linear-gradient(
+              160deg,
+              var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.07)) 0%,
+              var(--nxt1-color-bg-primary, #0a0a0a) 100%
+            );
+          box-shadow: 0 2px 24px rgba(0, 0, 0, 0.45);
         }
 
         /* Hide right column */

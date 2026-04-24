@@ -68,6 +68,7 @@
 @import '@nxt1/ui/styles/components/biometric-modal';
 @import '@nxt1/ui/styles/components/bottom-sheet';
 @import '@nxt1/ui/styles/components/sheet-modal';
+@import '@nxt1/ui/styles/animations';
 
 /* Ionic Component CSS - Visual styles for ion-* components */
 @import '@ionic/angular/css/core.css';

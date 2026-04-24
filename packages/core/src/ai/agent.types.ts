@@ -29,12 +29,62 @@ export type AgentOperationStatus =
   | 'failed'
   | 'cancelled';
 
+/** Which execution layer produced a structured progress event. */
+export type AgentProgressStageType = 'router' | 'tool';
+
+/** Router-level orchestration stages emitted during an agent run. */
+export type AgentRouterStage =
+  | 'building_context'
+  | 'decomposing_intent'
+  | 'routing_to_agent'
+  | 'agent_thinking'
+  | 'resuming_user_input'
+  | 'summarizing_memory';
+
+/** Tool-level execution stages emitted during long-running tool work. */
+export type ToolStage =
+  | 'fetching_data'
+  | 'processing_media'
+  | 'uploading_assets'
+  | 'submitting_job'
+  | 'checking_status'
+  | 'persisting_result'
+  | 'deleting_resource'
+  | 'invoking_sub_agent';
+
+/** Union of all structured progress stages understood by the frontend. */
+export type AgentProgressStage = AgentRouterStage | ToolStage;
+
+/** Structured outcome codes for terminal or notable operation states. */
+export type OperationOutcomeCode =
+  | 'success_default'
+  | 'routing_failed'
+  | 'context_build_failed'
+  | 'planning_failed'
+  | 'task_failed'
+  | 'approval_required'
+  | 'input_required'
+  | 'cancelled';
+
+/** Arbitrary metadata attached to a structured progress event. */
+export type AgentProgressMetadata = Readonly<Record<string, unknown>>;
+
 /** A single step/update within a running operation, streamed to the UI. */
 export interface AgentOperationStep {
   readonly id: string;
   readonly timestamp: string;
   readonly status: AgentOperationStatus;
   readonly message: string;
+  /** Active agent responsible for this step, when known. */
+  readonly agentId?: AgentIdentifier;
+  /** Which execution layer emitted this update. */
+  readonly stageType?: AgentProgressStageType;
+  /** Typed machine-readable stage key for frontend dictionaries. */
+  readonly stage?: AgentProgressStage;
+  /** Structured outcome for notable or terminal states. */
+  readonly outcomeCode?: OperationOutcomeCode;
+  /** Additional typed hydration data for UI rendering. */
+  readonly metadata?: AgentProgressMetadata;
   /** Optional structured data the UI can render (e.g., a list of drafted emails). */
   readonly payload?: Record<string, unknown>;
 }
@@ -58,6 +108,8 @@ export interface AgentOperation {
 
 /** The final output of a completed operation. */
 export interface AgentOperationResult {
+  /** Short AI-generated title for activity feed items and notifications. */
+  readonly title?: string;
   readonly summary: string;
   /** Structured data the UI can render (generated graphics, sent emails, etc.). */
   readonly data?: Record<string, unknown>;
@@ -70,18 +122,19 @@ export interface AgentOperationResult {
 /** Identifies which specialized coordinator handles a task. */
 export type AgentIdentifier =
   | 'router'
+  | 'admin_coordinator'
+  | 'brand_coordinator'
   | 'data_coordinator'
+  | 'strategy_coordinator'
   | 'recruiting_coordinator'
-  | 'brand_media_coordinator'
-  | 'performance_coordinator'
-  | 'compliance_coordinator'
-  | 'general';
+  | 'performance_coordinator';
 
 /** Metadata about a registered sub-agent. */
 export interface AgentDescriptor {
   readonly id: AgentIdentifier;
   readonly name: string;
   readonly description: string;
+  readonly icon?: string;
   /** The types of intents this agent is best suited for. */
   readonly capabilities: readonly string[];
 }
@@ -100,6 +153,8 @@ export interface AgentToolDefinition {
   readonly isMutation: boolean;
   /** Optional category for UI grouping. */
   readonly category?: AgentToolCategory;
+  /** Entity-scoped tool grouping used for runtime access policy. */
+  readonly entityGroup?: AgentToolEntityGroup;
 }
 
 /** Logical groupings for tools. */
@@ -113,6 +168,29 @@ export type AgentToolCategory =
   | 'data'
   | 'system';
 
+/**
+ * Entity-based governance group for Agent X tool access.
+ * This is the source of truth for runtime tool exposure policy.
+ */
+export type AgentToolEntityGroup =
+  | 'user_tools'
+  | 'team_tools'
+  | 'organization_tools'
+  | 'platform_tools'
+  | 'system_tools';
+
+/**
+ * Runtime policy context used to filter tool definitions for a request.
+ * `allowedEntityGroups` is evaluated before semantic matching.
+ */
+export interface AgentToolAccessContext {
+  readonly userId: string;
+  readonly role: string;
+  readonly teamId?: string;
+  readonly organizationId?: string;
+  readonly allowedEntityGroups: readonly AgentToolEntityGroup[];
+}
+
 /** The record of a single tool invocation during an operation. */
 export interface AgentToolCallRecord {
   readonly toolName: string;
@@ -125,10 +203,16 @@ export interface AgentToolCallRecord {
 
 // ─── Memory ─────────────────────────────────────────────────────────────────
 
+/** Which domain a stored memory belongs to. */
+export type AgentMemoryTarget = 'user' | 'team' | 'organization';
+
 /** A single entry stored in the agent's long-term vector memory. */
 export interface AgentMemoryEntry {
   readonly id: string;
   readonly userId: string;
+  readonly target: AgentMemoryTarget;
+  readonly teamId?: string;
+  readonly organizationId?: string;
   readonly content: string;
   /** The vector embedding (stored externally, referenced here). */
   readonly embeddingId?: string;
@@ -136,6 +220,22 @@ export interface AgentMemoryEntry {
   readonly metadata?: Record<string, unknown>;
   readonly createdAt: string;
   readonly expiresAt?: string;
+}
+
+/** Options for scoped long-term memory retrieval. */
+export interface AgentMemoryRecallOptions {
+  readonly teamId?: string;
+  readonly organizationId?: string;
+  readonly category?: AgentMemoryCategory;
+  readonly targets?: readonly AgentMemoryTarget[];
+  readonly perTargetLimit?: number;
+}
+
+/** Retrieved memories grouped by platform domain. */
+export interface AgentRetrievedMemories {
+  readonly user: readonly AgentMemoryEntry[];
+  readonly team: readonly AgentMemoryEntry[];
+  readonly organization: readonly AgentMemoryEntry[];
 }
 
 /** Categories for stored memories. */
@@ -228,10 +328,39 @@ export interface AgentSessionContext {
   readonly retrievedMemories?: readonly AgentMemoryEntry[];
   readonly createdAt: string;
   readonly lastActiveAt: string;
+  /** Which backend environment is serving this agent run. */
+  readonly environment?: 'staging' | 'production';
   /** The job/operation ID — threaded into LLM calls as Helicone-Property-Job-Id for cost tracking. */
   readonly operationId?: string;
   /** The MongoDB thread ID for the current conversation. Used by tools for thread-scoped storage. */
   readonly threadId?: string;
+  /**
+   * UI mode hint passed from the SSE chat client (e.g. 'scout', 'athlete', 'recruiting').
+   * Sub-agents may use this to tailor their system prompt.
+   */
+  readonly mode?: string;
+  /**
+   * File attachments forwarded from the chat client (images, PDFs, etc.).
+   * When present, base.agent.ts builds a multipart LLM user message instead of plain text.
+   */
+  readonly attachments?: readonly { readonly url: string; readonly mimeType: string }[];
+  /**
+   * Video attachments forwarded from the chat client (mp4, mov, etc.).
+   * Videos cannot be passed as vision content — base.agent.ts injects their URLs
+   * as text references in the LLM user message so tools (e.g. write_athlete_videos)
+   * can use them without hallucinating a URL.
+   */
+  readonly videoAttachments?: readonly {
+    readonly url: string;
+    readonly mimeType: string;
+    readonly name: string;
+  }[];
+  /**
+   * Abort signal propagated from the SSE connection.
+   * When the client disconnects, this signal is triggered and cancels in-flight LLM calls.
+   * Note: AbortSignal is not serialisable — never persist this field.
+   */
+  readonly signal?: AbortSignal;
 }
 
 /** A single message within a session (lighter than the full AgentXMessage). */
@@ -443,11 +572,14 @@ export interface SyncDeltaReport {
   readonly sport: string;
   readonly source: string;
   readonly syncedAt: string;
+  /** Optional scope hints from the writer that triggered the sync. */
+  readonly teamId?: string;
+  readonly organizationId?: string;
 
   /** True if nothing changed since the last sync — Agent X stays asleep. */
   readonly isEmpty: boolean;
 
-  /** Identity fields that changed (e.g. school name, class year, city). */
+  /** Identity fields that changed (e.g. profile info, class year, location). */
   readonly identityChanges: ReadonlyArray<{
     readonly field: string;
     readonly oldValue: unknown;
@@ -545,6 +677,16 @@ export interface AgentJobPayload {
 export interface AgentJobUpdate {
   readonly operationId: string;
   readonly status: AgentOperationStatus;
+  /** Active agent responsible for this update, when known. */
+  readonly agentId?: AgentIdentifier;
+  /** Which execution layer emitted this update. */
+  readonly stageType?: AgentProgressStageType;
+  /** Typed machine-readable stage key for frontend dictionaries. */
+  readonly stage?: AgentProgressStage;
+  /** Structured outcome for notable or terminal states. */
+  readonly outcomeCode?: OperationOutcomeCode;
+  /** Additional typed hydration data for UI rendering. */
+  readonly metadata?: AgentProgressMetadata;
   readonly step: AgentOperationStep;
 }
 
@@ -614,6 +756,8 @@ export interface AgentApprovalRequest {
   readonly userId: string;
   /** What the agent wants to do (human-readable). */
   readonly actionSummary: string;
+  /** Typed reason code used to keep approval UX copy consistent. */
+  readonly reasonCode?: AgentApprovalReasonCode;
   /** The tool that will be executed if approved. */
   readonly toolName: string;
   /** The exact input that will be passed to the tool. */
@@ -631,6 +775,22 @@ export interface AgentApprovalRequest {
 
 /** Status of an approval request. */
 export type AgentApprovalStatus = 'pending' | 'approved' | 'rejected' | 'expired' | 'auto_approved';
+
+/** Typed reason codes for approval-gated actions. */
+export type AgentApprovalReasonCode =
+  | 'send_email'
+  | 'update_profile'
+  | 'delete_content'
+  | 'post_to_social'
+  | 'send_sms'
+  | 'interact_with_live_view'
+  | 'run_tool';
+
+/** Typed outcome codes used for approval, yield, and activity notifications. */
+export type AgentNotificationOutcomeCode = Extract<
+  OperationOutcomeCode,
+  'success_default' | 'task_failed' | 'approval_required' | 'input_required'
+>;
 
 // ─── Suspend & Resume (Yield State) ─────────────────────────────────────────
 
@@ -680,8 +840,6 @@ export interface AgentApprovalPolicy {
   readonly autoApproveOnExpiry: boolean;
   /** Time in ms before auto-expiry (default: 24 hours). */
   readonly expiryMs: number;
-  /** Description shown to the user in the approval prompt. */
-  readonly userPrompt: string;
   /** Risk level indicator for the UI. */
   readonly riskLevel: 'low' | 'medium' | 'high' | 'critical';
 }
@@ -711,14 +869,9 @@ export interface AgentUserContext {
   readonly state?: string;
 
   // ── Recruiting Context ────────────────────────────────────────
-  readonly targetDivisions?: readonly string[];
-  readonly targetColleges?: readonly string[];
   readonly recruitingStatus?: string;
-  readonly commitmentStatus?: string;
 
-  // ── Engagement & Platform Data ────────────────────────────────
-  readonly profileCompletionPercent?: number;
-  readonly totalProfileViews?: number;
+  // ── Platform Data ─────────────────────────────────────────────
   readonly lastActiveAt?: string;
 
   // ── Connected Accounts ────────────────────────────────────────
@@ -732,6 +885,29 @@ export interface AgentUserContext {
   // ── Team Context (from active sport) ──────────────────────────
   readonly teamId?: string;
   readonly organizationId?: string;
+
+  // ── Goal & Playbook Context ────────────────────────────────────
+  /** Up to 5 active goals from agentGoals. Token-efficient subset. */
+  readonly activeGoals?: ReadonlyArray<{
+    readonly id: string;
+    readonly text: string;
+    readonly category?: string;
+  }>;
+  /** Current week's playbook progress summary. */
+  readonly currentPlaybookSummary?: {
+    readonly playbookId: string;
+    readonly total: number;
+    readonly completed: number;
+    readonly snoozed: number;
+  };
+}
+
+/** Fully assembled prompt context used before planner/coordinator execution. */
+export interface AgentPromptContext {
+  readonly profile: AgentUserContext;
+  readonly memories: AgentRetrievedMemories;
+  /** Exact recent sync-change summaries pulled from short-lived Mongo diff events. */
+  readonly recentSyncSummaries?: readonly string[];
 }
 
 /** A third-party account the user has connected (Gmail, Twitter, Hudl, etc.). */
@@ -754,7 +930,7 @@ export interface AgentLLMCallRecord {
   readonly operationId: string;
   readonly userId: string;
   readonly agentId: AgentIdentifier;
-  /** The model that was actually used (e.g., 'anthropic/claude-3.5-sonnet'). */
+  /** The model that was actually used (e.g., 'anthropic/claude-sonnet-4'). */
   readonly model: string;
   readonly inputTokens: number;
   readonly outputTokens: number;
@@ -816,7 +992,7 @@ export interface AgentUsageLimits {
 // ─── Job Event Types (Firestore Subcollection) ─────────────────────────────
 
 /**
- * Event types written to the `agentJobs/{operationId}/events` subcollection.
+ * Event types written to the `AgentJobs/{operationId}/events` subcollection.
  * The frontend subscribes via Firestore `onSnapshot` to render live UI.
  *
  * @see backend/src/modules/agent/queue/job.repository.ts — canonical source
@@ -832,7 +1008,7 @@ export type JobEventType =
   | 'done';
 
 /**
- * A single event document stored in `agentJobs/{operationId}/events/{autoId}`.
+ * A single event document stored in `AgentJobs/{operationId}/events/{autoId}`.
  * The frontend reads these via `onSnapshot`, ordered by `seq`, to reconstruct
  * the live agent execution as a chat-like experience.
  *
@@ -846,6 +1022,14 @@ export interface JobEvent {
   readonly type: JobEventType;
   /** Agent identifier if known (e.g. 'recruiting', 'performance'). */
   readonly agentId?: string;
+  /** Which execution layer emitted the event, when structured stages are available. */
+  readonly stageType?: AgentProgressStageType;
+  /** Typed machine-readable stage key for frontend dictionaries. */
+  readonly stage?: AgentProgressStage;
+  /** Structured outcome for notable or terminal states. */
+  readonly outcomeCode?: OperationOutcomeCode;
+  /** Additional typed hydration data for UI rendering. */
+  readonly metadata?: AgentProgressMetadata;
   /** Human-readable message for the UI. */
   readonly message?: string;
   /** Accumulated LLM text for `delta` events. */
@@ -858,10 +1042,14 @@ export interface JobEvent {
   readonly toolResult?: Record<string, unknown>;
   /** Whether the tool_result was a success. */
   readonly toolSuccess?: boolean;
+  /** Optional semantic icon key for custom step rendering. */
+  readonly icon?: string;
   /** Whether the job finished successfully (for `done` events). */
   readonly success?: boolean;
   /** Error message for `step_error` / `done` events. */
   readonly error?: string;
+  /** Machine-readable backend error code for `step_error` / `done` events. */
+  readonly errorCode?: string;
   /** Rich card payload for `card` events (planner, data-table, etc.). */
   readonly cardData?: Record<string, unknown>;
   /** Server timestamp (Firestore Timestamp — reads as { seconds, nanoseconds }). */

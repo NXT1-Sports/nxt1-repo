@@ -45,6 +45,7 @@
 import { Injectable, inject, signal, computed, OnDestroy } from '@angular/core';
 import { type User, type SportProfile, getPrimarySport } from '@nxt1/core/models';
 import { type UpdateProfileRequest } from '@nxt1/core/api';
+import { type UserDisplayInput } from '@nxt1/core';
 import { NxtLoggingService } from '@nxt1/ui';
 import { type ILogger } from '@nxt1/core/logging';
 import { ProfileApiService } from '../api/profile-api.service';
@@ -74,20 +75,6 @@ export interface IProfileService {
 }
 
 // ============================================
-// CACHE CONFIGURATION
-// ============================================
-
-import { CACHE_CONFIG } from '@nxt1/core/cache';
-
-/** Cache TTL: aligned with CACHE_CONFIG.MEDIUM_TTL (15 min) */
-const CACHE_TTL = CACHE_CONFIG.MEDIUM_TTL;
-
-interface CacheEntry {
-  user: User;
-  timestamp: number;
-}
-
-// ============================================
 // SERVICE
 // ============================================
 
@@ -96,7 +83,7 @@ interface CacheEntry {
  *
  * Professional pattern:
  * - Single `user` signal with full User type
- * - In-memory cache with TTL
+ * - Layered caching via CapacitorHttpAdapter (memory + disk)
  * - Clear separation from auth concerns
  */
 @Injectable({ providedIn: 'root' })
@@ -116,9 +103,6 @@ export class ProfileService implements OnDestroy, IProfileService {
 
   /** Error message */
   private readonly _error = signal<string | null>(null);
-
-  /** In-memory cache */
-  private cache: Map<string, CacheEntry> = new Map();
 
   /** Current user ID (for refresh) */
   private currentUid: string | null = null;
@@ -180,13 +164,6 @@ export class ProfileService implements OnDestroy, IProfileService {
   readonly profileImg = computed(() => this._user()?.profileImgs?.[0] ?? null);
 
   /**
-   * Is premium user
-   */
-  readonly isPremium = computed(() => {
-    return false; // Metered billing only — no plan tiers
-  });
-
-  /**
    * Has completed onboarding
    */
   readonly hasCompletedOnboarding = computed(() => this._user()?.onboardingCompleted ?? false);
@@ -196,12 +173,29 @@ export class ProfileService implements OnDestroy, IProfileService {
    */
   readonly role = computed(() => this._user()?.role ?? null);
 
+  /**
+   * User mapped to UserDisplayInput — the canonical shape consumed by
+   * `buildUserDisplayContext()` and footer/sidenav display surfaces.
+   *
+   * Flattens `coach.managedTeamCodes` to the top-level `managedTeamCodes`
+   * field that `resolveCanonicalTeamRoute` needs to pick the short team
+   * code over any Firestore document ID stored in `teamCode.teamCode`.
+   */
+  readonly userAsDisplayInput = computed<UserDisplayInput | null>(() => {
+    const user = this._user();
+    if (!user) return null;
+    return {
+      ...(user as unknown as UserDisplayInput),
+      managedTeamCodes: user.coach?.managedTeamCodes ?? null,
+    };
+  });
+
   // ============================================
   // LIFECYCLE
   // ============================================
 
   ngOnDestroy(): void {
-    this.cache.clear();
+    // handled natively
   }
 
   // ============================================
@@ -211,25 +205,12 @@ export class ProfileService implements OnDestroy, IProfileService {
   /**
    * Load user profile by UID
    *
-   * Uses cache if available and not expired.
-   * Otherwise fetches from backend.
+   * Fetches from backend. CapacitorHttpAdapter handles all caching.
    *
    * @param uid - User ID to load
    */
   async load(uid: string): Promise<void> {
     this.currentUid = uid;
-
-    // Check cache first
-    const cached = this.getFromCache(uid);
-    if (cached) {
-      this.logger.debug('Profile loaded from cache', { uid });
-      this._user.set(cached);
-      this._state.set('loaded');
-      this._error.set(null);
-      return;
-    }
-
-    // Fetch from backend
     await this.fetchProfile(uid);
   }
 
@@ -247,9 +228,8 @@ export class ProfileService implements OnDestroy, IProfileService {
       return;
     }
 
-    // Invalidate BOTH cache layers: service-level + API-level
-    this.cache.delete(targetUid);
-    this.api.invalidateCache(targetUid);
+    // Invalidate transport-level profile cache before the refetch.
+    await this.api.invalidateCache(targetUid);
     await this.fetchProfile(targetUid);
   }
 
@@ -272,7 +252,6 @@ export class ProfileService implements OnDestroy, IProfileService {
 
       if (response.success && response.data) {
         this._user.set(response.data);
-        this.setCache(uid, response.data);
         this._state.set('loaded');
         this.logger.info('Profile updated', { uid });
       } else {
@@ -296,7 +275,6 @@ export class ProfileService implements OnDestroy, IProfileService {
     this._user.set(null);
     this._state.set('idle');
     this._error.set(null);
-    this.cache.clear();
     this.currentUid = null;
     this.logger.debug('Profile cleared');
   }
@@ -310,7 +288,6 @@ export class ProfileService implements OnDestroy, IProfileService {
     this._user.set(user);
     if (user.id) {
       this.currentUid = user.id;
-      this.setCache(user.id, user);
     }
     this._state.set('loaded');
   }
@@ -340,7 +317,6 @@ export class ProfileService implements OnDestroy, IProfileService {
       if ('success' in response && 'data' in response) {
         if (response.success && response.data) {
           this._user.set(response.data);
-          this.setCache(uid, response.data);
           this._state.set('loaded');
           this.logger.info('✅ Profile loaded from backend (wrapped format)', { uid });
         } else {
@@ -351,7 +327,6 @@ export class ProfileService implements OnDestroy, IProfileService {
       else if ('id' in response || 'email' in response) {
         const user = response as unknown as User;
         this._user.set(user);
-        this.setCache(uid, user);
         this._state.set('loaded');
         this.logger.info('✅ Profile loaded from backend (unwrapped format)', { uid });
       }
@@ -368,32 +343,5 @@ export class ProfileService implements OnDestroy, IProfileService {
       });
       throw err;
     }
-  }
-
-  /**
-   * Get from cache if valid
-   */
-  private getFromCache(uid: string): User | null {
-    const entry = this.cache.get(uid);
-    if (!entry) return null;
-
-    // Check TTL
-    const age = Date.now() - entry.timestamp;
-    if (age > CACHE_TTL) {
-      this.cache.delete(uid);
-      return null;
-    }
-
-    return entry.user;
-  }
-
-  /**
-   * Set cache entry
-   */
-  private setCache(uid: string, user: User): void {
-    this.cache.set(uid, {
-      user,
-      timestamp: Date.now(),
-    });
   }
 }

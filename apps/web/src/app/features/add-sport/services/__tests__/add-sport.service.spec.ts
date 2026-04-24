@@ -15,6 +15,7 @@ import {
   BrowserDynamicTestingModule,
   platformBrowserDynamicTesting,
 } from '@angular/platform-browser-dynamic/testing';
+import { HttpClient } from '@angular/common/http';
 import { Router } from '@angular/router';
 import { of } from 'rxjs';
 import { APP_EVENTS } from '@nxt1/core/analytics';
@@ -24,9 +25,9 @@ import { NxtBreadcrumbService } from '@nxt1/ui/services/breadcrumb';
 import { ANALYTICS_ADAPTER } from '@nxt1/ui/services/analytics';
 import { NxtPlatformService } from '@nxt1/ui/services/platform';
 
-import { AddSportService } from '../add-sport.service';
-import { AuthFlowService } from '../../../core/services/auth/auth-flow.service';
-import { ProfileService } from '../../../core/services/api/profile-api.service';
+import { AddSportService } from '../../add-sport.service';
+import { AuthFlowService } from '../../../../core/services/auth/auth-flow.service';
+import { ProfileService } from '../../../../core/services/api/profile-api.service';
 
 // ============================================
 // MOCK FACTORIES
@@ -75,6 +76,10 @@ const createRouterMock = () => ({
   navigate: vi.fn().mockResolvedValue(true),
 });
 
+const createHttpClientMock = () => ({
+  get: vi.fn(),
+});
+
 const createAuthFlowMock = () => ({
   user: vi.fn().mockReturnValue({
     uid: 'user-123',
@@ -85,7 +90,6 @@ const createAuthFlowMock = () => ({
 
 const createProfileServiceMock = () => ({
   addSport: vi.fn().mockReturnValue(of({ success: true, data: {} })),
-  updateProfile: vi.fn().mockReturnValue(of({ success: true, data: {} })),
   invalidateCache: vi.fn(),
 });
 
@@ -100,6 +104,7 @@ describe('AddSportService', () => {
   let analyticsMock: ReturnType<typeof createAnalyticsMock>;
   let breadcrumbMock: ReturnType<typeof createBreadcrumbMock>;
   let routerMock: ReturnType<typeof createRouterMock>;
+  let httpClientMock: ReturnType<typeof createHttpClientMock>;
   let authFlowMock: ReturnType<typeof createAuthFlowMock>;
   let profileServiceMock: ReturnType<typeof createProfileServiceMock>;
 
@@ -119,6 +124,7 @@ describe('AddSportService', () => {
     analyticsMock = createAnalyticsMock();
     breadcrumbMock = createBreadcrumbMock();
     routerMock = createRouterMock();
+    httpClientMock = createHttpClientMock();
     authFlowMock = createAuthFlowMock();
     profileServiceMock = createProfileServiceMock();
 
@@ -126,6 +132,7 @@ describe('AddSportService', () => {
       providers: [
         AddSportService,
         { provide: PLATFORM_ID, useValue: 'browser' },
+        { provide: HttpClient, useValue: httpClientMock },
         { provide: Router, useValue: routerMock },
         { provide: AuthFlowService, useValue: authFlowMock },
         { provide: ProfileService, useValue: profileServiceMock },
@@ -151,6 +158,7 @@ describe('AddSportService', () => {
       expect(service.currentStepIndex()).toBe(0);
       expect(service.currentStep()).toBe('sport');
       expect(service.sportFormData()).toBeNull();
+      expect(service.teamSelectionFormData()).toBeNull();
       expect(service.linkSourcesFormData()).toBeNull();
       expect(service.isLoading()).toBe(false);
       expect(loggerChild.info).toHaveBeenCalledWith('Add sport wizard opened', { role: 'athlete' });
@@ -206,6 +214,12 @@ describe('AddSportService', () => {
         sports: [{ sport: 'Basketball', isPrimary: false, team: { name: '' }, positions: [] }],
       });
       service.onContinue();
+      expect(service.agentXMessage()).toContain('organization or program');
+
+      service.onTeamSelectionChange({
+        teams: [{ id: 'org-1', name: 'Austin High', sport: '', isSchool: true }],
+      });
+      service.onContinue();
       expect(service.agentXMessage()).toContain('Connect your accounts');
     });
   });
@@ -229,12 +243,29 @@ describe('AddSportService', () => {
       expect(service.linkSourcesFormData()).toEqual(data);
     });
 
+    it('should update team selection form data', () => {
+      const data = {
+        teams: [{ id: 'org-1', name: 'Austin High', sport: '', isSchool: true }],
+      };
+      service.onTeamSelectionChange(data);
+      expect(service.teamSelectionFormData()).toEqual(data);
+    });
+
     it('should compute isCurrentStepValid based on sport data', () => {
       service.initialize();
       expect(service.isCurrentStepValid()).toBe(false);
 
       service.onSportChange({
         sports: [{ sport: 'Baseball', isPrimary: false, team: { name: '' }, positions: [] }],
+      });
+      expect(service.isCurrentStepValid()).toBe(true);
+
+      service.onContinue();
+      expect(service.currentStep()).toBe('organization');
+      expect(service.isCurrentStepValid()).toBe(false);
+
+      service.onTeamSelectionChange({
+        teams: [{ id: 'org-1', name: 'Austin High', sport: '', isSchool: true }],
       });
       expect(service.isCurrentStepValid()).toBe(true);
     });
@@ -259,32 +290,59 @@ describe('AddSportService', () => {
       });
     });
 
-    it('should advance to link-sources on continue from sport step', () => {
+    it('should advance to organization on continue from sport step', () => {
       service.onContinue();
 
-      expect(service.currentStep()).toBe('link-sources');
+      expect(service.currentStep()).toBe('organization');
       expect(service.currentStepIndex()).toBe(1);
-      expect(service.isLastStep()).toBe(true);
+      expect(service.isLastStep()).toBe(false);
     });
 
     it('should track analytics on step change', () => {
       service.onContinue();
 
       expect(analyticsMock.trackEvent).toHaveBeenCalledWith(APP_EVENTS.ADD_SPORT_STEP_CHANGED, {
-        step: 'link-sources',
+        step: 'organization',
         direction: 'forward',
       });
       expect(breadcrumbMock.trackStateChange).toHaveBeenCalledWith('add-sport:step-changed', {
-        step: 'link-sources',
+        step: 'organization',
       });
     });
 
+    it('should advance to link-sources on continue from organization step', () => {
+      service.onContinue();
+      service.onTeamSelectionChange({
+        teams: [{ id: 'org-1', name: 'Austin High', sport: '', isSchool: true }],
+      });
+
+      service.onContinue();
+
+      expect(service.currentStep()).toBe('link-sources');
+      expect(service.currentStepIndex()).toBe(2);
+      expect(service.isLastStep()).toBe(true);
+    });
+
     it('should go back to sport step', () => {
-      service.onContinue(); // go to link-sources
+      service.onContinue(); // go to organization
       service.onBack(); // go back to sport
 
       expect(service.currentStep()).toBe('sport');
       expect(service.currentStepIndex()).toBe(0);
+      expect(service.animationDirection()).toBe('backward');
+    });
+
+    it('should go back to organization from link-sources', () => {
+      service.onContinue();
+      service.onTeamSelectionChange({
+        teams: [{ id: 'org-1', name: 'Austin High', sport: '', isSchool: true }],
+      });
+      service.onContinue();
+
+      service.onBack();
+
+      expect(service.currentStep()).toBe('organization');
+      expect(service.currentStepIndex()).toBe(1);
       expect(service.animationDirection()).toBe('backward');
     });
 
@@ -304,6 +362,10 @@ describe('AddSportService', () => {
       service.onSportChange({
         sports: [{ sport: 'Basketball', isPrimary: false, team: { name: '' }, positions: ['PG'] }],
       });
+      service.onContinue(); // advance to organization
+      service.onTeamSelectionChange({
+        teams: [{ id: 'org-1', name: 'Austin High', sport: '', isSchool: true }],
+      });
       service.onContinue(); // advance to link-sources
     });
 
@@ -314,6 +376,10 @@ describe('AddSportService', () => {
         expect(profileServiceMock.addSport).toHaveBeenCalledWith('user-123', {
           sport: 'Basketball',
           positions: ['PG'],
+          teamSelection: {
+            teams: [{ id: 'org-1', name: 'Austin High', sport: '', isSchool: true }],
+          },
+          connectedSources: [],
         });
       });
 
@@ -376,7 +442,12 @@ describe('AddSportService', () => {
 
       service.onContinue();
       await vi.waitFor(() => {
-        expect(profileServiceMock.updateProfile).toHaveBeenCalledWith('user-123', {
+        expect(profileServiceMock.addSport).toHaveBeenCalledWith('user-123', {
+          sport: 'Basketball',
+          positions: ['PG'],
+          teamSelection: {
+            teams: [{ id: 'org-1', name: 'Austin High', sport: '', isSchool: true }],
+          },
           connectedSources: [
             {
               platform: 'hudl',
@@ -399,6 +470,10 @@ describe('AddSportService', () => {
       service.initialize();
       service.onSportChange({
         sports: [{ sport: 'Tennis', isPrimary: false, team: { name: '' }, positions: [] }],
+      });
+      service.onContinue(); // advance to organization
+      service.onTeamSelectionChange({
+        teams: [{ id: 'org-2', name: 'Westlake High', sport: '', isSchool: true }],
       });
       service.onContinue(); // advance to link-sources (last step)
 

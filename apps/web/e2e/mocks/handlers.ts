@@ -123,8 +123,6 @@ export const MOCK_POSTS = [
       avatarUrl: MOCK_USER.profileImg,
     },
     likeCount: 42,
-    commentCount: 8,
-    isLiked: false,
     createdAt: new Date(Date.now() - 3600000).toISOString(),
   },
   {
@@ -138,8 +136,6 @@ export const MOCK_POSTS = [
       avatarUrl: MOCK_USER.profileImg,
     },
     likeCount: 15,
-    commentCount: 3,
-    isLiked: true,
     createdAt: new Date(Date.now() - 7200000).toISOString(),
   },
 ];
@@ -236,8 +232,6 @@ export const handlers = [
       role: 'athlete',
       onboardingCompleted: true,
       completeSignUp: true,
-      isCollegeCoach: false,
-      isRecruit: true,
       profileImg: MOCK_USER.profileImg ?? null,
       sports: [{ sport: 'Football', positions: ['Quarterback'], order: 0 }],
     });
@@ -430,8 +424,6 @@ export const handlers = [
         avatarUrl: MOCK_USER.profileImg,
       },
       likeCount: 0,
-      commentCount: 0,
-      isLiked: false,
       createdAt: new Date().toISOString(),
     };
 

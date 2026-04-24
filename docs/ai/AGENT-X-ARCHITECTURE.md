@@ -29,7 +29,7 @@ Agent X operates on a strict 3-tier architecture that heavily enforces the
 - **Storage Strategy**:
   - **MongoDB**: Stores heavy chat history, messages, and long-term conversation
     context.
-  - **Firestore**: Stores lightweight `agentJobs` (status, tool names,
+  - **Firestore**: Stores lightweight `AgentJobs` (status, tool names,
     timestamps) for real-time listener updates on the client. Documents
     automatically expire using TTL policies to prevent UI clutter.
 - **Rule**: The frontend _never_ calls AI APIs directly. All AI and tool logic

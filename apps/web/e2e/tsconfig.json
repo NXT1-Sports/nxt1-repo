@@ -1,6 +1,7 @@
 {
   "compilerOptions": {
     "ignoreDeprecations": "5.0",
+    "baseUrl": ".",
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "bundler",

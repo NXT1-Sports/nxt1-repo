@@ -34,8 +34,12 @@ import { Injectable, inject, signal, computed } from '@angular/core';
 import {
   createFileUploadApi,
   type FileUploadApi,
+  type FinalizedHighlightVideoUpload,
   type FileUploadResult,
   type FileCategory,
+  type HighlightVideoUploadProvisionOptions,
+  type PersistHighlightVideoPostRequest,
+  type PersistedHighlightVideoPost,
   type UploadProgressCallback,
   validateFileForUpload,
   FILE_UPLOAD_RULES,
@@ -56,8 +60,11 @@ export interface UploadState {
   status: UploadStatus;
   progress: number;
   error: string | null;
-  result: FileUploadResult | null;
+  result: FileUploadResult | FinalizedHighlightVideoUpload | null;
 }
+
+export type HighlightVideoUploadOptions = HighlightVideoUploadProvisionOptions;
+export type HighlightVideoPostOptions = Omit<PersistHighlightVideoPostRequest, 'cloudflareVideoId'>;
 
 const INITIAL_UPLOAD_STATE: UploadState = {
   status: 'idle',
@@ -164,29 +171,193 @@ export class FileUploadService {
   }
 
   /**
-   * Upload cover photo
-   *
-   * @param userId - User's Firebase UID
-   * @param file - Image file to upload
-   * @returns Upload result with URL, or null on failure
+   * Upload a highlight video via Cloudflare Stream direct TUS upload.
+   * The backend provisions the upload session and the browser streams bytes directly to Cloudflare.
    */
-  async uploadCoverPhoto(userId: string, file: File): Promise<FileUploadResult | null> {
-    return this.uploadFile(userId, file, 'cover-photo');
+  async uploadHighlightVideo(
+    userId: string,
+    file: File,
+    options?: HighlightVideoUploadOptions
+  ): Promise<FinalizedHighlightVideoUpload | null> {
+    this._state.set({
+      status: 'validating',
+      progress: 0,
+      error: null,
+      result: null,
+    });
+
+    const validationError = this.validateFile(file, 'highlight-video');
+    if (validationError) {
+      this._state.set({
+        status: 'error',
+        progress: 0,
+        error: validationError,
+        result: null,
+      });
+      this.toast.error(validationError);
+      return null;
+    }
+
+    this._state.update((state) => ({ ...state, status: 'uploading', progress: 0 }));
+
+    this.logger.debug('Starting direct highlight video upload', {
+      fileName: file.name,
+      size: formatFileSize(file.size),
+      mimeType: file.type,
+      context: options?.context ?? 'general',
+    });
+
+    try {
+      const session = await this.api.provisionHighlightVideoUpload(
+        userId,
+        file.name,
+        file.type,
+        file.size,
+        options
+      );
+
+      const { Upload } = await import('tus-js-client');
+
+      await new Promise<void>((resolve, reject) => {
+        const upload = new Upload(file, {
+          uploadUrl: session.uploadUrl,
+          headers: {
+            'Tus-Resumable': session.tusResumable,
+          },
+          retryDelays: [0, 1_000, 3_000, 5_000],
+          chunkSize: 8 * 1024 * 1024,
+          removeFingerprintOnSuccess: true,
+          onError: (error) => reject(error),
+          onProgress: (bytesUploaded, bytesTotal) => {
+            const progress = bytesTotal > 0 ? Math.round((bytesUploaded / bytesTotal) * 100) : 0;
+            this._state.update((state) => ({ ...state, progress }));
+          },
+          onSuccess: () => resolve(),
+        });
+
+        upload.start();
+      });
+
+      this._state.update((state) => ({ ...state, progress: 100 }));
+
+      const finalizedVideo = await this.api.finalizeHighlightVideoUpload(session.cloudflareVideoId);
+
+      this._state.set({
+        status: 'success',
+        progress: 100,
+        error: null,
+        result: finalizedVideo,
+      });
+
+      this.logger.info('Direct highlight video upload completed', {
+        cloudflareVideoId: finalizedVideo.cloudflareVideoId,
+        context: finalizedVideo.metadata.context,
+        readyToStream: finalizedVideo.readyToStream,
+      });
+
+      return finalizedVideo;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Video upload failed. Please try again.';
+
+      this._state.set({
+        status: 'error',
+        progress: 0,
+        error: message,
+        result: null,
+      });
+
+      this.logger.error('Direct highlight video upload failed', err);
+      this.toast.error(message);
+
+      return null;
+    }
   }
 
   /**
-   * Upload document (PDF, transcript, etc.)
-   *
-   * @param userId - User's Firebase UID
-   * @param file - Document file to upload
-   * @returns Upload result with URL, or null on failure
+   * Persist a finalized Cloudflare highlight into the backend Posts collection.
    */
-  async uploadDocument(userId: string, file: File): Promise<FileUploadResult | null> {
-    return this.uploadFile(userId, file, 'document');
+  async persistHighlightVideoPost(
+    cloudflareVideoId: string,
+    options?: HighlightVideoPostOptions
+  ): Promise<PersistedHighlightVideoPost | null> {
+    try {
+      const result = await this.api.persistHighlightVideoPost({
+        cloudflareVideoId,
+        ...options,
+      });
+
+      this.logger.info('Persisted Cloudflare highlight post', {
+        cloudflareVideoId,
+        postId: result.postId,
+        readyToStream: result.readyToStream,
+      });
+
+      return result;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to persist highlight video post';
+
+      this.logger.error('Failed to persist Cloudflare highlight post', err);
+      this.toast.error(message);
+
+      return null;
+    }
   }
 
   /**
-   * Delete uploaded file
+   * Upload team logo via signed URL (direct-to-storage).
+   *
+   * Flow:
+   * 1. Backend issues a short-lived signed PUT URL for `Teams/{teamId}/logo/...`
+   * 2. Browser PUTs the file straight to Firebase Storage
+   * 3. Returns the public `firebasestorage.googleapis.com` URL
+   *
+   * @param userId  - Firebase UID of the authenticated user
+   * @param teamId  - Firestore Teams document ID
+   * @param file    - Image file chosen by the user
+   */
+  async uploadTeamLogo(userId: string, teamId: string, file: File): Promise<string | null> {
+    this.logger.info('Starting team logo upload', { userId, teamId, fileName: file.name });
+
+    try {
+      const signed = await this.api.getSignedUploadUrl(
+        userId,
+        'team-logo',
+        file.name,
+        file.type,
+        teamId
+      );
+
+      const putResponse = await fetch(signed.uploadUrl, {
+        method: 'PUT',
+        body: file,
+        headers: { 'Content-Type': file.type },
+      });
+
+      if (!putResponse.ok) {
+        this.logger.error('Team logo PUT to signed URL failed', {
+          status: putResponse.status,
+          teamId,
+        });
+        this.toast.error('Failed to upload team logo. Please try again.');
+        return null;
+      }
+
+      // Build the public Firebase Storage download URL
+      const bucket = environment.firebase.storageBucket;
+      const encodedPath = encodeURIComponent(signed.storagePath);
+      const publicUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodedPath}?alt=media`;
+
+      this.logger.info('Team logo uploaded', { teamId, storagePath: signed.storagePath });
+      return publicUrl;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Team logo upload failed';
+      this.logger.error('Team logo upload error', err);
+      this.toast.error(message);
+      return null;
+    }
+  }
+
+  /**
    *
    * @param userId - User's Firebase UID
    * @param storagePath - Storage path or URL of file to delete
@@ -231,7 +402,7 @@ export class FileUploadService {
   } {
     const rules = FILE_UPLOAD_RULES[category];
     return {
-      maxSize: formatFileSize(rules.maxSize),
+      maxSize: 'maxSize' in rules ? formatFileSize((rules as { maxSize: number }).maxSize) : '',
       allowedTypes: rules.allowedTypes,
     };
   }
@@ -304,12 +475,6 @@ export class FileUploadService {
             file.type,
             onProgress
           );
-          break;
-        case 'cover-photo':
-          result = await this.api.uploadCoverPhoto(userId, file, file.name, file.type, onProgress);
-          break;
-        case 'document':
-          result = await this.api.uploadDocument(userId, file, file.name, file.type, onProgress);
           break;
         default:
           throw new Error(`Unsupported category: ${category}`);

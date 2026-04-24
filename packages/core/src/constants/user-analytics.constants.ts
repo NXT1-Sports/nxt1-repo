@@ -2,12 +2,10 @@
  * @fileoverview User Analytics Constants
  * @module @nxt1/core/constants
  *
- * Constants for the USER ANALYTICS system - stored engagement data
+ * Constants for the lightweight USER ANALYTICS operational snapshot
  * (profile views, video views, traffic sources, viewer breakdowns).
- * These constants are used by user-analytics.model.ts types.
- *
- * For APP ANALYTICS (event tracking sent to Mixpanel/Firebase),
- * see: models/app-analytics.model.ts
+ * These constants support the Firestore-side live counters model.
+ * Historical reporting and intelligence are handled by the Mongo analytics layer.
  *
  * 100% portable - no framework dependencies.
  *
@@ -29,7 +27,6 @@ export const ANALYTICS_EVENT_TYPES = {
   // Engagement events
   SHARE: 'share',
   REACTION: 'reaction',
-  COMMENT: 'comment',
   REPOST: 'repost',
 
   // Content events
@@ -105,19 +102,10 @@ export type TrendDirection = (typeof TREND_DIRECTIONS)[keyof typeof TREND_DIRECT
 // ============================================
 
 export const VIEWER_TYPES = {
-  RECRUITER: 'recruiter',
-  HIGH_SCHOOL_COACH: 'high_school_coach',
   COACH: 'coach',
-  ATHLETE: 'athlete',
-  PARENT: 'parent',
   DIRECTOR: 'director',
+  ATHLETE: 'athlete',
   ANONYMOUS: 'anonymous',
-  /** @deprecated Use RECRUITER instead */
-  COLLEGE_COACH: 'recruiter',
-  /** @deprecated Use RECRUITER instead */
-  SCOUT: 'recruiter',
-  /** @deprecated Removed */
-  FAN: 'athlete',
 } as const;
 
 export type ViewerType = (typeof VIEWER_TYPES)[keyof typeof VIEWER_TYPES];

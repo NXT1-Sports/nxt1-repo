@@ -14,7 +14,6 @@ import {
   requireAuth,
   requireGuest,
   requireRole,
-  requirePremium,
   requireOnboarding,
   hasAnyRole,
   isFullyAuthenticated,
@@ -93,10 +92,10 @@ describe('Auth Guards', () => {
 
       it('should allow user with any of required roles', () => {
         const state = createMockAuthState({
-          user: USER_FIXTURES.recruiter,
+          user: USER_FIXTURES.coach,
           isInitialized: true,
         });
-        const options: AuthGuardOptions = { requiredRoles: ['coach', 'recruiter', 'director'] };
+        const options: AuthGuardOptions = { requiredRoles: ['coach', 'director'] };
 
         const result = requireAuth(state, options);
 
@@ -108,7 +107,7 @@ describe('Auth Guards', () => {
           user: USER_FIXTURES.athlete,
           isInitialized: true,
         });
-        const options: AuthGuardOptions = { requiredRoles: ['coach', 'recruiter'] };
+        const options: AuthGuardOptions = { requiredRoles: ['coach', 'director'] };
 
         const result = requireAuth(state, options);
 
@@ -154,65 +153,24 @@ describe('Auth Guards', () => {
       });
     });
 
-    describe('premium requirement', () => {
-      it('should allow premium user', () => {
-        const state = STATE_FIXTURES.authenticatedPremium;
-        const options: AuthGuardOptions = { requirePremium: true };
-
-        const result = requireAuth(state, options);
-
-        expect(result.allowed).toBe(true);
-      });
-
-      it('should deny non-premium user', () => {
-        const state = STATE_FIXTURES.authenticated; // isPremium = false
-        const options: AuthGuardOptions = { requirePremium: true };
-
-        const result = requireAuth(state, options);
-
-        expect(result.allowed).toBe(false);
-        expect(result.redirectTo).toBe('/premium');
-        expect(result.reason).toBe('Premium subscription required');
-      });
-    });
-
     describe('combined requirements', () => {
       it('should check all requirements', () => {
-        const premiumCoach = createMockAuthUser({
+        const coach = createMockAuthUser({
           role: 'coach',
-          isPremium: true,
           hasCompletedOnboarding: true,
         });
         const state = createMockAuthState({
-          user: premiumCoach,
+          user: coach,
           isInitialized: true,
         });
         const options: AuthGuardOptions = {
-          requiredRoles: ['coach', 'recruiter'],
-          requirePremium: true,
+          requiredRoles: ['coach', 'director'],
           requireOnboarding: true,
         };
 
         const result = requireAuth(state, options);
 
         expect(result.allowed).toBe(true);
-      });
-
-      it('should fail on first unmet requirement', () => {
-        // Coach without premium
-        const state = createMockAuthState({
-          user: USER_FIXTURES.coach,
-          isInitialized: true,
-        });
-        const options: AuthGuardOptions = {
-          requiredRoles: ['coach'],
-          requirePremium: true,
-        };
-
-        const result = requireAuth(state, options);
-
-        expect(result.allowed).toBe(false);
-        expect(result.reason).toBe('Premium subscription required');
       });
     });
   });
@@ -290,7 +248,7 @@ describe('Auth Guards', () => {
     it('should allow user with any matching role', () => {
       const state = STATE_FIXTURES.authenticated; // athlete
 
-      const result = requireRole(state, ['athlete', 'parent']);
+      const result = requireRole(state, ['athlete', 'coach']);
 
       expect(result.allowed).toBe(true);
     });
@@ -298,7 +256,7 @@ describe('Auth Guards', () => {
     it('should deny user without matching role', () => {
       const state = STATE_FIXTURES.authenticated; // athlete
 
-      const result = requireRole(state, ['coach', 'recruiter']);
+      const result = requireRole(state, ['coach', 'director']);
 
       expect(result.allowed).toBe(false);
     });
@@ -313,7 +271,7 @@ describe('Auth Guards', () => {
     });
 
     it('should check all user roles', () => {
-      const allRoles: UserRole[] = ['athlete', 'coach', 'director', 'recruiter', 'parent'];
+      const allRoles: UserRole[] = ['athlete', 'coach', 'director'];
 
       for (const role of allRoles) {
         const state = createMockAuthState({
@@ -324,38 +282,6 @@ describe('Auth Guards', () => {
         const result = requireRole(state, [role]);
         expect(result.allowed).toBe(true);
       }
-    });
-  });
-
-  // ============================================
-  // requirePremium
-  // ============================================
-
-  describe('requirePremium', () => {
-    it('should allow premium user', () => {
-      const state = STATE_FIXTURES.authenticatedPremium;
-
-      const result = requirePremium(state);
-
-      expect(result.allowed).toBe(true);
-    });
-
-    it('should deny non-premium user', () => {
-      const state = STATE_FIXTURES.authenticated;
-
-      const result = requirePremium(state);
-
-      expect(result.allowed).toBe(false);
-      expect(result.redirectTo).toBe('/premium');
-    });
-
-    it('should deny unauthenticated user', () => {
-      const state = STATE_FIXTURES.unauthenticated;
-
-      const result = requirePremium(state);
-
-      expect(result.allowed).toBe(false);
-      expect(result.redirectTo).toBe('/auth');
     });
   });
 
@@ -407,7 +333,7 @@ describe('Auth Guards', () => {
       const user = USER_FIXTURES.athlete;
 
       expect(hasAnyRole(user, ['coach'])).toBe(false);
-      expect(hasAnyRole(user, ['coach', 'recruiter'])).toBe(false);
+      expect(hasAnyRole(user, ['coach', 'director'])).toBe(false);
     });
 
     it('should return false for null user', () => {
@@ -499,21 +425,6 @@ describe('Auth Guards', () => {
       // Should still allow access since initialized
       const result = requireAuth(state);
       expect(result.allowed).toBe(true);
-    });
-
-    it('should handle all user roles for premium check', () => {
-      const roles: UserRole[] = ['athlete', 'coach', 'director', 'recruiter', 'parent'];
-
-      for (const role of roles) {
-        const premiumUser = createMockAuthUser({ role, isPremium: true });
-        const state = createMockAuthState({
-          user: premiumUser,
-          isInitialized: true,
-        });
-
-        const result = requirePremium(state);
-        expect(result.allowed).toBe(true);
-      }
     });
 
     it('should handle missing user properties gracefully', () => {

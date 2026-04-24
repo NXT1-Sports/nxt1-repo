@@ -14,19 +14,53 @@
 
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
-import { getCacheService } from '../../../../services/cache.service.js';
-import { CACHE_KEYS as USER_CACHE_KEYS } from '../../../../services/users.service.js';
-import { invalidateProfileCaches } from '../../../../routes/profile.routes.js';
+import { getCacheService } from '../../../../services/core/cache.service.js';
+import {
+  createProfileWriteAccessService,
+  resolveAuthorizedTargetSportSelection,
+} from '../../../../services/profile/profile-write-access.service.js';
+import { CACHE_KEYS as USER_CACHE_KEYS } from '../../../../services/profile/users.service.js';
+import { invalidateProfileCaches } from '../../../../routes/profile/shared.js';
 import { normalizeCollegeName } from './dedup-utils.js';
+import { getAnalyticsLoggerService } from '../../../../services/core/analytics-logger.service.js';
 import { logger } from '../../../../utils/logger.js';
+import { SyncDiffService, type PreviousProfileState } from '../../sync/index.js';
+import { onDailySyncComplete } from '../../triggers/trigger.listeners.js';
+import { resolveCreatedAt } from './doc-date-utils.js';
+import { z } from 'zod';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
 const RECRUITING_COLLECTION = 'Recruiting';
-const USERS_COLLECTION = 'Users';
 const MAX_ACTIVITIES = 100;
 
 const VALID_CATEGORIES = new Set(['offer', 'interest', 'visit', 'camp', 'commitment', 'contact']);
+
+const RecruitingActivityEntrySchema = z
+  .object({
+    category: z.string().trim().min(1).optional(),
+    collegeName: z.string().trim().min(1).optional(),
+    collegeLogoUrl: z.string().trim().min(1).optional(),
+    division: z.string().trim().min(1).optional(),
+    conference: z.string().trim().min(1).optional(),
+    city: z.string().trim().min(1).optional(),
+    state: z.string().trim().min(1).optional(),
+    date: z.string().trim().min(1).optional(),
+    scholarshipType: z.string().trim().min(1).optional(),
+    coachName: z.string().trim().min(1).optional(),
+    coachTitle: z.string().trim().min(1).optional(),
+    notes: z.string().trim().min(1).optional(),
+  })
+  .passthrough();
+
+const WriteRecruitingActivityInputSchema = z.object({
+  userId: z.string().trim().min(1),
+  targetSport: z.string().trim().min(1),
+  source: z.string().trim().min(1),
+  sourceUrl: z.string().trim().min(1).optional(),
+  profileUrl: z.string().trim().min(1).optional(),
+  activities: z.array(RecruitingActivityEntrySchema).min(1).max(MAX_ACTIVITIES),
+});
 
 // ─── Tool ───────────────────────────────────────────────────────────────────
 
@@ -40,6 +74,8 @@ export class WriteRecruitingActivityTool extends BaseTool {
     '- userId (required): Firebase UID.\n' +
     '- targetSport (required): Sport key (e.g. "football").\n' +
     '- source (required): Platform slug (e.g. "247sports").\n' +
+    '- sourceUrl (optional): The URL that was scraped to extract this data.\n' +
+    '- profileUrl (optional): The athlete profile URL on the source platform.\n' +
     '- activities (required): Array of recruiting activity objects:\n' +
     '  • category (required): "offer", "interest", "visit", "camp", "commitment", or "contact".\n' +
     '  • collegeName (optional): College/university name.\n' +
@@ -54,44 +90,13 @@ export class WriteRecruitingActivityTool extends BaseTool {
     '  • coachTitle (optional): Coach title.\n' +
     '  • notes (optional): Additional notes.';
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      userId: { type: 'string' },
-      targetSport: { type: 'string' },
-      source: { type: 'string' },
-      activities: {
-        type: 'array',
-        items: {
-          type: 'object',
-          properties: {
-            category: {
-              type: 'string',
-              enum: ['offer', 'interest', 'visit', 'camp', 'commitment', 'contact'],
-            },
-            collegeName: { type: 'string' },
-            collegeLogoUrl: { type: 'string' },
-            division: { type: 'string' },
-            conference: { type: 'string' },
-            city: { type: 'string' },
-            state: { type: 'string' },
-            date: { type: 'string' },
-            scholarshipType: { type: 'string' },
-            coachName: { type: 'string' },
-            coachTitle: { type: 'string' },
-            notes: { type: 'string' },
-          },
-          required: ['category'],
-        },
-      },
-    },
-    required: ['userId', 'targetSport', 'source', 'activities'],
-  } as const;
+  readonly parameters = WriteRecruitingActivityInputSchema;
 
   override readonly allowedAgents = ['data_coordinator', 'recruiting_coordinator'] as const;
   readonly isMutation = true;
   readonly category = 'database' as const;
 
+  readonly entityGroup = 'user_tools' as const;
   private readonly db: Firestore;
 
   constructor(db?: Firestore) {
@@ -103,33 +108,42 @@ export class WriteRecruitingActivityTool extends BaseTool {
     input: Record<string, unknown>,
     context?: ToolExecutionContext
   ): Promise<ToolResult> {
-    const userId = this.str(input, 'userId');
-    if (!userId) return this.paramError('userId');
-    const targetSport = this.str(input, 'targetSport');
-    if (!targetSport) return this.paramError('targetSport');
-    const source = this.str(input, 'source');
-    if (!source) return this.paramError('source');
+    const parsed = WriteRecruitingActivityInputSchema.safeParse(input);
+    if (!parsed.success) return this.zodError(parsed.error);
 
-    const activities = input['activities'];
-    if (!Array.isArray(activities) || activities.length === 0) {
-      return { success: false, error: 'activities must be a non-empty array.' };
-    }
-    if (activities.length > MAX_ACTIVITIES) {
-      return { success: false, error: `activities exceeds maximum of ${MAX_ACTIVITIES}.` };
-    }
+    const { userId, targetSport, source } = parsed.data;
+    const sourceUrl = parsed.data.sourceUrl ?? parsed.data.profileUrl;
+    const activities = parsed.data.activities;
 
-    // Validate user exists
-    const userDoc = await this.db.collection(USERS_COLLECTION).doc(userId).get();
-    if (!userDoc.exists) {
-      return { success: false, error: `User "${userId}" not found.` };
+    if (!context?.userId) {
+      return { success: false, error: 'Authenticated tool context is required.' };
     }
-    const userData = userDoc.data() as Record<string, unknown>;
 
     try {
+      const accessGrant = await createProfileWriteAccessService(
+        this.db
+      ).assertCanManageAthleteProfileTarget({
+        actorUserId: context.userId,
+        targetUserId: userId,
+        action: 'tool:write_recruiting_activity',
+      });
+      const userData = accessGrant.targetUserData;
       const sportId = targetSport.trim().toLowerCase();
+      if (
+        !accessGrant.isSelfWrite &&
+        !resolveAuthorizedTargetSportSelection(userData, sportId, accessGrant)
+      ) {
+        return {
+          success: false,
+          error: 'Not authorized to write recruiting activity for this sport.',
+        };
+      }
       const now = new Date().toISOString();
 
-      context?.onProgress?.('Checking for duplicate recruiting entries…');
+      context?.emitStage?.('fetching_data', {
+        icon: 'database',
+        phase: 'check_duplicate_recruiting_entries',
+      });
 
       // Fetch existing recruiting activities for dedup
       const existingSnap = await this.db
@@ -137,6 +151,12 @@ export class WriteRecruitingActivityTool extends BaseTool {
         .where('userId', '==', userId)
         .where('sport', '==', sportId)
         .get();
+
+      // Snapshot previous recruiting state for delta detection
+      const previousRecruiting: Record<string, unknown>[] = existingSnap.docs.map((d) => d.data());
+      const previousState: PreviousProfileState = {
+        recruiting: previousRecruiting,
+      };
 
       const existingKeys = new Set<string>();
       for (const doc of existingSnap.docs) {
@@ -146,6 +166,7 @@ export class WriteRecruitingActivityTool extends BaseTool {
 
       let written = 0;
       let skipped = 0;
+      const writtenRecords: Record<string, unknown>[] = [];
 
       const batch = this.db.batch();
 
@@ -169,9 +190,13 @@ export class WriteRecruitingActivityTool extends BaseTool {
           category,
           source,
           verified: false,
-          createdAt: now,
+          // Data lineage
+          provider: source,
+          extractedAt: now,
+          createdAt: resolveCreatedAt(undefined, this.str(a, 'date'), now),
           updatedAt: now,
         };
+        if (sourceUrl) record['sourceUrl'] = sourceUrl;
 
         // Optional fields
         const optionalFields = [
@@ -203,13 +228,16 @@ export class WriteRecruitingActivityTool extends BaseTool {
         const docRef = this.db.collection(RECRUITING_COLLECTION).doc();
         record['id'] = docRef.id;
         batch.set(docRef, record);
+        writtenRecords.push(record);
         written++;
       }
 
       if (written > 0) {
-        context?.onProgress?.(
-          `Writing ${written} recruiting activit${written === 1 ? 'y' : 'ies'}…`
-        );
+        context?.emitStage?.('submitting_job', {
+          icon: 'database',
+          activityCount: written,
+          phase: 'write_recruiting_activity',
+        });
         await batch.commit();
         logger.info('[WriteRecruitingActivity] Recruiting activities written', {
           userId,
@@ -236,12 +264,105 @@ export class WriteRecruitingActivityTool extends BaseTool {
           cache.del(`profile:${userId}:recruiting:all`),
           invalidateProfileCaches(
             userId,
-            typeof userData['username'] === 'string' ? userData['username'] : undefined,
             typeof userData['unicode'] === 'string' ? userData['unicode'] : null
           ),
         ]);
       } catch {
         // Best-effort
+      }
+
+      if (writtenRecords.length > 0) {
+        const analytics = getAnalyticsLoggerService();
+        await Promise.allSettled(
+          writtenRecords.map((record) => {
+            const category = String(record['category'] ?? 'activity_recorded');
+            const eventType =
+              category === 'offer'
+                ? 'offer_recorded'
+                : category === 'visit'
+                  ? 'visit_recorded'
+                  : category === 'contact'
+                    ? 'coach_contact_recorded'
+                    : category === 'commitment'
+                      ? 'commitment_recorded'
+                      : 'activity_recorded';
+
+            return analytics.safeTrack({
+              subjectId: userId,
+              subjectType: 'user',
+              domain: 'recruiting',
+              eventType,
+              source: 'agent',
+              actorUserId: context.userId,
+              sessionId: context.sessionId ?? null,
+              threadId: context.threadId ?? null,
+              tags: [sportId, category, source].filter(Boolean),
+              payload: {
+                sportId,
+                source,
+                sourceUrl,
+                collegeName: record['collegeName'],
+                division: record['division'],
+                conference: record['conference'],
+                coachName: record['coachName'],
+                coachTitle: record['coachTitle'],
+                scholarshipType: record['scholarshipType'],
+                date: record['date'],
+                notes: record['notes'],
+              },
+              metadata: {
+                toolName: this.name,
+              },
+            });
+          })
+        );
+      }
+
+      // ── Delta Detection & Trigger ─────────────────────────────────────
+      if (written > 0) {
+        try {
+          const diffService = new SyncDiffService();
+          const extractedProfile = {
+            platform: source ?? '',
+            profileUrl: sourceUrl ?? '',
+            recruiting: writtenRecords.map((r) => ({
+              category: String(r['category'] ?? '') as
+                | 'offer'
+                | 'interest'
+                | 'visit'
+                | 'camp'
+                | 'commitment',
+              collegeName: r['collegeName'] != null ? String(r['collegeName']) : undefined,
+              collegeLogoUrl: r['collegeLogoUrl'] != null ? String(r['collegeLogoUrl']) : undefined,
+              division: r['division'] != null ? String(r['division']) : undefined,
+              conference: r['conference'] != null ? String(r['conference']) : undefined,
+              city: r['city'] != null ? String(r['city']) : undefined,
+              state: r['state'] != null ? String(r['state']) : undefined,
+              date: r['date'] != null ? String(r['date']) : undefined,
+              scholarshipType:
+                r['scholarshipType'] != null ? String(r['scholarshipType']) : undefined,
+              coachName: r['coachName'] != null ? String(r['coachName']) : undefined,
+              coachTitle: r['coachTitle'] != null ? String(r['coachTitle']) : undefined,
+              notes: r['notes'] != null ? String(r['notes']) : undefined,
+            })),
+          };
+          const delta = diffService.diff(userId, sportId, source, previousState, extractedProfile);
+          if (!delta.isEmpty) {
+            onDailySyncComplete(delta).catch((err) =>
+              logger.error('[WriteRecruitingActivity] Trigger failed', {
+                userId,
+                sport: sportId,
+                error: err instanceof Error ? err.message : String(err),
+              })
+            );
+          }
+        } catch (err) {
+          logger.error('[WriteRecruitingActivity] Delta computation failed', {
+            userId,
+            sport: sportId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
       }
 
       return {

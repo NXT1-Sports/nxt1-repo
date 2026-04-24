@@ -115,8 +115,8 @@ import { TeamProfileService } from '../team-profile.service';
           <h3>No roster members</h3>
           <p>Athletes will appear here when they join the team.</p>
           @if (teamProfile.isTeamAdmin()) {
-            <button type="button" class="madden-cta-btn" (click)="manageTeam.emit()">
-              Add Roster
+            <button type="button" class="madden-cta-btn" (click)="invite.emit()">
+              Invite Players
             </button>
           }
         </div>
@@ -413,6 +413,7 @@ export class TeamRosterWebComponent {
 
   readonly memberClick = output<TeamProfileRosterMember>();
 
+  readonly invite = output<void>();
   readonly manageTeam = output<void>();
 
   // ============================================

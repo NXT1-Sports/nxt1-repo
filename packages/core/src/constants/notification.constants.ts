@@ -71,6 +71,7 @@ export const NOTIFICATION_TYPES = {
   CARD_READY: 'card_ready',
   /** Unified Agent X action — covers task completions, briefings, welcome, etc. */
   AGENT_ACTION: 'agent_action',
+  DYNAMIC_AGENT_ALERT: 'dynamic_agent_alert',
   AI_NEEDS_INPUT: 'ai_needs_input',
   AI_NEEDS_APPROVAL: 'ai_needs_approval',
 
@@ -91,9 +92,13 @@ export const NOTIFICATION_TYPES = {
   PAYMENT_RECEIVED: 'payment_received',
   PAYMENT_FAILED: 'payment_failed',
   CREDITS_LOW: 'credits_low',
+  WALLET_EMPTY: 'wallet_empty',
+  ORG_WALLET_EMPTY: 'org_wallet_empty',
   CREDITS_ADDED: 'credits_added',
   BUDGET_WARNING: 'budget_warning',
   BUDGET_REACHED: 'budget_reached',
+  /** Org wallet was refilled — roster members on personal billing override can switch back */
+  ORG_WALLET_REFILLED: 'org_wallet_refilled',
 
   // Marketing
   FEATURE_ANNOUNCEMENT: 'feature_announcement',
@@ -160,6 +165,7 @@ export const NOTIFICATION_TYPE_CATEGORY: Record<NotificationType, NotificationCa
   video_failed: 'content',
   card_ready: 'content',
   agent_action: 'content',
+  dynamic_agent_alert: 'content',
   ai_needs_input: 'content',
   ai_needs_approval: 'content',
   // Legacy (still referenced in existing activity docs)
@@ -177,9 +183,12 @@ export const NOTIFICATION_TYPE_CATEGORY: Record<NotificationType, NotificationCa
   payment_received: 'billing',
   payment_failed: 'billing',
   credits_low: 'billing',
+  wallet_empty: 'billing',
+  org_wallet_empty: 'billing',
   credits_added: 'billing',
   budget_warning: 'billing',
   budget_reached: 'billing',
+  org_wallet_refilled: 'billing',
 
   // Marketing
   feature_announcement: 'marketing',
@@ -220,7 +229,7 @@ export const DEFAULT_NOTIFICATION_PREFERENCES: Record<
  */
 export const NOTIFICATION_COLLECTIONS = {
   /** Global push queue — triggers onNotificationCreated Cloud Function */
-  NOTIFICATIONS: 'notifications',
+  NOTIFICATIONS: 'Notifications',
   /** Per-user activity feed */
   USER_ACTIVITY: 'activity',
   /** Device FCM token registry */
@@ -260,6 +269,7 @@ export const NOTIFICATION_TYPE_TAB: Record<NotificationType, ActivityTabId> = {
   video_failed: 'alerts',
   card_ready: 'alerts',
   agent_action: 'alerts',
+  dynamic_agent_alert: 'alerts',
   ai_needs_input: 'alerts',
   ai_needs_approval: 'alerts',
   // Legacy
@@ -277,9 +287,12 @@ export const NOTIFICATION_TYPE_TAB: Record<NotificationType, ActivityTabId> = {
   payment_received: 'alerts',
   payment_failed: 'alerts',
   credits_low: 'alerts',
+  wallet_empty: 'alerts',
+  org_wallet_empty: 'alerts',
   credits_added: 'alerts',
   budget_warning: 'alerts',
   budget_reached: 'alerts',
+  org_wallet_refilled: 'alerts',
 
   // Marketing → alerts
   feature_announcement: 'alerts',
@@ -321,6 +334,7 @@ export const NOTIFICATION_DEEP_LINKS: Partial<Record<NotificationType, string>> 
   video_failed: '/agent-x?thread={sessionId}',
   card_ready: '/agent-x?thread={sessionId}',
   agent_action: '/agent-x?thread={sessionId}',
+  dynamic_agent_alert: '/agent-x?thread={sessionId}',
   ai_needs_input: '/agent-x?thread={sessionId}',
   ai_needs_approval: '/agent-x?thread={sessionId}',
   // Legacy
@@ -338,7 +352,10 @@ export const NOTIFICATION_DEEP_LINKS: Partial<Record<NotificationType, string>> 
   payment_received: '/usage?section=payment-history',
   payment_failed: '/usage?section=payment-info',
   credits_low: '/usage?section=overview',
+  wallet_empty: '/usage?section=overview',
+  org_wallet_empty: '/usage?section=overview',
   credits_added: '/usage?section=overview',
+  org_wallet_refilled: '/usage?section=overview',
 
   // Marketing
   feature_announcement: '/activity?tab=alerts',
@@ -410,7 +427,12 @@ export function getNotificationCategory(type: NotificationType): NotificationCat
  * Check if a notification type is high priority
  */
 export function isHighPriorityNotification(type: NotificationType): boolean {
-  const highPriorityTypes: NotificationType[] = ['security_alert', 'payment_failed'];
+  const highPriorityTypes: NotificationType[] = [
+    'security_alert',
+    'payment_failed',
+    'wallet_empty',
+    'org_wallet_empty',
+  ];
   return highPriorityTypes.includes(type);
 }
 

@@ -17,19 +17,10 @@ import {
   IonListHeader,
   IonLabel,
   IonItem,
-  IonIcon,
   IonNote,
 } from '@ionic/angular/standalone';
-import { addIcons } from 'ionicons';
-import {
-  chevronForward,
-  bookOutline,
-  videocamOutline,
-  schoolOutline,
-  documentTextOutline,
-  timeOutline,
-} from 'ionicons/icons';
 import { NxtPageHeaderComponent } from '../components/page-header';
+import { NxtIconComponent } from '../components/icon';
 import { HelpCenterService } from './help-center.service';
 import { HapticsService } from '../services/haptics/haptics.service';
 import type { HelpArticle, HelpCategoryId } from '@nxt1/core';
@@ -44,9 +35,9 @@ import type { HelpArticle, HelpCategoryId } from '@nxt1/core';
     IonListHeader,
     IonLabel,
     IonItem,
-    IonIcon,
     IonNote,
     NxtPageHeaderComponent,
+    NxtIconComponent,
   ],
   template: `
     <nxt1-page-header [title]="categoryTitle()" [showBack]="true" (backClick)="back.emit()" />
@@ -69,8 +60,9 @@ import type { HelpArticle, HelpCategoryId } from '@nxt1/core';
 
             @for (article of articles(); track article.id) {
               <ion-item class="category-item" button detail (click)="onArticleClick(article)">
-                <ion-icon
+                <nxt1-icon
                   [name]="getTypeIcon(article.type)"
+                  [size]="22"
                   slot="start"
                   class="category-item__icon"
                 />
@@ -87,7 +79,7 @@ import type { HelpArticle, HelpCategoryId } from '@nxt1/core';
         } @else {
           <!-- Empty State -->
           <div class="category-empty">
-            <ion-icon name="document-text-outline" class="category-empty__icon" />
+            <nxt1-icon name="documentText" [size]="48" class="category-empty__icon" />
             <h3>No articles yet</h3>
             <p>Check back soon for new content in this category.</p>
           </div>
@@ -279,17 +271,6 @@ import type { HelpArticle, HelpCategoryId } from '@nxt1/core';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class HelpCategoryDetailComponent {
-  constructor() {
-    addIcons({
-      chevronForward,
-      bookOutline,
-      videocamOutline,
-      schoolOutline,
-      documentTextOutline,
-      timeOutline,
-    });
-  }
-
   protected readonly helpService = inject(HelpCenterService);
   private readonly haptics = inject(HapticsService);
 
@@ -321,13 +302,15 @@ export class HelpCategoryDetailComponent {
   protected getTypeIcon(type: string): string {
     switch (type) {
       case 'video':
-        return 'videocam-outline';
+        return 'videocam';
       case 'guide':
-        return 'book-outline';
+        return 'newspaper';
       case 'tutorial':
-        return 'school-outline';
+        return 'graduationCap';
+      case 'faq':
+        return 'help';
       default:
-        return 'document-text-outline';
+        return 'documentText';
     }
   }
 }

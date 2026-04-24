@@ -166,7 +166,7 @@ export function estimateMaxCostWithConfig(
   maxOutputTokens: number = 2048,
   estimatedInputTokens: number = 500
 ): number {
-  const modelSlug = config.modelTierMap[modelTier] ?? 'anthropic/claude-3.5-sonnet';
+  const modelSlug = config.modelTierMap[modelTier] ?? 'anthropic/claude-sonnet-4';
   const pricing = AGENT_MODEL_PRICING[modelSlug];
 
   if (!pricing) {

@@ -5,8 +5,6 @@
  * Tools that allow Agent X to create, list, and cancel
  * recurring (cron-based) background tasks, and to enqueue
  * heavy one-off operations to the BullMQ queue from the chat stream.
- *
- * Restricted to ELITE and TEAM subscription plans.
  */
 
 export { ScheduleRecurringTaskTool } from './schedule-recurring.tool.js';

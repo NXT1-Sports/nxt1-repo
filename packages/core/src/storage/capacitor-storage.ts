@@ -31,6 +31,10 @@ interface CapacitorPreferences {
   keys(): Promise<{ keys: string[] }>;
 }
 
+type CapacitorPreferencesModule = {
+  Preferences: CapacitorPreferences;
+};
+
 // Lazy-loaded Preferences plugin
 let preferencesPlugin: CapacitorPreferences | null = null;
 
@@ -41,7 +45,10 @@ async function getPreferences(): Promise<CapacitorPreferences | null> {
   if (preferencesPlugin) return preferencesPlugin;
 
   try {
-    const { Preferences } = await import('@capacitor/preferences');
+    const loadPreferences = new Function(
+      'return import("@capacitor/preferences")'
+    ) as () => Promise<CapacitorPreferencesModule>;
+    const { Preferences } = await loadPreferences();
     preferencesPlugin = Preferences;
     return preferencesPlugin;
   } catch {

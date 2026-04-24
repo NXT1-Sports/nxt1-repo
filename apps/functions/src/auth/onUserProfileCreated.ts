@@ -3,7 +3,6 @@
  * @module @nxt1/functions/auth/onUserProfileCreated
  *
  * Triggered when a new user document is created in Firestore.
- * - Creates user_analytics document
  * - Initializes notification preferences on the Users document itself
  */
 
@@ -17,7 +16,7 @@ const db = admin.firestore();
  * On user profile created - initialize user data
  * Triggered when a new user document is created in Firestore.
  */
-export const onUserProfileCreatedV3 = onDocumentCreated('users/{userId}', async (event) => {
+export const onUserProfileCreatedV3 = onDocumentCreated('Users/{userId}', async (event) => {
   const snapshot = event.data;
   if (!snapshot) {
     logger.warn('No data in user profile creation event');
@@ -30,18 +29,12 @@ export const onUserProfileCreatedV3 = onDocumentCreated('users/{userId}', async 
   logger.info('User profile created', { userId, email: userData?.['email'] });
 
   try {
-    // Initialize analytics tracking
-    await db.collection('user_analytics').doc(userId).set({
-      userId,
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      profileViews: 0,
-      totalConnections: 0,
-      lastActive: admin.firestore.FieldValue.serverTimestamp(),
-    });
-
-    // Initialize notification preferences on the Users document
-    // This is the canonical source of truth checked by onNotificationCreated,
-    // processEmailQueue, and all other dispatch logic.
+    // Initialize notification preferences on the Users document.
+    // This is a fallback — the primary path is POST /auth/profile/onboarding
+    // which writes preferences when onboarding completes. This trigger
+    // fires on the initial user document creation (registration) before
+    // onboarding, so we only write if preferences don't exist yet.
+    // Both paths use marketing: true as the canonical default.
     const userRef = db.collection('Users').doc(userId);
     const userDoc = await userRef.get();
     if (userDoc.exists) {
@@ -51,7 +44,6 @@ export const onUserProfileCreatedV3 = onDocumentCreated('users/{userId}', async 
           'preferences.notifications': {
             push: true,
             email: true,
-            sms: false,
             marketing: true,
           },
         });

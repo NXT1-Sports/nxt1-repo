@@ -8,12 +8,13 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   validateJobOrigin,
+  isScheduledOrigin,
   mapJobStatus,
   inferCategory,
   iconForCategory,
   computeDuration,
   type TimestampLike,
-} from '../operations-log.helpers.js';
+} from '../agent/operations-log.helpers.js';
 
 // ─── validateJobOrigin ──────────────────────────────────────────────────────
 
@@ -40,6 +41,21 @@ describe('validateJobOrigin', () => {
     expect(validateJobOrigin(true)).toBe('user');
     expect(validateJobOrigin({})).toBe('user');
   });
+});
+
+// ─── isScheduledOrigin ─────────────────────────────────────────────────────
+
+describe('isScheduledOrigin', () => {
+  it('returns true for recurring cron jobs', () => {
+    expect(isScheduledOrigin('system_cron')).toBe(true);
+  });
+
+  it.each(['user', 'database_event', 'webhook', 'agent_chain'] as const)(
+    'returns false for non-scheduled origin "%s"',
+    (origin) => {
+      expect(isScheduledOrigin(origin)).toBe(false);
+    }
+  );
 });
 
 // ─── mapJobStatus ───────────────────────────────────────────────────────────

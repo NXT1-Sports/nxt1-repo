@@ -286,7 +286,6 @@ export const TRACE_NAMES = {
   ONBOARDING_STEP_SAVE: 'onboarding_step_save',
   ONBOARDING_PROFILE_SAVE: 'onboarding_profile_save',
   ONBOARDING_COMPLETE: 'onboarding_complete',
-  ONBOARDING_PRELOAD_SCRAPE: 'onboarding_preload_scrape',
 
   // XP traces
   XP_PREVIEW_LOAD: 'xp_preview_load',
@@ -327,6 +326,7 @@ export const TRACE_NAMES = {
   AGENT_ONBOARDING_COMPLETE: 'agent_onboarding_complete',
   AGENT_ONBOARDING_PROGRAM_SEARCH: 'agent_onboarding_program_search',
   AGENT_ONBOARDING_PROGRAM_CLAIM: 'agent_onboarding_program_claim',
+  AGENT_ONBOARDING_CONNECTION_SEARCH: 'agent_onboarding_connection_search',
   AGENT_ONBOARDING_CONNECTIONS_LOAD: 'agent_onboarding_connections_load',
 
   // Brand vault traces
@@ -348,6 +348,7 @@ export const TRACE_NAMES = {
   HELP_SEARCH: 'help_search',
   HELP_FEEDBACK_SUBMIT: 'help_feedback_submit',
   HELP_FAQ_LOAD: 'help_faq_load',
+  HELP_CENTER_AGENT_REFRESH: 'help_center_agent_refresh',
 
   // Usage / Billing dashboard traces
   USAGE_DASHBOARD_LOAD: 'usage_dashboard_load',
@@ -400,6 +401,14 @@ export const TRACE_NAMES = {
 
   // Media viewer traces
   MEDIA_VIEWER_OPEN: 'media_viewer_open',
+
+  // Agent X goal traces
+  AGENT_X_JOB_ENQUEUE: 'agent_x_job_enqueue',
+  AGENT_X_OPERATION_APPROVE: 'agent_x_operation_approve',
+  AGENT_X_OPERATION_REPLY: 'agent_x_operation_reply',
+  AGENT_X_OPERATION_RETRY: 'agent_x_operation_retry',
+  AGENT_X_GOAL_COMPLETE: 'agent_x_goal_complete',
+  AGENT_X_GOAL_HISTORY_LOAD: 'agent_x_goal_history_load',
 } as const;
 
 export type TraceName = (typeof TRACE_NAMES)[keyof typeof TRACE_NAMES];

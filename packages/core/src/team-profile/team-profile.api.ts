@@ -16,7 +16,9 @@ import type {
   TeamProfileTeam,
   TeamProfileRosterMember,
   TeamProfileScheduleEvent,
+  TeamTimelineFilterId,
 } from './team-profile.types';
+import type { FeedItem } from '../posts/feed.types';
 
 // ============================================
 // COMMON API RESPONSE TYPES
@@ -52,6 +54,20 @@ export interface TeamProfileSearchParams {
   teamType?: string;
   page?: number;
   limit?: number;
+}
+
+export interface TeamTimelineParams {
+  limit?: number;
+  cursor?: string;
+  filter?: TeamTimelineFilterId;
+  sportId?: string;
+}
+
+export interface TeamTimelineResponse {
+  items: FeedItem[];
+  nextCursor?: string;
+  hasMore: boolean;
+  total?: number;
 }
 
 // ============================================
@@ -90,11 +106,28 @@ export function createTeamProfileApi(http: HttpAdapter, baseUrl: string) {
     },
 
     /**
-     * Get team profile by ID.
-     * Calls: GET /api/v1/teams/:id
+     * Get team profile by short team code (e.g. "57L791").
+     * This is the canonical method when routing via /team/:slug/:teamCode.
+     * Calls: GET /api/v1/teams/by-teamcode/:teamCode
+     */
+    async getTeamByTeamCode(
+      teamCode: string
+    ): Promise<TeamProfileApiResponse<TeamProfilePageData>> {
+      return http.get<TeamProfileApiResponse<TeamProfilePageData>>(
+        `${endpoint}/by-teamcode/${encodeURIComponent(teamCode)}`
+      );
+    },
+
+    /**
+     * Get team profile by Firestore document ID.
+     * Use only when you have an explicit Firestore doc ID, NOT a short team code.
+     * For team codes (e.g. "57L791") use getTeamByTeamCode() instead.
+     * Calls: GET /api/v1/teams/by-id/:id
      */
     async getTeamById(teamId: string): Promise<TeamProfileApiResponse<TeamProfilePageData>> {
-      return http.get<TeamProfileApiResponse<TeamProfilePageData>>(`${endpoint}/${teamId}`);
+      return http.get<TeamProfileApiResponse<TeamProfilePageData>>(
+        `${endpoint}/by-id/${encodeURIComponent(teamId)}`
+      );
     },
 
     /**
@@ -142,6 +175,29 @@ export function createTeamProfileApi(http: HttpAdapter, baseUrl: string) {
       return http.post<TeamProfileApiResponse<void>>(`${endpoint}/${teamId}/page-view`, {
         viewerId,
       });
+    },
+
+    /**
+     * Get polymorphic timeline feed for a team.
+     * Calls: GET /api/v1/teams/:teamCode/timeline
+     *
+     * Returns FeedItem[] sorted newest-first, assembled from Posts,
+     * Schedule, TeamStats, News, and Recruiting fan-out.
+     */
+    async getTeamTimeline(
+      teamCode: string,
+      params?: TeamTimelineParams
+    ): Promise<TeamProfileApiResponse<TeamTimelineResponse>> {
+      const queryParams: Record<string, string | number | boolean> = {};
+      if (params?.limit != null) queryParams['limit'] = params.limit;
+      if (params?.cursor) queryParams['cursor'] = params.cursor;
+      if (params?.filter && params.filter !== 'all') queryParams['filter'] = params.filter;
+      if (params?.sportId) queryParams['sportId'] = params.sportId;
+
+      return http.get<TeamProfileApiResponse<TeamTimelineResponse>>(
+        `${endpoint}/${encodeURIComponent(teamCode)}/timeline`,
+        Object.keys(queryParams).length > 0 ? { params: queryParams } : undefined
+      );
     },
   };
 }

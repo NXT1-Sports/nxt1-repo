@@ -8,6 +8,7 @@
  *
  * Architecture (2026 Best Practices):
  * ├── auth/         - Authentication triggers (user lifecycle)
+ * ├── activity/     - Activity feed counters and projections
  * ├── monitoring/   - Monitoring & alerting (Crashlytics webhook)
  * ├── notification/ - Notification triggers (push)
  * ├── scheduled/    - Cron/scheduled tasks
@@ -37,6 +38,9 @@ setGlobalOptions({
 
 // Auth triggers (user lifecycle events)
 export * from './auth';
+
+// Activity triggers (badge counters / projections)
+export * from './activity';
 
 // User triggers (profile/data changes)
 export * from './user';

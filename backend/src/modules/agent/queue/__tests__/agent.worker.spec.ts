@@ -36,9 +36,11 @@ vi.mock('bullmq', () => {
 
 const mockFirestoreSnapshot = {
   empty: true,
+  exists: false,
   docs: [] as unknown[],
   size: 0,
   forEach: () => undefined,
+  data: () => ({}),
 };
 const mockFirestoreRef = {
   collection: function () {
@@ -93,6 +95,7 @@ function makeMockJob(payload: AgentJobPayload, environment: 'staging' | 'product
   return {
     id: payload.operationId,
     data: {
+      kind: 'agent' as const,
       payload,
       enqueuedAt: '2026-03-10T00:00:00Z',
       environment,
@@ -136,6 +139,17 @@ describe('AgentWorker', () => {
     subscribe: vi.fn().mockResolvedValue(() => undefined),
   };
 
+  const mockChatService = {
+    addMessage: vi.fn().mockResolvedValue(undefined),
+    generateOperationTitle: vi.fn().mockResolvedValue('Built Your Coach Outreach Plan'),
+    applyGeneratedThreadTitle: vi.fn().mockResolvedValue('Built Your Coach Outreach Plan'),
+    generateThreadTitle: vi.fn().mockResolvedValue('MaxPreps Sync Complete'),
+  };
+
+  const mockLlmService = {
+    complete: vi.fn(),
+  };
+
   beforeEach(() => {
     vi.clearAllMocks();
     capturedProcessor = null;
@@ -144,9 +158,10 @@ describe('AgentWorker', () => {
       mockRouter as never,
       mockJobRepo as never,
       mockJobRepo as never,
-      null as never,
+      mockChatService as never,
       mockPubSub as never,
       mockFirestore,
+      mockLlmService as never,
       'redis://localhost:6379'
     );
   });
@@ -176,7 +191,8 @@ describe('AgentWorker', () => {
       payload,
       expect.any(Function),
       mockFirestore,
-      expect.any(Function)
+      expect.any(Function),
+      'staging'
     );
   });
 
@@ -186,10 +202,126 @@ describe('AgentWorker', () => {
 
     const result = (await capturedProcessor!(job)) as Record<string, unknown>;
 
-    expect(result).toHaveProperty('result', mockRouterResult);
+    expect(result).toHaveProperty(
+      'result',
+      expect.objectContaining({
+        ...mockRouterResult,
+        title: 'Built Your Coach Outreach Plan',
+      })
+    );
     expect(result).toHaveProperty('durationMs');
     expect(result).toHaveProperty('completedAt');
     expect(typeof result['durationMs']).toBe('number');
+  });
+
+  it('should generate and persist a dedicated operation title', async () => {
+    const payload = makePayload({
+      context: { threadId: 'thread-123' },
+      intent: 'Analyze my linked maxpreps account for Belleville football',
+    });
+    const job = makeMockJob(payload);
+
+    await capturedProcessor!(job);
+
+    expect(mockChatService.addMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadId: 'thread-123',
+        role: 'assistant',
+        content: 'Drafted 5 recruiting emails',
+      })
+    );
+    expect(mockChatService.generateOperationTitle).toHaveBeenCalledWith(
+      payload.intent,
+      'Drafted 5 recruiting emails',
+      mockLlmService
+    );
+    expect(mockJobRepo.markCompleted).toHaveBeenCalledWith(
+      'op-worker-test',
+      expect.objectContaining({
+        title: 'Built Your Coach Outreach Plan',
+      })
+    );
+    expect(mockChatService.applyGeneratedThreadTitle).toHaveBeenCalledWith(
+      'thread-123',
+      payload.userId,
+      payload.intent,
+      'Built Your Coach Outreach Plan'
+    );
+    expect(mockChatService.generateThreadTitle).not.toHaveBeenCalled();
+  });
+
+  it('should persist streamed parts and tool steps for thread reload hydration', async () => {
+    const payload = makePayload({
+      context: { threadId: 'thread-123' },
+      intent: 'Find the top transfer portal athletes in the browser',
+    });
+    const job = makeMockJob(payload);
+
+    mockRouter.run.mockImplementationOnce(async (_p, _onUpdate, _db, onStreamEvent) => {
+      onStreamEvent({
+        type: 'delta',
+        agentId: 'router',
+        text: 'I opened the live browser and checked the page. ',
+      });
+      onStreamEvent({
+        type: 'step_active',
+        agentId: 'router',
+        toolName: 'read_live_view',
+        stageType: 'tool',
+        stage: 'fetching_data',
+        metadata: { source: 'live_view', hostname: 'on3.com' },
+        message: 'Reading current page...',
+        icon: 'search',
+      });
+      onStreamEvent({
+        type: 'tool_result',
+        agentId: 'router',
+        toolName: 'read_live_view',
+        toolSuccess: true,
+        toolResult: { count: 4 },
+        message: 'Read current page',
+        icon: 'search',
+      });
+
+      return {
+        ...mockRouterResult,
+        summary: 'Found 4 transfer portal athletes',
+      };
+    });
+
+    await capturedProcessor!(job);
+
+    expect(mockChatService.addMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadId: 'thread-123',
+        role: 'assistant',
+        content: 'I opened the live browser and checked the page. ',
+        steps: [
+          expect.objectContaining({
+            status: 'success',
+            label: 'Read current page',
+            detail: '4 result(s)',
+            icon: 'search',
+          }),
+        ],
+        parts: [
+          {
+            type: 'text',
+            content: 'I opened the live browser and checked the page. ',
+          },
+          {
+            type: 'tool-steps',
+            steps: [
+              expect.objectContaining({
+                status: 'success',
+                label: 'Read current page',
+                detail: '4 result(s)',
+              }),
+            ],
+          },
+        ],
+      })
+    );
   });
 
   it('should call job.updateProgress at least once (final 100%)', async () => {
@@ -202,6 +334,7 @@ describe('AgentWorker', () => {
     expect(job.updateProgress).toHaveBeenCalledWith(
       expect.objectContaining({
         status: 'completed',
+        outcomeCode: 'success_default',
         percent: 100,
       })
     );
@@ -266,6 +399,35 @@ describe('AgentWorker', () => {
     await expect(capturedProcessor!(job)).rejects.toThrow('LLM timeout');
   });
 
+  it('should mark the job as failed when the router returns a failed plan result', async () => {
+    const payload = makePayload();
+    const job = makeMockJob(payload);
+
+    mockRouter.run.mockResolvedValue({
+      summary: 'Execution plan failed. Task 1 (performance_coordinator) failed: LLM timeout',
+      data: {
+        operationStatus: 'failed',
+        firstFailedTask: {
+          id: '1',
+          assignedAgent: 'performance_coordinator',
+          error: 'LLM timeout',
+        },
+      },
+    } satisfies AgentOperationResult);
+
+    await capturedProcessor!(job);
+
+    expect(mockJobRepo.markFailed).toHaveBeenCalledWith(
+      'op-worker-test',
+      'Execution plan failed. Task 1 (performance_coordinator) failed: LLM timeout'
+    );
+    expect(mockJobRepo.markCompleted).not.toHaveBeenCalled();
+
+    const finalProgress = job.updateProgress.mock.calls.at(-1)?.[0];
+    expect(finalProgress.status).toBe('failed');
+    expect(finalProgress.message).toContain('Execution plan failed.');
+  });
+
   // ── Lifecycle ─────────────────────────────────────────────────────────
 
   describe('shutdown', () => {
@@ -274,9 +436,10 @@ describe('AgentWorker', () => {
         mockRouter as never,
         mockJobRepo as never,
         mockJobRepo as never,
-        null as never,
+        mockChatService as never,
         mockPubSub as never,
         mockFirestore,
+        mockLlmService as never,
         'redis://localhost:6379'
       );
       await worker.shutdown();
@@ -290,9 +453,10 @@ describe('AgentWorker', () => {
         mockRouter as never,
         mockJobRepo as never,
         mockJobRepo as never,
-        null as never,
+        mockChatService as never,
         mockPubSub as never,
         mockFirestore,
+        mockLlmService as never,
         'redis://localhost:6379'
       );
       expect(worker.isRunning()).toBe(true);

@@ -177,7 +177,12 @@ firebase functions:config:set n8n.webhook_url="https://your-n8n.com/webhook/nxt1
    ```
    /invite @NXT1 CI/CD Bot
    ```
-   in `#urgent-alerts`, `#staging-alerts`, `#builds`
+   in `#alerts-channels` and any additional channels you want to use
+7. Set the alert destination used by the Crashlytics webhook:
+   ```bash
+   export SLACK_ALERTS_CHANNEL="#alerts-channels"
+   ```
+   Channel IDs are also supported and are preferred for private channels.
 
 #### Interactive Components:
 
@@ -217,7 +222,7 @@ throw new Error('Test error from setup');
 
 1. ⏱️ **~30 seconds** — Firebase processes crash
 2. 🔔 **~5 seconds** — Cloud Function receives webhook
-3. 📱 **~2 seconds** — Slack alert appears in `#urgent-alerts`
+3. 📱 **~2 seconds** — Slack alert appears in `#alerts-channels`
 4. 🤖 **~10 seconds** — GitHub Actions starts AI analysis
 5. 💬 **~30 seconds** — Analysis posted to Slack
 6. 🔧 **~60 seconds** — Fix PR created (if high confidence)

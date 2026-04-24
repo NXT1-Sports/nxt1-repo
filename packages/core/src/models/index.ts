@@ -19,10 +19,16 @@ export type {
   CollegeListResponse,
   ConferenceInfo,
   DivisionWithColleges,
-} from './college.types';
+} from './platform/college.types';
 
 // Network model
-export { type ConnectionType, type NetworkStatus, type NetworkChangeEvent } from './network.model';
+export {
+  type ConnectionType,
+  type NetworkStatus,
+  type NetworkChangeEvent,
+} from './platform/network.model';
+
+export type { PortableTimestamp } from './portable-timestamp.model';
 
 // Team code model (legacy Firebase)
 export {
@@ -40,7 +46,7 @@ export {
   type UpdateMemberRoleInput,
   type BulkUpdateMemberInput,
   type BulkUpdateResult,
-} from './team-code.model';
+} from './team/team-code.model';
 
 // ============================================
 // NEW ARCHITECTURE (v3.0) - Relational Models
@@ -49,6 +55,7 @@ export {
 // Organization model
 export {
   OrganizationStatus,
+  type OrgAdminRole,
   type Organization,
   type OrganizationBilling,
   type OrganizationAdmin,
@@ -56,7 +63,7 @@ export {
   type CreateOrganizationInput,
   type UpdateOrganizationInput,
   type AddOrganizationAdminInput,
-} from './organization.model';
+} from './team/organization.model';
 
 // Team model (v3.0 - refactored from TeamCode)
 export {
@@ -65,12 +72,13 @@ export {
   type TeamSource,
   type CreateTeamInput,
   type UpdateTeamInput,
-} from './team.model';
+} from './team/team.model';
 
 // Roster Entry model (Junction table: User <-> Team)
+// UserRole is used directly on RosterEntry.role (no separate RosterRole enum)
+export type { UserRole } from '../constants/user.constants';
 export {
   RosterEntryStatus,
-  RosterRole,
   type RosterEntry,
   type CreateRosterEntryInput,
   type UpdateRosterEntryInput,
@@ -80,7 +88,7 @@ export {
   type GetOrganizationMembersQuery,
   type RosterEntryWithTeam,
   type RosterEntryWithUser,
-} from './roster-entry.model';
+} from './team/roster-entry.model';
 
 // ============================================
 
@@ -92,7 +100,10 @@ export {
   type TeamEventResult,
   type TeamEventDoc,
   type TeamEvent,
-} from './team-event.model';
+} from './team/team-event.model';
+
+// Team stats model (sport-agnostic, Schedule collection)
+export { type TeamStatTrend, type TeamStatEntry, type TeamStatDoc } from './team/team-stats.model';
 
 // User model - Core types (use these)
 export {
@@ -101,12 +112,10 @@ export {
   type User,
   // Location & Contact
   type Location,
-  type SocialLinks,
+  type UserContact,
   type SocialLink as UserSocialLink,
-  type ContactInfo,
   type ConnectedSource,
   // Connected email (metadata only — tokens in sub-collection)
-  // EmailProvider is exported from campaigns section below
   type ConnectedEmail,
   type EmailTokenData,
   // Verification
@@ -122,7 +131,6 @@ export {
   // @deprecated — use RecruitingActivity instead
   type RecruitingSummary,
   type AcademicInfo,
-  type SportVerification,
   // Agnostic verification (2026+)
   type DataVerification,
   type VerificationScope,
@@ -131,10 +139,18 @@ export {
   type VerifiedMetric,
   type VerifiedStat,
   type ScheduleEvent,
-  // @deprecated — use VerifiedMetric[] / VerifiedStat[] instead
-  type AthleticMetrics,
-  type SeasonStats,
-  type GameStats,
+} from './user';
+
+// Schedule event — Firestore Schedule collection document type
+export {
+  type ScheduleEventType,
+  type ScheduleEventOwnerType,
+  type ScheduleEventStatus,
+  type ScheduleEventOutcome,
+  type ScheduleEventDoc,
+} from './user/schedule-event.model';
+
+export {
   // Agent X & Scouting (source-of-truth types)
   // Note: Display-DTO versions with same names exist in profile.types.ts
   // Import from @nxt1/core/models when you need domain types
@@ -144,22 +160,16 @@ export {
   type TeamHistoryEntry,
   type UserAward,
   // Role-specific data
-  type AthleteData,
   type CoachData,
   type DirectorData,
-  type RecruiterData,
-  type ParentData,
   // Preferences & Settings
   type NotificationPreferences,
   type UserPreferences,
-  type UserCounters,
   // Utility types
   type UserSummary,
   // Type guards
   isAthlete,
   isCoach,
-  isCollegeCoach,
-  isRecruiter,
   isDirector,
   isOnboarded,
   isVerified,
@@ -174,9 +184,7 @@ export {
   isCommitted,
   getDisplayName,
   getProfileImg,
-  getBannerImg,
   getProfileImages,
-  getGalleryImages,
   getSocialUrl,
   getClassOf,
   getConnectedSource,
@@ -204,14 +212,7 @@ export {
   type UserSportDoc,
   // Private sub-collections
   type XpEntryDoc,
-} from './user.model';
-
-// ====================================
-// LEGACY TYPES - REMOVED
-// All legacy types (StatData, SportInfo, PlayerTag, etc.) have been
-// removed from public exports. They still exist in
-// ./legacy/user-legacy.model.ts for reference/migration only.
-// ====================================
+} from './user';
 
 // Media model (videos, profile cards, posts)
 export {
@@ -227,8 +228,6 @@ export {
   type Post,
   type PostMention,
   type PostAttachment,
-  type PostReactionRecord,
-  type PostComment,
   isProfileCard,
   isVideoMedia,
   isMediaReady,
@@ -243,42 +242,10 @@ export {
   type CreateProfileCardRequest,
   type FeedQuery,
   type FeedResponse,
-} from './media.model';
+} from './content/media.model';
 
-// Campaigns model (email campaigns, templates)
-export {
-  CAMPAIGNS_SCHEMA_VERSION,
-  CAMPAIGN_STATUSES,
-  RECIPIENT_STATUSES,
-  EMAIL_PROVIDERS,
-  TEMPLATE_TYPES,
-  type CampaignStatus,
-  type RecipientStatus,
-  type EmailProvider,
-  type TemplateType,
-  type EmailTemplate,
-  type CampaignRecipient,
-  type Campaign,
-  type UserCampaigns,
-  type ConnectedEmailAccount,
-  isCampaignSent,
-  isCampaignActive,
-  isRecipientEngaged,
-  hasConnectedEmail,
-  createDefaultUserCampaigns,
-  createDefaultCampaign,
-  createDefaultTemplate,
-  CAMPAIGN_LIMITS,
-  getCampaignLimits,
-  TEMPLATE_VARIABLES,
-  type TemplateVariable,
-  interpolateTemplate,
-  type CreateCampaignRequest,
-  type SendCampaignRequest,
-  type CampaignAnalyticsResponse,
-  type ConnectEmailRequest,
-  type SaveTemplateRequest,
-} from './campaigns.model';
+// EmailProvider re-exported for backward compat (defined in campaign.constants)
+export type { EmailProvider } from '../constants/campaign.constants';
 
 // Payment model (subscriptions, transactions, entitlements)
 export {
@@ -316,10 +283,32 @@ export {
   type OpenCollegesRequest,
   type RefundRequest,
   type PaymentMethodRequest,
-} from './payment.model';
+} from './platform/payment.model';
 
 // User analytics model (profile views, engagement, etc.)
-export * from './user-analytics.model';
+export * from './platform/user-analytics.model';
+
+// Custom analytics model (flexible analytics event records)
+export type { CustomAnalyticsEvent } from './platform/custom-analytics.model';
+
+// Agent analytics event-sourcing ontology and rollups
+export {
+  ANALYTICS_DOMAINS,
+  ANALYTICS_SUBJECT_TYPES,
+  ANALYTICS_EVENT_TYPES,
+  ANALYTICS_SUMMARY_TIMEFRAMES,
+  getAnalyticsEventTypesForDomain,
+  getDefaultAnalyticsEventType,
+  isAnalyticsDomain,
+  isAnalyticsSubjectType,
+  isAnalyticsEventTypeForDomain,
+  type AnalyticsDomain,
+  type AnalyticsSubjectType,
+  type AnalyticsEventType,
+  type AnalyticsSummaryTimeframe,
+  type AnalyticsEventRecord,
+  type AnalyticsRollupRecord,
+} from './platform/analytics-event.model';
 
 // Notification model (push, email, SMS, in-app)
 export {
@@ -340,7 +329,7 @@ export {
   type RegisterPushTokenRequest,
   type UpdateNotificationSettingsRequest,
   type DispatchNotificationInput,
-} from './notification.model';
+} from './content/notification.model';
 
 // NOTE: App analytics (event tracking) moved to @nxt1/core/analytics
 // Import from: import { APP_EVENTS, ... } from '@nxt1/core/analytics'
@@ -422,7 +411,7 @@ export {
   updateSidenavBadge,
   toggleSidenavSection,
   filterSidenavByRoles,
-} from './navigation.model';
+} from './platform/navigation.model';
 
 // User Display Context — Single source of truth for user menus/sidebars/headers
 export {
@@ -431,4 +420,4 @@ export {
   type UserDisplayContext,
   buildUserDisplayContext,
   deduplicateSportProfiles,
-} from './user-display-context';
+} from './user/user-display-context';

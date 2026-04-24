@@ -41,7 +41,13 @@ import { NxtToastService } from '@nxt1/ui/services/toast';
 import { NxtModalService } from '@nxt1/ui/services/modal';
 import { AUTH_SERVICE, type IAuthService } from '../../core/services/auth/auth.interface';
 import { SeoService } from '../../core/services';
-import type { SettingsUserInfo, SettingsSubscription, SettingsItem } from '@nxt1/core';
+import {
+  buildLinkSourcesFormData,
+  mapToConnectedSources,
+  type SettingsUserInfo,
+  type SettingsSubscription,
+  type SettingsItem,
+} from '@nxt1/core';
 import type { LinkSourcesFormData, OnboardingUserType } from '@nxt1/core/api';
 import { SettingsConfirmModalComponent } from './settings-confirm-modal.component';
 
@@ -180,63 +186,18 @@ export class SettingsComponent implements OnInit {
   protected readonly userInfo = computed<SettingsUser | null>(() => {
     const user = this.authService.user();
     if (!user) return null;
-
-    // Firebase OAuth provider IDs → platform IDs used in the link drop step
-    const PROVIDER_ID_MAP: Record<string, string> = {
-      'google.com': 'google',
-      'microsoft.com': 'microsoft',
-    };
-
-    // Signed-in OAuth providers from Firebase Auth (mark as connected)
     const firebaseUser = this.authService.firebaseUser();
-    const firebaseSigninLinks = (firebaseUser?.providerData ?? [])
-      .filter((p) => PROVIDER_ID_MAP[p.providerId])
-      .map((p) => ({
-        platform: PROVIDER_ID_MAP[p.providerId]!,
-        connected: true,
-        connectionType: 'signin' as const,
-        scopeType: 'global' as const,
-      }));
-
-    // Also check backend-stored email token connections (Agent X OAuth flow).
-    // provider: 'gmail' → platform: 'google', provider: 'microsoft' → platform: 'microsoft'
-    const EMAIL_PROVIDER_PLATFORM: Record<string, string> = {
-      gmail: 'google',
-      microsoft: 'microsoft',
-    };
-    const firebasePlatforms = new Set(firebaseSigninLinks.map((l) => l.platform));
-    const emailTokenLinks = (user.connectedEmails ?? [])
-      .filter((e) => e.isActive !== false && EMAIL_PROVIDER_PLATFORM[e.provider])
-      .filter((e) => !firebasePlatforms.has(EMAIL_PROVIDER_PLATFORM[e.provider]))
-      .map((e) => ({
-        platform: EMAIL_PROVIDER_PLATFORM[e.provider]!,
-        connected: true,
-        connectionType: 'signin' as const,
-        scopeType: 'global' as const,
-      }));
-
-    const signinLinks = [...firebaseSigninLinks, ...emailTokenLinks];
-
-    // Convert ConnectedSource[] → LinkSourcesFormData for the shared link drop step
-    const linkedSources = (user.connectedSources ?? []).map((src) => ({
-      platform: src.platform,
-      connected: true,
-      connectionType: 'link' as const,
-      url: src.profileUrl,
-      scopeType: src.scopeType ?? 'global',
-      scopeId: src.scopeId,
-    }));
-
-    const allLinks = [...linkedSources, ...signinLinks];
-    const linkSourcesData: LinkSourcesFormData | null = allLinks.length
-      ? { links: allLinks }
-      : null;
+    const linkSourcesData = buildLinkSourcesFormData({
+      connectedSources: user.connectedSources ?? [],
+      connectedEmails: user.connectedEmails ?? [],
+      firebaseProviders: firebaseUser?.providerData ?? [],
+    }) as LinkSourcesFormData | null;
 
     return {
       profileImg: user.profileImg ?? null,
       displayName: user.displayName,
       role: (user.role as OnboardingUserType) ?? null,
-      selectedSports: user.selectedSports ?? [],
+      selectedSports: user.selectedSports ?? user.sports?.map(({ sport }) => sport) ?? [],
       linkSourcesData,
       scope:
         user.role === 'coach' || user.role === 'director'
@@ -325,31 +286,37 @@ export class SettingsComponent implements OnInit {
         const data = (
           event as SettingsActionEvent & {
             data?: {
-              updatedLinks?: readonly {
+              linkSources?: LinkSourcesFormData;
+              requestResync?: boolean;
+              resyncSources?: readonly {
                 platform: string;
-                url: string;
+                label?: string;
                 username?: string;
-                scopeType?: string;
-                scopeId?: string;
-                displayOrder: number;
+                url?: string;
+                connected?: boolean;
               }[];
             };
           }
         ).data;
-        if (!data?.updatedLinks) {
-          this.logger.warn('saveConnectedAccounts: no updatedLinks in event data');
+        if (!data?.linkSources) {
+          this.logger.warn('saveConnectedAccounts: no linkSources in event data');
           return;
         }
+        const connectedSources = mapToConnectedSources(data.linkSources.links);
         this.logger.info('Saving connected accounts from settings', {
-          count: data.updatedLinks.length,
+          count: connectedSources.length,
         });
-        const result = await this.editProfileApi.updateSection(user.uid, 'social-links', {
-          links: data.updatedLinks,
+        const result = await this.editProfileApi.updateSection(user.uid, 'connected-sources', {
+          connectedSources,
         });
         if (result.success) {
-          this.toast.success('Connected accounts updated');
           // Re-sync the AppUser signal so the settings UI reflects the new links immediately
           await this.authService.refreshUserProfile();
+          if (data.requestResync) {
+            await this.settingsService.requestConnectedAccountsResync(data.resyncSources ?? []);
+          } else {
+            this.toast.success('Connected accounts updated');
+          }
         } else {
           this.logger.error('Failed to save connected accounts', undefined, {
             error: result.error,

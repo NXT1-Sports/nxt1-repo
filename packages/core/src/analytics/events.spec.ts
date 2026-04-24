@@ -41,10 +41,9 @@ describe('Event Constants', () => {
       expect(APP_EVENTS.VIDEO_COMPLETED).toBe('video_completed');
     });
 
-    it('should have subscription events', () => {
-      expect(APP_EVENTS.SUBSCRIPTION_STARTED).toBe('subscription_started');
-      expect(APP_EVENTS.SUBSCRIPTION_UPGRADED).toBe('subscription_upgraded');
-      expect(APP_EVENTS.SUBSCRIPTION_CANCELLED).toBe('subscription_cancelled');
+    it('should have subscription-related events', () => {
+      expect(APP_EVENTS.CREDITS_PURCHASED).toBe('credits_purchased');
+      expect(APP_EVENTS.CREDITS_USED).toBe('credits_used');
     });
 
     it('should have error events', () => {
@@ -76,7 +75,6 @@ describe('Event Constants', () => {
       expect(EVENT_CATEGORIES.ENGAGEMENT).toBe('engagement');
       expect(EVENT_CATEGORIES.SEARCH).toBe('search');
       expect(EVENT_CATEGORIES.RECRUITING).toBe('recruiting');
-      expect(EVENT_CATEGORIES.SUBSCRIPTION).toBe('subscription');
       expect(EVENT_CATEGORIES.AI).toBe('ai');
       expect(EVENT_CATEGORIES.NAVIGATION).toBe('navigation');
       expect(EVENT_CATEGORIES.ERROR).toBe('error');
@@ -106,9 +104,8 @@ describe('Event Constants', () => {
       expect(getEventCategory(APP_EVENTS.VIDEO_PLAYED)).toBe('video');
     });
 
-    it('should return subscription category for subscription events', () => {
-      expect(getEventCategory(APP_EVENTS.SUBSCRIPTION_STARTED)).toBe('subscription');
-      expect(getEventCategory(APP_EVENTS.CREDITS_PURCHASED)).toBe('subscription');
+    it('should return ecommerce category for credits events', () => {
+      expect(getEventCategory(APP_EVENTS.CREDITS_PURCHASED)).toBe('ecommerce');
     });
 
     it('should return error category for error events', () => {

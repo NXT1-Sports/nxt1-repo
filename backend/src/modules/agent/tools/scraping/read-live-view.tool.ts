@@ -3,13 +3,13 @@
  * @module @nxt1/backend/modules/agent/tools/scraping
  *
  * Agent X tool that extracts the current page content (as text) from an active
- * live-view browser session. This reads from the SAME browser the user sees —
- * unlike `read_webpage` which creates a separate ephemeral session.
+ * live-view browser session. This reads from the SAME browser the user sees.
  */
 
 import { BaseTool, type ToolResult } from '../base.tool.js';
 import type { LiveViewSessionService } from './live-view-session.service.js';
 import { logger } from '../../../../utils/logger.js';
+import { z } from 'zod';
 
 export class ReadLiveViewTool extends BaseTool {
   readonly name = 'read_live_view';
@@ -18,35 +18,24 @@ export class ReadLiveViewTool extends BaseTool {
     'Reads the current page content from the active live-view browser session ' +
     "(the one visible in the user's side panel). Returns the page URL, title, and " +
     'text content so you can understand what the user is looking at. ' +
-    'Use this INSTEAD of read_webpage when a live view session is already open. ' +
+    'Use this whenever you need content from the page that is already open in live view. ' +
     "The sessionId is optional — if omitted, the tool automatically finds the user's active session.";
 
-  readonly parameters = {
-    type: 'object' as const,
-    properties: {
-      sessionId: {
-        type: 'string',
-        description:
-          "Optional. The sessionId returned by open_live_view. If omitted, the tool automatically uses the user's current active session.",
-      },
-      userId: {
-        type: 'string',
-        description:
-          "The authenticated user's ID (uid). Extract from the [User Profile] context — NEVER ask the user.",
-      },
-    },
-    required: ['userId'],
-  };
+  readonly parameters = z.object({
+    sessionId: z.string().trim().min(1).optional(),
+    userId: z.string().trim().min(1),
+  });
 
   readonly isMutation = false;
   readonly category = 'analytics' as const;
 
+  readonly entityGroup = 'platform_tools' as const;
   override readonly allowedAgents = [
     'data_coordinator',
     'performance_coordinator',
     'recruiting_coordinator',
-    'general',
-    'brand_media_coordinator',
+    'strategy_coordinator',
+    'brand_coordinator',
   ] as const;
 
   private readonly sessionService: LiveViewSessionService;

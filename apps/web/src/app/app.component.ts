@@ -9,6 +9,7 @@ import {
   effect,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { HttpClient } from '@angular/common/http';
 import { Router, RouterOutlet, NavigationEnd } from '@angular/router';
 import {
   NxtPlatformService,
@@ -20,11 +21,14 @@ import {
   NxtAppDownloadBarComponent,
   NxtAppDownloadBarService,
 } from '@nxt1/ui/components/app-download-bar';
+import type { AuthUser } from '@nxt1/core/auth';
 import type { ILogger } from '@nxt1/core/logging';
+import { firstValueFrom } from 'rxjs';
 import { filter } from 'rxjs/operators';
 import { AnalyticsService } from './core/services';
 import { WebVitalsService } from './core/services';
 import { AuthFlowService } from './core/services/auth/auth-flow.service';
+import { environment } from '../environments/environment';
 
 /**
  * Root Application Component
@@ -49,6 +53,7 @@ import { AuthFlowService } from './core/services/auth/auth-flow.service';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AppComponent implements OnInit {
+  private readonly http = inject(HttpClient);
   private readonly router = inject(Router);
   private readonly platform = inject(NxtPlatformService);
   private readonly logger: ILogger = inject(NxtLoggingService).child('AppComponent');
@@ -61,9 +66,52 @@ export class AppComponent implements OnInit {
   /** Theme service — injected at root so it initializes on every route (including 404) */
   private readonly theme = inject(NxtThemeService);
 
+  private readonly bootstrappedTeamOrgId = signal<string | null>(null);
+  private pendingTeamBrandOrgId: string | null = null;
+
   /** Sync auth state to download bar — hide for logged-in users */
   private readonly authSyncEffect = effect(() => {
     this.downloadBar.setAuthenticated(this.authFlow.isAuthenticated());
+  });
+
+  /** Seed Team colors from the signed-in user's linked organization as soon as auth resolves. */
+  private readonly teamBrandBootstrapEffect = effect(() => {
+    if (!this.platform.isBrowser()) {
+      return;
+    }
+
+    if (!this.authFlow.isAuthReady()) {
+      return;
+    }
+
+    const seed = this.resolveUserTeamBrandSeed(this.authFlow.user());
+
+    if (!seed) {
+      this.pendingTeamBrandOrgId = null;
+      this.bootstrappedTeamOrgId.set(null);
+      this.theme.clearStoredTeamBrand();
+      return;
+    }
+
+    if (seed.primaryColor) {
+      this.pendingTeamBrandOrgId = null;
+      this.bootstrappedTeamOrgId.set(seed.organizationId);
+      this.theme.setStoredTeamBrand(seed.primaryColor, seed.secondaryColor);
+      return;
+    }
+
+    if (this.bootstrappedTeamOrgId() !== seed.organizationId) {
+      this.theme.clearStoredTeamBrand();
+    }
+
+    if (
+      this.bootstrappedTeamOrgId() === seed.organizationId ||
+      this.pendingTeamBrandOrgId === seed.organizationId
+    ) {
+      return;
+    }
+
+    void this.bootstrapTeamBrand(seed.organizationId);
   });
 
   // ============================================
@@ -148,5 +196,77 @@ export class AppComponent implements OnInit {
           this.logger.debug('Page view tracked', { path: event.urlAfterRedirects });
         }
       });
+  }
+
+  private resolveUserTeamBrandSeed(user: AuthUser | null): {
+    readonly organizationId: string;
+    readonly primaryColor: string | null;
+    readonly secondaryColor: string | null;
+  } | null {
+    const sports = user?.sports ?? [];
+    const linkedSport =
+      sports.find((sport) => sport.isPrimary && sport.team?.organizationId?.trim()) ??
+      sports.find((sport) => sport.team?.organizationId?.trim());
+
+    const organizationId = linkedSport?.team?.organizationId?.trim();
+    if (!organizationId) {
+      return null;
+    }
+
+    const linkedTeam = linkedSport?.team;
+
+    return {
+      organizationId,
+      primaryColor: linkedTeam?.primaryColor?.trim() || null,
+      secondaryColor: linkedTeam?.secondaryColor?.trim() || null,
+    };
+  }
+
+  private async bootstrapTeamBrand(organizationId: string): Promise<void> {
+    this.pendingTeamBrandOrgId = organizationId;
+
+    try {
+      const response = await firstValueFrom(
+        this.http.get<{
+          success: boolean;
+          data?: {
+            id: string;
+            primaryColor?: string | null;
+            secondaryColor?: string | null;
+          };
+        }>(`${environment.apiURL}/programs/${encodeURIComponent(organizationId)}`)
+      );
+
+      if (this.pendingTeamBrandOrgId !== organizationId) {
+        return;
+      }
+
+      const primaryColor = response.data?.primaryColor?.trim() || null;
+      const secondaryColor = response.data?.secondaryColor?.trim() || null;
+
+      this.bootstrappedTeamOrgId.set(organizationId);
+
+      if (response.success && primaryColor) {
+        this.theme.setStoredTeamBrand(primaryColor, secondaryColor);
+        this.logger.debug('Bootstrapped team brand', { organizationId, primaryColor });
+        return;
+      }
+
+      this.theme.clearStoredTeamBrand();
+      this.logger.debug('No team brand colors found for organization', { organizationId });
+    } catch (err) {
+      if (this.pendingTeamBrandOrgId === organizationId) {
+        this.theme.clearStoredTeamBrand();
+      }
+
+      this.logger.warn('Failed to bootstrap team brand', {
+        organizationId,
+        error: err,
+      });
+    } finally {
+      if (this.pendingTeamBrandOrgId === organizationId) {
+        this.pendingTeamBrandOrgId = null;
+      }
+    }
   }
 }

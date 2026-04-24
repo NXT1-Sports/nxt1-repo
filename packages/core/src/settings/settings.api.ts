@@ -17,7 +17,6 @@ import type {
   SettingsPreferences,
   SettingsSubscription,
   SettingsUsage,
-  SettingsConnectedProvider,
 } from './settings.types';
 import { SETTINGS_API_ENDPOINTS } from './settings.constants';
 
@@ -50,17 +49,11 @@ export interface SettingsApi {
   /** Get usage statistics */
   getUsage(): Promise<SettingsUsage>;
 
-  /** Get connected providers */
-  getConnectedProviders(): Promise<readonly SettingsConnectedProvider[]>;
-
-  /** Connect a provider */
-  connectProvider(providerId: string, authCode?: string): Promise<SettingsConnectedProvider>;
-
-  /** Disconnect a provider */
-  disconnectProvider(providerId: string): Promise<void>;
-
   /** Change password */
   changePassword(currentPassword: string, newPassword: string): Promise<void>;
+
+  /** Record a completed password change after the auth provider confirms success */
+  recordPasswordChanged(): Promise<void>;
 
   /** Delete account */
   deleteAccount(password: string): Promise<void>;
@@ -151,45 +144,6 @@ export function createSettingsApi(http: HttpAdapter, baseUrl: string): SettingsA
       return response.data;
     },
 
-    async getConnectedProviders(): Promise<readonly SettingsConnectedProvider[]> {
-      const response = await http.get<ApiResponse<SettingsConnectedProvider[]>>(
-        buildUrl(SETTINGS_API_ENDPOINTS.CONNECT_PROVIDER)
-      );
-
-      if (!response.success) {
-        throw new Error(response.error ?? 'Failed to fetch connected providers');
-      }
-
-      return response.data ?? [];
-    },
-
-    async connectProvider(
-      providerId: string,
-      authCode?: string
-    ): Promise<SettingsConnectedProvider> {
-      const response = await http.post<ApiResponse<SettingsConnectedProvider>>(
-        buildUrl(SETTINGS_API_ENDPOINTS.CONNECT_PROVIDER),
-        { providerId, authCode }
-      );
-
-      if (!response.success || !response.data) {
-        throw new Error(response.error ?? 'Failed to connect provider');
-      }
-
-      return response.data;
-    },
-
-    async disconnectProvider(providerId: string): Promise<void> {
-      const response = await http.post<ApiResponse<void>>(
-        buildUrl(SETTINGS_API_ENDPOINTS.DISCONNECT_PROVIDER),
-        { providerId }
-      );
-
-      if (!response.success) {
-        throw new Error(response.error ?? 'Failed to disconnect provider');
-      }
-    },
-
     async changePassword(currentPassword: string, newPassword: string): Promise<void> {
       const response = await http.post<ApiResponse<void>>(
         buildUrl(SETTINGS_API_ENDPOINTS.CHANGE_PASSWORD),
@@ -198,6 +152,17 @@ export function createSettingsApi(http: HttpAdapter, baseUrl: string): SettingsA
 
       if (!response.success) {
         throw new Error(response.error ?? 'Failed to change password');
+      }
+    },
+
+    async recordPasswordChanged(): Promise<void> {
+      const response = await http.post<ApiResponse<void>>(
+        buildUrl(SETTINGS_API_ENDPOINTS.PASSWORD_CHANGED),
+        {}
+      );
+
+      if (!response.success) {
+        throw new Error(response.error ?? 'Failed to record password change');
       }
     },
 

@@ -10,6 +10,7 @@
  */
 
 import type {
+  ConnectedSource,
   TeamProfilePageData,
   TeamProfileRosterMember,
   TeamProfileStaffMember,
@@ -18,6 +19,9 @@ import type {
 } from '@nxt1/core';
 import type {
   ManageTeamFormData,
+  MembershipEditorItem,
+  MembershipEditorListResponse,
+  UpdateMembershipRequest,
   RosterPlayer,
   StaffMember,
   StaffRole,
@@ -75,6 +79,7 @@ export class ManageTeamApiClient {
   async getTeamForEditing(teamId: string): Promise<{
     formData: ManageTeamFormData;
     completion: TeamCompletionData;
+    connectedSources: readonly ConnectedSource[];
   }> {
     if (!teamId) {
       throw new Error('Team ID is required');
@@ -93,6 +98,7 @@ export class ManageTeamApiClient {
       const pageData = response.data;
       const formData = this.mapToFormData(pageData);
       const completion = this.calculateCompletion(formData);
+      const connectedSources = pageData.team.connectedSources ?? [];
 
       this.logger.info('Team data mapped for editing', {
         teamId,
@@ -100,9 +106,10 @@ export class ManageTeamApiClient {
         scheduleCount: formData.schedule.length,
         staffCount: formData.staff.length,
         sponsorCount: formData.sponsors.length,
+        connectedSourcesCount: connectedSources.length,
       });
 
-      return { formData, completion };
+      return { formData, completion, connectedSources };
     } catch (error) {
       if (error instanceof HttpErrorResponse) {
         const message =
@@ -112,7 +119,13 @@ export class ManageTeamApiClient {
               ? 'You do not have permission to manage this team'
               : `Failed to fetch team: ${error.statusText}`;
         this.logger.error('HTTP error fetching team', error, { teamId, status: error.status });
-        throw new Error(message);
+        const wrappedError = new Error(message);
+        Object.defineProperty(wrappedError, 'cause', {
+          value: error,
+          configurable: true,
+          enumerable: false,
+        });
+        throw wrappedError;
       }
       throw error;
     }
@@ -151,6 +164,24 @@ export class ManageTeamApiClient {
       sportName?: string;
       division?: string;
       conference?: string;
+      mascot?: string;
+      email?: string;
+      phone?: string;
+      website?: string;
+      address?: string;
+      city?: string;
+      state?: string;
+      wins?: number;
+      losses?: number;
+      ties?: number;
+      season?: string;
+      organizationLogoUrl?: string;
+      logoUrl?: string;
+      galleryImages?: readonly string[];
+      connectedSources?: readonly ConnectedSource[];
+      primaryColor?: string;
+      secondaryColor?: string;
+      accentColor?: string;
     }
   ): Promise<void> {
     if (!teamId) {
@@ -161,6 +192,67 @@ export class ManageTeamApiClient {
     if (!response.success) {
       throw new Error(response.error || 'Failed to update team');
     }
+  }
+
+  /**
+   * List all members in normalized MembershipEditorItem format.
+   * GET /api/v1/teams/:teamId/membership
+   */
+  async loadMembership(teamId: string): Promise<MembershipEditorListResponse> {
+    const url = `${this.baseUrl}/teams/${encodeURIComponent(teamId)}/membership`;
+    const response = await firstValueFrom(
+      this.http.get<ApiResponse<MembershipEditorListResponse>>(url)
+    );
+    if (!response.success || !response.data) {
+      throw new Error(response.error || 'Failed to load membership');
+    }
+    return response.data;
+  }
+
+  /**
+   * Edit a membership entry (role, title, jersey, positions, status).
+   * PATCH /api/v1/teams/:teamId/membership/:entryId
+   */
+  async updateMembership(
+    teamId: string,
+    entryId: string,
+    data: UpdateMembershipRequest
+  ): Promise<MembershipEditorItem> {
+    const url = `${this.baseUrl}/teams/${encodeURIComponent(teamId)}/membership/${encodeURIComponent(entryId)}`;
+    const response = await firstValueFrom(
+      this.http.patch<ApiResponse<MembershipEditorItem>>(url, data)
+    );
+    if (!response.success || !response.data) {
+      throw new Error(response.error || 'Failed to update membership');
+    }
+    return response.data;
+  }
+
+  /**
+   * Remove a member from the team (soft delete).
+   * DELETE /api/v1/teams/:teamId/membership/:entryId
+   */
+  async removeMembership(teamId: string, entryId: string): Promise<void> {
+    const url = `${this.baseUrl}/teams/${encodeURIComponent(teamId)}/membership/${encodeURIComponent(entryId)}`;
+    const response = await firstValueFrom(this.http.delete<ApiResponse<unknown>>(url));
+    if (!response.success) {
+      throw new Error(response.error || 'Failed to remove membership');
+    }
+  }
+
+  /**
+   * Approve a pending membership entry.
+   * POST /api/v1/teams/:teamId/membership/:entryId/approve
+   */
+  async approveMembership(teamId: string, entryId: string): Promise<MembershipEditorItem> {
+    const url = `${this.baseUrl}/teams/${encodeURIComponent(teamId)}/membership/${encodeURIComponent(entryId)}/approve`;
+    const response = await firstValueFrom(
+      this.http.post<ApiResponse<MembershipEditorItem>>(url, {})
+    );
+    if (!response.success || !response.data) {
+      throw new Error(response.error || 'Failed to approve membership');
+    }
+    return response.data;
   }
 
   // ============================================
@@ -177,6 +269,8 @@ export class ManageTeamApiClient {
         abbreviation: undefined,
         sport: team.sport ?? '',
         level: (team.teamType as ManageTeamFormData['basicInfo']['level']) ?? 'varsity',
+        division: team.division,
+        conference: team.conference,
         gender: 'coed',
         season: team.record?.season,
       },

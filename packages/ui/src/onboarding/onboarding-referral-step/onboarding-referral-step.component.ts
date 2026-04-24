@@ -791,7 +791,7 @@ export class OnboardingReferralStepComponent {
    */
   onKeyDown(event: KeyboardEvent, currentIndex: number): void {
     const options = this.referralOptions;
-    let newIndex: number | null = null;
+    let newIndex: number | null;
 
     switch (event.key) {
       case 'ArrowDown':

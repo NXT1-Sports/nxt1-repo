@@ -65,7 +65,7 @@ describe('SeoService (SSR canonical + JSON-LD)', () => {
       page: {
         title: 'Athlete Profile',
         description: 'Profile overview',
-        canonicalUrl: 'https://nxt1sports.com/profile/jane-doe',
+        canonicalUrl: 'https://nxt1sports.com/profile/basketball/jane-doe/123456',
       },
       structuredData: {
         '@context': 'https://schema.org',
@@ -84,7 +84,7 @@ describe('SeoService (SSR canonical + JSON-LD)', () => {
     );
 
     expect(canonical).toBeTruthy();
-    expect(canonical?.href).toContain('https://nxt1sports.com/profile/jane-doe');
+    expect(canonical?.href).toContain('https://nxt1sports.com/profile/basketball/jane-doe/123456');
 
     expect(structuredDataScript).toBeTruthy();
     expect(structuredDataScript?.text).toContain('"@type":"ProfilePage"');

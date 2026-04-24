@@ -24,6 +24,8 @@ import { Injectable, inject, Component, ChangeDetectionStrategy, Input } from '@
 import { CommonModule } from '@angular/common';
 import { ModalController } from '@ionic/angular/standalone';
 import { NxtBottomSheetService, SHEET_PRESETS } from '../components/bottom-sheet';
+import { NxtOverlayService } from '../components/overlay';
+import { NxtPlatformService } from '../services/platform';
 import { InviteShellComponent, type InviteUser } from './invite-shell.component';
 import type { InviteType, InviteTeam } from '@nxt1/core';
 
@@ -128,46 +130,60 @@ export class InviteModalComponent {
 @Injectable({ providedIn: 'root' })
 export class InviteBottomSheetService {
   private readonly bottomSheet = inject(NxtBottomSheetService);
+  private readonly overlay = inject(NxtOverlayService);
+  private readonly platform = inject(NxtPlatformService);
 
   /**
-   * Opens the Invite feature in a native draggable bottom sheet.
-   *
-   * Uses NxtBottomSheetService.openSheet() with Invite configuration:
-   * - Breakpoints: 0 (closed), 0.5 (peek), 0.9 (default), 1 (full)
-   * - Native drag handle
-   * - Swipe-to-dismiss enabled
-   *
-   * @param config - Optional configuration for the invite sheet
-   * @returns Promise resolving when the sheet is dismissed
+   * Opens the Invite feature with platform-appropriate presentation.
+   * - Native app: draggable Ionic sheet
+   * - Browser: Angular web overlay modal
    */
   async open(config: InviteBottomSheetConfig = {}): Promise<{ dismissed: boolean }> {
-    const result = await this.bottomSheet.openSheet<void>({
-      // The component to inject
-      component: InviteModalComponent,
+    if (this.shouldUseBottomSheet()) {
+      return this.openNativeSheet(config);
+    }
 
-      // Component inputs
+    const ref = this.overlay.open<InviteShellComponent, { dismissed: boolean }>({
+      component: InviteShellComponent,
+      inputs: {
+        inviteType: config.inviteType ?? 'team',
+        team: config.team ?? null,
+        user: config.user ?? null,
+        isModal: true,
+      },
+      size: this.platform.isBrowser() && this.platform.viewport().width < 768 ? 'full' : 'xl',
+      backdropDismiss: true,
+      escDismiss: true,
+      showCloseButton: false,
+      ariaLabel: 'Invite teammates',
+      panelClass: 'nxt1-invite-overlay',
+    });
+
+    await ref.closed;
+    return { dismissed: true };
+  }
+
+  private async openNativeSheet(config: InviteBottomSheetConfig): Promise<{ dismissed: boolean }> {
+    const result = await this.bottomSheet.openSheet<void>({
+      component: InviteModalComponent,
       componentProps: {
         inviteType: config.inviteType ?? 'team',
         team: config.team ?? null,
         user: config.user ?? null,
       },
-
-      // Standardized sheet preset — FULL so footer is never cut off
       ...SHEET_PRESETS.FULL,
-
-      // Show native drag handle bar
       showHandle: true,
       handleBehavior: 'cycle',
-
-      // Backdrop behavior
       backdropDismiss: true,
-
-      // Allow swipe-to-dismiss
       canDismiss: true,
     });
 
     return {
       dismissed: result.role === 'cancel' || result.role === 'backdrop',
     };
+  }
+
+  private shouldUseBottomSheet(): boolean {
+    return this.platform.isNative();
   }
 }

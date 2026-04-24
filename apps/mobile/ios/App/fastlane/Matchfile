@@ -9,22 +9,22 @@ storage_mode("git")
 
 type("development") # Default type
 
-app_identifier(["com.nxt1.sports"])
+app_identifier(["com.nxt1sports.nxt1"])
 
-# For App Store Connect API authentication
-api_key_path("~/.appstoreconnect/private_keys/AuthKey_#{ENV['APPLE_API_KEY_ID']}.p8")
+# For App Store Connect API authentication (JSON format required by fastlane)
+api_key_path("#{ENV['HOME']}/.appstoreconnect/private_keys/AuthKey_#{ENV['APP_STORE_CONNECT_API_KEY_ID']}.json")
 
 # Optional: Generate Apple Push Notification certificates
 generate_apple_certs(true)
 
 # Clone using HTTPS with basic auth
-git_basic_authorization(Base64.strict_encode64(ENV["MATCH_GIT_BASIC_AUTHORIZATION"] || ""))
+git_basic_authorization(ENV["MATCH_GIT_BASIC_AUTHORIZATION"])
 
 # Platform
 platform("ios")
 
 # Team ID
-team_id(ENV["APPLE_TEAM_ID"])
+team_id(ENV["APPLE_TEAM_ID"] || "794G2RS4WQ")
 
 # Don't force device registration in CI
 force_for_new_devices(false)

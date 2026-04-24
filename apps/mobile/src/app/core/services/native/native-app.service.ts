@@ -76,7 +76,7 @@ export interface NativeAppConfig {
 const DEFAULT_CONFIG: Required<Omit<NativeAppConfig, 'onPause' | 'onResume' | 'onBackButton'>> = {
   statusBarStyle: 'light', // Light text for dark NXT1 theme
   statusBarColor: '#0a0a0a', // NXT1 dark background
-  autoHideSplash: true,
+  autoHideSplash: false,
   splashDelay: 500,
 };
 
@@ -86,6 +86,7 @@ export class NativeAppService {
   private readonly ionicPlatform = inject(Platform);
   private readonly ngZone = inject(NgZone);
   private readonly logger: ILogger = inject(NxtLoggingService).child('NativeAppService');
+  private launchStartedAt = 0;
 
   // ============================================
   // PRIVATE STATE
@@ -139,6 +140,7 @@ export class NativeAppService {
 
     // Merge config
     this._config = { ...DEFAULT_CONFIG, ...config };
+    this.launchStartedAt = Date.now();
 
     // Wait for platform ready
     await this.ionicPlatform.ready();
@@ -157,11 +159,36 @@ export class NativeAppService {
   private async initializeNativeFeatures(): Promise<void> {
     await Promise.all([this.configureStatusBar(), this.setupLifecycleListeners()]);
 
-    // Hide splash screen immediately after features are initialized
-    // We control the timing rather than relying on Capacitor's auto-hide
-    if (this._config.autoHideSplash) {
-      await this.hideSplashScreen();
+    // Wire keyboard awareness (sets CSS vars + class on <html>)
+    this.setupKeyboardListeners();
+  }
+
+  /**
+   * Completes the native launch sequence.
+   *
+   * Keeps the launch splash visible for at least the configured minimum delay,
+   * then dismisses it once the app has finished its own startup work.
+   */
+  async completeLaunch(): Promise<void> {
+    if (!this._isNative() || !this._config.autoHideSplash) {
+      return;
     }
+
+    await this.waitForMinimumSplashDelay();
+    await this.hideSplashScreen();
+  }
+
+  private async waitForMinimumSplashDelay(): Promise<void> {
+    const elapsed = Date.now() - this.launchStartedAt;
+    const remainingDelay = this._config.splashDelay - elapsed;
+
+    if (remainingDelay <= 0) {
+      return;
+    }
+
+    await new Promise<void>((resolve) => {
+      window.setTimeout(resolve, remainingDelay);
+    });
   }
 
   // ============================================
@@ -247,37 +274,66 @@ export class NativeAppService {
   // ============================================
 
   /**
-   * Hide the splash screen
+   * Hide the splash screen.
+   * iOS uses the native LaunchScreen.storyboard exclusively — Capacitor plugin not used.
    */
   async hideSplashScreen(): Promise<void> {
-    if (!this._isNative()) return;
-
-    try {
-      const { SplashScreen } = await import('@capacitor/splash-screen');
-      await SplashScreen.hide({ fadeOutDuration: 300 });
-      this.logger.debug('Splash screen hidden');
-    } catch (error) {
-      this.logger.warn('Failed to hide splash screen', { error });
-    }
+    // No-op: iOS splash is handled natively via LaunchScreen.storyboard
   }
 
   /**
-   * Show the splash screen (useful for background operations)
+   * Show the splash screen.
+   * iOS uses the native LaunchScreen.storyboard exclusively — Capacitor plugin not used.
    */
   async showSplashScreen(): Promise<void> {
-    if (!this._isNative()) return;
-
-    try {
-      const { SplashScreen } = await import('@capacitor/splash-screen');
-      await SplashScreen.show({ autoHide: false });
-    } catch (error) {
-      this.logger.warn('Failed to show splash screen', { error });
-    }
+    // No-op: iOS splash is handled natively via LaunchScreen.storyboard
   }
 
   // ============================================
   // KEYBOARD
   // ============================================
+
+  /**
+   * Set up keyboard visibility listeners.
+   *
+   * With `resize: "ionic"` in capacitor.config.json, the native webview does
+   * NOT resize when the keyboard appears — Ionic only adjusts scroll inside
+   * `<ion-content>`.  Elements like `<ion-footer>` stay at the full-viewport
+   * bottom and get hidden behind the keyboard.
+   *
+   * This method listens for the Ionic keyboard lifecycle events and:
+   *  1. Sets `--keyboard-height` CSS variable on `<html>` (px value).
+   *  2. Toggles a `.keyboard-open` class on `<html>`.
+   *
+   * Feature components (e.g. Agent X shell) can then use
+   * `:host-context(.keyboard-open)` to shift their footer above the keyboard.
+   */
+  private setupKeyboardListeners(): void {
+    // ionKeyboardWillShow fires at the START of the keyboard animation so our
+    // CSS transition runs in sync with the native keyboard — no visible lag.
+    // event.detail.keyboardHeight contains the height in CSS pixels.
+    window.addEventListener('ionKeyboardWillShow', ((
+      ev: CustomEvent<{ keyboardHeight: number }>
+    ) => {
+      this.ngZone.run(() => {
+        const height = ev.detail.keyboardHeight;
+        document.documentElement.style.setProperty('--keyboard-height', `${height}px`);
+        document.documentElement.classList.add('keyboard-open');
+        this.logger.debug('Keyboard will show', { height });
+      });
+    }) as EventListener);
+
+    // ionKeyboardWillHide fires at the START of the dismiss animation.
+    window.addEventListener('ionKeyboardWillHide', () => {
+      this.ngZone.run(() => {
+        document.documentElement.style.setProperty('--keyboard-height', '0px');
+        document.documentElement.classList.remove('keyboard-open');
+        this.logger.debug('Keyboard will hide');
+      });
+    });
+
+    this.logger.debug('Keyboard listeners configured');
+  }
 
   // ============================================
   // APP LIFECYCLE

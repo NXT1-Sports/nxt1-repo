@@ -13,7 +13,7 @@ import { Component, ChangeDetectionStrategy, input, output, inject } from '@angu
 import { CommonModule } from '@angular/common';
 import type { Conversation } from '@nxt1/core';
 import { NxtPageHeaderComponent } from '../../components/page-header';
-import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '../../agent-x/fab/agent-x-logo.constants';
+import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/assets';
 import { HapticsService } from '../../services/haptics/haptics.service';
 
 @Component({

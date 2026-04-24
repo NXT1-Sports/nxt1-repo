@@ -24,7 +24,7 @@ export type ConversationType = 'direct' | 'group' | 'team' | 'coach';
 /**
  * Participant role within a conversation.
  */
-export type ParticipantRole = 'athlete' | 'coach' | 'recruiter' | 'parent' | 'admin';
+export type ParticipantRole = 'athlete' | 'coach' | 'director' | 'admin';
 
 /**
  * A participant in a conversation.

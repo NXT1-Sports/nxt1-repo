@@ -166,14 +166,16 @@ export type DistilledSectionKey =
  * The unified output of any platform distiller.
  * Every field is optional — distillers fill only what the platform provides.
  */
+export type DistilledProfileType = 'athlete' | 'team' | 'organization';
+
 export interface DistilledProfile {
   readonly platform: string;
   readonly profileUrl: string;
+  readonly profileType?: DistilledProfileType;
   readonly identity?: DistilledIdentity;
   readonly academics?: DistilledAcademics;
   readonly sportInfo?: DistilledSportInfo;
   readonly team?: DistilledTeam;
-  readonly clubTeam?: DistilledTeam;
   readonly coach?: DistilledCoach;
   readonly metrics?: readonly DistilledMetric[];
   readonly seasonStats?: readonly DistilledSeasonStats[];
@@ -189,6 +191,7 @@ export interface DistilledProfile {
 export interface DistilledProfileIndex {
   readonly platform: string;
   readonly profileUrl: string;
+  readonly profileType?: DistilledProfileType;
   readonly availableSections: readonly DistilledSectionKey[];
   readonly summary: {
     readonly hasIdentity: boolean;

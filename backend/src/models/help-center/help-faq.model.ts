@@ -14,6 +14,7 @@ import type { FaqItem } from '@nxt1/core';
  */
 export interface HelpFaqDocument extends Omit<FaqItem, 'id'> {
   readonly isPublished: boolean;
+  readonly lastAgentRefresh?: Date | null;
 }
 
 const HelpFaqSchema = new Schema<HelpFaqDocument>(
@@ -26,6 +27,7 @@ const HelpFaqSchema = new Schema<HelpFaqDocument>(
     helpfulCount: { type: Number, default: 0 },
     relatedArticles: { type: [String], default: [] },
     isPublished: { type: Boolean, default: true, index: true },
+    lastAgentRefresh: { type: Date, default: null, index: true },
   },
   { versionKey: false, timestamps: false }
 );

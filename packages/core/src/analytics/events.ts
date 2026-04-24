@@ -33,7 +33,6 @@
  * // Set user properties
  * analytics.setUserProperties({
  *   [USER_PROPERTIES.USER_TYPE]: 'athlete',
- *   [USER_PROPERTIES.SUBSCRIPTION_TIER]: 'pro',
  * });
  * ```
  *
@@ -401,8 +400,6 @@ export const APP_EVENTS = {
   POST_DELETED: 'post_deleted',
   /** Post shared */
   POST_SHARED: 'post_shared',
-  /** Post reposted */
-  POST_REPOSTED: 'post_reposted',
 
   // ============================================
   // CARD/GRAPHIC EVENTS
@@ -423,11 +420,6 @@ export const APP_EVENTS = {
   REACTION_ADDED: 'reaction_added',
   /** Reaction removed */
   REACTION_REMOVED: 'reaction_removed',
-  /** Comment added */
-  COMMENT_ADDED: 'comment_added',
-  /** Comment deleted */
-  COMMENT_DELETED: 'comment_deleted',
-
   // ============================================
   // SEARCH & DISCOVERY EVENTS (Extended)
   // ============================================
@@ -471,18 +463,28 @@ export const APP_EVENTS = {
   QUESTIONNAIRE_COMPLETED: 'questionnaire_completed',
 
   // ============================================
-  // CAMPAIGN (EMAIL) EVENTS
+  // COMMUNICATION (EMAIL + LINKS) EVENTS
   // ============================================
-  /** Email campaign created */
-  CAMPAIGN_CREATED: 'campaign_created',
-  /** Email campaign sent */
-  CAMPAIGN_SENT: 'campaign_sent',
-  /** Email campaign opened */
-  CAMPAIGN_OPENED: 'campaign_opened',
-  /** Email campaign link clicked */
-  CAMPAIGN_CLICKED: 'campaign_clicked',
-  /** Email campaign replied */
-  CAMPAIGN_REPLIED: 'campaign_replied',
+  /** Email draft created */
+  EMAIL_CREATED: 'email_created',
+  /** Email sent */
+  EMAIL_SENT: 'email_sent',
+  /** Email opened */
+  EMAIL_OPENED: 'email_opened',
+  /** Any tracked outbound link clicked from email, post, profile, or page */
+  LINK_CLICKED: 'link_clicked',
+  /** Email replied */
+  EMAIL_REPLIED: 'email_replied',
+  /** @deprecated Use EMAIL_CREATED */
+  CAMPAIGN_CREATED: 'email_created',
+  /** @deprecated Use EMAIL_SENT */
+  CAMPAIGN_SENT: 'email_sent',
+  /** @deprecated Use EMAIL_OPENED */
+  CAMPAIGN_OPENED: 'email_opened',
+  /** @deprecated Use LINK_CLICKED */
+  CAMPAIGN_CLICKED: 'link_clicked',
+  /** @deprecated Use EMAIL_REPLIED */
+  CAMPAIGN_REPLIED: 'email_replied',
 
   // ============================================
   // TEAM CODE EVENTS
@@ -493,6 +495,10 @@ export const APP_EVENTS = {
   TEAM_CODE_LEFT: 'team_code_left',
   /** Team page viewed */
   TEAM_PAGE_VIEWED: 'team_page_viewed',
+  /** Team timeline tab viewed */
+  TEAM_TIMELINE_VIEWED: 'team_timeline_viewed',
+  /** Team timeline filter chip applied */
+  TEAM_TIMELINE_FILTER_APPLIED: 'team_timeline_filter_applied',
   /** Team management opened (modal/sheet) */
   TEAM_MANAGED: 'team_managed',
 
@@ -500,15 +506,10 @@ export const APP_EVENTS = {
   // SUBSCRIPTION EVENTS (Extended - beyond purchase)
   // ============================================
   /** Subscription started (initial purchase) */
-  SUBSCRIPTION_STARTED: 'subscription_started',
   /** Subscription upgraded */
-  SUBSCRIPTION_UPGRADED: 'subscription_upgraded',
   /** Subscription downgraded */
-  SUBSCRIPTION_DOWNGRADED: 'subscription_downgraded',
   /** Subscription cancelled */
-  SUBSCRIPTION_CANCELLED: 'subscription_cancelled',
   /** Subscription renewed */
-  SUBSCRIPTION_RENEWED: 'subscription_renewed',
   /** Credits purchased (in-app purchase) */
   CREDITS_PURCHASED: 'credits_purchased',
   /** Credits used */
@@ -613,10 +614,6 @@ export const APP_EVENTS = {
   HOME_FEED_REFRESHED: 'home_feed_refreshed',
   /** Home feed load more (infinite scroll) */
   HOME_FEED_LOAD_MORE: 'home_feed_load_more',
-  /** Home feed post liked */
-  HOME_FEED_POST_LIKED: 'home_feed_post_liked',
-  /** Home feed post bookmarked */
-  HOME_FEED_POST_BOOKMARKED: 'home_feed_post_bookmarked',
   /** Home feed error occurred */
   HOME_FEED_ERROR: 'home_feed_error',
 
@@ -761,6 +758,14 @@ export const APP_EVENTS = {
   AGENT_X_DRAFT_EMAIL_SENT: 'agent_x_draft_email_sent',
   /** User cancelled an in-progress Agent X stream/operation */
   AGENT_X_STREAM_CANCELLED: 'agent_x_stream_cancelled',
+  /** User marked an active goal as completed */
+  AGENT_X_GOAL_COMPLETED: 'agent_x_goal_completed',
+  /** User removed an active goal without completing it */
+  AGENT_X_GOAL_REMOVED: 'agent_x_goal_removed',
+  /** User replaced an active goal (remove + set in same action) */
+  AGENT_X_GOAL_REPLACED: 'agent_x_goal_replaced',
+  /** User opened the goal history panel */
+  AGENT_X_GOAL_HISTORY_VIEWED: 'agent_x_goal_history_viewed',
 
   // USAGE / BILLING DASHBOARD EVENTS
   // ============================================
@@ -782,6 +787,8 @@ export const APP_EVENTS = {
   USAGE_TEAM_BUDGET_UPDATED: 'usage_team_budget_updated',
   /** User redeemed a coupon */
   USAGE_COUPON_REDEEMED: 'usage_coupon_redeemed',
+  /** User toggled between org and personal billing mode */
+  USAGE_BILLING_MODE_SWITCHED: 'usage_billing_mode_switched',
 
   // ── Agent X Billing Card ──
   /** Agent X billing action card rendered in chat */
@@ -932,7 +939,6 @@ export type AppEventName = (typeof APP_EVENTS)[keyof typeof APP_EVENTS];
  * analytics.setUserProperties({
  *   [USER_PROPERTIES.USER_TYPE]: 'athlete',
  *   [USER_PROPERTIES.SPORT]: 'football',
- *   [USER_PROPERTIES.SUBSCRIPTION_TIER]: 'pro',
  * });
  * ```
  */
@@ -940,7 +946,7 @@ export const USER_PROPERTIES = {
   // ============================================
   // USER TYPE & ROLE
   // ============================================
-  /** User role: athlete, coach, director, recruiter, parent */
+  /** User role: athlete, coach, director */
   USER_TYPE: 'user_type',
   /** Whether user is verified */
   IS_VERIFIED: 'is_verified',
@@ -951,9 +957,7 @@ export const USER_PROPERTIES = {
   // SUBSCRIPTION & MONETIZATION
   // ============================================
   /** Subscription tier: free, starter, pro, elite */
-  SUBSCRIPTION_TIER: 'subscription_tier',
   /** Whether user is premium */
-  IS_PREMIUM: 'is_premium',
   /** Remaining AI credits */
   CREDITS_BALANCE: 'credits_balance',
   /** Lifetime value (for high-value user segmentation) */
@@ -1008,6 +1012,8 @@ export const USER_PROPERTIES = {
   PUSH_ENABLED: 'push_enabled',
   /** A/B test variant (for experiments) */
   EXPERIMENT_VARIANT: 'experiment_variant',
+  /** Lifetime count of goals the user has completed */
+  GOALS_COMPLETED_TOTAL: 'goals_completed_total',
 } as const;
 
 export type UserPropertyName = (typeof USER_PROPERTIES)[keyof typeof USER_PROPERTIES];
@@ -1019,8 +1025,6 @@ export interface UserPropertiesMap {
   [USER_PROPERTIES.USER_TYPE]?: UserRole;
   [USER_PROPERTIES.IS_VERIFIED]?: boolean;
   [USER_PROPERTIES.ACCOUNT_STATUS]?: 'active' | 'suspended' | 'deleted';
-  [USER_PROPERTIES.SUBSCRIPTION_TIER]?: PlanType;
-  [USER_PROPERTIES.IS_PREMIUM]?: boolean;
   [USER_PROPERTIES.CREDITS_BALANCE]?: number;
   [USER_PROPERTIES.LIFETIME_VALUE]?: number;
   [USER_PROPERTIES.SPORT]?: string;
@@ -1040,6 +1044,7 @@ export interface UserPropertiesMap {
   [USER_PROPERTIES.PLATFORM]?: 'web' | 'ios' | 'android';
   [USER_PROPERTIES.PUSH_ENABLED]?: boolean;
   [USER_PROPERTIES.EXPERIMENT_VARIANT]?: string;
+  [USER_PROPERTIES.GOALS_COMPLETED_TOTAL]?: number;
 }
 
 // ============================================
@@ -1059,9 +1064,8 @@ export const EVENT_CATEGORIES = {
   ENGAGEMENT: 'engagement',
   SEARCH: 'search',
   RECRUITING: 'recruiting',
-  CAMPAIGN: 'campaign',
+  COMMUNICATION: 'communication',
   TEAM: 'team',
-  SUBSCRIPTION: 'subscription',
   AI: 'ai',
   NAVIGATION: 'navigation',
   ERROR: 'error',
@@ -1092,7 +1096,7 @@ export type TrafficSource =
   | 'unknown';
 
 /** User role type */
-export type UserRole = 'athlete' | 'coach' | 'director' | 'recruiter' | 'parent' | 'anonymous';
+export type UserRole = 'athlete' | 'coach' | 'director' | 'anonymous';
 
 /** Viewer type (alias for UserRole for analytics compatibility) */
 export type ViewerType = UserRole;
@@ -1107,7 +1111,6 @@ export type ContentType = 'video' | 'post' | 'card' | 'profile' | 'mixtape' | 'h
 export type AuthMethod = 'email' | 'google' | 'apple' | 'facebook';
 
 /** Subscription plan type */
-export type PlanType = 'free' | 'starter' | 'pro' | 'elite' | 'team';
 
 // ============================================
 // BASE EVENT PROPERTIES
@@ -1180,11 +1183,7 @@ export function getEventCategory(eventName: string): EventCategory {
   if (eventName.startsWith('video_')) return EVENT_CATEGORIES.VIDEO;
   if (eventName.startsWith('post_')) return EVENT_CATEGORIES.POST;
   if (eventName.startsWith('card_')) return EVENT_CATEGORIES.CARD;
-  if (
-    eventName.startsWith('user_') ||
-    eventName.startsWith('reaction_') ||
-    eventName.startsWith('comment_')
-  ) {
+  if (eventName.startsWith('user_') || eventName.startsWith('reaction_')) {
     return EVENT_CATEGORIES.ENGAGEMENT;
   }
   if (
@@ -1202,11 +1201,16 @@ export function getEventCategory(eventName: string): EventCategory {
   ) {
     return EVENT_CATEGORIES.RECRUITING;
   }
-  if (eventName.startsWith('campaign_')) return EVENT_CATEGORIES.CAMPAIGN;
-  if (eventName.startsWith('team_')) return EVENT_CATEGORIES.TEAM;
-  if (eventName.startsWith('subscription_') || eventName.startsWith('credits_')) {
-    return EVENT_CATEGORIES.SUBSCRIPTION;
+  if (
+    eventName.startsWith('email_') ||
+    eventName.startsWith('message_') ||
+    eventName.startsWith('link_') ||
+    eventName.startsWith('campaign_')
+  ) {
+    return EVENT_CATEGORIES.COMMUNICATION;
   }
+  if (eventName.startsWith('team_')) return EVENT_CATEGORIES.TEAM;
+  if (eventName.startsWith('credits_')) return EVENT_CATEGORIES.ECOMMERCE;
   if (eventName.startsWith('ai_')) return EVENT_CATEGORIES.AI;
   if (
     eventName.startsWith('screen_') ||
@@ -1247,7 +1251,6 @@ export function getFirebaseEquivalent(customEvent: string): FirebaseEventName | 
     onboarding_started: FIREBASE_EVENTS.TUTORIAL_BEGIN,
     onboarding_completed: FIREBASE_EVENTS.TUTORIAL_COMPLETE,
     search_performed: FIREBASE_EVENTS.SEARCH,
-    subscription_started: FIREBASE_EVENTS.PURCHASE,
     team_code_joined: FIREBASE_EVENTS.JOIN_GROUP,
   };
 

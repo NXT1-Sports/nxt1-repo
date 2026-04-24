@@ -9,19 +9,27 @@
  */
 
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { TestBed, getTestBed } from '@angular/core/testing';
+import { Component, input, output, CUSTOM_ELEMENTS_SCHEMA } from '@angular/core';
+import { ComponentFixture, TestBed, getTestBed } from '@angular/core/testing';
 import {
   BrowserDynamicTestingModule,
   platformBrowserDynamicTesting,
 } from '@angular/platform-browser-dynamic/testing';
 import { PLATFORM_ID } from '@angular/core';
-import { NewsService, NEWS_API_ADAPTER, type INewsApiAdapter } from '@nxt1/ui/news';
+import {
+  NewsContentComponent,
+  NewsService,
+  NEWS_API_ADAPTER,
+  type INewsApiAdapter,
+} from '@nxt1/ui';
+import { NewsListComponent } from '@nxt1/ui/news';
 import { HapticsService } from '@nxt1/ui/services/haptics';
 import { NxtToastService } from '@nxt1/ui/services/toast';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import { NxtBreadcrumbService } from '@nxt1/ui/services/breadcrumb';
 import { ANALYTICS_ADAPTER } from '@nxt1/ui/services/analytics';
 import type { NewsArticle, NewsPagination } from '@nxt1/core';
+import { TEST_IDS } from '@nxt1/core/testing';
 
 // ============================================
 // MOCK FACTORIES
@@ -631,5 +639,71 @@ describe('NewsService', () => {
 
       expect(service.hasMore()).toBe(true);
     });
+  });
+});
+
+describe('NewsContentComponent', () => {
+  let fixture: ComponentFixture<NewsContentComponent>;
+
+  /** Stub NewsListComponent — replaces the real one that imports IonSpinner from Ionic */
+  @Component({
+    selector: 'nxt1-news-list',
+    standalone: true,
+    template: `<div [attr.data-testid]="'news-empty-state'"></div>`,
+  })
+  class StubNewsListComponent {
+    readonly articles = input<readonly unknown[]>([]);
+    readonly isLoading = input(false);
+    readonly isLoadingMore = input(false);
+    readonly isEmpty = input(false);
+    readonly error = input<string | null>(null);
+    readonly hasMore = input(false);
+    readonly activeCategory = input<string>('for-you');
+    readonly articleClick = output<unknown>();
+    readonly loadMore = output<void>();
+    readonly retry = output<void>();
+    readonly emptyCta = output<void>();
+  }
+
+  const newsServiceMock = {
+    articles: vi.fn(() => []),
+    isLoading: vi.fn(() => false),
+    isLoadingMore: vi.fn(() => false),
+    isEmpty: vi.fn(() => true),
+    error: vi.fn(() => null),
+    hasMore: vi.fn(() => false),
+    activeCategory: vi.fn(() => 'for-you'),
+    loadFeed: vi.fn().mockResolvedValue(undefined),
+    loadMore: vi.fn().mockResolvedValue(undefined),
+    refresh: vi.fn().mockResolvedValue(undefined),
+    selectArticle: vi.fn().mockResolvedValue(undefined),
+  };
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+
+    await TestBed.configureTestingModule({
+      imports: [NewsContentComponent],
+      providers: [
+        { provide: NewsService, useValue: newsServiceMock },
+        { provide: HapticsService, useValue: createHapticsMock() },
+      ],
+    })
+      .overrideComponent(NewsContentComponent, {
+        remove: { imports: [NewsListComponent] },
+        add: { imports: [StubNewsListComponent] },
+      })
+      .compileComponents();
+
+    fixture = TestBed.createComponent(NewsContentComponent);
+    fixture.detectChanges();
+  });
+
+  it('renders the empty state when pulse has no articles', () => {
+    const emptyState = fixture.nativeElement.querySelector(
+      `[data-testid="${TEST_IDS.NEWS.EMPTY_STATE}"]`
+    );
+
+    expect(emptyState).toBeTruthy();
   });
 });

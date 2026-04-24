@@ -37,7 +37,13 @@ import {
   AgentXBillingActionCardComponent,
   type BillingActionResolvedEvent,
 } from '../../agent-x/agent-x-billing-action-card.component';
+import {
+  AgentXAskUserCardComponent,
+  type AskUserReplyEvent,
+} from '../../agent-x/agent-x-ask-user-card.component';
+import { NxtIconComponent } from '../icon/icon.component';
 import { NxtMarkdownComponent } from '../markdown/markdown.component';
+import { buildAgentCardThemeStyle } from '../../agent-x/agent-x-agent-presentation';
 
 /** Visual variant controlling sizing, colors, and border‑radius. */
 export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | 'agent-fab';
@@ -56,6 +62,8 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
     AgentXProfileCardComponent,
     AgentXFilmTimelineCardComponent,
     AgentXBillingActionCardComponent,
+    AgentXAskUserCardComponent,
+    NxtIconComponent,
     NxtMarkdownComponent,
   ],
   host: {
@@ -63,6 +71,7 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
     '[class.variant-agent-chat]': 'variant() === "agent-chat"',
     '[class.variant-agent-operation]': 'variant() === "agent-operation"',
     '[class.variant-agent-fab]': 'variant() === "agent-fab"',
+    '[class.is-streaming]': 'isStreaming()',
     '[class.own]': 'isOwn()',
     '[class.is-error]': 'isError()',
     '[class.is-system]': 'isSystem()',
@@ -84,7 +93,7 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
             stroke-linecap="round"
           />
         </svg>
-        <span class="typing-shimmer__text">Thinking…</span>
+        <span class="typing-shimmer__text">{{ typingLabel() }}</span>
       </div>
     } @else if (isSystem()) {
       <p class="bubble-text bubble-text--system">{{ content() }}</p>
@@ -93,7 +102,7 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
       @for (part of parts(); track $index) {
         @switch (part.type) {
           @case ('text') {
-            @if (isOwn()) {
+            @if (isOwn() || isStreaming()) {
               <p class="bubble-text">{{ part.content }}</p>
             } @else {
               <nxt1-markdown [content]="part.content" />
@@ -103,54 +112,63 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
             <nxt1-agent-x-tool-steps [steps]="part.steps" />
           }
           @case ('card') {
-            @if (part.card.type === 'planner') {
-              <nxt1-agent-x-planner-card
-                [card]="part.card"
-                (itemToggled)="plannerItemToggled.emit($event)"
-              />
-            } @else if (part.card.type === 'data-table') {
-              <nxt1-agent-x-data-table-card [card]="part.card" />
-            } @else if (part.card.type === 'confirmation') {
-              <nxt1-agent-x-confirmation-card
-                [card]="part.card"
-                (actionSelected)="confirmationAction.emit($event)"
-              />
-            } @else if (part.card.type === 'citations') {
-              <nxt1-agent-x-citations-card
-                [card]="part.card"
-                (citationClicked)="citationClicked.emit($event)"
-              />
-            } @else if (part.card.type === 'parameter-form') {
-              <nxt1-agent-x-parameter-form-card
-                [card]="part.card"
-                (formSubmitted)="parameterFormSubmitted.emit($event)"
-              />
-            } @else if (part.card.type === 'draft') {
-              <nxt1-agent-x-draft-card
-                [card]="part.card"
-                (draftSubmitted)="draftSubmitted.emit($event)"
-              />
-            } @else if (part.card.type === 'profile') {
-              <nxt1-agent-x-profile-card
-                [card]="part.card"
-                (profileClicked)="profileClicked.emit($event)"
-              />
-            } @else if (part.card.type === 'film-timeline') {
-              <nxt1-agent-x-film-timeline-card
-                [card]="part.card"
-                (markerClicked)="filmMarkerClicked.emit($event)"
-              />
-            } @else if (part.card.type === 'billing-action') {
-              <nxt1-agent-x-billing-action-card
-                [card]="part.card"
-                (actionResolved)="billingActionResolved.emit($event)"
-              />
-            } @else {
-              <div class="card-fallback">
-                <span class="card-fallback__icon">⚠️</span>
-                <span class="card-fallback__text">Unsupported card type: {{ part.card.type }}</span>
-              </div>
-            }
+            <div class="agent-card-shell" [style]="cardThemeStyle(part.card)">
+              @if (part.card.type === 'planner') {
+                <nxt1-agent-x-planner-card
+                  [card]="part.card"
+                  (itemToggled)="plannerItemToggled.emit($event)"
+                />
+              } @else if (part.card.type === 'data-table') {
+                <nxt1-agent-x-data-table-card [card]="part.card" />
+              } @else if (part.card.type === 'confirmation') {
+                <nxt1-agent-x-confirmation-card
+                  [card]="part.card"
+                  (actionSelected)="confirmationAction.emit($event)"
+                />
+              } @else if (part.card.type === 'citations') {
+                <nxt1-agent-x-citations-card
+                  [card]="part.card"
+                  (citationClicked)="citationClicked.emit($event)"
+                />
+              } @else if (part.card.type === 'parameter-form') {
+                <nxt1-agent-x-parameter-form-card
+                  [card]="part.card"
+                  (formSubmitted)="parameterFormSubmitted.emit($event)"
+                />
+              } @else if (part.card.type === 'draft') {
+                <nxt1-agent-x-draft-card
+                  [card]="part.card"
+                  (draftSubmitted)="draftSubmitted.emit($event)"
+                />
+              } @else if (part.card.type === 'profile') {
+                <nxt1-agent-x-profile-card
+                  [card]="part.card"
+                  (profileClicked)="profileClicked.emit($event)"
+                />
+              } @else if (part.card.type === 'film-timeline') {
+                <nxt1-agent-x-film-timeline-card
+                  [card]="part.card"
+                  (markerClicked)="filmMarkerClicked.emit($event)"
+                />
+              } @else if (part.card.type === 'billing-action') {
+                <nxt1-agent-x-billing-action-card
+                  [card]="part.card"
+                  (actionResolved)="billingActionResolved.emit($event)"
+                />
+              } @else if (part.card.type === 'ask_user') {
+                <nxt1-agent-x-ask-user-card
+                  [card]="part.card"
+                  (replySubmitted)="askUserReply.emit($event)"
+                />
+              } @else {
+                <div class="card-fallback">
+                  <span class="card-fallback__icon">⚠️</span>
+                  <span class="card-fallback__text"
+                    >Unsupported card type: {{ part.card.type }}</span
+                  >
+                </div>
+              }
+            </div>
           }
           @case ('image') {
             <div class="bubble-media">
@@ -181,7 +199,7 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
         <nxt1-agent-x-tool-steps [steps]="steps()" />
       }
       @if (content()) {
-        @if (isOwn()) {
+        @if (isOwn() || isStreaming()) {
           <p class="bubble-text">{{ content() }}</p>
         } @else {
           <nxt1-markdown [content]="content()" />
@@ -208,50 +226,70 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
         </div>
       }
       @for (card of cards(); track $index) {
-        @if (card.type === 'planner') {
-          <nxt1-agent-x-planner-card
-            [card]="card"
-            (itemToggled)="plannerItemToggled.emit($event)"
-          />
-        } @else if (card.type === 'data-table') {
-          <nxt1-agent-x-data-table-card [card]="card" />
-        } @else if (card.type === 'confirmation') {
-          <nxt1-agent-x-confirmation-card
-            [card]="card"
-            (actionSelected)="confirmationAction.emit($event)"
-          />
-        } @else if (card.type === 'citations') {
-          <nxt1-agent-x-citations-card
-            [card]="card"
-            (citationClicked)="citationClicked.emit($event)"
-          />
-        } @else if (card.type === 'parameter-form') {
-          <nxt1-agent-x-parameter-form-card
-            [card]="card"
-            (formSubmitted)="parameterFormSubmitted.emit($event)"
-          />
-        } @else if (card.type === 'draft') {
-          <nxt1-agent-x-draft-card [card]="card" (draftSubmitted)="draftSubmitted.emit($event)" />
-        } @else if (card.type === 'profile') {
-          <nxt1-agent-x-profile-card [card]="card" (profileClicked)="profileClicked.emit($event)" />
-        } @else if (card.type === 'film-timeline') {
-          <nxt1-agent-x-film-timeline-card
-            [card]="card"
-            (markerClicked)="filmMarkerClicked.emit($event)"
-          />
-        } @else if (card.type === 'billing-action') {
-          <nxt1-agent-x-billing-action-card
-            [card]="card"
-            (actionResolved)="billingActionResolved.emit($event)"
-          />
-        } @else {
-          <div class="card-fallback">
-            <span class="card-fallback__icon">⚠️</span>
-            <span class="card-fallback__text">Unsupported card type: {{ card.type }}</span>
-          </div>
-        }
+        <div class="agent-card-shell" [style]="cardThemeStyle(card)">
+          @if (card.type === 'planner') {
+            <nxt1-agent-x-planner-card
+              [card]="card"
+              (itemToggled)="plannerItemToggled.emit($event)"
+            />
+          } @else if (card.type === 'data-table') {
+            <nxt1-agent-x-data-table-card [card]="card" />
+          } @else if (card.type === 'confirmation') {
+            <nxt1-agent-x-confirmation-card
+              [card]="card"
+              (actionSelected)="confirmationAction.emit($event)"
+            />
+          } @else if (card.type === 'citations') {
+            <nxt1-agent-x-citations-card
+              [card]="card"
+              (citationClicked)="citationClicked.emit($event)"
+            />
+          } @else if (card.type === 'parameter-form') {
+            <nxt1-agent-x-parameter-form-card
+              [card]="card"
+              (formSubmitted)="parameterFormSubmitted.emit($event)"
+            />
+          } @else if (card.type === 'draft') {
+            <nxt1-agent-x-draft-card [card]="card" (draftSubmitted)="draftSubmitted.emit($event)" />
+          } @else if (card.type === 'profile') {
+            <nxt1-agent-x-profile-card
+              [card]="card"
+              (profileClicked)="profileClicked.emit($event)"
+            />
+          } @else if (card.type === 'film-timeline') {
+            <nxt1-agent-x-film-timeline-card
+              [card]="card"
+              (markerClicked)="filmMarkerClicked.emit($event)"
+            />
+          } @else if (card.type === 'billing-action') {
+            <nxt1-agent-x-billing-action-card
+              [card]="card"
+              (actionResolved)="billingActionResolved.emit($event)"
+            />
+          } @else if (card.type === 'ask_user') {
+            <nxt1-agent-x-ask-user-card
+              [card]="card"
+              (replySubmitted)="askUserReply.emit($event)"
+            />
+          } @else {
+            <div class="card-fallback">
+              <span class="card-fallback__icon">⚠️</span>
+              <span class="card-fallback__text">Unsupported card type: {{ card.type }}</span>
+            </div>
+          }
+        </div>
       }
     }
+
+    @if (isError()) {
+      <div class="bubble-error-actions">
+        <button type="button" class="bubble-retry-btn" (click)="retryRequested.emit()">
+          <nxt1-icon name="refresh" size="11" className="bubble-retry-icon" />
+          Try again
+        </button>
+      </div>
+    }
+
     <ng-content />
   `,
   styles: [
@@ -266,6 +304,11 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
         max-width: 100%;
         word-wrap: break-word;
         overflow-wrap: break-word;
+        --bubble-error: var(--nxt1-color-error, #ef4444);
+        --bubble-error-bg: var(--nxt1-color-errorBg, rgba(239, 68, 68, 0.1));
+        --bubble-error-border: color-mix(in srgb, var(--bubble-error) 44%, transparent);
+        --bubble-error-border-soft: color-mix(in srgb, var(--bubble-error) 28%, transparent);
+        --bubble-error-text: var(--nxt1-color-errorLight, var(--bubble-error));
       }
 
       .bubble-text {
@@ -338,6 +381,10 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
         font-size: 1rem;
       }
 
+      .agent-card-shell {
+        display: block;
+      }
+
       @media (prefers-reduced-motion: reduce) {
         .typing-shimmer__icon {
           animation: none;
@@ -397,12 +444,10 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
 
       /* Failed state */
       :host(.variant-message.is-error) {
-        opacity: 0.7;
-      }
-
-      :host(.variant-message.own.is-error) {
-        background: var(--nxt1-color-error);
-        color: var(--nxt1-color-text-primary, #ffffff);
+        opacity: 1;
+        background: var(--bubble-error-bg);
+        border: 1px solid var(--bubble-error-border);
+        color: var(--bubble-error-text);
       }
 
       /* ============================================
@@ -433,8 +478,8 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
       }
 
       :host(.variant-agent-chat.is-error) {
-        background: rgba(239, 68, 68, 0.1);
-        border-color: rgba(239, 68, 68, 0.3);
+        background: var(--bubble-error-bg);
+        border-color: var(--bubble-error-border);
       }
 
       :host(.variant-agent-chat) .typing-dots {
@@ -459,6 +504,14 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
       :host(.variant-agent-operation) .bubble-text {
         font-size: 14px;
         line-height: 1.5;
+      }
+
+      /* Keep streaming typography aligned with final markdown output. */
+      :host(.variant-agent-operation.is-streaming:not(.own)) .bubble-text,
+      :host(.variant-agent-chat.is-streaming:not(.own)) .bubble-text,
+      :host(.variant-agent-fab.is-streaming:not(.own)) .bubble-text {
+        font-size: 1rem;
+        line-height: 1.6;
       }
 
       :host(.variant-agent-operation.own) {
@@ -488,8 +541,58 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
       }
 
       :host(.variant-agent-operation.is-error) {
-        background: rgba(239, 68, 68, 0.1);
-        border-color: rgba(239, 68, 68, 0.3);
+        background: var(--bubble-error-bg);
+        border: 1px solid var(--bubble-error-border);
+        border-radius: 12px;
+        padding: 10px 12px;
+        color: var(--bubble-error-text);
+      }
+
+      :host(.variant-agent-operation.is-error) .bubble-text {
+        color: var(--bubble-error-text);
+      }
+
+      :host(.variant-agent-operation.is-error) .bubble-error-actions,
+      :host(.variant-agent-fab.is-error) .bubble-error-actions {
+        margin-top: 8px;
+        padding-top: 8px;
+        border-top: 1px solid var(--bubble-error-border-soft);
+      }
+
+      .bubble-error-actions {
+        display: flex;
+        margin-top: 8px;
+      }
+
+      .bubble-retry-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        padding: 4px 10px;
+        border-radius: 20px;
+        border: 1px solid var(--bubble-error-border);
+        background: color-mix(in srgb, var(--bubble-error) 12%, transparent);
+        color: var(--bubble-error-text);
+        font-size: 11px;
+        font-weight: 500;
+        letter-spacing: 0.01em;
+        cursor: pointer;
+        transition:
+          background 0.15s,
+          border-color 0.15s;
+      }
+
+      .bubble-retry-icon {
+        flex-shrink: 0;
+      }
+
+      .bubble-retry-btn:hover {
+        background: color-mix(in srgb, var(--bubble-error) 18%, transparent);
+        border-color: var(--bubble-error-border);
+      }
+
+      .bubble-retry-btn:active {
+        background: color-mix(in srgb, var(--bubble-error) 24%, transparent);
       }
 
       :host(.variant-agent-operation) .typing-dots span {
@@ -524,8 +627,8 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
       }
 
       :host(.variant-agent-fab.is-error) {
-        background: var(--panel-error-bg, rgba(239, 68, 68, 0.1));
-        border-color: var(--panel-error-border, rgba(239, 68, 68, 0.3));
+        background: var(--bubble-error-bg);
+        border-color: var(--bubble-error-border);
       }
 
       :host(.variant-agent-fab) .typing-dots span {
@@ -604,6 +707,12 @@ export class NxtChatBubbleComponent {
   /** Show typing indicator dots instead of text. */
   readonly isTyping = input(false);
 
+  /** True while this bubble is receiving live stream deltas. */
+  readonly isStreaming = input(false);
+
+  /** Label shown inside the typing shimmer. */
+  readonly typingLabel = input('Thinking...');
+
   /** Error state. */
   readonly isError = input(false);
 
@@ -648,4 +757,14 @@ export class NxtChatBubbleComponent {
 
   /** Emitted when a billing action card CTA is resolved. */
   readonly billingActionResolved = output<BillingActionResolvedEvent>();
+
+  /** Emitted when the user submits a reply to an ask_user card. */
+  readonly askUserReply = output<AskUserReplyEvent>();
+
+  /** Emitted when the user clicks "Try again" on an error bubble. */
+  readonly retryRequested = output<void>();
+
+  protected cardThemeStyle(card: AgentXRichCard): string {
+    return buildAgentCardThemeStyle(card);
+  }
 }

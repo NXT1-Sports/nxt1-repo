@@ -14,10 +14,10 @@
  * see @nxt1/core/manage-team.
  */
 
-import type { VerificationStatus, DataVerification } from '../models/user.model';
+import type { ConnectedSource, VerificationStatus, DataVerification } from '../models/user';
 import type { NewsArticle } from '../news/news.types';
-export type { VerificationStatus } from '../models/user.model';
-export type { DataVerification } from '../models/user.model';
+export type { ConnectedSource, VerificationStatus } from '../models/user';
+export type { DataVerification } from '../models/user';
 
 // ============================================
 // TEAM PROFILE TAB TYPES
@@ -32,7 +32,40 @@ export type { DataVerification } from '../models/user.model';
  * - Roster shows team members split by class year
  * - Connect shows contact info, recruiting, and scheduling
  */
-export type TeamProfileTabId = 'intel' | 'timeline' | 'roster' | 'connect';
+export type TeamProfileTabId = 'intel' | 'timeline' | 'roster' | 'connect' | 'schedule';
+
+// ============================================
+// TEAM TIMELINE FILTER TYPES
+// ============================================
+
+/**
+ * Filter identifiers for the Team Timeline tab.
+ *
+ * - all: All feed items (no filter)
+ * - media: Photos and highlight videos
+ * - stats: TeamStats and PlayerStats entries
+ * - games: Schedule items where status === 'final'
+ * - schedule: Schedule items where status is upcoming/live
+ * - recruiting: Recruiting activities (offers, commits, visits)
+ * - news: News articles linked to the team
+ */
+export type TeamTimelineFilterId =
+  | 'all'
+  | 'media'
+  | 'stats'
+  | 'games'
+  | 'schedule'
+  | 'recruiting'
+  | 'news';
+
+/**
+ * Configuration for a single team timeline filter chip.
+ */
+export interface TeamTimelineFilter {
+  readonly id: TeamTimelineFilterId;
+  readonly label: string;
+  readonly icon: string;
+}
 
 /**
  * Configuration for a team profile content tab.
@@ -70,17 +103,6 @@ export interface TeamProfileBranding {
   readonly primaryColor?: string;
   readonly secondaryColor?: string;
   readonly mascot?: string;
-}
-
-/**
- * Team social media link.
- */
-export interface TeamProfileSocialLink {
-  readonly platform: string;
-  readonly url: string;
-  readonly username?: string;
-  readonly displayOrder?: number;
-  readonly verified?: boolean;
 }
 
 /**
@@ -126,6 +148,8 @@ export interface TeamProfileTeam {
   readonly id: string;
   /** URL-friendly slug (also the teamCode) */
   readonly slug: string;
+  /** Public team code used in canonical routes */
+  readonly teamCode?: string;
   /** Unicode identifier for deep linking */
   readonly unicode?: string;
   /** Team display name */
@@ -143,7 +167,7 @@ export interface TeamProfileTeam {
   /** Team logo URL */
   readonly logoUrl?: string;
   /** Banner/cover image URL */
-  readonly bannerImg?: string;
+
   /** Gallery images for carousel display */
   readonly galleryImages?: readonly string[];
   /** About/description text */
@@ -154,8 +178,8 @@ export interface TeamProfileTeam {
   readonly branding?: TeamProfileBranding;
   /** Contact information */
   readonly contact?: TeamProfileContact;
-  /** Social media links */
-  readonly social?: readonly TeamProfileSocialLink[];
+  /** Connected external sources shared with the user profile schema */
+  readonly connectedSources?: readonly ConnectedSource[];
   /** External links */
   readonly links?: TeamProfileLinks;
   /** Sponsors */
@@ -166,8 +190,6 @@ export interface TeamProfileTeam {
   readonly conference?: string;
   /** Season-by-season history entries (most recent first) */
   readonly seasonHistory?: readonly TeamProfileSeasonHistory[];
-  /** Founded year */
-  readonly foundedYear?: number;
   /** Home venue/stadium */
   readonly homeVenue?: string;
   /** Verification status */
@@ -176,8 +198,6 @@ export interface TeamProfileTeam {
   readonly verifications?: readonly DataVerification[];
   /** Whether the team has an active subscription */
   readonly isActive: boolean;
-  /** Package/tier */
-  readonly packageId?: string;
   /** Created timestamp */
   readonly createdAt: string;
   /** Last updated timestamp */
@@ -234,6 +254,7 @@ export interface TeamProfileRosterMember {
   readonly lastName: string;
   readonly displayName?: string;
   readonly profileImg?: string;
+  readonly unicode?: string;
   readonly profileCode?: string;
   readonly role: 'athlete' | 'coach' | 'media' | 'admin';
   readonly position?: string;
@@ -397,13 +418,7 @@ export interface TeamProfileQuickStats {
 /**
  * Team post/content item (same shape as profile posts for reuse).
  */
-export type TeamProfilePostType =
-  | 'video'
-  | 'image'
-  | 'text'
-  | 'highlight'
-  | 'news'
-  | 'announcement';
+export type TeamProfilePostType = 'video' | 'image' | 'text' | 'news' | 'announcement';
 
 export interface TeamProfilePost {
   readonly id: string;
@@ -413,12 +428,9 @@ export interface TeamProfilePost {
   readonly thumbnailUrl?: string;
   readonly mediaUrl?: string;
   readonly externalLink?: string;
-  readonly likeCount: number;
-  readonly commentCount: number;
   readonly shareCount: number;
   readonly viewCount?: number;
   readonly duration?: number;
-  readonly isLiked?: boolean;
   readonly isPinned?: boolean;
   readonly createdAt: string;
 }

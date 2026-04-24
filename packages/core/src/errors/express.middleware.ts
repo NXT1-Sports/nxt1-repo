@@ -249,7 +249,8 @@ export function createErrorHandler(
       },
     };
 
-    // Send response
+    // Send response — guard against double-send (e.g. middleware already sent headers)
+    if (res.headersSent) return;
     res.status(errorDetail.statusCode).json(response);
   };
 }

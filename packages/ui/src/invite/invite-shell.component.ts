@@ -33,6 +33,8 @@ import { CommonModule, isPlatformBrowser } from '@angular/common';
 import { IonSpinner } from '@ionic/angular/standalone';
 import {
   isCapacitor,
+  buildInviteShareTitle,
+  buildInviteUiCopy,
   type InviteType,
   type InviteTeam,
   type UserRole,
@@ -58,33 +60,11 @@ export interface InviteUser {
   readonly referralCode?: string;
   /** The sender's platform role — controls which design variant is shown. */
   readonly role?: UserRole;
+  readonly primaryPosition?: string | null;
+  readonly schoolName?: string | null;
+  readonly primarySport?: string | null;
+  readonly location?: string | null;
 }
-
-/**
- * Copy keyed by sender role category.
- */
-interface InviteCopy {
-  readonly title: string;
-  readonly subtitle: string;
-  readonly shareText: string;
-}
-
-const INVITE_COPY = {
-  athleteParent: {
-    title: 'Earn $5 in Agent X Credits',
-    subtitle:
-      'You earn $5 added to your Agent X budget every time a friend joins through your invite.',
-    shareText:
-      'Join me on NXT1 and build your profile, connect with teammates, and get started fast:',
-  },
-  recruiter: {
-    title: 'Earn $5 in Agent X Credits',
-    subtitle:
-      'You earn $5 added to your Agent X budget every time a prospect joins through your invite.',
-    shareText:
-      'Join NXT1 to build your profile, showcase your talent, and get discovered more easily:',
-  },
-} as const;
 
 @Component({
   selector: 'nxt1-invite-shell',
@@ -514,13 +494,19 @@ export class InviteShellComponent implements OnInit {
   protected readonly isLinkLoading = computed(() => this.invite.isLoading());
 
   /** Role-aware invite copy shown in UI and used for sharing. */
-  protected readonly currentCopy = computed<InviteCopy>(() => {
-    const role = this.user()?.role;
-    if (role === USER_ROLES.RECRUITER) {
-      return INVITE_COPY.recruiter;
-    }
-    return INVITE_COPY.athleteParent;
-  });
+  protected readonly currentCopy = computed(() =>
+    buildInviteUiCopy({
+      inviteType: this.inviteType(),
+      senderRole: this.user()?.role ?? null,
+      senderName: this.user()?.displayName ?? null,
+      senderPosition: this.user()?.primaryPosition ?? null,
+      senderSchool: this.user()?.schoolName ?? null,
+      senderSport: this.user()?.primarySport ?? null,
+      senderLocation: this.user()?.location ?? null,
+      team: this.team(),
+      rewardCents: this.invite.inviteLink()?.referralRewardCents ?? null,
+    })
+  );
 
   /** Only show the reward card for athletes, parents, and recruiters — not coaches/directors. */
   protected readonly showValueCard = computed(() => {
@@ -529,19 +515,7 @@ export class InviteShellComponent implements OnInit {
   });
 
   /** Professional explainer shown above the reward card. */
-  protected readonly howItWorksText = computed(() => {
-    const role = this.user()?.role;
-
-    if (role === USER_ROLES.COACH || role === USER_ROLES.DIRECTOR) {
-      return 'Share this QR code or link with your players and staff. Once they sign up through your invite, they are connected to your program on NXT1.';
-    }
-
-    if (role === USER_ROLES.RECRUITER) {
-      return 'Share this QR code or link with prospects. Each time someone joins through your invite, you earn $5 in Agent X credits.';
-    }
-
-    return 'Share this QR code or link with friends and teammates. Each time someone joins through your invite, you earn $5 added to your Agent X budget.';
-  });
+  protected readonly howItWorksText = computed(() => this.currentCopy().howItWorksText);
 
   protected readonly headerTitle = computed(() => {
     const type = this.inviteType();
@@ -551,7 +525,6 @@ export class InviteShellComponent implements OnInit {
     if (role === USER_ROLES.COACH || role === USER_ROLES.DIRECTOR) {
       return 'Invite Players & Staff';
     }
-    if (role === USER_ROLES.RECRUITER) return 'Invite Prospects';
     return 'Invite';
   });
 
@@ -633,7 +606,16 @@ export class InviteShellComponent implements OnInit {
     await this.haptics.impact('medium');
     const shareText = this.currentCopy().shareText;
     const shareData: ShareData = {
-      title: 'Join me on NXT1',
+      title: buildInviteShareTitle({
+        inviteType: this.inviteType(),
+        senderRole: this.user()?.role ?? null,
+        senderName: this.user()?.displayName ?? null,
+        senderPosition: this.user()?.primaryPosition ?? null,
+        senderSchool: this.user()?.schoolName ?? null,
+        senderSport: this.user()?.primarySport ?? null,
+        senderLocation: this.user()?.location ?? null,
+        team: this.team(),
+      }),
       text: shareText,
       url,
     };

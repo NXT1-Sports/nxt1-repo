@@ -44,7 +44,7 @@
  */
 
 import type { HttpAdapter } from '../api/http-adapter';
-import type { TeamTypeApi } from '../models/team-code.model';
+import type { TeamTypeApi } from '../models/team/team-code.model';
 import type { UserRole } from '../constants/user.constants';
 import type {
   TeamSelectionFormData,
@@ -98,25 +98,18 @@ export type TeamCodeValidationState = 'idle' | 'validating' | 'success' | 'error
 
 /**
  * Onboarding profile data to save
- * userType values must match UserRole from @nxt1/core/constants
+ * Sent to POST /auth/profile/onboarding
+ *
+ * ⭐ V2 cleanup: removed legacy fields (bio, highSchool, highSchoolSuffix, club, teamLogo, teamColors)
+ * Location comes from profile step geolocation, not contact/school steps.
  */
 export interface OnboardingProfileData {
   firstName: string;
   lastName: string;
   profileImg?: string;
   profileImgs?: string[];
-  bio?: string;
-  /** User role - matches UserRole type from constants */
-  userType:
-    | 'athlete'
-    | 'coach'
-    | 'college-coach'
-    | 'director'
-    | 'recruiting-service'
-    | 'parent'
-    | 'scout'
-    | 'media'
-    | 'fan';
+  /** User role — only the 3 allowed V2 roles */
+  userType: 'athlete' | 'coach' | 'director';
   gender?: string;
   sports?: Array<{
     sport: string;
@@ -132,22 +125,18 @@ export interface OnboardingProfileData {
       teamId?: string;
     };
   }>;
-  highSchool?: string;
-  highSchoolSuffix?: string;
   classOf?: number;
+  /** Location from profile step geolocation */
   state?: string;
   city?: string;
   zipCode?: string;
   address?: string;
   country?: string;
-  club?: string;
   organization?: string;
   coachTitle?: string;
   teamCode?: string;
   referralSource?: string;
   referralDetails?: string;
-  teamLogo?: string | null;
-  teamColors?: string[];
   linkSources?: {
     links?: Array<{
       platform?: string;
@@ -177,13 +166,15 @@ export interface OnboardingCompleteResponse {
     id: string;
     firstName: string;
     lastName: string;
+    role: string;
+    onboardingCompleted: boolean;
     completeSignUp: boolean;
-    /** Primary sport - matches User.primarySport */
-    primarySport?: string;
   };
   redirectPath: string;
   /** Job ID for linked account scrape (if any linked accounts were provided). */
   scrapeJobId?: string;
+  /** Thread ID for the Agent X conversation tied to the scrape job. */
+  scrapeThreadId?: string;
 }
 
 /**
@@ -234,14 +225,8 @@ export interface UserProfileResponse {
     teamName: string;
     isFreeTrial: boolean;
   };
-  /** @deprecated Use role instead */
-  isRecruit?: boolean;
-  /** @deprecated Use role instead */
-  isCollegeCoach?: boolean;
   /** @deprecated Use onboardingCompleted instead */
   completeSignUp?: boolean;
-  /** @deprecated Legacy field — no longer used */
-  lastActivatedPlan?: string;
 }
 
 /**
@@ -323,7 +308,6 @@ export interface CreateUserResponse {
       email: string;
       credits: number;
       featureCredits: number;
-      lastActivatedPlan: 'trial' | 'subscription' | 'free';
       completeSignUp: boolean;
       /** True if user already existed (idempotent request) */
       alreadyExists?: boolean;
@@ -501,6 +485,32 @@ export function createAuthApi(http: HttpAdapter, baseUrl: string) {
       return http.post(`${base}/auth/team-code/join`, { userId, code });
     },
 
+    /**
+     * Fetch existing connected sources for a team.
+     * Used during onboarding to seed the link-drop step with links
+     * previously added by another staff member (coach/director).
+     *
+     * @param teamId - Firestore team document ID
+     * @returns Array of connected source records with addedBy attribution
+     */
+    async getTeamSources(teamId: string): Promise<{
+      success: boolean;
+      data: {
+        platform: string;
+        profileUrl: string;
+        addedBy?: string;
+        addedById?: string;
+        scopeType?: string;
+        scopeId?: string;
+      }[];
+    }> {
+      try {
+        return await http.get(`${base}/auth/team-sources/${encodeURIComponent(teamId)}`);
+      } catch {
+        return { success: true, data: [] };
+      }
+    },
+
     // ============================================
     // ONBOARDING OPERATIONS
     // ============================================
@@ -524,9 +534,6 @@ export function createAuthApi(http: HttpAdapter, baseUrl: string) {
       stepData: Record<string, unknown>
     ): Promise<OnboardingStepResponse> {
       try {
-        // V2 Resource-based routing - each step has its own endpoint
-        const v2Base = base.replace('/v1', '/v2');
-
         // Type for backend response format
         type BackendStepResponse = {
           success?: boolean;
@@ -534,118 +541,27 @@ export function createAuthApi(http: HttpAdapter, baseUrl: string) {
           error?: { message?: string };
         };
 
-        // Helper to unwrap V2 backend response format
-        // Backend returns: { success, data: { stepId, savedFields, ... }, meta }
-        // Frontend expects: { success, stepId, savedFields, ... }
-        const unwrapResponse = (response: BackendStepResponse): OnboardingStepResponse => {
-          if (response && response.success && response.data) {
-            return {
-              success: true,
-              stepId: response.data.stepId,
-              savedFields: response.data.savedFields,
-            };
+        // Monorepo backend uses the unified /auth/profile/onboarding-step for all steps
+        const response = await http.post<BackendStepResponse>(
+          `${base}/auth/profile/onboarding-step`,
+          {
+            userId,
+            stepId,
+            stepData,
           }
+        );
+
+        if (response && response.success && response.data) {
           return {
-            success: response?.success ?? false,
-            error: response?.error?.message || 'Unknown error',
+            success: true,
+            stepId: response.data.stepId,
+            savedFields: response.data.savedFields,
           };
-        };
-
-        let response: BackendStepResponse;
-        switch (stepId) {
-          case 'role':
-            response = await http.patch<BackendStepResponse>(`${v2Base}/auth/profile/role`, {
-              userId,
-              userType: stepData['userType'],
-            });
-            return unwrapResponse(response);
-
-          case 'profile':
-            response = await http.patch<BackendStepResponse>(`${v2Base}/auth/profile/personal`, {
-              userId,
-              firstName: stepData['firstName'],
-              lastName: stepData['lastName'],
-              profileImg: stepData['profileImg'],
-              bio: stepData['bio'],
-            });
-            return unwrapResponse(response);
-
-          case 'school':
-            response = await http.patch<BackendStepResponse>(`${v2Base}/auth/profile/school`, {
-              userId,
-              highSchool: stepData['highSchool'],
-              highSchoolSuffix: stepData['highSchoolSuffix'],
-              classOf: stepData['classOf'],
-              state: stepData['state'],
-              city: stepData['city'],
-              club: stepData['club'],
-            });
-            return unwrapResponse(response);
-
-          case 'organization':
-            response = await http.patch<BackendStepResponse>(
-              `${v2Base}/auth/profile/organization`,
-              {
-                userId,
-                organization: stepData['organization'],
-                secondOrganization: stepData['secondOrganization'],
-                coachTitle: stepData['coachTitle'],
-                state: stepData['state'],
-                city: stepData['city'],
-              }
-            );
-            return unwrapResponse(response);
-
-          case 'sport':
-            response = await http.patch<BackendStepResponse>(`${v2Base}/auth/profile/sport`, {
-              userId,
-              primarySport: stepData['primarySport'],
-              secondarySport: stepData['secondarySport'],
-            });
-            return unwrapResponse(response);
-
-          case 'positions':
-            response = await http.patch<BackendStepResponse>(`${v2Base}/auth/profile/positions`, {
-              userId,
-              positions: stepData['positions'],
-            });
-            return unwrapResponse(response);
-
-          case 'contact':
-            response = await http.patch<BackendStepResponse>(`${v2Base}/auth/profile/contact`, {
-              userId,
-              contactEmail: stepData['contactEmail'],
-              phoneNumber: stepData['phoneNumber'],
-              instagram: stepData['instagram'],
-              twitter: stepData['twitter'],
-              tiktok: stepData['tiktok'],
-              hudlAccountLink: stepData['hudlAccountLink'],
-              youtubeAccountLink: stepData['youtubeAccountLink'],
-            });
-            return unwrapResponse(response);
-
-          case 'referral-source':
-            response = await http.post<BackendStepResponse>(`${v2Base}/auth/profile/referral`, {
-              userId,
-              source: stepData['source'],
-              details: stepData['details'],
-              clubName: stepData['clubName'],
-              otherSpecify: stepData['otherSpecify'],
-            });
-            return unwrapResponse(response);
-
-          default:
-            // Fallback to legacy endpoint for unknown steps
-            response = await http.post<BackendStepResponse>(
-              `${base}/auth/profile/onboarding-step`,
-              {
-                userId,
-                stepId,
-                stepData,
-              }
-            );
-            return unwrapResponse(response);
         }
+        return {
+          success: response?.success ?? false,
+          error: response?.error?.message || 'Unknown error',
+        };
       } catch (error) {
         return {
           success: false,
@@ -661,19 +577,20 @@ export function createAuthApi(http: HttpAdapter, baseUrl: string) {
 
     /**
      * Update user role type
-     * PATCH /v2/auth/profile/role
      */
     async updateRole(
       userId: string,
-      userType: 'athlete' | 'coach' | 'director' | 'recruiter' | 'parent'
+      userType: 'athlete' | 'coach' | 'director'
     ): Promise<OnboardingStepResponse> {
-      const v2Base = base.replace('/v1', '/v2');
-      return http.patch(`${v2Base}/auth/profile/role`, { userId, userType });
+      return http.post(`${base}/auth/profile/onboarding-step`, {
+        userId,
+        stepId: 'role',
+        stepData: { userType },
+      });
     },
 
     /**
      * Update personal information
-     * PATCH /v2/auth/profile/personal
      */
     async updatePersonalInfo(
       userId: string,
@@ -684,13 +601,15 @@ export function createAuthApi(http: HttpAdapter, baseUrl: string) {
         bio?: string;
       }
     ): Promise<OnboardingStepResponse> {
-      const v2Base = base.replace('/v1', '/v2');
-      return http.patch(`${v2Base}/auth/profile/personal`, { userId, ...data });
+      return http.post(`${base}/auth/profile/onboarding-step`, {
+        userId,
+        stepId: 'profile',
+        stepData: data,
+      });
     },
 
     /**
      * Update school information
-     * PATCH /v2/auth/profile/school
      */
     async updateSchool(
       userId: string,
@@ -703,13 +622,15 @@ export function createAuthApi(http: HttpAdapter, baseUrl: string) {
         club?: string;
       }
     ): Promise<OnboardingStepResponse> {
-      const v2Base = base.replace('/v1', '/v2');
-      return http.patch(`${v2Base}/auth/profile/school`, { userId, ...data });
+      return http.post(`${base}/auth/profile/onboarding-step`, {
+        userId,
+        stepId: 'school',
+        stepData: data,
+      });
     },
 
     /**
      * Update organization information
-     * PATCH /v2/auth/profile/organization
      */
     async updateOrganization(
       userId: string,
@@ -721,40 +642,40 @@ export function createAuthApi(http: HttpAdapter, baseUrl: string) {
         city?: string;
       }
     ): Promise<OnboardingStepResponse> {
-      const v2Base = base.replace('/v1', '/v2');
-      return http.patch(`${v2Base}/auth/profile/organization`, {
+      return http.post(`${base}/auth/profile/onboarding-step`, {
         userId,
-        ...data,
+        stepId: 'organization',
+        stepData: data,
       });
     },
 
     /**
      * Update sport selections
-     * PATCH /v2/auth/profile/sport
      */
     async updateSport(
       userId: string,
       data: { primarySport: string; secondarySport?: string }
     ): Promise<OnboardingStepResponse> {
-      const v2Base = base.replace('/v1', '/v2');
-      return http.patch(`${v2Base}/auth/profile/sport`, { userId, ...data });
+      return http.post(`${base}/auth/profile/onboarding-step`, {
+        userId,
+        stepId: 'sport',
+        stepData: data,
+      });
     },
 
     /**
      * Update playing positions
-     * PATCH /v2/auth/profile/positions
      */
     async updatePositions(userId: string, positions: string[]): Promise<OnboardingStepResponse> {
-      const v2Base = base.replace('/v1', '/v2');
-      return http.patch(`${v2Base}/auth/profile/positions`, {
+      return http.post(`${base}/auth/profile/onboarding-step`, {
         userId,
-        positions,
+        stepId: 'positions',
+        stepData: { positions },
       });
     },
 
     /**
      * Update contact information
-     * PATCH /v2/auth/profile/contact
      */
     async updateContact(
       userId: string,
@@ -768,8 +689,11 @@ export function createAuthApi(http: HttpAdapter, baseUrl: string) {
         youtubeAccountLink?: string;
       }
     ): Promise<OnboardingStepResponse> {
-      const v2Base = base.replace('/v1', '/v2');
-      return http.patch(`${v2Base}/auth/profile/contact`, { userId, ...data });
+      return http.post(`${base}/auth/profile/onboarding-step`, {
+        userId,
+        stepId: 'contact',
+        stepData: data,
+      });
     },
 
     /**
@@ -790,8 +714,21 @@ export function createAuthApi(http: HttpAdapter, baseUrl: string) {
       id?: string;
       error?: string;
     }> {
-      const v2Base = base.replace('/v1', '/v2');
-      return http.post(`${v2Base}/auth/profile/referral`, { userId, ...data });
+      // Maps to the same onboarding-step endpoint in the monorepo backend
+      const response = await http.post<{
+        success?: boolean;
+        data?: { stepId?: string; savedFields?: string[] };
+        error?: { message?: string };
+      }>(`${base}/auth/profile/onboarding-step`, {
+        userId,
+        stepId: 'referral-source',
+        stepData: data,
+      });
+      return {
+        success: response?.success ?? false,
+        stepId: response?.data?.stepId,
+        error: response?.error?.message,
+      };
     },
 
     /**
@@ -810,29 +747,6 @@ export function createAuthApi(http: HttpAdapter, baseUrl: string) {
     },
 
     /**
-     * Preload scrape — fire the scraping pipeline early during onboarding Step 5.
-     * Returns a scrapeJobId that the frontend passes to the final onboarding
-     * completion call so the backend skips re-enqueuing.
-     */
-    async preloadScrape(
-      userId: string,
-      linkedAccounts: readonly { platform: string; profileUrl: string }[],
-      sport?: string,
-      role?: string
-    ): Promise<{ success: boolean; scrapeJobId?: string; skipped?: boolean }> {
-      try {
-        return await http.post(`${base}/auth/profile/preload-scrape`, {
-          userId,
-          linkedAccounts,
-          sport,
-          role,
-        });
-      } catch {
-        return { success: false };
-      }
-    },
-
-    /**
      * Save referral source for analytics
      * Records how the user heard about NXT1
      *
@@ -848,17 +762,6 @@ export function createAuthApi(http: HttpAdapter, baseUrl: string) {
         userId,
         ...data,
       });
-    },
-
-    /**
-     * Mark onboarding as complete
-     * Updates user's completeSignUp flag
-     *
-     * @param userId - User's ID
-     * @returns Updated user data
-     */
-    async completeOnboarding(userId: string): Promise<OnboardingCompleteResponse> {
-      return http.post(`${base}/auth/profile/complete-onboarding`, { userId });
     },
 
     // ============================================

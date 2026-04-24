@@ -257,7 +257,7 @@ const REDIRECT_DELAY_MS = 2000;
         padding: var(--nxt1-spacing-md, 16px) var(--nxt1-spacing-lg, 24px);
         margin-top: var(--nxt1-spacing-md, 16px);
         background: var(--nxt1-color-primary, #3b82f6);
-        color: var(--nxt1-color-text-on-primary, white);
+        color: black;
         font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
         font-size: var(--nxt1-fontSize-md, 1rem);
         font-weight: var(--nxt1-fontWeight-semibold, 600);

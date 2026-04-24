@@ -15,7 +15,7 @@
 // ============================================
 
 /**
- * Profile tab identifiers for the 3-tab Intelligence Dossier layout.
+ * Profile tab identifiers for the 3-tab Intelligence Intel Report layout.
  * - 'intel'    — AI-generated overview (Agent X brief, key data)
  * - 'timeline' — Unified chronological feed (posts, videos, news, events)
  * - 'connect'  — Contact, offers, schedule, and recruiting actions
@@ -38,7 +38,7 @@ export interface ProfileTab {
   readonly disabled?: boolean;
   /**
    * Role categories this tab is visible for.
-   * - 'athlete' — athletes and parents
+   * - 'athlete' — athlete profiles
    * - 'team' — coaches and directors
    * When omitted, tab is visible for ALL roles.
    */
@@ -51,16 +51,18 @@ export interface ProfileTab {
 
 /**
  * User role types in the platform.
+ * Alias of the canonical UserRole — 3 core roles only.
  */
-export type ProfileUserRole = 'athlete' | 'coach' | 'director' | 'recruiter' | 'parent' | 'team';
+import type { UserRole } from '../constants/user.constants';
+export type ProfileUserRole = UserRole;
 
 /**
  * Verification status for profiles.
  * Re-exported from user.model.ts (single source of truth).
  */
-import type { VerificationStatus, DataVerification, Gender } from '../models/user.model';
-export type { VerificationStatus } from '../models/user.model';
-export type { DataVerification } from '../models/user.model';
+import type { VerificationStatus, DataVerification, Gender } from '../models/user';
+export type { VerificationStatus } from '../models/user';
+export type { DataVerification } from '../models/user';
 
 /**
  * Sport information for an athlete.
@@ -257,15 +259,11 @@ export interface ProfileUser {
   /** Profile image URL */
   readonly profileImg?: string;
   /** Banner/cover image URL */
-  readonly bannerImg?: string;
+
   /** Profile images for carousel display */
   readonly profileImgs?: readonly string[];
   /** User role */
   readonly role: ProfileUserRole;
-  /** Whether this is a recruit/athlete */
-  readonly isRecruit: boolean;
-  /** Whether this is a college coach */
-  readonly isCollegeCoach?: boolean;
   /** Whether this is a team manager (coach or director) — uses isTeamRole() from @nxt1/core */
   readonly isTeamManager?: boolean;
   /** Verification status */
@@ -500,10 +498,13 @@ export type ProfileTimelineFilterId =
   | 'all'
   | 'pinned'
   | 'media'
-  | 'offers'
-  | 'events'
+  | 'metrics'
   | 'stats'
-  | 'news';
+  | 'awards'
+  | 'news'
+  | 'recruiting'
+  | 'schedule'
+  | 'events';
 
 /**
  * Configuration for a timeline filter option.
@@ -524,7 +525,7 @@ export interface ProfileTimelineFilter {
 /**
  * Post/content type.
  */
-export type ProfilePostType = 'video' | 'image' | 'text' | 'highlight' | 'news' | 'stat' | 'offer';
+export type ProfilePostType = 'video' | 'image' | 'text' | 'news' | 'stat' | 'offer';
 
 /**
  * A single post/content item.
@@ -545,19 +546,25 @@ export interface ProfilePost {
   /** External link */
   readonly externalLink?: string;
   /** Like count */
-  readonly likeCount: number;
-  /** Comment count */
-  readonly commentCount: number;
+  readonly likeCount?: number;
   /** Share count */
   readonly shareCount: number;
   /** View count (for videos) */
   readonly viewCount?: number;
   /** Duration (for videos, in seconds) */
   readonly duration?: number;
-  /** Whether current user has liked */
-  readonly isLiked?: boolean;
   /** Whether post is pinned */
   readonly isPinned?: boolean;
+  /** Cloudflare Stream iframe embed URL (preferred player URL for CF videos) */
+  readonly iframeUrl?: string;
+  /** Cloudflare Stream HLS manifest URL */
+  readonly hlsUrl?: string;
+  /** Cloudflare Stream DASH manifest URL */
+  readonly dashUrl?: string;
+  /** Cloudflare Stream video UID */
+  readonly cloudflareVideoId?: string;
+  /** Cloudflare processing state — absent or 'ready' means playable */
+  readonly cloudflareStatus?: string;
   /** Created timestamp */
   readonly createdAt: string;
 }

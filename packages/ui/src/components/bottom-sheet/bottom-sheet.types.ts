@@ -176,6 +176,13 @@ export interface ContentSheetConfig<T = unknown> {
   showHandle?: boolean;
 
   /**
+   * Whether scroll gestures inside the sheet should expand or move the sheet.
+   * Default: false for content sheets so inner content scrolls without dragging
+   * the entire modal toward dismissal.
+   */
+  expandToScroll?: boolean;
+
+  /**
    * Handle behavior when tapped:
    * - 'none': No action on tap
    * - 'cycle': Cycle through breakpoints on tap

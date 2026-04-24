@@ -37,14 +37,6 @@ export class NotificationPreferencesDto {
 
   @IsBoolean()
   @IsOptional()
-  postLikes?: boolean;
-
-  @IsBoolean()
-  @IsOptional()
-  postComments?: boolean;
-
-  @IsBoolean()
-  @IsOptional()
   postShares?: boolean;
 
   @IsBoolean()
@@ -148,10 +140,6 @@ export class PrivacySettingsDto {
   @IsBoolean()
   @IsOptional()
   showOnlineStatus?: boolean;
-
-  @IsBoolean()
-  @IsOptional()
-  allowComments?: boolean;
 }
 
 export class UpdatePrivacySettingsDto {

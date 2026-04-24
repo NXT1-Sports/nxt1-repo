@@ -37,7 +37,7 @@ import { isPlatformBrowser } from '@angular/common';
 import { NxtIconComponent } from '../../components/icon/icon.component';
 import { AgentXFabService } from './agent-x-fab.service';
 import { AgentXFabChatPanelComponent } from './agent-x-fab-chat-panel.component';
-import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from './agent-x-logo.constants';
+import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/assets';
 
 @Component({
   selector: 'nxt1-agent-x-fab',

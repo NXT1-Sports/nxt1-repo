@@ -74,3 +74,17 @@ export interface TopNavSearchSubmitEvent {
   /** Event timestamp */
   timestamp: number;
 }
+
+/**
+ * Sport/team profile selection event from the user switcher.
+ */
+export interface TopNavSportProfileSelectEvent {
+  /** Selected sport/team profile */
+  profile: import('@nxt1/core').SidenavSportProfile;
+
+  /** Native DOM event */
+  event: Event;
+
+  /** Event timestamp */
+  timestamp: number;
+}

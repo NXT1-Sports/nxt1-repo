@@ -8,7 +8,8 @@
  * When the user says things like "remember that I only want SEC schools"
  * or "my goal is to get a D1 scholarship by senior year", the agent
  * invokes this tool to embed and store that information so future
- * sessions can recall it via `search_memory`.
+ * sessions can recall it automatically through prompt-context retrieval,
+ * with `search_memory` available only for manual deep inspection.
  *
  * Categories are restricted to prevent the agent from polluting the
  * memory store with transient data or internal reasoning.
@@ -17,12 +18,13 @@
  * Agent flow for "Please remember I only want to play for SEC schools":
  * 1. Call save_memory({ content: "User only wants to target SEC conference schools for recruiting.", category: "preference" })
  * 2. VectorMemoryService embeds and persists to MongoDB
- * 3. Future sessions recall this via search_memory
+ * 3. Future sessions receive it through automatic retrieval before prompting
  */
 
 import { BaseTool, type ToolResult } from '../base.tool.js';
 import type { VectorMemoryService } from '../../memory/vector.service.js';
 import type { AgentMemoryCategory } from '@nxt1/core';
+import { z } from 'zod';
 
 /**
  * Categories the agent is allowed to write via this tool.
@@ -35,6 +37,13 @@ const WRITABLE_CATEGORIES: readonly AgentMemoryCategory[] = [
   'recruiting_context',
   'performance_data',
 ];
+
+const SaveMemoryInputSchema = z.object({
+  userId: z.string().trim().min(1),
+  content: z.string().trim().min(1),
+  category: z.enum(WRITABLE_CATEGORIES),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+});
 
 export class SaveMemoryTool extends BaseTool {
   readonly name = 'save_memory';
@@ -51,51 +60,22 @@ export class SaveMemoryTool extends BaseTool {
     '- category (required): One of preference, goal, recruiting_context, performance_data.\n' +
     '- metadata (optional): Key-value context (e.g. { sport, position, conference }).';
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      userId: {
-        type: 'string',
-        description: 'Firebase UID of the user whose memory to save.',
-      },
-      content: {
-        type: 'string',
-        description:
-          'A concise, factual summary of what to remember. Write in third person about the user. ' +
-          'Example: "User prefers SEC conference schools for recruiting." ' +
-          'Keep it under 200 words — one focused fact or preference per call.',
-      },
-      category: {
-        type: 'string',
-        enum: WRITABLE_CATEGORIES,
-        description:
-          'The memory category. Use "preference" for likes/dislikes/constraints, ' +
-          '"goal" for objectives and targets, "recruiting_context" for schools/conferences/contacts, ' +
-          '"performance_data" for stats/metrics/physical attributes.',
-      },
-      metadata: {
-        type: 'object',
-        description:
-          'Optional key-value metadata for richer context. ' +
-          'Examples: { "sport": "football", "position": "QB" } or { "conference": "SEC" }.',
-      },
-    },
-    required: ['userId', 'content', 'category'],
-  } as const;
+  readonly parameters = SaveMemoryInputSchema;
 
   // All coordinators can save memories
   override readonly allowedAgents = [
-    'general',
+    'strategy_coordinator',
     'recruiting_coordinator',
     'performance_coordinator',
-    'compliance_coordinator',
+    'admin_coordinator',
     'data_coordinator',
-    'brand_media_coordinator',
+    'brand_coordinator',
   ] as const;
 
   readonly isMutation = true;
   readonly category = 'database' as const;
 
+  readonly entityGroup = 'platform_tools' as const;
   private readonly vectorMemory: VectorMemoryService;
 
   constructor(vectorMemory: VectorMemoryService) {
@@ -104,28 +84,15 @@ export class SaveMemoryTool extends BaseTool {
   }
 
   async execute(input: Record<string, unknown>): Promise<ToolResult> {
-    // ── Validate content ────────────────────────────────────────────────
-    const content = this.str(input, 'content');
-    if (!content) return this.paramError('content');
-
-    // ── Validate category ───────────────────────────────────────────────
-    const categoryRaw = this.str(input, 'category');
-    if (!categoryRaw) return this.paramError('category');
-
-    if (!WRITABLE_CATEGORIES.includes(categoryRaw as AgentMemoryCategory)) {
+    const parsed = SaveMemoryInputSchema.safeParse(input);
+    if (!parsed.success) {
       return {
         success: false,
-        error: `Invalid category "${categoryRaw}". Allowed: ${WRITABLE_CATEGORIES.join(', ')}.`,
+        error: parsed.error.issues.map((issue) => issue.message).join(', '),
       };
     }
-    const category = categoryRaw as AgentMemoryCategory;
 
-    // ── Validate userId (provided by the LLM from session context) ──────
-    const userId = this.str(input, 'userId');
-    if (!userId) return this.paramError('userId');
-
-    // ── Optional metadata ───────────────────────────────────────────────
-    const metadata = this.obj(input, 'metadata') ?? undefined;
+    const { userId, content, category, metadata } = parsed.data;
 
     // ── Store in vector memory ──────────────────────────────────────────
     try {

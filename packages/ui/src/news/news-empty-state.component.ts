@@ -18,31 +18,18 @@
 
 import { Component, ChangeDetectionStrategy, input, output, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { IonIcon } from '@ionic/angular/standalone';
-import { addIcons } from 'ionicons';
-import {
-  sparklesOutline,
-  peopleOutline,
-  schoolOutline,
-  trophyOutline,
-  videocamOutline,
-  swapHorizontalOutline,
-  checkmarkCircleOutline,
-  bookmarkOutline,
-  newspaperOutline,
-} from 'ionicons/icons';
 import { type NewsCategoryId, NEWS_EMPTY_STATES } from '@nxt1/core';
+import { NxtIconComponent } from '../components/icon';
 
-// Register icons
 @Component({
   selector: 'nxt1-news-empty-state',
   standalone: true,
-  imports: [CommonModule, IonIcon],
+  imports: [CommonModule, NxtIconComponent],
   template: `
     <div class="news-empty">
       <!-- Icon -->
       <div class="news-empty__icon-wrapper">
-        <ion-icon [name]="emptyState().icon" class="news-empty__icon"></ion-icon>
+        <nxt1-icon [name]="emptyState().icon" [size]="44" className="news-empty__icon" />
       </div>
 
       <!-- Title -->
@@ -67,6 +54,11 @@ import { type NewsCategoryId, NEWS_EMPTY_STATES } from '@nxt1/core';
 
       :host {
         display: block;
+
+        --empty-text-primary: var(--nxt1-color-text-primary, #ffffff);
+        --empty-text-secondary: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
+        --empty-surface: var(--nxt1-color-surface-100, rgba(255, 255, 255, 0.04));
+        --empty-border: var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
       }
 
       .news-empty {
@@ -75,42 +67,40 @@ import { type NewsCategoryId, NEWS_EMPTY_STATES } from '@nxt1/core';
         align-items: center;
         justify-content: center;
         text-align: center;
-        padding: 48px 24px;
-        min-height: 300px;
+        padding: 60px 24px;
+        min-height: 400px;
       }
 
-      /* Icon Wrapper */
       .news-empty__icon-wrapper {
-        width: 80px;
-        height: 80px;
+        width: 88px;
+        height: 88px;
         display: flex;
         align-items: center;
         justify-content: center;
-        background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.05));
+        margin-bottom: 24px;
         border-radius: var(--nxt1-radius-full, 9999px);
-        margin-bottom: 20px;
+        background: var(--empty-surface);
+        border: 1px solid var(--empty-border);
+        color: var(--empty-text-primary);
       }
 
       .news-empty__icon {
-        font-size: 40px;
-        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
+        display: block;
       }
 
-      /* Title */
       .news-empty__title {
         margin: 0 0 8px;
-        font-size: 18px;
-        font-weight: 700;
-        color: var(--nxt1-color-text-primary, #fff);
+        font-size: 20px;
+        font-weight: 600;
+        color: var(--empty-text-primary);
       }
 
-      /* Message */
       .news-empty__message {
         margin: 0 0 24px;
-        font-size: 14px;
+        font-size: 15px;
         line-height: 1.5;
-        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
-        max-width: 280px;
+        color: var(--empty-text-secondary);
+        max-width: 300px;
       }
 
       /* CTA Button */
@@ -146,20 +136,6 @@ import { type NewsCategoryId, NEWS_EMPTY_STATES } from '@nxt1/core';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class NewsEmptyStateComponent {
-  constructor() {
-    addIcons({
-      sparklesOutline,
-      peopleOutline,
-      schoolOutline,
-      trophyOutline,
-      videocamOutline,
-      swapHorizontalOutline,
-      checkmarkCircleOutline,
-      bookmarkOutline,
-      newspaperOutline,
-    });
-  }
-
   /** Current category to show empty state for */
   readonly category = input<NewsCategoryId>('for-you');
 

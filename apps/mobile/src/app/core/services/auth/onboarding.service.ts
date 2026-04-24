@@ -60,7 +60,7 @@ import {
   INVITE_TEAM_JOINED_KEY,
   createEmptySportEntry,
 } from '@nxt1/core/api';
-import { AUTH_ROUTES, USER_ROLES } from '@nxt1/core/constants';
+import { AUTH_ROUTES } from '@nxt1/core/constants';
 import { STORAGE_KEYS } from '@nxt1/core/storage';
 import { TEST_IDS } from '@nxt1/core/testing';
 import type { OnboardingProfileData } from '@nxt1/core/auth';
@@ -77,6 +77,7 @@ import { Geolocation } from '@capacitor/geolocation';
 
 // Mobile infrastructure
 import { createNativeStorageAdapter, CapacitorHttpAdapter } from '../../infrastructure';
+import { normalizeImageFileForUpload } from '@nxt1/ui';
 import { environment } from '../../../../environments/environment';
 
 // Auth services (import directly to avoid barrel circular deps)
@@ -453,9 +454,13 @@ export class OnboardingService {
 
       const uploadedUrls: string[] = [];
 
-      for (const file of fileArray) {
+      const normalizedFiles = await Promise.all(
+        fileArray.map((file) => normalizeImageFileForUpload(file))
+      );
+
+      for (const file of normalizedFiles) {
         try {
-          const result = await this.editProfileApi.uploadPhoto(user.uid, 'profile', file);
+          const result = await this.editProfileApi.uploadPhoto(user.uid, file);
           if (result.success && result.data) {
             uploadedUrls.push(result.data.url);
           } else {
@@ -774,6 +779,15 @@ export class OnboardingService {
    * Direction determines animation: forward (push), backward (pop), none (no animation).
    */
   private async navigateToStep(snapshot: OnboardingStateSnapshot): Promise<void> {
+    // Don't navigate during or after completion — handleCompletion manages its own navigation.
+    // The finally block in machine.complete() fires notifyStateChange() AFTER onComplete resolves
+    // (which already navigated to congratulations). Without this guard, navigateToStep would see
+    // the user is no longer on the last step page and try to navigate back, triggering the
+    // onboardingInProgressGuard which redirects to /agent (since hasCompletedOnboarding is now true).
+    if (snapshot.machineState === 'completing' || snapshot.machineState === 'complete') {
+      return;
+    }
+
     const stepId = snapshot.steps[snapshot.currentStepIndex]?.id;
     if (!stepId) return;
 
@@ -830,9 +844,7 @@ export class OnboardingService {
       const sportEntries = formData.sport?.sports || [];
 
       const userType: OnboardingProfileData['userType'] =
-        formData.userType === USER_ROLES.RECRUITER
-          ? 'recruiting-service'
-          : (formData.userType as OnboardingProfileData['userType']);
+        formData.userType as OnboardingProfileData['userType'];
 
       const profileData: OnboardingProfileData = {
         userType,
@@ -840,7 +852,7 @@ export class OnboardingService {
         lastName: formData.profile?.lastName || '',
         profileImg: formData.profile?.profileImgs?.[0] || undefined,
         profileImgs: formData.profile?.profileImgs || undefined,
-        bio: formData.profile?.bio,
+        gender: formData.profile?.gender ?? undefined,
         sports: sportEntries.map((entry) => ({
           sport: entry.sport,
           isPrimary: entry.isPrimary,
@@ -860,19 +872,12 @@ export class OnboardingService {
               }
             : undefined,
         })),
-        highSchool: sportEntries[0]?.team?.name || formData.school?.schoolName,
-        highSchoolSuffix: sportEntries[0]?.team?.type || formData.school?.schoolType,
-        classOf: formData.profile?.classYear ?? formData.school?.classYear ?? undefined,
-        state: sportEntries[0]?.team?.state || formData.school?.state,
-        city: sportEntries[0]?.team?.city || formData.school?.city,
-        club: formData.school?.club,
+        classOf: formData.profile?.classYear ?? undefined,
+        // Location from profile step geolocation
+        state: formData.profile?.location?.state,
+        city: formData.profile?.location?.city,
         organization: formData.organization?.organizationName,
         coachTitle: formData.sport?.coachTitle ?? formData.organization?.title,
-        teamLogo:
-          formData.school?.teamLogo ||
-          sportEntries[0]?.team?.logoUrl ||
-          sportEntries[0]?.team?.logo,
-        teamColors: formData.school?.teamColors || sportEntries[0]?.team?.colors,
         linkSources: formData.linkSources,
         teamSelection: formData.teamSelection,
         createTeamProfile: formData.createTeamProfile,
@@ -895,8 +900,15 @@ export class OnboardingService {
             ?.filter((l) => l.connected)
             .map((l) => l.platform)
             .join(', ') ?? '';
-        this.profileGenerationState.startGeneration(result.scrapeJobId, platformNames);
-        this.logger.info('Backend scrape job started', { scrapeJobId: result.scrapeJobId });
+        this.profileGenerationState.attachToOperation(
+          result.scrapeJobId,
+          result.scrapeThreadId,
+          platformNames
+        );
+        this.logger.info('Backend scrape job started', {
+          scrapeJobId: result.scrapeJobId,
+          scrapeThreadId: result.scrapeThreadId,
+        });
       }
     } catch (saveError) {
       this.logger.warn('Failed to save profile data, continuing', { error: saveError });
@@ -921,19 +933,7 @@ export class OnboardingService {
     // Accept pending team invite before completing onboarding (creates RosterEntry + links sport)
     await this.authFlow.acceptPendingInvite(formData.userType ?? undefined);
 
-    this.logger.debug('Calling completeOnboarding API', { userId: user.uid });
-    try {
-      await this.performance.trace(
-        TRACE_NAMES.ONBOARDING_COMPLETE,
-        () => this.authApi.completeOnboarding(user.uid),
-        {
-          attributes: { userType: formData.userType ?? 'unknown' },
-        }
-      );
-    } catch (apiError) {
-      this.logger.error('completeOnboarding API failed', apiError);
-    }
-
+    // Refresh user profile (bulk save already set onboardingCompleted: true)
     this.logger.debug('Refreshing user profile');
     try {
       await this.authFlow.refreshUserProfile();
@@ -947,7 +947,11 @@ export class OnboardingService {
 
     await this.haptics.notification('success');
     this.logger.debug('Navigating to congratulations page');
-    await this.navController.navigateForward('/auth/onboarding/congratulations', {
+    // Use navigateRoot to replace the entire navigation stack.
+    // navigateForward from inside the onboarding shell's IonRouterOutlet causes
+    // a conflict when activating a route OUTSIDE the shell — the shell's outlet
+    // destruction pops the page immediately after it renders ("flash then skip").
+    await this.navController.navigateRoot('/auth/onboarding/congratulations', {
       animated: true,
       animationDirection: 'forward',
     });

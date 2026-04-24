@@ -44,6 +44,7 @@ import { ANALYTICS_ADAPTER } from '../../services/analytics/analytics-adapter.to
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import { NxtBottomSheetService, SHEET_PRESETS } from '../bottom-sheet';
 import { ConnectedAccountsSheetComponent } from './connected-accounts-sheet.component';
+import { ConnectedAccountsResyncService } from './connected-accounts-resync.service';
 import {
   ConnectedAccountsWebModalComponent,
   type ConnectedAccountsModalCloseData,
@@ -102,6 +103,11 @@ export interface ConnectedAccountsModalOptions {
   readonly selectedSports?: readonly string[];
   readonly linkSourcesData?: LinkSourcesFormData | null;
   readonly scope?: 'athlete' | 'team';
+  /**
+   * When true in a browser context, always use the web overlay presentation
+   * instead of adaptive bottom-sheet behavior on narrow/touch viewports.
+   */
+  readonly preferWebOverlayOnBrowser?: boolean;
 }
 
 /** Result returned when the Connected Accounts modal is dismissed. */
@@ -136,6 +142,7 @@ export class ConnectedAccountsModalService {
   private readonly breadcrumb = inject(NxtBreadcrumbService);
   private readonly firebaseUserFn = inject(CONNECTED_ACCOUNTS_FIREBASE_USER, { optional: true });
   private readonly firecrawlSignIn = inject(FirecrawlSignInService);
+  private readonly connectedAccountsResync = inject(ConnectedAccountsResyncService);
 
   /**
    * Opens Connected Accounts with adaptive presentation:
@@ -149,7 +156,8 @@ export class ConnectedAccountsModalService {
     // Enrich with Firecrawl sign-in state (Hudl, X, MaxPreps) from backend
     enrichedOptions = await this.enrichWithFirecrawlState(enrichedOptions);
 
-    const presentation = this.shouldUseBottomSheet() ? 'bottom-sheet' : 'web-overlay';
+    const useBottomSheet = this.shouldUseBottomSheet(options);
+    const presentation = useBottomSheet ? 'bottom-sheet' : 'web-overlay';
 
     this.logger.info('Opening connected accounts', { presentation });
     this.breadcrumb.trackUserAction('connected-accounts-open', { presentation });
@@ -158,7 +166,7 @@ export class ConnectedAccountsModalService {
       presentation,
     });
 
-    if (this.shouldUseBottomSheet()) {
+    if (useBottomSheet) {
       return this.openBottomSheet(enrichedOptions);
     }
 
@@ -202,10 +210,20 @@ export class ConnectedAccountsModalService {
     });
 
     if (result.role === 'resync') {
+      const hasPendingSave =
+        result.data?.linkSources !== undefined && result.data?.updatedLinks !== undefined;
+
+      if (!hasPendingSave) {
+        await this.connectedAccountsResync.request(result.data?.sources ?? []);
+        return { saved: false };
+      }
+
       return {
         saved: false,
         resync: true,
         sources: result.data?.sources,
+        updatedLinks: result.data?.updatedLinks,
+        linkSources: result.data?.linkSources,
       };
     }
 
@@ -255,10 +273,19 @@ export class ConnectedAccountsModalService {
       }
 
       if (data.resync) {
+        const hasPendingSave = data.linkSources !== undefined && data.updatedLinks !== undefined;
+
+        if (!hasPendingSave) {
+          await this.connectedAccountsResync.request(data.sources ?? []);
+          return { saved: false };
+        }
+
         return {
           saved: false,
           resync: true,
           sources: data.sources,
+          updatedLinks: data.updatedLinks,
+          linkSources: data.linkSources,
         };
       }
 
@@ -403,12 +430,16 @@ export class ConnectedAccountsModalService {
   // ============================================
 
   /** Same logic as EditProfileModalService — consistent platform detection. */
-  private shouldUseBottomSheet(): boolean {
+  private shouldUseBottomSheet(options: ConnectedAccountsModalOptions): boolean {
     if (this.platform.isNative()) {
       return true;
     }
 
     if (!this.platform.isBrowser()) {
+      return false;
+    }
+
+    if (options.preferWebOverlayOnBrowser === true) {
       return false;
     }
 

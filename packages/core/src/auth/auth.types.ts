@@ -9,7 +9,8 @@
  */
 
 import type { UserRole } from '../constants/user.constants';
-import { ConnectedEmail } from '../models';
+import { ConnectedEmail, type ConnectedSource } from '../models';
+import type { PortableTimestamp } from '../models/portable-timestamp.model';
 
 // Re-export UserRole from single source of truth
 export type { UserRole } from '../constants/user.constants';
@@ -31,22 +32,67 @@ export interface AuthUser {
   displayName: string;
   /** Profile image URL from backend (source of truth for user profile photo) */
   profileImg?: string;
+  /** Team metadata for coach or director routing and display surfaces */
+  teamCode?: {
+    readonly teamCode?: string;
+    readonly code?: string;
+    readonly teamId?: string;
+    readonly id?: string;
+    readonly slug?: string;
+    readonly unicode?: string;
+    readonly teamName?: string;
+    readonly sport?: string;
+    readonly logoUrl?: string | null;
+    readonly teamLogoImg?: string | null;
+  } | null;
+  /** Legacy managed team references preserved for route recovery */
+  managedTeamCodes?: readonly string[] | null;
+  /** Primary sport and sport list needed by shared display mappers */
+  primarySport?: string;
+  sports?: ReadonlyArray<{
+    readonly sport: string;
+    readonly positions?: readonly string[];
+    readonly isPrimary?: boolean;
+    readonly team?: {
+      readonly name?: string;
+      readonly logoUrl?: string | null;
+      readonly logo?: string | null;
+      readonly teamId?: string;
+      readonly organizationId?: string;
+      readonly primaryColor?: string | null;
+      readonly secondaryColor?: string | null;
+      readonly id?: string;
+      readonly teamCode?: string;
+      readonly code?: string;
+      readonly slug?: string;
+      readonly unicode?: string;
+      readonly isOrganizationClaimed?: boolean;
+      readonly isUserOrganizationAdmin?: boolean;
+    };
+  }>;
+  organizationAccess?: ReadonlyArray<{
+    readonly organizationId: string;
+    readonly isClaimed: boolean;
+    readonly isAdmin: boolean;
+  }>;
   /** User role in the application */
   role: UserRole;
-  /** Premium subscription status */
-  isPremium: boolean;
+  /** Currently active sport index into `sports[]` (used by global sport/team switcher) */
+  activeSportIndex?: number;
   /** Whether user has completed onboarding */
   hasCompletedOnboarding: boolean;
   /** Auth provider used */
   provider: AuthProvider;
   /** Email verification status */
   emailVerified: boolean;
-  /** Account creation timestamp (ISO string) */
-  createdAt: string;
-  /** Last update timestamp (ISO string) */
-  updatedAt: string;
+  /** Account creation timestamp */
+  createdAt: PortableTimestamp;
+  /** Last update timestamp */
+  updatedAt: PortableTimestamp;
 
   connectedEmails?: ConnectedEmail[];
+  /** Connected data sources (Hudl, MaxPreps, etc.) */
+  connectedSources?: ConnectedSource[];
 }
 
 /**

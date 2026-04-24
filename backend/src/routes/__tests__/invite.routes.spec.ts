@@ -10,7 +10,7 @@ describe('Invite Routes', () => {
   let router: unknown;
 
   beforeAll(async () => {
-    const module = await import('../../routes/invite.routes.js');
+    const module = await import('../../routes/core/invite.routes.js');
     router = module.default;
   }, 15_000);
 
@@ -22,12 +22,11 @@ describe('Invite Routes', () => {
         { path: '/send', method: 'post' },
         { path: '/send-bulk', method: 'post' },
         { path: '/history', method: 'get' },
-        { path: '/stats', method: 'get' },
         { path: '/validate', method: 'post' },
         { path: '/accept', method: 'post' },
         { path: '/team/:teamId/members', method: 'get' },
       ],
-      8
+      7
     );
   });
 });

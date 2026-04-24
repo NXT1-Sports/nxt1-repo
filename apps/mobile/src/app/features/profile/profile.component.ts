@@ -32,6 +32,7 @@ import {
   inject,
   computed,
   signal,
+  effect,
   DestroyRef,
 } from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
@@ -42,34 +43,45 @@ import { IonHeader, IonContent, IonToolbar, NavController } from '@ionic/angular
 // Shared UI from @nxt1/ui (95% of the code)
 import {
   ProfileShellComponent,
-  RelatedAthletesComponent,
   EditProfileBottomSheetService,
   ManageTeamModalService,
   NxtSidenavService,
   ProfileService as UiProfileService,
   userToProfilePageData,
-  NxtRefresherComponent,
   ProfileGenerationStateService,
   TeamProfileShellWebComponent,
   TeamProfileService,
-  QrCodeService,
+  QrCodeBottomSheetService,
   NxtToastService,
   NxtLoggingService,
   NxtBreadcrumbService,
-  type RelatedAthlete,
-  type RankingSource,
-  type RefreshEvent,
+  IntelService,
+  AgentXOperationChatComponent,
+  NxtBottomSheetService,
+  SHEET_PRESETS,
+  ConnectedAccountsModalService,
+  type ActionFooterButton,
   type TeamSearchResult,
 } from '@nxt1/ui';
-import { parseApiError, requiresAuth, isTeamRole } from '@nxt1/core';
+import {
+  buildCanonicalProfilePath,
+  buildCanonicalTeamPath,
+  parseApiError,
+  requiresAuth,
+  isTeamRole,
+  buildUTMShareUrl,
+  UTM_MEDIUM,
+  UTM_CAMPAIGN,
+} from '@nxt1/core';
+import { resolveCanonicalTeamRoute } from '@nxt1/core/helpers';
 import { APP_EVENTS } from '@nxt1/core/analytics';
-import type { User, UserSummary, ProfileTabId, ProfileTeamAffiliation } from '@nxt1/core';
-import type { ProfileEvent } from '@nxt1/core/profile';
+import type { User, ProfileTabId, ProfileTeamAffiliation } from '@nxt1/core';
 import type { TeamProfileTabId, TeamProfileRosterMember, TeamProfilePost } from '@nxt1/core';
 
 // Mobile-specific services
 import { MobileAuthService } from '../../core/services/auth/mobile-auth.service';
 import { AuthFlowService } from '../../core/services/auth';
+import { ProfileService } from '../../core/services/state/profile.service';
 import { ShareService } from '../../core/services/native/share.service';
 import { ProfileApiService } from '../../core/services/api/profile-api.service';
 import { EditProfileApiService } from '../../core/services/api/edit-profile-api.service';
@@ -101,22 +113,12 @@ import { environment } from '../../../environments/environment';
   // Ionic's stack navigation keeps both components alive simultaneously
   // and they share the singleton — causing stale data cross-contamination.
   providers: [UiProfileService],
-  imports: [
-    IonHeader,
-    IonContent,
-    IonToolbar,
-    ProfileShellComponent,
-    TeamProfileShellWebComponent,
-    RelatedAthletesComponent,
-    NxtRefresherComponent,
-  ],
+  imports: [IonHeader, IonContent, IonToolbar, ProfileShellComponent, TeamProfileShellWebComponent],
   template: `
     <ion-header class="ion-no-border" [translucent]="true">
       <ion-toolbar></ion-toolbar>
     </ion-header>
     <ion-content [fullscreen]="true">
-      <nxt-refresher (onRefresh)="handleRefresh($event)" />
-
       @if (showTeamProfile()) {
         <!-- Coach/Director own profile → Team Profile Shell -->
         <nxt1-team-profile-shell-web
@@ -126,10 +128,12 @@ import { environment } from '../../../environments/environment';
           (backClick)="onBackClick()"
           (tabChange)="onTeamTabChange($event)"
           (shareClick)="onTeamShare()"
+          (copyLinkClick)="onTeamCopyLink()"
           (qrCodeClick)="onTeamQrCode()"
           (manageTeamClick)="onManageTeam()"
           (rosterMemberClick)="onRosterMemberClick($event)"
           (postClick)="onTeamPostClick($event)"
+          (refreshRequest)="onTeamRefreshRequest()"
         />
       } @else {
         <!-- Athlete/Parent profile (or viewing someone else's profile) -->
@@ -137,7 +141,9 @@ import { environment } from '../../../environments/environment';
           [currentUser]="currentUser()"
           [profileUnicode]="profileUnicode()"
           [isOwnProfile]="isOwnProfile()"
+          [showBack]="true"
           [skipInternalLoad]="true"
+          [hideContactInlineCta]="true"
           (avatarClick)="onAvatarClick()"
           (menuClick)="onMenuClick()"
           (backClick)="onBackClick()"
@@ -151,16 +157,23 @@ import { environment } from '../../../environments/environment';
           (refreshRequest)="onRefreshRequest()"
           (generationDismissed)="onGenerationDismissed($event)"
         />
-
-        @if (relatedAthletes().length > 0) {
-          <nxt1-related-athletes
-            [athletes]="relatedAthletes()"
-            [sport]="relatedSport()"
-            [state]="relatedState()"
-            (athleteClick)="onRelatedAthleteClick($event)"
-            (seeAllClick)="onSeeAllRelated()"
-          />
-        }
+      }
+      @if (footerButtons().length > 0) {
+        <div class="paf-overlay" slot="fixed">
+          <div class="profile-action-footer-bar">
+            <div class="profile-action-footer-inner">
+              @for (btn of footerButtons(); track btn.id) {
+                <button
+                  type="button"
+                  [class]="'paf-btn paf-btn--' + btn.variant"
+                  (click)="btn.onClick()"
+                >
+                  {{ btn.label }}
+                </button>
+              }
+            </div>
+          </div>
+        </div>
       }
     </ion-content>
   `,
@@ -189,6 +202,47 @@ import { environment } from '../../../environments/environment';
     ion-content::part(scroll) {
       overflow: visible;
     }
+    .paf-overlay {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      pointer-events: none;
+      padding: 0 16px calc(env(safe-area-inset-bottom, 0px) + 8px);
+    }
+    .profile-action-footer-bar {
+      pointer-events: auto;
+      background: var(--nxt1-nav-bgSolid, rgb(22, 22, 22));
+      border-radius: 16px;
+      border: 0.55px solid var(--nxt1-nav-borderSolid, rgba(255, 255, 255, 0.12));
+      box-shadow: var(--nxt1-nav-shadowSolid, 0 1px 3px rgba(0, 0, 0, 0.12));
+      overflow: hidden;
+    }
+    .profile-action-footer-inner {
+      display: flex;
+      gap: 8px;
+      padding: 10px 16px;
+    }
+    .paf-btn {
+      flex: 1;
+      padding: 12px;
+      border-radius: 8px;
+      border: none;
+      cursor: pointer;
+      font-size: 0.875rem;
+      font-weight: 700;
+      font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
+      letter-spacing: 0.02em;
+    }
+    .paf-btn--secondary {
+      background: rgba(255, 255, 255, 0.08);
+      color: rgba(255, 255, 255, 0.7);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .paf-btn--primary {
+      background: var(--nxt1-color-primary, #d4ff00);
+      color: #000;
+    }
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -199,6 +253,7 @@ export class ProfileComponent {
 
   private readonly route = inject(ActivatedRoute);
   private readonly authService = inject(MobileAuthService);
+  private readonly stateProfileService = inject(ProfileService);
   private readonly editProfileSheet = inject(EditProfileBottomSheetService);
   private readonly manageTeamModal = inject(ManageTeamModalService);
   private readonly navController = inject(NavController);
@@ -212,11 +267,14 @@ export class ProfileComponent {
   private readonly emailConnection = inject(MobileEmailConnectionService);
   private readonly authFlow = inject(AuthFlowService);
   protected readonly generation = inject(ProfileGenerationStateService);
+  protected readonly intel = inject(IntelService);
+  private readonly bottomSheet = inject(NxtBottomSheetService);
+  private readonly connectedAccountsModal = inject(ConnectedAccountsModalService);
 
   // Team profile dependencies (for coach/director own-profile view)
   private readonly teamProfile = inject(TeamProfileService);
   private readonly teamApi = inject(TeamProfileApiService);
-  private readonly qrCode = inject(QrCodeService);
+  private readonly qrCode = inject(QrCodeBottomSheetService);
   private readonly analyticsService = inject(AnalyticsService);
   private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('ProfileComponent');
@@ -226,19 +284,15 @@ export class ProfileComponent {
   // STATE
   // ============================================
 
-  protected readonly relatedAthletes = signal<RelatedAthlete[]>([]);
   private readonly fetchedProfile = signal<User | null>(null);
-  protected readonly relatedSport = computed<string>(() => {
-    const profile = this.fetchedProfile();
-    const activeSport = profile?.sports?.[profile.activeSportIndex ?? 0] ?? profile?.sports?.[0];
-    return activeSport?.sport || 'Football';
-  });
 
-  /** State/region context for the Related Athletes section */
-  protected readonly relatedState = computed<string>(() => {
-    return this.fetchedProfile()?.location?.state || 'your area';
-  });
-
+  /**
+   * Guard: tracks the last "userId:sportId" key that sub-collections were fetched for.
+   * Prevents duplicate network cascade when Ionic stack-navigation revisits the page
+   * with an already-cached main profile (the subscribe.next() fires again from cache).
+   * Cleared by onRefreshRequest() to allow forced re-fetch on pull-to-refresh.
+   */
+  private _lastFetchedKey: string | null = null;
   /** Whether current user is viewing their own profile */
   protected readonly isOwnProfile = signal(false);
 
@@ -271,7 +325,8 @@ export class ProfileComponent {
 
   /**
    * Raw route param — empty string means own profile (/profile),
-   * numeric string means profile by unicode/ID, other string means username.
+   * numeric string means profile by unicode, UID-shaped string means profile by userId,
+   * everything else is an invalid profile link.
    */
   protected readonly routeParam = toSignal(
     this.route.paramMap.pipe(map((params) => params.get('unicode') ?? '')),
@@ -284,6 +339,48 @@ export class ProfileComponent {
    * Falls back to auth user's unicode while loading own profile.
    */
   protected readonly profileUnicode = this.resolvedUnicode;
+
+  /**
+   * Buttons for the sticky action footer rendered at the routed page level
+   * (outside ion-content so Ionic pins it correctly).
+   */
+  protected readonly footerButtons = computed<ActionFooterButton[]>(() => {
+    if (this.showTeamProfile()) {
+      if (!this.teamProfile.isTeamAdmin()) return [];
+      if (this.teamProfile.activeTab() === 'intel') {
+        return [
+          {
+            id: 'team-intel',
+            label: this.intel.teamReport() ? 'Update Intel' : 'Generate Intel',
+            variant: 'primary',
+            onClick: () => void this.onGenerateTeamIntel(),
+          },
+        ];
+      }
+      return [];
+    }
+    if (!this.isOwnProfile()) return [];
+    const tab = this.uiProfileService.activeTab();
+    if (tab === 'intel' || tab === 'timeline')
+      return [
+        {
+          id: 'add-update',
+          label: 'Add Update',
+          variant: 'primary',
+          onClick: () => this.onAddUpdate(),
+        },
+      ];
+    if (tab === 'connect')
+      return [
+        {
+          id: 'connect-accounts',
+          label: 'Connect Accounts',
+          variant: 'primary',
+          onClick: () => this.onConnectAccountsFooter(),
+        },
+      ];
+    return [];
+  });
 
   /** Current authenticated user for header display */
   protected readonly currentUser = computed(() => {
@@ -313,9 +410,67 @@ export class ProfileComponent {
       // TeamProfileService _isLoading=true while Component A is still visible.
     });
 
+    /**
+     * Reactive sync: when the global sport switcher (sidenav) updates the
+     * active sport index on the state ProfileService, mirror that change into
+     * `fetchedProfile` so the page re-renders against the newly selected sport
+     * and re-fetches sport-scoped sub-collections (timeline, intel, etc.).
+     *
+     * Without this, switching sports from the sidenav left the profile page
+     * stuck on the first sport because `fetchedProfile` is page-scoped and
+     * does not auto-sync with the global state user.
+     */
+    effect(() => {
+      const stateUser = this.stateProfileService.user();
+      if (!stateUser || !this.isOwnProfile()) return;
+
+      const newIndex = stateUser.activeSportIndex ?? 0;
+      const fetched = this.fetchedProfile();
+      if (!fetched || fetched.id !== stateUser.id) return;
+
+      const currentIndex = fetched.activeSportIndex ?? 0;
+      if (currentIndex === newIndex) return;
+
+      this.logger.info('Syncing profile page to new active sport', {
+        from: currentIndex,
+        to: newIndex,
+      });
+
+      this.fetchedProfile.set({ ...fetched, activeSportIndex: newIndex });
+
+      // Re-push into UiProfileService so dependent UI (tabs, header) reflects it.
+      const profilePageData = userToProfilePageData(
+        { ...fetched, activeSportIndex: newIndex },
+        true
+      );
+      this.uiProfileService.loadFromExternalData(
+        profilePageData,
+        { ...fetched, activeSportIndex: newIndex },
+        true
+      );
+
+      // Re-fetch sport-scoped sub-collections for the newly active sport.
+      const newSport = fetched.sports?.[newIndex];
+      const sportId = newSport?.sport?.toLowerCase();
+      const fetchKey = `${fetched.id}:${sportId ?? ''}`;
+      if (this._lastFetchedKey !== fetchKey) {
+        this._lastFetchedKey = fetchKey;
+        this.fetchSubCollections(fetched.id, sportId).catch((err) => {
+          this.logger.error('Failed to fetch sub-collections after sport switch', err, {
+            userId: fetched.id,
+            sportId,
+          });
+        });
+      }
+    });
+
     this.uiProfileService.setApiService({
       updateActiveSportIndex: (userId: string, activeSportIndex: number) =>
         this.editProfileApiService.updateActiveSportIndex(userId, activeSportIndex),
+      pinPost: (userId: string, postId: string, isPinned: boolean) =>
+        this.profileApiService.pinPost(userId, postId, isPinned),
+      deletePost: (userId: string, postId: string) =>
+        this.profileApiService.deletePost(userId, postId),
     });
 
     /**
@@ -372,13 +527,12 @@ export class ProfileComponent {
             );
           }
 
-          // Case 4: username — lookup by username
-          return from(this.profileApiService.getProfileByUsername(param)).pipe(
-            map((res) => ({
-              ...res,
-              _isOwnProfile: !!(res.success && res.data && res.data.id === authUser?.uid),
-            }))
-          );
+          // Case 4: invalid slug — do not hit the backend
+          return of({
+            success: false as const,
+            error: 'Invalid profile link.',
+            _isOwnProfile: false,
+          });
         }),
         takeUntilDestroyed(this.destroyRef)
       )
@@ -393,6 +547,16 @@ export class ProfileComponent {
 
             // Role-aware branching: coach/director own profile → load team data
             if (isOwn && isTeamRole(profile.role)) {
+              const teamPath = this.buildTeamPathFromUser(profile);
+              if (teamPath) {
+                this.breadcrumb.trackStateChange('profile:team_profile_redirect', {
+                  role: profile.role,
+                  teamPath,
+                });
+                void this.navController.navigateRoot(teamPath);
+                return;
+              }
+
               this.breadcrumb.trackStateChange('profile:team_profile_loading', {
                 role: profile.role,
               });
@@ -402,13 +566,16 @@ export class ProfileComponent {
               // Standard athlete/parent profile flow
               const profilePageData = userToProfilePageData(profile, isOwn);
               this.uiProfileService.loadFromExternalData(profilePageData, profile, isOwn);
-              this.fetchRelatedAthletes(profile);
               const activeSport =
                 profile.sports?.[profile.activeSportIndex ?? 0] ?? profile.sports?.[0];
               const sportId = activeSport?.sport?.toLowerCase();
-              this.fetchSubCollections(profile.id, sportId).catch((err) => {
-                this.logger.error('Failed to fetch sub-collections', err, { userId: profile.id });
-              });
+              const fetchKey = `${profile.id}:${sportId ?? ''}`;
+              if (this._lastFetchedKey !== fetchKey) {
+                this._lastFetchedKey = fetchKey;
+                this.fetchSubCollections(profile.id, sportId).catch((err) => {
+                  this.logger.error('Failed to fetch sub-collections', err, { userId: profile.id });
+                });
+              }
             }
           } else {
             this.uiProfileService.setError(response.error ?? 'Failed to load profile');
@@ -478,36 +645,23 @@ export class ProfileComponent {
   }
 
   /**
-   * Fetch timeline, rankings, scout reports, videos, schedule, news in parallel.
-   * Mirrors the web forkJoin pattern — all sub-collections loaded after the main profile.
+   * Fetch timeline, game-logs, and metrics in parallel.
+   * Rankings, scout reports, videos, schedule, and news are no longer on the profile.
+   * All methods are backed by MEDIUM_TTL in-memory cache in ProfileApiService.
    * @param userId - User ID to fetch data for
-   * @param sportId - Optional sport filter (e.g. 'football', 'basketball') for schedule events
+   * @param sportId - Sport filter for game-logs and metrics
    */
   private async fetchSubCollections(userId: string, sportId?: string): Promise<void> {
-    const [stats, gameLogs, metrics, timeline, rankings, scoutReports, videos, schedule, news] =
-      await Promise.all([
-        sportId
-          ? this.profileApiService.getProfileStats(userId, sportId)
-          : Promise.resolve({ success: false as const, data: [] }),
-        sportId
-          ? this.profileApiService.getProfileGameLogs(userId, sportId)
-          : Promise.resolve({ success: false as const, data: [] }),
-        sportId
-          ? this.profileApiService.getProfileMetrics(userId, sportId)
-          : Promise.resolve({ success: false as const, data: [] }),
-        this.profileApiService.getProfileTimeline(userId),
-        this.profileApiService.getProfileRankings(userId),
-        this.profileApiService.getProfileScoutReports(userId),
-        this.profileApiService.getProfileVideos(userId),
-        this.profileApiService.getProfileSchedule(userId, sportId),
-        this.profileApiService.getProfileNews(userId),
-      ]);
+    const [gameLogs, metrics, timeline] = await Promise.all([
+      sportId
+        ? this.profileApiService.getProfileGameLogs(userId, sportId)
+        : Promise.resolve({ success: false as const, data: [] }),
+      sportId
+        ? this.profileApiService.getProfileMetrics(userId, sportId)
+        : Promise.resolve({ success: false as const, data: [] }),
+      this.profileApiService.getProfileTimeline(userId, sportId),
+    ]);
 
-    if (stats.success) {
-      this.uiProfileService.setAthleticStatsFromRaw(stats.data);
-    } else if (sportId) {
-      this.logger.warn('Failed to load profile stats', { userId, sportId });
-    }
     if (gameLogs.success) {
       this.uiProfileService.setGameLogs(gameLogs.data);
     } else if (sportId) {
@@ -518,111 +672,18 @@ export class ProfileComponent {
     } else if (sportId) {
       this.logger.warn('Failed to load profile metrics', { userId, sportId });
     }
-
-    if (timeline.success) this.uiProfileService.setTimelinePosts(timeline.data);
-    if (rankings.success && rankings.data.length > 0) {
-      this.uiProfileService.setRankings(rankings.data as unknown as RankingSource[]);
-    }
-    if (scoutReports.success) this.uiProfileService.setScoutReports(scoutReports.data);
-    if (videos.success) this.uiProfileService.setVideoPosts(videos.data);
-    if (news.success) this.uiProfileService.setNewsArticles(news.data);
-
-    // Always call setScheduleEvents when API succeeds, even for empty arrays.
-    // This ensures _scheduleEvents is non-null and overrides embedded mock data.
-    // If we don't call it, _scheduleEvents stays null → events computed falls back to mock.
-    if (schedule.success) {
-      const SCHEDULE_TYPE_MAP: Record<string, ProfileEvent['type']> = {
-        game: 'game',
-        camp: 'camp',
-        visit: 'visit',
-        practice: 'practice',
-        tournament: 'game',
-        combine: 'combine',
-        showcase: 'showcase',
-      };
-      const events: ProfileEvent[] = schedule.data.map((raw) => ({
-        id: String(raw['id'] ?? ''),
-        type: SCHEDULE_TYPE_MAP[String(raw['eventType'] ?? '')] ?? 'other',
-        name: String(raw['title'] ?? raw['name'] ?? ''),
-        location: String(raw['location'] ?? ''),
-        startDate: raw['date'] ? String(raw['date']) : new Date().toISOString(),
-        opponent: raw['opponent'] ? String(raw['opponent']) : undefined,
-        result: raw['result'] ? String(raw['result']) : undefined,
-      }));
-      this.uiProfileService.setScheduleEvents(events);
-    } else {
-      this.logger.warn('Schedule API failed', { userId });
-    }
-  }
-
-  /**
-   * Fetch related athletes dynamically based on current profile's sport + state.
-   * Uses CapacitorHttpAdapter (same as all other mobile API calls).
-   * Scoring: same sport (+2), same state (+1) → top 8.
-   */
-  private async fetchRelatedAthletes(profile: User): Promise<void> {
-    const activeSport = profile.sports?.[profile.activeSportIndex ?? 0] ?? profile.sports?.[0];
-    const sport = activeSport?.sport?.toLowerCase();
-    const state = profile.location?.state;
-
-    try {
-      const response = await this.http.get<{ success: boolean; data: UserSummary[] }>(
-        `${environment.apiUrl}/auth/profile/search?limit=50`
-      );
-
-      if (!response.success) return;
-
-      const scored = response.data
-        .filter((u) => u.id !== profile.id && !!u.firstName)
-        .map((u) => {
-          const uSport = u.primarySport?.toLowerCase();
-          const uState = u.location?.state;
-          const score = (sport && uSport === sport ? 2 : 0) + (state && uState === state ? 1 : 0);
-          return { u, score };
-        })
-        .sort((a, b) => b.score - a.score)
-        .slice(0, 8);
-
-      const athletes: RelatedAthlete[] = scored.map(({ u }) => ({
-        id: u.id,
-        unicode: u.unicode ?? u.id,
-        firstName: u.firstName,
-        lastName: u.lastName,
-        profileImg: u.profileImgs?.[0] ?? null,
-        sport: u.primarySport ?? '',
-        position: u.primaryPosition ?? '',
-        classYear: u.classOf ? String(u.classOf) : '',
-        school: '',
-        state: u.location?.state ?? '',
-        isVerified: u.verificationStatus === 'verified',
-        matchReason:
-          sport && u.primarySport?.toLowerCase() === sport
-            ? `Same sport · ${u.primarySport}`
-            : state && u.location?.state === state
-              ? `Same state · ${state}`
-              : 'Similar profile',
-      }));
-
-      this.relatedAthletes.set(athletes);
-    } catch (err) {
-      this.logger.warn('Failed to fetch related athletes', {
-        error: err instanceof Error ? err.message : String(err),
+    if (timeline.success) {
+      this.uiProfileService.setPolymorphicTimeline(timeline.data, {
+        hasMore: timeline.hasMore,
+        nextCursor: timeline.nextCursor,
       });
+    } else {
+      this.logger.warn('Failed to load profile timeline', { userId });
     }
-  }
 
-  /**
-   * Handle related athlete card click — navigate to their profile.
-   */
-  protected onRelatedAthleteClick(athlete: RelatedAthlete): void {
-    void this.navController.navigateForward(`/profile/${athlete.unicode}`);
-  }
-
-  /**
-   * Handle "See All" related athletes — navigate to explore with sport filter.
-   */
-  protected onSeeAllRelated(): void {
-    void this.navController.navigateForward(`/explore?sport=${this.relatedSport()}`);
+    // Load intel eagerly alongside timeline so the intel tab renders instantly
+    // (data or empty state) with no skeleton flash on tab switch.
+    void this.intel.loadAthleteIntel(userId);
   }
 
   /**
@@ -630,10 +691,17 @@ export class ProfileComponent {
    */
   protected onTabChange(tab: ProfileTabId): void {
     if (tab === 'timeline') {
-      const userId = this.fetchedProfile()?.id;
+      const profile = this.fetchedProfile();
+      const userId = profile?.id;
       if (userId) {
-        void this.profileApiService.getProfileTimeline(userId).then((resp) => {
-          if (resp.success) this.uiProfileService.setTimelinePosts(resp.data);
+        const activeSport = profile?.sports?.[profile.activeSportIndex ?? 0];
+        const sportId = activeSport?.sport?.toLowerCase();
+        void this.profileApiService.getProfileTimeline(userId, sportId).then((resp) => {
+          if (resp.success)
+            this.uiProfileService.setPolymorphicTimeline(resp.data, {
+              hasMore: resp.hasMore,
+              nextCursor: resp.nextCursor,
+            });
         });
       }
     }
@@ -651,6 +719,17 @@ export class ProfileComponent {
     });
   }
 
+  /**
+   * Handle pull-to-refresh from the team profile shell (coach/director own-profile view).
+   * Re-loads team data the same way as the initial load.
+   */
+  protected onTeamRefreshRequest(): void {
+    const profile = this.fetchedProfile();
+    if (profile) {
+      void this.loadTeamProfile(profile);
+    }
+  }
+
   protected async onTeamShare(): Promise<void> {
     const team = this.teamProfile.team();
     if (!team) return;
@@ -658,6 +737,7 @@ export class ProfileComponent {
     const result = await this.shareService.shareTeam({
       id: team.id,
       slug: team.slug,
+      teamCode: team.teamCode,
       teamName: team.teamName,
       sport: team.sport,
       location: team.location,
@@ -671,17 +751,58 @@ export class ProfileComponent {
     }
   }
 
+  protected async onTeamCopyLink(): Promise<void> {
+    const team = this.teamProfile.team();
+    if (!team) return;
+
+    const teamPath = buildCanonicalTeamPath({
+      slug: team.slug,
+      teamName: team.teamName,
+      teamCode: team.teamCode,
+      unicode: team.unicode,
+      id: team.id,
+    });
+    const teamUrl = buildUTMShareUrl(
+      `${environment.webUrl}${teamPath}`,
+      UTM_MEDIUM.COPY_LINK,
+      UTM_CAMPAIGN.TEAM,
+      team.sport?.toLowerCase()
+    );
+
+    const copied = await this.shareService.copy(teamUrl, true);
+    if (copied) {
+      this.logger.info('Team link copied from own profile', {
+        slug: team.slug,
+        teamCode: team.teamCode,
+      });
+    }
+  }
+
   protected async onTeamQrCode(): Promise<void> {
     const team = this.teamProfile.team();
     if (!team) return;
 
+    const teamPath = buildCanonicalTeamPath({
+      slug: team.slug,
+      teamName: team.teamName,
+      teamCode: team.teamCode,
+      unicode: team.unicode,
+      id: team.id,
+    });
+    const qrUrl = buildUTMShareUrl(
+      `${environment.webUrl}${teamPath}`,
+      UTM_MEDIUM.QR,
+      UTM_CAMPAIGN.TEAM,
+      team.sport?.toLowerCase()
+    );
+
     try {
       await this.qrCode.open({
-        url: `https://nxt1sports.com/team/${team.slug}`,
+        url: qrUrl,
         displayName: team.teamName,
         profileImg: team.logoUrl || undefined,
         sport: team.sport || 'Sports',
-        unicode: team.slug,
+        unicode: team.teamCode || team.slug,
         isOwnProfile: true,
         entityType: 'team',
       });
@@ -693,7 +814,15 @@ export class ProfileComponent {
 
   protected onRosterMemberClick(member: TeamProfileRosterMember): void {
     if (member.profileCode) {
-      void this.navController.navigateForward(`/profile/${member.profileCode}`);
+      const teamSport = this.teamProfile.team()?.sport;
+      const athleteName = member.displayName || `${member.firstName} ${member.lastName}`.trim();
+      void this.navController.navigateForward(
+        buildCanonicalProfilePath({
+          athleteName,
+          sport: teamSport,
+          unicode: member.profileCode,
+        })
+      );
     }
   }
 
@@ -745,10 +874,17 @@ export class ProfileComponent {
     });
 
     if (result?.saved) {
+      // Refresh auth state so the top-nav/footer avatar reflects the new profileImgs[0]
+      try {
+        await this.authFlow.refreshUserProfile();
+      } catch (err) {
+        this.logger.warn('Failed to refresh auth state after profile edit', { err });
+      }
+
       const param = this.routeParam();
       if (!param && userId) {
-        // Clear service cache so the re-fetch hits the backend
-        this.profileApiService.invalidateCache(userId);
+        // Clear transport cache so the re-fetch hits the backend.
+        await this.profileApiService.invalidateCache(userId);
 
         // Reset UI state — forces full teardown of carousel/images so they
         // re-render from scratch with fresh data (prevents stale component state)
@@ -830,11 +966,16 @@ export class ProfileComponent {
    */
   protected onTeamClick(team: ProfileTeamAffiliation): void {
     if (team.teamCode) {
+      const teamPath = buildCanonicalTeamPath({
+        slug: team.name,
+        teamName: team.name,
+        teamCode: team.teamCode,
+      });
       this.logger.info('Navigating to team profile', {
         teamCode: team.teamCode,
         teamName: team.name,
       });
-      void this.navController.navigateForward(`/team/${team.teamCode}`);
+      void this.navController.navigateForward(teamPath);
     } else {
       this.logger.warn('Team has no teamCode, cannot navigate', { teamName: team.name });
     }
@@ -853,7 +994,7 @@ export class ProfileComponent {
       // Refresh team data after management changes
       const slug = this.teamSlug();
       if (slug) {
-        this.teamApi.invalidateCache(slug);
+        await this.teamApi.invalidateCache(slug);
         const response = await this.teamApi.getTeamBySlug(slug);
         if (response.success && response.data) {
           this.teamProfile.loadFromExternalData(response.data);
@@ -872,10 +1013,20 @@ export class ProfileComponent {
     const profileId = this.profileUnicode() || user.profileCode || user.uid;
     if (!profileId) return;
 
-    const profileUrl = `${environment.webUrl}/profile/${profileId}`;
+    const profilePath = buildCanonicalProfilePath({
+      athleteName: user.displayName || `${user.firstName} ${user.lastName}`.trim(),
+      sport: user.primarySport?.name,
+      unicode: profileId,
+    });
+    const qrUrl = buildUTMShareUrl(
+      `${environment.webUrl}${profilePath}`,
+      UTM_MEDIUM.QR,
+      UTM_CAMPAIGN.PROFILE,
+      user.primarySport?.name?.toLowerCase()
+    );
 
     await this.qrCode.open({
-      url: profileUrl,
+      url: qrUrl,
       displayName: user.displayName || `${user.firstName} ${user.lastName}`.trim() || 'Athlete',
       profileImg: user.profileImg,
       sport: user.primarySport?.name,
@@ -932,20 +1083,19 @@ export class ProfileComponent {
     const profileId = this.profileUnicode() || user.profileCode || user.uid;
     if (!profileId) return;
 
-    const profileUrl = `${environment.webUrl}/profile/${profileId}`;
-    await this.shareService.copy(profileUrl, true);
-  }
+    const profilePath = buildCanonicalProfilePath({
+      athleteName: user.displayName || `${user.firstName} ${user.lastName}`.trim(),
+      sport: user.primarySport?.name,
+      unicode: profileId,
+    });
+    const profileUrl = buildUTMShareUrl(
+      `${environment.webUrl}${profilePath}`,
+      UTM_MEDIUM.COPY_LINK,
+      UTM_CAMPAIGN.PROFILE,
+      user.primarySport?.name?.toLowerCase()
+    );
 
-  /**
-   * Handle native pull-to-refresh on the outer ion-content.
-   * Delegates to onRefreshRequest for the actual data fetching.
-   */
-  protected async handleRefresh(event: RefreshEvent): Promise<void> {
-    try {
-      await this.onRefreshRequest();
-    } finally {
-      event.complete();
-    }
+    await this.shareService.copy(profileUrl, true);
   }
 
   /**
@@ -977,14 +1127,21 @@ export class ProfileComponent {
 
         // Role-aware refresh: coach/director → re-fetch team data
         if (isOwn && isTeamRole(freshProfile.role)) {
+          const teamPath = this.buildTeamPathFromUser(freshProfile);
+          if (teamPath) {
+            void this.navController.navigateRoot(teamPath);
+            return;
+          }
+
           void this.loadTeamProfile(freshProfile);
         } else {
           const profilePageData = userToProfilePageData(freshProfile, isOwn);
           this.uiProfileService.loadFromExternalData(profilePageData, freshProfile, isOwn);
-          this.fetchRelatedAthletes(freshProfile);
           const activeSport =
             freshProfile.sports?.[freshProfile.activeSportIndex ?? 0] ?? freshProfile.sports?.[0];
           const sportId = activeSport?.sport?.toLowerCase();
+          // Clear guard so pull-to-refresh always fetches fresh data
+          this._lastFetchedKey = null;
           this.fetchSubCollections(freshProfile.id, sportId).catch((err) => {
             this.logger.error('Failed to fetch sub-collections on refresh', err, {
               userId: freshProfile.id,
@@ -997,6 +1154,16 @@ export class ProfileComponent {
     }
   }
 
+  private buildTeamPathFromUser(profile: User): string | null {
+    return (
+      resolveCanonicalTeamRoute({
+        slug: profile.teamCode?.slug?.trim(),
+        teamName: profile.teamCode?.teamName?.trim(),
+        teamCode: profile.teamCode?.teamCode?.trim(),
+        code: profile.teamCode?.code?.trim(),
+      })?.path ?? null
+    );
+  }
   /**
    * Handle profile generation overlay dismiss.
    * Refreshes auth state so the profile page re-fetches fresh data
@@ -1011,5 +1178,94 @@ export class ProfileComponent {
       }
       await this.onRefreshRequest();
     }
+  }
+
+  // ============================================
+  // FOOTER ACTION HANDLERS
+  // ============================================
+
+  private onAddUpdate(): void {
+    void this.openCreatePostSheet();
+  }
+
+  private async onConnectAccountsFooter(): Promise<void> {
+    const user = this.uiProfileService.user();
+    const role = user?.role ?? null;
+    await this.connectedAccountsModal.open({
+      role,
+      selectedSports: [
+        ...(user?.primarySport ? [user.primarySport.name] : []),
+        ...(user?.additionalSports?.map((s) => s.name) ?? []),
+      ],
+      scope: role === 'coach' || role === 'director' ? 'team' : 'athlete',
+    });
+  }
+
+  private async openCreatePostSheet(): Promise<void> {
+    const hasReport = !!this.intel.athleteReport();
+    const message = hasReport
+      ? 'I want to create a post for my timeline. After creating the post, automatically review it and update any relevant sections of my Agent X Intel report with new stats, achievements, or information from the post.'
+      : 'I want to create a post for my timeline.';
+    await this.bottomSheet.openSheet({
+      component: AgentXOperationChatComponent,
+      componentProps: {
+        contextId: 'profile-timeline-post',
+        contextTitle: 'Create a Post',
+        contextIcon: 'create-outline',
+        contextType: 'command',
+        initialMessage: message,
+      },
+      ...SHEET_PRESETS.FULL,
+      showHandle: true,
+      handleBehavior: 'cycle',
+      backdropDismiss: true,
+      cssClass: 'agent-x-operation-sheet',
+    });
+  }
+
+  private async onGenerateAthleteIntel(): Promise<void> {
+    const hasReport = !!this.intel.athleteReport();
+    const userId = this.uiProfileService.user()?.uid ?? '';
+    await this.bottomSheet.openSheet({
+      component: AgentXOperationChatComponent,
+      componentProps: {
+        contextId: 'profile-intel-generate',
+        contextTitle: hasReport ? 'Update Intel' : 'Generate Intel',
+        contextIcon: 'flash-outline',
+        contextType: 'command',
+        initialMessage: hasReport
+          ? `I want to update my Intel report. What new information or highlights should I add to make it stronger?`
+          : `I want to build my Agent X Intel report. What information do you need from me to create the best possible report?`,
+      },
+      ...SHEET_PRESETS.FULL,
+      showHandle: true,
+      handleBehavior: 'cycle',
+      backdropDismiss: true,
+      cssClass: 'agent-x-operation-sheet',
+    });
+    await this.intel.loadAthleteIntel(userId, true);
+  }
+
+  private async onGenerateTeamIntel(): Promise<void> {
+    const teamId = this.teamProfile.team()?.id ?? '';
+    const hasReport = !!this.intel.teamReport();
+    await this.bottomSheet.openSheet({
+      component: AgentXOperationChatComponent,
+      componentProps: {
+        contextId: 'team-intel-generate',
+        contextTitle: hasReport ? 'Update Intel' : 'Generate Intel',
+        contextIcon: 'flash-outline',
+        contextType: 'command',
+        initialMessage: hasReport
+          ? `I want to update my team's Intel report. What information or recent results should I include to strengthen it?`
+          : `I want to build an Agent X Intel report for my team. What information do you need from me to create the best possible report?`,
+      },
+      ...SHEET_PRESETS.FULL,
+      showHandle: true,
+      handleBehavior: 'cycle',
+      backdropDismiss: true,
+      cssClass: 'agent-x-operation-sheet',
+    });
+    await this.intel.loadTeamIntel(teamId, true);
   }
 }

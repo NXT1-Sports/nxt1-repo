@@ -16,7 +16,7 @@ import { SearchCollegesTool } from '../search-colleges.tool.js';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const mockAggregate = vi.fn<(...args: any[]) => any>();
 
-vi.mock('../../../../../models/college.model.js', () => ({
+vi.mock('../../../../../models/core/college.model.js', () => ({
   CollegeModel: { aggregate: (...args: unknown[]) => mockAggregate(...args) },
 }));
 
@@ -33,10 +33,10 @@ vi.mock('firebase-admin/firestore', () => ({
   }),
 }));
 
-// ─── Mock elite-context ─────────────────────────────────────────────────────
+// ─── Mock context-builder ────────────────────────────────────────────────────
 
 const mockResolvePrimarySport = vi.fn<(...args: unknown[]) => string>();
-vi.mock('../../../services/elite-context.js', () => ({
+vi.mock('../../../memory/context-builder.js', () => ({
   resolvePrimarySport: (...args: unknown[]) => mockResolvePrimarySport(...args),
 }));
 
@@ -178,34 +178,40 @@ describe('SearchCollegesTool', () => {
     });
 
     it('should require sport parameter', () => {
-      expect((tool.parameters as Record<string, unknown>).required).toEqual(['sport']);
+      const parsed = (
+        tool.parameters as { safeParse: (input: Record<string, unknown>) => { success: boolean } }
+      ).safeParse({ state: 'OH' });
+      expect(parsed.success).toBe(false);
     });
 
     it('should expose all elite filter parameters', () => {
-      const props = (tool.parameters as Record<string, Record<string, unknown>>).properties;
-      const expectedKeys = [
-        'sport',
-        'state',
-        'name',
-        'division',
-        'conference',
-        'maxGpa',
-        'minAcceptanceRate',
-        'maxAcceptanceRate',
-        'maxMathSAT',
-        'maxReadingSAT',
-        'maxTuition',
-        'hbcu',
-        'publicOnly',
-        'communityCollege',
-        'womenOnly',
-        'religiousAffiliation',
-        'majorsOffered',
-        'limit',
-      ];
-      for (const key of expectedKeys) {
-        expect(props).toHaveProperty(key);
-      }
+      const schema = tool.parameters as {
+        safeParse: (input: Record<string, unknown>) => { success: boolean };
+      };
+
+      expect(schema.safeParse({ sport: 'Football' }).success).toBe(true);
+      expect(
+        schema.safeParse({
+          sport: 'Football',
+          state: 'TX',
+          name: 'Rice',
+          division: 'NCAA Division I',
+          conference: 'AAC',
+          maxGpa: 3.5,
+          minAcceptanceRate: 20,
+          maxAcceptanceRate: 90,
+          maxMathSAT: 650,
+          maxReadingSAT: 650,
+          maxTuition: 40000,
+          hbcu: false,
+          publicOnly: true,
+          communityCollege: false,
+          womenOnly: false,
+          religiousAffiliation: 'Catholic',
+          majorsOffered: 'Engineering',
+          limit: 5,
+        }).success
+      ).toBe(true);
     });
   });
 
@@ -954,38 +960,16 @@ describe('SearchCollegesTool', () => {
     it('should retry without academic filters when first attempt returns 0', async () => {
       // First call: empty (full filters). Second call: results (relaxed).
       mockAggregate.mockResolvedValueOnce([]).mockResolvedValueOnce([makeCollegeDoc()]);
-
       const result = await tool.execute({
         sport: 'Baseball',
         state: 'OH',
         maxGpa: 3.0,
-      });
-
-      expect(result.success).toBe(true);
-      const data = result.data as Record<string, unknown>;
-      expect(data.count).toBe(1);
-      expect(data.filtersRelaxed).toBeDefined();
-      expect((data.filtersRelaxed as string[])[0]).toContain('academic');
-    });
-
-    it('should retry without extended filters on second retry', async () => {
-      // Three calls: empty, empty, results
-      mockAggregate
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([makeCollegeDoc()]);
-
-      const result = await tool.execute({
-        sport: 'Baseball',
-        maxGpa: 3.0,
         religiousAffiliation: 'Catholic',
       });
-
-      expect(result.success).toBe(true);
       const data = result.data as Record<string, unknown>;
       expect(data.count).toBe(1);
       expect(data.filtersRelaxed).toBeDefined();
-      expect((data.filtersRelaxed as string[]).length).toBe(2);
+      expect((data.filtersRelaxed as string[]).length).toBe(1);
     });
 
     it('should NOT retry when there are no droppable filters', async () => {

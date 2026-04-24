@@ -22,7 +22,7 @@
     
     <!-- Background Colors -->
     <color name="backgroundColor">#0A0A0A</color>        <!-- App dark background -->
-    <color name="splashBackgroundColor">#0A0A0A</color>  <!-- Splash screen -->
+    <color name="splashBackgroundColor">#FFFFFF</color>  <!-- Splash screen (light mode) -->
     
     <!-- Navigation Bar -->
     <color name="navigationBarColor">#0A0A0A</color>     <!-- Bottom system nav bar -->

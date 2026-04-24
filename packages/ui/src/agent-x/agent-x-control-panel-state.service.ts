@@ -10,6 +10,7 @@ import { AGENT_X_API_BASE_URL } from './agent-x-job.service';
 
 export type AgentXControlPanelKind = 'status' | 'budget' | 'goals';
 export type AgentXControlPanelPresentation = 'sheet' | 'modal';
+export type AgentXBudgetDraftMode = 'current' | 'new';
 export type AgentXSystemStatus = 'active' | 'degraded' | 'down';
 export type AgentXSystemStatusTone = 'positive' | 'warning' | 'critical';
 
@@ -119,7 +120,7 @@ export class AgentXControlPanelStateService implements OnDestroy {
   /** Listeners to tear down on destroy. */
   private readonly _teardownFns: Array<() => void> = [];
 
-  private readonly _monthlyBudget = signal(150);
+  private readonly _monthlyBudget = signal(0);
   private readonly _autoTopOffEnabled = signal(true);
   private readonly _autoTopOffAmount = signal(50);
   private readonly _goals = signal<string[]>([]);
@@ -140,7 +141,9 @@ export class AgentXControlPanelStateService implements OnDestroy {
   );
   readonly statusLabel = computed(() => this.statusDefinition().label);
   readonly statusTone = computed(() => this.statusDefinition().tone);
-  readonly budgetBadgeLabel = computed(() => `$${this._monthlyBudget()} Budget`);
+  readonly budgetBadgeLabel = computed(() =>
+    this._monthlyBudget() > 0 ? `$${this._monthlyBudget()} Budget` : 'Budget'
+  );
   readonly selectedGoalOptions = computed(() => {
     const selected = new Set(this._goals());
     return AGENT_X_GOAL_OPTIONS.filter((goal) => selected.has(goal.id));

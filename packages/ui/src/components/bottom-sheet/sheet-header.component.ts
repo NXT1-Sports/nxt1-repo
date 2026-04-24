@@ -57,9 +57,10 @@
  */
 
 import { Component, ChangeDetectionStrategy, input, output, inject } from '@angular/core';
+import { ModalController } from '@ionic/angular/standalone';
 import { NxtIconComponent } from '../icon/icon.component';
 import { HapticsService } from '../../services/haptics/haptics.service';
-import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '../../agent-x/fab/agent-x-logo.constants';
+import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/assets';
 
 /** Supported shapes for the optional header icon container. */
 export type SheetHeaderIconShape = 'circle' | 'rounded';
@@ -274,6 +275,7 @@ export type SheetHeaderClosePosition = 'left' | 'right';
 })
 export class NxtSheetHeaderComponent {
   private readonly haptics = inject(HapticsService);
+  private readonly modalCtrl = inject(ModalController);
 
   // ============================================
   // INPUTS
@@ -331,6 +333,36 @@ export class NxtSheetHeaderComponent {
 
   async onClose(): Promise<void> {
     await this.haptics.impact('light');
+
+    // Match manual swipe-down animation: animate through breakpoints (backdrop fades),
+    // then dismiss when sheet reaches closed position
+    const topOverlay = await this.modalCtrl.getTop();
+    if (
+      topOverlay instanceof Element &&
+      topOverlay.tagName.toLowerCase() === 'ion-modal' &&
+      typeof (topOverlay as { dismiss?: unknown }).dismiss === 'function'
+    ) {
+      const modal = topOverlay as any;
+
+      // If sheet has breakpoints and setCurrentBreakpoint method, animate to 0
+      // This triggers the same backdrop fade + sheet slide as manual swipe
+      if (typeof modal.setCurrentBreakpoint === 'function') {
+        try {
+          await modal.setCurrentBreakpoint(0);
+          // Wait for sheet animation to complete before dismissing
+          await new Promise((resolve) => setTimeout(resolve, 350));
+          await modal.dismiss(undefined, 'cancel');
+          return;
+        } catch (e) {
+          // Fallback if setCurrentBreakpoint fails
+        }
+      }
+
+      // Fallback: standard dismiss
+      const dismissed = await modal.dismiss(undefined, 'cancel');
+      if (dismissed) return;
+    }
+
     this.closeSheet.emit();
   }
 }

@@ -253,7 +253,14 @@ describe('createAgentXApi', () => {
     it('should generate playbook without force flag', async () => {
       vi.mocked(http.post).mockResolvedValue({
         success: true,
-        data: mockPlaybook,
+        data: { operationId: 'playbook-op-1' },
+      });
+      vi.mocked(http.get).mockResolvedValue({
+        success: true,
+        data: {
+          status: 'completed',
+          result: { data: { playbook: mockPlaybook } },
+        },
       });
 
       const result = await api.generatePlaybook();
@@ -261,13 +268,25 @@ describe('createAgentXApi', () => {
       expect(http.post).toHaveBeenCalledWith(`${baseUrl}${AGENT_X_ENDPOINTS.PLAYBOOK_GENERATE}`, {
         force: false,
       });
+      expect(vi.mocked(http.get).mock.calls[0]?.[0]).toMatch(
+        new RegExp(
+          `^${baseUrl}${AGENT_X_ENDPOINTS.PLAYBOOK_GENERATE_STATUS}/playbook-op-1\\?_=\\d+$`
+        )
+      );
       expect(result).toEqual(mockPlaybook);
     });
 
     it('should generate playbook with force flag', async () => {
       vi.mocked(http.post).mockResolvedValue({
         success: true,
-        data: mockPlaybook,
+        data: { operationId: 'playbook-op-2' },
+      });
+      vi.mocked(http.get).mockResolvedValue({
+        success: true,
+        data: {
+          status: 'completed',
+          result: { data: { playbook: mockPlaybook } },
+        },
       });
 
       const result = await api.generatePlaybook(true);
@@ -282,6 +301,21 @@ describe('createAgentXApi', () => {
       vi.mocked(http.post).mockResolvedValue({
         success: false,
         error: 'No goals set',
+      });
+
+      const result = await api.generatePlaybook();
+
+      expect(result).toBeNull();
+    });
+
+    it('should return null when queued playbook generation fails during polling', async () => {
+      vi.mocked(http.post).mockResolvedValue({
+        success: true,
+        data: { operationId: 'playbook-op-failed' },
+      });
+      vi.mocked(http.get).mockResolvedValue({
+        success: true,
+        data: { status: 'failed', error: 'Generation failed' },
       });
 
       const result = await api.generatePlaybook();
@@ -415,6 +449,95 @@ describe('createAgentXApi', () => {
   });
 
   // ============================================
+  // resolveApproval
+  // ============================================
+
+  describe('resolveApproval', () => {
+    it('should resolve an approval with edited tool input', async () => {
+      vi.mocked(http.post).mockResolvedValue({
+        success: true,
+        data: {
+          decision: 'approved',
+          resumed: true,
+          operationId: 'op-123',
+          threadId: 'thread-123',
+        },
+      });
+
+      const result = await api.resolveApproval('approval-123', 'approved', {
+        toEmail: 'coach@example.com',
+        subject: 'Updated subject',
+      });
+
+      expect(http.post).toHaveBeenCalledWith(
+        `${baseUrl}${AGENT_X_ENDPOINTS.APPROVALS}/${encodeURIComponent('approval-123')}/resolve`,
+        {
+          decision: 'approved',
+          toolInput: {
+            toEmail: 'coach@example.com',
+            subject: 'Updated subject',
+          },
+        }
+      );
+      expect(result).toEqual({
+        decision: 'approved',
+        resumed: true,
+        operationId: 'op-123',
+        threadId: 'thread-123',
+      });
+    });
+
+    it('should return null when approval resolution fails', async () => {
+      vi.mocked(http.post).mockResolvedValue({ success: false, error: 'Conflict' });
+
+      const result = await api.resolveApproval('approval-123', 'rejected');
+
+      expect(result).toBeNull();
+    });
+  });
+
+  // ============================================
+  // resumeYieldedJob
+  // ============================================
+
+  describe('resumeYieldedJob', () => {
+    it('should resume a yielded job with user input', async () => {
+      vi.mocked(http.post).mockResolvedValue({
+        success: true,
+        data: {
+          resumed: true,
+          jobId: 'job-123',
+          operationId: 'op-456',
+          threadId: 'thread-123',
+        },
+      });
+
+      const result = await api.resumeYieldedJob('op-original', 'My top choice is Stanford.');
+
+      expect(http.post).toHaveBeenCalledWith(
+        `${baseUrl}${AGENT_X_ENDPOINTS.RESUME_JOB}/${encodeURIComponent('op-original')}`,
+        {
+          response: 'My top choice is Stanford.',
+        }
+      );
+      expect(result).toEqual({
+        resumed: true,
+        jobId: 'job-123',
+        operationId: 'op-456',
+        threadId: 'thread-123',
+      });
+    });
+
+    it('should return null when yielded job resumption fails', async () => {
+      vi.mocked(http.post).mockResolvedValue({ success: false, error: 'Conflict' });
+
+      const result = await api.resumeYieldedJob('op-original', 'Answer');
+
+      expect(result).toBeNull();
+    });
+  });
+
+  // ============================================
   // getQuickTasks
   // ============================================
 
@@ -490,6 +613,78 @@ describe('createAgentXApi', () => {
       const result = await api.getHistory();
 
       expect(result).toEqual({ messages: [], hasMore: false });
+    });
+  });
+
+  // ============================================
+  // getThreadMessages
+  // ============================================
+
+  describe('getThreadMessages', () => {
+    it('should fetch thread messages with default limit', async () => {
+      vi.mocked(http.get).mockResolvedValue({
+        success: true,
+        data: {
+          items: [
+            {
+              id: 'm-1',
+              threadId: 'thread-123',
+              userId: 'user-123',
+              role: 'user',
+              content: 'hello',
+              origin: 'user',
+              createdAt: '2026-04-13T10:00:00.000Z',
+            },
+          ],
+          hasMore: true,
+          nextCursor: '2026-04-13T10:00:00.000Z',
+        },
+      });
+
+      const result = await api.getThreadMessages('thread-123');
+
+      expect(http.get).toHaveBeenCalledWith(
+        `${baseUrl}${AGENT_X_ENDPOINTS.THREAD_MESSAGES}/${encodeURIComponent('thread-123')}/messages?limit=50`
+      );
+      expect(result).toEqual({
+        messages: [
+          {
+            id: 'm-1',
+            threadId: 'thread-123',
+            userId: 'user-123',
+            role: 'user',
+            content: 'hello',
+            origin: 'user',
+            createdAt: '2026-04-13T10:00:00.000Z',
+          },
+        ],
+        hasMore: true,
+        nextCursor: '2026-04-13T10:00:00.000Z',
+      });
+    });
+
+    it('should include the before cursor when provided', async () => {
+      vi.mocked(http.get).mockResolvedValue({
+        success: true,
+        data: {
+          items: [],
+          hasMore: false,
+        },
+      });
+
+      await api.getThreadMessages('thread-123', 200, '2026-04-13T10:00:00.000Z');
+
+      expect(http.get).toHaveBeenCalledWith(
+        `${baseUrl}${AGENT_X_ENDPOINTS.THREAD_MESSAGES}/${encodeURIComponent('thread-123')}/messages?limit=200&before=${encodeURIComponent('2026-04-13T10:00:00.000Z')}`
+      );
+    });
+
+    it('should return null when the API response is unsuccessful', async () => {
+      vi.mocked(http.get).mockResolvedValue({ success: false, error: 'Not found' });
+
+      const result = await api.getThreadMessages('thread-123');
+
+      expect(result).toBeNull();
     });
   });
 

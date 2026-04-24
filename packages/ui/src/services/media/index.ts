@@ -11,3 +11,5 @@ export {
   type ShareImageOptions,
   type ShareImageResult,
 } from './media.service';
+
+export { normalizeImageFileForUpload } from './image-normalization';

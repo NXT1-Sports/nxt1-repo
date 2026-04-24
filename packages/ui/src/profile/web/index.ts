@@ -23,6 +23,3 @@ export { ProfileHeaderWebComponent } from './profile-header-web.component';
 
 // Web-only desktop page header (badge shelf, XP ring, desktop nav)
 export { ProfilePageHeaderComponent } from './profile-page-header.component';
-
-// Web-only discovery row
-export { RelatedAthletesComponent, type RelatedAthlete } from './related-athletes.component';

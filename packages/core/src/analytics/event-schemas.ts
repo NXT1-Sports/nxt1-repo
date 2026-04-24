@@ -30,7 +30,6 @@ import type {
   ViewerType,
   ContentType,
   AuthMethod,
-  PlanType,
 } from './events';
 
 // ============================================
@@ -173,13 +172,6 @@ export interface ReactionAddedEvent extends BaseEventProperties {
   reaction_type: string;
 }
 
-export interface CommentAddedEvent extends BaseEventProperties {
-  content_id: string;
-  content_type: ContentType;
-  comment_length?: number;
-  is_reply?: boolean;
-}
-
 // ============================================
 // SEARCH EVENTS
 // ============================================
@@ -201,21 +193,6 @@ export interface SearchResultClickedEvent extends BaseEventProperties {
 // ============================================
 // SUBSCRIPTION EVENTS
 // ============================================
-
-export interface SubscriptionStartedEvent extends BaseEventProperties {
-  plan: PlanType;
-  billing_period: 'monthly' | 'yearly';
-  price?: number;
-  currency?: string;
-  trial?: boolean;
-}
-
-export interface SubscriptionChangedEvent extends BaseEventProperties {
-  from_plan: PlanType;
-  to_plan: PlanType;
-  change_type: 'upgrade' | 'downgrade' | 'cancel' | 'renew';
-  reason?: string;
-}
 
 export interface CreditsUsedEvent extends BaseEventProperties {
   feature: string;
@@ -312,17 +289,12 @@ export interface EventPayloadMap {
 
   // Engagement
   reaction_added: ReactionAddedEvent;
-  comment_added: CommentAddedEvent;
 
   // Search
   search_performed: SearchPerformedEvent;
   search_result_clicked: SearchResultClickedEvent;
 
   // Subscription
-  subscription_started: SubscriptionStartedEvent;
-  subscription_upgraded: SubscriptionChangedEvent;
-  subscription_downgraded: SubscriptionChangedEvent;
-  subscription_cancelled: SubscriptionChangedEvent;
   credits_used: CreditsUsedEvent;
 
   // AI

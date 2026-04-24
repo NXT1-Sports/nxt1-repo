@@ -30,12 +30,14 @@
 import { Injectable, inject, signal, computed, OnDestroy } from '@angular/core';
 import { NavController } from '@ionic/angular/standalone';
 import { NxtPlatformService, HapticsService, NxtLoggingService } from '@nxt1/ui';
+import { NxtModalService } from '@nxt1/ui/services';
 import { type ILogger } from '@nxt1/core/logging';
 import {
   type UserRole,
   type AuthState as CoreAuthState,
   type AuthStateManager,
   type AuthUser,
+  normalizeRole,
   createAuthStateManager,
   createBrowserStorageAdapter,
   createMemoryStorageAdapter,
@@ -111,6 +113,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
   private readonly fcmRegistration = inject(FcmRegistrationService);
   private readonly biometricService = inject(BiometricService);
   private readonly inviteApi = inject(InviteApiService);
+  private readonly modal = inject(NxtModalService);
 
   /**
    * ⭐ ProfileService - Manages User data (Single Source of Truth) ⭐
@@ -150,7 +153,6 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
 
   readonly isAuthenticated = computed(() => this._state().user !== null);
   readonly userRole = computed(() => this._state().user?.role ?? null);
-  readonly isPremium = computed(() => this._state().user?.isPremium ?? false);
   readonly hasCompletedOnboarding = computed(
     () => this._state().user?.hasCompletedOnboarding ?? false
   );
@@ -464,7 +466,6 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
         displayName: firebaseUser.displayName ?? userDisplayName ?? 'User',
         profileImg: userProfile?.profileImgs?.[0] ?? undefined,
         role: this.profileService.role() ?? 'athlete',
-        isPremium: this.profileService.isPremium(),
         hasCompletedOnboarding,
         provider,
         emailVerified: firebaseUser.emailVerified,
@@ -486,7 +487,6 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
       await this.crashlytics.setUser(crashUser);
       await this.crashlytics.setCustomKeys({
         user_role: authUser.role,
-        is_premium: authUser.isPremium,
         auth_provider: authUser.provider,
       });
 
@@ -513,21 +513,10 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
    */
   private getUserRole(
     user: {
-      role?: UserRole | null;
-      isCollegeCoach?: boolean | null;
-      isRecruit?: boolean | null;
+      role?: string | null;
     } | null
   ): UserRole {
-    if (!user) return 'athlete';
-
-    // V2: Use role field directly if present
-    if (user.role) return user.role;
-
-    // Legacy fallback: Map boolean flags to role
-    if (user.isCollegeCoach) return 'coach';
-    if (user.isRecruit) return 'athlete';
-
-    return 'athlete';
+    return user?.role ? normalizeRole(user.role) : 'athlete';
   }
 
   // ============================================
@@ -542,9 +531,8 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
     this.authManager.setError(null);
 
     try {
-      const result = await this.firebaseAuth.signInWithEmail(
-        credentials.email,
-        credentials.password
+      const result = await this.runWithAuthLoader('Signing in...', () =>
+        this.firebaseAuth.signInWithEmail(credentials.email, credentials.password)
       );
 
       // Cache password for potential biometric enrollment later
@@ -565,7 +553,6 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
       if (user) {
         this.analytics.setUserProperties({
           user_type: user.role,
-          is_premium: user.isPremium,
           auth_provider: AUTH_METHODS.EMAIL,
         });
       }
@@ -574,9 +561,6 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
       if (!credentials.skipNavigation) {
         await this.navigatePostAuth();
       }
-
-      // Register FCM token for push notifications (non-blocking)
-      void this.fcmRegistration.registerToken();
 
       return true;
     } catch (err) {
@@ -610,14 +594,18 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
    * Sign in with Google
    */
   async signInWithGoogle(): Promise<boolean> {
-    return this.handleOAuthSignIn(AUTH_METHODS.GOOGLE, () => this.firebaseAuth.signInWithGoogle());
+    return this.handleOAuthSignIn(AUTH_METHODS.GOOGLE, (onAccountSelected) =>
+      this.firebaseAuth.signInWithGoogle(onAccountSelected)
+    );
   }
 
   /**
    * Sign in with Apple
    */
   async signInWithApple(): Promise<boolean> {
-    return this.handleOAuthSignIn(AUTH_METHODS.APPLE, () => this.firebaseAuth.signInWithApple());
+    return this.handleOAuthSignIn(AUTH_METHODS.APPLE, (onAccountSelected) =>
+      this.firebaseAuth.signInWithApple(onAccountSelected)
+    );
   }
 
   /**
@@ -626,7 +614,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
   async signInWithMicrosoft(): Promise<boolean> {
     return this.handleOAuthSignIn(
       AUTH_METHODS.MICROSOFT,
-      () => this.firebaseAuth.signInWithMicrosoft(),
+      (onAccountSelected) => this.firebaseAuth.signInWithMicrosoft(onAccountSelected),
       { nullable: true }
     );
   }
@@ -650,19 +638,36 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
    */
   private async handleOAuthSignIn(
     method: string,
-    signInFn: () => Promise<import('@angular/fire/auth').UserCredential | null>,
+    signInFn: (
+      onAccountSelected: () => void
+    ) => Promise<import('@angular/fire/auth').UserCredential | null>,
     options?: { nullable?: boolean }
   ): Promise<boolean> {
     this.logger.debug(`${method} sign-in started`);
-    this.authManager.setLoading(true);
     this.authManager.setError(null);
+    let sharedLoaderShown = false;
+
+    const onAccountSelected = (): void => {
+      if (sharedLoaderShown) {
+        return;
+      }
+      sharedLoaderShown = true;
+      this.authManager.setLoading(true);
+      // Fire and forget so we can start the visual feedback immediately.
+      void this.modal.showLoading({
+        message: `Signing in with ${method}...`,
+        backdropDismiss: false,
+        spinner: 'crescent',
+      });
+    };
 
     try {
-      const result = await signInFn();
+      // Important UX boundary: do not show loading while OAuth account chooser is open.
+      // Start loading only after Firebase returns a selected account credential.
+      const result = await signInFn(onAccountSelected);
 
       // User cancelled (applicable to providers that return null)
       if (!result && options?.nullable) {
-        this.authManager.setLoading(false);
         return false;
       }
 
@@ -670,64 +675,72 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
         throw new Error(`${method} sign-in returned no result`);
       }
 
-      // Extract email from multiple sources:
-      // 1. user.email (standard OAuth providers — Google, Apple)
-      // 2. providerData (linked provider, set after providerToLink backend call)
-      // 3. ID token custom claims (Microsoft custom-token auth stores email in claims)
-      let userEmail = result.user.email || result.user.providerData?.[0]?.email || null;
-      if (!userEmail) {
-        try {
-          const tokenResult = await result.user.getIdTokenResult();
-          userEmail = (tokenResult.claims['email'] as string | undefined) ?? null;
-        } catch {
-          // Non-fatal: proceed without email from claims
-        }
+      if (!sharedLoaderShown) {
+        onAccountSelected();
       }
 
-      this.logger.debug(`${method} Firebase sign-in successful`, {
-        uid: result.user.uid,
-        email: userEmail,
-      });
+      // Post-selection auth pipeline continues under the already-shown loader.
+      return await (async () => {
+        // Extract email from multiple sources:
+        // 1. user.email (standard OAuth providers — Google, Apple)
+        // 2. providerData (linked provider, set after providerToLink backend call)
+        // 3. ID token custom claims (Microsoft custom-token auth stores email in claims)
+        let userEmail = result.user.email || result.user.providerData?.[0]?.email || null;
+        if (!userEmail) {
+          try {
+            const tokenResult = await result.user.getIdTokenResult();
+            userEmail = (tokenResult.claims['email'] as string | undefined) ?? null;
+          } catch {
+            // Non-fatal: proceed without email from claims
+          }
+        }
 
-      // Detect new vs. existing user by checking backend profile
-      const isNewUser = await this.isNewBackendUser(result.user.uid);
+        this.logger.debug(`${method} Firebase sign-in successful`, {
+          uid: result.user.uid,
+          email: userEmail,
+        });
 
-      // Track analytics
-      this.analytics.trackEvent(isNewUser ? APP_EVENTS.AUTH_SIGNED_UP : APP_EVENTS.AUTH_SIGNED_IN, {
-        method,
-      });
-      this.analytics.setUserId(result.user.uid);
+        // Detect new vs. existing user by checking backend profile
+        const isNewUser = await this.isNewBackendUser(result.user.uid);
 
-      // Re-wire token provider (fixes logout → login flow)
-      this.ensureTokenProvider();
+        // Track analytics
+        this.analytics.trackEvent(
+          isNewUser ? APP_EVENTS.AUTH_SIGNED_UP : APP_EVENTS.AUTH_SIGNED_IN,
+          {
+            method,
+          }
+        );
+        this.analytics.setUserId(result.user.uid);
 
-      if (isNewUser) {
-        this.logger.info(`${method} new user — creating backend profile`, { uid: result.user.uid });
-        await this.authApi.createUser({ uid: result.user.uid, email: userEmail! });
-        await this.syncUserProfile(result.user.uid);
-        await this.navigateForward(AUTH_REDIRECTS.ONBOARDING);
-      } else {
-        this.logger.debug(`${method} existing user — syncing profile`, { uid: result.user.uid });
-        await this.syncUserProfile(result.user.uid);
+        // Re-wire token provider (fixes logout → login flow)
+        this.ensureTokenProvider();
 
-        // Set analytics user properties after sync
-        const user = this.user();
-        if (user) {
-          this.analytics.setUserProperties({
-            user_type: user.role,
-            is_premium: user.isPremium,
-            auth_provider: method,
+        if (isNewUser) {
+          this.logger.info(`${method} new user — creating backend profile`, {
+            uid: result.user.uid,
           });
+          await this.authApi.createUser({ uid: result.user.uid, email: userEmail! });
+          await this.syncUserProfile(result.user.uid);
+          await this.navigateForward(AUTH_REDIRECTS.ONBOARDING);
+        } else {
+          this.logger.debug(`${method} existing user — syncing profile`, { uid: result.user.uid });
+          await this.syncUserProfile(result.user.uid);
+
+          // Set analytics user properties after sync
+          const user = this.user();
+          if (user) {
+            this.analytics.setUserProperties({
+              user_type: user.role,
+              auth_provider: method,
+            });
+          }
+
+          await this.navigatePostAuth();
         }
 
-        await this.navigatePostAuth();
-      }
-
-      // Register FCM token for push notifications (non-blocking)
-      void this.fcmRegistration.registerToken();
-
-      this.logger.info(`${method} sign-in complete`);
-      return true;
+        this.logger.info(`${method} sign-in complete`);
+        return true;
+      })();
     } catch (err: unknown) {
       // Microsoft-specific: redirect in progress is not an error
       const authError = err as { message?: string; code?: string };
@@ -745,6 +758,9 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
       this.authManager.setError(message);
       return false;
     } finally {
+      if (sharedLoaderShown) {
+        await this.modal.hideLoading();
+      }
       this.authManager.setLoading(false);
     }
   }
@@ -792,9 +808,8 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
 
     try {
       // Create Firebase user
-      const result = await this.firebaseAuth.createUserWithEmail(
-        credentials.email,
-        credentials.password
+      const result = await this.runWithAuthLoader('Creating account...', () =>
+        this.firebaseAuth.createUserWithEmail(credentials.email, credentials.password)
       );
 
       // Cache password for potential biometric enrollment later
@@ -846,9 +861,6 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
         if (!credentials.skipNavigation) {
           await this.navigateForward(AUTH_REDIRECTS.ONBOARDING);
         }
-
-        // Register FCM token for push notifications (non-blocking)
-        void this.fcmRegistration.registerToken();
 
         return true;
       } finally {
@@ -910,7 +922,8 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
         referral.code,
         referral.teamCode,
         roleOverride ?? referral.role,
-        referral.inviterUid
+        referral.inviterUid,
+        true // isNewUser — credit $5 reward only for new-user onboarding (Flow B)
       );
 
       this.logger.info('Invite accepted successfully', {
@@ -944,6 +957,20 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
       } catch {
         /* ignore */
       }
+    }
+  }
+
+  private async runWithAuthLoader<T>(message: string, operation: () => Promise<T>): Promise<T> {
+    await this.modal.showLoading({
+      message,
+      backdropDismiss: false,
+      spinner: 'crescent',
+    });
+
+    try {
+      return await operation();
+    } finally {
+      await this.modal.hideLoading();
     }
   }
 
@@ -999,8 +1026,13 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
       // Clear crashlytics user context
       await this.crashlytics.clearUser();
 
-      // Unregister FCM token (non-blocking)
-      void this.fcmRegistration.unregisterToken();
+      // Unregister FCM token BEFORE signing out — the Cloud Function requires
+      // a valid auth token, so this must complete while the user is still authenticated.
+      try {
+        await this.fcmRegistration.unregisterToken();
+      } catch (fcmError) {
+        this.logger.warn('FCM unregister failed during sign out, continuing', { error: fcmError });
+      }
 
       // Clear cached password
       this._cachedPassword = null;
@@ -1011,6 +1043,9 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
       await this.firebaseAuth.signOut();
       this.httpAdapter.setTokenProvider(null);
       await this.authManager.reset();
+      // Prevent biometric auto-trigger on the auth page after an explicit sign-out
+      const { Preferences: PrefsSignOut } = await import('@capacitor/preferences');
+      await PrefsSignOut.set({ key: 'nxt1_explicit_signout', value: 'true' });
       await this.navigateRoot(AUTH_ROUTES.ROOT);
     } catch (err) {
       const message = getAuthErrorMessage(err);

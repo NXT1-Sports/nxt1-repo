@@ -35,6 +35,7 @@
 import { Injectable, inject, signal, computed } from '@angular/core';
 import { Platform } from '@ionic/angular/standalone';
 import { NxtToastService } from '@nxt1/ui';
+import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import { Share, ShareOptions, ShareResult } from '@capacitor/share';
 import { Haptics, ImpactStyle } from '@capacitor/haptics';
 import {
@@ -43,20 +44,26 @@ import {
   type AnalyticsAdapter,
 } from '@nxt1/core/analytics';
 import {
+  type ShareableArticle,
   type ShareableProfile,
   type ShareableTeam,
-  type ShareableVideo,
   type ShareablePost,
   type ShareableContent,
+  buildShareUrl,
+  buildUTMShareUrl,
+  UTM_MEDIUM,
+  buildArticleShareTitle,
+  buildArticleShareText,
+  buildArticleShareDescription,
   buildProfileShareTitle,
   buildProfileShareText,
   buildProfileShareDescription,
   buildTeamShareTitle,
   buildTeamShareText,
-  buildVideoShareTitle,
-  buildVideoShareText,
+  buildTeamShareDescription,
   buildPostShareTitle,
   buildPostShareText,
+  buildPostShareDescription,
 } from '@nxt1/core/seo';
 import { ANALYTICS_ADAPTER } from '@nxt1/ui';
 import { environment } from '../../../../environments/environment';
@@ -113,6 +120,7 @@ export interface ShareContentOptions {
 export class ShareService {
   private readonly toast = inject(NxtToastService);
   private readonly platform = inject(Platform);
+  private readonly logger = inject(NxtLoggingService).child('MobileShareService');
   private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
 
   /** Whether sharing is currently in progress */
@@ -154,6 +162,7 @@ export class ShareService {
     const shareableProfile: ShareableProfile = {
       type: 'profile',
       id: profile.id,
+      unicode: profile.unicode ?? profile.id,
       slug: profile.slug,
       title: profile.athleteName,
       description: buildProfileShareDescription(profile),
@@ -191,8 +200,9 @@ export class ShareService {
       type: 'team',
       id: team.id,
       slug: team.slug,
+      teamCode: team.teamCode,
       title: team.teamName,
-      description: '',
+      description: buildTeamShareDescription(team),
       teamName: team.teamName,
       sport: team.sport,
       location: team.location,
@@ -212,34 +222,33 @@ export class ShareService {
   }
 
   /**
-   * Share a video/highlight
+   * Share a Pulse news article
    *
-   * @param video - Video data to share
+   * @param article - Article data to share
    * @param options - Optional share configuration
    * @returns Share result
    */
-  async shareVideo(
-    video: Omit<ShareableVideo, 'type' | 'title' | 'description'> & { id: string },
+  async shareArticle(
+    article: Omit<ShareableArticle, 'type' | 'description'> & { id: string },
     options?: ShareContentOptions
   ): Promise<ShareResultData> {
-    const shareableVideo: ShareableVideo = {
-      type: 'video',
-      id: video.id,
-      slug: video.slug,
-      title: video.videoTitle,
-      description: '',
-      videoTitle: video.videoTitle,
-      athleteName: video.athleteName,
-      thumbnailUrl: video.thumbnailUrl,
-      imageUrl: video.imageUrl,
-      duration: video.duration,
-      views: video.views,
+    const shareableArticle: ShareableArticle = {
+      type: 'article',
+      id: article.id,
+      slug: article.slug,
+      title: article.title,
+      description: buildArticleShareDescription(article),
+      source: article.source,
+      excerpt: article.excerpt,
+      sport: article.sport,
+      state: article.state,
+      imageUrl: article.imageUrl,
     };
 
-    const shareText = options?.text || buildVideoShareText(video);
-    const shareTitle = options?.title || buildVideoShareTitle(video);
+    const shareText = options?.text || buildArticleShareText(article);
+    const shareTitle = options?.title || buildArticleShareTitle(article);
 
-    return this.shareContent(shareableVideo, {
+    return this.shareContent(shareableArticle, {
       ...options,
       title: shareTitle,
       text: shareText,
@@ -261,8 +270,8 @@ export class ShareService {
       type: 'post',
       id: post.id,
       slug: post.slug,
-      title: `Post by ${post.authorName}`,
-      description: post.postText,
+      title: buildPostShareTitle(post),
+      description: buildPostShareDescription(post),
       authorName: post.authorName,
       authorAvatar: post.authorAvatar,
       createdAt: post.createdAt,
@@ -287,8 +296,8 @@ export class ShareService {
    */
   async shareApp(): Promise<ShareResultData> {
     const result = await this.shareCustom({
-      title: 'NXT1 Sports',
-      text: 'Check out NXT1 Sports - The sports intelligence platform powered by AI coordinators!',
+      title: 'NXT1 Sports | Agent X',
+      text: 'NXT1 is the sports intelligence platform powered by AI coordinators. Build your presence, create elite content, track recruiting momentum, and run it all from one command center.',
       url: 'https://nxt1sports.com',
     });
 
@@ -317,23 +326,14 @@ export class ShareService {
    * @param content - Shareable content
    * @returns Full URL string
    */
-  private buildEnvironmentUrl(content: ShareableContent): string {
-    const identifier = content.slug || content.id;
-    const baseUrl = environment.webUrl;
+  private buildEnvironmentUrl(content: ShareableContent, medium = UTM_MEDIUM.SHARE): string {
+    const url = buildShareUrl(content, environment.webUrl);
+    const sportContent =
+      'sport' in content && typeof content.sport === 'string'
+        ? content.sport.toLowerCase()
+        : undefined;
 
-    switch (content.type) {
-      case 'profile':
-        return `${baseUrl}/profile/${identifier}`;
-      case 'team':
-        return `${baseUrl}/team/${identifier}`;
-      case 'video':
-      case 'highlight':
-        return `${baseUrl}/video/${identifier}`;
-      case 'post':
-        return `${baseUrl}/post/${identifier}`;
-      default:
-        return `${baseUrl}/${content.type}/${identifier}`;
-    }
+    return buildUTMShareUrl(url, medium, content.type, sportContent);
   }
 
   /**
@@ -391,13 +391,13 @@ export class ShareService {
         title: shareOptions.title,
         text: shareOptions.text,
         url: shareOptions.url,
-        dialogTitle: shareOptions.dialogTitle || 'Share via',
+        dialogTitle: shareOptions.dialogTitle || 'Share NXT1',
         files: shareOptions.files,
       });
 
       // Success feedback
       if (result.activityType) {
-        this.toast.success('Shared successfully!');
+        this.toast.success('Share complete.');
       }
 
       return {
@@ -413,7 +413,9 @@ export class ShareService {
       }
 
       // Actual error - try clipboard fallback
-      console.error('[ShareService] Share failed:', error);
+      this.logger.warn('Native share failed, falling back to clipboard', {
+        error: errorMessage,
+      });
       return this.copyToClipboard(shareOptions.url || shareOptions.text || '');
     } finally {
       this._isSharing.set(false);
@@ -431,12 +433,14 @@ export class ShareService {
       // Use Web Clipboard API (works in Capacitor WebView)
       await navigator.clipboard.writeText(text);
       await this.triggerHaptic();
-      this.toast.success('Link copied to clipboard!');
+      this.toast.success('Share link copied.');
 
       return { completed: true, activityType: 'clipboard' };
     } catch (error) {
-      console.error('[ShareService] Clipboard write failed:', error);
-      this.toast.error('Failed to copy link');
+      this.logger.warn('Clipboard write failed', {
+        error: error instanceof Error ? error.message : 'Clipboard failed',
+      });
+      this.toast.error("Couldn't copy the share link.");
 
       return {
         completed: false,
@@ -458,15 +462,17 @@ export class ShareService {
       await this.triggerHaptic();
 
       if (showFeedback) {
-        this.toast.success('Copied!');
+        this.toast.success('Copied to clipboard.');
       }
 
       return true;
     } catch (error) {
-      console.error('[ShareService] Copy failed:', error);
+      this.logger.warn('Copy failed', {
+        error: error instanceof Error ? error.message : 'Copy failed',
+      });
 
       if (showFeedback) {
-        this.toast.error('Failed to copy');
+        this.toast.error("Couldn't copy to clipboard.");
       }
 
       return false;

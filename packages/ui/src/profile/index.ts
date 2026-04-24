@@ -73,7 +73,6 @@ export { ProfileHeaderWebComponent } from './web/profile-header-web.component';
 export { ProfilePageHeaderComponent } from './web/profile-page-header.component';
 
 // Related Athletes discovery row (web only)
-export { RelatedAthletesComponent, type RelatedAthlete } from './web/related-athletes.component';
 
 // ============================================
 // OTHER SECTION COMPONENTS (shared, root-level)

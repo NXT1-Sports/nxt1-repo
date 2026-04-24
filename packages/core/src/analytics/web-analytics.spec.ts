@@ -269,7 +269,7 @@ describe('Web Analytics Adapter', () => {
 
   describe('NXT1_MEASUREMENT_ID', () => {
     it('should be the correct GA4 measurement ID', () => {
-      expect(NXT1_MEASUREMENT_ID).toBe('G-13NF238EE7');
+      expect(NXT1_MEASUREMENT_ID).toBe('G-SNZ2T18P5G');
     });
   });
 

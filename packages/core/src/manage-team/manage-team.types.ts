@@ -149,6 +149,8 @@ export interface TeamBasicInfo {
   readonly abbreviation?: string;
   readonly sport: string;
   readonly level: TeamLevel;
+  readonly division?: string;
+  readonly conference?: string;
   readonly gender: TeamGender;
   readonly season?: string;
   readonly year?: string;
@@ -491,3 +493,105 @@ export interface SponsorActionEvent {
   readonly sponsorId?: string;
   readonly sponsor?: TeamSponsor;
 }
+
+// ============================================
+// MEMBERSHIP EDITOR TYPES (normalized)
+// ============================================
+
+/**
+ * Whether a membership is backed by a real user account or is a manual placeholder.
+ * First-release: only 'account-backed' is mutated via RosterEntryService.
+ * 'placeholder' is reserved for future manual-entry support.
+ */
+export type MembershipSourceKind = 'account-backed' | 'placeholder';
+
+/**
+ * Whether the member is a player (roster) or staff.
+ */
+export type MembershipKind = 'roster' | 'staff';
+
+/**
+ * Normalized membership editor item — one row in the shared editor list.
+ * Returned by GET /api/v1/teams/:teamId/membership.
+ * Used as the mutation model for edit, approve, and remove actions.
+ */
+export interface MembershipEditorItem {
+  /** RosterEntry Firestore document ID (or placeholder record ID) */
+  readonly entryId: string;
+
+  /** User ID (undefined for placeholders) */
+  readonly userId?: string;
+
+  /** Whether this is a real user account or a manual placeholder */
+  readonly sourceKind: MembershipSourceKind;
+
+  /** Whether this member is a player or staff */
+  readonly membershipKind: MembershipKind;
+
+  // ── Identity (cached from user doc) ──────────────────────────────────────
+
+  readonly firstName: string;
+  readonly lastName: string;
+  readonly displayName?: string;
+  readonly profileImgs?: readonly string[];
+  readonly profileCode?: string;
+
+  // ── Membership state ─────────────────────────────────────────────────────
+
+  /** Normalized role string (e.g. 'athlete', 'coach', 'head-coach') */
+  readonly role: string;
+
+  /** Staff title (staff members only) */
+  readonly title?: string;
+
+  /** Membership status */
+  readonly status: 'active' | 'pending' | 'inactive' | 'removed';
+
+  /** Whether this entry is awaiting approval */
+  readonly isPending: boolean;
+
+  // ── Athlete-specific fields (roster members only) ─────────────────────────
+
+  readonly jerseyNumber?: string | number;
+  readonly positions?: readonly string[];
+  readonly sport?: string;
+  readonly classOf?: number;
+
+  // ── Contact (staff only) ──────────────────────────────────────────────────
+
+  readonly email?: string;
+  readonly phone?: string;
+
+  // ── Timestamps ────────────────────────────────────────────────────────────
+
+  readonly joinedAt?: string;
+  readonly approvedAt?: string;
+}
+
+/**
+ * Response shape from GET /api/v1/teams/:teamId/membership.
+ */
+export interface MembershipEditorListResponse {
+  readonly teamId: string;
+  readonly members: readonly MembershipEditorItem[];
+  readonly rosterCount: number;
+  readonly staffCount: number;
+  readonly pendingCount: number;
+}
+
+/**
+ * Request body for PATCH /api/v1/teams/:teamId/membership/:entryId.
+ * All fields are optional — only provided fields are updated.
+ */
+export interface UpdateMembershipRequest {
+  readonly role?: string;
+  readonly title?: string;
+  readonly jerseyNumber?: string | number;
+  readonly positions?: readonly string[];
+  readonly status?: 'active' | 'inactive';
+}
+
+/**
+ * Mode for the shared membership editor component.
+ */
+export type MembershipEditorMode = 'roster' | 'staff' | 'all';

@@ -33,6 +33,6 @@ export { NewsEmptyStateComponent } from './news-empty-state.component';
 // ==============================================
 // SERVICES
 // ==============================================
-export { NewsService, NEWS_API_ADAPTER } from './news.service';
-export type { INewsApiAdapter } from './news.service';
+export { NewsService, NEWS_API_ADAPTER, NEWS_SHARE_ADAPTER } from './news.service';
+export type { INewsApiAdapter, INewsShareAdapter, NewsShareResult } from './news.service';
 export { NewsApiService, NEWS_API_BASE_URL } from './news-api.service';

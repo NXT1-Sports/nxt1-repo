@@ -9,13 +9,12 @@
 import { Component, afterNextRender, inject, effect } from '@angular/core';
 import { Router, NavigationEnd } from '@angular/router';
 import { IonApp, IonRouterOutlet, Platform, NavController } from '@ionic/angular/standalone';
-import {
-  NxtPlatformService,
-  NxtLoggingService,
-  NxtBreadcrumbService,
-  NxtThemeService,
-  UsageBottomSheetService,
-} from '@nxt1/ui';
+import { NxtPlatformService } from '@nxt1/ui/services/platform';
+import { NxtLoggingService } from '@nxt1/ui/services/logging';
+import { NxtBreadcrumbService } from '@nxt1/ui/services/breadcrumb';
+import { NxtThemeService } from '@nxt1/ui/services/theme';
+import { UsageBottomSheetService } from '@nxt1/ui/usage';
+import { ANALYTICS_ADAPTER } from '@nxt1/ui/services/analytics';
 import type { ILogger } from '@nxt1/core/logging';
 import {
   NativeAppService,
@@ -61,13 +60,14 @@ export class AppComponent {
 
   private readonly iap = inject(IapService);
   private readonly usageBottomSheet = inject(UsageBottomSheetService);
+  private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
 
   /** Track if we've performed initial navigation */
   private hasPerformedInitialNavigation = false;
 
   constructor() {
-    // Register Apple IAP as the global buy-credits handler on iOS.
-    // All surfaces (Agent X, Usage page, billing card) will use IAP instead of basic Stripe flow.
+    // Register Apple IAP on iOS so compatible buy-credits sheets can offer
+    // both the normal Stripe path and the native IAP path.
     if (this.iap.isSupported) {
       this.usageBottomSheet.registerBuyCreditsHandler(() => this.iap.showProductsAndPurchase());
     }
@@ -80,6 +80,7 @@ export class AppComponent {
       .pipe(filter((event) => event instanceof NavigationEnd))
       .subscribe((event) => {
         this.logger.debug('Navigation completed', { url: event.url });
+        this.analytics?.trackPageView(event.urlAfterRedirects || event.url);
       });
 
     // Handle initial navigation after auth initializes
@@ -172,6 +173,8 @@ export class AppComponent {
         // Dark theme status bar
         statusBarColor: '#0a0a0a',
         statusBarStyle: 'light',
+        // Keep the native launch visible long enough to avoid a blank handoff
+        splashDelay: 900,
         // Lifecycle handlers
         onPause: () => this.logger.debug('Backgrounded'),
         onResume: () => {
@@ -225,6 +228,8 @@ export class AppComponent {
       });
     } catch (error) {
       this.logger.error('Initialization error', error);
+    } finally {
+      await this.nativeApp.completeLaunch();
     }
   }
 }

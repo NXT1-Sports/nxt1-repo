@@ -88,6 +88,26 @@ describe('AgentQueueService', () => {
 
       expect(jobId).toBe('op-fallback');
     });
+
+    it('should enqueue a delayed thread summarization job with a deterministic job id', async () => {
+      mockAdd.mockResolvedValue({ id: 'summarize:thread-123' });
+
+      const jobId = await service.enqueueThreadSummarization('thread-123', 'user-abc', 3_600_000);
+
+      expect(jobId).toBe('summarize:thread-123');
+      expect(mockAdd).toHaveBeenCalledWith(
+        'THREAD_SUMMARIZATION',
+        expect.objectContaining({
+          threadId: 'thread-123',
+          userId: 'user-abc',
+          delayMs: 3_600_000,
+        }),
+        expect.objectContaining({
+          jobId: 'summarize:thread-123',
+          delay: 3_600_000,
+        })
+      );
+    });
   });
 
   // ── Get Job Status ──────────────────────────────────────────────────────
@@ -106,7 +126,11 @@ describe('AgentQueueService', () => {
         progress: null,
         returnvalue: null,
         failedReason: null,
-        data: { payload: { userId: 'test-user' }, enqueuedAt: '2026-03-10T00:00:00Z' },
+        data: {
+          kind: 'agent',
+          payload: { userId: 'test-user' },
+          enqueuedAt: '2026-03-10T00:00:00Z',
+        },
         timestamp: Date.now(),
         getState: vi.fn().mockResolvedValue('waiting'),
       });
@@ -123,7 +147,11 @@ describe('AgentQueueService', () => {
         progress: undefined,
         returnvalue: null,
         failedReason: null,
-        data: { payload: { userId: 'test-user' }, enqueuedAt: '2026-03-10T00:00:00Z' },
+        data: {
+          kind: 'agent',
+          payload: { userId: 'test-user' },
+          enqueuedAt: '2026-03-10T00:00:00Z',
+        },
         timestamp: Date.now(),
         getState: vi.fn().mockResolvedValue('active'),
       });
@@ -147,7 +175,11 @@ describe('AgentQueueService', () => {
         progress,
         returnvalue: null,
         failedReason: null,
-        data: { payload: { userId: 'test-user' }, enqueuedAt: '2026-03-10T00:00:00Z' },
+        data: {
+          kind: 'agent',
+          payload: { userId: 'test-user' },
+          enqueuedAt: '2026-03-10T00:00:00Z',
+        },
         timestamp: Date.now(),
         getState: vi.fn().mockResolvedValue('active'),
       });
@@ -169,7 +201,11 @@ describe('AgentQueueService', () => {
         progress: { status: 'completed', percent: 100 },
         returnvalue: result,
         failedReason: null,
-        data: { payload: { userId: 'test-user' }, enqueuedAt: '2026-03-10T00:00:00Z' },
+        data: {
+          kind: 'agent',
+          payload: { userId: 'test-user' },
+          enqueuedAt: '2026-03-10T00:00:00Z',
+        },
         timestamp: Date.now(),
         getState: vi.fn().mockResolvedValue('completed'),
       });
@@ -185,7 +221,11 @@ describe('AgentQueueService', () => {
         progress: null,
         returnvalue: null,
         failedReason: 'OpenRouter API timeout',
-        data: { payload: { userId: 'test-user' }, enqueuedAt: '2026-03-10T00:00:00Z' },
+        data: {
+          kind: 'agent',
+          payload: { userId: 'test-user' },
+          enqueuedAt: '2026-03-10T00:00:00Z',
+        },
         timestamp: Date.now(),
         getState: vi.fn().mockResolvedValue('failed'),
       });

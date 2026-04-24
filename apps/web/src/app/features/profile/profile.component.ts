@@ -18,8 +18,8 @@
  *
  * Routes:
  * - /profile              — View own profile (me)
- * - /profile/:username    — View profile by username  (e.g. /profile/devmonster)
  * - /profile/:unicode     — View profile by unicode   (e.g. /profile/180798)
+ * - /profile/:userId      — View profile by Firebase UID
  */
 
 import {
@@ -53,20 +53,18 @@ import {
   ProfileShellWebComponent,
   ProfileService,
   type ProfileShellUser,
-  RelatedAthletesComponent,
-  type RelatedAthlete,
-  type RankingSource,
   userToProfilePageData,
   ProfileGenerationStateService,
 } from '@nxt1/ui/profile';
+import { IntelService } from '@nxt1/ui/intel';
 import { TeamProfileService } from '@nxt1/ui/team-profile';
 import { EditProfileModalService } from '@nxt1/ui/edit-profile';
 import { ManageTeamModalService } from '@nxt1/ui/manage-team';
+import { NxtOverlayService } from '@nxt1/ui/components/overlay';
 import {
-  NxtBottomSheetService,
-  SHEET_PRESETS,
-  type BottomSheetAction,
-} from '@nxt1/ui/components/bottom-sheet';
+  ShareActionsOverlayComponent,
+  type ShareAction,
+} from '../../core/components/share-actions-overlay.component';
 import type { TeamSearchResult } from '@nxt1/ui/onboarding';
 
 import { NxtCtaBannerComponent, type CtaAvatarImage } from '@nxt1/ui/components/cta-banner';
@@ -76,14 +74,18 @@ import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import { NxtToastService } from '@nxt1/ui/services/toast';
 import { AuthModalService } from '@nxt1/ui/auth';
 import { QrCodeService } from '@nxt1/ui/qr-code';
-import { parseApiError, requiresAuth, isTeamRole } from '@nxt1/core';
-import type {
-  ProfileTabId,
-  ProfileShareSource,
-  ProfileTeamAffiliation,
-  User,
-  UserSummary,
+import {
+  buildCanonicalProfilePath,
+  buildCanonicalTeamPath,
+  parseApiError,
+  requiresAuth,
+  isTeamRole,
+  buildUTMShareUrl,
+  UTM_MEDIUM,
+  UTM_CAMPAIGN,
 } from '@nxt1/core';
+import { resolveCanonicalTeamRoute } from '@nxt1/core/helpers';
+import type { ProfileTabId, ProfileShareSource, ProfileTeamAffiliation, User } from '@nxt1/core';
 import type { ApiResponse } from '@nxt1/core/profile';
 import { AUTH_SERVICE, type IAuthService } from '../../core/services/auth/auth.interface';
 import { AuthFlowService } from '../../core/services/auth';
@@ -116,7 +118,7 @@ const CTA_AVATARS: readonly CtaAvatarImage[] = [
   // Scope ProfileService to this component instance so each route navigation
   // gets isolated state and cannot pollute a concurrent instance's view.
   providers: [ProfileService],
-  imports: [ProfileShellWebComponent, NxtCtaBannerComponent, RelatedAthletesComponent],
+  imports: [ProfileShellWebComponent, NxtCtaBannerComponent],
   template: `
     <nxt1-profile-shell-web
       [currentUser]="userInfo()"
@@ -130,23 +132,13 @@ const CTA_AVATARS: readonly CtaAvatarImage[] = [
       (editTeamClick)="onEditTeam()"
       (teamClick)="onTeamClick($event)"
       (shareClick)="onShare()"
+      (copyLinkClick)="onCopyLink()"
       (qrCodeClick)="onQrCode()"
       (aiSummaryClick)="onAiSummary()"
       (retryClick)="onRetry()"
       (generationDismissed)="onGenerationDismissed($event)"
     >
       <!-- ═══ PROJECTED BELOW-FOLD CONTENT (inside shell scroll container) ═══ -->
-      @defer (on viewport) {
-        <nxt1-related-athletes
-          [athletes]="relatedAthletes()"
-          [sport]="relatedSport()"
-          [state]="relatedState()"
-          (athleteClick)="onRelatedAthleteClick($event)"
-          (seeAllClick)="onSeeAllRelated()"
-        />
-      } @placeholder {
-        <div style="height: 200px;"></div>
-      }
 
       @if (!isLoggedIn()) {
         <nxt1-cta-banner
@@ -203,7 +195,7 @@ export class ProfileComponent implements OnInit, OnDestroy {
   private readonly seo = inject(SeoService);
   private readonly analytics = inject(AnalyticsService);
   private readonly share = inject(ShareService);
-  private readonly bottomSheet = inject(NxtBottomSheetService);
+  private readonly overlay = inject(NxtOverlayService);
   private readonly profilePageActions = inject(ProfilePageActionsService);
   /**
    * Platform-specific API service — fetches real profile data from the backend.
@@ -220,6 +212,7 @@ export class ProfileComponent implements OnInit, OnDestroy {
    */
   private readonly profileService: ProfileService = inject(ProfileService);
   private readonly teamProfileService = inject(TeamProfileService);
+  private readonly intelService = inject(IntelService);
 
   private readonly platformId = inject(PLATFORM_ID);
   protected readonly generation = inject(ProfileGenerationStateService);
@@ -231,7 +224,6 @@ export class ProfileComponent implements OnInit, OnDestroy {
    */
   private readonly fetchedProfile = signal<User | null>(null);
   private readonly destroyRef = inject(DestroyRef);
-  protected readonly relatedAthletes = signal<RelatedAthlete[]>([]);
   protected readonly ctaAvatars = CTA_AVATARS;
 
   /** Whether current user is logged in — used to hide CTA for authenticated users */
@@ -265,12 +257,15 @@ export class ProfileComponent implements OnInit, OnDestroy {
 
     // Prefer username as URL slug so canonical = /profile/devmonster (human-readable)
     // rather than /profile/180798 (numeric). Google ranks clean URLs higher.
-    const slug = profile.username || undefined;
+    // const slug = profile.username || undefined;
 
     return {
       id: profile.unicode,
-      slug,
+      // slug,
       athleteName: `${profile.firstName || ''} ${profile.lastName || ''}`.trim() || 'NXT1 Athlete',
+      firstName: profile.firstName || undefined,
+      lastName: profile.lastName || undefined,
+      // username: profile.username || undefined,
       position: primarySport?.positions?.[0] || undefined,
       classYear: profile.classOf || undefined,
       school: primarySport?.team?.name || undefined,
@@ -280,13 +275,15 @@ export class ProfileComponent implements OnInit, OnDestroy {
     };
   });
 
-  /** Sport context for the Related Athletes section */
-  protected readonly relatedSport = computed<string>(() => this.profileMeta()?.sport || 'Football');
+  private readonly canonicalProfilePath = computed<string | null>(() => {
+    const meta = this.profileMeta();
+    if (!meta) return null;
 
-  /** State/region context for the Related Athletes section */
-  protected readonly relatedState = computed<string>(() => {
-    const profile = this.fetchedProfile();
-    return profile?.location?.state || 'your area';
+    return buildCanonicalProfilePath({
+      athleteName: meta.athleteName,
+      sport: meta.sport,
+      unicode: meta.id,
+    });
   });
 
   /**
@@ -299,18 +296,20 @@ export class ProfileComponent implements OnInit, OnDestroy {
   });
 
   /**
-   * Raw route parameter (:param wildcard — catches both username and unicode).
+   * Raw route parameter (:param wildcard — catches unicode or Firebase UID).
    */
-  private readonly routeParam = computed<string>(() => this.routeParams().get('param') ?? '');
+  private readonly routeParam = computed<string>(() => {
+    return this.routeParams().get('unicode') ?? this.routeParams().get('param') ?? '';
+  });
 
   /**
    * Route mode derived from the presence and shape of :param.
    * - 'me'       — no param  → load authenticated user's own profile
    * - 'unicode'  — param is purely numeric (e.g. '180798')  → lookup by unicode
    * - 'userid'   — param looks like a Firebase UID (20-32 alphanum)  → lookup by userId
-   * - 'username' — param contains non-digit chars (e.g. 'devmonster')  → lookup by username
+   * - 'invalid'  — any other slug shape → fail fast without hitting the backend
    */
-  private readonly routeMode = computed<'me' | 'unicode' | 'userid' | 'username'>(() => {
+  private readonly routeMode = computed<'me' | 'unicode' | 'userid' | 'invalid'>(() => {
     const param = this.routeParam();
     if (!param) return 'me';
     if (/^\d+$/.test(param)) return 'unicode';
@@ -318,7 +317,7 @@ export class ProfileComponent implements OnInit, OnDestroy {
     if (/^[a-zA-Z0-9]{20,32}$/.test(param) && /[a-zA-Z]/.test(param) && /[0-9]/.test(param)) {
       return 'userid';
     }
-    return 'username';
+    return 'invalid';
   });
 
   /**
@@ -329,7 +328,7 @@ export class ProfileComponent implements OnInit, OnDestroy {
    * uid is included so that logging in via auth modal triggers a re-fetch.
    */
   private readonly fetchSource = computed<{
-    mode: 'me' | 'unicode' | 'userid' | 'username';
+    mode: 'me' | 'unicode' | 'userid' | 'invalid';
     param: string;
     uid: string | undefined;
   } | null>(() => {
@@ -372,8 +371,7 @@ export class ProfileComponent implements OnInit, OnDestroy {
     const param = this.routeParam();
     if (mode === 'unicode') return user.unicode === param;
     if (mode === 'userid') return user.uid === param;
-    // username mode — compare against the username field on AppUser
-    return user.username === param;
+    return false;
   });
 
   /**
@@ -405,7 +403,14 @@ export class ProfileComponent implements OnInit, OnDestroy {
     this.profileService.setApiService({
       updateActiveSportIndex: (userId: string, activeSportIndex: number) =>
         this.editProfileApiService.updateActiveSportIndex(userId, activeSportIndex),
+      pinPost: (userId: string, postId: string, isPinned: boolean) =>
+        firstValueFrom(this.apiProfileService.pinPost(userId, postId, isPinned)),
+      deletePost: (userId: string, postId: string) =>
+        firstValueFrom(this.apiProfileService.deletePost(userId, postId)),
     });
+    // Register the cursor-based load-more handler so the timeline shell's
+    // "Load More" button fetches the next page via the real API.
+    this.profileService.registerLoadMoreHandler(() => this.loadMoreTimeline());
 
     // Auto-invalidate profile cache when user returns to tab/window.
     // This ensures fresh data after editing profile in another tab or coming back from edit page.
@@ -415,11 +420,7 @@ export class ProfileComponent implements OnInit, OnDestroy {
           // User returned to tab viewing their own profile - invalidate cache
           const user = this.authService.user();
           if (user) {
-            this.apiProfileService.invalidateCache(
-              user.uid,
-              user.username ?? undefined,
-              user.unicode ?? undefined
-            );
+            this.apiProfileService.invalidateCache(user.uid, user.unicode ?? undefined);
             this.logger.debug('Profile cache invalidated on tab focus');
           }
         }
@@ -462,6 +463,18 @@ export class ProfileComponent implements OnInit, OnDestroy {
       }
     });
 
+    effect(() => {
+      const profile = this.fetchedProfile();
+      const canonicalPath = this.canonicalProfilePath();
+      if (!profile || !canonicalPath || this.routeMode() === 'me' || isTeamRole(profile.role)) {
+        return;
+      }
+
+      if (this.router.url.split('?')[0] !== canonicalPath) {
+        void this.router.navigateByUrl(canonicalPath, { replaceUrl: true });
+      }
+    });
+
     // Handle mobile top-nav edit (pencil) button — delegated via ProfilePageActionsService
     // Capture current counter so we only react to NEW taps, not stale values
     // from a previous page (e.g. team → profile navigation).
@@ -494,7 +507,8 @@ export class ProfileComponent implements OnInit, OnDestroy {
      * Route modes:
      *   'me'       → GET /auth/profile/me       (authenticated user)
      *   'unicode'  → GET /auth/profile/unicode/:unicode
-     *   'username' → GET /auth/profile/username/:username
+     *   'userid'   → GET /auth/profile/:userId
+     *   'invalid'  → client-side validation error
      */
     toObservable(this.fetchSource)
       .pipe(
@@ -503,7 +517,7 @@ export class ProfileComponent implements OnInit, OnDestroy {
           (
             source
           ): source is {
-            mode: 'me' | 'unicode' | 'userid' | 'username';
+            mode: 'me' | 'unicode' | 'userid' | 'invalid';
             param: string;
             uid: string | undefined;
           } => source !== null
@@ -517,7 +531,7 @@ export class ProfileComponent implements OnInit, OnDestroy {
           }
           if (mode === 'unicode') return this.apiProfileService.getProfileByUnicode(param);
           if (mode === 'userid') return this.apiProfileService.getProfile(param);
-          return this.apiProfileService.getProfileByUsername(param);
+          return of({ success: false as const, error: 'Invalid profile link.' });
         }),
         takeUntilDestroyed(this.destroyRef)
       )
@@ -615,15 +629,16 @@ export class ProfileComponent implements OnInit, OnDestroy {
     // This ensures the URL bar shows the shareable team link and analytics
     // correctly attribute team page views. replaceUrl avoids back-button loops.
     if (isOwn && isTeamRole(profile.role)) {
-      const slug = this.teamSlug();
-      if (slug) {
-        this.logger.info('Redirecting coach/director to team route', { slug, role: profile.role });
-        void this.router.navigate(['/team', slug], { replaceUrl: true });
+      const teamPath = this.buildTeamPathFromUser(profile);
+      if (teamPath) {
+        this.logger.info('Redirecting coach/director to team route', {
+          teamPath,
+          role: profile.role,
+        });
+        void this.router.navigateByUrl(teamPath, { replaceUrl: true });
         return; // Skip sub-collection fetches — /team/:slug loads its own data
       }
     }
-
-    this.fetchRelatedAthletes(profile);
 
     // profileMeta computed updates automatically via fetchedProfile signal
     const meta = this.profileMeta();
@@ -663,70 +678,25 @@ export class ProfileComponent implements OnInit, OnDestroy {
       timeline: this.apiProfileService.getProfileTimeline(profile.id).pipe(
         catchError((err) => {
           this.logger.warn('Failed to load timeline posts', { err });
-          return of({ success: false as const, data: [] });
-        })
-      ),
-      rankings: this.apiProfileService.getProfileRankings(profile.id).pipe(
-        catchError((err) => {
-          this.logger.warn('Failed to load rankings', { err });
-          return of({ success: false as const, data: [] });
-        })
-      ),
-      scoutReports: this.apiProfileService.getProfileScoutReports(profile.id).pipe(
-        catchError((err) => {
-          this.logger.warn('Failed to load scout reports', { err });
-          return of({ success: false as const, data: [] });
-        })
-      ),
-      videos: this.apiProfileService.getProfileVideos(profile.id).pipe(
-        catchError((err) => {
-          this.logger.warn('Failed to load videos', { err });
-          return of({ success: false as const, data: [] });
-        })
-      ),
-      schedule: this.apiProfileService.getProfileSchedule(profile.id, sportId).pipe(
-        catchError((err) => {
-          this.logger.warn('Failed to load schedule', { err });
-          return of({ success: false as const, data: [] });
-        })
-      ),
-      news: this.apiProfileService.getProfileNews(profile.id).pipe(
-        catchError((err) => {
-          this.logger.warn('Failed to load news articles', { err });
-          return of({ success: false as const, data: [] });
+          return of({ success: false as const, data: [], hasMore: false } as const);
         })
       ),
     })
       .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe(
-        ({
-          stats,
-          gameLogs,
-          metrics,
-          timeline,
-          rankings,
-          scoutReports,
-          videos,
-          schedule,
-          news,
-        }) => {
-          if (stats.success) this.profileService.setAthleticStatsFromRaw(stats.data);
-          if (gameLogs.success) this.profileService.setGameLogs(gameLogs.data);
-          if (metrics.success) this.profileService.setMetricsFromRaw(metrics.data);
-          if (timeline.success) this.profileService.setTimelinePosts(timeline.data);
-          if (rankings.success && rankings.data.length > 0) {
-            this.profileService.setRankings(rankings.data as unknown as RankingSource[]);
-          }
-          if (scoutReports.success) this.profileService.setScoutReports(scoutReports.data);
-          if (videos.success) this.profileService.setVideoPosts(videos.data);
-          if (news.success) this.profileService.setNewsArticles(news.data);
-          // Always call setScheduleEvents when API succeeds, even for empty arrays.
-          // This signals that real API data loaded (overrides embedded mock data).
-          if (schedule.success) {
-            this.profileService.setScheduleEvents(schedule.data);
-          }
-        }
-      );
+      .subscribe(({ stats, gameLogs, metrics, timeline }) => {
+        if (stats.success) this.profileService.setAthleticStatsFromRaw(stats.data);
+        if (gameLogs.success) this.profileService.setGameLogs(gameLogs.data);
+        if (metrics.success) this.profileService.setMetricsFromRaw(metrics.data);
+        if (timeline.success)
+          this.profileService.setPolymorphicTimeline(timeline.data, {
+            hasMore: timeline.hasMore,
+            nextCursor: timeline.nextCursor,
+          });
+
+        // Load intel eagerly alongside timeline so the intel tab renders instantly
+        // (data or empty state) with no skeleton flash on tab switch.
+        void this.intelService.loadAthleteIntel(profile.id);
+      });
 
     this.seo.updateForProfile(meta);
 
@@ -743,75 +713,6 @@ export class ProfileComponent implements OnInit, OnDestroy {
       has_image: !!meta.imageUrl,
       sport: meta.sport,
     });
-  }
-
-  /**
-   * Fetch related athletes from the dedicated backend endpoint.
-   * The backend handles all scoring (sport, state, position affinity)
-   * and returns exactly 12 pre-ranked athletes.
-   */
-
-  private fetchRelatedAthletes(profile: User): void {
-    const activeSport = profile.sports?.[profile.activeSportIndex ?? 0] ?? profile.sports?.[0];
-    const sport = activeSport?.sport;
-    const state = profile.location?.state;
-    const position = activeSport?.positions?.[0];
-
-    if (!sport) {
-      this.relatedAthletes.set([]);
-      return;
-    }
-
-    this.relatedAthletes.set([]);
-
-    const params = new URLSearchParams({ sport });
-    if (state) params.set('state', state);
-    if (position) params.set('position', position);
-    if (profile.id) params.set('exclude', profile.id);
-
-    this.http
-      .get<{ success: boolean; data: UserSummary[] }>(
-        `${environment.apiURL}/auth/profile/related?${params.toString()}`
-      )
-      .pipe(
-        catchError(() => of({ success: false as const, data: [] as UserSummary[] })),
-        takeUntilDestroyed(this.destroyRef)
-      )
-      .subscribe((response) => {
-        if (!response.success) {
-          this.relatedAthletes.set([]);
-          return;
-        }
-
-        const athletes: RelatedAthlete[] = response.data.map((u) => {
-          const sameState = state && u.location?.state === state;
-          const samePosition =
-            position && u.primaryPosition?.toLowerCase() === position.toLowerCase();
-
-          let matchReason: string;
-          if (sameState && samePosition) matchReason = `Same position · ${u.primaryPosition}`;
-          else if (sameState) matchReason = `Same state · ${state}`;
-          else if (samePosition) matchReason = `Same position · ${u.primaryPosition}`;
-          else matchReason = `Same sport · ${sport}`;
-
-          return {
-            id: u.id,
-            unicode: u.unicode!,
-            firstName: u.firstName,
-            lastName: u.lastName,
-            profileImg: u.profileImgs?.[0] ?? null,
-            sport: u.primarySport ?? '',
-            position: u.primaryPosition ?? '',
-            classYear: u.classOf ? String(u.classOf) : '',
-            school: '',
-            state: u.location?.state ?? '',
-            isVerified: u.verificationStatus === 'verified',
-            matchReason,
-          };
-        });
-
-        this.relatedAthletes.set(athletes);
-      });
   }
 
   private handleProfileError(err: unknown): void {
@@ -864,16 +765,10 @@ export class ProfileComponent implements OnInit, OnDestroy {
     // Clear error state and start loading
     this.profileService.startLoading();
 
-    // Trigger reload by updating route params (forces subscription to re-execute)
-    const currentRoute = this.route.snapshot;
-    if (currentRoute.params['username']) {
-      this.router.navigate(['/profile', currentRoute.params['username']], { replaceUrl: true });
-    } else if (currentRoute.params['unicode']) {
-      this.router.navigate(['/profile', currentRoute.params['unicode']], { replaceUrl: true });
-    } else {
-      // Own profile - reload current route
-      this.router.navigate(['/profile'], { replaceUrl: true });
-    }
+    const profilePath = this.routeMode() === 'me' ? '/profile' : this.canonicalProfilePath();
+    void this.router.navigateByUrl(profilePath ?? this.router.url.split('?')[0], {
+      replaceUrl: true,
+    });
   }
 
   /**
@@ -895,11 +790,45 @@ export class ProfileComponent implements OnInit, OnDestroy {
           .pipe(first())
           .subscribe({
             next: (resp) => {
-              if (resp.success) this.profileService.setTimelinePosts(resp.data);
+              if (resp.success)
+                this.profileService.setPolymorphicTimeline(resp.data, {
+                  hasMore: resp.hasMore,
+                  nextCursor: resp.nextCursor,
+                });
             },
             error: (err) => this.logger.warn('Failed to refresh timeline posts', { err }),
           });
       }
+    }
+  }
+
+  /**
+   * Override base loadMorePosts — fetch the next page of timeline items using
+   * the cursor stored in ProfileService and append them to the polymorphic feed.
+   */
+  protected async loadMoreTimeline(): Promise<void> {
+    if (this.profileService.isLoadingMore()) return;
+    if (!this.profileService.timelineHasMore()) return;
+
+    const userId = this.fetchedProfile()?.id;
+    if (!userId) return;
+
+    this.profileService.setLoadingMore(true);
+    try {
+      const cursor = this.profileService.timelineCursor();
+      const resp = await firstValueFrom(
+        this.apiProfileService.getProfileTimeline(userId, undefined, cursor)
+      );
+      if (resp.success) {
+        this.profileService.appendPolymorphicTimeline(resp.data, {
+          hasMore: resp.hasMore,
+          nextCursor: resp.nextCursor,
+        });
+      }
+    } catch (err) {
+      this.logger.warn('Failed to load more timeline posts', { err });
+    } finally {
+      this.profileService.setLoadingMore(false);
     }
   }
 
@@ -954,8 +883,8 @@ export class ProfileComponent implements OnInit, OnDestroy {
         ) => this.editProfileApiService.updateSection(uid, sectionId, data, sportIndex),
         updateActiveSportIndex: (uid: string, activeSportIndex: number) =>
           this.editProfileApiService.updateActiveSportIndex(uid, activeSportIndex),
-        uploadPhoto: (uid: string, type: 'profile' | 'banner', file: File | Blob) =>
-          this.editProfileApiService.uploadPhoto(uid, type, file),
+        uploadPhoto: (uid: string, file: File | Blob) =>
+          this.editProfileApiService.uploadPhoto(uid, file),
       },
     });
 
@@ -965,15 +894,22 @@ export class ProfileComponent implements OnInit, OnDestroy {
 
     this.logger.info('Edit profile saved, refreshing profile data', { userId });
 
-    // Clear BOTH cache layers so the re-fetch gets fresh data
-    this.apiProfileService.invalidateCache(userId);
+    // Refresh auth state so the top-nav avatar (profileImg) reflects the new profileImgs[0]
+    try {
+      await this.authService.refreshUserProfile();
+    } catch (err) {
+      this.logger.warn('Failed to refresh auth state after profile edit', { err });
+    }
+
+    // Clear ALL service cache entries (by_id + by_unicode) and HTTP LRU cache
+    this.apiProfileService.invalidateAllProfileCache();
     await clearHttpCache('*profile*');
 
     // Directly re-fetch instead of router navigation (which distinctUntilChanged blocks)
     this.profileService.startLoading();
     const mode = this.routeMode();
     const param = this.routeParam();
-    let fetch$;
+    let fetch$: ReturnType<ApiProfileService['getMe']>;
     if (mode === 'me') {
       fetch$ = this.apiProfileService.getMe();
     } else if (mode === 'unicode') {
@@ -981,7 +917,7 @@ export class ProfileComponent implements OnInit, OnDestroy {
     } else if (mode === 'userid') {
       fetch$ = this.apiProfileService.getProfile(param);
     } else {
-      fetch$ = this.apiProfileService.getProfileByUsername(param);
+      fetch$ = of<ApiResponse<User>>({ success: false, error: 'Invalid profile link.' });
     }
     fetch$.pipe(first()).subscribe({
       next: (response) => this.handleProfileResponse(response),
@@ -1042,11 +978,16 @@ export class ProfileComponent implements OnInit, OnDestroy {
    */
   protected onTeamClick(team: ProfileTeamAffiliation): void {
     if (team.teamCode) {
+      const teamPath = buildCanonicalTeamPath({
+        slug: team.name,
+        teamName: team.name,
+        teamCode: team.teamCode,
+      });
       this.logger.info('Navigating to team profile', {
         teamCode: team.teamCode,
         teamName: team.name,
       });
-      this.router.navigate(['/team', team.teamCode]);
+      this.router.navigateByUrl(teamPath);
     } else {
       this.logger.warn('Team has no teamCode, cannot navigate', { teamName: team.name });
     }
@@ -1066,6 +1007,33 @@ export class ProfileComponent implements OnInit, OnDestroy {
     });
   }
 
+  protected async onCopyLink(): Promise<void> {
+    if (!isPlatformBrowser(this.platformId)) return;
+
+    const meta = this.profileMeta();
+    if (!meta) return;
+
+    const profilePath =
+      this.canonicalProfilePath() ||
+      buildCanonicalProfilePath({
+        athleteName: meta.athleteName,
+        sport: meta.sport,
+        unicode: meta.id,
+      });
+    const shareBaseUrl = globalThis.location?.origin ?? environment.webUrl;
+    const profileUrl = buildUTMShareUrl(
+      `${shareBaseUrl}${profilePath}`,
+      UTM_MEDIUM.COPY_LINK,
+      UTM_CAMPAIGN.PROFILE,
+      meta.sport?.toLowerCase()
+    );
+
+    const copied = await this.share.copy(profileUrl);
+    if (copied) {
+      this.logger.info('Profile link copied', { profileId: meta.id });
+    }
+  }
+
   /**
    * Handle QR code display.
    * Opens adaptive QR code modal (centered on desktop, bottom sheet on mobile).
@@ -1073,14 +1041,29 @@ export class ProfileComponent implements OnInit, OnDestroy {
   protected async onQrCode(): Promise<void> {
     const meta = this.profileMeta();
     const unicode = meta?.id || this.profileUnicode() || 'demo';
+    const profilePath =
+      this.canonicalProfilePath() ||
+      buildCanonicalProfilePath({
+        athleteName: meta?.athleteName,
+        sport: meta?.sport,
+        unicode,
+      });
 
     const user = this.authService.user();
     const profileImg = meta?.imageUrl || user?.profileImg || undefined;
     const displayName = meta?.athleteName || user?.displayName || 'NXT1 Athlete';
 
+    const shareBaseUrl = globalThis.location?.origin ?? environment.webUrl;
+    const qrUrl = buildUTMShareUrl(
+      `${shareBaseUrl}${profilePath}`,
+      UTM_MEDIUM.QR,
+      UTM_CAMPAIGN.PROFILE,
+      meta?.sport?.toLowerCase()
+    );
+
     try {
       await this.qrCode.open({
-        url: `https://nxt1sports.com/profile/${unicode}`,
+        url: qrUrl,
         displayName,
         profileImg,
         sport: meta?.sport || 'Football',
@@ -1110,69 +1093,43 @@ export class ProfileComponent implements OnInit, OnDestroy {
     if (!isPlatformBrowser(this.platformId)) return;
 
     const isOwn = this.isOwnProfile();
-    const actions: BottomSheetAction[] = isOwn
+    const actions: ShareAction[] = isOwn
       ? [
-          { label: 'Share Profile', role: 'primary', icon: 'share' },
-          { label: 'QR Code', role: 'secondary', icon: 'qrCode' },
-          { label: 'Copy Link', role: 'secondary', icon: 'link' },
+          { label: 'Share Profile', icon: 'share' },
+          { label: 'QR Code', icon: 'qrCode' },
+          { label: 'Copy Link', icon: 'link' },
         ]
       : [
-          { label: 'Share Profile', role: 'primary', icon: 'share' },
-          { label: 'Copy Link', role: 'secondary', icon: 'link' },
-          { label: 'Report', role: 'destructive', icon: 'flag' },
+          { label: 'Share Profile', icon: 'share' },
+          { label: 'Copy Link', icon: 'link' },
+          { label: 'Report', icon: 'flag', destructive: true },
         ];
 
-    const result = await this.bottomSheet.show<BottomSheetAction>({
-      title: 'Profile Actions',
-      actions,
+    const ref = this.overlay.open<ShareActionsOverlayComponent, { action: string } | null>({
+      component: ShareActionsOverlayComponent,
+      inputs: { title: 'Profile Actions', actions },
+      size: 'sm',
       backdropDismiss: true,
-      ...SHEET_PRESETS.HALF,
+      escDismiss: true,
+      showCloseButton: false,
+      ariaLabel: 'Profile Actions',
     });
 
-    const selected = result?.data as BottomSheetAction | undefined;
-    if (!selected) return;
+    const result = await ref.closed;
+    const action = result.data?.action;
+    if (!action) return;
 
-    switch (selected.label) {
+    switch (action) {
       case 'Share Profile':
         await this.onShare();
         break;
       case 'QR Code':
         await this.onQrCode();
         break;
-      case 'Copy Link': {
-        const meta = this.profileMeta();
-        const unicode = meta?.id || this.profileUnicode();
-        if (unicode) {
-          const url = `https://nxt1sports.com/profile/${unicode}`;
-          await navigator.clipboard.writeText(url);
-          this.toast.success('Link copied!');
-        }
-        break;
-      }
-      default:
+      case 'Copy Link':
+        await this.onCopyLink();
         break;
     }
-  }
-
-  /**
-   * Handle related athlete click - navigate to their profile.
-   */
-  protected onRelatedAthleteClick(athlete: RelatedAthlete): void {
-    this.logger.info('Related athlete clicked', { unicode: athlete.unicode });
-    this.router.navigate(['/profile', athlete.unicode]);
-  }
-
-  /**
-   * Handle see all related athletes click.
-   */
-  protected onSeeAllRelated(): void {
-    this.logger.info('See all related athletes clicked');
-    // Navigate to explore page with sport/state filters
-    const sport = this.relatedSport();
-    const state = this.relatedState();
-    this.router.navigate(['/explore'], {
-      queryParams: { sport, state },
-    });
   }
 
   /**
@@ -1209,11 +1166,23 @@ export class ProfileComponent implements OnInit, OnDestroy {
    */
   private reloadProfile(): void {
     this.profileService.startLoading();
-    const param = this.routeParam();
-    if (param) {
-      this.router.navigate(['/profile', param], { replaceUrl: true });
-    } else {
-      this.router.navigate(['/profile'], { replaceUrl: true });
-    }
+    const profilePath = this.routeMode() === 'me' ? '/profile' : this.canonicalProfilePath();
+    void this.router.navigateByUrl(profilePath ?? this.router.url.split('?')[0], {
+      replaceUrl: true,
+    });
+  }
+
+  private buildTeamPathFromUser(profile: User): string | null {
+    return (
+      resolveCanonicalTeamRoute({
+        slug: profile.teamCode?.slug?.trim() || this.teamSlug(),
+        teamName: profile.teamCode?.teamName?.trim(),
+        teamCode: profile.teamCode?.teamCode?.trim(),
+        code: profile.teamCode?.code?.trim(),
+        teamId: profile.teamCode?.teamId?.trim(),
+        id: typeof profile.teamCode?.id === 'string' ? profile.teamCode.id.trim() : undefined,
+        unicode: profile.teamCode?.unicode?.trim(),
+      })?.path ?? null
+    );
   }
 }

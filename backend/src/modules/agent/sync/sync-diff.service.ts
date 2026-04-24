@@ -45,6 +45,7 @@ import type {
   DistilledAward,
   DistilledScheduleEvent,
   DistilledVideo,
+  DistilledMetric,
 } from '../tools/scraping/distillers/distiller.types.js';
 
 // ─── Types for Previous State ───────────────────────────────────────────────
@@ -55,6 +56,11 @@ import type {
  */
 export interface PreviousProfileState {
   readonly identity?: Record<string, unknown>;
+  readonly academics?: Record<string, unknown>;
+  readonly sportInfo?: Record<string, unknown>;
+  readonly team?: Record<string, unknown>;
+  readonly coach?: Record<string, unknown>;
+  readonly metrics?: readonly Record<string, unknown>[];
   readonly seasonStats?: readonly PreviousSeasonEntry[];
   readonly recruiting?: readonly Record<string, unknown>[];
   readonly awards?: readonly Record<string, unknown>[];
@@ -94,8 +100,46 @@ const TRACKED_IDENTITY_FIELDS: readonly string[] = [
   'classOf',
   'city',
   'state',
-  'school',
+  'country',
   'profileImage',
+  'aboutMe',
+];
+
+const TRACKED_ACADEMICS_FIELDS: readonly string[] = [
+  'gpa',
+  'weightedGpa',
+  'satScore',
+  'actScore',
+  'classRank',
+  'classSize',
+  'intendedMajor',
+];
+
+const TRACKED_SPORT_INFO_FIELDS: readonly string[] = ['sport', 'jerseyNumber', 'side'];
+
+// Team metadata is authoritative on the Team and Organization docs.
+// The writer is responsible for building a direct-doc snapshot before diffing.
+const TRACKED_TEAM_FIELDS: readonly string[] = [
+  'name',
+  'type',
+  'mascot',
+  'conference',
+  'division',
+  'logoUrl',
+  'primaryColor',
+  'secondaryColor',
+  'city',
+  'state',
+  'country',
+  'seasonRecord',
+];
+
+const TRACKED_COACH_FIELDS: readonly string[] = [
+  'firstName',
+  'lastName',
+  'email',
+  'phone',
+  'title',
 ];
 
 // ─── Service ────────────────────────────────────────────────────────────────
@@ -118,10 +162,51 @@ export class SyncDiffService {
     extracted: DistilledProfile
   ): SyncDeltaReport {
     const identityChanges = this.diffIdentity(previous.identity, extracted.identity);
+
+    // Fold academics, sportInfo, team, coach into identityChanges
+    // (field-level diffs — SyncDeltaReport has no separate slots for these)
+    const academicsChanges = this.diffFieldSection(
+      'academics',
+      previous.academics,
+      extracted.academics as Record<string, unknown> | undefined,
+      TRACKED_ACADEMICS_FIELDS
+    );
+    const sportInfoChanges = this.diffFieldSection(
+      'sportInfo',
+      previous.sportInfo,
+      extracted.sportInfo as Record<string, unknown> | undefined,
+      TRACKED_SPORT_INFO_FIELDS
+    );
+    const teamChanges = this.diffFieldSection(
+      'team',
+      previous.team,
+      extracted.team as Record<string, unknown> | undefined,
+      TRACKED_TEAM_FIELDS
+    );
+    const coachChanges = this.diffFieldSection(
+      'coach',
+      previous.coach,
+      extracted.coach as Record<string, unknown> | undefined,
+      TRACKED_COACH_FIELDS
+    );
+
+    const allIdentityChanges = [
+      ...identityChanges,
+      ...academicsChanges,
+      ...sportInfoChanges,
+      ...teamChanges,
+      ...coachChanges,
+    ];
+
     const { newCategories, statChanges } = this.diffStats(
       previous.seasonStats ?? [],
       extracted.seasonStats ?? []
     );
+
+    // Fold metrics into statChanges (conceptually similar)
+    const metricChanges = this.diffMetrics(previous.metrics ?? [], extracted.metrics ?? []);
+    const allStatChanges = [...statChanges, ...metricChanges];
+
     const newRecruitingActivities = this.diffRecruiting(
       previous.recruiting ?? [],
       extracted.recruiting ?? []
@@ -131,9 +216,9 @@ export class SyncDiffService {
     const newVideos = this.diffVideos(previous.videos ?? [], extracted.videos ?? []);
 
     const totalChanges =
-      identityChanges.length +
+      allIdentityChanges.length +
       newCategories.length +
-      statChanges.length +
+      allStatChanges.length +
       newRecruitingActivities.length +
       newAwards.length +
       newScheduleEvents.length +
@@ -145,17 +230,17 @@ export class SyncDiffService {
       source,
       syncedAt: new Date().toISOString(),
       isEmpty: totalChanges === 0,
-      identityChanges,
+      identityChanges: allIdentityChanges,
       newCategories,
-      statChanges,
+      statChanges: allStatChanges,
       newRecruitingActivities,
       newAwards,
       newScheduleEvents,
       newVideos,
       summary: {
-        identityFieldsChanged: identityChanges.length,
+        identityFieldsChanged: allIdentityChanges.length,
         newCategoriesAdded: newCategories.length,
-        statsUpdated: statChanges.length,
+        statsUpdated: allStatChanges.length,
         newRecruitingActivities: newRecruitingActivities.length,
         newAwards: newAwards.length,
         newScheduleEvents: newScheduleEvents.length,
@@ -182,6 +267,79 @@ export class SyncDiffService {
       // Only report if the NEW value exists and differs
       if (newVal !== null && newVal !== undefined && !this.looseEqual(oldVal, newVal)) {
         changes.push({ field, oldValue: oldVal, newValue: newVal });
+      }
+    }
+
+    return changes;
+  }
+
+  // ─── Generic Field-Section Diffing (academics, sportInfo, team, coach) ──
+
+  /**
+   * Compare two flat objects field-by-field, prefixing each change with the
+   * section name so consumers can distinguish `team.conference` from
+   * `identity.city`, etc.
+   */
+  private diffFieldSection(
+    section: string,
+    prev: Record<string, unknown> | undefined,
+    next: Record<string, unknown> | undefined,
+    trackedFields: readonly string[]
+  ): SyncDeltaReport['identityChanges'] {
+    if (!next) return [];
+    const prevObj = prev ?? {};
+    const changes: Array<{ field: string; oldValue: unknown; newValue: unknown }> = [];
+
+    for (const field of trackedFields) {
+      const oldVal = prevObj[field] ?? null;
+      const newVal = next[field] ?? null;
+
+      if (newVal !== null && newVal !== undefined && !this.looseEqual(oldVal, newVal)) {
+        changes.push({ field: `${section}.${field}`, oldValue: oldVal, newValue: newVal });
+      }
+    }
+
+    return changes;
+  }
+
+  // ─── Metrics Diffing ──────────────────────────────────────────────────
+
+  /**
+   * Compare previous metrics array (from PlayerMetrics docs) with newly
+   * extracted metrics. Deduplicates by `field` key and reports value changes.
+   * Results are folded into `statChanges` in the final report.
+   */
+  private diffMetrics(
+    prev: readonly Record<string, unknown>[],
+    next: readonly DistilledMetric[]
+  ): SyncStatChange[] {
+    if (!next.length) return [];
+
+    // Build lookup: field → previous value
+    const prevMap = new Map<string, unknown>();
+    for (const entry of prev) {
+      const field = entry['field'] as string | undefined;
+      if (field) prevMap.set(field.toLowerCase(), entry['value']);
+    }
+
+    const changes: SyncStatChange[] = [];
+    for (const metric of next) {
+      const key = metric.field.toLowerCase();
+      const oldVal = prevMap.get(key) ?? null;
+      const newVal = metric.value;
+
+      if (newVal !== null && newVal !== undefined && !this.looseEqual(oldVal, newVal)) {
+        const change: SyncStatChange = {
+          category: metric.category ?? 'metrics',
+          key: metric.field,
+          label: metric.label,
+          oldValue: (oldVal as string | number | null) ?? null,
+          newValue: newVal,
+          ...(typeof oldVal === 'number' && typeof newVal === 'number'
+            ? { delta: +(newVal - oldVal).toFixed(2) }
+            : {}),
+        };
+        changes.push(change);
       }
     }
 
@@ -326,12 +484,16 @@ export class SyncDiffService {
     // Build set of existing schedule keys: "date_day::opponent"
     const existingKeys = new Set<string>();
     for (const entry of prev) {
-      existingKeys.add(this.scheduleKey(entry.date, entry.opponent));
+      existingKeys.add(this.scheduleKey(entry.date, entry.opponent, entry.eventType));
     }
 
     const newEvents: SyncNewScheduleEvent[] = [];
     for (const event of next) {
-      const key = this.scheduleKey(event.date, event.opponent);
+      const key = this.scheduleKey(
+        event.date,
+        event.opponent,
+        (event as { eventType?: string }).eventType
+      );
       if (!existingKeys.has(key)) {
         newEvents.push({
           date: event.date,
@@ -350,10 +512,11 @@ export class SyncDiffService {
    * Schedule dedup key: date (day portion) + opponent (lowercased).
    * Mirrors WriteCalendarEventsTool.dedupeKey() logic.
    */
-  private scheduleKey(date: string, opponent?: string): string {
+  private scheduleKey(date: string, opponent?: string, eventType?: string): string {
     const day = date.split('T')[0] || 'nodate';
+    const type = (eventType ?? 'other').toLowerCase().trim();
     const opp = (opponent ?? 'unknown').toLowerCase().trim();
-    return `${day}::${opp}`;
+    return `${day}::${type}::${opp}`;
   }
 
   // ─── Video Diffing ────────────────────────────────────────────────────

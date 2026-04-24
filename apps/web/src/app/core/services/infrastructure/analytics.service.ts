@@ -1,35 +1,14 @@
 /**
- * @fileoverview Analytics Service - Firebase Analytics Wrapper
+ * @fileoverview Analytics Service - Backend Event Relay
  * @module @nxt1/web/core/services
  *
- * Production-grade Angular service wrapping Firebase Analytics.
- * Uses the AnalyticsAdapter interface from @nxt1/core for consistency.
- *
- * Architecture:
- * ┌─────────────────────────────────────────────────────────────┐
- * │                     Components                              │
- * │              Inject AnalyticsService                        │
- * ├─────────────────────────────────────────────────────────────┤
- * │            ⭐ AnalyticsService (THIS FILE) ⭐                │
- * │         Angular wrapper with DI, SSR-safety                 │
- * ├─────────────────────────────────────────────────────────────┤
- * │               @angular/fire/analytics                       │
- * │               Firebase Analytics SDK                        │
- * └─────────────────────────────────────────────────────────────┘
- *
- * Features:
- * - SSR-safe (no-ops on server)
- * - Automatic user ID sync with Firebase Auth
- * - Implements AnalyticsAdapter for portability
- * - Debug mode in development
- *
- * @author NXT1 Engineering
- * @version 2.0.0
+ * Web analytics now flow through the backend-owned analytics pipeline instead of
+ * direct Firebase SDK calls from the browser layer. This keeps Mongo rollups as
+ * the reporting source of truth while preserving the shared AnalyticsAdapter API.
  */
 
 import { Injectable, inject, PLATFORM_ID } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
-import { Analytics, logEvent, setUserId, setUserProperties } from '@angular/fire/analytics';
 import type { AnalyticsAdapter, UserProperties } from '@nxt1/core/analytics';
 import { APP_EVENTS, FIREBASE_EVENTS, getEventCategory } from '@nxt1/core/analytics';
 import type { ILogger } from '@nxt1/core/logging';
@@ -59,14 +38,18 @@ import { environment } from '../../../../environments/environment';
 @Injectable({ providedIn: 'root' })
 export class AnalyticsService implements AnalyticsAdapter {
   private readonly platformId = inject(PLATFORM_ID);
-  private readonly analytics = inject(Analytics, { optional: true });
   private readonly logger: ILogger;
+  private readonly relayEndpoint = `${environment.apiURL}/analytics/events`;
+  private readonly sessionId = this.createSessionId();
 
   /** Current user ID for event enrichment */
   private currentUserId: string | null = null;
 
   /** User properties cache */
   private userProps: UserProperties = {};
+
+  /** Default params included in every relayed event */
+  private defaultEventParams: Record<string, unknown> = {};
 
   /** Analytics collection enabled state */
   private analyticsEnabled = true;
@@ -83,7 +66,7 @@ export class AnalyticsService implements AnalyticsAdapter {
 
   /** Whether analytics is available and enabled */
   private get isEnabled(): boolean {
-    return this.isBrowser && !!this.analytics && this.analyticsEnabled;
+    return this.isBrowser && this.analyticsEnabled;
   }
 
   // ============================================
@@ -103,12 +86,14 @@ export class AnalyticsService implements AnalyticsAdapter {
     const category = getEventCategory(eventName);
 
     this.logger.debug(`[${category}] ${eventName}`, enrichedProps);
-
-    try {
-      logEvent(this.analytics!, eventName, enrichedProps);
-    } catch (error) {
-      this.logger.warn('Failed to log event', { eventName, error });
-    }
+    this.relayEvent({
+      eventName,
+      properties: enrichedProps,
+      userId: this.currentUserId,
+      userProperties: this.normalizeUserProperties(this.userProps),
+      sessionId: this.sessionId,
+      tags: [category],
+    });
   }
 
   /**
@@ -121,20 +106,24 @@ export class AnalyticsService implements AnalyticsAdapter {
   trackPageView(pagePath: string, pageTitle?: string, properties?: Record<string, unknown>): void {
     if (!this.isEnabled) return;
 
-    const payload = {
+    const payload = this.enrichProperties({
       page_path: pagePath,
       page_title: pageTitle,
       page_location: typeof window !== 'undefined' ? window.location.href : undefined,
       ...properties,
-    };
+    });
 
     this.logger.debug('Page View', { pagePath, ...payload });
-
-    try {
-      logEvent(this.analytics!, 'page_view', payload);
-    } catch (error) {
-      this.logger.warn('Failed to track page view', { pagePath, error });
-    }
+    this.relayEvent({
+      eventName: 'page_view',
+      pagePath,
+      pageTitle,
+      properties: payload,
+      userId: this.currentUserId,
+      userProperties: this.normalizeUserProperties(this.userProps),
+      sessionId: this.sessionId,
+      tags: ['navigation'],
+    });
   }
 
   /**
@@ -148,12 +137,6 @@ export class AnalyticsService implements AnalyticsAdapter {
     if (!this.isEnabled) return;
 
     this.logger.debug('Set User ID', { userId });
-
-    try {
-      setUserId(this.analytics!, userId);
-    } catch (error) {
-      this.logger.warn('Failed to set user ID', { userId, error });
-    }
   }
 
   /**
@@ -167,19 +150,6 @@ export class AnalyticsService implements AnalyticsAdapter {
     if (!this.isEnabled) return;
 
     this.logger.debug('Set User Properties', properties);
-
-    try {
-      // Convert all values to strings (Firebase requirement)
-      const stringProps: Record<string, string> = {};
-      for (const [key, value] of Object.entries(properties)) {
-        if (value !== undefined && value !== null) {
-          stringProps[key] = String(value);
-        }
-      }
-      setUserProperties(this.analytics!, stringProps);
-    } catch (error) {
-      this.logger.warn('Failed to set user properties', { error });
-    }
   }
 
   /**
@@ -192,12 +162,6 @@ export class AnalyticsService implements AnalyticsAdapter {
     if (!this.isEnabled) return;
 
     this.logger.debug('User cleared');
-
-    try {
-      setUserId(this.analytics!, null);
-    } catch (error) {
-      this.logger.warn('Failed to clear user', { error });
-    }
   }
 
   /**
@@ -221,6 +185,25 @@ export class AnalyticsService implements AnalyticsAdapter {
   setEnabled(enabled: boolean): void {
     this.analyticsEnabled = enabled;
     this.logger.info(`Analytics ${enabled ? 'enabled' : 'disabled'}`);
+  }
+
+  setDefaultEventParams(params: Record<string, unknown>): void {
+    this.defaultEventParams = { ...this.defaultEventParams, ...params };
+  }
+
+  trackTiming(category: string, name: string, value: number): void {
+    this.trackEvent('timing_complete', {
+      timing_category: category,
+      timing_name: name,
+      timing_value_ms: value,
+    });
+  }
+
+  trackException(description: string, fatal = false): void {
+    this.trackEvent(APP_EVENTS.ERROR_OCCURRED, {
+      description,
+      fatal,
+    });
   }
 
   /**
@@ -314,18 +297,77 @@ export class AnalyticsService implements AnalyticsAdapter {
    */
   private enrichProperties(properties?: Record<string, unknown>): Record<string, unknown> {
     const enriched: Record<string, unknown> = {
+      ...this.defaultEventParams,
       ...properties,
       timestamp: new Date().toISOString(),
       platform: 'web',
       app_version: environment.appVersion || environment.version,
     };
 
-    // Add user ID if available
     if (this.currentUserId) {
       enriched['user_id'] = this.currentUserId;
     }
 
-    // Remove undefined values
-    return Object.fromEntries(Object.entries(enriched).filter(([, v]) => v !== undefined));
+    return Object.fromEntries(Object.entries(enriched).filter(([, value]) => value !== undefined));
+  }
+
+  private relayEvent(payload: {
+    readonly eventName: string;
+    readonly pagePath?: string;
+    readonly pageTitle?: string;
+    readonly properties?: Record<string, unknown>;
+    readonly userId?: string | null;
+    readonly userProperties?: Record<string, string | number | boolean>;
+    readonly sessionId: string;
+    readonly tags?: readonly string[];
+  }): void {
+    if (!this.isBrowser) return;
+
+    const body = JSON.stringify(payload);
+
+    try {
+      if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
+        const accepted = navigator.sendBeacon(
+          this.relayEndpoint,
+          new Blob([body], { type: 'application/json' })
+        );
+
+        if (accepted) {
+          return;
+        }
+      }
+    } catch (error) {
+      this.logger.debug('Analytics beacon relay fallback engaged', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+
+    void fetch(this.relayEndpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      keepalive: true,
+      body,
+    }).catch((error: unknown) => {
+      this.logger.debug('Analytics relay skipped', {
+        error: error instanceof Error ? error.message : String(error),
+        eventName: payload.eventName,
+      });
+    });
+  }
+
+  private normalizeUserProperties(
+    properties: UserProperties
+  ): Record<string, string | number | boolean> {
+    return Object.fromEntries(
+      Object.entries(properties).filter(
+        ([, value]) =>
+          typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
+      )
+    ) as Record<string, string | number | boolean>;
+  }
+
+  private createSessionId(): string {
+    return `web_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
   }
 }

@@ -47,9 +47,9 @@ const environments: Record<string, EnvironmentConfig> = {
   },
   staging: {
     name: 'staging',
-    baseUrl: 'https://staging.nxt1.com',
-    apiUrl: 'http://34.72.3.113:8080/api/v1/staging',
-    firebaseProjectId: 'nxt-1-staging',
+    baseUrl: process.env['E2E_BASE_URL'] || 'https://nxt1-repo-staging.web.app',
+    apiUrl: process.env['E2E_API_URL'] || 'https://nxt1-repo-backend-staging.web.app/api/v1',
+    firebaseProjectId: 'nxt-1-staging-v2',
     isProduction: false,
     defaultTimeout: 45_000,
     testUser: {

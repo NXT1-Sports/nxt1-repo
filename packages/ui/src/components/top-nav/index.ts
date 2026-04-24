@@ -11,6 +11,7 @@ export {
   type TopNavSelectEvent,
   type TopNavUserMenuEvent,
   type TopNavSearchSubmitEvent,
+  type TopNavSportProfileSelectEvent,
 } from './top-nav.types';
 
 // Re-export search results dropdown types for convenience

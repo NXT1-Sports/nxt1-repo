@@ -67,9 +67,9 @@ export interface PageHeaderConfig {
  * Default header configuration
  */
 export const DEFAULT_PAGE_HEADER_CONFIG: PageHeaderConfig = {
-  variant: 'default',
+  variant: 'transparent',
   collapsible: false,
-  bordered: true,
+  bordered: false,
   ...DEFAULT_NAVIGATION_SURFACE_CONFIG,
   safeArea: 'auto',
 };

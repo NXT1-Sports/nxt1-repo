@@ -87,16 +87,22 @@ export interface SectionNavChangeEvent {
 
       :host {
         display: block;
-        /* Stretch to fill grid/flex parent height so sticky has room to scroll */
-        align-self: stretch;
+        /*
+         * Sticky sidebar pattern: position sticky on the grid item itself
+         * with align-self: start. This prevents the nav from shifting when
+         * sibling content changes height (e.g. Popular Questions vs Browse by Topic).
+         * The sticky element's containing block becomes the grid container, not
+         * the grid cell, so it can scroll freely regardless of content height.
+         */
+        position: sticky;
+        top: var(--nxt1-spacing-6);
+        align-self: start;
       }
 
       .section-nav {
         display: flex;
         flex-direction: column;
         gap: var(--nxt1-spacing-0-5);
-        position: sticky;
-        top: var(--nxt1-spacing-6);
       }
 
       .nav-item {

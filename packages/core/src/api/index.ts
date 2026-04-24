@@ -61,6 +61,7 @@ export {
   type ProfileApi,
   type ApiResponse,
   type PaginatedResponse,
+  type AddSportRequest,
   type UpdateProfileRequest,
   type UpdateSportProfileRequest,
   type ProfileSearchParams,
@@ -75,13 +76,18 @@ export {
   type FileUploadMetadata,
   type FileUploadRequest,
   type FileUploadResult,
+  type DirectVideoUploadSession,
   type FileDeleteRequest,
+  type HighlightVideoUploadProvisionOptions,
+  type PersistHighlightVideoPostRequest,
+  type PersistedHighlightVideoPost,
   type UploadProgressCallback,
   type FileUploadHttpAdapter,
   type FileValidationError,
   FILE_UPLOAD_RULES,
   validateFileForUpload,
   formatFileSize,
+  type FinalizedHighlightVideoUpload,
 } from './file-upload.api';
 
 // Onboarding APIs (from onboarding/)
@@ -100,8 +106,6 @@ export {
   type PersistenceSchoolFormData,
   type PersistenceOrganizationFormData,
   type PersistenceSportFormData,
-  type PersistencePositionsFormData,
-  type PersistenceContactFormData,
   type PersistenceFormData,
   type PersistenceUserType,
   DEFAULT_RETRY_CONFIG,
@@ -154,9 +158,7 @@ export {
   // Legacy types (deprecated)
   type TeamFormData,
   type SchoolFormData, // @deprecated - use SportFormData
-  type PositionsFormData, // @deprecated - use SportFormData
   type OrganizationFormData,
-  type ContactFormData,
   // ReferralSourceData is NOT re-exported - use from auth/auth.api
   type OnboardingFormData,
   type NavigationState,
@@ -186,8 +188,6 @@ export {
   validateSchool, // @deprecated - use validateTeam
   validateOrganization,
   validateSport,
-  validatePositions, // @deprecated - use validateSport
-  validateContact,
   canNavigateNext,
   canNavigatePrevious,
   canNavigateToStep,

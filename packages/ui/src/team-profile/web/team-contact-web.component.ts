@@ -7,11 +7,32 @@
  *
  * ⭐ WEB ONLY — SSR-safe ⭐
  */
-import { Component, ChangeDetectionStrategy, inject, output, computed } from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject, output, computed, input } from '@angular/core';
 import { NxtIconComponent } from '../../components/icon';
 import { NxtPlatformIconComponent } from '../../components/platform-icon';
-import { getPlatformFaviconUrl } from '@nxt1/core/onboarding';
+import { getPlatformFaviconUrl } from '@nxt1/core/platforms';
 import { TeamProfileService } from '../team-profile.service';
+
+function deriveConnectedHandle(profileUrl: string, fallback: string, prefix = ''): string {
+  try {
+    const parsed = new URL(profileUrl);
+    const segment = parsed.pathname
+      .split('/')
+      .filter(Boolean)
+      .map((item) => decodeURIComponent(item))
+      .slice(-1)[0];
+
+    if (!segment) return fallback;
+
+    const normalized = segment.replace(/^@/, '').trim();
+    if (!normalized) return fallback;
+
+    const needsPrefix = prefix.length > 0 && !segment.startsWith(prefix);
+    return needsPrefix ? `${prefix}${normalized}` : segment;
+  } catch {
+    return fallback;
+  }
+}
 
 @Component({
   selector: 'nxt1-team-contact-web',
@@ -24,128 +45,164 @@ import { TeamProfileService } from '../team-profile.service';
       @if (!hasAnyContactInfo()) {
         <div class="madden-empty">
           <div class="madden-empty__icon" aria-hidden="true">
-            <nxt1-icon name="mail-outline" [size]="40" />
+            <nxt1-icon
+              [name]="activeSection() === 'connected' ? 'link' : 'mail-outline'"
+              [size]="40"
+            />
           </div>
-          <h3>Contact info not set</h3>
-          <p>This team hasn't added contact information yet.</p>
+          <h3>
+            {{ activeSection() === 'connected' ? 'No social media added' : 'Contact info not set' }}
+          </h3>
+          <p>
+            @if (activeSection() === 'connected') {
+              This team hasn't added social media yet.
+            } @else {
+              This team hasn't added contact information yet.
+            }
+          </p>
           @if (teamProfile.isTeamAdmin()) {
-            <button type="button" class="madden-cta-btn" (click)="manageTeam.emit()">
-              Add Contact Info
+            <button
+              type="button"
+              class="madden-cta-btn"
+              (click)="
+                activeSection() === 'connected' ? connectedAccountsClick.emit() : manageTeam.emit()
+              "
+            >
+              {{ activeSection() === 'connected' ? 'Add Social Media' : 'Add Contact Info' }}
             </button>
           }
         </div>
       } @else {
-        <div class="contact-social-row">
+        <div
+          class="contact-social-row"
+          [class.contact-social-row--single]="activeSection() === 'contact' && !hasCoreContact()"
+        >
           <!-- LEFT: Contact + Social Media -->
-          <div class="contact-social-col">
-            @if (teamProfile.team()?.contact?.email || teamProfile.team()?.contact?.phone) {
-              <h3 class="contact-section-title">Contact</h3>
-              <div class="contact-info-list">
-                @if (teamProfile.team()?.contact?.email) {
-                  <a
-                    class="contact-info-item"
-                    [href]="'mailto:' + teamProfile.team()!.contact!.email"
-                  >
-                    <span class="contact-info-icon">
-                      <nxt1-icon name="mail-outline" [size]="16" />
-                    </span>
-                    <div class="contact-info-text">
-                      <span class="contact-info-label">Email</span>
-                      <span class="contact-info-value">{{
-                        teamProfile.team()!.contact!.email
-                      }}</span>
-                    </div>
-                  </a>
-                }
-                @if (teamProfile.team()?.contact?.phone) {
-                  <a class="contact-info-item" [href]="'tel:' + teamProfile.team()!.contact!.phone">
-                    <span class="contact-info-icon">
-                      <nxt1-icon name="phone" [size]="16" />
-                    </span>
-                    <div class="contact-info-text">
-                      <span class="contact-info-label">Phone</span>
-                      <span class="contact-info-value">{{
-                        teamProfile.team()!.contact!.phone
-                      }}</span>
-                    </div>
-                  </a>
-                }
-              </div>
-            }
-
-            @if (connectedAccountsList().length > 0) {
-              <h3 class="contact-section-title" style="margin-top: 24px">Social Media</h3>
-              <div class="contact-social-chips">
-                @for (acct of connectedAccountsList(); track acct.key) {
-                  <a
-                    class="contact-social-chip"
-                    [href]="acct.url"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    <span class="contact-social-chip-icon" [style.color]="acct.color">
-                      <nxt1-platform-icon
-                        [icon]="acct.icon"
-                        [faviconUrl]="acct.faviconUrl"
-                        [size]="16"
-                        [alt]="acct.label + ' icon'"
-                      />
-                    </span>
-                    <span class="contact-social-chip-handle">{{ acct.handle || acct.label }}</span>
-                    @if (acct.verified) {
-                      <nxt1-icon
-                        name="checkmark-circle"
-                        [size]="14"
-                        class="contact-social-verified"
-                      />
-                    }
-                  </a>
-                }
-              </div>
-            }
-          </div>
-
-          <!-- RIGHT: Primary Contact -->
-          @if (teamProfile.headCoach(); as coach) {
+          @if (
+            (activeSection() === 'contact' && hasCoreContact()) ||
+            (activeSection() === 'connected' && connectedAccountsList().length > 0)
+          ) {
             <div class="contact-social-col">
-              <h3 class="contact-section-title">Primary Contact</h3>
-              <div class="coach-card">
-                <div class="coach-card-header">
-                  <span class="coach-card-avatar">
-                    <nxt1-icon name="shield" [size]="18" />
-                  </span>
-                  <div class="coach-card-info">
-                    <span class="coach-card-name">{{ coach.firstName }} {{ coach.lastName }}</span>
-                    @if (coach.title) {
-                      <span class="coach-card-title">{{ coach.title }}</span>
-                    }
-                  </div>
-                </div>
-                <div class="coach-card-divider"></div>
+              @if (activeSection() === 'contact' && hasCoreContact()) {
+                <h3 class="contact-section-title">Contact</h3>
                 <div class="contact-info-list">
-                  @if (coach.email) {
-                    <a class="contact-info-item" [href]="'mailto:' + coach.email">
+                  @if (teamProfile.team()?.contact?.email) {
+                    <a
+                      class="contact-info-item"
+                      [href]="'mailto:' + teamProfile.team()!.contact!.email"
+                    >
                       <span class="contact-info-icon">
                         <nxt1-icon name="mail-outline" [size]="16" />
                       </span>
                       <div class="contact-info-text">
                         <span class="contact-info-label">Email</span>
-                        <span class="contact-info-value">{{ coach.email }}</span>
+                        <span class="contact-info-value">{{
+                          teamProfile.team()!.contact!.email
+                        }}</span>
                       </div>
                     </a>
                   }
-                  @if (coach.phone) {
-                    <a class="contact-info-item" [href]="'tel:' + coach.phone">
+                  @if (teamProfile.team()?.contact?.phone) {
+                    <a
+                      class="contact-info-item"
+                      [href]="'tel:' + teamProfile.team()!.contact!.phone"
+                    >
                       <span class="contact-info-icon">
                         <nxt1-icon name="phone" [size]="16" />
                       </span>
                       <div class="contact-info-text">
                         <span class="contact-info-label">Phone</span>
-                        <span class="contact-info-value">{{ coach.phone }}</span>
+                        <span class="contact-info-value">{{
+                          teamProfile.team()!.contact!.phone
+                        }}</span>
                       </div>
                     </a>
                   }
                 </div>
+              }
+
+              @if (activeSection() === 'connected' && connectedAccountsList().length > 0) {
+                <h3 class="contact-section-title">Social Media</h3>
+                <div class="contact-social-chips">
+                  @for (acct of connectedAccountsList(); track acct.key) {
+                    <a
+                      class="contact-social-chip"
+                      [href]="acct.url"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      <span class="contact-social-chip-icon" [style.color]="acct.color">
+                        <nxt1-platform-icon
+                          [icon]="acct.icon"
+                          [faviconUrl]="acct.faviconUrl"
+                          [size]="16"
+                          [alt]="acct.label + ' icon'"
+                        />
+                      </span>
+                      <span class="contact-social-chip-handle">{{
+                        acct.handle || acct.label
+                      }}</span>
+                      @if (acct.verified) {
+                        <nxt1-icon
+                          name="checkmark-circle"
+                          [size]="14"
+                          class="contact-social-verified"
+                        />
+                      }
+                    </a>
+                  }
+                </div>
+              }
+            </div>
+          }
+
+          <!-- RIGHT: Coaching Staff Contacts -->
+          @if (activeSection() === 'contact' && coachContacts().length > 0) {
+            <div class="contact-social-col">
+              <h3 class="contact-section-title">Coaching Staff</h3>
+              <div class="coach-grid">
+                @for (coach of coachContacts(); track coach.id) {
+                  <div class="coach-card">
+                    <div class="coach-card-header">
+                      <span class="coach-card-avatar">
+                        <nxt1-icon name="shield" [size]="18" />
+                      </span>
+                      <div class="coach-card-info">
+                        <span class="coach-card-name"
+                          >{{ coach.firstName }} {{ coach.lastName }}</span
+                        >
+                        @if (coach.title) {
+                          <span class="coach-card-title">{{ coach.title }}</span>
+                        }
+                      </div>
+                    </div>
+                    <div class="coach-card-divider"></div>
+                    <div class="contact-info-list">
+                      @if (coach.email) {
+                        <a class="contact-info-item" [href]="'mailto:' + coach.email">
+                          <span class="contact-info-icon">
+                            <nxt1-icon name="mail-outline" [size]="16" />
+                          </span>
+                          <div class="contact-info-text">
+                            <span class="contact-info-label">Email</span>
+                            <span class="contact-info-value">{{ coach.email }}</span>
+                          </div>
+                        </a>
+                      }
+                      @if (coach.phone) {
+                        <a class="contact-info-item" [href]="'tel:' + coach.phone">
+                          <span class="contact-info-icon">
+                            <nxt1-icon name="phone" [size]="16" />
+                          </span>
+                          <div class="contact-info-text">
+                            <span class="contact-info-label">Phone</span>
+                            <span class="contact-info-value">{{ coach.phone }}</span>
+                          </div>
+                        </a>
+                      }
+                    </div>
+                  </div>
+                }
               </div>
             </div>
           }
@@ -217,6 +274,10 @@ import { TeamProfileService } from '../team-profile.service';
         display: grid;
         grid-template-columns: 1fr 1fr;
         gap: 20px;
+        align-items: start;
+      }
+      .contact-social-row--single {
+        grid-template-columns: minmax(0, 1fr);
       }
       .contact-social-col {
         display: flex;
@@ -234,6 +295,9 @@ import { TeamProfileService } from '../team-profile.service';
         font-weight: 700;
         color: var(--m-text);
         margin: 0 0 12px;
+      }
+      .contact-section-header {
+        display: none;
       }
 
       .contact-info-list {
@@ -326,6 +390,17 @@ import { TeamProfileService } from '../team-profile.service';
         flex-shrink: 0;
       }
 
+      .coach-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+      }
+      @media (max-width: 860px) {
+        .coach-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+
       /* Coach card */
       .coach-card {
         padding: 14px;
@@ -401,34 +476,110 @@ import { TeamProfileService } from '../team-profile.service';
 })
 export class TeamContactWebComponent {
   protected readonly teamProfile = inject(TeamProfileService);
+  readonly activeSection = input<string>('contact');
 
   /** Emitted when admin clicks a manage CTA button */
   readonly manageTeam = output<void>();
+  /** Emitted when admin wants to manage connected accounts */
+  readonly connectedAccountsClick = output<void>();
 
   // ── Social Accounts ──
 
   private static readonly PLATFORM_META: Readonly<
-    Record<string, { label: string; icon: string; color: string; handlePrefix: string }>
+    Record<
+      string,
+      { label: string; icon: string; color: string; handlePrefix: string; showHandle: boolean }
+    >
   > = {
-    twitter: { label: 'X', icon: 'twitter', color: 'currentColor', handlePrefix: '@' },
-    instagram: { label: 'Instagram', icon: 'instagram', color: '#E1306C', handlePrefix: '@' },
-    youtube: { label: 'YouTube', icon: 'youtube', color: '#FF0000', handlePrefix: '' },
-    facebook: { label: 'Facebook', icon: 'link', color: '#1877F2', handlePrefix: '' },
-    hudl: { label: 'Hudl', icon: 'link', color: '#FF6600', handlePrefix: '' },
-    maxpreps: { label: 'MaxPreps', icon: 'link', color: '#003DA5', handlePrefix: '' },
-    on3: { label: 'On3', icon: 'link', color: '#000000', handlePrefix: '' },
-    rivals: { label: 'Rivals', icon: 'link', color: '#F47B20', handlePrefix: '' },
-    espn: { label: 'ESPN', icon: 'link', color: '#CC0000', handlePrefix: '' },
-    tiktok: { label: 'TikTok', icon: 'link', color: '#000000', handlePrefix: '@' },
+    twitter: {
+      label: 'X',
+      icon: 'twitter',
+      color: 'currentColor',
+      handlePrefix: '@',
+      showHandle: true,
+    },
+    instagram: {
+      label: 'Instagram',
+      icon: 'instagram',
+      color: '#E1306C',
+      handlePrefix: '@',
+      showHandle: true,
+    },
+    youtube: {
+      label: 'YouTube',
+      icon: 'youtube',
+      color: '#FF0000',
+      handlePrefix: '@',
+      showHandle: true,
+    },
+    facebook: {
+      label: 'Facebook',
+      icon: 'link',
+      color: '#1877F2',
+      handlePrefix: '@',
+      showHandle: true,
+    },
+    hudl: { label: 'Hudl', icon: 'link', color: '#FF6600', handlePrefix: '', showHandle: false },
+    maxpreps: {
+      label: 'MaxPreps',
+      icon: 'link',
+      color: '#003DA5',
+      handlePrefix: '',
+      showHandle: false,
+    },
+    on3: { label: 'On3', icon: 'link', color: '#000000', handlePrefix: '', showHandle: false },
+    rivals: {
+      label: 'Rivals',
+      icon: 'link',
+      color: '#F47B20',
+      handlePrefix: '',
+      showHandle: false,
+    },
+    espn: { label: 'ESPN', icon: 'link', color: '#CC0000', handlePrefix: '', showHandle: false },
+    tiktok: {
+      label: 'TikTok',
+      icon: 'link',
+      color: '#000000',
+      handlePrefix: '@',
+      showHandle: true,
+    },
   };
 
-  /** Whether any contact info exists at all */
-  protected readonly hasAnyContactInfo = computed((): boolean => {
+  protected readonly coachContacts = computed(() => {
+    const seen = new Set<string>();
+
+    return this.teamProfile
+      .staff()
+      .filter(
+        (member) =>
+          (member.role === 'head-coach' || member.role === 'assistant-coach') &&
+          (!!member.email || !!member.phone)
+      )
+      .filter((member) => {
+        const key =
+          member.id || member.email || member.phone || `${member.firstName}-${member.lastName}`;
+        if (!key || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .sort((a, b) => {
+        const rank = (role: string) => (role === 'head-coach' ? 0 : 1);
+        return rank(a.role) - rank(b.role);
+      });
+  });
+
+  protected readonly hasCoreContact = computed(() => {
     const team = this.teamProfile.team();
-    const hasCoreContact = !!team?.contact?.email || !!team?.contact?.phone;
-    const hasSocial = !!team?.social && team.social.length > 0;
-    const hasCoach = !!this.teamProfile.headCoach();
-    return hasCoreContact || hasSocial || hasCoach;
+    return !!team?.contact?.email || !!team?.contact?.phone;
+  });
+
+  /** Whether the current connect subsection has any content */
+  protected readonly hasAnyContactInfo = computed((): boolean => {
+    if (this.activeSection() === 'connected') {
+      return this.connectedAccountsList().length > 0;
+    }
+
+    return this.hasCoreContact() || this.coachContacts().length > 0;
   });
 
   /** Sorted + formatted social media accounts */
@@ -443,30 +594,40 @@ export class TeamContactWebComponent {
       readonly verified: boolean;
       readonly faviconUrl: string | null;
     }> => {
-      const social = this.teamProfile.team()?.social;
-      if (!social?.length) return [];
+      const connectedSources = this.teamProfile.team()?.connectedSources;
+      if (!connectedSources?.length) return [];
 
-      const defaultMeta = { label: '', icon: 'link', color: 'currentColor', handlePrefix: '' };
+      const defaultMeta = {
+        label: '',
+        icon: 'link',
+        color: 'currentColor',
+        handlePrefix: '',
+        showHandle: false,
+      };
 
-      return social
+      return connectedSources
         .slice()
         .sort((a, b) => (a.displayOrder ?? 99) - (b.displayOrder ?? 99))
         .slice(0, 8)
-        .map((link) => {
+        .map((source, index) => {
           const meta =
-            TeamContactWebComponent.PLATFORM_META[link.platform.toLowerCase()] ?? defaultMeta;
-          const handle = link.username
-            ? `${meta.handlePrefix}${link.username}`
-            : meta.label || link.platform;
+            TeamContactWebComponent.PLATFORM_META[source.platform.toLowerCase()] ?? defaultMeta;
+          const handle = meta.showHandle
+            ? deriveConnectedHandle(
+                source.profileUrl,
+                meta.label || source.platform,
+                meta.handlePrefix
+              )
+            : meta.label || source.platform;
           return {
-            key: link.platform,
-            label: meta.label || link.platform,
+            key: `${source.platform}-${source.scopeType ?? 'global'}-${source.scopeId ?? index}`,
+            label: meta.label || source.platform,
             handle,
             icon: meta.icon,
             color: meta.color,
-            url: link.url,
-            verified: !!link.verified,
-            faviconUrl: getPlatformFaviconUrl(link.platform.toLowerCase()),
+            url: source.profileUrl,
+            verified: source.syncStatus !== 'error',
+            faviconUrl: getPlatformFaviconUrl(source.platform.toLowerCase()),
           };
         });
     }

@@ -11,10 +11,10 @@
  *   - FCP  (First Contentful Paint)    — perceived load speed
  *   - TTFB (Time to First Byte)        — server response time
  *
- * Metrics are forwarded to Firebase Analytics as custom `web_vital` events
+ * Metrics are forwarded through the web analytics relay as custom web_vital events
  * and logged via the NXT1 structured logger. This enables:
- *   1. Real-time dashboards in Firebase → Analytics → Events
- *   2. Alerting on regressions via BigQuery export
+ *   1. Backend-owned event aggregation and Mongo rollups
+ *   2. Alerting on regressions through the platform observability stack
  *   3. Correlation with deploy versions and feature flags
  *
  * SSR-safe: all browser API calls are guarded.
@@ -98,7 +98,7 @@ export class WebVitalsService {
   // ============================================
 
   /**
-   * Forward a single metric to Firebase Analytics and structured logs.
+   * Forward a single metric through the backend analytics relay and structured logs.
    *
    * Firebase event name: `web_vital`
    * Custom dimensions:

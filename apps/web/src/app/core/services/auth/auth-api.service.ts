@@ -73,13 +73,21 @@ export class AuthApiService {
   /**
    * Get user profile by UID
    */
-  async getUserProfile(uid: string): Promise<User> {
+  async getUserProfile(uid: string, options?: { noCache?: boolean }): Promise<User> {
     return this.performance.trace(
       TRACE_NAMES.PROFILE_LOAD,
       async () => {
         try {
+          const headers = options?.noCache
+            ? {
+                'Cache-Control': 'no-cache, no-store, must-revalidate',
+                Pragma: 'no-cache',
+                'X-No-Cache': 'true',
+              }
+            : undefined;
           const response = await this.http.get(`${environment.apiURL}/auth/profile/${uid}`, {
             timeout: 3000, // 3 second timeout for faster failure when backend is down
+            headers,
           });
           const wrapped = response as { success?: boolean; data?: User };
           const profile = wrapped?.data ?? (response as unknown as User);
@@ -126,6 +134,15 @@ export class AuthApiService {
     });
   }
 
+  /**
+   * Fetch existing connected sources for a team (used to seed onboarding link-drop)
+   */
+  getTeamSources(
+    ...args: Parameters<AuthApi['getTeamSources']>
+  ): ReturnType<AuthApi['getTeamSources']> {
+    return this.api.getTeamSources(...args);
+  }
+
   // ============================================
   // ONBOARDING
   // ============================================
@@ -156,44 +173,6 @@ export class AuthApiService {
     return this.performance.trace(
       TRACE_NAMES.ONBOARDING_PROFILE_SAVE,
       () => this.api.saveOnboardingProfile(...args),
-      {
-        attributes: {
-          [ATTRIBUTE_NAMES.FEATURE_NAME]: 'onboarding',
-        },
-      }
-    );
-  }
-
-  /**
-   * Complete onboarding flow
-   */
-  completeOnboarding(
-    ...args: Parameters<AuthApi['completeOnboarding']>
-  ): ReturnType<AuthApi['completeOnboarding']> {
-    return this.performance.trace(
-      TRACE_NAMES.ONBOARDING_COMPLETE,
-      () => this.api.completeOnboarding(...args),
-      {
-        attributes: {
-          [ATTRIBUTE_NAMES.FEATURE_NAME]: 'onboarding',
-        },
-      }
-    );
-  }
-
-  // ============================================
-  // PRELOAD SCRAPE
-  // ============================================
-
-  /**
-   * Preload scrape — fires the scraping pipeline early during onboarding Step 5.
-   */
-  preloadScrape(
-    ...args: Parameters<AuthApi['preloadScrape']>
-  ): ReturnType<AuthApi['preloadScrape']> {
-    return this.performance.trace(
-      TRACE_NAMES.ONBOARDING_PRELOAD_SCRAPE,
-      () => this.api.preloadScrape(...args),
       {
         attributes: {
           [ATTRIBUTE_NAMES.FEATURE_NAME]: 'onboarding',

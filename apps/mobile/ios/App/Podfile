@@ -32,7 +32,7 @@ def capacitor_pods
   pod 'CapacitorDevice', :path => '../../../../node_modules/@capacitor/device'
   pod 'CapacitorDialog', :path => '../../../../node_modules/@capacitor/dialog'
   pod 'CapacitorFilesystem', :path => '../../../../node_modules/@capacitor/filesystem'
-  pod 'CapacitorGeolocation', :path => '../../../../node_modules/@capacitor/geolocation'
+  pod 'CapacitorGeolocation', :path => '../../node_modules/@capacitor/geolocation'
   pod 'CapacitorHaptics', :path => '../../../../node_modules/@capacitor/haptics'
   pod 'CapacitorKeyboard', :path => '../../../../node_modules/@capacitor/keyboard'
   pod 'CapacitorNetwork', :path => '../../../../node_modules/@capacitor/network'
@@ -62,6 +62,8 @@ post_install do |installer|
       config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'
       # Silence deprecation warnings from third-party pods
       config.build_settings['GCC_WARN_ABOUT_DEPRECATED_FUNCTIONS'] = 'NO'
+      # Silence double-quoted include warnings in Firebase framework headers
+      config.build_settings['CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER'] = 'NO'
       
       # Disable code signing for bundles (required for Google Sign-In)
       if target.respond_to?(:product_type) and target.product_type == "com.apple.product-type.bundle"

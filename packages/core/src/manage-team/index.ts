@@ -65,6 +65,13 @@ export type {
   ScheduleActionEvent,
   StaffActionEvent,
   SponsorActionEvent,
+  // Membership editor types
+  MembershipSourceKind,
+  MembershipKind,
+  MembershipEditorItem,
+  MembershipEditorListResponse,
+  UpdateMembershipRequest,
+  MembershipEditorMode,
 } from './manage-team.types';
 
 // ============================================
@@ -83,6 +90,16 @@ export {
   getStaffRoleConfig,
   getTeamLevelConfig,
 } from './manage-team.constants';
+
+// ============================================
+// HELPERS
+// ============================================
+
+export {
+  applyManageTeamFieldChange,
+  buildManageTeamUpdatePayload,
+  type ManageTeamUpdatePayload,
+} from './manage-team.helpers';
 
 // ============================================
 // API

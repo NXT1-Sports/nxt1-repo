@@ -31,6 +31,8 @@ import type {
   AgentQueueJobResult,
   AgentJobProgress,
   AgentJobStatusResponse,
+  PlaybookGenerationQueueJobData,
+  ThreadSummarizationQueueJobData,
 } from './queue.types.js';
 import {
   AGENT_QUEUE_NAME,
@@ -39,6 +41,8 @@ import {
   RETRY_BACKOFF_MS,
   COMPLETED_JOB_TTL_S,
   FAILED_JOB_TTL_S,
+  THREAD_SUMMARIZATION_DELAY_MS,
+  THREAD_SUMMARIZATION_JOB_NAME,
 } from './queue.types.js';
 
 // ─── Service ────────────────────────────────────────────────────────────────
@@ -46,8 +50,13 @@ import {
 export class AgentQueueService {
   private readonly queue: Queue<AgentQueueJobData, AgentQueueJobResult>;
   private readonly redisUrl: string;
+  private readonly jobRetryOverrides?: { maxAttempts?: number; retryBackoffMs?: number };
 
-  constructor(redisUrl?: string) {
+  constructor(
+    redisUrl?: string,
+    jobRetryOverrides?: { maxAttempts?: number; retryBackoffMs?: number }
+  ) {
+    this.jobRetryOverrides = jobRetryOverrides;
     this.redisUrl = redisUrl ?? process.env['REDIS_URL'] ?? 'redis://localhost:6379';
 
     // Parse URL into RedisOptions for BullMQ compatibility (includes auth)
@@ -73,6 +82,7 @@ export class AgentQueueService {
     environment: 'staging' | 'production' = 'production'
   ): Promise<string> {
     const jobData: AgentQueueJobData = {
+      kind: 'agent',
       payload,
       enqueuedAt: new Date().toISOString(),
       environment,
@@ -83,6 +93,71 @@ export class AgentQueueService {
     });
 
     return job.id ?? payload.operationId;
+  }
+
+  /**
+   * Add a new asynchronous playbook generation job to the queue.
+   * @param input - Minimal job identity payload used by the worker.
+   * @param environment - Which Firestore the job document lives in (staging vs production).
+   * @returns The BullMQ job ID (same as operationId for easy lookup).
+   */
+  async enqueuePlaybookGeneration(
+    input: { operationId: string; userId: string },
+    environment: 'staging' | 'production' = 'production'
+  ): Promise<string> {
+    const jobData: PlaybookGenerationQueueJobData = {
+      kind: 'playbook_generation',
+      operationId: input.operationId,
+      userId: input.userId,
+      enqueuedAt: new Date().toISOString(),
+      environment,
+    };
+
+    const job = await this.queue.add(input.operationId, jobData, {
+      jobId: input.operationId,
+    });
+
+    return job.id ?? input.operationId;
+  }
+
+  /**
+   * Schedule summarization for an idle conversation thread.
+   * Re-adding the same thread removes the prior delayed job first so the timer
+   * always reflects the latest message activity.
+   */
+  async enqueueThreadSummarization(
+    threadId: string,
+    userId: string,
+    delayMs: number = THREAD_SUMMARIZATION_DELAY_MS,
+    environment: 'staging' | 'production' = 'production'
+  ): Promise<string> {
+    const jobId = `summarize:${threadId}`;
+    const existingJob = await this.queue.getJob(jobId);
+
+    if (existingJob) {
+      const state = await existingJob.getState();
+      if (state !== 'active') {
+        await existingJob.remove().catch(() => undefined);
+      } else {
+        return jobId;
+      }
+    }
+
+    const jobData: ThreadSummarizationQueueJobData = {
+      kind: 'thread_summarization',
+      threadId,
+      userId,
+      delayMs,
+      enqueuedAt: new Date().toISOString(),
+      environment,
+    };
+
+    const job = await this.queue.add(THREAD_SUMMARIZATION_JOB_NAME, jobData, {
+      jobId,
+      delay: delayMs,
+    });
+
+    return job.id ?? jobId;
   }
 
   /**
@@ -100,7 +175,7 @@ export class AgentQueueService {
 
     return {
       jobId,
-      userId: (job.data as AgentQueueJobData).payload.userId,
+      userId: this.extractUserId(job.data as AgentQueueJobData),
       status: this.mapBullStateToOperationStatus(state, progress),
       progress,
       result: returnValue,
@@ -159,6 +234,20 @@ export class AgentQueueService {
   }
 
   /**
+   * Lightweight health probe for queue admission control.
+   * Returns true only when the underlying Redis connection can respond to PING.
+   */
+  async isHealthy(): Promise<boolean> {
+    try {
+      const client = await this.queue.client;
+      const pong = await client.ping();
+      return pong === 'PONG';
+    } catch {
+      return false;
+    }
+  }
+
+  /**
    * Expose the Redis URL so the AgentWorker can create its own connection.
    */
   getRedisUrl(): string {
@@ -186,6 +275,7 @@ export class AgentQueueService {
     environment: 'staging' | 'production' = 'production'
   ): Promise<string> {
     const jobData: AgentQueueJobData = {
+      kind: 'agent',
       payload,
       enqueuedAt: new Date().toISOString(),
       environment,
@@ -256,11 +346,18 @@ export class AgentQueueService {
 
   private defaultJobOptions(): JobsOptions {
     return {
-      attempts: MAX_JOB_ATTEMPTS,
-      backoff: { type: 'exponential', delay: RETRY_BACKOFF_MS },
+      attempts: this.jobRetryOverrides?.maxAttempts ?? MAX_JOB_ATTEMPTS,
+      backoff: {
+        type: 'exponential',
+        delay: this.jobRetryOverrides?.retryBackoffMs ?? RETRY_BACKOFF_MS,
+      },
       removeOnComplete: { age: COMPLETED_JOB_TTL_S },
       removeOnFail: { age: FAILED_JOB_TTL_S },
     };
+  }
+
+  private extractUserId(jobData: AgentQueueJobData): string {
+    return jobData.kind === 'agent' ? jobData.payload.userId : jobData.userId;
   }
 
   /**

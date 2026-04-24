@@ -23,6 +23,7 @@
 import { getStorage } from 'firebase-admin/storage';
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
 import type { OpenRouterService } from '../../llm/openrouter.service.js';
+import { z } from 'zod';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -51,6 +52,15 @@ const DIMENSION_PRESETS: Record<string, { width: number; height: number; label: 
   '1080x1350': { width: 1080, height: 1350, label: 'Portrait (Instagram Portrait)' },
 };
 
+const GenerateGraphicInputSchema = z.object({
+  textRequirements: z.array(z.string().trim().min(1)).min(1),
+  themeColors: z.array(z.string().trim().min(1)).optional(),
+  subjectImageUrl: z.string().trim().min(1).optional(),
+  dimensions: z.enum(['1080x1080', '1080x1920', '1920x1080', '1200x675', '1500x500', '1080x1350']),
+  styleDescription: z.string().trim().min(1),
+  userId: z.string().trim().min(1),
+});
+
 // ─── Tool Implementation ────────────────────────────────────────────────────
 
 export class GenerateGraphicTool extends BaseTool {
@@ -65,63 +75,14 @@ export class GenerateGraphicTool extends BaseTool {
     'The NXT1 logo is automatically placed in the bottom-right corner of every graphic. ' +
     "Always provide the user's or team's actual brand colors via themeColors.";
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      textRequirements: {
-        type: 'array',
-        items: { type: 'string' },
-        description:
-          'Array of strings detailing all text that must appear on the graphic. ' +
-          'Includes headlines, names, stats, quotes, etc. ' +
-          'Example: ["GAME DAY", "John Doe", "Vs Local High School", "7:00 PM"]',
-      },
-      themeColors: {
-        type: 'array',
-        items: { type: 'string' },
-        description:
-          'Array of 2-4 hex color codes representing the brand palette for this graphic. ' +
-          "Use the user's or team's actual colors first. " +
-          'First color = primary/dominant, second = secondary/accent. ' +
-          'Example: ["#FF6B35", "#004E89", "#FFFFFF"]',
-      },
-      subjectImageUrl: {
-        type: 'string',
-        description:
-          'Optional public URL of an image to feature in the graphic. ' +
-          'Typically an athlete photo, team logo, or facility image. ' +
-          'The model will composite this into the design.',
-      },
-      dimensions: {
-        type: 'string',
-        enum: Object.keys(DIMENSION_PRESETS),
-        description:
-          'Canvas dimensions as "WIDTHxHEIGHT". Determines the output size and aspect ratio. ' +
-          'Common values: "1080x1080" (square post), "1080x1920" (story), ' +
-          '"1920x1080" (landscape), "1500x500" (banner).',
-      },
-      styleDescription: {
-        type: 'string',
-        description:
-          'Free-form creative direction for the visual style. ' +
-          'Examples: "dark moody with neon accents", "clean minimal white background", ' +
-          '"gritty urban texture with smoke effects", "premium Nike-style with bold typography", ' +
-          '"bright energetic with geometric patterns". ' +
-          'Be specific about textures, lighting, typography style, and overall mood.',
-      },
-      userId: {
-        type: 'string',
-        description: 'The user ID this graphic is being generated for (used in storage path).',
-      },
-    },
-    required: ['textRequirements', 'dimensions', 'styleDescription', 'userId'],
-  } as const;
+  readonly parameters = GenerateGraphicInputSchema;
 
-  override readonly allowedAgents = ['brand_media_coordinator'] as const;
+  override readonly allowedAgents = ['brand_coordinator'] as const;
 
   readonly isMutation = true;
   readonly category = 'media' as const;
 
+  readonly entityGroup = 'user_tools' as const;
   constructor(private readonly llm: OpenRouterService) {
     super();
   }
@@ -130,60 +91,44 @@ export class GenerateGraphicTool extends BaseTool {
     input: Record<string, unknown>,
     context?: ToolExecutionContext
   ): Promise<ToolResult> {
-    const textRequirements = input['textRequirements'];
-    const themeColors = input['themeColors'];
-    const subjectImageUrl = input['subjectImageUrl'];
-    const dimensions = input['dimensions'];
-    const styleDescription = input['styleDescription'];
-    const userId = input['userId'];
+    const parsed = GenerateGraphicInputSchema.safeParse(input);
+    if (!parsed.success) {
+      return {
+        success: false,
+        error: parsed.error.issues.map((issue) => issue.message).join(', '),
+      };
+    }
 
-    // ── Input validation ───────────────────────────────────────────────
-    if (!Array.isArray(textRequirements) || textRequirements.length === 0) {
-      return {
-        success: false,
-        error: 'Parameter "textRequirements" is required and must be a non-empty array.',
-      };
-    }
-    if (typeof dimensions !== 'string' || !DIMENSION_PRESETS[dimensions]) {
-      return {
-        success: false,
-        error: `Parameter "dimensions" must be one of: ${Object.keys(DIMENSION_PRESETS).join(', ')}`,
-      };
-    }
-    if (typeof styleDescription !== 'string' || styleDescription.trim().length === 0) {
-      return { success: false, error: 'Parameter "styleDescription" is required.' };
-    }
-    if (typeof userId !== 'string' || userId.trim().length === 0) {
-      return { success: false, error: 'Parameter "userId" is required.' };
-    }
-    if (themeColors !== undefined && !Array.isArray(themeColors)) {
-      return {
-        success: false,
-        error: 'Parameter "themeColors" must be an array of hex color strings.',
-      };
-    }
-    if (subjectImageUrl !== undefined && typeof subjectImageUrl !== 'string') {
-      return { success: false, error: 'Parameter "subjectImageUrl" must be a string URL.' };
-    }
+    const { textRequirements, themeColors, subjectImageUrl, dimensions, styleDescription, userId } =
+      parsed.data;
 
     // ── Compile the creative brief ─────────────────────────────────────
     const preset = DIMENSION_PRESETS[dimensions];
     const hasSubjectImage =
       typeof subjectImageUrl === 'string' && subjectImageUrl.trim().length > 0;
     const prompt = this.compileDesignBrief({
-      textRequirements: textRequirements as string[],
-      themeColors: Array.isArray(themeColors) ? (themeColors as string[]) : undefined,
+      textRequirements,
+      themeColors,
       dimensions: preset,
-      styleDescription: (styleDescription as string).trim(),
+      styleDescription,
       hasSubjectImage,
     });
 
     // ── Generate the graphic ───────────────────────────────────────────
     try {
-      const progress = context?.onProgress;
-      progress?.('Composing creative brief…');
+      context?.emitStage?.('processing_media', {
+        icon: 'media',
+        dimensions,
+        hasSubjectImage,
+        phase: 'compose_brief',
+      });
 
-      progress?.('Generating image with AI…');
+      context?.emitStage?.('processing_media', {
+        icon: 'media',
+        dimensions,
+        hasSubjectImage,
+        phase: 'generate_image',
+      });
 
       const result = await this.llm.generateImage({
         prompt,
@@ -192,14 +137,18 @@ export class GenerateGraphicTool extends BaseTool {
         signal: context?.signal,
         telemetryContext: {
           operationId: '',
-          userId: userId as string,
-          agentId: 'brand_media_coordinator',
+          userId,
+          agentId: 'brand_coordinator',
           feature: 'generate-graphic',
         },
       });
 
       // ── Upload to Firebase Storage ─────────────────────────────────
-      progress?.('Uploading to CDN…');
+      context?.emitStage?.('uploading_assets', {
+        icon: 'upload',
+        dimensions,
+        phase: 'upload_graphic',
+      });
       const timestamp = Date.now();
       const extension = result.mimeType === 'image/jpeg' ? 'jpg' : 'png';
 
@@ -208,7 +157,7 @@ export class GenerateGraphicTool extends BaseTool {
       // agent-graphics/ path only when no thread context is available.
       const filePath =
         context?.userId && context?.threadId
-          ? `users/${context.userId}/threads/${context.threadId}/media/${timestamp}-graphic.${extension}`
+          ? `Users/${context.userId}/threads/${context.threadId}/media/${timestamp}-graphic.${extension}`
           : `agent-graphics/${userId}/${timestamp}-graphic.${extension}`;
 
       const bucket = getStorage().bucket();

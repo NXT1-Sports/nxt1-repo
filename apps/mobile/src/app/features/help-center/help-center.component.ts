@@ -12,13 +12,11 @@
  * - Thin wrapper around shared shell
  */
 
-import { Component, ChangeDetectionStrategy, inject, effect } from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { IonHeader, IonContent, IonToolbar, NavController } from '@ionic/angular/standalone';
 import { HelpCenterShellComponent, HelpCenterService, type HelpNavigateEvent } from '@nxt1/ui';
 import { NxtBrowserService } from '@nxt1/ui';
-import { AuthFlowService } from '../../core/services/auth/auth-flow.service';
-import type { HelpUserType } from '@nxt1/core';
 
 @Component({
   selector: 'app-help-center',
@@ -62,17 +60,15 @@ import type { HelpUserType } from '@nxt1/core';
 export class HelpCenterComponent {
   private readonly nav = inject(NavController);
   private readonly helpService = inject(HelpCenterService);
-  private readonly authFlow = inject(AuthFlowService);
   private readonly browser = inject(NxtBrowserService);
 
   constructor() {
-    // Reactively sync user role to help center service
-    effect(() => {
-      const role = this.authFlow.userRole();
-      this.helpService.setUserRole((role as HelpUserType) ?? null);
-    });
-
     // Load home data from backend API
+    this.helpService.loadHome();
+  }
+
+  /** Re-run loadHome each time the user returns to this page via Ionic nav stack */
+  ionViewWillEnter(): void {
     this.helpService.loadHome();
   }
 

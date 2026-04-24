@@ -14,21 +14,26 @@ import {
   type AnalyticsAdapter,
 } from '@nxt1/core/analytics';
 import {
+  type ShareableArticle,
   type ShareableProfile,
   type ShareableTeam,
-  type ShareableVideo,
   type ShareablePost,
   type ShareableContent,
   buildShareUrl,
+  buildUTMShareUrl,
+  UTM_MEDIUM,
+  buildArticleShareTitle,
+  buildArticleShareText,
+  buildArticleShareDescription,
   buildProfileShareTitle,
   buildProfileShareText,
   buildProfileShareDescription,
   buildTeamShareTitle,
   buildTeamShareText,
-  buildVideoShareTitle,
-  buildVideoShareText,
+  buildTeamShareDescription,
   buildPostShareTitle,
   buildPostShareText,
+  buildPostShareDescription,
 } from '@nxt1/core/seo';
 import { NxtToastService, NxtLoggingService, ANALYTICS_ADAPTER } from '@nxt1/ui/services';
 
@@ -71,6 +76,7 @@ export class ShareService {
     const shareableProfile: ShareableProfile = {
       type: 'profile',
       id: profile.id,
+      unicode: profile.unicode ?? profile.id,
       slug: profile.slug,
       title: profile.athleteName,
       description: buildProfileShareDescription(profile),
@@ -101,8 +107,9 @@ export class ShareService {
       type: 'team',
       id: team.id,
       slug: team.slug,
+      teamCode: team.teamCode,
       title: team.teamName,
-      description: '',
+      description: buildTeamShareDescription(team),
       teamName: team.teamName,
       sport: team.sport,
       location: team.location,
@@ -121,28 +128,27 @@ export class ShareService {
     });
   }
 
-  async shareVideo(
-    video: Omit<ShareableVideo, 'type' | 'title' | 'description'> & { id: string },
+  async shareArticle(
+    article: Omit<ShareableArticle, 'type' | 'description'> & { id: string },
     options?: ShareContentOptions
   ): Promise<ShareResultData> {
-    const shareableVideo: ShareableVideo = {
-      type: 'video',
-      id: video.id,
-      slug: video.slug,
-      title: video.videoTitle,
-      description: '',
-      videoTitle: video.videoTitle,
-      athleteName: video.athleteName,
-      thumbnailUrl: video.thumbnailUrl,
-      imageUrl: video.imageUrl,
-      duration: video.duration,
-      views: video.views,
+    const shareableArticle: ShareableArticle = {
+      type: 'article',
+      id: article.id,
+      slug: article.slug,
+      title: article.title,
+      description: buildArticleShareDescription(article),
+      source: article.source,
+      excerpt: article.excerpt,
+      sport: article.sport,
+      state: article.state,
+      imageUrl: article.imageUrl,
     };
 
-    const shareText = options?.text || buildVideoShareText(video);
-    const shareTitle = options?.title || buildVideoShareTitle(video);
+    const shareText = options?.text || buildArticleShareText(article);
+    const shareTitle = options?.title || buildArticleShareTitle(article);
 
-    return this.shareContent(shareableVideo, {
+    return this.shareContent(shareableArticle, {
       ...options,
       title: shareTitle,
       text: shareText,
@@ -157,8 +163,8 @@ export class ShareService {
       type: 'post',
       id: post.id,
       slug: post.slug,
-      title: `Post by ${post.authorName}`,
-      description: post.postText,
+      title: buildPostShareTitle(post),
+      description: buildPostShareDescription(post),
       authorName: post.authorName,
       authorAvatar: post.authorAvatar,
       createdAt: post.createdAt,
@@ -184,7 +190,7 @@ export class ShareService {
       return { completed: false, error: 'Sharing is only available in the browser' };
     }
 
-    const url = buildShareUrl(content);
+    const url = this.buildShareDestinationUrl(content);
     const title = options?.title || content.title;
     const text = options?.text || content.description;
 
@@ -192,6 +198,25 @@ export class ShareService {
     this.trackShareEvent(content, result, options);
 
     return result;
+  }
+
+  async copy(text: string, showFeedback: boolean = true): Promise<boolean> {
+    const result = await this.copyToClipboard(text, showFeedback);
+    return result.completed;
+  }
+
+  private buildShareDestinationUrl(content: ShareableContent, medium = UTM_MEDIUM.SHARE): string {
+    const origin = this.isBrowser
+      ? (globalThis.location?.origin ?? 'https://nxt1sports.com')
+      : 'https://nxt1sports.com';
+
+    const url = buildShareUrl(content, origin);
+    const sportContent =
+      'sport' in content && typeof content.sport === 'string'
+        ? content.sport.toLowerCase()
+        : undefined;
+
+    return buildUTMShareUrl(url, medium, content.type, sportContent);
   }
 
   // ============================================
@@ -229,16 +254,23 @@ export class ShareService {
     return this.copyToClipboard(shareOptions.url || shareOptions.text || '');
   }
 
-  private async copyToClipboard(text: string): Promise<ShareResultData> {
+  private async copyToClipboard(
+    text: string,
+    showFeedback: boolean = true
+  ): Promise<ShareResultData> {
     try {
       if (navigator.clipboard?.writeText) {
         await navigator.clipboard.writeText(text);
       }
-      this.toast.success('Link copied to clipboard');
+      if (showFeedback) {
+        this.toast.success('Share link copied.');
+      }
       this.logger.info('Share fallback: copy link');
       return { completed: true, method: 'copy_link' };
     } catch (error) {
-      this.toast.error('Failed to copy link');
+      if (showFeedback) {
+        this.toast.error("Couldn't copy the share link.");
+      }
       this.logger.warn('Share fallback copy failed', { error });
       return {
         completed: false,

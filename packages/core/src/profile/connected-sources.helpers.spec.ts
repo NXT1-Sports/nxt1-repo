@@ -7,8 +7,13 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+  buildLinkSourcesFormData,
   mapToConnectedSources,
+  mapConnectedEmailsToLinkSources,
+  mapConnectedSourcesToLinkSources,
+  mapFirebaseProvidersToLinkSources,
   connectedSourceKey,
+  mergeLinkSources,
   mergeConnectedSources,
 } from './connected-sources.helpers';
 import type { ConnectedSource } from '../models/user/user-base.model';
@@ -150,5 +155,171 @@ describe('mergeConnectedSources', () => {
 
     const result = mergeConnectedSources(existing, []);
     expect(result).toHaveLength(1);
+  });
+});
+
+describe('buildLinkSourcesFormData', () => {
+  it('should map canonical connected sources into link rows', () => {
+    const result = buildLinkSourcesFormData({
+      connectedSources: [
+        {
+          platform: 'hudl',
+          profileUrl: 'https://hudl.com/p/123',
+          scopeType: 'sport',
+          scopeId: 'football',
+        },
+      ],
+    });
+
+    expect(result).toEqual({
+      links: [
+        {
+          platform: 'hudl',
+          connected: true,
+          connectionType: 'link',
+          url: 'https://hudl.com/p/123',
+          scopeType: 'sport',
+          scopeId: 'football',
+        },
+      ],
+    });
+  });
+
+  it('should add firebase and email sign-in providers without duplicates', () => {
+    const result = buildLinkSourcesFormData({
+      firebaseProviders: [{ providerId: 'google.com' }],
+      connectedEmails: [
+        { provider: 'gmail', isActive: true },
+        { provider: 'microsoft', isActive: true },
+      ],
+    });
+
+    expect(result).toEqual({
+      links: [
+        {
+          platform: 'google',
+          connected: true,
+          connectionType: 'signin',
+          scopeType: 'global',
+        },
+        {
+          platform: 'microsoft',
+          connected: true,
+          connectionType: 'signin',
+          scopeType: 'global',
+        },
+      ],
+    });
+  });
+});
+
+describe('mapConnectedSourcesToLinkSources', () => {
+  it('should preserve scope metadata', () => {
+    expect(
+      mapConnectedSourcesToLinkSources([
+        {
+          platform: 'maxpreps',
+          profileUrl: 'https://maxpreps.com/team',
+          scopeType: 'team',
+          scopeId: 'team-1',
+        },
+      ])
+    ).toEqual([
+      {
+        platform: 'maxpreps',
+        connected: true,
+        connectionType: 'link',
+        url: 'https://maxpreps.com/team',
+        scopeType: 'team',
+        scopeId: 'team-1',
+      },
+    ]);
+  });
+});
+
+describe('mapFirebaseProvidersToLinkSources', () => {
+  it('should map supported firebase providers to sign-in links', () => {
+    expect(
+      mapFirebaseProvidersToLinkSources([
+        { providerId: 'google.com' },
+        { providerId: 'microsoft.com' },
+        { providerId: 'password' },
+      ])
+    ).toEqual([
+      {
+        platform: 'google',
+        connected: true,
+        connectionType: 'signin',
+        scopeType: 'global',
+      },
+      {
+        platform: 'microsoft',
+        connected: true,
+        connectionType: 'signin',
+        scopeType: 'global',
+      },
+    ]);
+  });
+});
+
+describe('mapConnectedEmailsToLinkSources', () => {
+  it('should skip inactive emails and already-connected firebase providers', () => {
+    expect(
+      mapConnectedEmailsToLinkSources(
+        [
+          { provider: 'gmail', isActive: true },
+          { provider: 'microsoft', isActive: false },
+          { provider: 'microsoft', isActive: true },
+        ],
+        ['google']
+      )
+    ).toEqual([
+      {
+        platform: 'microsoft',
+        connected: true,
+        connectionType: 'signin',
+        scopeType: 'global',
+      },
+    ]);
+  });
+});
+
+describe('mergeLinkSources', () => {
+  it('should preserve separate sign-in and link entries for the same platform', () => {
+    expect(
+      mergeLinkSources(
+        [
+          {
+            platform: 'google',
+            connected: true,
+            connectionType: 'signin',
+            scopeType: 'global',
+          },
+        ],
+        [
+          {
+            platform: 'google',
+            connected: true,
+            connectionType: 'link',
+            url: 'https://google.com/profile',
+            scopeType: 'global',
+          },
+        ]
+      )
+    ).toEqual([
+      {
+        platform: 'google',
+        connected: true,
+        connectionType: 'signin',
+        scopeType: 'global',
+      },
+      {
+        platform: 'google',
+        connected: true,
+        connectionType: 'link',
+        url: 'https://google.com/profile',
+        scopeType: 'global',
+      },
+    ]);
   });
 });

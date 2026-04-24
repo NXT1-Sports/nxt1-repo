@@ -22,26 +22,26 @@ import type {
   ProfileHeaderAction,
   ProfileUser,
 } from './profile.types';
-import type { VerificationScope } from '../models/user.model';
+import type { VerificationScope } from '../models/user';
 
 // ============================================
 // TAB CONFIGURATION
 // ============================================
 
 /**
- * Profile content tabs — 3-tab Intelligence Dossier layout.
+ * Profile content tabs — 3-tab layout: Timeline / Intel / Connect.
  * Order determines display order in tab bar.
  */
 export const PROFILE_TABS: readonly ProfileTab[] = [
   {
-    id: 'intel',
-    label: 'Intel',
-    icon: 'radar',
-  },
-  {
     id: 'timeline',
     label: 'Timeline',
     icon: 'newspaper',
+  },
+  {
+    id: 'intel',
+    label: 'Intel',
+    icon: 'radar',
   },
   {
     id: 'connect',
@@ -52,9 +52,9 @@ export const PROFILE_TABS: readonly ProfileTab[] = [
 
 /**
  * Default selected tab.
- * 'intel' provides the Agent X intelligence brief on first load.
+ * 'timeline' shows the activity feed on first load.
  */
-export const PROFILE_DEFAULT_TAB: ProfileTabId = 'intel';
+export const PROFILE_DEFAULT_TAB: ProfileTabId = 'timeline';
 
 // ============================================
 // ROLE-AWARE TAB HELPERS (Source of Truth)
@@ -63,7 +63,7 @@ export const PROFILE_DEFAULT_TAB: ProfileTabId = 'intel';
 /**
  * Returns profile tabs filtered for the given user.
  *
- * With the consolidated 3-tab layout (Intel / Timeline / Connect),
+ * With the consolidated 3-tab layout (Timeline / Intel / Connect),
  * all tabs are visible to all roles. This function remains as the
  * public API for consumers and future role-based filtering.
  *
@@ -103,11 +103,30 @@ const TAB_SCOPES: Readonly<Record<string, readonly VerificationScope[]>> = {
 };
 
 const INTEL_SIDE_TAB_SCOPES: Readonly<Record<string, readonly VerificationScope[]>> = {
+  // ── Legacy section IDs (kept for backwards-compat during transition) ──
+  overview: ['measurables'],
+  highlights: ['stats'],
+  recruiting: ['recruiting'],
+  media: ['measurables'],
   'player-profile': ['measurables'],
   'player-info': ['measurables'],
   'player-history': ['recruiting'],
   awards: ['stats'],
   academic: ['academics'],
+
+  // ── New Agent X Intel report section IDs ──
+  agent_x_brief: ['measurables', 'stats'],
+  athletic_measurements: ['measurables'],
+  season_stats: ['stats'],
+  academic_profile: ['academics'],
+  recruiting_activity: ['recruiting'],
+  awards_honors: ['stats'],
+  // ── Team-specific section IDs ──
+  season_record: [],
+  team_stats: ['stats'],
+  season_history: [],
+  schedule: [],
+  recruiting_board: ['recruiting'],
 };
 
 const CONNECT_SIDE_TAB_SCOPES: Readonly<Record<string, readonly VerificationScope[]>> = {
@@ -173,18 +192,11 @@ export const PROFILE_TIMELINE_FILTERS: readonly ProfileTimelineFilter[] = [
     emptyMessage: 'Share photos and videos to showcase your talent',
   },
   {
-    id: 'offers',
-    label: 'Offers',
-    icon: 'trophy',
-    emptyTitle: 'No offers yet',
-    emptyMessage: 'Recruiting offers and interest will appear here',
-  },
-  {
-    id: 'events',
-    label: 'Events',
-    icon: 'calendar',
-    emptyTitle: 'No events yet',
-    emptyMessage: 'Visits, camps, and showcases will appear here',
+    id: 'metrics',
+    label: 'Metrics',
+    icon: 'body',
+    emptyTitle: 'No metrics yet',
+    emptyMessage: 'Combine results and physical measurements will appear here',
   },
   {
     id: 'stats',
@@ -192,6 +204,34 @@ export const PROFILE_TIMELINE_FILTERS: readonly ProfileTimelineFilter[] = [
     icon: 'stats-chart',
     emptyTitle: 'No stat updates',
     emptyMessage: 'Game stats and performance updates will appear here',
+  },
+  {
+    id: 'awards',
+    label: 'Awards',
+    icon: 'ribbon',
+    emptyTitle: 'No awards yet',
+    emptyMessage: 'Rankings, honors, and recognition will appear here',
+  },
+  {
+    id: 'recruiting',
+    label: 'Recruiting',
+    icon: 'trophy',
+    emptyTitle: 'No recruiting activity yet',
+    emptyMessage: 'Recruiting offers and interest will appear here',
+  },
+  {
+    id: 'schedule',
+    label: 'Schedule',
+    icon: 'calendar-outline',
+    emptyTitle: 'No schedule yet',
+    emptyMessage: 'Games, practices, and events will appear here',
+  },
+  {
+    id: 'events',
+    label: 'Events',
+    icon: 'calendar',
+    emptyTitle: 'No events yet',
+    emptyMessage: 'Visits, camps, and showcases will appear here',
   },
   {
     id: 'news',
@@ -218,7 +258,6 @@ export const PROFILE_POST_TYPE_ICONS: Record<ProfilePostType, string> = {
   video: 'videocam',
   image: 'image',
   text: 'document-text',
-  highlight: 'star',
   news: 'newspaper',
   stat: 'stats-chart',
   offer: 'trophy',
@@ -231,7 +270,7 @@ export const PROFILE_POST_TYPE_LABELS: Record<ProfilePostType, string> = {
   video: 'Video',
   image: 'Photo',
   text: 'Post',
-  highlight: 'Highlight',
+
   news: 'News',
   stat: 'Stat Update',
   offer: 'Offer',
@@ -497,8 +536,6 @@ export const PROFILE_UI_CONFIG = {
 export const PROFILE_CACHE_KEYS = {
   /** Profile data keyed by userId — MEDIUM_TTL (15 min) */
   BY_ID: 'user:profile:',
-  /** Profile data keyed by username — MEDIUM_TTL (15 min) */
-  BY_USERNAME: 'user:profile:username:',
   /** Profile data keyed by unicode — MEDIUM_TTL (15 min) */
   BY_UNICODE: 'user:profile:unicode:',
   /** Full-text / filtered profile search results — SEARCH TTL (15 min) */

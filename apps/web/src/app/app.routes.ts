@@ -7,7 +7,8 @@ import { type Routes, type CanMatchFn, type UrlSegment } from '@angular/router';
  */
 const rejectFileExtensionSlugs: CanMatchFn = (_route, segments: UrlSegment[]) => {
   const slug = segments[1]?.path ?? '';
-  return !slug.includes('.');
+  const teamCode = segments[2]?.path ?? '';
+  return !slug.includes('.') && !teamCode.includes('.');
 };
 
 /**
@@ -51,29 +52,8 @@ export const routes: Routes = [
   },
 
   // ============================================
-  // PUBLIC PROFILE & EXPLORE (SEO-Critical)
+  // AUTHENTICATION (No layout wrapper)
   // ============================================
-
-  /**
-   * Public Profile Pages
-   * SEO-critical: Used for recruiting, social sharing
-   * Example: nxt1sports.com/profile/john-doe-2026
-   * NOTE: param name must be ':param' to match routeParam() in profile.component.ts
-   */
-  {
-    path: 'profile/:param',
-    loadComponent: () =>
-      import('./features/profile/profile.component').then((m) => m.ProfileComponent),
-  },
-
-  // Team Pages — redirects to shell-wrapped route
-  // The actual team route lives inside WebShellComponent children
-  // so it gets the sidebar, top nav, and full app shell.
-  // This top-level redirect handles direct /team/:slug links.
-  // {
-  //   path: 'team/:slug',
-  //   redirectTo: 'team/:slug',  // handled by child route below
-  // },
 
   // Authentication Routes (Public - no layout wrapper)
   {
@@ -102,19 +82,6 @@ export const routes: Routes = [
         redirectTo: 'agent',
       },
 
-      // Home → Explore redirect (backward compatibility)
-      {
-        path: 'home',
-        redirectTo: 'explore',
-        pathMatch: 'full',
-      },
-
-      // Explore - Unified Discovery & Feed Hub
-      {
-        path: 'explore',
-        loadChildren: () => import('./features/explore/explore.routes'),
-      },
-
       // Messages - User Messages & Conversations
       {
         path: 'messages',
@@ -135,18 +102,6 @@ export const routes: Routes = [
       {
         path: 'activity',
         loadChildren: () => import('./features/activity/activity.routes'),
-      },
-
-      // Pulse - Sports Recruiting News Feed
-      {
-        path: 'pulse',
-        loadChildren: () => import('./features/pulse/pulse.routes'),
-      },
-
-      // Legacy /news redirect → /pulse
-      {
-        path: 'news',
-        redirectTo: 'pulse',
       },
 
       // Profile - User's own profile (authenticated view)
@@ -177,15 +132,22 @@ export const routes: Routes = [
         path: 'usage',
         loadChildren: () => import('./features/usage/usage.routes'),
       },
+      // Pulse - Sports News Feed
+      {
+        path: 'pulse',
+        loadChildren: () => import('./features/pulse/pulse.routes').then((m) => m.PULSE_ROUTES),
+      },
+
       // NIL - NIL & Monetization campaign page
       {
         path: 'nil',
         loadChildren: () => import('./marketing/nil/nil.routes'),
       },
 
-      // Team Profile - Public Team Pages (with shell)
+      // Team Profile - Public Team Pages (strict canonical route)
+      // Canonical URL: /team/:slug/:teamCode (e.g. /team/akron-buchtel/57L791)
       {
-        path: 'team/:slug',
+        path: 'team/:slug/:teamCode',
         canMatch: [rejectFileExtensionSlugs],
         loadChildren: () => import('./features/team/team.routes').then((m) => m.TEAM_ROUTES),
       },

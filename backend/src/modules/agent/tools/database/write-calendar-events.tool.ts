@@ -1,44 +1,65 @@
 /**
- * @fileoverview Write Calendar Events Tool — Atomic writer for schedule/game events
+ * @fileoverview Write Calendar Events Tool — Atomic writer for exposure events (camps, combines, showcases)
  * @module @nxt1/backend/modules/agent/tools/database
  *
- * Writes distilled schedule events (games, practices, camps, tryouts, etc.)
+ * Writes EXPOSURE events only (camps, combines, showcases, tournaments, tryouts)
  * to the top-level `Events` collection.
  *
- * Each document: { userId, ownerType: 'user', eventType, title, date, ... }
- * Queried by the profile API: GET /api/v1/auth/profile/:userId/schedule
+ * ⚡ Competitive events (games, scrimmages, practices, playoffs) must use
+ *    `write_schedule` which writes to the `Schedule` collection instead.
  *
- * Deduplicates by (userId + date + opponent + sport) so repeated scrapes
- * don't create duplicate game entries.
+ * Each document: { userId, ownerType: 'user', eventType, title, date, ... }
+ * Queried by the profile API: GET /api/v1/auth/profile/:userId/events
+ *
+ * Deduplicates by (userId + date + sport + eventType).
  */
 
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
-import { getCacheService } from '../../../../services/cache.service.js';
-import { CACHE_KEYS as USER_CACHE_KEYS } from '../../../../services/users.service.js';
-import { invalidateProfileCaches } from '../../../../routes/profile.routes.js';
+import { getCacheService } from '../../../../services/core/cache.service.js';
+import {
+  createProfileWriteAccessService,
+  resolveAuthorizedTargetSportSelection,
+} from '../../../../services/profile/profile-write-access.service.js';
+import { CACHE_KEYS as USER_CACHE_KEYS } from '../../../../services/profile/users.service.js';
+import { invalidateProfileCaches } from '../../../../routes/profile/shared.js';
 import { SyncDiffService, type PreviousScheduleEntry } from '../../sync/index.js';
+import { getAnalyticsLoggerService } from '../../../../services/core/analytics-logger.service.js';
 import { onDailySyncComplete } from '../../triggers/trigger.listeners.js';
 import { logger } from '../../../../utils/logger.js';
 import { normalizeOpponentName } from './dedup-utils.js';
+import { resolveCreatedAt } from './doc-date-utils.js';
+import { z } from 'zod';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
 const EVENTS_COLLECTION = 'Events';
-const USERS_COLLECTION = 'Users';
 const MAX_EVENTS = 200;
 
-const VALID_EVENT_TYPES = new Set([
-  'game',
-  'practice',
-  'scrimmage',
-  'camp',
-  'tryout',
-  'combine',
-  'showcase',
-  'tournament',
-  'other',
-]);
+const VALID_EVENT_TYPES = new Set(['camp', 'combine', 'showcase', 'tournament', 'tryout', 'other']);
+
+const CalendarEventEntrySchema = z
+  .object({
+    eventType: z.string().trim().min(1).optional(),
+    title: z.string().trim().min(1).optional(),
+    description: z.string().trim().min(1).optional(),
+    date: z.string().trim().min(1).optional(),
+    endDate: z.string().trim().min(1).optional(),
+    location: z.string().trim().min(1).optional(),
+    opponent: z.string().trim().min(1).optional(),
+    result: z.string().trim().min(1).optional(),
+    outcome: z.enum(['win', 'loss', 'draw']).optional(),
+  })
+  .passthrough();
+
+const WriteCalendarEventsInputSchema = z.object({
+  userId: z.string().trim().min(1),
+  targetSport: z.string().trim().min(1),
+  source: z.string().trim().min(1),
+  sourceUrl: z.string().trim().min(1).optional(),
+  profileUrl: z.string().trim().min(1).optional(),
+  events: z.array(CalendarEventEntrySchema).min(1).max(MAX_EVENTS),
+});
 
 // ─── Tool ───────────────────────────────────────────────────────────────────
 
@@ -46,14 +67,17 @@ export class WriteCalendarEventsTool extends BaseTool {
   readonly name = 'write_calendar_events';
 
   readonly description =
-    'Writes schedule/game events to the Events collection.\n\n' +
-    'Call this after reading the "schedule" section via read_distilled_section.\n\n' +
+    'Writes EXPOSURE events (camps, combines, showcases, tournaments, tryouts) to the Events collection.\n\n' +
+    '⚡ Do NOT use for competitive events (games, scrimmages, practices, playoffs) — use write_schedule instead.\n\n' +
+    'Call this after reading the "events" or "camps" section via read_distilled_section.\n\n' +
     'Parameters:\n' +
     '- userId (required): Firebase UID.\n' +
     '- targetSport (required): Sport key (e.g. "football").\n' +
     '- source (required): Platform slug (e.g. "maxpreps").\n' +
-    '- events (required): Array of event objects:\n' +
-    '  • eventType (required): "game", "practice", "scrimmage", "camp", "tryout", "combine", "showcase", "tournament", or "other".\n' +
+    '- sourceUrl (optional): The URL that was scraped to extract this data.\n' +
+    '- profileUrl (optional): The athlete profile URL on the source platform.\n' +
+    '- events (required): Array of exposure event objects:\n' +
+    '  • eventType (required): "camp", "combine", "showcase", "tournament", "tryout", or "other".\n' +
     '  • title (optional): Event title / summary.\n' +
     '  • description (optional): Additional details.\n' +
     '  • date (required): ISO date string (event start).\n' +
@@ -63,51 +87,13 @@ export class WriteCalendarEventsTool extends BaseTool {
     '  • result (optional): Score result string (e.g. "W 3-1").\n' +
     '  • outcome (optional): "win", "loss", or "draw".';
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      userId: { type: 'string' },
-      targetSport: { type: 'string' },
-      source: { type: 'string' },
-      events: {
-        type: 'array',
-        items: {
-          type: 'object',
-          properties: {
-            eventType: {
-              type: 'string',
-              enum: [
-                'game',
-                'practice',
-                'scrimmage',
-                'camp',
-                'tryout',
-                'combine',
-                'showcase',
-                'tournament',
-                'other',
-              ],
-            },
-            title: { type: 'string' },
-            description: { type: 'string' },
-            date: { type: 'string' },
-            endDate: { type: 'string' },
-            location: { type: 'string' },
-            opponent: { type: 'string' },
-            result: { type: 'string' },
-            outcome: { type: 'string', enum: ['win', 'loss', 'draw'] },
-          },
-          required: ['eventType', 'date'],
-        },
-      },
-    },
-    required: ['userId', 'targetSport', 'source', 'events'],
-  } as const;
+  readonly parameters = WriteCalendarEventsInputSchema;
 
   override readonly allowedAgents = ['data_coordinator', 'performance_coordinator'] as const;
   readonly isMutation = true;
   readonly category = 'database' as const;
 
+  readonly entityGroup = 'team_tools' as const;
   private readonly db: Firestore;
 
   constructor(db?: Firestore) {
@@ -119,33 +105,38 @@ export class WriteCalendarEventsTool extends BaseTool {
     input: Record<string, unknown>,
     context?: ToolExecutionContext
   ): Promise<ToolResult> {
-    const userId = this.str(input, 'userId');
-    if (!userId) return this.paramError('userId');
-    const targetSport = this.str(input, 'targetSport');
-    if (!targetSport) return this.paramError('targetSport');
-    const source = this.str(input, 'source');
-    if (!source) return this.paramError('source');
+    const parsed = WriteCalendarEventsInputSchema.safeParse(input);
+    if (!parsed.success) return this.zodError(parsed.error);
 
-    const events = input['events'];
-    if (!Array.isArray(events) || events.length === 0) {
-      return { success: false, error: 'events must be a non-empty array.' };
-    }
-    if (events.length > MAX_EVENTS) {
-      return { success: false, error: `events exceeds maximum of ${MAX_EVENTS}.` };
-    }
+    const { userId, targetSport, source, events } = parsed.data;
+    const sourceUrl = parsed.data.sourceUrl ?? parsed.data.profileUrl;
 
-    // Validate user exists
-    const userDoc = await this.db.collection(USERS_COLLECTION).doc(userId).get();
-    if (!userDoc.exists) {
-      return { success: false, error: `User "${userId}" not found.` };
+    if (!context?.userId) {
+      return { success: false, error: 'Authenticated tool context is required.' };
     }
-    const userData = userDoc.data() as Record<string, unknown>;
 
     try {
+      const accessGrant = await createProfileWriteAccessService(
+        this.db
+      ).assertCanManageAthleteProfileTarget({
+        actorUserId: context.userId,
+        targetUserId: userId,
+        action: 'tool:write_calendar_events',
+      });
+      const userData = accessGrant.targetUserData;
       const sportId = targetSport.trim().toLowerCase();
+      if (
+        !accessGrant.isSelfWrite &&
+        !resolveAuthorizedTargetSportSelection(userData, sportId, accessGrant)
+      ) {
+        return { success: false, error: 'Not authorized to write calendar events for this sport.' };
+      }
       const now = new Date().toISOString();
 
-      context?.onProgress?.('Checking for duplicate schedule events…');
+      context?.emitStage?.('fetching_data', {
+        icon: 'database',
+        phase: 'check_duplicate_events',
+      });
 
       // Fetch existing events for dedup
       const existingSnap = await this.db
@@ -199,9 +190,13 @@ export class WriteCalendarEventsTool extends BaseTool {
           date,
           source,
           verified: false,
-          createdAt: now,
+          // Data lineage
+          provider: source,
+          extractedAt: now,
+          createdAt: resolveCreatedAt(undefined, date, now),
           updatedAt: now,
         };
+        if (sourceUrl) record['sourceUrl'] = sourceUrl;
 
         // Optional fields
         const optionalFields = [
@@ -239,7 +234,11 @@ export class WriteCalendarEventsTool extends BaseTool {
       }
 
       if (written > 0) {
-        context?.onProgress?.(`Writing ${written} event(s) to database…`);
+        context?.emitStage?.('submitting_job', {
+          icon: 'database',
+          eventCount: written,
+          phase: 'write_calendar_events',
+        });
         await batch.commit();
       }
 
@@ -252,7 +251,6 @@ export class WriteCalendarEventsTool extends BaseTool {
           cache.del(`profile:sub:schedule:${userId}`),
           invalidateProfileCaches(
             userId,
-            typeof userData['username'] === 'string' ? userData['username'] : undefined,
             typeof userData['unicode'] === 'string' ? userData['unicode'] : null
           ),
         ]);
@@ -274,6 +272,7 @@ export class WriteCalendarEventsTool extends BaseTool {
                 const ev = e as Record<string, unknown>;
                 return {
                   date: String(ev['date'] ?? ''),
+                  eventType: typeof ev['eventType'] === 'string' ? ev['eventType'] : undefined,
                   opponent: typeof ev['opponent'] === 'string' ? ev['opponent'] : undefined,
                   location: typeof ev['location'] === 'string' ? ev['location'] : undefined,
                   result: typeof ev['result'] === 'string' ? ev['result'] : undefined,
@@ -310,6 +309,28 @@ export class WriteCalendarEventsTool extends BaseTool {
             error: err instanceof Error ? err.message : String(err),
           });
         }
+      }
+
+      if (written > 0) {
+        await getAnalyticsLoggerService().safeTrack({
+          subjectId: userId,
+          subjectType: 'user',
+          domain: 'system',
+          eventType: 'tool_write_completed',
+          source: accessGrant.isSelfWrite ? 'user' : 'agent',
+          actorUserId: context.userId,
+          value: written,
+          tags: ['schedule', sportId, source],
+          payload: {
+            toolName: this.name,
+            sportId,
+            eventsWritten: written,
+            eventsSkipped: skipped,
+          },
+          metadata: {
+            initiatedBy: 'write-calendar-events',
+          },
+        });
       }
 
       return {

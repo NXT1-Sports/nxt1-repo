@@ -22,7 +22,7 @@ import { USAGE_TEST_IDS } from '@nxt1/core/testing';
   template: `
     <section class="usage-breakdown" [attr.data-testid]="testIds.BREAKDOWN_SECTION">
       <div class="section-header">
-        <p class="section-subtitle">Usage for {{ periodLabel() }}.</p>
+        <p class="section-subtitle">Usage from {{ periodLabel() }}.</p>
         <div class="timeframe-select">
           <select
             [value]="timeframe()"

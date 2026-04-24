@@ -23,9 +23,8 @@ import {
   viewChild,
 } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
-import { IonContent, IonSpinner, ModalController } from '@ionic/angular/standalone';
+import { IonSpinner, ModalController } from '@ionic/angular/standalone';
 import { NxtModalService } from '../services/modal';
-import { NxtPickerService } from '../components/picker';
 import {
   BrowserGeolocationAdapter,
   CachedGeocodingAdapter,
@@ -45,6 +44,7 @@ import { NxtListSectionComponent } from '../components/list-section';
 import { NxtListRowComponent } from '../components/list-row';
 import {
   ConnectedAccountsModalService,
+  ConnectedAccountsResyncService,
   type ConnectedSource,
 } from '../components/connected-sources';
 import {
@@ -62,14 +62,16 @@ import { NxtBreadcrumbService } from '../services/breadcrumb/breadcrumb.service'
 import { ANALYTICS_ADAPTER } from '../services/analytics/analytics-adapter.token';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import {
-  getPositionGroupsForSport,
   TEAM_TYPE_CONFIGS,
+  buildLinkSourcesFormData,
+  mapToConnectedSources,
   titleCase,
   type InboxEmailProvider,
 } from '@nxt1/core';
 import { NxtSearchBarComponent } from '../components/search-bar';
 import { HapticButtonDirective } from '../services/haptics';
 import type { SearchTeamsFn, TeamSearchResult } from '../onboarding';
+import { normalizeImageFileForUpload } from '../services/media/image-normalization';
 
 const MAX_GALLERY_IMAGES = 8;
 const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
@@ -121,7 +123,6 @@ const PROGRAM_TYPE_SUFFIX_PATTERNS: Readonly<Record<DraftProgramType, readonly R
   selector: 'nxt1-edit-profile-shell',
   standalone: true,
   imports: [
-    IonContent,
     IonSpinner,
     EditProfileSkeletonComponent,
     NxtSheetHeaderComponent,
@@ -184,7 +185,7 @@ const PROGRAM_TYPE_SUFFIX_PATTERNS: Readonly<Record<DraftProgramType, readonly R
       }
     }
 
-    <ion-content class="nxt1-edit-content">
+    <div class="nxt1-edit-content">
       @if (profile.isLoading()) {
         <nxt1-edit-profile-skeleton />
       } @else if (profile.error()) {
@@ -246,7 +247,7 @@ const PROGRAM_TYPE_SUFFIX_PATTERNS: Readonly<Record<DraftProgramType, readonly R
                 <span
                   class="nxt1-list-value nxt1-list-bio"
                   [class.nxt1-list-placeholder]="!form.basicInfo.bio"
-                  >{{ form.basicInfo.bio || 'Tell coaches about yourself' }}</span
+                  >{{ form.basicInfo.bio || 'Tell Agent X about yourself' }}</span
                 >
               </nxt1-list-row>
               <nxt1-list-row label="Location" (tap)="editLocation()">
@@ -276,20 +277,6 @@ const PROGRAM_TYPE_SUFFIX_PATTERNS: Readonly<Record<DraftProgramType, readonly R
             <div class="nxt1-ep-sections" [class.nxt1-ep-right-col]="webLayout">
               <!-- Sports info -->
               <nxt1-list-section header="Sports info">
-                <nxt1-list-row label="Position" (tap)="editPosition()">
-                  <span
-                    class="nxt1-list-value capitalize"
-                    [class.nxt1-list-placeholder]="selectedPositions().length === 0"
-                    >{{ positionDisplay() || 'Select position' }}</span
-                  >
-                </nxt1-list-row>
-                <nxt1-list-row label="Jersey" (tap)="editJersey()">
-                  <span
-                    class="nxt1-list-value"
-                    [class.nxt1-list-placeholder]="!form.sportsInfo.jerseyNumber"
-                    >{{ form.sportsInfo.jerseyNumber || 'Add jersey number' }}</span
-                  >
-                </nxt1-list-row>
                 <nxt1-list-row label="Program" (tap)="toggleProgramSearch()">
                   <span
                     class="nxt1-list-value"
@@ -304,18 +291,9 @@ const PROGRAM_TYPE_SUFFIX_PATTERNS: Readonly<Record<DraftProgramType, readonly R
                     <!-- Currently selected team -->
                     @if (form.sportsInfo.teamName) {
                       <div class="nxt1-program-selected">
-                        @if (form.sportsInfo.teamLogoUrl) {
-                          <img
-                            [src]="form.sportsInfo.teamLogoUrl"
-                            [alt]="form.sportsInfo.teamName"
-                            class="nxt1-program-logo"
-                            loading="lazy"
-                          />
-                        } @else {
-                          <div class="nxt1-program-logo-placeholder">
-                            {{ getTeamInitial(form.sportsInfo.teamName) }}
-                          </div>
-                        }
+                        <div class="nxt1-program-logo-placeholder">
+                          {{ getTeamInitial(form.sportsInfo.teamName) }}
+                        </div>
                         <div class="nxt1-program-selected-info">
                           <span class="nxt1-program-selected-name">{{
                             form.sportsInfo.teamName
@@ -435,9 +413,14 @@ const PROGRAM_TYPE_SUFFIX_PATTERNS: Readonly<Record<DraftProgramType, readonly R
                     }
                   </div>
                 }
+                <nxt1-list-row label="Jersey #" (tap)="editJerseyNumber()">
+                  <span
+                    class="nxt1-list-value"
+                    [class.nxt1-list-placeholder]="!form.sportsInfo.jerseyNumber"
+                    >{{ form.sportsInfo.jerseyNumber || 'Add jersey number' }}</span
+                  >
+                </nxt1-list-row>
               </nxt1-list-section>
-
-              <!-- Physical -->
               <nxt1-list-section header="Physical">
                 <nxt1-list-row
                   label="Height"
@@ -502,7 +485,7 @@ const PROGRAM_TYPE_SUFFIX_PATTERNS: Readonly<Record<DraftProgramType, readonly R
           </div>
         </div>
       }
-    </ion-content>
+    </div>
   `,
   styles: [
     `
@@ -593,7 +576,11 @@ const PROGRAM_TYPE_SUFFIX_PATTERNS: Readonly<Record<DraftProgramType, readonly R
          CONTENT AREA
          ============================================ */
       .nxt1-edit-content {
-        flex: 1;
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow-y: auto;
+        overflow-x: hidden;
+        -webkit-overflow-scrolling: touch;
       }
 
       .nxt1-edit-body {
@@ -932,6 +919,13 @@ const PROGRAM_TYPE_SUFFIX_PATTERNS: Readonly<Record<DraftProgramType, readonly R
         flex-direction: column;
         gap: var(--nxt1-spacing-4);
       }
+
+      @media (max-width: 767px) {
+        .nxt1-ep-two-col {
+          grid-template-columns: 1fr;
+          gap: var(--nxt1-spacing-4);
+        }
+      }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -991,9 +985,9 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
 
   protected readonly imageInputRef = viewChild<ElementRef<HTMLInputElement>>('imageInput');
   private readonly nxtModal = inject(NxtModalService);
-  private readonly picker = inject(NxtPickerService);
   private readonly bottomSheet = inject(NxtBottomSheetService);
   private readonly connectedAccountsModal = inject(ConnectedAccountsModalService);
+  private readonly connectedAccountsResync = inject(ConnectedAccountsResyncService);
 
   protected readonly isDetectingLocation = signal(false);
   protected readonly maxGalleryImages = MAX_GALLERY_IMAGES;
@@ -1017,102 +1011,22 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
       this.logger.info('📊 [Edit Profile] FormData changed', {
         hasData: !!data,
         sport: data?.sportsInfo?.sport,
-        jerseyNumber: data?.sportsInfo?.jerseyNumber,
-        primaryPosition: data?.sportsInfo?.primaryPosition,
-        secondaryPositions: data?.sportsInfo?.secondaryPositions,
         activeSportIndex,
         allSportsCount: allSports?.length,
-        allSportsData: allSports?.map(
-          (s: { sport: string; jerseyNumber?: string; positions?: string[] }, i: number) => ({
-            index: i,
-            sport: s.sport,
-            jerseyNumber: s.jerseyNumber,
-            positions: s.positions,
-          })
-        ),
       });
     });
   }
 
-  /**
-   * Position options for the selected sport.
-   * Dynamically computed based on the primary sport in the form data.
-   */
-  protected readonly positionOptions = computed<readonly string[]>(() => {
-    const data = this.profile.formData();
-    const activeSportIndex = this.profile.activeSportIndex();
-    const allSports = this.profile.allSports();
-
-    // Try to get sport from formData first (when loaded)
-    let sport = data?.sportsInfo?.sport;
-
-    // Fallback: Get sport from rawUserData if formData not ready yet
-    if (!sport && allSports && allSports[activeSportIndex]) {
-      sport = allSports[activeSportIndex].sport;
-    }
-
-    this.logger.info('🔍 Computing position options', {
-      hasData: !!data,
-      rawSport: sport,
-      activeSportIndex,
-      totalSports: allSports?.length,
-      allSportsNames: allSports?.map((s: { sport: string }) => s.sport),
-      jerseyNumber: data?.sportsInfo?.jerseyNumber,
-      primaryPosition: data?.sportsInfo?.primaryPosition,
-      sportsInfoFull: data?.sportsInfo,
-      fallbackSport: !data ? allSports?.[activeSportIndex]?.sport : null,
-    });
-
-    // Fallback to Football if no sport is set (temporary for debugging)
-    const sportToUse = sport || 'Football';
-
-    if (!sport) {
-      this.logger.warn('⚠️ No sport found - defaulting to Football', {
-        hasFormData: !!data,
-        hasRawUser: !!allSports?.length,
-        activeSportIndex,
-      });
-    }
-
-    const positionGroups = getPositionGroupsForSport(sportToUse);
-    const positions = positionGroups.flatMap((group) => group.positions);
-
-    this.logger.info('✅ Position groups loaded', {
-      rawSport: sport,
-      sportToUse,
-      normalizedSport: sportToUse.toLowerCase().replace(/\s+/g, '_'),
-      groupCount: positionGroups.length,
-      totalPositions: positions.length,
-      firstFewPositions: positions.slice(0, 5),
-      allGroups: positionGroups.map((g) => ({
-        category: g.category,
-        count: g.positions.length,
-      })),
-    });
-
-    if (positions.length === 0) {
-      this.logger.error('❌ No positions found for sport', {
-        sport,
-        sportToUse,
-        positionGroups,
-      });
-    }
-
-    return positions;
-  });
-
   /** Fields whose values originate from a verified external source (e.g. MaxPreps, Rivals). */
   protected readonly verifiedFields = computed<ReadonlySet<string>>(() => {
     const raw = this.profile.rawUserData();
-    if (!raw?.sports) return new Set<string>();
-    const sportIdx = this.profile.activeSportIndex();
-    const sport = raw.sports[sportIdx];
-    if (!sport?.verifications?.length) return new Set<string>();
-    const scopes = new Set((sport.verifications as { scope: string }[]).map((v) => v.scope));
+    const measurables = raw?.measurables as
+      | Array<{ field: string; verified?: boolean }>
+      | undefined;
+    if (!measurables?.length) return new Set<string>();
     const fields = new Set<string>();
-    if (scopes.has('measurables')) {
-      fields.add('height');
-      fields.add('weight');
+    for (const m of measurables) {
+      if (m.verified) fields.add(m.field);
     }
     return fields;
   });
@@ -1133,24 +1047,10 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
     return (data.photos.profileImgs ?? []).filter((image): image is string => !!image);
   });
 
-  protected readonly selectedPositions = computed<readonly string[]>(() => {
-    const data = this.profile.formData();
-    if (!data) return [];
-
-    return [data.sportsInfo.primaryPosition, ...(data.sportsInfo.secondaryPositions ?? [])].filter(
-      (value): value is string => !!value
-    );
-  });
-
   protected readonly displayName = computed(() => {
     const data = this.profile.formData();
     if (!data) return '';
     return [data.basicInfo.firstName, data.basicInfo.lastName].filter(Boolean).join(' ');
-  });
-
-  protected readonly positionDisplay = computed(() => {
-    const positions = this.selectedPositions();
-    return positions.length > 0 ? positions.join(', ') : '';
   });
 
   protected readonly programDisplay = computed(() => {
@@ -1169,22 +1069,24 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
   });
 
   protected readonly connectedSources = computed<readonly ConnectedSource[]>(() => {
-    const data = this.profile.formData();
-    const links = data?.socialLinks?.links ?? [];
+    const sources = this.profile.rawUserData()?.connectedSources ?? [];
 
     // Use PLATFORM_REGISTRY to show all available platforms (global scope)
     const globalPlatforms = PLATFORM_REGISTRY.filter((p) => p.scope === 'global');
 
     return globalPlatforms.map((platform) => {
-      const match = links.find((l) => l.platform === platform.platform);
-      if (match?.url) {
+      const match = sources.find(
+        (source: ConnectedSource) =>
+          source.platform === platform.platform &&
+          (source.scopeType === undefined || source.scopeType === 'global')
+      );
+      if (match?.profileUrl) {
         return {
           platform: platform.platform,
           label: platform.label,
           icon: platform.icon as IconName,
           connected: true,
-          username: match.username,
-          url: match.url,
+          url: match.profileUrl,
           connectionType: platform.connectionType,
           faviconUrl: getPlatformFaviconUrl(platform.platform) ?? undefined,
         };
@@ -1206,7 +1108,7 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
   >(() => {
     const data = this.profile.formData();
     const rawUser = this.profile.rawUserData();
-    const links = data?.socialLinks?.links ?? [];
+    const sources = rawUser?.connectedSources ?? [];
     const sport = data?.sportsInfo?.sport;
     const userType = rawUser?.userType; // 'athlete' | 'coach' | 'director' | 'fan'
 
@@ -1238,20 +1140,20 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
 
     // Helper to convert platform to ConnectedSource (handles scoped link lookup)
     const toSource = (platform: (typeof PLATFORM_REGISTRY)[0]): ConnectedSource => {
-      const match = links.find((l) => {
-        if (l.platform !== platform.platform) return false;
+      const match = sources.find((source: ConnectedSource) => {
+        if (source.platform !== platform.platform) return false;
+        const scopeType = source.scopeType ?? 'global';
         if (platform.scope === 'sport') {
-          return l.scopeType === 'sport' && l.scopeId === sportKey;
+          return scopeType === 'sport' && source.scopeId === sportKey;
         }
-        return !l.scopeType || l.scopeType === 'global';
+        return scopeType === 'global';
       });
       return {
         platform: platform.platform,
         label: platform.label,
         icon: platform.icon as IconName,
-        connected: !!match?.url,
-        username: match?.username,
-        url: match?.url,
+        connected: !!match?.profileUrl,
+        url: match?.profileUrl,
         connectionType: platform.connectionType,
         scopeType: platform.scope,
         scopeId: platform.scope === 'sport' ? (sportKey ?? undefined) : undefined,
@@ -1290,9 +1192,7 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
   });
 
   protected readonly connectedCount = computed(() => {
-    const socialCount = (this.profile.formData()?.socialLinks?.links ?? []).filter(
-      (l) => !!l.url || !!l.username
-    ).length;
+    const socialCount = this.profile.rawUserData()?.connectedSources?.length ?? 0;
     const emailCount = (this.profile.rawUserData()?.connectedEmails ?? []).filter(
       (e: { isActive: boolean }) => e.isActive
     ).length;
@@ -1407,22 +1307,10 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
   protected async openConnectedAccounts(): Promise<void> {
     const data = this.profile.formData();
     const rawUser = this.profile.rawUserData();
-
-    // Convert existing social links → LinkSourcesFormData
-    const existingLinks = data?.socialLinks?.links ?? [];
-    const linkSourcesData: LinkSourcesFormData | null = existingLinks.length
-      ? {
-          links: existingLinks.map((l) => ({
-            platform: l.platform,
-            connected: !!(l.url || l.username),
-            connectionType: 'link' as const,
-            url: l.url,
-            username: l.username,
-            scopeType: l.scopeType ?? 'global',
-            scopeId: l.scopeId,
-          })),
-        }
-      : null;
+    const linkSourcesData = buildLinkSourcesFormData({
+      connectedSources: rawUser?.connectedSources ?? [],
+      connectedEmails: rawUser?.connectedEmails ?? [],
+    }) as LinkSourcesFormData | null;
 
     const sport = data?.sportsInfo?.sport;
     const selectedSports = sport ? [sport] : [];
@@ -1434,15 +1322,25 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
       scope: rawUser?.userType === 'coach' || rawUser?.userType === 'director' ? 'team' : 'athlete',
     });
 
-    if (result.saved && result.updatedLinks) {
-      this.profile.updateField('social-links', 'links', result.updatedLinks);
+    if (result.linkSources) {
+      const connectedSources = mapToConnectedSources(result.linkSources.links);
+      const saved = await this.profile.saveConnectedSources(connectedSources);
+      if (!saved) {
+        return;
+      }
+
       this.logger.info('Connected accounts updated', {
-        count: result.updatedLinks.length,
+        count: connectedSources.length,
       });
       this.analytics?.trackEvent(APP_EVENTS.PROFILE_EDITED, {
         source: 'connected-accounts-modal',
         action: 'bulk-update',
       });
+      await this.loadProfile();
+
+      if (result.resync) {
+        await this.connectedAccountsResync.request(result.sources ?? []);
+      }
     }
   }
 
@@ -1458,7 +1356,6 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
       preferNative: 'native',
     });
     if (!first.confirmed) return;
-    this.profile.updateField('basic-info', 'firstName', first.value.trim());
 
     const last = await this.nxtModal.prompt({
       title: 'Last Name',
@@ -1467,8 +1364,19 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
       submitText: 'Done',
       preferNative: 'native',
     });
+
+    const newFirst = first.value.trim();
+    const newLast = last.confirmed ? last.value.trim() : (form.basicInfo.lastName ?? '');
+
+    this.profile.updateField('basic-info', 'firstName', newFirst);
     if (last.confirmed) {
-      this.profile.updateField('basic-info', 'lastName', last.value.trim());
+      this.profile.updateField('basic-info', 'lastName', newLast);
+    }
+
+    // Always sync displayName when name is explicitly edited.
+    const derived = [newFirst, newLast].filter(Boolean).join(' ');
+    if (derived) {
+      this.profile.updateField('basic-info', 'displayName', derived);
     }
   }
 
@@ -1478,7 +1386,7 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
 
     const result = await this.nxtModal.prompt({
       title: 'Bio',
-      placeholder: 'Tell coaches about yourself',
+      placeholder: 'Tell Agent X about yourself',
       defaultValue: form.basicInfo.bio ?? '',
       submitText: 'Done',
       multiline: true,
@@ -1505,23 +1413,6 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
     });
     if (result.selected && result.data) {
       this.profile.updateField('basic-info', 'classYear', result.data as string);
-    }
-  }
-
-  protected async editJersey(): Promise<void> {
-    const form = this.profile.formData();
-    if (!form) return;
-
-    const result = await this.nxtModal.prompt({
-      title: 'Jersey Number',
-      placeholder: 'Jersey number',
-      defaultValue: form.sportsInfo.jerseyNumber ?? '',
-      inputType: 'number',
-      submitText: 'Done',
-      preferNative: 'native',
-    });
-    if (result.confirmed) {
-      this.profile.updateField('sports-info', 'jerseyNumber', result.value.trim());
     }
   }
 
@@ -1564,7 +1455,6 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
   protected selectTeam(team: TeamSearchResult): void {
     this.profile.updateField('sports-info', 'teamName', team.name);
     this.profile.updateField('sports-info', 'teamType', team.teamType ?? '');
-    this.profile.updateField('sports-info', 'teamLogoUrl', team.logoUrl ?? '');
     this.profile.updateField('sports-info', 'teamOrganizationId', team.organizationId ?? '');
 
     // Keep academics.school in sync
@@ -1589,7 +1479,6 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
   protected clearTeam(): void {
     this.profile.updateField('sports-info', 'teamName', '');
     this.profile.updateField('sports-info', 'teamType', '');
-    this.profile.updateField('sports-info', 'teamLogoUrl', '');
     this.profile.updateField('sports-info', 'teamOrganizationId', '');
     this.profile.updateField('academics', 'school', '');
 
@@ -1610,7 +1499,6 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
 
     this.profile.updateField('sports-info', 'teamName', normalizedName);
     this.profile.updateField('sports-info', 'teamType', programType);
-    this.profile.updateField('sports-info', 'teamLogoUrl', '');
     this.profile.updateField('sports-info', 'teamOrganizationId', '');
     this.profile.updateField('academics', 'school', normalizedName);
 
@@ -1743,6 +1631,23 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
     }
   }
 
+  protected async editJerseyNumber(): Promise<void> {
+    const form = this.profile.formData();
+    if (!form) return;
+
+    const result = await this.nxtModal.prompt({
+      title: 'Jersey Number',
+      placeholder: 'e.g. 23',
+      defaultValue: form.sportsInfo.jerseyNumber ?? '',
+      inputType: 'text',
+      submitText: 'Done',
+      preferNative: 'native',
+    });
+    if (result.confirmed) {
+      this.profile.updateField('sports-info', 'jerseyNumber', result.value.trim());
+    }
+  }
+
   protected async editGpa(): Promise<void> {
     const form = this.profile.formData();
     if (!form) return;
@@ -1844,36 +1749,6 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
     }
   }
 
-  protected async editPosition(): Promise<void> {
-    const form = this.profile.formData();
-    if (!form) return;
-    const selected = this.selectedPositions();
-    const sport = form.sportsInfo.sport || 'Football';
-    const positionGroups = getPositionGroupsForSport(sport);
-    const activeSportIndex = this.profile.activeSportIndex();
-    const allSports = this.profile.allSports();
-
-    this.logger.info('🎯 Opening position picker', {
-      sport,
-      activeSportIndex,
-      allSportsCount: allSports?.length,
-      currentPositions: selected,
-      groupCount: positionGroups.length,
-    });
-
-    const result = await this.picker.openPositionPicker({
-      sport,
-      selectedPositions: [...selected],
-      positionGroups,
-      maxPositions: 5,
-    });
-
-    if (result.confirmed) {
-      this.profile.updateField('sports-info', 'primaryPosition', result.positions[0] ?? '');
-      this.profile.updateField('sports-info', 'secondaryPositions', result.positions.slice(1));
-    }
-  }
-
   protected editLocation(): void {
     void this.detectLocation();
   }
@@ -1901,7 +1776,6 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
 
     const selectedFiles = files.slice(0, availableSlots);
     const uploadedUrls: string[] = [];
-    const previewUrls: string[] = [];
     const userId = this.userId;
 
     if (!userId) {
@@ -1909,13 +1783,11 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
       return;
     }
 
-    // Create instant preview URLs using Object URL
-    for (const file of selectedFiles) {
-      if (file.type.startsWith('image/')) {
-        const previewUrl = URL.createObjectURL(file);
-        previewUrls.push(previewUrl);
-      }
-    }
+    const imageFiles = selectedFiles.filter((file) => file.type.startsWith('image/'));
+    const normalizedFiles = await Promise.all(
+      imageFiles.map((file) => normalizeImageFileForUpload(file))
+    );
+    const previewUrls = normalizedFiles.map((file) => URL.createObjectURL(file));
 
     // Show preview images immediately
     if (previewUrls.length > 0) {
@@ -1923,10 +1795,10 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
     }
 
     // Show loading toast
-    this.toast.info(`Uploading ${selectedFiles.length} image(s)...`);
+    this.toast.info(`Uploading ${normalizedFiles.length} image(s)...`);
 
-    for (let i = 0; i < selectedFiles.length; i++) {
-      const file = selectedFiles[i];
+    for (let i = 0; i < normalizedFiles.length; i++) {
+      const file = normalizedFiles[i];
 
       if (!file.type.startsWith('image/')) {
         this.toast.warning(`${file.name} is not a supported image file.`);
@@ -1948,7 +1820,7 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
 
       try {
         // Upload to Firebase Storage and get permanent URL
-        const result = await this.profile.uploadPhoto(userId, 'profile', file);
+        const result = await this.profile.uploadPhoto(userId, file);
         uploadedUrls.push(result.url);
 
         // Replace the blob preview URL with the real Firebase Storage URL

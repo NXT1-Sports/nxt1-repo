@@ -70,8 +70,15 @@ import {
 import { NxtPlatformService } from '../../services/platform';
 import { NxtHeaderPortalService } from '../../services/header-portal';
 import { HapticsService } from '../../services/haptics';
-import type { ExploreItem } from '@nxt1/core';
-import type { TopNavItem, TopNavUserMenuItem, TopNavUserData, TopNavConfig } from '@nxt1/core';
+import { NxtBrowserService } from '../../services/browser';
+import type {
+  ExploreItem,
+  SidenavSportProfile,
+  TopNavItem,
+  TopNavUserMenuItem,
+  TopNavUserData,
+  TopNavConfig,
+} from '@nxt1/core';
 import {
   DEFAULT_TOP_NAV_ITEMS,
   DEFAULT_USER_MENU_ITEMS,
@@ -83,6 +90,7 @@ import type {
   TopNavSelectEvent,
   TopNavUserMenuEvent,
   TopNavSearchSubmitEvent,
+  TopNavSportProfileSelectEvent,
 } from './top-nav.types';
 
 @Component({
@@ -429,33 +437,55 @@ import type {
 
                 <!-- User Info Header — clickable to navigate to profile/team -->
                 <div class="user-info-row">
-                  <button
-                    type="button"
-                    class="user-info user-info--clickable"
-                    (click)="onUserInfoClick($event)"
-                    aria-label="View profile"
-                  >
-                    <div class="user-info-avatar">
-                      <nxt1-avatar
-                        [src]="user()?.profileImg"
-                        [name]="user()?.name"
-                        [initials]="user()?.initials"
-                        [isTeamRole]="user()?.isTeamRole"
-                        [customSize]="40"
-                        [showSkeleton]="false"
-                        cssClass="nav-user-avatar-lg"
-                      />
-                      @if (user()?.isPremium) {
-                        <span class="premium-badge-sm">PRO</span>
-                      }
-                    </div>
-                    <div class="user-info-text">
-                      <span class="user-info-name">{{ user()?.name }}</span>
-                      @if (user()?.sportLabel) {
-                        <span class="user-info-sport">{{ user()?.sportLabel }}</span>
-                      }
-                    </div>
-                  </button>
+                  @if (user()?.isTeamRole && !user()?.isOnTeam && user()?.canAddProfile) {
+                    <button
+                      type="button"
+                      class="user-info user-info--clickable"
+                      (click)="onAddSportButtonClick($event)"
+                      aria-label="Add team"
+                    >
+                      <div class="user-info-avatar">
+                        <nxt1-avatar
+                          [src]="user()?.profileImg"
+                          [name]="user()?.actionLabel || 'Add Team'"
+                          [initials]="'AT'"
+                          [isTeamRole]="true"
+                          [customSize]="40"
+                          [showSkeleton]="false"
+                          cssClass="nav-user-avatar-lg"
+                        />
+                      </div>
+                      <div class="user-info-text">
+                        <span class="user-info-name">{{ user()?.actionLabel || 'Add Team' }}</span>
+                        <span class="user-info-sport">Set up your first team</span>
+                      </div>
+                    </button>
+                  } @else {
+                    <button
+                      type="button"
+                      class="user-info user-info--clickable"
+                      (click)="onUserInfoClick($event)"
+                      aria-label="View profile"
+                    >
+                      <div class="user-info-avatar">
+                        <nxt1-avatar
+                          [src]="user()?.profileImg"
+                          [name]="user()?.name"
+                          [initials]="user()?.initials"
+                          [isTeamRole]="user()?.isTeamRole"
+                          [customSize]="40"
+                          [showSkeleton]="false"
+                          cssClass="nav-user-avatar-lg"
+                        />
+                      </div>
+                      <div class="user-info-text">
+                        <span class="user-info-name">{{ user()?.name }}</span>
+                        @if (user()?.sportLabel) {
+                          <span class="user-info-sport">{{ user()?.sportLabel }}</span>
+                        }
+                      </div>
+                    </button>
+                  }
 
                   <!-- Expand Arrow for Sport Profiles -->
                   @if ((user()?.sportProfiles?.length ?? 0) > 0) {
@@ -480,13 +510,13 @@ import type {
                         type="button"
                         class="user-sport-item"
                         [class.user-sport-item--active]="profile.isActive"
+                        (click)="onSportProfileClick(profile, $event)"
                       >
                         <nxt1-avatar
-                          [src]="profile.profileImg"
-                          [name]="profile.sport"
+                          [src]="profile.profileImg || user()?.profileImg"
+                          [name]="user()?.name"
                           [isTeamRole]="user()!.isTeamRole ?? false"
-                          [initials]="user()!.isTeamRole ? '' : getSportInitials(profile.sport)"
-                          [defaultIcon]="user()!.isTeamRole ? 'shield' : 'athlete'"
+                          [defaultIcon]="user()!.isTeamRole ? 'shield' : ''"
                           [customSize]="28"
                           [showSkeleton]="false"
                         />
@@ -506,8 +536,8 @@ import type {
                   </div>
                 }
 
-                <!-- Add Sport / Add Team — always visible when authenticated -->
-                @if (user()) {
+                <!-- Add Sport / Add Team -->
+                @if (user()?.canAddProfile && !(user()?.isTeamRole && !user()?.isOnTeam)) {
                   <div class="user-sport-list user-sport-list--add">
                     <button
                       type="button"
@@ -638,36 +668,69 @@ import type {
 
             <!-- User Row + Expand Arrow -->
             <div class="mobile-user-row mb-4 flex w-full items-center gap-2">
-              <button
-                type="button"
-                class="mobile-user-info flex flex-1 items-center gap-3 rounded-lg bg-transparent p-0 text-left"
-                (click)="onUserInfoClick($event); closeMobileMenu()"
-                aria-label="View profile"
-              >
-                <div
-                  class="mobile-user-avatar flex h-12 w-12 items-center justify-center overflow-hidden rounded-full"
+              @if (user()?.isTeamRole && !user()?.isOnTeam && user()?.canAddProfile) {
+                <button
+                  type="button"
+                  class="mobile-user-info flex flex-1 items-center gap-3 rounded-lg bg-transparent p-0 text-left"
+                  (click)="onAddSportButtonClick($event); closeMobileMenu()"
+                  aria-label="Add team"
                 >
-                  <nxt1-avatar
-                    [src]="user()?.profileImg"
-                    [name]="user()?.name"
-                    [initials]="user()?.initials"
-                    [isTeamRole]="user()?.isTeamRole"
-                    [customSize]="48"
-                    [showSkeleton]="false"
-                    cssClass="nav-mobile-user-avatar"
-                  />
-                </div>
-                <div class="mobile-user-text flex flex-col gap-0.5">
-                  <span class="mobile-user-name text-(--nxt1-nav-text)] text-base font-semibold">{{
-                    user()?.name
-                  }}</span>
-                  @if (user()?.sportLabel) {
-                    <span class="mobile-user-sport text-(--nxt1-nav-text-secondary)] text-sm">{{
-                      user()?.sportLabel
-                    }}</span>
-                  }
-                </div>
-              </button>
+                  <div
+                    class="mobile-user-avatar flex h-12 w-12 items-center justify-center overflow-hidden rounded-full"
+                  >
+                    <nxt1-avatar
+                      [src]="user()?.profileImg"
+                      [name]="user()?.actionLabel || 'Add Team'"
+                      [initials]="'AT'"
+                      [isTeamRole]="true"
+                      [customSize]="48"
+                      [showSkeleton]="false"
+                      cssClass="nav-mobile-user-avatar"
+                    />
+                  </div>
+                  <div class="mobile-user-text flex flex-col gap-0.5">
+                    <span
+                      class="mobile-user-name text-(--nxt1-nav-text)] text-base font-semibold"
+                      >{{ user()?.actionLabel || 'Add Team' }}</span
+                    >
+                    <span class="mobile-user-sport text-(--nxt1-nav-text-secondary)] text-sm">
+                      Set up your first team
+                    </span>
+                  </div>
+                </button>
+              } @else {
+                <button
+                  type="button"
+                  class="mobile-user-info flex flex-1 items-center gap-3 rounded-lg bg-transparent p-0 text-left"
+                  (click)="onUserInfoClick($event); closeMobileMenu()"
+                  aria-label="View profile"
+                >
+                  <div
+                    class="mobile-user-avatar flex h-12 w-12 items-center justify-center overflow-hidden rounded-full"
+                  >
+                    <nxt1-avatar
+                      [src]="user()?.profileImg"
+                      [name]="user()?.name"
+                      [initials]="user()?.initials"
+                      [isTeamRole]="user()?.isTeamRole"
+                      [customSize]="48"
+                      [showSkeleton]="false"
+                      cssClass="nav-mobile-user-avatar"
+                    />
+                  </div>
+                  <div class="mobile-user-text flex flex-col gap-0.5">
+                    <span
+                      class="mobile-user-name text-(--nxt1-nav-text)] text-base font-semibold"
+                      >{{ user()?.name }}</span
+                    >
+                    @if (user()?.sportLabel) {
+                      <span class="mobile-user-sport text-(--nxt1-nav-text-secondary)] text-sm">{{
+                        user()?.sportLabel
+                      }}</span>
+                    }
+                  </div>
+                </button>
+              }
 
               @if ((user()?.sportProfiles?.length ?? 0) > 0) {
                 <button
@@ -691,13 +754,13 @@ import type {
                     type="button"
                     class="mobile-sport-item flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition-colors"
                     [class.mobile-sport-item--active]="profile.isActive"
+                    (click)="onSportProfileClick(profile, $event)"
                   >
                     <nxt1-avatar
-                      [src]="profile.profileImg"
-                      [name]="profile.sport"
+                      [src]="profile.profileImg || user()?.profileImg"
+                      [name]="user()?.name"
                       [isTeamRole]="user()!.isTeamRole ?? false"
-                      [initials]="user()!.isTeamRole ? '' : getSportInitials(profile.sport)"
-                      [defaultIcon]="user()!.isTeamRole ? 'shield' : 'athlete'"
+                      [defaultIcon]="user()!.isTeamRole ? 'shield' : ''"
                       [customSize]="28"
                       [showSkeleton]="false"
                     />
@@ -721,33 +784,35 @@ import type {
                   </button>
                 }
 
-                <!-- Add Sport / Add Team Button -->
-                <button
-                  type="button"
-                  class="mobile-sport-item mobile-sport-item--add text-(--nxt1-color-primary)] flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left text-sm font-medium transition-colors"
-                  (click)="onAddSportButtonClick($event); closeMobileMenu()"
-                >
-                  <div
-                    class="flex h-7 w-7 items-center justify-center rounded-full border border-dashed border-current"
+                @if (user()?.canAddProfile) {
+                  <!-- Add Sport / Add Team Button -->
+                  <button
+                    type="button"
+                    class="mobile-sport-item mobile-sport-item--add text-(--nxt1-color-primary)] flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left text-sm font-medium transition-colors"
+                    (click)="onAddSportButtonClick($event); closeMobileMenu()"
                   >
-                    <svg
-                      viewBox="0 0 24 24"
-                      width="14"
-                      height="14"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="2.2"
-                      stroke-linecap="round"
-                      aria-hidden="true"
+                    <div
+                      class="flex h-7 w-7 items-center justify-center rounded-full border border-dashed border-current"
                     >
-                      <path d="M12 5v14" />
-                      <path d="M5 12h14" />
-                    </svg>
-                  </div>
-                  <span>{{
-                    user()?.actionLabel || (user()?.isTeamRole ? 'Add Team' : 'Add Sport')
-                  }}</span>
-                </button>
+                      <svg
+                        viewBox="0 0 24 24"
+                        width="14"
+                        height="14"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2.2"
+                        stroke-linecap="round"
+                        aria-hidden="true"
+                      >
+                        <path d="M12 5v14" />
+                        <path d="M5 12h14" />
+                      </svg>
+                    </div>
+                    <span>{{
+                      user()?.actionLabel || (user()?.isTeamRole ? 'Add Team' : 'Add Sport')
+                    }}</span>
+                  </button>
+                }
               </div>
             }
 
@@ -832,6 +897,7 @@ export class NxtHeaderComponent implements OnDestroy {
   private readonly router = inject(Router);
   private readonly platform = inject(NxtPlatformService);
   private readonly haptics = inject(HapticsService);
+  private readonly browser = inject(NxtBrowserService);
   private readonly elementRef = inject(ElementRef);
   private readonly destroy$ = new Subject<void>();
 
@@ -912,6 +978,12 @@ export class NxtHeaderComponent implements OnDestroy {
 
   /** Emits when "Add Sport" / "Add Team" is clicked in the user dropdown */
   @Output() addSportClick = new EventEmitter<Event>();
+
+  /** Emits when a sport/team profile is selected in the user switcher */
+  @Output() sportProfileSelect = new EventEmitter<TopNavSportProfileSelectEvent>();
+
+  /** Emits when the user avatar/info section is clicked */
+  @Output() userClick = new EventEmitter<Event>();
 
   // ============================================
   // INTERNAL STATE
@@ -1111,7 +1183,11 @@ export class NxtHeaderComponent implements OnDestroy {
     if (item.route && !navEvent.preventDefault) {
       this.router.navigate([item.route]);
     } else if (item.href) {
-      window.open(item.href, '_blank', 'noopener,noreferrer');
+      void this.browser.openLink({
+        url: item.href,
+        source: 'top_nav',
+        surface: 'page',
+      });
     }
   }
 
@@ -1134,7 +1210,11 @@ export class NxtHeaderComponent implements OnDestroy {
     if (childItem.route) {
       this.router.navigate([childItem.route]);
     } else if (childItem.href) {
-      window.open(childItem.href, '_blank', 'noopener,noreferrer');
+      void this.browser.openLink({
+        url: childItem.href,
+        source: 'top_nav_dropdown',
+        surface: 'page',
+      });
     } else if (childItem.action) {
       // Emit as navigation action
       this.navigate.emit({
@@ -1359,15 +1439,20 @@ export class NxtHeaderComponent implements OnDestroy {
   /**
    * Handle user info header click — navigate to profile or team
    */
-  onUserInfoClick(_event: Event): void {
+  onUserInfoClick(event: Event): void {
     this.haptics.impact('light');
     this.userMenuOpen.set(false);
     this.mobileMenuOpen.set(false);
     this.sportSwitcherExpanded.set(false);
 
+    if (this.userClick.observed) {
+      this.userClick.emit(event);
+      return;
+    }
+
     const route = this.user()?.profileRoute;
     if (route) {
-      this.router.navigate([route]);
+      void this.router.navigateByUrl(route);
     }
   }
 
@@ -1378,6 +1463,18 @@ export class NxtHeaderComponent implements OnDestroy {
     event.stopPropagation();
     this.haptics.impact('light');
     this.sportSwitcherExpanded.update((v) => !v);
+  }
+
+  /**
+   * Handle a sport/team profile selection from the user switcher.
+   */
+  onSportProfileClick(profile: SidenavSportProfile, event: Event): void {
+    event.stopPropagation();
+    this.haptics.impact('light');
+    this.userMenuOpen.set(false);
+    this.mobileMenuOpen.set(false);
+    this.sportSwitcherExpanded.set(false);
+    this.sportProfileSelect.emit({ profile, event, timestamp: Date.now() });
   }
 
   /**

@@ -53,6 +53,22 @@ export interface CachedSportData {
   readonly sport: string;
   readonly positions?: readonly string[];
   readonly isPrimary?: boolean;
+  readonly team?: {
+    readonly name?: string;
+    readonly logoUrl?: string | null;
+    readonly logo?: string | null;
+    readonly teamId?: string;
+    readonly organizationId?: string;
+    readonly primaryColor?: string | null;
+    readonly secondaryColor?: string | null;
+    readonly id?: string;
+    readonly teamCode?: string;
+    readonly code?: string;
+    readonly slug?: string;
+    readonly unicode?: string;
+    readonly isOrganizationClaimed?: boolean;
+    readonly isUserOrganizationAdmin?: boolean;
+  };
 }
 
 /**
@@ -72,7 +88,6 @@ export interface MergedUserProfile {
 
   // Status (computed from backend)
   readonly role: string | null;
-  readonly isPremium: boolean;
   readonly hasCompletedOnboarding: boolean;
 
   // Extended profile (from backend)
@@ -106,13 +121,14 @@ export interface CachedUserProfile {
   readonly onboardingCompleted?: boolean;
   readonly completeSignUp?: boolean;
 
-  // Legacy boolean flags (for backwards compatibility)
-  readonly isCollegeCoach?: boolean | null;
-  readonly isRecruit?: boolean | null;
-
   // Sports data
   readonly primarySport?: string;
   readonly sports?: readonly CachedSportData[];
+  readonly organizationAccess?: ReadonlyArray<{
+    readonly organizationId: string;
+    readonly isClaimed: boolean;
+    readonly isAdmin: boolean;
+  }>;
 
   // Any additional fields from backend
   readonly [key: string]: unknown;

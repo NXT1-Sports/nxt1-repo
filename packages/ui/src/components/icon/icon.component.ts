@@ -26,7 +26,7 @@
  * ```
  */
 
-import { Component, Input, ChangeDetectionStrategy } from '@angular/core';
+import { Component, Input, HostBinding, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import {
   ICONS,
@@ -122,6 +122,16 @@ export class NxtIconComponent {
 
   /** Whether to hide from screen readers (default: true for decorative icons) */
   @Input() ariaHidden: boolean = true;
+
+  @HostBinding('style.width.px')
+  get hostWidth(): number {
+    return Number(this.size);
+  }
+
+  @HostBinding('style.height.px')
+  get hostHeight(): number {
+    return Number(this.size);
+  }
 
   /** Get icon definition from registry (null if not found) */
   get iconDef(): IconDefinition | null {

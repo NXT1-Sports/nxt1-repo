@@ -49,6 +49,14 @@ export interface MediaViewerConfig {
 
   /** Analytics source identifier (e.g. 'feed', 'profile', 'chat'). */
   readonly source?: string;
+
+  /**
+   * Presentation mode override.
+   * - `auto` (default): adaptive behavior (desktop overlay, mobile sheet)
+   * - `overlay`: always use web-style overlay modal
+   * - `bottom-sheet`: always use Ionic bottom sheet
+   */
+  readonly presentation?: 'auto' | 'overlay' | 'bottom-sheet';
 }
 
 // ─── Result ───────────────────────────────────────────────

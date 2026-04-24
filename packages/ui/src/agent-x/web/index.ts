@@ -11,6 +11,7 @@
 
 export {
   AgentXShellWebComponent,
+  type AgentXConnectedAccountsSaveRequest,
   type AgentXUser,
   type ExpandedSidePanelContent,
 } from './agent-x-shell-web.component';

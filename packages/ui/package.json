@@ -28,7 +28,8 @@
     "./styles/components/sheet-modal": "./src/styles/components/sheet-modal.css",
     "./styles/components/modal": "./src/styles/components/modal.css",
     "./styles/components/navigation": "./src/styles/components/navigation.css",
-    "./styles/components/qr-code-modal": "./src/styles/components/qr-code-modal.css"
+    "./styles/components/qr-code-modal": "./src/styles/components/qr-code-modal.css",
+    "./styles/animations": "./src/styles/animations.css"
   },
   "scripts": {
     "build": "ng-packagr -p ng-package.json",
@@ -43,8 +44,9 @@
     "@nxt1/core": "*",
     "@nxt1/design-tokens": "*",
     "@stripe/stripe-js": "^5.10.0",
+    "zod": "^4.3.6",
     "marked": "^17.0.0",
-    "dompurify": "^3.0.0"
+    "dompurify": "^3.4.0"
   },
   "peerDependencies": {
     "@angular/animations": "^21.0.0",

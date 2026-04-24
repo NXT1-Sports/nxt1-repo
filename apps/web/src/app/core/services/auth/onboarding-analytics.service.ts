@@ -21,10 +21,10 @@
  * │               Pure functions from @nxt1/core                │
  * ├─────────────────────────────────────────────────────────────┤
  * │                    AnalyticsService                         │
- * │               Firebase Analytics adapter                    │
+ * │            Shared analytics adapter / backend relay         │
  * └─────────────────────────────────────────────────────────────┘
  *
- * Firebase Analytics Events Tracked:
+ * Analytics Events Tracked:
  * - onboarding_started: When user enters onboarding
  * - onboarding_role_selected: When user picks their role
  * - onboarding_step_viewed: Each step render (for funnel)
@@ -463,9 +463,9 @@ export class OnboardingAnalyticsService implements OnDestroy {
     return isPlatformBrowser(this.platformId);
   }
 
-  /** Generate unique session ID */
+  /** Generate unique session ID using cryptographically secure randomness */
   private generateSessionId(): string {
-    return `ob_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+    return `ob_${globalThis.crypto.randomUUID()}`;
   }
 
   /** Get time spent on current step in milliseconds */

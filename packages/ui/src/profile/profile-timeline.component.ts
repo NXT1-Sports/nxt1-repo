@@ -24,10 +24,12 @@ import {
 } from '@angular/core';
 import type {
   ProfilePost,
+  ProfilePostType,
   FeedPost,
   FeedItem,
   FeedItemPost,
   FeedItemEvent,
+  FeedItemSchedule,
   FeedItemStat,
   FeedItemMetric,
   FeedItemOffer,
@@ -53,13 +55,13 @@ import { ProfileSkeletonComponent } from './profile-skeleton.component';
 import { NxtIconComponent } from '../components/icon';
 import { NxtStateViewComponent } from '../components/state-view';
 import { NxtActivityCardComponent } from '../components/activity-card';
-import { FeedCardShellComponent } from '../feed/feed-card-shell.component';
-import { FeedPostContentComponent } from '../feed/feed-post-content.component';
-import { FeedStatCardComponent } from '../feed/feed-stat-card.component';
-import { FeedEventCardComponent } from '../feed/feed-event-card.component';
-import { FeedMetricsCardComponent } from '../feed/feed-metrics-card.component';
-import { FeedAwardCardComponent } from '../feed/feed-award-card.component';
-import { FeedNewsCardComponent } from '../feed/feed-news-card.component';
+import { FeedCardShellComponent } from '../post-cards/feed-card-shell.component';
+import { FeedPostContentComponent } from '../post-cards/feed-post-content.component';
+import { FeedStatCardComponent } from '../post-cards/feed-stat-card.component';
+import { FeedEventCardComponent } from '../post-cards/feed-event-card.component';
+import { FeedMetricsCardComponent } from '../post-cards/feed-metrics-card.component';
+import { FeedAwardCardComponent } from '../post-cards/feed-award-card.component';
+import { FeedNewsCardComponent } from '../post-cards/feed-news-card.component';
 
 @Component({
   selector: 'nxt1-profile-timeline',
@@ -79,8 +81,8 @@ import { FeedNewsCardComponent } from '../feed/feed-news-card.component';
   ],
   template: `
     <div class="profile-timeline" [attr.data-testid]="timelineTestIds.CONTAINER">
-      <!-- Filter Tabs (only shown when filters enabled) -->
-      @if (showFilters()) {
+      <!-- Filter Tabs (only shown when filters are enabled and not externally controlled) -->
+      @if (showFilters() && !filter()) {
         <nav
           class="timeline-filters"
           role="tablist"
@@ -108,11 +110,11 @@ import { FeedNewsCardComponent } from '../feed/feed-news-card.component';
                     >{{ pinnedCount() }}</span
                   >
                 }
-                @if (filter.id === 'offers' && filterBadgeCounts().offers > 0) {
+                @if (filter.id === 'recruiting' && filterBadgeCounts().recruiting > 0) {
                   <span
                     class="timeline-filter__badge"
                     [attr.data-testid]="timelineTestIds.FILTER_BADGE"
-                    >{{ filterBadgeCounts().offers }}</span
+                    >{{ filterBadgeCounts().recruiting }}</span
                   >
                 }
                 @if (filter.id === 'events' && filterBadgeCounts().events > 0) {
@@ -120,6 +122,13 @@ import { FeedNewsCardComponent } from '../feed/feed-news-card.component';
                     class="timeline-filter__badge"
                     [attr.data-testid]="timelineTestIds.FILTER_BADGE"
                     >{{ filterBadgeCounts().events }}</span
+                  >
+                }
+                @if (filter.id === 'awards' && filterBadgeCounts().awards > 0) {
+                  <span
+                    class="timeline-filter__badge"
+                    [attr.data-testid]="timelineTestIds.FILTER_BADGE"
+                    >{{ filterBadgeCounts().awards }}</span
                   >
                 }
               </button>
@@ -151,19 +160,18 @@ import { FeedNewsCardComponent } from '../feed/feed-news-card.component';
 
       <!-- Filtered Empty State -->
       @else if (isFilteredEmpty()) {
-        <nxt1-state-view
-          variant="empty"
-          [icon]="resolvedEmptyIcon()"
-          [title]="resolvedEmptyTitle()"
-          [message]="resolvedEmptyMessage()"
-          [actionLabel]="
-            isOwnProfile() && (!showFilters() || activeFilter() === 'all') && emptyCta()
-              ? emptyCta()!
-              : ''
-          "
-          (action)="emptyCtaClick.emit()"
-          [attr.data-testid]="timelineTestIds.EMPTY"
-        />
+        <div class="madden-empty" [attr.data-testid]="timelineTestIds.EMPTY">
+          <div class="madden-empty__icon" aria-hidden="true">
+            <nxt1-icon [name]="resolvedEmptyIcon()" [size]="40" />
+          </div>
+          <h3>{{ resolvedEmptyTitle() }}</h3>
+          <p>{{ resolvedEmptyMessage() }}</p>
+          @if (isOwnProfile() && (!showFilters() || activeFilter() === 'all') && emptyCta()) {
+            <button type="button" class="madden-cta-btn" (click)="emptyCtaClick.emit()">
+              {{ emptyCta() }}
+            </button>
+          }
+        </div>
       }
 
       <!-- Posts List — Polymorphic Smart Shell + Atomic Cards -->
@@ -181,6 +189,8 @@ import { FeedNewsCardComponent } from '../feed/feed-news-card.component';
               [showMenu]="showMenu()"
               (contentClick)="handlePolyPostClick(idx)"
               (menuClick)="handlePolyMenuClick(idx)"
+              (pinClick)="handlePolyPinClick($event)"
+              (deleteClick)="handlePolyDeleteClick(idx)"
             >
               @switch (item.feedType) {
                 @case ('POST') {
@@ -188,6 +198,10 @@ import { FeedNewsCardComponent } from '../feed/feed-news-card.component';
                 }
                 @case ('EVENT') {
                   <nxt1-feed-event-card [data]="asEvent(item).eventData" />
+                }
+                @case ('SCHEDULE') {
+                  <!-- Competitive game/practice — same card as Event -->
+                  <nxt1-feed-event-card [data]="asSchedule(item).eventData" />
                 }
                 @case ('STAT') {
                   <nxt1-feed-stat-card [data]="asStat(item).statData" />
@@ -381,6 +395,55 @@ import { FeedNewsCardComponent } from '../feed/feed-news-card.component';
         flex-direction: column;
         gap: 12px;
       }
+
+      /* ─── EMPTY STATE (madden-empty — matches intel/connect tabs) ─── */
+      .madden-empty {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        padding: 48px 24px;
+        color: var(--m-text-2, rgba(255, 255, 255, 0.6));
+      }
+      .madden-empty h3 {
+        font-size: 16px;
+        font-weight: 700;
+        color: var(--m-text, #ffffff);
+        margin: 16px 0 8px;
+      }
+      .madden-empty__icon {
+        width: 80px;
+        height: 80px;
+        border-radius: 50%;
+        background: var(--m-surface-2, rgba(255, 255, 255, 0.06));
+        border: 1px solid var(--m-border, rgba(255, 255, 255, 0.08));
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: 4px;
+        color: var(--m-text-2, rgba(255, 255, 255, 0.4));
+      }
+      .madden-empty p {
+        font-size: 14px;
+        color: var(--m-text-2, rgba(255, 255, 255, 0.6));
+        margin: 0 0 20px;
+        max-width: 280px;
+      }
+      .madden-cta-btn {
+        background: var(--m-accent, #d4ff00);
+        color: #000;
+        border: none;
+        border-radius: 999px;
+        padding: 10px 24px;
+        font-size: 14px;
+        font-weight: 700;
+        cursor: pointer;
+        transition: filter 0.15s;
+        &:hover {
+          filter: brightness(1.1);
+        }
+      }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -439,10 +502,10 @@ export class ProfileTimelineComponent {
   // ============================================
 
   readonly postClick = output<ProfilePost>();
-  readonly reactClick = output<ProfilePost>();
-  readonly repostClick = output<ProfilePost>();
   readonly shareClick = output<ProfilePost>();
   readonly menuClick = output<ProfilePost>();
+  readonly pinClick = output<ProfilePost>();
+  readonly deleteClick = output<ProfilePost>();
   readonly loadMore = output<void>();
   readonly retry = output<void>();
   readonly emptyCtaClick = output<void>();
@@ -485,11 +548,13 @@ export class ProfileTimelineComponent {
   protected readonly filterBadgeCounts = computed(() => {
     const feed = this.effectiveFeed();
     return {
-      offers: feed.filter((item) => item.feedType === 'OFFER' || item.feedType === 'COMMITMENT')
+      recruiting: feed.filter((item) => item.feedType === 'OFFER' || item.feedType === 'COMMITMENT')
         .length,
+      // Exposure events only (camps, combines, visits) — Schedule items excluded intentionally
       events: feed.filter(
         (item) => item.feedType === 'EVENT' || item.feedType === 'VISIT' || item.feedType === 'CAMP'
       ).length,
+      awards: feed.filter((item) => item.feedType === 'AWARD').length,
     };
   });
 
@@ -550,15 +615,22 @@ export class ProfileTimelineComponent {
         return feed.filter(
           (item) => item.feedType === 'POST' && (item as FeedItemPost).media.length > 0
         );
-      case 'offers':
+      case 'recruiting':
         return feed.filter((item) => item.feedType === 'OFFER' || item.feedType === 'COMMITMENT');
       case 'events':
+        // Exposure events only: camps, combines, showcases, visits — NOT competitive schedule items
         return feed.filter(
           (item) =>
             item.feedType === 'EVENT' || item.feedType === 'VISIT' || item.feedType === 'CAMP'
         );
+      case 'awards':
+        return feed.filter((item) => item.feedType === 'AWARD');
       case 'stats':
-        return feed.filter((item) => item.feedType === 'STAT' || item.feedType === 'METRIC');
+        return feed.filter((item) => item.feedType === 'STAT');
+      case 'metrics':
+        return feed.filter((item) => item.feedType === 'METRIC');
+      case 'schedule':
+        return feed.filter((item) => item.feedType === 'SCHEDULE');
       case 'news':
         return feed.filter((item) => item.feedType === 'NEWS' || item.feedType === 'SCOUT_REPORT');
       default:
@@ -580,19 +652,74 @@ export class ProfileTimelineComponent {
   // EVENT HANDLERS
   // ============================================
 
+  private resolveProfilePost(item: FeedItem): ProfilePost | null {
+    const existing = this.posts().find((post) => post.id === item.id);
+    if (existing) return existing;
+    // For non-POST feed types (METRICS, STATS, EVENTS), return a minimal
+    // ProfilePost stub so delete actions still work (only the id is needed
+    // by the backend DELETE /:userId/posts/:postId endpoint).
+    if (item.feedType !== 'POST') {
+      return {
+        id: item.id,
+        type: item.feedType as unknown as ProfilePostType,
+        body: '',
+        isPinned: item.isPinned,
+        shareCount: item.engagement.shareCount,
+        viewCount: item.engagement.viewCount,
+        createdAt: item.createdAt,
+      } as ProfilePost;
+    }
+
+    const post = item as FeedItemPost;
+    const primaryMedia = post.media[0];
+    const mediaRecord = primaryMedia as unknown as Record<string, unknown> | undefined;
+    const thumbnailUrl =
+      (mediaRecord?.['thumbnailUrl'] as string | undefined) ??
+      (primaryMedia?.type === 'image' ? primaryMedia.url : undefined);
+
+    return {
+      id: post.id,
+      type: post.postType as unknown as ProfilePostType,
+      body: post.content,
+      thumbnailUrl,
+      mediaUrl: primaryMedia?.url,
+      shareCount: post.engagement.shareCount,
+      viewCount: post.engagement.viewCount,
+      duration: mediaRecord?.['duration'] as number | undefined,
+      isPinned: post.isPinned,
+      iframeUrl: mediaRecord?.['iframeUrl'] as string | undefined,
+      hlsUrl: mediaRecord?.['hlsUrl'] as string | undefined,
+      dashUrl: mediaRecord?.['dashUrl'] as string | undefined,
+      cloudflareVideoId: mediaRecord?.['cloudflareVideoId'] as string | undefined,
+      cloudflareStatus: mediaRecord?.['processingStatus'] as string | undefined,
+      createdAt: post.createdAt,
+    };
+  }
+
   protected handlePolyPostClick(index: number): void {
-    // Try to resolve to legacy ProfilePost for backward compat
     const item = this.filteredPolyFeed()[index];
     if (!item) return;
-    const post = this.posts().find((p) => p.id === item.id);
+    const post = this.resolveProfilePost(item);
     if (post) this.postClick.emit(post);
   }
 
   protected handlePolyMenuClick(index: number): void {
     const item = this.filteredPolyFeed()[index];
     if (!item) return;
-    const post = this.posts().find((p) => p.id === item.id);
+    const post = this.resolveProfilePost(item);
     if (post) this.menuClick.emit(post);
+  }
+
+  protected handlePolyPinClick(emittedItem: FeedItem): void {
+    const post = this.resolveProfilePost(emittedItem);
+    if (post) this.pinClick.emit(post);
+  }
+
+  protected handlePolyDeleteClick(index: number): void {
+    const item = this.filteredPolyFeed()[index];
+    if (!item) return;
+    const post = this.resolveProfilePost(item);
+    if (post) this.deleteClick.emit(post);
   }
 
   // ============================================
@@ -627,6 +754,11 @@ export class ProfileTimelineComponent {
 
   protected asEvent(item: FeedItem): FeedItemEvent {
     return item as FeedItemEvent;
+  }
+
+  /** Cast to FeedItemSchedule — safe within @case ('SCHEDULE') */
+  protected asSchedule(item: FeedItem): FeedItemSchedule {
+    return item as FeedItemSchedule;
   }
 
   protected asStat(item: FeedItem): FeedItemStat {

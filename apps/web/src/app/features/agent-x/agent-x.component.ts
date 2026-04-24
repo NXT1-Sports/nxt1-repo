@@ -32,14 +32,21 @@ import {
   afterNextRender,
 } from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
+import { mapToConnectedSources } from '@nxt1/core';
 import { AgentXShellWebComponent } from '@nxt1/ui/agent-x/web';
-import { NxtAgentXLandingComponent, type AgentXUser } from '@nxt1/ui/agent-x';
+import {
+  ConnectedAccountsResyncService,
+  NxtAgentXLandingComponent,
+  type AgentXConnectedAccountsSaveRequest,
+  type AgentXUser,
+} from '@nxt1/ui';
 import { AgentXService } from '@nxt1/ui/agent-x';
 import { NxtAgentXExecutionLayerSectionComponent } from '@nxt1/ui/components/agent-x-execution-layer-section';
 import { NxtAgentXWelcomeHeaderComponent } from '@nxt1/ui/components/agent-x-welcome-header';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
+import { NxtToastService } from '@nxt1/ui/services/toast';
 import { AuthFlowService } from '../../core/services/auth/auth-flow.service';
-import { SeoService } from '../../core/services';
+import { EditProfileApiService, SeoService } from '../../core/services';
 
 @Component({
   selector: 'app-agent-x',
@@ -61,7 +68,11 @@ import { SeoService } from '../../core/services';
 
     @if (isAuthenticated()) {
       <!-- Authenticated users: full Agent X shell (goals check handled inside shell) -->
-      <nxt1-agent-x-shell-web [user]="userInfo()" [hideInput]="false" />
+      <nxt1-agent-x-shell-web
+        [user]="userInfo()"
+        [hideInput]="false"
+        (connectedAccountsSave)="onConnectedAccountsSave($event)"
+      />
     } @else {
       <!-- Logged-out users: full-screen landing state only -->
       <div class="agent-landing-shell">
@@ -135,10 +146,13 @@ import { SeoService } from '../../core/services';
 export class AgentXComponent implements OnInit {
   private readonly authFlow = inject(AuthFlowService);
   private readonly logger = inject(NxtLoggingService).child('AgentXComponent');
+  private readonly toast = inject(NxtToastService);
   private readonly seo = inject(SeoService);
   private readonly route = inject(ActivatedRoute);
   private readonly agentX = inject(AgentXService);
   private readonly injector = inject(Injector);
+  private readonly editProfileApi = inject(EditProfileApiService);
+  private readonly connectedAccountsResync = inject(ConnectedAccountsResyncService);
 
   /**
    * Auth-init overlay: prevents the marketing landing page from flashing
@@ -172,10 +186,10 @@ export class AgentXComponent implements OnInit {
     const isAuthenticated = this.authFlow.isAuthenticated();
 
     this.seo.updatePage({
-      title: 'Agent X - AI Assistant | NXT1',
+      title: 'Agent X - AI Command Center | NXT1',
       description:
-        'Your AI-powered recruiting assistant. Create highlight films, recruiting graphics, draft coach emails, and get evaluations — all through a simple conversation.',
-      keywords: ['ai', 'agent x', 'assistant', 'recruiting', 'highlights', 'graphics', 'nxt1'],
+        "Agent X is NXT1's AI command center for highlight films, recruiting graphics, coach outreach, and athlete evaluations.",
+      keywords: ['ai', 'agent x', 'command center', 'recruiting', 'highlights', 'graphics', 'nxt1'],
       noIndex: isAuthenticated, // Index for logged-out (SEO landing), noindex for logged-in
     });
 
@@ -200,6 +214,39 @@ export class AgentXComponent implements OnInit {
       profileImg: user.profileImg ?? null,
       displayName: user.displayName,
       role: user.role,
+      selectedSports: user.sports?.map(({ sport }) => sport) ?? [],
+      connectedSources: user.connectedSources ?? [],
+      connectedEmails: user.connectedEmails ?? [],
+      firebaseProviders: this.authFlow.firebaseUser()?.providerData ?? [],
     };
   });
+
+  protected async onConnectedAccountsSave(
+    request: AgentXConnectedAccountsSaveRequest
+  ): Promise<void> {
+    const user = this.authFlow.user();
+    if (!user?.uid) {
+      this.toast.error('Not signed in. Please refresh and try again.');
+      return;
+    }
+
+    const connectedSources = mapToConnectedSources(request.linkSources.links);
+    const result = await this.editProfileApi.updateSection(user.uid, 'connected-sources', {
+      connectedSources,
+    });
+
+    if (result.success) {
+      await this.authFlow.refreshUserProfile();
+      if (request.requestResync) {
+        await this.connectedAccountsResync.request(request.resyncSources ?? []);
+      } else {
+        this.toast.success('Connected accounts updated');
+      }
+    } else {
+      this.logger.error('Failed to save Agent X connected accounts', undefined, {
+        error: result.error,
+      });
+      this.toast.error(result.error ?? 'Failed to save connected accounts');
+    }
+  }
 }

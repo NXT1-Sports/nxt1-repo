@@ -10,13 +10,7 @@
  */
 
 import type { ScholarshipType, CommitmentStatus, VisitType } from '../../constants/user.constants';
-import type {
-  DataSource,
-  TeamInfo,
-  CoachContact,
-  SportVerification,
-  DataVerification,
-} from './user-base.model';
+import type { DataSource, TeamInfo, CoachContact } from './user-base.model';
 
 // ============================================
 // AGENT X / SCOUTING
@@ -146,7 +140,7 @@ export interface ScheduleEvent {
   /** Unique identifier */
   id: string;
   /** Event type */
-  eventType: 'game' | 'camp' | 'visit' | 'tournament' | 'combine' | 'tryout' | 'practice' | 'other';
+  eventType: 'game' | 'scrimmage' | 'practice' | 'playoff' | 'other';
   /** Event title (e.g., 'vs. Mater Dei', 'Rivals Underclassmen Camp') */
   title: string;
   /** Event date (ISO string) */
@@ -317,19 +311,6 @@ export interface SeasonStats {
   gamesPlayed?: number;
 }
 
-/**
- * @deprecated Use VerifiedStat[] + ScheduleEvent[] in sub-collections instead.
- * Game-by-game statistics as a flat key-value map.
- * Migration: convert to VerifiedStat[] per game + ScheduleEvent for the game itself.
- */
-export interface GameStats {
-  date: Date | string;
-  opponent: string;
-  stats: Record<string, string | number>;
-  result?: 'win' | 'loss' | 'tie';
-  score?: string;
-}
-
 /** Season record */
 export interface SeasonRecord {
   wins: number;
@@ -366,9 +347,6 @@ export interface SportProfile {
 
   /** Display order (0 = primary) */
   order: number;
-
-  /** Profile image specific to this sport */
-  profileImg?: string | null;
 
   /** Sport-specific bio */
   aboutMe?: string;
@@ -439,16 +417,14 @@ export interface SportProfile {
   traits?: AgentXTrait[];
 
   /**
-   * @deprecated V3: Team affiliation is now relational via RosterEntries collection.
-   * Kept temporarily for backward compatibility with existing reads.
-   * Migration: remove this field and use RosterEntries + organizationId instead.
+   * Current team affiliation for this sport.
+   * Kept in sync by RosterEntry mutations — set to teamId on join/approve,
+   * cleared (null) on remove. This is a live, first-class field used for
+   * display and filtering across the platform.
    */
   team?: TeamInfo;
 
-  /**
-   * @deprecated V3: Club team is now relational via RosterEntries collection.
-   * Kept temporarily for backward compatibility with existing reads.
-   */
+  /** Club team affiliation for this sport profile. */
   clubTeam?: TeamInfo;
 
   /** Head coach contact */
@@ -460,30 +436,8 @@ export interface SportProfile {
    */
   recruiting?: RecruitingSummary;
 
-  /**
-   * @deprecated V3: Schedule data is now in the top-level Events collection,
-   * fetched via the /schedule API endpoint. Do not read or write this field.
-   */
-  schedule?: {
-    /** Schedule page URL */
-    url?: string;
-    /** Upcoming event description */
-    upcomingEvent?: string;
-    /** Link to upcoming event */
-    eventLink?: string;
-  };
-
   /** Season win/loss record */
   seasonRecord?: SeasonRecord;
-
-  /** Verification info for this sport's data */
-  verification?: SportVerification;
-
-  /**
-   * Agnostic section-level verification entries.
-   * Preferred over deprecated `verification` field.
-   */
-  verifications?: DataVerification[];
 
   /** Primary highlight video */
   primaryVideo?: {

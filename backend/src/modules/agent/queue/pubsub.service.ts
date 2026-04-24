@@ -25,11 +25,13 @@
 import { Redis } from 'ioredis';
 import { AgentQueueService } from './queue.service.js';
 import { logger } from '../../../utils/logger.js';
+import { getRuntimeEnvironment } from '../../../config/runtime-environment.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
 /** Redis PubSub channel prefix for agent streaming. */
-export const AGENT_STREAM_CHANNEL_PREFIX = 'agent:stream:';
+export const AGENT_STREAM_CHANNEL_PREFIX =
+  getRuntimeEnvironment() === 'production' ? 'agent:stream:prod:' : 'agent:stream:stg:';
 
 /** Reserved event type indicating the stream is complete (worker finished). */
 export const STREAM_TERMINAL_EVENTS = new Set(['done', 'error']);
@@ -205,10 +207,45 @@ export class AgentPubSubService {
           this.handlers.delete(channel);
           await this.getSubscriber()
             .unsubscribe(channel)
-            .catch(() => {});
+            .catch(() => undefined);
         }
       }
     };
+  }
+
+  /**
+   * Return the number of active Redis subscribers for a job stream channel.
+   * Used to avoid sending duplicate push notifications while the user is
+   * actively watching a live SSE stream.
+   */
+  async subscriberCount(jobId: string): Promise<number> {
+    const channel = AgentPubSubService.channelFor(jobId);
+    try {
+      const result = await this.getPublisher().pubsub('NUMSUB', channel);
+      if (!Array.isArray(result) || result.length < 2) return 0;
+      const countRaw = result[1];
+      const parsed =
+        typeof countRaw === 'number' ? countRaw : Number.parseInt(String(countRaw ?? '0'), 10);
+      return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
+    } catch (err) {
+      logger.warn('[pubsub] subscriberCount failed', {
+        channel,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return 0;
+    }
+  }
+
+  /**
+   * Lightweight health probe for PubSub admission control.
+   */
+  async isHealthy(): Promise<boolean> {
+    try {
+      const pong = await this.getPublisher().ping();
+      return pong === 'PONG';
+    } catch {
+      return false;
+    }
   }
 
   // ─── Shutdown ───────────────────────────────────────────────────────────
@@ -220,11 +257,11 @@ export class AgentPubSubService {
   async shutdown(): Promise<void> {
     this.handlers.clear();
     if (this.subscriber) {
-      await this.subscriber.quit().catch(() => {});
+      await this.subscriber.quit().catch(() => undefined);
       this.subscriber = null;
     }
     if (this.publisher) {
-      await this.publisher.quit().catch(() => {});
+      await this.publisher.quit().catch(() => undefined);
       this.publisher = null;
     }
     this.listenerAttached = false;

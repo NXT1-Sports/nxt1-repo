@@ -32,9 +32,13 @@ export enum UserRole {
   ATHLETE = 'athlete',
   COACH = 'coach',
   DIRECTOR = 'director',
-  RECRUITER = 'recruiter',
-  PARENT = 'parent',
   ADMIN = 'admin',
+  /** @deprecated Maps to COACH */
+  // eslint-disable-next-line @typescript-eslint/no-duplicate-enum-values
+  RECRUITER = 'coach',
+  /** @deprecated Maps to ATHLETE */
+  // eslint-disable-next-line @typescript-eslint/no-duplicate-enum-values
+  PARENT = 'athlete',
 }
 
 export enum Gender {
@@ -287,38 +291,8 @@ export class ValidateTeamCodeDto {
   code!: string;
 }
 
-// ============================================
-// UPDATE ONBOARDING DTO
-// ============================================
-
-export class UpdateOnboardingDto {
-  @IsString()
-  @IsNotEmpty()
-  step!: string;
-
-  @IsBoolean()
-  @IsNotEmpty()
-  completed!: boolean;
-
-  @IsObject()
-  @IsOptional()
-  data?: Record<string, unknown>;
-}
-
-// ============================================
-// COMPLETE ONBOARDING DTO
-// ============================================
-
-export class CompleteOnboardingDto {
-  @IsBoolean()
-  @IsNotEmpty()
-  completed!: boolean;
-
-  @IsArray()
-  @IsOptional()
-  @IsString({ each: true })
-  completedSteps?: string[];
-}
+// Onboarding DTOs moved to onboarding.dto.ts
+// See: BulkOnboardingDto, OnboardingStepDto
 
 // ============================================
 // LOGIN & AUTHENTICATION DTOs

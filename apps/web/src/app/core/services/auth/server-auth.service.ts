@@ -110,7 +110,6 @@ export class ServerAuthService implements IAuthService, OnDestroy {
   /** Computed from firebase user state */
   readonly isAuthenticated = computed(() => this._firebaseUser() !== null);
   readonly userRole = computed<UserRole | null>(() => this._user()?.role ?? null);
-  readonly isPremium = computed(() => this._user()?.isPremium ?? false);
   readonly hasCompletedOnboarding = computed(() => this._user()?.hasCompletedOnboarding ?? false);
 
   constructor(
@@ -221,14 +220,13 @@ export class ServerAuthService implements IAuthService, OnDestroy {
           displayName: user.displayName,
           profileImg: user.profileImg,
           role: user.role,
-          isPremium: user.isPremium,
+
           hasCompletedOnboarding: user.hasCompletedOnboarding,
           createdAt: user.createdAt,
           updatedAt: user.updatedAt,
           connectedEmails: user.connectedEmails,
           selectedSports: user.selectedSports,
           unicode: user.unicode,
-          username: user.username,
         }
       : null;
 
@@ -240,6 +238,7 @@ export class ServerAuthService implements IAuthService, OnDestroy {
           photoURL: fbUser.photoURL,
           emailVerified: fbUser.emailVerified,
           metadata: fbUser.metadata,
+          providerData: fbUser.providerData,
         }
       : null;
 
@@ -336,7 +335,7 @@ export class ServerAuthService implements IAuthService, OnDestroy {
           ? data['connectedEmails']
           : undefined,
         role: (data['role'] as UserRole) ?? 'athlete',
-        isPremium: data['isPremium'] ?? data['premium'] ?? false,
+
         hasCompletedOnboarding:
           data['hasCompletedOnboarding'] ?? data['onboardingComplete'] ?? false,
         createdAt: data['createdAt']?.toDate?.()?.toISOString() ?? new Date().toISOString(),
@@ -359,7 +358,6 @@ export class ServerAuthService implements IAuthService, OnDestroy {
       displayName: firebaseUser.displayName ?? 'User',
       profileImg: firebaseUser.photoURL ?? undefined,
       role: 'athlete' as UserRole,
-      isPremium: false,
       hasCompletedOnboarding: false,
       createdAt: firebaseUser.metadata.creationTime ?? new Date().toISOString(),
       updatedAt: new Date().toISOString(),

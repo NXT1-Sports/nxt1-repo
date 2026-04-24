@@ -3,7 +3,7 @@
  * @module @nxt1/ui/agent-x
  * @version 1.0.0
  *
- * Signal-based state management for Agent X AI assistant.
+ * Signal-based state management for the Agent X command center.
  * Shared between web and mobile applications.
  *
  * Features:
@@ -31,27 +31,19 @@
  * ```
  */
 
-import {
-  Injectable,
-  inject,
-  signal,
-  computed,
-  DestroyRef,
-  NgZone,
-  PLATFORM_ID,
-} from '@angular/core';
+import { Injectable, inject, signal, computed, DestroyRef, PLATFORM_ID } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
 import {
+  type AgentMessage,
   type AgentXMessage,
   type AgentXQuickTask,
   type AgentXMode,
   type AgentXUserContext,
-  type AgentXChatRequest,
-  type AgentXAttachment,
   type AgentDashboardData,
   type AgentDashboardGoal,
   type AgentDashboardPlaybook,
   type AgentDashboardBriefing,
+  type CompletedGoalRecord,
   type ShellBriefingInsight,
   type ShellWeeklyPlaybookItem,
   type ShellCommandCategory,
@@ -59,37 +51,29 @@ import {
   AGENT_X_CONFIG,
   AGENT_X_MODES,
   AGENT_X_DEFAULT_MODE,
-  AGENT_X_ENDPOINTS,
   AGENT_X_ALLOWED_MIME_TYPES,
   AGENT_X_MAX_ATTACHMENTS,
   AGENT_X_MAX_FILE_SIZE,
+  AGENT_X_MAX_VIDEO_FILE_SIZE,
   resolveAttachmentType,
-  ATHLETE_QUICK_TASKS,
-  COACH_QUICK_TASKS,
-  COLLEGE_QUICK_TASKS,
 } from '@nxt1/core';
 import { createAgentXApi } from '@nxt1/core/ai';
-import type {
-  AgentXToolStep,
-  AgentXMessagePart,
-  AgentXStreamStepEvent,
-  AgentXStreamCardEvent,
-  AgentXStreamTitleUpdatedEvent,
-  AgentXBillingActionReason,
-  AgentXRichCard,
-} from '@nxt1/core/ai';
-import { AgentXOperationEventService } from './agent-x-operation-event.service';
 import { HapticsService } from '../services/haptics/haptics.service';
 import { NxtToastService } from '../services/toast/toast.service';
 import { NxtLoggingService } from '../services/logging/logging.service';
 import { ANALYTICS_ADAPTER } from '../services/analytics/analytics-adapter.token';
 import { NxtBreadcrumbService } from '../services/breadcrumb/breadcrumb.service';
-import { APP_EVENTS } from '@nxt1/core/analytics';
+import { APP_EVENTS, USER_PROPERTIES } from '@nxt1/core/analytics';
+import { TRACE_NAMES, ATTRIBUTE_NAMES } from '@nxt1/core/performance';
+import { PERFORMANCE_ADAPTER } from '../services/performance/performance-adapter.token';
 import { AGENT_X_API_BASE_URL, AGENT_X_AUTH_TOKEN_FACTORY } from './agent-x-job.service';
-import { LiveViewSessionService } from './live-view-session.service';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import type { AgentXPendingFile } from './agent-x-pending-file';
+import type { ConnectedAppSource } from './agent-x-attachments-sheet.component';
+
+/** sessionStorage key for in-flight operation drop-recovery. */
+const AGENT_X_PENDING_OP_KEY = 'nxt1_pending_agent_op';
 
 /**
  * Agent X state management service.
@@ -102,16 +86,13 @@ export class AgentXService {
   private readonly logger = inject(NxtLoggingService).child('AgentXService');
   private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
   private readonly breadcrumb = inject(NxtBreadcrumbService);
+  private readonly performance = inject(PERFORMANCE_ADAPTER, { optional: true });
   private readonly destroyRef = inject(DestroyRef);
   private readonly platformId = inject(PLATFORM_ID);
   private readonly http = inject(HttpClient);
   private readonly baseUrl = inject(AGENT_X_API_BASE_URL);
   private readonly getAuthToken = inject(AGENT_X_AUTH_TOKEN_FACTORY, { optional: true });
-  private readonly ngZone = inject(NgZone);
-  private readonly operationEventService = inject(AgentXOperationEventService);
-  private readonly liveView = inject(LiveViewSessionService);
-
-  /** Pure API factory instance — used for SSE streaming and non-streaming calls. */
+  /** Pure API factory instance — used for non-streaming calls (approval, threads, dashboard). */
   private readonly api = createAgentXApi(
     {
       get: <T>(url: string) => firstValueFrom(this.http.get<T>(url)),
@@ -122,9 +103,6 @@ export class AgentXService {
     },
     this.baseUrl
   );
-
-  /** Active SSE abort controller — cancelled on destroy or when a new message starts. */
-  private activeStream: AbortController | null = null;
 
   // ============================================
   // PRIVATE WRITEABLE SIGNALS
@@ -137,11 +115,10 @@ export class AgentXService {
   private readonly _currentTitle = signal(AGENT_X_CONFIG.welcomeTitles[0]);
   private readonly _selectedMode = signal<AgentXMode>(AGENT_X_DEFAULT_MODE);
   private readonly _userContext = signal<AgentXUserContext | null>(null);
+  /** Filtered connected app sources available for file attachments — set by the shell, read by operation-chat. */
+  private readonly _attachmentConnectedSources = signal<readonly ConnectedAppSource[]>([]);
   /** The MongoDB thread ID for the current conversation (persisted across messages). */
   private readonly _currentThreadId = signal<string | null>(null);
-
-  /** The backend operationId for the currently active chat request. Used for explicit cancel. */
-  private _currentOperationId: string | null = null;
 
   /** Files staged for upload — shown as previews before the user sends the message. */
   private readonly _pendingFiles = signal<AgentXPendingFile[]>([]);
@@ -155,6 +132,23 @@ export class AgentXService {
   private readonly _requestedSidePanel = signal<AutoOpenPanelInstruction | null>(null);
 
   /**
+   * When an inline approval is resolved and the backend resumes the operation,
+   * this signal holds the resume params so the shell can open op-chat to attach
+   * to the new stream via its `resumeOperationId` input.
+   */
+  private readonly _pendingResumeOp = signal<{
+    operationId: string;
+    threadId?: string;
+  } | null>(null);
+
+  /**
+   * Pending startup message queued by an external surface (e.g. profile timeline CTA).
+   * The Agent X web shell reads this via effect() after resetToDefaultDesktopSession()
+   * and immediately sends it as the opening message in a new desktop session.
+   */
+  private readonly _pendingStartupMessage = signal<string | null>(null);
+
+  /**
    * Pending thread request used by external surfaces (activity, push notifications)
    * to tell the Agent X shell to open a bottom sheet for a specific thread.
    */
@@ -165,12 +159,21 @@ export class AgentXService {
     icon?: string;
   } | null>(null);
 
+  /** Quick tasks loaded from the backend. */
+  private readonly _quickTasks = signal<readonly AgentXQuickTask[]>([]);
+
+  constructor() {
+    void this.loadQuickTasks();
+  }
+
   // Animation interval reference
   private titleAnimationInterval?: ReturnType<typeof setInterval>;
 
   // Retry counter for loadDashboard() when auth token not yet available
   private _dashboardRetryCount = 0;
   private static readonly MAX_DASHBOARD_RETRIES = 4;
+  private static readonly PLAYBOOK_POLL_INTERVAL_MS = 1500;
+  private static readonly PLAYBOOK_POLL_MAX_ATTEMPTS = 50;
 
   // ============================================
   // DASHBOARD STATE (live from backend)
@@ -188,6 +191,11 @@ export class AgentXService {
   private readonly _canRegenerate = signal(false);
   private readonly _playbookGenerating = signal(false);
   private readonly _briefingGenerating = signal(false);
+
+  /** Archived completed goals from `goal_history` subcollection. */
+  private readonly _goalHistory = signal<CompletedGoalRecord[]>([]);
+  private readonly _goalHistoryLoading = signal(false);
+  private readonly _goalHistoryError = signal<string | null>(null);
 
   // ============================================
   // PUBLIC READONLY COMPUTED SIGNALS
@@ -213,6 +221,9 @@ export class AgentXService {
 
   /** User context for personalization */
   readonly userContext = computed(() => this._userContext());
+
+  /** Filtered connected app sources for the attachment picker — shared across all Agent X surfaces. */
+  readonly attachmentConnectedSources = computed(() => this._attachmentConnectedSources());
 
   /** Whether conversation is empty */
   readonly isEmpty = computed(() => this._messages().length === 0);
@@ -247,8 +258,17 @@ export class AgentXService {
    */
   readonly currentThreadId = computed(() => this._currentThreadId());
 
+  /** Pending startup message for the Agent X web shell to pick up on init. */
+  readonly pendingStartupMessage = computed(() => this._pendingStartupMessage());
+
   /** Pending thread open request for the Agent X shell. */
   readonly pendingThread = computed(() => this._pendingThread());
+
+  /**
+   * Pending operation resume request — set after inline approval resolves.
+   * The web shell effect watches this and opens op-chat with the resume params.
+   */
+  readonly pendingResumeOp = computed(() => this._pendingResumeOp());
 
   /**
    * Requested side panel content from the agent.
@@ -273,11 +293,24 @@ export class AgentXService {
   readonly canRegenerate = computed(() => this._canRegenerate());
   readonly playbookGenerating = computed(() => this._playbookGenerating());
   readonly briefingGenerating = computed(() => this._briefingGenerating());
-  readonly allTasksComplete = computed(
-    () =>
-      this._weeklyPlaybook().length > 0 &&
-      this._weeklyPlaybook().every((t) => t.status === 'complete')
-  );
+
+  /** Completed goals history (ordered newest-first). */
+  readonly goalHistory = computed(() => this._goalHistory());
+  readonly goalHistoryLoading = computed(() => this._goalHistoryLoading());
+  readonly goalHistoryError = computed(() => this._goalHistoryError());
+  readonly totalGoalsCompleted = computed(() => this._goalHistory().length);
+
+  readonly allTasksComplete = computed(() => {
+    const items = this._weeklyPlaybook();
+    const active = items.filter((t) => t.status !== 'snoozed');
+    return active.length > 0 && active.every((t) => t.status === 'complete');
+  });
+
+  /** Whether every playbook task has been snoozed (none active or complete). */
+  readonly allTasksSnoozed = computed(() => {
+    const items = this._weeklyPlaybook();
+    return items.length > 0 && items.every((t) => t.status === 'snoozed');
+  });
 
   // ── Playbook Category Pill Filter (shared between web & mobile shells) ──
 
@@ -285,9 +318,9 @@ export class AgentXService {
   private readonly _activeCategoryId = signal<string>('all');
   readonly activeCategoryId = computed(() => this._activeCategoryId());
 
-  /** Pending (non-complete) playbook items. */
+  /** Pending (non-complete, non-snoozed) playbook items. */
   readonly pendingPlaybookItems = computed(() =>
-    this._weeklyPlaybook().filter((t) => t.status !== 'complete')
+    this._weeklyPlaybook().filter((t) => t.status !== 'complete' && t.status !== 'snoozed')
   );
 
   /** Derive unique category pills from the playbook tasks. */
@@ -333,9 +366,27 @@ export class AgentXService {
   // QUICK TASKS (by category)
   // ============================================
 
-  readonly athleteTasks = signal(ATHLETE_QUICK_TASKS);
-  readonly coachTasks = signal(COACH_QUICK_TASKS);
-  readonly collegeTasks = signal(COLLEGE_QUICK_TASKS);
+  readonly quickTasks = computed(() => this._quickTasks());
+  readonly athleteTasks = computed(() =>
+    this._quickTasks().filter((task) => task.category === 'athlete')
+  );
+  readonly coachTasks = computed(() =>
+    this._quickTasks().filter((task) => task.category === 'coach')
+  );
+  readonly collegeTasks = computed(() =>
+    this._quickTasks().filter((task) => task.category === 'college')
+  );
+
+  async loadQuickTasks(): Promise<void> {
+    try {
+      const tasks = await this.api.getQuickTasks();
+      this._quickTasks.set(tasks);
+      this.logger.debug('Quick tasks loaded', { count: tasks.length });
+    } catch (err) {
+      this._quickTasks.set([]);
+      this.logger.error('Failed to load quick tasks', err);
+    }
+  }
 
   // ============================================
   // USER MESSAGE TWO-WAY BINDING
@@ -381,6 +432,15 @@ export class AgentXService {
   }
 
   /**
+   * Store the filtered + favicon-enriched connected sources so all Agent X surfaces
+   * (shell input bar, operation-chat bottom sheet, operations log → chat) read from
+   * a single source of truth instead of relying on `componentProps` being passed.
+   */
+  setAttachmentConnectedSources(sources: readonly ConnectedAppSource[]): void {
+    this._attachmentConnectedSources.set(sources);
+  }
+
+  /**
    * Check if user has specific role.
    */
   hasRole(role: string): boolean {
@@ -392,89 +452,6 @@ export class AgentXService {
    */
   isLoggedIn(): boolean {
     return this._userContext() !== null;
-  }
-
-  // ============================================
-  // STREAM CONTROL
-  // ============================================
-
-  /**
-   * Cancel the active SSE stream (if any) and reset the loading state.
-   * Used by the stop button in the input bar.
-   *
-   * This performs three actions:
-   * 1. Aborts the frontend fetch (drops the SSE connection).
-   * 2. Transitions any in-flight tool steps from 'active' → 'error' with
-   *    a "Cancelled" label so the UI stops showing spinners immediately.
-   * 3. Resets the loading flag.
-   */
-  cancelStream(): void {
-    if (this.activeStream) {
-      this.activeStream.abort();
-      this.activeStream = null;
-
-      // Fire explicit cancel to the backend (belt-and-suspenders with SSE drop).
-      // This ensures the backend aborts even if the TCP disconnect isn't detected
-      // immediately (e.g. behind App Engine / Firebase proxy buffering).
-      if (this._currentOperationId) {
-        const opId = this._currentOperationId;
-        this._currentOperationId = null;
-        this._fireCancelRequest(opId);
-      }
-
-      // Transition any 'active' tool steps to 'error' (visually "Cancelled")
-      this._messages.update((msgs) =>
-        msgs.map((m) => {
-          const hasActiveSteps = m.steps?.some((s) => s.status === 'active');
-          const hasActiveParts = m.parts?.some(
-            (p) => p.type === 'tool-steps' && p.steps.some((s) => s.status === 'active')
-          );
-          if (!hasActiveSteps && !hasActiveParts) return m;
-
-          const cancelStep = (s: AgentXToolStep): AgentXToolStep =>
-            s.status === 'active' ? { ...s, status: 'error', label: 'Cancelled' } : s;
-
-          return {
-            ...m,
-            isTyping: false,
-            steps: m.steps?.map(cancelStep),
-            parts: m.parts?.map((p) =>
-              p.type === 'tool-steps' ? { ...p, steps: p.steps.map(cancelStep) } : p
-            ),
-          };
-        })
-      );
-
-      this._isLoading.set(false);
-      this.logger.info('Stream cancelled by user');
-      this.breadcrumb.trackUserAction('agent-x:stream-cancelled');
-      this.analytics?.trackEvent(APP_EVENTS.AGENT_X_STREAM_CANCELLED, {
-        threadId: this._currentThreadId() ?? undefined,
-      });
-    }
-  }
-
-  /**
-   * Fire-and-forget POST to the explicit cancel endpoint.
-   * Non-critical — the SSE drop is the primary path; this is a belt-and-suspenders backup.
-   * @internal
-   */
-  private _fireCancelRequest(operationId: string): void {
-    const url = `${this.baseUrl}/agent-x/cancel/${operationId}`;
-    this.getAuthToken?.()
-      .then((token) => {
-        if (!token) return;
-        return firstValueFrom(
-          this.http.post(url, {}, { headers: { Authorization: `Bearer ${token}` } })
-        );
-      })
-      .catch((err) => {
-        // Non-critical — the SSE disconnect is the primary cancellation signal
-        this.logger.debug('Explicit cancel request failed (non-critical)', {
-          operationId,
-          error: err instanceof Error ? err.message : String(err),
-        });
-      });
   }
 
   // ============================================
@@ -532,9 +509,29 @@ export class AgentXService {
     });
   }
 
+  /** Remove a single message from chat history by id. */
+  removeMessage(id: string): void {
+    this._messages.update((msgs) => msgs.filter((m) => m.id !== id));
+  }
+
   // ============================================
   // PENDING THREAD COORDINATION
   // ============================================
+
+  /**
+   * Queue a startup message that the Agent X web shell will immediately send
+   * as the opening message when it loads. Called by external surfaces before
+   * navigating to /agent. The shell consumes and clears this via effect().
+   */
+  queueStartupMessage(message: string): void {
+    this._pendingStartupMessage.set(message);
+    this.logger.info('Queued startup message for Agent X shell');
+  }
+
+  /** Consumed by the shell after it fires the session. */
+  clearStartupMessage(): void {
+    this._pendingStartupMessage.set(null);
+  }
 
   /**
    * Request that the Agent X shell open a specific persisted thread in a bottom sheet.
@@ -561,6 +558,33 @@ export class AgentXService {
   /** Clear the pending thread request after the shell has consumed it. */
   clearPendingThread(): void {
     this._pendingThread.set(null);
+  }
+
+  /** Clear the pending resume op after the shell has consumed it. */
+  clearPendingResumeOp(): void {
+    this._pendingResumeOp.set(null);
+  }
+
+  /**
+   * Read and immediately clear any pending drop-recovery operation from
+   * sessionStorage (saved mid-stream when the page was refreshed).
+   * The web shell calls this on init and opens op-chat with the result.
+   */
+  getAndClearDropRecoveryOp(): { operationId: string; threadId?: string } | null {
+    if (!isPlatformBrowser(this.platformId)) return null;
+    try {
+      const raw = sessionStorage.getItem(AGENT_X_PENDING_OP_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as { operationId?: unknown; threadId?: unknown };
+      if (typeof parsed.operationId !== 'string') return null;
+      sessionStorage.removeItem(AGENT_X_PENDING_OP_KEY);
+      return {
+        operationId: parsed.operationId,
+        threadId: typeof parsed.threadId === 'string' ? parsed.threadId : undefined,
+      };
+    } catch {
+      return null;
+    }
   }
 
   /** Clear the requested side panel after the shell has consumed it. */
@@ -599,23 +623,13 @@ export class AgentXService {
     this._isLoading.set(true);
 
     try {
-      const result = await this.api.getThreadMessages(threadId);
-      if (!result || result.messages.length === 0) {
+      const persistedMessages = await this.getPersistedThreadMessages(threadId);
+      if (persistedMessages.length === 0) {
         this.logger.warn('Thread not found or empty', { threadId });
         return;
       }
 
-      // Map backend AgentMessage → UI AgentXMessage
-      const messages: AgentXMessage[] = result.messages.map((msg) => {
-        const imageUrl = msg.resultData?.['imageUrl'] as string | undefined;
-        return {
-          id: msg.id || this.generateId(),
-          role: msg.role === 'user' ? ('user' as const) : ('assistant' as const),
-          content: msg.content,
-          timestamp: msg.createdAt ? new Date(msg.createdAt) : new Date(),
-          ...(imageUrl ? { imageUrl } : {}),
-        };
-      });
+      const messages = persistedMessages.map((message) => this.mapPersistedMessageToUi(message));
 
       this._messages.set(messages);
       this._currentThreadId.set(threadId);
@@ -632,528 +646,133 @@ export class AgentXService {
     }
   }
 
+  /**
+   * Load the full persisted history for a thread by draining every cursor page.
+   * This powers history display and is intentionally separate from the smaller
+   * context window sent back to the LLM on new messages.
+   */
+  async getPersistedThreadMessages(threadId: string): Promise<AgentMessage[]> {
+    const pageLimit = 200;
+    const allMessages: AgentMessage[] = [];
+    const seenMessageIds = new Set<string>();
+    let before: string | undefined;
+    let pageCount = 0;
+
+    while (pageCount < 100) {
+      const result = await this.api.getThreadMessages(threadId, pageLimit, before);
+      if (!result || result.messages.length === 0) {
+        break;
+      }
+
+      const pageMessages = result.messages.filter((message) => {
+        if (!message.id) {
+          return true;
+        }
+
+        if (seenMessageIds.has(message.id)) {
+          return false;
+        }
+
+        seenMessageIds.add(message.id);
+        return true;
+      });
+
+      allMessages.unshift(...pageMessages);
+      pageCount += 1;
+
+      if (!result.hasMore || !result.nextCursor) {
+        break;
+      }
+
+      before = result.nextCursor;
+    }
+
+    this.logger.info('Persisted thread history fetched', {
+      threadId,
+      messageCount: allMessages.length,
+      pageCount,
+    });
+
+    return allMessages;
+  }
+
   // ============================================
   // MESSAGE MANAGEMENT
   // ============================================
 
   /**
-   * Execute a user-approved email draft (HITL send).
+   * Resolve an approval-backed inline card.
    *
-   * Called when the user reviews/edits a draft card and taps "Approve & Send".
-   * Calls `POST /agent-x/chat/send-draft` on the backend, which auto-detects
-   * the provider and sends via Gmail or Outlook.
+   * Calls the backend, shows a toast, and — if the operation was resumed —
+   * sets `_pendingResumeOp` so the web shell can open an op-chat session that
+   * attaches to the new SSE stream (via the `resumeOperationId` input).
+   *
+   * The heavy streaming work deliberately lives in `AgentXOperationChatComponent`.
    */
-  async sendDraft(toEmail: string, subject: string, body: string): Promise<boolean> {
-    this.logger.info('Sending approved draft email', { toEmail, subject: subject.slice(0, 50) });
-    this.breadcrumb.trackStateChange('agent-x:send-draft', { toEmail });
+  async resolveInlineApproval(params: {
+    approvalId: string;
+    decision: 'approved' | 'rejected';
+    toolInput?: Record<string, unknown>;
+    successMessage?: string;
+  }): Promise<boolean> {
+    this.logger.info('Resolving inline approval', {
+      approvalId: params.approvalId,
+      decision: params.decision,
+    });
+    this.breadcrumb.trackStateChange('agent-x:inline-approval', {
+      approvalId: params.approvalId,
+      decision: params.decision,
+    });
 
     try {
-      const result = await this.api.sendDraft(toEmail, subject, body);
-      if (result) {
-        this.logger.info('Draft email sent successfully', { toEmail, provider: result.provider });
-        this.analytics?.trackEvent(APP_EVENTS.AGENT_X_DRAFT_EMAIL_SENT, {
-          provider: result.provider,
-          toEmail,
+      const result = await this.api.resolveApproval(
+        params.approvalId,
+        params.decision,
+        params.toolInput
+      );
+
+      if (!result) {
+        this.logger.warn('Inline approval returned null', {
+          approvalId: params.approvalId,
+          decision: params.decision,
         });
-        this.toast.success(`Email sent to ${toEmail}`);
+        this.toast.error('Failed to process approval');
+        return false;
+      }
+
+      this.analytics?.trackEvent(APP_EVENTS.AGENT_X_OPERATION_APPROVED, {
+        approvalId: params.approvalId,
+        decision: params.decision,
+        resumed: result.resumed,
+      });
+
+      if (params.decision === 'rejected') {
+        this.toast.success(params.successMessage ?? 'Request rejected');
         return true;
       }
-      this.logger.warn('Draft email send returned null', { toEmail });
-      this.toast.error('Failed to send email');
-      return false;
-    } catch (err) {
-      this.logger.error('Failed to send draft email', err, { toEmail });
-      this.toast.error('Failed to send email');
-      return false;
-    }
-  }
 
-  /**
-   * Send a message to Agent X using real-time SSE streaming.
-   *
-   * Opens a `POST /agent-x/chat` SSE connection.
-   * Token fragments are written into the message signal as they arrive,
-   * producing the live "typing" effect without any simulated delays.
-   *
-   * SSE event sequence:
-   *  1. `event: thread`  → threadId persisted immediately
-   *  2. `event: delta`   → content appended token-by-token
-   *  3. `event: done`    → streaming complete, metadata stored
-   *  4. `event: error`   → error message shown, stream closed
-   *
-   * Falls back to a standard `http.post()` if `AGENT_X_AUTH_TOKEN_FACTORY`
-   * is not provided (e.g. mobile, tests) or the auth token cannot be resolved.
-   *
-   * @param content - Optional override text; defaults to the current input signal value.
-   */
-  async sendMessage(content?: string): Promise<void> {
-    const message = content ?? this._userMessage().trim();
-    const hasPendingFiles = this._pendingFiles().length > 0;
-    if ((!message && !hasPendingFiles) || this._isLoading()) return;
+      this.toast.success(params.successMessage ?? 'Approved — Agent X is resuming');
 
-    // Cancel any in-flight stream before starting a new one
-    this.activeStream?.abort();
-    this.activeStream = null;
-
-    // Clear input and task
-    this._userMessage.set('');
-    this._selectedTask.set(null);
-
-    await this.haptics.impact('light');
-
-    // ── Upload pending files (requires auth token) ──────────────────────
-    let attachments: AgentXAttachment[] = [];
-    if (hasPendingFiles) {
-      const authToken = await this.getAuthToken?.().catch(() => null);
-      if (!authToken) {
-        this.toast.error('Sign in to upload files');
-        return;
-      }
-      try {
-        attachments = await this._uploadPendingFiles(authToken);
-      } catch {
-        // Error already logged/toasted in _uploadPendingFiles
-        return;
-      }
-    }
-
-    // Add user message
-    const userMessage: AgentXMessage = {
-      id: this.generateId(),
-      role: 'user',
-      content:
-        message ||
-        (attachments.length > 0
-          ? `[${attachments.length} file${attachments.length > 1 ? 's' : ''} attached]`
-          : ''),
-      timestamp: new Date(),
-      ...(attachments.length > 0 ? { attachments } : {}),
-    };
-    this._messages.update((msgs) => [...msgs, userMessage]);
-
-    // Add typing indicator (replaced by the streaming assistant message)
-    const streamingId = this.generateId();
-    const typingMessage: AgentXMessage = {
-      id: streamingId,
-      role: 'assistant',
-      content: '',
-      timestamp: new Date(),
-      isTyping: true,
-    };
-    this._messages.update((msgs) => [...msgs, typingMessage]);
-    this._isLoading.set(true);
-
-    const request: AgentXChatRequest = {
-      message: userMessage.content,
-      mode: this._selectedMode(),
-      history: this._messages()
-        .filter((m) => m.id !== streamingId && !m.isTyping)
-        .slice(-AGENT_X_CONFIG.maxHistoryLength)
-        .map((m) => ({ ...m })),
-      userContext: this._userContext() ?? undefined,
-      ...(this._currentThreadId() ? { threadId: this._currentThreadId()! } : {}),
-      ...(attachments.length > 0 ? { attachments } : {}),
-    };
-
-    this.logger.info('Sending message', {
-      mode: request.mode,
-      threadId: this._currentThreadId(),
-      attachments: attachments.length || undefined,
-    });
-    this.breadcrumb.trackStateChange('agent-x:sending', { mode: request.mode });
-
-    // ── SSE path ────────────────────────────────────────────────────────
-    const authToken = await this.getAuthToken?.().catch(() => null);
-
-    if (authToken && isPlatformBrowser(this.platformId)) {
-      await this._sendViaStream(request, streamingId, authToken);
-    } else {
-      // ── Fallback: standard HTTP POST (mobile / no token) ────────────
-      await this._sendViaHttp(request, streamingId);
-    }
-  }
-
-  /**
-   * SSE streaming path — connects via raw fetch + ReadableStream.
-   * @internal
-   */
-  private async _sendViaStream(
-    request: AgentXChatRequest,
-    streamingId: string,
-    authToken: string
-  ): Promise<void> {
-    return new Promise<void>((resolve) => {
-      // Mutable parts accumulator — builds Copilot-style interleaved sequence
-      const parts: AgentXMessagePart[] = [];
-
-      this.activeStream = this.api.streamMessage(
-        request,
-        {
-          onThread: (evt) => {
-            // Persist threadId immediately — before LLM inference begins
-            this._currentThreadId.set(evt.threadId);
-            // Store operation ID for explicit cancellation support
-            if (evt.operationId) this._currentOperationId = evt.operationId;
-            this.logger.debug('Thread resolved', { threadId: evt.threadId });
-          },
-
-          onDelta: (evt) => {
-            // Build interleaved parts: append to last text part or start new one
-            const last = parts[parts.length - 1];
-            if (last?.type === 'text') {
-              parts[parts.length - 1] = { type: 'text', content: last.content + evt.content };
-            } else {
-              parts.push({ type: 'text', content: evt.content });
-            }
-
-            // Append the new token to the streaming message in-place
-            this._messages.update((msgs) =>
-              msgs.map((m) =>
-                m.id === streamingId
-                  ? { ...m, content: m.content + evt.content, isTyping: false, parts: [...parts] }
-                  : m
-              )
-            );
-          },
-
-          onStep: (evt: AgentXStreamStepEvent) => {
-            const step: AgentXToolStep = {
-              id: evt.id,
-              label: evt.label,
-              status: evt.status,
-              detail: evt.detail,
-            };
-
-            // When the open_live_view tool starts, show the loading spinner
-            // in the header's Live View button immediately.
-            if (evt.label.toLowerCase().includes('live view') && evt.status === 'active') {
-              this.liveView.setLoading(true);
-            }
-
-            // Build interleaved parts: upsert into last tool-steps group or start new one
-            const last = parts[parts.length - 1];
-            if (last?.type === 'tool-steps') {
-              const prevSteps = [...last.steps];
-              const idx = prevSteps.findIndex((s) => s.id === evt.id);
-              if (idx >= 0) {
-                prevSteps[idx] = step;
-              } else {
-                prevSteps.push(step);
-              }
-              parts[parts.length - 1] = { type: 'tool-steps', steps: prevSteps };
-            } else {
-              parts.push({ type: 'tool-steps', steps: [step] });
-            }
-
-            // Run inside NgZone so change detection fires — the SSE
-            // ReadableStream reader.read() callback executes outside the
-            // Angular zone (native promise, not patched by zone.js).
-            // During tool execution only step events fire (no deltas), so
-            // without this the signal write never triggers a CD tick.
-            this.ngZone.run(() => {
-              this._messages.update((msgs) =>
-                msgs.map((m) => {
-                  if (m.id !== streamingId) return m;
-                  const prev = m.steps ?? [];
-                  const idx = prev.findIndex((s) => s.id === evt.id);
-                  const next =
-                    idx >= 0 ? prev.map((s, i) => (i === idx ? step : s)) : [...prev, step];
-                  return { ...m, steps: next, parts: [...parts] };
-                })
-              );
-            });
-          },
-
-          onCard: (evt: AgentXStreamCardEvent) => {
-            const card: AgentXRichCard = { type: evt.type, title: evt.title, payload: evt.payload };
-
-            // Each card is its own part (always a new entry in the sequence)
-            parts.push({ type: 'card', card });
-
-            // Run inside NgZone — same reason as onStep above.
-            this.ngZone.run(() => {
-              this._messages.update((msgs) =>
-                msgs.map((m) =>
-                  m.id === streamingId
-                    ? {
-                        ...m,
-                        cards: [...(m.cards ?? []), card],
-                        parts: [...parts],
-                      }
-                    : m
-                )
-              );
-            });
-          },
-
-          onTitleUpdated: (evt: AgentXStreamTitleUpdatedEvent) => {
-            // The backend auto-generated a concise title for this new thread.
-            // Notify any listeners (e.g. operations log sidebar) so the UI
-            // updates instantly without a full refetch.
-            this.logger.info('Thread title auto-generated', {
-              threadId: evt.threadId,
-              title: evt.title,
-            });
-            this.operationEventService.emitTitleUpdated(evt.threadId, evt.title);
-          },
-
-          onOperation: (evt) => {
-            // The /chat SSE stream emits operation lifecycle events at key transitions.
-            // Forward to the event service so the operations log sidebar updates
-            // in real-time without polling or Firestore listeners.
-            this.logger.info('Operation status update', {
-              threadId: evt.threadId,
-              status: evt.status,
-            });
-            this.operationEventService.emitOperationStatusUpdated(
-              evt.threadId,
-              evt.status,
-              evt.timestamp
-            );
-          },
-
-          onPanel: (evt) => {
-            // The backend emits a `panel` SSE event immediately when a tool
-            // returns an autoOpenPanel instruction (e.g. open_live_view).
-            // Surface it to the shell ASAP — don't wait for the done event.
-            this._requestedSidePanel.set(evt);
-            this.logger.info('Agent requested side panel (immediate)', { type: evt.type });
-          },
-
-          onMedia: (evt) => {
-            // The backend emits a `media` SSE event when a tool produces an
-            // image or video (e.g. generate_graphic). Push an image/video
-            // part so the chat bubble renders it inline.
-            const part: AgentXMessagePart =
-              evt.type === 'video'
-                ? { type: 'video' as const, url: evt.url, mimeType: evt.mimeType }
-                : { type: 'image' as const, url: evt.url, alt: 'Generated image' };
-            parts.push(part);
-
-            this.ngZone.run(() => {
-              this._messages.update((msgs) =>
-                msgs.map((m) => (m.id === streamingId ? { ...m, parts: [...parts] } : m))
-              );
-            });
-          },
-
-          onDone: (evt) => {
-            // Freeze the final message with metadata
-            this._messages.update((msgs) =>
-              msgs.map((m) =>
-                m.id === streamingId
-                  ? {
-                      ...m,
-                      isTyping: false,
-                      metadata: {
-                        model: evt.model,
-                        inputTokens: evt.usage?.inputTokens,
-                        outputTokens: evt.usage?.outputTokens,
-                        mode: request.mode,
-                        ...(evt.autoOpenPanel ? { autoOpenPanel: evt.autoOpenPanel } : {}),
-                      },
-                    }
-                  : m
-              )
-            );
-
-            this._isLoading.set(false);
-            this.activeStream = null;
-            this._currentOperationId = null;
-
-            // If the backend included an autoOpenPanel instruction AND the panel
-            // event didn't already surface it, set it now as a fallback.
-            if (evt.autoOpenPanel && !this._requestedSidePanel()) {
-              this._requestedSidePanel.set(evt.autoOpenPanel);
-              this.logger.info('Agent requested side panel (done fallback)', {
-                type: evt.autoOpenPanel.type,
-              });
-            }
-
-            this.haptics.notification('success').catch(() => undefined);
-            this.analytics?.trackEvent(APP_EVENTS.AGENT_X_MESSAGE_SENT, {
-              mode: this._selectedMode(),
-              streaming: true,
-              model: evt.model,
-              threadId: evt.threadId,
-            });
-            this.logger.info('Stream complete', {
-              model: evt.model,
-              outputTokens: evt.usage?.outputTokens,
-              threadId: evt.threadId,
-            });
-
-            resolve();
-          },
-
-          onError: (evt) => {
-            this.logger.error('Stream error', evt.error);
-            if (evt.status === 402) {
-              const reason = this._mapBillingCode(evt.code);
-              this._replaceWithBillingCard(streamingId, reason, evt.error);
-            } else {
-              this._replaceWithError(streamingId);
-            }
-            this._isLoading.set(false);
-            this.activeStream = null;
-            this._currentOperationId = null;
-            this.haptics.notification('error').catch(() => undefined);
-            resolve();
-          },
-        },
-        authToken,
-        this.baseUrl
-      );
-
-      // Ensure loading is cleared on service destroy (e.g. route change mid-stream)
-      this.destroyRef.onDestroy(() => {
-        this.activeStream?.abort();
-        this.activeStream = null;
-      });
-    });
-  }
-
-  /**
-   * Fallback HTTP POST path — used when streaming is unavailable (mobile, tests).
-   * @internal
-   */
-  private async _sendViaHttp(request: AgentXChatRequest, streamingId: string): Promise<void> {
-    try {
-      const response = await firstValueFrom(
-        this.http.post<{
-          success: boolean;
-          message?: AgentXMessage;
-          threadId?: string;
-          error?: string;
-        }>(`${this.baseUrl}/agent-x/chat`, request)
-      );
-
-      if (response.success && response.message) {
-        if (response.threadId) this._currentThreadId.set(response.threadId);
-
-        this._messages.update((msgs) =>
-          msgs.map((m) =>
-            m.id === streamingId
-              ? {
-                  ...m,
-                  content: response.message!.content,
-                  isTyping: false,
-                  metadata: response.message!.metadata,
-                }
-              : m
-          )
-        );
-
-        // If the backend included an autoOpenPanel instruction, surface it
-        if (response.message!.metadata?.autoOpenPanel) {
-          this._requestedSidePanel.set(response.message!.metadata.autoOpenPanel);
-          this.logger.info('Agent requested side panel (HTTP)', {
-            type: response.message!.metadata.autoOpenPanel.type,
-          });
-        }
-
-        await this.haptics.notification('success');
-        this.analytics?.trackEvent(APP_EVENTS.AGENT_X_MESSAGE_SENT, {
-          mode: this._selectedMode(),
-          streaming: false,
+      // Signal the web shell to open an op-chat session that attaches to the
+      // resumed stream. The shell effect watches pendingResumeOp() and calls
+      // setDesktopSession with the resumeOperationId input.
+      if (result.resumed && result.operationId) {
+        this._pendingResumeOp.set({
+          operationId: result.operationId,
+          threadId: result.threadId ?? undefined,
         });
-      } else {
-        throw new Error(response.error ?? 'No response from Agent X');
       }
-    } catch (error) {
-      this.logger.error('Send message failed (HTTP fallback)', error);
-      await this.haptics.notification('error');
-      const httpErr = error as { status?: number; error?: { code?: string; error?: string } };
-      if (httpErr.status === 402) {
-        const body = httpErr.error ?? {};
-        const reason = this._mapBillingCode(body.code);
-        this._replaceWithBillingCard(streamingId, reason, body.error);
-      } else {
-        this._replaceWithError(streamingId);
-      }
-    } finally {
-      this._isLoading.set(false);
+
+      return true;
+    } catch (err) {
+      this.logger.error('Failed to resolve inline approval', err, {
+        approvalId: params.approvalId,
+        decision: params.decision,
+      });
+      this.toast.error('Failed to process approval');
+      return false;
     }
   }
-
-  /**
-   * Replace the placeholder streaming message with a user-facing error message.
-   * @internal
-   */
-  private _replaceWithError(streamingId: string): void {
-    this._messages.update((msgs) =>
-      msgs.map((m) =>
-        m.id === streamingId
-          ? {
-              ...m,
-              content: 'Sorry, something went wrong. Please try again.',
-              isTyping: false,
-              error: true,
-            }
-          : m
-      )
-    );
-  }
-
-  /**
-   * Map a backend billing error code to a billing-action card reason.
-   * @internal
-   */
-  private _mapBillingCode(code?: string): AgentXBillingActionReason {
-    switch (code) {
-      case 'WALLET_EMPTY':
-        return 'insufficient_funds';
-      case 'NO_PAYMENT_METHOD':
-        return 'payment_method_required';
-      case 'BUDGET_EXCEEDED':
-        return 'limit_reached';
-      default:
-        return 'insufficient_funds';
-    }
-  }
-
-  /**
-   * Replace the placeholder streaming message with a billing-action rich card
-   * instead of a generic error. This lets the user resolve the billing issue
-   * inline in the chat timeline (top-up wallet, add payment method, etc.).
-   * @internal
-   */
-  private _replaceWithBillingCard(
-    streamingId: string,
-    reason: AgentXBillingActionReason,
-    description?: string
-  ): void {
-    const card: AgentXRichCard = {
-      type: 'billing-action',
-      title: 'Action Required',
-      payload: {
-        reason,
-        description,
-      },
-    };
-
-    this._messages.update((msgs) =>
-      msgs.map((m) =>
-        m.id === streamingId
-          ? {
-              ...m,
-              content:
-                description ?? 'I need you to resolve a billing issue before I can continue.',
-              isTyping: false,
-              cards: [card],
-            }
-          : m
-      )
-    );
-
-    this.logger.info('Billing action card injected', { reason });
-    this.breadcrumb.trackStateChange('agent-x:billing-card-shown', { reason });
-    this.analytics?.trackEvent(APP_EVENTS.AGENT_X_BILLING_CARD_VIEWED, { reason });
-  }
-
-  // ============================================
-  // BACKGROUND JOB PATH (BullMQ + Firestore Live Events)
-  // ============================================
 
   // ============================================
   // FILE ATTACHMENT MANAGEMENT
@@ -1161,7 +780,7 @@ export class AgentXService {
 
   /**
    * Stage files for upload. Validates MIME type, size, and attachment count.
-   * Creates preview URLs for images. Call before sendMessage().
+   * Creates preview URLs for images and videos. Call before sendMessage().
    */
   addFiles(files: File[]): void {
     const current = this._pendingFiles();
@@ -1178,14 +797,18 @@ export class AgentXService {
         continue;
       }
 
-      if (file.size > AGENT_X_MAX_FILE_SIZE) {
-        this.toast.error(`File too large: ${file.name} (max 20 MB)`);
+      const isVideoFile = file.type.startsWith('video/');
+      const maxSize = isVideoFile ? AGENT_X_MAX_VIDEO_FILE_SIZE : AGENT_X_MAX_FILE_SIZE;
+      const maxLabel = isVideoFile ? '500 MB' : '20 MB';
+      if (file.size > maxSize) {
+        this.toast.error(`File too large: ${file.name} (max ${maxLabel})`);
         this.logger.warn('Rejected oversized file', { name: file.name, sizeBytes: file.size });
         continue;
       }
 
+      const shouldCreatePreview = file.type.startsWith('image/') || file.type.startsWith('video/');
       const previewUrl =
-        file.type.startsWith('image/') && isPlatformBrowser(this.platformId)
+        shouldCreatePreview && isPlatformBrowser(this.platformId)
           ? URL.createObjectURL(file)
           : null;
       const pending: AgentXPendingFile = {
@@ -1236,75 +859,9 @@ export class AgentXService {
   }
 
   /**
-   * Upload all pending files to Firebase Storage via the backend.
-   * Returns an array of AgentXAttachment metadata for inclusion in the chat request.
-   *
-   * Uses raw `fetch` + `FormData` because Angular `HttpClient` does not
-   * support multipart/form-data with the `Authorization` header set via
-   * interceptors in all SSR/mobile environments.
-   *
-   * @internal
-   */
-  private async _uploadPendingFiles(authToken: string): Promise<AgentXAttachment[]> {
-    const files = this._pendingFiles();
-    if (files.length === 0) return [];
-
-    this._uploading.set(true);
-    const attachments: AgentXAttachment[] = [];
-
-    try {
-      for (const pending of files) {
-        const formData = new FormData();
-        formData.append('file', pending.file);
-
-        const response = await fetch(`${this.baseUrl}${AGENT_X_ENDPOINTS.UPLOAD}`, {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${authToken}` },
-          body: formData,
-        });
-
-        if (!response.ok) {
-          const errorBody = await response.text().catch(() => 'Upload failed');
-          throw new Error(`Upload failed (${response.status}): ${errorBody}`);
-        }
-
-        const result = (await response.json()) as {
-          success: boolean;
-          data?: { url: string; name: string; mimeType: string; sizeBytes: number };
-          error?: string;
-        };
-
-        if (!result.success || !result.data) {
-          throw new Error(result.error ?? 'Upload failed');
-        }
-
-        attachments.push({
-          id: crypto.randomUUID(),
-          url: result.data.url,
-          name: result.data.name,
-          mimeType: result.data.mimeType,
-          type: resolveAttachmentType(result.data.mimeType),
-          sizeBytes: result.data.sizeBytes,
-        });
-      }
-      this.logger.info('Files uploaded', { count: attachments.length });
-      return attachments;
-    } catch (err) {
-      this.logger.error('File upload failed', err);
-      this.toast.error('Failed to upload attachments');
-      throw err;
-    } finally {
-      this._uploading.set(false);
-      this.clearPendingFiles();
-    }
-  }
-
-  /**
    * Clear all messages and reset conversation thread.
    */
   async clearMessages(): Promise<void> {
-    this.activeStream?.abort();
-    this.activeStream = null;
     await this.haptics.impact('light');
     this._messages.set([]);
     this._selectedTask.set(null);
@@ -1361,6 +918,18 @@ export class AgentXService {
     return typeof crypto !== 'undefined' && crypto.randomUUID
       ? crypto.randomUUID()
       : `msg-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  }
+
+  private mapPersistedMessageToUi(message: AgentMessage): AgentXMessage {
+    const imageUrl = message.resultData?.['imageUrl'] as string | undefined;
+
+    return {
+      id: message.id || this.generateId(),
+      role: message.role === 'user' ? ('user' as const) : ('assistant' as const),
+      content: message.content,
+      timestamp: message.createdAt ? new Date(message.createdAt) : new Date(),
+      ...(imageUrl ? { imageUrl } : {}),
+    };
   }
 
   // ============================================
@@ -1465,8 +1034,10 @@ export class AgentXService {
         this.toast.success('Goals saved! Generating your playbook...');
         this.analytics?.trackEvent(APP_EVENTS.AGENT_X_GOALS_SET, { count: goals.length });
 
-        // Auto-generate playbook after setting goals
-        await this.generatePlaybook();
+        // Auto-generate playbook after setting goals (non-blocking)
+        this.generatePlaybook().catch((err) => {
+          this.logger.warn('Background playbook generation failed', err);
+        });
         return true;
       }
       this.toast.error(response.error ?? 'Failed to save goals');
@@ -1475,6 +1046,137 @@ export class AgentXService {
       this.logger.error('Failed to set goals', err);
       this.toast.error('Failed to save goals');
       return false;
+    }
+  }
+
+  /**
+   * Mark an active goal as completed.
+   * Optimistically removes the goal from the active list; rolls back on failure.
+   */
+  async completeGoal(goalId: string): Promise<void> {
+    const previous = this._goals();
+    const goal = previous.find((g) => g.id === goalId);
+
+    // Optimistically remove from active list if we have the goal locally.
+    // If _goals isn't hydrated yet (no loadDashboard call), skip the local
+    // update — the backend is the source of truth and will still persist.
+    if (goal) {
+      this._goals.update((goals) => goals.filter((g) => g.id !== goalId));
+    }
+
+    this.breadcrumb.trackStateChange('agent-x:goal-completing:pending', {
+      goalId,
+      goal_category: goal?.category ?? 'unknown',
+    });
+    await this.haptics.impact('medium');
+
+    try {
+      const completeHttp = () =>
+        firstValueFrom(
+          this.http.post<{
+            success: boolean;
+            data?: { completedGoal: CompletedGoalRecord };
+            error?: string;
+          }>(`${this.baseUrl}/agent-x/goals/${encodeURIComponent(goalId)}/complete`, {})
+        );
+
+      const response = await (this.performance?.trace(
+        TRACE_NAMES.AGENT_X_GOAL_COMPLETE,
+        completeHttp,
+        {
+          attributes: {
+            [ATTRIBUTE_NAMES.FEATURE_NAME]: 'agent_x_goals',
+            goal_category: goal?.category ?? 'unknown',
+          },
+        }
+      ) ?? completeHttp());
+
+      if (response.success && response.data?.completedGoal) {
+        // Prepend to history (newest-first)
+        this._goalHistory.update((h) => [response.data!.completedGoal, ...h]);
+        this._canRegenerate.set(this._goals().length > 0);
+
+        const daysToComplete = response.data.completedGoal.daysToComplete;
+        this.logger.info('Goal completed', { goalId, category: goal?.category, daysToComplete });
+        this.analytics?.trackEvent(APP_EVENTS.AGENT_X_GOAL_COMPLETED, {
+          goalId,
+          goal_category: goal?.category,
+          role: response.data.completedGoal.role,
+          daysToComplete,
+        });
+        this.analytics?.setUserProperties({
+          [USER_PROPERTIES.GOALS_COMPLETED_TOTAL]: this._goalHistory().length,
+        });
+        this.breadcrumb.trackStateChange('agent-x:goal-completing:completed', {
+          goalId,
+          goal_category: goal?.category,
+        });
+        this.toast.success('Goal completed! 🎯');
+        await this.haptics.notification('success');
+      } else {
+        // Rollback local state only if we had performed an optimistic removal
+        if (goal) this._goals.set(previous);
+        this.toast.error(response.error ?? 'Failed to complete goal');
+        this.logger.error('Complete goal failed — rolled back', null, { goalId });
+      }
+    } catch (err) {
+      // Rollback local state only if we had performed an optimistic removal
+      if (goal) this._goals.set(previous);
+      this.logger.error('Failed to complete goal', err, { goalId });
+      this.toast.error('Failed to complete goal');
+    }
+  }
+
+  /**
+   * Load the user's completed goal history from the backend.
+   * Fires `AGENT_X_GOAL_HISTORY_VIEWED` analytics event on success.
+   */
+  async loadGoalHistory(): Promise<void> {
+    if (this._goalHistoryLoading()) return;
+    this._goalHistoryLoading.set(true);
+    this._goalHistoryError.set(null);
+    this.logger.info('Loading goal history');
+
+    try {
+      type HistoryResponse = {
+        success: boolean;
+        data?: { history: CompletedGoalRecord[]; totalCompleted: number };
+        error?: string;
+      };
+
+      const historyHttp = () =>
+        firstValueFrom(this.http.get<HistoryResponse>(`${this.baseUrl}/agent-x/goal-history`));
+
+      const response = await (this.performance?.trace(
+        TRACE_NAMES.AGENT_X_GOAL_HISTORY_LOAD,
+        historyHttp,
+        {
+          attributes: {
+            [ATTRIBUTE_NAMES.FEATURE_NAME]: 'agent_x_goals',
+          },
+          onSuccess: async (res, trace) => {
+            if (res.success && res.data) {
+              await trace.putMetric('history_count', res.data.totalCompleted);
+            }
+          },
+        }
+      ) ?? historyHttp());
+
+      if (response.success && response.data) {
+        this._goalHistory.set(response.data.history);
+        this.logger.info('Goal history loaded', { count: response.data.totalCompleted });
+        this.analytics?.trackEvent(APP_EVENTS.AGENT_X_GOAL_HISTORY_VIEWED, {
+          totalCompleted: response.data.totalCompleted,
+        });
+      } else {
+        this._goalHistoryError.set(response.error ?? 'Failed to load history');
+        this.logger.error('Failed to load goal history', null, { error: response.error });
+      }
+    } catch (err) {
+      this._goalHistoryError.set('Failed to load history');
+      this.logger.error('Failed to load goal history', err);
+    } finally {
+      this._goalHistoryLoading.set(false);
     }
   }
 
@@ -1492,32 +1194,126 @@ export class AgentXService {
     this.breadcrumb.trackStateChange('agent-x:playbook-generating');
 
     try {
-      const response = await firstValueFrom(
-        this.http.post<{ success: boolean; data?: AgentDashboardPlaybook; error?: string }>(
-          `${this.baseUrl}/agent-x/playbook/generate`,
-          { force }
-        )
+      type PlaybookEnqueueResponse = {
+        success: boolean;
+        data?: { operationId?: string };
+        error?: string;
+      };
+
+      const enqueueResponse = await firstValueFrom(
+        this.http.post<PlaybookEnqueueResponse>(`${this.baseUrl}/agent-x/playbook/generate`, {
+          force,
+        })
       );
 
-      if (response.success && response.data) {
-        this._weeklyPlaybook.set([...response.data.items]);
-        this.resetCategoryFilter();
-        this._playbookGeneratedAt.set(response.data.generatedAt);
-        this._canRegenerate.set(true);
-        this.toast.success('Weekly playbook generated!');
-        this.analytics?.trackEvent(APP_EVENTS.AGENT_X_PLAYBOOK_GENERATED, {
-          itemCount: response.data.items.length,
-          forced: force,
-        });
-      } else {
-        this.toast.error(response.error ?? 'Failed to generate playbook');
+      if (!enqueueResponse.success || !enqueueResponse.data?.operationId) {
+        this.toast.error(enqueueResponse.error ?? 'Failed to queue playbook generation');
+        return;
       }
+
+      const operationId = enqueueResponse.data.operationId;
+      this.logger.info('Playbook generation queued', { operationId, force });
+
+      const pollResult = await this.pollPlaybookGenerationStatus(operationId);
+      if (!pollResult.success) {
+        this.toast.error(pollResult.error ?? 'Playbook generation failed');
+        return;
+      }
+
+      if (pollResult.playbook) {
+        // Append new items to existing ones rather than replacing.
+        // Completed/snoozed items from prior batches are preserved so
+        // the progress bar shows cumulative weekly progress (e.g. 5 of 10).
+        const existing = this._weeklyPlaybook();
+        const newItems = pollResult.playbook.items as ShellWeeklyPlaybookItem[];
+        const existingIds = new Set(existing.map((i) => i.id));
+        const uniqueNew = newItems.filter((i) => !existingIds.has(i.id));
+        this._weeklyPlaybook.set([...existing, ...uniqueNew]);
+        this.resetCategoryFilter();
+        this._playbookGeneratedAt.set(pollResult.playbook.generatedAt);
+      } else {
+        // Fallback: refresh dashboard if worker completion payload is unavailable.
+        await this.loadDashboard();
+      }
+
+      this._canRegenerate.set(true);
+      this.toast.success('Weekly playbook generated!');
+      this.analytics?.trackEvent(APP_EVENTS.AGENT_X_PLAYBOOK_GENERATED, {
+        itemCount: pollResult.playbook?.items.length ?? this._weeklyPlaybook().length,
+        forced: force,
+      });
     } catch (err) {
       this.logger.error('Failed to generate playbook', err);
       this.toast.error('Failed to generate playbook');
     } finally {
       this._playbookGenerating.set(false);
     }
+  }
+
+  private async pollPlaybookGenerationStatus(operationId: string): Promise<{
+    success: boolean;
+    playbook: AgentDashboardPlaybook | null;
+    error?: string;
+  }> {
+    type PlaybookStatusPayload = {
+      operationId: string;
+      status: string;
+      result?: {
+        data?: {
+          playbook?: AgentDashboardPlaybook;
+        };
+      };
+      error?: string | null;
+    };
+
+    type PlaybookStatusResponse = {
+      success: boolean;
+      data?: PlaybookStatusPayload;
+      error?: string;
+    };
+
+    for (let attempt = 0; attempt < AgentXService.PLAYBOOK_POLL_MAX_ATTEMPTS; attempt++) {
+      const cacheBust = Date.now();
+      const response = await firstValueFrom(
+        this.http.get<PlaybookStatusResponse>(
+          `${this.baseUrl}/agent-x/playbook/generate/status/${encodeURIComponent(operationId)}?_=${cacheBust}`
+        )
+      );
+
+      if (!response.success || !response.data) {
+        return {
+          success: false,
+          playbook: null,
+          error: response.error ?? 'Failed to fetch playbook generation status',
+        };
+      }
+
+      const status = response.data.status;
+      if (status === 'completed') {
+        return {
+          success: true,
+          playbook: response.data.result?.data?.playbook ?? null,
+        };
+      }
+
+      if (status === 'failed' || status === 'cancelled') {
+        return {
+          success: false,
+          playbook: null,
+          error: response.data.error ?? 'Playbook generation failed',
+        };
+      }
+
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, AgentXService.PLAYBOOK_POLL_INTERVAL_MS);
+      });
+    }
+
+    return {
+      success: false,
+      playbook: null,
+      error: 'Playbook generation timed out. Please refresh in a moment.',
+    };
   }
 
   /**
@@ -1591,13 +1387,43 @@ export class AgentXService {
   }
 
   /**
-   * Snooze a playbook item — marks it as complete so it slides out of the
-   * pending list. The card animates away and progress updates accordingly.
+   * Mark a playbook item as explicitly complete (user pressed "Mark Done").
+   * Updates the local signal immediately and persists to backend.
    */
-  snoozePlaybookItem(itemId: string): void {
+  markPlaybookItemComplete(itemId: string): void {
     this._weeklyPlaybook.update((items) =>
       items.map((i) => (i.id === itemId ? { ...i, status: 'complete' as const } : i))
     );
+    this.logger.info('Playbook item marked done', { itemId });
+
+    firstValueFrom(
+      this.http.post<{ success: boolean }>(
+        `${this.baseUrl}/agent-x/playbook/item/${encodeURIComponent(itemId)}/status`,
+        { status: 'complete' }
+      )
+    ).catch((err) => {
+      this.logger.warn('Failed to persist mark-done to backend', { itemId, error: String(err) });
+    });
+  }
+
+  /**
+   * Snooze a playbook item — dismisses it from the pending list without
+   * counting it as complete. Progress bar denominator shrinks by 1.
+   */
+  snoozePlaybookItem(itemId: string): void {
+    this._weeklyPlaybook.update((items) =>
+      items.map((i) => (i.id === itemId ? { ...i, status: 'snoozed' as const } : i))
+    );
     this.logger.info('Playbook item snoozed', { itemId });
+
+    // Persist snooze to backend so the playbook Firestore doc stays in sync
+    firstValueFrom(
+      this.http.post<{ success: boolean }>(
+        `${this.baseUrl}/agent-x/playbook/item/${encodeURIComponent(itemId)}/status`,
+        { status: 'snoozed' }
+      )
+    ).catch((err) => {
+      this.logger.warn('Failed to persist snooze to backend', { itemId, error: String(err) });
+    });
   }
 }

@@ -29,14 +29,32 @@ const mockCache = {
   mset: vi.fn(),
 };
 
-vi.mock('../../../../services/cache.service.js', () => ({
+vi.mock('../../../../services/core/cache.service.js', () => ({
   getCacheService: () => mockCache,
   CACHE_TTL: { PROFILES: 900 },
 }));
 
 const mockGetUserById = vi.fn();
-vi.mock('../../../../services/users.service.js', () => ({
+vi.mock('../../../../services/profile/users.service.js', () => ({
   getUserById: (...args: unknown[]) => mockGetUserById(...args),
+}));
+
+const mockGetUserTeams = vi.fn();
+vi.mock('../../../../adapters/team.adapter.js', () => ({
+  TeamServiceAdapter: class {
+    getUserTeams = mockGetUserTeams;
+  },
+}));
+
+const mockListRecentSummaries = vi.fn().mockResolvedValue([]);
+vi.mock('../../../../services/core/sync-delta-event.service.js', () => ({
+  getSyncDeltaEventService: () => ({
+    listRecentSummaries: (...args: unknown[]) => mockListRecentSummaries(...args),
+  }),
+}));
+
+vi.mock('firebase-admin/firestore', () => ({
+  getFirestore: vi.fn(() => ({ collection: vi.fn() })),
 }));
 
 const mockLogger = {
@@ -91,7 +109,6 @@ function createFullUserDoc() {
       targetDivisions: ['D1', 'D2'],
       targetColleges: ['Georgia', 'Texas', 'Ohio State'],
       recruitingStatus: 'active',
-      commitmentStatus: 'uncommitted',
     },
     social: [
       { platform: 'twitter', connected: true, lastSyncedAt: '2026-01-15T00:00:00Z' },
@@ -116,10 +133,46 @@ function createCoachUserDoc() {
     coach: {
       organization: 'State University',
       division: 'D1',
+      coachingSports: ['basketball', 'track'],
     },
     onboardingCompleted: true,
     _counters: { profileViews: 500 },
     lastLoginAt: '2026-02-15T00:00:00Z',
+  };
+}
+
+function createDirectorUserDoc() {
+  return {
+    id: 'director-123',
+    role: 'director',
+    firstName: 'Avery',
+    lastName: 'Johnson',
+    teamId: 'team-director-1',
+    organizationId: 'org-director-1',
+    director: {
+      title: 'Athletic Director',
+      organization: 'Central Academy',
+      overseeSports: ['football', 'basketball', 'track'],
+    },
+    onboardingCompleted: true,
+  };
+}
+
+function createBasketballUserDoc() {
+  return {
+    id: 'user-bball',
+    role: 'athlete',
+    firstName: 'Jordan',
+    lastName: 'Miles',
+    primarySport: 'basketball',
+    activeSportIndex: 0,
+    sports: [
+      {
+        sport: 'basketball',
+        positions: ['PG'],
+        team: { name: 'Central High' },
+      },
+    ],
   };
 }
 
@@ -130,6 +183,8 @@ describe('ContextBuilder', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockGetUserTeams.mockResolvedValue([]);
+    mockListRecentSummaries.mockResolvedValue([]);
     builder = new ContextBuilder();
   });
 
@@ -232,7 +287,7 @@ describe('ContextBuilder', () => {
       expect(ctx.weightLbs).toBe(195);
       expect(ctx.graduationYear).toBe(2027);
       expect(ctx.gpa).toBe(3.8);
-      expect(ctx.school).toBe('Lincoln High School');
+      expect(ctx.school).toBe('Lincoln HS');
       expect(ctx.city).toBe('Dallas');
       expect(ctx.state).toBe('TX');
     });
@@ -243,10 +298,7 @@ describe('ContextBuilder', () => {
 
       const ctx = await builder.buildContext('user-123');
 
-      expect(ctx.targetDivisions).toEqual(['D1', 'D2']);
-      expect(ctx.targetColleges).toEqual(['Georgia', 'Texas', 'Ohio State']);
       expect(ctx.recruitingStatus).toBe('active');
-      expect(ctx.commitmentStatus).toBe('uncommitted');
     });
 
     it('should map connected accounts from social, sources, and emails', async () => {
@@ -270,14 +322,12 @@ describe('ContextBuilder', () => {
       expect(gmail?.email).toBe('john@gmail.com');
     });
 
-    it('should map engagement metrics from counters', async () => {
+    it('should map the last active timestamp', async () => {
       mockCacheGet.mockResolvedValueOnce(null);
       mockGetUserById.mockResolvedValueOnce(createFullUserDoc());
 
       const ctx = await builder.buildContext('user-123');
 
-      expect(ctx.profileCompletionPercent).toBe(100); // onboardingCompleted = true
-      expect(ctx.totalProfileViews).toBe(1250);
       expect(ctx.lastActiveAt).toBe('2026-03-01T12:00:00Z');
     });
 
@@ -294,6 +344,19 @@ describe('ContextBuilder', () => {
       // Coaches should NOT have recruiting data
       expect(ctx.targetDivisions).toBeUndefined();
       expect(ctx.targetColleges).toBeUndefined();
+    });
+
+    it('should resolve director team and organization scope without relying on sports or active sport index', async () => {
+      mockCacheGet.mockResolvedValueOnce(null);
+      mockGetUserById.mockResolvedValueOnce(createDirectorUserDoc());
+      mockGetUserTeams.mockResolvedValueOnce([]);
+
+      const ctx = await builder.buildContext('director-123');
+
+      expect(ctx.role).toBe('director');
+      expect(ctx.sport).toBe('football, basketball, track');
+      expect(ctx.teamId).toBe('team-director-1');
+      expect(ctx.organizationId).toBe('org-director-1');
     });
 
     it('should build displayName from firstName + lastName when displayName is missing', async () => {
@@ -317,18 +380,66 @@ describe('ContextBuilder', () => {
       expect(ctx.displayName).toBe('Unknown User');
     });
 
-    it('should estimate profile completion when onboarding not completed', async () => {
+    it('should prefer the roster team that matches the active sport', async () => {
       mockCacheGet.mockResolvedValueOnce(null);
-      mockGetUserById.mockResolvedValueOnce({
-        id: 'user-partial',
-        firstName: 'Partial',
-        // no profileImgs, sports, location, aboutMe, height, weight
-        onboardingCompleted: false,
+      mockGetUserById.mockResolvedValueOnce(createBasketballUserDoc());
+      mockGetUserTeams.mockResolvedValueOnce([
+        { id: 'team-football', sportName: 'football', organizationId: 'org-football' },
+        { id: 'team-basketball', sportName: 'basketball', organizationId: 'org-basketball' },
+      ]);
+
+      const ctx = await builder.buildContext('user-bball');
+
+      expect(ctx.teamId).toBe('team-basketball');
+      expect(ctx.organizationId).toBe('org-basketball');
+    });
+
+    it('should build prompt context with scoped memories and recent sync summaries', async () => {
+      const recallByScope = vi.fn().mockResolvedValue({
+        user: [
+          {
+            id: 'mem-user',
+            userId: 'user-123',
+            target: 'user',
+            content: 'User prefers SEC schools.',
+            category: 'preference',
+            createdAt: '2026-03-01T00:00:00Z',
+          },
+        ],
+        team: [],
+        organization: [],
       });
 
-      const ctx = await builder.buildContext('user-partial');
-      // Only firstName is present → 1/6 fields → ~17%
-      expect(ctx.profileCompletionPercent).toBe(17);
+      mockListRecentSummaries.mockResolvedValueOnce([
+        'football sync via maxpreps: 1 profile update, 1 recruiting update. Highlights: classOf → 2027',
+      ]);
+
+      builder = new ContextBuilder({
+        recallByScope,
+      } as unknown as import('../vector.service.js').VectorMemoryService);
+      mockCacheGet.mockResolvedValueOnce(null);
+      mockGetUserById.mockResolvedValueOnce(createFullUserDoc());
+
+      const promptContext = await builder.buildPromptContext(
+        'user-123',
+        'Which schools should I focus on?'
+      );
+
+      expect(recallByScope).toHaveBeenCalledWith('user-123', 'Which schools should I focus on?', {
+        teamId: undefined,
+        organizationId: undefined,
+        perTargetLimit: 3,
+      });
+      expect(mockListRecentSummaries).toHaveBeenCalledWith({
+        userId: 'user-123',
+        teamId: undefined,
+        organizationId: undefined,
+        limit: 4,
+      });
+      expect(promptContext.memories.user).toHaveLength(1);
+      expect(promptContext.recentSyncSummaries).toEqual([
+        'football sync via maxpreps: 1 profile update, 1 recruiting update. Highlights: classOf → 2027',
+      ]);
     });
   });
 
@@ -369,16 +480,13 @@ describe('ContextBuilder', () => {
       expect(prompt).toContain('Sport: football');
       expect(prompt).toContain('Pos: QB');
       expect(prompt).toContain('Class: 2027');
-      expect(prompt).toContain('School: Lincoln High School, Dallas, TX');
+      expect(prompt).toContain('School: Lincoln HS, Dallas, TX');
       expect(prompt).toContain('GPA: 3.8');
       expect(prompt).toContain('Height: 6\'2"');
       expect(prompt).toContain('Weight: 195lb');
-      expect(prompt).toContain('Targets: D1, D2');
-      expect(prompt).toContain('Top Schools: Georgia, Texas, Ohio State');
-      expect(prompt).toContain('Status: uncommitted');
       expect(prompt).toContain('Connected: maxpreps, gmail');
-      expect(prompt).toContain('Profile: 100% complete');
-      expect(prompt).toContain('Views: 1250');
+      expect(prompt).not.toContain('Profile:');
+      expect(prompt).not.toContain('Views:');
     });
 
     it('should produce a minimal prompt for an unknown user', () => {
@@ -400,6 +508,48 @@ describe('ContextBuilder', () => {
 
       expect(prompt).toContain('Role: coach');
       expect(prompt).toContain('Sport: basketball');
+    });
+
+    it('should append recent sync activity and retrieved memory sections when provided', () => {
+      const prompt = builder.compressToPrompt(
+        {
+          userId: 'user-123',
+          role: 'athlete',
+          displayName: 'John Doe',
+        },
+        {
+          user: [
+            {
+              id: 'mem-1',
+              userId: 'user-123',
+              target: 'user',
+              content: 'User wants to stay in Texas.',
+              category: 'goal',
+              createdAt: '2026-03-01T00:00:00Z',
+            },
+          ],
+          team: [
+            {
+              id: 'mem-2',
+              userId: 'user-123',
+              target: 'team',
+              teamId: 'team-1',
+              content: 'The basketball team adds new practice blocks on Wednesdays.',
+              category: 'profile_update',
+              createdAt: '2026-03-01T00:00:00Z',
+            },
+          ],
+          organization: [],
+        },
+        ['football sync via maxpreps: 1 new video. Highlights: hudl highlight uploaded']
+      );
+
+      expect(prompt).toContain('Recent Sync Activity:');
+      expect(prompt).toContain('football sync via maxpreps: 1 new video.');
+      expect(prompt).toContain('User Memory: User wants to stay in Texas.');
+      expect(prompt).toContain(
+        'Team Memory: The basketball team adds new practice blocks on Wednesdays.'
+      );
     });
   });
 });

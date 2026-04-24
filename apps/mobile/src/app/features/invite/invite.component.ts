@@ -10,10 +10,18 @@
  * ⭐ THIS IS THE RECOMMENDED PATTERN FOR SHARED COMPONENTS ⭐
  */
 
-import { Component, ChangeDetectionStrategy, inject, computed, OnInit } from '@angular/core';
+import {
+  Component,
+  ChangeDetectionStrategy,
+  inject,
+  computed,
+  OnInit,
+  signal,
+} from '@angular/core';
 import { IonHeader, IonContent, IonToolbar, NavController } from '@ionic/angular/standalone';
 import { InviteShellComponent, InviteService, type InviteUser } from '@nxt1/ui';
 import type { InviteType } from '@nxt1/core';
+import { ActivatedRoute } from '@angular/router';
 import { ProfileService } from '../../core/services/state/profile.service';
 
 @Component({
@@ -65,21 +73,36 @@ export class InviteMobileComponent implements OnInit {
   private readonly profileService = inject(ProfileService);
   private readonly inviteService = inject(InviteService);
   private readonly navController = inject(NavController);
+  private readonly route = inject(ActivatedRoute);
 
-  protected readonly inviteType = computed<InviteType>(() => 'referral');
+  private readonly _inviteType = signal<InviteType>('referral');
+  protected readonly inviteType = this._inviteType.asReadonly();
 
   protected readonly userInfo = computed<InviteUser | null>(() => {
     const user = this.profileService.user();
     if (!user) return null;
 
+    const primarySport = this.profileService.primarySport();
+    const location = [primarySport?.team?.city, primarySport?.team?.state]
+      .filter(Boolean)
+      .join(', ');
+
     return {
       displayName: user.displayName || 'NXT1 User',
       profileImg: user.profileImgs?.[0] ?? null,
       role: user.role ?? undefined,
+      primaryPosition: primarySport?.positions?.[0] ?? null,
+      schoolName: primarySport?.team?.name ?? null,
+      primarySport: primarySport?.sport ?? null,
+      location: location || null,
     };
   });
 
   async ngOnInit(): Promise<void> {
+    // Read inviteType from route data (e.g. /invite/team/:teamId sets inviteType='team')
+    const routeType = this.route.snapshot.data['inviteType'] as InviteType | undefined;
+    if (routeType) this._inviteType.set(routeType);
+
     if (this.userInfo()) {
       await this.inviteService.initialize();
     }

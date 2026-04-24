@@ -71,28 +71,24 @@ all layers:
 | `api-posts`    | freshness   | 5m  | Feed/posts    |
 | `api-ssr-meta` | performance | 1h  | SEO metadata  |
 
-### 3. HTTP Interceptor Cache
+### 3. Web Transport Cache (HTTP Interceptor)
 
 **Location:** `apps/web/src/app/core/infrastructure/http/cache.interceptor.ts`
 
 Features:
 
-- LRU eviction (100 entries default)
-- TTL per URL pattern
-- Stale-while-revalidate
-- Request deduplication
+- LRU memory eviction
+- TTL per URL pattern (`DEFAULT_TTL_CONFIG`)
+- Stale-while-revalidate background fetches
+- **Zero-Config Automatic Invalidation**: All mutations (POST, PUT, DELETE)
+  trigger a cross-referenced invalidation map (`DEFAULT_INVALIDATION_CONFIG`).
 - SSR-safe (no-op on server)
 
 ```typescript
-// Configure in app.config.ts
-provideHttpClient(
-  withInterceptors([
-    httpCacheInterceptor({
-      maxSize: 100,
-      staleWhileRevalidate: true,
-    }),
-  ])
-);
+// No manual tracking needed in feature services.
+// The caching and invalidation is handled entirely by the transport layer automatically.
+const data = await this.api.getProfile(id); // Cached transparently
+await this.api.updateProfile(data); // Instantly clears '*profile*' memory cache automatically
 ```
 
 #### TTL Configuration Example
@@ -162,33 +158,34 @@ const cache = createPersistentCache<Settings>(storage, {
 });
 ```
 
-### 5. Mobile Cache Service
+### 5. Mobile Transport Cache (Capacitor Adapter)
 
-**Location:** `apps/mobile/src/app/services/cache.service.ts`
+**Location:**
+`apps/mobile/src/app/core/infrastructure/http/capacitor-http-adapter.service.ts`
 
-Two-tier caching for Ionic/Capacitor apps:
+Two-tier automated native caching for Ionic/Capacitor apps. There are NO manual
+dictionary caches inside mobile UI feature services.
 
 ```typescript
-@Component({...})
-export class ProfilePage {
-  private cache = inject(MobileCacheService);
+// 1. You fire a GET request via the standard portable API wrapper
+const data = await this.api.getProfile(id);
 
-  async loadProfile(userId: string) {
-    return this.cache.getOrFetch(
-      `profile:${userId}`,
-      () => this.api.getProfile(userId),
-      CACHE_CONFIG.MEDIUM_TTL
-    );
-  }
-}
+// 2. CapacitorHttpAdapter intercepts it. It hits the MobileCacheService (RAM -> Disk).
+// 3. It returns the cached payload (0ms latency, offline capable).
+
+// 4. You fire a MUTATION request (POST/PUT/DELETE)
+await this.api.updateProfile(newData); // Adapter intercepts this.
+
+// 5. Adapter cross-references mobile-http-cache.policy.ts and automatically
+// evicts matching RAM & Disk entries. No manual feature logic required!
 ```
 
 Features:
 
-- Memory cache (fast) + Persistent cache (Capacitor Preferences)
-- Automatic cache warming on app start
-- `getOrFetch` pattern for clean API calls
-- User cache invalidation on logout
+- Memory cache (fast) + Persistent Disk cache (Capacitor Preferences)
+- Automated zero-config cache intercepting via
+  `MOBILE_HTTP_CACHE_INVALIDATION_CONFIG`.
+- 100% Architectural parity with the Web App transport cache.
 
 ### 6. SSR Transfer Cache
 
@@ -248,12 +245,12 @@ await cache.clear();
 ### HTTP Cache Clearing
 
 ```typescript
+// You rarely need to do this manually anymore, as the Zero-Config Automated
+// Invalidation handles it. But if needed:
 import { clearHttpCache } from './core/infrastructure';
 
-// After user action that changes data
-async updateProfile(data: ProfileUpdate) {
-  await this.api.updateProfile(data);
-  await clearHttpCache('profile:*');
+async forceRefreshProfile() {
+  await clearHttpCache('*profile*');
 }
 ```
 
@@ -273,8 +270,10 @@ async signOut() {
 
 1. **Use appropriate TTL** - Match cache lifetime to data volatility
 2. **Use cache keys from constants** - Prevents typos, enables bulk invalidation
-3. **Use `getOrSet`/`getOrFetch` pattern** - Cleaner code, automatic caching
-4. **Invalidate on mutations** - Clear relevant caches after POST/PUT/DELETE
+3. **Rely on zero-config invalidation** - Let the transport layer flush caches
+   on PUT/POST/DELETE.
+4. **Use Observability Patterns** - Check network traces to ensure caching hits
+   happen.
 5. **Check cache stats** - Monitor hit ratios in development
 
 ### DON'T ❌

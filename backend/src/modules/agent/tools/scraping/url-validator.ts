@@ -11,6 +11,7 @@
  */
 
 import { BLOCKED_DOMAINS } from './scraper.types.js';
+import { AgentEngineError } from '../../exceptions/agent-engine.error.js';
 
 // ─── Public API ─────────────────────────────────────────────────────────────
 
@@ -30,19 +31,23 @@ export function validateUrl(raw: string): string {
   try {
     parsed = new URL(trimmed);
   } catch {
-    throw new Error(`Invalid URL: "${trimmed}"`);
+    throw new AgentEngineError('AGENT_VALIDATION_FAILED', `Invalid URL: "${trimmed}"`);
   }
 
   // Protocol must be HTTP or HTTPS
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    throw new Error(`Blocked protocol: "${parsed.protocol}". Only HTTP(S) is allowed.`);
+    throw new AgentEngineError(
+      'AGENT_VALIDATION_FAILED',
+      `Blocked protocol: "${parsed.protocol}". Only HTTP(S) is allowed.`
+    );
   }
 
   // Block private/internal hosts (SSRF prevention)
   const hostname = parsed.hostname.toLowerCase();
   for (const blocked of BLOCKED_DOMAINS) {
     if (hostname === blocked || hostname.endsWith(`.${blocked}`)) {
-      throw new Error(
+      throw new AgentEngineError(
+        'AGENT_VALIDATION_FAILED',
         hostname.includes('instagram') ||
           hostname.includes('twitter') ||
           hostname.includes('tiktok') ||
@@ -57,7 +62,10 @@ export function validateUrl(raw: string): string {
 
   // Block private IP ranges (IPv4: 10.x, 172.16-31.x, 192.168.x; IPv6: link-local, unique-local)
   if (isPrivateIp(hostname)) {
-    throw new Error(`Blocked host: "${hostname}". Private IP addresses are not allowed.`);
+    throw new AgentEngineError(
+      'AGENT_VALIDATION_FAILED',
+      `Blocked host: "${hostname}". Private IP addresses are not allowed.`
+    );
   }
 
   return parsed.href;

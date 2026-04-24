@@ -1,0 +1,433 @@
+# ============================================================================
+# NXT1 Monorepo - Runtime Error AI Fix Workflow
+# ============================================================================
+# Handles production runtime errors from Crashlytics with AI-powered fixes:
+#   - Triggered by Crashlytics webhook → n8n → GitHub Actions
+#   - Claude analyzes crash + stack trace + recent code
+#   - Creates PR with fix or suggests manual steps
+#   - Slack notifications with human-in-loop approval
+#
+# Triggers:
+#   - workflow_dispatch: From n8n workflow after crash alert
+#   - Slack: Interactive buttons on crash alerts
+#
+# Security:
+#   - Production crashes require approval before auto-deploy
+#   - Staging crashes can auto-deploy after AI review
+# ============================================================================
+
+name: Runtime Error AI Fix
+
+on:
+  workflow_dispatch:
+    inputs:
+      crash_id:
+        description: 'Crashlytics issue ID'
+        required: true
+        type: string
+      severity:
+        description: 'Error severity'
+        required: true
+        type: choice
+        options:
+          - critical
+          - high
+          - medium
+          - low
+      stack_trace:
+        description: 'Stack trace (base64 encoded for special chars)'
+        required: true
+        type: string
+      issue_title:
+        description: 'Error title/message'
+        required: true
+        type: string
+      issue_url:
+        description: 'Crashlytics console URL'
+        required: true
+        type: string
+      environment:
+        description: 'Environment where error occurred'
+        required: true
+        type: choice
+        options:
+          - production
+          - staging
+      platform:
+        description: 'Platform (iOS, Android, Web)'
+        required: true
+        type: string
+      app_version:
+        description: 'App version where error occurred'
+        required: true
+        type: string
+      impacted_users:
+        description: 'Number of users affected'
+        required: false
+        type: string
+        default: '0'
+      action_type:
+        description: 'Action to perform'
+        required: false
+        type: choice
+        default: 'analyze'
+        options:
+          - analyze
+          - create_fix_pr
+          - suggest_manual_fix
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+env:
+  NODE_VERSION: '22'
+  CLAUDE_MODEL: 'claude-opus-4-5'
+  MAX_CONTEXT_LINES: 200
+
+jobs:
+  # ============================================================================
+  # AI CRASH ANALYSIS
+  # ============================================================================
+  analyze-crash:
+    name: '🤖 AI Crash Analysis'
+    runs-on: ubuntu-latest
+    outputs:
+      is_fixable: ${{ steps.analysis.outputs.is_fixable }}
+      confidence: ${{ steps.analysis.outputs.confidence }}
+      affected_files: ${{ steps.analysis.outputs.affected_files }}
+      fix_summary: ${{ steps.analysis.outputs.fix_summary }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 50 # Get recent commits for context
+
+      - name: Decode stack trace
+        id: decode
+        run: |
+          STACK_TRACE=$(echo "${{ github.event.inputs.stack_trace }}" | base64 -d)
+          echo "$STACK_TRACE" > /tmp/stack_trace.txt
+          echo "decoded=true" >> $GITHUB_OUTPUT
+
+      - name: Extract file paths from stack trace
+        id: extract_files
+        run: |
+          # Extract file paths (e.g., src/app/features/auth/login.component.ts:45)
+          FILES=$(cat /tmp/stack_trace.txt | \
+            grep -oP '(?<=\s)[a-zA-Z0-9_/.-]+\.(ts|tsx|js|jsx)(?=:\d+)' | \
+            sort -u | \
+            head -10)
+
+          echo "$FILES" > /tmp/affected_files.txt
+          echo "count=$(echo "$FILES" | wc -l)" >> $GITHUB_OUTPUT
+
+      - name: Get file contents for context
+        id: context
+        run: |
+          FILES=$(cat /tmp/affected_files.txt)
+          CONTEXT=""
+
+          for file in $FILES; do
+            if [ -f "$file" ]; then
+              echo "## File: $file" >> /tmp/context.txt
+              echo '```typescript' >> /tmp/context.txt
+              head -${{ env.MAX_CONTEXT_LINES }} "$file" >> /tmp/context.txt
+              echo '```' >> /tmp/context.txt
+              echo "" >> /tmp/context.txt
+            fi
+          done
+
+          echo "has_context=$([ -s /tmp/context.txt ] && echo 'true' || echo 'false')" >> $GITHUB_OUTPUT
+
+      - name: Get recent commits in affected files
+        id: commits
+        if: steps.context.outputs.has_context == 'true'
+        run: |
+          FILES=$(cat /tmp/affected_files.txt | tr '\n' ' ')
+
+          if [ -n "$FILES" ]; then
+            git log --oneline -10 --no-merges -- $FILES > /tmp/recent_commits.txt
+            echo "has_commits=$([ -s /tmp/recent_commits.txt ] && echo 'true' || echo 'false')" >> $GITHUB_OUTPUT
+          else
+            echo "has_commits=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Claude AI Analysis
+        id: analysis
+        run: |
+          STACK_TRACE=$(cat /tmp/stack_trace.txt)
+          CONTEXT=$(cat /tmp/context.txt 2>/dev/null || echo "No file context available")
+          COMMITS=$(cat /tmp/recent_commits.txt 2>/dev/null || echo "No recent commits")
+
+          RESPONSE=$(curl -s https://api.anthropic.com/v1/messages \
+            -H "Content-Type: application/json" \
+            -H "x-api-key: ${{ secrets.ANTHROPIC_API_KEY }}" \
+            -H "anthropic-version: 2023-06-01" \
+            -d "$(jq -n \
+              --arg model "$CLAUDE_MODEL" \
+              --arg title "${{ github.event.inputs.issue_title }}" \
+              --arg stack "$STACK_TRACE" \
+              --arg context "$CONTEXT" \
+              --arg commits "$COMMITS" \
+              --arg platform "${{ github.event.inputs.platform }}" \
+              --arg version "${{ github.event.inputs.app_version }}" \
+              --arg severity "${{ github.event.inputs.severity }}" \
+              '{
+                model: $model,
+                max_tokens: 3000,
+                messages: [{
+                  role: "user",
+                  content: "You are an expert debugging NXT1 app crashes. Analyze this runtime error:\n\n**Error:** \($title)\n**Platform:** \($platform)\n**Version:** \($version)\n**Severity:** \($severity)\n\n**Stack Trace:**\n```\n\($stack)\n```\n\n**File Context:**\n\($context)\n\n**Recent Commits:**\n\($commits)\n\nProvide:\n1. **Root Cause** (2-3 sentences)\n2. **Is Fixable?** (yes/no)\n3. **Fix Confidence** (high/medium/low)\n4. **Affected Files** (list paths)\n5. **Fix Summary** (specific steps or code changes)\n6. **Requires Manual Review?** (yes/no with reason)\n\nBe concise and actionable."
+                }]
+              }')")
+
+          ANALYSIS=$(echo "$RESPONSE" | jq -r '.content[0].text // "Analysis failed"')
+          echo "$ANALYSIS" > /tmp/analysis.txt
+
+          # Parse fixability (search for yes/no in "Is Fixable" section)
+          IS_FIXABLE=$(echo "$ANALYSIS" | grep -iA1 "Is Fixable" | grep -oi "yes\|no" | head -1 | tr '[:upper:]' '[:lower:]')
+          IS_FIXABLE=${IS_FIXABLE:-"no"}
+
+          # Parse confidence
+          CONFIDENCE=$(echo "$ANALYSIS" | grep -iA1 "Fix Confidence" | grep -oi "high\|medium\|low" | head -1 | tr '[:upper:]' '[:lower:]')
+          CONFIDENCE=${CONFIDENCE:-"low"}
+
+          # Extract file list (lines starting with -)
+          AFFECTED=$(echo "$ANALYSIS" | sed -n '/Affected Files/,/Fix Summary/p' | grep "^-" | sed 's/^- //' | tr '\n' ',' | sed 's/,$//')
+
+          # Get fix summary section
+          FIX_SUMMARY=$(echo "$ANALYSIS" | sed -n '/Fix Summary/,/Requires Manual/p' | sed '1d;$d')
+
+          echo "is_fixable=$IS_FIXABLE" >> $GITHUB_OUTPUT
+          echo "confidence=$CONFIDENCE" >> $GITHUB_OUTPUT
+          echo "affected_files=$AFFECTED" >> $GITHUB_OUTPUT
+          echo "fix_summary<<EOF" >> $GITHUB_OUTPUT
+          echo "$FIX_SUMMARY" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Post analysis as GitHub Issue comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const analysis = fs.readFileSync('/tmp/analysis.txt', 'utf8').slice(0, 4000);
+            const isFixable = '${{ steps.analysis.outputs.is_fixable }}';
+            const confidence = '${{ steps.analysis.outputs.confidence }}';
+            const icon = confidence === 'high' ? '🟢' : confidence === 'medium' ? '🟡' : '🔴';
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `🤖 Crash Analysis: ${{ github.event.inputs.issue_title }}`,
+              body: [
+                `## ${icon} AI Crash Analysis`,
+                ``,
+                `| Field | Value |`,
+                `|---|---|`,
+                `| Crash ID | \`${{ github.event.inputs.crash_id }}\` |`,
+                `| Platform | ${{ github.event.inputs.platform }} |`,
+                `| App Version | ${{ github.event.inputs.app_version }} |`,
+                `| Severity | ${{ github.event.inputs.severity }} |`,
+                `| Impacted Users | ${{ github.event.inputs.impacted_users }} |`,
+                `| Fixable | **${isFixable}** |`,
+                `| Confidence | **${confidence}** |`,
+                ``,
+                `### Analysis`,
+                `\`\`\``,
+                analysis,
+                `\`\`\``,
+                ``,
+                `[View in Crashlytics](${{ github.event.inputs.issue_url }})`,
+              ].join('\n'),
+              labels: [
+                'bug',
+                `severity:${{ github.event.inputs.severity }}`,
+                'ai-analyzed',
+              ],
+            });
+
+  # ============================================================================
+  # CREATE FIX PR (if fixable)
+  # ============================================================================
+  create-fix:
+    name: '🔧 Create Fix PR'
+    needs: analyze-crash
+    if: |
+      needs.analyze-crash.outputs.is_fixable == 'yes' && 
+      (github.event.inputs.action_type == 'create_fix_pr' || 
+       needs.analyze-crash.outputs.confidence == 'high')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Create fix branch
+        run: |
+          BRANCH_NAME="fix/crash-${{ github.event.inputs.crash_id }}-$(date +%s)"
+          git checkout -b "$BRANCH_NAME"
+          echo "BRANCH_NAME=$BRANCH_NAME" >> $GITHUB_ENV
+
+      - name: Generate fix with Claude
+        id: generate_fix
+        run: |
+          STACK_TRACE=$(echo "${{ github.event.inputs.stack_trace }}" | base64 -d)
+          AFFECTED="${{ needs.analyze-crash.outputs.affected_files }}"
+          FIX_SUMMARY="${{ needs.analyze-crash.outputs.fix_summary }}"
+
+          # Get file contents
+          FILES_CONTENT=""
+          IFS=',' read -ra FILES <<< "$AFFECTED"
+          for file in "${FILES[@]}"; do
+            if [ -f "$file" ]; then
+              FILES_CONTENT+="## File: $file\n\`\`\`typescript\n$(cat "$file")\n\`\`\`\n\n"
+            fi
+          done
+
+          RESPONSE=$(curl -s https://api.anthropic.com/v1/messages \
+            -H "Content-Type: application/json" \
+            -H "x-api-key: ${{ secrets.ANTHROPIC_API_KEY }}" \
+            -H "anthropic-version: 2023-06-01" \
+            -d "$(jq -n \
+              --arg model "$CLAUDE_MODEL" \
+              --arg stack "$STACK_TRACE" \
+              --arg files "$FILES_CONTENT" \
+              --arg summary "$FIX_SUMMARY" \
+              '{
+                model: $model,
+                max_tokens: 4000,
+                messages: [{
+                  role: "user",
+                  content: "Generate a fix for this crash. Provide EXACT code replacements using this format:\n\n**FILE: path/to/file.ts**\n```typescript\n// Full corrected code\n```\n\n**Stack Trace:**\n```\n\($stack)\n```\n\n**Fix Summary:**\n\($summary)\n\n**Current Code:**\n\($files)\n\nProvide complete, production-ready fixes only."
+                }]
+              }')")
+
+          FIX=$(echo "$RESPONSE" | jq -r '.content[0].text // "Fix generation failed"')
+          echo "$FIX" > /tmp/fix.txt
+          echo "has_fix=$([ -s /tmp/fix.txt ] && echo 'true' || echo 'false')" >> $GITHUB_OUTPUT
+
+      - name: Apply fixes to files
+        if: steps.generate_fix.outputs.has_fix == 'true'
+        run: |
+          # Parse fix.txt and apply code blocks to respective files
+          # (This is simplified - production would use more robust parsing)
+
+          python3 << 'EOF'
+          import re
+          import os
+
+          with open('/tmp/fix.txt', 'r') as f:
+              content = f.read()
+
+          # Extract file blocks: **FILE: path** followed by ```language code ```
+          pattern = r'\*\*FILE:\s*([^\*]+)\*\*\s*```(?:typescript|javascript)?\s*\n(.*?)\n```'
+          matches = re.finditer(pattern, content, re.DOTALL)
+
+          for match in matches:
+              filepath = match.group(1).strip()
+              code = match.group(2)
+              
+              if os.path.exists(filepath):
+                  with open(filepath, 'w') as f:
+                      f.write(code)
+                  print(f"✅ Applied fix to {filepath}")
+              else:
+                  print(f"⚠️ File not found: {filepath}")
+          EOF
+
+      - name: Commit and push
+        run: |
+          git config user.name "NXT1 Bot"
+          git config user.email "bot@nxt1.app"
+          git add -A
+          git commit -m "fix: resolve crash ${{ github.event.inputs.issue_title }}
+
+          Crash ID: ${{ github.event.inputs.crash_id }}
+          Severity: ${{ github.event.inputs.severity }}
+          Platform: ${{ github.event.inputs.platform }}
+          Impacted Users: ${{ github.event.inputs.impacted_users }}
+
+          AI-generated fix with ${{ needs.analyze-crash.outputs.confidence }} confidence.
+
+          Crashlytics: ${{ github.event.inputs.issue_url }}"
+
+          git push origin "$BRANCH_NAME"
+
+      - name: Create PR
+        id: create-pr
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: pr } = await github.rest.pulls.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `🤖 Fix: ${context.payload.inputs.issue_title}`,
+              head: process.env.BRANCH_NAME,
+              base: 'main',
+              body: `## 🤖 AI-Generated Crash Fix
+
+            **Crash ID:** ${context.payload.inputs.crash_id}
+            **Severity:** ${context.payload.inputs.severity}
+            **Environment:** ${context.payload.inputs.environment}
+            **Platform:** ${context.payload.inputs.platform}
+            **Impacted Users:** ${context.payload.inputs.impacted_users}
+
+            ### Analysis
+            **Confidence:** ${context.payload.inputs.confidence}
+            **Affected Files:** ${context.payload.inputs.affected_files}
+
+            ### Fix Summary
+            ${{ needs.analyze-crash.outputs.fix_summary }}
+
+            ---
+            [View in Crashlytics](${context.payload.inputs.issue_url})
+
+            ${context.payload.inputs.environment === 'production' ? '⚠️ **Production crash - requires manual review before merge**' : '✅ Staging crash - auto-merge enabled after CI passes'}`
+            });
+
+            // Auto-approve staging fixes with high confidence
+            if (context.payload.inputs.environment === 'staging' && 
+                context.payload.inputs.confidence === 'high') {
+              await github.rest.pulls.createReview({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: pr.number,
+                event: 'APPROVE',
+                body: '✅ Auto-approved: High confidence fix for staging environment'
+              });
+            }
+
+            core.setOutput('pr_number', pr.number);
+            core.setOutput('pr_url', pr.html_url);
+
+      - name: Comment PR link on crash issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prUrl = '${{ steps.create-pr.outputs.pr_url }}';
+            const prNumber = '${{ steps.create-pr.outputs.pr_number }}';
+            const env = '${{ github.event.inputs.environment }}';
+            const badge = env === 'production' ? '⚠️ **Production**' : '🧪 Staging';
+
+            // Find and comment on the crash analysis issue created earlier
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              labels: 'ai-analyzed',
+              state: 'open',
+              per_page: 5,
+            });
+
+            const crashIssue = issues.find(i =>
+              i.title.includes('${{ github.event.inputs.crash_id }}')
+            );
+
+            if (crashIssue) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: crashIssue.number,
+                body: `🔧 **Fix PR created:** ${prUrl}\n\n${badge} — review required before merge.`,
+              });
+            }

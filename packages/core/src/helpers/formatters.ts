@@ -8,6 +8,8 @@
  * @version 2.0.0
  */
 
+import { formatSportDisplayName } from '../constants/sport.constants';
+
 // ============================================
 // DATE FORMATTING
 // ============================================
@@ -243,6 +245,118 @@ export function buildTeamSlug(teamName: string): string {
     .replace(/\s+/g, '-') // spaces → hyphens
     .replace(/-+/g, '-') // collapse consecutive hyphens
     .replace(/^-|-$/g, ''); // trim leading/trailing hyphens
+}
+
+export interface CanonicalProfilePathInput {
+  athleteName?: string | null;
+  title?: string | null;
+  sport?: string | null;
+  unicode?: string | number | null;
+  id?: string | number | null;
+}
+
+export interface CanonicalTeamPathInput {
+  slug?: string | null;
+  teamName?: string | null;
+  title?: string | null;
+  teamCode?: string | null;
+  unicode?: string | null;
+  id?: string | number | null;
+}
+
+export function buildCanonicalProfilePath(input: CanonicalProfilePathInput): string {
+  const sportSegment = slugify(formatSportDisplayName(input.sport ?? '').trim()) || 'athlete';
+  const nameSource = input.athleteName ?? input.title ?? input.id ?? 'athlete';
+  const nameSegment = slugify(String(nameSource).trim()) || 'athlete';
+  const profileIdentifier = input.unicode ?? input.id ?? 'unknown';
+
+  return `/profile/${sportSegment}/${nameSegment}/${encodeURIComponent(String(profileIdentifier))}`;
+}
+
+export function buildCanonicalTeamPath(input: CanonicalTeamPathInput): string {
+  const slugSegment =
+    (input.slug ? slugify(input.slug) : '') ||
+    buildTeamSlug(input.teamName ?? input.title ?? String(input.id ?? 'team')) ||
+    'team';
+
+  const teamCode = normalizeTeamRouteValue(input.teamCode);
+  const preferredIdentifier = teamCode && !isLikelyDocumentIdentifier(teamCode) ? teamCode : '';
+
+  return preferredIdentifier
+    ? `/team/${slugSegment}/${encodeURIComponent(preferredIdentifier)}`
+    : '/team';
+}
+
+export interface ResolveCanonicalTeamRouteInput {
+  slug?: string | null;
+  teamName?: string | null;
+  title?: string | null;
+  teamCode?: string | null;
+  code?: string | null;
+  teamId?: string | null;
+  id?: string | number | null;
+  unicode?: string | null;
+}
+
+export interface ResolvedCanonicalTeamRoute {
+  readonly slug: string;
+  readonly teamIdentifier: string | null;
+  readonly teamName?: string;
+  readonly path: string;
+}
+
+function normalizeTeamRouteValue(value: string | number | null | undefined): string {
+  return value == null ? '' : String(value).trim();
+}
+
+function isLikelySlugValue(value: string): boolean {
+  return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value.trim());
+}
+
+function isLikelyDocumentIdentifier(value: string): boolean {
+  const trimmed = value.trim();
+  // Firestore IDs are commonly 20+ alphanumeric mixed-case strings.
+  return /^[A-Za-z0-9]{20,}$/.test(trimmed) && /[A-Z]/.test(trimmed) && /[a-z]/.test(trimmed);
+}
+
+export function resolveCanonicalTeamRoute(
+  input: ResolveCanonicalTeamRouteInput
+): ResolvedCanonicalTeamRoute | null {
+  const teamName = normalizeTeamRouteValue(input.teamName ?? input.title);
+  const slug =
+    normalizeTeamRouteValue(input.slug) ||
+    buildTeamSlug(teamName || normalizeTeamRouteValue(input.id) || 'team');
+
+  const explicitTeamIdentifier =
+    [normalizeTeamRouteValue(input.teamCode), normalizeTeamRouteValue(input.code)]
+      .filter(Boolean)
+      .find((value) => {
+        const normalizedValue = value.toLowerCase();
+        if (slug && normalizedValue === slug.toLowerCase()) return false;
+        if (isLikelyDocumentIdentifier(value)) return false;
+
+        return !isLikelySlugValue(value) || /[A-Z0-9]/.test(value);
+      }) ?? '';
+
+  const teamIdentifier = explicitTeamIdentifier;
+
+  if (!teamIdentifier) {
+    return null;
+  }
+
+  const path = buildCanonicalTeamPath({
+    slug,
+    teamName,
+    teamCode: teamIdentifier,
+    id: input.id,
+  });
+
+  return {
+    slug: slug || 'team',
+    teamIdentifier,
+    teamName: teamName || undefined,
+    path,
+  };
 }
 
 /**

@@ -17,6 +17,8 @@ import type {
   TeamProfilePostType,
   TeamProfileHeaderAction,
   TeamProfileRecruitingCategory,
+  TeamTimelineFilter,
+  TeamTimelineFilterId,
 } from './team-profile.types';
 
 // ============================================
@@ -31,14 +33,14 @@ import type {
  */
 export const TEAM_PROFILE_TABS: readonly TeamProfileTab[] = [
   {
-    id: 'intel',
-    label: 'Intel',
-    icon: 'radar',
-  },
-  {
     id: 'timeline',
     label: 'Timeline',
     icon: 'newspaper',
+  },
+  {
+    id: 'intel',
+    label: 'Intel',
+    icon: 'radar',
   },
   {
     id: 'roster',
@@ -55,7 +57,30 @@ export const TEAM_PROFILE_TABS: readonly TeamProfileTab[] = [
 /**
  * Default selected tab.
  */
-export const TEAM_PROFILE_DEFAULT_TAB: TeamProfileTabId = 'intel';
+export const TEAM_PROFILE_DEFAULT_TAB: TeamProfileTabId = 'timeline';
+
+// ============================================
+// TEAM TIMELINE FILTER CONFIGURATION
+// ============================================
+
+/**
+ * Filter chips for the Team Timeline tab.
+ * Order determines display order in the filter bar.
+ */
+export const TEAM_TIMELINE_FILTERS: readonly TeamTimelineFilter[] = [
+  { id: 'all', label: 'All', icon: 'apps' },
+  { id: 'media', label: 'Media', icon: 'images' },
+  { id: 'stats', label: 'Stats', icon: 'stats-chart' },
+  { id: 'games', label: 'Games', icon: 'trophy' },
+  { id: 'schedule', label: 'Schedule', icon: 'calendar' },
+  { id: 'recruiting', label: 'Recruiting', icon: 'school' },
+  { id: 'news', label: 'News', icon: 'newspaper' },
+] as const;
+
+/**
+ * Default selected filter for the Team Timeline tab.
+ */
+export const TEAM_TIMELINE_DEFAULT_FILTER: TeamTimelineFilterId = 'all';
 
 /**
  * Tabs where the verification banner is hidden.
@@ -73,7 +98,6 @@ export const TEAM_PROFILE_POST_TYPE_ICONS: Record<TeamProfilePostType, string> =
   video: 'videocam',
   image: 'image',
   text: 'document-text',
-  highlight: 'star',
   news: 'newspaper',
   announcement: 'megaphone',
 } as const;
@@ -85,7 +109,6 @@ export const TEAM_PROFILE_POST_TYPE_LABELS: Record<TeamProfilePostType, string> 
   video: 'Video',
   image: 'Photo',
   text: 'Post',
-  highlight: 'Highlight',
   news: 'News',
   announcement: 'Announcement',
 } as const;
@@ -250,7 +273,7 @@ export const TEAM_PROFILE_EMPTY_STATES: Record<
   },
   roster: {
     title: 'No roster members',
-    message: 'Athletes and staff will appear here when they join the team.',
+    message: 'Athletes will appear here when they join the team.',
     icon: 'people',
     ctaLabel: 'Invite Athletes',
   },
@@ -259,6 +282,11 @@ export const TEAM_PROFILE_EMPTY_STATES: Record<
     message: 'Add team contact details so athletes and coaches can reach you.',
     icon: 'paper-plane',
     ctaLabel: 'Add Contact Info',
+  },
+  schedule: {
+    title: 'No games scheduled',
+    message: 'The team schedule will appear here once games are added.',
+    icon: 'calendar',
   },
 } as const;
 

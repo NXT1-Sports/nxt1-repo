@@ -13,7 +13,6 @@ import type {
   EditProfileData,
   EditProfileFormData,
   EditProfileUpdateResponse,
-  ProfileCompletionData,
 } from '@nxt1/core/edit-profile';
 import { AngularHttpAdapter } from '../../infrastructure';
 import { environment } from '../../../../environments/environment';
@@ -159,50 +158,27 @@ export class EditProfileApiService {
   }
 
   /**
-   * Get profile completion data
-   * @param userId - User ID to fetch
-   */
-  async getCompletion(userId: string): Promise<{
-    success: boolean;
-    data?: ProfileCompletionData;
-    error?: string;
-  }> {
-    try {
-      const data = await this.api.getCompletion(userId);
-      return { success: true, data };
-    } catch (err) {
-      this.logger.error('Failed to load completion data', err, { userId });
-      return {
-        success: false,
-        error: err instanceof Error ? err.message : 'Failed to load completion data',
-      };
-    }
-  }
-
-  /**
    * Upload profile photo
    * @param userId - User ID
-   * @param type - Photo type ('profile' | 'banner')
    * @param file - Image file to upload
    */
   async uploadPhoto(
     userId: string,
-    type: 'profile' | 'banner',
     file: File | Blob
   ): Promise<{
     success: boolean;
-    data?: { url: string; xpAwarded?: number };
+    data?: { url: string };
     error?: string;
   }> {
     try {
-      const result = await this.api.uploadPhoto(userId, type, file);
+      const result = await this.api.uploadPhoto(userId, file);
 
       // Invalidate profile cache after successful photo upload
       this.apiProfileService.invalidateCache(userId);
 
       return { success: true, data: result };
     } catch (err) {
-      this.logger.error('Failed to upload photo', err, { userId, type });
+      this.logger.error('Failed to upload photo', err, { userId });
       return {
         success: false,
         error: err instanceof Error ? err.message : 'Failed to upload photo',

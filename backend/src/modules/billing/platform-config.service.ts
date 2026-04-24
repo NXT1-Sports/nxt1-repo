@@ -6,7 +6,7 @@
  * Allows changing pricing, multipliers, thresholds, and model mappings
  * without deploying code changes.
  *
- * Config is read from the `platformConfig/billing` document and cached
+ * Config is read from the `AppConfig/billing` document and cached
  * in memory with a configurable TTL (default 5 minutes).
  */
 
@@ -17,7 +17,7 @@ import { MODEL_CATALOGUE, BILLING_TIER_MAP } from '../agent/llm/llm.types.js';
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 /**
- * Platform billing configuration — stored in Firestore `platformConfig/billing`.
+ * Platform billing configuration — stored in Firestore `AppConfig/billing`.
  * Every field has a hardcoded fallback so the system works even if the
  * Firestore document doesn't exist yet.
  */
@@ -91,6 +91,8 @@ const FALLBACK_CONFIG: PlatformBillingConfig = {
 // ─── In-Memory Cache ────────────────────────────────────────────────────────
 
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const APP_CONFIG_COLLECTION = 'AppConfig';
+const BILLING_CONFIG_DOC = 'billing';
 
 let cachedConfig: PlatformBillingConfig | null = null;
 let cacheTimestamp = 0;
@@ -98,7 +100,7 @@ let cacheTimestamp = 0;
 /**
  * Get the platform billing configuration.
  *
- * Reads from Firestore `platformConfig/billing` and caches in memory.
+ * Reads from Firestore `AppConfig/billing` and caches in memory.
  * Falls back to hardcoded defaults if the document doesn't exist or
  * Firestore is unavailable.
  *
@@ -114,7 +116,7 @@ export async function getPlatformConfig(db: Firestore): Promise<PlatformBillingC
   }
 
   try {
-    const doc = await db.collection('platformConfig').doc('billing').get();
+    const doc = await db.collection(APP_CONFIG_COLLECTION).doc(BILLING_CONFIG_DOC).get();
 
     if (!doc.exists) {
       logger.info('[platform-config] No Firestore config found, using hardcoded fallbacks');

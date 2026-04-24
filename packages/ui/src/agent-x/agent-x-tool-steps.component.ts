@@ -11,6 +11,12 @@
 
 import { Component, ChangeDetectionStrategy, input, computed } from '@angular/core';
 import type { AgentXToolStep } from '@nxt1/core/ai';
+import {
+  getToolStepDisplayLabel,
+  getToolStepContextLabel,
+  getToolStepsSummaryLabel,
+  normalizeToolStepIcon,
+} from './agent-x-agent-presentation';
 
 @Component({
   selector: 'nxt1-agent-x-tool-steps',
@@ -87,8 +93,52 @@ import type { AgentXToolStep } from '@nxt1/core/ai';
               [class.tool-step--pending]="step.status === 'pending'"
             >
               <div class="tool-step__icon">
-                @switch (step.status) {
-                  @case ('active') {
+                @switch (resolvedIcon(step)) {
+                  @case ('delete') {
+                    <svg class="tool-step__glyph" viewBox="0 0 16 16" fill="none">
+                      <path
+                        d="M3.5 4.5H12.5M6.25 2.75H9.75M5 4.5V12.25C5 12.6642 5.33579 13 5.75 13H10.25C10.6642 13 11 12.6642 11 12.25V4.5"
+                        stroke="currentColor"
+                        stroke-width="1.5"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      />
+                    </svg>
+                  }
+                  @case ('upload') {
+                    <svg class="tool-step__glyph" viewBox="0 0 16 16" fill="none">
+                      <path
+                        d="M8 11.75V3.75M8 3.75L5 6.75M8 3.75L11 6.75M3.5 12.25H12.5"
+                        stroke="currentColor"
+                        stroke-width="1.5"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      />
+                    </svg>
+                  }
+                  @case ('download') {
+                    <svg class="tool-step__glyph" viewBox="0 0 16 16" fill="none">
+                      <path
+                        d="M8 4.25V12.25M8 12.25L5 9.25M8 12.25L11 9.25M3.5 3.75H12.5"
+                        stroke="currentColor"
+                        stroke-width="1.5"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      />
+                    </svg>
+                  }
+                  @case ('search') {
+                    <svg class="tool-step__glyph" viewBox="0 0 16 16" fill="none">
+                      <circle cx="7" cy="7" r="3.75" stroke="currentColor" stroke-width="1.5" />
+                      <path
+                        d="M10 10L13 13"
+                        stroke="currentColor"
+                        stroke-width="1.5"
+                        stroke-linecap="round"
+                      />
+                    </svg>
+                  }
+                  @case ('processing') {
                     <svg class="tool-step__spinner" viewBox="0 0 16 16" fill="none">
                       <circle
                         cx="8"
@@ -102,33 +152,146 @@ import type { AgentXToolStep } from '@nxt1/core/ai';
                       />
                     </svg>
                   }
-                  @case ('success') {
-                    <svg class="tool-step__check" viewBox="0 0 16 16" fill="none">
+                  @case ('document') {
+                    <svg class="tool-step__glyph" viewBox="0 0 16 16" fill="none">
                       <path
-                        d="M3.5 8.5L6.5 11.5L12.5 4.5"
+                        d="M5.25 2.75H8.75L11.25 5.25V12.25C11.25 12.6642 10.9142 13 10.5 13H5.5C5.08579 13 4.75 12.6642 4.75 12.25V3.25C4.75 2.83579 5.08579 2.5 5.5 2.5"
                         stroke="currentColor"
-                        stroke-width="2"
+                        stroke-width="1.5"
+                        stroke-linejoin="round"
+                      />
+                      <path d="M8.75 2.75V5.25H11.25" stroke="currentColor" stroke-width="1.5" />
+                    </svg>
+                  }
+                  @case ('media') {
+                    <svg class="tool-step__glyph" viewBox="0 0 16 16" fill="none">
+                      <rect
+                        x="2.75"
+                        y="3.25"
+                        width="10.5"
+                        height="9.5"
+                        rx="2"
+                        stroke="currentColor"
+                        stroke-width="1.5"
+                      />
+                      <path
+                        d="M5 10L7 8L9 9.5L11 7.5"
+                        stroke="currentColor"
+                        stroke-width="1.5"
                         stroke-linecap="round"
                         stroke-linejoin="round"
                       />
                     </svg>
                   }
-                  @case ('error') {
-                    <svg class="tool-step__error-icon" viewBox="0 0 16 16" fill="none">
-                      <path
-                        d="M4.5 4.5L11.5 11.5M11.5 4.5L4.5 11.5"
+                  @case ('database') {
+                    <svg class="tool-step__glyph" viewBox="0 0 16 16" fill="none">
+                      <ellipse
+                        cx="8"
+                        cy="4.5"
+                        rx="4.25"
+                        ry="1.75"
                         stroke="currentColor"
-                        stroke-width="2"
+                        stroke-width="1.5"
+                      />
+                      <path
+                        d="M3.75 4.5V11.25C3.75 12.2165 5.65279 13 8 13C10.3472 13 12.25 12.2165 12.25 11.25V4.5"
+                        stroke="currentColor"
+                        stroke-width="1.5"
+                      />
+                      <path
+                        d="M3.75 7.75C3.75 8.7165 5.65279 9.5 8 9.5C10.3472 9.5 12.25 8.7165 12.25 7.75"
+                        stroke="currentColor"
+                        stroke-width="1.5"
+                      />
+                    </svg>
+                  }
+                  @case ('email') {
+                    <svg class="tool-step__glyph" viewBox="0 0 16 16" fill="none">
+                      <rect
+                        x="2.5"
+                        y="3.5"
+                        width="11"
+                        height="9"
+                        rx="2"
+                        stroke="currentColor"
+                        stroke-width="1.5"
+                      />
+                      <path
+                        d="M3.5 5L8 8.5L12.5 5"
+                        stroke="currentColor"
+                        stroke-width="1.5"
                         stroke-linecap="round"
+                        stroke-linejoin="round"
+                      />
+                    </svg>
+                  }
+                  @case ('approval') {
+                    <svg class="tool-step__glyph" viewBox="0 0 16 16" fill="none">
+                      <path
+                        d="M8 2.75L11.75 4.25V7.75C11.75 9.75 10.5 11.5 8 13.25C5.5 11.5 4.25 9.75 4.25 7.75V4.25L8 2.75Z"
+                        stroke="currentColor"
+                        stroke-width="1.5"
+                        stroke-linejoin="round"
+                      />
+                      <path
+                        d="M6.5 8L7.5 9L9.75 6.75"
+                        stroke="currentColor"
+                        stroke-width="1.5"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
                       />
                     </svg>
                   }
                   @default {
-                    <div class="tool-step__dot"></div>
+                    @switch (step.status) {
+                      @case ('active') {
+                        <svg class="tool-step__spinner" viewBox="0 0 16 16" fill="none">
+                          <circle
+                            cx="8"
+                            cy="8"
+                            r="6"
+                            stroke="currentColor"
+                            stroke-width="2"
+                            stroke-dasharray="28"
+                            stroke-dashoffset="8"
+                            stroke-linecap="round"
+                          />
+                        </svg>
+                      }
+                      @case ('success') {
+                        <svg class="tool-step__check" viewBox="0 0 16 16" fill="none">
+                          <path
+                            d="M3.5 8.5L6.5 11.5L12.5 4.5"
+                            stroke="currentColor"
+                            stroke-width="2"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                          />
+                        </svg>
+                      }
+                      @case ('error') {
+                        <svg class="tool-step__error-icon" viewBox="0 0 16 16" fill="none">
+                          <path
+                            d="M4.5 4.5L11.5 11.5M11.5 4.5L4.5 11.5"
+                            stroke="currentColor"
+                            stroke-width="2"
+                            stroke-linecap="round"
+                          />
+                        </svg>
+                      }
+                      @default {
+                        <div class="tool-step__dot"></div>
+                      }
+                    }
                   }
                 }
               </div>
-              <span class="tool-step__label">{{ step.label }}</span>
+              <div class="tool-step__content">
+                <span class="tool-step__label">{{ displayLabel(step) }}</span>
+                @if (contextLabel(step)) {
+                  <span class="tool-step__context">{{ contextLabel(step) }}</span>
+                }
+              </div>
               @if (step.detail) {
                 <span class="tool-step__detail">{{ step.detail }}</span>
               }
@@ -262,6 +425,11 @@ import type { AgentXToolStep } from '@nxt1/core/ai';
         animation: stepSpin 1s linear infinite;
       }
 
+      .tool-step__glyph {
+        width: 16px;
+        height: 16px;
+      }
+
       .tool-step__dot {
         width: 5px;
         height: 5px;
@@ -275,9 +443,23 @@ import type { AgentXToolStep } from '@nxt1/core/ai';
 
       /* ── Text ── */
 
-      .tool-step__label {
+      .tool-step__content {
         flex: 1;
         min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+
+      .tool-step__label {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .tool-step__context {
+        font-size: 0.6875rem;
+        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.4));
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
@@ -349,15 +531,17 @@ export class AgentXToolStepsComponent {
   protected readonly hasError = computed(() => this.steps().some((s) => s.status === 'error'));
 
   /** Accordion summary label. */
-  protected readonly summaryLabel = computed(() => {
-    const all = this.steps();
-    const active = all.filter((s) => s.status === 'active');
-    if (active.length > 0) {
-      return active.length === 1
-        ? `Running ${active[0].label}…`
-        : `Running ${active.length} tools…`;
-    }
-    const total = all.length;
-    return `Used ${total} tool${total === 1 ? '' : 's'}`;
-  });
+  protected readonly summaryLabel = computed(() => getToolStepsSummaryLabel(this.steps()));
+
+  protected contextLabel(step: AgentXToolStep): string | null {
+    return getToolStepContextLabel(step);
+  }
+
+  protected displayLabel(step: AgentXToolStep): string {
+    return getToolStepDisplayLabel(step);
+  }
+
+  protected resolvedIcon(step: AgentXToolStep): string {
+    return normalizeToolStepIcon(step.icon) ?? 'default';
+  }
 }

@@ -82,8 +82,8 @@ describe('NavigateLiveViewTool', () => {
       expect(tool.allowedAgents).toContain('data_coordinator');
       expect(tool.allowedAgents).toContain('performance_coordinator');
       expect(tool.allowedAgents).toContain('recruiting_coordinator');
-      expect(tool.allowedAgents).toContain('general');
-      expect(tool.allowedAgents).toContain('brand_media_coordinator');
+      expect(tool.allowedAgents).toContain('strategy_coordinator');
+      expect(tool.allowedAgents).toContain('brand_coordinator');
     });
 
     it('should require url and userId', () => {

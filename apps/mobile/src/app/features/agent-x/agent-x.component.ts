@@ -17,67 +17,46 @@
 
 import { Component, ChangeDetectionStrategy, inject, computed, OnInit } from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
-import { IonHeader, IonContent, IonToolbar } from '@ionic/angular/standalone';
+import { mapToConnectedSources } from '@nxt1/core';
 import {
   AgentXShellComponent,
-  AgentOnboardingShellMobileComponent,
-  AgentOnboardingService,
   AgentXService,
+  ConnectedAccountsResyncService,
   NxtSidenavService,
   NxtLoggingService,
+  NxtToastService,
+  type AgentXConnectedAccountsSaveRequest,
   type AgentXUser,
 } from '@nxt1/ui';
 import { AuthFlowService } from '../../core/services/auth/auth-flow.service';
+import { EditProfileApiService } from '../../core/services/api/edit-profile-api.service';
 
 @Component({
   selector: 'app-agent-x',
   standalone: true,
-  imports: [
-    IonHeader,
-    IonContent,
-    IonToolbar,
-    AgentXShellComponent,
-    AgentOnboardingShellMobileComponent,
-  ],
+  imports: [AgentXShellComponent],
   template: `
-    @if (showOnboarding()) {
-      <!-- Onboarding flow — native Ionic shell -->
-      <nxt1-agent-onboarding-shell-mobile (onboardingComplete)="onOnboardingComplete()" />
-    } @else {
-      <!-- Agent X Command Center -->
-      <ion-header class="ion-no-border" [translucent]="true">
-        <ion-toolbar></ion-toolbar>
-      </ion-header>
-      <ion-content [fullscreen]="true">
-        <nxt1-agent-x-shell [user]="userInfo()" (avatarClick)="onAvatarClick()" />
-      </ion-content>
-    }
+    <!-- Shell owns its own ion-content + ion-footer -->
+    <nxt1-agent-x-shell
+      [user]="userInfo()"
+      (avatarClick)="onAvatarClick()"
+      (connectedAccountsSave)="onConnectedAccountsSave($event)"
+    />
   `,
   styles: [
     `
       :host {
         display: block;
         height: 100%;
+        width: 100%;
+        background: var(--nxt1-color-bg-primary, var(--ion-background-color, #0a0a0a));
       }
-      ion-header {
-        position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        z-index: -1;
-        --background: transparent;
-      }
-      ion-toolbar {
-        --background: transparent;
-        --min-height: 0;
-        --padding-top: 0;
-        --padding-bottom: 0;
-      }
-      ion-content {
-        --background: var(--nxt1-color-bg-primary, #0a0a0a);
-      }
-      ion-content::part(scroll) {
-        overflow: visible;
+
+      nxt1-agent-x-shell {
+        display: block;
+        flex: 1;
+        height: 100%;
+        min-height: 0;
       }
     `,
   ],
@@ -87,12 +66,11 @@ export class AgentXComponent implements OnInit {
   private readonly authFlow = inject(AuthFlowService);
   private readonly sidenavService = inject(NxtSidenavService);
   private readonly logger = inject(NxtLoggingService).child('AgentXComponent');
-  private readonly onboarding = inject(AgentOnboardingService);
+  private readonly toast = inject(NxtToastService);
   private readonly route = inject(ActivatedRoute);
   private readonly agentX = inject(AgentXService);
-
-  /** Whether to show onboarding flow */
-  protected readonly showOnboarding = computed(() => this.onboarding.needsOnboarding());
+  private readonly editProfileApi = inject(EditProfileApiService);
+  private readonly connectedAccountsResync = inject(ConnectedAccountsResyncService);
 
   /**
    * Transform auth user to AgentXUser interface.
@@ -101,20 +79,52 @@ export class AgentXComponent implements OnInit {
     const user = this.authFlow.user();
     if (!user) return null;
 
+    const profile = this.authFlow.profile();
+
     return {
       profileImg: user.profileImg ?? null,
       displayName: user.displayName,
-      role: user.role,
+      role: profile?.role ?? user.role,
+      selectedSports: profile?.sports?.map(({ sport }) => sport).filter(Boolean) ?? [],
+      connectedSources: profile?.connectedSources ?? [],
+      connectedEmails: user.connectedEmails ?? [],
+      firebaseProviders: this.authFlow.firebaseUser()?.providerData ?? [],
     };
   });
+
+  protected async onConnectedAccountsSave(
+    request: AgentXConnectedAccountsSaveRequest
+  ): Promise<void> {
+    const user = this.authFlow.user();
+    if (!user?.uid) {
+      this.toast.error('Not signed in. Please refresh and try again.');
+      return;
+    }
+
+    const connectedSources = mapToConnectedSources(request.linkSources.links);
+    const result = await this.editProfileApi.updateSection(user.uid, 'connected-sources', {
+      connectedSources,
+    });
+
+    if (result.success) {
+      await this.authFlow.refreshUserProfile();
+      if (request.requestResync) {
+        await this.connectedAccountsResync.request(request.resyncSources ?? []);
+      } else {
+        this.toast.success('Connected accounts updated');
+      }
+    } else {
+      this.logger.error('Failed to save Agent X connected accounts', undefined, {
+        error: result.error,
+      });
+      this.toast.error(result.error ?? 'Failed to save connected accounts');
+    }
+  }
 
   ngOnInit(): void {
     const user = this.authFlow.user();
     const role = user?.role ?? 'athlete';
-    // TODO: Check backend for onboarding completion status
-    const needsOnboarding = false; // Skip onboarding by default until backend flag is wired
-    this.onboarding.initialize(role, needsOnboarding);
-    this.logger.info('Agent X initialized (mobile)', { role, needsOnboarding });
+    this.logger.info('Agent X initialized (mobile)', { role });
 
     // Load thread from deep link query param (?thread=<id>) — opens in bottom sheet
     const threadId = this.route.snapshot.queryParamMap.get('thread');
@@ -122,14 +132,6 @@ export class AgentXComponent implements OnInit {
       this.logger.info('Queuing thread from query param', { threadId });
       this.agentX.queuePendingThread({ threadId, title: 'Agent X' });
     }
-  }
-
-  /**
-   * Handle onboarding completion — transition to Agent X shell.
-   */
-  onOnboardingComplete(): void {
-    this.logger.info('Onboarding complete, transitioning to Agent X shell');
-    this.onboarding.markAsCompleted();
   }
 
   /**

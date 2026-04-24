@@ -2,21 +2,19 @@
  * @fileoverview Unit Tests — ScraperService
  * @module @nxt1/backend/modules/agent/tools/scraping
  *
- * Tests the 3-tier scraping engine in isolation by mocking `fetch` (for Tier 1
- * direct HTML fetch) and injecting a mock FirecrawlService (for Tier 2).
- * Covers URL validation (SSRF prevention), parallel fetching (Tier 1 direct
- * HTML + Tier 2 Firecrawl), Tier 3 HTML→Markdown fallback, structured data
+ * Tests the 2-tier scraping engine in isolation by injecting a mock Firecrawl
+ * MCP bridge (primary path) and mocking `fetch` (fallback path).
+ * Covers URL validation (SSRF prevention), Firecrawl-first scraping with both
+ * markdown + HTML in one call, direct fetch fallback, structured data
  * extraction integration, content truncation, and error handling.
  *
- * Because the service runs Tier 1 (direct fetch) and Tier 2 (Firecrawl) in
- * parallel via Promise.all, the test controls each tier independently:
- *   - `mockFetch` controls the direct HTML fetch (Tier 1)
- *   - `mockFirecrawl` controls the Firecrawl scrape (Tier 2)
+ *   - `mockMcpBridge` controls the Firecrawl MCP bridge (primary)
+ *   - `mockFetch` controls the direct HTML fetch (fallback only)
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ScraperService } from '../scraper.service.js';
-import type { FirecrawlService, FirecrawlScrapeResult } from '../firecrawl.service.js';
+import type { FirecrawlMcpBridgeService } from '../../integrations/firecrawl-mcp-bridge.service.js';
 import { MAX_SCRAPE_CONTENT_LENGTH } from '../scraper.types.js';
 
 // ─── Global fetch mock ──────────────────────────────────────────────────────
@@ -109,19 +107,17 @@ function mockDirectFetchOk(html: string = SAMPLE_HTML) {
   };
 }
 
-/** Create a mock FirecrawlService that resolves with the given markdown. */
-function createMockFirecrawl(markdown?: string | null): FirecrawlService {
-  const scrapeText =
+/** Create a mock Firecrawl MCP bridge that resolves with the given markdown + HTML. */
+function createMockMcpBridge(
+  markdown?: string | null,
+  html?: string | null
+): FirecrawlMcpBridgeService {
+  const scrape =
     markdown != null
-      ? vi.fn().mockResolvedValue({
-          url: 'https://example.com',
-          markdown,
-          title: 'Firecrawl Title',
-          scrapedInMs: 100,
-        } satisfies FirecrawlScrapeResult)
+      ? vi.fn().mockResolvedValue({ markdown, ...(html != null ? { html } : {}) })
       : vi.fn().mockRejectedValue(new Error('Firecrawl unavailable'));
 
-  return { scrapeText, scrapeWithActions: vi.fn(), search: vi.fn() } as unknown as FirecrawlService;
+  return { scrape } as unknown as FirecrawlMcpBridgeService;
 }
 
 /** Mock a failed response for the direct HTML fetch tier. */
@@ -134,9 +130,9 @@ function mockFailed() {
 describe('ScraperService', () => {
   let service: ScraperService;
 
-  // Default: Firecrawl available with sample markdown
+  // Default: Firecrawl available with sample markdown + HTML
   beforeEach(() => {
-    service = new ScraperService(createMockFirecrawl(SAMPLE_MARKDOWN));
+    service = new ScraperService(createMockMcpBridge(SAMPLE_MARKDOWN, SAMPLE_HTML));
   });
 
   // ── URL Validation (SSRF Prevention) ──────────────────────────────────
@@ -217,55 +213,62 @@ describe('ScraperService', () => {
     });
   });
 
-  // ── Firecrawl Strategy (Tier 2, preferred markdown source) ────────────
+  // ── Firecrawl Strategy (primary — markdown + HTML in one call) ────────
 
   describe('scrape — Firecrawl strategy', () => {
     it('should return markdown from Firecrawl on success', async () => {
-      mockFetch.mockResolvedValueOnce(mockDirectFetchOk());
-
       const result = await service.scrape({ url: 'https://www.maxpreps.com/athlete/123' });
 
       expect(result.provider).toBe('firecrawl');
       expect(result.markdownContent).toContain('Jalen Smith');
-      // Title comes from pageData (HTML <title>) when direct fetch succeeds
+      // Title comes from Firecrawl's JS-rendered HTML
       expect(result.title).toBe('MaxPreps - Jalen Smith');
       expect(result.contentLength).toBeGreaterThan(0);
       expect(result.scrapedInMs).toBeGreaterThanOrEqual(0);
     });
 
-    it('should include pageData from direct HTML fetch alongside Firecrawl markdown', async () => {
-      mockFetch.mockResolvedValueOnce(mockDirectFetchOk(SAMPLE_HTML_WITH_NEXT_DATA));
+    it('should not call direct fetch when Firecrawl succeeds', async () => {
+      await service.scrape({ url: 'https://www.maxpreps.com/athlete/123' });
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
 
-      const result = await service.scrape({ url: 'https://www.maxpreps.com/athlete/456' });
+    it('should include pageData from Firecrawl JS-rendered HTML', async () => {
+      const nextDataService = new ScraperService(
+        createMockMcpBridge(SAMPLE_MARKDOWN, SAMPLE_HTML_WITH_NEXT_DATA)
+      );
+
+      const result = await nextDataService.scrape({ url: 'https://www.maxpreps.com/athlete/456' });
 
       expect(result.provider).toBe('firecrawl');
       expect(result.pageData).not.toBeNull();
       expect(result.pageData?.nextData).toBeDefined();
       expect(result.pageData?.openGraph?.title).toBe('Deshon Yancey - RB');
       expect(result.pageData?.openGraph?.image).toBe('https://images.maxpreps.com/photo.jpg');
+      expect(mockFetch).not.toHaveBeenCalled();
     });
 
-    it('should use Firecrawl markdown even if direct fetch fails', async () => {
-      mockFetch.mockResolvedValueOnce(mockFailed()); // direct fetch fails
+    it('should return pageData as null when Firecrawl returns markdown but no HTML', async () => {
+      const markdownOnlyService = new ScraperService(createMockMcpBridge(SAMPLE_MARKDOWN));
 
-      const result = await service.scrape({ url: 'https://hudl.com/profile/123' });
+      const result = await markdownOnlyService.scrape({ url: 'https://hudl.com/profile/123' });
 
       expect(result.provider).toBe('firecrawl');
-      expect(result.pageData).toBeNull(); // no HTML → no structured data
+      expect(result.pageData).toBeNull();
+      expect(mockFetch).not.toHaveBeenCalled();
     });
   });
 
-  // ── Fallback Strategy (Tier 3) ────────────────────────────────────────
+  // ── Fallback Strategy (direct fetch when Firecrawl unavailable) ───────
 
-  describe('scrape — fetch fallback (Tier 3)', () => {
+  describe('scrape — fetch fallback', () => {
     // For fallback tests, Firecrawl is unavailable
     let fallbackService: ScraperService;
 
     beforeEach(() => {
-      fallbackService = new ScraperService(createMockFirecrawl(null));
+      fallbackService = new ScraperService(createMockMcpBridge(null));
     });
 
-    it('should fall back to HTML→Markdown when Firecrawl fails', async () => {
+    it('should fall back to direct fetch + HTML→Markdown when Firecrawl fails', async () => {
       mockFetch.mockResolvedValueOnce(mockDirectFetchOk()); // direct fetch OK
 
       const result = await fallbackService.scrape({ url: 'https://www.maxpreps.com/athlete/123' });
@@ -383,8 +386,7 @@ describe('ScraperService', () => {
   describe('content truncation', () => {
     it('should truncate content exceeding maxLength', async () => {
       const longContent = '# Title\n\n' + 'A'.repeat(30_000);
-      const truncService = new ScraperService(createMockFirecrawl(longContent));
-      mockFetch.mockResolvedValueOnce(mockDirectFetchOk());
+      const truncService = new ScraperService(createMockMcpBridge(longContent));
 
       const result = await truncService.scrape({ url: 'https://example.com', maxLength: 500 });
 
@@ -393,8 +395,6 @@ describe('ScraperService', () => {
     });
 
     it('should not truncate content within maxLength', async () => {
-      mockFetch.mockResolvedValueOnce(mockDirectFetchOk());
-
       const result = await service.scrape({
         url: 'https://example.com',
         maxLength: MAX_SCRAPE_CONTENT_LENGTH,
@@ -418,7 +418,7 @@ describe('ScraperService', () => {
     });
 
     it('should throw when both tiers fail', async () => {
-      const failService = new ScraperService(createMockFirecrawl(null));
+      const failService = new ScraperService(createMockMcpBridge(null));
       mockFetch.mockResolvedValueOnce(mockFailed()); // direct fetch fails
 
       await expect(failService.scrape({ url: 'https://example.com' })).rejects.toThrow(
@@ -427,12 +427,239 @@ describe('ScraperService', () => {
     });
 
     it('should throw when Firecrawl returns too little content and direct fetch also fails', async () => {
-      const shortService = new ScraperService(createMockFirecrawl('Hi'));
+      const shortService = new ScraperService(createMockMcpBridge('Hi'));
       mockFetch.mockResolvedValueOnce(mockFailed()); // direct fetch fails
 
       await expect(shortService.scrape({ url: 'https://example.com' })).rejects.toThrow(
         'Failed to scrape URL'
       );
+    });
+  });
+
+  // ── scrapeWithSchema (LLM-powered extraction) ────────────────────────
+
+  describe('scrapeWithSchema', () => {
+    it('should call MCP bridge extract with URL, prompt, and schema', async () => {
+      const extractMock = vi
+        .fn()
+        .mockResolvedValue({ players: [{ name: 'Jalen', position: 'PG' }] });
+      const bridge = {
+        scrape: vi.fn(),
+        extract: extractMock,
+      } as unknown as FirecrawlMcpBridgeService;
+      const schemaService = new ScraperService(bridge);
+
+      const schema = { type: 'object', properties: { players: { type: 'array' } } };
+      const result = await schemaService.scrapeWithSchema(
+        'https://gocards.com/roster',
+        'Extract the roster',
+        schema
+      );
+
+      expect(extractMock).toHaveBeenCalledWith(
+        ['https://gocards.com/roster'],
+        'Extract the roster',
+        { schema }
+      );
+      expect(result).toEqual({ players: [{ name: 'Jalen', position: 'PG' }] });
+    });
+
+    it('should call extract without schema when not provided', async () => {
+      const extractMock = vi.fn().mockResolvedValue({ data: 'extracted' });
+      const bridge = {
+        scrape: vi.fn(),
+        extract: extractMock,
+      } as unknown as FirecrawlMcpBridgeService;
+      const schemaService = new ScraperService(bridge);
+
+      await schemaService.scrapeWithSchema('https://example.com', 'Extract everything');
+
+      expect(extractMock).toHaveBeenCalledWith(['https://example.com/'], 'Extract everything', {});
+    });
+
+    it('should throw when MCP bridge is not available', async () => {
+      const noBridgeService = new ScraperService(null);
+
+      await expect(
+        noBridgeService.scrapeWithSchema('https://example.com', 'Extract data')
+      ).rejects.toThrow('requires Firecrawl MCP bridge');
+    });
+
+    it('should validate URL before calling extract', async () => {
+      const bridge = {
+        scrape: vi.fn(),
+        extract: vi.fn(),
+      } as unknown as FirecrawlMcpBridgeService;
+      const schemaService = new ScraperService(bridge);
+
+      await expect(
+        schemaService.scrapeWithSchema('http://169.254.169.254', 'Extract secrets')
+      ).rejects.toThrow('Blocked host');
+    });
+  });
+
+  // ── scrapeMany (parallel fan-out) ─────────────────────────────────────
+
+  describe('scrapeMany', () => {
+    it('should scrape multiple URLs and return results for each', async () => {
+      const results = await service.scrapeMany([
+        { url: 'https://example.com/a' },
+        { url: 'https://example.com/b' },
+      ]);
+
+      expect(results).toHaveLength(2);
+      expect(results.every((r) => r.status === 'success')).toBe(true);
+    });
+
+    it('should return error status for individual URL failures without killing batch', async () => {
+      // Uses service with Firecrawl that rejects — but also mock fetch to fail
+      const partialService = new ScraperService(createMockMcpBridge(null));
+
+      // First URL: direct fetch succeeds
+      mockFetch.mockResolvedValueOnce(mockDirectFetchOk());
+      // Second URL: direct fetch also fails
+      mockFetch.mockResolvedValueOnce(mockFailed());
+
+      const results = await partialService.scrapeMany([
+        { url: 'https://example.com/good' },
+        { url: 'https://example.com/bad' },
+      ]);
+
+      expect(results).toHaveLength(2);
+      expect(results[0].status).toBe('success');
+      expect(results[1].status).toBe('error');
+    });
+
+    it('should call onItemSettled for each completed URL', async () => {
+      const onItemSettled = vi.fn();
+
+      await service.scrapeMany(
+        [
+          { url: 'https://example.com/1' },
+          { url: 'https://example.com/2' },
+          { url: 'https://example.com/3' },
+        ],
+        { onItemSettled }
+      );
+
+      expect(onItemSettled).toHaveBeenCalledTimes(3);
+      expect(onItemSettled).toHaveBeenLastCalledWith(3, 3, expect.any(String));
+    });
+
+    it('should respect concurrency limit', async () => {
+      // With concurrency 1, URLs are processed sequentially
+      const results = await service.scrapeMany(
+        [{ url: 'https://example.com/a' }, { url: 'https://example.com/b' }],
+        { concurrency: 1 }
+      );
+
+      expect(results).toHaveLength(2);
+      expect(results.every((r) => r.status === 'success')).toBe(true);
+    });
+
+    it('should clamp concurrency between 1 and 10', async () => {
+      // concurrency: 100 gets clamped to 10 (no error)
+      const results = await service.scrapeMany([{ url: 'https://example.com/a' }], {
+        concurrency: 100,
+      });
+      expect(results).toHaveLength(1);
+    });
+  });
+
+  // ── warmCache (proactive cache warming) ───────────────────────────────
+
+  describe('warmCache', () => {
+    it('should call MCP bridge scrape for each URL', async () => {
+      const scrapeMock = vi.fn().mockResolvedValue({ markdown: SAMPLE_MARKDOWN });
+      const bridge = { scrape: scrapeMock } as unknown as FirecrawlMcpBridgeService;
+      const warmService = new ScraperService(bridge);
+
+      const result = await warmService.warmCache([
+        'https://example.com/a',
+        'https://example.com/b',
+      ]);
+
+      expect(scrapeMock).toHaveBeenCalledTimes(2);
+      expect(scrapeMock).toHaveBeenCalledWith(expect.any(String), {
+        formats: ['markdown', 'html'],
+      });
+      expect(result.total).toBe(2);
+      expect(result.warmed).toBe(2);
+      expect(result.failed).toBe(0);
+    });
+
+    it('should return skip result when MCP bridge is unavailable', async () => {
+      const noBridgeService = new ScraperService(null);
+
+      const result = await noBridgeService.warmCache(['https://example.com']);
+
+      expect(result.total).toBe(1);
+      expect(result.warmed).toBe(0);
+      expect(result.failed).toBe(1);
+      expect(result.errors).toContain('No MCP bridge');
+    });
+
+    it('should handle partial failures gracefully', async () => {
+      const scrapeMock = vi
+        .fn()
+        .mockResolvedValueOnce({ markdown: 'ok' })
+        .mockRejectedValueOnce(new Error('timeout'))
+        .mockResolvedValueOnce({ markdown: 'ok' });
+      const bridge = { scrape: scrapeMock } as unknown as FirecrawlMcpBridgeService;
+      const warmService = new ScraperService(bridge);
+
+      const result = await warmService.warmCache([
+        'https://example.com/a',
+        'https://example.com/b',
+        'https://example.com/c',
+      ]);
+
+      expect(result.total).toBe(3);
+      expect(result.warmed).toBe(2);
+      expect(result.failed).toBe(1);
+      expect(result.errors).toHaveLength(1);
+      expect(result.errors[0]).toContain('timeout');
+    });
+
+    it('should cap batch at 100 URLs', async () => {
+      const scrapeMock = vi.fn().mockResolvedValue({ markdown: 'ok' });
+      const bridge = { scrape: scrapeMock } as unknown as FirecrawlMcpBridgeService;
+      const warmService = new ScraperService(bridge);
+
+      const urls = Array.from({ length: 150 }, (_, i) => `https://example.com/${i}`);
+      const result = await warmService.warmCache(urls);
+
+      expect(result.total).toBe(100); // capped at 100
+      expect(scrapeMock).toHaveBeenCalledTimes(100);
+    });
+
+    it('should filter out invalid/SSRF URLs without crashing', async () => {
+      const scrapeMock = vi.fn().mockResolvedValue({ markdown: 'ok' });
+      const bridge = { scrape: scrapeMock } as unknown as FirecrawlMcpBridgeService;
+      const warmService = new ScraperService(bridge);
+
+      const result = await warmService.warmCache([
+        'https://example.com/good',
+        'http://169.254.169.254/bad', // SSRF blocked
+        'https://example.com/also-good',
+      ]);
+
+      expect(result.warmed).toBe(2);
+      expect(result.failed).toBe(1);
+      expect(result.errors[0]).toContain('Blocked host');
+    });
+
+    it('should call onItemSettled for each URL', async () => {
+      const scrapeMock = vi.fn().mockResolvedValue({ markdown: 'ok' });
+      const bridge = { scrape: scrapeMock } as unknown as FirecrawlMcpBridgeService;
+      const warmService = new ScraperService(bridge);
+      const onItemSettled = vi.fn();
+
+      await warmService.warmCache(['https://example.com/a', 'https://example.com/b'], {
+        onItemSettled,
+      });
+
+      expect(onItemSettled).toHaveBeenCalledTimes(2);
     });
   });
 });

@@ -22,6 +22,7 @@ import type { SettingsPersistenceAdapter } from '@nxt1/ui/settings';
 import { environment } from '../../../../environments/environment';
 import { PerformanceService } from '..';
 import { WebPushService } from '../web/web-push.service';
+import { AnalyticsService } from '../infrastructure/analytics.service';
 import { TRACE_NAMES, ATTRIBUTE_NAMES } from '@nxt1/core/performance';
 
 /** Shape of all settings API responses */
@@ -42,6 +43,7 @@ export class SettingsApiService implements SettingsPersistenceAdapter {
   private readonly http = inject(HttpClient);
   private readonly performance = inject(PerformanceService);
   private readonly webPush = inject(WebPushService);
+  private readonly analyticsService = inject(AnalyticsService);
   private readonly baseUrl = environment.apiURL;
 
   /**
@@ -67,7 +69,7 @@ export class SettingsApiService implements SettingsPersistenceAdapter {
    * Called once during settings initialisation by SettingsService.
    */
   async loadPreferences(): Promise<SettingsPreferences> {
-    return this.performance.trace(
+    const prefs = await this.performance.trace(
       TRACE_NAMES.SETTINGS_LOAD,
       async () => {
         const response = await firstValueFrom(
@@ -87,6 +89,11 @@ export class SettingsApiService implements SettingsPersistenceAdapter {
         },
       }
     );
+
+    // Apply saved analytics opt-in/out state immediately on load (defaults to true)
+    this.analyticsService.setEnabled(prefs.analyticsTracking);
+
+    return prefs;
   }
 
   /**
@@ -94,19 +101,26 @@ export class SettingsApiService implements SettingsPersistenceAdapter {
    * Uses PATCH /settings/preferences/:key with merging for nested fields.
    */
   async updatePreference(key: string, value: unknown): Promise<void> {
-    // Handle push notifications toggle - request permission and register FCM token
+    // Handle push notifications toggle — register or unregister FCM token
     if (key === 'pushNotifications') {
       if (value === true) {
-        // Request permission and register token
         await this.webPush.requestPermission();
+      } else {
+        await this.webPush.revokeToken();
       }
+      // Continue to persist preference to backend
+    }
+
+    // Handle analytics tracking toggle — enable/disable client-side event relay immediately
+    if (key === 'analyticsTracking') {
+      this.analyticsService.setEnabled(value as boolean);
       // Continue to persist preference to backend
     }
 
     const { backendKey, backendValue } = this.mapToBackendPreference(key, value);
 
     if (!backendKey) {
-      // Key not persisted to backend (e.g. analyticsTracking / crashReporting)
+      // Key not persisted to backend (e.g. crashReporting)
       return;
     }
 
@@ -221,6 +235,32 @@ export class SettingsApiService implements SettingsPersistenceAdapter {
         attributes: {
           [ATTRIBUTE_NAMES.FEATURE_NAME]: 'settings',
           operation: 'get_usage',
+        },
+      }
+    );
+  }
+
+  /**
+   * Acknowledge a completed password change after Firebase confirms success.
+   * This is not currently called by the UI because the app still uses emailed
+   * reset links rather than an in-app reset completion flow.
+   */
+  async recordPasswordChanged(): Promise<void> {
+    await this.performance.trace(
+      TRACE_NAMES.SETTINGS_PREFERENCE_UPDATE,
+      async () => {
+        const response = await firstValueFrom(
+          this.http.post<ApiResponse<void>>(`${this.baseUrl}/settings/password-changed`, {})
+        );
+
+        if (!response.success) {
+          throw new Error(response.error ?? 'Failed to record password change');
+        }
+      },
+      {
+        attributes: {
+          [ATTRIBUTE_NAMES.FEATURE_NAME]: 'settings',
+          operation: 'record_password_changed',
         },
       }
     );

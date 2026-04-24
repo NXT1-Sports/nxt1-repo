@@ -75,6 +75,13 @@ export interface DesktopSidebarSection {
 
   /** Whether section is initially expanded */
   readonly expanded?: boolean;
+
+  /**
+   * Layout mode for this section.
+   * 'list' (default) renders full-width rows. 'grid' renders a 2-column
+   * icon+label grid — used by the mobile sidebar for quick-action items.
+   */
+  readonly layout?: 'list' | 'grid';
 }
 
 /**
@@ -96,11 +103,14 @@ export interface DesktopSidebarUserData {
   /** Whether user is verified */
   readonly verified?: boolean;
 
-  /** Whether user is premium */
-  readonly isPremium?: boolean;
-
   /** Whether this user is a team-management role (coach/director) */
   readonly isTeamRole?: boolean;
+
+  /** Whether the team-role user currently has a real team association. */
+  readonly isOnTeam?: boolean;
+
+  /** Whether the user may create a new team/sport profile from the switcher. */
+  readonly canAddProfile?: boolean;
 }
 
 /**

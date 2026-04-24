@@ -22,22 +22,24 @@ try {
   }
 }
 
-// Mock window.matchMedia (not implemented in jsdom)
-Object.defineProperty(window, 'matchMedia', {
-  writable: true,
-  value: (query: string) => ({
-    matches: false,
-    media: query,
-    onchange: null,
-    /* eslint-disable @typescript-eslint/no-empty-function */
-    addListener: () => {},
-    removeListener: () => {},
-    addEventListener: () => {},
-    removeEventListener: () => {},
-    /* eslint-enable @typescript-eslint/no-empty-function */
-    dispatchEvent: () => false,
-  }),
-});
+// Mock window.matchMedia (not implemented in jsdom/node)
+if (typeof window !== 'undefined') {
+  Object.defineProperty(window, 'matchMedia', {
+    writable: true,
+    value: (query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      /* eslint-disable @typescript-eslint/no-empty-function */
+      addListener: () => {},
+      removeListener: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      /* eslint-enable @typescript-eslint/no-empty-function */
+      dispatchEvent: () => false,
+    }),
+  });
+}
 
 // Mock ResizeObserver (not implemented in jsdom)
 global.ResizeObserver = class ResizeObserver {

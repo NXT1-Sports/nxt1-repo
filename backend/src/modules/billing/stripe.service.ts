@@ -16,10 +16,16 @@ import type {
   CreateInvoiceItemResult,
   GetOrCreateCustomerResult,
   GenerateInvoiceResult,
+  ChargeOffSessionResult,
 } from './types/index.js';
 
 // Stripe client instances (cached)
 const stripeClients: Map<string, Stripe> = new Map();
+
+/** Clear the cached Stripe clients — only for use in tests. */
+export function _clearStripeClientCacheForTesting(): void {
+  stripeClients.clear();
+}
 
 /**
  * Get Stripe client for environment
@@ -370,6 +376,55 @@ export async function createSetupIntent(
   return setupIntent.client_secret;
 }
 
+function getDefaultPaymentMethodId(
+  customer: Stripe.Customer | Stripe.DeletedCustomer | string
+): string | null {
+  if (typeof customer === 'string' || customer.deleted) {
+    return null;
+  }
+
+  const defaultPaymentMethod = customer.invoice_settings?.default_payment_method;
+  if (typeof defaultPaymentMethod === 'string') {
+    return defaultPaymentMethod;
+  }
+
+  return defaultPaymentMethod?.id ?? null;
+}
+
+export async function getDefaultCardPaymentMethodId(
+  customerId: string,
+  environment: 'staging' | 'production'
+): Promise<string | null> {
+  try {
+    const stripe = getStripeClient(environment);
+    const customer = await stripe.customers.retrieve(customerId);
+    const defaultPaymentMethodId = getDefaultPaymentMethodId(customer);
+
+    if (!defaultPaymentMethodId) {
+      return null;
+    }
+
+    const paymentMethod = await stripe.paymentMethods.retrieve(defaultPaymentMethodId);
+    if (paymentMethod.type !== 'card') {
+      logger.info('[getDefaultCardPaymentMethodId] Default payment method is not a card', {
+        customerId,
+        paymentMethodId: defaultPaymentMethodId,
+        paymentMethodType: paymentMethod.type,
+      });
+      return null;
+    }
+
+    return paymentMethod.id;
+  } catch (error) {
+    logger.warn('[getDefaultCardPaymentMethodId] Failed to resolve default card payment method', {
+      error,
+      customerId,
+      environment,
+    });
+    return null;
+  }
+}
+
 /**
  * Check whether a Stripe customer has at least one saved card.
  * Used to gate Org/Team users from running agent jobs before adding a payment method.
@@ -393,72 +448,112 @@ export async function hasPaymentMethod(
 }
 
 /**
- * Cancel all active Stripe subscriptions for a user in a given environment.
- * This is used during account deletion to stop future billing before data is removed.
+ * Charge a saved payment method off-session (auto top-up).
+ *
+ * Creates and immediately confirms a PaymentIntent against the customer's
+ * default payment method without requiring the user to be present.
+ *
+ * This is the Stripe-recommended approach for off-session charges:
+ *   - `confirm: true` — confirms immediately
+ *   - `off_session: true` — signals to Stripe that the user is not present
+ *   - If the card requires 3DS (SCA), Stripe returns `requires_action` and
+ *     this function returns `{ success: false, errorCode: 'authentication_required' }`
+ *
+ * IMPORTANT: Only call this when the user has already confirmed the charge
+ * during the SetupIntent flow (i.e., they agreed to automatic top-up).
  */
-export async function cancelActiveSubscriptionsForUser(
-  db: Firestore,
-  userId: string,
+/**
+ * Retrieve the Stripe-hosted receipt URL for a PaymentIntent.
+ * Stripe attaches receipt_url to the latest Charge under the PaymentIntent.
+ * Returns null if not available (non-card payments, test mode, etc.).
+ */
+export async function getPaymentIntentReceiptUrl(
+  paymentIntentId: string,
   environment: 'staging' | 'production'
-): Promise<{ customerIds: string[]; canceledSubscriptionIds: string[] }> {
-  const config = getStripeConfig(environment);
-
-  if (!config.enabled) {
-    logger.info('[cancelActiveSubscriptionsForUser] Stripe disabled, skipping', {
-      userId,
-      environment,
+): Promise<string | null> {
+  try {
+    const stripe = getStripeClient(environment);
+    const pi = await stripe.paymentIntents.retrieve(paymentIntentId, {
+      expand: ['latest_charge'],
     });
-    return { customerIds: [], canceledSubscriptionIds: [] };
+    const charge = pi.latest_charge;
+    if (!charge || typeof charge === 'string') return null;
+    return charge.receipt_url ?? null;
+  } catch {
+    return null;
   }
+}
 
-  const customerSnapshot = await db
-    .collection(COLLECTIONS.STRIPE_CUSTOMERS)
-    .where('userId', '==', userId)
-    .where('environment', '==', environment)
-    .get();
-
-  if (customerSnapshot.empty) {
-    return { customerIds: [], canceledSubscriptionIds: [] };
-  }
-
-  const stripe = getStripeClient(environment);
-  const customerIds: string[] = [];
-  const canceledSubscriptionIds: string[] = [];
-
-  for (const customerDoc of customerSnapshot.docs) {
-    const customerData = customerDoc.data() as Partial<StripeCustomer>;
-    const customerId = customerData.stripeCustomerId;
-
-    if (!customerId) {
-      continue;
+export async function chargeOffSession(
+  customerId: string,
+  paymentMethodId: string,
+  amountCents: number,
+  description: string,
+  idempotencyKey: string,
+  environment: 'staging' | 'production'
+): Promise<ChargeOffSessionResult> {
+  try {
+    if (amountCents <= 0 || !Number.isInteger(amountCents)) {
+      return { success: false, error: `Invalid amountCents: ${amountCents}` };
     }
 
-    customerIds.push(customerId);
+    const stripe = getStripeClient(environment);
 
-    const subscriptions = await stripe.subscriptions.list({
-      customer: customerId,
-      status: 'all',
-      limit: 100,
-    });
+    const paymentIntent = await stripe.paymentIntents.create(
+      {
+        amount: amountCents,
+        currency: 'usd',
+        customer: customerId,
+        payment_method: paymentMethodId,
+        confirm: true,
+        off_session: true,
+        description,
+        metadata: {
+          type: 'auto_wallet_topup',
+          customerId,
+        },
+      },
+      { idempotencyKey }
+    );
 
-    for (const subscription of subscriptions.data) {
-      if (subscription.status === 'canceled' || subscription.status === 'incomplete_expired') {
-        continue;
-      }
+    if (paymentIntent.status === 'succeeded') {
+      logger.info('[chargeOffSession] PaymentIntent succeeded', {
+        paymentIntentId: paymentIntent.id,
+        customerId,
+        amountCents,
+      });
 
-      await stripe.subscriptions.cancel(subscription.id);
-      canceledSubscriptionIds.push(subscription.id);
+      // Retrieve the receipt URL from the latest charge (non-fatal).
+      const receiptUrl = await getPaymentIntentReceiptUrl(paymentIntent.id, environment);
+      return { success: true, paymentIntentId: paymentIntent.id, receiptUrl };
     }
+
+    // Covers 'requires_action', 'requires_payment_method', etc.
+    logger.warn('[chargeOffSession] PaymentIntent not succeeded', {
+      paymentIntentId: paymentIntent.id,
+      status: paymentIntent.status,
+      customerId,
+    });
+    return {
+      success: false,
+      paymentIntentId: paymentIntent.id,
+      errorCode: paymentIntent.status,
+      error: `PaymentIntent status: ${paymentIntent.status}`,
+    };
+  } catch (error: unknown) {
+    const stripeError = error as { code?: string; message?: string };
+    logger.error('[chargeOffSession] Charge failed', {
+      error,
+      customerId,
+      amountCents,
+      errorCode: stripeError.code,
+    });
+    return {
+      success: false,
+      errorCode: stripeError.code,
+      error: stripeError.message ?? 'Unknown error',
+    };
   }
-
-  logger.info('[cancelActiveSubscriptionsForUser] Stripe subscriptions canceled', {
-    userId,
-    environment,
-    customerIds,
-    canceledSubscriptionIds,
-  });
-
-  return { customerIds, canceledSubscriptionIds };
 }
 
 /**

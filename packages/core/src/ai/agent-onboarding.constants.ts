@@ -70,6 +70,21 @@ export const AGENT_MAX_GOALS = 3;
 export const AGENT_MIN_GOALS = 1;
 
 // ============================================
+// ORG TYPE OPTIONS
+// ============================================
+
+/**
+ * Organization type options for program creation.
+ */
+export const ORG_TYPE_OPTIONS: readonly { id: string; label: string; icon: string }[] = [
+  { id: 'high-school', label: 'High School', icon: 'school-outline' },
+  { id: 'college', label: 'College / University', icon: 'business-outline' },
+  { id: 'club', label: 'Club / AAU', icon: 'people-circle-outline' },
+  { id: 'youth', label: 'Youth League', icon: 'football-outline' },
+  { id: 'professional', label: 'Professional', icon: 'trophy-outline' },
+] as const;
+
+// ============================================
 // COACH ROLE OPTIONS
 // ============================================
 
@@ -276,13 +291,12 @@ export const ATHLETE_PREDEFINED_GOALS: readonly AgentGoal[] = [
  * Sequential loading messages shown during the boot-up animation.
  */
 export const AGENT_LOADING_MESSAGES: readonly string[] = [
-  'Initializing Agent X...',
-  'Analyzing your goals...',
-  'Configuring AI models...',
-  'Loading recruiting database...',
-  'Calibrating sport intelligence...',
-  'Building your personalized dashboard...',
-  'Agent X is ready.',
+  'Syncing your profile with Agent X...',
+  'Tuning your sports intelligence...',
+  'Configuring your coordinators...',
+  'Reviewing your activity context...',
+  'Preparing your first dashboard update...',
+  'Finalizing your personalized setup...',
 ] as const;
 
 /**

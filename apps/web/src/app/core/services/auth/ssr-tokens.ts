@@ -50,7 +50,6 @@ export interface SerializedAuthUser {
   displayName: string;
   profileImg?: string;
   role: string;
-  isPremium: boolean;
   hasCompletedOnboarding: boolean;
   createdAt: string;
   updatedAt: string;
@@ -70,6 +69,7 @@ export interface SerializedFirebaseUser {
   photoURL: string | null;
   emailVerified: boolean;
   metadata?: { creationTime?: string; lastSignInTime?: string };
+  providerData?: Array<{ providerId: string }>;
 }
 
 /**

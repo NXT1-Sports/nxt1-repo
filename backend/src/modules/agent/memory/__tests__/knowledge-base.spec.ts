@@ -218,12 +218,10 @@ describe('GlobalKnowledgeSkill matchIntent contract', () => {
   // and resets any cached state from previous invocations.
   function simulateMatchIntent() {
     // If the class held stale state, matchIntent resets it
-    let cachedPromptBlock = 'stale from previous call';
-    let lastResults = [{ entry: {}, score: 0.5 }];
 
     // matchIntent resets cache (concurrency fix)
-    cachedPromptBlock = '';
-    lastResults = [];
+    const cachedPromptBlock = '';
+    const lastResults: Array<Record<string, unknown>> = [];
 
     return {
       result: { matched: true, similarity: 0.8 },

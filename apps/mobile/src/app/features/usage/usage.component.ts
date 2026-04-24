@@ -76,7 +76,6 @@ export class UsageComponent {
     'overview',
     'metered-usage',
     'breakdown',
-    'payment-history',
     'budgets',
     'payment-info',
   ] as const;

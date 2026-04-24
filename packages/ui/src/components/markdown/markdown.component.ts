@@ -22,7 +22,9 @@ import {
   afterNextRender,
 } from '@angular/core';
 import { DomSanitizer, type SafeHtml } from '@angular/platform-browser';
+import { type TrackingSurface } from '@nxt1/core';
 import { Marked, Renderer } from 'marked';
+import { NxtBrowserService } from '../../services/browser';
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
@@ -380,9 +382,12 @@ const markedInstance = new Marked({
 export class NxtMarkdownComponent {
   /** Raw markdown string (can be partial during SSE streaming). */
   readonly content = input('');
+  readonly trackingSource = input('markdown');
+  readonly trackingSurface = input<TrackingSurface>('message');
 
   private readonly sanitizer = inject(DomSanitizer);
   private readonly elRef = inject(ElementRef<HTMLElement>);
+  private readonly browser = inject(NxtBrowserService);
 
   /**
    * Tracks whether DOMPurify has been loaded.  Used as a computed
@@ -400,18 +405,33 @@ export class NxtMarkdownComponent {
         this._dompurifyReady.set(true);
       });
 
-      // Delegated click handler for dynamically injected copy buttons.
+      // Delegated click handler for dynamically injected controls and links.
       this.elRef.nativeElement.addEventListener('click', (e: Event) => {
         const target = e.target as HTMLElement;
-        if (!target.classList.contains('code-copy-btn')) return;
 
-        const wrapper = target.closest('.code-block-wrapper');
-        const code = wrapper?.querySelector('code');
-        if (!code) return;
+        if (target.classList.contains('code-copy-btn')) {
+          const wrapper = target.closest('.code-block-wrapper');
+          const code = wrapper?.querySelector('code');
+          if (!code) return;
 
-        navigator.clipboard.writeText(code.textContent ?? '').then(() => {
-          target.textContent = 'Copied!';
-          setTimeout(() => (target.textContent = 'Copy'), 1500);
+          navigator.clipboard.writeText(code.textContent ?? '').then(() => {
+            target.textContent = 'Copied!';
+            setTimeout(() => (target.textContent = 'Copy'), 1500);
+          });
+          return;
+        }
+
+        const anchor = target.closest('a[href]') as HTMLAnchorElement | null;
+        const href = anchor?.getAttribute('href') ?? '';
+        if (!anchor || !/^(https?:\/\/|www\.)/i.test(href)) {
+          return;
+        }
+
+        e.preventDefault();
+        void this.browser.openLink({
+          url: href,
+          source: this.trackingSource(),
+          surface: this.trackingSurface(),
         });
       });
     });

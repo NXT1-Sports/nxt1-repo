@@ -46,6 +46,25 @@ export interface ScrapeResult {
 /** Available scraping providers (ordered by preference). */
 export type ScrapeProvider = 'firecrawl' | 'fetch-fallback';
 
+// ─── Multi-Scrape & Cache Warming ───────────────────────────────────────────
+
+/** Result for a single URL in a `scrapeMany()` batch. */
+export type ScrapeManyResult =
+  | { readonly status: 'success'; readonly url: string; readonly data: ScrapeResult }
+  | { readonly status: 'error'; readonly url: string; readonly error: string };
+
+/** Summary returned by `warmCache()`. */
+export interface CacheWarmResult {
+  /** Total URLs attempted. */
+  readonly total: number;
+  /** Successfully cached. */
+  readonly warmed: number;
+  /** Failed to scrape/cache. */
+  readonly failed: number;
+  /** First 20 error messages (for diagnostics, not exhaustive). */
+  readonly errors: readonly string[];
+}
+
 // ─── Constants ──────────────────────────────────────────────────────────────
 
 /** Maximum markdown content length (characters) to prevent LLM context overflow. */

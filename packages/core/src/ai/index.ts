@@ -46,6 +46,13 @@ export type {
   AgentSetGoalsRequest,
   AgentRegeneratePlaybookRequest,
   AgentPlaybookResponse,
+  // Goal completion types
+  CompletedGoalRecord,
+  AgentCompleteGoalRequest,
+  AgentCompleteGoalResponse,
+  AgentGoalHistoryResponse,
+  // Weekly recap types
+  AgentWeeklyRecap,
   // Operations log types
   OperationLogStatus,
   OperationLogCategory,
@@ -63,6 +70,7 @@ export type {
   AgentXStreamCallbacks,
   // Tool step & rich card types
   AgentXToolStepStatus,
+  AgentXToolStepIcon,
   AgentXToolStep,
   AgentXRichCardType,
   AgentXPlannerItem,
@@ -72,6 +80,7 @@ export type {
   AgentXDataTablePayload,
   AgentXConfirmationAction,
   AgentXConfirmationPayload,
+  AgentXAskUserPayload,
   AgentXCitation,
   AgentXCitationsPayload,
   AgentXParameterField,
@@ -91,10 +100,6 @@ export {
   AGENT_X_CONFIG,
   AGENT_X_MODES,
   AGENT_X_DEFAULT_MODE,
-  ATHLETE_QUICK_TASKS,
-  COACH_QUICK_TASKS,
-  COLLEGE_QUICK_TASKS,
-  ALL_QUICK_TASKS,
   AGENT_X_ENDPOINTS,
   AGENT_X_RATE_LIMITS,
   AGENT_X_CACHE_KEYS,
@@ -103,12 +108,8 @@ export {
   AGENT_X_ALLOWED_MIME_TYPES,
   AGENT_X_MAX_ATTACHMENTS,
   AGENT_X_MAX_FILE_SIZE,
+  AGENT_X_MAX_VIDEO_FILE_SIZE,
   resolveAttachmentType,
-  // Role-specific shell content
-  ATHLETE_COORDINATORS,
-  TEAM_COORDINATORS,
-  RECRUITER_COORDINATORS,
-  getShellContentForRole,
 } from './agent-x.constants';
 
 // Content types (mode-specific)
@@ -138,6 +139,17 @@ export {
 // API
 export { createAgentXApi, type AgentXApi, type ThreadMessagesResponse } from './agent-x.api';
 
+// Shared copy resolvers
+export {
+  resolveAgentApprovalCopy,
+  resolveAgentApprovalPrompt,
+  resolveAgentYieldCopy,
+  resolveAgentSuccessNotificationCopy,
+  resolveAgentFailureNotificationCopy,
+  type AgentApprovalCopy,
+  type AgentNotificationCopy,
+} from './agent-copy';
+
 // Agent Onboarding Types
 export type {
   AgentOnboardingStepId,
@@ -160,6 +172,7 @@ export {
   AGENT_MAX_GOALS,
   AGENT_MIN_GOALS,
   COACH_ROLE_OPTIONS,
+  ORG_TYPE_OPTIONS,
   AGENT_GOAL_CATEGORIES,
   COACH_PREDEFINED_GOALS,
   ATHLETE_PREDEFINED_GOALS,
@@ -187,6 +200,12 @@ export type {
 // Agentic types
 export type {
   AgentOperationStatus,
+  AgentProgressStageType,
+  AgentRouterStage,
+  ToolStage,
+  AgentProgressStage,
+  OperationOutcomeCode,
+  AgentProgressMetadata,
   AgentOperationStep,
   AgentOperation,
   AgentOperationResult,
@@ -194,8 +213,13 @@ export type {
   AgentDescriptor,
   AgentToolDefinition,
   AgentToolCategory,
+  AgentToolEntityGroup,
+  AgentToolAccessContext,
   AgentToolCallRecord,
+  AgentMemoryTarget,
   AgentMemoryEntry,
+  AgentMemoryRecallOptions,
+  AgentRetrievedMemories,
   AgentMemoryCategory,
   KnowledgeCategory,
   KnowledgeSourceType,
@@ -227,12 +251,15 @@ export type {
   SyncNewCategory,
   SyncNewScheduleEvent,
   SyncNewVideo,
+  AgentApprovalReasonCode,
   AgentApprovalRequest,
   AgentApprovalStatus,
   AgentApprovalPolicy,
+  AgentNotificationOutcomeCode,
   AgentYieldReason,
   AgentYieldState,
   AgentUserContext,
+  AgentPromptContext,
   AgentConnectedAccount,
   AgentLLMCallRecord,
   AgentUsageSummary,
@@ -246,6 +273,8 @@ export type {
 // Agentic constants
 export {
   AGENT_DESCRIPTORS,
+  COORDINATOR_AGENT_IDS,
+  COORDINATOR_DESCRIPTORS,
   MODEL_ROUTING_DEFAULTS,
   GUARDRAIL_DESCRIPTORS,
   AGENT_JOB_CONFIG,

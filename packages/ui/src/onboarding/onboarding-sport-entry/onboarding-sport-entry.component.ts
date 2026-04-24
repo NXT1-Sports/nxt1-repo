@@ -64,6 +64,7 @@ import {
   getPositionGroupsForSport,
   formatPositionDisplay,
   formatSportDisplayName,
+  getSportEmoji,
 } from '@nxt1/core/constants';
 import type { ILogger } from '@nxt1/core/logging';
 import { HapticButtonDirective } from '../../services/haptics';
@@ -77,7 +78,7 @@ import { NxtPickerService } from '../../components/picker';
 // ============================================
 
 /** Minimum team name length for validation */
-// const MIN_TEAM_NAME_LENGTH = 2; // TODO: Use for validation
+const MIN_TEAM_NAME_LENGTH = 2;
 
 /** Maximum team colors allowed */
 const MAX_TEAM_COLORS = 4;
@@ -818,7 +819,7 @@ export class OnboardingSportEntryComponent {
   readonly isValid = computed((): boolean => {
     const e = this.entry();
     if (!e) return false;
-    return !!(e.team?.name?.trim() && e.positions?.length > 0);
+    return !!(e.team?.name?.trim().length >= MIN_TEAM_NAME_LENGTH && e.positions?.length > 0);
   });
 
   /** Check if entry has any data filled in */
@@ -981,26 +982,7 @@ export class OnboardingSportEntryComponent {
 
   /** Get sport icon/emoji */
   getSportIcon(): string {
-    // TODO: Get icon from DEFAULT_SPORTS constant
-    const sport = this.entry()?.sport?.toLowerCase() || '';
-    const iconMap: Record<string, string> = {
-      football: '🏈',
-      basketball: '🏀',
-      soccer: '⚽',
-      baseball: '⚾',
-      softball: '🥎',
-      volleyball: '🏐',
-      tennis: '🎾',
-      golf: '⛳',
-      swimming: '🏊',
-      track: '🏃',
-      wrestling: '🤼',
-      lacrosse: '🥍',
-      hockey: '🏒',
-      gymnastics: '🤸',
-      cheerleading: '📣',
-    };
-    return iconMap[sport] || '🏆';
+    return getSportEmoji(this.entry()?.sport || '');
   }
 
   /** Sanitize string for test ID */

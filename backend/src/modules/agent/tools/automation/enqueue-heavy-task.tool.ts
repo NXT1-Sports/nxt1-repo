@@ -14,11 +14,20 @@
  * the full PlannerAgent → sub-agent pipeline for complex work.
  */
 
-import { BaseTool, type ToolResult } from '../base.tool.js';
+import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
 import type { AgentQueueService } from '../../queue/queue.service.js';
 import type { AgentJobPayload, AgentJobOrigin } from '@nxt1/core';
 import { logger } from '../../../../utils/logger.js';
 import { randomUUID } from 'node:crypto';
+import { z } from 'zod';
+
+const EnqueueHeavyTaskInputSchema = z.object({
+  intent: z.string().trim().min(1),
+  userId: z.string().trim().min(1),
+  context: z.record(z.string(), z.unknown()).optional(),
+  parentOperationId: z.string().trim().min(1).optional(),
+  parentThreadId: z.string().trim().min(1).optional(),
+});
 
 export class EnqueueHeavyTaskTool extends BaseTool {
   readonly name = 'enqueue_heavy_task';
@@ -31,64 +40,88 @@ export class EnqueueHeavyTaskTool extends BaseTool {
     'Returns an operationId the user can track. The chat should immediately ' +
     'acknowledge the task was queued and explain what will happen.';
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      intent: {
-        type: 'string',
-        description:
-          'A clear, complete description of what the user wants done. ' +
-          'This is forwarded verbatim to the PlannerAgent.',
-      },
-      userId: {
-        type: 'string',
-        description: 'The authenticated user ID (uid) requesting the operation.',
-      },
-      context: {
-        type: 'object',
-        description:
-          'Optional additional context to pass to the background job ' +
-          '(e.g., sport, position, target schools, threadId).',
-        additionalProperties: true,
-      },
-    },
-    required: ['intent', 'userId'],
-    additionalProperties: false,
-  };
+  readonly parameters = EnqueueHeavyTaskInputSchema;
 
   readonly isMutation = true;
   readonly category = 'automation' as const;
+  readonly entityGroup = 'platform_tools' as const;
   override readonly allowedAgents = ['*'] as const;
 
   constructor(private readonly queueService: AgentQueueService) {
     super();
   }
 
-  async execute(input: Record<string, unknown>): Promise<ToolResult> {
-    const intent = input['intent'] as string | undefined;
-    const userId = input['userId'] as string | undefined;
-    const context = (input['context'] as Record<string, unknown>) ?? {};
-
-    if (!intent || !userId) {
-      return { success: false, error: 'Missing required fields: intent and userId' };
+  async execute(
+    input: Record<string, unknown>,
+    context?: ToolExecutionContext
+  ): Promise<ToolResult> {
+    const parsed = EnqueueHeavyTaskInputSchema.safeParse(input);
+    if (!parsed.success) {
+      return {
+        success: false,
+        error: parsed.error.issues
+          .map((issue) =>
+            issue.path.length > 0 ? `${issue.path.join('.')}: ${issue.message}` : issue.message
+          )
+          .join(', '),
+      };
     }
 
-    const operationId = randomUUID();
+    const { intent } = parsed.data;
+    const userId = parsed.data.userId || context?.userId;
+    if (!userId) {
+      return {
+        success: false,
+        error: 'userId is required',
+      };
+    }
+
+    const inputContext = parsed.data.context ?? {};
+
+    const inheritedParentOperationId =
+      typeof inputContext['parentOperationId'] === 'string' &&
+      inputContext['parentOperationId'].trim().length > 0
+        ? String(inputContext['parentOperationId'])
+        : undefined;
+    const inheritedParentThreadId =
+      typeof inputContext['parentThreadId'] === 'string' &&
+      inputContext['parentThreadId'].trim().length > 0
+        ? String(inputContext['parentThreadId'])
+        : undefined;
+
+    const operationId =
+      parsed.data.parentOperationId ??
+      inheritedParentOperationId ??
+      context?.operationId ??
+      randomUUID();
+    const threadId = parsed.data.parentThreadId ?? inheritedParentThreadId ?? context?.threadId;
+
+    const mergedContext: Record<string, unknown> = {
+      ...inputContext,
+      ...(threadId ? { threadId } : {}),
+      ...(operationId ? { parentOperationId: operationId } : {}),
+    };
 
     const payload: AgentJobPayload = {
       operationId,
       userId,
       intent: intent.trim(),
-      sessionId: (context['sessionId'] as string) ?? randomUUID(),
+      sessionId:
+        (typeof inputContext['sessionId'] === 'string' ? inputContext['sessionId'] : undefined) ??
+        context?.sessionId ??
+        randomUUID(),
       origin: 'user' as AgentJobOrigin,
-      context,
+      context: mergedContext,
     };
 
     try {
       // Respect the environment injected by the chat route (staging vs production).
       // Without this, staging chat jobs would get enqueued against the production Firestore
       // and fail with 5 NOT_FOUND when the worker looks up a staging userId.
-      const env = (context['environment'] as 'staging' | 'production') ?? 'production';
+      const env =
+        (inputContext['environment'] as 'staging' | 'production') ??
+        context?.environment ??
+        'production';
       const jobId = await this.queueService.enqueue(payload, env);
       logger.info('Heavy task enqueued from chat', {
         operationId,

@@ -27,7 +27,6 @@
 
 import { Injectable, inject, signal, computed } from '@angular/core';
 import {
-  type InviteStats,
   type InviteItem,
   type InviteLink,
   type InviteTeam,
@@ -65,7 +64,6 @@ export class InviteService {
   // PRIVATE WRITEABLE SIGNALS
   // ============================================
 
-  private readonly _stats = signal<InviteStats | null>(null);
   private readonly _history = signal<InviteItem[]>([]);
   private readonly _inviteLink = signal<InviteLink | null>(null);
   private readonly _teams = signal<InviteTeam[]>([]);
@@ -77,7 +75,6 @@ export class InviteService {
   // Loading states
   private readonly _isLoading = signal(false);
   private readonly _isSending = signal(false);
-  private readonly _isLoadingStats = signal(false);
   private readonly _isLoadingHistory = signal(false);
 
   // Error state
@@ -89,9 +86,6 @@ export class InviteService {
   // ============================================
   // PUBLIC READONLY COMPUTED SIGNALS
   // ============================================
-
-  /** User's invite statistics */
-  readonly stats = computed(() => this._stats());
 
   /** Invite history */
   readonly history = computed(() => this._history());
@@ -117,7 +111,6 @@ export class InviteService {
   /** Loading states */
   readonly isLoading = computed(() => this._isLoading());
   readonly isSending = computed(() => this._isSending());
-  readonly isLoadingStats = computed(() => this._isLoadingStats());
 
   /** Error message */
   readonly error = computed(() => this._error());
@@ -163,12 +156,6 @@ export class InviteService {
     );
   });
 
-  /** Streak days */
-  readonly streakDays = computed(() => this._stats()?.streakDays ?? 0);
-
-  /** Conversion rate */
-  readonly conversionRate = computed(() => this._stats()?.conversionRate ?? 0);
-
   /** Has recipients selected */
   readonly hasRecipients = computed(() => this._selectedRecipients().length > 0);
 
@@ -189,7 +176,7 @@ export class InviteService {
 
     try {
       // Load all data in parallel
-      await Promise.all([this.loadStats(), this.loadInviteLink(), this.loadTeams()]);
+      await Promise.all([this.loadInviteLink(), this.loadTeams()]);
 
       await this.haptics.impact('light');
     } catch (err) {
@@ -199,23 +186,6 @@ export class InviteService {
       this.breadcrumb.trackStateChange('invite:error', { reason: message });
     } finally {
       this._isLoading.set(false);
-    }
-  }
-
-  /**
-   * Load user's invite statistics.
-   */
-  async loadStats(): Promise<void> {
-    this._isLoadingStats.set(true);
-
-    try {
-      const stats = await this.api.getStats();
-      this._stats.set(stats);
-      this.logger.info('Invite stats loaded', { sent: stats.totalSent, accepted: stats.accepted });
-    } catch (err) {
-      this.logger.error('Failed to load invite stats', err);
-    } finally {
-      this._isLoadingStats.set(false);
     }
   }
 
@@ -375,9 +345,6 @@ export class InviteService {
       setTimeout(() => {
         this._showCelebration.set(false);
       }, 2500);
-
-      // Refresh stats
-      await this.loadStats();
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to share';
       this.toast.error(message);

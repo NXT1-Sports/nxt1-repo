@@ -5,14 +5,21 @@
  * Calculates the amount to charge a user based on actual AI cost (from Helicone)
  * multiplied by a configurable margin multiplier stored in Firestore.
  *
- * Config stored in Firestore collection `pricingConfig` doc `default`:
+ * Config stored in Firestore collection `AppConfig` doc `pricingConfig`:
  * {
  *   defaultMultiplier: 3.0,
- *   featureOverrides: { "scout-report": 4.0, "highlights": 3.5 }
+ *   featureOverrides: {
+ *     "brand_coordinator": 4.0,
+ *     "recruiting_coordinator": 3.5,
+ *     "playbook-generation": 2.5
+ *   }
  * }
+ *
+ * `featureOverrides` is coordinator-first for open-ended agent execution.
+ * Explicit feature overrides are still supported for fixed product flows.
  */
 
-import type { Firestore } from 'firebase-admin/firestore';
+import { FieldValue, type Firestore, type Timestamp } from 'firebase-admin/firestore';
 import { logger } from '../../utils/logger.js';
 
 // ============================================
@@ -22,7 +29,7 @@ import { logger } from '../../utils/logger.js';
 export interface PricingConfig {
   defaultMultiplier: number;
   featureOverrides: Record<string, number>;
-  updatedAt?: string;
+  updatedAt?: Timestamp | string;
 }
 
 export interface ChargeCalculation {
@@ -31,10 +38,12 @@ export interface ChargeCalculation {
   chargeAmountUsd: number;
   chargeAmountCents: number;
   feature: string;
+  coordinatorId?: string;
+  overrideSource: 'coordinator' | 'feature' | 'default';
 }
 
-const PRICING_CONFIG_COLLECTION = 'pricingConfig';
-const PRICING_CONFIG_DOC = 'default';
+const PRICING_CONFIG_COLLECTION = 'AppConfig';
+const PRICING_CONFIG_DOC = 'pricingConfig';
 
 // In-memory cache to avoid reading Firestore on every request
 let configCache: { config: PricingConfig; fetchedAt: number } | null = null;
@@ -86,7 +95,7 @@ export async function updatePricingConfig(
     .set(
       {
         ...updates,
-        updatedAt: new Date().toISOString(),
+        updatedAt: FieldValue.serverTimestamp(),
       },
       { merge: true }
     );
@@ -102,6 +111,26 @@ function getDefaultPricingConfig(): PricingConfig {
     defaultMultiplier: 3.0,
     featureOverrides: {},
   };
+}
+
+function resolveMultiplier(
+  config: PricingConfig,
+  feature: string,
+  coordinatorId?: string
+): { multiplier: number; overrideSource: ChargeCalculation['overrideSource'] } {
+  if (coordinatorId) {
+    const coordinatorMultiplier = config.featureOverrides[coordinatorId];
+    if (typeof coordinatorMultiplier === 'number') {
+      return { multiplier: coordinatorMultiplier, overrideSource: 'coordinator' };
+    }
+  }
+
+  const featureMultiplier = config.featureOverrides[feature];
+  if (typeof featureMultiplier === 'number') {
+    return { multiplier: featureMultiplier, overrideSource: 'feature' };
+  }
+
+  return { multiplier: config.defaultMultiplier, overrideSource: 'default' };
 }
 
 // ============================================
@@ -120,16 +149,19 @@ function getDefaultPricingConfig(): PricingConfig {
 export async function calculateChargeAmount(
   db: Firestore,
   actualCostUsd: number,
-  feature: string
+  feature: string,
+  coordinatorId?: string
 ): Promise<ChargeCalculation> {
   const config = await getPricingConfig(db);
-  const multiplier = config.featureOverrides[feature] ?? config.defaultMultiplier;
+  const { multiplier, overrideSource } = resolveMultiplier(config, feature, coordinatorId);
 
   const chargeAmountUsd = actualCostUsd * multiplier;
   const chargeAmountCents = Math.ceil(chargeAmountUsd * 100); // round up to protect margin
 
   logger.info('[pricing] Charge calculated', {
     feature,
+    coordinatorId,
+    overrideSource,
     actualCostUsd,
     multiplier,
     chargeAmountUsd,
@@ -142,6 +174,8 @@ export async function calculateChargeAmount(
     chargeAmountUsd,
     chargeAmountCents,
     feature,
+    ...(coordinatorId ? { coordinatorId } : {}),
+    overrideSource,
   };
 }
 

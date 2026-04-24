@@ -11,12 +11,13 @@
  * - MongoDB for chronological chat history (Thread + Message models)
  * - MongoDB Atlas Vector Search (Phase 2) for semantic memory via
  *   optional `embedding` field on messages
- * - Firestore remains ephemeral job progress only (agentJobs collection)
+ * - Firestore remains ephemeral job progress only (AgentJobs collection)
  *
  * 100% Portable — Zero framework dependencies.
  */
 
 import type { AgentIdentifier, AgentJobOrigin, AgentToolCallRecord } from './agent.types';
+import type { AgentXMessagePart, AgentXToolStep } from './agent-x.types';
 
 // ─── Thread ─────────────────────────────────────────────────────────────────
 
@@ -88,6 +89,17 @@ export interface AgentMessage {
   readonly resultData?: Record<string, unknown>;
   /** Tool calls made during this message's generation. */
   readonly toolCalls?: readonly AgentToolCallRecord[];
+  /**
+   * Persisted tool execution steps captured from the live stream.
+   * Used to rehydrate the exact execution log on reload without falling back
+   * to lossy tool-call reconstruction.
+   */
+  readonly steps?: readonly AgentXToolStep[];
+  /**
+   * Persisted interleaved message parts captured from the live stream.
+   * Preserves the exact text → tools → cards sequence seen during execution.
+   */
+  readonly parts?: readonly AgentXMessagePart[];
   /** Token usage for this message (for usage tracking in the UI). */
   readonly tokenUsage?: AgentMessageTokenUsage;
   /**

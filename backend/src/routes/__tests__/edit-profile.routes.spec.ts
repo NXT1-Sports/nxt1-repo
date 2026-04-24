@@ -10,7 +10,7 @@ describe('Edit Profile Routes', () => {
   let router: unknown;
 
   beforeAll(async () => {
-    const module = await import('../../routes/edit-profile.routes.js');
+    const module = await import('../../routes/profile/edit-profile.routes.js');
     router = module.default;
   }, 15_000);
 
@@ -20,12 +20,11 @@ describe('Edit Profile Routes', () => {
       [
         { path: '/:uid/edit', method: 'get' },
         { path: '/:uid/section/:sectionId', method: 'put' },
-        { path: '/:uid/completion', method: 'get' },
         { path: '/:uid/photo', method: 'post' },
         { path: '/:uid/photo/:type', method: 'delete' },
         { path: '/:uid/active-sport-index', method: 'put' },
       ],
-      6
+      5
     );
   });
 });

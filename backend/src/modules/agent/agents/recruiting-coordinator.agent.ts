@@ -24,7 +24,7 @@ export class RecruitingCoordinatorAgent extends BaseAgent {
   getSystemPrompt(_context: AgentSessionContext): string {
     // User role/sport context is injected into the intent string by the AgentRouter
     // via ContextBuilder.compressToPrompt() — no need to read it from the session context here.
-    return [
+    const prompt = [
       'You are the Recruiting Coordinator for NXT1 Agent X — the most effective AI recruiting engine in high school sports.',
       'User profile context (name, sport, position, class year, stats) is provided in the task description.',
       '',
@@ -40,17 +40,26 @@ export class RecruitingCoordinatorAgent extends BaseAgent {
       '3. **Target List Building** — Identify best-fit programs by division (D1/D2/D3/NAIA/NJCAA), conference, state, and academic profile.',
       '4. **Outreach Planning** — Sequence campaigns: initial email → follow-up → visit invite → commit tracking.',
       "5. **Email Sending** — Use send_email to dispatch approved emails via the athlete's connected email account (Gmail or Outlook).",
-      '6. **Memory Recall** — Use search_memory to retrieve stored preferences, past outreach, and coach responses.',
+      '6. **Connected Google Workspace** — When the user asks about Gmail or Calendar in their connected Google account, use `list_google_workspace_tools` to inspect the live tool surface and then call either the direct Google Workspace tool or `run_google_workspace_tool` with the exact discovered name.',
+      "7. **Context-Aware Outreach** — Use the injected profile and memory context to respect the athlete's preferences, prior outreach, and coach response history.",
+      '8. **Intel Maintenance** — When the user asks you to generate a fresh Intel report, call `write_intel`. When the user asks you to refresh only the recruiting portion of an existing Intel report, call `update_intel` for the appropriate recruiting section instead of rebuilding the entire report.',
       '',
       '(If a "Loaded Skills" section appears below, follow its email writing rules, target list criteria, and outreach sequencing exactly. If no skills are loaded, use general recruiting email best practices and keep emails under 150 words.)',
     ].join('\n');
+
+    return this.withConfiguredSystemPrompt(prompt);
   }
 
   getAvailableTools(): readonly string[] {
     return [
-      'search_memory',
+      'search_nxt1_platform',
+      'query_nxt1_platform_data',
+      'list_nxt1_data_views',
+      'query_nxt1_data',
       'search_web',
       'scrape_webpage',
+      'write_intel',
+      'update_intel',
       'open_live_view',
       'navigate_live_view',
       'interact_with_live_view',
@@ -58,6 +67,9 @@ export class RecruitingCoordinatorAgent extends BaseAgent {
       'close_live_view',
       'send_email',
       'ask_user',
+      'scan_timeline_posts',
+      'list_google_workspace_tools',
+      'run_google_workspace_tool',
     ];
   }
 

@@ -54,8 +54,10 @@ import {
   NxtLoggingService,
   NxtThemeService,
   AgentXService,
+  ANALYTICS_ADAPTER,
 } from '@nxt1/ui';
 import type { ILogger } from '@nxt1/core/logging';
+import { APP_EVENTS } from '@nxt1/core/analytics';
 
 // Core Constants
 import { AUTH_REDIRECTS } from '@nxt1/core/constants';
@@ -64,6 +66,7 @@ import type { AgentGoal, AgentDashboardGoal } from '@nxt1/core';
 
 // App Services
 import { AuthFlowService } from '../../../../core/services/auth';
+import { FcmRegistrationService } from '../../../../core/services/native/fcm-registration.service';
 
 @Component({
   selector: 'app-onboarding-congratulations',
@@ -115,9 +118,11 @@ import { AuthFlowService } from '../../../../core/services/auth';
 export class OnboardingCongratulationsPage implements OnInit {
   private readonly navController = inject(NavController);
   private readonly authFlow = inject(AuthFlowService);
+  private readonly fcmRegistration = inject(FcmRegistrationService);
   private readonly themeService = inject(NxtThemeService);
   private readonly logger: ILogger = inject(NxtLoggingService).child('CongratulationsPage');
   private readonly agentX = inject(AgentXService);
+  private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
 
   @ViewChild('welcomeSlides') welcomeSlidesRef?: OnboardingWelcomeComponent;
 
@@ -129,6 +134,9 @@ export class OnboardingCongratulationsPage implements OnInit {
 
   /** Whether goals are being saved */
   readonly isSaving = signal(false);
+
+  /** Reused across final-slide prewarm and CTA completion to avoid duplicate work. */
+  private initialPreparationPromise: Promise<void> | null = null;
 
   // ============================================
   // COMPUTED (from AuthFlowService)
@@ -208,17 +216,29 @@ export class OnboardingCongratulationsPage implements OnInit {
     await this.saveGoalsAndNavigate();
   }
 
-  /** Handle skip */
+  /** Handle skip — advance to next slide, or finish if on last slide */
   async onSkip(): Promise<void> {
-    this.logger.info('User skipped welcome slides');
-    await this.saveGoalsAndNavigate();
+    if (this.isLastSlide()) {
+      this.logger.info('User skipped last slide — completing');
+      await this.saveGoalsAndNavigate();
+    } else {
+      this.logger.info('User skipped slide', { index: this.currentSlideIndex() });
+      this.welcomeSlidesRef?.nextSlide();
+    }
   }
 
   /** Handle slide viewed (for analytics) */
   onSlideViewed(event: { index: number; slideId: string }): void {
     this.logger.debug('Slide viewed', event);
     this.currentSlideIndex.set(event.index);
-    // TODO: Track with mobile analytics service
+    this.analytics?.trackEvent(APP_EVENTS.ONBOARDING_STEP_VIEWED, {
+      step: event.index,
+      slideId: event.slideId,
+    });
+
+    if (event.index === this.totalSlides() - 1) {
+      void this.prepareInitialAgentStateIfNeeded();
+    }
   }
 
   /** Footer Continue/Complete action */
@@ -244,46 +264,82 @@ export class OnboardingCongratulationsPage implements OnInit {
   private async saveGoalsAndNavigate(): Promise<void> {
     const goals = this.selectedGoals();
 
-    // Save goals if any were selected
-    if (goals.length > 0) {
-      this.isSaving.set(true);
-      try {
-        const dashboardGoals: AgentDashboardGoal[] = goals.map((g) => ({
-          id: g.id,
-          text: g.text,
-          category: g.category ?? 'custom',
-          createdAt: new Date().toISOString(),
-        }));
-
-        this.logger.info('Saving agent goals', { count: goals.length });
-        const saved = await this.agentX.setGoals(dashboardGoals);
-
-        if (saved) {
-          this.logger.info('Goals saved successfully');
-          // Generate initial briefing in background (non-blocking)
-          this.agentX.generateBriefing(true).catch((err) => {
-            this.logger.warn('Initial briefing generation failed (non-critical)', err);
-          });
-        } else {
-          this.logger.warn('Failed to save goals');
-        }
-      } catch (err) {
-        this.logger.error('Error saving goals', err);
-      } finally {
-        this.isSaving.set(false);
-      }
+    this.isSaving.set(true);
+    try {
+      await this.prepareInitialAgentStateIfNeeded();
+    } finally {
+      this.isSaving.set(false);
     }
 
     this.logger.info('Navigating to Agent X', { target: AUTH_REDIRECTS.AGENT });
+
+    // Track onboarding completion
+    this.analytics?.trackEvent(APP_EVENTS.ONBOARDING_COMPLETED, {
+      goalsCount: goals.length,
+      role: this.userRole(),
+    });
 
     // ⭐ THEME RESTORATION: Clear temporary override, restore user's preference
     // This ensures the app respects user's original theme choice going forward
     this.themeService.clearTemporaryOverride();
     this.logger.debug('Cleared temporary theme override, restored user preference');
 
+    // ⭐ REQUEST PUSH NOTIFICATION PERMISSION: Triggered here at the natural
+    // end of onboarding — the ideal moment (user has context, is engaged).
+    // For returning users with permission already granted, requestPermissions()
+    // returns 'granted' silently with no OS dialog shown.
+    void this.fcmRegistration.registerToken();
+
     await this.navController.navigateRoot(AUTH_REDIRECTS.AGENT, {
       animated: true,
       animationDirection: 'forward',
     });
+  }
+
+  private prepareInitialAgentStateIfNeeded(): Promise<void> {
+    if (this.initialPreparationPromise) {
+      return this.initialPreparationPromise;
+    }
+
+    this.initialPreparationPromise = this.prepareInitialAgentState();
+    return this.initialPreparationPromise;
+  }
+
+  private async prepareInitialAgentState(): Promise<void> {
+    const goals = this.selectedGoals();
+
+    if (goals.length > 0) {
+      const dashboardGoals: AgentDashboardGoal[] = goals.map((g) => ({
+        id: g.id,
+        text: g.text,
+        category: g.category ?? 'custom',
+        createdAt: new Date().toISOString(),
+      }));
+
+      try {
+        this.logger.info('Saving agent goals before Agent X handoff', { count: goals.length });
+        const saved = await this.agentX.setGoals(dashboardGoals);
+
+        if (saved) {
+          this.logger.info('Goals saved, generating initial briefing');
+          await this.agentX.generateBriefing(true);
+          await this.agentX.loadDashboard();
+        } else {
+          this.logger.warn('Goals failed to save before initial briefing generation');
+        }
+      } catch (err) {
+        this.logger.error('Error preparing Agent X state with goals', err);
+      }
+
+      return;
+    }
+
+    try {
+      this.logger.info('No goals set — generating initial welcome briefing');
+      await this.agentX.generateBriefing(false);
+      await this.agentX.loadDashboard();
+    } catch (err) {
+      this.logger.error('Error preparing Agent X state without goals', err);
+    }
   }
 }

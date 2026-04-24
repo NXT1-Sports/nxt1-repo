@@ -43,12 +43,7 @@ import type { ApiResponse } from '../profile/profile.api';
  * Supported file categories for uploads
  * Backend enforces different rules per category
  */
-export type FileCategory =
-  | 'profile-photo'
-  | 'cover-photo'
-  | 'document'
-  | 'video-thumbnail'
-  | 'highlight-video';
+export type FileCategory = 'profile-photo' | 'video-thumbnail' | 'highlight-video' | 'team-logo';
 
 /**
  * File metadata for upload
@@ -102,6 +97,100 @@ export interface FileUploadResult {
 }
 
 /**
+ * Provision options for a direct Cloudflare video upload.
+ */
+export interface HighlightVideoUploadProvisionOptions {
+  /** Logical upload context for downstream routing (feed, profile, agent-x, etc.) */
+  context?: string;
+  /** Optional requested max duration in seconds enforced by Cloudflare */
+  maxDurationSeconds?: number;
+}
+
+/**
+ * Cloudflare direct upload session returned by the backend.
+ */
+export interface DirectVideoUploadSession {
+  uploadUrl: string;
+  cloudflareVideoId: string;
+  uploadMethod: 'tus';
+  tusResumable: '1.0.0';
+  expiresAt: string;
+  maxSize: number;
+  maxDurationSeconds: number;
+  name: string;
+  metadata: {
+    userId: string;
+    context: string;
+    environment: string;
+    originalFileName: string;
+    mimeType: string;
+  };
+}
+
+/**
+ * Canonical video payload returned after the backend finalizes a direct upload.
+ */
+export interface FinalizedHighlightVideoUpload {
+  cloudflareVideoId: string;
+  status: string;
+  readyToStream: boolean;
+  durationSeconds: number | null;
+  thumbnailUrl: string | null;
+  previewUrl: string | null;
+  uploadedAt: string | null;
+  name: string | null;
+  metadata: {
+    userId: string;
+    context: string;
+    environment: string;
+    originalFileName: string;
+    mimeType: string;
+  };
+  playback: {
+    hlsUrl: string | null;
+    dashUrl: string | null;
+    iframeUrl: string | null;
+  };
+}
+
+/**
+ * Request payload for persisting a finalized Cloudflare highlight into the Posts collection.
+ */
+export interface PersistHighlightVideoPostRequest {
+  cloudflareVideoId: string;
+  title?: string;
+  content?: string;
+  sportId?: string;
+  teamId?: string;
+  organizationId?: string;
+  visibility?: 'public' | 'team' | 'private';
+  isPinned?: boolean;
+}
+
+/**
+ * Canonical persisted highlight post returned by the backend.
+ */
+export interface PersistedHighlightVideoPost {
+  postId: string;
+  cloudflareVideoId: string;
+  status: string;
+  readyToStream: boolean;
+  title: string | null;
+  content: string;
+  thumbnailUrl: string | null;
+  mediaUrl: string | null;
+  duration: number | null;
+  visibility: 'public' | 'team' | 'private';
+  createdAt: string;
+  updatedAt: string;
+  playback: {
+    hlsUrl: string | null;
+    dashUrl: string | null;
+    iframeUrl: string | null;
+  };
+}
+
+/**
  * File deletion request
  */
 export interface FileDeleteRequest {
@@ -117,6 +206,32 @@ export interface FileDeleteRequest {
  */
 export type UploadProgressCallback = (progress: number) => void;
 
+const BASE64_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+
+function encodeTusMetadataValue(value: string): string {
+  const bytes = new TextEncoder().encode(value);
+  let encoded = '';
+
+  for (let index = 0; index < bytes.length; index += 3) {
+    const chunk =
+      ((bytes[index] ?? 0) << 16) | ((bytes[index + 1] ?? 0) << 8) | (bytes[index + 2] ?? 0);
+
+    encoded += BASE64_ALPHABET[(chunk >> 18) & 0x3f];
+    encoded += BASE64_ALPHABET[(chunk >> 12) & 0x3f];
+    encoded += index + 1 < bytes.length ? BASE64_ALPHABET[(chunk >> 6) & 0x3f] : '=';
+    encoded += index + 2 < bytes.length ? BASE64_ALPHABET[chunk & 0x3f] : '=';
+  }
+
+  return encoded;
+}
+
+function buildTusUploadMetadataHeader(metadata: Record<string, string>): string {
+  return Object.entries(metadata)
+    .filter(([, value]) => value.length > 0)
+    .map(([key, value]) => `${key} ${encodeTusMetadataValue(value)}`)
+    .join(',');
+}
+
 // ============================================
 // FILE VALIDATION CONSTANTS
 // ============================================
@@ -131,16 +246,6 @@ export const FILE_UPLOAD_RULES = {
     allowedTypes: ['image/jpeg', 'image/png', 'image/webp', 'image/gif'],
     maxDimensions: { width: 2048, height: 2048 },
   },
-  'cover-photo': {
-    maxSize: 10 * 1024 * 1024, // 10MB
-    allowedTypes: ['image/jpeg', 'image/png', 'image/webp'],
-    maxDimensions: { width: 4096, height: 2048 },
-  },
-  document: {
-    maxSize: 25 * 1024 * 1024, // 25MB
-    allowedTypes: ['application/pdf', 'image/jpeg', 'image/png'],
-    maxDimensions: null,
-  },
   'video-thumbnail': {
     maxSize: 2 * 1024 * 1024, // 2MB
     allowedTypes: ['image/jpeg', 'image/png', 'image/webp'],
@@ -150,6 +255,11 @@ export const FILE_UPLOAD_RULES = {
     maxSize: 500 * 1024 * 1024, // 500MB
     allowedTypes: ['video/mp4', 'video/quicktime', 'video/webm', 'video/x-msvideo'],
     maxDimensions: null,
+  },
+  'team-logo': {
+    maxSize: 5 * 1024 * 1024, // 5MB
+    allowedTypes: ['image/jpeg', 'image/png', 'image/webp', 'image/svg+xml'],
+    maxDimensions: { width: 2048, height: 2048 },
   },
 } as const;
 
@@ -189,7 +299,7 @@ export function validateFileForUpload(file: FileUploadMetadata): FileValidationE
     };
   }
 
-  if (file.size > rules.maxSize) {
+  if ('maxSize' in rules && file.size > rules.maxSize) {
     const maxSizeMB = Math.round(rules.maxSize / (1024 * 1024));
     return {
       code: 'FILE_TOO_LARGE',
@@ -322,22 +432,21 @@ export function createFileUploadApi(http: FileUploadHttpAdapter, baseUrl: string
     },
 
     /**
-     * Upload cover photo
-     * Backend optimizes and generates responsive sizes
+     * Provision a Cloudflare Stream direct upload session for a highlight video.
+     * The caller is responsible for performing the actual TUS upload to the returned uploadUrl.
      */
-    async uploadCoverPhoto(
-      userId: string,
-      file: Blob | string,
+    async provisionHighlightVideoUpload(
+      _userId: string,
       fileName: string,
       mimeType: string,
-      onProgress?: UploadProgressCallback
-    ): Promise<FileUploadResult> {
-      const metadata: FileUploadRequest & FileUploadMetadata = {
-        userId,
-        category: 'cover-photo',
+      size: number,
+      options?: HighlightVideoUploadProvisionOptions
+    ): Promise<DirectVideoUploadSession> {
+      const metadata: FileUploadMetadata = {
         fileName,
         mimeType,
-        size: typeof file === 'string' ? file.length : file.size,
+        size,
+        category: 'highlight-video',
       };
 
       const validationError = validateFileForUpload(metadata);
@@ -345,53 +454,74 @@ export function createFileUploadApi(http: FileUploadHttpAdapter, baseUrl: string
         throw new Error(validationError.message);
       }
 
-      const response = await http.uploadFile<ApiResponse<FileUploadResult>>(
-        `${endpoint}/cover-photo`,
-        file,
-        metadata,
-        onProgress
+      const tusMetadata = buildTusUploadMetadataHeader({
+        filename: fileName,
+        filetype: mimeType,
+        ...(options?.context ? { context: options.context } : {}),
+        ...(options?.maxDurationSeconds
+          ? { maxDurationSeconds: String(options.maxDurationSeconds) }
+          : {}),
+      });
+
+      const response = await http.post<ApiResponse<DirectVideoUploadSession>>(
+        `${endpoint}/cloudflare/direct-url`,
+        undefined,
+        {
+          headers: {
+            'Tus-Resumable': '1.0.0',
+            'Upload-Length': String(size),
+            'Upload-Metadata': tusMetadata,
+          },
+        }
       );
 
       if (!response.success || !response.data) {
-        throw new Error(response.error ?? 'Failed to upload cover photo');
+        throw new Error(response.error ?? 'Failed to provision highlight video upload');
       }
 
       return response.data;
     },
 
     /**
-     * Upload document (PDF, transcript, etc.)
-     * Backend scans for viruses and validates content
+     * Finalize a direct Cloudflare video upload after the browser completes the TUS transfer.
+     * Returns a backend-owned canonical video payload for the client.
      */
-    async uploadDocument(
-      userId: string,
-      file: Blob | string,
-      fileName: string,
-      mimeType: string,
-      onProgress?: UploadProgressCallback
-    ): Promise<FileUploadResult> {
-      const metadata: FileUploadRequest & FileUploadMetadata = {
-        userId,
-        category: 'document',
-        fileName,
-        mimeType,
-        size: typeof file === 'string' ? file.length : file.size,
-      };
-
-      const validationError = validateFileForUpload(metadata);
-      if (validationError) {
-        throw new Error(validationError.message);
+    async finalizeHighlightVideoUpload(
+      cloudflareVideoId: string
+    ): Promise<FinalizedHighlightVideoUpload> {
+      if (!cloudflareVideoId.trim()) {
+        throw new Error('cloudflareVideoId is required');
       }
 
-      const response = await http.uploadFile<ApiResponse<FileUploadResult>>(
-        `${endpoint}/document`,
-        file,
-        metadata,
-        onProgress
+      const response = await http.post<ApiResponse<FinalizedHighlightVideoUpload>>(
+        `${endpoint}/cloudflare/finalize`,
+        { cloudflareVideoId }
       );
 
       if (!response.success || !response.data) {
-        throw new Error(response.error ?? 'Failed to upload document');
+        throw new Error(response.error ?? 'Failed to finalize highlight video upload');
+      }
+
+      return response.data;
+    },
+
+    /**
+     * Persist a finalized Cloudflare highlight video into the backend Posts collection.
+     */
+    async persistHighlightVideoPost(
+      request: PersistHighlightVideoPostRequest
+    ): Promise<PersistedHighlightVideoPost> {
+      if (!request.cloudflareVideoId.trim()) {
+        throw new Error('cloudflareVideoId is required');
+      }
+
+      const response = await http.post<ApiResponse<PersistedHighlightVideoPost>>(
+        `${endpoint}/cloudflare/highlight-post`,
+        request
+      );
+
+      if (!response.success || !response.data) {
+        throw new Error(response.error ?? 'Failed to persist highlight video post');
       }
 
       return response.data;
@@ -415,12 +545,15 @@ export function createFileUploadApi(http: FileUploadHttpAdapter, baseUrl: string
      * Get signed upload URL for large files
      * Enables direct-to-storage uploads for files > 10MB
      * (Backend still validates after upload)
+     *
+     * @param teamId - Required when category is 'team-logo'
      */
     async getSignedUploadUrl(
       userId: string,
       category: FileCategory,
       fileName: string,
-      mimeType: string
+      mimeType: string,
+      teamId?: string
     ): Promise<{ uploadUrl: string; storagePath: string; expiresAt: number }> {
       const response = await http.post<
         ApiResponse<{
@@ -433,6 +566,7 @@ export function createFileUploadApi(http: FileUploadHttpAdapter, baseUrl: string
         category,
         fileName,
         mimeType,
+        ...(teamId ? { teamId } : {}),
       });
 
       if (!response.success || !response.data) {

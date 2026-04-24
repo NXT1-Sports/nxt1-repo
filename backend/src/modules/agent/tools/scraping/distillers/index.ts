@@ -10,6 +10,7 @@
 export type {
   DistilledProfile,
   DistilledProfileIndex,
+  DistilledProfileType,
   DistilledSectionKey,
   DistilledIdentity,
   DistilledAcademics,
@@ -57,6 +58,7 @@ export function buildProfileIndex(profile: DistilledProfile): DistilledProfileIn
   return {
     platform: profile.platform,
     profileUrl: profile.profileUrl,
+    profileType: profile.profileType,
     availableSections: sections,
     summary: {
       hasIdentity: !!profile.identity,

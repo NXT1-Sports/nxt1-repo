@@ -26,7 +26,7 @@ import type { ActivityItem, InboxEmailProvider, AgentTaskActivityMetadata } from
 import { AUTH_SERVICE, type IAuthService } from '../../core/services/auth/auth.interface';
 import { SeoService } from '../../core/services';
 import { WebEmailConnectionService } from '../../core/services/web/email-connection.service';
-import { EmailTokensService } from '../../core/services/web/email-tokens.service';
+import { OAuthTokensService } from '../../core/services/web/oauth-tokens.service';
 
 @Component({
   selector: 'app-activity',
@@ -61,7 +61,7 @@ export class ActivityComponent implements OnInit {
   private readonly logger = inject(NxtLoggingService).child('ActivityComponent');
   private readonly seo = inject(SeoService);
   private readonly emailConnection = inject(WebEmailConnectionService);
-  private readonly emailTokens = inject(EmailTokensService);
+  private readonly oauthTokens = inject(OAuthTokensService);
 
   ngOnInit(): void {
     this.seo.updatePage({
@@ -74,7 +74,7 @@ export class ActivityComponent implements OnInit {
 
   /**
    * Transform auth user to ActivityUser interface.
-   * Uses emailTokens subcollection as source of truth for connected providers.
+   * Uses the oauthTokens subcollection as the source of truth for connected providers.
    */
   protected readonly userInfo = computed<ActivityUser | null>(() => {
     const user = this.authService.user();
@@ -84,7 +84,7 @@ export class ActivityComponent implements OnInit {
       profileImg: user.profileImg ?? null,
       displayName: user.displayName,
       email: user.email,
-      connectedEmails: this.emailTokens.connectedEmails(),
+      connectedEmails: this.oauthTokens.connectedEmails(),
       uid: user.uid,
     };
   });

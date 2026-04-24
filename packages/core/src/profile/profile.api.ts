@@ -13,23 +13,18 @@ import type {
   User,
   UserSummary,
   SportProfile,
-  SocialLink,
+  // Removing SocialLink from imports
   Location,
-  ContactInfo,
+  UserContact,
   TeamHistoryEntry,
   UserAward,
   ConnectedSource,
   AcademicInfo,
-  AthleteData,
   CoachData,
-  CollegeCoachData,
   DirectorData,
-  ScoutData,
-  RecruitingServiceData,
-  MediaData,
-  ParentData,
   UserPreferences,
-} from '../models/user.model';
+} from '../models/user';
+import type { TeamSelectionFormData } from '../onboarding/onboarding-navigation.api';
 
 // ============================================
 // COMMON API RESPONSE TYPES
@@ -72,7 +67,7 @@ export interface UpdateProfileRequest {
   username?: string;
   aboutMe?: string;
   profileImg?: string;
-  bannerImg?: string;
+
   profileImgs?: string[];
   gender?: string;
 
@@ -86,11 +81,11 @@ export interface UpdateProfileRequest {
 
   // ── Location & Contact ─────────────────────────────────────────────────
   location?: Partial<Location>;
-  contact?: Partial<ContactInfo>;
+  contact?: Partial<UserContact>;
 
-  // ── Social Links ───────────────────────────────────────────────────────
-  /** Social links (agnostic array — supports any platform) */
-  social?: SocialLink[];
+  // ── Connected Sources ──────────────────────────────────────────────────
+  /** All connected accounts/links are inside connectedSources (agnostic array) */
+  connectedSources?: ConnectedSource[];
 
   // ── Sports ─────────────────────────────────────────────────────────────
   /** Full sports array replacement */
@@ -102,18 +97,9 @@ export interface UpdateProfileRequest {
   awards?: UserAward[];
   academics?: Partial<AcademicInfo>;
 
-  // ── Connected Sources (Agent X) ────────────────────────────────────────
-  connectedSources?: ConnectedSource[];
-
   // ── Role-specific Data ─────────────────────────────────────────────────
-  athlete?: Partial<AthleteData>;
   coach?: Partial<CoachData>;
-  collegeCoach?: Partial<CollegeCoachData>;
   director?: Partial<DirectorData>;
-  scout?: Partial<ScoutData>;
-  recruitingService?: Partial<RecruitingServiceData>;
-  media?: Partial<MediaData>;
-  parent?: Partial<ParentData>;
 
   // ── Preferences ────────────────────────────────────────────────────────
   preferences?: Partial<UserPreferences>;
@@ -122,6 +108,11 @@ export interface UpdateProfileRequest {
 export interface UpdateSportProfileRequest {
   sportIndex: number;
   updates: Partial<SportProfile>;
+}
+
+export interface AddSportRequest extends Partial<SportProfile> {
+  teamSelection?: TeamSelectionFormData;
+  connectedSources?: readonly ConnectedSource[];
 }
 
 export interface ProfileSearchParams {
@@ -141,6 +132,15 @@ export interface ProfileAnalytics {
   engagement: number;
   topViewers: Array<{ state: string; count: number }>;
   viewsOverTime: Array<{ date: string; views: number }>;
+}
+
+export interface SetProfilePostPinRequest {
+  readonly isPinned: boolean;
+}
+
+export interface ProfilePostMutationResponse {
+  readonly postId: string;
+  readonly isPinned: boolean;
 }
 
 // ============================================
@@ -176,13 +176,6 @@ export function createProfileApi(http: HttpAdapter, baseUrl: string) {
     },
 
     /**
-     * Get user profile by username
-     */
-    async getProfileByUsername(username: string): Promise<ApiResponse<User>> {
-      return http.get<ApiResponse<User>>(`${baseUrl}/auth/profile/username/${username}`);
-    },
-
-    /**
      * Update user profile
      */
     async updateProfile(userId: string, data: UpdateProfileRequest): Promise<ApiResponse<User>> {
@@ -202,10 +195,7 @@ export function createProfileApi(http: HttpAdapter, baseUrl: string) {
     /**
      * Add new sport to profile
      */
-    async addSport(
-      userId: string,
-      sport: Partial<SportProfile>
-    ): Promise<ApiResponse<SportProfile>> {
+    async addSport(userId: string, sport: AddSportRequest): Promise<ApiResponse<SportProfile>> {
       return http.post<ApiResponse<SportProfile>>(`${baseUrl}/auth/profile/${userId}/sport`, sport);
     },
 
@@ -254,6 +244,32 @@ export function createProfileApi(http: HttpAdapter, baseUrl: string) {
       return http.post<ApiResponse<{ url: string }>>(`${baseUrl}/auth/profile/${userId}/image`, {
         imageData,
       });
+    },
+
+    /**
+     * Pin or unpin a profile post.
+     */
+    async pinPost(
+      userId: string,
+      postId: string,
+      isPinned: boolean
+    ): Promise<ApiResponse<ProfilePostMutationResponse>> {
+      return http.patch<ApiResponse<ProfilePostMutationResponse>>(
+        `${baseUrl}/auth/profile/${userId}/posts/${postId}/pin`,
+        { isPinned } satisfies SetProfilePostPinRequest
+      );
+    },
+
+    /**
+     * Delete a profile post.
+     */
+    async deletePost(
+      userId: string,
+      postId: string
+    ): Promise<ApiResponse<ProfilePostMutationResponse>> {
+      return http.delete<ApiResponse<ProfilePostMutationResponse>>(
+        `${baseUrl}/auth/profile/${userId}/posts/${postId}`
+      );
     },
   };
 }

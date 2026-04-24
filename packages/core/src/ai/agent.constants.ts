@@ -16,6 +16,17 @@ import type {
   GuardrailDescriptor,
 } from './agent.types';
 
+export const COORDINATOR_AGENT_IDS = [
+  'admin_coordinator',
+  'brand_coordinator',
+  'data_coordinator',
+  'strategy_coordinator',
+  'recruiting_coordinator',
+  'performance_coordinator',
+] as const;
+
+export type CoordinatorAgentIdentifier = (typeof COORDINATOR_AGENT_IDS)[number];
+
 // ─── Sub-Agent Registry ─────────────────────────────────────────────────────
 
 export const AGENT_DESCRIPTORS: Record<AgentIdentifier, AgentDescriptor> = {
@@ -26,9 +37,41 @@ export const AGENT_DESCRIPTORS: Record<AgentIdentifier, AgentDescriptor> = {
       'Master orchestrator that classifies user intent and delegates tasks to the correct AI coordinator.',
     capabilities: ['intent_classification', 'delegation'],
   },
+  admin_coordinator: {
+    id: 'admin_coordinator',
+    name: 'Admin Coordinator',
+    icon: 'shield-checkmark',
+    description:
+      'Handles operational administration, compliance guardrails, scheduling constraints, policy enforcement, and structured workflow governance across Agent X.',
+    capabilities: [
+      'operations_governance',
+      'policy_enforcement',
+      'compliance_review',
+      'eligibility_verification',
+      'visit_scheduling',
+      'workflow_administration',
+    ],
+  },
+  brand_coordinator: {
+    id: 'brand_coordinator',
+    name: 'Brand Coordinator',
+    icon: 'color-wand',
+    description:
+      'Generates graphics, highlight assets, promo materials, social content, and branded creative deliverables for athletes, teams, and programs.',
+    capabilities: [
+      'graphic_generation',
+      'highlight_reel',
+      'promo_design',
+      'brand_asset',
+      'social_media_content',
+      'video_editing',
+      'nil_branding',
+    ],
+  },
   data_coordinator: {
     id: 'data_coordinator',
     name: 'Data Coordinator',
+    icon: 'server',
     description:
       'Ingests, extracts, and normalizes data from external platforms. Scrapes linked athletic profiles (MaxPreps, Hudl, 247Sports), parses roster pages, resolves player identities, and writes structured data to user profiles and team rosters.',
     capabilities: [
@@ -41,9 +84,25 @@ export const AGENT_DESCRIPTORS: Record<AgentIdentifier, AgentDescriptor> = {
       'stat_import',
     ],
   },
+  strategy_coordinator: {
+    id: 'strategy_coordinator',
+    name: 'Strategy Coordinator',
+    icon: 'compass',
+    description:
+      'Owns planning, prioritization, platform guidance, high-level recommendations, and general strategic support when a request does not belong to a specialized execution coordinator.',
+    capabilities: [
+      'general_qa',
+      'platform_help',
+      'strategic_planning',
+      'goal_prioritization',
+      'sports_guidance',
+      'google_workspace',
+    ],
+  },
   recruiting_coordinator: {
     id: 'recruiting_coordinator',
     name: 'Recruiting Coordinator',
+    icon: 'mail',
     description:
       'Manages recruiting outreach, drafts emails to college coaches, builds target lists, tracks responses, and runs outreach campaigns.',
     capabilities: [
@@ -56,26 +115,12 @@ export const AGENT_DESCRIPTORS: Record<AgentIdentifier, AgentDescriptor> = {
       'transfer_portal_search',
     ],
   },
-  brand_media_coordinator: {
-    id: 'brand_media_coordinator',
-    name: 'Brand & Media Coordinator',
-    description:
-      'Generates graphics, cuts highlight reels, designs promo materials, manages brand assets, creates social media content, and handles NIL branding.',
-    capabilities: [
-      'graphic_generation',
-      'highlight_reel',
-      'promo_design',
-      'brand_asset',
-      'social_media_content',
-      'video_editing',
-      'nil_branding',
-    ],
-  },
   performance_coordinator: {
     id: 'performance_coordinator',
     name: 'Performance Coordinator',
+    icon: 'pulse',
     description:
-      'Evaluates players, analyzes film, generates scouting reports, compares prospects, tracks athletic progression, and provides biometric analysis.',
+      'Evaluates players, analyzes film, generates Agent X Intel reports/Intel reports, creates scouting reports, compares prospects, tracks athletic progression, and provides biometric analysis. Use for any request to "write intel", "generate intel", "build a Intel report", or "create an Agent X Intel report" for an athlete or team.',
     capabilities: [
       'scouting_report',
       'film_analysis',
@@ -84,30 +129,24 @@ export const AGENT_DESCRIPTORS: Record<AgentIdentifier, AgentDescriptor> = {
       'biometric_analysis',
       'progression_tracking',
       'opponent_scouting',
+      'intel_report',
+      'agent_x_intel',
+      'athlete_intel_report',
     ],
-  },
-  compliance_coordinator: {
-    id: 'compliance_coordinator',
-    name: 'Compliance Coordinator',
-    description:
-      'Enforces NCAA/NAIA/NJCAA recruiting rules, validates contact windows, flags violations, tracks academic eligibility, and manages official visit schedules.',
-    capabilities: [
-      'ncaa_rules',
-      'contact_period_check',
-      'eligibility_verification',
-      'dead_period_enforcement',
-      'academic_tracking',
-      'visit_scheduling',
-    ],
-  },
-  general: {
-    id: 'general',
-    name: 'General Assistant',
-    description:
-      'Handles general questions, platform help, and tasks that do not fit a specialized coordinator.',
-    capabilities: ['general_qa', 'platform_help', 'small_talk'],
   },
 } as const;
+
+export const COORDINATOR_DESCRIPTORS: Readonly<
+  Record<CoordinatorAgentIdentifier, AgentDescriptor>
+> = Object.freeze(
+  COORDINATOR_AGENT_IDS.reduce(
+    (acc, id) => {
+      acc[id] = AGENT_DESCRIPTORS[id];
+      return acc;
+    },
+    {} as Record<CoordinatorAgentIdentifier, AgentDescriptor>
+  )
+);
 
 // ─── Model Routing Defaults ─────────────────────────────────────────────────
 
@@ -279,7 +318,21 @@ export const AGENT_TRIGGER_RULES: readonly AgentTriggerRule[] = [
     enabled: true,
     cooldownMs: 604_800_000, // Once per week
     intentTemplate:
-      'Generate a comprehensive weekly recap: engagement metrics, recruiting pipeline status, content performance, and recommended next steps.',
+      'Generate a comprehensive weekly recap for this user. Use your available tools to gather all relevant data before writing the summary. ' +
+      'Steps: ' +
+      '1. Call get_agent_job_history to retrieve the last 7 days of completed agent jobs — list what was accomplished. ' +
+      '2. Call get_profile_analytics to fetch profile views, video views, and engagement counts for the past 7 days. ' +
+      '3. Call get_recruiting_pipeline to retrieve active contacts, schools being tracked, and any new offer or interest signals. ' +
+      '4. Call get_recent_posts to summarize content published this week and its engagement performance. ' +
+      '5. If the user has a schedule or calendar, call get_upcoming_events to surface relevant upcoming dates. ' +
+      "6. Review the user's stated goals (agentGoals) and note progress toward each. " +
+      'After gathering data, compile a structured weekly recap that includes: ' +
+      '(a) what Agent X accomplished this week, ' +
+      '(b) key metrics and results (views, engagement, recruiting movements), ' +
+      '(c) content performance highlights, ' +
+      '(d) recruiting pipeline status, ' +
+      "(e) 2–3 recommended next steps for next week tailored to the user's role and sport. " +
+      'Be specific and data-driven. Reference actual numbers. Keep the tone encouraging and action-oriented.',
     defaultPriority: 'normal',
   },
   {
@@ -369,7 +422,6 @@ export const AGENT_APPROVAL_POLICIES: readonly AgentApprovalPolicy[] = [
     requiresApproval: true,
     autoApproveOnExpiry: false,
     expiryMs: 86_400_000, // 24 hours
-    userPrompt: 'Agent X drafted an email. Review and approve before sending.',
     riskLevel: 'high',
   },
   {
@@ -377,7 +429,6 @@ export const AGENT_APPROVAL_POLICIES: readonly AgentApprovalPolicy[] = [
     requiresApproval: true,
     autoApproveOnExpiry: false,
     expiryMs: 86_400_000,
-    userPrompt: 'Agent X drafted a text message. Review before sending.',
     riskLevel: 'high',
   },
   {
@@ -385,7 +436,6 @@ export const AGENT_APPROVAL_POLICIES: readonly AgentApprovalPolicy[] = [
     requiresApproval: true,
     autoApproveOnExpiry: false,
     expiryMs: 86_400_000,
-    userPrompt: 'Agent X created a social media post. Approve before publishing.',
     riskLevel: 'medium',
   },
   {
@@ -393,7 +443,6 @@ export const AGENT_APPROVAL_POLICIES: readonly AgentApprovalPolicy[] = [
     requiresApproval: true,
     autoApproveOnExpiry: true, // Auto-approve after 24h — low risk
     expiryMs: 86_400_000,
-    userPrompt: 'Agent X wants to update your profile. Review the changes.',
     riskLevel: 'low',
   },
   {
@@ -401,7 +450,6 @@ export const AGENT_APPROVAL_POLICIES: readonly AgentApprovalPolicy[] = [
     requiresApproval: true,
     autoApproveOnExpiry: false,
     expiryMs: 86_400_000,
-    userPrompt: 'Agent X wants to delete content. This cannot be undone.',
     riskLevel: 'critical',
   },
 ] as const;
@@ -448,7 +496,7 @@ export const AGENT_USAGE_LIMITS: readonly AgentUsageLimits[] = [
  * Updated periodically as OpenRouter pricing changes.
  */
 export const AGENT_MODEL_PRICING: Record<string, { input: number; output: number }> = {
-  'anthropic/claude-3.5-sonnet': { input: 3.0, output: 15.0 },
+  'anthropic/claude-sonnet-4': { input: 3.0, output: 15.0 },
   'anthropic/claude-haiku-4-5': { input: 0.8, output: 4.0 },
   'anthropic/claude-3-haiku': { input: 0.25, output: 1.25 },
   'openai/gpt-4o': { input: 2.5, output: 10.0 },
@@ -459,7 +507,7 @@ export const AGENT_MODEL_PRICING: Record<string, { input: number; output: number
   'meta-llama/llama-guard-3-8b': { input: 0.2, output: 0.2 },
   'minimax/minimax-m2.7': { input: 0.3, output: 1.2 },
   'openai/text-embedding-3-small': { input: 0.02, output: 0.0 },
-  'qwen/qwen3.6-plus:free': { input: 0.0, output: 0.0 },
+  'qwen/qwen3.6-plus': { input: 0.4, output: 1.2 },
 } as const;
 
 /** @deprecated Use OPERATION_STATUS_LABELS directly — all statuses are now included. */

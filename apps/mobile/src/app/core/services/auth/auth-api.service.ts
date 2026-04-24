@@ -113,15 +113,6 @@ export class AuthApiService {
     return this.api.saveOnboardingProfile(...args);
   }
 
-  /**
-   * Complete onboarding flow
-   */
-  completeOnboarding(
-    ...args: Parameters<AuthApi['completeOnboarding']>
-  ): ReturnType<AuthApi['completeOnboarding']> {
-    return this.api.completeOnboarding(...args);
-  }
-
   // ============================================
   // PROFILE UPDATES
   // ============================================

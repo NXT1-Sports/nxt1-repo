@@ -83,7 +83,6 @@ export const DEFAULT_MOCK_USER: AuthUser = {
   displayName: 'Test User',
   profileImg: 'https://example.com/photo.jpg',
   role: 'athlete',
-  isPremium: false,
   hasCompletedOnboarding: true,
   provider: 'email',
   emailVerified: true,
@@ -99,7 +98,7 @@ export const DEFAULT_MOCK_USER: AuthUser = {
  *
  * @example
  * ```typescript
- * const athlete = createMockAuthUser({ role: 'athlete', isPremium: true });
+ * const athlete = createMockAuthUser({ role: 'athlete' });
  * const coach = createMockAuthUser({ role: 'coach', displayName: 'Coach Smith' });
  * ```
  */
@@ -131,22 +130,6 @@ export const USER_FIXTURES = {
     role: 'coach',
   }),
 
-  /** Parent user */
-  parent: createMockAuthUser({
-    uid: 'parent-001',
-    email: 'parent@example.com',
-    displayName: 'Parent Johnson',
-    role: 'parent',
-  }),
-
-  /** Recruiter user (college coach, scout, or recruiting service) */
-  recruiter: createMockAuthUser({
-    uid: 'recruiter-001',
-    email: 'recruiter@example.com',
-    displayName: 'Recruiter Williams',
-    role: 'recruiter',
-  }),
-
   /** Director user (athletic director, program director) */
   director: createMockAuthUser({
     uid: 'director-001',
@@ -155,21 +138,12 @@ export const USER_FIXTURES = {
     role: 'director',
   }),
 
-  /** @deprecated Use recruiter instead */
-  scout: createMockAuthUser({
-    uid: 'recruiter-001',
-    email: 'recruiter@example.com',
-    displayName: 'Recruiter Williams',
-    role: 'recruiter',
-  }),
-
-  /** Premium athlete */
+  /** @deprecated No longer applicable — premium subscriptions removed */
   premiumAthlete: createMockAuthUser({
     uid: 'premium-athlete-001',
     email: 'premium@example.com',
     displayName: 'Premium Athlete',
     role: 'athlete',
-    isPremium: true,
   }),
 
   /** User who hasn't completed onboarding */
@@ -216,6 +190,11 @@ export const USER_FIXTURES = {
  * @returns FirebaseUserInfo object
  */
 export function createMockFirebaseUser(user: AuthUser): FirebaseUserInfo {
+  const creationTime =
+    typeof user.createdAt === 'string' ? user.createdAt : user.createdAt.toISOString();
+  const lastSignInTime =
+    typeof user.updatedAt === 'string' ? user.updatedAt : user.updatedAt.toISOString();
+
   return {
     uid: user.uid,
     email: user.email,
@@ -223,8 +202,8 @@ export function createMockFirebaseUser(user: AuthUser): FirebaseUserInfo {
     photoURL: user.profileImg ?? null,
     emailVerified: user.emailVerified,
     metadata: {
-      creationTime: user.createdAt,
-      lastSignInTime: user.updatedAt,
+      creationTime,
+      lastSignInTime,
     },
   };
 }
@@ -267,7 +246,7 @@ export const STATE_FIXTURES = {
     isInitialized: true,
   }),
 
-  /** Authenticated premium user */
+  /** @deprecated No longer applicable — premium subscriptions removed */
   authenticatedPremium: createMockAuthState({
     user: USER_FIXTURES.premiumAthlete,
     firebaseUser: createMockFirebaseUser(USER_FIXTURES.premiumAthlete),

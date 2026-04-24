@@ -8,8 +8,29 @@
 import { Component, ChangeDetectionStrategy, inject, computed } from '@angular/core';
 import { NxtIconComponent } from '../../components/icon';
 import { NxtPlatformIconComponent } from '../../components/platform-icon';
-import { getPlatformFaviconUrl } from '@nxt1/core/onboarding';
+import { getPlatformFaviconUrl } from '@nxt1/core/platforms';
 import { ProfileService } from '../profile.service';
+
+function deriveConnectedHandle(profileUrl: string, fallback: string, prefix = ''): string {
+  try {
+    const parsed = new URL(profileUrl);
+    const segment = parsed.pathname
+      .split('/')
+      .filter(Boolean)
+      .map((item) => decodeURIComponent(item))
+      .at(-1);
+
+    if (!segment) return fallback;
+
+    const normalized = segment.replace(/^@/, '').trim();
+    if (!normalized) return fallback;
+
+    const needsPrefix = prefix.length > 0 && !segment.startsWith(prefix);
+    return needsPrefix ? `${prefix}${normalized}` : segment;
+  } catch {
+    return fallback;
+  }
+}
 
 @Component({
   selector: 'nxt1-profile-contact-web',
@@ -22,7 +43,7 @@ import { ProfileService } from '../profile.service';
       @if (
         !profile.user()?.contact?.email &&
         !profile.user()?.contact?.phone &&
-        !profile.user()?.connectedSources &&
+        connectedAccountsList().length === 0 &&
         !profile.user()?.coachContact
       ) {
         <div class="madden-empty">
@@ -443,7 +464,8 @@ export class ProfileContactWebComponent {
         .map((cs) => {
           const meta =
             ProfileContactWebComponent.PLATFORM_META[cs.platform.toLowerCase()] ?? defaultMeta;
-          const handle = meta.label || cs.platform;
+          const fallback = meta.label || cs.platform;
+          const handle = deriveConnectedHandle(cs.profileUrl, fallback, meta.handlePrefix);
           return {
             key: cs.platform,
             label: meta.label || cs.platform,

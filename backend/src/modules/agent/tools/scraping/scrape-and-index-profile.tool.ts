@@ -24,8 +24,13 @@ import type { DistilledProfile, DistilledTeam } from './distillers/index.js';
 import type { PageStructuredData } from './page-data.types.js';
 import { OpenRouterService } from '../../llm/openrouter.service.js';
 import { logger } from '../../../../utils/logger.js';
-import { getCacheService } from '../../../../services/cache.service.js';
+import { getCacheService } from '../../../../services/core/cache.service.js';
 import { createHash } from 'crypto';
+import { z } from 'zod';
+import {
+  createParallelBatchSettledOptions,
+  parallelBatch,
+} from '../../../agent/utils/parallel-batch.js';
 
 // ─── Scrape Cooldown ────────────────────────────────────────────────────────
 
@@ -225,42 +230,27 @@ export class ScrapeAndIndexProfileTool extends BaseTool {
   readonly name = 'scrape_and_index_profile';
 
   readonly description =
-    'Scrapes an athlete profile page (MaxPreps, Hudl, 247Sports, Perfect Game, etc.) and returns a ' +
+    'Scrapes a sports profile page (athlete, team, or organization — MaxPreps, Hudl, 247Sports, Perfect Game, etc.) and returns a ' +
     'lightweight INDEX of what data was found — NOT the raw data itself. ' +
     'Uses AI-powered extraction to parse any sports platform. ' +
-    'The index tells you which sections are available (identity, stats, schedule, recruiting, etc.) ' +
-    'and their counts. Use `read_distilled_section` to fetch each section individually. ' +
+    'The index includes a `profileType` field ("athlete", "team", or "organization") and tells you ' +
+    'which sections are available (identity, stats, schedule, recruiting, etc.) and their counts. ' +
+    'Use `read_distilled_section` to fetch each section individually. ' +
     'This prevents context overflow from massive JSON payloads.\n\n' +
     'If AI extraction fails or finds no usable data, falls back to returning raw markdown + ' +
     'structured data. In fallback mode, use the markdown content to extract fields manually.\n\n' +
     'ALWAYS call this tool first before any write tools. Then use `read_distilled_section` to ' +
     'read each section, and call the appropriate write tool for that section.';
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      url: {
-        type: 'string',
-        description: 'The full URL of the athlete profile to scrape.',
-      },
-      force: {
-        type: 'boolean',
-        description:
-          'Set to true to bypass the 12-hour scrape cooldown. Use only for user-initiated manual refreshes, not automated syncs.',
-      },
-    },
-    required: ['url'],
-  } as const;
-
-  override readonly allowedAgents = [
-    'data_coordinator',
-    'performance_coordinator',
-    'recruiting_coordinator',
-  ] as const;
+  readonly parameters = z.object({
+    url: z.string().trim().min(1),
+    force: z.boolean().optional(),
+  });
 
   readonly isMutation = false;
   readonly category = 'analytics' as const;
 
+  readonly entityGroup = 'platform_tools' as const;
   private readonly scraper: ScraperService;
   private readonly llm: OpenRouterService | null;
 
@@ -298,6 +288,7 @@ export class ScrapeAndIndexProfileTool extends BaseTool {
             success: true,
             data: {
               mode: 'distilled',
+              profileType: index.profileType ?? 'athlete',
               platform: index.platform,
               url: cleanUrl,
               faviconUrl: null,
@@ -325,57 +316,98 @@ export class ScrapeAndIndexProfileTool extends BaseTool {
     }
 
     try {
-      // ── Step 1: Scrape the page ─────────────────────────────────────
-      const progress = context?.onProgress;
-      progress?.(`Scraping ${new URL(cleanUrl).hostname}…`);
+      // ── Step 1: Scrape the main page ────────────────────────────────
+      const hostname = new URL(cleanUrl).hostname;
+      context?.emitStage?.('fetching_data', {
+        source: 'scrape_and_index_profile',
+        phase: 'main_page',
+        hostname,
+        url: cleanUrl,
+        icon: 'search',
+      });
       const result = await this.scraper.scrape({ url: cleanUrl, signal: context?.signal });
 
-      // ── Step 1b: Detect & fetch stats sub-page if available ─────────
-      // Many platforms (MaxPreps, etc.) have the full game-by-game stats
+      // ── Step 1b: Detect & fetch stats sub-pages in parallel ─────────
+      // Many platforms (MaxPreps, etc.) render the full game-by-game stats
       // table on a separate sub-page linked from the main profile.
-      // We detect these links and append the stats table content so the
-      // AI distiller has the complete dataset.
+      // We detect these links and fetch ALL of them concurrently via
+      // parallelBatch so the AI distiller receives the complete dataset
+      // without sequential round-trips adding to wall-clock time.
       let combinedMarkdown = result.markdownContent;
       const statsUrls = this.detectStatsPageUrls(result.markdownContent, cleanUrl);
 
       if (statsUrls.length > 0) {
-        logger.info('[ScrapeAndIndex] Detected stats sub-pages, fetching', {
+        logger.info('[ScrapeAndIndex] Detected stats sub-pages, fetching in parallel', {
           count: statsUrls.length,
           urls: statsUrls,
         });
-        for (const statsUrl of statsUrls) {
-          try {
-            const statsResult = await this.scraper.scrape({
-              url: statsUrl,
+        context?.emitStage?.('fetching_data', {
+          source: 'scrape_and_index_profile',
+          phase: 'stats_subpages',
+          hostname,
+          total: statsUrls.length,
+          icon: 'search',
+        });
+
+        const subPageResults = await parallelBatch(
+          statsUrls,
+          (statsUrl) => this.scraper.scrape({ url: statsUrl, signal: context?.signal }),
+          createParallelBatchSettledOptions(
+            (done: number, total: number) => {
+              context?.emitStage?.('fetching_data', {
+                source: 'scrape_and_index_profile',
+                phase: 'stats_subpages',
+                hostname,
+                completed: done,
+                total,
+                icon: 'search',
+              });
+            },
+            {
+              concurrency: 4, // matches the caps in detectStatsPageUrls
               signal: context?.signal,
-            });
+            }
+          )
+        );
+
+        let pagesAppended = 0;
+        for (const r of subPageResults) {
+          if (r.status === 'fulfilled') {
+            const { value: statsResult } = r;
             if (statsResult.markdownContent && statsResult.markdownContent.length > 200) {
               combinedMarkdown +=
                 '\n\n═══ STATS PAGE DATA (from ' +
-                statsUrl +
+                statsUrls[r.index] +
                 ') ═══\n\n' +
                 statsResult.markdownContent;
+              pagesAppended++;
             }
-          } catch (err) {
-            // Non-fatal — continue with other stats pages
+          } else {
+            // Non-fatal — log and continue with the data we have
             logger.warn('[ScrapeAndIndex] Stats sub-page fetch failed', {
-              statsUrl,
-              error: err instanceof Error ? err.message : String(err),
+              statsUrl: statsUrls[r.index],
+              error: r.reason.message,
             });
           }
         }
-        if (combinedMarkdown.length > result.markdownContent.length) {
+
+        if (pagesAppended > 0) {
           logger.info('[ScrapeAndIndex] Stats sub-pages appended', {
             mainLength: result.markdownContent.length,
             combinedLength: combinedMarkdown.length,
-            pagesAppended: statsUrls.length,
+            pagesAppended,
           });
         }
       }
 
       // ── Step 2: AI Distillation (primary extraction path) ──────────
       if (this.llm) {
-        progress?.('Running AI extraction on page content…');
+        context?.emitStage?.('submitting_job', {
+          source: 'scrape_and_index_profile',
+          phase: 'ai_extraction',
+          characterCount: combinedMarkdown.length,
+          icon: 'document',
+        });
         const distilled = await distillWithAI(
           cleanUrl,
           combinedMarkdown,
@@ -395,6 +427,12 @@ export class ScrapeAndIndexProfileTool extends BaseTool {
             rawStructuredData: null,
             expiry: Date.now() + CACHE_TTL_MS,
           });
+          context?.emitStage?.('persisting_result', {
+            source: 'scrape_and_index_profile',
+            phase: 'cache_distilled_profile',
+            mode: 'distilled',
+            icon: 'database',
+          });
 
           // Record cooldown so the same URL isn't re-scraped within 12h
           await setScrapeCooldown(cleanUrl);
@@ -405,6 +443,7 @@ export class ScrapeAndIndexProfileTool extends BaseTool {
             success: true,
             data: {
               mode: 'distilled',
+              profileType: index.profileType ?? 'athlete',
               platform: index.platform,
               url: cleanUrl,
               faviconUrl: result.pageData?.faviconUrl ?? null,
@@ -413,7 +452,7 @@ export class ScrapeAndIndexProfileTool extends BaseTool {
               instructions:
                 'Use `read_distilled_section` with the URL and a section name to fetch detailed data for each section. ' +
                 'Then call the appropriate write tool for each section: ' +
-                'write_core_identity, write_season_stats, write_combine_metrics, ' +
+                'write_core_identity, write_season_stats, write_combine_metrics, write_rankings, ' +
                 'write_recruiting_activity, write_calendar_events, write_athlete_videos.',
             },
           };
@@ -427,6 +466,12 @@ export class ScrapeAndIndexProfileTool extends BaseTool {
         markdownContent: combinedMarkdown,
         rawStructuredData: null,
         expiry: Date.now() + CACHE_TTL_MS,
+      });
+      context?.emitStage?.('persisting_result', {
+        source: 'scrape_and_index_profile',
+        phase: 'cache_raw_profile',
+        mode: 'raw',
+        icon: 'database',
       });
 
       // Record cooldown even for raw fallback — the page was still fetched
@@ -445,7 +490,7 @@ export class ScrapeAndIndexProfileTool extends BaseTool {
             'AI extraction could not process this URL. ' +
             'Analyze the markdown content above to extract athlete data. ' +
             'Use the atomic write tools (write_core_identity, write_season_stats, ' +
-            'write_combine_metrics, write_athlete_videos, write_recruiting_activity, ' +
+            'write_combine_metrics, write_rankings, write_athlete_videos, write_recruiting_activity, ' +
             'write_calendar_events) to write the extracted fields.',
         },
       };

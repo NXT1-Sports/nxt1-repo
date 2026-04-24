@@ -37,9 +37,11 @@
  */
 
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
-import { CollegeModel } from '../../../../models/college.model.js';
+import { toMarkdownTable } from '../markdown-helpers.js';
+import { CollegeModel } from '../../../../models/core/college.model.js';
 import { getFirestore } from 'firebase-admin/firestore';
-import { resolvePrimarySport } from '../../services/elite-context.js';
+import { resolvePrimarySport } from '../../memory/context-builder.js';
+import { z } from 'zod';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -202,6 +204,29 @@ const ACADEMIC_FILTER_KEYS = [
 /** Pre-match keys for extended filters (dropped in retry 2). */
 const EXTENDED_FILTER_KEYS = ['religious_affiliation', 'majorsOffered'] as const;
 
+const CollegeSearchNumberLikeSchema = z.union([z.number(), z.string().trim().min(1)]);
+
+const SearchCollegesInputSchema = z.object({
+  sport: z.string().trim().min(1),
+  state: z.string().trim().min(1).optional(),
+  name: z.string().trim().min(1).optional(),
+  division: z.string().trim().min(1).optional(),
+  conference: z.string().trim().min(1).optional(),
+  maxGpa: CollegeSearchNumberLikeSchema.optional(),
+  minAcceptanceRate: CollegeSearchNumberLikeSchema.optional(),
+  maxAcceptanceRate: CollegeSearchNumberLikeSchema.optional(),
+  maxMathSAT: CollegeSearchNumberLikeSchema.optional(),
+  maxReadingSAT: CollegeSearchNumberLikeSchema.optional(),
+  maxTuition: CollegeSearchNumberLikeSchema.optional(),
+  hbcu: z.boolean().optional(),
+  publicOnly: z.boolean().optional(),
+  communityCollege: z.boolean().optional(),
+  womenOnly: z.boolean().optional(),
+  religiousAffiliation: z.string().trim().min(1).optional(),
+  majorsOffered: z.string().trim().min(1).optional(),
+  limit: CollegeSearchNumberLikeSchema.optional(),
+});
+
 // ─── Tool Definition ────────────────────────────────────────────────────────
 
 export class SearchCollegesTool extends BaseTool {
@@ -217,166 +242,74 @@ export class SearchCollegesTool extends BaseTool {
     'info, team Twitter, and sport landing URLs. ' +
     'If 0 results are returned, pivot to the web_search tool to find the information online.';
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      // ── Core Filters ────────────────────────────────────────────────
-      sport: {
-        type: 'string',
-        description:
-          'The sport to search for. For gender-split sports include the gender: ' +
-          '"Basketball Mens", "Basketball Womens", "Soccer Mens", "Soccer Womens", ' +
-          '"Volleyball Mens", etc. Ungendered: "Football", "Baseball", "Softball", ' +
-          '"Wrestling", "Field Hockey". If only a base name is given (e.g., ' +
-          '"Basketball"), gender is inferred from the user\'s profile.',
-      },
-      state: {
-        type: 'string',
-        description:
-          'US state — two-letter abbreviation ("OH", "CA") or full name ' +
-          '("Ohio", "California"). Automatically normalized. Omit to search all states.',
-      },
-      name: {
-        type: 'string',
-        description: 'Search for a college by name (e.g., "Ohio State", "Duke"). Uses text search.',
-      },
-      division: {
-        type: 'string',
-        description:
-          'Competition division filter. Common values: "NCAA Division I", "NCAA Division II", ' +
-          '"NCAA Division III", "NAIA", "NJCAA", "CCCAA". Partial matches are supported. ' +
-          'You may also use shorthand like "Division 1", "D1", "D2", "D3" — these are ' +
-          'automatically normalized. Always prefer "NCAA Division I" over "Division 1".',
-      },
-      conference: {
-        type: 'string',
-        description:
-          'Conference name filter (e.g., "SEC", "Big Ten", "ACC", "Pac-12"). Partial matches supported.',
-      },
-
-      // ── Academic Filters ────────────────────────────────────────────
-      maxGpa: {
-        type: 'number',
-        description:
-          'Maximum average GPA requirement. Returns schools with averageGPA ≤ this value. ' +
-          'For example, 3.0 returns schools that accept students with a 3.0 GPA or below.',
-      },
-      minAcceptanceRate: {
-        type: 'number',
-        description:
-          'Minimum acceptance rate (0–100). Returns schools with acceptanceRate ≥ this value. ' +
-          'For example, 50 returns schools that accept at least 50% of applicants.',
-      },
-      maxAcceptanceRate: {
-        type: 'number',
-        description:
-          'Maximum acceptance rate (0–100). Returns schools with acceptanceRate ≤ this value. ' +
-          'For example, 30 returns highly selective schools.',
-      },
-      maxMathSAT: {
-        type: 'number',
-        description:
-          'Maximum Math SAT score (200–800). Returns schools whose mathSAT ≤ this value. ' +
-          'Useful for finding schools that accept students at a given SAT level.',
-      },
-      maxReadingSAT: {
-        type: 'number',
-        description:
-          'Maximum Reading SAT score (200–800). Returns schools whose readingSAT ≤ this value.',
-      },
-
-      // ── Financial Filters ───────────────────────────────────────────
-      maxTuition: {
-        type: 'number',
-        description:
-          'Maximum total cost (tuition) in USD. Returns schools with totalCost ≤ this value.',
-      },
-
-      // ── Demographic & Institutional Filters ─────────────────────────
-      hbcu: {
-        type: 'boolean',
-        description:
-          'Set to true to filter only HBCUs (Historically Black Colleges and Universities).',
-      },
-      publicOnly: {
-        type: 'boolean',
-        description: 'Set to true to filter only public institutions.',
-      },
-      communityCollege: {
-        type: 'boolean',
-        description: 'Set to true to filter only community/junior colleges.',
-      },
-      womenOnly: {
-        type: 'boolean',
-        description: 'Set to true to filter only women-only institutions.',
-      },
-      religiousAffiliation: {
-        type: 'string',
-        description:
-          'Filter by religious affiliation (e.g., "Catholic", "Baptist", "Methodist"). ' +
-          'Partial matches are supported.',
-      },
-      majorsOffered: {
-        type: 'string',
-        description:
-          'Search for colleges offering a specific major or program (e.g., "Nursing", ' +
-          '"Engineering", "Business"). Partial matches are supported.',
-      },
-
-      // ── Pagination ──────────────────────────────────────────────────
-      limit: {
-        type: 'number',
-        description: `Number of results to return (1–${MAX_RESULTS}). Defaults to ${DEFAULT_LIMIT}.`,
-      },
-    },
-    required: ['sport'],
-  } as const;
+  readonly parameters = SearchCollegesInputSchema;
 
   override readonly allowedAgents = ['*'] as const;
   readonly isMutation = false;
   readonly category = 'database' as const;
 
+  readonly entityGroup = 'platform_tools' as const;
   // ─── Execute ────────────────────────────────────────────────────────
 
   async execute(
     input: Record<string, unknown>,
     context?: ToolExecutionContext
   ): Promise<ToolResult> {
-    // ── 1. Parse & validate input ──────────────────────────────────────
-    const rawSport = this.str(input, 'sport');
-    if (!rawSport) {
-      return this.paramError('sport');
-    }
+    const parsed = SearchCollegesInputSchema.safeParse(input);
+    if (!parsed.success) return this.zodError(parsed.error);
 
-    const progress = context?.onProgress;
+    const parsedInput = parsed.data;
+    const rawSport = parsedInput.sport;
 
-    const rawState = this.str(input, 'state');
-    const division = this.str(input, 'division');
-    const rawConference = this.str(input, 'conference');
-    const name = this.str(input, 'name');
-    const rawLimit = this.num(input, 'limit') ?? DEFAULT_LIMIT;
+    const emitStage = context?.emitStage;
+
+    const rawState = parsedInput.state;
+    const division = parsedInput.division;
+    const rawConference = parsedInput.conference;
+    const name = parsedInput.name;
+    const rawLimit =
+      typeof parsedInput.limit === 'number'
+        ? parsedInput.limit
+        : typeof parsedInput.limit === 'string'
+          ? Number(parsedInput.limit)
+          : DEFAULT_LIMIT;
     const limit = Math.min(Math.max(1, Math.round(rawLimit)), MAX_RESULTS);
 
     // Numeric filters (sanitize string inputs like "$40,000" or "3.5 GPA")
-    const maxGpa = this.num(input, 'maxGpa') ?? sanitizeNumericString(input['maxGpa']);
-    const maxTuition = this.num(input, 'maxTuition') ?? sanitizeNumericString(input['maxTuition']);
+    const maxGpa =
+      typeof parsedInput.maxGpa === 'number'
+        ? parsedInput.maxGpa
+        : sanitizeNumericString(parsedInput.maxGpa);
+    const maxTuition =
+      typeof parsedInput.maxTuition === 'number'
+        ? parsedInput.maxTuition
+        : sanitizeNumericString(parsedInput.maxTuition);
     const minAcceptanceRate =
-      this.num(input, 'minAcceptanceRate') ?? sanitizeNumericString(input['minAcceptanceRate']);
+      typeof parsedInput.minAcceptanceRate === 'number'
+        ? parsedInput.minAcceptanceRate
+        : sanitizeNumericString(parsedInput.minAcceptanceRate);
     const maxAcceptanceRate =
-      this.num(input, 'maxAcceptanceRate') ?? sanitizeNumericString(input['maxAcceptanceRate']);
-    const maxMathSAT = this.num(input, 'maxMathSAT') ?? sanitizeNumericString(input['maxMathSAT']);
+      typeof parsedInput.maxAcceptanceRate === 'number'
+        ? parsedInput.maxAcceptanceRate
+        : sanitizeNumericString(parsedInput.maxAcceptanceRate);
+    const maxMathSAT =
+      typeof parsedInput.maxMathSAT === 'number'
+        ? parsedInput.maxMathSAT
+        : sanitizeNumericString(parsedInput.maxMathSAT);
     const maxReadingSAT =
-      this.num(input, 'maxReadingSAT') ?? sanitizeNumericString(input['maxReadingSAT']);
+      typeof parsedInput.maxReadingSAT === 'number'
+        ? parsedInput.maxReadingSAT
+        : sanitizeNumericString(parsedInput.maxReadingSAT);
 
     // String filters
-    const religiousAffiliation = this.str(input, 'religiousAffiliation');
-    const majorsOffered = this.str(input, 'majorsOffered');
+    const religiousAffiliation = parsedInput.religiousAffiliation;
+    const majorsOffered = parsedInput.majorsOffered;
 
     // Boolean filters
-    const hbcu = input['hbcu'] === true ? true : undefined;
-    const publicOnly = input['publicOnly'] === true ? true : undefined;
-    const communityCollege = input['communityCollege'] === true ? true : undefined;
-    const womenOnly = input['womenOnly'] === true ? true : undefined;
+    const hbcu = parsedInput.hbcu === true ? true : undefined;
+    const publicOnly = parsedInput.publicOnly === true ? true : undefined;
+    const communityCollege = parsedInput.communityCollege === true ? true : undefined;
+    const womenOnly = parsedInput.womenOnly === true ? true : undefined;
 
     // ── 1b. Normalize inputs ───────────────────────────────────────────
     const state = rawState ? normalizeStateInput(rawState) : undefined;
@@ -418,7 +351,7 @@ export class SearchCollegesTool extends BaseTool {
           data: {
             count: 0,
             sport: rawSport,
-            filtersApplied: buildFilterSummary(input),
+            filtersApplied: buildFilterSummary(parsedInput as unknown as Record<string, unknown>),
             colleges: [],
             _agent_hint:
               `"${rawSport}" is a gender-split sport in our database. ` +
@@ -500,7 +433,13 @@ export class SearchCollegesTool extends BaseTool {
     }
 
     // ── 3. Execute aggregation with retry ──────────────────────────────
-    progress?.(`Querying ${sport} programs${state ? ' in ' + state : ''}…`);
+    emitStage?.('fetching_data', {
+      icon: 'search',
+      sport,
+      state,
+      limit,
+      phase: 'query_colleges',
+    });
 
     // Build reusable pipeline stages (everything after the pre-match)
     const addFieldsStage = {
@@ -560,7 +499,12 @@ export class SearchCollegesTool extends BaseTool {
       if (colleges.length === 0) {
         const retry1 = dropKeys(preMatch, ACADEMIC_FILTER_KEYS);
         if (Object.keys(retry1).length < Object.keys(preMatch).length) {
-          progress?.('No results — retrying without academic/financial filters…');
+          emitStage?.('fetching_data', {
+            icon: 'search',
+            sport,
+            state,
+            phase: 'retry_without_academic_filters',
+          });
           colleges = await runQuery(retry1);
           relaxed.push('academic and financial filters (GPA, SAT, tuition, acceptance rate)');
         }
@@ -572,7 +516,12 @@ export class SearchCollegesTool extends BaseTool {
         const retry2 = dropKeys(preMatch, allDropped);
         const retry1KeyCount = Object.keys(dropKeys(preMatch, ACADEMIC_FILTER_KEYS)).length;
         if (Object.keys(retry2).length < retry1KeyCount) {
-          progress?.('Still no results — retrying without major/religious filters…');
+          emitStage?.('fetching_data', {
+            icon: 'search',
+            sport,
+            state,
+            phase: 'retry_without_extended_filters',
+          });
           colleges = await runQuery(retry2);
           relaxed.push('major and religious affiliation filters');
         }
@@ -651,7 +600,13 @@ export class SearchCollegesTool extends BaseTool {
         };
       });
 
-      progress?.(`Found ${results.length} matching program${results.length !== 1 ? 's' : ''}`);
+      emitStage?.('fetching_data', {
+        icon: 'search',
+        sport,
+        state,
+        resultCount: results.length,
+        phase: 'colleges_found',
+      });
 
       // ── 5. Return results (with retry info if applicable) ────────────
       if (results.length === 0) {
@@ -675,8 +630,47 @@ export class SearchCollegesTool extends BaseTool {
         };
       }
 
+      const markdown = [
+        `## College Search Results (${results.length} programs)`,
+        `**Sport:** ${sport} | **Filters:** ${buildFilterSummary(input)}${relaxed.length > 0 ? ` (Relaxed: ${relaxed.join(', ')})` : ''}`,
+        '',
+        toMarkdownTable(
+          results.map((c, i) => ({ ...c, index: i + 1 })),
+          [
+            { key: 'index', label: '#' },
+            { key: 'name', label: 'College' },
+            { key: 'division', label: 'Division' },
+            { key: 'conference', label: 'Conference' },
+            { key: 'state', label: 'State' },
+            { key: 'averageGPA', label: 'GPA', format: (val) => String(val ?? '—') },
+            {
+              key: 'acceptanceRate',
+              label: 'Acceptance',
+              format: (val) => (val ? val + '%' : '—'),
+            },
+            {
+              key: 'totalCost',
+              label: 'Tuition',
+              format: (val) => (val ? '$' + Number(val).toLocaleString() : '—'),
+            },
+          ]
+        ),
+        '',
+        results
+          .map(
+            (c, i) =>
+              `### ${i + 1}. ${c.name}\n` +
+              (c.questionnaire ? `- 📋 Questionnaire: ${c.questionnaire}\n` : '') +
+              (c.sportLandingUrl ? `- 🔗 Sport Page: ${c.sportLandingUrl}\n` : '') +
+              (c.twitter ? `- 🐦 Twitter: ${c.twitter}\n` : '') +
+              (c.camp ? `- ⛺ Camp: ${c.camp}\n` : '')
+          )
+          .join('\n'),
+      ].join('\n');
+
       return {
         success: true,
+        markdown,
         data: {
           count: results.length,
           sport,

@@ -2,28 +2,35 @@
  * @fileoverview Scraper Service
  * @module @nxt1/backend/modules/agent/tools/scraping
  *
- * Three-tier scraping engine that extracts both structured data AND
+ * Two-tier scraping engine that extracts both structured data AND
  * prose markdown from any public URL — zero per-site logic.
  *
  * Pipeline:
  *
- *   **Tier 1 — Direct HTML fetch** (always runs first)
- *     Fetches the raw HTML and extracts ALL embedded structured data:
- *     __NEXT_DATA__, __NUXT__, LD+JSON, OpenGraph, images, videos, colors.
- *     This is where the richest data lives (stats, school info, social links)
- *     and it works even when the page blocks bots.
+ *   **Primary — Firecrawl MCP bridge** (always tried first)
+ *     Requests BOTH markdown AND HTML in a single call via the shared MCP bridge.
+ *     Firecrawl uses a headless browser, so the HTML is JS-rendered — richer than
+ *     a raw fetch. Handles SPAs, Cloudflare-protected pages, and lazy-loaded content.
+ *     Markdown → LLM context. HTML → structured data extraction (NextData, LD+JSON,
+ *     OpenGraph, images, videos, colors, embeddedData).
  *
- *   **Tier 2 — Firecrawl Cloud** (runs in parallel with Tier 1)
- *     Headless browser with residential proxy rotation.
- *     Returns clean prose markdown from JS-rendered pages.
- *     Bypasses Cloudflare, DataDome, and PerimeterX bot protections.
+ *   **Fallback — Direct HTML fetch** (only when Firecrawl is unavailable)
+ *     Fetches raw HTML and extracts structured data + converts to markdown via
+ *     node-html-markdown. Runs only when the MCP bridge is not configured or fails.
  *
- *   **Tier 3 — HTML→Markdown fallback** (only if Firecrawl fails)
- *     Converts the Tier 1 HTML to markdown via node-html-markdown.
- *     Strips nav/footer/scripts before conversion.
+ * Extended capabilities:
  *
- * Tiers 1 + 2 run in parallel. If Firecrawl works, we use its markdown.
- * If Firecrawl fails (or API key not configured), we fall back to Tier 3.
+ *   **scrapeWithSchema** — Uses Firecrawl's LLM-powered extract to return
+ *     guaranteed typed JSON matching a caller-defined schema. Zero prompt
+ *     engineering needed on our side.
+ *
+ *   **scrapeMany** — Parallel fan-out with configurable concurrency,
+ *     per-URL progress callbacks, and partial-success semantics
+ *     (returns both successes and failures).
+ *
+ *   **warmCache** — Proactively scrape a list of URLs so subsequent
+ *     requests hit Firecrawl's MCP bridge cache (LONG_TTL). Ideal for
+ *     scheduled functions that pre-warm top-viewed athlete profiles.
  *
  * Security:
  *   - SSRF protection: blocks private IPs, cloud metadata endpoints,
@@ -34,7 +41,7 @@
  *
  * @example
  * ```ts
- * const scraper = new ScraperService();
+ * const scraper = new ScraperService(firecrawlBridge);
  * const result = await scraper.scrape({
  *   url: 'https://www.maxpreps.com/athlete/jalen-smith/abc123/stats',
  * });
@@ -43,51 +50,81 @@
  * // result.pageData.videos    → Hudl highlights embedded on page
  * // result.pageData.colors    → team hex colors
  * // result.markdownContent    → clean prose for LLM analysis
+ *
+ * // Schema-based extraction (LLM-powered, guaranteed typed output)
+ * const roster = await scraper.scrapeWithSchema(
+ *   'https://gocards.com/sports/football/roster',
+ *   'Extract the full football roster with player name, number, position, year, and hometown',
+ *   {
+ *     type: 'object',
+ *     properties: {
+ *       players: {
+ *         type: 'array',
+ *         items: {
+ *           type: 'object',
+ *           properties: {
+ *             name: { type: 'string' },
+ *             number: { type: 'number' },
+ *             position: { type: 'string' },
+ *             year: { type: 'string' },
+ *             hometown: { type: 'string' },
+ *           },
+ *         },
+ *       },
+ *     },
+ *   },
+ * );
+ *
+ * // Parallel fan-out with progress tracking
+ * const results = await scraper.scrapeMany(
+ *   [
+ *     { url: 'https://hudl.com/profile/123' },
+ *     { url: 'https://maxpreps.com/athlete/456' },
+ *     { url: 'https://247sports.com/player/789' },
+ *   ],
+ *   { concurrency: 3, onItemSettled: (done, total) => console.log(`${done}/${total}`) },
+ * );
  * ```
  */
 
 import { NodeHtmlMarkdown } from 'node-html-markdown';
-import type { ScrapeRequest, ScrapeResult, ScrapeProvider } from './scraper.types.js';
+import type {
+  ScrapeRequest,
+  ScrapeResult,
+  ScrapeProvider,
+  ScrapeManyResult,
+  CacheWarmResult,
+} from './scraper.types.js';
 import { MAX_SCRAPE_CONTENT_LENGTH, SCRAPE_TIMEOUT_MS } from './scraper.types.js';
 import { extractPageData, mergeLinks } from './page-data-extractor.js';
-import type { PageStructuredData } from './page-data.types.js';
-import { FirecrawlService } from './firecrawl.service.js';
+import type { FirecrawlMcpBridgeService } from '../integrations/firecrawl/firecrawl-mcp-bridge.service.js';
 import { validateUrl } from './url-validator.js';
 import { logger } from '../../../../utils/logger.js';
+import { parallelBatch } from '../../../agent/utils/parallel-batch.js';
+import type { BatchResult } from '../../../agent/utils/parallel-batch.js';
+import { AgentEngineError } from '../../../agent/exceptions/agent-engine.error.js';
 
 // ─── Service ────────────────────────────────────────────────────────────────
 
 export class ScraperService {
   private readonly nhm = new NodeHtmlMarkdown();
-  private firecrawl: FirecrawlService | null = null;
+  private readonly mcpBridge: FirecrawlMcpBridgeService | null;
 
   /**
-   * @param injectedFirecrawl Optional pre-configured FirecrawlService instance.
-   *   When provided, skips lazy init. Useful for testing and shared-instance usage.
+   * @param injectedMcpBridge Optional Firecrawl MCP bridge (2026 architecture).
+   *   When provided, all scraping goes through Firecrawl first (requesting both
+   *   markdown + HTML in a single call). Falls back to direct fetch only when
+   *   the bridge is unavailable or fails.
    */
-  constructor(injectedFirecrawl?: FirecrawlService | null) {
-    if (injectedFirecrawl !== undefined) {
-      this.firecrawl = injectedFirecrawl;
-    }
-  }
-
-  /** Lazy-init Firecrawl service (only when API key is available). */
-  private getFirecrawl(): FirecrawlService | null {
-    if (this.firecrawl) return this.firecrawl;
-    try {
-      this.firecrawl = new FirecrawlService();
-      return this.firecrawl;
-    } catch {
-      // API key not configured — Firecrawl unavailable, fall back to HTML fetch
-      return null;
-    }
+  constructor(injectedMcpBridge?: FirecrawlMcpBridgeService | null) {
+    this.mcpBridge = injectedMcpBridge ?? null;
   }
 
   /**
    * Scrape a URL and return structured data + clean markdown.
    *
-   * Runs direct fetch (for structured data) and Firecrawl (for prose) in parallel.
-   * Falls back to HTML→Markdown conversion if Firecrawl is unavailable.
+   * Primary: Firecrawl MCP bridge (markdown + HTML in one call).
+   * Fallback: Direct fetch + HTML→Markdown conversion.
    *
    * @throws {Error} If URL is invalid, blocked, or all strategies fail.
    */
@@ -98,32 +135,24 @@ export class ScraperService {
     const sanitizedUrl = this.validateUrl(url);
     const start = Date.now();
 
-    // ── Parallel: Tier 1 (direct fetch for structured data) + Tier 2 (Firecrawl for prose) ──
-    const [htmlResult, firecrawlResult] = await Promise.all([
-      this.fetchHtml(sanitizedUrl, signal),
-      this.tryFirecrawl(sanitizedUrl, maxLength, signal),
-    ]);
-
-    // ── Extract structured data from HTML (Tier 1) ─────────────────────
-    let pageData: PageStructuredData | null = null;
-    if (htmlResult) {
-      pageData = extractPageData(htmlResult.html, sanitizedUrl);
-    }
-
-    // ── Determine best markdown source ─────────────────────────────────
-    // Prefer Firecrawl markdown (rendered, clean, bypasses bot protection).
-    // Fall back to HTML→Markdown conversion.
+    // ── Primary: Firecrawl handles everything (markdown + HTML in one call) ──
+    const firecrawlResult = await this.tryFirecrawl(sanitizedUrl, maxLength, signal);
     if (firecrawlResult) {
-      const title = pageData?.title ?? firecrawlResult.title;
-      // For JS-heavy SPAs (bio.site, linktree, etc.) Tier 1 HTML is nearly empty
-      // so pageData.links will be empty. Parse Firecrawl's rendered markdown to get
-      // the full link list and merge it in (deduplicated).
+      // Extract structured data from Firecrawl's JS-rendered HTML
+      // (richer than raw fetch — handles SPAs, Cloudflare, lazy-loaded content)
+      const pageData = firecrawlResult.html
+        ? extractPageData(firecrawlResult.html, sanitizedUrl)
+        : null;
+
+      // For JS-heavy SPAs (bio.site, linktree, etc.) parse Firecrawl's rendered
+      // markdown to get the full link list and merge it in (deduplicated).
       const enrichedPageData = pageData
         ? mergeLinks(pageData, this.parseMarkdownLinks(firecrawlResult.markdownContent))
         : pageData;
+
       return {
         url: sanitizedUrl,
-        title,
+        title: enrichedPageData?.title ?? firecrawlResult.title,
         markdownContent: firecrawlResult.markdownContent,
         contentLength: firecrawlResult.markdownContent.length,
         provider: 'firecrawl' as ScrapeProvider,
@@ -132,8 +161,10 @@ export class ScraperService {
       };
     }
 
-    // ── Tier 3: HTML→Markdown fallback ─────────────────────────────────
+    // ── Fallback: Direct fetch (only when Firecrawl is unavailable or fails) ──
+    const htmlResult = await this.fetchHtml(sanitizedUrl, signal);
     if (htmlResult) {
+      const pageData = extractPageData(htmlResult.html, sanitizedUrl);
       const cleanedHtml = this.stripNonContentHtml(htmlResult.html);
       const rawMarkdown = this.nhm.translate(cleanedHtml);
       const markdownContent = this.truncate(rawMarkdown, maxLength);
@@ -150,16 +181,174 @@ export class ScraperService {
       };
     }
 
-    throw new Error(
-      `Failed to scrape URL: ${sanitizedUrl}. Both Firecrawl and native fetch failed.`
+    throw new AgentEngineError(
+      'FIRECRAWL_REQUEST_FAILED',
+      `Failed to scrape URL: ${sanitizedUrl}. Both Firecrawl and native fetch failed.`,
+      {
+        metadata: { url: sanitizedUrl },
+      }
     );
   }
 
-  // ─── Tier 1: Direct HTML Fetch ────────────────────────────────────────────
+  // ─── Schema-Based Extraction (Firecrawl LLM Extract) ─────────────────────
+
+  /**
+   * Extract structured data from a URL using Firecrawl's LLM-powered extract.
+   *
+   * Unlike `scrape()` which returns freeform markdown, this method returns
+   * **guaranteed typed JSON** matching a caller-defined schema. Firecrawl runs
+   * a server-side LLM at its edge to parse the page and enforce the schema,
+   * so our backend gets clean, validated data with zero prompt engineering.
+   *
+   * Use cases:
+   * - Roster tables → `{ players: [{ name, number, position, year }] }`
+   * - Coaching directories → `{ coaches: [{ name, title, email, sport }] }`
+   * - Event schedules → `{ events: [{ date, opponent, location, time }] }`
+   * - Recruit profiles → `{ name, position, height, weight, gpa, offers }`
+   *
+   * @param url - The target URL to extract from.
+   * @param prompt - Natural language description of what to extract.
+   * @param schema - Optional JSON Schema for the output (enforced by Firecrawl's LLM).
+   * @returns The extracted data as a JSON-compatible value.
+   * @throws {Error} If Firecrawl is unavailable or extraction fails.
+   */
+  async scrapeWithSchema(
+    url: string,
+    prompt: string,
+    schema?: Record<string, unknown>
+  ): Promise<unknown> {
+    const sanitizedUrl = this.validateUrl(url);
+
+    if (!this.mcpBridge) {
+      throw new AgentEngineError(
+        'FIRECRAWL_CONFIG_MISSING_API_KEY',
+        'scrapeWithSchema requires Firecrawl MCP bridge (FIRECRAWL_API_KEY must be configured)'
+      );
+    }
+
+    logger.info('[ScraperService] Schema extraction', {
+      url: sanitizedUrl,
+      prompt: prompt.slice(0, 100),
+    });
+
+    const result = await this.mcpBridge.extract([sanitizedUrl], prompt, {
+      ...(schema ? { schema } : {}),
+    });
+
+    logger.info('[ScraperService] Schema extraction complete', { url: sanitizedUrl });
+    return result;
+  }
+
+  // ─── Parallel Fan-Out (Multi-URL Scraping) ─────────────────────────────────
+
+  /**
+   * Scrape multiple URLs in parallel with concurrency control.
+   *
+   * Designed for Agent X workflows that need to analyze an entire offensive
+   * line, compare multiple recruit profiles, or scrape a coaching directory.
+   * Returns partial results — individual URL failures don't kill the batch.
+   *
+   * @param requests - Array of scrape requests (each has a `url` and optional `maxLength`).
+   * @param options - Concurrency limit and optional progress callback.
+   * @returns Array of settled results (success with ScrapeResult or failure with error message).
+   */
+  async scrapeMany(
+    requests: readonly ScrapeRequest[],
+    options?: {
+      /** Max concurrent scrapes (default: 5). Higher values burn through Firecrawl credits faster. */
+      readonly concurrency?: number;
+      /** Called after each URL completes. `completed` and `total` are counts. */
+      readonly onItemSettled?: (completed: number, total: number, url: string) => void;
+    }
+  ): Promise<ScrapeManyResult[]> {
+    const batchResults: BatchResult<ScrapeResult>[] = await parallelBatch<
+      ScrapeRequest,
+      ScrapeResult
+    >(requests, (req) => this.scrape(req), {
+      concurrency: options?.concurrency ?? 5,
+      onItemSettled: options?.onItemSettled
+        ? (completed, total, idx) => options.onItemSettled!(completed, total, requests[idx].url)
+        : undefined,
+    });
+
+    return batchResults.map((r, i) =>
+      r.status === 'fulfilled'
+        ? { status: 'success', url: requests[i].url, data: r.value }
+        : { status: 'error', url: requests[i].url, error: r.reason.message }
+    );
+  }
+
+  // ─── Cache Warming ──────────────────────────────────────────────────────────
+
+  /**
+   * Proactively scrape a batch of URLs to warm Firecrawl's MCP bridge cache.
+   *
+   * The MCP bridge caches scrape results with a LONG_TTL (1 hour). By calling
+   * this method from a Firebase Scheduled Function (e.g., at 3 AM), subsequent
+   * user-facing requests for the same URLs will hit cache and return in ~10ms
+   * instead of 4–8 seconds.
+   *
+   * Returns a summary of how many URLs were warmed vs. failed.
+   *
+   * @param urls - URLs to pre-scrape (max 100 per batch).
+   * @param options - Concurrency and optional progress callback.
+   */
+  async warmCache(
+    urls: readonly string[],
+    options?: {
+      readonly concurrency?: number;
+      readonly onItemSettled?: (completed: number, total: number, url: string) => void;
+    }
+  ): Promise<CacheWarmResult> {
+    if (!this.mcpBridge) {
+      logger.warn('[ScraperService] warmCache skipped — Firecrawl MCP bridge not available');
+      return { total: urls.length, warmed: 0, failed: urls.length, errors: ['No MCP bridge'] };
+    }
+
+    const maxBatch = 100;
+    const batch = urls.slice(0, maxBatch);
+    const concurrency = Math.max(1, Math.min(options?.concurrency ?? 3, 10));
+    const total = batch.length;
+    let warmed = 0;
+    let failed = 0;
+    const errors: string[] = [];
+
+    logger.info('[ScraperService] Cache warming started', { total, concurrency });
+
+    const results = await parallelBatch(
+      batch,
+      async (url: string) => {
+        const sanitized = this.validateUrl(url);
+        // Fire the scrape call — the MCP bridge will cache the result automatically
+        await this.mcpBridge!.scrape(sanitized, { formats: ['markdown', 'html'] });
+        return url;
+      },
+      {
+        concurrency,
+        onItemSettled: (completed, _total, idx) => {
+          options?.onItemSettled?.(completed, total, batch[idx] ?? '');
+        },
+      }
+    );
+
+    for (const result of results) {
+      if (result.status === 'fulfilled') {
+        warmed++;
+      } else {
+        failed++;
+        errors.push(`${result.reason instanceof Error ? result.reason.message : 'Unknown error'}`);
+      }
+    }
+
+    logger.info('[ScraperService] Cache warming complete', { total, warmed, failed });
+    return { total, warmed, failed, errors: errors.slice(0, 20) };
+  }
+
+  // ─── Fallback: Direct HTML Fetch ──────────────────────────────────────────
 
   /**
    * Fetch raw HTML with a browser-like User-Agent.
-   * Returns the full HTML string for structured data extraction.
+   * Used as fallback when Firecrawl MCP bridge is unavailable or fails.
    */
   private async fetchHtml(url: string, signal?: AbortSignal): Promise<{ html: string } | null> {
     try {
@@ -197,40 +386,71 @@ export class ScraperService {
     }
   }
 
-  // ─── Tier 2: Firecrawl (Headless Browser + Residential Proxies) ────────────
+  // ─── Primary: Firecrawl MCP Bridge ─────────────────────────────────────────
 
   /**
-   * Uses Firecrawl Cloud to get clean markdown from any URL.
-   * Handles JS rendering, Cloudflare/DataDome bypass via residential proxy rotation.
-   * Falls back gracefully to null if Firecrawl API key is not configured.
+   * Scrape via Firecrawl MCP bridge with both markdown AND HTML in a single call.
+   *
+   * Firecrawl's JS-rendered HTML is richer than a raw fetch — it handles SPAs,
+   * Cloudflare-protected pages, and lazy-loaded content. By requesting both formats,
+   * we get clean prose markdown for LLM analysis AND full HTML for structured data
+   * extraction in one network round-trip.
+   *
+   * Returns null on failure so the caller can fall back to direct fetch.
    */
   private async tryFirecrawl(
     url: string,
     maxLength: number,
     signal?: AbortSignal
-  ): Promise<{ title: string; markdownContent: string } | null> {
-    const fc = this.getFirecrawl();
-    if (!fc) return null;
-
+  ): Promise<{ title: string; markdownContent: string; html: string | null } | null> {
     // Bail early if already cancelled
     if (signal?.aborted) return null;
 
+    if (!this.mcpBridge) return null;
+
     try {
-      const result = await fc.scrapeText(url, signal);
+      // Request BOTH markdown AND HTML in a single call
+      const result = await this.mcpBridge.scrape(url, { formats: ['markdown', 'html'] });
+      const markdown = this.extractMarkdownFromMcpResult(result);
+      if (!markdown || markdown.trim().length < 50) return null;
 
-      if (!result.markdown || result.markdown.trim().length < 50) return null;
-
-      const title = result.title || this.extractTitleFromMarkdown(result.markdown);
-      const markdownContent = this.truncate(result.markdown, maxLength);
-
-      return { title, markdownContent };
+      const html = this.extractHtmlFromMcpResult(result);
+      const title = this.extractTitleFromMarkdown(markdown);
+      const markdownContent = this.truncate(markdown, maxLength);
+      return { title, markdownContent, html };
     } catch (err) {
-      logger.warn('[ScraperService] Firecrawl failed, falling back to HTML→Markdown', {
+      logger.warn('[ScraperService] Firecrawl MCP bridge failed, falling back to direct fetch', {
         url,
         error: err instanceof Error ? err.message : 'Unknown error',
       });
       return null;
     }
+  }
+
+  /**
+   * Extract markdown content from an MCP bridge scrape result.
+   * The bridge returns a Zod-validated payload — extract the best text field.
+   */
+  private extractMarkdownFromMcpResult(result: unknown): string | null {
+    if (typeof result === 'string') return result;
+    if (result && typeof result === 'object') {
+      const obj = result as Record<string, unknown>;
+      if (typeof obj['markdown'] === 'string') return obj['markdown'];
+      if (typeof obj['content'] === 'string') return obj['content'];
+    }
+    return null;
+  }
+
+  /**
+   * Extract raw HTML from an MCP bridge scrape result.
+   * Available when `formats: ['markdown', 'html']` is requested.
+   */
+  private extractHtmlFromMcpResult(result: unknown): string | null {
+    if (result && typeof result === 'object') {
+      const obj = result as Record<string, unknown>;
+      if (typeof obj['html'] === 'string' && obj['html'].trim().length > 0) return obj['html'];
+    }
+    return null;
   }
 
   // ─── Validation & Security ──────────────────────────────────────────────

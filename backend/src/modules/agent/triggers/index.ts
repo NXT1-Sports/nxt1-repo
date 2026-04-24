@@ -8,6 +8,7 @@ export {
   onProfileView,
   onCoachReply,
   runDailyBriefings,
+  runWeeklyPlaybooks,
   runWeeklyRecaps,
   runStaleProfileCheck,
 } from './trigger.listeners.js';

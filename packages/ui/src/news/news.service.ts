@@ -29,8 +29,7 @@
  * ```
  */
 
-import { Injectable, inject, signal, computed, InjectionToken, PLATFORM_ID } from '@angular/core';
-import { isPlatformBrowser } from '@angular/common';
+import { Injectable, inject, signal, computed, InjectionToken } from '@angular/core';
 import {
   type NewsArticle,
   type NewsCategoryId,
@@ -40,7 +39,7 @@ import {
   NEWS_CATEGORIES,
   NEWS_PAGINATION_DEFAULTS,
 } from '@nxt1/core';
-import { APP_EVENTS, FIREBASE_EVENTS } from '@nxt1/core/analytics';
+import { APP_EVENTS } from '@nxt1/core/analytics';
 import { HapticsService } from '../services/haptics/haptics.service';
 import { NxtToastService } from '../services/toast/toast.service';
 import { NxtLoggingService } from '../services/logging/logging.service';
@@ -65,6 +64,22 @@ export interface INewsApiAdapter {
   getArticle?(id: string): Promise<NewsArticle | null>;
 }
 
+export interface NewsShareResult {
+  readonly completed: boolean;
+  readonly method?: string;
+  readonly error?: string;
+}
+
+export interface INewsShareAdapter {
+  shareArticle(
+    article: NewsArticle,
+    options?: {
+      trackAnalytics?: boolean;
+      analyticsProps?: Record<string, unknown>;
+    }
+  ): Promise<NewsShareResult>;
+}
+
 /**
  * Injection token for the news API adapter.
  * Provide a platform-specific implementation in the app's providers.
@@ -76,6 +91,7 @@ export interface INewsApiAdapter {
  * ```
  */
 export const NEWS_API_ADAPTER = new InjectionToken<INewsApiAdapter>('NEWS_API_ADAPTER');
+export const NEWS_SHARE_ADAPTER = new InjectionToken<INewsShareAdapter>('NEWS_SHARE_ADAPTER');
 
 /**
  * News state management service.
@@ -85,9 +101,9 @@ export const NEWS_API_ADAPTER = new InjectionToken<INewsApiAdapter>('NEWS_API_AD
 export class NewsService {
   // Real API adapter — provided by the web/mobile app. Falls back to mock if absent.
   private readonly apiAdapter = inject(NEWS_API_ADAPTER, { optional: true });
+  private readonly shareAdapter = inject(NEWS_SHARE_ADAPTER, { optional: true });
   private readonly haptics = inject(HapticsService);
   private readonly toast = inject(NxtToastService);
-  private readonly platformId = inject(PLATFORM_ID);
 
   // ✅ All four observability pillars
   private readonly logger = inject(NxtLoggingService).child('NewsService');
@@ -372,24 +388,27 @@ export class NewsService {
   async shareArticle(article: NewsArticle): Promise<void> {
     this.logger.info('Sharing article', { articleId: article.id });
 
-    try {
-      if (isPlatformBrowser(this.platformId) && navigator.share) {
-        await navigator.share({
-          title: article.title,
-          text: article.excerpt,
-          url: `https://nxt1.com/news/${article.slug || article.id}`,
-        });
+    if (!this.shareAdapter) {
+      this.logger.warn('News share adapter is not configured', { articleId: article.id });
+      this.toast.error('Sharing is unavailable right now');
+      return;
+    }
 
-        this.analytics?.trackEvent(FIREBASE_EVENTS.SHARE, {
-          method: 'native',
-          content_type: 'news_article',
-          item_id: article.id,
-        });
+    try {
+      const result = await this.shareAdapter.shareArticle(article, {
+        analyticsProps: {
+          article_source: article.source,
+          article_sport: article.sport,
+          article_state: article.state,
+        },
+      });
+
+      if (result.completed) {
         await this.haptics.notification('success');
       }
     } catch (err) {
       // User cancelled or share failed - not an error
-      this.logger.debug('Share cancelled or failed', { error: err });
+      this.logger.debug('Share cancelled or failed', { articleId: article.id, error: err });
     }
   }
 

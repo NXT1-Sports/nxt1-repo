@@ -27,8 +27,7 @@ export type ScoutReportCategoryId =
   | 'class-2026'
   | 'class-2027'
   | 'class-2028'
-  | 'saved'
-  | 'premium';
+  | 'saved';
 
 /**
  * Configuration for a report category tab.
@@ -42,8 +41,6 @@ export interface ScoutReportCategory {
   readonly icon: string;
   /** Badge count (new reports in category) */
   readonly badge?: number;
-  /** Whether category requires premium access */
-  readonly isPremium?: boolean;
   /** Whether category is currently disabled */
   readonly disabled?: boolean;
 }
@@ -233,7 +230,7 @@ export interface ScoutReport {
   /** Short summary of evaluation */
   readonly summary: string;
 
-  /** Detailed evaluation text (premium feature) */
+  /** Detailed evaluation text */
   readonly detailedAnalysis?: string;
 
   /** Key strengths/highlights */
@@ -251,17 +248,8 @@ export interface ScoutReport {
   /** Whether report is from verified scout */
   readonly isVerified: boolean;
 
-  /** Whether report requires premium access */
-  readonly isPremium: boolean;
-
-  /** Whether current user has bookmarked */
-  readonly isBookmarked: boolean;
-
   /** Total view count */
   readonly viewCount: number;
-
-  /** Total bookmark count */
-  readonly bookmarkCount: number;
 
   /** Publication timestamp (ISO string) */
   readonly publishedAt: string;
@@ -312,8 +300,6 @@ export interface ScoutReportFilter {
   readonly minRating?: number;
   /** Filter verified reports only */
   readonly verifiedOnly?: boolean;
-  /** Include/exclude premium content */
-  readonly includePremium?: boolean;
   /** Filter by state(s) */
   readonly states?: string[];
   /** Search query */
@@ -368,17 +354,6 @@ export interface ScoutReportDetailResponse {
 }
 
 /**
- * Response for bookmark action.
- */
-export interface ScoutReportBookmarkResponse {
-  readonly success: boolean;
-  readonly isBookmarked?: boolean;
-  readonly bookmarkCount?: number;
-  readonly xpEarned?: number;
-  readonly error?: string;
-}
-
-/**
  * Response for view tracking.
  */
 export interface ScoutReportViewResponse {
@@ -398,10 +373,6 @@ export interface ScoutReportSummary {
   readonly bySport: Record<AthleteSport, number>;
   /** Reports by graduation year */
   readonly byGradYear: Record<number, number>;
-  /** Total saved reports */
-  readonly savedCount: number;
-  /** Total premium reports */
-  readonly premiumCount: number;
   /** New reports today */
   readonly newToday: number;
 }
@@ -445,7 +416,7 @@ export interface ScoutReportState {
  */
 export interface ScoutReportXpReward {
   /** Action type */
-  readonly action: 'view' | 'bookmark' | 'share' | 'complete-category' | 'milestone';
+  readonly action: 'view' | 'share' | 'complete-category' | 'milestone';
   /** XP amount */
   readonly xp: number;
   /** Description */

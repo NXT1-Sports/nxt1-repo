@@ -185,10 +185,9 @@ export const NEWS_EMPTY_STATES: Record<
   { icon: string; title: string; message: string; ctaLabel?: string }
 > = {
   'for-you': {
-    icon: 'sparkles-outline',
-    title: 'Your feed is empty',
-    message: 'Follow teams and players to get personalized news in your feed.',
-    ctaLabel: 'Explore Teams',
+    icon: 'newspaper-outline',
+    title: 'No local sports news yet',
+    message: 'State, sport, and recruiting news will show up here.',
   },
   recruiting: {
     icon: 'people-outline',

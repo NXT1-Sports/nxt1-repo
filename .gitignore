@@ -1,14 +1,16 @@
 # Dependencies
 node_modules/
 .npm
-
+yarn.lock
+package-lock.json
 # Build outputs
 dist/
 lib/
 build/
 www/
+out-tsc/
 .turbo/
-
+.claude/
 # TypeScript compiled output in source directories (use dist/)
 packages/*/src/**/*.js
 packages/*/src/**/*.js.map
@@ -74,8 +76,21 @@ firebase-debug.log
 .cache/
 tmp/
 temp/
+packages/mcp-servers/google-drive-mcp/
 
 # Turborepo
 .turbo
 .husky
-.github
+
+# Migration scripts - SENSITIVE DATA
+# Do NOT commit hash-config.json - contains SCRYPT password hash keys
+backend/scripts/migration/hash-config.json
+backend/scripts/migration/auth-export.json
+backend/scripts/migration/auth-export-filtered.json
+
+# Generated diagnostic/stats files
+array_error.json
+error_stats.json
+staging_errors.json
+**/error_stats_*.json
+nxt1_collections_check.cjsbackend/dist-scripts

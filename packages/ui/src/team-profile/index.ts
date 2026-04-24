@@ -15,15 +15,3 @@ export { TeamVideosWebComponent } from './web';
 export { TeamRosterWebComponent } from './web';
 export { TeamRecruitingWebComponent } from './web';
 export { TeamContactWebComponent } from './web';
-export {
-  MOCK_TEAM,
-  MOCK_TEAM_QUICK_STATS,
-  MOCK_TEAM_ROSTER,
-  MOCK_TEAM_SCHEDULE,
-  MOCK_TEAM_STATS,
-  MOCK_TEAM_STAFF,
-  MOCK_TEAM_RECRUITING,
-  MOCK_TEAM_POSTS,
-  MOCK_TEAM_PROFILE_PAGE_DATA,
-  getMockAdminTeamData,
-} from './team-profile.mock-data';

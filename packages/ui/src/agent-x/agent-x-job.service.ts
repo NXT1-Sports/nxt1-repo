@@ -29,8 +29,11 @@ import { firstValueFrom } from 'rxjs';
 import { NxtLoggingService } from '../services/logging/logging.service';
 import { ANALYTICS_ADAPTER } from '../services/analytics/analytics-adapter.token';
 import { NxtBreadcrumbService } from '../services/breadcrumb/breadcrumb.service';
+import { PERFORMANCE_ADAPTER } from '../services/performance';
 import { APP_EVENTS } from '@nxt1/core/analytics';
+import { ATTRIBUTE_NAMES, TRACE_NAMES } from '@nxt1/core/performance';
 import { AgentXControlPanelStateService } from './agent-x-control-panel-state.service';
+import { ProfileGenerationStateService } from '../profile/profile-generation-state.service';
 
 /**
  * Injection token for the Agent X API base URL.
@@ -76,7 +79,7 @@ export function isEnqueueFailure(
   return 'reason' in result;
 }
 
-/** Response from the /agent-x/status/:id endpoint. */
+/** Response shape used for background Agent X job status tracking. */
 interface JobStatusResponse {
   readonly success: boolean;
   readonly data?: {
@@ -98,8 +101,9 @@ export class AgentXJobService {
   private readonly logger = inject(NxtLoggingService).child('AgentXJobService');
   private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
   private readonly breadcrumb = inject(NxtBreadcrumbService);
+  private readonly performance = inject(PERFORMANCE_ADAPTER, { optional: true });
   private readonly controlPanelState = inject(AgentXControlPanelStateService);
-  private readonly tokenFactory = inject(AGENT_X_AUTH_TOKEN_FACTORY, { optional: true });
+  private readonly profileGeneration = inject(ProfileGenerationStateService);
 
   private readonly baseUrl = `${inject(AGENT_X_API_BASE_URL)}/agent-x`;
 
@@ -118,72 +122,79 @@ export class AgentXJobService {
     intent: string,
     context?: Record<string, unknown>
   ): Promise<{ jobId: string; operationId: string; threadId?: string } | EnqueueFailure> {
-    this.logger.info('Routing task through unified /chat', { intent: intent.slice(0, 80) });
+    this.logger.info('Enqueuing background Agent X task', { intent: intent.slice(0, 80) });
     void this.breadcrumb.trackStateChange('agent-x-job:enqueuing', {
       intent: intent.slice(0, 80),
     });
 
-    // /chat returns text/event-stream (SSE), so we use fetch() fire-and-forget.
-    // The server processes the task via the streaming loop; we don't need to
-    // parse the SSE response here — just confirm the request was accepted.
-    const syntheticId = crypto.randomUUID();
-
     try {
-      const token = await this.tokenFactory?.();
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const enqueueHttp = () =>
+        firstValueFrom(
+          this.http.post<{
+            success: boolean;
+            data?: { jobId: string; operationId: string; threadId?: string };
+            error?: string;
+            code?: string;
+          }>(`${this.baseUrl}/enqueue`, {
+            intent,
+            userContext: context,
+          })
+        );
 
-      const response = await fetch(`${this.baseUrl}/chat`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ message: intent, mode: 'auto', userContext: context }),
-      });
+      const response = await (this.performance?.trace(
+        TRACE_NAMES.AGENT_X_JOB_ENQUEUE,
+        enqueueHttp,
+        {
+          attributes: {
+            [ATTRIBUTE_NAMES.FEATURE_NAME]: 'agent_x_jobs',
+            has_context: String(!!context && Object.keys(context).length > 0),
+            entry_point: 'background_enqueue',
+          },
+          onSuccess: async (result, trace) => {
+            await trace.putMetric('intent_length', intent.trim().length);
+            await trace.putMetric('context_keys', Object.keys(context ?? {}).length);
+            await trace.putMetric('success', result.success ? 1 : 0);
+          },
+        }
+      ) ?? enqueueHttp());
 
-      // Check for HTTP-level errors before the SSE stream starts
-      if (!response.ok) {
-        const errorBody = await response.json().catch(() => ({ error: response.statusText }));
-
-        if (response.status === 402) {
-          const billingCode = (errorBody as Record<string, unknown>)?.['code'] as
-            | string
-            | undefined;
+      if (!response.success || !response.data) {
+        if (response.code && response.code.toLowerCase().includes('billing')) {
           this.logger.warn('Agent X billing gate blocked job', {
-            code: billingCode,
-            message: (errorBody as Record<string, unknown>)?.['error'],
+            code: response.code,
+            message: response.error,
           });
           void this.breadcrumb.trackStateChange('agent-x-job:billing-blocked', {
-            code: billingCode,
+            code: response.code,
           });
           return {
             reason: 'billing',
-            message:
-              ((errorBody as Record<string, unknown>)?.['error'] as string) ||
-              'Payment required to use Agent X',
-            code: billingCode,
+            message: response.error || 'Payment required to use Agent X',
+            code: response.code,
           };
         }
 
-        throw new Error(
-          ((errorBody as Record<string, unknown>)?.['error'] as string) || `HTTP ${response.status}`
-        );
+        return {
+          reason: 'server',
+          message: response.error || 'Failed to start action',
+          code: response.code,
+        };
       }
 
-      // Request accepted — SSE stream is now open server-side.
-      // We intentionally do NOT consume the stream body here; the server
-      // processes the task asynchronously and the caller gets immediate feedback.
-      // Close the response body to avoid a dangling connection.
-      response.body?.cancel().catch(() => {});
-
-      this.logger.info('Task dispatched via /chat', { operationId: syntheticId });
+      this.logger.info('Background Agent X task enqueued', {
+        operationId: response.data.operationId,
+        jobId: response.data.jobId,
+      });
       void this.breadcrumb.trackStateChange('agent-x-job:enqueued', {
-        operationId: syntheticId,
+        operationId: response.data.operationId,
       });
       this.analytics?.trackEvent(APP_EVENTS.AGENT_X_JOB_ENQUEUED, {
-        source: 'unified-chat',
+        source: 'background-enqueue',
         intent: intent.slice(0, 80),
       });
+      this.profileGeneration.watchForProfileWrites(response.data.operationId);
 
-      return { jobId: syntheticId, operationId: syntheticId };
+      return response.data;
     } catch (err) {
       this.logger.error('Failed to dispatch Agent X task', err);
       void this.breadcrumb.trackStateChange('agent-x-job:enqueue-error');
@@ -220,12 +231,27 @@ export class AgentXJobService {
     void this.breadcrumb.trackStateChange('agent-x-job:approve', { operationId, decision });
 
     try {
-      const response = await firstValueFrom(
-        this.http.post<{ success: boolean; error?: string }>(
-          `${this.baseUrl}/operations/${encodeURIComponent(operationId)}/approve`,
-          { decision }
-        )
-      );
+      const approveHttp = () =>
+        firstValueFrom(
+          this.http.post<{ success: boolean; error?: string }>(
+            `${this.baseUrl}/operations/${encodeURIComponent(operationId)}/approve`,
+            { decision }
+          )
+        );
+
+      const response = await (this.performance?.trace(
+        TRACE_NAMES.AGENT_X_OPERATION_APPROVE,
+        approveHttp,
+        {
+          attributes: {
+            [ATTRIBUTE_NAMES.FEATURE_NAME]: 'agent_x_jobs',
+            decision,
+          },
+          onSuccess: async (result, trace) => {
+            await trace.putMetric('success', result.success ? 1 : 0);
+          },
+        }
+      ) ?? approveHttp());
 
       if (!response.success) {
         this.logger.warn('Approval decision rejected by backend', {
@@ -262,12 +288,27 @@ export class AgentXJobService {
     void this.breadcrumb.trackStateChange('agent-x-job:reply', { operationId });
 
     try {
-      const response = await firstValueFrom(
-        this.http.post<{ success: boolean; error?: string }>(
-          `${this.baseUrl}/operations/${encodeURIComponent(operationId)}/reply`,
-          { userResponse }
-        )
-      );
+      const replyHttp = () =>
+        firstValueFrom(
+          this.http.post<{ success: boolean; error?: string }>(
+            `${this.baseUrl}/operations/${encodeURIComponent(operationId)}/reply`,
+            { userResponse }
+          )
+        );
+
+      const response = await (this.performance?.trace(
+        TRACE_NAMES.AGENT_X_OPERATION_REPLY,
+        replyHttp,
+        {
+          attributes: {
+            [ATTRIBUTE_NAMES.FEATURE_NAME]: 'agent_x_jobs',
+          },
+          onSuccess: async (result, trace) => {
+            await trace.putMetric('response_length', userResponse.length);
+            await trace.putMetric('success', result.success ? 1 : 0);
+          },
+        }
+      ) ?? replyHttp());
 
       if (!response.success) {
         this.logger.warn('Reply rejected by backend', {
@@ -300,7 +341,17 @@ export class AgentXJobService {
     this.logger.info('Retrying failed operation', { operationId, intent: intent.slice(0, 80) });
     void this.breadcrumb.trackStateChange('agent-x-job:retry', { operationId });
 
-    const result = await this.enqueue(intent, { retryOf: operationId });
+    const retryTask = () => this.enqueue(intent, { retryOf: operationId });
+
+    const result = await (this.performance?.trace(TRACE_NAMES.AGENT_X_OPERATION_RETRY, retryTask, {
+      attributes: {
+        [ATTRIBUTE_NAMES.FEATURE_NAME]: 'agent_x_jobs',
+      },
+      onSuccess: async (retryResult, trace) => {
+        await trace.putMetric('intent_length', intent.trim().length);
+        await trace.putMetric('success', isEnqueueFailure(retryResult) ? 0 : 1);
+      },
+    }) ?? retryTask());
 
     if (isEnqueueFailure(result)) {
       return null;

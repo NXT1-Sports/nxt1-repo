@@ -10,7 +10,7 @@ describe('Pulse Routes', () => {
   let router: unknown;
 
   beforeAll(async () => {
-    const module = await import('../../routes/pulse.routes.js');
+    const module = await import('../../routes/feed/pulse.routes.js');
     router = module.default;
   }, 15_000);
 
@@ -21,12 +21,9 @@ describe('Pulse Routes', () => {
         { path: '/', method: 'get' },
         { path: '/trending', method: 'get' },
         { path: '/search', method: 'get' },
-        { path: '/stats', method: 'get' },
         { path: '/:id', method: 'get' },
-        { path: '/:id/bookmark', method: 'post' },
-        { path: '/generate', method: 'post' },
       ],
-      7
+      4
     );
   });
 });

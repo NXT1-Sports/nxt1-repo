@@ -319,18 +319,42 @@ export class CreateInviteLinkDto {
   maxUses?: number;
 }
 
+export class InviteSendRecipientDto {
+  @IsString()
+  @IsNotEmpty()
+  id!: string;
+
+  @IsString()
+  @IsOptional()
+  name?: string;
+
+  @IsString()
+  @IsOptional()
+  phone?: string;
+
+  @IsEmail({}, { message: 'Invalid email address' })
+  @IsOptional()
+  email?: string;
+}
+
 export class SendInviteDto {
   @IsString()
   @IsNotEmpty()
-  teamId!: string;
+  type!: string;
 
-  @IsEmail({}, { message: 'Invalid email address' })
+  @IsString()
   @IsNotEmpty()
-  email!: string;
+  channel!: string;
 
-  @IsEnum(TeamMemberRole)
-  @IsNotEmpty()
-  role!: TeamMemberRole;
+  @IsArray()
+  @ArrayMaxSize(100, { message: 'Maximum 100 recipients per invite' })
+  @ValidateNested({ each: true })
+  @Type(() => InviteSendRecipientDto)
+  recipients!: InviteSendRecipientDto[];
+
+  @IsString()
+  @IsOptional()
+  teamId?: string;
 
   @IsString()
   @IsOptional()
@@ -372,7 +396,7 @@ export class SendBulkInvitesDto {
 export class ValidateInviteDto {
   @IsString()
   @IsNotEmpty()
-  inviteCode!: string;
+  code!: string;
 }
 
 export class AcceptInviteDto {
@@ -400,4 +424,54 @@ export class AcceptInviteDto {
   @IsEnum(TeamMemberRole)
   @IsOptional()
   role?: TeamMemberRole;
+
+  /**
+   * True when the invite is being accepted at the end of new-user onboarding (Flow B).
+   * False / absent when an existing user clicks Accept on the join page (Flow A).
+   * Only Flow B earns the $5 referral reward for the inviter.
+   */
+  @IsBoolean()
+  @IsOptional()
+  isNewUser?: boolean;
+}
+
+// ============================================
+// MEMBERSHIP EDITOR DTOs
+// ============================================
+
+/**
+ * Body for PATCH /api/v1/teams/:teamId/membership/:entryId
+ * All fields are optional — only provided fields are updated.
+ */
+export class UpdateMembershipDto {
+  @IsString()
+  @IsOptional()
+  role?: string;
+
+  @IsString()
+  @IsOptional()
+  title?: string;
+
+  @IsOptional()
+  jerseyNumber?: string | number;
+
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  positions?: string[];
+
+  @IsString()
+  @IsOptional()
+  status?: string;
+}
+
+/**
+ * Body for POST /api/v1/teams/:teamId/membership/:entryId/approve
+ * approvedBy is populated from req.user on the server — no body required.
+ * This class exists for future extension (e.g., custom approval message).
+ */
+export class ApproveMembershipDto {
+  @IsString()
+  @IsOptional()
+  note?: string;
 }

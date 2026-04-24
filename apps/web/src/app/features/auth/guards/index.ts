@@ -6,7 +6,6 @@
 export {
   authGuard,
   guestGuard,
-  premiumGuard,
   onboardingCompleteGuard,
   onboardingInProgressGuard,
   roleGuard,

@@ -55,20 +55,6 @@ export const routes: Routes = [
         redirectTo: 'agent',
       },
 
-      // Home → Explore redirect (backward compatibility)
-      {
-        path: 'home',
-        redirectTo: 'explore',
-        pathMatch: 'full',
-      },
-
-      // Explore Tab - Unified Discovery & Feed Hub
-      {
-        path: 'explore',
-        loadChildren: () =>
-          import('./features/explore/explore.routes').then((m) => m.EXPLORE_ROUTES),
-      },
-
       // Agent X Tab - AI Assistant
       {
         path: 'agent',
@@ -88,12 +74,6 @@ export const routes: Routes = [
         path: 'activity',
         loadChildren: () =>
           import('./features/activity/activity.routes').then((m) => m.ACTIVITY_ROUTES),
-      },
-
-      // Pulse - Sports Recruiting Pulse Feed
-      {
-        path: 'pulse',
-        loadChildren: () => import('./features/pulse/pulse.routes').then((m) => m.PULSE_ROUTES),
       },
 
       // Messages - User Conversations & Direct Messages
@@ -141,9 +121,10 @@ export const routes: Routes = [
         loadChildren: () => import('./legal/privacy/privacy.routes').then((m) => m.PRIVACY_ROUTES),
       },
 
-      // Team - Team pages
+      // Team - Team pages (strict canonical route)
+      // Canonical URL: /team/:slug/:teamCode (e.g. /team/akron-buchtel/57L791)
       {
-        path: 'team/:slug',
+        path: 'team/:slug/:teamCode',
         loadChildren: () => import('./features/team/team.routes').then((m) => m.TEAM_ROUTES),
       },
 
@@ -185,6 +166,6 @@ export const routes: Routes = [
   // 404 Not Found Page (catch-all route)
   {
     path: '**',
-    loadComponent: () => import('@nxt1/ui').then((m) => m.NotFoundComponent),
+    loadComponent: () => import('@nxt1/ui/components/not-found').then((m) => m.NotFoundComponent),
   },
 ];

@@ -89,3 +89,27 @@ export * from './legal-content';
 
 // Legal URLs (Termly-hosted Terms & Privacy links)
 export * from './legal-urls';
+
+// Schema version constants (migration tracking)
+export * from './schema.constants';
+
+// Campaign constants (email campaigns, templates)
+// NOTE: EMAIL_PROVIDERS and EmailProvider excluded — already exported from user.constants.
+// The campaign-specific version (with 'system') is available via @nxt1/core/models.
+export {
+  CAMPAIGN_STATUSES,
+  type CampaignStatus,
+  RECIPIENT_STATUSES,
+  type RecipientStatus,
+  TEMPLATE_TYPES,
+  type TemplateType,
+  CAMPAIGN_LIMITS,
+  TEMPLATE_VARIABLES,
+  type TemplateVariable,
+} from './campaign.constants';
+
+// Media constants (media library, storage limits)
+export * from './media.constants';
+
+// Navigation constants (footer, top nav, sidenav)
+export * from './navigation.constants';

@@ -15,32 +15,17 @@ import {
   createProfileApi,
   type ProfileApi,
   type ApiResponse,
+  type AddSportRequest,
   type UpdateProfileRequest,
   type UpdateSportProfileRequest,
 } from '@nxt1/core/api';
-import { PROFILE_CACHE_KEYS } from '@nxt1/core/profile';
+import { CACHE_KEYS } from '@nxt1/core/cache';
 import { type ProfilePost, type ProfileSeasonGameLog } from '@nxt1/core/profile';
-import {
-  type User,
-  type SportProfile,
-  type VerifiedStat,
-  type VerifiedMetric,
-} from '@nxt1/core/models';
-import { type ScoutReport } from '@nxt1/core/scout-reports';
-import { type NewsArticle } from '@nxt1/core/news';
-import { CACHE_CONFIG } from '@nxt1/core/cache';
+import { type User, type SportProfile, type VerifiedMetric } from '@nxt1/core/models';
+import { type FeedItemResponse } from '@nxt1/core/posts';
 import { CapacitorHttpAdapter } from '../../infrastructure';
+import { MobileCacheService } from '../infrastructure/cache.service';
 import { environment } from '../../../../environments/environment';
-
-/**
- * In-memory cache entry for profile responses.
- * Mobile has no HTTP interceptor cache layer (CapacitorHttp bypasses Angular),
- * so service-level cache is the only cache available.
- */
-interface ProfileCacheEntry {
-  data: ApiResponse<User>;
-  expiresAt: number;
-}
 
 /**
  * ProfileApiService - Angular wrapper for @nxt1/core Profile API
@@ -48,9 +33,8 @@ interface ProfileCacheEntry {
  * All methods return `User` type for consistency.
  *
  * Caching strategy:
- * - Service-level in-memory Map keyed by PROFILE_CACHE_KEYS with MEDIUM_TTL (15 min)
- * - CapacitorHttp bypasses Angular interceptors, so this is the only cache layer
- *   (unlike web which also has httpCacheInterceptor)
+ * - Handled uniformly at the transport layer by CapacitorHttpAdapter
+ *   delivering true L1 (memory) and L2 (disk) network-level caching.
  *
  * @example
  * ```typescript
@@ -63,7 +47,9 @@ interface ProfileCacheEntry {
 @Injectable({ providedIn: 'root' })
 export class ProfileApiService {
   private readonly http = inject(CapacitorHttpAdapter);
+  private readonly mobileCache = inject(MobileCacheService);
   private _api: ProfileApi | null = null;
+  private readonly httpCacheKeyPrefix = `${CACHE_KEYS.API_RESPONSE}mobile-http:`;
 
   private get api(): ProfileApi {
     if (!this._api) {
@@ -72,37 +58,12 @@ export class ProfileApiService {
     return this._api;
   }
 
-  /** Service-level in-memory cache — keyed by PROFILE_CACHE_KEYS prefix + id */
-  private readonly profileCache = new Map<string, ProfileCacheEntry>();
-
-  private cacheKey(prefix: string, id: string): string {
-    return `${prefix}${id}`;
-  }
-
-  private getFromCache(key: string): ApiResponse<User> | null {
-    const entry = this.profileCache.get(key);
-    if (!entry) return null;
-    if (Date.now() > entry.expiresAt) {
-      this.profileCache.delete(key);
-      return null;
-    }
-    return entry.data;
-  }
-
-  private setCache(key: string, data: ApiResponse<User>): void {
-    this.profileCache.set(key, {
-      data,
-      expiresAt: Date.now() + CACHE_CONFIG.MEDIUM_TTL,
-    });
-  }
-
-  /**
-   * Invalidate cached data for a specific user id.
-   * Call after profile updates so the next fetch reflects changes.
-   */
-  invalidateCache(userId: string): void {
-    this.profileCache.delete(this.cacheKey(PROFILE_CACHE_KEYS.BY_ID, userId));
-    this.profileCache.delete(this.cacheKey(PROFILE_CACHE_KEYS.BY_USERNAME, userId));
+  async invalidateCache(userId: string): Promise<void> {
+    await Promise.all([
+      this.mobileCache.clear(`${this.httpCacheKeyPrefix}*auth/profile*${userId}*`),
+      this.mobileCache.clear(`${this.httpCacheKeyPrefix}*profile*${userId}*`),
+      this.mobileCache.clear(`${this.httpCacheKeyPrefix}*auth/profile/me*`),
+    ]);
   }
 
   // ============================================
@@ -111,52 +72,20 @@ export class ProfileApiService {
 
   /**
    * Get user profile by ID.
-   * Checks service-level cache (MEDIUM_TTL) before making a network request.
    */
   async getProfile(userId: string): Promise<ApiResponse<User>> {
-    const key = this.cacheKey(PROFILE_CACHE_KEYS.BY_ID, userId);
-    const cached = this.getFromCache(key);
-    if (cached) return cached;
-
-    const response = await this.api.getProfile(userId);
-    if (response.success) this.setCache(key, response);
-    return response;
-  }
-
-  /**
-   * Get user profile by username.
-   * Checks service-level cache (MEDIUM_TTL) before making a network request.
-   */
-  async getProfileByUsername(username: string): Promise<ApiResponse<User>> {
-    const key = this.cacheKey(PROFILE_CACHE_KEYS.BY_USERNAME, username);
-    const cached = this.getFromCache(key);
-    if (cached) return cached;
-
-    const response = await this.api.getProfileByUsername(username);
-    if (response.success) this.setCache(key, response);
-    return response;
+    return this.api.getProfile(userId);
   }
 
   /**
    * Get user profile by numeric unicode.
-   * Checks service-level cache (MEDIUM_TTL) before making a network request.
    */
   async getProfileByUnicode(unicode: string): Promise<ApiResponse<User>> {
-    const key = this.cacheKey(PROFILE_CACHE_KEYS.BY_UNICODE, unicode);
-    const cached = this.getFromCache(key);
-    if (cached) return cached;
-
-    const response = await this.api.getProfileByUnicode(unicode);
-    if (response.success) this.setCache(key, response);
-    return response;
+    return this.api.getProfileByUnicode(unicode);
   }
 
   async getMe(): Promise<ApiResponse<User>> {
-    const response = await this.api.getMe();
-    if (response.success && response.data?.id) {
-      this.setCache(this.cacheKey(PROFILE_CACHE_KEYS.BY_ID, response.data.id), response);
-    }
-    return response;
+    return this.api.getMe();
   }
 
   // ============================================
@@ -165,10 +94,9 @@ export class ProfileApiService {
 
   /**
    * Update user profile.
-   * Invalidates cache so the next getProfile() fetch returns fresh data.
+   * Transport-layer cache invalidation is handled automatically on mutation.
    */
   async updateProfile(userId: string, data: UpdateProfileRequest): Promise<ApiResponse<User>> {
-    this.invalidateCache(userId);
     return this.api.updateProfile(userId, data);
   }
 
@@ -185,7 +113,7 @@ export class ProfileApiService {
   /**
    * Add new sport to profile
    */
-  async addSport(userId: string, sport: Partial<SportProfile>): Promise<ApiResponse<SportProfile>> {
+  async addSport(userId: string, sport: AddSportRequest): Promise<ApiResponse<SportProfile>> {
     return this.api.addSport(userId, sport);
   }
 
@@ -194,6 +122,18 @@ export class ProfileApiService {
    */
   async removeSport(userId: string, sportIndex: number): Promise<ApiResponse<void>> {
     return this.api.removeSport(userId, sportIndex);
+  }
+
+  async pinPost(
+    userId: string,
+    postId: string,
+    isPinned: boolean
+  ): Promise<ApiResponse<{ postId: string; isPinned: boolean }>> {
+    return this.api.pinPost(userId, postId, isPinned);
+  }
+
+  async deletePost(userId: string, postId: string): Promise<ApiResponse<{ postId: string }>> {
+    return this.api.deletePost(userId, postId);
   }
 
   // ============================================
@@ -213,7 +153,6 @@ export class ProfileApiService {
       thumbnailUrl: raw['thumbnailUrl'] as string | undefined,
       mediaUrl: raw['mediaUrl'] as string | undefined,
       likeCount: stats['likes'] ?? 0,
-      commentCount: stats['comments'] ?? 0,
       shareCount: stats['shares'] ?? 0,
       viewCount: stats['views'],
       duration: raw['duration'] as number | undefined,
@@ -222,116 +161,56 @@ export class ProfileApiService {
     };
   }
 
-  /** GET /auth/profile/:userId/schedule?sportId=football */
-  async getProfileSchedule(
+  /**
+   * GET /auth/profile/:userId/timeline — returns all polymorphic FeedItem types.
+   * Optionally filter by sportId so each sport has its own cache key/result
+   * (matches the web implementation).
+   */
+  async getProfileTimeline(
     userId: string,
-    sportId?: string
-  ): Promise<{ success: boolean; data: Record<string, unknown>[] }> {
+    sportId?: string,
+    cursor?: string
+  ): Promise<FeedItemResponse> {
     try {
-      const queryParams = sportId ? `?sportId=${encodeURIComponent(sportId)}` : '';
-      return await this.http.get<{ success: boolean; data: Record<string, unknown>[] }>(
-        `${environment.apiUrl}/auth/profile/${userId}/schedule${queryParams}`
-      );
+      const params = new URLSearchParams();
+      if (sportId) params.set('sportId', sportId);
+      if (cursor) params.set('cursor', cursor);
+      const queryString = params.toString();
+      const url = `${environment.apiUrl}/auth/profile/${userId}/timeline${
+        queryString ? `?${queryString}` : ''
+      }`;
+      const resp = await this.http.get<FeedItemResponse>(url);
+      return resp;
     } catch {
-      return { success: false, data: [] };
+      return { success: false, data: [], hasMore: false };
     }
   }
 
-  /** GET /auth/profile/:userId/timeline */
-  async getProfileTimeline(userId: string): Promise<{ success: boolean; data: ProfilePost[] }> {
-    try {
-      const resp = await this.http.get<{ success: boolean; data: Record<string, unknown>[] }>(
-        `${environment.apiUrl}/auth/profile/${userId}/timeline`
-      );
-      return { success: resp.success, data: (resp.data ?? []).map((d) => this.mapTimelineDoc(d)) };
-    } catch {
-      return { success: false, data: [] };
-    }
-  }
-
-  /** GET /auth/profile/:userId/rankings */
-  async getProfileRankings(
-    userId: string
-  ): Promise<{ success: boolean; data: Record<string, unknown>[] }> {
-    try {
-      return await this.http.get<{ success: boolean; data: Record<string, unknown>[] }>(
-        `${environment.apiUrl}/auth/profile/${userId}/rankings`
-      );
-    } catch {
-      return { success: false, data: [] };
-    }
-  }
-
-  /** GET /auth/profile/:userId/scout-reports */
-  async getProfileScoutReports(userId: string): Promise<{ success: boolean; data: ScoutReport[] }> {
-    try {
-      return await this.http.get<{ success: boolean; data: ScoutReport[] }>(
-        `${environment.apiUrl}/auth/profile/${userId}/scout-reports`
-      );
-    } catch {
-      return { success: false, data: [] };
-    }
-  }
-
-  /** GET /auth/profile/:userId/videos */
-  async getProfileVideos(userId: string): Promise<{ success: boolean; data: ProfilePost[] }> {
-    try {
-      const resp = await this.http.get<{ success: boolean; data: Record<string, unknown>[] }>(
-        `${environment.apiUrl}/auth/profile/${userId}/videos`
-      );
-      return { success: resp.success, data: (resp.data ?? []).map((d) => this.mapTimelineDoc(d)) };
-    } catch {
-      return { success: false, data: [] };
-    }
-  }
-
-  /** GET /auth/profile/:userId/news */
-  async getProfileNews(userId: string): Promise<{ success: boolean; data: NewsArticle[] }> {
-    try {
-      const resp = await this.http.get<{ success: boolean; data: NewsArticle[] }>(
-        `${environment.apiUrl}/auth/profile/${userId}/news`
-      );
-      return { success: resp.success, data: resp.data ?? [] };
-    } catch {
-      return { success: false, data: [] };
-    }
-  }
-
-  async getProfileStats(
-    userId: string,
-    sportId: string
-  ): Promise<{ success: boolean; data: VerifiedStat[] }> {
-    try {
-      return await this.http.get<{ success: boolean; data: VerifiedStat[] }>(
-        `${environment.apiUrl}/auth/profile/${userId}/sports/${encodeURIComponent(sportId)}/stats`
-      );
-    } catch {
-      return { success: false, data: [] };
-    }
-  }
-
+  /** GET /auth/profile/:userId/sports/:sportId/metrics — cached MEDIUM_TTL */
   async getProfileMetrics(
     userId: string,
     sportId: string
   ): Promise<{ success: boolean; data: VerifiedMetric[] }> {
     try {
-      return await this.http.get<{ success: boolean; data: VerifiedMetric[] }>(
+      const resp = await this.http.get<{ success: boolean; data: VerifiedMetric[] }>(
         `${environment.apiUrl}/auth/profile/${userId}/sports/${encodeURIComponent(sportId)}/metrics`
       );
+      return resp;
     } catch {
       return { success: false, data: [] };
     }
   }
 
-  /** GET /auth/profile/:userId/sports/:sportId/game-logs */
+  /** GET /auth/profile/:userId/sports/:sportId/game-logs — cached MEDIUM_TTL */
   async getProfileGameLogs(
     userId: string,
     sportId: string
   ): Promise<{ success: boolean; data: ProfileSeasonGameLog[] }> {
     try {
-      return await this.http.get<{ success: boolean; data: ProfileSeasonGameLog[] }>(
+      const resp = await this.http.get<{ success: boolean; data: ProfileSeasonGameLog[] }>(
         `${environment.apiUrl}/auth/profile/${userId}/sports/${encodeURIComponent(sportId)}/game-logs`
       );
+      return resp;
     } catch {
       return { success: false, data: [] };
     }

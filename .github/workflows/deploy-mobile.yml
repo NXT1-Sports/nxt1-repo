@@ -9,7 +9,7 @@ name: Deploy Mobile
 
 on:
   push:
-    branches: [main]
+    branches: [production]
     paths:
       - 'apps/mobile/**'
       - 'packages/core/**'
@@ -57,13 +57,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
+
+      - name: Enable Corepack (enforces packageManager field)
+        run: corepack enable npm
 
       - name: Install dependencies
         run: npm ci
@@ -85,7 +88,7 @@ jobs:
   # ============================================================================
   build-ios:
     name: Build iOS
-    runs-on: macos-14
+    runs-on: macos-latest
     needs: build-web-assets
     if: |
       github.event_name == 'push' ||
@@ -94,16 +97,19 @@ jobs:
       name: ${{ inputs.profile || 'development' }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
 
+      - name: Enable Corepack (enforces packageManager field)
+        run: corepack enable npm
+
       - name: Download web assets
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: mobile-www
           path: apps/mobile/www
@@ -118,9 +124,26 @@ jobs:
           bundler-cache: true
           working-directory: apps/mobile/ios/App
 
+      # IONGeolocationLib 1.0.1 (a dep of @capacitor/geolocation) ships a
+      # pre-compiled XCFramework built with exactly Swift 6.2.3 (swiftlang-6.2.3.3.21).
+      # Xcode 26.2 (released Dec 12 2025, build 17C52) is the ONLY version with that
+      # exact toolchain. 'latest-stable' picks Xcode 16.4 (the runner default, Swift 6.1.2)
+      # which is incompatible. Apple renamed Xcode 17 → Xcode 26 to match iOS/macOS versioning.
+      - name: Select Xcode 26.2 (Swift 6.2.3 — exact match for IONGeolocationLib 1.0.1)
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '26.2'
+
+      - name: Show Xcode version
+        run: |
+          xcodebuild -version
+          swift --version
+
       - name: Install CocoaPods
         working-directory: apps/mobile/ios/App
-        run: pod install
+        run: |
+          pod repo update
+          pod install --repo-update
 
       - name: Install Fastlane
         run: |
@@ -132,14 +155,22 @@ jobs:
           MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
           MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
           MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}
-          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
-          APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
-          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          APP_STORE_CONNECT_API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
+          APP_STORE_CONNECT_API_KEY_CONTENT: ${{ secrets.APP_STORE_CONNECT_API_KEY_CONTENT }}
         working-directory: apps/mobile/ios/App
         run: |
-          # Create API key file
+          # Create API key JSON file (format fastlane expects)
           mkdir -p ~/.appstoreconnect/private_keys
-          echo "$APPLE_API_KEY" > ~/.appstoreconnect/private_keys/AuthKey_${APPLE_API_KEY_ID}.p8
+          KEY_CONTENT=$(echo "$APP_STORE_CONNECT_API_KEY_CONTENT" | awk 'NF {printf "%s\\n", $0}')
+          cat > ~/.appstoreconnect/private_keys/AuthKey_${APP_STORE_CONNECT_API_KEY_ID}.json << EOF
+          {
+            "key_id": "${APP_STORE_CONNECT_API_KEY_ID}",
+            "issuer_id": "${APP_STORE_CONNECT_API_ISSUER_ID}",
+            "key": "${KEY_CONTENT}",
+            "in_house": false
+          }
+          EOF
 
       - name: Determine build type
         id: build-type
@@ -162,10 +193,19 @@ jobs:
           MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
           MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
           MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}
-          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
-          APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          APP_STORE_CONNECT_API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
+          APP_STORE_CONNECT_API_KEY_CONTENT: ${{ secrets.APP_STORE_CONNECT_API_KEY_CONTENT }}
           FASTLANE_XCODEBUILD_SETTINGS_TIMEOUT: 120
         run: fastlane ${{ steps.build-type.outputs.lane }}
+
+      - name: Upload gym build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gym-log-${{ inputs.profile || 'development' }}
+          path: ~/Library/Logs/gym/App-App.log
+          retention-days: 7
 
       - name: Upload iOS artifact
         uses: actions/upload-artifact@v4
@@ -178,8 +218,8 @@ jobs:
         if: inputs.submit && (inputs.profile == 'staging' || inputs.profile == 'production')
         working-directory: apps/mobile/ios/App
         env:
-          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
-          APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          APP_STORE_CONNECT_API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
         run: fastlane upload_testflight
 
   # ============================================================================
@@ -196,13 +236,16 @@ jobs:
       name: ${{ inputs.profile || 'development' }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
+
+      - name: Enable Corepack (enforces packageManager field)
+        run: corepack enable npm
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -212,7 +255,7 @@ jobs:
           cache: 'gradle'
 
       - name: Download web assets
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: mobile-www
           path: apps/mobile/www
@@ -221,8 +264,7 @@ jobs:
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: '3.2'
-          bundler-cache: true
-          working-directory: apps/mobile/android
+          # No bundler-cache here — android dir has no Gemfile; fastlane installed directly
 
       - name: Install Fastlane
         run: gem install fastlane -N
@@ -304,18 +346,18 @@ jobs:
       (inputs.profile == 'development' || inputs.profile == 'staging')
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Download iOS artifact
         if: needs.build-ios.result == 'success'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: ios-build-${{ inputs.profile || 'development' }}
           path: artifacts/ios
 
       - name: Download Android artifact
         if: needs.build-android.result == 'success'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: android-build-${{ inputs.profile || 'development' }}
           path: artifacts/android
@@ -325,7 +367,7 @@ jobs:
         uses: wzieba/Firebase-Distribution-Github-Action@v1
         with:
           appId: ${{ secrets.FIREBASE_IOS_APP_ID }}
-          serviceCredentialsFileContent: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          serviceCredentialsFileContent: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_PROD }}
           groups: internal-testers
           file: artifacts/ios/*.ipa
           releaseNotes: |
@@ -338,66 +380,10 @@ jobs:
         uses: wzieba/Firebase-Distribution-Github-Action@v1
         with:
           appId: ${{ secrets.FIREBASE_ANDROID_APP_ID }}
-          serviceCredentialsFileContent: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          serviceCredentialsFileContent: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_PROD }}
           groups: internal-testers
           file: artifacts/android/**/*.apk
           releaseNotes: |
             Build: ${{ github.run_number }}
             Commit: ${{ github.sha }}
             Branch: ${{ github.ref_name }}
-
-  # ============================================================================
-  # NOTIFY ON COMPLETION
-  # ============================================================================
-  notify:
-    name: Notify
-    runs-on: ubuntu-latest
-    needs: [build-ios, build-android, distribute]
-    if: always()
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Determine status
-        id: status
-        run: |
-          IOS_RESULT="${{ needs.build-ios.result }}"
-          ANDROID_RESULT="${{ needs.build-android.result }}"
-
-          if [ "$IOS_RESULT" == "failure" ] || [ "$ANDROID_RESULT" == "failure" ]; then
-            echo "result=failure" >> $GITHUB_OUTPUT
-            echo "emoji=❌" >> $GITHUB_OUTPUT
-            echo "title=Mobile Build Failed" >> $GITHUB_OUTPUT
-          elif [ "$IOS_RESULT" == "success" ] || [ "$ANDROID_RESULT" == "success" ]; then
-            echo "result=success" >> $GITHUB_OUTPUT
-            echo "emoji=✅" >> $GITHUB_OUTPUT
-            echo "title=Mobile Build Complete" >> $GITHUB_OUTPUT
-          else
-            echo "result=warning" >> $GITHUB_OUTPUT
-            echo "emoji=⚠️" >> $GITHUB_OUTPUT
-            echo "title=Mobile Build Skipped" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Notify
-        uses: ./.github/actions/notify
-        with:
-          event_type: 'deploy-mobile'
-          status: ${{ steps.status.outputs.result }}
-          title: '${{ steps.status.outputs.emoji }} ${{ steps.status.outputs.title }}'
-          message: |
-            Platform: ${{ inputs.platform || 'all' }}
-            Profile: ${{ inputs.profile || 'development' }}
-            iOS: ${{ needs.build-ios.result }} | Android: ${{ needs.build-android.result }}
-          environment: ${{ inputs.profile == 'release' && 'production' || 'development' }}
-          details: |
-            {
-              "platform": "${{ inputs.platform || 'all' }}",
-              "profile": "${{ inputs.profile || 'development' }}",
-              "ios_result": "${{ needs.build-ios.result }}",
-              "android_result": "${{ needs.build-android.result }}",
-              "distribute_result": "${{ needs.distribute.result }}",
-              "submit_to_store": ${{ inputs.submit_to_store || false }}
-            }
-          n8n_webhook_url: ${{ vars.N8N_WEBHOOK_URL }}
-          slack_webhook_url: ${{ secrets.SLACK_WEBHOOK_URL }}
-          mention_on_failure: '@mobile-team'

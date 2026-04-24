@@ -14,7 +14,7 @@
  * - Adds unsaved-changes confirmation on close (the overlay has no
  *   built-in `canDismiss` like Ionic bottom sheets).
  *
- * ⭐ WEB DESKTOP ONLY — Mobile uses EditProfileBottomSheetService ⭐
+ * ⭐ WEB ONLY — Used for desktop and mobile browsers ⭐
  */
 
 import {
@@ -91,6 +91,12 @@ import type { SearchTeamsFn } from '../onboarding';
         width: 100%;
         height: 100%;
         overflow: hidden;
+      }
+
+      nxt1-edit-profile-shell {
+        flex: 1 1 auto;
+        min-height: 0;
+        min-width: 0;
       }
 
       /* Save button in the modal header action slot */

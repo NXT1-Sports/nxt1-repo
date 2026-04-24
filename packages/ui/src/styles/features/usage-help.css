@@ -19,8 +19,10 @@
 .usage-help-sheet::part(content) {
   border-radius: var(--nxt1-radius-2xl, 24px) var(--nxt1-radius-2xl, 24px) 0 0;
   background: var(--nxt1-color-surface-200, #1c1c1e);
-  max-height: 92vh;
+  max-height: 94vh;
   overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: 0 -20px 60px rgba(0, 0, 0, 0.34);
 }
 
 .usage-help-sheet::part(backdrop) {
@@ -51,47 +53,32 @@
  * Centered card with max dimensions
  * ============================================ */
 .usage-help-modal {
-  --background: transparent;
-  --box-shadow: none;
-  --width: 560px;
-  --max-width: 90vw;
-  --height: auto;
-  --max-height: 85vh;
-
-  align-items: center;
-  justify-content: center;
-}
-
-.usage-help-modal::part(content) {
-  border-radius: var(--nxt1-radius-2xl, 24px);
+  width: min(760px, calc(100vw - 32px));
+  max-width: min(760px, calc(100vw - 32px));
+  max-height: min(90vh, 920px);
   background: var(--nxt1-color-surface-200, #1c1c1e);
   box-shadow: var(--nxt1-shadow-2xl, 0 25px 50px -12px rgba(0, 0, 0, 0.5));
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.usage-help-modal .nxt1-overlay-content {
+  padding: 0;
   overflow: hidden;
-  max-height: 85vh;
 }
 
-.usage-help-modal::part(backdrop) {
-  background: var(--nxt1-color-bg-overlay, rgba(0, 0, 0, 0.6));
-  backdrop-filter: blur(var(--nxt1-blur-sm, 4px));
-  -webkit-backdrop-filter: blur(var(--nxt1-blur-sm, 4px));
-}
-
-/* Desktop blur effect */
-@supports (backdrop-filter: blur(40px)) {
-  .usage-help-modal::part(content) {
-    background: var(--nxt1-color-surface-glass, rgba(28, 28, 30, 0.95));
-    backdrop-filter: blur(var(--nxt1-blur-xl, 40px));
-    -webkit-backdrop-filter: blur(var(--nxt1-blur-xl, 40px));
-  }
+.usage-help-modal::before {
+  border-radius: var(--nxt1-radius-2xl, 24px) var(--nxt1-radius-2xl, 24px) 0 0;
 }
 
 /* ============================================
  * Light Mode Overrides
  * ============================================ */
 .light .usage-help-sheet::part(content),
-.light .usage-help-modal::part(content),
 [data-theme='light'] .usage-help-sheet::part(content),
-[data-theme='light'] .usage-help-modal::part(content) {
+[data-theme='light'] .usage-help-modal,
+.light .usage-help-modal,
+[data-theme='light'] .usage-help-sheet::part(content),
+[data-theme='light'] .usage-help-modal {
   background: var(--nxt1-color-surface-200, #ffffff);
 }
 
@@ -102,9 +89,9 @@
 
 @supports (backdrop-filter: blur(40px)) {
   .light .usage-help-sheet::part(content),
-  .light .usage-help-modal::part(content),
   [data-theme='light'] .usage-help-sheet::part(content),
-  [data-theme='light'] .usage-help-modal::part(content) {
+  .light .usage-help-modal,
+  [data-theme='light'] .usage-help-modal {
     background: var(--nxt1-color-surface-glass, rgba(255, 255, 255, 0.92));
   }
 }

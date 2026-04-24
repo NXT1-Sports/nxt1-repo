@@ -120,6 +120,7 @@ export class NxtBottomSheetService {
       // Breakpoints for draggable resize
       breakpoints: config.breakpoints ?? SHEET_PRESETS.FULL.breakpoints,
       initialBreakpoint: config.initialBreakpoint ?? SHEET_PRESETS.FULL.initialBreakpoint,
+      expandToScroll: config.expandToScroll ?? false,
 
       // Native drag handle
       handle: config.showHandle ?? true,

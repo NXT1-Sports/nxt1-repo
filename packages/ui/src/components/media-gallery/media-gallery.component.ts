@@ -95,6 +95,7 @@ import { HapticButtonDirective } from '../../services/haptics/haptic.directive';
         display: block;
         object-fit: cover;
         border-radius: var(--nxt1-borderRadius-lg);
+        image-orientation: from-image;
       }
 
       .nxt1-media-remove {

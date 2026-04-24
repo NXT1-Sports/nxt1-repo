@@ -1,33 +1,36 @@
 /**
- * @fileoverview Profile Completeness Helper
+ * @fileoverview User trigger helpers
  * @module @nxt1/functions/user/helpers
  *
  * Shared helper functions for user-related triggers.
  */
 
-/**
- * Calculate profile completeness percentage
- */
-export function calculateProfileCompleteness(userData: FirebaseFirestore.DocumentData): number {
-  const fields = [
-    'displayName',
-    'photoURL',
-    'bio',
-    'primarySport',
-    'positions',
-    'location',
-    'highSchool',
-    'graduationYear',
-    'height',
-    'weight',
-    'gpa',
-  ];
+function getSportProfiles(
+  userData: FirebaseFirestore.DocumentData
+): Array<Record<string, unknown>> {
+  const sports = userData['sports'];
+  return Array.isArray(sports)
+    ? sports.filter(
+        (sport): sport is Record<string, unknown> => !!sport && typeof sport === 'object'
+      )
+    : [];
+}
 
-  const filledFields = fields.filter((field) => {
-    const value = userData[field];
-    if (Array.isArray(value)) return value.length > 0;
-    return value !== null && value !== undefined && value !== '';
-  });
+function getPrimarySportProfile(
+  userData: FirebaseFirestore.DocumentData
+): Record<string, unknown> | undefined {
+  const sports = getSportProfiles(userData);
+  return sports.find((sport) => sport['order'] === 0) ?? sports[0];
+}
 
-  return Math.round((filledFields.length / fields.length) * 100);
+export function getPrimarySportName(userData: FirebaseFirestore.DocumentData): string | undefined {
+  const sport = getPrimarySportProfile(userData)?.['sport'];
+  if (typeof sport === 'string' && sport.trim().length > 0) {
+    return sport.trim();
+  }
+
+  const legacySport = userData['primarySport'];
+  return typeof legacySport === 'string' && legacySport.trim().length > 0
+    ? legacySport.trim()
+    : undefined;
 }

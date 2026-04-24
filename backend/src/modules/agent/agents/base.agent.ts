@@ -18,11 +18,15 @@
 import type {
   AgentIdentifier,
   AgentToolDefinition,
+  AgentToolEntityGroup,
   AgentSessionContext,
   AgentOperationResult,
   AgentToolCallRecord,
+  AgentXToolStepIcon,
   ModelRoutingConfig,
+  ToolStage,
 } from '@nxt1/core';
+import { resolveAgentApprovalPrompt } from '@nxt1/core';
 import type { OpenRouterService } from '../llm/openrouter.service.js';
 import type { ToolRegistry } from '../tools/tool-registry.js';
 import type { ToolExecutionContext } from '../tools/base.tool.js';
@@ -30,9 +34,21 @@ import type { LLMMessage, LLMToolSchema, LLMToolCall } from '../llm/llm.types.js
 import type { SkillRegistry } from '../skills/skill-registry.js';
 import type { OnStreamEvent } from '../queue/event-writer.js';
 import { GlobalKnowledgeSkill } from '../skills/knowledge/global-knowledge.skill.js';
-import { isAgentYield } from '../errors/agent-yield.error.js';
-import { isAgentDelegation, AgentDelegationException } from '../errors/agent-delegation.error.js';
+import { AgentYieldException, isAgentYield } from '../exceptions/agent-yield.exception.js';
+import {
+  isAgentDelegation,
+  AgentDelegationException,
+} from '../exceptions/agent-delegation.exception.js';
+import { AgentEngineError } from '../exceptions/agent-engine.error.js';
+import type { ApprovalGateService } from '../services/approval-gate.service.js';
 import { ASK_USER_CONTEXT_KEY, type AskUserToolContext } from '../tools/comms/ask-user.tool.js';
+import {
+  sanitizeAgentOutputText,
+  sanitizeAgentPayload,
+} from '../utils/platform-identifier-sanitizer.js';
+import { parallelBatch } from '../utils/parallel-batch.js';
+import { getAgentAnalyticsGate } from '../services/agent-analytics-gate.js';
+import { getCachedAgentAppConfig, resolveAgentSystemPrompt } from '../config/agent-app-config.js';
 import { logger } from '../../../utils/logger.js';
 
 /** Maximum tool-calling iterations before we force the agent to respond. */
@@ -43,6 +59,43 @@ const MAX_ITERATIONS = 20;
  * Prevents context overflow when scrape results are very large.
  */
 const MAX_OBSERVATION_LENGTH = 8_000;
+
+// ─── Context Window Budget ────────────────────────────────────────────────────
+
+/**
+ * Number of initial tool-calling exchanges to pin at the front of the context.
+ * These contain the foundational scraping data the agent's entire reasoning is
+ * built on — they must never be pruned.
+ */
+const CONTEXT_KEEP_FIRST_EXCHANGES = 2;
+
+/**
+ * Number of most-recent tool-calling exchanges to retain for recency bias.
+ * The LLM needs these to avoid repeating what it just did and to pick the
+ * correct next action.
+ */
+const CONTEXT_KEEP_LAST_EXCHANGES = 3;
+
+/**
+ * Minimum number of complete exchanges before pruning is worthwhile.
+ * = KEEP_FIRST + KEEP_LAST + 1 (at least one exchange must land in the
+ * collapsed middle or the prune is a no-op).
+ */
+const CONTEXT_PRUNE_THRESHOLD = CONTEXT_KEEP_FIRST_EXCHANGES + CONTEXT_KEEP_LAST_EXCHANGES + 1;
+
+interface ToolSessionContext {
+  readonly sessionId?: string;
+  readonly threadId?: string;
+  readonly operationId?: string;
+  readonly environment?: 'staging' | 'production';
+  readonly approvalId?: string;
+  readonly allowedToolNames?: readonly string[];
+  readonly allowedEntityGroups?: readonly AgentToolEntityGroup[];
+  readonly bypassPermissionForTool?: {
+    readonly toolName: string;
+    readonly toolCallId: string;
+  };
+}
 
 export abstract class BaseAgent {
   abstract readonly id: AgentIdentifier;
@@ -67,6 +120,13 @@ export abstract class BaseAgent {
     return [];
   }
 
+  protected withConfiguredSystemPrompt(
+    basePrompt: string,
+    templateValues?: Readonly<Record<string, string | undefined>>
+  ): string {
+    return resolveAgentSystemPrompt(this.id, basePrompt, templateValues);
+  }
+
   /**
    * Execute the agent's ReAct loop for a given user intent.
    *
@@ -80,14 +140,16 @@ export abstract class BaseAgent {
   async execute(
     intent: string,
     context: AgentSessionContext,
-    _toolDefinitions: readonly AgentToolDefinition[],
+    toolDefinitions: readonly AgentToolDefinition[],
     llm?: OpenRouterService,
     toolRegistry?: ToolRegistry,
     skillRegistry?: SkillRegistry,
-    onStreamEvent?: OnStreamEvent
+    onStreamEvent?: OnStreamEvent,
+    approvalGate?: ApprovalGateService
   ): Promise<AgentOperationResult> {
     if (!llm || !toolRegistry) {
-      throw new Error(
+      throw new AgentEngineError(
+        'AGENT_DEPENDENCY_MISSING',
         `${this.name}.execute() requires llm and toolRegistry. ` + `Pass them from the AgentRouter.`
       );
     }
@@ -99,8 +161,7 @@ export abstract class BaseAgent {
     // System-category tools (e.g. delegate_task) are always included regardless
     // of the agent's getAvailableTools() list — they provide cross-cutting
     // infrastructure that every coordinator needs.
-    const toolSchemas: LLMToolSchema[] = toolRegistry
-      .getDefinitions(this.id)
+    const toolSchemas: LLMToolSchema[] = toolDefinitions
       .filter(
         (def) =>
           def.category === 'system' ||
@@ -160,12 +221,59 @@ export abstract class BaseAgent {
     ].join('\n');
 
     let systemContent = this.getSystemPrompt(context);
+    const appConfig = getCachedAgentAppConfig();
+    const configuredPrompt = appConfig.prompts.agentSystemPrompts[this.id];
+    if (configuredPrompt) {
+      logger.info(`[${this.id}] Applying configured system prompt override`, {
+        agentId: this.id,
+        configSchemaVersion: appConfig.schemaVersion,
+        configUpdatedAt: appConfig.updatedAt,
+      });
+    }
+
     if (skillBlock) systemContent += `\n${skillBlock}`;
     systemContent += delegationRule;
+    systemContent +=
+      '\n- NEVER reveal raw NXT1 platform identifiers such as user IDs, team IDs, organization IDs, post IDs, unicode values, team codes, routes, cursors, or internal document IDs. Refer to people and entities by name only.';
+
+    // Build the initial user message — multipart when file attachments are present
+    // (e.g. images forwarded from the SSE chat client).
+    // Video attachments are injected as text URL references (videos can't be passed
+    // as vision content) so tools like write_athlete_videos have access to the URL.
+    let intentText = intent;
+    if (context.videoAttachments?.length) {
+      const videoRefs = context.videoAttachments
+        .map((v) => `[Attached video: ${v.name} — ${v.url}]`)
+        .join('\n');
+      intentText = `${intent}\n\n${videoRefs}`;
+    }
+
+    const userMessage: LLMMessage = context.attachments?.length
+      ? {
+          role: 'user',
+          content: [
+            { type: 'text' as const, text: intentText },
+            ...context.attachments.map((a) => ({
+              type: 'image_url' as const,
+              image_url: { url: a.url, detail: 'auto' as const },
+            })),
+          ],
+        }
+      : { role: 'user', content: intentText };
+
+    // Inject prior conversation turns so the agent has cross-message continuity.
+    // history contains ONLY user + assistant turns from previous messages in this
+    // thread (tool observations are never persisted to session memory).
+    // The current userMessage is appended AFTER history — never duplicated.
+    const historyMessages: LLMMessage[] = (context.conversationHistory ?? []).map((m) => ({
+      role: m.role as 'user' | 'assistant',
+      content: m.content,
+    }));
 
     const messages: LLMMessage[] = [
       { role: 'system', content: systemContent },
-      { role: 'user', content: intent },
+      ...historyMessages,
+      userMessage,
     ];
 
     logger.info(`[${this.id}] Starting ReAct loop`, {
@@ -175,9 +283,188 @@ export abstract class BaseAgent {
       tools: allowedToolNames,
     });
 
+    const effectiveAllowedToolNames = toolSchemas.map((schema) => schema.function.name);
+    const effectiveAllowedEntityGroups = Array.from(
+      new Set(
+        toolDefinitions
+          .map((definition) => definition.entityGroup)
+          .filter((group): group is AgentToolEntityGroup => Boolean(group))
+      )
+    );
+
+    return this.runLoop(
+      messages,
+      context,
+      llm,
+      toolRegistry,
+      toolSchemas,
+      effectiveAllowedToolNames,
+      effectiveAllowedEntityGroups,
+      routing,
+      onStreamEvent,
+      approvalGate
+    );
+  }
+
+  /**
+   * Continue execution from a previously yielded message array.
+   * Used when the user approves a pending tool or answers an ask_user question.
+   */
+  async resumeExecution(
+    yieldState: {
+      readonly reason: 'needs_input' | 'needs_approval';
+      readonly messages: readonly Record<string, unknown>[];
+      readonly pendingToolCall?: {
+        readonly toolName: string;
+        readonly toolInput: Record<string, unknown>;
+        readonly toolCallId: string;
+      };
+      readonly planContext?: {
+        readonly currentTaskId: string;
+        readonly completedTaskResults: Record<string, unknown>;
+        readonly enrichedIntent: string;
+      };
+    },
+    context: AgentSessionContext,
+    _toolDefinitions: readonly AgentToolDefinition[],
+    llm?: OpenRouterService,
+    toolRegistry?: ToolRegistry,
+    _skillRegistry?: SkillRegistry,
+    onStreamEvent?: OnStreamEvent,
+    approvalGate?: ApprovalGateService,
+    approvalId?: string
+  ): Promise<AgentOperationResult> {
+    if (!llm || !toolRegistry) {
+      throw new AgentEngineError(
+        'AGENT_DEPENDENCY_MISSING',
+        `${this.name}.resumeExecution() requires llm and toolRegistry. ` +
+          `Pass them from the AgentRouter.`
+      );
+    }
+
+    const routing = this.getModelRouting();
+    const allowedToolNames = this.getAvailableTools();
+    const toolSchemas: LLMToolSchema[] = _toolDefinitions
+      .filter(
+        (def) =>
+          def.category === 'system' ||
+          allowedToolNames.length === 0 ||
+          allowedToolNames.includes(def.name)
+      )
+      .map((def) => ({
+        type: 'function' as const,
+        function: {
+          name: def.name,
+          description: def.description,
+          parameters: def.parameters,
+        },
+      }));
+
+    const messages = yieldState.messages.map((msg) => ({ ...msg })) as unknown as LLMMessage[];
+    const sessionContext: ToolSessionContext = {
+      sessionId: context.sessionId,
+      threadId: context.threadId,
+      operationId: context.operationId,
+      ...(context.environment && { environment: context.environment }),
+      ...(approvalId ? { approvalId } : {}),
+      ...(yieldState.reason === 'needs_approval' && yieldState.pendingToolCall
+        ? {
+            bypassPermissionForTool: {
+              toolName: yieldState.pendingToolCall.toolName,
+              toolCallId: yieldState.pendingToolCall.toolCallId,
+            },
+          }
+        : {}),
+    };
+
+    if (yieldState.reason === 'needs_approval' && yieldState.pendingToolCall) {
+      const pendingToolCall: LLMToolCall = {
+        id: yieldState.pendingToolCall.toolCallId,
+        type: 'function',
+        function: {
+          name: yieldState.pendingToolCall.toolName,
+          arguments: JSON.stringify(yieldState.pendingToolCall.toolInput),
+        },
+      };
+
+      onStreamEvent?.({
+        type: 'step_active',
+        agentId: this.id,
+        toolName: pendingToolCall.function.name,
+        icon: this.resolveToolStepIcon(pendingToolCall.function.name),
+      });
+
+      let observation = await this.executeTool(
+        pendingToolCall,
+        toolRegistry,
+        context.userId,
+        {
+          agentId: this.id,
+          messages,
+          planContext: yieldState.planContext,
+        },
+        sessionContext,
+        messages,
+        approvalGate,
+        onStreamEvent
+      );
+      observation = this.truncateObservation(observation);
+
+      onStreamEvent?.({
+        type: 'tool_result',
+        agentId: this.id,
+        toolName: pendingToolCall.function.name,
+        toolSuccess: true,
+        icon: this.resolveToolStepIcon(pendingToolCall.function.name),
+      });
+
+      messages.push({
+        role: 'tool',
+        content: observation,
+        tool_call_id: pendingToolCall.id,
+      });
+    }
+
+    return this.runLoop(
+      messages,
+      context,
+      llm,
+      toolRegistry,
+      toolSchemas,
+      toolSchemas.map((schema) => schema.function.name),
+      Array.from(
+        new Set(
+          _toolDefinitions
+            .map((definition) => definition.entityGroup)
+            .filter((group): group is AgentToolEntityGroup => Boolean(group))
+        )
+      ),
+      routing,
+      onStreamEvent,
+      approvalGate
+    );
+  }
+
+  private async runLoop(
+    messages: LLMMessage[],
+    context: AgentSessionContext,
+    llm: OpenRouterService,
+    toolRegistry: ToolRegistry,
+    toolSchemas: readonly LLMToolSchema[],
+    allowedToolNames: readonly string[],
+    allowedEntityGroups: readonly AgentToolEntityGroup[],
+    routing: ModelRoutingConfig,
+    onStreamEvent?: OnStreamEvent,
+    approvalGate?: ApprovalGateService
+  ): Promise<AgentOperationResult> {
     // ── ReAct Loop ────────────────────────────────────────────────────────
 
     for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
+      // Prune the context window before every LLM call (except the first iteration
+      // which only has system + user messages — nothing to prune yet).
+      // No-op when total tool-calling exchanges is below CONTEXT_PRUNE_THRESHOLD.
+      if (iteration > 0) this.pruneMessageHistory(messages);
+
       logger.info(`[${this.id}] Iteration ${iteration + 1}/${MAX_ITERATIONS}`, {
         agentId: this.id,
         iteration: iteration + 1,
@@ -195,21 +482,27 @@ export abstract class BaseAgent {
             agentId: this.id,
           },
         }),
+        // Propagate the SSE abort signal so client disconnects cancel in-flight LLM calls
+        ...(context.signal && { signal: context.signal }),
       };
 
-      // Use streaming when onStreamEvent is provided so deltas flow to Firestore.
-      // Otherwise fall back to non-streaming for backward compatibility (e.g. /chat SSE).
+      // Use streaming when onStreamEvent is provided so deltas flow to the caller.
+      // SSE chat now provides onStreamEvent, so streaming is always active for live requests.
       const result = onStreamEvent
         ? await llm.completeStream(messages, llmOptions, (delta) => {
             if (delta.content) {
-              onStreamEvent({ type: 'delta', text: delta.content, agentId: this.id });
+              onStreamEvent({
+                type: 'delta',
+                agentId: this.id,
+                text: sanitizeAgentOutputText(delta.content),
+              });
             }
             if (delta.toolName) {
               onStreamEvent({
                 type: 'tool_call',
                 agentId: this.id,
                 toolName: delta.toolName,
-                toolArgs: delta.toolArgs,
+                ...(delta.toolArgs ? { toolArgs: sanitizeAgentOutputText(delta.toolArgs) } : {}),
               });
             }
           })
@@ -234,7 +527,10 @@ export abstract class BaseAgent {
                 parsed['data'] &&
                 typeof parsed['data'] === 'object'
               ) {
-                Object.assign(extractedToolData, parsed['data'] as Record<string, unknown>);
+                Object.assign(
+                  extractedToolData,
+                  sanitizeAgentPayload(parsed['data'] as Record<string, unknown>)
+                );
               }
             } catch {
               // Not JSON — skip
@@ -246,14 +542,28 @@ export abstract class BaseAgent {
         const toolCallRecords = this.extractToolCallRecords(messages);
 
         // Synthesize a summary from tool observations when the LLM returns empty content
-        let summary = result.content ?? '';
-        if (!summary.trim()) {
+        let summary = sanitizeAgentOutputText(result.content ?? '');
+        const isSynthesized = !summary.trim();
+
+        if (isSynthesized) {
           summary = this.synthesizeSummary(toolCallRecords);
+        }
+
+        summary = sanitizeAgentOutputText(summary);
+
+        // Only stream the summary if it was synthesized because result.content was already streamed
+        if (onStreamEvent && summary.trim() && isSynthesized) {
+          onStreamEvent({ type: 'delta', text: summary, agentId: this.id });
         }
 
         return {
           summary,
-          data: { model: result.model, usage: result.usage, toolCallRecords, ...extractedToolData },
+          data: sanitizeAgentPayload({
+            model: result.model,
+            usage: result.usage,
+            toolCallRecords,
+            ...extractedToolData,
+          }),
           suggestions: [],
         };
       }
@@ -261,7 +571,10 @@ export abstract class BaseAgent {
       // Append the assistant message with its tool calls to the conversation
       messages.push({
         role: 'assistant',
-        content: result.content,
+        content:
+          typeof result.content === 'string'
+            ? sanitizeAgentOutputText(result.content)
+            : result.content,
         tool_calls: result.toolCalls,
       });
 
@@ -271,66 +584,89 @@ export abstract class BaseAgent {
         tools: result.toolCalls.map((t) => t.function.name),
       });
 
-      // Execute each requested tool and feed observations back
+      // ── Parallel tool execution ────────────────────────────────────────────
+      // When the LLM requests multiple tools in one iteration (common after scraping:
+      // 3–5 read_distilled_section calls), execute them all concurrently instead of
+      // serially. parallelBatch preserves input order so the messages array stays
+      // structurally valid — OpenRouter requires every tool_call to have a matching
+      // tool response message with the same tool_call_id.
+
+      // 1. Emit step_active for ALL tools upfront so the UI shows them all as active.
       for (const toolCall of result.toolCalls) {
         logger.info(`[${this.id}] Executing tool: ${toolCall.function.name}`, {
           agentId: this.id,
           tool: toolCall.function.name,
           args: toolCall.function.arguments,
         });
-
-        // Emit step_active so the UI shows the tool is running
         onStreamEvent?.({
           type: 'step_active',
           agentId: this.id,
           toolName: toolCall.function.name,
+          icon: this.resolveToolStepIcon(toolCall.function.name),
           message: `Running ${toolCall.function.name}...`,
         });
+      }
 
-        let observation = await this.executeTool(
-          toolCall,
-          toolRegistry,
-          context.userId,
-          // Pass yield context so AskUserTool can serialize the ReAct state.
-          // Passed per-invocation (not stored on the singleton) to avoid race
-          // conditions with WORKER_CONCURRENCY > 1.
-          { agentId: this.id, messages },
-          // Pass session context so tools can use thread-scoped storage paths
-          { sessionId: context.sessionId, threadId: context.threadId }
-        );
-        // Truncate large observations (e.g. scrape results) to prevent context overflow.
-        // ONLY truncate markdownContent — never truncate the raw observation string, as that
-        // would corrupt structured data like imageUrl in generate_graphic results.
-        if (observation.length > MAX_OBSERVATION_LENGTH) {
-          try {
-            const parsed = JSON.parse(observation) as Record<string, unknown>;
-            if (parsed['success'] && parsed['data'] && typeof parsed['data'] === 'object') {
-              const data = parsed['data'] as Record<string, unknown>;
-              if (
-                typeof data['markdownContent'] === 'string' &&
-                data['markdownContent'].length > MAX_OBSERVATION_LENGTH
-              ) {
-                data['markdownContent'] =
-                  data['markdownContent'].slice(0, MAX_OBSERVATION_LENGTH) + '\n...[truncated]';
-                data['truncated'] = true;
-                observation = JSON.stringify(parsed);
-              }
-              // If no markdownContent to truncate, leave observation intact —
-              // the data fields (imageUrl, etc.) must remain complete.
-            }
-          } catch {
-            // Not valid JSON and very large — truncate raw string as last resort
-            observation = observation.slice(0, MAX_OBSERVATION_LENGTH) + '\n...[truncated]';
+      // 2. Capture session context once — shared read-only across all parallel workers.
+      const sessionCtxForTools: ToolSessionContext = {
+        sessionId: context.sessionId,
+        threadId: context.threadId,
+        operationId: context.operationId,
+        allowedToolNames,
+        allowedEntityGroups,
+      };
+
+      // 3. Fire all tools in parallel (N is typically 1–5; no throttle needed).
+      //    The yield-context messages snapshot is captured here, before any tool
+      //    observations are pushed — safe because ask_user is never co-emitted
+      //    alongside data tools in the same LLM response.
+      const yieldCtxSnapshot = { agentId: this.id, messages };
+      const toolBatchResults = await parallelBatch(
+        result.toolCalls,
+        (toolCall) =>
+          this.executeTool(
+            toolCall,
+            toolRegistry,
+            context.userId,
+            yieldCtxSnapshot,
+            sessionCtxForTools,
+            messages,
+            approvalGate,
+            onStreamEvent
+          ),
+        { concurrency: result.toolCalls.length }
+      );
+
+      // 4. Process results in original order, push tool messages, emit tool_result events.
+      //    Track yield/delegation exceptions; rethrow after all observations are committed
+      //    so the messages array is complete and structurally valid for OpenRouter.
+      let pendingThrow: unknown = undefined;
+      for (let ti = 0; ti < result.toolCalls.length; ti++) {
+        const toolCall = result.toolCalls[ti];
+        const br = toolBatchResults[ti];
+
+        if (br.status === 'rejected') {
+          const err = br.reason;
+          // Capture the first yield/delegation exception for rethrowing after the loop.
+          if ((isAgentYield(err) || isAgentDelegation(err)) && !pendingThrow) {
+            pendingThrow = err;
           }
+          // Always push a placeholder so every tool_call has a corresponding tool message.
+          messages.push({
+            role: 'tool',
+            content: JSON.stringify({ success: false, error: 'Tool execution was interrupted.' }),
+            tool_call_id: toolCall.id,
+          });
+          continue;
         }
-        // Log tool result summary — parse JSON to show structured info instead of raw string
-        // (avoids logging huge signed URLs or large content that confuses debugging)
+
+        const observation = this.truncateObservation(br.value);
+        // Log tool result summary (structured — avoids logging signed URLs)
         try {
           const parsed = JSON.parse(observation) as Record<string, unknown>;
           const data = parsed['data'] as Record<string, unknown> | undefined;
           const logSummary: Record<string, unknown> = { success: parsed['success'] };
           if (data) {
-            // Log keys present in data (not values — avoids logging signed URLs)
             logSummary['dataKeys'] = Object.keys(data);
             if (typeof data['imageUrl'] === 'string') {
               logSummary['imageUrl'] = data['imageUrl'].slice(0, 80) + '...[see Firestore]';
@@ -356,19 +692,17 @@ export abstract class BaseAgent {
           });
         }
 
-        // Emit tool_result so the UI can render the tool card
         if (onStreamEvent) {
-          let toolSuccess = false;
+          let toolSuccess: boolean;
           let toolResult: Record<string, unknown> | undefined;
           try {
             const parsed = JSON.parse(observation) as Record<string, unknown>;
             toolSuccess = parsed['success'] === true;
             toolResult =
               typeof parsed['data'] === 'object' && parsed['data'] !== null
-                ? (parsed['data'] as Record<string, unknown>)
+                ? sanitizeAgentPayload(parsed['data'] as Record<string, unknown>)
                 : undefined;
           } catch {
-            // Not JSON — mark as success if non-empty
             toolSuccess = observation.length > 0;
           }
           onStreamEvent({
@@ -377,6 +711,7 @@ export abstract class BaseAgent {
             toolName: toolCall.function.name,
             toolSuccess,
             toolResult,
+            icon: this.resolveToolStepIcon(toolCall.function.name),
             message: toolSuccess
               ? `${toolCall.function.name} completed`
               : `${toolCall.function.name} failed`,
@@ -389,6 +724,9 @@ export abstract class BaseAgent {
           tool_call_id: toolCall.id,
         });
       }
+
+      // 5. Rethrow yield/delegation only after all tool messages are committed.
+      if (pendingThrow) throw pendingThrow;
     }
 
     logger.warn(
@@ -406,7 +744,10 @@ export abstract class BaseAgent {
         try {
           const parsed = JSON.parse(msg.content) as Record<string, unknown>;
           if (parsed['success'] === true && parsed['data'] && typeof parsed['data'] === 'object') {
-            Object.assign(extractedToolData, parsed['data'] as Record<string, unknown>);
+            Object.assign(
+              extractedToolData,
+              sanitizeAgentPayload(parsed['data'] as Record<string, unknown>)
+            );
           }
         } catch {
           // Not JSON — skip
@@ -415,12 +756,205 @@ export abstract class BaseAgent {
     }
     const toolCallRecords = this.extractToolCallRecords(messages);
     return {
-      summary:
+      summary: sanitizeAgentOutputText(
         'The agent reached its maximum iteration limit. ' +
-        'The task may be too complex for a single pass.',
-      data: { maxIterationsReached: true, toolCallRecords, ...extractedToolData },
+          'The task may be too complex for a single pass.'
+      ),
+      data: sanitizeAgentPayload({
+        maxIterationsReached: true,
+        toolCallRecords,
+        ...extractedToolData,
+      }),
       suggestions: ['Try breaking the request into smaller tasks.'],
     };
+  }
+
+  private truncateObservation(observation: string): string {
+    if (observation.length <= MAX_OBSERVATION_LENGTH) {
+      return observation;
+    }
+
+    try {
+      const parsed = JSON.parse(observation) as Record<string, unknown>;
+      if (parsed['success'] && parsed['data'] && typeof parsed['data'] === 'object') {
+        const data = parsed['data'] as Record<string, unknown>;
+        if (
+          typeof data['markdownContent'] === 'string' &&
+          data['markdownContent'].length > MAX_OBSERVATION_LENGTH
+        ) {
+          data['markdownContent'] =
+            data['markdownContent'].slice(0, MAX_OBSERVATION_LENGTH) + '\n...[truncated]';
+          data['truncated'] = true;
+          return JSON.stringify(parsed);
+        }
+      }
+    } catch {
+      return observation.slice(0, MAX_OBSERVATION_LENGTH) + '\n...[truncated]';
+    }
+
+    return observation;
+  }
+
+  // ─── Context Window Pruner ────────────────────────────────────────────────
+
+  /**
+   * Prune the ReAct conversation history to keep the LLM context within budget.
+   *
+   * Without pruning, a 15-iteration run with 3 tools/iteration accumulates
+   * 45 tool messages × 8k chars = 360k chars — well beyond what most models
+   * handle efficiently, causing slower responses, higher costs, and occasional
+   * 400 "context too large" errors that trigger the fallback chain.
+   *
+   * Strategy:
+   * 1. Parse `messages` into complete "exchanges" (one assistant message with
+   *    tool_calls + its matching tool-response messages).
+   * 2. If total exchanges ≤ CONTEXT_PRUNE_THRESHOLD: no-op.
+   * 3. Otherwise: pin the first CONTEXT_KEEP_FIRST_EXCHANGES exchanges
+   *    (foundational data) and the last CONTEXT_KEEP_LAST_EXCHANGES exchanges
+   *    (recent work), collapse the middle into a single compact assistant
+   *    message listing what was accomplished.
+   *
+   * Invariants:
+   * - messages[0] always remains the system prompt.
+   * - messages[1] always remains the user intent.
+   * - Every assistant message that has tool_calls always appears alongside
+   *   ALL its matching tool-response messages — no orphaned tool_call_ids.
+   * - Prior summary messages (from earlier prunes) are folded into the new
+   *   summary rather than re-inserted as stand-alone messages.
+   */
+  private pruneMessageHistory(messages: LLMMessage[]): void {
+    if (messages.length <= 2) return;
+
+    const systemMsg = messages[0];
+    const userMsg = messages[1];
+    const tail = messages.slice(2);
+
+    // ── Parse into exchanges and prior-summary overhead ───────────────────
+    // An exchange = [assistantMsg (with tool_calls), ...matching tool msgs].
+    // Standalone assistant messages without tool_calls are prior prune
+    // summaries — their text is harvested and folded into the next summary.
+    const exchanges: LLMMessage[][] = [];
+    const priorSummaryLines: string[] = [];
+    let current: LLMMessage[] = [];
+
+    for (const msg of tail) {
+      if (msg.role === 'assistant') {
+        if (current.length > 0) {
+          const head = current[0];
+          if (head.tool_calls && head.tool_calls.length > 0) {
+            exchanges.push(current);
+          } else if (typeof head.content === 'string' && head.content.trim()) {
+            // Prior prune summary — harvest text, drop the message itself
+            priorSummaryLines.push(head.content.trim());
+          }
+        }
+        current = [msg];
+      } else {
+        current.push(msg);
+      }
+    }
+    // Flush the final group
+    if (current.length > 0) {
+      const head = current[0];
+      if (head.tool_calls && head.tool_calls.length > 0) {
+        exchanges.push(current);
+      } else if (typeof head.content === 'string' && head.content.trim()) {
+        priorSummaryLines.push(head.content.trim());
+      }
+    }
+
+    // Below threshold — nothing to do
+    if (exchanges.length <= CONTEXT_PRUNE_THRESHOLD) return;
+
+    const firstExchanges = exchanges.slice(0, CONTEXT_KEEP_FIRST_EXCHANGES);
+    const lastExchanges = exchanges.slice(exchanges.length - CONTEXT_KEEP_LAST_EXCHANGES);
+    const middleExchanges = exchanges.slice(
+      CONTEXT_KEEP_FIRST_EXCHANGES,
+      exchanges.length - CONTEXT_KEEP_LAST_EXCHANGES
+    );
+
+    // ── Build the compaction summary ──────────────────────────────────────
+    const summaryLines: string[] = [];
+
+    // Carry forward any text from previous prune passes
+    if (priorSummaryLines.length > 0) {
+      summaryLines.push(...priorSummaryLines, '');
+    }
+
+    summaryLines.push(
+      `[Context compacted — ${middleExchanges.length} iteration(s) summarized for token efficiency]`,
+      'Tool calls completed in compacted iterations:'
+    );
+
+    for (const exchange of middleExchanges) {
+      const assistantMsg = exchange[0];
+      if (!assistantMsg.tool_calls) continue;
+      for (const tc of assistantMsg.tool_calls) {
+        const toolMsg = exchange.find((m) => m.role === 'tool' && m.tool_call_id === tc.id);
+        let outcome = 'completed';
+        if (toolMsg && typeof toolMsg.content === 'string') {
+          try {
+            const p = JSON.parse(toolMsg.content) as Record<string, unknown>;
+            if (p['success'] === false) {
+              outcome = `failed: ${sanitizeAgentOutputText(String(p['error'] ?? 'unknown'))}`;
+            }
+          } catch {
+            /* non-JSON observation — treat as completed */
+          }
+        }
+        const argSummary = this.summarizeToolArgs(tc.function.arguments);
+        summaryLines.push(`  \u2022 ${tc.function.name}(${argSummary}) \u2192 ${outcome}`);
+      }
+    }
+
+    const summaryMsg: LLMMessage = {
+      role: 'assistant',
+      content: summaryLines.join('\n'),
+      // Intentionally no tool_calls — this message will not be re-parsed as
+      // an exchange on the next prune pass; its content is harvested instead.
+    };
+
+    const totalBefore = messages.length;
+
+    // Mutate in-place so callers that hold a reference to this array see
+    // the updated window without needing to re-assign.
+    messages.splice(
+      0,
+      messages.length,
+      systemMsg,
+      userMsg,
+      ...firstExchanges.flat(),
+      summaryMsg,
+      ...lastExchanges.flat()
+    );
+
+    logger.info(`[${this.id}] Context window pruned`, {
+      agentId: this.id,
+      prunedExchanges: middleExchanges.length,
+      keptFirst: CONTEXT_KEEP_FIRST_EXCHANGES,
+      keptLast: CONTEXT_KEEP_LAST_EXCHANGES,
+      messagesBefore: totalBefore,
+      messagesAfter: messages.length,
+    });
+  }
+
+  /**
+   * Compress tool call arguments into a short, human-readable string for use
+   * inside the context compaction summary. Never fed back to the LLM as tool
+   * input — purely for readability in the summary message.
+   */
+  private summarizeToolArgs(argsJson: string): string {
+    try {
+      const args = JSON.parse(argsJson) as Record<string, unknown>;
+      const entries = Object.entries(args);
+      if (entries.length === 0) return '';
+      const [key, val] = entries[0];
+      const valStr = String(val).slice(0, 50);
+      const suffix = entries.length > 1 ? ` +${entries.length - 1}` : '';
+      return `${key}: "${valStr}"${suffix}`;
+    } catch {
+      return argsJson.slice(0, 40);
+    }
   }
 
   // ─── Tool Call Record Extraction ──────────────────────────────────────────
@@ -466,16 +1000,18 @@ export abstract class BaseAgent {
           }
           output =
             typeof parsed['data'] === 'object' && parsed['data'] !== null
-              ? (parsed['data'] as Record<string, unknown>)
-              : parsed;
+              ? sanitizeAgentPayload(parsed['data'] as Record<string, unknown>)
+              : sanitizeAgentPayload(parsed);
         } catch {
           // Non-JSON observation — store as raw text
-          output = observation ? { raw: observation.slice(0, 500) } : undefined;
+          output = observation
+            ? sanitizeAgentPayload({ raw: sanitizeAgentOutputText(observation.slice(0, 500)) })
+            : undefined;
         }
 
         records.push({
           toolName: tc.function.name,
-          input,
+          input: sanitizeAgentPayload(input),
           output,
           status,
           timestamp: new Date().toISOString(),
@@ -518,18 +1054,30 @@ export abstract class BaseAgent {
     registry: ToolRegistry,
     userId: string,
     yieldContext?: AskUserToolContext,
-    sessionContext?: { sessionId?: string; threadId?: string }
+    sessionContext?: ToolSessionContext,
+    currentMessages?: readonly LLMMessage[],
+    approvalGate?: ApprovalGateService,
+    onStreamEvent?: OnStreamEvent
   ): Promise<string> {
     const toolName = toolCall.function.name;
 
     // Re-check permissions: ensure the LLM isn't calling a tool outside its allowlist.
     // System-category tools (e.g. delegate_task) bypass the allowlist.
-    const allowedToolNames = this.getAvailableTools();
+    const allowedToolNames = sessionContext?.allowedToolNames ?? this.getAvailableTools();
     const tool = registry.get(toolName);
     const isSystemTool = tool?.category === 'system';
-    if (!isSystemTool && allowedToolNames.length > 0 && !allowedToolNames.includes(toolName)) {
+    const bypassPermissions =
+      sessionContext?.bypassPermissionForTool?.toolName === toolName &&
+      sessionContext?.bypassPermissionForTool?.toolCallId === toolCall.id;
+    if (
+      !isSystemTool &&
+      !bypassPermissions &&
+      allowedToolNames.length > 0 &&
+      !allowedToolNames.includes(toolName)
+    ) {
       return JSON.stringify({
         error: `Tool "${toolName}" is not allowed for agent "${this.id}".`,
+        errorCode: 'AGENT_TOOL_NOT_ALLOWED',
       });
     }
 
@@ -539,7 +1087,53 @@ export abstract class BaseAgent {
     } catch {
       return JSON.stringify({
         error: `Invalid JSON arguments for tool "${toolName}".`,
+        errorCode: 'AGENT_TOOL_ARGS_INVALID',
       });
+    }
+
+    if (approvalGate) {
+      const approvalRequirement = approvalGate.getApprovalRequirement(toolName, input);
+      if (approvalRequirement) {
+        const approvalPrompt = resolveAgentApprovalPrompt({
+          reasonCode: approvalRequirement.reasonCode,
+          actionSummary: approvalRequirement.actionSummary,
+        });
+        const approvalAlreadyGranted =
+          typeof sessionContext?.approvalId === 'string'
+            ? await approvalGate.isApprovalGranted(
+                sessionContext.approvalId,
+                userId,
+                toolName,
+                input
+              )
+            : false;
+
+        if (!approvalAlreadyGranted) {
+          const approvalRequest = await approvalGate.requestApproval({
+            operationId: sessionContext?.operationId ?? toolCall.id,
+            taskId: sessionContext?.operationId ?? toolCall.id,
+            userId,
+            toolName,
+            toolInput: input,
+            actionSummary: approvalRequirement.actionSummary,
+            reasoning: approvalRequirement.actionSummary,
+            threadId: sessionContext?.threadId,
+          });
+
+          throw new AgentYieldException({
+            reason: 'needs_approval',
+            promptToUser: approvalPrompt,
+            agentId: this.id,
+            messages: currentMessages ?? yieldContext?.messages ?? [],
+            pendingToolCall: {
+              toolName,
+              toolInput: input,
+              toolCallId: toolCall.id,
+            },
+            approvalId: approvalRequest.id,
+          });
+        }
+      }
     }
 
     // Inject yield context into the input so AskUserTool can read it
@@ -552,8 +1146,30 @@ export abstract class BaseAgent {
     // so tools can use thread-scoped storage paths, audit logging, etc.
     const toolExecContext: ToolExecutionContext = {
       userId,
+      ...(sessionContext?.environment && { environment: sessionContext.environment }),
+      ...(sessionContext?.operationId && { operationId: sessionContext.operationId }),
       ...(sessionContext?.threadId && { threadId: sessionContext.threadId }),
       ...(sessionContext?.sessionId && { sessionId: sessionContext.sessionId }),
+      ...(sessionContext?.allowedToolNames && {
+        allowedToolNames: sessionContext.allowedToolNames,
+      }),
+      ...(sessionContext?.allowedEntityGroups && {
+        allowedEntityGroups: sessionContext.allowedEntityGroups,
+      }),
+      ...(onStreamEvent && {
+        emitStage: (stage, metadata) => {
+          onStreamEvent({
+            type: 'step_active',
+            agentId: this.id,
+            toolName,
+            stageType: 'tool',
+            stage,
+            metadata,
+            icon: metadata?.icon ?? this.resolveToolStepIcon(toolName, stage),
+            message: this.resolveToolStageLabel(toolName, stage, metadata),
+          });
+        },
+      }),
     };
 
     // AgentYieldException from AskUserTool must propagate out of the ReAct loop
@@ -562,10 +1178,33 @@ export abstract class BaseAgent {
     // AgentRouter can re-dispatch through the PlannerAgent.
     try {
       const result = await registry.execute(toolName, input, toolExecContext);
+      const sanitizedData =
+        result.data !== undefined ? sanitizeAgentPayload(result.data) : undefined;
+      // Fire-and-forget: track this tool execution in the user's analytics record.
+      // Self-tracking tools (send_email, write_recruiting_activity, etc.) are
+      // skipped inside the gate to prevent double-counting.
+      if (result.success) {
+        getAgentAnalyticsGate().trackToolExecution({
+          userId,
+          agentId: this.id,
+          toolName,
+          sessionId: sessionContext?.sessionId,
+          threadId: sessionContext?.threadId,
+          operationId: sessionContext?.operationId,
+        });
+      }
+
+      if (result.success && result.markdown) {
+        return result.markdown;
+      }
+
       return JSON.stringify(
         result.success
-          ? { success: true, data: result.data }
-          : { success: false, error: result.error }
+          ? { success: true, ...(sanitizedData !== undefined ? { data: sanitizedData } : {}) }
+          : {
+              success: false,
+              error: sanitizeAgentOutputText(result.error ?? 'Tool execution failed'),
+            }
       );
     } catch (err) {
       if (isAgentYield(err)) throw err; // Let yields propagate
@@ -578,8 +1217,57 @@ export abstract class BaseAgent {
       }
       return JSON.stringify({
         success: false,
-        error: err instanceof Error ? err.message : 'Tool execution failed',
+        error: sanitizeAgentOutputText(
+          err instanceof Error ? err.message : 'Tool execution failed'
+        ),
       });
+    }
+  }
+
+  private resolveToolStepIcon(toolName: string, stage?: ToolStage): AgentXToolStepIcon {
+    const normalized = `${toolName} ${stage ?? ''}`.toLowerCase();
+
+    if (/(delete|remove|cancel)/.test(normalized)) return 'delete';
+    if (/(upload|cdn|storage)/.test(normalized)) return 'upload';
+    if (/(download|export)/.test(normalized)) return 'download';
+    if (/(search|query|find|fetch)/.test(normalized)) return 'search';
+    if (/(email|mail)/.test(normalized)) return 'email';
+    if (/(video|image|graphic|media)/.test(normalized)) return 'media';
+    if (/(database|firebase|mongo|memory)/.test(normalized)) return 'database';
+    if (/(document|pdf|doc)/.test(normalized)) return 'document';
+    if (/approval/.test(normalized)) return 'approval';
+
+    return 'processing';
+  }
+
+  private resolveToolStageLabel(
+    toolName: string,
+    stage: ToolStage,
+    metadata?: Record<string, unknown>
+  ): string {
+    if (stage === 'invoking_sub_agent') {
+      const subAgentId =
+        typeof metadata?.['subAgentId'] === 'string' ? (metadata['subAgentId'] as string) : null;
+      return subAgentId ? `Calling sub-agent: ${subAgentId}...` : 'Calling sub-agent...';
+    }
+
+    switch (stage) {
+      case 'fetching_data':
+        return `Fetching data for ${toolName}...`;
+      case 'processing_media':
+        return `Processing media for ${toolName}...`;
+      case 'uploading_assets':
+        return `Uploading assets for ${toolName}...`;
+      case 'submitting_job':
+        return `Submitting ${toolName}...`;
+      case 'checking_status':
+        return `Checking status for ${toolName}...`;
+      case 'persisting_result':
+        return `Saving results from ${toolName}...`;
+      case 'deleting_resource':
+        return `Deleting resources with ${toolName}...`;
+      default:
+        return `Running ${toolName}...`;
     }
   }
 }

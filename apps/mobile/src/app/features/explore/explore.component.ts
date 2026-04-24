@@ -26,7 +26,13 @@ import {
   type ExploreUser,
   ExploreService,
 } from '@nxt1/ui';
-import type { ExploreTabId, ExploreItem, FeedPost, FeedAuthor } from '@nxt1/core';
+import {
+  buildCanonicalProfilePath,
+  type ExploreTabId,
+  type ExploreItem,
+  type FeedPost,
+  type FeedAuthor,
+} from '@nxt1/core';
 import { AuthFlowService } from '../../core/services/auth/auth-flow.service';
 import { ProfileService } from '../../core/services/state/profile.service';
 
@@ -153,7 +159,12 @@ export class ExploreComponent {
    */
   protected onAuthorSelect(author: FeedAuthor): void {
     this.logger.debug('Author selected', { uid: author.uid, profileCode: author.profileCode });
-    this.navController.navigateForward(['/profile', author.profileCode]);
+    this.navController.navigateForward(
+      buildCanonicalProfilePath({
+        athleteName: author.displayName || `${author.firstName} ${author.lastName}`.trim(),
+        unicode: author.profileCode,
+      })
+    );
   }
 
   /**

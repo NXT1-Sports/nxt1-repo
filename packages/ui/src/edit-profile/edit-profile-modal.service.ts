@@ -6,8 +6,8 @@
  * Unified entry point for Edit Profile that auto-selects
  * the best presentation based on platform:
  *
- * - **Mobile / Native / Touch < 768px**: Ionic bottom sheet via EditProfileBottomSheetService
- * - **Web Desktop >= 768px**: Pure Angular overlay via NxtOverlayService
+ * - **Native mobile app (Capacitor)**: Ionic bottom sheet via EditProfileBottomSheetService
+ * - **Web browsers (desktop + mobile web)**: Pure Angular overlay via NxtOverlayService
  *
  * Follows the same adaptive pattern as QrCodeService.
  *
@@ -81,9 +81,9 @@ export class EditProfileModalService {
   private readonly breadcrumb = inject(NxtBreadcrumbService);
 
   /**
-   * Opens Edit Profile with adaptive presentation:
-   * - Mobile/tablet: bottom sheet with drag handle (Ionic)
-   * - Desktop: centered overlay (pure Angular)
+   * Opens Edit Profile with platform-appropriate presentation:
+   * - Native mobile app: bottom sheet with drag handle (Ionic)
+   * - Web browsers, including mobile web: overlay modal (pure Angular)
    */
   async open(options: EditProfileModalOptions = {}): Promise<EditProfileModalResult> {
     const presentation = this.shouldUseBottomSheet() ? 'bottom-sheet' : 'web-overlay';
@@ -132,7 +132,7 @@ export class EditProfileModalService {
           connectProviderCallback: options.onConnectProvider,
           searchTeams: options.searchTeams,
         },
-        size: 'xl',
+        size: this.platform.isBrowser() && this.platform.viewport().width < 768 ? 'full' : 'xl',
         backdropDismiss: true,
         escDismiss: true,
         showCloseButton: false,
@@ -162,26 +162,8 @@ export class EditProfileModalService {
   // PLATFORM DETECTION
   // ============================================
 
-  /** Same logic as QrCodeService — consistent platform detection. */
+  /** Only native mobile apps should use the Ionic bottom sheet presentation. */
   private shouldUseBottomSheet(): boolean {
-    if (this.platform.isNative()) {
-      return true;
-    }
-
-    if (!this.platform.isBrowser()) {
-      return false;
-    }
-
-    const viewportWidth = this.platform.viewport().width;
-    if (viewportWidth < 768) {
-      return true;
-    }
-
-    const hasTouch = this.platform.hasTouch();
-    if (hasTouch && viewportWidth < 1024) {
-      return true;
-    }
-
-    return false;
+    return this.platform.isNative();
   }
 }

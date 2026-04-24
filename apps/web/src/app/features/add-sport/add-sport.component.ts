@@ -10,11 +10,12 @@
  *
  * Steps:
  *   Step 1 – Sport selection      (OnboardingSportStepComponent)
- *   Step 2 – Connected accounts   (OnboardingLinkDropStepComponent)
+ *   Step 2 – Organization/program selection (OnboardingTeamSelectionStepComponent)
+ *   Step 3 – Connected accounts   (OnboardingLinkDropStepComponent)
  *
  * Roles:
  *   coach / director  → "Add Team" label, linkScope = 'team'
- *   athlete / parent / recruiter → "Add Sport" label, linkScope = 'athlete'
+ *   athlete → "Add Sport" label, linkScope = 'athlete'
  */
 
 import { Component, ChangeDetectionStrategy, inject, ViewChild, OnInit } from '@angular/core';
@@ -22,6 +23,7 @@ import { Component, ChangeDetectionStrategy, inject, ViewChild, OnInit } from '@
 // Shared UI Components
 import { AuthShellComponent } from '@nxt1/ui/auth/auth-shell';
 import { OnboardingSportStepComponent } from '@nxt1/ui/onboarding/onboarding-sport-step';
+import { OnboardingTeamSelectionStepComponent } from '@nxt1/ui/onboarding/onboarding-team-selection-step';
 import { OnboardingLinkDropStepComponent } from '@nxt1/ui/onboarding/onboarding-link-drop-step';
 import { OnboardingNavigationButtonsComponent } from '@nxt1/ui/onboarding/onboarding-navigation-buttons';
 import { OnboardingButtonMobileComponent } from '@nxt1/ui/onboarding/onboarding-button-mobile';
@@ -40,6 +42,7 @@ import { AddSportService } from './add-sport.service';
   imports: [
     AuthShellComponent,
     OnboardingSportStepComponent,
+    OnboardingTeamSelectionStepComponent,
     OnboardingLinkDropStepComponent,
     OnboardingNavigationButtonsComponent,
     OnboardingButtonMobileComponent,
@@ -97,7 +100,24 @@ import { AddSportService } from './add-sport.service';
             </div>
           }
 
-          <!-- Step 2: Connected Accounts -->
+          <!-- Step 2: Organization / Program Selection -->
+          @if (service.currentStep() === 'organization') {
+            <div [attr.data-testid]="testIds.STEP_ORGANIZATION">
+              <nxt1-onboarding-team-selection-step
+                variant="list-row"
+                [teamSelectionData]="service.teamSelectionFormData()"
+                [sportData]="service.sportFormData()"
+                [disabled]="service.isLoading()"
+                [searchTeams]="service.searchTeamsFn"
+                [userType]="service.userRole()"
+                (teamSelectionChange)="service.onTeamSelectionChange($event)"
+                (createProgram)="service.onCreateProgram()"
+                (joinProgram)="service.onJoinProgram()"
+              />
+            </div>
+          }
+
+          <!-- Step 3: Connected Accounts -->
           @if (service.currentStep() === 'link-sources') {
             <div [attr.data-testid]="testIds.STEP_LINK_SOURCES">
               <nxt1-onboarding-link-drop-step
@@ -122,11 +142,15 @@ import { AddSportService } from './add-sport.service';
       >
         @if (!service.isMobile()) {
           <nxt1-onboarding-navigation-buttons
-            [showSkip]="service.isLastStep()"
+            [showSkip]="service.isLastStep() || service.isOrganizationStep()"
             [showBack]="false"
             [isLastStep]="service.isLastStep()"
             [loading]="service.isLoading()"
-            [disabled]="!service.isCurrentStepValid() && !service.isLastStep()"
+            [disabled]="
+              !service.isCurrentStepValid() &&
+              !service.isLastStep() &&
+              !service.isOrganizationStep()
+            "
             (skipClick)="service.onSkip()"
             (continueClick)="service.onContinue()"
           />
@@ -141,10 +165,12 @@ import { AddSportService } from './add-sport.service';
         [totalSteps]="service.totalSteps"
         [currentStepIndex]="service.currentStepIndex()"
         [completedStepIndices]="[]"
-        [showSkip]="service.isLastStep()"
+        [showSkip]="service.isLastStep() || service.isOrganizationStep()"
         [isLastStep]="service.isLastStep()"
         [loading]="service.isLoading()"
-        [disabled]="!service.isCurrentStepValid() && !service.isLastStep()"
+        [disabled]="
+          !service.isCurrentStepValid() && !service.isLastStep() && !service.isOrganizationStep()
+        "
         [showSignOut]="false"
         (skipClick)="service.onSkip()"
         (continueClick)="service.onContinue()"

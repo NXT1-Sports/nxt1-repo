@@ -11,6 +11,7 @@
  * ⭐ WEB ONLY — SSR-safe ⭐
  */
 import { Component, ChangeDetectionStrategy, inject, input, output, computed } from '@angular/core';
+import { ProfileSkeletonComponent } from '../../profile/profile-skeleton.component';
 import {
   type TeamProfilePost,
   type FeedItem,
@@ -24,6 +25,7 @@ import {
   type FeedItemCamp,
   type FeedItemAward,
   type FeedItemNews,
+  type FeedItemSchedule,
   type ContentCardItem,
   feedOfferToContentCard,
   feedCommitmentToContentCard,
@@ -35,13 +37,13 @@ import {
 } from '@nxt1/core';
 import { NxtIconComponent } from '../../components/icon';
 import { NxtActivityCardComponent } from '../../components/activity-card';
-import { FeedCardShellComponent } from '../../feed/feed-card-shell.component';
-import { FeedPostContentComponent } from '../../feed/feed-post-content.component';
-import { FeedStatCardComponent } from '../../feed/feed-stat-card.component';
-import { FeedEventCardComponent } from '../../feed/feed-event-card.component';
-import { FeedMetricsCardComponent } from '../../feed/feed-metrics-card.component';
-import { FeedAwardCardComponent } from '../../feed/feed-award-card.component';
-import { FeedNewsCardComponent } from '../../feed/feed-news-card.component';
+import { FeedCardShellComponent } from '../../post-cards/feed-card-shell.component';
+import { FeedPostContentComponent } from '../../post-cards/feed-post-content.component';
+import { FeedStatCardComponent } from '../../post-cards/feed-stat-card.component';
+import { FeedEventCardComponent } from '../../post-cards/feed-event-card.component';
+import { FeedMetricsCardComponent } from '../../post-cards/feed-metrics-card.component';
+import { FeedAwardCardComponent } from '../../post-cards/feed-award-card.component';
+import { FeedNewsCardComponent } from '../../post-cards/feed-news-card.component';
 import { TeamProfileService } from '../team-profile.service';
 
 @Component({
@@ -57,10 +59,17 @@ import { TeamProfileService } from '../team-profile.service';
     FeedMetricsCardComponent,
     FeedAwardCardComponent,
     FeedNewsCardComponent,
+    ProfileSkeletonComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    @if (effectiveFeed().length > 0) {
+    @if (isLoading()) {
+      <div class="team-timeline-loading" data-testid="team-timeline-loading">
+        @for (i of [1, 2, 3]; track i) {
+          <nxt1-profile-skeleton variant="post" />
+        }
+      </div>
+    } @else if (effectiveFeed().length > 0) {
       <div class="team-timeline-list" data-testid="team-timeline-list">
         @for (item of effectiveFeed(); track item.id; let idx = $index) {
           <nxt1-feed-card-shell
@@ -99,6 +108,9 @@ import { TeamProfileService } from '../team-profile.service';
               }
               @case ('NEWS') {
                 <nxt1-feed-news-card [data]="asNews(item).newsData" />
+              }
+              @case ('SCHEDULE') {
+                <nxt1-feed-event-card [data]="asSchedule(item).eventData" />
               }
               @default {
                 @if (asFallbackContent(item); as content) {
@@ -204,6 +216,9 @@ export class TeamTimelineWebComponent {
   /** New polymorphic feed items (discriminated union FeedItem[]) */
   readonly polymorphicFeed = input<readonly FeedItem[]>([]);
 
+  /** Whether the timeline data is currently loading — shows skeleton post cards */
+  readonly isLoading = input<boolean>(false);
+
   /** Emitted when a post card is clicked */
   readonly postClick = output<TeamProfilePost>();
 
@@ -223,7 +238,9 @@ export class TeamTimelineWebComponent {
    */
   protected readonly effectiveFeed = computed<readonly FeedItem[]>(() => {
     const poly = this.polymorphicFeed();
-    if (poly.length > 0) return poly;
+    if (poly.length > 0) {
+      return this.activeSection() === 'pinned' ? poly.filter((item) => item.isPinned) : poly;
+    }
 
     const team = this.teamProfile.team();
     if (!team) return [];
@@ -304,6 +321,10 @@ export class TeamTimelineWebComponent {
 
   protected asNews(item: FeedItem): FeedItemNews {
     return item as FeedItemNews;
+  }
+
+  protected asSchedule(item: FeedItem): FeedItemSchedule {
+    return item as FeedItemSchedule;
   }
 
   protected asFallbackContent(item: FeedItem): string | null {

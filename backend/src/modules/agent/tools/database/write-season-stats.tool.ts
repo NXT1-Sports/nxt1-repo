@@ -17,10 +17,15 @@
 
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
-import { getCacheService } from '../../../../services/cache.service.js';
-import { CACHE_KEYS as USER_CACHE_KEYS } from '../../../../services/users.service.js';
-import { invalidateProfileCaches } from '../../../../routes/profile.routes.js';
+import { getCacheService } from '../../../../services/core/cache.service.js';
+import {
+  createProfileWriteAccessService,
+  resolveAuthorizedTargetSportSelection,
+} from '../../../../services/profile/profile-write-access.service.js';
+import { CACHE_KEYS as USER_CACHE_KEYS } from '../../../../services/profile/users.service.js';
+import { invalidateProfileCaches } from '../../../../routes/profile/shared.js';
 import { ContextBuilder } from '../../memory/context-builder.js';
+import { getAnalyticsLoggerService } from '../../../../services/core/analytics-logger.service.js';
 import {
   SyncDiffService,
   type PreviousProfileState,
@@ -28,14 +33,57 @@ import {
 } from '../../sync/index.js';
 import { onDailySyncComplete } from '../../triggers/trigger.listeners.js';
 import { logger } from '../../../../utils/logger.js';
+import { resolveCreatedAt, seasonToDate } from './doc-date-utils.js';
+import { z } from 'zod';
 
 type SupportedTeamType = 'school' | 'club' | 'college';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
-const USERS_COLLECTION = 'Users';
 const PLAYER_STATS_COLLECTION = 'PlayerStats';
 const MAX_SEASONS = 20;
+
+const SeasonStatsValueSchema = z.union([z.string(), z.number()]);
+
+const SeasonStatsColumnSchema = z
+  .object({
+    key: z.string().trim().min(1).optional(),
+    label: z.string().trim().min(1).optional(),
+    abbreviation: z.string().trim().min(1).optional(),
+  })
+  .passthrough();
+
+const SeasonStatsGameSchema = z
+  .object({
+    date: z.string().trim().min(1).optional(),
+    opponent: z.string().trim().min(1).optional(),
+    opponentLogoUrl: z.string().trim().min(1).optional(),
+    result: z.string().trim().min(1).optional(),
+    values: z.record(z.string(), SeasonStatsValueSchema).optional(),
+  })
+  .passthrough();
+
+const SeasonStatsEntrySchema = z
+  .object({
+    season: z.string().trim().min(1).optional(),
+    category: z.string().trim().min(1).optional(),
+    columns: z.array(SeasonStatsColumnSchema).optional(),
+    games: z.array(SeasonStatsGameSchema).optional(),
+    totals: z.record(z.string(), SeasonStatsValueSchema).optional(),
+    averages: z.record(z.string(), SeasonStatsValueSchema).optional(),
+  })
+  .passthrough();
+
+const WriteSeasonStatsInputSchema = z.object({
+  userId: z.string().trim().min(1),
+  targetSport: z.string().trim().min(1),
+  source: z.string().trim().min(1),
+  sourceUrl: z.string().trim().min(1).optional(),
+  profileUrl: z.string().trim().min(1).optional(),
+  position: z.string().trim().min(1).optional(),
+  teamType: z.enum(['school', 'club', 'college']).optional(),
+  seasonStats: z.array(SeasonStatsEntrySchema).min(1).max(MAX_SEASONS),
+});
 
 // ─── Tool ───────────────────────────────────────────────────────────────────
 
@@ -49,6 +97,8 @@ export class WriteSeasonStatsTool extends BaseTool {
     '- userId (required): Firebase UID.\n' +
     '- targetSport (required): Sport key (e.g. "football").\n' +
     '- source (required): Platform slug (e.g. "maxpreps").\n' +
+    '- sourceUrl (optional): The URL that was scraped to extract this data.\n' +
+    '- profileUrl (optional): The athlete profile URL on the source platform.\n' +
     '- position (optional): Primary position (e.g. "QB") for PlayerStats docs.\n' +
     '- teamType (optional): "school" (default), "club", or "college".\n' +
     '- seasonStats (required): Array of season stat objects, each with:\n' +
@@ -59,60 +109,13 @@ export class WriteSeasonStatsTool extends BaseTool {
     '  • totals (optional): { [key]: value } season totals.\n' +
     '  • averages (optional): { [key]: value } per-game averages.';
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      userId: { type: 'string' },
-      targetSport: { type: 'string' },
-      source: { type: 'string' },
-      position: { type: 'string' },
-      teamType: { type: 'string', enum: ['school', 'club', 'college'] },
-      seasonStats: {
-        type: 'array',
-        items: {
-          type: 'object',
-          properties: {
-            season: { type: 'string' },
-            category: { type: 'string' },
-            columns: {
-              type: 'array',
-              items: {
-                type: 'object',
-                properties: {
-                  key: { type: 'string' },
-                  label: { type: 'string' },
-                  abbreviation: { type: 'string' },
-                },
-                required: ['key', 'label'],
-              },
-            },
-            games: {
-              type: 'array',
-              items: {
-                type: 'object',
-                properties: {
-                  date: { type: 'string' },
-                  opponent: { type: 'string' },
-                  opponentLogoUrl: { type: 'string' },
-                  result: { type: 'string' },
-                  values: { type: 'object' },
-                },
-              },
-            },
-            totals: { type: 'object' },
-            averages: { type: 'object' },
-          },
-          required: ['season', 'category', 'columns'],
-        },
-      },
-    },
-    required: ['userId', 'targetSport', 'source', 'seasonStats'],
-  } as const;
+  readonly parameters = WriteSeasonStatsInputSchema;
 
   override readonly allowedAgents = ['data_coordinator', 'performance_coordinator'] as const;
   readonly isMutation = true;
   readonly category = 'database' as const;
 
+  readonly entityGroup = 'user_tools' as const;
   private readonly db: Firestore;
 
   constructor(db?: Firestore) {
@@ -124,33 +127,34 @@ export class WriteSeasonStatsTool extends BaseTool {
     input: Record<string, unknown>,
     context?: ToolExecutionContext
   ): Promise<ToolResult> {
-    const userId = this.str(input, 'userId');
-    if (!userId) return this.paramError('userId');
-    const targetSport = this.str(input, 'targetSport');
-    if (!targetSport) return this.paramError('targetSport');
-    const source = this.str(input, 'source');
-    if (!source) return this.paramError('source');
-    const position = this.str(input, 'position') ?? undefined;
-    const teamType = (this.str(input, 'teamType') ?? 'school') as SupportedTeamType;
+    const parsed = WriteSeasonStatsInputSchema.safeParse(input);
+    if (!parsed.success) return this.zodError(parsed.error);
 
-    const seasonStats = input['seasonStats'];
-    if (!Array.isArray(seasonStats) || seasonStats.length === 0) {
-      return { success: false, error: 'seasonStats must be a non-empty array.' };
-    }
-    if (seasonStats.length > MAX_SEASONS) {
-      return { success: false, error: `seasonStats exceeds maximum of ${MAX_SEASONS}.` };
-    }
+    const { userId, targetSport, source, position } = parsed.data;
+    const teamType = (parsed.data.teamType ?? 'school') as SupportedTeamType;
+    const sourceUrl = parsed.data.sourceUrl ?? parsed.data.profileUrl;
+    const seasonStats = parsed.data.seasonStats as Record<string, unknown>[];
 
-    const userRef = this.db.collection(USERS_COLLECTION).doc(userId);
+    if (!context?.userId) {
+      return { success: false, error: 'Authenticated tool context is required.' };
+    }
 
     try {
-      const userDoc = await userRef.get();
-      if (!userDoc.exists) {
-        return { success: false, error: `User "${userId}" not found.` };
-      }
-
-      const userData = userDoc.data() as Record<string, unknown>;
+      const accessGrant = await createProfileWriteAccessService(
+        this.db
+      ).assertCanManageAthleteProfileTarget({
+        actorUserId: context.userId,
+        targetUserId: userId,
+        action: 'tool:write_season_stats',
+      });
+      const userData = accessGrant.targetUserData;
       const sportId = targetSport.trim().toLowerCase();
+      if (
+        !accessGrant.isSelfWrite &&
+        !resolveAuthorizedTargetSportSelection(userData, sportId, accessGrant)
+      ) {
+        return { success: false, error: 'Not authorized to write season stats for this sport.' };
+      }
       const now = new Date().toISOString();
 
       // ── 0. Read existing PlayerStats docs (used for snapshot + merge) ─
@@ -168,7 +172,10 @@ export class WriteSeasonStatsTool extends BaseTool {
       // Snapshot previous state for delta computation
       const previousState = this.snapshotPreviousState(userData, existingPSDocs);
 
-      context?.onProgress?.('Building game logs & flat stats…');
+      context?.emitStage?.('processing_media', {
+        icon: 'database',
+        phase: 'build_game_logs_and_stats',
+      });
 
       // ── 1. Build ProfileSeasonGameLog entries ─────────────────────────
       const gameLogs = this.buildGameLogs(
@@ -193,7 +200,11 @@ export class WriteSeasonStatsTool extends BaseTool {
       const allSeasons = new Set<string>([...flatStats.keys(), ...gameLogsBySeason.keys()]);
       let playerStatsWritten = 0;
 
-      context?.onProgress?.(`Writing ${allSeasons.size} season(s) to PlayerStats…`);
+      context?.emitStage?.('submitting_job', {
+        icon: 'database',
+        seasonCount: allSeasons.size,
+        phase: 'write_player_stats',
+      });
 
       for (const season of allSeasons) {
         const docId = `${userId}_${sportId}_${season}`;
@@ -229,7 +240,11 @@ export class WriteSeasonStatsTool extends BaseTool {
             gameLogs: mergedGameLogs,
             source,
             verified: false,
-            createdAt: existingData?.['createdAt'] ?? now,
+            // Data lineage
+            provider: source,
+            extractedAt: now,
+            ...(sourceUrl ? { sourceUrl } : {}),
+            createdAt: resolveCreatedAt(existingData?.['createdAt'], seasonToDate(season), now),
             updatedAt: now,
           },
           { merge: true }
@@ -238,7 +253,10 @@ export class WriteSeasonStatsTool extends BaseTool {
       }
 
       // ── 5. Cache invalidation ─────────────────────────────────────────
-      context?.onProgress?.('Invalidating stats caches…');
+      context?.emitStage?.('persisting_result', {
+        icon: 'database',
+        phase: 'invalidate_stats_caches',
+      });
       try {
         const cache = getCacheService();
         await Promise.all([
@@ -247,7 +265,6 @@ export class WriteSeasonStatsTool extends BaseTool {
           cache.del(`profile:sub:gamelogs:${userId}:${sportId}`),
           invalidateProfileCaches(
             userId,
-            typeof userData['username'] === 'string' ? userData['username'] : undefined,
             typeof userData['unicode'] === 'string' ? userData['unicode'] : null
           ),
         ]);
@@ -305,6 +322,29 @@ export class WriteSeasonStatsTool extends BaseTool {
         });
       }
 
+      if (playerStatsWritten > 0) {
+        await getAnalyticsLoggerService().safeTrack({
+          subjectId: userId,
+          subjectType: 'user',
+          domain: 'performance',
+          eventType: 'metric_recorded',
+          source: accessGrant.isSelfWrite ? 'user' : 'agent',
+          actorUserId: context.userId,
+          value: playerStatsWritten,
+          tags: ['season-stats', sportId, source],
+          payload: {
+            toolName: this.name,
+            sportId,
+            source,
+            seasonsProcessed: allSeasons.size,
+            gameLogCategories: gameLogs.length,
+          },
+          metadata: {
+            initiatedBy: 'write-season-stats',
+          },
+        });
+      }
+
       return {
         success: true,
         data: {
@@ -331,7 +371,7 @@ export class WriteSeasonStatsTool extends BaseTool {
    * This snapshot is compared against the new extraction to compute the delta.
    */
   private snapshotPreviousState(
-    userData: Record<string, unknown>,
+    _userData: Record<string, unknown>,
     existingPSDocs: Map<string, Record<string, unknown>>
   ): PreviousProfileState {
     const seasonStats: PreviousSeasonEntry[] = [];
@@ -359,18 +399,7 @@ export class WriteSeasonStatsTool extends BaseTool {
     }
 
     return {
-      identity: {
-        firstName: userData['firstName'],
-        lastName: userData['lastName'],
-        displayName: userData['displayName'],
-        height: userData['height'],
-        weight: userData['weight'],
-        classOf: userData['classOf'],
-        city: userData['city'],
-        state: userData['state'],
-        school: userData['school'],
-        profileImage: userData['profileImage'],
-      },
+      // Identity diffing is owned by write_core_identity — omitted here.
       seasonStats,
     };
   }

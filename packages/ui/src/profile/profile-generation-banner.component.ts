@@ -37,24 +37,11 @@ import {
   PLATFORM_ID,
 } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
-import {
-  ProfileGenerationStateService,
-  type GenerationPhase,
-} from './profile-generation-state.service';
+import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/assets';
+import { ProfileGenerationStateService } from './profile-generation-state.service';
 import { NxtLoggingService } from '../services/logging/logging.service';
 import { NxtTrackClickDirective } from '../services/breadcrumb/breadcrumb.service';
 import { PROFILE_GENERATION_TEST_IDS } from '@nxt1/core/testing';
-
-/** Phase icon mapping */
-const PHASE_ICONS: Record<GenerationPhase, string> = {
-  connecting: '🔗',
-  scraping: '📡',
-  analyzing: '🧠',
-  building: '⚡',
-  finalizing: '✨',
-  complete: '🚀',
-  error: '⚠️',
-};
 
 /** Delay before showing the skip button (ms) */
 const SKIP_BUTTON_DELAY_MS = 10_000;
@@ -78,7 +65,18 @@ const DISMISS_ANIMATION_MS = 500;
       <!-- Left: Agent X badge -->
       <div class="gen-banner__icon">
         <div class="gen-banner__badge">
-          <span class="gen-banner__badge-text">X</span>
+          <svg
+            class="gen-banner__badge-logo"
+            viewBox="0 0 612 792"
+            fill="currentColor"
+            stroke="currentColor"
+            stroke-width="12"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path [attr.d]="logoPath" />
+            <polygon [attr.points]="logoPolygon" />
+          </svg>
         </div>
         <div class="gen-banner__pulse" aria-hidden="true"></div>
       </div>
@@ -87,22 +85,13 @@ const DISMISS_ANIMATION_MS = 500;
       <div class="gen-banner__content">
         <div class="gen-banner__header">
           <span class="gen-banner__title">Agent X is building your profile</span>
-          <span class="gen-banner__percent" [attr.data-testid]="testIds.PROGRESS">
-            {{ generation.progress() }}%
-          </span>
-        </div>
-
-        <!-- Progress bar -->
-        <div class="gen-banner__track">
-          <div class="gen-banner__fill" [style.width.%]="generation.progress()">
-            <div class="gen-banner__glow"></div>
-          </div>
         </div>
 
         <!-- Phase message -->
-        <div class="gen-banner__meta">
+        <div class="gen-banner__meta" [attr.data-testid]="testIds.PROGRESS">
+          <span class="gen-banner__spinner" aria-hidden="true"></span>
           <span class="gen-banner__phase" [attr.data-testid]="testIds.PHASE_MESSAGE">
-            {{ phaseIcon() }} {{ generation.message() }}
+            {{ generation.stepMessage() || generation.message() }}
           </span>
         </div>
 
@@ -177,8 +166,8 @@ const DISMISS_ANIMATION_MS = 500;
       .gen-banner__icon {
         position: relative;
         flex-shrink: 0;
-        width: 36px;
-        height: 36px;
+        width: 44px;
+        height: 44px;
         margin-top: 2px;
       }
 
@@ -194,18 +183,15 @@ const DISMISS_ANIMATION_MS = 500;
         z-index: 2;
       }
 
-      .gen-banner__badge-text {
-        font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
-        font-size: 0.9375rem;
-        font-weight: 700;
+      .gen-banner__badge-logo {
+        width: 28px;
+        height: 28px;
         color: var(--nxt1-color-bg-primary, #0a0a0a);
-        letter-spacing: -0.02em;
-        line-height: 1;
       }
 
       .gen-banner__pulse {
         position: absolute;
-        inset: -4px;
+        inset: -6px;
         border-radius: 50%;
         border: 1.5px solid rgba(204, 255, 0, 0.2);
         animation: bannerPulse 2.5s cubic-bezier(0.4, 0, 0.2, 1) infinite;
@@ -249,46 +235,28 @@ const DISMISS_ANIMATION_MS = 500;
         text-overflow: ellipsis;
       }
 
-      .gen-banner__percent {
-        font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
-        font-size: 0.8125rem;
-        font-weight: 600;
-        color: var(--nxt1-color-primary, #ccff00);
-        font-variant-numeric: tabular-nums;
+      /* ═══ META ═══ */
+      .gen-banner__meta {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--nxt1-spacing-2, 0.5rem);
+        margin-bottom: var(--nxt1-spacing-1, 0.25rem);
+      }
+
+      .gen-banner__spinner {
+        width: 14px;
+        height: 14px;
+        border-radius: 50%;
+        border: 1.5px solid rgba(204, 255, 0, 0.25);
+        border-top-color: var(--nxt1-color-primary, #ccff00);
+        animation: genBannerSpin 0.75s linear infinite;
         flex-shrink: 0;
       }
 
-      /* ═══ PROGRESS BAR ═══ */
-      .gen-banner__track {
-        width: 100%;
-        height: 3px;
-        border-radius: var(--nxt1-radius-full, 9999px);
-        background: var(--nxt1-color-surface-2, rgba(255, 255, 255, 0.06));
-        overflow: hidden;
-        margin-bottom: var(--nxt1-spacing-1, 0.25rem);
-      }
-
-      .gen-banner__fill {
-        height: 100%;
-        border-radius: var(--nxt1-radius-full, 9999px);
-        background: var(--nxt1-color-primary, #ccff00);
-        transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1);
-        position: relative;
-      }
-
-      .gen-banner__glow {
-        position: absolute;
-        right: 0;
-        top: -2px;
-        width: 16px;
-        height: 7px;
-        background: radial-gradient(ellipse, rgba(204, 255, 0, 0.5), transparent);
-        filter: blur(3px);
-      }
-
-      /* ═══ META ═══ */
-      .gen-banner__meta {
-        margin-bottom: var(--nxt1-spacing-1, 0.25rem);
+      @keyframes genBannerSpin {
+        to {
+          transform: rotate(360deg);
+        }
       }
 
       .gen-banner__phase {
@@ -374,12 +342,13 @@ const DISMISS_ANIMATION_MS = 500;
         }
 
         .gen-banner__icon {
-          width: 30px;
-          height: 30px;
+          width: 36px;
+          height: 36px;
         }
 
-        .gen-banner__badge-text {
-          font-size: 0.8125rem;
+        .gen-banner__badge-logo {
+          width: 22px;
+          height: 22px;
         }
       }
     `,
@@ -390,6 +359,8 @@ export class ProfileGenerationBannerComponent implements OnInit, OnDestroy {
   protected readonly generation = inject(ProfileGenerationStateService);
   private readonly logger = inject(NxtLoggingService).child('ProfileGenerationBanner');
   private readonly platformId = inject(PLATFORM_ID);
+  protected readonly logoPath = AGENT_X_LOGO_PATH;
+  protected readonly logoPolygon = AGENT_X_LOGO_POLYGON;
 
   /** Test IDs from shared constants */
   protected readonly testIds = PROFILE_GENERATION_TEST_IDS;
@@ -400,9 +371,6 @@ export class ProfileGenerationBannerComponent implements OnInit, OnDestroy {
   protected readonly isDismissing = signal(false);
   protected readonly showSkip = signal(false);
   private skipTimer: ReturnType<typeof setTimeout> | null = null;
-
-  /** Phase icon for current phase */
-  protected readonly phaseIcon = computed(() => PHASE_ICONS[this.generation.phase()]);
 
   /** Split platforms string into array for badges */
   protected readonly platformList = computed<string[]>(() => {

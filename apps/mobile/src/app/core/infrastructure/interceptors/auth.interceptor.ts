@@ -28,6 +28,7 @@ const PUBLIC_ENDPOINTS = [
   '/auth/referral/validate',
   '/auth/profile/check-username',
   '/auth/create-user',
+  '/invite/validate', // Needed on join page — user may not be authenticated yet
   '/sitemap',
   '/rankings/public',
   '/explore',

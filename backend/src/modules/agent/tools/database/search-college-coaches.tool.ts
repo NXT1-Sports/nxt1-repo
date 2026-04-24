@@ -26,8 +26,9 @@
  */
 
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
-import { CollegeModel } from '../../../../models/college.model.js';
-import { ContactModel } from '../../../../models/contact.model.js';
+import { CollegeModel } from '../../../../models/core/college.model.js';
+import { ContactModel } from '../../../../models/core/contact.model.js';
+import { z } from 'zod';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -36,6 +37,14 @@ const MAX_COLLEGES = 10;
 
 /** Hard ceiling on contacts per college. */
 const MAX_CONTACTS_PER_COLLEGE = 25;
+
+const SearchCollegeCoachesInputSchema = z.object({
+  collegeName: z.string().trim().min(1),
+  sport: z.string().trim().min(1).optional(),
+  state: z.string().trim().min(1).optional(),
+  position: z.string().trim().min(1).optional(),
+  limit: z.coerce.number().optional(),
+});
 
 // ─── State Normalization (shared with search-colleges) ──────────────────────
 
@@ -118,65 +127,35 @@ export class SearchCollegeCoachesTool extends BaseTool {
     'Results include: coach name, position/title, email, phone number, Twitter handle. ' +
     'If 0 results are returned, pivot to the web_search tool to find the information online.';
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      collegeName: {
-        type: 'string',
-        description:
-          'The name of the college or university to look up coaching staff for. ' +
-          'Examples: "Ohio State", "Duke", "Alabama", "UCLA". ' +
-          'Supports partial matches and text search.',
-      },
-      sport: {
-        type: 'string',
-        description:
-          'Filter coaches by sport. Examples: "Football", "Basketball", "Soccer", ' +
-          '"Volleyball", "Baseball", "Softball", "Track & Field". ' +
-          'Case-insensitive. If omitted, returns all coaches for the college.',
-      },
-      state: {
-        type: 'string',
-        description:
-          'Filter colleges by US state — two-letter abbreviation ("OH") or full name ("Ohio"). ' +
-          'Useful when `collegeName` is ambiguous (e.g., multiple "Liberty" schools).',
-      },
-      position: {
-        type: 'string',
-        description:
-          'Filter coaches by position/title. Examples: "Head Coach", "Assistant Coach", ' +
-          '"Offensive Coordinator", "Recruiting Coordinator". Case-insensitive partial match.',
-      },
-      limit: {
-        type: 'number',
-        description: `Number of colleges to return (1–${MAX_COLLEGES}). Defaults to 5.`,
-      },
-    },
-    required: ['collegeName'],
-  } as const;
+  readonly parameters = SearchCollegeCoachesInputSchema;
 
   override readonly allowedAgents = ['*'] as const;
   readonly isMutation = false;
   readonly category = 'database' as const;
 
+  readonly entityGroup = 'platform_tools' as const;
   // ─── Execute ────────────────────────────────────────────────────────
 
   async execute(
     input: Record<string, unknown>,
     context?: ToolExecutionContext
   ): Promise<ToolResult> {
-    // ── 1. Parse & validate input ──────────────────────────────────────
-    const collegeName = this.str(input, 'collegeName');
-    if (!collegeName) {
-      return this.paramError('collegeName');
+    const parsed = SearchCollegeCoachesInputSchema.safeParse(input);
+    if (!parsed.success) {
+      return {
+        success: false,
+        error: parsed.error.issues
+          .map((issue) =>
+            issue.path.length > 0 ? `${issue.path.join('.')}: ${issue.message}` : issue.message
+          )
+          .join(', '),
+      };
     }
 
-    const progress = context?.onProgress;
+    const emitStage = context?.emitStage;
 
-    const sport = this.str(input, 'sport');
-    const rawState = this.str(input, 'state');
-    const position = this.str(input, 'position');
-    const rawLimit = this.num(input, 'limit') ?? 5;
+    const { collegeName, sport, state: rawState, position } = parsed.data;
+    const rawLimit = parsed.data.limit ?? 5;
     const limit = Math.min(Math.max(1, Math.round(rawLimit)), MAX_COLLEGES);
 
     // ── 2. Build the college match filter ──────────────────────────────
@@ -203,7 +182,14 @@ export class SearchCollegeCoachesTool extends BaseTool {
       collegeMatch['sport'] = { $regex: escapeRegex(sport), $options: 'i' };
     }
 
-    progress?.(`Looking up coaching staff for "${collegeName}"…`);
+    emitStage?.('fetching_data', {
+      icon: 'search',
+      collegeName,
+      sport,
+      position,
+      limit,
+      phase: 'lookup_coaching_staff',
+    });
 
     // ── 3. Build aggregation pipeline ──────────────────────────────────
     try {
@@ -352,9 +338,13 @@ export class SearchCollegeCoachesTool extends BaseTool {
 
       // ── 5. Calculate total coaches found ─────────────────────────────
       const totalCoaches = results.reduce((sum, r) => sum + r.coachCount, 0);
-      progress?.(
-        `Found ${totalCoaches} coach${totalCoaches !== 1 ? 'es' : ''} across ${results.length} college${results.length !== 1 ? 's' : ''}`
-      );
+      emitStage?.('fetching_data', {
+        icon: 'search',
+        collegeName,
+        totalCoaches,
+        collegeCount: results.length,
+        phase: 'coaching_staff_found',
+      });
 
       // ── 6. Return results ────────────────────────────────────────────
       if (totalCoaches === 0) {

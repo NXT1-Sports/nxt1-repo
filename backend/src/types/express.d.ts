@@ -8,7 +8,7 @@
 import type { Firestore } from 'firebase-admin/firestore';
 import type { Auth } from 'firebase-admin/auth';
 import type { Storage } from 'firebase-admin/storage';
-import { AuthenticatedUser } from '../middleware/auth.middleware.js';
+import { AuthenticatedUser } from '../middleware/auth/auth.middleware.js';
 
 declare global {
   namespace Express {

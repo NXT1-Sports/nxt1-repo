@@ -32,15 +32,39 @@
  * over all high-stakes actions.
  */
 
+import { isDeepStrictEqual } from 'node:util';
 import type { Firestore } from 'firebase-admin/firestore';
 import { FieldValue } from 'firebase-admin/firestore';
-import type { AgentApprovalRequest, AgentApprovalStatus, AgentApprovalPolicy } from '@nxt1/core';
-import { AGENT_APPROVAL_POLICIES, NOTIFICATION_TYPES } from '@nxt1/core';
-import { dispatch } from '../../../services/notification.service.js';
+import type {
+  AgentApprovalReasonCode,
+  AgentApprovalRequest,
+  AgentApprovalStatus,
+  AgentApprovalPolicy,
+} from '@nxt1/core';
+import { AGENT_APPROVAL_POLICIES, NOTIFICATION_TYPES, resolveAgentApprovalCopy } from '@nxt1/core';
+import { dispatch } from '../../../services/communications/notification.service.js';
+import { getAgentAnalyticsGate } from './agent-analytics-gate.js';
 import { logger } from '../../../utils/logger.js';
 
 /** Firestore collection for approval request documents. */
-const APPROVALS_COLLECTION = 'agentApprovalRequests' as const;
+const APPROVALS_COLLECTION = 'AgentApprovalRequests' as const;
+
+const LIVE_VIEW_DESTRUCTIVE_KEYWORDS =
+  /\b(submit|send|confirm|purchase|buy|place\s+order|delete|remove|pay|checkout|sign\s+up|register|apply|publish|post|transfer|authorize|approve)\b/i;
+
+const LIVE_VIEW_APPROVAL_POLICY: AgentApprovalPolicy = {
+  toolName: 'interact_with_live_view',
+  requiresApproval: true,
+  autoApproveOnExpiry: false,
+  expiryMs: 86_400_000,
+  riskLevel: 'high',
+};
+
+export interface ApprovalRequirement {
+  readonly policy: AgentApprovalPolicy;
+  readonly reasonCode: AgentApprovalReasonCode;
+  readonly actionSummary: string;
+}
 
 export class ApprovalGateService {
   constructor(private readonly db: Firestore) {}
@@ -55,6 +79,68 @@ export class ApprovalGateService {
     const policy = AGENT_APPROVAL_POLICIES.find((p) => p.toolName === toolName);
     if (!policy || !policy.requiresApproval) return null;
     return policy;
+  }
+
+  /**
+   * Determine whether a specific tool invocation requires approval.
+   * Some tools always require approval (`send_email`), while others only
+   * require approval conditionally (for example destructive live-view actions).
+   */
+  getApprovalRequirement(
+    toolName: string,
+    toolInput: Record<string, unknown>
+  ): ApprovalRequirement | null {
+    const staticPolicy = this.getApprovalPolicy(toolName);
+    if (staticPolicy) {
+      const copy = resolveAgentApprovalCopy({
+        toolName,
+        toolInput,
+      });
+      return {
+        policy: staticPolicy,
+        reasonCode: copy.reasonCode,
+        actionSummary: copy.actionSummary,
+      };
+    }
+
+    if (toolName === 'interact_with_live_view') {
+      const prompt = typeof toolInput['prompt'] === 'string' ? toolInput['prompt'].trim() : '';
+      if (!prompt || !LIVE_VIEW_DESTRUCTIVE_KEYWORDS.test(prompt)) {
+        return null;
+      }
+
+      const copy = resolveAgentApprovalCopy({
+        toolName,
+        toolInput,
+      });
+      return {
+        policy: LIVE_VIEW_APPROVAL_POLICY,
+        reasonCode: copy.reasonCode,
+        actionSummary: copy.actionSummary,
+      };
+    }
+
+    return null;
+  }
+
+  /**
+   * Verify that an approval has already been granted for the exact pending tool call.
+   */
+  async isApprovalGranted(
+    approvalId: string,
+    userId: string,
+    toolName: string,
+    toolInput: Record<string, unknown>
+  ): Promise<boolean> {
+    const approval = await this.getApproval(approvalId);
+    if (!approval) return false;
+
+    return (
+      approval.userId === userId &&
+      approval.toolName === toolName &&
+      (approval.status === 'approved' || approval.status === 'auto_approved') &&
+      isDeepStrictEqual(approval.toolInput, toolInput)
+    );
   }
 
   /**
@@ -74,14 +160,25 @@ export class ApprovalGateService {
     reasoning?: string;
     threadId?: string;
   }): Promise<AgentApprovalRequest> {
-    const policy = this.getApprovalPolicy(params.toolName);
+    const requirement = this.getApprovalRequirement(params.toolName, params.toolInput);
+    const policy = requirement?.policy ?? this.getApprovalPolicy(params.toolName);
+    const fallbackCopy = resolveAgentApprovalCopy({
+      toolName: params.toolName,
+      toolInput: params.toolInput,
+    });
+    const approvalCopy = requirement ?? {
+      policy: policy ?? LIVE_VIEW_APPROVAL_POLICY,
+      reasonCode: fallbackCopy.reasonCode,
+      actionSummary: fallbackCopy.actionSummary,
+    };
 
     const request: AgentApprovalRequest = {
       id: `approval_${crypto.randomUUID()}`,
       operationId: params.operationId,
       taskId: params.taskId,
       userId: params.userId,
-      actionSummary: params.actionSummary,
+      actionSummary: approvalCopy.actionSummary,
+      reasonCode: approvalCopy.reasonCode,
       toolName: params.toolName,
       toolInput: params.toolInput,
       reasoning: params.reasoning,
@@ -106,13 +203,21 @@ export class ApprovalGateService {
       userId: params.userId,
     });
 
+    // Track the approval-pending event in the user's analytics record (fire-and-forget)
+    getAgentAnalyticsGate().trackApprovalRequested({
+      userId: params.userId,
+      operationId: params.operationId,
+      toolName: params.toolName,
+      threadId: params.threadId,
+    });
+
     // Send push notification via unified NotificationService
     try {
       await dispatch(this.db, {
         userId: params.userId,
-        type: NOTIFICATION_TYPES.AGENT_ACTION,
-        title: 'Agent X needs your approval',
-        body: params.actionSummary,
+        type: NOTIFICATION_TYPES.DYNAMIC_AGENT_ALERT,
+        title: fallbackCopy.notificationTitle,
+        body: fallbackCopy.notificationBody,
         deepLink: params.threadId
           ? `/agent-x?thread=${encodeURIComponent(params.threadId)}`
           : '/agent-x',
@@ -188,6 +293,14 @@ export class ApprovalGateService {
         decision,
         resolvedBy,
         operationId: request.operationId,
+      });
+
+      // Track the approval decision in the user's analytics record (fire-and-forget)
+      getAgentAnalyticsGate().trackApprovalResolved({
+        userId: request.userId,
+        operationId: request.operationId,
+        toolName: request.toolName,
+        decision,
       });
 
       return {

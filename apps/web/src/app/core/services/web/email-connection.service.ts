@@ -31,6 +31,7 @@ import {
   getFieldErrors,
 } from '@nxt1/core/errors';
 import type { InboxEmailProvider } from '@nxt1/core';
+import { GOOGLE_GMAIL_CONNECT_SCOPES } from '@nxt1/core/auth';
 import { environment } from '../../../../environments/environment';
 import { AUTH_SERVICE, type IAuthService } from '../auth/auth.interface';
 
@@ -65,7 +66,7 @@ export class WebEmailConnectionService {
 
     try {
       if (provider.id === 'gmail') {
-        await this._connectGmail(userId);
+        await this._connectGoogleOAuth(userId);
       } else if (provider.id === 'microsoft') {
         await this._connectMicrosoft(userId);
       } else if (provider.id === 'yahoo') {
@@ -361,8 +362,9 @@ export class WebEmailConnectionService {
 
       // Create Google provider with Gmail scopes
       const provider = new GoogleAuthProvider();
-      provider.addScope('https://www.googleapis.com/auth/gmail.send');
-      provider.addScope('https://www.googleapis.com/auth/gmail.readonly');
+      for (const scope of GOOGLE_GMAIL_CONNECT_SCOPES) {
+        provider.addScope(scope);
+      }
       provider.setCustomParameters({
         prompt: 'select_account', // Force account selection
       });

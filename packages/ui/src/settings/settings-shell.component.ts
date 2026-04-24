@@ -47,6 +47,7 @@ import { NxtHeaderPortalService } from '../services/header-portal';
 import { NxtRefresherComponent, type RefreshEvent } from '../components/refresh-container';
 import { NxtToastService } from '../services/toast/toast.service';
 import { NxtLoggingService } from '../services/logging/logging.service';
+import { NxtBrowserService } from '../services/browser';
 import { SettingsService } from './settings.service';
 import {
   SettingsSectionComponent,
@@ -333,6 +334,7 @@ export interface SettingsUser {
 export class SettingsShellComponent implements OnInit, AfterViewInit, OnDestroy {
   protected readonly settings = inject(SettingsService);
   private readonly toast = inject(NxtToastService);
+  private readonly browser = inject(NxtBrowserService);
   private readonly connectedAccountsModal = inject(ConnectedAccountsModalService);
   private readonly logger = inject(NxtLoggingService).child('SettingsShellComponent');
   private readonly headerPortal = inject(NxtHeaderPortalService);
@@ -504,8 +506,11 @@ export class SettingsShellComponent implements OnInit, AfterViewInit, OnDestroy 
     this.logger.debug('Navigation requested', { itemId: event.itemId, route: event.route });
 
     if (event.externalUrl) {
-      // Open external URL
-      window.open(event.externalUrl, '_blank', 'noopener,noreferrer');
+      void this.browser.openLink({
+        url: event.externalUrl,
+        source: 'settings_external_link',
+        surface: 'page',
+      });
     } else {
       // Emit navigation event for parent to handle
       this.navigate.emit(event);
@@ -564,6 +569,8 @@ export class SettingsShellComponent implements OnInit, AfterViewInit, OnDestroy 
       selectedSports: currentUser?.selectedSports ?? [],
       linkSourcesData: currentUser?.linkSourcesData ?? null,
       scope: currentUser?.scope ?? 'athlete',
+      // In web shell mode (desktop + mobile viewport), always use modal.
+      preferWebOverlayOnBrowser: !this.showPageHeader(),
     });
 
     this.logger.debug('Connected accounts dismissed', {
@@ -571,13 +578,16 @@ export class SettingsShellComponent implements OnInit, AfterViewInit, OnDestroy 
       resync: result.resync,
     });
 
-    if (result.resync) {
-      await this.settings.requestConnectedAccountsResync(result.sources ?? []);
-    } else if (result.saved && result.updatedLinks) {
+    if (result.linkSources && result.updatedLinks) {
       this.action.emit({
         itemId: 'connectedAccounts',
         action: 'saveConnectedAccounts',
-        data: { updatedLinks: result.updatedLinks, linkSources: result.linkSources },
+        data: {
+          updatedLinks: result.updatedLinks,
+          linkSources: result.linkSources,
+          requestResync: result.resync === true,
+          resyncSources: result.sources ?? [],
+        },
       } as SettingsActionEvent);
     }
   }

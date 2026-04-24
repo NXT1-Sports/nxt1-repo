@@ -415,20 +415,32 @@ export class AgentXBillingActionCardComponent {
 
     try {
       if (this.isPersonal()) {
-        // B2C: Show credit purchase bottom sheet
-        const amountCents = await this.usageBottomSheet.showBuyCreditsOptions();
-        if (amountCents) {
+        const { amountCents, autoTopup } = await this.usageBottomSheet.showBuyCreditsWithAutoTopup({
+          autoTopupEnabled: this.usageService.autoTopUpEnabled(),
+          autoTopupThresholdCents: this.usageService.autoTopUpThresholdCents(),
+          autoTopupAmountCents: this.usageService.autoTopUpAmountCents(),
+          allowIap: this.usageService.isPersonalBillingMode(),
+        });
+
+        if (amountCents !== null) {
           await this.usageService.buyCredits(amountCents);
           this.logger.info('Credits purchased from billing card', { amountCents });
           this.analytics?.trackEvent(APP_EVENTS.AGENT_X_BILLING_CARD_PURCHASE_COMPLETED, {
             reason,
             amountCents,
           });
+        }
+
+        if (autoTopup !== null) {
+          await this.usageService.configureAutoTopUp(autoTopup);
+        }
+
+        if (amountCents !== null || autoTopup !== null) {
           await this.haptics.notification('success');
           this.actionResolved.emit({ reason, completed: true });
           return;
         }
-        // User dismissed the bottom sheet
+
         this.actionResolved.emit({ reason, completed: false });
       } else {
         // B2B: Open Stripe Customer Portal

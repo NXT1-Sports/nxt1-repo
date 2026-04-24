@@ -42,7 +42,7 @@ import {
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { IonInput, IonSelect, IonSelectOption } from '@ionic/angular/standalone';
-import type { ContactFormData } from '@nxt1/core/api';
+import type { ContactFormData } from '@nxt1/core/onboarding';
 import { US_STATES, type USState } from '@nxt1/core/constants';
 import { isValidEmail, isValidPhone } from '@nxt1/core/helpers';
 import type { ILogger } from '@nxt1/core/logging';

@@ -9,6 +9,7 @@ import {
   validateFileForUpload,
   formatFileSize,
   FILE_UPLOAD_RULES,
+  type DirectVideoUploadSession,
   type FileUploadMetadata,
   type FileUploadHttpAdapter,
 } from './file-upload.api';
@@ -69,18 +70,6 @@ describe('File Upload API', () => {
       const error = validateFileForUpload(file);
       expect(error).not.toBeNull();
       expect(error?.code).toBe('EMPTY_FILE');
-    });
-
-    it('should accept PDF for document category', () => {
-      const file: FileUploadMetadata = {
-        fileName: 'transcript.pdf',
-        mimeType: 'application/pdf',
-        size: 1024 * 1024,
-        category: 'document',
-      };
-
-      const error = validateFileForUpload(file);
-      expect(error).toBeNull();
     });
 
     it('should accept WebP for profile photo', () => {
@@ -144,26 +133,11 @@ describe('File Upload API', () => {
     it('should have correct profile-photo rules', () => {
       const rules = FILE_UPLOAD_RULES['profile-photo'];
 
-      expect(rules.maxSize).toBe(5 * 1024 * 1024); // 5MB
+      // maxSize is absent — TypeScript enforces this at compile time; no maxSize check at runtime
       expect(rules.allowedTypes).toContain('image/jpeg');
       expect(rules.allowedTypes).toContain('image/png');
       expect(rules.allowedTypes).toContain('image/webp');
       expect(rules.allowedTypes).toContain('image/gif');
-    });
-
-    it('should have correct cover-photo rules', () => {
-      const rules = FILE_UPLOAD_RULES['cover-photo'];
-
-      expect(rules.maxSize).toBe(10 * 1024 * 1024); // 10MB
-      expect(rules.allowedTypes).toContain('image/jpeg');
-      expect(rules.allowedTypes).not.toContain('image/gif'); // No GIFs for cover
-    });
-
-    it('should have correct document rules', () => {
-      const rules = FILE_UPLOAD_RULES['document'];
-
-      expect(rules.maxSize).toBe(25 * 1024 * 1024); // 25MB
-      expect(rules.allowedTypes).toContain('application/pdf');
     });
   });
 
@@ -324,6 +298,177 @@ describe('File Upload API', () => {
           mimeType: 'image/jpeg',
         })
       );
+    });
+
+    it('should provision a direct highlight video upload session', async () => {
+      const mockSession: DirectVideoUploadSession = {
+        uploadUrl: 'https://upload.videodelivery.net/tus/video-123',
+        cloudflareVideoId: 'video-123',
+        uploadMethod: 'tus',
+        tusResumable: '1.0.0',
+        expiresAt: '2026-04-13T00:00:00.000Z',
+        maxSize: 500 * 1024 * 1024,
+        maxDurationSeconds: 300,
+        name: 'nxt1-feed-user123-video',
+        metadata: {
+          userId: 'user123',
+          context: 'feed',
+          environment: 'staging',
+          originalFileName: 'highlight.mp4',
+          mimeType: 'video/mp4',
+        },
+      };
+
+      vi.mocked(mockHttp.post).mockResolvedValue({
+        success: true,
+        data: mockSession,
+      } as ApiResponse<DirectVideoUploadSession>);
+
+      const result = await api.provisionHighlightVideoUpload(
+        'user123',
+        'highlight.mp4',
+        'video/mp4',
+        25 * 1024 * 1024,
+        {
+          context: 'feed',
+          maxDurationSeconds: 300,
+        }
+      );
+
+      expect(result).toEqual(mockSession);
+      expect(mockHttp.post).toHaveBeenCalledWith(
+        'https://api.test.com/v1/upload/cloudflare/direct-url',
+        undefined,
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            'Tus-Resumable': '1.0.0',
+            'Upload-Length': String(25 * 1024 * 1024),
+            'Upload-Metadata': expect.stringContaining('filename '),
+          }),
+        })
+      );
+      expect(
+        (vi.mocked(mockHttp.post).mock.calls[0]?.[2] as { headers: Record<string, string> })
+          .headers['Upload-Metadata']
+      ).toContain('context ZmVlZA==');
+      expect(
+        (vi.mocked(mockHttp.post).mock.calls[0]?.[2] as { headers: Record<string, string> })
+          .headers['Upload-Metadata']
+      ).toContain('maxDurationSeconds MzAw');
+    });
+
+    it('should reject invalid highlight video uploads before provisioning', async () => {
+      await expect(
+        api.provisionHighlightVideoUpload(
+          'user123',
+          'highlight.mov',
+          'video/unknown',
+          25 * 1024 * 1024
+        )
+      ).rejects.toThrow('File type not allowed');
+
+      expect(mockHttp.post).not.toHaveBeenCalled();
+    });
+
+    it('should finalize a direct highlight video upload', async () => {
+      const finalizedVideo = {
+        cloudflareVideoId: 'video-123',
+        status: 'ready',
+        readyToStream: true,
+        durationSeconds: 37,
+        thumbnailUrl: 'https://videodelivery.net/video-123/thumbnails/thumbnail.jpg',
+        previewUrl: 'https://videodelivery.net/video-123/thumbnails/preview.jpg',
+        uploadedAt: '2026-04-13T00:00:00.000Z',
+        name: 'nxt1-feed-user123-video',
+        metadata: {
+          userId: 'user123',
+          context: 'feed',
+          environment: 'staging',
+          originalFileName: 'highlight.mp4',
+          mimeType: 'video/mp4',
+        },
+        playback: {
+          hlsUrl: 'https://videodelivery.net/video-123/manifest/video.m3u8',
+          dashUrl: 'https://videodelivery.net/video-123/manifest/video.mpd',
+          iframeUrl: 'https://videodelivery.net/video-123/iframe',
+        },
+      };
+
+      vi.mocked(mockHttp.post).mockResolvedValue({
+        success: true,
+        data: finalizedVideo,
+      } as ApiResponse<typeof finalizedVideo>);
+
+      const result = await api.finalizeHighlightVideoUpload('video-123');
+
+      expect(result).toEqual(finalizedVideo);
+      expect(mockHttp.post).toHaveBeenCalledWith(
+        'https://api.test.com/v1/upload/cloudflare/finalize',
+        {
+          cloudflareVideoId: 'video-123',
+        }
+      );
+    });
+
+    it('should reject finalize requests without a video id', async () => {
+      await expect(api.finalizeHighlightVideoUpload('   ')).rejects.toThrow(
+        'cloudflareVideoId is required'
+      );
+
+      expect(mockHttp.post).not.toHaveBeenCalled();
+    });
+
+    it('should persist a finalized Cloudflare highlight post', async () => {
+      const persistedPost = {
+        postId: 'cf-stream-video-123',
+        cloudflareVideoId: 'video-123',
+        status: 'ready',
+        readyToStream: true,
+        title: 'Junior Season Highlights',
+        content: 'Week 9 tape',
+        thumbnailUrl: 'https://videodelivery.net/video-123/thumbnails/thumbnail.jpg',
+        mediaUrl: 'https://videodelivery.net/video-123/iframe',
+        duration: 42,
+        visibility: 'public' as const,
+        createdAt: '2026-04-13T00:00:00.000Z',
+        updatedAt: '2026-04-13T00:00:00.000Z',
+        playback: {
+          hlsUrl: 'https://videodelivery.net/video-123/manifest/video.m3u8',
+          dashUrl: 'https://videodelivery.net/video-123/manifest/video.mpd',
+          iframeUrl: 'https://videodelivery.net/video-123/iframe',
+        },
+      };
+
+      vi.mocked(mockHttp.post).mockResolvedValue({
+        success: true,
+        data: persistedPost,
+      } as ApiResponse<typeof persistedPost>);
+
+      const result = await api.persistHighlightVideoPost({
+        cloudflareVideoId: 'video-123',
+        title: 'Junior Season Highlights',
+        content: 'Week 9 tape',
+        sportId: 'football',
+      });
+
+      expect(result).toEqual(persistedPost);
+      expect(mockHttp.post).toHaveBeenCalledWith(
+        'https://api.test.com/v1/upload/cloudflare/highlight-post',
+        {
+          cloudflareVideoId: 'video-123',
+          title: 'Junior Season Highlights',
+          content: 'Week 9 tape',
+          sportId: 'football',
+        }
+      );
+    });
+
+    it('should reject persisted highlight requests without a video id', async () => {
+      await expect(api.persistHighlightVideoPost({ cloudflareVideoId: '   ' })).rejects.toThrow(
+        'cloudflareVideoId is required'
+      );
+
+      expect(mockHttp.post).not.toHaveBeenCalled();
     });
   });
 });

@@ -28,10 +28,8 @@ import { ProfileService } from '../profile.service';
       <!-- ═══ MADDEN SHOWCASE: Banner + Player Image with Fade ═══ -->
       <div class="mc-showcase">
         <!-- Background: Banner image or dark -->
-        <div class="mc-showcase-bg" [style.backgroundImage]="bannerStyle()">
-          @if (!user()?.bannerImg) {
-            <div class="mc-showcase-grid" aria-hidden="true"></div>
-          }
+        <div class="mc-showcase-bg">
+          <div class="mc-showcase-grid" aria-hidden="true"></div>
           <div class="mc-showcase-overlay" aria-hidden="true"></div>
         </div>
 
@@ -464,10 +462,5 @@ export class ProfileHeaderWebComponent {
   protected readonly starsArray = computed(() => {
     const count = this.playerCard()?.prospectGrade?.starRating ?? 0;
     return Array.from({ length: count });
-  });
-
-  protected readonly bannerStyle = computed(() => {
-    const banner = this.user()?.bannerImg;
-    return banner ? `url(${banner})` : 'none';
   });
 }

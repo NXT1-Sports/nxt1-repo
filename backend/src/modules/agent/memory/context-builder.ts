@@ -37,13 +37,26 @@
  * - getUserById cache is separately invalidated by the profile update flow
  */
 
-import type { AgentUserContext, AgentConnectedAccount } from '@nxt1/core';
+import type {
+  AgentConnectedAccount,
+  AgentPromptContext,
+  AgentRetrievedMemories,
+  AgentUserContext,
+} from '@nxt1/core';
 import { getFirestore } from 'firebase-admin/firestore';
-import { getUserById, type UserData } from '../../../services/users.service.js';
-import { getCacheService, CACHE_TTL } from '../../../services/cache.service.js';
-import { TeamServiceAdapter } from '../../../services/team-adapter.service.js';
-import { AgentMessageModel } from '../../../models/agent-message.model.js';
-import { AgentThreadModel } from '../../../models/agent-thread.model.js';
+import { getUserById, type UserData } from '../../../services/profile/users.service.js';
+import { getCacheService, CACHE_TTL } from '../../../services/core/cache.service.js';
+import { TeamServiceAdapter } from '../../../adapters/team.adapter.js';
+import { getSyncDeltaEventService } from '../../../services/core/sync-delta-event.service.js';
+import { AgentMessageModel } from '../../../models/agent/agent-message.model.js';
+import { AgentThreadModel } from '../../../models/agent/agent-thread.model.js';
+import type { VectorMemoryService } from './vector.service.js';
+import {
+  type AgentSeasonInfo,
+  getAgentAppConfig,
+  resolveRolePersona as resolveConfiguredRolePersona,
+  resolveSeasonInfo as resolveConfiguredSeasonInfo,
+} from '../config/agent-app-config.js';
 import { logger } from '../../../utils/logger.js';
 
 /** Cache key prefix for assembled agent context. Exported so callers can build/invalidate the same key without hardcoding. */
@@ -52,6 +65,24 @@ export const AGENT_CONTEXT_PREFIX = 'agent:context:';
 /** TTL for the assembled context (same as profile: 15 min). */
 const AGENT_CONTEXT_TTL = CACHE_TTL.PROFILES;
 
+const MEMORY_RECALL_TIMEOUT_MS = 1200;
+const RECENT_SYNC_TIMEOUT_MS = 800;
+const MEMORY_RESULTS_PER_TARGET = 3;
+const RECENT_SYNC_RESULTS_LIMIT = 4;
+
+const EMPTY_RETRIEVED_MEMORIES: AgentRetrievedMemories = {
+  user: [],
+  team: [],
+  organization: [],
+};
+
+type TeamLike = {
+  id?: string;
+  organizationId?: string;
+  sportName?: string;
+  sport?: string;
+};
+
 /**
  * Parse a height string (e.g., "6'2\"", "6-2", "74") into total inches.
  * Returns undefined if the string is unparseable.
@@ -59,11 +90,9 @@ const AGENT_CONTEXT_TTL = CACHE_TTL.PROFILES;
 function parseHeightToInches(height: string | undefined): number | undefined {
   if (!height) return undefined;
 
-  // Already a plain number (total inches)
   const plain = Number(height);
   if (!isNaN(plain) && plain > 0) return plain;
 
-  // Feet'Inches" or Feet-Inches
   const match = height.match(/(\d+)\s*['-]\s*(\d+)/);
   if (match) {
     return Number(match[1]) * 12 + Number(match[2]);
@@ -81,15 +110,24 @@ function parseWeight(weight: string | undefined): number | undefined {
   return isNaN(num) ? undefined : num;
 }
 
+function asString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function asStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => (typeof item === 'string' ? item.trim() : ''))
+    .filter((item) => item.length > 0);
+}
+
 export class ContextBuilder {
+  constructor(private readonly vectorMemory?: VectorMemoryService) {}
+
   /**
    * Build the full hydrated context for a user.
    * Checks Redis cache first; on miss fetches from the users service
    * (which itself caches the raw Firestore doc in Redis).
-   *
-   * @param userId - The Firebase UID of the user.
-   * @param firestore - Optional Firestore instance (for staging vs production).
-   * @returns A compressed, token-efficient context object.
    */
   async buildContext(
     userId: string,
@@ -97,7 +135,6 @@ export class ContextBuilder {
   ): Promise<AgentUserContext> {
     const cacheKey = `${AGENT_CONTEXT_PREFIX}${userId}`;
 
-    // ── Step 1: Check Redis for fully assembled context ───────────────────
     try {
       const cache = getCacheService();
       const cached = await cache.get<AgentUserContext>(cacheKey);
@@ -106,13 +143,12 @@ export class ContextBuilder {
         return cached;
       }
     } catch {
-      // Cache unavailable — fall through to fetch
       logger.warn('[ContextBuilder] Cache read failed, fetching fresh', { userId });
     }
 
     logger.info('[ContextBuilder] Cache MISS — building context', { userId });
+    await getAgentAppConfig(firestore ?? getFirestore());
 
-    // ── Step 2: Fetch user doc via users service (itself Redis-cached) ────
     const user = await getUserById(userId, firestore);
 
     if (!user) {
@@ -124,18 +160,16 @@ export class ContextBuilder {
       };
     }
 
-    // ── Step 3: Map the raw Firestore doc to AgentUserContext ─────────────
     let context = this.mapUserToContext(userId, user);
 
-    // ── Step 3b: Resolve teamId via RosterEntries if not on user doc ─────
     if (!context.teamId) {
       try {
         const db = firestore ?? getFirestore();
         const teamAdapter = new TeamServiceAdapter(db);
         const userTeams = await teamAdapter.getUserTeams(userId);
+        const activeTeam = this.selectFallbackTeam(userTeams, context.sport);
 
-        if (userTeams.length > 0) {
-          const activeTeam = userTeams[0];
+        if (activeTeam?.id) {
           context = {
             ...context,
             teamId: activeTeam.id,
@@ -145,6 +179,7 @@ export class ContextBuilder {
             userId,
             teamId: activeTeam.id,
             organizationId: activeTeam.organizationId,
+            sport: context.sport,
           });
         }
       } catch (teamErr) {
@@ -155,7 +190,47 @@ export class ContextBuilder {
       }
     }
 
-    // ── Step 4: Cache the assembled context ───────────────────────────────
+    const rawGoals = (user['agentGoals'] as Array<Record<string, unknown>> | undefined) ?? [];
+    const activeGoals = rawGoals.slice(0, 5).map((g) => ({
+      id: String(g['id'] ?? ''),
+      text: String(g['text'] ?? ''),
+      ...(g['category'] ? { category: String(g['category']) } : {}),
+    }));
+    if (activeGoals.length > 0) {
+      context = { ...context, activeGoals };
+    }
+
+    try {
+      const db = firestore ?? getFirestore();
+      const playbookSummary = await this.withTimeout(
+        (async () => {
+          const snap = await db
+            .collection('Users')
+            .doc(userId)
+            .collection('agent_playbooks')
+            .orderBy('generatedAt', 'desc')
+            .limit(1)
+            .get();
+
+          if (snap.empty) return undefined;
+          const items = (snap.docs[0].data()['items'] ?? []) as Array<{ status?: string }>;
+          return {
+            playbookId: snap.docs[0].id,
+            total: items.length,
+            completed: items.filter((i) => i.status === 'complete').length,
+            snoozed: items.filter((i) => i.status === 'snoozed').length,
+          };
+        })(),
+        800,
+        `playbook summary fetch timed out for ${userId}`
+      );
+      if (playbookSummary) {
+        context = { ...context, currentPlaybookSummary: playbookSummary };
+      }
+    } catch {
+      // Non-critical — context is still valid without playbook summary
+    }
+
     try {
       const cache = getCacheService();
       await cache.set(cacheKey, context, { ttl: AGENT_CONTEXT_TTL });
@@ -170,10 +245,20 @@ export class ContextBuilder {
     return context;
   }
 
-  /**
-   * Invalidate the cached context for a user.
-   * Call this when the user updates their profile, subscription, or connected accounts.
-   */
+  async buildPromptContext(
+    userId: string,
+    query: string,
+    firestore?: FirebaseFirestore.Firestore
+  ): Promise<AgentPromptContext> {
+    const profile = await this.buildContext(userId, firestore);
+    const [memories, recentSyncSummaries] = await Promise.all([
+      this.retrieveMemories(profile, query),
+      this.retrieveRecentSyncSummaries(profile),
+    ]);
+
+    return { profile, memories, recentSyncSummaries };
+  }
+
   async invalidateContext(userId: string): Promise<void> {
     try {
       const cache = getCacheService();
@@ -184,17 +269,11 @@ export class ContextBuilder {
     }
   }
 
-  /**
-   * Converts the hydrated context into a compressed string for injection
-   * into the agent's system prompt. This keeps token usage minimal.
-   *
-   * Example output:
-   * "User: John Doe | Role: Athlete | Sport: Football | Pos: QB | Class: 2027
-   *  School: Lincoln HS, Dallas TX | GPA: 3.8 | Height: 6'2" | Weight: 195lb
-   *  Targets: D1, D2 | Top Schools: Georgia, Texas, Ohio State
-   *  Status: Uncommitted | Tier: Premium | Profile: 85% complete"
-   */
-  compressToPrompt(context: AgentUserContext): string {
+  compressToPrompt(
+    context: AgentUserContext,
+    memories: AgentRetrievedMemories = EMPTY_RETRIEVED_MEMORIES,
+    recentSyncSummaries: readonly string[] = []
+  ): string {
     const lines: string[] = [];
 
     const teamPart = context.teamId ? ` | TeamID: ${context.teamId}` : '';
@@ -226,24 +305,7 @@ export class ContextBuilder {
       lines.push(parts.join(' | '));
     }
 
-    if (context.targetDivisions?.length || context.targetColleges?.length) {
-      const divs = context.targetDivisions?.length
-        ? `Targets: ${context.targetDivisions.join(', ')}`
-        : '';
-      const cols = context.targetColleges?.length
-        ? `Top Schools: ${context.targetColleges.slice(0, 5).join(', ')}`
-        : '';
-      lines.push([divs, cols].filter(Boolean).join(' | '));
-    }
-
-    if (context.commitmentStatus) {
-      lines.push(`Status: ${context.commitmentStatus}`);
-    }
-
     if (context.connectedAccounts?.length) {
-      // Exclude social media platforms entirely — agents cannot scrape them (auth required)
-      // and knowing the user has instagram/twitter connected adds no actionable value.
-      // Only show platforms that agents can actually use (hudl, maxpreps, gmail, etc.)
       const SOCIAL_MEDIA_PLATFORMS = new Set([
         'instagram',
         'twitter',
@@ -259,13 +321,123 @@ export class ContextBuilder {
       if (accountParts.length) lines.push(`Connected: ${accountParts.join(', ')}`);
     }
 
-    if (context.profileCompletionPercent !== undefined) {
+    if (recentSyncSummaries.length) {
+      lines.push(`Recent Sync Activity:\n- ${recentSyncSummaries.join('\n- ')}`);
+    }
+
+    if (context.activeGoals?.length) {
+      const goalLines = context.activeGoals
+        .map((g) => `"${g.text}"${g.category ? ` [${g.category}]` : ''}`)
+        .join(', ');
+      lines.push(`Active Goals (${context.activeGoals.length}): ${goalLines}`);
+    }
+
+    if (context.currentPlaybookSummary) {
+      const { playbookId, total, completed, snoozed } = context.currentPlaybookSummary;
+      const active = total - completed - snoozed;
       lines.push(
-        `Profile: ${context.profileCompletionPercent}% complete | Views: ${context.totalProfileViews ?? 0}`
+        `This Week's Playbook: ${completed}/${total} done, ${active} active, ${snoozed} snoozed [ID: ${playbookId}]`
+      );
+    }
+
+    if (memories.user.length) {
+      lines.push(`User Memory: ${memories.user.map((memory) => memory.content).join(' | ')}`);
+    }
+
+    if (memories.team.length) {
+      lines.push(`Team Memory: ${memories.team.map((memory) => memory.content).join(' | ')}`);
+    }
+
+    if (memories.organization.length) {
+      lines.push(
+        `Organization Memory: ${memories.organization.map((memory) => memory.content).join(' | ')}`
       );
     }
 
     return lines.join('\n');
+  }
+
+  private async retrieveMemories(
+    context: AgentUserContext,
+    query: string
+  ): Promise<AgentRetrievedMemories> {
+    if (!this.vectorMemory || !query.trim()) {
+      return EMPTY_RETRIEVED_MEMORIES;
+    }
+
+    try {
+      return await this.withTimeout(
+        this.vectorMemory.recallByScope(context.userId, query, {
+          teamId: context.teamId,
+          organizationId: context.organizationId,
+          perTargetLimit: MEMORY_RESULTS_PER_TARGET,
+        }),
+        MEMORY_RECALL_TIMEOUT_MS,
+        `memory retrieval timed out for ${context.userId}`
+      );
+    } catch (err) {
+      logger.warn('[ContextBuilder] Memory retrieval failed, continuing without memories', {
+        userId: context.userId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return EMPTY_RETRIEVED_MEMORIES;
+    }
+  }
+
+  private async retrieveRecentSyncSummaries(context: AgentUserContext): Promise<readonly string[]> {
+    try {
+      return await this.withTimeout(
+        getSyncDeltaEventService().listRecentSummaries({
+          userId: context.userId,
+          teamId: context.teamId,
+          organizationId: context.organizationId,
+          limit: RECENT_SYNC_RESULTS_LIMIT,
+        }),
+        RECENT_SYNC_TIMEOUT_MS,
+        `recent sync retrieval timed out for ${context.userId}`
+      );
+    } catch (err) {
+      logger.warn(
+        '[ContextBuilder] Recent sync retrieval failed, continuing without sync history',
+        {
+          userId: context.userId,
+          error: err instanceof Error ? err.message : String(err),
+        }
+      );
+      return [];
+    }
+  }
+
+  private async withTimeout<T>(
+    promise: Promise<T>,
+    timeoutMs: number,
+    errorMessage: string
+  ): Promise<T> {
+    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+
+    try {
+      return await Promise.race([
+        promise,
+        new Promise<T>((_, reject) => {
+          timeoutHandle = setTimeout(() => reject(new Error(errorMessage)), timeoutMs);
+        }),
+      ]);
+    } finally {
+      if (timeoutHandle) clearTimeout(timeoutHandle);
+    }
+  }
+
+  private selectFallbackTeam(userTeams: readonly TeamLike[], sport?: string): TeamLike | undefined {
+    if (!userTeams.length) return undefined;
+    if (!sport) return userTeams[0];
+
+    const normalizedSport = sport.trim().toLowerCase();
+    return (
+      userTeams.find((team) => {
+        const teamSport = (team.sportName ?? team.sport ?? '').toString().trim().toLowerCase();
+        return teamSport === normalizedSport;
+      }) ?? userTeams[0]
+    );
   }
 
   // ─── Internal Mapping ────────────────────────────────────────────────────
@@ -273,7 +445,7 @@ export class ContextBuilder {
   /**
    * Map a raw Firestore user document into a clean AgentUserContext.
    * Extracts active sport, physical attributes, location, coach data,
-   * connected accounts, and engagement metrics from the single user doc.
+   * connected accounts, and last-active platform data from the single user doc.
    */
   private mapUserToContext(userId: string, user: UserData): AgentUserContext {
     const role = (user['role'] as string) ?? 'athlete';
@@ -285,28 +457,45 @@ export class ContextBuilder {
       (user['displayName'] as string) ??
       ([firstName, lastName].filter(Boolean).join(' ') || 'Unknown User');
 
-    // Resolve subscription tier
-    // (planTier removed — metered billing only)
-
-    // ── Active sport profile ──────────────────────────────────────────────
+    // ── Active sport / role-aware context ────────────────────────────────
     const sports = user['sports'] as Array<Record<string, unknown>> | undefined;
     const activeSportIndex = (user['activeSportIndex'] as number) ?? 0;
     const activeSport = sports?.[activeSportIndex] ?? sports?.[0];
+    const coach = user['coach'] as Record<string, unknown> | undefined;
+    const director = user['director'] as Record<string, unknown> | undefined;
+    const recruiter = user['recruiter'] as Record<string, unknown> | undefined;
 
-    const sport = (activeSport?.['sport'] as string) ?? (user['primarySport'] as string);
+    const roleSports =
+      role === 'coach'
+        ? asStringArray(coach?.['coachingSports'])
+        : role === 'director'
+          ? asStringArray(director?.['overseeSports'])
+          : role === 'coach'
+            ? asStringArray(recruiter?.['sports'])
+            : [];
+
+    const sport =
+      asString(activeSport?.['sport']) ??
+      asString(user['primarySport']) ??
+      asString(user['sport']) ??
+      (roleSports.length > 0 ? roleSports.join(', ') : undefined);
     const positions = activeSport?.['positions'] as string[] | undefined;
     const position = positions?.[0];
 
     // ── Physical attributes ───────────────────────────────────────────────
-    // Try top-level fields first (some docs store height/weight at root),
-    // then fall back to metrics inside the active sport profile
+    // Try top-level fields first (legacy), then measurables[], then sport metrics
+    const measurables = user['measurables'] as
+      | Array<{ field: string; value: string | number }>
+      | undefined;
     const heightInches =
       parseHeightToInches(user['height'] as string | undefined) ??
+      parseHeightToInches(measurables?.find((m) => m.field === 'height')?.value?.toString()) ??
       parseHeightToInches(
         (activeSport?.['metrics'] as Record<string, string> | undefined)?.['height']
       );
     const weightLbs =
       parseWeight(user['weight'] as string | undefined) ??
+      parseWeight(measurables?.find((m) => m.field === 'weight')?.value?.toString()) ??
       parseWeight((activeSport?.['metrics'] as Record<string, string> | undefined)?.['weight']);
 
     // ── Athlete / graduation data ─────────────────────────────────────────
@@ -324,30 +513,43 @@ export class ContextBuilder {
     const state = location?.['state'] ?? (user['state'] as string | undefined);
 
     // ── School ────────────────────────────────────────────────────────────
-    const school =
-      (user['highSchool'] as string | undefined) ?? (athlete?.['highSchool'] as string | undefined);
+    // (resolved below after activeSportTeam is available)
 
     // ── Team context (from active sport profile) ─────────────────────────
     const activeSportTeam = activeSport?.['team'] as Record<string, unknown> | undefined;
-    const teamId = activeSportTeam?.['teamId'] as string | undefined;
-    const organizationId = activeSportTeam?.['organizationId'] as string | undefined;
+    const teamHistory = Array.isArray(user['teamHistory'])
+      ? (user['teamHistory'] as Array<Record<string, unknown>>)
+      : [];
+    const currentTeamHistory =
+      teamHistory.find((entry) => entry?.['isCurrent'] === true) ?? teamHistory[0];
 
-    // ── Coach-specific ────────────────────────────────────────────────────
-    const coach = user['coach'] as Record<string, unknown> | undefined;
-    const coachProgram = coach?.['organization'] as string | undefined;
+    const teamId =
+      asString(activeSportTeam?.['teamId']) ??
+      asString(currentTeamHistory?.['teamId']) ??
+      asString(user['teamId']);
+    const organizationId =
+      asString(activeSportTeam?.['organizationId']) ??
+      asString(currentTeamHistory?.['organizationId']) ??
+      asString(user['organizationId']);
+
+    // V2-first: extract team name from sports[].team, then roster/team history, then legacy school fields
+    const school =
+      asString(activeSportTeam?.['name']) ??
+      asString(currentTeamHistory?.['name']) ??
+      (user['highSchool'] as string | undefined) ??
+      (athlete?.['highSchool'] as string | undefined);
+
+    // ── Coach / director-specific ────────────────────────────────────────
+    const coachProgram =
+      asString(activeSportTeam?.['name']) ??
+      asString(currentTeamHistory?.['name']) ??
+      asString(coach?.['organization']) ??
+      asString(director?.['organization']);
     const coachDivision = coach?.['division'] as string | undefined;
     const coachSport = role === 'coach' ? sport : undefined;
 
     // ── Connected accounts from social links & connected sources ──────────
     const connectedAccounts = this.extractConnectedAccounts(user);
-
-    // ── Engagement metrics from counters ──────────────────────────────────
-    const counters = user['_counters'] as Record<string, unknown> | undefined;
-    const totalProfileViews = counters?.['profileViews'] as number | undefined;
-
-    // Profile completion: check onboarding
-    const onboardingCompleted = user['onboardingCompleted'] as boolean | undefined;
-    const profileCompletionPercent = onboardingCompleted ? 100 : this.estimateCompletion(user);
 
     const lastActiveAt = (user['lastLoginAt'] as string) ?? (user['updatedAt'] as string);
 
@@ -371,14 +573,9 @@ export class ContextBuilder {
       state,
 
       // Recruiting
-      targetDivisions: recruitingData?.targetDivisions,
-      targetColleges: recruitingData?.targetColleges,
       recruitingStatus: recruitingData?.recruitingStatus,
-      commitmentStatus: recruitingData?.commitmentStatus,
 
       // Engagement
-      profileCompletionPercent,
-      totalProfileViews,
       lastActiveAt,
 
       // Connected accounts
@@ -454,35 +651,12 @@ export class ContextBuilder {
    * Checks athlete sub-object and top-level fields.
    */
   private extractRecruitingData(user: UserData): {
-    targetDivisions?: string[];
-    targetColleges?: string[];
     recruitingStatus?: string;
-    commitmentStatus?: string;
   } {
     const athlete = user['athlete'] as Record<string, unknown> | undefined;
     return {
-      targetDivisions: (athlete?.['targetDivisions'] as string[]) ?? undefined,
-      targetColleges: (athlete?.['targetColleges'] as string[]) ?? undefined,
       recruitingStatus: (athlete?.['recruitingStatus'] as string) ?? 'active',
-      commitmentStatus: (athlete?.['commitmentStatus'] as string) ?? 'uncommitted',
     };
-  }
-
-  /**
-   * Estimate profile completion percentage based on key fields.
-   * Returns a rough percentage for profiles that haven't completed onboarding.
-   */
-  private estimateCompletion(user: UserData): number {
-    const checks = [
-      !!user['firstName'],
-      !!user['profileImgs'] && (user['profileImgs'] as string[]).length > 0,
-      !!(user['sports'] as unknown[] | undefined)?.length,
-      !!user['location'],
-      !!user['aboutMe'],
-      !!user['height'] || !!user['weight'],
-    ];
-    const completed = checks.filter(Boolean).length;
-    return Math.round((completed / checks.length) * 100);
   }
 
   // ─── Thread History (Parallel Conversation Memory) ─────────────────────
@@ -547,6 +721,168 @@ export class ContextBuilder {
   }
 
   /**
+   * Fetch recent thread messages as structured AgentSessionMessage objects.
+   *
+   * Used by SessionMemoryService to cold-seed Redis on a cache miss.
+   * Returns ONLY 'user' and 'assistant' role messages — tool observations
+   * are excluded to keep session history clean and token-efficient.
+   *
+   * Unlike getRecentThreadHistory() which returns a formatted prompt string,
+   * this method returns clean structured data suitable for Redis storage and
+   * direct injection into the LLM messages array.
+   *
+   * @param threadId - The MongoDB thread ID.
+   * @param maxMessages - Maximum messages to return (default: 10).
+   */
+  async getRecentThreadMessages(
+    threadId: string,
+    maxMessages = 10
+  ): Promise<import('@nxt1/core').AgentSessionMessage[]> {
+    const limit = Math.min(maxMessages, ContextBuilder.THREAD_HISTORY_MAX_MESSAGES);
+
+    try {
+      const messages = await AgentMessageModel.find({
+        threadId,
+        role: { $in: ['user', 'assistant'] },
+      })
+        .sort({ createdAt: -1 })
+        .limit(limit)
+        .select('role content createdAt')
+        .lean()
+        .exec();
+
+      if (!messages.length) return [];
+
+      return messages
+        .reverse() // chronological order
+        .map((m) => ({
+          role: m.role as 'user' | 'assistant',
+          content:
+            m.content.length > ContextBuilder.THREAD_HISTORY_MAX_CHARS
+              ? m.content.slice(0, ContextBuilder.THREAD_HISTORY_MAX_CHARS) + '...'
+              : m.content,
+          timestamp:
+            typeof m.createdAt === 'string' ? m.createdAt : new Date(m.createdAt).toISOString(),
+        }));
+    } catch (err) {
+      logger.warn('[ContextBuilder] Failed to fetch thread messages for session seed', {
+        threadId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return [];
+    }
+  }
+
+  /**
+   * Build a compressed team context string for injection into LLM prompts.
+   * Mirrors `buildPromptContext` / `compressToPrompt` but operates on a Team
+   * document instead of a User document.
+   *
+   * - Retrieves team-scoped vector memories (owner userId + teamId filter)
+   * - Retrieves sync delta summaries scoped to teamId
+   * - Compresses team identity fields into a token-efficient string
+   *
+   * @param teamId - Firestore Teams document ID
+   * @param teamData - Raw team document fields
+   * @param query - Semantic query for vector memory retrieval
+   */
+  async buildTeamPromptContext(
+    teamId: string,
+    teamData: Record<string, unknown>,
+    query: string
+  ): Promise<string> {
+    const lines: string[] = [];
+
+    // ── Identity fields ────────────────────────────────────────────────────
+    const teamName = (teamData['teamName'] as string) || 'Unknown Program';
+    const sport = (teamData['sport'] as string) || '';
+    const teamType = (teamData['teamType'] as string) || '';
+    const city = (teamData['city'] as string) || '';
+    const state = (teamData['state'] as string) || '';
+    const division = (teamData['division'] as string) || '';
+    const conference = (teamData['conference'] as string) || '';
+    const mascot = (teamData['branding'] as Record<string, unknown> | undefined)?.['mascot'] as
+      | string
+      | undefined;
+    const record = teamData['record'] as Record<string, unknown> | undefined;
+    const organizationId = (teamData['organizationId'] as string) || '';
+    const createdBy = (teamData['createdBy'] as string) || '';
+
+    const loc = [city, state].filter(Boolean).join(', ');
+    lines.push(
+      `Team: ${teamName} | TeamID: ${teamId}${organizationId ? ` | OrgID: ${organizationId}` : ''}`
+    );
+
+    if (sport) {
+      const divPart = division ? ` | Division: ${division}` : '';
+      const confPart = conference ? ` | Conference: ${conference}` : '';
+      lines.push(`Sport: ${sport}${teamType ? ` (${teamType})` : ''}${divPart}${confPart}`);
+    }
+
+    if (loc) lines.push(`Location: ${loc}`);
+    if (mascot) lines.push(`Mascot: ${mascot}`);
+
+    if (record) {
+      const wins = record['wins'] ?? record['w'];
+      const losses = record['losses'] ?? record['l'];
+      const ties = record['ties'] ?? record['t'];
+      const parts: string[] = [];
+      if (wins !== undefined) parts.push(`W: ${wins}`);
+      if (losses !== undefined) parts.push(`L: ${losses}`);
+      if (ties !== undefined) parts.push(`T: ${ties}`);
+      if (parts.length) lines.push(`Record: ${parts.join(' | ')}`);
+    }
+
+    // ── Vector memories (team-scoped, retrieved via coach/owner userId) ────
+    if (this.vectorMemory && createdBy && query.trim()) {
+      try {
+        const memories = await this.withTimeout(
+          this.vectorMemory.recallByScope(createdBy, query, {
+            teamId,
+            targets: ['team'],
+            perTargetLimit: MEMORY_RESULTS_PER_TARGET,
+          }),
+          MEMORY_RECALL_TIMEOUT_MS,
+          `team memory retrieval timed out for ${teamId}`
+        );
+
+        if (memories.team.length) {
+          lines.push(`Team Memory: ${memories.team.map((m) => m.content).join(' | ')}`);
+        }
+      } catch (err) {
+        logger.warn('[ContextBuilder] Team memory retrieval failed', {
+          teamId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
+    // ── Sync delta summaries (teamId-scoped) ───────────────────────────────
+    try {
+      const syncSummaries = await this.withTimeout(
+        getSyncDeltaEventService().listRecentSummaries({
+          userId: createdBy || teamId,
+          teamId,
+          limit: RECENT_SYNC_RESULTS_LIMIT,
+        }),
+        RECENT_SYNC_TIMEOUT_MS,
+        `team sync retrieval timed out for ${teamId}`
+      );
+
+      if (syncSummaries.length) {
+        lines.push(`Recent Sync Activity:\n- ${syncSummaries.join('\n- ')}`);
+      }
+    } catch (err) {
+      logger.warn('[ContextBuilder] Team sync retrieval failed', {
+        teamId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
+    return lines.join('\n');
+  }
+
+  /**
    * Get a summary of the user's active (non-archived) threads.
    * Used by the PlannerAgent to understand what conversations are in flight.
    *
@@ -579,4 +915,626 @@ export class ContextBuilder {
       return '';
     }
   }
+}
+/**
+ * @fileoverview Elite Context Builder — Deep user context for Agent X prompts
+ * @module @nxt1/backend/modules/agent/services
+ *
+ * Builds a rich, role-aware context string from the user's Firestore document
+ * so that Agent X playbook and briefing prompts are hyper-personalized.
+ *
+ * Handles graceful degradation: any missing field is silently omitted,
+ * never producing "undefined" or broken sentences.
+ */
+
+/**
+ * Get the season info for a sport at the current date.
+ * Returns `null` if the sport is not in our calendar map (graceful degradation).
+ */
+export function getSeasonInfo(sportRaw: string, now: Date = new Date()): AgentSeasonInfo | null {
+  return resolveConfiguredSeasonInfo(sportRaw, now);
+}
+
+function getRolePersona(role: string): string {
+  return resolveConfiguredRolePersona(role);
+}
+
+// ─── Elite Context Builder ──────────────────────────────────────────────────
+
+const MONTH_NAMES = [
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
+] as const;
+
+/**
+ * Build a rich, dynamic context paragraph from the user's Firestore data.
+ * Every field is optional — if missing, that sentence is silently skipped.
+ *
+ * Returns a multi-line string ready to inject directly into an LLM prompt.
+ */
+export function buildEliteContext(
+  userData: Record<string, unknown>,
+  now: Date = new Date()
+): string {
+  const role = str(userData['role']) || 'athlete';
+  const displayName = str(userData['displayName']);
+  const location = buildLocation(userData);
+  const primarySport = resolvePrimarySport(userData);
+  const season = primarySport ? getSeasonInfo(primarySport, now) : null;
+
+  const currentMonth = MONTH_NAMES[now.getMonth()];
+  const currentYear = now.getFullYear();
+
+  const lines: string[] = [];
+
+  // 1 — Identity sentence (who is this user?)
+  lines.push(buildIdentityLine(role, userData, displayName, primarySport, location));
+
+  // 2 — Season / calendar context
+  if (season && primarySport) {
+    lines.push(
+      `It is currently ${currentMonth} ${currentYear}.` +
+        ` For ${primarySport}, this is the ${season.phase} period.` +
+        ` Focus areas: ${season.focus}.`
+    );
+  } else {
+    lines.push(`It is currently ${currentMonth} ${currentYear}.`);
+  }
+
+  // 3 — Role-specific deep context (profile gaps, team count, etc.)
+  const roleContext = buildRoleContext(role, userData);
+  if (roleContext) lines.push(roleContext);
+
+  // 4 — Persona / tone instruction
+  lines.push(getRolePersona(role));
+
+  // 5 — Goal-vs-season harmonization mandate
+  lines.push(
+    [
+      `CRITICAL: The user's stated goals are your #1 priority.`,
+      `Use the calendar/season timing and their profile data as the ENVIRONMENT`,
+      `and CONTEXT for HOW they should execute those goals right now —`,
+      `never override or deprioritize their goals in favor of generic seasonal advice.`,
+    ].join(' ')
+  );
+
+  return lines.join('\n\n');
+}
+
+// ─── Internal Helpers ───────────────────────────────────────────────────────
+
+/** Safe string extraction — returns empty string for nullish / non-string values. */
+function str(val: unknown): string {
+  if (typeof val === 'string' && val.trim().length > 0) return val.trim();
+  return '';
+}
+
+function getActiveSportProfile(
+  userData: Record<string, unknown>
+): Record<string, unknown> | undefined {
+  const sports = userData['sports'];
+  if (!Array.isArray(sports) || sports.length === 0) return undefined;
+
+  const activeSportIndex =
+    typeof userData['activeSportIndex'] === 'number' ? (userData['activeSportIndex'] as number) : 0;
+
+  return (
+    (sports[activeSportIndex] as Record<string, unknown> | undefined) ??
+    (sports[0] as Record<string, unknown> | undefined)
+  );
+}
+
+/** V2-first: resolve team/org name from sports[].team.name, then legacy fields. */
+function resolveV2TeamName(userData: Record<string, unknown>): string {
+  const v2Name = getActiveSportProfile(userData)?.['team'] as Record<string, unknown> | undefined;
+  return str(v2Name?.['name']) || str(userData['teamName']);
+}
+
+/** Build "City, State" location string from various possible field shapes. */
+function buildLocation(userData: Record<string, unknown>): string {
+  const city = str(userData['city']);
+  const state = str(userData['state']);
+  if (city && state) return `${city}, ${state}`;
+  if (state) return state;
+  if (city) return city;
+  return str(userData['location']);
+}
+
+/**
+ * Resolve the user's primary sport from whichever field source exists.
+ * Checks: top-level `sport` → `sports[0].sport` → role-specific sport fields.
+ */
+export function resolvePrimarySport(userData: Record<string, unknown>): string {
+  const activeSport = getActiveSportProfile(userData);
+  const activeSportName = activeSport && str(activeSport['sport']);
+  if (activeSportName) return activeSportName;
+
+  const explicitPrimarySport = str(userData['primarySport']);
+  if (explicitPrimarySport) return explicitPrimarySport;
+
+  const topSport = str(userData['sport']);
+  if (topSport) return topSport;
+
+  const coach = userData['coach'] as Record<string, unknown> | undefined;
+  if (coach) {
+    const arr = coach['coachingSports'];
+    if (Array.isArray(arr) && arr.length > 0) return String(arr[0]);
+  }
+
+  const recruiter = userData['recruiter'] as Record<string, unknown> | undefined;
+  if (recruiter) {
+    const arr = recruiter['sports'];
+    if (Array.isArray(arr) && arr.length > 0) return String(arr[0]);
+  }
+
+  const director = userData['director'] as Record<string, unknown> | undefined;
+  if (director) {
+    const arr = director['overseeSports'];
+    if (Array.isArray(arr) && arr.length > 0) return String(arr[0]);
+  }
+
+  return '';
+}
+
+// ─── Identity Line Builders (one per role) ──────────────────────────────────
+
+function buildIdentityLine(
+  role: string,
+  userData: Record<string, unknown>,
+  displayName: string,
+  primarySport: string,
+  location: string
+): string {
+  const name = displayName || 'the user';
+
+  switch (role) {
+    case 'athlete':
+      return buildAthleteIdentity(userData, name, primarySport, location);
+    case 'coach':
+    case 'recruiter': // legacy → coach
+      return buildCoachIdentity(userData, name, primarySport, location);
+    case 'parent': // legacy → athlete
+      return buildAthleteIdentity(userData, name, primarySport, location);
+    case 'director':
+      return buildDirectorIdentity(userData, name, location);
+    default:
+      return `${name} is a ${role} on the NXT1 platform${location ? ` in ${location}` : ''}.`;
+  }
+}
+
+function buildAthleteIdentity(
+  userData: Record<string, unknown>,
+  name: string,
+  sport: string,
+  location: string
+): string {
+  const parts: string[] = [`${name} is an athlete`];
+
+  const classOf = userData['classOf'];
+  if (classOf && typeof classOf === 'number') parts.push(`Class of ${classOf}`);
+
+  const positions = resolvePositions(userData);
+  if (positions) parts.push(positions);
+
+  if (sport) parts.push(`in ${sport}`);
+
+  const physicals = buildPhysicals(userData);
+  if (physicals) parts.push(`(${physicals})`);
+
+  const team = resolveV2TeamName(userData) || str(userData['school']);
+  if (team) parts.push(`playing for ${team}`);
+
+  if (location) parts.push(`in ${location}`);
+
+  const academics = buildAcademics(userData);
+  if (academics) parts.push(`— Academics: ${academics}`);
+
+  return parts.join(', ').replace(/, —/, ' —') + '.';
+}
+
+function buildCoachIdentity(
+  userData: Record<string, unknown>,
+  name: string,
+  sport: string,
+  location: string
+): string {
+  const coach = userData['coach'] as Record<string, unknown> | undefined;
+  const title = (coach && str(coach['title'])) || 'Coach';
+  const team = resolveV2TeamName(userData);
+  const level = resolveCoachingLevel(userData);
+
+  const parts: string[] = [`${name} is a ${title}`];
+  if (level) parts.push(`at the ${level} level`);
+  if (sport) parts.push(`for ${sport}`);
+  if (team) parts.push(`at ${team}`);
+  if (location) parts.push(`in ${location}`);
+
+  return parts.join(' ') + '.';
+}
+
+function buildDirectorIdentity(
+  userData: Record<string, unknown>,
+  name: string,
+  location: string
+): string {
+  const director = userData['director'] as Record<string, unknown> | undefined;
+  const title = (director && str(director['title'])) || 'Athletic Director';
+  // V2-first: sports[].team.name → legacy director.organization → teamName
+  const org = resolveV2TeamName(userData) || (director && str(director['organization']));
+
+  const parts: string[] = [`${name} is a ${title}`];
+  if (org) parts.push(`at ${org}`);
+  if (location) parts.push(`in ${location}`);
+
+  return parts.join(' ') + '.';
+}
+
+// ─── Field Extractors ───────────────────────────────────────────────────────
+
+/** Resolve positions from the sports array or a top-level `position` field. */
+function resolvePositions(userData: Record<string, unknown>): string {
+  const activeSport = getActiveSportProfile(userData);
+  if (activeSport) {
+    const pos = activeSport['positions'];
+    if (Array.isArray(pos) && pos.length > 0) return pos.join('/');
+
+    const singlePos = str(activeSport['position']);
+    if (singlePos) return singlePos;
+  }
+  const topPos = userData['position'];
+  if (typeof topPos === 'string' && topPos.trim()) return topPos.trim();
+  return '';
+}
+
+/** Build "height, weight" string, omitting any missing value. */
+function buildPhysicals(userData: Record<string, unknown>): string {
+  const parts: string[] = [];
+  const measurables = userData['measurables'] as
+    | Array<{ field: string; value: string | number }>
+    | undefined;
+  const height =
+    str(userData['height']) ||
+    measurables?.find((m) => m.field === 'height')?.value?.toString() ||
+    '';
+  const weight =
+    str(userData['weight']) ||
+    measurables?.find((m) => m.field === 'weight')?.value?.toString() ||
+    '';
+  if (height) parts.push(height);
+  if (weight) parts.push(weight);
+  return parts.join(', ');
+}
+
+/** Build academics summary string, omitting any missing value. */
+function buildAcademics(userData: Record<string, unknown>): string {
+  const parts: string[] = [];
+  const gpa = userData['gpa'];
+  if (gpa && (typeof gpa === 'number' || (typeof gpa === 'string' && gpa.trim()))) {
+    parts.push(`GPA ${gpa}`);
+  }
+  return parts.join(', ');
+}
+
+// ─── Role-Specific Deep Context ─────────────────────────────────────────────
+
+/**
+ * Resolve the coaching level from the user's team type.
+ * Checks sports[0].team.type.
+ * Returns a display-friendly label or empty string.
+ */
+function resolveCoachingLevel(userData: Record<string, unknown>): string {
+  // Try sports array first (primary sport team type)
+  const team = getActiveSportProfile(userData)?.['team'] as Record<string, unknown> | undefined;
+  const type = team && str(team['type']);
+  if (type) return coachingLevelLabel(type);
+
+  return '';
+}
+
+export function getRolePromptScaffolding(userData: Record<string, unknown>): string {
+  const role = str(userData['role']) || 'athlete';
+  const lines: string[] = [];
+
+  const roleContext = buildRoleContext(role, userData);
+  if (roleContext) lines.push(roleContext);
+
+  lines.push(getRolePersona(role));
+
+  return lines.join('\n');
+}
+
+/** Map team type slugs to display-friendly coaching level labels. */
+function coachingLevelLabel(type: string): string {
+  switch (type.toLowerCase()) {
+    case 'high-school':
+    case 'high_school':
+    case 'hs':
+      return 'high school';
+    case 'middle-school':
+    case 'middle_school':
+    case 'ms':
+      return 'middle school';
+    case 'club':
+      return 'club';
+    case 'college':
+      return 'college';
+    case 'juco':
+      return 'junior college';
+    case 'organization':
+      return 'organization';
+    default:
+      return type;
+  }
+}
+
+/** Check if the coaching level represents a college/recruiting-focused role. */
+function isCollegeLevelCoach(userData: Record<string, unknown>): boolean {
+  const level = resolveCoachingLevel(userData);
+  return level === 'college' || level === 'junior college';
+}
+
+/**
+ * Build role-specific supplementary context beyond the identity line.
+ * Returns `null` if there is nothing meaningful to add.
+ */
+function buildRoleContext(role: string, userData: Record<string, unknown>): string | null {
+  switch (role) {
+    case 'athlete':
+      return buildAthleteRoleContext(userData);
+    case 'coach':
+      return buildCoachRoleContext(userData);
+    case 'parent':
+      return buildParentRoleContext(userData);
+    case 'director':
+      return buildDirectorRoleContext(userData);
+    case 'recruiter':
+      return buildRecruiterRoleContext(userData);
+    default:
+      return null;
+  }
+}
+
+function buildAthleteRoleContext(userData: Record<string, unknown>): string | null {
+  const missing: string[] = [];
+  if (!str(userData['contactEmail'])) missing.push('contact email');
+  if (!str(userData['phone'])) missing.push('phone number');
+  if (!str(userData['hudlUrl'])) missing.push('Hudl profile link');
+
+  if (missing.length > 0) {
+    return `Profile gaps detected: missing ${missing.join(', ')}. Consider tasks to complete their profile.`;
+  }
+  return null;
+}
+
+function buildCoachRoleContext(userData: Record<string, unknown>): string | null {
+  const coach = userData['coach'] as Record<string, unknown> | undefined;
+  const lines: string[] = [];
+
+  // Coaching level context — critical for differentiating HS/club vs college
+  const level = resolveCoachingLevel(userData);
+  if (level && !isCollegeLevelCoach(userData)) {
+    lines.push(
+      `This is a ${level} coach. Focus on player development, team culture, game preparation,` +
+        ` parent communication, and program building. Do NOT suggest college-level recruiting tasks` +
+        ` like scouting prospects or managing a recruiting pipeline — that is not relevant for ${level} coaches.`
+    );
+  } else if (isCollegeLevelCoach(userData)) {
+    lines.push(
+      `This is a ${level} coach. Recruiting, prospect evaluation, compliance,` +
+        ` and roster management are key priorities alongside game preparation and player development.`
+    );
+  }
+
+  // Multi-team management — V2-first: count sports entries, fall back to legacy managedTeamCodes
+  const sports = userData['sports'] as unknown[] | undefined;
+  const managedTeamCount =
+    (Array.isArray(sports) && sports.length > 1 ? sports.length : 0) ||
+    (coach
+      ? (() => {
+          const managedTeams = coach['managedTeamCodes'];
+          return Array.isArray(managedTeams) && managedTeams.length > 1 ? managedTeams.length : 0;
+        })()
+      : 0);
+  if (managedTeamCount > 1) {
+    lines.push(
+      `This coach manages ${managedTeamCount} teams.` +
+        ` Consider tasks that span team management, roster coordination, and cross-team scheduling.`
+    );
+  }
+
+  return lines.length > 0 ? lines.join(' ') : null;
+}
+
+function buildParentRoleContext(userData: Record<string, unknown>): string | null {
+  const parentFallback =
+    `This parent is actively supporting their child's athletic journey.` +
+    ` Focus on scheduling, financial planning, communication with coaches,` +
+    ` and emotional/physical wellness of their athlete.`;
+
+  const parent = userData['parent'] as Record<string, unknown> | undefined;
+  if (!parent) return parentFallback;
+
+  const managed = parent['managedAthleteIds'];
+  if (Array.isArray(managed) && managed.length > 1) {
+    return (
+      `This parent manages ${managed.length} student-athletes.` +
+      ` Consider tasks that help them stay organized across multiple schedules,` +
+      ` finances, and recruiting timelines.`
+    );
+  }
+
+  return parentFallback;
+}
+
+function buildDirectorRoleContext(userData: Record<string, unknown>): string | null {
+  const base = 'Focus on tasks spanning operations, compliance, budgeting, and staff management.';
+  const director = userData['director'] as Record<string, unknown> | undefined;
+
+  if (!director) return `This director oversees the athletic program. ${base}`;
+
+  const overseeSports = director['overseeSports'];
+  if (Array.isArray(overseeSports) && overseeSports.length > 0) {
+    const sportList = overseeSports.slice(0, 5).join(', ');
+    return `This director oversees ${overseeSports.length} sport programs (${sportList}). ${base}`;
+  }
+
+  return `This director oversees the athletic program. ${base}`;
+}
+
+function buildRecruiterRoleContext(userData: Record<string, unknown>): string | null {
+  const base =
+    'Focus on prospect evaluation, relationship building, and talent pipeline management.';
+  const recruiter = userData['recruiter'] as Record<string, unknown> | undefined;
+
+  if (!recruiter) return base;
+
+  const lines: string[] = [];
+  const division = str(recruiter['division']);
+  if (division) lines.push(`Recruiting at the ${division} level.`);
+
+  const regions = recruiter['regions'];
+  if (Array.isArray(regions) && regions.length > 0) {
+    lines.push(`Active recruiting regions: ${regions.join(', ')}.`);
+  }
+
+  lines.push(base);
+  return lines.join(' ');
+}
+
+// ─── Recurring Habit Menus (Role × Season) ──────────────────────────────────
+
+interface RecurringHabitMenu {
+  readonly inSeason: readonly string[];
+  readonly offSeason: readonly string[];
+  readonly general: readonly string[];
+}
+
+const ROLE_HABITS: Readonly<Record<string, RecurringHabitMenu>> = {
+  athlete: {
+    inSeason: [
+      "Upload this week's game film or highlights so coaches can see your latest performance",
+      'Update your stats from the latest game or competition',
+      'Log your recovery, sleep, and wellness check-in for the week',
+    ],
+    offSeason: [
+      'Sync your profile — update height, weight, and any new training metrics',
+      'Log your strength and conditioning progress for the week',
+      'Review and update your academic GPA and test scores',
+    ],
+    general: ['Sync your profile to make sure coaches are seeing your latest info'],
+  },
+
+  coach: {
+    inSeason: [
+      'Review updated athlete profiles and recent stat uploads from your roster',
+      'Generate or review opponent scout report for the upcoming matchup',
+      'Audit your team depth chart and check for roster updates',
+    ],
+    offSeason: [
+      'Review player development plans and update training goals',
+      'Audit roster academic standing and eligibility compliance',
+      'Update offseason training plans and share with athletes',
+    ],
+    general: ['Review your team analytics dashboard for the week'],
+  },
+
+  /** College/JUCO coaches get recruiting-focused habits. */
+  coach_college: {
+    inSeason: [
+      'Review updated athlete profiles and recent stat uploads from your roster',
+      'Generate or review opponent scout report for the upcoming matchup',
+      'Audit your team depth chart and check for roster updates',
+    ],
+    offSeason: [
+      'Review your recruiting prospect board and update evaluations',
+      'Audit roster academic standing and eligibility compliance',
+      'Update offseason training plans and share with athletes',
+    ],
+    general: ['Review your team analytics dashboard for the week'],
+  },
+
+  parent: {
+    inSeason: [
+      "Review your athlete's weekly schedule, game times, and travel logistics",
+      "Check your athlete's latest stats and recovery status",
+    ],
+    offSeason: [
+      'Review upcoming camp, club, and showcase costs and budget accordingly',
+      "Track your athlete's academic progress and recruiting milestones",
+    ],
+    general: ["Sync your athlete's profile to ensure it reflects the latest info"],
+  },
+
+  director: {
+    inSeason: [
+      'Review compliance alerts and eligibility updates across all programs',
+      'Audit facility scheduling and resolve any booking conflicts',
+      'Check coach and staff platform engagement metrics',
+    ],
+    offSeason: [
+      'Review departmental budget allocations and upcoming fiscal needs',
+      'Audit coaching staff evaluations and offseason hiring pipeline',
+      'Review athlete retention and transfer portal activity',
+    ],
+    general: ['Run a department-wide analytics review for the week'],
+  },
+
+  recruiter: {
+    inSeason: [
+      'Update your prospect evaluation board with weekend game observations',
+      'Log high-school coach communications and follow-ups from the week',
+      'Review weekend film of committed prospects and watchlist athletes',
+    ],
+    offSeason: [
+      'Refresh your recruiting target list and update prospect rankings',
+      'Review camp and showcase invitee lists for upcoming events',
+      'Audit your communication cadence with top prospects',
+    ],
+    general: ['Sync your recruiting pipeline — update contact logs and prospect notes'],
+  },
+};
+
+/**
+ * Build the recurring habit instruction block for the LLM prompt.
+ * Returns a formatted string telling the AI which habits to choose from.
+ *
+ * @param userData - Optional user data for coaching level differentiation.
+ */
+export function getRecurringHabitsPrompt(
+  role: string,
+  sportRaw?: string,
+  now: Date = new Date(),
+  userData?: Record<string, unknown>
+): string {
+  // For coaches, use college-specific habits when applicable
+  let menuKey = role;
+  if (role === 'coach' && userData && isCollegeLevelCoach(userData)) {
+    menuKey = 'coach_college';
+  }
+
+  const menu = ROLE_HABITS[menuKey] ?? ROLE_HABITS[role] ?? ROLE_HABITS['athlete'];
+  const season = sportRaw ? getSeasonInfo(sportRaw, now) : null;
+
+  const isInSeason = season?.phase === 'In-Season' || season?.phase === 'Post-Season / Playoffs';
+  const habits = isInSeason ? menu.inSeason : menu.offSeason;
+  const alwaysHabits = menu.general;
+
+  const allHabits = [...habits, ...alwaysHabits];
+  const numbered = allHabits.map((h, i) => `  ${i + 1}. ${h}`).join('\n');
+
+  return [
+    `RECURRING WEEKLY HABITS (select 2 from this menu and adapt the wording to the user's context):`,
+    numbered,
+    `Make the habit task titles short and action-oriented. Adapt the language to feel personal — reference their sport, team, or season.`,
+  ].join('\n');
 }

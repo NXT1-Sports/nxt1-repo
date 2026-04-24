@@ -4,7 +4,7 @@
  *
  * Reads the :sport route parameter, looks up the matching config
  * from @nxt1/core, injects SEO metadata, and renders the shared
- * NxtSportLandingComponent. Redirects to /explore if the sport is unknown.
+ * NxtSportLandingComponent. Redirects to /agent if the sport is unknown.
  */
 
 import { Component, ChangeDetectionStrategy, inject, OnInit, signal } from '@angular/core';
@@ -44,7 +44,7 @@ export class SportLandingComponent implements OnInit {
 
     if (!cfg) {
       // Unknown sport → redirect
-      this.router.navigate(['/explore'], { replaceUrl: true });
+      this.router.navigate(['/agent'], { replaceUrl: true });
       return;
     }
 

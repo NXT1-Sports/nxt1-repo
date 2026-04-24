@@ -58,6 +58,7 @@ import {
   signal,
   computed,
   effect,
+  viewChild,
   ChangeDetectionStrategy,
   OnInit,
   OnDestroy,
@@ -71,7 +72,6 @@ import { filter } from 'rxjs/operators';
 import { IonRouterOutlet, NavController } from '@ionic/angular/standalone';
 
 import {
-  NxtMobileFooterComponent,
   NxtPlatformService,
   NxtSidenavComponent,
   NxtSidenavService,
@@ -104,10 +104,9 @@ import {
 } from '@nxt1/ui';
 import {
   AUTH_ROUTES,
-  formatSportDisplayName,
-  isTeamRole,
-  deduplicateSportProfiles,
-  getPositionAbbreviation,
+  buildUserDisplayContext,
+  type UserDisplayInput,
+  type UserDisplayFallback,
 } from '@nxt1/core';
 import type { InviteTeam } from '@nxt1/core';
 import { AuthFlowService } from '../services/auth/auth-flow.service';
@@ -133,7 +132,7 @@ import { EditProfileApiService } from '../services/api/edit-profile-api.service'
 @Component({
   selector: 'app-mobile-shell',
   standalone: true,
-  imports: [CommonModule, IonRouterOutlet, NxtMobileFooterComponent, NxtSidenavComponent],
+  imports: [CommonModule, IonRouterOutlet, NxtSidenavComponent],
   template: `
     <!-- Sidenav using Ionic ion-menu - attaches to main-content -->
     <nxt1-sidenav
@@ -145,7 +144,6 @@ import { EditProfileApiService } from '../services/api/edit-profile-api.service'
       (toggle)="onSidenavToggle($event)"
       (itemSelect)="onSidenavItemSelect($event)"
       (socialClick)="onSocialLinkClick($event)"
-      (profileClick)="onSidenavUserClick()"
       (addSportClick)="onAddSportClick()"
       (sportProfileSelect)="onSportProfileSelect($event)"
     />
@@ -160,20 +158,12 @@ import { EditProfileApiService } from '../services/api/edit-profile-api.service'
           - On sub-pages: swipeGesture=true (native iOS back gesture)
           This matches Instagram, Twitter, TikTok navigation behavior.
         -->
-        <ion-router-outlet [swipeGesture]="!isOnMainPage()"></ion-router-outlet>
+        <ion-router-outlet
+          [swipeGesture]="preferBackSwipe() || !isOnMainPage()"
+        ></ion-router-outlet>
       </div>
 
-      <!-- Persistent Bottom Navigation -->
-      <nxt1-mobile-footer
-        [tabs]="tabs()"
-        [activeTabId]="activeTabId()"
-        [config]="footerConfig()"
-        [profileAvatarSrc]="sidenavUser()?.profileImg"
-        [profileAvatarName]="sidenavUser()?.name"
-        [profileAvatarIsTeam]="sidenavUser()?.isTeamRole ?? false"
-        (tabSelect)="onTabSelect($event)"
-        (scrollToTop)="onScrollToTop($event)"
-      />
+      <!-- Persistent Bottom Navigation removed -->
     </div>
   `,
   styles: [
@@ -199,10 +189,8 @@ import { EditProfileApiService } from '../services/api/edit-profile-api.service'
         overflow: hidden;
         position: relative;
 
-        /* Account for footer height + safe area + floating offset */
-        padding-bottom: calc(
-          var(--nxt1-footer-height, 80px) + env(safe-area-inset-bottom, 0px) + 24px
-        );
+        /* No footer — remove bottom padding */
+        padding-bottom: 0;
       }
 
       /* Ensure ion-router-outlet and its pages fill available space */
@@ -220,22 +208,9 @@ import { EditProfileApiService } from '../services/api/edit-profile-api.service'
         width: 100%;
       }
 
-      /* Position footer at bottom - uses component's CSS variables for customization */
-      nxt1-mobile-footer {
-        /* Footer component handles positioning via :host styles */
-        /* Override defaults if needed via CSS variables: */
-        --nxt1-footer-bottom: 20px;
-        --nxt1-footer-left: 16px;
-        --nxt1-footer-right: 16px;
-        --nxt1-z-index-footer: 1000;
-
-        /* Smooth transitions for scroll-hide behavior */
-        transition:
-          transform var(--nxt1-transition-normal, 300ms)
-            var(--nxt1-ease-out, cubic-bezier(0.33, 1, 0.68, 1)),
-          opacity var(--nxt1-transition-normal, 300ms)
-            var(--nxt1-ease-out, cubic-bezier(0.33, 1, 0.68, 1));
-        will-change: transform, opacity;
+      /* Keyboard open: ensure no bottom padding */
+      :host-context(.keyboard-open) .shell-content {
+        padding-bottom: 0;
       }
     `,
   ],
@@ -267,6 +242,9 @@ export class MobileShellComponent implements OnInit, OnDestroy {
   // ROUTE TRACKING (for sidenav gesture control)
   // ============================================
 
+  /** Reference to the main IonRouterOutlet — used to check canGoBack() after navigation. */
+  private readonly outlet = viewChild(IonRouterOutlet);
+
   /**
    * Current route - used to determine sidenav swipe gesture behavior.
    * Updated on navigation events.
@@ -274,13 +252,41 @@ export class MobileShellComponent implements OnInit, OnDestroy {
   private readonly _currentRoute = signal<string>('');
 
   /**
-   * Whether current page is a main page where sidenav swipe should be enabled.
-   * On main pages (home, search, activity, agent), swipe-right opens sidenav.
-   * On sub-pages (profile, settings, etc.), swipe-right triggers native back navigation.
+   * Whether the Ionic outlet has navigation history that can be popped.
+   * Updated after every NavigationEnd via a microtask so Ionic's view stack
+   * is settled before we read canGoBack().
+   */
+  private readonly _canGoBack = signal(false);
+
+  /**
+   * Whether current page is a "main page" where sidenav swipe should be enabled.
+   *
+   * A page is a main page ONLY when:
+   *   1. Its route is in MAIN_PAGE_ROUTES (or a /team/* route for coaches), AND
+   *   2. There is NO navigation history to go back to.
+   *
+   * When there IS history (user navigated forward to this page), back-swipe must
+   * take priority — even if the URL matches a normally-main route like /activity.
    *
    * Professional pattern: Instagram, Twitter, TikTok all use this approach.
    */
-  readonly isOnMainPage = computed(() => isMainPageRoute(this._currentRoute()));
+  readonly isOnMainPage = computed(
+    () => isMainPageRoute(this._currentRoute()) && !this._canGoBack()
+  );
+
+  /**
+   * Routes where right-edge swipe must prioritize native back navigation.
+   * Prevents sidenav from hijacking swipe gestures on usage/profile/team pages.
+   */
+  readonly preferBackSwipe = computed(() => {
+    const cleanRoute = this._currentRoute().split('?')[0].split('#')[0];
+    return (
+      cleanRoute === '/usage' ||
+      cleanRoute === '/profile' ||
+      cleanRoute.startsWith('/profile/') ||
+      cleanRoute.startsWith('/team/')
+    );
+  });
 
   // ============================================
   // FOOTER CONFIGURATION
@@ -296,14 +302,16 @@ export class MobileShellComponent implements OnInit, OnDestroy {
    * during the window between auth resolution and full profile load.
    */
   readonly tabs = computed<FooterTabItem[]>(() => {
-    const profile = this.profileService.user();
-    const authUser = this.authFlow.user();
-    const role = profile?.role ?? authUser?.role ?? null;
-    const isTeam = role ? isTeamRole(role) : false;
-    const teamSlug = profile?.teamCode?.slug ?? profile?.coach?.managedTeamCodes?.[0] ?? undefined;
-    const ctx = isTeam
-      ? { isTeamRole: true, profileRoute: teamSlug ? `/team/${teamSlug}` : '/profile' }
-      : { isTeamRole: false, profileRoute: '/profile' };
+    const profile = this.profileService.userAsDisplayInput();
+    const authUser = this.authFlow.user() as UserDisplayInput | null;
+    const firebaseUser = this.authFlow.firebaseUser();
+    const fallback: UserDisplayFallback | null = firebaseUser
+      ? {
+          displayName: firebaseUser.displayName,
+          email: firebaseUser.email,
+        }
+      : null;
+    const ctx = buildUserDisplayContext(profile ?? authUser, fallback);
     const baseTabs = buildDynamicFooterTabs(ctx);
     const activityUnreadCount = this.activityService.totalUnread();
     return updateTabBadge(
@@ -311,6 +319,11 @@ export class MobileShellComponent implements OnInit, OnDestroy {
       'activity',
       activityUnreadCount > 0 ? activityUnreadCount : undefined
     );
+  });
+
+  /** Current user's canonical identity route (profile for athletes, team for team roles). */
+  readonly ownIdentityRoute = computed(() => {
+    return this.tabs().find((tab) => tab.id === 'profile')?.route ?? '/profile';
   });
 
   /** Currently active tab ID, synced with router (null when on pages not in footer like /settings) */
@@ -374,139 +387,36 @@ export class MobileShellComponent implements OnInit, OnDestroy {
    * This ensures sidenav always has data even before ProfileService loads.
    */
   readonly sidenavUser = computed<SidenavUserData | null>(() => {
-    // Get both data sources for intelligent avatar fallback
-    const profile = this.profileService.user();
-    const authUser = this.authFlow.user();
+    const rawProfile = this.profileService.user();
+    const profile = this.profileService.userAsDisplayInput();
+    const rawAuthUser = this.authFlow.user();
+    const authUser = rawAuthUser as UserDisplayInput | null;
+    const firebaseUser = this.authFlow.firebaseUser();
+    const fallback: UserDisplayFallback | null = firebaseUser
+      ? {
+          displayName: firebaseUser.displayName,
+          email: firebaseUser.email,
+        }
+      : null;
 
-    if (profile) {
-      // Normalise: Firestore dot-notation writes can convert sports array to a map.
-      const sports = this.normalizeSports(profile.sports);
-
-      // Get primary sport using order === 0 (User model uses 'order', not 'isPrimary').
-      const primarySport = sports.find((s) => s.order === 0) ?? sports[0];
-      const primarySportName = this.resolveSportName(primarySport);
-      const position = primarySport?.positions?.[0] ?? '';
-      const personalName = `${profile.firstName} ${profile.lastName}`.trim();
-
-      // Coach/Director roles: resolve team name and logo from available sources
-      let displayName = personalName;
-      let profileImg: string | undefined;
-
-      if (isTeamRole(profile.role)) {
-        // Sport team data may include team info not in the normalized type
-        const sportTeam = (primarySport as unknown as Record<string, unknown> | undefined)?.[
-          'team'
-        ] as Record<string, unknown> | undefined;
-        // Raw Firestore top-level team field (not on User interface)
-        const rawTeam = (profile as unknown as Record<string, unknown>)['team'] as
-          | Record<string, unknown>
-          | undefined;
-
-        // Team name: teamCode → sports[].team → raw Firestore team field → personal name
-        const teamName =
-          (profile.teamCode?.teamName as string | undefined) ??
-          (sportTeam?.['name'] as string | undefined) ??
-          (rawTeam?.['name'] as string | undefined);
-        displayName = teamName || personalName;
-
-        // Team logo: teamCode → sports[].team → raw Firestore team field → undefined (shield fallback)
-        profileImg =
-          profile.teamCode?.logoUrl ??
-          (sportTeam?.['logoUrl'] as string | undefined) ??
-          (rawTeam?.['logoUrl'] as string | undefined) ??
-          undefined;
-      } else {
-        profileImg = profile.profileImgs?.[0] || undefined;
-      }
-
-      const subtitle = primarySportName
-        ? position
-          ? `${primarySportName} • ${getPositionAbbreviation(position, primarySportName) || position}`
-          : primarySportName
-        : position
-          ? getPositionAbbreviation(position, primarySport?.sport) || position
-          : isTeamRole(profile.role)
-            ? 'Coach'
-            : 'Athlete';
-
-      return {
-        name: displayName || 'User',
-        subtitle,
-        profileImg,
-        initials: this.getInitials(displayName || profile.email || 'U'),
-        verified: false,
-        isPremium: this.profileService.isPremium(),
-        isTeamRole: isTeamRole(profile.role),
-        switcherTitle: isTeamRole(profile.role) ? 'Teams' : 'Sports',
-        actionLabel: isTeamRole(profile.role) ? 'Add Team' : 'Add Sport',
-        userId: profile.id,
-        // Team roles: show each sport as a team card (team name + sport label)
-        // Athletes: show sport profiles for switching between sports.
-        sportProfiles: isTeamRole(profile.role)
-          ? (() => {
-              const teamProfiles: SidenavSportProfile[] = [];
-              // Primary sport from teamCode
-              if (primarySportName) {
-                teamProfiles.push({
-                  id: 'team-primary',
-                  sport: displayName,
-                  position: primarySportName,
-                  isActive: true,
-                  profileImg,
-                });
-              }
-              // Additional sports added via Add Team wizard
-              sports.forEach((s, index: number) => {
-                const sName = this.resolveSportName(s);
-                if (sName && sName !== primarySportName) {
-                  teamProfiles.push({
-                    id: `team-sport-${index}`,
-                    sport: displayName,
-                    position: sName,
-                    isActive: false,
-                    profileImg,
-                  });
-                }
-              });
-              return teamProfiles;
-            })()
-          : deduplicateSportProfiles(
-              sports.map((s, index: number) => {
-                const sportName =
-                  this.resolveSportName(s) || s.positions?.[0] || `Sport ${index + 1}`;
-                return {
-                  id: `${profile.id}-${sportName.toLowerCase().replace(/\s+/g, '-')}`,
-                  sport: sportName,
-                  sportIcon: this.getSportIcon(s.sport),
-                  position: s.positions?.[0]
-                    ? getPositionAbbreviation(s.positions[0], s.sport)
-                    : undefined,
-                  isActive: s.order === 0,
-                  classYear: undefined,
-                };
-              })
-            ),
-        activeSportProfileId: primarySportName
-          ? `${profile.id}-${primarySportName.toLowerCase().replace(/\s+/g, '-')}`
-          : undefined,
-      };
-    }
-
-    // Fallback to AuthUser (persisted, available immediately on app resume)
-    if (!authUser) return null;
+    const ctx = buildUserDisplayContext(profile ?? authUser, fallback);
+    if (!ctx) return null;
 
     return {
-      name: authUser.displayName || 'User',
-      subtitle: authUser.email,
-      profileImg: authUser.profileImg,
-      initials: this.getInitials(authUser.displayName || authUser.email || 'U'),
-      verified: authUser.emailVerified,
-      isPremium: authUser.isPremium,
-      isTeamRole: isTeamRole(authUser.role),
-      actionLabel: isTeamRole(authUser.role) ? 'Add Team' : 'Add Sport',
-      userId: authUser.uid,
-      sportProfiles: [], // AuthUser doesn't have sports data
-      activeSportProfileId: undefined,
+      name: ctx.name,
+      subtitle: ctx.sportLabel ?? (profile ? (ctx.isTeamRole ? 'Coach' : 'Athlete') : ctx.email),
+      profileImg: ctx.profileImg,
+      initials: ctx.initials,
+      verified: profile ? ctx.verified : (rawAuthUser?.emailVerified ?? ctx.verified),
+      profileRoute: ctx.profileRoute,
+      isTeamRole: ctx.isTeamRole,
+      isOnTeam: ctx.isOnTeam,
+      canAddProfile: ctx.canAddProfile,
+      switcherTitle: ctx.switcherTitle,
+      actionLabel: ctx.actionLabel,
+      userId: rawProfile?.id ?? rawAuthUser?.uid,
+      sportProfiles: ctx.sportProfiles as SidenavSportProfile[],
+      activeSportProfileId: ctx.sportProfiles.find((sportProfile) => sportProfile.isActive)?.id,
     };
   });
 
@@ -515,12 +425,7 @@ export class MobileShellComponent implements OnInit, OnDestroy {
    * Usage is always visible — the backend determines the correct billing
    * entity (individual vs organization) and the Usage page renders accordingly.
    */
-  readonly sidenavSections = computed<SidenavSection[]>(() => {
-    return DEFAULT_SIDENAV_ITEMS.map((section) => ({
-      ...section,
-      items: section.items.filter((item) => item.id !== 'connections'),
-    }));
-  });
+  readonly sidenavSections = computed<SidenavSection[]>(() => DEFAULT_SIDENAV_ITEMS);
 
   /** Social links for sidenav footer */
   readonly socialLinks: SocialLink[] = DEFAULT_SOCIAL_LINKS;
@@ -537,7 +442,7 @@ export class MobileShellComponent implements OnInit, OnDestroy {
    */
   readonly sidenavConfig = computed<SidenavConfig>(() => {
     const isIos = this.platform.os() === 'ios';
-    const enableSwipe = this.isOnMainPage();
+    const enableSwipe = this.isOnMainPage() && !this.preferBackSwipe();
 
     return createSidenavConfig({
       mode: 'push',
@@ -707,92 +612,18 @@ export class MobileShellComponent implements OnInit, OnDestroy {
         // Update current route for sidenav swipe gesture control
         this._currentRoute.set(event.urlAfterRedirects);
 
+        // Update canGoBack after Ionic's outlet has processed the navigation.
+        // A microtask ensures the outlet's internal view stack is settled before
+        // we read canGoBack(), avoiding a one-frame lag on the gesture state.
+        void Promise.resolve().then(() => {
+          this._canGoBack.set(this.outlet()?.canGoBack() ?? false);
+        });
+
         // Sync active tab highlight
         this.syncActiveTabFromRoute(event.urlAfterRedirects);
       });
 
     // sidenavUser is now a computed signal that automatically reacts to auth state changes
-  }
-
-  /**
-   * Get user initials from display name or email
-   */
-  private getInitials(nameOrEmail: string): string {
-    if (!nameOrEmail) return 'U';
-
-    // If it looks like an email, use first letter
-    if (nameOrEmail.includes('@')) {
-      return nameOrEmail.charAt(0).toUpperCase();
-    }
-
-    // Split by spaces and get first letter of each word (max 2)
-    const parts = nameOrEmail.trim().split(/\s+/);
-    if (parts.length >= 2) {
-      return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
-    }
-    return nameOrEmail.charAt(0).toUpperCase();
-  }
-
-  /**
-   * Firestore writes can produce either an array or object map for sports.
-   * Normalize to an array and preserve sport names when possible.
-   */
-  private normalizeSports(
-    sports: unknown
-  ): Array<{ sport?: string; positions?: string[]; order?: number }> {
-    if (Array.isArray(sports)) {
-      return sports as Array<{ sport?: string; positions?: string[]; order?: number }>;
-    }
-
-    if (!sports || typeof sports !== 'object') {
-      return [];
-    }
-
-    return Object.entries(sports as Record<string, unknown>).map(([key, value]) => {
-      const sportFromKey = key ? formatSportDisplayName(key.replace(/[_-]+/g, ' ')) : undefined;
-
-      if (value && typeof value === 'object') {
-        const entry = value as { sport?: string; positions?: string[]; order?: number };
-        const sport = entry.sport?.trim() ? entry.sport : sportFromKey;
-        return { ...entry, sport };
-      }
-
-      return { sport: sportFromKey };
-    });
-  }
-
-  /**
-   * Resolve a safe display sport name for sidebar labels.
-   */
-  private resolveSportName(sport: { sport?: string } | undefined): string | null {
-    const name = sport?.sport?.trim();
-    return name ? formatSportDisplayName(name) : null;
-  }
-
-  /**
-   * Get icon name for a sport
-   */
-  private getSportIcon(sport: string | undefined): string | undefined {
-    if (!sport) return undefined;
-
-    const sportLower = sport.toLowerCase();
-    const sportIcons: Record<string, string> = {
-      football: 'football',
-      basketball: 'basketball',
-      baseball: 'baseball',
-      softball: 'softball',
-      soccer: 'soccer',
-      volleyball: 'volleyball',
-      lacrosse: 'lacrosse',
-      tennis: 'tennis',
-      golf: 'golf',
-      swimming: 'swimming',
-      track: 'track',
-      wrestling: 'wrestling',
-      hockey: 'hockey',
-    };
-
-    return sportIcons[sportLower] ?? 'trophy';
   }
 
   // ============================================
@@ -824,24 +655,6 @@ export class MobileShellComponent implements OnInit, OnDestroy {
     if (tab.isActionButton) {
       this.handleAgentAction(tab, currentTabId ?? this.getFallbackTabId());
       return;
-    }
-
-    // Special case: Coach/Director profile tab → navigate to their team by slug
-    // Mirrors the web top nav behavior where /profile redirects to /team/:slug
-    if (tab.id === 'profile') {
-      const user = this.profileService.user();
-      if (user && isTeamRole(user.role)) {
-        const slug =
-          user.teamCode?.slug ?? user.teamCode?.unicode ?? user.coach?.managedTeamCodes?.[0];
-        if (slug) {
-          const direction = this.getAnimationDirection(
-            currentTabId ?? this.getFallbackTabId(),
-            tab.id
-          );
-          this.navigateToTab(`/team/${slug}`, direction);
-          return;
-        }
-      }
     }
 
     // Navigate to tab route with directional animation
@@ -888,21 +701,24 @@ export class MobileShellComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * Navigate to a tab with the specified animation direction
-   * Uses navigateForward for right movement, navigateBack for left movement
+   * Navigate to a tab with the specified animation direction.
+   *
+   * ⭐ Uses navigateRoot (not navigateForward/Back) so each tab tap clears
+   * the navigation stack. This is the standard pattern for tab-based apps
+   * (Instagram, Twitter, TikTok) and is critical for correct gesture behaviour:
+   *
+   * - navigateRoot → canGoBack() = false  → sidenav swipe enabled on tab root ✅
+   * - navigateForward inside a tab → canGoBack() = true → back-swipe enabled ✅
+   *
+   * Previously using navigateForward pushed tabs onto the stack, causing
+   * isOnMainPage() to incorrectly return false (back-swipe enabled) on pages
+   * like /activity and /profile even when they were the intended tab root.
    */
   private navigateToTab(route: string, direction: 'forward' | 'back'): void {
-    if (direction === 'forward') {
-      void this.navController.navigateForward(route, {
-        animated: true,
-        animationDirection: 'forward',
-      });
-    } else {
-      void this.navController.navigateBack(route, {
-        animated: true,
-        animationDirection: 'back',
-      });
-    }
+    void this.navController.navigateRoot(route, {
+      animated: true,
+      animationDirection: direction,
+    });
   }
 
   /**
@@ -952,15 +768,6 @@ export class MobileShellComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * Handle sidenav user profile click
-   */
-  onSidenavUserClick(): void {
-    this.haptics.impact('light');
-    this.sidenavService.close();
-    void this.navController.navigateForward('/profile');
-  }
-
-  /**
    * Handle "Add Sport" tap from sidenav switcher.
    * Navigates to the add-sport wizard so athletes can add a new sport and
    * coaches/directors can add a new sport team.
@@ -973,44 +780,59 @@ export class MobileShellComponent implements OnInit, OnDestroy {
   /**
    * Handle sport profile selection from sidenav switcher.
    * Switches the active sport index and navigates to the user's profile.
+   *
+   * Uses `originalIndex` from the sidenav profile (the canonical index into
+   * `user.sports[]`) and compares against `user.activeSportIndex` directly —
+   * NOT against derived `sport.order` (which is unreliable and was the source
+   * of state-stuck-on-first-sport bug).
    */
   async onSportProfileSelect(event: { profile: SidenavSportProfile; event: Event }): Promise<void> {
     const profile = this.profileService.user();
-    if (!profile) return;
+    if (!profile) {
+      this.sidenavService.close();
+      return;
+    }
 
-    const sports = profile.sports ?? [];
-    const selectedSport = event.profile.sport?.toLowerCase().replace(/\s+/g, '-');
-
-    // Find the index of the selected sport in the user's sports array
-    const sportIndex = sports.findIndex((s) => {
-      const name = (s.sport ?? '').toLowerCase().replace(/\s+/g, '-');
-      return name === selectedSport;
-    });
-
-    if (sportIndex >= 0 && sportIndex !== this.getActiveSportIndex(sports)) {
-      this.logger.info('Switching sport from sidenav', {
+    const sportIndex = event.profile.originalIndex;
+    if (sportIndex === undefined || sportIndex < 0) {
+      this.logger.warn('Cannot switch sport profile without a valid original index', {
+        profileId: profile.id,
         sport: event.profile.sport,
-        index: sportIndex,
       });
+      this.sidenavService.close();
+      return;
+    }
 
-      // Persist the active sport index
+    const currentIndex = profile.activeSportIndex ?? 0;
+    if (sportIndex !== currentIndex) {
       const uid = profile.id;
       if (uid) {
-        await this.editProfileApi.updateActiveSportIndex(uid, sportIndex);
-        await this.profileService.refresh(uid);
+        this.logger.info('Switching sport from sidenav', {
+          from: currentIndex,
+          to: sportIndex,
+          sport: event.profile.sport,
+        });
+
+        const result = await this.editProfileApi.updateActiveSportIndex(uid, sportIndex);
+        if (result.success) {
+          // Optimistically patch the state user signal so the sidenav
+          // highlight + profile page (which reacts via effect) immediately
+          // re-render with the new active sport. Do NOT call refresh() here
+          // \u2014 a backend round-trip could race and overwrite this with stale
+          // data, causing the highlight to flip back to the previous sport.
+          this.profileService.setUser({ ...profile, activeSportIndex: sportIndex });
+        } else {
+          this.logger.warn('Failed to switch active sport profile', {
+            uid,
+            sportIndex,
+            error: result.error,
+          });
+        }
       }
     }
 
     this.sidenavService.close();
-    void this.navController.navigateForward('/profile');
-  }
-
-  /**
-   * Get the currently active sport index from the sports array.
-   */
-  private getActiveSportIndex(sports: Array<{ order?: number | null }>): number {
-    const idx = sports.findIndex((s) => s.order === 0);
-    return idx >= 0 ? idx : 0;
+    void this.navController.navigateForward(this.ownIdentityRoute());
   }
 
   /**
@@ -1040,7 +862,7 @@ export class MobileShellComponent implements OnInit, OnDestroy {
         await this.openInviteSheet();
         break;
       case 'help':
-        // TODO: Open help/support modal or page
+        void this.navController.navigateForward('/help-center');
         break;
       default:
         // Unknown action - silently ignore

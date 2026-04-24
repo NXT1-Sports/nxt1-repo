@@ -44,15 +44,17 @@ import {
 import { CommonModule } from '@angular/common';
 import type { TeamSelectionEntry, TeamSelectionFormData, SportFormData } from '@nxt1/core/api';
 import type { ILogger } from '@nxt1/core/logging';
-import { titleCase, USER_ROLES } from '@nxt1/core';
+import { titleCase, USER_ROLES, US_STATES, COUNTRIES } from '@nxt1/core';
 import type { OnboardingUserType } from '@nxt1/core/onboarding';
 import { NxtSearchBarComponent } from '../../components/search-bar';
 import { NxtValidationSummaryComponent } from '../../components/validation-summary';
 import { NxtListSectionComponent } from '../../components/list-section';
+import { NxtListRowComponent } from '../../components/list-row';
 import { NxtIconComponent } from '../../components/icon';
 import { HapticButtonDirective } from '../../services/haptics';
 import { NxtLoggingService } from '../../services/logging';
 import { NxtToastService } from '../../services/toast';
+import { NxtModalService } from '../../services/modal';
 
 // ============================================
 // TYPES
@@ -137,6 +139,7 @@ const PROGRAM_TYPE_SUFFIX_PATTERNS: Readonly<Record<DraftProgramType, readonly R
     NxtSearchBarComponent,
     NxtValidationSummaryComponent,
     NxtListSectionComponent,
+    NxtListRowComponent,
     NxtIconComponent,
     HapticButtonDirective,
   ],
@@ -223,23 +226,106 @@ const PROGRAM_TYPE_SUFFIX_PATTERNS: Readonly<Record<DraftProgramType, readonly R
           <div class="nxt1-no-results" data-testid="team-search-no-results">
             <p class="nxt1-no-results-text">No programs found</p>
             @if (searchQuery().trim().length >= 2) {
-              <div class="nxt1-draft-controls">
-                <p class="nxt1-draft-type-label">
-                  Select program type to add "{{ searchQuery().trim() }}":
-                </p>
-                <div class="nxt1-draft-chip-group">
-                  @for (option of draftProgramTypeOptions; track option.value) {
-                    <button
-                      type="button"
-                      class="nxt1-draft-chip"
-                      nxtHaptic="light"
-                      (click)="addDraftProgram(searchQuery().trim(), option.value)"
-                    >
-                      {{ option.label }}
-                    </button>
+              @if (!showCreateWizard()) {
+                <button
+                  type="button"
+                  class="nxt1-create-program-cta"
+                  nxtHaptic="light"
+                  data-testid="create-program-cta"
+                  (click)="showCreateWizard.set(true)"
+                >
+                  <nxt1-icon name="plus" size="18" />
+                  Create "{{ searchQuery().trim() }}"
+                </button>
+              } @else {
+                <div class="nxt1-draft-controls">
+                  @if (!pendingDraftType()) {
+                    <p class="nxt1-draft-type-label">Select program type:</p>
+                    <div class="nxt1-draft-chip-group">
+                      @for (option of draftProgramTypeOptions; track option.value) {
+                        <button
+                          type="button"
+                          class="nxt1-draft-chip"
+                          nxtHaptic="light"
+                          (click)="selectDraftType(option.value)"
+                        >
+                          {{ option.label }}
+                        </button>
+                      }
+                    </div>
+                  } @else {
+                    <div class="nxt1-draft-location">
+                      <button
+                        type="button"
+                        class="nxt1-draft-type-back"
+                        (click)="selectDraftType('')"
+                      >
+                        {{ getDraftTypeLabel(pendingDraftType()!) }}
+                      </button>
+                      <p class="nxt1-draft-location-label">Program location</p>
+                      <nxt1-list-section>
+                        <nxt1-list-row
+                          label="Country"
+                          (tap)="openDraftCountryPicker()"
+                          data-testid="draft-program-country"
+                        >
+                          <span class="nxt1-list-value">
+                            {{ draftCountryDisplayValue() }}
+                          </span>
+                        </nxt1-list-row>
+                        <nxt1-list-row
+                          label="City"
+                          (tap)="openDraftCityPrompt()"
+                          data-testid="draft-program-city"
+                        >
+                          <span
+                            class="nxt1-list-value"
+                            [class.nxt1-list-placeholder]="!draftCity()"
+                          >
+                            {{ draftCity() || 'Enter city' }}
+                          </span>
+                        </nxt1-list-row>
+                        @if (draftCountry() === 'US') {
+                          <nxt1-list-row
+                            label="State"
+                            (tap)="openDraftStatePicker()"
+                            data-testid="draft-program-state"
+                          >
+                            <span
+                              class="nxt1-list-value"
+                              [class.nxt1-list-placeholder]="!draftState()"
+                            >
+                              {{ draftStateDisplayValue() || 'Select state' }}
+                            </span>
+                          </nxt1-list-row>
+                        } @else {
+                          <nxt1-list-row
+                            label="State / Province"
+                            (tap)="openDraftStatePrompt()"
+                            data-testid="draft-program-state"
+                          >
+                            <span
+                              class="nxt1-list-value"
+                              [class.nxt1-list-placeholder]="!draftState()"
+                            >
+                              {{ draftState() || 'Enter state / province' }}
+                            </span>
+                          </nxt1-list-row>
+                        }
+                      </nxt1-list-section>
+                      <button
+                        type="button"
+                        class="nxt1-draft-add-btn"
+                        nxtHaptic="medium"
+                        data-testid="draft-program-add"
+                        (click)="confirmDraftProgram()"
+                      >
+                        Add Program
+                      </button>
+                    </div>
                   }
                 </div>
-              </div>
+              }
             }
           </div>
         }
@@ -393,25 +479,99 @@ const PROGRAM_TYPE_SUFFIX_PATTERNS: Readonly<Record<DraftProgramType, readonly R
         } @else if (hasSearched()) {
           <div class="nxt1-no-results" data-testid="team-search-no-results">
             <p class="nxt1-no-results-text">No programs found for "{{ searchQuery() }}"</p>
-            <p class="nxt1-no-results-hint">Try a different search or add your program below.</p>
             @if (searchQuery().trim().length >= 2) {
-              <div class="nxt1-draft-controls">
-                <p class="nxt1-draft-type-label">
-                  Select program type to add "{{ searchQuery().trim() }}":
-                </p>
-                <div class="nxt1-draft-chip-group">
-                  @for (option of draftProgramTypeOptions; track option.value) {
-                    <button
-                      type="button"
-                      class="nxt1-draft-chip"
-                      nxtHaptic="light"
-                      (click)="addDraftProgram(searchQuery().trim(), option.value)"
-                    >
-                      {{ option.label }}
-                    </button>
+              @if (!showCreateWizard()) {
+                <button
+                  type="button"
+                  class="nxt1-create-program-cta"
+                  nxtHaptic="light"
+                  data-testid="create-program-cta"
+                  (click)="showCreateWizard.set(true)"
+                >
+                  <nxt1-icon name="plus" size="18" />
+                  Create "{{ searchQuery().trim() }}"
+                </button>
+              } @else {
+                <div class="nxt1-draft-controls">
+                  @if (!pendingDraftType()) {
+                    <p class="nxt1-draft-type-label">Select program type:</p>
+                    <div class="nxt1-draft-chip-group">
+                      @for (option of draftProgramTypeOptions; track option.value) {
+                        <button
+                          type="button"
+                          class="nxt1-draft-chip"
+                          nxtHaptic="light"
+                          (click)="selectDraftType(option.value)"
+                        >
+                          {{ option.label }}
+                        </button>
+                      }
+                    </div>
+                  } @else {
+                    <div class="nxt1-draft-location">
+                      <button
+                        type="button"
+                        class="nxt1-draft-type-back"
+                        (click)="selectDraftType('')"
+                      >
+                        {{ getDraftTypeLabel(pendingDraftType()!) }}
+                      </button>
+                      <p class="nxt1-draft-location-label">Program location</p>
+                      <div class="nxt1-draft-location-fields">
+                        <select
+                          class="nxt1-draft-location-select"
+                          [value]="draftCountry()"
+                          (change)="onDraftCountryChangeNative($event)"
+                          data-testid="draft-program-country"
+                        >
+                          @for (c of countries; track c.code) {
+                            <option [value]="c.code">{{ c.name }}</option>
+                          }
+                        </select>
+                        <input
+                          type="text"
+                          class="nxt1-draft-location-input"
+                          placeholder="City"
+                          [value]="draftCity()"
+                          (input)="onDraftCityInputNative($event)"
+                          data-testid="draft-program-city"
+                        />
+                        @if (draftCountry() === 'US') {
+                          <select
+                            class="nxt1-draft-location-select"
+                            [value]="draftState()"
+                            (change)="onDraftStateChangeNative($event)"
+                            data-testid="draft-program-state"
+                          >
+                            <option value="">State</option>
+                            @for (s of usStates; track s.abbreviation) {
+                              <option [value]="s.abbreviation">{{ s.name }}</option>
+                            }
+                          </select>
+                        } @else {
+                          <input
+                            type="text"
+                            class="nxt1-draft-location-input"
+                            placeholder="State / Province"
+                            [value]="draftState()"
+                            (input)="onDraftStateInputNative($event)"
+                            data-testid="draft-program-state"
+                          />
+                        }
+                      </div>
+                      <button
+                        type="button"
+                        class="nxt1-draft-add-btn"
+                        nxtHaptic="medium"
+                        data-testid="draft-program-add"
+                        (click)="confirmDraftProgram()"
+                      >
+                        Add Program
+                      </button>
+                    </div>
                   }
                 </div>
-              </div>
+              }
             }
           </div>
         }
@@ -953,6 +1113,32 @@ const PROGRAM_TYPE_SUFFIX_PATTERNS: Readonly<Record<DraftProgramType, readonly R
         margin: 0;
       }
 
+      .nxt1-create-program-cta {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--nxt1-spacing-2, 8px);
+        margin-top: var(--nxt1-spacing-4, 16px);
+        padding: var(--nxt1-spacing-3, 12px) var(--nxt1-spacing-4, 16px);
+        background: transparent;
+        border: 1.5px dashed var(--nxt1-color-primary, #ccff00);
+        border-radius: var(--nxt1-borderRadius-lg, 12px);
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-sm, 0.875rem);
+        font-weight: 600;
+        color: var(--nxt1-color-primary, #ccff00);
+        cursor: pointer;
+        transition: all var(--nxt1-duration-fast, 150ms) var(--nxt1-easing-out, ease-out);
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      .nxt1-create-program-cta:hover {
+        background: var(--nxt1-color-alpha-primary10, rgba(204, 255, 0, 0.1));
+      }
+
+      .nxt1-create-program-cta:active {
+        transform: scale(0.97);
+      }
+
       .nxt1-no-results-hint {
         font-family: var(--nxt1-fontFamily-brand);
         font-size: var(--nxt1-fontSize-xs, 0.75rem);
@@ -1016,6 +1202,109 @@ const PROGRAM_TYPE_SUFFIX_PATTERNS: Readonly<Record<DraftProgramType, readonly R
         transform: scale(0.97);
       }
 
+      .nxt1-draft-chip--selected {
+        background: var(--nxt1-color-alpha-primary10, rgba(204, 255, 0, 0.1));
+        border-color: var(--nxt1-color-primary, #ccff00);
+        color: var(--nxt1-color-primary, #ccff00);
+      }
+
+      .nxt1-draft-location {
+        display: flex;
+        flex-direction: column;
+        gap: var(--nxt1-spacing-2, 8px);
+        margin-top: var(--nxt1-spacing-3, 12px);
+        width: 100%;
+      }
+
+      .nxt1-draft-location-label {
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-xs, 0.75rem);
+        font-weight: 500;
+        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
+        margin: 0;
+      }
+
+      .nxt1-draft-type-back {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--nxt1-spacing-1, 4px);
+        background: none;
+        border: none;
+        padding: 0;
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-xs, 0.75rem);
+        font-weight: 500;
+        color: var(--nxt1-color-primary, #ccff00);
+        cursor: pointer;
+        margin-bottom: var(--nxt1-spacing-1, 4px);
+      }
+
+      .nxt1-draft-type-back:hover {
+        opacity: 0.8;
+      }
+
+      .nxt1-draft-location-fields {
+        display: flex;
+        gap: var(--nxt1-spacing-2, 8px);
+      }
+
+      .nxt1-draft-location-input,
+      .nxt1-draft-location-select {
+        padding: var(--nxt1-spacing-2, 8px) var(--nxt1-spacing-3, 12px);
+        background: var(--nxt1-color-surface-100);
+        border: 1px solid var(--nxt1-color-border-default, rgba(255, 255, 255, 0.1));
+        border-radius: var(--nxt1-borderRadius-md, 8px);
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-sm, 0.875rem);
+        color: var(--nxt1-color-text-primary, #ffffff);
+        outline: none;
+        transition: border-color var(--nxt1-duration-fast, 150ms);
+      }
+
+      .nxt1-draft-location-input {
+        flex: 1;
+      }
+
+      .nxt1-draft-location-input::placeholder {
+        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
+      }
+
+      .nxt1-draft-location-input:focus,
+      .nxt1-draft-location-select:focus {
+        border-color: var(--nxt1-color-primary, #ccff00);
+      }
+
+      .nxt1-draft-location-select {
+        min-width: 80px;
+      }
+
+      .nxt1-draft-location-select option {
+        background: var(--nxt1-color-surface-100);
+        color: var(--nxt1-color-text-primary, #ffffff);
+      }
+
+      .nxt1-draft-add-btn {
+        padding: var(--nxt1-spacing-2, 8px) var(--nxt1-spacing-4, 16px);
+        background: var(--nxt1-color-primary, #ccff00);
+        color: var(--nxt1-color-text-onPrimary, #0a0a0a);
+        border: none;
+        border-radius: var(--nxt1-borderRadius-md, 8px);
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-sm, 0.875rem);
+        font-weight: 600;
+        cursor: pointer;
+        transition: all var(--nxt1-duration-fast, 150ms);
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      .nxt1-draft-add-btn:hover {
+        opacity: 0.9;
+      }
+
+      .nxt1-draft-add-btn:active {
+        transform: scale(0.98);
+      }
+
       /* Draft badge for new programs */
       .nxt1-draft-badge {
         color: var(--nxt1-color-warning, #ffaa00) !important;
@@ -1035,6 +1324,7 @@ export class OnboardingTeamSelectionStepComponent {
 
   private readonly loggingService = inject(NxtLoggingService);
   private readonly toast = inject(NxtToastService);
+  private readonly modal = inject(NxtModalService);
 
   /** Namespaced logger */
   private readonly logger: ILogger = this.loggingService.child('OnboardingTeamSelectionStep');
@@ -1096,6 +1386,21 @@ export class OnboardingTeamSelectionStepComponent {
   /** Whether the user has performed at least one search */
   readonly hasSearched = signal(false);
 
+  /** Pending draft program type (user selected type but hasn't confirmed yet) */
+  readonly pendingDraftType = signal<DraftProgramType | null>(null);
+
+  /** Draft program city input */
+  readonly draftCity = signal('');
+
+  /** Draft program state input */
+  readonly draftState = signal('');
+
+  /** Draft program country input (defaults to US) */
+  readonly draftCountry = signal('US');
+
+  /** Whether the inline create-program wizard is expanded */
+  protected readonly showCreateWizard = signal(false);
+
   /** Debounce timer handle */
   private searchTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -1126,6 +1431,24 @@ export class OnboardingTeamSelectionStepComponent {
 
   /** Program types for draft creation */
   readonly draftProgramTypeOptions = DRAFT_PROGRAM_TYPE_OPTIONS;
+
+  /** US states for draft program location dropdown */
+  readonly usStates = US_STATES;
+
+  /** Countries for draft program location dropdown */
+  readonly countries = COUNTRIES;
+
+  /** Display name for the currently selected draft country */
+  protected readonly draftCountryDisplayValue = computed(() => {
+    const code = this.draftCountry();
+    return this.countries.find((c) => c.code === code)?.name ?? code;
+  });
+
+  /** Display name for the currently selected draft state (US only) */
+  protected readonly draftStateDisplayValue = computed(() => {
+    const abbr = this.draftState();
+    return this.usStates.find((s) => s.abbreviation === abbr)?.name ?? abbr;
+  });
 
   // ============================================
   // CONSTRUCTOR
@@ -1175,6 +1498,8 @@ export class OnboardingTeamSelectionStepComponent {
     this.searchResults.set([]);
     this.isSearching.set(false);
     this.hasSearched.set(false);
+    this.showCreateWizard.set(false);
+    this.resetDraftLocation();
     if (this.searchTimer !== null) {
       clearTimeout(this.searchTimer);
       this.searchTimer = null;
@@ -1290,7 +1615,7 @@ export class OnboardingTeamSelectionStepComponent {
   // ============================================
 
   /** Add a draft/ghost program entry from the search query */
-  addDraftProgram(name: string, programType?: string): void {
+  addDraftProgram(name: string, programType?: string, location?: string): void {
     const trimmed = name.trim();
     if (!trimmed) return;
 
@@ -1322,6 +1647,7 @@ export class OnboardingTeamSelectionStepComponent {
       name: normalizedName,
       sport: '', // Will be derived from sports step on backend
       teamType: normalizedType,
+      location: location || undefined,
       isSchool: false,
       isDraft: true,
     };
@@ -1351,6 +1677,144 @@ export class OnboardingTeamSelectionStepComponent {
   onJoinProgram(): void {
     this.logger.info('Join program requested');
     this.joinProgram.emit();
+  }
+
+  /** Select a draft program type — shows location fields before confirming */
+  selectDraftType(type: DraftProgramType | ''): void {
+    if (!type) {
+      this.resetDraftLocation();
+      return;
+    }
+    this.pendingDraftType.set(type);
+  }
+
+  /** Get the display label for a draft program type value */
+  getDraftTypeLabel(type: DraftProgramType): string {
+    return DRAFT_PROGRAM_TYPE_OPTIONS.find((o) => o.value === type)?.label ?? type;
+  }
+
+  // ── Mobile native pickers/prompts (NxtModalService) ──
+
+  /** Open native action sheet to select country */
+  async openDraftCountryPicker(): Promise<void> {
+    const result = await this.modal.actionSheet({
+      title: 'Select Country',
+      actions: this.countries.map((c) => ({
+        text: c.name,
+        data: c.code,
+      })),
+      preferNative: 'native',
+    });
+
+    if (result?.selected && result.data) {
+      this.draftCountry.set(result.data as string);
+      this.draftState.set('');
+    }
+  }
+
+  /** Open native prompt to enter city */
+  async openDraftCityPrompt(): Promise<void> {
+    const result = await this.modal.prompt({
+      title: 'City',
+      placeholder: 'Enter city',
+      defaultValue: this.draftCity(),
+      submitText: 'Done',
+      cancelText: 'Cancel',
+      inputType: 'text',
+      required: false,
+      preferNative: 'native',
+    });
+
+    if (result.confirmed) {
+      this.draftCity.set(this.titleCase(result.value.trim()));
+    }
+  }
+
+  /** Open native action sheet to select US state */
+  async openDraftStatePicker(): Promise<void> {
+    const result = await this.modal.actionSheet({
+      title: 'Select State',
+      actions: this.usStates.map((s) => ({
+        text: s.name,
+        data: s.abbreviation,
+      })),
+      preferNative: 'native',
+    });
+
+    if (result?.selected && result.data) {
+      this.draftState.set(result.data as string);
+    }
+  }
+
+  /** Open native prompt to enter state/province (non-US) */
+  async openDraftStatePrompt(): Promise<void> {
+    const result = await this.modal.prompt({
+      title: 'State / Province',
+      placeholder: 'Enter state or province',
+      defaultValue: this.draftState(),
+      submitText: 'Done',
+      cancelText: 'Cancel',
+      inputType: 'text',
+      required: false,
+      preferNative: 'native',
+    });
+
+    if (result.confirmed) {
+      this.draftState.set(this.titleCase(result.value.trim()));
+    }
+  }
+
+  // ── Desktop native HTML handlers ──
+
+  /** Handle draft program city input (native) */
+  onDraftCityInputNative(event: Event): void {
+    this.draftCity.set(this.titleCase((event.target as HTMLInputElement).value));
+  }
+
+  /** Handle draft program state dropdown change (native) */
+  onDraftStateChangeNative(event: Event): void {
+    this.draftState.set((event.target as HTMLSelectElement).value);
+  }
+
+  /** Handle draft program state free-text input (native, non-US) */
+  onDraftStateInputNative(event: Event): void {
+    this.draftState.set(this.titleCase((event.target as HTMLInputElement).value));
+  }
+
+  /** Handle draft program country change (native) */
+  onDraftCountryChangeNative(event: Event): void {
+    this.draftCountry.set((event.target as HTMLSelectElement).value);
+    this.draftState.set('');
+  }
+
+  /** Confirm and add the pending draft program with location */
+  confirmDraftProgram(): void {
+    const type = this.pendingDraftType();
+    const name = this.searchQuery().trim();
+    if (!type || !name) return;
+
+    const city = this.draftCity().trim();
+    const state = this.draftState().trim();
+    const country = this.draftCountry().trim();
+    const isUS = country === 'US';
+    const parts = [city, state].filter(Boolean).join(', ');
+    const location = !isUS && country ? (parts ? `${parts}, ${country}` : country) : parts;
+
+    this.addDraftProgram(name, type, location || undefined);
+    this.resetDraftLocation();
+  }
+
+  /** Title-case a string (capitalize first letter of each word) */
+  private titleCase(value: string): string {
+    return value.replace(/\b\w/g, (char) => char.toUpperCase());
+  }
+
+  /** Reset pending draft program state */
+  private resetDraftLocation(): void {
+    this.pendingDraftType.set(null);
+    this.draftCity.set('');
+    this.draftState.set('');
+    this.draftCountry.set('US');
   }
 
   // ============================================

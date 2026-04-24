@@ -39,17 +39,15 @@ export const serverRoutes: ServerRoute[] = [
   // Profile Pages - Individual athlete profiles
   // NOTE: path param must match profile.routes.ts where it's defined as ':param'
   {
+    path: 'profile/:sport/:name/:unicode',
+    renderMode: RenderMode.Server,
+  },
+  {
     path: 'profile/:param',
     renderMode: RenderMode.Server,
   },
   {
     path: 'profile',
-    renderMode: RenderMode.Server,
-  },
-
-  // Explore/Discovery
-  {
-    path: 'explore',
     renderMode: RenderMode.Server,
   },
 
@@ -76,15 +74,6 @@ export const serverRoutes: ServerRoute[] = [
   // Main App Routes (wrapped in shell)
   {
     path: '',
-    renderMode: RenderMode.Server,
-  },
-  // Home redirects to /explore (backward compat — no dedicated render mode needed)
-  {
-    path: 'explore',
-    renderMode: RenderMode.Server,
-  },
-  {
-    path: 'explore/**',
     renderMode: RenderMode.Server,
   },
   {
@@ -128,23 +117,6 @@ export const serverRoutes: ServerRoute[] = [
     renderMode: RenderMode.Server,
   },
   {
-    path: 'pulse',
-    renderMode: RenderMode.Server,
-  },
-  {
-    path: 'pulse/**',
-    renderMode: RenderMode.Server,
-  },
-  // Legacy /news redirect
-  {
-    path: 'news',
-    renderMode: RenderMode.Server,
-  },
-  {
-    path: 'news/**',
-    renderMode: RenderMode.Server,
-  },
-  {
     path: 'invite',
     renderMode: RenderMode.Server,
   },
@@ -168,12 +140,21 @@ export const serverRoutes: ServerRoute[] = [
     path: 'nil/**',
     renderMode: RenderMode.Server,
   },
+  // Pulse - Sports News Feed
+  {
+    path: 'pulse',
+    renderMode: RenderMode.Server,
+  },
+  {
+    path: 'pulse/**',
+    renderMode: RenderMode.Server,
+  },
   /**
    * Team profile routes — Server-rendered for SEO (Open Graph, rich snippets).
-   * Hydration mismatch fixed via slug-aware guard in TeamProfileService.
+   * Strict canonical URL: /team/:slug/:teamCode.
    */
   {
-    path: 'team/:slug',
+    path: 'team/:slug/:teamCode',
     renderMode: RenderMode.Server,
   },
   {

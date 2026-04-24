@@ -69,6 +69,7 @@ import { OnboardingService } from '../../../../../core/services/auth/onboarding.
               [selectedSports]="onboarding.selectedSportNames()"
               [role]="onboarding.selectedRole()"
               [disabled]="onboarding.isLoading()"
+              [hideSigninMode]="true"
               [scope]="linkScope()"
               (linkSourcesChange)="onboarding.onLinkSourcesChange($event)"
               (signinTokenConnect)="onSigninTokenConnect($event)"

@@ -1,12 +1,13 @@
 /**
  * @fileoverview Agent X Dashboard Skeleton - Loading State
  * @module @nxt1/ui/agent-x
- * @version 1.0.0
  *
- * Shared loading skeleton for the Agent X dashboard on web and mobile.
+ * Layout-aware skeleton loader that mirrors the real Agent X shell structure:
+ * - mobile: briefing + game plan + chips + input tray
+ * - desktop: sessions rail + chat stream + action panel
  */
 
-import { Component, ChangeDetectionStrategy } from '@angular/core';
+import { Component, ChangeDetectionStrategy, computed, input } from '@angular/core';
 import { CommonModule } from '@angular/common';
 
 @Component({
@@ -15,81 +16,165 @@ import { CommonModule } from '@angular/common';
   imports: [CommonModule],
   template: `
     <div class="agent-skeleton" aria-hidden="true">
-      <section class="skeleton-card skeleton-card--briefing">
-        <div class="skeleton-status-row">
-          <div class="skeleton-dot skeleton-shimmer"></div>
-          <div class="skeleton-line skeleton-line--status skeleton-shimmer"></div>
-        </div>
-        <div class="skeleton-line skeleton-line--greeting skeleton-shimmer"></div>
-        <div class="skeleton-briefing-copy">
-          <div class="skeleton-line skeleton-line--body skeleton-shimmer"></div>
-          <div
-            class="skeleton-line skeleton-line--body skeleton-line--body-short skeleton-shimmer"
-          ></div>
-        </div>
-        <div class="skeleton-btn skeleton-shimmer"></div>
-      </section>
-
-      <section class="skeleton-card">
-        <div class="skeleton-line skeleton-line--section-title skeleton-shimmer"></div>
-        <div class="skeleton-coordinator-grid">
-          @for (item of [1, 2, 3, 4]; track item) {
-            <div class="skeleton-coordinator-card">
-              <div class="skeleton-icon skeleton-shimmer"></div>
-              <div class="skeleton-line skeleton-line--card-label skeleton-shimmer"></div>
-            </div>
-          }
-        </div>
-      </section>
-
-      <section class="skeleton-card">
-        <div class="skeleton-playbook-header">
-          <div class="skeleton-line skeleton-line--section-title skeleton-shimmer"></div>
-          <div class="skeleton-btn skeleton-btn--small skeleton-shimmer"></div>
-        </div>
-        <div class="skeleton-pill-row">
-          <div class="skeleton-pill skeleton-pill--active skeleton-shimmer"></div>
-          <div class="skeleton-pill skeleton-shimmer"></div>
-        </div>
-        <div class="skeleton-timeline">
-          @for (item of [1, 2, 3]; track item) {
-            <div class="skeleton-timeline-item">
-              <div class="skeleton-timeline-rail">
-                <div class="skeleton-marker skeleton-shimmer"></div>
-                @if (item < 3) {
-                  <div class="skeleton-rail-line skeleton-shimmer"></div>
+      @if (variant() === 'desktop') {
+        <div
+          class="desktop-grid"
+          [class.desktop-grid--sessions]="showSessionsRail()"
+          [class.desktop-grid--right]="showRightPanel()"
+          [class.desktop-grid--expanded]="showExpandedPanel()"
+        >
+          @if (showSessionsRail()) {
+            <aside class="desktop-rail surface-block">
+              <div class="desktop-rail__header">
+                <div class="skeleton-line skeleton-shimmer h-16 w-40"></div>
+                <div class="skeleton-circle skeleton-shimmer size-24"></div>
+              </div>
+              <div class="skeleton-line skeleton-shimmer h-12 w-64"></div>
+              <div class="skeleton-pill w-100 h-34 skeleton-shimmer"></div>
+              <div class="desktop-rail__list">
+                @for (entry of [1, 2, 3, 4, 5]; track entry) {
+                  <div class="surface-block surface-block--compact rail-entry">
+                    <div class="skeleton-circle size-30 skeleton-shimmer"></div>
+                    <div class="rail-entry__copy">
+                      <div class="skeleton-line w-70 skeleton-shimmer h-12"></div>
+                      <div class="skeleton-line w-50 skeleton-shimmer h-10"></div>
+                    </div>
+                  </div>
                 }
               </div>
-              <div class="skeleton-timeline-card">
-                <div class="skeleton-line skeleton-line--timeline-title skeleton-shimmer"></div>
-                <div class="skeleton-line skeleton-line--timeline-copy skeleton-shimmer"></div>
-                <div
-                  class="skeleton-line skeleton-line--timeline-copy skeleton-line--timeline-copy-short skeleton-shimmer"
-                ></div>
-              </div>
-            </div>
+            </aside>
           }
-        </div>
-      </section>
 
-      <section class="skeleton-card">
-        <div class="skeleton-line skeleton-line--section-title skeleton-shimmer"></div>
-        <div class="skeleton-operations-row">
-          @for (item of [1, 2]; track item) {
-            <div class="skeleton-operation-card">
-              <div class="skeleton-operation-top">
-                <div class="skeleton-icon skeleton-icon--sm skeleton-shimmer"></div>
-                <div class="skeleton-line skeleton-line--operation-title skeleton-shimmer"></div>
-              </div>
-              <div class="skeleton-progress skeleton-shimmer"></div>
-              <div class="skeleton-operation-bottom">
-                <div class="skeleton-pill skeleton-pill--status skeleton-shimmer"></div>
-                <div class="skeleton-icon skeleton-icon--xs skeleton-shimmer"></div>
+          <section class="desktop-chat">
+            <div class="desktop-briefing">
+              <div class="skeleton-line h-30 skeleton-shimmer w-48"></div>
+              <div class="desktop-briefing__copy">
+                <div class="skeleton-line w-100 skeleton-shimmer h-14"></div>
+                <div class="skeleton-line skeleton-shimmer h-14 w-72"></div>
+                <div class="skeleton-line skeleton-shimmer h-12 w-20"></div>
               </div>
             </div>
+
+            <div class="desktop-chat__stream">
+              @for (row of [1, 2, 3, 4, 5, 6]; track row) {
+                <div class="chat-row" [class.chat-row--user]="row % 3 === 0">
+                  <div class="chat-bubble surface-block surface-block--compact">
+                    <div class="skeleton-line w-100 skeleton-shimmer h-12"></div>
+                    <div class="skeleton-line w-82 skeleton-shimmer h-12"></div>
+                  </div>
+                </div>
+              }
+            </div>
+
+            <div class="desktop-chat__composer surface-block surface-block--compact">
+              <div class="skeleton-pill w-100 h-42 skeleton-shimmer"></div>
+            </div>
+          </section>
+
+          @if (showRightPanel()) {
+            <aside class="desktop-right">
+              <div class="desktop-right__header">
+                <div class="skeleton-pill w-55 h-34 skeleton-shimmer"></div>
+                <div class="skeleton-circle skeleton-shimmer size-28"></div>
+              </div>
+
+              <section class="surface-block">
+                <div class="right-title-row">
+                  <div class="skeleton-line h-18 skeleton-shimmer w-56"></div>
+                  <div class="skeleton-line skeleton-shimmer h-14 w-24"></div>
+                </div>
+                <div class="skeleton-line w-46 skeleton-shimmer h-4"></div>
+              </section>
+
+              <section class="surface-block">
+                <div class="right-pill-row">
+                  <div class="skeleton-pill w-42 h-30 skeleton-shimmer"></div>
+                  <div class="skeleton-pill w-34 h-30 skeleton-shimmer"></div>
+                </div>
+
+                @for (task of [1, 2, 3]; track task) {
+                  <div class="surface-block surface-block--compact right-task">
+                    <div class="right-task__head">
+                      <div class="skeleton-circle skeleton-shimmer size-32"></div>
+                      <div class="right-task__meta">
+                        <div class="skeleton-line skeleton-shimmer h-12 w-44"></div>
+                        <div class="skeleton-line w-30 skeleton-shimmer h-10"></div>
+                      </div>
+                    </div>
+                    <div class="skeleton-line skeleton-shimmer h-14 w-80"></div>
+                    <div class="skeleton-line w-100 skeleton-shimmer h-12"></div>
+                    <div class="skeleton-pill w-100 h-34 skeleton-shimmer"></div>
+                  </div>
+                }
+              </section>
+            </aside>
           }
         </div>
-      </section>
+      } @else {
+        <div class="mobile-stack">
+          <section class="mobile-briefing">
+            <div class="mobile-status-row">
+              <div class="skeleton-line skeleton-shimmer h-12 w-20"></div>
+              <div class="skeleton-circle skeleton-shimmer size-10"></div>
+            </div>
+            <div class="skeleton-line h-30 skeleton-shimmer w-60"></div>
+            <div class="mobile-briefing__copy">
+              <div class="skeleton-line w-100 skeleton-shimmer h-14"></div>
+              <div class="skeleton-line w-74 skeleton-shimmer h-14"></div>
+            </div>
+            <div class="mobile-goals-row">
+              <div class="skeleton-pill w-100 skeleton-shimmer h-40"></div>
+              <div class="skeleton-pill w-100 skeleton-shimmer h-40"></div>
+            </div>
+          </section>
+
+          <section class="mobile-plan surface-block">
+            <div class="mobile-plan__header">
+              <div class="skeleton-line h-18 skeleton-shimmer w-56"></div>
+              <div class="mobile-progress">
+                <div class="skeleton-line w-34 skeleton-shimmer h-14"></div>
+                <div class="skeleton-line skeleton-shimmer h-4 w-24"></div>
+              </div>
+            </div>
+
+            <div class="mobile-pill-row">
+              <div class="skeleton-pill h-30 skeleton-shimmer w-36"></div>
+              <div class="skeleton-pill w-30 h-30 skeleton-shimmer"></div>
+            </div>
+
+            @for (task of [1, 2]; track task) {
+              <div class="surface-block surface-block--compact mobile-task">
+                <div class="mobile-task__head">
+                  <div class="skeleton-circle size-42 skeleton-shimmer"></div>
+                  <div class="mobile-task__meta">
+                    <div class="skeleton-line skeleton-shimmer h-12 w-40"></div>
+                    <div class="skeleton-line w-30 skeleton-shimmer h-11"></div>
+                  </div>
+                </div>
+                <div class="skeleton-line w-82 skeleton-shimmer h-14"></div>
+                <div class="skeleton-line w-100 skeleton-shimmer h-12"></div>
+                <div class="skeleton-pill w-100 h-38 skeleton-shimmer"></div>
+                <div class="mobile-task__actions">
+                  <div class="skeleton-pill skeleton-shimmer h-32 w-48"></div>
+                  <div class="skeleton-pill skeleton-shimmer h-32 w-48"></div>
+                </div>
+              </div>
+            }
+          </section>
+
+          <section class="mobile-chips">
+            <div class="mobile-chips__scroll">
+              @for (chip of [1, 2, 3, 4]; track chip) {
+                <div class="skeleton-pill w-30 h-38 skeleton-shimmer"></div>
+              }
+            </div>
+          </section>
+
+          <section class="mobile-composer surface-block">
+            <div class="skeleton-pill w-100 skeleton-shimmer h-44"></div>
+          </section>
+        </div>
+      }
     </div>
   `,
   styles: [
@@ -99,33 +184,14 @@ import { CommonModule } from '@angular/common';
       }
 
       .agent-skeleton {
-        display: flex;
-        flex-direction: column;
-        gap: 16px;
-        padding: 4px 0 16px;
-      }
-
-      .skeleton-card,
-      .skeleton-coordinator-card,
-      .skeleton-timeline-card,
-      .skeleton-operation-card {
-        background: var(--nxt1-color-surface-100, rgba(255, 255, 255, 0.03));
-        border: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
-        border-radius: 18px;
-      }
-
-      .skeleton-card {
-        padding: 18px;
-      }
-
-      .skeleton-card--briefing {
-        padding: 20px;
+        width: 100%;
+        min-height: 0;
       }
 
       .skeleton-shimmer {
         position: relative;
         overflow: hidden;
-        background: var(--nxt1-color-loading-skeleton);
+        background: var(--nxt1-color-loading-skeleton, rgba(255, 255, 255, 0.08));
       }
 
       .skeleton-shimmer::after {
@@ -135,10 +201,10 @@ import { CommonModule } from '@angular/common';
         background: linear-gradient(
           90deg,
           transparent 0%,
-          var(--nxt1-color-loading-skeletonShimmer) 50%,
+          var(--nxt1-color-loading-skeletonShimmer, rgba(255, 255, 255, 0.16)) 50%,
           transparent 100%
         );
-        animation: agent-skeleton-shimmer 1.5s infinite ease-in-out;
+        animation: agent-skeleton-shimmer 1.45s ease-in-out infinite;
       }
 
       @keyframes agent-skeleton-shimmer {
@@ -156,251 +222,513 @@ import { CommonModule } from '@angular/common';
         }
       }
 
+      .surface-block {
+        border: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
+        border-radius: 16px;
+        background: var(--nxt1-color-surface-100, rgba(255, 255, 255, 0.04));
+        padding: 16px;
+      }
+
+      .surface-block--compact {
+        border-radius: 14px;
+        padding: 12px;
+      }
+
       .skeleton-line,
-      .skeleton-btn,
       .skeleton-pill,
-      .skeleton-icon,
-      .skeleton-dot,
-      .skeleton-progress,
-      .skeleton-marker,
-      .skeleton-rail-line {
+      .skeleton-circle {
         border-radius: 999px;
       }
 
-      .skeleton-status-row,
-      .skeleton-playbook-header,
-      .skeleton-operation-top,
-      .skeleton-operation-bottom {
-        display: flex;
-        align-items: center;
+      .skeleton-circle {
+        flex: 0 0 auto;
       }
 
-      .skeleton-status-row {
-        gap: 8px;
-        margin-bottom: 18px;
+      .h-4 {
+        height: 4px;
       }
 
-      .skeleton-dot {
-        width: 10px;
+      .h-10 {
         height: 10px;
-        border-radius: 50%;
       }
 
-      .skeleton-line--status {
-        width: 72px;
+      .h-11 {
+        height: 11px;
+      }
+
+      .h-12 {
         height: 12px;
       }
 
-      .skeleton-line--greeting {
-        width: 48%;
-        height: 28px;
-        margin-bottom: 16px;
-      }
-
-      .skeleton-briefing-copy {
-        display: flex;
-        flex-direction: column;
-        gap: 10px;
-        margin-bottom: 18px;
-      }
-
-      .skeleton-line--body {
-        width: 100%;
+      .h-14 {
         height: 14px;
       }
 
-      .skeleton-line--body-short {
-        width: 78%;
+      .h-16 {
+        height: 16px;
       }
 
-      .skeleton-btn {
-        width: 128px;
-        height: 36px;
+      .h-18 {
+        height: 18px;
       }
 
-      .skeleton-btn--small {
-        width: 92px;
+      .h-30 {
         height: 30px;
       }
 
-      .skeleton-line--section-title {
-        width: 136px;
-        height: 18px;
-        margin-bottom: 16px;
+      .h-32 {
+        height: 32px;
       }
 
-      .skeleton-coordinator-grid {
-        display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 12px;
-      }
-
-      .skeleton-coordinator-card {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: 12px;
-        padding: 16px 12px;
-      }
-
-      .skeleton-icon {
-        width: 36px;
-        height: 36px;
-        border-radius: 12px;
-      }
-
-      .skeleton-icon--sm {
-        width: 18px;
-        height: 18px;
-        border-radius: 8px;
-      }
-
-      .skeleton-icon--xs {
-        width: 12px;
-        height: 12px;
-        border-radius: 50%;
-      }
-
-      .skeleton-line--card-label {
-        width: 72px;
-        height: 12px;
-      }
-
-      .skeleton-playbook-header {
-        justify-content: space-between;
-        gap: 12px;
-        margin-bottom: 16px;
-      }
-
-      .skeleton-playbook-header .skeleton-line--section-title {
-        margin-bottom: 0;
-      }
-
-      .skeleton-pill-row {
-        display: flex;
-        gap: 10px;
-        margin-bottom: 18px;
-      }
-
-      .skeleton-pill {
-        width: 112px;
+      .h-34 {
         height: 34px;
       }
 
-      .skeleton-pill--active {
-        width: 128px;
+      .h-38 {
+        height: 38px;
       }
 
-      .skeleton-pill--status {
-        width: 92px;
+      .h-40 {
+        height: 40px;
+      }
+
+      .h-42 {
+        height: 42px;
+      }
+
+      .h-44 {
+        height: 44px;
+      }
+
+      .w-20 {
+        width: 20%;
+      }
+
+      .w-24 {
+        width: 24%;
+      }
+
+      .w-30 {
+        width: 30%;
+      }
+
+      .w-34 {
+        width: 34%;
+      }
+
+      .w-36 {
+        width: 36%;
+      }
+
+      .w-40 {
+        width: 40%;
+      }
+
+      .w-42 {
+        width: 42%;
+      }
+
+      .w-44 {
+        width: 44%;
+      }
+
+      .w-46 {
+        width: 46%;
+      }
+
+      .w-48 {
+        width: 48%;
+      }
+
+      .w-50 {
+        width: 50%;
+      }
+
+      .w-55 {
+        width: 55%;
+      }
+
+      .w-56 {
+        width: 56%;
+      }
+
+      .w-60 {
+        width: 60%;
+      }
+
+      .w-64 {
+        width: 64%;
+      }
+
+      .w-70 {
+        width: 70%;
+      }
+
+      .w-72 {
+        width: 72%;
+      }
+
+      .w-74 {
+        width: 74%;
+      }
+
+      .w-80 {
+        width: 80%;
+      }
+
+      .w-82 {
+        width: 82%;
+      }
+
+      .w-100 {
+        width: 100%;
+      }
+
+      .size-10 {
+        width: 10px;
+        height: 10px;
+      }
+
+      .size-24 {
+        width: 24px;
         height: 24px;
       }
 
-      .skeleton-timeline {
+      .size-28 {
+        width: 28px;
+        height: 28px;
+      }
+
+      .size-30 {
+        width: 30px;
+        height: 30px;
+      }
+
+      .size-32 {
+        width: 32px;
+        height: 32px;
+      }
+
+      .size-42 {
+        width: 42px;
+        height: 42px;
+      }
+
+      .mobile-stack {
         display: flex;
         flex-direction: column;
         gap: 14px;
+        padding: 2px 0 14px;
       }
 
-      .skeleton-timeline-item {
-        display: grid;
-        grid-template-columns: 22px minmax(0, 1fr);
-        gap: 12px;
-      }
-
-      .skeleton-timeline-rail {
+      .mobile-briefing {
         display: flex;
         flex-direction: column;
+        gap: 12px;
+        padding-top: 6px;
+      }
+
+      .mobile-status-row {
+        display: flex;
         align-items: center;
         gap: 8px;
       }
 
-      .skeleton-marker {
-        width: 14px;
-        height: 14px;
-        border-radius: 50%;
-        margin-top: 4px;
-      }
-
-      .skeleton-rail-line {
-        width: 2px;
-        flex: 1;
-        min-height: 56px;
-      }
-
-      .skeleton-timeline-card {
-        padding: 14px;
-      }
-
-      .skeleton-line--timeline-title {
-        width: 58%;
-        height: 16px;
-        margin-bottom: 12px;
-      }
-
-      .skeleton-line--timeline-copy {
-        width: 100%;
-        height: 12px;
-        margin-bottom: 8px;
-      }
-
-      .skeleton-line--timeline-copy-short {
-        width: 74%;
-        margin-bottom: 0;
-      }
-
-      .skeleton-operations-row {
+      .mobile-briefing__copy {
         display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .mobile-goals-row {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .mobile-plan {
+        display: flex;
+        flex-direction: column;
         gap: 12px;
       }
 
-      .skeleton-operation-card {
-        flex: 1;
-        min-width: 0;
-        padding: 14px;
+      .mobile-plan__header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px;
       }
 
-      .skeleton-operation-top {
+      .mobile-progress {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        align-items: flex-end;
+      }
+
+      .mobile-pill-row {
+        display: flex;
+        gap: 8px;
+      }
+
+      .mobile-task {
+        display: flex;
+        flex-direction: column;
         gap: 10px;
-        margin-bottom: 14px;
       }
 
-      .skeleton-line--operation-title {
+      .mobile-task__head {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .mobile-task__meta {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
         width: 100%;
-        height: 12px;
       }
 
-      .skeleton-progress {
+      .mobile-task__actions {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+      }
+
+      .mobile-chips {
+        overflow: hidden;
+      }
+
+      .mobile-chips__scroll {
+        display: flex;
+        gap: 8px;
+        overflow-x: auto;
+        scrollbar-width: none;
+      }
+
+      .mobile-chips__scroll::-webkit-scrollbar {
+        display: none;
+      }
+
+      .mobile-composer {
+        padding: 10px;
+      }
+
+      .desktop-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        min-height: calc(100vh - var(--nxt1-nav-height, 56px));
+        border: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
+        border-radius: 18px;
+        overflow: hidden;
+        background: var(--nxt1-color-bg-primary, transparent);
+      }
+
+      .desktop-grid--sessions {
+        grid-template-columns: var(--agent-skeleton-left-width, 280px) minmax(0, 1fr);
+      }
+
+      .desktop-grid--right {
+        grid-template-columns: minmax(0, 1fr) var(--agent-skeleton-right-width, 320px);
+      }
+
+      .desktop-grid--sessions.desktop-grid--right {
+        grid-template-columns:
+          var(--agent-skeleton-left-width, 280px)
+          minmax(0, 1fr)
+          var(--agent-skeleton-right-width, 320px);
+      }
+
+      .desktop-grid--expanded {
+        --agent-skeleton-right-width: 540px;
+      }
+
+      .desktop-rail,
+      .desktop-chat,
+      .desktop-right {
+        min-width: 0;
+        min-height: 0;
+      }
+
+      .desktop-rail {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        border-right: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
+        border-radius: 0;
+        background: transparent;
+      }
+
+      .desktop-rail__header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      .desktop-rail__list {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      .rail-entry {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .rail-entry__copy {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
         width: 100%;
-        height: 8px;
-        margin-bottom: 14px;
       }
 
-      .skeleton-operation-bottom {
+      .desktop-chat {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        padding: 20px;
+      }
+
+      .desktop-briefing {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+
+      .desktop-briefing__copy {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .desktop-chat__stream {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        min-height: 0;
+        flex: 1;
+      }
+
+      .chat-row {
+        display: flex;
+        justify-content: flex-start;
+      }
+
+      .chat-row--user {
+        justify-content: flex-end;
+      }
+
+      .chat-bubble {
+        width: min(68%, 560px);
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .chat-row--user .chat-bubble {
+        width: min(56%, 460px);
+      }
+
+      .desktop-chat__composer {
+        padding: 10px;
+      }
+
+      .desktop-right {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        padding: 16px;
+        border-left: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
+      }
+
+      .desktop-right__header {
+        display: flex;
+        align-items: center;
         justify-content: space-between;
         gap: 8px;
       }
 
-      @media (max-width: 767px) {
-        .agent-skeleton {
-          gap: 14px;
+      .right-title-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 10px;
+      }
+
+      .right-pill-row {
+        display: flex;
+        gap: 8px;
+      }
+
+      .right-task {
+        margin-top: 10px;
+        display: flex;
+        flex-direction: column;
+        gap: 9px;
+      }
+
+      .right-task__head {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .right-task__meta {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        width: 100%;
+      }
+
+      @media (max-width: 1024px) {
+        .desktop-grid,
+        .desktop-grid--sessions,
+        .desktop-grid--right,
+        .desktop-grid--sessions.desktop-grid--right {
+          grid-template-columns: minmax(0, 1fr);
+          min-height: 0;
+          border: 0;
+          border-radius: 0;
         }
 
-        .skeleton-card,
-        .skeleton-card--briefing {
-          padding: 16px;
+        .desktop-rail,
+        .desktop-right {
+          display: none;
         }
 
-        .skeleton-line--greeting {
-          width: 72%;
+        .desktop-chat {
+          padding: 10px 0 14px;
         }
 
-        .skeleton-operations-row {
-          flex-direction: column;
+        .chat-bubble,
+        .chat-row--user .chat-bubble {
+          width: 100%;
+        }
+      }
+
+      @media (max-width: 420px) {
+        .mobile-goals-row {
+          grid-template-columns: 1fr;
+        }
+
+        .mobile-task__actions {
+          grid-template-columns: 1fr;
         }
       }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class AgentXDashboardSkeletonComponent {}
+export class AgentXDashboardSkeletonComponent {
+  readonly variant = input<'mobile' | 'desktop'>('mobile');
+  readonly showSessionsRail = input(false);
+  readonly showActionPlan = input(false);
+  readonly showExpandedPanel = input(false);
+
+  protected readonly showRightPanel = computed(
+    () => this.showActionPlan() || this.showExpandedPanel()
+  );
+}

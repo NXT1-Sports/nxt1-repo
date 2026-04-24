@@ -8,6 +8,7 @@
  */
 
 import type { ModelTier, AgentIdentifier } from '@nxt1/core';
+import type { ZodType } from 'zod';
 
 // ─── Model Catalogue ────────────────────────────────────────────────────────
 
@@ -17,15 +18,15 @@ import type { ModelTier, AgentIdentifier } from '@nxt1/core';
  */
 export const MODEL_CATALOGUE: Record<ModelTier, string> = {
   // ── Text Tiers ──────────────────────────────────────────────────────────
-  routing: 'anthropic/claude-3.5-sonnet',
+  routing: 'anthropic/claude-sonnet-4-5',
   extraction: 'anthropic/claude-haiku-4-5',
-  data_heavy: 'qwen/qwen3.6-plus:free',
+  data_heavy: 'qwen/qwen3.6-plus',
   evaluator: 'minimax/minimax-m2.7',
   compliance: 'openai/gpt-4o',
-  copywriting: 'anthropic/claude-3.5-sonnet',
-  prompt_engineering: 'anthropic/claude-3.5-sonnet',
-  chat: 'anthropic/claude-haiku-4-5',
-  task_automation: 'anthropic/claude-3.5-sonnet',
+  copywriting: 'anthropic/claude-sonnet-4-5',
+  prompt_engineering: 'anthropic/claude-sonnet-4-5',
+  chat: 'deepseek/deepseek-v3.2',
+  task_automation: 'anthropic/claude-sonnet-4-5',
 
   // ── Media Tiers ─────────────────────────────────────────────────────────
   image_generation: 'google/gemini-3-pro-image-preview',
@@ -51,26 +52,22 @@ export const MODEL_CATALOGUE: Record<ModelTier, string> = {
  */
 export const MODEL_FALLBACK_CHAIN: Record<ModelTier, readonly string[]> = {
   // ── Text Tiers ──────────────────────────────────────────────────────────
-  routing: ['anthropic/claude-3.5-sonnet', 'openai/gpt-4o', 'anthropic/claude-haiku-4-5'],
-  extraction: ['anthropic/claude-haiku-4-5', 'openai/gpt-4o-mini', 'qwen/qwen3.6-plus:free'],
-  data_heavy: ['qwen/qwen3.6-plus:free', 'anthropic/claude-haiku-4-5', 'openai/gpt-4o-mini'],
-  evaluator: ['minimax/minimax-m2.7', 'anthropic/claude-3.5-sonnet', 'openai/gpt-4o'],
-  compliance: ['openai/gpt-4o', 'anthropic/claude-3.5-sonnet', 'anthropic/claude-haiku-4-5'],
-  copywriting: ['anthropic/claude-3.5-sonnet', 'openai/gpt-4o', 'qwen/qwen3.6-plus:free'],
-  prompt_engineering: [
-    'anthropic/claude-3.5-sonnet',
-    'openai/gpt-4o',
-    'anthropic/claude-haiku-4-5',
-  ],
-  chat: ['anthropic/claude-haiku-4-5', 'openai/gpt-4o-mini', 'qwen/qwen3.6-plus:free'],
-  task_automation: ['anthropic/claude-3.5-sonnet', 'openai/gpt-4o', 'anthropic/claude-haiku-4-5'],
+  routing: ['anthropic/claude-sonnet-4', 'openai/gpt-4o', 'anthropic/claude-haiku-4-5'],
+  extraction: ['anthropic/claude-haiku-4-5', 'openai/gpt-4o-mini', 'qwen/qwen3.6-plus'],
+  data_heavy: ['qwen/qwen3.6-plus', 'anthropic/claude-haiku-4-5', 'openai/gpt-4o-mini'],
+  evaluator: ['minimax/minimax-m2.7', 'anthropic/claude-sonnet-4', 'openai/gpt-4o'],
+  compliance: ['openai/gpt-4o', 'anthropic/claude-sonnet-4', 'anthropic/claude-haiku-4-5'],
+  copywriting: ['anthropic/claude-sonnet-4', 'openai/gpt-4o', 'qwen/qwen3.6-plus'],
+  prompt_engineering: ['anthropic/claude-sonnet-4', 'openai/gpt-4o', 'anthropic/claude-haiku-4-5'],
+  chat: ['deepseek/deepseek-v3.2', 'anthropic/claude-haiku-4-5', 'openai/gpt-4o-mini'],
+  task_automation: ['anthropic/claude-sonnet-4', 'openai/gpt-4o', 'anthropic/claude-haiku-4-5'],
 
   // ── Media Tiers ─────────────────────────────────────────────────────────
   image_generation: ['google/gemini-3-pro-image-preview'],
   video_generation: ['google/gemini-3-pro-image-preview'],
-  vision_analysis: ['openai/gpt-4o', 'anthropic/claude-3.5-sonnet'],
+  vision_analysis: ['openai/gpt-4o', 'anthropic/claude-sonnet-4'],
   video_analysis: ['google/gemini-2.5-flash', 'google/gemini-2.5-pro'],
-  audio_analysis: ['openai/gpt-4o', 'anthropic/claude-3.5-sonnet'],
+  audio_analysis: ['openai/gpt-4o', 'anthropic/claude-sonnet-4'],
   voice_generation: ['openai/gpt-4o-mini'],
   music_generation: ['openai/gpt-4o-mini'],
 
@@ -185,7 +182,7 @@ export interface LLMToolCall {
 }
 
 /** Options passed to a completion request. */
-export interface LLMCompletionOptions {
+export interface LLMCompletionOptions<TStructuredOutput = unknown> {
   /** Which model tier to use (resolves to a concrete model via MODEL_CATALOGUE). */
   readonly tier: ModelTier;
   /** Override the resolved model with a specific slug. */
@@ -198,6 +195,11 @@ export interface LLMCompletionOptions {
   readonly tools?: readonly LLMToolSchema[];
   /** Whether to force JSON output format. */
   readonly jsonMode?: boolean;
+  /** Optional Zod schema for native structured JSON responses where supported. */
+  readonly outputSchema?: {
+    readonly name: string;
+    readonly schema: ZodType<TStructuredOutput>;
+  };
   /** Abort signal for cancellation. */
   readonly signal?: AbortSignal;
   /** Telemetry context — passed through to the onTelemetry callback. */
@@ -211,9 +213,11 @@ export interface LLMCompletionOptions {
 }
 
 /** The parsed response from an LLM completion. */
-export interface LLMCompletionResult {
+export interface LLMCompletionResult<TStructuredOutput = unknown> {
   /** The assistant's text content (null if only tool calls). */
   readonly content: string | null;
+  /** Parsed structured output when an outputSchema was provided and validation succeeded. */
+  readonly parsedOutput?: TStructuredOutput;
   /** Tool calls the assistant wants to make (empty if pure text response). */
   readonly toolCalls: readonly LLMToolCall[];
   /** The OpenRouter model that actually served the request. */

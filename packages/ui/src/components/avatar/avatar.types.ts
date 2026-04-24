@@ -184,10 +184,10 @@ export const AVATAR_INITIALS_COLORS = [
   'var(--nxt1-color-info, #1d9bf0)', // Info (Blue)
   'var(--nxt1-color-feedback-success, #22c55e)', // Success (Green)
   'var(--nxt1-color-feedback-warning, #f59e0b)', // Warning (Amber)
-  'var(--nxt1-color-feedback-error, #ef4444)', // Error (Red)
+  '#6c47ff', // Brand Purple
   'var(--nxt1-color-accent, #56ff00)', // Accent (Green)
   'var(--nxt1-color-primary-dark, #a3cc00)', // Primary Dark
-  'var(--nxt1-color-primary-light, #d4ff4d)', // Primary Light
+  '#0ea5e9', // Sky Blue
 ] as const;
 
 /**

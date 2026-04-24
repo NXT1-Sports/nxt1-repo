@@ -4,7 +4,7 @@
  * @description Thin wrapper around shared HelpCategoryDetailComponent.
  */
 
-import { Component, ChangeDetectionStrategy, inject, OnInit } from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject } from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
 import { IonHeader, IonContent, IonToolbar, NavController } from '@ionic/angular/standalone';
 import type { HelpCategoryId } from '@nxt1/core';
@@ -53,16 +53,19 @@ import { HelpCategoryDetailComponent, HelpCenterService } from '@nxt1/ui';
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class HelpCenterCategoryComponent implements OnInit {
+export class HelpCenterCategoryComponent {
   private readonly route = inject(ActivatedRoute);
   private readonly nav = inject(NavController);
   private readonly helpService = inject(HelpCenterService);
 
-  protected categoryId: HelpCategoryId = 'getting-started';
+  protected categoryId: HelpCategoryId =
+    (this.route.snapshot.paramMap.get('categoryId') as HelpCategoryId) ?? 'getting-started';
 
-  ngOnInit(): void {
-    this.categoryId =
-      (this.route.snapshot.paramMap.get('categoryId') as HelpCategoryId) ?? 'getting-started';
+  constructor() {
+    this.helpService.loadCategory(this.categoryId);
+  }
+
+  ionViewWillEnter(): void {
     this.helpService.loadCategory(this.categoryId);
   }
 

@@ -7,12 +7,18 @@
  */
 
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
-import { BaseTool, type ToolResult } from '../base.tool.js';
+import { BaseTool, type ToolExecutionContext, type ToolResult } from '../base.tool.js';
 import type { AgentToolCategory } from '@nxt1/core';
 import type { AgentQueueService } from '../../queue/queue.service.js';
 import { logger } from '../../../../utils/logger.js';
+import { z } from 'zod';
 
-const RECURRING_TASKS_COLLECTION = 'recurring_tasks' as const;
+const RECURRING_TASKS_COLLECTION = 'RecurringTasks' as const;
+
+const CancelRecurringTaskInputSchema = z.object({
+  userId: z.string().trim().min(1),
+  key: z.string().trim().min(1),
+});
 
 export class CancelRecurringTaskTool extends BaseTool {
   readonly name = 'cancel_recurring_task';
@@ -20,24 +26,12 @@ export class CancelRecurringTaskTool extends BaseTool {
     'Cancel (remove) an active recurring scheduled task by its key. ' +
     'Use list_recurring_tasks first to get the key of the task to cancel.';
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      userId: {
-        type: 'string',
-        description: 'The ID of the user who owns the recurring task.',
-      },
-      key: {
-        type: 'string',
-        description:
-          'The repeatable job key returned by schedule_recurring_task or list_recurring_tasks.',
-      },
-    },
-    required: ['userId', 'key'],
-  };
+  readonly parameters = CancelRecurringTaskInputSchema;
 
   readonly isMutation = true;
   readonly category: AgentToolCategory = 'automation';
+
+  readonly entityGroup = 'platform_tools' as const;
 
   private readonly db: Firestore;
   private readonly queueService: AgentQueueService;
@@ -48,14 +42,26 @@ export class CancelRecurringTaskTool extends BaseTool {
     this.db = db ?? getFirestore();
   }
 
-  async execute(input: Record<string, unknown>): Promise<ToolResult> {
-    const userId = this.str(input, 'userId');
-    if (!userId) return this.paramError('userId');
+  async execute(
+    input: Record<string, unknown>,
+    context?: ToolExecutionContext
+  ): Promise<ToolResult> {
+    const parsed = CancelRecurringTaskInputSchema.safeParse(input);
+    if (!parsed.success) {
+      return {
+        success: false,
+        error: parsed.error.issues.map((issue) => issue.message).join(', '),
+      };
+    }
 
-    const key = this.str(input, 'key');
-    if (!key) return this.paramError('key');
+    const { userId, key } = parsed.data;
 
     try {
+      context?.emitStage?.('deleting_resource', {
+        icon: 'delete',
+        recurringTaskKey: key,
+      });
+
       // Verify ownership via Firestore before touching BullMQ.
       // This is the authoritative access check — the LLM cannot bypass it.
       const doc = await this.db.collection(RECURRING_TASKS_COLLECTION).doc(key).get();

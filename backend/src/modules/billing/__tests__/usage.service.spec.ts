@@ -4,65 +4,66 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { Firestore } from 'firebase-admin/firestore';
 import {
   generateIdempotencyKey,
-  checkUsageEventExists,
   recordUsageEvent,
   tryAcquireEventLock,
   type CreateUsageEventInput,
 } from '../usage.service.js';
-import { UsageFeature, UsageEventStatus } from '../types/index.js';
+import { UsageEventStatus } from '../types/index.js';
+
+// vi.hoisted ensures variables are available before the hoisted vi.mock() factory runs
+const { mockUsageEventModel } = vi.hoisted(() => {
+  const mockUsageEventDoc = {
+    _id: { toString: () => 'test-event-id' },
+    userId: 'user123',
+    teamId: 'team456',
+    quantity: 1,
+    status: 'PENDING',
+  };
+
+  const mockUsageEventModel = {
+    create: vi.fn().mockResolvedValue(mockUsageEventDoc),
+    findOne: vi.fn(),
+    findOneAndUpdate: vi.fn(),
+  };
+
+  return { mockUsageEventDoc, mockUsageEventModel };
+});
 
 // Mock config to avoid env-var dependency for Stripe price IDs
 vi.mock('../config.js', () => ({
-  COLLECTIONS: { USAGE_EVENTS: 'usageEvents' },
+  COLLECTIONS: { USAGE_EVENTS: 'UsageEvents' },
   getStripePriceId: vi.fn().mockReturnValue('price_test123'),
   getUnitCost: vi.fn().mockReturnValue(0.5),
 }));
 
-// Mock Firestore
-const createMockFirestore = () => {
-  const mockDoc = {
-    id: 'test-event-id',
-    data: vi.fn(),
-    get: vi.fn(),
-    set: vi.fn(),
-    update: vi.fn(),
-  };
+// Mock pubsub
+vi.mock('../pubsub.service.js', () => ({
+  publishUsageEvent: vi.fn().mockResolvedValue(undefined),
+}));
 
-  const mockSnapshot = {
-    empty: false,
-    docs: [mockDoc],
-  };
+// Mock UsageEventModel (MongoDB)
+vi.mock('../../../models/analytics/usage-event.model.js', () => ({
+  UsageEventModel: mockUsageEventModel,
+}));
 
-  const mockQuery = {
-    where: vi.fn().mockReturnThis(),
-    limit: vi.fn().mockReturnThis(),
-    orderBy: vi.fn().mockReturnThis(),
-    get: vi.fn().mockResolvedValue(mockSnapshot),
-  };
-
-  const mockCollection = {
-    doc: vi.fn().mockReturnValue(mockDoc),
-    add: vi.fn().mockResolvedValue(mockDoc),
-    where: vi.fn().mockReturnValue(mockQuery),
-  };
-
-  const mockTransaction = {
-    get: vi.fn(),
-    update: vi.fn(),
-  };
-
-  const mockDb = {
-    collection: vi.fn().mockReturnValue(mockCollection),
-    runTransaction: vi.fn((callback) => callback(mockTransaction)),
-  } as unknown as Firestore;
-
-  return { mockDb, mockDoc, mockSnapshot, mockQuery, mockCollection, mockTransaction };
+const BASE_DOC = {
+  _id: { toString: () => 'test-event-id' },
+  userId: 'user123',
+  teamId: 'team456',
+  quantity: 1,
+  status: UsageEventStatus.PENDING,
 };
 
 describe('Usage Service', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockUsageEventModel.create.mockResolvedValue(BASE_DOC);
+    mockUsageEventModel.findOne.mockResolvedValue(null);
+    mockUsageEventModel.findOneAndUpdate.mockResolvedValue(null);
+  });
+
   describe('generateIdempotencyKey', () => {
     it('should generate consistent hash for same inputs', () => {
       const key1 = generateIdempotencyKey('user123', 'AI_GRAPHIC', 'job456');
@@ -83,120 +84,87 @@ describe('Usage Service', () => {
     });
   });
 
-  describe('checkUsageEventExists', () => {
-    it('should return true when event exists', async () => {
-      const { mockDb, mockSnapshot } = createMockFirestore();
-      mockSnapshot.empty = false;
-
-      const result = await checkUsageEventExists(mockDb, 'test-key');
-
-      expect(result).toBe(true);
-    });
-
-    it('should return false when event does not exist', async () => {
-      const { mockDb, mockSnapshot } = createMockFirestore();
-      mockSnapshot.empty = true;
-
-      const result = await checkUsageEventExists(mockDb, 'test-key');
-
-      expect(result).toBe(false);
-    });
-  });
-
   describe('recordUsageEvent', () => {
-    beforeEach(() => {
-      vi.clearAllMocks();
-    });
+    const input: CreateUsageEventInput = {
+      userId: 'user123',
+      teamId: 'team456',
+      feature: 'highlights',
+      quantity: 1,
+      unitCostSnapshot: 0.5,
+      currency: 'usd',
+      stripePriceId: 'price_test123',
+      jobId: 'job789',
+    };
 
     it('should create usage event when not exists', async () => {
-      const { mockDb, mockDoc: _mockDoc, mockSnapshot } = createMockFirestore();
-      mockSnapshot.empty = true; // Event doesn't exist
+      const eventId = await recordUsageEvent(input, 'production');
 
-      // Mock publishUsageEvent
-      vi.mock('../pubsub.service.js', () => ({
-        publishUsageEvent: vi.fn().mockResolvedValue(undefined),
-      }));
+      expect(eventId).toBe('test-event-id');
+      expect(mockUsageEventModel.create).toHaveBeenCalledOnce();
+    });
 
-      const input: CreateUsageEventInput = {
+    it('should omit teamId when usage is user-scoped', async () => {
+      const userScopedInput: CreateUsageEventInput = {
         userId: 'user123',
-        teamId: 'team456',
-        feature: UsageFeature.HIGHLIGHTS,
+        feature: 'highlights',
         quantity: 1,
         unitCostSnapshot: 0.5,
         currency: 'usd',
         stripePriceId: 'price_test123',
-        jobId: 'job789',
+        jobId: 'job-no-team',
       };
 
-      const eventId = await recordUsageEvent(mockDb, input, 'production');
+      await recordUsageEvent(userScopedInput, 'production');
 
-      expect(eventId).toBe('test-event-id');
-      expect(mockDb.collection).toHaveBeenCalledWith('usageEvents');
+      expect(mockUsageEventModel.create).toHaveBeenCalledWith(
+        expect.not.objectContaining({ teamId: expect.anything() })
+      );
     });
 
     it('should not create duplicate event with same idempotency key', async () => {
-      const { mockDb, mockSnapshot } = createMockFirestore();
-      mockSnapshot.empty = false; // Event already exists
+      // Simulate E11000 duplicate key error from MongoDB
+      const dupError = Object.assign(new Error('duplicate key'), { code: 11000 });
+      mockUsageEventModel.create.mockRejectedValueOnce(dupError);
+      mockUsageEventModel.findOne.mockReturnValueOnce({
+        lean: () => Promise.resolve({ _id: { toString: () => 'existing-event-id' } }),
+      });
 
-      const input: CreateUsageEventInput = {
-        userId: 'user123',
-        teamId: 'team456',
-        feature: UsageFeature.HIGHLIGHTS,
-        quantity: 1,
-        unitCostSnapshot: 0.5,
-        currency: 'usd',
-        stripePriceId: 'price_test123',
-        jobId: 'job789',
-      };
+      const eventId = await recordUsageEvent(input, 'production');
 
-      const eventId = await recordUsageEvent(mockDb, input, 'production');
-
-      expect(eventId).toBe('test-event-id');
-      // Should not call add() since event exists
+      expect(eventId).toBe('existing-event-id');
+      expect(mockUsageEventModel.findOne).toHaveBeenCalledOnce();
     });
   });
 
   describe('tryAcquireEventLock', () => {
     it('should acquire lock when status is PENDING', async () => {
-      const { mockDb, mockTransaction, mockDoc } = createMockFirestore();
+      mockUsageEventModel.findOneAndUpdate.mockResolvedValueOnce(BASE_DOC);
 
-      mockDoc.data = vi.fn().mockReturnValue({
-        status: UsageEventStatus.PENDING,
-      });
-
-      mockTransaction.get.mockResolvedValue({
-        exists: true,
-        data: () => ({ status: UsageEventStatus.PENDING }),
-      });
-
-      const result = await tryAcquireEventLock(mockDb, 'event123');
+      const result = await tryAcquireEventLock('event123');
 
       expect(result).toBe(true);
-      expect(mockTransaction.update).toHaveBeenCalled();
+      expect(mockUsageEventModel.findOneAndUpdate).toHaveBeenCalledWith(
+        { _id: 'event123', status: UsageEventStatus.PENDING },
+        expect.objectContaining({
+          $set: expect.objectContaining({ status: UsageEventStatus.PROCESSING }),
+        }),
+        { new: false }
+      );
     });
 
     it('should not acquire lock when status is not PENDING', async () => {
-      const { mockDb, mockTransaction } = createMockFirestore();
+      // findOneAndUpdate returns null => filter didn't match => already locked
+      mockUsageEventModel.findOneAndUpdate.mockResolvedValueOnce(null);
 
-      mockTransaction.get.mockResolvedValue({
-        exists: true,
-        data: () => ({ status: UsageEventStatus.PROCESSING }),
-      });
-
-      const result = await tryAcquireEventLock(mockDb, 'event123');
+      const result = await tryAcquireEventLock('event123');
 
       expect(result).toBe(false);
-      expect(mockTransaction.update).not.toHaveBeenCalled();
     });
 
     it('should return false when event does not exist', async () => {
-      const { mockDb, mockTransaction } = createMockFirestore();
+      mockUsageEventModel.findOneAndUpdate.mockResolvedValueOnce(null);
 
-      mockTransaction.get.mockResolvedValue({
-        exists: false,
-      });
-
-      const result = await tryAcquireEventLock(mockDb, 'nonexistent');
+      const result = await tryAcquireEventLock('nonexistent');
 
       expect(result).toBe(false);
     });

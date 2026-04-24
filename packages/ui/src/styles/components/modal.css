@@ -74,7 +74,8 @@ ion-alert.nxt-modal-prompt.md {
   --box-shadow:
     0 11px 15px -7px rgba(0, 0, 0, 0.2), 0 24px 38px 3px rgba(0, 0, 0, 0.14),
     0 9px 46px 8px rgba(0, 0, 0, 0.12);
-  border-radius: var(--nxt1-borderRadius-3xl, 2rem);
+  /* Keep radius on the internal dialog wrapper; host radius clips full-screen backdrop. */
+  --border-radius: var(--nxt1-borderRadius-3xl, 2rem);
 }
 
 /* ============================================
@@ -306,20 +307,26 @@ ion-action-sheet.nxt-modal-action-sheet.md .action-sheet-group {
    ============================================ */
 
 ion-loading.nxt-modal-loading {
-  --background: var(--nxt1-ui-bg-elevated, var(--nxt1-color-bg-elevated, #121212));
-  --spinner-color: var(--nxt1-ui-primary, var(--nxt1-color-primary, #ccff00));
+  --background: transparent;
+  --spinner-color: var(
+    --nxt1-color-loading-spinner,
+    var(--nxt1-ui-primary, var(--nxt1-color-primary, #ccff00))
+  );
+  --width: auto;
+  --min-width: min(18rem, calc(100vw - 2rem));
+  --max-width: min(21rem, calc(100vw - 2rem));
 
   /* Override Ionic's default blue primary — same pattern used for alerts */
   --ion-color-primary: var(--nxt1-ui-primary, var(--nxt1-color-primary, #ccff00));
   --ion-color-primary-contrast: var(--nxt1-color-black, #000);
 
   /* Dark background context so text colors resolve correctly */
-  --ion-background-color: var(--nxt1-ui-bg-elevated, var(--nxt1-color-bg-elevated, #121212));
+  --ion-background-color: transparent;
   --ion-background-color-rgb: 18, 18, 18;
   --ion-text-color: var(--nxt1-ui-text-primary, #fff);
 
   /* Backdrop */
-  --backdrop-opacity: 0.7;
+  --backdrop-opacity: 1;
 }
 
 ion-loading.nxt-modal-loading.ios {
@@ -330,9 +337,119 @@ ion-loading.nxt-modal-loading.md {
   --border-radius: var(--nxt1-borderRadius-3xl, 2rem);
 }
 
+ion-loading.nxt-modal-loading::part(backdrop) {
+  background:
+    radial-gradient(
+      circle at top,
+      var(--nxt1-ui-primary-glow, rgba(204, 255, 0, 0.14)) 0%,
+      transparent 38%
+    ),
+    var(--nxt1-color-background-overlay, rgba(0, 0, 0, 0.72));
+  -webkit-backdrop-filter: blur(18px) saturate(150%);
+  backdrop-filter: blur(18px) saturate(150%);
+}
+
+ion-loading.nxt-modal-loading .loading-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--nxt1-spacing-4, 1rem);
+  min-width: min(18rem, calc(100vw - 2rem));
+  max-width: min(21rem, calc(100vw - 2rem));
+  padding: var(--nxt1-spacing-4, 1rem) var(--nxt1-spacing-5, 1.25rem);
+  border: 1px solid var(--nxt1-glass-borderSubtle, rgba(255, 255, 255, 0.12));
+  border-radius: var(--nxt1-borderRadius-3xl, 2rem);
+  background: linear-gradient(
+    135deg,
+    var(--nxt1-glass-bgSolid, rgba(18, 18, 18, 0.96)) 0%,
+    var(--nxt1-glass-bg, rgba(22, 22, 22, 0.88)) 100%
+  );
+  box-shadow:
+    var(--nxt1-glass-shadow, 0 24px 64px rgba(0, 0, 0, 0.32)),
+    0 0 0 1px rgba(255, 255, 255, 0.04);
+  -webkit-backdrop-filter: var(--nxt1-glass-backdropStrong, saturate(200%) blur(30px));
+  backdrop-filter: var(--nxt1-glass-backdropStrong, saturate(200%) blur(30px));
+  overflow: hidden;
+}
+
+ion-loading.nxt-modal-loading .loading-wrapper::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    120deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.03) 24%,
+    rgba(255, 255, 255, 0.08) 48%,
+    transparent 72%
+  );
+  transform: translateX(-100%);
+  animation: nxt-modal-loading-sheen 2.2s ease-in-out infinite;
+  pointer-events: none;
+}
+
+ion-loading.nxt-modal-loading .loading-spinner {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--nxt1-spacing-11, 2.75rem);
+  height: var(--nxt1-spacing-11, 2.75rem);
+  flex: 0 0 auto;
+  border-radius: 50%;
+  color: var(
+    --nxt1-color-loading-spinner,
+    var(--nxt1-ui-primary, var(--nxt1-color-primary, #ccff00))
+  );
+  background: radial-gradient(
+    circle,
+    var(--nxt1-ui-primary-glow, rgba(204, 255, 0, 0.16)) 0%,
+    transparent 72%
+  );
+  box-shadow:
+    inset 0 0 0 1px var(--nxt1-glass-borderSubtle, rgba(255, 255, 255, 0.1)),
+    0 10px 24px rgba(0, 0, 0, 0.22);
+}
+
+ion-loading.nxt-modal-loading .loading-spinner ion-spinner,
+ion-loading.nxt-modal-loading .loading-spinner svg {
+  width: var(--nxt1-spacing-7, 1.75rem);
+  height: var(--nxt1-spacing-7, 1.75rem);
+}
+
 ion-loading.nxt-modal-loading .loading-content {
+  position: relative;
+  z-index: 1;
+  flex: 1 1 auto;
+  margin: 0;
   font-size: var(--nxt1-fontSize-sm, 0.875rem);
-  color: var(--nxt1-ui-text-secondary, rgba(255, 255, 255, 0.7));
+  font-weight: var(--nxt1-fontWeight-semibold, 600);
+  line-height: 1.45;
+  letter-spacing: 0.01em;
+  color: var(--nxt1-ui-text-primary, #fff);
+  text-wrap: balance;
+}
+
+html[data-theme='light'] ion-loading.nxt-modal-loading .loading-wrapper,
+:root.light ion-loading.nxt-modal-loading .loading-wrapper {
+  box-shadow:
+    0 24px 64px rgba(15, 23, 42, 0.16),
+    0 0 0 1px rgba(255, 255, 255, 0.48);
+}
+
+@media (max-width: 767px) {
+  ion-loading.nxt-modal-loading {
+    --min-width: calc(100vw - 2rem);
+    --max-width: calc(100vw - 2rem);
+  }
+
+  ion-loading.nxt-modal-loading .loading-wrapper {
+    min-width: calc(100vw - 2rem);
+    max-width: calc(100vw - 2rem);
+    padding: var(--nxt1-spacing-4, 1rem);
+    border-radius: var(--nxt1-borderRadius-2xl, 1.5rem);
+  }
 }
 
 /* ============================================
@@ -360,6 +477,16 @@ ion-loading.nxt-modal-loading .loading-content {
   to {
     opacity: 0;
     transform: scale(0.95);
+  }
+}
+
+@keyframes nxt-modal-loading-sheen {
+  0% {
+    transform: translateX(-100%);
+  }
+  55%,
+  100% {
+    transform: translateX(100%);
   }
 }
 
@@ -579,6 +706,10 @@ ion-action-sheet .action-sheet-button:focus-visible {
   ion-alert .alert-wrapper,
   ion-action-sheet .action-sheet-wrapper,
   ion-loading .loading-wrapper {
+    animation: none !important;
+  }
+
+  ion-loading.nxt-modal-loading .loading-wrapper::after {
     animation: none !important;
   }
 }

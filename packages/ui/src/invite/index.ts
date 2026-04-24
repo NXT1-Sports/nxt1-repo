@@ -25,7 +25,6 @@ export { InviteShellComponent, type InviteUser } from './invite-shell.component'
 export { InviteStatsCardComponent } from './invite-stats-card.component';
 export { InviteChannelGridComponent } from './invite-channel-grid.component';
 export { InviteQrCodeComponent } from './invite-qr-code.component';
-export { InviteAchievementsComponent } from './invite-achievements.component';
 export { InviteCelebrationComponent } from './invite-celebration.component';
 export { InviteSkeletonComponent } from './invite-skeleton.component';
 
@@ -42,18 +41,3 @@ export {
 } from './invite-bottom-sheet.service';
 
 // ============================================
-// MOCK DATA (for development)
-// ============================================
-
-export {
-  MOCK_INVITE_STATS,
-  MOCK_INVITE_ACHIEVEMENTS,
-  MOCK_INVITE_HISTORY,
-  MOCK_INVITE_LINK,
-  MOCK_TEAMS as MOCK_INVITE_TEAMS,
-  getMockInviteStats,
-  getMockAchievements,
-  getMockInviteHistory,
-  getMockInviteLink,
-  getMockTeams,
-} from './invite.mock-data';

@@ -59,8 +59,6 @@ import { Nxt1OnboardingCreateTeamStepComponent } from '@nxt1/ui/onboarding/onboa
 import { OnboardingSportStepComponent } from '@nxt1/ui/onboarding/onboarding-sport-step';
 import { OnboardingTeamSelectionStepComponent } from '@nxt1/ui/onboarding/onboarding-team-selection-step';
 import type { TeamSearchResult } from '@nxt1/ui/onboarding/onboarding-team-selection-step';
-import { OnboardingPositionStepComponent } from '@nxt1/ui/onboarding/onboarding-position-step';
-import { OnboardingContactStepComponent } from '@nxt1/ui/onboarding/onboarding-contact-step';
 import { OnboardingReferralStepComponent } from '@nxt1/ui/onboarding/onboarding-referral-step';
 import { OnboardingLinkDropStepComponent } from '@nxt1/ui/onboarding/onboarding-link-drop-step';
 import { OnboardingProgressBarComponent } from '@nxt1/ui/onboarding/onboarding-progress-bar';
@@ -86,10 +84,9 @@ import {
   type TeamFormData,
   type CreateTeamProfileFormData,
   type SportFormData,
-  type PositionsFormData,
-  type ContactFormData,
   type ReferralSourceData,
   type LinkSourcesFormData,
+  type LinkSourceEntry,
   type TeamSelectionFormData,
   type PlatformScope,
   ONBOARDING_STEPS,
@@ -177,8 +174,6 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
     Nxt1OnboardingCreateTeamStepComponent,
     OnboardingSportStepComponent,
     OnboardingTeamSelectionStepComponent,
-    OnboardingPositionStepComponent,
-    OnboardingContactStepComponent,
     OnboardingReferralStepComponent,
     OnboardingLinkDropStepComponent,
     OnboardingProgressBarComponent,
@@ -237,7 +232,7 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
               <nxt1-onboarding-role-selection
                 [selectedRole]="selectedRole()"
                 [disabled]="isLoading()"
-                [excludeRoles]="isTeamInvite() ? ['director', 'parent'] : []"
+                [excludeRoles]="isTeamInvite() ? EXCLUDED_TEAM_ROLES : []"
                 [variant]="isMobile() ? 'list-row' : 'cards'"
                 (roleSelected)="onRoleSelect($event)"
               />
@@ -269,6 +264,7 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
                 [selectedSports]="selectedSportNames()"
                 [role]="selectedRole()"
                 [disabled]="isLoading()"
+                [hideSigninMode]="true"
                 [scope]="
                   selectedRole() === USER_ROLES.COACH || selectedRole() === USER_ROLES.DIRECTOR
                     ? 'team'
@@ -321,26 +317,6 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
               />
             }
 
-            <!-- Step 4: Position Selection -->
-            @if (currentStep().id === 'positions') {
-              <nxt1-onboarding-position-step
-                [positionData]="positionFormData()"
-                [selectedSport]="selectedSportName()"
-                [disabled]="isLoading()"
-                (positionChange)="onPositionChange($event)"
-              />
-            }
-
-            <!-- Step 6: Contact Info -->
-            @if (currentStep().id === 'contact') {
-              <nxt1-onboarding-contact-step
-                [contactData]="contactFormData()"
-                [authEmail]="authUserEmail()"
-                [disabled]="isLoading()"
-                (contactChange)="onContactChange($event)"
-              />
-            }
-
             <!-- Step 4: Referral Source -->
             @if (currentStep().id === 'referral-source') {
               <nxt1-onboarding-referral-step
@@ -360,8 +336,6 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
               currentStep().id !== 'school' &&
               currentStep().id !== 'sport' &&
               currentStep().id !== 'select-teams' &&
-              currentStep().id !== 'positions' &&
-              currentStep().id !== 'contact' &&
               currentStep().id !== 'referral-source'
             ) {
               <div class="py-12 text-center">
@@ -493,6 +467,7 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
   host: { ngSkipHydration: 'true' },
 })
 export class OnboardingComponent implements OnInit, OnDestroy {
+  protected readonly EXCLUDED_TEAM_ROLES = ['director'] as const;
   protected readonly USER_ROLES = USER_ROLES;
 
   private readonly platformId = inject(PLATFORM_ID);
@@ -586,9 +561,6 @@ export class OnboardingComponent implements OnInit, OnDestroy {
   /** Whether current step passes validation (synced from state machine) */
   private readonly _isCurrentStepValid = signal(true);
 
-  /** Pre-fetched scrape job ID from Step 5 (avoids re-enqueue at completion) */
-  private preloadScrapeJobId: string | undefined;
-
   // ============================================
   // COMPUTED SIGNALS (Derived from state)
   // ============================================
@@ -617,24 +589,11 @@ export class OnboardingComponent implements OnInit, OnDestroy {
     return sport?.sports?.map((s) => s.sport) ?? [];
   });
 
-  /** Position form data computed from _formData */
-  readonly positionFormData = computed(() => this._formData().positions ?? null);
-
-  /** Contact form data computed from _formData */
-  readonly contactFormData = computed(() => this._formData().contact ?? {});
-
   /** Referral source form data computed from _formData */
   readonly referralFormData = computed(() => this._formData().referralSource ?? null);
 
   /** User's auth email for contact step default */
   readonly authUserEmail = computed(() => this.authFlow.user()?.email ?? '');
-
-  /** Selected sport name for position step (first sport in array) */
-  readonly selectedSportName = computed(() => {
-    const sport = this._formData().sport;
-    // v3.0: Use sports array (SportEntry[])
-    return sport?.sports?.[0]?.sport ?? '';
-  });
 
   /** Current steps array */
   readonly steps = computed(() => this._steps());
@@ -1033,12 +992,9 @@ export class OnboardingComponent implements OnInit, OnDestroy {
 
       case 'STEP_COMPLETED':
         this.trackStepCompleted();
-        // Fire optimistic pre-fetch when link-sources step completes
-        if (
-          (event.stepId === 'link-sources' || event.stepId === 'team-link-sources') &&
-          !this.preloadScrapeJobId
-        ) {
-          void this.firePreloadScrape();
+        // Seed link-sources with existing team data when select-teams completes
+        if (event.stepId === 'select-teams') {
+          void this.seedTeamLinkSources();
         }
         break;
 
@@ -1084,6 +1040,53 @@ export class OnboardingComponent implements OnInit, OnDestroy {
     this.error.set(state.error);
     this.animationDirection.set(state.animationDirection as AnimationDirection);
     this._isCurrentStepValid.set(state.isCurrentStepValid);
+  }
+
+  // ============================================
+  // TEAM SOURCE SEEDING
+  // ============================================
+
+  /**
+   * Fetch existing connected sources for selected teams and seed them
+   * into the link-sources form data so the next step shows pre-populated links.
+   * Runs silently — failures don't block onboarding.
+   */
+  private async seedTeamLinkSources(): Promise<void> {
+    const teams = this._formData().teamSelection?.teams;
+    if (!teams?.length) return;
+
+    try {
+      const allSeeded: LinkSourceEntry[] = [];
+
+      for (const team of teams) {
+        if (team.isDraft) continue;
+        const response = await this.authApi.getTeamSources(team.id);
+        if (!response?.success || !response.data?.length) continue;
+
+        for (const src of response.data) {
+          allSeeded.push({
+            platform: src.platform,
+            connected: true,
+            connectionType: 'link',
+            url: src.profileUrl,
+            scopeType: (src.scopeType as 'global' | 'sport' | 'team') ?? 'global',
+            scopeId: src.scopeId,
+            addedBy: src.addedBy,
+            addedById: src.addedById,
+            locked: true,
+          });
+        }
+      }
+
+      if (allSeeded.length) {
+        const existing = this._formData().linkSources?.links ?? [];
+        const merged = [...existing, ...allSeeded];
+        this.machine.updateLinkSources({ links: merged });
+        this.logger.info('Seeded team link sources', { count: allSeeded.length });
+      }
+    } catch (err) {
+      this.logger.warn('Failed to seed team link sources', { error: err });
+    }
   }
 
   // ============================================
@@ -1307,20 +1310,6 @@ export class OnboardingComponent implements OnInit, OnDestroy {
   };
 
   /**
-   * Handle position data change (Step 5)
-   */
-  onPositionChange(positionData: PositionsFormData): void {
-    this.machine.updatePositions(positionData);
-  }
-
-  /**
-   * Handle contact data change (Step 6)
-   */
-  onContactChange(contactData: ContactFormData): void {
-    this.machine.updateContact(contactData);
-  }
-
-  /**
    * Handle link sources data change (Link Data Sources step)
    */
   onLinkSourcesChange(linkSourcesData: LinkSourcesFormData): void {
@@ -1505,60 +1494,6 @@ export class OnboardingComponent implements OnInit, OnDestroy {
   }
 
   // ============================================
-  // PRE-FETCH SCRAPE (Optimistic — fires at Step 5)
-  // ============================================
-
-  /**
-   * Fire the scraping pipeline early while the user finishes remaining steps.
-   * The returned scrapeJobId is passed to the final onboarding save so the
-   * backend skips re-enqueuing.
-   */
-  private async firePreloadScrape(): Promise<void> {
-    const user = this.authFlow.user();
-    if (!user) return;
-
-    const formData = this._formData();
-
-    // Skip preload for coaches/directors — Team docs don't exist yet so the
-    // agent can't write team data. A fresh job with teamId is enqueued at
-    // onboarding completion instead.
-    const userType = formData.userType;
-    if (userType === 'coach' || userType === 'director') return;
-
-    const links = formData.linkSources?.links?.filter((l) => l.connected && l.url);
-    if (!links || links.length === 0) return;
-
-    const linkedAccounts = links
-      .filter(
-        (l): l is typeof l & { platform: string; url: string } =>
-          !!l.platform && !!l.url && l.url.startsWith('http')
-      )
-      .map((l) => ({ platform: l.platform.toLowerCase(), profileUrl: l.url }));
-
-    if (linkedAccounts.length === 0) return;
-
-    const sport = formData.sport?.sports?.[0]?.sport;
-    const role = formData.userType ?? undefined;
-
-    try {
-      const result = await this.authApi.preloadScrape(user.uid, linkedAccounts, sport, role);
-      if (result.scrapeJobId) {
-        this.preloadScrapeJobId = result.scrapeJobId;
-        this.logger.info('Pre-fetch scrape enqueued from Step 5', {
-          scrapeJobId: result.scrapeJobId,
-          platforms: linkedAccounts.map((a) => a.platform).join(', '),
-        });
-      }
-    } catch (err) {
-      // Non-fatal — the completion endpoint will enqueue if this failed
-      this.logger.warn('Pre-fetch scrape failed, will retry at completion', {
-        error: err instanceof Error ? err.message : String(err),
-        platforms: linkedAccounts.map((a) => a.platform).join(', '),
-      });
-    }
-  }
-
-  // ============================================
   // COMPLETION HANDLER (Platform-specific backend logic)
   // ============================================
 
@@ -1613,18 +1548,11 @@ export class OnboardingComponent implements OnInit, OnDestroy {
         }
       }
 
-      // Map 'recruiter' to 'recruiting-service' for backend API compatibility
-      const userType: OnboardingProfileData['userType'] =
-        formData.userType === USER_ROLES.RECRUITER
-          ? 'recruiting-service'
-          : (formData.userType as OnboardingProfileData['userType']);
-
       const profileData: OnboardingProfileData = {
-        userType,
+        userType: formData.userType as OnboardingProfileData['userType'],
         firstName: normalizeName(formData.profile?.firstName || ''),
         lastName: normalizeName(formData.profile?.lastName || ''),
         profileImgs: formData.profile?.profileImgs || undefined,
-        bio: formData.profile?.bio,
         gender: formData.profile?.gender ?? undefined,
         // V2: Send sports array directly
         sports: sportEntries.map((entry) => ({
@@ -1642,35 +1570,52 @@ export class OnboardingComponent implements OnInit, OnDestroy {
               }
             : undefined,
         })),
-        // Legacy fallback data for potential API compatibility
-        highSchool: sportEntries[0]?.team?.name || formData.school?.schoolName,
-        highSchoolSuffix: sportEntries[0]?.team?.type || formData.school?.schoolType,
-        classOf: formData.profile?.classYear ?? formData.school?.classYear ?? undefined,
-        state:
-          sportEntries[0]?.team?.state ||
-          formData.school?.state ||
-          formData.profile?.location?.state,
-        city:
-          sportEntries[0]?.team?.city || formData.school?.city || formData.profile?.location?.city,
+        classOf: formData.profile?.classYear ?? undefined,
+        // Location from profile step geolocation
+        state: formData.profile?.location?.state,
+        city: formData.profile?.location?.city,
         zipCode: formData.profile?.location?.zipCode,
         address: formData.profile?.location?.address,
         country: formData.profile?.location?.country,
-        teamLogo: formData.school?.teamLogo || sportEntries[0]?.team?.logo,
-        teamColors: formData.school?.teamColors || sportEntries[0]?.team?.colors,
-        club: formData.school?.club,
         organization: formData.organization?.organizationName,
         coachTitle: formData.sport?.coachTitle ?? formData.organization?.title,
         linkSources: formData.linkSources,
         teamSelection: formData.teamSelection,
         createTeamProfile: formData.createTeamProfile,
-        // Pass pre-fetched scrape job ID so backend skips re-enqueuing
-        ...(this.preloadScrapeJobId && { scrapeJobId: this.preloadScrapeJobId }),
         // Phone number from profile basics step
         phoneNumber: formData.profile?.phoneNumber || undefined,
       };
 
+      this.logger.info('Sending onboarding profile to backend', {
+        userId: user.uid,
+        userType: profileData.userType,
+        hasSports: (profileData.sports?.length ?? 0) > 0,
+        hasTeamSelection: !!profileData.teamSelection,
+        hasCreateTeamProfile: !!profileData.createTeamProfile,
+      });
+
       const result = await this.authApi.saveOnboardingProfile(user.uid, profileData);
-      this.logger.info('Profile data saved successfully');
+      this.logger.info('Profile data saved successfully', {
+        role: result.user?.role,
+        onboardingCompleted: result.user?.onboardingCompleted,
+      });
+
+      const primarySport =
+        profileData.sports?.find((sportEntry) => sportEntry.isPrimary)?.sport ??
+        profileData.sports?.[0]?.sport;
+
+      // CRITICAL: Immediately apply the POST response to user state.
+      // This ensures the user has the correct role (coach/director → team shield)
+      // even if refreshUserProfile() fails or is skipped due to race conditions.
+      if (result.user) {
+        await this.authFlow.applyOnboardingResult({
+          role: result.user.role,
+          firstName: result.user.firstName,
+          lastName: result.user.lastName,
+          onboardingCompleted: result.user.onboardingCompleted,
+          primarySport,
+        });
+      }
 
       // Start profile generation overlay if backend enqueued a scrape job
       if (result.scrapeJobId) {
@@ -1679,11 +1624,29 @@ export class OnboardingComponent implements OnInit, OnDestroy {
             ?.filter((l) => l.connected)
             .map((l) => l.platform)
             .join(', ') ?? '';
-        this.profileGenerationState.startGeneration(result.scrapeJobId, platformNames);
-        this.logger.info('Backend scrape job started', { scrapeJobId: result.scrapeJobId });
+        this.profileGenerationState.attachToOperation(
+          result.scrapeJobId,
+          result.scrapeThreadId,
+          platformNames
+        );
+        this.logger.info('Backend scrape job started', {
+          scrapeJobId: result.scrapeJobId,
+          scrapeThreadId: result.scrapeThreadId,
+        });
       }
     } catch (saveError) {
-      this.logger.warn('Failed to save profile data, continuing', { error: saveError });
+      // CRITICAL: Do NOT silently continue — the profile save is the core
+      // onboarding operation. If it fails, role/name/sport data won't be
+      // persisted and the user will land in a broken state (e.g. showing
+      // Google initials instead of team shield for coaches).
+      this.logger.error('Failed to save onboarding profile — BLOCKING', {
+        error: saveError,
+        userId: user.uid,
+        userType: formData.userType,
+      });
+      this.toast.error('Failed to save your profile. Please check your connection and try again.');
+      this.isLoading.set(false);
+      return; // Abort — do NOT navigate to congratulations with missing data
     }
 
     // Save referral source
@@ -1709,16 +1672,10 @@ export class OnboardingComponent implements OnInit, OnDestroy {
       }
     }
 
-    // Mark onboarding complete
-    this.logger.info('Calling completeOnboarding API', { userId: user.uid });
+    // Accept any pending team invite
     await this.authFlow.acceptPendingInvite(formData.userType ?? undefined);
-    const result = await this.authApi.completeOnboarding(user.uid);
-    this.logger.info('completeOnboarding API responded', { result });
 
-    // CRITICAL: Wait a bit for backend to persist
-    await new Promise((resolve) => setTimeout(resolve, 500));
-
-    // Force clear ALL cache to ensure fresh fetch
+    // Force clear ALL cache to ensure fresh fetch (bulk save already set onboardingCompleted: true)
     const { globalAuthUserCache } = await import('@nxt1/core/auth');
     await globalAuthUserCache.clear();
     this.logger.debug('Cleared all auth cache');
@@ -1730,9 +1687,20 @@ export class OnboardingComponent implements OnInit, OnDestroy {
     const updatedUser = this.authFlow.user();
     this.logger.info('Onboarding complete, user state verified', {
       userId: user.uid,
+      role: updatedUser?.role,
+      expectedRole: formData.userType,
       hasCompletedOnboarding: updatedUser?.hasCompletedOnboarding,
       displayName: updatedUser?.displayName,
     });
+
+    // Warn if role didn't persist — diagnostic for avatar/shield issues
+    if (updatedUser?.role !== formData.userType && formData.userType) {
+      this.logger.error('Role mismatch after onboarding save!', {
+        expected: formData.userType,
+        actual: updatedUser?.role,
+        userId: user.uid,
+      });
+    }
 
     // Clear session from localStorage
     this.clearSession();

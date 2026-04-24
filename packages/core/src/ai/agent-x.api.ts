@@ -41,6 +41,9 @@ import type {
   AgentXStreamCardEvent,
   AgentXStreamOperationEvent,
   AutoOpenPanelInstruction,
+  CompletedGoalRecord,
+  AgentCompleteGoalResponse,
+  AgentGoalHistoryResponse,
 } from './agent-x.types';
 import type { AgentMessage } from './chat.types';
 import { AGENT_X_ENDPOINTS } from './agent-x.constants';
@@ -83,6 +86,7 @@ interface HistoryResponse {
 export interface ThreadMessagesResponse {
   readonly messages: AgentMessage[];
   readonly hasMore: boolean;
+  readonly nextCursor?: string;
 }
 
 // ============================================
@@ -257,15 +261,88 @@ export function createAgentXApi(http: HttpAdapter, baseUrl: string) {
     },
 
     /**
+     * Mark an active goal as completed.
+     * Archives the goal to `goal_history` subcollection and removes it from active goals.
+     *
+     * @param goalId - ID of the active goal to complete
+     * @param notes - Optional user notes about the completion
+     * @returns The completed goal record, or null on failure
+     */
+    async completeGoal(goalId: string, notes?: string): Promise<CompletedGoalRecord | null> {
+      try {
+        const response = await http.post<AgentCompleteGoalResponse>(
+          `${endpoint(AGENT_X_ENDPOINTS.GOAL_COMPLETE)}/${encodeURIComponent(goalId)}/complete`,
+          { goalId, ...(notes ? { notes } : {}) }
+        );
+        return response.success ? (response.data?.completedGoal ?? null) : null;
+      } catch {
+        return null;
+      }
+    },
+
+    /**
+     * Fetch the user's paginated history of completed goals.
+     *
+     * @returns Array of completed goal records ordered newest-first, or empty array on failure
+     */
+    async getGoalHistory(): Promise<readonly CompletedGoalRecord[]> {
+      try {
+        const response = await http.get<AgentGoalHistoryResponse>(
+          endpoint(AGENT_X_ENDPOINTS.GOAL_HISTORY)
+        );
+        return response.success ? (response.data?.history ?? []) : [];
+      } catch {
+        return [];
+      }
+    },
+
+    /**
      * Generate or regenerate the weekly playbook based on current goals.
      */
     async generatePlaybook(force = false): Promise<AgentDashboardPlaybook | null> {
       try {
-        const response = await http.post<ApiResponse<AgentDashboardPlaybook>>(
+        const enqueueResponse = await http.post<ApiResponse<{ operationId: string }>>(
           endpoint(AGENT_X_ENDPOINTS.PLAYBOOK_GENERATE),
           { force }
         );
-        return response.success ? (response.data ?? null) : null;
+
+        if (!enqueueResponse.success || !enqueueResponse.data?.operationId) {
+          return null;
+        }
+
+        const operationId = enqueueResponse.data.operationId;
+        const maxAttempts = 50;
+        const pollIntervalMs = 1500;
+
+        for (let attempt = 0; attempt < maxAttempts; attempt++) {
+          const cacheBust = Date.now();
+          const statusResponse = await http.get<
+            ApiResponse<{
+              status: string;
+              result?: { data?: { playbook?: AgentDashboardPlaybook } };
+              error?: string;
+            }>
+          >(
+            `${endpoint(AGENT_X_ENDPOINTS.PLAYBOOK_GENERATE_STATUS)}/${encodeURIComponent(operationId)}?_=${cacheBust}`
+          );
+
+          if (!statusResponse.success || !statusResponse.data) {
+            return null;
+          }
+
+          const status = statusResponse.data.status;
+          if (status === 'completed') {
+            return statusResponse.data.result?.data?.playbook ?? null;
+          }
+
+          if (status === 'failed' || status === 'cancelled') {
+            return null;
+          }
+
+          await new Promise<void>((resolve) => setTimeout(resolve, pollIntervalMs));
+        }
+
+        return null;
       } catch {
         return null;
       }
@@ -318,13 +395,26 @@ export function createAgentXApi(http: HttpAdapter, baseUrl: string) {
      * @param limit - Maximum messages to retrieve (default 50, max 200)
      * @returns Messages array and pagination info, or null on failure
      */
-    async getThreadMessages(threadId: string, limit = 50): Promise<ThreadMessagesResponse | null> {
+    async getThreadMessages(
+      threadId: string,
+      limit = 50,
+      before?: string
+    ): Promise<ThreadMessagesResponse | null> {
       try {
-        const url = `${endpoint(AGENT_X_ENDPOINTS.THREAD_MESSAGES)}/${encodeURIComponent(threadId)}/messages?limit=${limit}`;
+        let url = `${endpoint(AGENT_X_ENDPOINTS.THREAD_MESSAGES)}/${encodeURIComponent(threadId)}/messages?limit=${limit}`;
+        if (before) {
+          url += `&before=${encodeURIComponent(before)}`;
+        }
         const response =
-          await http.get<ApiResponse<{ items: AgentMessage[]; hasMore: boolean }>>(url);
+          await http.get<
+            ApiResponse<{ items: AgentMessage[]; hasMore: boolean; nextCursor?: string }>
+          >(url);
         if (!response.success || !response.data) return null;
-        return { messages: response.data.items, hasMore: response.data.hasMore };
+        return {
+          messages: response.data.items,
+          hasMore: response.data.hasMore,
+          nextCursor: response.data.nextCursor,
+        };
       } catch {
         return null;
       }
@@ -350,21 +440,69 @@ export function createAgentXApi(http: HttpAdapter, baseUrl: string) {
     },
 
     /**
-     * Execute a user-approved email draft (HITL send).
+     * Resolve a pending approval request and optionally attach edited tool input.
      *
-     * Called after the user reviews/edits an email draft card and taps "Approve & Send".
-     * The backend validates, auto-detects the email provider, and sends via Gmail or Outlook.
+     * When the backend resumes the operation, it returns the new queued
+     * operationId so the frontend can re-attach to the SSE stream.
      */
-    async sendDraft(
-      toEmail: string,
-      subject: string,
-      body: string
-    ): Promise<{ messageId: string | null; provider: string; message: string } | null> {
+    async resolveApproval(
+      approvalId: string,
+      decision: 'approved' | 'rejected',
+      toolInput?: Record<string, unknown>
+    ): Promise<{
+      decision: 'approved' | 'rejected';
+      resumed: boolean;
+      jobId?: string;
+      operationId?: string;
+      threadId?: string | null;
+    } | null> {
       try {
         const response = await http.post<
-          ApiResponse<{ messageId: string | null; provider: string; message: string }>
-        >(endpoint(AGENT_X_ENDPOINTS.SEND_DRAFT), { toEmail, subject, body });
+          ApiResponse<{
+            decision: 'approved' | 'rejected';
+            resumed: boolean;
+            jobId?: string;
+            operationId?: string;
+            threadId?: string | null;
+          }>
+        >(`${endpoint(AGENT_X_ENDPOINTS.APPROVALS)}/${encodeURIComponent(approvalId)}/resolve`, {
+          decision,
+          ...(toolInput ? { toolInput } : {}),
+        });
         return response.success && response.data ? response.data : null;
+      } catch {
+        return null;
+      }
+    },
+
+    /**
+     * Resume a yielded operation after the user answers an inline question.
+     *
+     * The backend returns the new queued operationId so the frontend can
+     * re-attach to the resumed SSE stream.
+     */
+    async resumeYieldedJob(
+      operationId: string,
+      response: string
+    ): Promise<{
+      resumed: boolean;
+      jobId?: string;
+      operationId?: string;
+      threadId?: string | null;
+    } | null> {
+      try {
+        const result = await http.post<
+          ApiResponse<{
+            resumed: boolean;
+            jobId?: string;
+            operationId?: string;
+            threadId?: string | null;
+          }>
+        >(`${endpoint(AGENT_X_ENDPOINTS.RESUME_JOB)}/${encodeURIComponent(operationId)}`, {
+          response,
+        });
+
+        return result.success && result.data ? result.data : null;
       } catch {
         return null;
       }

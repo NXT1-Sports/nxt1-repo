@@ -6,6 +6,7 @@ import { TEST_IDS } from '@nxt1/core/testing';
 import type { LinkSourcesFormData } from '@nxt1/core/api';
 import type { ConnectedSource } from '@nxt1/ui/components/connected-sources';
 import { OnboardingLinkDropStepComponent } from '@nxt1/ui/onboarding/onboarding-link-drop-step';
+import { NxtPlatformService } from '@nxt1/ui/services/platform';
 import { NxtConnectedSourcesComponent } from '@nxt1/ui/components/connected-sources';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import { NxtBreadcrumbService } from '@nxt1/ui/services/breadcrumb';
@@ -63,6 +64,15 @@ describe('OnboardingLinkDropStepComponent', () => {
           provide: NxtToastService,
           useValue: { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() },
         },
+        {
+          provide: NxtPlatformService,
+          useValue: {
+            isNative: vi.fn().mockReturnValue(false),
+            isBrowser: vi.fn().mockReturnValue(true),
+            viewport: vi.fn().mockReturnValue({ width: 1280, height: 800 }),
+            hasTouch: vi.fn().mockReturnValue(false),
+          },
+        },
       ],
     })
       .overrideComponent(OnboardingLinkDropStepComponent, {
@@ -106,6 +116,22 @@ describe('OnboardingLinkDropStepComponent', () => {
     expect(customGroup?.sources[0]?.url).toBe('https://espn.com/profile');
     expect(emitted).toHaveLength(1);
     expect(emitted[0]?.links.some((link) => link.platform.startsWith('custom::'))).toBe(true);
+  });
+
+  it('pins Google and Microsoft to the top of sign-in mode without duplicating them later', () => {
+    component.setMode('signin');
+    fixture.detectChanges();
+
+    const groups = component.platformGroups();
+    const firstGroup = groups[0];
+    const laterPlatforms = groups
+      .slice(1)
+      .flatMap((group) => group.sources.map((source) => source.platform));
+
+    expect(firstGroup?.key).toBe('priority-signin');
+    expect(firstGroup?.sources.map((source) => source.platform)).toEqual(['google', 'microsoft']);
+    expect(laterPlatforms).not.toContain('google');
+    expect(laterPlatforms).not.toContain('microsoft');
   });
 
   // TODO: Signal effect flushing incompatible with overrideComponent in Jest/Vitest+JSDOM.

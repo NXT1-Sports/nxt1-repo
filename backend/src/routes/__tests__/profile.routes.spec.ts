@@ -3,6 +3,7 @@
  * @module @nxt1/backend/routes/__tests__/profile
  */
 
+import 'reflect-metadata';
 import { beforeAll, describe, it } from 'vitest';
 import { expectExpressRouter } from './route-test.utils.js';
 
@@ -10,7 +11,7 @@ describe('Profile Routes', () => {
   let router: unknown;
 
   beforeAll(async () => {
-    const module = await import('../../routes/profile.routes.js');
+    const module = await import('../../routes/profile/index.js');
     router = module.default;
   }, 15_000);
 
@@ -21,7 +22,6 @@ describe('Profile Routes', () => {
         { path: '/me', method: 'get' },
         { path: '/unicode/:unicode', method: 'get' },
         { path: '/search', method: 'get' },
-        { path: '/username/:username', method: 'get' },
         { path: '/:userId', method: 'get' },
         { path: '/:userId', method: 'put' },
         { path: '/:userId/image', method: 'post' },
@@ -29,7 +29,7 @@ describe('Profile Routes', () => {
         { path: '/:userId/sport', method: 'post' },
         { path: '/:userId/sport/:sportIndex', method: 'delete' },
       ],
-      10
+      9
     );
   });
 });

@@ -21,14 +21,23 @@
 import type {
   AgentJobPayload,
   AgentJobUpdate,
+  AgentProgressMetadata,
+  AgentPromptContext,
   AgentOperationResult,
   AgentIdentifier,
+  AgentRouterStage,
   AgentTaskStatus,
   AgentTask,
   AgentExecutionPlan,
+  OperationOutcomeCode,
   AgentSessionContext,
+  AgentSessionMessage,
+  AgentRetrievedMemories,
   AgentUserContext,
+  AgentToolAccessContext,
+  AgentToolEntityGroup,
 } from '@nxt1/core';
+import { COORDINATOR_AGENT_IDS } from '@nxt1/core';
 import type { OpenRouterService } from './llm/openrouter.service.js';
 import type { ToolRegistry } from './tools/tool-registry.js';
 import type { ContextBuilder } from './memory/context-builder.js';
@@ -36,26 +45,36 @@ import type { BaseAgent } from './agents/base.agent.js';
 import type { SkillRegistry } from './skills/skill-registry.js';
 import type { OnStreamEvent } from './queue/event-writer.js';
 import { PlannerAgent } from './agents/planner.agent.js';
-import { isAgentYield, AgentYieldException } from './errors/agent-yield.error.js';
-import { isAgentDelegation } from './errors/agent-delegation.error.js';
+import { isAgentYield, AgentYieldException } from './exceptions/agent-yield.exception.js';
+import { isAgentDelegation } from './exceptions/agent-delegation.exception.js';
+import { AgentEngineError } from './exceptions/agent-engine.error.js';
 import { SemanticCacheService } from './memory/semantic-cache.service.js';
+import { SessionMemoryService } from './memory/session.service.js';
+import { ApprovalGateService } from './services/approval-gate.service.js';
+import { parallelBatch } from './utils/parallel-batch.js';
+import { getAgentRunConfig, DEFAULT_AGENT_RUN_CONFIG } from './config/agent-app-config.js';
 import { logger } from '../../utils/logger.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
 /**
- * Maximum number of self-correction retries per task.
- * When a coordinator crashes, the router feeds the error back to the agent
- * with an augmented system message, giving it a chance to recover before
- * cascading failure to downstream tasks.
+ * Fallback values used when Firestore `AppConfig/agentConfig` is absent.
+ * Live values are read per-run from Firestore via getAgentRunConfig().
+ * These are only referenced by DEFAULT_AGENT_RUN_CONFIG in agent-app-config.ts.
  */
-const TASK_MAX_RETRIES = 2;
 
-/**
- * Maximum number of delegation hops before the router gives up.
- * Prevents infinite ping-pong between a coordinator and the Planner.
- */
-const MAX_DELEGATION_DEPTH = 2;
+type MutableAgentTask = AgentTask & {
+  status: AgentTaskStatus;
+  _lastError?: string;
+};
+
+const routableCoordinatorSet = new Set<string>(COORDINATOR_AGENT_IDS);
+
+function isRoutableCoordinatorAgent(
+  agentId: string
+): agentId is Exclude<AgentIdentifier, 'router'> {
+  return routableCoordinatorSet.has(agentId);
+}
 
 // ─── Router ─────────────────────────────────────────────────────────────────
 
@@ -68,7 +87,8 @@ export class AgentRouter {
     private readonly llm: OpenRouterService,
     private readonly toolRegistry: ToolRegistry,
     private readonly contextBuilder: ContextBuilder,
-    private readonly skillRegistry?: SkillRegistry
+    private readonly skillRegistry?: SkillRegistry,
+    private readonly sessionMemory?: SessionMemoryService
   ) {
     this.planner = new PlannerAgent(llm);
     this.semanticCache = new SemanticCacheService(llm);
@@ -85,14 +105,21 @@ export class AgentRouter {
    * that task's agent. If multi-task, returns 'router' (meaning: run the full plan).
    */
   async classify(intent: string, userId: string): Promise<AgentIdentifier> {
-    const userContext = await this.contextBuilder.buildContext(userId);
+    const promptContext = await this.contextBuilder.buildPromptContext(userId, intent);
     const context = this.buildSessionContext(userId);
-    const enrichedIntent = this.enrichIntentWithContext(intent, userContext);
+    const enrichedIntent = this.enrichIntentWithContext(
+      intent,
+      promptContext.profile,
+      undefined,
+      undefined,
+      promptContext.memories,
+      promptContext.recentSyncSummaries ?? []
+    );
 
     const result = await this.planner.execute(enrichedIntent, context, []);
     const plan = result.data?.['plan'] as AgentExecutionPlan | undefined;
 
-    if (!plan || plan.tasks.length === 0) return 'general';
+    if (!plan || plan.tasks.length === 0) return 'strategy_coordinator';
     if (plan.tasks.length === 1) return plan.tasks[0].assignedAgent;
     return 'router';
   }
@@ -108,9 +135,19 @@ export class AgentRouter {
     payload: AgentJobPayload,
     onUpdate?: (update: AgentJobUpdate) => void,
     firestore?: FirebaseFirestore.Firestore,
-    onStreamEvent?: OnStreamEvent
+    onStreamEvent?: OnStreamEvent,
+    environment: 'staging' | 'production' = 'production',
+    signal?: AbortSignal
   ): Promise<AgentOperationResult> {
     const { operationId, userId, intent } = payload;
+    const approvalGate = firestore ? new ApprovalGateService(firestore) : undefined;
+
+    // ── Load runtime config from AppConfig/agentConfig ────────────────────
+    const agentRunConfig = firestore
+      ? await getAgentRunConfig(firestore)
+      : DEFAULT_AGENT_RUN_CONFIG;
+    const taskMaxRetries = agentRunConfig.taskMaxRetries;
+    const maxDelegationDepth = agentRunConfig.maxDelegationDepth;
 
     // ── Resume detection: check if this is a resumed job ──────────────────
     const contextObj =
@@ -120,23 +157,33 @@ export class AgentRouter {
       | undefined;
 
     if (yieldState) {
-      return this.runResumed(payload, yieldState, onUpdate, firestore, onStreamEvent);
+      return this.runResumed(payload, yieldState, onUpdate, firestore, onStreamEvent, environment);
     }
 
     // ── Step 1: Build context ─────────────────────────────────────────────
-    this.emitUpdate(onUpdate, operationId, 'thinking', 'Building user context...');
+    this.emitUpdate(onUpdate, operationId, 'thinking', 'Building user context...', undefined, {
+      agentId: 'router',
+      stage: 'building_context',
+    });
 
-    let userContext: AgentUserContext;
+    let promptContext: AgentPromptContext;
     try {
-      userContext = await this.contextBuilder.buildContext(userId, firestore);
+      promptContext = await this.contextBuilder.buildPromptContext(userId, intent, firestore);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Context building failed';
-      this.emitUpdate(onUpdate, operationId, 'failed', `Context error: ${message}`);
+      this.emitUpdate(onUpdate, operationId, 'failed', `Context error: ${message}`, undefined, {
+        agentId: 'router',
+        stage: 'building_context',
+        outcomeCode: 'context_build_failed',
+      });
       return {
         summary: `Failed to build user context: ${message}`,
         suggestions: ['Try again later or contact support.'],
       };
     }
+
+    const userContext = promptContext.profile;
+    const toolAccessContext = this.buildToolAccessContext(userContext);
 
     // Extract threadId for conversation continuity + thread-scoped storage
     // (contextObj already extracted above for resume detection)
@@ -145,9 +192,80 @@ export class AgentRouter {
         ? ((contextObj as Record<string, unknown>)['threadId'] as string)
         : undefined;
 
-    const context = this.buildSessionContext(userId, payload.sessionId, operationId, threadId);
+    // Extract SSE-specific context fields injected by the chat route
+    const mode =
+      typeof (contextObj as Record<string, unknown>)['mode'] === 'string'
+        ? ((contextObj as Record<string, unknown>)['mode'] as string)
+        : undefined;
+    const attachments = Array.isArray((contextObj as Record<string, unknown>)['attachments'])
+      ? ((contextObj as Record<string, unknown>)['attachments'] as readonly {
+          url: string;
+          mimeType: string;
+        }[])
+      : undefined;
+    const videoAttachments = Array.isArray(
+      (contextObj as Record<string, unknown>)['videoAttachments']
+    )
+      ? ((contextObj as Record<string, unknown>)['videoAttachments'] as readonly {
+          url: string;
+          mimeType: string;
+          name: string;
+        }[])
+      : undefined;
 
-    // Inject thread history for conversation continuity
+    // ── Session Memory: hydrate prior conversation turns from Redis ─────────
+    // getOrCreate runs BEFORE the user message is appended so conversationHistory
+    // contains only prior turns — never the current message (no duplication).
+    let sessionContext: AgentSessionContext | undefined;
+    if (this.sessionMemory) {
+      try {
+        sessionContext = await this.sessionMemory.getOrCreate(userId, threadId);
+      } catch (err) {
+        logger.warn(
+          '[AgentRouter] Session memory getOrCreate failed — continuing without history',
+          {
+            userId,
+            threadId,
+            error: err instanceof Error ? err.message : String(err),
+          }
+        );
+      }
+    }
+
+    const context = this.buildSessionContext(
+      userId,
+      sessionContext?.sessionId ?? payload.sessionId,
+      operationId,
+      threadId,
+      environment,
+      signal,
+      mode,
+      attachments,
+      videoAttachments,
+      sessionContext?.conversationHistory
+    );
+
+    // Append user message to Redis BEFORE the DAG runs.
+    // This is awaited (not fire-and-forget) so any concurrent request reading
+    // the same thread session sees this turn in the history.
+    if (this.sessionMemory && threadId) {
+      try {
+        await this.sessionMemory.appendMessage(userId, threadId, {
+          role: 'user',
+          content: intent,
+          timestamp: new Date().toISOString(),
+        });
+      } catch (err) {
+        logger.warn('[AgentRouter] Failed to append user message to session', {
+          userId,
+          threadId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
+    // Inject thread history for conversation continuity (belt-and-suspenders
+    // during rollout — can be removed once Redis session memory is stable)
     let threadHistoryStr = '';
     if (threadId) {
       try {
@@ -157,33 +275,84 @@ export class AgentRouter {
       }
     }
 
+    // Inject cross-thread awareness so the agent can answer questions like
+    // "what were our recent chats about?" even in a brand-new thread.
+    let activeThreadsSummary = '';
+    try {
+      activeThreadsSummary = await this.contextBuilder.getActiveThreadsSummary(userId, 8);
+    } catch {
+      // Non-critical — continue without it
+    }
+
     const enrichedIntent = this.enrichIntentWithContext(
       intent,
       userContext,
       payload.context,
-      threadHistoryStr
+      threadHistoryStr,
+      promptContext.memories,
+      promptContext.recentSyncSummaries ?? [],
+      activeThreadsSummary
     );
 
     // ── Direct routing: skip planner when a specific agent is requested ───
     if (payload.agent) {
-      const directAgent = this.agents.get(payload.agent);
+      const directAgentId = payload.agent;
+      if (!isRoutableCoordinatorAgent(directAgentId)) {
+        const message =
+          `Direct routing target "${directAgentId}" is not allowed. ` +
+          `Allowed coordinator ids: ${COORDINATOR_AGENT_IDS.join(', ')}.`;
+        this.emitUpdate(onUpdate, operationId, 'failed', message, undefined, {
+          agentId: 'router',
+          stage: 'routing_to_agent',
+          outcomeCode: 'routing_failed',
+          metadata: {
+            targetAgentId: directAgentId,
+            allowedAgentIds: COORDINATOR_AGENT_IDS,
+          },
+        });
+
+        return {
+          summary: message,
+          suggestions: ['Select one of the supported coordinator commands and try again.'],
+        };
+      }
+
+      const directAgent = this.agents.get(directAgentId);
       if (!directAgent) {
         this.emitUpdate(
           onUpdate,
           operationId,
           'failed',
-          `No agent registered for "${payload.agent}".`
+          `No agent registered for "${directAgentId}".`,
+          undefined,
+          {
+            agentId: 'router',
+            stage: 'routing_to_agent',
+            outcomeCode: 'routing_failed',
+            metadata: { targetAgentId: directAgentId },
+          }
         );
         return {
-          summary: `No agent registered for "${payload.agent}".`,
+          summary: `No agent registered for "${directAgentId}".`,
           suggestions: ['Check agent configuration or contact support.'],
         };
       }
 
-      this.emitUpdate(onUpdate, operationId, 'acting', `Routing directly to ${payload.agent}...`);
+      this.emitUpdate(
+        onUpdate,
+        operationId,
+        'acting',
+        `Routing directly to ${directAgentId}...`,
+        undefined,
+        {
+          agentId: directAgentId,
+          stage: 'routing_to_agent',
+          metadata: { targetAgentId: directAgentId },
+        }
+      );
 
       try {
-        let toolDefs = this.toolRegistry.getDefinitions(directAgent.id);
+        let toolDefs = this.toolRegistry.getDefinitions(directAgent.id, toolAccessContext);
 
         // Dynamically filter tools by semantic intent matching, if intent embedding succceeds.
         try {
@@ -192,7 +361,8 @@ export class AgentRouter {
           toolDefs = await this.toolRegistry.match(
             intentEmbedding,
             (t) => this.llm.embed(t),
-            directAgent.id
+            directAgent.id,
+            toolAccessContext
           );
         } catch {
           // Ensure we don't blow up DAG execution if embedding service is down.
@@ -205,10 +375,17 @@ export class AgentRouter {
           this.llm,
           this.toolRegistry,
           this.skillRegistry,
-          onStreamEvent
+          onStreamEvent,
+          approvalGate
         );
 
-        this.emitUpdate(onUpdate, operationId, 'completed', result.summary);
+        this.emitUpdate(onUpdate, operationId, 'completed', result.summary, undefined, {
+          agentId: directAgentId,
+          stage: 'agent_thinking',
+          outcomeCode: 'success_default',
+          metadata: { executionMode: 'direct' },
+        });
+        this.appendAssistantMessage(userId, threadId, result.summary);
         return result;
       } catch (err) {
         // Let AgentYieldException propagate to the worker for suspend-and-resume
@@ -223,13 +400,24 @@ export class AgentRouter {
               ? ((contextObj as Record<string, unknown>)['delegationCount'] as number)
               : 0) + 1;
 
-          if (delegationCount > MAX_DELEGATION_DEPTH) {
+          if (delegationCount > maxDelegationDepth) {
             logger.warn('[AgentRouter] Delegation depth exceeded — aborting', {
               operationId,
               delegationCount,
-              sourceAgent: payload.agent,
+              sourceAgent: directAgentId,
             });
-            this.emitUpdate(onUpdate, operationId, 'failed', 'Unable to route this request.');
+            this.emitUpdate(
+              onUpdate,
+              operationId,
+              'failed',
+              'Unable to route this request.',
+              undefined,
+              {
+                agentId: 'router',
+                stage: 'routing_to_agent',
+                outcomeCode: 'routing_failed',
+              }
+            );
             return {
               summary:
                 "I'm having trouble finding the right specialist for this request. " +
@@ -240,7 +428,7 @@ export class AgentRouter {
 
           logger.info('[AgentRouter] Delegation handoff — re-dispatching through Planner', {
             operationId,
-            sourceAgent: payload.agent,
+            sourceAgent: directAgentId,
             forwardingIntent: err.payload.forwardingIntent.slice(0, 100),
             delegationCount,
           });
@@ -249,12 +437,17 @@ export class AgentRouter {
             onUpdate,
             operationId,
             'thinking',
-            'Transferring your request to the right specialist...'
+            'Transferring your request to the right specialist...',
+            undefined,
+            {
+              agentId: 'router',
+              stage: 'routing_to_agent',
+            }
           );
 
           // Re-dispatch with agent lock removed so the Planner takes over.
           // Append a routing hint so the Planner avoids the agent that just bailed.
-          const sourceAgentId = payload.agent ?? err.payload.sourceAgent;
+          const sourceAgentId = (payload.agent ?? err.payload.sourceAgent) as AgentIdentifier;
           const routingHint = sourceAgentId
             ? `\n\n[System: The "${sourceAgentId}" agent could not handle this. Route to a different specialist.]`
             : '';
@@ -266,17 +459,26 @@ export class AgentRouter {
             context: {
               ...contextObj,
               delegationCount,
-              delegatedFrom: payload.agent,
+              delegatedFrom: directAgentId,
             },
           };
 
           return this.run(delegatedPayload, onUpdate, firestore, onStreamEvent);
         }
 
+        // Re-throw AbortError so the caller (chat.routes.ts) detects the abort
+        // and skips persisting a fake failure message to the thread history.
+        if (err instanceof Error && err.name === 'AbortError') throw err;
+
         const message = err instanceof Error ? err.message : 'Agent execution failed';
-        this.emitUpdate(onUpdate, operationId, 'failed', message);
+        this.emitUpdate(onUpdate, operationId, 'failed', message, undefined, {
+          agentId: directAgentId,
+          stage: 'agent_thinking',
+          outcomeCode: 'task_failed',
+          metadata: { executionMode: 'direct' },
+        });
         return {
-          summary: `Agent ${payload.agent} failed: ${message}`,
+          summary: `Agent ${directAgentId} failed: ${message}`,
           suggestions: ['Try again later or contact support.'],
         };
       }
@@ -287,8 +489,11 @@ export class AgentRouter {
     // Only applies to non-resumed, non-direct-agent jobs.
     // When a hit is found, the raw cached response is personalized for the
     // current user via a fast micro-LLM pass (the "Synthesizer Pattern").
+    // The intent is scoped by [role|sport] to prevent cross-role cache pollution
+    // (e.g. an athlete answer being served to a coach for the same raw intent).
+    const scopedIntent = this.buildScopedCacheKey(intent, userContext);
     try {
-      const cacheHit = await this.semanticCache.check(intent);
+      const cacheHit = await this.semanticCache.check(scopedIntent);
       if (cacheHit) {
         logger.info('[AgentRouter] Semantic cache hit — personalizing for user', {
           operationId,
@@ -301,7 +506,13 @@ export class AgentRouter {
           onUpdate,
           operationId,
           'thinking',
-          'Found a cached answer — personalizing...'
+          'Found a cached answer — personalizing...',
+          undefined,
+          {
+            agentId: 'router',
+            stage: 'agent_thinking',
+            metadata: { source: 'semantic_cache' },
+          }
         );
 
         // Fast personalizer: rewrites the cached summary for this user's
@@ -314,7 +525,12 @@ export class AgentRouter {
           operationId
         );
 
-        this.emitUpdate(onUpdate, operationId, 'completed', personalized.summary);
+        this.emitUpdate(onUpdate, operationId, 'completed', personalized.summary, undefined, {
+          agentId: 'router',
+          stage: 'agent_thinking',
+          outcomeCode: 'success_default',
+          metadata: { source: 'semantic_cache' },
+        });
         return personalized;
       }
     } catch {
@@ -322,14 +538,28 @@ export class AgentRouter {
     }
 
     // ── Step 2: Plan ──────────────────────────────────────────────────────
-    this.emitUpdate(onUpdate, operationId, 'thinking', 'Decomposing your request into tasks...');
+    this.emitUpdate(
+      onUpdate,
+      operationId,
+      'thinking',
+      'Decomposing your request into tasks...',
+      undefined,
+      {
+        agentId: 'router',
+        stage: 'decomposing_intent',
+      }
+    );
 
     let planResult: AgentOperationResult;
     try {
       planResult = await this.planner.execute(enrichedIntent, context, []);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Planning failed';
-      this.emitUpdate(onUpdate, operationId, 'failed', `Planning error: ${message}`);
+      this.emitUpdate(onUpdate, operationId, 'failed', `Planning error: ${message}`, undefined, {
+        agentId: 'router',
+        stage: 'decomposing_intent',
+        outcomeCode: 'planning_failed',
+      });
       return {
         summary: `Failed to create execution plan: ${message}`,
         suggestions: ['Try rephrasing your request or try again later.'],
@@ -339,9 +569,46 @@ export class AgentRouter {
     const plan = planResult.data?.['plan'] as AgentExecutionPlan | undefined;
 
     if (!plan || plan.tasks.length === 0) {
+      this.emitUpdate(
+        onUpdate,
+        operationId,
+        'failed',
+        'Could not create an execution plan for this request.',
+        undefined,
+        {
+          agentId: 'router',
+          stage: 'decomposing_intent',
+          outcomeCode: 'planning_failed',
+        }
+      );
       return {
         summary: 'Could not create an execution plan for this request.',
         suggestions: ['Try rephrasing your request with more detail.'],
+      };
+    }
+
+    const invalidPlannedTask = plan.tasks.find(
+      (task) => !isRoutableCoordinatorAgent(task.assignedAgent)
+    );
+    if (invalidPlannedTask) {
+      const message =
+        `Planner produced non-routable agent assignment for task ${invalidPlannedTask.id}: ` +
+        `"${invalidPlannedTask.assignedAgent}". Allowed coordinators: ` +
+        `${COORDINATOR_AGENT_IDS.join(', ')}.`;
+      this.emitUpdate(onUpdate, operationId, 'failed', message, undefined, {
+        agentId: 'router',
+        stage: 'routing_to_agent',
+        outcomeCode: 'planning_failed',
+        metadata: {
+          taskId: invalidPlannedTask.id,
+          assignedAgentId: invalidPlannedTask.assignedAgent,
+          allowedAgentIds: COORDINATOR_AGENT_IDS,
+        },
+      });
+
+      return {
+        summary: message,
+        suggestions: ['Retry your request so Agent X can generate a valid coordinator plan.'],
       };
     }
 
@@ -350,7 +617,12 @@ export class AgentRouter {
       operationId,
       'acting',
       `Plan: ${plan.tasks.length} task(s) — ${planResult.summary}`,
-      { eventType: 'plan_created', taskCount: plan.tasks.length }
+      { eventType: 'plan_created', taskCount: plan.tasks.length },
+      {
+        agentId: 'router',
+        stage: 'routing_to_agent',
+        metadata: { taskCount: plan.tasks.length },
+      }
     );
 
     // Stream a rich planner card so the frontend renders an interactive checklist
@@ -358,6 +630,7 @@ export class AgentRouter {
       onStreamEvent({
         type: 'card',
         cardData: {
+          agentId: 'router',
           type: 'planner',
           title: 'Execution Plan',
           payload: {
@@ -376,7 +649,7 @@ export class AgentRouter {
     const mutableTasks = plan.tasks.map((t) => ({
       ...t,
       _lastError: undefined as string | undefined,
-    })) as Array<AgentTask & { status: AgentTaskStatus; _lastError?: string }>;
+    })) as MutableAgentTask[];
 
     while (this.hasPendingTasks(mutableTasks)) {
       // Find tasks whose dependencies are all completed
@@ -389,11 +662,23 @@ export class AgentRouter {
       );
 
       if (ready.length === 0) {
-        // All remaining tasks have unmet dependencies (shouldn't happen with DAG validation)
+        for (const task of mutableTasks) {
+          if (task.status === 'pending') {
+            task.status = 'failed' as AgentTaskStatus;
+            task._lastError =
+              'Execution plan stalled because remaining tasks had unmet dependencies.';
+          }
+        }
         break;
       }
 
-      // Execute ready tasks sequentially (parallel execution is a future optimization)
+      // ── Parallel DAG frontier execution ───────────────────────────────────
+      // Tasks in `ready` have no remaining dependencies — they can all run
+      // concurrently. Capped at 5 to match WORKER_CONCURRENCY and bound LLM load.
+      // Each task owns its own status/error mutations (safe in single-threaded JS).
+      // cascadeFailure is idempotent so concurrent failures on shared dependents are safe.
+
+      // Mark all frontier tasks as in_progress and announce them before the batch starts.
       for (const task of ready) {
         task.status = 'in_progress' as AgentTaskStatus;
         this.emitUpdate(
@@ -401,25 +686,55 @@ export class AgentRouter {
           operationId,
           'acting',
           `Running task ${task.id}: ${task.description}`,
-          { eventType: 'task_started', taskId: task.id }
+          { eventType: 'task_started', taskId: task.id },
+          {
+            agentId: task.assignedAgent,
+            stage: 'agent_thinking',
+            metadata: { taskId: task.id },
+          }
         );
+      }
 
-        for (let attempt = 0; attempt <= TASK_MAX_RETRIES; attempt++) {
+      // Snapshot completedTaskResults for yield exception payloads — consistent
+      // across all parallel workers regardless of which task yields first.
+      const completedAtBatchStart = Object.fromEntries(
+        [...taskResults.entries()].map(([k, v]) => [k, v])
+      );
+
+      // Per-task async worker — runs the full retry loop for one DAG task.
+      const runTask = async (task: MutableAgentTask): Promise<void> => {
+        for (let attempt = 0; attempt <= taskMaxRetries; attempt++) {
           try {
-            const agent = this.agents.get(task.assignedAgent);
-            if (!agent) {
-              throw new Error(`No agent registered for "${task.assignedAgent}".`);
+            const assignedAgentId = task.assignedAgent;
+            if (!isRoutableCoordinatorAgent(assignedAgentId)) {
+              throw new AgentEngineError(
+                'AGENT_NOT_REGISTERED',
+                `Task "${task.id}" assigned to non-routable agent "${assignedAgentId}". ` +
+                  `Allowed coordinators: ${COORDINATOR_AGENT_IDS.join(', ')}.`,
+                {
+                  metadata: {
+                    taskId: task.id,
+                    assignedAgentId,
+                    allowedAgentIds: COORDINATOR_AGENT_IDS,
+                  },
+                }
+              );
             }
 
-            // Build the intent for this specific task, enriched with upstream results
-            // and the original job context (user profile, linked account URLs, etc.)
+            const agent = this.agents.get(assignedAgentId);
+            if (!agent) {
+              throw new AgentEngineError(
+                'AGENT_NOT_REGISTERED',
+                `No agent registered for "${assignedAgentId}".`,
+                { metadata: { assignedAgentId, taskId: task.id } }
+              );
+            }
+
             let taskIntent = this.buildTaskIntent(task, taskResults, enrichedIntent);
 
-            // On retry attempts, augment the intent with the previous error so the
-            // coordinator can self-correct (e.g. use a different tool or approach).
             if (attempt > 0 && task._lastError) {
               taskIntent +=
-                `\n\n[System Intervention — Retry ${attempt}/${TASK_MAX_RETRIES}]\n` +
+                `\n\n[System Intervention — Retry ${attempt}/${taskMaxRetries}]\n` +
                 `Your previous execution of this task failed with the following error:\n` +
                 `"${task._lastError}"\n` +
                 `Please formulate an alternative strategy to accomplish this task. ` +
@@ -437,19 +752,25 @@ export class AgentRouter {
                 onUpdate,
                 operationId,
                 'acting',
-                `Task ${task.id}: retrying (attempt ${attempt + 1}/${TASK_MAX_RETRIES + 1})...`,
-                { eventType: 'task_retry', taskId: task.id, attempt }
+                `Task ${task.id}: retrying (attempt ${attempt + 1}/${taskMaxRetries + 1})...`,
+                { eventType: 'task_retry', taskId: task.id, attempt },
+                {
+                  agentId: task.assignedAgent,
+                  stage: 'agent_thinking',
+                  metadata: { taskId: task.id, attempt },
+                }
               );
             }
 
             // Dynamic Tool RAG: filter tools by semantic relevance to this task's intent
-            let toolDefs = this.toolRegistry.getDefinitions(agent.id);
+            let toolDefs = this.toolRegistry.getDefinitions(agent.id, toolAccessContext);
             try {
               const intentEmbedding = await this.llm.embed(taskIntent);
               toolDefs = await this.toolRegistry.match(
                 intentEmbedding,
                 (t) => this.llm.embed(t),
-                agent.id
+                agent.id,
+                toolAccessContext
               );
             } catch {
               // Embedding unavailable — fall back to all permitted tools
@@ -462,7 +783,8 @@ export class AgentRouter {
               this.llm,
               this.toolRegistry,
               this.skillRegistry,
-              onStreamEvent
+              onStreamEvent,
+              approvalGate
             );
 
             taskResults.set(task.id, result);
@@ -471,15 +793,21 @@ export class AgentRouter {
               onUpdate,
               operationId,
               'acting',
-              `Task ${task.id} completed: ${result.summary}`
+              `Task ${task.id} completed: ${result.summary}`,
+              undefined,
+              {
+                agentId: task.assignedAgent,
+                stage: 'agent_thinking',
+                metadata: { taskId: task.id },
+              }
             );
 
-            // Re-emit the planner card with updated done states so the UI
-            // checklist ticks off items in real-time as tasks finish.
+            // Re-emit the planner card with updated done states.
             if (onStreamEvent) {
               onStreamEvent({
                 type: 'card',
                 cardData: {
+                  agentId: 'router',
                   type: 'planner',
                   title: 'Execution Plan',
                   payload: {
@@ -493,30 +821,26 @@ export class AgentRouter {
               });
             }
 
-            break; // Success — exit retry loop
+            return; // Success — exit retry loop
           } catch (err) {
-            // Attach DAG plan context to yield exceptions so the resume route
-            // can reconstruct the partial plan state and continue from here.
+            // Attach plan context to yield exceptions so the resume route can
+            // reconstruct from the correct DAG snapshot.
             if (isAgentYield(err)) {
               const yieldErr = err as AgentYieldException;
               throw new AgentYieldException({
                 ...yieldErr.payload,
                 planContext: {
                   currentTaskId: task.id,
-                  completedTaskResults: Object.fromEntries(
-                    [...taskResults.entries()].map(([k, v]) => [k, v])
-                  ),
+                  completedTaskResults: completedAtBatchStart,
                   enrichedIntent,
                 },
               });
             }
 
-            // In the DAG path, delegation means the Planner mis-routed a task.
-            // Treat it as an immediate task failure (no retries — the same agent
-            // would just delegate again).
+            // Delegation inside the DAG = mis-routed task — treat as failure.
             if (isAgentDelegation(err)) {
               const delErr =
-                err as import('./errors/agent-delegation.error.js').AgentDelegationException;
+                err as import('./exceptions/agent-delegation.exception.js').AgentDelegationException;
               logger.warn(
                 `[AgentRouter] Agent "${task.assignedAgent}" delegated inside DAG — treating as task failure`,
                 {
@@ -525,45 +849,156 @@ export class AgentRouter {
                   forwardingIntent: delErr.payload.forwardingIntent.slice(0, 100),
                 }
               );
+              task._lastError = `Delegated back to router: ${delErr.payload.forwardingIntent}`;
               task.status = 'failed' as AgentTaskStatus;
               this.emitUpdate(
                 onUpdate,
                 operationId,
                 'acting',
-                `Task ${task.id} was misrouted — ${task.assignedAgent} could not handle it.`
+                `Task ${task.id} was misrouted — ${task.assignedAgent} could not handle it.`,
+                {
+                  eventType: 'task_failed',
+                  taskId: task.id,
+                  assignedAgent: task.assignedAgent,
+                  error: task._lastError,
+                },
+                {
+                  agentId: 'router',
+                  stage: 'routing_to_agent',
+                  outcomeCode: 'routing_failed',
+                  metadata: {
+                    taskId: task.id,
+                    delegatedAgentId: task.assignedAgent,
+                  },
+                }
               );
               this.cascadeFailure(task.id, mutableTasks);
-              break; // Exit retry loop
+              return; // No retries for delegation failures
             }
 
             const message = err instanceof Error ? err.message : 'Unknown error';
-
-            // Store the error for the next retry attempt's augmented prompt
             task._lastError = message;
 
-            // If this was the last retry, cascade failure
-            if (attempt === TASK_MAX_RETRIES) {
+            if (attempt === taskMaxRetries) {
               task.status = 'failed' as AgentTaskStatus;
+              logger.error('[AgentRouter] Task failed after retries exhausted', {
+                operationId,
+                taskId: task.id,
+                assignedAgent: task.assignedAgent,
+                attempts: taskMaxRetries + 1,
+                error: message,
+              });
               this.emitUpdate(
                 onUpdate,
                 operationId,
                 'acting',
-                `Task ${task.id} failed after ${TASK_MAX_RETRIES + 1} attempts: ${message}`
+                `Task ${task.id} failed after ${taskMaxRetries + 1} attempts: ${message}`,
+                {
+                  eventType: 'task_failed',
+                  taskId: task.id,
+                  assignedAgent: task.assignedAgent,
+                  attempts: taskMaxRetries + 1,
+                  error: message,
+                },
+                {
+                  agentId: task.assignedAgent,
+                  stage: 'agent_thinking',
+                  outcomeCode: 'task_failed',
+                  metadata: {
+                    taskId: task.id,
+                    attempts: taskMaxRetries + 1,
+                  },
+                }
               );
-
-              // Cascade failure to all downstream dependents
               this.cascadeFailure(task.id, mutableTasks);
             }
           }
+        }
+      };
+
+      const frontierResults = await parallelBatch(ready, runTask, { concurrency: 5 });
+
+      // Rethrow the first yield exception if any task in this frontier yielded.
+      // Yield suspends the entire job, so sibling task results are already in taskResults.
+      for (const fr of frontierResults) {
+        if (fr.status === 'rejected' && isAgentYield(fr.reason)) {
+          throw fr.reason;
         }
       }
     }
 
     // ── Step 4: Aggregate results ─────────────────────────────────────────
-    this.emitUpdate(onUpdate, operationId, 'completed', 'All tasks finished.');
-
     const summaries = [...taskResults.values()].map((r) => r.summary);
     const allSuggestions = [...taskResults.values()].flatMap((r) => r.suggestions ?? []);
+    const failedTasks = mutableTasks.filter(
+      (task): task is MutableAgentTask => task.status === 'failed'
+    );
+
+    if (failedTasks.length > 0) {
+      const firstFailedTask = failedTasks[0];
+      const firstFailureMessage = firstFailedTask._lastError ?? 'Unknown error';
+      const failureHeadline =
+        `Execution plan failed. Task ${firstFailedTask.id} ` +
+        `(${firstFailedTask.assignedAgent}) failed: ${firstFailureMessage}`;
+      const partialSummary = summaries.join('\n\n').trim();
+      const failedTaskDetails = failedTasks.map((task) => ({
+        id: task.id,
+        description: task.description,
+        assignedAgent: task.assignedAgent,
+        dependsOn: task.dependsOn,
+        error: task._lastError ?? 'Unknown error',
+      }));
+
+      logger.error('[AgentRouter] Execution plan failed', {
+        operationId,
+        failedTaskId: firstFailedTask.id,
+        assignedAgent: firstFailedTask.assignedAgent,
+        error: firstFailureMessage,
+        completedTaskCount: taskResults.size,
+        totalTaskCount: mutableTasks.length,
+      });
+
+      this.emitUpdate(
+        onUpdate,
+        operationId,
+        'failed',
+        failureHeadline,
+        {
+          eventType: 'plan_failed',
+          failedTasks: failedTaskDetails,
+          firstFailedTask: failedTaskDetails[0],
+        },
+        {
+          agentId: firstFailedTask.assignedAgent,
+          stage: 'agent_thinking',
+          outcomeCode: 'task_failed',
+          metadata: {
+            failedTaskId: firstFailedTask.id,
+            failedAgentId: firstFailedTask.assignedAgent,
+          },
+        }
+      );
+
+      return {
+        summary:
+          partialSummary.length > 0
+            ? `${failureHeadline}\n\nPartial completed work:\n${partialSummary}`
+            : failureHeadline,
+        data: {
+          plan,
+          taskResults: Object.fromEntries(taskResults),
+          operationStatus: 'failed',
+          failedTasks: failedTaskDetails,
+          firstFailedTask: failedTaskDetails[0],
+        },
+        suggestions: allSuggestions.length > 0 ? allSuggestions : undefined,
+      };
+    }
+
+    this.emitUpdate(onUpdate, operationId, 'completed', 'All tasks finished.', undefined, {
+      agentId: 'router',
+      outcomeCode: 'success_default',
+    });
 
     const aggregatedResult: AgentOperationResult = {
       summary: summaries.join('\n\n'),
@@ -579,11 +1014,12 @@ export class AgentRouter {
     const allCompleted = mutableTasks.every((t) => t.status === 'completed');
     if (allCompleted && taskResults.size > 0) {
       // Fire-and-forget — never block the response for cache storage
-      this.semanticCache.store(intent, aggregatedResult).catch(() => {
+      this.semanticCache.store(scopedIntent, aggregatedResult).catch(() => {
         /* noop */
       });
     }
 
+    this.appendAssistantMessage(userId, threadId, aggregatedResult.summary);
     return aggregatedResult;
   }
 
@@ -598,10 +1034,14 @@ export class AgentRouter {
     yieldState: import('@nxt1/core').AgentYieldState,
     onUpdate?: (update: AgentJobUpdate) => void,
     firestore?: FirebaseFirestore.Firestore,
-    onStreamEvent?: OnStreamEvent
+    onStreamEvent?: OnStreamEvent,
+    environment: 'staging' | 'production' = 'production'
   ): Promise<AgentOperationResult> {
     const { operationId, userId, intent } = payload;
-    this.emitUpdate(onUpdate, operationId, 'acting', 'Resuming from your response...');
+    this.emitUpdate(onUpdate, operationId, 'acting', 'Resuming from your response...', undefined, {
+      agentId: yieldState.agentId,
+      stage: 'resuming_user_input',
+    });
 
     // Resolve the agent that was executing when the yield happened
     const agent = this.agents.get(yieldState.agentId);
@@ -610,7 +1050,14 @@ export class AgentRouter {
         onUpdate,
         operationId,
         'failed',
-        `Cannot resume: no agent registered for "${yieldState.agentId}".`
+        `Cannot resume: no agent registered for "${yieldState.agentId}".`,
+        undefined,
+        {
+          agentId: 'router',
+          stage: 'resuming_user_input',
+          outcomeCode: 'routing_failed',
+          metadata: { targetAgentId: yieldState.agentId },
+        }
       );
       return {
         summary: `Cannot resume: agent "${yieldState.agentId}" is not registered.`,
@@ -619,13 +1066,18 @@ export class AgentRouter {
     }
 
     // Build user context for the resumed execution
-    let userContext: AgentUserContext;
+    let promptContext: AgentPromptContext | undefined;
     try {
-      userContext = await this.contextBuilder.buildContext(userId, firestore);
+      promptContext = await this.contextBuilder.buildPromptContext(userId, intent, firestore);
     } catch {
       // Non-critical — resume with whatever context we have
-      userContext = { userId } as AgentUserContext;
+      promptContext = {
+        profile: { userId } as AgentUserContext,
+        memories: { user: [], team: [], organization: [] },
+      };
     }
+
+    const userContext = promptContext.profile;
 
     const resumeContextObj =
       typeof payload.context === 'object' && payload.context !== null ? payload.context : {};
@@ -634,56 +1086,93 @@ export class AgentRouter {
         ? ((resumeContextObj as Record<string, unknown>)['threadId'] as string)
         : undefined;
 
+    // Hydrate session for runResumed so the agent has prior turn context
+    let resumeSessionContext: AgentSessionContext | undefined;
+    if (this.sessionMemory) {
+      try {
+        resumeSessionContext = await this.sessionMemory.getOrCreate(userId, resumeThreadId);
+      } catch {
+        // Non-critical — continue without history
+      }
+    }
+
     const context = this.buildSessionContext(
       userId,
-      payload.sessionId,
+      resumeSessionContext?.sessionId ?? payload.sessionId,
       operationId,
-      resumeThreadId
+      resumeThreadId,
+      environment,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      resumeSessionContext?.conversationHistory
     );
-    const enrichedIntent = this.enrichIntentWithContext(intent, userContext, payload.context);
+    const approvalId =
+      typeof (resumeContextObj as Record<string, unknown>)['approvalId'] === 'string'
+        ? ((resumeContextObj as Record<string, unknown>)['approvalId'] as string)
+        : undefined;
+    let resumeActiveThreadsSummary = '';
+    try {
+      resumeActiveThreadsSummary = await this.contextBuilder.getActiveThreadsSummary(userId, 8);
+    } catch {
+      // Non-critical — continue without it
+    }
+
+    const enrichedIntent = this.enrichIntentWithContext(
+      intent,
+      userContext,
+      payload.context,
+      undefined,
+      promptContext.memories,
+      promptContext.recentSyncSummaries ?? [],
+      resumeActiveThreadsSummary
+    );
+    const approvalGate = firestore ? new ApprovalGateService(firestore) : undefined;
 
     try {
-      let toolDefs = this.toolRegistry.getDefinitions(agent.id);
+      const toolAccessContext = this.buildToolAccessContext(userContext);
+      let toolDefs = this.toolRegistry.getDefinitions(agent.id, toolAccessContext);
 
       try {
         const intentEmbedding = await this.llm.embed(enrichedIntent);
         toolDefs = await this.toolRegistry.match(
           intentEmbedding,
           (t) => this.llm.embed(t),
-          agent.id
+          agent.id,
+          toolAccessContext
         );
       } catch {
         // Ignore embedding failures during resume and pass all possible tools.
       }
 
-      // Design note (V1): We intentionally restart the agent's ReAct loop
-      // from scratch rather than injecting the saved message array directly.
-      // The user's answer is persisted to the MongoDB thread by the resume
-      // route, and the ContextBuilder injects recent thread messages into
-      // the system prompt — so the agent sees the full conversation history
-      // including its original question and the user's response.
-      //
-      // Tradeoff: this is less token-efficient than resuming mid-loop
-      // (prior tool results are re-discovered, not replayed), but it's
-      // simpler and avoids deserializing LLM message arrays across module
-      // boundaries. A future optimization could add a `resumeFromMessages`
-      // method to BaseAgent that pre-populates the message array.
-      const result = await agent.execute(
-        enrichedIntent,
+      const result = await agent.resumeExecution(
+        yieldState,
         context,
         toolDefs,
         this.llm,
         this.toolRegistry,
         this.skillRegistry,
-        onStreamEvent
+        onStreamEvent,
+        approvalGate,
+        approvalId
       );
 
-      this.emitUpdate(onUpdate, operationId, 'completed', result.summary);
+      this.emitUpdate(onUpdate, operationId, 'completed', result.summary, undefined, {
+        agentId: yieldState.agentId,
+        stage: 'resuming_user_input',
+        outcomeCode: 'success_default',
+      });
+      this.appendAssistantMessage(userId, resumeThreadId, result.summary);
       return result;
     } catch (err) {
       if (isAgentYield(err)) throw err;
       const message = err instanceof Error ? err.message : 'Resume execution failed';
-      this.emitUpdate(onUpdate, operationId, 'failed', message);
+      this.emitUpdate(onUpdate, operationId, 'failed', message, undefined, {
+        agentId: yieldState.agentId,
+        stage: 'resuming_user_input',
+        outcomeCode: 'task_failed',
+      });
       return {
         summary: `Resumed agent "${yieldState.agentId}" failed: ${message}`,
         suggestions: ['Try again later or contact support.'],
@@ -697,25 +1186,60 @@ export class AgentRouter {
    * This ensures the planner and sub-agents know who the user is
    * and have all the data needed to execute the request.
    */
+  /**
+   * Builds a cache key that is scoped by the user's role and primary sport.
+   * Embedding two different plain-English intents that differ only by
+   * role/sport would produce very similar vectors, causing cross-user hits.
+   * Prefixing with `[role|sport]` shifts the embedding into the correct
+   * semantic region so the cosine threshold never bridges role boundaries.
+   */
+  private buildScopedCacheKey(intent: string, userContext: AgentUserContext | undefined): string {
+    const role = userContext?.role ?? 'unknown';
+    const sport = userContext?.sport ?? 'general';
+    return `[${role}|${sport}] ${intent}`;
+  }
+
   private enrichIntentWithContext(
     intent: string,
     userContext: AgentUserContext,
     jobContext?: Record<string, unknown>,
-    threadHistory?: string
+    threadHistory?: string,
+    memories: AgentRetrievedMemories = { user: [], team: [], organization: [] },
+    recentSyncSummaries: readonly string[] = [],
+    activeThreadsSummary?: string
   ): string {
-    const contextStr = this.contextBuilder.compressToPrompt(userContext);
+    const contextStr = this.contextBuilder.compressToPrompt(
+      userContext,
+      memories,
+      recentSyncSummaries
+    );
     let enriched = `[User Profile]\n${contextStr}`;
 
     // Inject structured job context so the LLM has URLs, platform names, etc.
     if (jobContext && Object.keys(jobContext).length > 0) {
-      // Exclude internal keys from being shown to the LLM
-      const { threadId: _threadId, ...visibleContext } = jobContext;
+      // Exclude internal/system keys — these are not useful LLM context
+      const {
+        threadId: _threadId,
+        mode: _mode,
+        attachments: _attachments,
+        ...visibleContext
+      } = jobContext;
       if (Object.keys(visibleContext).length > 0) {
-        enriched += `\n\n[Job Context]\n${JSON.stringify(visibleContext, null, 2)}`;
+        let contextMd = '\n\n[Job Context]\n';
+        for (const [key, value] of Object.entries(visibleContext)) {
+          const formatted = typeof value === 'object' ? JSON.stringify(value) : String(value);
+          contextMd += `- **${key}**: ${formatted}\n`;
+        }
+        enriched += contextMd;
       }
     }
 
-    // Inject recent conversation history for continuity
+    // Inject cross-thread conversation awareness (recent session titles)
+    if (activeThreadsSummary) {
+      enriched += `\n\n[Recent Conversation Topics]${activeThreadsSummary}`;
+    }
+
+    // Inject current thread's message history for in-session continuity
     if (threadHistory) {
       enriched += `\n${threadHistory}`;
     }
@@ -771,18 +1295,58 @@ export class AgentRouter {
     userId: string,
     sessionId?: string,
     operationId?: string,
-    threadId?: string
+    threadId?: string,
+    environment?: 'staging' | 'production',
+    signal?: AbortSignal,
+    mode?: string,
+    attachments?: readonly { readonly url: string; readonly mimeType: string }[],
+    videoAttachments?: readonly {
+      readonly url: string;
+      readonly mimeType: string;
+      readonly name: string;
+    }[],
+    conversationHistory?: readonly AgentSessionMessage[]
   ): AgentSessionContext {
     const now = new Date().toISOString();
     return {
       sessionId: sessionId ?? crypto.randomUUID(),
       userId,
-      conversationHistory: [],
+      conversationHistory: conversationHistory ?? [],
       createdAt: now,
       lastActiveAt: now,
+      ...(environment && { environment }),
       ...(operationId && { operationId }),
       ...(threadId && { threadId }),
+      ...(mode && { mode }),
+      ...(attachments?.length && { attachments }),
+      ...(videoAttachments?.length && { videoAttachments }),
+      ...(signal && { signal }),
     };
+  }
+
+  /**
+   * Fire-and-forget helper to persist the assistant's reply to Redis session memory.
+   * Never blocks the response — failures are logged as warnings only.
+   */
+  private appendAssistantMessage(
+    userId: string,
+    threadId: string | undefined,
+    summary: string
+  ): void {
+    if (!this.sessionMemory || !threadId) return;
+    this.sessionMemory
+      .appendMessage(userId, threadId, {
+        role: 'assistant',
+        content: summary,
+        timestamp: new Date().toISOString(),
+      })
+      .catch((err) => {
+        logger.warn('[AgentRouter] Failed to append assistant message to session', {
+          userId,
+          threadId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
   }
 
   /** Emit a step update to the onUpdate callback (for SSE / Firestore). */
@@ -791,17 +1355,33 @@ export class AgentRouter {
     operationId: string,
     status: AgentJobUpdate['status'],
     message: string,
-    payload?: Record<string, unknown>
+    payload?: Record<string, unknown>,
+    structured?: {
+      readonly agentId?: AgentIdentifier;
+      readonly stage?: AgentRouterStage;
+      readonly outcomeCode?: OperationOutcomeCode;
+      readonly metadata?: AgentProgressMetadata;
+    }
   ): void {
     if (!onUpdate) return;
     onUpdate({
       operationId,
       status,
+      agentId: structured?.agentId,
+      stageType: structured?.stage ? 'router' : undefined,
+      stage: structured?.stage,
+      outcomeCode: structured?.outcomeCode,
+      metadata: structured?.metadata,
       step: {
         id: crypto.randomUUID(),
         timestamp: new Date().toISOString(),
         status,
         message,
+        agentId: structured?.agentId,
+        stageType: structured?.stage ? 'router' : undefined,
+        stage: structured?.stage,
+        outcomeCode: structured?.outcomeCode,
+        metadata: structured?.metadata,
         payload,
       },
     });
@@ -825,5 +1405,31 @@ export class AgentRouter {
         }
       }
     }
+  }
+
+  private buildToolAccessContext(userContext: AgentUserContext): AgentToolAccessContext {
+    const role = userContext.role.trim().toLowerCase();
+    const isTeamRole = role === 'coach' || role === 'director';
+    const allowedEntityGroups: AgentToolEntityGroup[] = ['platform_tools', 'system_tools'];
+
+    if (role === 'athlete') {
+      allowedEntityGroups.push('user_tools');
+    }
+
+    if (isTeamRole) {
+      allowedEntityGroups.push('team_tools', 'user_tools');
+    }
+
+    if (userContext.organizationId) {
+      allowedEntityGroups.push('organization_tools');
+    }
+
+    return {
+      userId: userContext.userId,
+      role: userContext.role,
+      teamId: userContext.teamId,
+      organizationId: userContext.organizationId,
+      allowedEntityGroups: Array.from(new Set(allowedEntityGroups)),
+    };
   }
 }

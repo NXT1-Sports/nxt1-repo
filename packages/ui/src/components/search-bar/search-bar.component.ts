@@ -61,7 +61,7 @@ import {
   viewChild,
 } from '@angular/core';
 import { NxtIconComponent } from '../icon';
-import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '../../agent-x/fab/agent-x-logo.constants';
+import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/assets';
 
 /** Search bar visual variant */
 export type SearchBarVariant = 'mobile' | 'desktop' | 'desktop-centered';

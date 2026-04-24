@@ -20,10 +20,12 @@ import {
   POST_LIMITS,
   POSTS_CACHE_PREFIX,
 } from '@nxt1/core/constants';
-import { sanitizeContent, extractHashtags, extractMentions } from '@nxt1/core/validation';
+import { z } from 'zod';
+import { sanitizeText } from '@nxt1/core/helpers';
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
-import { ScraperMediaService } from '../integrations/scraper-media.service.js';
-import { getCacheService } from '../../../../services/cache.service.js';
+import { ScraperMediaService } from '../integrations/social/scraper-media.service.js';
+import { getCacheService } from '../../../../services/core/cache.service.js';
+import { getAnalyticsLoggerService } from '../../../../services/core/analytics-logger.service.js';
 import { logger } from '../../../../utils/logger.js';
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
@@ -49,6 +51,14 @@ const VALIDATION = {
 type ValidPostType = (typeof VALID_POST_TYPES)[number];
 type ValidVisibility = (typeof VALID_VISIBILITY)[number];
 
+function extractMentions(content: string): string[] {
+  return [
+    ...new Set(
+      Array.from(content.matchAll(/(^|[^\w])@([a-zA-Z0-9._]{1,30})/g), (match) => match[2])
+    ),
+  ];
+}
+
 // ─── Tool Class ────────────────────────────────────────────────────────────────
 
 export class WriteTimelinePostTool extends BaseTool {
@@ -68,63 +78,39 @@ export class WriteTimelinePostTool extends BaseTool {
     '- achievement: Achievement or badge earned\n' +
     '- announcement: General announcement\n\n' +
     'Image and video URLs must be HTTPS Firebase Storage signed URLs ' +
-    '(from generate_image, scrape_twitter, scrape_instagram, or other agent tools).';
+    '(from generate_image, scrape_twitter, scrape_instagram, or other agent tools).\n\n' +
+    'Sport tagging:\n' +
+    'Pass `sportId` (lowercase, e.g. "football", "basketball") so the post ' +
+    'is filed under the correct sport profile. If omitted, it falls back to ' +
+    "the user's currently active sport. Posts without a sportId are NOT " +
+    'visible on any sport profile timeline.';
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      userId: {
-        type: 'string',
-        description: 'The Firestore UID of the user who owns the post.',
-      },
-      content: {
-        type: 'string',
-        description:
-          `Post text content (${VALIDATION.CONTENT_MIN}-${VALIDATION.CONTENT_MAX} chars). ` +
-          'Supports #hashtags and @mentions which are auto-extracted.',
-      },
-      type: {
-        type: 'string',
-        enum: [...VALID_POST_TYPES],
-        description:
-          'Post type. Use "photo" when attaching images, "video" for video, ' +
-          '"text" for plain text, or a semantic type like "achievement", "stats", "highlight".',
-      },
-      visibility: {
-        type: 'string',
-        enum: [...VALID_VISIBILITY],
-        description:
-          'Post visibility: "public" (everyone), "team" (team members only), "private" (only the user).',
-      },
-      images: {
-        type: 'array',
-        items: { type: 'string' },
-        maxItems: VALIDATION.MAX_IMAGES,
-        description:
-          `Array of image URLs (max ${VALIDATION.MAX_IMAGES}). ` +
-          'Must be HTTPS Firebase Storage signed URLs from agent uploads ' +
-          '(scraped media or generated graphics).',
-      },
-      videoUrl: {
-        type: 'string',
-        description:
-          'Single video URL. Must be an HTTPS Firebase Storage signed URL from agent uploads.',
-      },
-      teamId: {
-        type: 'string',
-        description: 'Optional team ID to associate the post with a team.',
-      },
-    },
-    required: ['userId', 'content', 'type', 'visibility'],
-  };
+  readonly parameters = z.object({
+    userId: z.string().trim().min(1),
+    content: z.string().min(VALIDATION.CONTENT_MIN).max(VALIDATION.CONTENT_MAX),
+    type: z.enum(VALID_POST_TYPES),
+    visibility: z.enum(VALID_VISIBILITY),
+    images: z.array(z.string().trim().min(1)).max(VALIDATION.MAX_IMAGES).optional(),
+    videoUrl: z.string().trim().min(1).optional(),
+    teamId: z.string().trim().min(1).optional(),
+    /**
+     * Sport identifier this post belongs to (lowercase, e.g. "football").
+     * Required so the post is filtered onto the correct sport profile when
+     * the user has multiple sports. If omitted, the tool resolves it from
+     * the user's currently active sport (`Users/{userId}.sports[activeSportIndex].sport`).
+     */
+    sportId: z.string().trim().min(1).optional(),
+  });
 
   readonly isMutation = true;
   readonly category: AgentToolCategory = 'communication';
+
+  readonly entityGroup = 'user_tools' as const;
   override readonly allowedAgents: readonly (AgentIdentifier | '*')[] = [
     'data_coordinator',
-    'brand_media_coordinator',
+    'brand_coordinator',
     'recruiting_coordinator',
-    'general',
+    'strategy_coordinator',
   ];
 
   constructor(private readonly db: Firestore) {
@@ -190,12 +176,23 @@ export class WriteTimelinePostTool extends BaseTool {
     }
 
     const teamId = this.str(input, 'teamId');
+    const explicitSportId = this.str(input, 'sportId');
+
+    // Resolve sportId: explicit param wins, otherwise fall back to the user's
+    // currently active sport. Without this the post is invisible on every
+    // sport profile because the timeline endpoint filters by `sportId`.
+    const sportId = await this.resolveSportId(userId, explicitSportId);
+    if (!sportId) {
+      logger.warn('[WriteTimelinePostTool] No sport could be resolved for user', { userId });
+    }
 
     // ── Build Firestore document ─────────────────────────────────────────
     try {
-      context?.onProgress?.('Preparing post content…');
-      const sanitized = sanitizeContent(content);
-      const hashtags = extractHashtags(content);
+      context?.emitStage?.('submitting_job', {
+        icon: 'document',
+        phase: 'prepare_post_content',
+      });
+      const sanitized = sanitizeText(content);
       const mentions = extractMentions(content);
 
       const visibilityMap: Record<ValidVisibility, PostVisibility> = {
@@ -210,14 +207,17 @@ export class WriteTimelinePostTool extends BaseTool {
       // and expires with the thread. Published posts need permanent copies at
       // users/{userId}/posts/{postId}/ so they survive thread deletion.
       const postIdForMedia = this.db.collection(POSTS_COLLECTIONS.POSTS).doc().id;
-      const destinationPrefix = `users/${userId}/posts/${postIdForMedia}`;
+      const destinationPrefix = `Users/${userId}/posts/${postIdForMedia}`;
 
       let promotedImages = images.urls;
       let promotedVideoUrl = videoUrl;
 
       if (context?.userId) {
         if (images.urls.length > 0) {
-          context.onProgress?.('Uploading media to permanent storage…');
+          context.emitStage?.('uploading_assets', {
+            icon: 'upload',
+            phase: 'upload_post_media',
+          });
           promotedImages = await ScraperMediaService.promoteMedia(
             images.urls,
             context.userId,
@@ -247,25 +247,30 @@ export class WriteTimelinePostTool extends BaseTool {
         type,
         visibility: postVisibility,
         teamId: teamId ?? undefined,
+        // Sport scoping: required for the post to surface on the matching
+        // sport profile (queried via `where('sportId', '==', sportId)` in
+        // backend/src/services/profile/timeline.service.ts).
+        sportId: sportId ?? undefined,
+        sport: sportId ?? undefined,
         images: promotedImages,
         videoUrl: promotedVideoUrl ?? undefined,
         externalLinks: [],
         mentions,
-        hashtags,
         location: teamId ?? undefined,
         isPinned: false,
-        commentsDisabled: false,
         createdAt: now,
         updatedAt: now,
         stats: {
           likes: 0,
-          comments: 0,
           shares: 0,
           views: 0,
         },
       };
 
-      context?.onProgress?.('Publishing post to timeline…');
+      context?.emitStage?.('submitting_job', {
+        icon: 'document',
+        phase: 'publish_timeline_post',
+      });
       const docRef = await this.db.collection(POSTS_COLLECTIONS.POSTS).doc(postIdForMedia);
       await docRef.set(postDoc);
       const postId = docRef.id;
@@ -275,15 +280,41 @@ export class WriteTimelinePostTool extends BaseTool {
         userId,
         type,
         visibility,
+        sportId: sportId ?? null,
         imageCount: images.urls.length,
         hasVideo: !!videoUrl,
-        hashtagCount: hashtags.length,
         mentionCount: mentions.length,
       });
 
       // ── Cache invalidation ─────────────────────────────────────────────
-      context?.onProgress?.('Invalidating feed caches…');
-      await this.invalidateFeedCaches(postVisibility, teamId ?? undefined);
+      context?.emitStage?.('persisting_result', {
+        icon: 'database',
+        phase: 'invalidate_feed_caches',
+      });
+      await this.invalidateFeedCaches(postVisibility, userId, teamId ?? undefined);
+
+      // Track profile-post creation in user's engagement record.
+      // Posts live on the athlete's profile only (not a social feed), so we
+      // track shares and views only — no likes or comments.
+      void getAnalyticsLoggerService().safeTrack({
+        subjectId: userId,
+        subjectType: 'user',
+        domain: 'engagement',
+        eventType: 'content_viewed',
+        source: 'agent',
+        actorUserId: context?.userId ?? userId,
+        sessionId: context?.sessionId ?? null,
+        threadId: context?.threadId ?? null,
+        tags: [type, visibility],
+        payload: {
+          postId,
+          contentType: type,
+          visibility,
+          views: 0,
+          shares: 0,
+        },
+        metadata: { initiatedBy: 'write_timeline_post' },
+      });
 
       return {
         success: true,
@@ -292,9 +323,9 @@ export class WriteTimelinePostTool extends BaseTool {
           userId,
           type,
           visibility,
+          sportId: sportId ?? null,
           imageCount: images.urls.length,
           videoUrl: videoUrl ?? null,
-          hashtags,
           mentions,
           createdAt: now.toDate().toISOString(),
         },
@@ -312,8 +343,54 @@ export class WriteTimelinePostTool extends BaseTool {
 
   // ─── Private Helpers ───────────────────────────────────────────────────────
 
-  /**
-   * Validate the images array from input.
+  /**   * Resolve the sport this post should be tagged with.
+   *
+   * Priority:
+   *   1. Explicit `sportId` arg (already lowercased upstream by the caller).
+   *   2. The user's currently active sport on `Users/{userId}` —
+   *      `sports[activeSportIndex].sport`, falling back to the first sport
+   *      that has `isPrimary` true, then to `sports[0]`.
+   *
+   * Returned value is always lowercased to match the storage convention
+   * used by `where('sportId', '==', sportId.toLowerCase())` in the
+   * timeline / sub-feed routes.
+   */
+  private async resolveSportId(
+    userId: string,
+    explicit?: string | null
+  ): Promise<string | undefined> {
+    if (explicit && explicit.trim()) {
+      return explicit.trim().toLowerCase();
+    }
+
+    try {
+      const userDoc = await this.db.collection('Users').doc(userId).get();
+      if (!userDoc.exists) return undefined;
+      const data = userDoc.data() ?? {};
+      const sports = Array.isArray(data['sports'])
+        ? (data['sports'] as Array<Record<string, unknown>>)
+        : [];
+      if (sports.length === 0) return undefined;
+
+      const activeIndex =
+        typeof data['activeSportIndex'] === 'number' ? (data['activeSportIndex'] as number) : -1;
+      const candidate =
+        (activeIndex >= 0 && activeIndex < sports.length ? sports[activeIndex] : null) ??
+        sports.find((s) => s['isPrimary'] === true) ??
+        sports[0];
+
+      const sport = typeof candidate?.['sport'] === 'string' ? candidate['sport'] : undefined;
+      return sport ? sport.toLowerCase() : undefined;
+    } catch (err) {
+      logger.warn('[WriteTimelinePostTool] Failed to resolve sportId from user doc', {
+        userId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return undefined;
+    }
+  }
+
+  /**   * Validate the images array from input.
    * Returns validated URL array or an error string.
    */
   private validateImages(input: Record<string, unknown>): { urls: string[]; error?: string } {
@@ -399,7 +476,11 @@ export class WriteTimelinePostTool extends BaseTool {
    * Invalidate feed caches after creating a post.
    * Mirrors the invalidation logic in posts.routes.ts.
    */
-  private async invalidateFeedCaches(visibility: PostVisibility, teamId?: string): Promise<void> {
+  private async invalidateFeedCaches(
+    visibility: PostVisibility,
+    userId: string,
+    teamId?: string
+  ): Promise<void> {
     try {
       const cache = getCacheService();
       const patterns = [
@@ -410,6 +491,10 @@ export class WriteTimelinePostTool extends BaseTool {
       for (const pattern of patterns) {
         await cache.del(pattern);
       }
+
+      // Invalidate the user's profile timeline cache so the new post
+      // appears immediately on profile and team pages.
+      await cache.delByPrefix(`profile:sub:timeline:v2:${userId}`);
     } catch (err) {
       // Cache invalidation failure is non-fatal — feed will refresh on TTL expiry
       logger.warn('[WriteTimelinePostTool] Feed cache invalidation failed (non-fatal)', {

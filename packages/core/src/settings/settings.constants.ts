@@ -16,7 +16,6 @@ import type {
   SettingsSection,
   SettingsItem,
   SettingsPreferences,
-  SettingsConnectedProvider,
 } from './settings.types';
 import { isTeamRole } from '../constants/user.constants';
 
@@ -381,56 +380,11 @@ export function getSettingsSectionsForRole(
 export const DEFAULT_SETTINGS_PREFERENCES: SettingsPreferences = {
   emailNotifications: true,
   pushNotifications: true,
-  marketingEmails: false,
+  marketingEmails: true,
   activityTracking: true,
   analyticsTracking: true,
   biometricLogin: false,
 } as const;
-
-// ============================================
-// CONNECTED PROVIDERS
-// ============================================
-
-/**
- * Default connected providers list.
- */
-export const DEFAULT_CONNECTED_PROVIDERS: readonly SettingsConnectedProvider[] = [
-  {
-    id: 'google',
-    name: 'Google',
-    icon: 'link-outline',
-    connected: false,
-    connectedAt: null,
-  },
-  {
-    id: 'apple',
-    name: 'Apple',
-    icon: 'link-outline',
-    connected: false,
-    connectedAt: null,
-  },
-  {
-    id: 'twitter',
-    name: 'X (Twitter)',
-    icon: 'link-outline',
-    connected: false,
-    connectedAt: null,
-  },
-  {
-    id: 'instagram',
-    name: 'Instagram',
-    icon: 'link-outline',
-    connected: false,
-    connectedAt: null,
-  },
-  {
-    id: 'hudl',
-    name: 'Hudl',
-    icon: 'link-outline',
-    connected: false,
-    connectedAt: null,
-  },
-] as const;
 
 // ============================================
 // UI CONFIGURATION
@@ -501,11 +455,10 @@ export const SETTINGS_API_ENDPOINTS = {
   UPDATE_PREFERENCES: '/api/v1/settings/preferences',
   UPDATE_PROFILE: '/api/v1/settings/profile',
   CHANGE_PASSWORD: '/api/v1/settings/password',
+  PASSWORD_CHANGED: '/api/v1/settings/password-changed',
   DELETE_ACCOUNT: '/api/v1/settings/account',
   GET_SUBSCRIPTION: '/api/v1/settings/subscription',
   GET_USAGE: '/api/v1/settings/usage',
   GET_BILLING_HISTORY: '/api/v1/settings/billing/history',
-  CONNECT_PROVIDER: '/api/v1/settings/providers/connect',
-  DISCONNECT_PROVIDER: '/api/v1/settings/providers/disconnect',
   CHECK_UPDATE: '/api/v1/settings/check-update',
 } as const;

@@ -3,20 +3,17 @@
  * @module @nxt1/core/models/user
  *
  * Shared base types used across user model.
- * Location, social links, connected sources, verification, etc.
+ * Location, contact, connected sources, verification, etc.
  *
  * @author NXT1 Engineering
  * @version 2.0.0
  */
 
 import type { TeamType } from '../../constants/user.constants';
+import { USER_SCHEMA_VERSION } from '../../constants/schema.constants';
 
-// ============================================
-// SCHEMA VERSION
-// ============================================
-
-/** Current schema version for migration tracking */
-export const USER_SCHEMA_VERSION = 3;
+// Re-export for backward compatibility
+export { USER_SCHEMA_VERSION };
 
 // ============================================
 // LOCATION
@@ -32,28 +29,11 @@ export interface Location {
 }
 
 // ============================================
-// SOCIAL & CONTACT (legacy — still used by team-code.model & auth.routes)
+// CONTACT
 // ============================================
 
-/**
- * @deprecated Use SocialLink[] (agnostic array) instead.
- * Kept temporarily — team-code.model.ts and auth.routes.ts still reference this.
- */
-export interface SocialLinks {
-  twitter?: string | null;
-  instagram?: string | null;
-  tiktok?: string | null;
-  hudl?: string | null;
-  youtube?: string | null;
-  maxPreps?: string | null;
-  linkedin?: string | null;
-}
-
-/**
- * @deprecated Use a dedicated contact fields approach.
- * Kept temporarily — team-code.model.ts and auth.routes.ts still reference this.
- */
-export interface ContactInfo {
+/** Canonical user contact information. */
+export interface UserContact {
   email: string;
   phone?: string | null;
 }
@@ -64,7 +44,7 @@ export interface ContactInfo {
 
 /**
  * Platform-agnostic social link.
- * Replaces hardcoded SocialLinks interface.
+ * Replaces hardcoded per-platform social link maps.
  * Stored as an array on User.social.
  */
 export interface SocialLink {
@@ -129,13 +109,13 @@ export interface ConnectedSource {
 // CONNECTED EMAIL (metadata only — tokens live in sub-collection)
 // ============================================
 
-// EmailProvider is defined in campaigns.model.ts ('gmail' | 'microsoft' | 'yahoo' | 'system')
-export type { EmailProvider } from '../campaigns.model';
+// EmailProvider lives in campaign.constants ('gmail' | 'microsoft' | 'yahoo' | 'system')
+export type { EmailProvider } from '../../constants/campaign.constants';
 
 /**
  * Connected email account metadata (stored on User doc).
  * Tokens are NEVER stored here — they live in:
- *   users/{uid}/emailTokens/{provider}
+ *   users/{uid}/oauthTokens/{provider}
  *
  * This is the 2026 security best practice: User doc is readable by
  * many services; tokens should only be accessible to backend email services.
@@ -144,7 +124,7 @@ export interface ConnectedEmail {
   /** Email address */
   email: string;
   /** Provider identifier */
-  provider: import('../campaigns.model').EmailProvider;
+  provider: import('../../constants/campaign.constants').EmailProvider;
   /** Whether this connection is currently active */
   isActive: boolean;
   /** When the account was connected */
@@ -159,12 +139,12 @@ export interface ConnectedEmail {
 
 /**
  * OAuth token data for a connected email account.
- * Stored in Firestore sub-collection: users/{uid}/emailTokens/{provider}
+ * Stored in Firestore sub-collection: users/{uid}/oauthTokens/{provider}
  * NEVER stored on the User document.
  */
 export interface EmailTokenData {
   /** Provider identifier */
-  provider: import('../campaigns.model').EmailProvider;
+  provider: import('../../constants/campaign.constants').EmailProvider;
   /** OAuth access token (encrypted at rest) */
   accessToken: string;
   /** OAuth refresh token (encrypted at rest) */
@@ -217,19 +197,6 @@ export interface DataVerification {
   verifiedAt?: Date | string;
   /** When this verification expires (optional) */
   expiresAt?: Date | string;
-}
-
-/**
- * @deprecated Use `DataVerification[]` with `VerificationScope` instead.
- * Verification info for a sport profile's data.
- */
-export interface SportVerification {
-  /** Who verified stats */
-  statsVerifiedBy?: string;
-  /** URL to stats verification source */
-  statsVerifiedUrl?: string;
-  /** When the verification occurred */
-  verifiedAt?: Date | string;
 }
 
 // ============================================
@@ -326,6 +293,8 @@ export interface AcademicInfo {
 export interface TeamInfo {
   /** Team name (optional - user may not know it initially) */
   name?: string;
+  /** Role title for this user on this team (e.g. 'Head Coach') */
+  title?: string;
   type: TeamType;
   /** Team logo URL (V3 — matches Organization/Team docs) */
   logoUrl?: string;
@@ -350,6 +319,14 @@ export interface TeamInfo {
    * Written during onboarding; used by ProfileHydrationService for team-level lookups.
    */
   teamId?: string;
+  /** Whether this team belongs to a claimed organization with governing admins. */
+  isOrganizationClaimed?: boolean;
+  /** Whether the current user is an admin of the governing organization. */
+  isUserOrganizationAdmin?: boolean;
+  /** Team city (for display and location-based search) */
+  city?: string;
+  /** Team state (for display and location-based search) */
+  state?: string;
 }
 
 /** Coach contact for a sport */

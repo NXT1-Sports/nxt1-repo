@@ -25,6 +25,12 @@ env:
     value: '22'
   - variable: NODE_ENV
     value: 'production'
+  # App Hosting builds @nxt1/core as part of the web pipeline, and that build
+  # needs devDependencies for TypeScript declarations (e.g. vitest and type-only packages).
+  - variable: NPM_CONFIG_PRODUCTION
+    value: 'false'
+  - variable: NPM_CONFIG_INCLUDE
+    value: 'dev'
 
 # Custom headers for all responses
 headers:

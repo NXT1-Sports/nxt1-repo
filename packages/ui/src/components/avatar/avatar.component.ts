@@ -130,6 +130,26 @@ import {
   AVATAR_STATUS_COLORS,
 } from './avatar.types';
 
+interface AvatarReactiveInputs {
+  readonly src?: string | null;
+  readonly alt?: string;
+  readonly name?: string;
+  readonly initials?: string;
+  readonly size: AvatarSize;
+  readonly customSize?: number;
+  readonly shape: AvatarShape;
+  readonly status?: AvatarStatus;
+  readonly badge?: AvatarBadgeConfig | AvatarBadgeType;
+  readonly fallbackSrc?: string;
+  readonly clickable: boolean;
+  readonly showSkeleton: boolean;
+  readonly borderColor?: string;
+  readonly borderWidth?: number;
+  readonly cssClass?: string;
+  readonly isTeamRole: boolean;
+  readonly defaultIcon?: string;
+}
+
 @Component({
   selector: 'nxt1-avatar',
   standalone: true,
@@ -268,7 +288,7 @@ import {
         justify-content: center;
         width: var(--avatar-size);
         height: var(--avatar-size);
-        font-family: var(--nxt1-ui-font-family, system-ui, -apple-system, sans-serif);
+        font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', ui-sans-serif, system-ui, sans-serif);
       }
 
       /* ============================================
@@ -750,6 +770,27 @@ export class NxtAvatarComponent implements OnChanges {
   /** Whether fallback image is being used */
   private readonly _usingFallback = signal(false);
 
+  /** Reactive mirror for any @Input consumed inside computed signals */
+  private readonly _inputState = signal<AvatarReactiveInputs>({
+    src: undefined,
+    alt: undefined,
+    name: undefined,
+    initials: undefined,
+    size: 'md',
+    customSize: undefined,
+    shape: 'circle',
+    status: undefined,
+    badge: undefined,
+    fallbackSrc: undefined,
+    clickable: false,
+    showSkeleton: true,
+    borderColor: undefined,
+    borderWidth: undefined,
+    cssClass: undefined,
+    isTeamRole: false,
+    defaultIcon: undefined,
+  });
+
   /** Browser detection */
   private readonly isBrowser = isPlatformBrowser(this.platformId);
 
@@ -766,43 +807,48 @@ export class NxtAvatarComponent implements OnChanges {
 
   /** Sanitized and validated image source */
   readonly sanitizedSrc = computed(() => {
+    const inputs = this._inputState();
     if (this._usingFallback()) {
-      return sanitizeImageUrl(this.fallbackSrc);
+      return sanitizeImageUrl(inputs.fallbackSrc);
     }
-    return sanitizeImageUrl(this.src);
+    return sanitizeImageUrl(inputs.src);
   });
 
   /** Size in pixels */
   readonly sizeInPx = computed(() => {
-    if (this.customSize && this.customSize > 0) {
-      return this.customSize;
+    const inputs = this._inputState();
+    if (inputs.customSize && inputs.customSize > 0) {
+      return inputs.customSize;
     }
-    return AVATAR_SIZES[this.size];
+    return AVATAR_SIZES[inputs.size];
   });
 
   /** Font size for initials */
   readonly fontSizeInPx = computed(() => {
-    if (this.customSize && this.customSize > 0) {
+    const inputs = this._inputState();
+    if (inputs.customSize && inputs.customSize > 0) {
       // Calculate proportionally
-      return Math.round(this.customSize * 0.35);
+      return Math.round(inputs.customSize * 0.35);
     }
-    return AVATAR_FONT_SIZES[this.size];
+    return AVATAR_FONT_SIZES[inputs.size];
   });
 
   /** Status indicator size */
   readonly statusSizeInPx = computed(() => {
-    if (this.customSize && this.customSize > 0) {
-      return Math.round(this.customSize * 0.25);
+    const inputs = this._inputState();
+    if (inputs.customSize && inputs.customSize > 0) {
+      return Math.round(inputs.customSize * 0.25);
     }
-    return AVATAR_STATUS_SIZES[this.size];
+    return AVATAR_STATUS_SIZES[inputs.size];
   });
 
   /** Badge size */
   readonly badgeSizeInPx = computed(() => {
-    if (this.customSize && this.customSize > 0) {
-      return Math.round(this.customSize * 0.4);
+    const inputs = this._inputState();
+    if (inputs.customSize && inputs.customSize > 0) {
+      return Math.round(inputs.customSize * 0.4);
     }
-    return AVATAR_BADGE_SIZES[this.size];
+    return AVATAR_BADGE_SIZES[inputs.size];
   });
 
   /** Icon size for default/badge icons */
@@ -813,15 +859,17 @@ export class NxtAvatarComponent implements OnChanges {
 
   /** Display initials */
   readonly displayInitials = computed(() => {
-    if (this.initials) {
-      return this.initials.substring(0, 2).toUpperCase();
+    const inputs = this._inputState();
+    if (inputs.initials) {
+      return inputs.initials.substring(0, 2).toUpperCase();
     }
-    return extractInitials(this.name || this.alt);
+    return extractInitials(inputs.name || inputs.alt);
   });
 
   /** Background color for initials */
   readonly initialsBackground = computed(() => {
-    return getInitialsColor(this.name || this.alt || this.initials);
+    const inputs = this._inputState();
+    return getInitialsColor(inputs.name || inputs.alt || inputs.initials);
   });
 
   /** Text color for initials (contrasting) */
@@ -831,22 +879,24 @@ export class NxtAvatarComponent implements OnChanges {
 
   /** Status indicator color */
   readonly statusColor = computed(() => {
-    if (!this.status || this.status === 'none') {
+    const { status } = this._inputState();
+    if (!status || status === 'none') {
       return 'transparent';
     }
-    return AVATAR_STATUS_COLORS[this.status];
+    return AVATAR_STATUS_COLORS[status];
   });
 
   /** Normalized badge config (handles string shorthand) */
   readonly normalizedBadge = computed((): AvatarBadgeConfig | null => {
-    if (!this.badge) return null;
-    if (typeof this.badge === 'string') {
-      if (this.badge === 'none') return null;
-      return { type: this.badge, position: 'bottom-right' };
+    const { badge } = this._inputState();
+    if (!badge) return null;
+    if (typeof badge === 'string') {
+      if (badge === 'none') return null;
+      return { type: badge, position: 'bottom-right' };
     }
     return {
-      ...this.badge,
-      position: this.badge.position || 'bottom-right',
+      ...badge,
+      position: badge.position || 'bottom-right',
     };
   });
 
@@ -859,15 +909,16 @@ export class NxtAvatarComponent implements OnChanges {
 
   /** Whether to show initials fallback */
   readonly showInitials = computed(() => {
+    const inputs = this._inputState();
     const state = this.loadState();
     const hasSrc = !!this.sanitizedSrc();
-    const hasName = !!(this.name || this.alt || this.initials);
+    const hasName = !!(inputs.name || inputs.alt || inputs.initials);
 
     // Team roles without an image show the shield icon, not personal initials
-    if (this.isTeamRole && (!hasSrc || state === 'error')) return false;
+    if (inputs.isTeamRole && (!hasSrc || state === 'error')) return false;
 
     // When a defaultIcon is set, prefer the icon over initials
-    if (this.defaultIcon && (!hasSrc || state === 'error')) return false;
+    if (inputs.defaultIcon && (!hasSrc || state === 'error')) return false;
 
     // Show initials if:
     // 1. No image source and has name
@@ -877,15 +928,16 @@ export class NxtAvatarComponent implements OnChanges {
 
   /** Whether to show default person/shield icon */
   readonly showDefaultIcon = computed(() => {
+    const inputs = this._inputState();
     const state = this.loadState();
     const hasSrc = !!this.sanitizedSrc();
-    const hasName = !!(this.name || this.alt || this.initials);
+    const hasName = !!(inputs.name || inputs.alt || inputs.initials);
 
     // Team roles without an image always show the shield icon
-    if (this.isTeamRole && (!hasSrc || state === 'error')) return true;
+    if (inputs.isTeamRole && (!hasSrc || state === 'error')) return true;
 
     // When a defaultIcon is set, always show it when no image is available
-    if (this.defaultIcon && (!hasSrc || state === 'error')) return true;
+    if (inputs.defaultIcon && (!hasSrc || state === 'error')) return true;
 
     // Show default icon if no image and no name for initials
     return (!hasSrc || state === 'error') && !hasName;
@@ -901,20 +953,21 @@ export class NxtAvatarComponent implements OnChanges {
 
   /** ARIA label for accessibility */
   readonly ariaLabel = computed(() => {
+    const inputs = this._inputState();
     const parts: string[] = [];
 
     // Name/initials
-    if (this.name) {
-      parts.push(this.name);
-    } else if (this.alt) {
-      parts.push(this.alt);
+    if (inputs.name) {
+      parts.push(inputs.name);
+    } else if (inputs.alt) {
+      parts.push(inputs.alt);
     } else {
       parts.push('User avatar');
     }
 
     // Status
-    if (this.status && this.status !== 'none') {
-      parts.push(`(${this.status})`);
+    if (inputs.status && inputs.status !== 'none') {
+      parts.push(`(${inputs.status})`);
     }
 
     // Badge
@@ -961,16 +1014,17 @@ export class NxtAvatarComponent implements OnChanges {
 
   /** Container CSS classes */
   readonly containerClasses = computed(() => {
+    const inputs = this._inputState();
     const classes = ['avatar-container'];
 
     // Shape
-    classes.push(`shape-${this.shape}`);
+    classes.push(`shape-${inputs.shape}`);
 
     // Size
-    classes.push(`size-${this.size}`);
+    classes.push(`size-${inputs.size}`);
 
     // Clickable
-    if (this.clickable) {
+    if (inputs.clickable) {
       classes.push('clickable');
     }
 
@@ -978,8 +1032,8 @@ export class NxtAvatarComponent implements OnChanges {
     classes.push(`state-${this.loadState()}`);
 
     // Custom class
-    if (this.cssClass) {
-      classes.push(this.cssClass);
+    if (inputs.cssClass) {
+      classes.push(inputs.cssClass);
     }
 
     return classes.join(' ');
@@ -1002,15 +1056,39 @@ export class NxtAvatarComponent implements OnChanges {
   // ============================================
 
   ngOnChanges(changes: SimpleChanges): void {
+    this.syncInputState();
+
     // Reset loading state when src changes
     if (changes['src']) {
       this._usingFallback.set(false);
-      if (this.sanitizedSrc()) {
+      if (sanitizeImageUrl(this.src)) {
         this._loadState.set('loading');
       } else {
         this._loadState.set('idle');
       }
     }
+  }
+
+  private syncInputState(): void {
+    this._inputState.set({
+      src: this.src,
+      alt: this.alt,
+      name: this.name,
+      initials: this.initials,
+      size: this.size,
+      customSize: this.customSize,
+      shape: this.shape,
+      status: this.status,
+      badge: this.badge,
+      fallbackSrc: this.fallbackSrc,
+      clickable: this.clickable,
+      showSkeleton: this.showSkeleton,
+      borderColor: this.borderColor,
+      borderWidth: this.borderWidth,
+      cssClass: this.cssClass,
+      isTeamRole: this.isTeamRole,
+      defaultIcon: this.defaultIcon,
+    });
   }
 
   // ============================================

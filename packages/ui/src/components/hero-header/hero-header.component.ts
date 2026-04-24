@@ -54,7 +54,7 @@ import { NxtAppStoreBadgesComponent } from '../app-store-badges';
 /** Audience card configuration */
 export interface HeroAudienceCard {
   /** Unique identifier */
-  readonly id: 'athletes' | 'teams' | 'scouts' | 'fans' | 'recruiters' | 'parents';
+  readonly id: 'athletes' | 'teams' | 'scouts' | 'fans' | 'recruiters' | 'parents' | 'directors';
   /** Display title */
   readonly title: string;
   /** Short description */

@@ -38,10 +38,12 @@ import type {
   AgentMessageQuery,
   PaginatedResult,
 } from '@nxt1/core';
-import { AgentThreadModel } from '../../../models/agent-thread.model.js';
-import { AgentMessageModel } from '../../../models/agent-message.model.js';
+import { AgentThreadModel } from '../../../models/agent/agent-thread.model.js';
+import { AgentMessageModel } from '../../../models/agent/agent-message.model.js';
 import { logger } from '../../../utils/logger.js';
 import type { OpenRouterService } from '../llm/openrouter.service.js';
+import type { AgentQueueService } from '../queue/queue.service.js';
+import type { SessionMemoryService } from '../memory/session.service.js';
 
 /**
  * System prompt for auto-generating short conversation titles.
@@ -55,9 +57,22 @@ const TITLE_GENERATION_PROMPT = `You are a concise title generator. Given a user
 - If sports-related, include the sport/context when relevant
 - Maximum 50 characters`;
 
+const OPERATION_TITLE_GENERATION_PROMPT = `You are a concise activity title generator. Given a user message and an assistant reply from a sports AI platform, generate a short descriptive action title (6-8 words) for an activity feed item or push notification. Rules:
+- Output ONLY the title text, nothing else
+- No quotes, no punctuation at the end
+- Use title case
+- Be specific to the completed action, not generic
+- Focus on the finished outcome, not the request itself
+- Maximum 60 characters`;
+
 // ─── Service ────────────────────────────────────────────────────────────────
 
 export class AgentChatService {
+  constructor(
+    private readonly queueService?: AgentQueueService,
+    private readonly sessionMemory?: SessionMemoryService
+  ) {}
+
   // ─── Thread Operations ──────────────────────────────────────────────────
 
   /**
@@ -70,10 +85,11 @@ export class AgentChatService {
     category?: AgentThreadCategory;
   }): Promise<AgentThread> {
     const now = new Date().toISOString();
+    const normalizedTitle = params.title?.trim().slice(0, 80);
 
     const doc = await AgentThreadModel.create({
       userId: params.userId,
-      title: params.title ?? 'New Conversation',
+      ...(normalizedTitle ? { title: normalizedTitle } : {}),
       category: params.category,
       lastMessageAt: now,
       messageCount: 0,
@@ -88,6 +104,44 @@ export class AgentChatService {
     });
 
     return this.toThread(doc);
+  }
+
+  /**
+   * Atomically create a thread seeded with the first user message.
+   *
+   * Used by both the interactive chat route and background jobs
+   * (linked-account scraping, etc.) so every thread starts with a
+   * human-readable title derived from the prompt.
+   */
+  async startConversation(params: {
+    userId: string;
+    prompt: string;
+    category?: AgentThreadCategory;
+    origin?: AgentJobOrigin;
+  }): Promise<{ thread: AgentThread; message: AgentMessage }> {
+    const title = params.prompt.trim().slice(0, 80);
+
+    const thread = await this.createThread({
+      userId: params.userId,
+      ...(title ? { title } : {}),
+      category: params.category,
+    });
+
+    const message = await this.addMessage({
+      threadId: thread.id,
+      userId: params.userId,
+      role: 'user' as AgentMessageRole,
+      content: params.prompt,
+      origin: params.origin ?? 'user',
+    });
+
+    logger.info('[AgentChatService] Conversation started', {
+      threadId: thread.id,
+      userId: params.userId,
+      titleLength: title.length,
+    });
+
+    return { thread, message };
   }
 
   /**
@@ -125,13 +179,60 @@ export class AgentChatService {
 
   /**
    * Archive (soft-hide) a thread. Does NOT delete messages.
+   * Also clears the Redis session cache for this thread so stale state
+   * never lingers after the thread is removed from the user's view.
    */
   async archiveThread(threadId: string, userId: string): Promise<boolean> {
     const result = await AgentThreadModel.updateOne(
       { _id: threadId, userId },
       { $set: { archived: true, updatedAt: new Date().toISOString() } }
     ).exec();
+
+    if (result.modifiedCount > 0 && this.sessionMemory) {
+      // Fire-and-forget — Redis clear is best-effort; TTL will handle it if this fails
+      this.sessionMemory.clear(userId, threadId).catch((err) => {
+        logger.warn('[AgentChatService] Failed to clear session memory on archive', {
+          threadId,
+          userId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+    }
+
     return result.modifiedCount > 0;
+  }
+
+  /**
+   * Permanently delete a thread and all of its MongoDB messages.
+   *
+   * This is a true data delete (not archive):
+   * - Deletes the `AgentThread` document
+   * - Deletes all `AgentMessage` documents for the thread
+   * - Clears Redis/session memory for that thread (best-effort)
+   */
+  async deleteThread(threadId: string, userId: string): Promise<boolean> {
+    const threadDelete = await AgentThreadModel.deleteOne({ _id: threadId, userId }).exec();
+
+    if (threadDelete.deletedCount === 0) {
+      return false;
+    }
+
+    // Best-effort message cleanup; if this fails we surface the error so callers
+    // can decide whether to retry/compensate.
+    await AgentMessageModel.deleteMany({ threadId, userId }).exec();
+
+    if (this.sessionMemory) {
+      // Best-effort cache cleanup; TTL fallback covers any failure.
+      this.sessionMemory.clear(userId, threadId).catch((err) => {
+        logger.warn('[AgentChatService] Failed to clear session memory on delete', {
+          threadId,
+          userId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+    }
+
+    return true;
   }
 
   /**
@@ -143,6 +244,52 @@ export class AgentChatService {
       { $set: { title, updatedAt: new Date().toISOString() } }
     ).exec();
     return result.modifiedCount > 0;
+  }
+
+  async generateOperationTitle(
+    userMessage: string,
+    assistantReply: string,
+    llmService: OpenRouterService
+  ): Promise<string | null> {
+    try {
+      return this.requestGeneratedTitle(
+        userMessage,
+        assistantReply,
+        llmService,
+        OPERATION_TITLE_GENERATION_PROMPT,
+        60
+      );
+    } catch (err) {
+      logger.warn('[AgentChatService] Failed to auto-generate operation title', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return null;
+    }
+  }
+
+  async applyGeneratedThreadTitle(
+    threadId: string,
+    userId: string,
+    userMessage: string,
+    generatedTitle: string
+  ): Promise<string | null> {
+    const thread = await this.getThread(threadId, userId);
+    if (!thread) return null;
+
+    const promptPrefix = userMessage.trim().slice(0, 80);
+    if (thread.title !== promptPrefix && thread.title.trim().length > 0) {
+      return null;
+    }
+
+    const updated = await this.updateThreadTitle(threadId, userId, generatedTitle);
+    if (updated) {
+      logger.info('[AgentChatService] Thread title auto-generated', {
+        threadId,
+        title: generatedTitle,
+      });
+    }
+
+    return generatedTitle;
   }
 
   /**
@@ -162,45 +309,17 @@ export class AgentChatService {
     llmService: OpenRouterService
   ): Promise<string | null> {
     try {
-      // Only generate for threads that still have the raw-prompt placeholder title
-      const thread = await this.getThread(threadId, userId);
-      if (!thread) return null;
-
-      // Skip if the title has already been manually renamed by the user
-      // (i.e. it no longer matches the truncated first prompt)
-      const promptPrefix = userMessage.trim().slice(0, 80);
-      if (thread.title !== promptPrefix && thread.title !== 'New Conversation') {
-        return null;
-      }
-
-      const result = await llmService.complete(
-        [
-          { role: 'system', content: TITLE_GENERATION_PROMPT },
-          {
-            role: 'user',
-            content: `User message: "${userMessage.trim().slice(0, 200)}"\n\nAssistant reply (first 200 chars): "${assistantReply.trim().slice(0, 200)}"`,
-          },
-        ],
-        { tier: 'extraction', maxTokens: 60, temperature: 0.3 }
+      const generatedTitle = await this.requestGeneratedTitle(
+        userMessage,
+        assistantReply,
+        llmService,
+        TITLE_GENERATION_PROMPT,
+        50
       );
-
-      const generatedTitle = (result.content ?? '')
-        .replace(/^["']|["']$/g, '') // strip wrapping quotes
-        .replace(/[.!?]+$/, '') // strip trailing punctuation
-        .trim()
-        .slice(0, 50);
 
       if (!generatedTitle) return null;
 
-      const updated = await this.updateThreadTitle(threadId, userId, generatedTitle);
-      if (updated) {
-        logger.info('[AgentChatService] Thread title auto-generated', {
-          threadId,
-          title: generatedTitle,
-        });
-      }
-
-      return generatedTitle;
+      return this.applyGeneratedThreadTitle(threadId, userId, userMessage, generatedTitle);
     } catch (err) {
       logger.warn('[AgentChatService] Failed to auto-generate thread title', {
         threadId,
@@ -208,6 +327,33 @@ export class AgentChatService {
       });
       return null;
     }
+  }
+
+  private async requestGeneratedTitle(
+    userMessage: string,
+    assistantReply: string,
+    llmService: OpenRouterService,
+    prompt: string,
+    maxLength: number
+  ): Promise<string | null> {
+    const result = await llmService.complete(
+      [
+        { role: 'system', content: prompt },
+        {
+          role: 'user',
+          content: `User message: "${userMessage.trim().slice(0, 200)}"\n\nAssistant reply (first 200 chars): "${assistantReply.trim().slice(0, 200)}"`,
+        },
+      ],
+      { tier: 'extraction', maxTokens: 60, temperature: 0.3 }
+    );
+
+    const generatedTitle = (result.content ?? '')
+      .replace(/^["']|["']$/g, '')
+      .replace(/[.!?]+$/, '')
+      .trim()
+      .slice(0, maxLength);
+
+    return generatedTitle || null;
   }
 
   // ─── Message Operations ─────────────────────────────────────────────────
@@ -227,6 +373,8 @@ export class AgentChatService {
     operationId?: string;
     resultData?: Record<string, unknown>;
     toolCalls?: readonly AgentToolCallRecord[];
+    steps?: readonly import('@nxt1/core').AgentXToolStep[];
+    parts?: readonly import('@nxt1/core').AgentXMessagePart[];
     tokenUsage?: AgentMessageTokenUsage;
   }): Promise<AgentMessage> {
     const now = new Date().toISOString();
@@ -242,6 +390,8 @@ export class AgentChatService {
       operationId: params.operationId,
       resultData: params.resultData,
       toolCalls: params.toolCalls,
+      steps: params.steps,
+      parts: params.parts,
       tokenUsage: params.tokenUsage,
       createdAt: now,
     });
@@ -251,6 +401,7 @@ export class AgentChatService {
     const $set: Record<string, unknown> = {
       lastMessageAt: now,
       updatedAt: now,
+      memorySummarized: false,
     };
     if (params.agentId) {
       $set['lastAgentId'] = params.agentId;
@@ -260,6 +411,18 @@ export class AgentChatService {
       { _id: params.threadId, userId: params.userId },
       { $set, $inc: { messageCount: 1 } }
     ).exec();
+
+    if (this.queueService) {
+      try {
+        await this.queueService.enqueueThreadSummarization(params.threadId, params.userId);
+      } catch (err) {
+        logger.warn('[AgentChatService] Failed to enqueue idle summarization', {
+          threadId: params.threadId,
+          userId: params.userId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
 
     logger.info('[AgentChatService] Message added', {
       messageId: doc.id,
@@ -281,14 +444,15 @@ export class AgentChatService {
     if (query.before) filter['createdAt'] = { $lt: query.before };
 
     const docs = await AgentMessageModel.find(filter)
-      .sort({ createdAt: 1 })
+      .sort({ createdAt: -1 })
       .limit(limit + 1)
       .lean()
       .exec();
 
     const hasMore = docs.length > limit;
-    const items = docs.slice(0, limit).map((d) => this.toMessage(d));
-    const nextCursor = hasMore ? items[items.length - 1]?.createdAt : undefined;
+    const page = docs.slice(0, limit);
+    const nextCursor = hasMore ? page[page.length - 1]?.createdAt : undefined;
+    const items = page.reverse().map((d) => this.toMessage(d));
 
     return { items, hasMore, nextCursor };
   }
@@ -324,6 +488,8 @@ export class AgentChatService {
       operationId: doc.operationId,
       resultData: doc.resultData,
       toolCalls: doc.toolCalls,
+      steps: doc.steps,
+      parts: doc.parts,
       tokenUsage: doc.tokenUsage,
       embedding: doc.embedding,
       createdAt: doc.createdAt,

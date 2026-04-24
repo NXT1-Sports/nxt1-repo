@@ -15,8 +15,8 @@
     "sourceMap": true,
     "resolveJsonModule": true,
     "paths": {
-      "@nxt1/core": ["packages/core/dist/index.d.ts"],
-      "@nxt1/core/*": ["packages/core/dist/*/index.d.ts"]
+      "@nxt1/core": ["../../packages/core/dist/index.d.ts"],
+      "@nxt1/core/*": ["../../packages/core/dist/*/index.d.ts"]
     }
   },
   "include": ["src/**/*.ts"],

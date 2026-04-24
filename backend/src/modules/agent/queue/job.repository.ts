@@ -12,7 +12,7 @@
  *   persistent, real-time document to bind to. Even if Redis is
  *   flushed or the server restarts, the job history stays.
  *
- * Collection: `agentJobs/{operationId}`
+ * Collection: `AgentJobs/{operationId}`
  *
  * @example
  * ```ts
@@ -26,20 +26,25 @@
 import { getFirestore, FieldValue, Timestamp, type Firestore } from 'firebase-admin/firestore';
 import type {
   AgentJobPayload,
+  AgentProgressMetadata,
+  AgentProgressStage,
+  AgentProgressStageType,
+  AgentXToolStepIcon,
   AgentOperationStatus,
   AgentOperationResult,
+  OperationOutcomeCode,
   AgentYieldState,
 } from '@nxt1/core';
 import type { AgentJobProgress } from './queue.types.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
-const COLLECTION = 'agentJobs' as const;
+const COLLECTION = 'AgentJobs' as const;
 const EVENTS_SUBCOLLECTION = 'events' as const;
 const ACTIVE_JOB_RETENTION_DAYS = 14;
 const TERMINAL_JOB_RETENTION_DAYS = 30;
 
-// ─── Job Event Types (Subcollection: agentJobs/{operationId}/events) ────────
+// ─── Job Event Types (Subcollection: AgentJobs/{operationId}/events) ────────
 
 /**
  * Event types written to the `events` subcollection.
@@ -64,17 +69,27 @@ export type JobEventType =
   | 'done';
 
 /**
- * A single event document stored in `agentJobs/{operationId}/events/{autoId}`.
+ * A single event document stored in `AgentJobs/{operationId}/events/{autoId}`.
  * The frontend reads these via `onSnapshot`, ordered by `seq`, to reconstruct
  * the live agent execution as a chat-like experience.
  */
 export interface JobEvent {
   /** Monotonically increasing sequence number (0-based). */
   readonly seq: number;
+  /** Owner's Firebase UID — stamped on write so Firestore rules can check without a parent doc get(). */
+  readonly userId: string;
   /** What kind of event this is. */
   readonly type: JobEventType;
   /** Agent identifier if known (e.g. 'recruiting', 'performance'). */
   readonly agentId?: string;
+  /** Which execution layer emitted the event, when structured stages are available. */
+  readonly stageType?: AgentProgressStageType;
+  /** Typed machine-readable stage key for frontend dictionaries. */
+  readonly stage?: AgentProgressStage;
+  /** Structured outcome for notable or terminal states. */
+  readonly outcomeCode?: OperationOutcomeCode;
+  /** Additional typed hydration data for UI rendering. */
+  readonly metadata?: AgentProgressMetadata;
   /** Human-readable message for the UI. */
   readonly message?: string;
   /** Accumulated LLM text for `delta` events. */
@@ -91,6 +106,10 @@ export interface JobEvent {
   readonly success?: boolean;
   /** Error message for `step_error` / `done` events. */
   readonly error?: string;
+  /** Machine-readable backend error code for `step_error` / `done` events. */
+  readonly errorCode?: string;
+  /** Optional semantic icon key for custom step rendering. */
+  readonly icon?: AgentXToolStepIcon;
   /** Rich card payload for `card` events (planner, data-table, etc.). */
   readonly cardData?: Record<string, unknown>;
   /** Server timestamp set by Firestore. */
@@ -107,6 +126,7 @@ function ttlFromNow(days: number): FirebaseFirestore.Timestamp {
 export interface AgentJobDocument {
   readonly operationId: string;
   readonly userId: string;
+  readonly idempotencyKey?: string | null;
   readonly intent: string;
   readonly origin: string;
   readonly status: AgentOperationStatus;
@@ -152,6 +172,7 @@ export class AgentJobRepository {
       .set({
         operationId: payload.operationId,
         userId: payload.userId,
+        idempotencyKey: (payload.context?.['idempotencyKey'] as string) ?? null,
         intent: payload.intent,
         origin: payload.origin,
         status: 'queued' satisfies AgentOperationStatus,
@@ -245,6 +266,39 @@ export class AgentJobRepository {
   }
 
   /**
+   * Mark that the live viewer disconnected while the operation continues.
+   * This is observability metadata only; it does not change operation status.
+   */
+  async markDetached(operationId: string): Promise<void> {
+    await this.db.collection(COLLECTION).doc(operationId).set(
+      {
+        viewerDetachedAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+  }
+
+  /**
+   * Patch a subset of context fields onto an existing job document.
+   * Used for best-effort updates that happen after the job is already enqueued
+   * (e.g. stitching in a `threadId` that was created asynchronously).
+   *
+   * Only merges the keys present in `patch` — never overwrites the full document.
+   */
+  async patchContext(operationId: string, patch: Record<string, unknown>): Promise<void> {
+    const update: Record<string, unknown> = { updatedAt: FieldValue.serverTimestamp() };
+
+    // Flatten into top-level dotted paths that Firestore's merge-update understands.
+    // e.g. { threadId: 'abc' } → updates the top-level `threadId` field directly.
+    for (const [key, value] of Object.entries(patch)) {
+      update[key] = value;
+    }
+
+    await this.db.collection(COLLECTION).doc(operationId).update(update);
+  }
+
+  /**
    * Get all jobs for a specific user (most recent first).
    * Used by the "Agent X command center" to show job history.
    */
@@ -266,6 +320,25 @@ export class AgentJobRepository {
     const doc = await this.db.collection(COLLECTION).doc(operationId).get();
 
     return doc.exists ? (doc.data() as AgentJobDocument) : null;
+  }
+
+  /**
+   * Find an existing operation for a given user and idempotency key.
+   * Used to deduplicate client retries.
+   */
+  async getByIdempotencyKey(
+    userId: string,
+    idempotencyKey: string
+  ): Promise<AgentJobDocument | null> {
+    const snapshot = await this.db
+      .collection(COLLECTION)
+      .where('userId', '==', userId)
+      .where('idempotencyKey', '==', idempotencyKey)
+      .limit(1)
+      .get();
+
+    if (snapshot.empty) return null;
+    return snapshot.docs[0]?.data() as AgentJobDocument;
   }
 
   // ─── Event Subcollection (Real-Time Streaming) ──────────────────────────

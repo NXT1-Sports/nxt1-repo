@@ -24,10 +24,12 @@ import {
   ATHLETE_PREDEFINED_GOALS,
 } from '@nxt1/core';
 import { APP_EVENTS } from '@nxt1/core/analytics';
+import { ATTRIBUTE_NAMES, TRACE_NAMES } from '@nxt1/core/performance';
 import { NxtLoggingService } from '../../services/logging/logging.service';
 import { ANALYTICS_ADAPTER } from '../../services/analytics/analytics-adapter.token';
 import { NxtBreadcrumbService } from '../../services/breadcrumb/breadcrumb.service';
 import { HapticsService } from '../../services/haptics/haptics.service';
+import { PERFORMANCE_ADAPTER } from '../../services/performance';
 import { AgentXService } from '../agent-x.service';
 import { AGENT_X_API_BASE_URL } from '../agent-x-job.service';
 
@@ -39,6 +41,7 @@ export class AgentOnboardingService {
   private readonly logger = inject(NxtLoggingService).child('AgentOnboardingService');
   private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
   private readonly breadcrumb = inject(NxtBreadcrumbService);
+  private readonly performance = inject(PERFORMANCE_ADAPTER, { optional: true });
   private readonly haptics = inject(HapticsService);
   private readonly agentX = inject(AgentXService);
   private readonly http = inject(HttpClient);
@@ -258,23 +261,39 @@ export class AgentOnboardingService {
     this.analytics?.trackEvent(APP_EVENTS.AGENT_ONBOARDING_PROGRAM_SEARCHED, { query });
 
     try {
-      const response = await firstValueFrom(
-        this.http.get<{
-          success: boolean;
-          data?: Array<{
-            id: string;
-            name: string;
-            type?: string;
-            location?: string;
-            logoUrl?: string | null;
-            primaryColor?: string;
-            isClaimed?: boolean;
-          }>;
-          error?: string;
-        }>(`${this.baseUrl}/programs/search`, {
-          params: { q: query, limit: '10' },
-        })
-      );
+      const searchProgramsHttp = () =>
+        firstValueFrom(
+          this.http.get<{
+            success: boolean;
+            data?: Array<{
+              id: string;
+              name: string;
+              type?: string;
+              location?: string;
+              logoUrl?: string | null;
+              primaryColor?: string;
+              isClaimed?: boolean;
+            }>;
+            error?: string;
+          }>(`${this.baseUrl}/programs/search`, {
+            params: { q: query, limit: '10' },
+          })
+        );
+
+      const response = await (this.performance?.trace(
+        TRACE_NAMES.AGENT_ONBOARDING_PROGRAM_SEARCH,
+        searchProgramsHttp,
+        {
+          attributes: {
+            [ATTRIBUTE_NAMES.FEATURE_NAME]: 'agent_onboarding',
+            user_role: this._userRole(),
+            query_length: String(query.length),
+          },
+          onSuccess: async (result, trace) => {
+            await trace.putMetric('results_count', result.data?.length ?? 0);
+          },
+        }
+      ) ?? searchProgramsHttp());
 
       const results: AgentProgramResult[] = (response.data ?? []).map((org) => ({
         id: org.id,
@@ -360,22 +379,38 @@ export class AgentOnboardingService {
     this.logger.info('Searching connections', { query });
 
     try {
-      const response = await firstValueFrom(
-        this.http.get<{
-          success: boolean;
-          items?: Array<{
-            id: string;
-            name: string;
-            imageUrl?: string | null;
-            type?: string;
-            sport?: string;
-            team?: string;
-          }>;
-          error?: string;
-        }>(`${this.baseUrl}/explore/search`, {
-          params: { q: query, tab: 'athletes', limit: '10' },
-        })
-      );
+      const searchConnectionsHttp = () =>
+        firstValueFrom(
+          this.http.get<{
+            success: boolean;
+            items?: Array<{
+              id: string;
+              name: string;
+              imageUrl?: string | null;
+              type?: string;
+              sport?: string;
+              team?: string;
+            }>;
+            error?: string;
+          }>(`${this.baseUrl}/explore/search`, {
+            params: { q: query, tab: 'athletes', limit: '10' },
+          })
+        );
+
+      const response = await (this.performance?.trace(
+        TRACE_NAMES.AGENT_ONBOARDING_CONNECTION_SEARCH,
+        searchConnectionsHttp,
+        {
+          attributes: {
+            [ATTRIBUTE_NAMES.FEATURE_NAME]: 'agent_onboarding',
+            user_role: this._userRole(),
+            query_length: String(query.length),
+          },
+          onSuccess: async (result, trace) => {
+            await trace.putMetric('results_count', result.items?.length ?? 0);
+          },
+        }
+      ) ?? searchConnectionsHttp());
 
       const results: AgentConnection[] = (response.items ?? []).map((item) => ({
         id: item.id,
@@ -401,7 +436,26 @@ export class AgentOnboardingService {
    */
   async loadSuggestedConnections(): Promise<void> {
     this.logger.info('Loading suggested connections');
-    this._suggestedConnections.set([]);
+
+    const loadSuggestedConnections = async (): Promise<AgentConnection[]> => {
+      const results: AgentConnection[] = [];
+      this._suggestedConnections.set(results);
+      return results;
+    };
+
+    await (this.performance?.trace(
+      TRACE_NAMES.AGENT_ONBOARDING_CONNECTIONS_LOAD,
+      loadSuggestedConnections,
+      {
+        attributes: {
+          [ATTRIBUTE_NAMES.FEATURE_NAME]: 'agent_onboarding',
+          user_role: this._userRole(),
+        },
+        onSuccess: async (result, trace) => {
+          await trace.putMetric('suggested_count', result.length);
+        },
+      }
+    ) ?? loadSuggestedConnections());
   }
 
   /**
@@ -416,35 +470,55 @@ export class AgentOnboardingService {
     this.breadcrumb.trackStateChange('agent-onboarding:completing');
 
     try {
-      const selectedGoals = this._goals();
-      const payload: AgentOnboardingPayload = {
-        program: this._programData() ?? undefined,
-        goals: selectedGoals,
-        connectionIds: this._connections().map((c) => c.id),
-        completedAt: new Date().toISOString(),
+      const completeOnboardingTask = async (): Promise<AgentOnboardingPayload> => {
+        const selectedGoals = this._goals();
+        const payload: AgentOnboardingPayload = {
+          program: this._programData() ?? undefined,
+          goals: selectedGoals,
+          connectionIds: this._connections().map((c) => c.id),
+          completedAt: new Date().toISOString(),
+        };
+
+        this.logger.info('Saving goals and generating initial plan', {
+          goalsCount: selectedGoals.length,
+        });
+
+        const dashboardGoals: AgentDashboardGoal[] = selectedGoals.map((g) => ({
+          id: g.id,
+          text: g.text,
+          category: g.category ?? 'custom',
+          createdAt: new Date().toISOString(),
+        }));
+        const goalsSaved = await this.agentX.setGoals(dashboardGoals);
+
+        if (!goalsSaved) {
+          throw new Error('Failed to save goals');
+        }
+
+        this.agentX
+          .generateBriefing(true)
+          .catch((err) =>
+            this.logger.warn('Initial briefing generation failed (non-critical)', err)
+          );
+
+        return payload;
       };
 
-      this.logger.info('Saving goals and generating initial plan', {
-        goalsCount: selectedGoals.length,
-      });
-
-      // 1. Save goals to backend via AgentXService
-      const dashboardGoals: AgentDashboardGoal[] = selectedGoals.map((g) => ({
-        id: g.id,
-        text: g.text,
-        category: g.category ?? 'custom',
-        createdAt: new Date().toISOString(),
-      }));
-      const goalsSaved = await this.agentX.setGoals(dashboardGoals);
-
-      if (!goalsSaved) {
-        throw new Error('Failed to save goals');
-      }
-
-      // 2. generateBriefing disabled — briefing display hidden
-      // this.agentX
-      //   .generateBriefing(true)
-      //   .catch((err) => this.logger.warn('Initial briefing generation failed (non-critical)', err));
+      const payload = await (this.performance?.trace(
+        TRACE_NAMES.AGENT_ONBOARDING_COMPLETE,
+        completeOnboardingTask,
+        {
+          attributes: {
+            [ATTRIBUTE_NAMES.FEATURE_NAME]: 'agent_onboarding',
+            user_role: this._userRole(),
+            has_program: String(!!this._programData()),
+          },
+          onSuccess: async (result, trace) => {
+            await trace.putMetric('goals_count', result.goals.length);
+            await trace.putMetric('connections_count', result.connectionIds.length);
+          },
+        }
+      ) ?? completeOnboardingTask());
 
       this._isComplete.set(true);
       this._needsOnboarding.set(false);

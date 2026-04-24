@@ -60,8 +60,6 @@ import { TEAM_PROFILE_API_BASE_URL } from '@nxt1/ui/team-profile';
 import { INTEL_API_BASE_URL } from '@nxt1/ui/intel';
 import { MANAGE_TEAM_API_BASE_URL } from '@nxt1/ui/manage-team';
 import { AGENT_X_API_BASE_URL } from '@nxt1/ui/agent-x';
-import { FEED_API } from '@nxt1/ui/feed';
-import { FeedApiService } from './core/services';
 
 // Environment for Firebase config
 import { environment } from '../environments/environment';
@@ -132,7 +130,10 @@ export const config: ApplicationConfig = {
       withIncrementalHydration(),
       withHttpTransferCacheOptions({
         includePostRequests: false,
-        includeHeaders: ['Authorization'],
+        // NOTE: Do NOT include 'Authorization' here — the server HTTP client has no
+        // auth interceptor, so SSR requests have no Authorization header.
+        // Including it would cause a cache-key mismatch on hydration for logged-in
+        // users (SSR key = no header, browser key = Bearer token) → double-fetch.
       })
     ),
 
@@ -156,10 +157,6 @@ export const config: ApplicationConfig = {
     // Agent X API — required by AgentXService (providedIn: 'root')
     // Must use absolute URL in SSR context
     { provide: AGENT_X_API_BASE_URL, useFactory: () => environment.apiURL },
-
-    // Feed API adapter — required by FeedService (providedIn: 'root')
-    // Must use absolute URL in SSR context
-    { provide: FEED_API, useExisting: FeedApiService },
 
     // Provide Firebase config for ServerAuthService
     // This is used to initialize FirebaseServerApp

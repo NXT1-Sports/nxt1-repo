@@ -64,6 +64,7 @@ import {
   afterNextRender,
 } from '@angular/core';
 import { isPlatformBrowser, DOCUMENT } from '@angular/common';
+import { NxtLoggingService } from '../logging/logging.service';
 
 // ============================================
 // TYPES
@@ -135,6 +136,15 @@ export interface SportThemeOption {
   description: string;
 }
 
+interface NxtThemePluginHandle {
+  setStyle: (opts: { style: string }) => Promise<void>;
+}
+
+type TeamThemeReturnState = {
+  readonly preference: ThemePreference;
+  readonly sportTheme: SportTheme | null;
+};
+
 // ============================================
 // CONSTANTS
 // ============================================
@@ -144,6 +154,9 @@ const THEME_STORAGE_KEY = 'nxt1-theme-preference';
 
 /** Storage key for sport theme */
 const SPORT_STORAGE_KEY = 'nxt1-sport-theme';
+
+/** Storage key for stored Team brand colors */
+const TEAM_BRAND_STORAGE_KEY = 'nxt1-team-brand';
 
 /** HTML attribute for theme */
 const THEME_ATTRIBUTE = 'data-theme';
@@ -286,6 +299,7 @@ export const SPORT_THEME_OPTIONS: readonly SportThemeOption[] = [
 const THEME_BG_COLORS: Record<string, string> = {
   light: '#ffffff',
   dark: '#0a0a0a',
+  team: '#0a0a0a',
   'sport-football': '#0d1a0f',
   'sport-basketball': '#3d2000',
   'sport-baseball': '#1a1424',
@@ -302,6 +316,9 @@ const THEME_BG_COLORS: Record<string, string> = {
   'sport-gymnastics': '#140f24',
   'sport-rowing': '#2a120c',
 };
+
+const GENERIC_TEAM_PRIMARY = '#4f8cff';
+const GENERIC_TEAM_SECONDARY = '#f7c948';
 
 // ============================================
 // SSR INJECTION TOKENS & TRANSFER STATE
@@ -333,8 +350,86 @@ const THEME_COOKIE_NAME = 'nxt1-theme-preference';
 /** Cookie name for sport theme */
 const SPORT_COOKIE_NAME = 'nxt1-sport-theme';
 
+/** Cookie name for stored Team brand colors */
+const TEAM_BRAND_COOKIE_NAME = 'nxt1-team-brand';
+
 /** Cookie max age (1 year in seconds) */
 const COOKIE_MAX_AGE = 365 * 24 * 60 * 60;
+
+/** Custom properties applied for org-specific page theming. */
+const ORG_THEME_CUSTOM_PROPERTIES = [
+  '--team-primary',
+  '--team-primary-rgb',
+  '--team-primary-light',
+  '--team-primary-dark',
+  '--team-secondary',
+  '--team-secondary-light',
+  '--team-secondary-dark',
+  '--team-accent',
+  '--team-accent-light',
+  '--team-accent-dark',
+  '--team-text-on-primary',
+  '--team-text-on-primary-rgb',
+  '--nxt1-color-primary-400',
+  '--nxt1-color-primary',
+  '--nxt1-color-primaryLight',
+  '--nxt1-color-primary-light',
+  '--nxt1-color-primaryDark',
+  '--nxt1-color-primary-dark',
+  '--nxt1-color-secondary',
+  '--nxt1-color-secondaryLight',
+  '--nxt1-color-secondary-light',
+  '--nxt1-color-secondaryDark',
+  '--nxt1-color-secondary-dark',
+  '--nxt1-color-accent',
+  '--nxt1-color-accentLight',
+  '--nxt1-color-accent-light',
+  '--nxt1-color-accentDark',
+  '--nxt1-color-accent-dark',
+  '--nxt1-color-bg-primary',
+  '--nxt1-color-bg-secondary',
+  '--nxt1-color-bg-tertiary',
+  '--nxt1-color-bg-elevated',
+  '--nxt1-color-bg-overlay',
+  '--nxt1-color-surface-100',
+  '--nxt1-color-surface-200',
+  '--nxt1-color-surface-300',
+  '--nxt1-color-surface-400',
+  '--nxt1-color-surface-500',
+  '--nxt1-color-text-primary',
+  '--nxt1-color-text-secondary',
+  '--nxt1-color-text-tertiary',
+  '--nxt1-color-text-disabled',
+  '--nxt1-color-text-inverse',
+  '--nxt1-color-text-on-primary',
+  '--nxt1-color-text-on-Primary',
+  '--nxt1-color-border',
+  '--nxt1-color-border-subtle',
+  '--nxt1-color-border-default',
+  '--nxt1-color-border-strong',
+  '--nxt1-color-border-primary',
+  '--nxt1-color-state-hover',
+  '--nxt1-color-state-pressed',
+  '--nxt1-color-state-focus',
+  '--nxt1-color-state-disabled',
+  '--nxt1-color-alpha-primary5',
+  '--nxt1-color-alpha-primary10',
+  '--nxt1-color-alpha-primary20',
+  '--nxt1-color-alpha-primary30',
+  '--nxt1-color-alpha-primary50',
+  '--nxt1-color-focus-ring',
+  '--nxt1-color-focus-ringOffset',
+  '--nxt1-color-loading-spinner',
+  '--nxt1-color-loading-skeleton',
+  '--nxt1-color-loading-skeletonShimmer',
+  '--ion-color-primary',
+  '--ion-color-primary-rgb',
+  '--ion-color-primary-contrast',
+  '--ion-color-primary-contrast-rgb',
+  '--ion-color-primary-shade',
+  '--ion-color-primary-tint',
+  '--ion-ripple-color',
+] as const;
 
 // ============================================
 // SERVICE
@@ -347,6 +442,9 @@ export class NxtThemeService {
   private readonly injector = inject(Injector);
   private readonly transferState = inject(TransferState);
   private readonly doc = inject(DOCUMENT);
+
+  /** SSR-provided theme preference (from cookie, optional) */
+  private readonly logger = inject(NxtLoggingService).child('NxtThemeService');
 
   /** SSR-provided theme preference (from cookie, optional) */
   private readonly ssrTheme = inject(SSR_INITIAL_THEME, { optional: true });
@@ -363,6 +461,15 @@ export class NxtThemeService {
   /** Whether status bar sync is enabled */
   private statusBarSyncEnabled = false;
 
+  /** Cached Capacitor bridge handle for the local iOS NxtTheme plugin. */
+  private nxtThemePlugin: NxtThemePluginHandle | null = null;
+
+  /** Stop retrying live iOS sync after a confirmed native unavailability. */
+  private nxtThemePluginUnavailable = false;
+
+  /** Prevent concurrent iOS native sync calls from racing plugin registration. */
+  private iosAppearanceSyncInFlight: Promise<void> | null = null;
+
   // ============================================
   // STATE (Signals)
   // ============================================
@@ -372,6 +479,22 @@ export class NxtThemeService {
 
   /** Active sport theme (null = default NXT1 volt theme) */
   private readonly _sportTheme = signal<SportTheme | null>(null);
+
+  /** Whether org/team palette custom properties are currently applied. */
+  private readonly _orgThemeApplied = signal(false);
+
+  /** Stored org theme source colors for rebuilding the active team palette. */
+  private readonly _orgThemePrimary = signal<string | null>(null);
+  private readonly _orgThemeSecondary = signal<string | null>(null);
+
+  /** Page-scoped sources that want the team theme mode active. */
+  private readonly _teamThemeSources = signal<readonly string[]>([]);
+
+  /** Whether Team is the currently selected theme option. */
+  private readonly _teamThemeSelected = signal(false);
+
+  /** Previous non-team theme to restore when a scoped team page unmounts. */
+  private readonly _teamThemeReturnState = signal<TeamThemeReturnState | null>(null);
 
   /** System's preferred color scheme */
   private readonly _systemPrefersDark = signal<boolean>(false);
@@ -395,6 +518,25 @@ export class NxtThemeService {
 
   /** Active sport theme */
   readonly sportTheme = computed(() => this._sportTheme());
+
+  /** Whether the Team slot should be rendered in the selector UI. */
+  readonly hasTeamThemeOption = computed(() => true);
+
+  /** Stable team brand color for selector chips and off-page Team selection. */
+  readonly teamThemePrimaryColor = computed(() => this._orgThemePrimary() ?? GENERIC_TEAM_PRIMARY);
+
+  /** Stable team secondary color for future UI consumers. */
+  readonly teamThemeSecondaryColor = computed(
+    () => this._orgThemeSecondary() ?? GENERIC_TEAM_SECONDARY
+  );
+
+  /** Whether the current page is supplying contextual team colors. */
+  readonly hasScopedTeamPalette = computed(
+    () => this._orgThemeApplied() && this._teamThemeSources().length > 0
+  );
+
+  /** Whether Team is the currently active theme option. */
+  readonly isTeamThemeActive = computed(() => this._teamThemeSelected());
 
   /** System prefers dark mode */
   readonly systemPrefersDark = computed(() => this._systemPrefersDark());
@@ -426,9 +568,13 @@ export class NxtThemeService {
 
   /**
    * The actual data-theme attribute value.
-   * Returns sport theme if active, otherwise effective theme.
+   * Returns team theme if active, otherwise sport theme, otherwise effective theme.
    */
   readonly activeTheme = computed<string>(() => {
+    if (this.isTeamThemeActive()) {
+      return 'team';
+    }
+
     const sport = this._sportTheme();
     if (sport) {
       return `sport-${sport}`;
@@ -447,6 +593,9 @@ export class NxtThemeService {
 
   /** Whether a sport theme is active */
   readonly hasSportTheme = computed(() => this._sportTheme() !== null);
+
+  /** Whether any page currently requests the team theme mode. */
+  readonly hasScopedTeamTheme = computed(() => this._teamThemeSources().length > 0);
 
   constructor() {
     if (!this.isBrowser) {
@@ -473,12 +622,16 @@ export class NxtThemeService {
    * @param preference - 'light', 'dark', or 'system'
    */
   setTheme(preference: ThemePreference): void {
+    this._teamThemeSelected.set(false);
     this._preference.set(preference);
     this.savePreference(preference);
     this.applyTheme('user');
 
     if (this.statusBarSyncEnabled) {
       void this.syncStatusBar();
+      void this.syncKeyboard();
+      void this.syncNavigationBar();
+      void this.syncIOSAppearance();
     }
   }
 
@@ -537,6 +690,9 @@ export class NxtThemeService {
 
     if (this.statusBarSyncEnabled) {
       void this.syncStatusBar();
+      void this.syncKeyboard();
+      void this.syncNavigationBar();
+      void this.syncIOSAppearance();
     }
 
     this.logChange('Temporary override set', { theme });
@@ -552,6 +708,9 @@ export class NxtThemeService {
 
     if (this.statusBarSyncEnabled) {
       void this.syncStatusBar();
+      void this.syncKeyboard();
+      void this.syncNavigationBar();
+      void this.syncIOSAppearance();
     }
 
     this.logChange('Temporary override cleared', { restoredTo: this.effectiveTheme() });
@@ -567,25 +726,370 @@ export class NxtThemeService {
    * @param sport - Sport theme to apply
    */
   setSportTheme(sport: SportTheme): void {
+    this._teamThemeSelected.set(false);
     this._sportTheme.set(sport);
     this.saveSportTheme(sport);
     this.applyTheme('sport');
 
     if (this.statusBarSyncEnabled) {
       void this.syncStatusBar();
+      void this.syncKeyboard();
+      void this.syncNavigationBar();
+      void this.syncIOSAppearance();
     }
+  }
+
+  /**
+   * Activate the page-scoped team theme mode.
+   * This does not persist anything; it only changes the rendered theme while
+   * the caller remains mounted.
+   */
+  activateTeamTheme(source: string): void {
+    const normalizedSource = source.trim();
+    if (!normalizedSource) return;
+
+    const sources = this._teamThemeSources();
+    if (sources.includes(normalizedSource)) return;
+
+    const shouldAutoActivate = sources.length === 0;
+    this._teamThemeSources.set([...sources, normalizedSource]);
+    if (shouldAutoActivate) {
+      if (!this._teamThemeSelected()) {
+        this.captureTeamReturnState();
+        this._teamThemeSelected.set(true);
+      } else {
+        this._teamThemeReturnState.set(null);
+      }
+    }
+    this.applyTheme('sport');
+
+    if (this.statusBarSyncEnabled) {
+      void this.syncStatusBar();
+      void this.syncKeyboard();
+      void this.syncNavigationBar();
+      void this.syncIOSAppearance();
+    }
+  }
+
+  /**
+   * Deactivate the page-scoped team theme mode for a specific caller.
+   */
+  deactivateTeamTheme(source: string): void {
+    const normalizedSource = source.trim();
+    if (!normalizedSource) return;
+
+    const nextSources = this._teamThemeSources().filter(
+      (activeSource) => activeSource !== normalizedSource
+    );
+
+    if (nextSources.length === this._teamThemeSources().length) return;
+
+    const shouldRestorePreviousTheme =
+      nextSources.length === 0 &&
+      this._teamThemeSelected() &&
+      this._teamThemeReturnState() !== null;
+
+    this._teamThemeSources.set(nextSources);
+
+    if (nextSources.length === 0) {
+      if (shouldRestorePreviousTheme) {
+        this.restoreThemeAfterTeamScope();
+        this._teamThemeSelected.set(false);
+      }
+      this._teamThemeReturnState.set(null);
+    }
+    this.applyTheme('sport');
+
+    if (this.statusBarSyncEnabled) {
+      void this.syncStatusBar();
+      void this.syncKeyboard();
+      void this.syncNavigationBar();
+      void this.syncIOSAppearance();
+    }
+  }
+
+  /**
+   * Select the Team theme when a contextual team palette is available.
+   */
+  selectTeamTheme(): void {
+    this._teamThemeReturnState.set(null);
+    this._teamThemeSelected.set(true);
+    this.applyTheme('sport');
+
+    if (this.statusBarSyncEnabled) {
+      void this.syncStatusBar();
+      void this.syncKeyboard();
+      void this.syncNavigationBar();
+      void this.syncIOSAppearance();
+    }
+  }
+
+  /**
+   * Seed Team brand colors without marking the current route as a scoped team surface.
+   */
+  setStoredTeamBrand(primary: string, secondary?: string | null): void {
+    const normalizedPrimary = primary.trim();
+    if (!normalizedPrimary) return;
+
+    this._orgThemePrimary.set(normalizedPrimary);
+    this._orgThemeSecondary.set(secondary?.trim() || null);
+
+    this.saveStoredTeamBrand(normalizedPrimary, secondary?.trim() || null);
+
+    if (this.isBrowser && !this._orgThemeApplied()) {
+      this.applyTheme('sport');
+    }
+  }
+
+  /**
+   * Clear Team brand colors stored for off-page Team selection.
+   */
+  clearStoredTeamBrand(): void {
+    this._orgThemePrimary.set(null);
+    this._orgThemeSecondary.set(null);
+
+    this.clearStoredTeamBrandStorage();
+
+    if (this.isBrowser && !this._orgThemeApplied()) {
+      this.applyTheme('sport');
+    }
+  }
+
+  // ============================================
+  // PUBLIC API - Org / Team Brand Colors
+  // ============================================
+
+  /**
+   * Apply an organisation's brand colors to the document-level design token
+   * custom properties (`--team-primary`, `--team-secondary`, `--team-accent`,
+   * `--team-text-on-primary`).
+   *
+   * This is the correct, token-system-native way to activate organisation
+   * colors.  Every component that references `var(--team-primary)` or
+   * `var(--team-accent)` — including all surface/border/gradient tokens in
+   * `semantic.tokens.json` — will automatically pick up the injected value
+   * through the CSS cascade without any per-component inline style hacks.
+   *
+   * @param primary   - Hex color, e.g. `"#003087"`
+   * @param secondary - Optional hex color, e.g. `"#FFB612"`
+   *
+   * @example
+   * ```typescript
+   * // Called when profile / team data resolves
+   * this.theme.applyOrgTheme('#003087', '#FFB612');
+   * ```
+   */
+  applyOrgTheme(primary: string, secondary?: string | null): void {
+    const normalizedPrimary = primary.trim();
+    if (!normalizedPrimary) return;
+
+    this.setStoredTeamBrand(normalizedPrimary, secondary ?? null);
+    this._orgThemeApplied.set(true);
+
+    if (!this.isBrowser) return;
+
+    this.applyTheme('sport');
+
+    this.logger.debug('Org theme applied', {
+      primary: normalizedPrimary,
+      secondary: secondary ?? null,
+    });
+  }
+
+  /**
+   * Remove organisation brand colors from the document, restoring the
+   * default NXT1 volt palette fallbacks defined in the token system.
+   *
+   * Call this whenever leaving a profile or team page.
+   */
+  clearOrgTheme(): void {
+    if (!this.isBrowser) return;
+
+    const root = this.doc?.documentElement;
+    if (!root) return;
+
+    this._orgThemeApplied.set(false);
+    this.clearTeamPalette(root);
+    this.applyTheme('sport');
+
+    this.logger.debug('Org theme cleared');
+  }
+
+  // ============================================
+  // PRIVATE HELPERS
+  // ============================================
+
+  /**
+   * Return `#000000` or `#ffffff` — whichever gives better contrast
+   * against `hex` per the WCAG simplified luminance formula.
+   */
+  private contrastColor(hex: string): string {
+    const clean = hex.replace('#', '');
+    if (clean.length !== 6) return '#000000';
+    const r = parseInt(clean.slice(0, 2), 16);
+    const g = parseInt(clean.slice(2, 4), 16);
+    const b = parseInt(clean.slice(4, 6), 16);
+    const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+    return luminance > 0.5 ? '#000000' : '#ffffff';
+  }
+
+  private buildOrgThemePalette(primary: string, secondary?: string): Record<string, string> {
+    const safeSecondary = secondary || this.mixHex(primary, '#ffffff', 0.4);
+    const textOnPrimary = this.contrastColor(primary);
+    const primaryRgb = this.hexToRgb(primary);
+    const textOnPrimaryRgb = this.hexToRgb(textOnPrimary);
+
+    const primaryLight = this.mixHex(primary, '#ffffff', 0.24);
+    const primaryDark = this.mixHex(primary, '#000000', 0.24);
+    const secondaryLight = this.mixHex(safeSecondary, '#ffffff', 0.22);
+    const secondaryDark = this.mixHex(safeSecondary, '#000000', 0.22);
+    const accent = safeSecondary;
+    const accentLight = this.mixHex(accent, '#ffffff', 0.18);
+    const accentDark = this.mixHex(accent, '#000000', 0.18);
+
+    const bgPrimary = this.mixHex(primary, '#000000', 0.9);
+    const bgSecondary = this.mixHex(primary, '#000000', 0.85);
+    const bgTertiary = this.mixHex(primary, '#000000', 0.8);
+    const bgElevated = this.mixHex(primary, '#000000', 0.75);
+    const surface100 = this.mixHex(bgPrimary, '#ffffff', 0.04);
+    const surface200 = this.mixHex(bgPrimary, '#ffffff', 0.07);
+    const surface300 = this.mixHex(bgPrimary, '#ffffff', 0.1);
+    const surface400 = this.mixHex(bgPrimary, '#ffffff', 0.14);
+    const surface500 = this.mixHex(bgPrimary, '#ffffff', 0.18);
+
+    return {
+      '--team-primary': primary,
+      '--team-primary-rgb': primaryRgb,
+      '--team-primary-light': primaryLight,
+      '--team-primary-dark': primaryDark,
+      '--team-secondary': safeSecondary,
+      '--team-secondary-light': secondaryLight,
+      '--team-secondary-dark': secondaryDark,
+      '--team-accent': primary,
+      '--team-accent-light': primaryLight,
+      '--team-accent-dark': primaryDark,
+      '--team-text-on-primary': textOnPrimary,
+      '--team-text-on-primary-rgb': textOnPrimaryRgb,
+      '--nxt1-color-primary-400': primary,
+      '--nxt1-color-primary': primary,
+      '--nxt1-color-primaryLight': primaryLight,
+      '--nxt1-color-primary-light': primaryLight,
+      '--nxt1-color-primaryDark': primaryDark,
+      '--nxt1-color-primary-dark': primaryDark,
+      '--nxt1-color-secondary': safeSecondary,
+      '--nxt1-color-secondaryLight': secondaryLight,
+      '--nxt1-color-secondary-light': secondaryLight,
+      '--nxt1-color-secondaryDark': secondaryDark,
+      '--nxt1-color-secondary-dark': secondaryDark,
+      '--nxt1-color-accent': accent,
+      '--nxt1-color-accentLight': accentLight,
+      '--nxt1-color-accent-light': accentLight,
+      '--nxt1-color-accentDark': accentDark,
+      '--nxt1-color-accent-dark': accentDark,
+      '--nxt1-color-bg-primary': bgPrimary,
+      '--nxt1-color-bg-secondary': bgSecondary,
+      '--nxt1-color-bg-tertiary': bgTertiary,
+      '--nxt1-color-bg-elevated': bgElevated,
+      '--nxt1-color-bg-overlay': 'rgba(0, 0, 0, 0.85)',
+      '--nxt1-color-surface-100': surface100,
+      '--nxt1-color-surface-200': surface200,
+      '--nxt1-color-surface-300': surface300,
+      '--nxt1-color-surface-400': surface400,
+      '--nxt1-color-surface-500': surface500,
+      '--nxt1-color-text-primary': '#ffffff',
+      '--nxt1-color-text-secondary': 'rgba(255, 255, 255, 0.75)',
+      '--nxt1-color-text-tertiary': 'rgba(255, 255, 255, 0.55)',
+      '--nxt1-color-text-disabled': 'rgba(255, 255, 255, 0.35)',
+      '--nxt1-color-text-inverse': bgPrimary,
+      '--nxt1-color-text-on-primary': textOnPrimary,
+      '--nxt1-color-text-on-Primary': textOnPrimary,
+      '--nxt1-color-border': 'rgba(255, 255, 255, 0.12)',
+      '--nxt1-color-border-subtle': 'rgba(255, 255, 255, 0.08)',
+      '--nxt1-color-border-default': 'rgba(255, 255, 255, 0.12)',
+      '--nxt1-color-border-strong': 'rgba(255, 255, 255, 0.22)',
+      '--nxt1-color-border-primary': this.rgba(primaryRgb, 0.4),
+      '--nxt1-color-state-hover': this.rgba(primaryRgb, 0.08),
+      '--nxt1-color-state-pressed': this.rgba(primaryRgb, 0.16),
+      '--nxt1-color-state-focus': this.rgba(primaryRgb, 0.24),
+      '--nxt1-color-state-disabled': 'rgba(255, 255, 255, 0.12)',
+      '--nxt1-color-alpha-primary5': this.rgba(primaryRgb, 0.05),
+      '--nxt1-color-alpha-primary10': this.rgba(primaryRgb, 0.1),
+      '--nxt1-color-alpha-primary20': this.rgba(primaryRgb, 0.2),
+      '--nxt1-color-alpha-primary30': this.rgba(primaryRgb, 0.3),
+      '--nxt1-color-alpha-primary50': this.rgba(primaryRgb, 0.5),
+      '--nxt1-color-focus-ring': this.rgba(primaryRgb, 0.5),
+      '--nxt1-color-focus-ringOffset': surface100,
+      '--nxt1-color-loading-spinner': primary,
+      '--nxt1-color-loading-skeleton': 'rgba(255, 255, 255, 0.08)',
+      '--nxt1-color-loading-skeletonShimmer': 'rgba(255, 255, 255, 0.15)',
+      '--ion-color-primary': primary,
+      '--ion-color-primary-rgb': primaryRgb,
+      '--ion-color-primary-contrast': textOnPrimary,
+      '--ion-color-primary-contrast-rgb': textOnPrimaryRgb,
+      '--ion-color-primary-shade': primaryDark,
+      '--ion-color-primary-tint': primaryLight,
+      '--ion-ripple-color': primary,
+    };
+  }
+
+  private hexToRgb(hex: string): string {
+    const clean = hex.replace('#', '');
+    if (clean.length !== 6) return '204, 255, 0';
+    const r = parseInt(clean.slice(0, 2), 16);
+    const g = parseInt(clean.slice(2, 4), 16);
+    const b = parseInt(clean.slice(4, 6), 16);
+    return `${r}, ${g}, ${b}`;
+  }
+
+  private mixHex(source: string, target: string, targetWeight: number): string {
+    const sourceRgb = this.parseHex(source);
+    const targetRgb = this.parseHex(target);
+    if (!sourceRgb || !targetRgb) return source;
+
+    const mix = (start: number, end: number) =>
+      Math.round(start + (end - start) * Math.min(Math.max(targetWeight, 0), 1));
+
+    return this.rgbToHex(
+      mix(sourceRgb[0], targetRgb[0]),
+      mix(sourceRgb[1], targetRgb[1]),
+      mix(sourceRgb[2], targetRgb[2])
+    );
+  }
+
+  private rgba(rgb: string, alpha: number): string {
+    return `rgba(${rgb}, ${alpha})`;
+  }
+
+  private parseHex(hex: string): [number, number, number] | null {
+    const clean = hex.replace('#', '');
+    if (clean.length !== 6) return null;
+    return [
+      parseInt(clean.slice(0, 2), 16),
+      parseInt(clean.slice(2, 4), 16),
+      parseInt(clean.slice(4, 6), 16),
+    ];
+  }
+
+  private rgbToHex(r: number, g: number, b: number): string {
+    return `#${[r, g, b]
+      .map((value) => Math.max(0, Math.min(255, value)).toString(16).padStart(2, '0'))
+      .join('')}`;
   }
 
   /**
    * Clear the sport theme, reverting to default NXT1 volt colors.
    */
   clearSportTheme(): void {
+    this._teamThemeSelected.set(false);
     this._sportTheme.set(null);
     this.clearSportThemeStorage();
     this.applyTheme('sport');
 
     if (this.statusBarSyncEnabled) {
       void this.syncStatusBar();
+      void this.syncKeyboard();
+      void this.syncNavigationBar();
+      void this.syncIOSAppearance();
     }
   }
 
@@ -603,6 +1107,21 @@ export class NxtThemeService {
    */
   isSportThemeActive(sport: SportTheme): boolean {
     return this._sportTheme() === sport;
+  }
+
+  private captureTeamReturnState(): void {
+    this._teamThemeReturnState.set({
+      preference: this._preference(),
+      sportTheme: this._sportTheme(),
+    });
+  }
+
+  private restoreThemeAfterTeamScope(): void {
+    const previousState = this._teamThemeReturnState();
+    if (!previousState) return;
+
+    this._preference.set(previousState.preference);
+    this._sportTheme.set(previousState.sportTheme);
   }
 
   // ============================================
@@ -636,13 +1155,19 @@ export class NxtThemeService {
 
     this.statusBarSyncEnabled = true;
     void this.syncStatusBar();
+    void this.syncKeyboard();
+    void this.syncNavigationBar();
+    void this.syncIOSAppearance();
 
-    // Auto-sync status bar whenever theme changes
+    // Auto-sync all native chrome whenever theme changes
     effect(
       () => {
         const theme = this.effectiveTheme();
         const sportTheme = this._sportTheme();
         void this.syncStatusBar(theme, sportTheme);
+        void this.syncKeyboard(theme);
+        void this.syncNavigationBar(theme, sportTheme);
+        void this.syncIOSAppearance(theme);
       },
       { injector: this.injector }
     );
@@ -657,7 +1182,8 @@ export class NxtThemeService {
 
     const effectiveTheme = theme ?? this.effectiveTheme();
     const activeSportTheme = sportTheme ?? this._sportTheme();
-    const useDarkStatusBarContent = effectiveTheme === 'light' && activeSportTheme === null;
+    const useDarkStatusBarContent =
+      effectiveTheme === 'light' && activeSportTheme === null && !this.isTeamThemeActive();
 
     try {
       const { StatusBar, Style } = await import('@capacitor/status-bar');
@@ -672,9 +1198,8 @@ export class NxtThemeService {
 
       // On Android, also set the background color
       try {
-        const activeTheme = activeSportTheme ? `sport-${activeSportTheme}` : effectiveTheme;
-        const bgColor =
-          THEME_BG_COLORS[activeTheme] ?? THEME_BG_COLORS[effectiveTheme] ?? '#0a0a0a';
+        const activeTheme = this.activeTheme();
+        const bgColor = this.resolveThemeBackgroundColor(activeTheme, effectiveTheme);
         await StatusBar.setBackgroundColor({ color: bgColor });
       } catch {
         // setBackgroundColor throws on iOS - expected behavior
@@ -687,6 +1212,143 @@ export class NxtThemeService {
   // ============================================
   // PRIVATE METHODS
   // ============================================
+
+  /**
+   * Sync the iOS/Android keyboard appearance with the current theme.
+   * Uses KeyboardStyle.Dark for dark/sport themes, KeyboardStyle.Light for light theme.
+   * Silent no-op on web (Keyboard plugin not available).
+   */
+  /**
+   * Persist the current theme to @capacitor/preferences so AppDelegate.swift
+   * can read it from UserDefaults and apply `window?.overrideUserInterfaceStyle`
+   * on cold launch. Also calls the NxtThemePlugin synchronously so the current
+   * session's native iOS system sheets (share sheet, camera, date picker, and
+   * UIAlertController from @capacitor/dialog) reflect the theme immediately
+   * without requiring an app relaunch.
+   *
+   * UserDefaults key written: `CapacitorStorage.nxt1-native-ui-style` ('light' | 'dark')
+   */
+  private async syncIOSAppearance(theme?: EffectiveTheme): Promise<void> {
+    if (!this.isBrowser) return;
+
+    if (this.iosAppearanceSyncInFlight !== null) {
+      await this.iosAppearanceSyncInFlight;
+      return;
+    }
+
+    this.iosAppearanceSyncInFlight = this.syncIOSAppearanceInternal(theme);
+    try {
+      await this.iosAppearanceSyncInFlight;
+    } finally {
+      this.iosAppearanceSyncInFlight = null;
+    }
+  }
+
+  private async syncIOSAppearanceInternal(theme?: EffectiveTheme): Promise<void> {
+    if (!this.isBrowser) return;
+
+    const effectiveTheme = theme ?? this.effectiveTheme();
+
+    try {
+      const { Preferences } = await import('@capacitor/preferences');
+      await Preferences.set({ key: 'nxt1-native-ui-style', value: effectiveTheme });
+    } catch {
+      // Preferences plugin not available (web browser) - silently ignore
+    }
+
+    // Apply immediately to the live UIWindow so UIAlertController and other
+    // native overlays in this session pick up the new style without a relaunch.
+    if (this.nxtThemePluginUnavailable) {
+      return;
+    }
+
+    try {
+      const { Capacitor, registerPlugin } = await import('@capacitor/core');
+
+      if (!Capacitor.isNativePlatform() || Capacitor.getPlatform() !== 'ios') {
+        return;
+      }
+
+      if (!Capacitor.isPluginAvailable('NxtTheme')) {
+        this.nxtThemePluginUnavailable = true;
+        this.logger.warn('NxtTheme plugin is unavailable on iOS; skipping live native sync');
+        return;
+      }
+
+      if (this.nxtThemePlugin === null) {
+        this.nxtThemePlugin = registerPlugin<NxtThemePluginHandle>('NxtTheme');
+      }
+
+      this.logger.debug('Calling NxtTheme.setStyle', { theme: effectiveTheme });
+      await this.nxtThemePlugin.setStyle({ style: effectiveTheme });
+      this.logger.debug('NxtTheme.setStyle resolved');
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e ?? '');
+      if (message.includes('not implemented')) {
+        this.nxtThemePluginUnavailable = true;
+        this.logger.warn('NxtTheme plugin is not implemented on iOS; disabling live native sync', {
+          message,
+        });
+        return;
+      }
+      this.logger.error('NxtTheme.setStyle failed', e);
+    }
+  }
+
+  private async syncKeyboard(theme?: EffectiveTheme): Promise<void> {
+    if (!this.isBrowser) return;
+
+    const effectiveTheme = theme ?? this.effectiveTheme();
+
+    try {
+      const { Keyboard, KeyboardStyle } = await import('@capacitor/keyboard');
+      const style = effectiveTheme === 'light' ? KeyboardStyle.Light : KeyboardStyle.Dark;
+      await Keyboard.setStyle({ style });
+    } catch {
+      // Keyboard plugin not available (web browser) or setStyle unsupported - silently ignore
+    }
+  }
+
+  /**
+   * Sync the Android navigation bar (back/home/recents) with the current theme.
+   * iOS does not expose a navigation bar — the call is safely ignored there.
+   * Silent no-op on web.
+   */
+  private async syncNavigationBar(
+    theme?: EffectiveTheme,
+    sportTheme?: SportTheme | null
+  ): Promise<void> {
+    if (!this.isBrowser) return;
+
+    const effectiveTheme = theme ?? this.effectiveTheme();
+    const activeSportTheme = sportTheme ?? this._sportTheme();
+
+    try {
+      const { StatusBar, Style } = await import('@capacitor/status-bar');
+
+      // NavigationBar style follows same logic as status bar:
+      // Light theme → dark icons; dark/sport theme → light icons
+      const useDarkContent =
+        effectiveTheme === 'light' && activeSportTheme === null && !this.isTeamThemeActive();
+      const style = useDarkContent ? Style.Light : Style.Dark;
+
+      // setNavigationBarColor + setNavigationBarStyle are Android-only; throws on iOS (caught below)
+      const activeTheme = this.activeTheme();
+      const bgColor = this.resolveThemeBackgroundColor(activeTheme, effectiveTheme);
+
+      await (
+        StatusBar as unknown as { setNavigationBarColor: (o: { color: string }) => Promise<void> }
+      ).setNavigationBarColor({ color: bgColor });
+
+      await (
+        StatusBar as unknown as {
+          setNavigationBarStyle: (o: { style: typeof style }) => Promise<void>;
+        }
+      ).setNavigationBarStyle({ style });
+    } catch {
+      // iOS throws for navigation bar calls - expected behavior, silently ignore
+    }
+  }
 
   /**
    * Server-side initialization: read from injection tokens (cookies),
@@ -742,6 +1404,12 @@ export class NxtThemeService {
       this._sportTheme.set(transferredSport as SportTheme);
     }
 
+    const storedTeamBrand = this.loadStoredTeamBrand();
+    if (storedTeamBrand) {
+      this._orgThemePrimary.set(storedTeamBrand.primary);
+      this._orgThemeSecondary.set(storedTeamBrand.secondary);
+    }
+
     this._initialized.set(true);
 
     // Schedule full browser initialization (system preference detection, listeners)
@@ -758,6 +1426,10 @@ export class NxtThemeService {
       if (localSport !== this._sportTheme()) {
         this._sportTheme.set(localSport);
       }
+
+      const latestStoredTeamBrand = this.loadStoredTeamBrand();
+      this._orgThemePrimary.set(latestStoredTeamBrand?.primary ?? null);
+      this._orgThemeSecondary.set(latestStoredTeamBrand?.secondary ?? null);
 
       this.applyTheme('init');
     });
@@ -778,10 +1450,10 @@ export class NxtThemeService {
     docElement.setAttribute(THEME_ATTRIBUTE, activeTheme);
     docElement.setAttribute(BASE_THEME_ATTRIBUTE, effectiveTheme);
 
-    const colorScheme = sportTheme ? 'dark' : effectiveTheme;
+    const colorScheme = activeTheme === 'team' || sportTheme ? 'dark' : effectiveTheme;
     docElement.style.setProperty('color-scheme', colorScheme);
 
-    const bgColor = THEME_BG_COLORS[activeTheme] ?? THEME_BG_COLORS[effectiveTheme] ?? '#0a0a0a';
+    const bgColor = this.resolveThemeBackgroundColor(activeTheme, effectiveTheme);
     docElement.style.setProperty('background-color', bgColor);
   }
 
@@ -801,9 +1473,12 @@ export class NxtThemeService {
 
     const savedPreference = this.loadPreference();
     const savedSportTheme = this.loadSportTheme();
+    const storedTeamBrand = this.loadStoredTeamBrand();
 
     this._preference.set(savedPreference);
     this._sportTheme.set(savedSportTheme);
+    this._orgThemePrimary.set(storedTeamBrand?.primary ?? null);
+    this._orgThemeSecondary.set(storedTeamBrand?.secondary ?? null);
 
     // Sync cookies from localStorage so SSR works on next page load
     this.setCookie(THEME_COOKIE_NAME, savedPreference);
@@ -877,20 +1552,41 @@ export class NxtThemeService {
     const effectiveTheme = this.effectiveTheme();
     const sportTheme = this._sportTheme();
     const activeTheme = this.activeTheme();
+    const root = document.documentElement;
+
+    this.clearTeamPalette(root);
+
+    if (activeTheme === 'team') {
+      if (this._orgThemePrimary()) {
+        this.applyFullTeamPalette(
+          root,
+          this._orgThemePrimary()!,
+          this._orgThemeSecondary() ?? undefined
+        );
+      } else {
+        this.applyGenericTeamPalette(root);
+      }
+    } else if (this._orgThemeApplied() && this._orgThemePrimary()) {
+      this.applyTeamMarkerPalette(
+        root,
+        this._orgThemePrimary()!,
+        this._orgThemeSecondary() ?? undefined
+      );
+    }
 
     // Set data-theme attribute (main theme selector)
-    document.documentElement.setAttribute(THEME_ATTRIBUTE, activeTheme);
+    root.setAttribute(THEME_ATTRIBUTE, activeTheme);
 
     // Set base theme attribute (for components that need light/dark regardless of sport)
-    document.documentElement.setAttribute(BASE_THEME_ATTRIBUTE, effectiveTheme);
+    root.setAttribute(BASE_THEME_ATTRIBUTE, effectiveTheme);
 
     // Set color-scheme for browser UI (scrollbars, form controls)
-    const colorScheme = sportTheme ? 'dark' : effectiveTheme;
-    document.documentElement.style.colorScheme = colorScheme;
+    const colorScheme = activeTheme === 'team' || sportTheme ? 'dark' : effectiveTheme;
+    root.style.colorScheme = colorScheme;
 
     // Set background color to prevent flash
-    const bgColor = THEME_BG_COLORS[activeTheme] ?? THEME_BG_COLORS[effectiveTheme] ?? '#0a0a0a';
-    document.documentElement.style.backgroundColor = bgColor;
+    const bgColor = this.resolveThemeBackgroundColor(activeTheme, effectiveTheme);
+    root.style.backgroundColor = bgColor;
 
     // Update meta theme-color for mobile browsers
     this.updateMetaThemeColor(bgColor);
@@ -912,6 +1608,50 @@ export class NxtThemeService {
     }
 
     metaThemeColor.setAttribute('content', color);
+  }
+
+  private resolveThemeBackgroundColor(activeTheme: string, effectiveTheme: EffectiveTheme): string {
+    if (activeTheme === 'team') {
+      const teamBg = this.doc?.documentElement?.style
+        .getPropertyValue('--nxt1-color-bg-primary')
+        .trim();
+
+      if (teamBg) {
+        return teamBg;
+      }
+    }
+
+    return THEME_BG_COLORS[activeTheme] ?? THEME_BG_COLORS[effectiveTheme] ?? '#0a0a0a';
+  }
+
+  private applyGenericTeamPalette(root: HTMLElement): void {
+    this.applyFullTeamPalette(root, GENERIC_TEAM_PRIMARY, GENERIC_TEAM_SECONDARY);
+  }
+
+  private clearTeamPalette(root: HTMLElement): void {
+    for (const property of ORG_THEME_CUSTOM_PROPERTIES) {
+      root.style.removeProperty(property);
+    }
+  }
+
+  private applyFullTeamPalette(root: HTMLElement, primary: string, secondary?: string): void {
+    const palette = this.buildOrgThemePalette(primary, secondary);
+    this.applyProperties(root, palette);
+  }
+
+  private applyTeamMarkerPalette(root: HTMLElement, primary: string, secondary?: string): void {
+    const palette = this.buildOrgThemePalette(primary, secondary);
+    const markerPalette = Object.fromEntries(
+      Object.entries(palette).filter(([property]) => property.startsWith('--team-'))
+    );
+
+    this.applyProperties(root, markerPalette);
+  }
+
+  private applyProperties(root: HTMLElement, properties: Record<string, string>): void {
+    for (const [property, value] of Object.entries(properties)) {
+      root.style.setProperty(property, value);
+    }
   }
 
   /**
@@ -970,6 +1710,35 @@ export class NxtThemeService {
   }
 
   /**
+   * Load stored Team brand colors from storage.
+   */
+  private loadStoredTeamBrand(): { primary: string; secondary: string | null } | null {
+    if (!this.isBrowser) return null;
+
+    try {
+      const saved = localStorage.getItem(TEAM_BRAND_STORAGE_KEY);
+      if (!saved) {
+        return null;
+      }
+
+      const parsed = JSON.parse(saved) as { primary?: unknown; secondary?: unknown };
+      const primary = typeof parsed.primary === 'string' ? parsed.primary.trim() : '';
+      const secondary = typeof parsed.secondary === 'string' ? parsed.secondary.trim() : '';
+
+      if (!primary) {
+        return null;
+      }
+
+      return {
+        primary,
+        secondary: secondary || null,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * Save sport theme to storage and cookie.
    */
   private saveSportTheme(sport: SportTheme): void {
@@ -986,6 +1755,23 @@ export class NxtThemeService {
   }
 
   /**
+   * Save stored Team brand colors to storage and cookie.
+   */
+  private saveStoredTeamBrand(primary: string, secondary: string | null): void {
+    if (!this.isBrowser) return;
+
+    const payload = JSON.stringify({ primary, secondary });
+
+    try {
+      localStorage.setItem(TEAM_BRAND_STORAGE_KEY, payload);
+    } catch {
+      // Storage unavailable — Team brand won't persist
+    }
+
+    this.setCookie(TEAM_BRAND_COOKIE_NAME, payload);
+  }
+
+  /**
    * Clear sport theme from storage and cookie.
    */
   private clearSportThemeStorage(): void {
@@ -999,6 +1785,21 @@ export class NxtThemeService {
 
     // Clear sport theme cookie
     this.setCookie(SPORT_COOKIE_NAME, '', 0);
+  }
+
+  /**
+   * Clear stored Team brand colors from storage and cookie.
+   */
+  private clearStoredTeamBrandStorage(): void {
+    if (!this.isBrowser) return;
+
+    try {
+      localStorage.removeItem(TEAM_BRAND_STORAGE_KEY);
+    } catch {
+      // Storage unavailable — non-critical
+    }
+
+    this.setCookie(TEAM_BRAND_COOKIE_NAME, '', 0);
   }
 
   /**

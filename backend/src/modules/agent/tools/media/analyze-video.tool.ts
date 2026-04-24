@@ -25,6 +25,7 @@ import type { ScraperService } from '../scraping/scraper.service.js';
 import type { LLMContentPart, LLMMessage } from '../../llm/llm.types.js';
 import { VIDEO_ANALYSIS_TIMEOUT_MS } from '../../llm/llm.types.js';
 import { logger } from '../../../../utils/logger.js';
+import { z } from 'zod';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -53,31 +54,15 @@ export class AnalyzeVideoTool extends BaseTool {
     'technique assessment, play-by-play analysis, scouting reports from video, and any video-based coaching insights. ' +
     'Supports videos up to 2 hours long.';
 
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      url: {
-        type: 'string',
-        description:
-          'The URL to analyze. Can be a direct video URL (MP4, YouTube), ' +
-          'or a page URL containing embedded videos (e.g. Hudl profile, MaxPreps highlights). ' +
-          'For pages, the tool will automatically extract and analyze the embedded videos.',
-      },
-      prompt: {
-        type: 'string',
-        description:
-          'What to analyze in the video(s). Be specific about what you want evaluated. ' +
-          'Examples: "Analyze the defensive scheme and identify weaknesses", ' +
-          '"Evaluate the quarterback\'s footwork and throwing mechanics", ' +
-          '"Break down every play and summarize offensive tendencies".',
-      },
-    },
-    required: ['url', 'prompt'],
-  } as const;
+  readonly parameters = z.object({
+    url: z.string().trim().min(1),
+    prompt: z.string().trim().min(1),
+  });
 
   readonly isMutation = false;
   readonly category = 'media' as const;
 
+  readonly entityGroup = 'user_tools' as const;
   constructor(
     private readonly scraper: ScraperService,
     private readonly llm: OpenRouterService
@@ -108,11 +93,14 @@ export class AnalyzeVideoTool extends BaseTool {
 
     const trimmedUrl = url.trim();
     const trimmedPrompt = prompt.trim();
-    const progress = context?.onProgress;
 
     try {
       // ── Resolve video URLs ─────────────────────────────────────────
-      progress?.('Resolving video URL…');
+      context?.emitStage?.('fetching_data', {
+        icon: 'media',
+        url: trimmedUrl,
+        phase: 'resolve_video_url',
+      });
       const videoUrls = await this.resolveVideoUrls(trimmedUrl);
 
       if (videoUrls.length === 0) {
@@ -131,7 +119,12 @@ export class AnalyzeVideoTool extends BaseTool {
       });
 
       // ── Build multimodal message ───────────────────────────────────
-      progress?.(`Analyzing ${videoUrls.length === 1 ? 'video' : `${videoUrls.length} videos`}…`);
+      context?.emitStage?.('processing_media', {
+        icon: 'media',
+        url: trimmedUrl,
+        videoCount: videoUrls.length,
+        phase: 'analyze_video',
+      });
       const contentParts: LLMContentPart[] = [];
 
       // Add video URL parts (capped to avoid context overflow)

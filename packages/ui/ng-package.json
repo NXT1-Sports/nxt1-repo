@@ -9,6 +9,7 @@
     "@nxt1/design-tokens",
     "@stripe/stripe-js",
     "capacitor-native-biometric",
+    "zod",
     "marked",
     "dompurify"
   ],

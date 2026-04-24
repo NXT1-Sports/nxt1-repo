@@ -13,7 +13,6 @@
  * Component architecture:
  * NxtManageTeamLandingComponent (orchestrator)
  *   NxtHeroSectionComponent                    (shared hero — badge, title, CTAs, media slot)
- *     NxtManageTeamDashboardPreviewComponent   (projected media)
  *   NxtStatsBarComponent                       (reusable)
  *   NxtFeatureShowcaseComponent                (reusable)
  *   NxtAudienceSectionComponent                (reusable)
@@ -31,7 +30,6 @@ import {
 import { NxtAudienceSectionComponent, type AudienceSegment } from '../components/audience-section';
 import { NxtCtaBannerComponent } from '../components/cta-banner';
 import { NxtHeroSectionComponent } from '../components/hero-section';
-import { NxtManageTeamDashboardPreviewComponent } from './manage-team-dashboard-preview.component';
 
 // ============================================
 // CONSTANTS — Page-Specific Content
@@ -155,7 +153,6 @@ const TEAM_FAQS: FaqItem[] = [
     NxtFaqSectionComponent,
     NxtCtaBannerComponent,
     NxtHeroSectionComponent,
-    NxtManageTeamDashboardPreviewComponent,
   ],
   template: `
     <!-- Hero Section — uses shared NxtHeroSectionComponent -->
@@ -170,9 +167,7 @@ const TEAM_FAQS: FaqItem[] = [
       secondaryCtaLabel="Log In"
       secondaryCtaRoute="/auth"
       ariaId="manage-team-hero-title"
-    >
-      <nxt1-manage-team-dashboard-preview />
-    </nxt1-hero-section>
+    />
 
     <!-- Social Proof Stats -->
     <nxt1-stats-bar [stats]="stats" />

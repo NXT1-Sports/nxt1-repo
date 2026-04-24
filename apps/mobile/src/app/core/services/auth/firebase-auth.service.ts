@@ -60,6 +60,7 @@ import { environment } from '../../../../environments/environment';
 import { Subscription } from 'rxjs';
 import { NxtPlatformService, NxtLoggingService } from '@nxt1/ui';
 import { type ILogger } from '@nxt1/core/logging';
+import { GOOGLE_OAUTH_SCOPES } from '@nxt1/core/auth';
 import { NativeAuthService } from './native-auth.service';
 import { FirebaseUserInfo, NativeAuthResult } from '@nxt1/core';
 
@@ -266,7 +267,7 @@ export class FirebaseAuthService implements OnDestroy {
    * @returns UserCredential from Firebase Auth
    * @throws Error on failure (cancellation returns null internally, but this throws)
    */
-  async signInWithGoogle(): Promise<UserCredential> {
+  async signInWithGoogle(onAccountSelected?: () => void): Promise<UserCredential> {
     // Use native auth on iOS/Android
     if (this.nativeAuth.isNativeAvailable) {
       this.logger.debug('Using native Google Sign-In via @capacitor-firebase/authentication');
@@ -279,6 +280,10 @@ export class FirebaseAuthService implements OnDestroy {
           this.logger.debug('User cancelled Google Sign-In');
           throw new Error('Sign-in was cancelled');
         }
+
+        // Native account has been chosen. Signal the caller so UI can show loading
+        // while Firebase auth state sync / token work continues.
+        onAccountSelected?.();
 
         // @capacitor-firebase/authentication should have signed in to Firebase automatically
         // But sometimes auth state hasn't synced yet. Wait a bit and check again.
@@ -351,10 +356,9 @@ export class FirebaseAuthService implements OnDestroy {
     this.logger.debug('Using web Google Sign-In (fallback)');
     const webResult = await runInInjectionContext(this.injector, () => {
       const provider = new GoogleAuthProvider();
-      provider.addScope('profile');
-      provider.addScope('email');
-      provider.addScope('https://www.googleapis.com/auth/gmail.send');
-      provider.addScope('https://www.googleapis.com/auth/gmail.readonly');
+      for (const scope of GOOGLE_OAUTH_SCOPES) {
+        provider.addScope(scope);
+      }
       return signInWithPopup(this.auth, provider);
     });
 
@@ -384,7 +388,7 @@ export class FirebaseAuthService implements OnDestroy {
    * @returns UserCredential from Firebase Auth
    * @throws Error on failure
    */
-  async signInWithApple(): Promise<UserCredential> {
+  async signInWithApple(onAccountSelected?: () => void): Promise<UserCredential> {
     // Use native auth on iOS/Android
     if (this.nativeAuth.isNativeAvailable) {
       this.logger.debug('Using native Apple Sign-In');
@@ -397,45 +401,25 @@ export class FirebaseAuthService implements OnDestroy {
           throw new Error('Sign-in was cancelled');
         }
 
-        // @capacitor-firebase/authentication should have signed in to Firebase automatically
-        // But sometimes auth state hasn't synced yet. Wait a bit and check again.
-        let currentUser = this.auth.currentUser;
+        // Native account has been chosen. Signal the caller so UI can show loading.
+        onAccountSelected?.();
 
-        if (!currentUser) {
-          this.logger.debug('Waiting for Firebase auth state to sync...');
-          // Wait up to 2 seconds for auth state to update
-          for (let i = 0; i < 20; i++) {
-            await new Promise((resolve) => setTimeout(resolve, 100));
-            currentUser = this.auth.currentUser;
-            if (currentUser) {
-              this.logger.debug('Firebase auth state synced (Apple)', { delayMs: (i + 1) * 100 });
-              break;
-            }
-          }
+        // @capacitor-community/apple-sign-in does NOT auto-sign into Firebase
+        // (unlike @capacitor-firebase/authentication for Google).
+        // Go straight to signInWithCredential — no polling needed.
+        if (nativeResult.idToken && nativeResult.rawNonce) {
+          this.logger.debug('Signing into Firebase with Apple credential');
+          const appleProvider = new OAuthProvider('apple.com');
+          const credential = appleProvider.credential({
+            idToken: nativeResult.idToken,
+            rawNonce: nativeResult.rawNonce,
+          });
+          return await runInInjectionContext(this.injector, () =>
+            signInWithCredential(this.auth, credential)
+          );
         }
 
-        if (!currentUser) {
-          // Last resort: manually sign in with the credential if we have tokens
-          if (nativeResult.idToken && nativeResult.rawNonce) {
-            const appleProvider = new OAuthProvider('apple.com');
-            const credential = appleProvider.credential({
-              idToken: nativeResult.idToken,
-              rawNonce: nativeResult.rawNonce,
-            });
-            const result = await runInInjectionContext(this.injector, () =>
-              signInWithCredential(this.auth, credential)
-            );
-            return result;
-          }
-
-          throw new Error('Apple Sign-In succeeded but no Firebase user found. Please try again.');
-        }
-
-        return {
-          user: currentUser,
-          providerId: 'apple.com',
-          operationType: 'signIn',
-        } as UserCredential;
+        throw new Error('Apple Sign-In succeeded but no tokens returned. Please try again.');
       } catch (error) {
         this.logger.error('Apple Sign-In error:', error);
         throw error;
@@ -464,7 +448,7 @@ export class FirebaseAuthService implements OnDestroy {
    * @returns UserCredential from Firebase Auth or null if not available
    * @throws Error on failure
    */
-  async signInWithMicrosoft(): Promise<UserCredential | null> {
+  async signInWithMicrosoft(onAccountSelected?: () => void): Promise<UserCredential | null> {
     this.logger.debug('Starting Microsoft Sign-In');
 
     if (this.nativeAuth.isNativeAvailable) {
@@ -484,6 +468,9 @@ export class FirebaseAuthService implements OnDestroy {
           this.logger.debug('User cancelled Microsoft Sign-In');
           return null;
         }
+
+        // Native account has been chosen. Signal the caller so UI can show loading.
+        onAccountSelected?.();
 
         const userCredential = await this.signInWithNativeCredential(result);
 
@@ -532,7 +519,7 @@ export class FirebaseAuthService implements OnDestroy {
    *
    * Called after native Google Sign-In when a serverAuthCode is present.
    * The backend exchanges the one-time code for a long-lived refresh token
-   * and stores it in Users/{uid}/emailTokens/gmail so emails can be sent
+   * and stores it in Users/{uid}/oauthTokens/google so emails can be sent
    * on behalf of the user.
    *
    * Fire-and-forget — callers should not await this. A failure here must

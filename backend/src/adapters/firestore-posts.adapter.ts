@@ -7,16 +7,7 @@
  */
 
 import type { Timestamp } from 'firebase-admin/firestore';
-import type {
-  FeedPost,
-  FeedComment,
-  FeedAuthor,
-  FeedCommentAuthor,
-  FeedPostType,
-  FeedPostVisibility,
-  FeedAuthorRole,
-  FeedVerificationStatus,
-} from '@nxt1/core/feed';
+import type { FeedPost, FeedMedia, FeedAuthor, FeedPostType } from '@nxt1/core/posts';
 import type { PostVisibility } from '@nxt1/core/constants';
 
 type PostType = string;
@@ -34,11 +25,33 @@ export interface FirestorePostDoc {
   type: PostType;
   visibility: PostVisibility;
   teamId?: string;
+  /**
+   * Lowercase sport key (e.g. "football", "basketball") that filters this
+   * post onto the corresponding sport profile timeline. Required for the
+   * post to be visible under any per-sport profile view.
+   */
+  sportId?: string;
+  /** Backward-compatible alias of {@link sportId} read by older surfaces. */
+  sport?: string;
   images?: string[];
+  mediaUrl?: string;
   videoUrl?: string;
+  thumbnailUrl?: string;
+  poster?: string;
+  duration?: number;
+  playback?: {
+    hlsUrl?: string;
+    dashUrl?: string;
+    iframeUrl?: string;
+  };
+  /** Cloudflare Stream video UID (set by upload route) */
+  cloudflareVideoId?: string;
+  /** Cloudflare processing state (set/updated by webhook) */
+  cloudflareStatus?: string;
+  /** True once Cloudflare has finished transcoding */
+  readyToStream?: boolean;
   externalLinks?: string[];
   mentions?: string[];
-  hashtags?: string[];
   location?: string;
   poll?: {
     question: string;
@@ -49,33 +62,13 @@ export interface FirestorePostDoc {
   };
   scheduledFor?: Timestamp;
   isPinned?: boolean;
-  commentsDisabled?: boolean;
   createdAt: Timestamp;
   updatedAt: Timestamp;
   deletedAt?: Timestamp;
   stats: {
-    likes: number;
-    comments: number;
     shares: number;
     views: number;
   };
-}
-
-/**
- * Firestore Comment document (raw from Firestore)
- */
-export interface FirestoreCommentDoc {
-  postId: string;
-  userId: string;
-  content: string;
-  createdAt: Timestamp;
-  updatedAt: Timestamp;
-  deletedAt?: Timestamp;
-  stats?: {
-    likes: number;
-    replies: number;
-  };
-  parentId?: string;
 }
 
 /**
@@ -105,56 +98,29 @@ export interface UserProfile {
 /**
  * Convert Firestore Timestamp to ISO string
  */
-export function timestampToISO(timestamp: Timestamp | undefined): string {
+export function timestampToISO(timestamp: Timestamp | unknown | undefined): string {
   if (!timestamp) {
     return new Date().toISOString();
   }
-  return timestamp.toDate().toISOString();
+  // Native Firestore Timestamp
+  if (typeof (timestamp as Timestamp).toDate === 'function') {
+    return (timestamp as Timestamp).toDate().toISOString();
+  }
+  // Plain serialized Timestamp object: { _seconds, _nanoseconds } or { seconds, nanoseconds }
+  const ts = timestamp as Record<string, unknown>;
+  const seconds = (ts['_seconds'] ?? ts['seconds']) as number | undefined;
+  if (typeof seconds === 'number') {
+    return new Date(seconds * 1000).toISOString();
+  }
+  // Already an ISO string or Date
+  const d = new Date(timestamp as string | number);
+  return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
 }
 
 /**
  * Convert user profile to FeedAuthor
  */
 export function userProfileToFeedAuthor(profile: UserProfile): FeedAuthor {
-  const validRoles: readonly FeedAuthorRole[] = [
-    'athlete',
-    'coach',
-    'team',
-    'recruiter',
-    'parent',
-    'official',
-  ];
-
-  // Normalize legacy role strings to new FeedAuthorRole values
-  let profileRole = profile.role as string;
-  const legacyRoleMap: Record<string, FeedAuthorRole> = {
-    college_coach: 'recruiter',
-    'college-coach': 'recruiter',
-    'recruiting-service': 'recruiter',
-    scout: 'recruiter',
-    media: 'recruiter',
-    fan: 'athlete',
-  };
-  if (legacyRoleMap[profileRole]) {
-    profileRole = legacyRoleMap[profileRole];
-  }
-
-  const validStatuses: readonly FeedVerificationStatus[] = [
-    'unverified',
-    'pending',
-    'verified',
-    'premium',
-  ];
-
-  const role: FeedAuthorRole = validRoles.includes(profileRole as FeedAuthorRole)
-    ? (profileRole as FeedAuthorRole)
-    : 'athlete';
-  const verificationStatus: FeedVerificationStatus = validStatuses.includes(
-    profile.verificationStatus as FeedVerificationStatus
-  )
-    ? (profile.verificationStatus as FeedVerificationStatus)
-    : 'unverified';
-
   return {
     uid: profile.uid,
     profileCode: profile.profileCode || profile.uid,
@@ -162,28 +128,12 @@ export function userProfileToFeedAuthor(profile: UserProfile): FeedAuthor {
     firstName: profile.firstName || profile.displayName.split(' ')[0] || '',
     lastName: profile.lastName || profile.displayName.split(' ').slice(1).join(' ') || '',
     avatarUrl: profile.photoURL,
-    role,
-    verificationStatus,
-    isVerified: profile.isVerified || false,
-    sport: profile.sport,
-    position: profile.position,
-    schoolName: profile.schoolName,
-    schoolLogoUrl: profile.schoolLogoUrl,
-    classYear: profile.classYear,
   };
 }
 
-/**
- * Convert user profile to FeedCommentAuthor
- */
-export function userProfileToCommentAuthor(profile: UserProfile): FeedCommentAuthor {
-  return {
-    uid: profile.uid,
-    profileCode: profile.profileCode || profile.uid,
-    displayName: profile.displayName,
-    avatarUrl: profile.photoURL,
-    isVerified: profile.isVerified || false,
-  };
+function buildCloudflareThumbnailUrl(cloudflareVideoId?: string): string | undefined {
+  if (!cloudflareVideoId) return undefined;
+  return `https://videodelivery.net/${cloudflareVideoId}/thumbnails/thumbnail.jpg`;
 }
 
 /**
@@ -192,69 +142,59 @@ export function userProfileToCommentAuthor(profile: UserProfile): FeedCommentAut
 export function firestorePostToFeedPost(
   id: string,
   doc: FirestorePostDoc,
-  author: FeedAuthor,
-  userEngagement?: {
-    isLiked?: boolean;
-    isBookmarked?: boolean;
-    isReposted?: boolean;
-  }
+  author: FeedAuthor
 ): FeedPost {
+  const media: FeedMedia[] = (doc.images || []).map((url, index) => ({
+    id: `${id}-image-${index}`,
+    type: 'image' as const,
+    url,
+  }));
+
+  const iframeUrl = doc.playback?.iframeUrl ?? doc.mediaUrl ?? null;
+  const hlsUrl = doc.playback?.hlsUrl ?? doc.videoUrl ?? null;
+  const dashUrl = doc.playback?.dashUrl ?? null;
+  const thumbnailUrl =
+    doc.thumbnailUrl ?? doc.poster ?? buildCloudflareThumbnailUrl(doc.cloudflareVideoId);
+  const hasVideo = !!(iframeUrl || hlsUrl);
+
+  // Determine Cloudflare processing status
+  const cfStatus = doc.cloudflareStatus as FeedMedia['processingStatus'] | undefined;
+  const processingStatus: FeedMedia['processingStatus'] =
+    cfStatus ?? (doc.readyToStream === true ? 'ready' : hasVideo ? 'ready' : undefined);
+
+  if (hasVideo || doc.cloudflareVideoId) {
+    // Use iframeUrl as the primary `url` (Cloudflare Stream iframe player);
+    // fall back to hlsUrl for legacy non-CF video posts.
+    const primaryUrl = iframeUrl ?? hlsUrl ?? '';
+    media.push({
+      id: `${id}-video-0`,
+      type: 'video' as const,
+      url: primaryUrl,
+      thumbnailUrl,
+      duration: doc.duration,
+      altText: doc.content || 'Highlight video',
+      ...(doc.cloudflareVideoId ? { cloudflareVideoId: doc.cloudflareVideoId } : {}),
+      ...(iframeUrl ? { iframeUrl } : {}),
+      ...(hlsUrl ? { hlsUrl } : {}),
+      ...(dashUrl ? { dashUrl } : {}),
+      ...(processingStatus ? { processingStatus } : {}),
+    });
+  }
+
   return {
     id,
     type: mapPostTypeToFeedType(doc.type),
-    visibility: mapPostVisibilityToFeedVisibility(doc.visibility),
     author,
     content: doc.content,
-    media: (doc.images || []).map((url, index) => ({
-      id: `${id}-image-${index}`,
-      type: 'image' as const,
-      url,
-    })),
+    media,
     engagement: {
-      reactionCount: doc.stats?.likes || 0,
-      likeCount: doc.stats?.likes || 0,
-      commentCount: doc.stats?.comments || 0,
-      repostCount: 0,
-      shareCount: doc.stats?.shares || 0,
-      viewCount: doc.stats?.views || 0,
+      shareCount: 0,
+      viewCount: 0,
     },
-    userEngagement: {
-      isReacted: userEngagement?.isLiked || false,
-      reactionType: userEngagement?.isLiked ? 'like' : null,
-      isLiked: userEngagement?.isLiked || false,
-      isBookmarked: userEngagement?.isBookmarked || false,
-      isReposted: userEngagement?.isReposted || false,
-    },
-    mentions: doc.mentions,
-    hashtags: doc.hashtags,
     location: doc.location,
     isPinned: doc.isPinned || false,
-    isFeatured: false,
-    commentsDisabled: doc.commentsDisabled || false,
     createdAt: timestampToISO(doc.createdAt),
     updatedAt: timestampToISO(doc.updatedAt),
-  };
-}
-
-/**
- * Convert Firestore comment document to FeedComment
- */
-export function firestoreCommentToFeedComment(
-  id: string,
-  doc: FirestoreCommentDoc,
-  author: FeedCommentAuthor,
-  isLiked?: boolean
-): FeedComment {
-  return {
-    id,
-    postId: doc.postId,
-    author,
-    content: doc.content,
-    likeCount: doc.stats?.likes || 0,
-    isLiked: isLiked || false,
-    replyCount: doc.stats?.replies || 0,
-    parentId: doc.parentId,
-    createdAt: timestampToISO(doc.createdAt),
   };
 }
 
@@ -266,7 +206,7 @@ function mapPostTypeToFeedType(type: PostType): FeedPostType {
     text: 'text',
     photo: 'image',
     video: 'video',
-    highlight: 'highlight',
+    highlight: 'video', // backward compat — old docs stored as 'highlight', now treated as 'video'
     stats: 'text',
     achievement: 'milestone',
     announcement: 'text',
@@ -278,71 +218,7 @@ function mapPostTypeToFeedType(type: PostType): FeedPostType {
 /**
  * Map backend PostVisibility to FeedPostVisibility
  */
-function mapPostVisibilityToFeedVisibility(visibility: PostVisibility): FeedPostVisibility {
-  const mapping: Record<string, FeedPostVisibility> = {
-    PUBLIC: 'public',
-    TEAM: 'team',
-    PRIVATE: 'private',
-  };
-  return mapping[visibility] || 'public';
-}
 
 // ============================================
 // BATCH CONVERSION UTILITIES
 // ============================================
-
-/**
- * Convert multiple Firestore posts to FeedPosts
- */
-export async function batchConvertPosts(
-  posts: Array<{ id: string; data: FirestorePostDoc }>,
-  getUserProfile: (userId: string) => Promise<UserProfile | null>,
-  getUserEngagement?: (
-    postId: string,
-    userId: string
-  ) => Promise<
-    | {
-        isLiked?: boolean;
-        isBookmarked?: boolean;
-        isReposted?: boolean;
-      }
-    | undefined
-  >
-): Promise<FeedPost[]> {
-  const feedPosts: FeedPost[] = [];
-
-  for (const post of posts) {
-    const author = await getUserProfile(post.data.userId);
-    if (!author) continue;
-
-    const feedAuthor = userProfileToFeedAuthor(author);
-    const engagement = getUserEngagement ? await getUserEngagement(post.id, author.uid) : undefined;
-
-    feedPosts.push(firestorePostToFeedPost(post.id, post.data, feedAuthor, engagement));
-  }
-
-  return feedPosts;
-}
-
-/**
- * Convert multiple Firestore comments to FeedComments
- */
-export async function batchConvertComments(
-  comments: Array<{ id: string; data: FirestoreCommentDoc }>,
-  getUserProfile: (userId: string) => Promise<UserProfile | null>,
-  getUserLikes?: (commentId: string, userId: string) => Promise<boolean>
-): Promise<FeedComment[]> {
-  const feedComments: FeedComment[] = [];
-
-  for (const comment of comments) {
-    const author = await getUserProfile(comment.data.userId);
-    if (!author) continue;
-
-    const feedAuthor = userProfileToCommentAuthor(author);
-    const isLiked = getUserLikes ? await getUserLikes(comment.id, author.uid) : false;
-
-    feedComments.push(firestoreCommentToFeedComment(comment.id, comment.data, feedAuthor, isLiked));
-  }
-
-  return feedComments;
-}

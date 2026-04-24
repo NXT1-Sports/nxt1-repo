@@ -74,6 +74,7 @@ import { NxtListRowComponent } from '../../components/list-row';
 import { NxtListSectionComponent } from '../../components/list-section';
 import { NxtModalService } from '../../services/modal';
 import { NxtMediaGalleryComponent } from '../../components/media-gallery';
+import { normalizeImageFileForUpload } from '../../services/media/image-normalization';
 
 // ============================================
 // CONSTANTS
@@ -382,6 +383,38 @@ export type CoachTitleOption = (typeof COACH_TITLE_OPTIONS)[number]['value'];
               <!-- Location error -->
               @if (locationError()) {
                 <p class="nxt1-location-error">{{ locationError() }}</p>
+              }
+
+              <!-- Manual location input - shown on detection failure or when user opts in -->
+              @if (showManualInput()) {
+                <div class="nxt1-location-manual">
+                  <ion-input
+                    class="nxt1-input nxt1-location-manual-input"
+                    fill="outline"
+                    placeholder="City, State (e.g. Austin, TX)"
+                    [value]="manualLocationValue()"
+                    (ionInput)="onManualLocationInput($event)"
+                    data-testid="onboarding-location-manual-input"
+                  />
+                  <button
+                    type="button"
+                    class="nxt1-location-manual-submit"
+                    [disabled]="!manualLocationValue().trim() || disabled()"
+                    (click)="onManualLocationSubmit()"
+                    data-testid="onboarding-location-manual-submit"
+                  >
+                    Set Location
+                  </button>
+                </div>
+              } @else if (!hasLocation() && !isLoadingLocation()) {
+                <button
+                  type="button"
+                  class="nxt1-location-manual-link"
+                  (click)="onEnterManually()"
+                  data-testid="onboarding-location-manual-link"
+                >
+                  Enter location manually
+                </button>
               }
             </div>
           </nxt1-form-field>
@@ -726,6 +759,57 @@ export type CoachTitleOption = (typeof COACH_TITLE_OPTIONS)[number]['value'];
         margin: 0;
       }
 
+      .nxt1-location-manual {
+        display: flex;
+        flex-direction: column;
+        gap: var(--nxt1-spacing-2, 8px);
+      }
+
+      .nxt1-location-manual-input {
+        width: 100%;
+      }
+
+      .nxt1-location-manual-submit {
+        width: 100%;
+        padding: var(--nxt1-spacing-3, 12px) var(--nxt1-spacing-4, 16px);
+        border: none;
+        border-radius: var(--nxt1-borderRadius-lg, 12px);
+        background: var(--nxt1-color-primary, #ccff00);
+        color: var(--nxt1-color-text-onPrimary, #0a0a0a);
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-sm, 0.875rem);
+        font-weight: 600;
+        cursor: pointer;
+        transition: opacity var(--nxt1-duration-fast, 150ms) ease-out;
+      }
+
+      .nxt1-location-manual-submit:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+
+      .nxt1-location-manual-submit:hover:not(:disabled) {
+        opacity: 0.9;
+      }
+
+      .nxt1-location-manual-link {
+        background: none;
+        border: none;
+        padding: var(--nxt1-spacing-1, 4px) 0;
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-xs, 0.75rem);
+        color: var(--nxt1-color-text-tertiary);
+        cursor: pointer;
+        text-decoration: underline;
+        text-underline-offset: 2px;
+        align-self: flex-start;
+        transition: color var(--nxt1-duration-fast, 150ms) ease-out;
+      }
+
+      .nxt1-location-manual-link:hover {
+        color: var(--nxt1-color-text-secondary);
+      }
+
       /* List-row variant styles */
       .nxt1-list-value {
         font-family: var(--nxt1-fontFamily-brand);
@@ -891,6 +975,12 @@ export class OnboardingProfileStepComponent {
   /** Location error message */
   readonly locationError = signal<string | null>(null);
 
+  /** Whether to show the manual location input */
+  readonly showManualInput = signal(false);
+
+  /** Current value of the manual location text input */
+  readonly manualLocationValue = signal('');
+
   /** First name field touched */
   readonly firstNameTouched = signal(false);
 
@@ -969,13 +1059,8 @@ export class OnboardingProfileStepComponent {
     () => this.showClassYear() && this.userType() === USER_ROLES.ATHLETE
   );
 
-  /** Whether to show profile photo gallery (hidden for coaches, directors, and recruiters) */
-  readonly showPhotos = computed(
-    () =>
-      this.userType() !== USER_ROLES.COACH &&
-      this.userType() !== USER_ROLES.DIRECTOR &&
-      this.userType() !== USER_ROLES.RECRUITER
-  );
+  /** Whether to show profile photo gallery (athletes only) */
+  readonly showPhotos = computed(() => this.userType() === USER_ROLES.ATHLETE);
 
   /** Display label for coach title in list-row variant */
   readonly coachTitleDisplayLabel = computed(() => {
@@ -1101,12 +1186,77 @@ export class OnboardingProfileStepComponent {
   }
 
   /**
-   * Set location error
+   * Set location error and automatically surface the manual input
    */
   setLocationError(error: string): void {
     this.isLoadingLocation.set(false);
     this.locationError.set(error);
+    this.showManualInput.set(true);
     this.logger.warn('Location detection failed', { error });
+  }
+
+  /**
+   * Show the manual location input (user opted in without detection failure)
+   */
+  onEnterManually(): void {
+    this.showManualInput.set(true);
+    this.locationError.set(null);
+    this.logger.debug('Manual location input opened');
+  }
+
+  /**
+   * Handle manual location text input changes
+   */
+  onManualLocationInput(event: CustomEvent): void {
+    this.manualLocationValue.set((event.detail?.value as string) ?? '');
+  }
+
+  /**
+   * Parse and apply a manually entered "City, State" location string.
+   * Accepts formats: "Austin, TX", "Austin TX", "Austin"
+   */
+  onManualLocationSubmit(): void {
+    const raw = this.manualLocationValue().trim();
+    if (!raw) return;
+
+    let city: string | undefined;
+    let state = '';
+
+    const commaIdx = raw.indexOf(',');
+    if (commaIdx !== -1) {
+      city = raw.slice(0, commaIdx).trim();
+      state = raw
+        .slice(commaIdx + 1)
+        .trim()
+        .toUpperCase();
+    } else {
+      // Try splitting on last whitespace group to detect a state abbreviation
+      const parts = raw.split(/\s+/);
+      if (parts.length >= 2) {
+        const lastPart = parts[parts.length - 1];
+        // If last token looks like a 2-letter state abbreviation, treat it as state
+        if (/^[A-Za-z]{2}$/.test(lastPart)) {
+          state = lastPart.toUpperCase();
+          city = parts.slice(0, -1).join(' ');
+        } else {
+          city = raw;
+        }
+      } else {
+        city = raw;
+      }
+    }
+
+    const locationData: ProfileLocationData = {
+      city: city || undefined,
+      state: state || undefined,
+      formatted: raw,
+      isAutoDetected: false,
+    };
+
+    this.setLocation(locationData);
+    this.showManualInput.set(false);
+    this.manualLocationValue.set('');
+    this.logger.info('Manual location set', { city, state });
   }
 
   /**
@@ -1157,7 +1307,7 @@ export class OnboardingProfileStepComponent {
   /**
    * Handle file selection from web file picker - now supports multiple files
    */
-  onFileSelected(event: Event): void {
+  async onFileSelected(event: Event): Promise<void> {
     if (!this.isBrowser) return;
 
     const input = event.target as HTMLInputElement;
@@ -1165,7 +1315,7 @@ export class OnboardingProfileStepComponent {
 
     if (files.length === 0) return;
 
-    const validFiles: File[] = [];
+    const filesToNormalize: File[] = [];
 
     // Validate each file
     for (const file of files) {
@@ -1193,10 +1343,14 @@ export class OnboardingProfileStepComponent {
         continue;
       }
 
-      validFiles.push(file);
+      filesToNormalize.push(file);
     }
 
-    if (validFiles.length === 0) return;
+    if (filesToNormalize.length === 0) return;
+
+    const validFiles = await Promise.all(
+      filesToNormalize.map((file) => normalizeImageFileForUpload(file))
+    );
 
     // Log successful file selection
     this.logger.debug('Profile photos selected', {

@@ -27,6 +27,7 @@ import { isPlatformBrowser } from '@angular/common';
 import { NavController, Platform } from '@ionic/angular/standalone';
 import { NxtLoggingService, NxtBreadcrumbService } from '@nxt1/ui';
 import type { ILogger } from '@nxt1/core/logging';
+import { environment } from '../../../../environments/environment';
 
 /** Deep link event for tracking */
 export interface DeepLinkEvent {
@@ -55,6 +56,12 @@ export class DeepLinkService {
   private readonly ngZone = inject(NgZone);
   private readonly breadcrumbs = inject(NxtBreadcrumbService);
   private readonly logger: ILogger = inject(NxtLoggingService).child('DeepLinkService');
+  private readonly webBaseUrl = environment.webUrl.replace(/\/+$/, '');
+  private readonly supportedCustomSchemes = [
+    'nxt1://',
+    'nxt1sports://',
+    'com.nxt1sports.app.twa://',
+  ] as const;
 
   // ============================================
   // STATE
@@ -83,23 +90,39 @@ export class DeepLinkService {
    * Uses clean URLs (no tabs prefix) matching web platform
    */
   private readonly routeMap: DeepLinkRoute[] = [
-    // Profile pages
+    // Canonical profile pages
     {
-      pattern: /^\/profile\/([a-zA-Z0-9_-]+)\/?$/,
-      route: '/profile',
-      extractParams: (m) => ({ userId: m[1] }),
+      pattern: /^\/profile\/([^/]+)\/([^/]+)\/([^/]+)\/?$/,
+      route: '/profile/:sport/:name/:unicode',
+      extractParams: (match) => ({
+        sport: this.decodePathSegment(match[1]),
+        name: this.decodePathSegment(match[2]),
+        unicode: this.decodePathSegment(match[3]),
+      }),
     },
     {
-      pattern: /^\/athlete\/([a-zA-Z0-9_-]+)\/?$/,
-      route: '/profile',
-      extractParams: (m) => ({ userId: m[1] }),
+      pattern: /^\/profile\/([^/]+)\/?$/,
+      route: '/profile/:unicode',
+      extractParams: (match) => ({
+        unicode: this.decodePathSegment(match[1]),
+      }),
+    },
+    {
+      pattern: /^\/athlete\/([^/]+)\/?$/,
+      route: '/profile/:unicode',
+      extractParams: (match) => ({
+        unicode: this.decodePathSegment(match[1]),
+      }),
     },
 
-    // Team pages
+    // Canonical team pages (/team/:slug/:teamCode)
     {
-      pattern: /^\/team\/([a-zA-Z0-9_-]+)\/?$/,
-      route: '/team',
-      extractParams: (m) => ({ teamId: m[1] }),
+      pattern: /^\/team\/([^/]+)\/([^/]+)\/?$/,
+      route: '/team/:slug/:teamCode',
+      extractParams: (match) => ({
+        slug: this.decodePathSegment(match[1]),
+        teamCode: this.decodePathSegment(match[2]),
+      }),
     },
 
     // Post/Content
@@ -275,19 +298,36 @@ export class DeepLinkService {
     }
   }
 
+  private decodePathSegment(value: string | undefined): string {
+    if (!value) return '';
+
+    try {
+      return decodeURIComponent(value);
+    } catch {
+      return value;
+    }
+  }
+
+  private normalizeIncomingUrl(url: string): string {
+    const trimmedUrl = url.trim();
+    const matchingScheme = this.supportedCustomSchemes.find((scheme) =>
+      trimmedUrl.startsWith(scheme)
+    );
+
+    if (!matchingScheme) {
+      return trimmedUrl;
+    }
+
+    const remainder = trimmedUrl.slice(matchingScheme.length);
+    const normalizedPath = remainder.startsWith('/') ? remainder : `/${remainder}`;
+    return `${this.webBaseUrl}${normalizedPath}`;
+  }
+
   /**
    * Parse a deep link URL into path and params
    */
   private parseDeepLink(url: string): { path: string; params: Record<string, string> } {
-    let parsedUrl: URL;
-
-    // Handle custom scheme (nxt1://)
-    if (url.startsWith('nxt1://')) {
-      // Convert nxt1://path to https://nxt1sports.com/path for parsing
-      parsedUrl = new URL(url.replace('nxt1://', 'https://nxt1sports.com/'));
-    } else {
-      parsedUrl = new URL(url);
-    }
+    const parsedUrl = new URL(this.normalizeIncomingUrl(url));
 
     const path = parsedUrl.pathname;
     const params: Record<string, string> = {};

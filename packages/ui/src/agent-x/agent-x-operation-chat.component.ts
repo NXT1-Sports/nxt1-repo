@@ -42,6 +42,8 @@ import {
   output,
   PLATFORM_ID,
   DestroyRef,
+  EnvironmentInjector,
+  runInInjectionContext,
 } from '@angular/core';
 import { CommonModule, isPlatformBrowser } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -63,6 +65,7 @@ import {
   AGENT_X_ENDPOINTS,
   AGENT_X_MAX_ATTACHMENTS,
   AGENT_X_MAX_FILE_SIZE,
+  AGENT_X_MAX_VIDEO_FILE_SIZE,
   resolveAttachmentType,
 } from '@nxt1/core/ai';
 import { ModalController } from '@ionic/angular/standalone';
@@ -76,15 +79,21 @@ import { NxtToastService } from '../services/toast/toast.service';
 import { ANALYTICS_ADAPTER } from '../services/analytics/analytics-adapter.token';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import { AGENT_X_OPERATION_CHAT_TEST_IDS } from '@nxt1/core/testing';
-import { AgentXPromptInputComponent } from './agent-x-prompt-input.component';
+import { AgentXInputBarComponent } from './agent-x-input-bar.component';
 import {
   AGENT_X_API_BASE_URL,
   AGENT_X_AUTH_TOKEN_FACTORY,
   AgentXJobService,
 } from './agent-x-job.service';
 import { AgentXStreamRegistryService } from './agent-x-stream-registry.service';
-import { AgentXOperationEventService } from './agent-x-operation-event.service';
+import {
+  AgentXOperationEventService,
+  type OperationEventSubscription,
+} from './agent-x-operation-event.service';
 import { AgentXService } from './agent-x.service';
+import { AgentXVideoUploadService } from './agent-x-video-upload.service';
+import { IntelService } from '../intel/intel.service';
+import { ProfileGenerationStateService } from '../profile/profile-generation-state.service';
 import { NxtMediaViewerService } from '../components/media-viewer/media-viewer.service';
 import type { MediaViewerItem } from '../components/media-viewer/media-viewer.types';
 import { NxtDragDropDirective } from '../services/gesture';
@@ -94,10 +103,22 @@ import {
   type ActionCardReplyEvent,
 } from './agent-x-action-card.component';
 import type { BillingActionResolvedEvent } from './agent-x-billing-action-card.component';
+import type { ConfirmationActionEvent } from './agent-x-confirmation-card.component';
+import type { AskUserReplyEvent } from './agent-x-ask-user-card.component';
 import type { DraftSubmittedEvent } from './agent-x-draft-card.component';
 import type { AgentYieldState } from '@nxt1/core';
-import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from './fab/agent-x-logo.constants';
+import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/assets';
 import type { AgentXPendingFile } from './agent-x-pending-file';
+import { getThinkingLabel, getToolStepDisplayLabel } from './agent-x-agent-presentation';
+import {
+  AgentXAttachmentsSheetComponent,
+  type ConnectedAppSource,
+} from './agent-x-attachments-sheet.component';
+import { buildPendingAttachmentViewer } from './pending-attachments-viewer.util';
+import {
+  bindAgentXKeyboardOffset,
+  type AgentXKeyboardOffsetBinding,
+} from './agent-x-keyboard-offset.util';
 
 // ============================================
 // INTERFACES
@@ -155,7 +176,7 @@ interface OperationMessage {
     NxtChatBubbleComponent,
     NxtIconComponent,
     NxtDragDropDirective,
-    AgentXPromptInputComponent,
+    AgentXInputBarComponent,
     AgentXActionCardComponent,
   ],
   template: `
@@ -293,14 +314,19 @@ interface OperationMessage {
               variant="agent-operation"
               [isOwn]="msg.role === 'user'"
               [content]="msg.content"
+              [isStreaming]="msg.id === 'typing'"
               [isTyping]="!!msg.isTyping"
+              [typingLabel]="msg.id === 'typing' ? thinkingLabel() : 'Thinking...'"
               [isError]="!!msg.error"
               [isSystem]="msg.role === 'system'"
               [steps]="msg.steps ?? []"
               [cards]="msg.cards ?? []"
               [parts]="msg.parts ?? []"
               (billingActionResolved)="onBillingActionResolved($event)"
+              (confirmationAction)="onConfirmationAction($event)"
               (draftSubmitted)="onDraftSubmitted($event)"
+              (askUserReply)="onAskUserReply($event)"
+              (retryRequested)="onRetryErrorMessage(msg)"
             />
             @if (msg.attachments?.length) {
               <div class="msg-attachments">
@@ -386,17 +412,20 @@ interface OperationMessage {
                 />
               </svg>
             </div>
-            <span class="thinking-block__label">Agent X is thinking…</span>
+            <span class="thinking-block__label">{{ thinkingLabel() }}</span>
           </div>
         }
 
-        <!-- ═══ HITL ACTION CARD (when operation is yielded) ═══ -->
-        @if (activeYieldState() && !yieldResolved()) {
+        <!-- ═══ HITL ACTION CARD (when operation is yielded — approval only) ═══ -->
+        <!-- ask_user yields are handled inline via the rich card in the chat bubble -->
+        @if (
+          activeYieldState() && !yieldResolved() && activeYieldState()!.reason === 'needs_approval'
+        ) {
           <div class="msg-row msg-assistant">
             <nxt1-agent-action-card
               #actionCard
               [yield]="activeYieldState()!"
-              [operationId]="contextId"
+              [operationId]="yieldOperationId()"
               (approve)="onApproveAction($event)"
               (reply)="onReplyAction($event)"
             />
@@ -453,31 +482,27 @@ interface OperationMessage {
         }
       </div>
 
-      <!-- ═══ INPUT ═══ -->
-      <nxt1-agent-x-prompt-input
-        class="embedded"
-        [hasMessages]="messages().length > 0"
-        [selectedTask]="null"
-        [isLoading]="_loading()"
-        [canSend]="canSend()"
-        [userMessage]="inputValue()"
-        [placeholder]="'Message A Coordinator'"
-        [pendingFiles]="promptInputPendingFiles()"
-        [plusButtonAriaLabel]="'Add attachments'"
-        (messageChange)="inputValue.set($event)"
-        (send)="send()"
-        (stop)="cancelStream()"
-        (toggleTasks)="onUploadClick()"
-        (fileRemoved)="removePendingFile($event)"
-      />
-      <input
-        #fileInput
-        class="file-input-hidden"
-        type="file"
-        [accept]="acceptedFileTypes"
-        multiple
-        (change)="onFileSelected($event)"
-      />
+      <!-- ═══ INPUT FOOTER (floating, keyboard-aware) ═══ -->
+      <div class="chat-input-footer">
+        <nxt1-agent-x-input-bar
+          [userMessage]="inputValue()"
+          [isLoading]="_loading()"
+          [canSend]="canSend()"
+          [pendingFiles]="promptInputPendingFiles()"
+          [pendingSources]="pendingConnectedSources()"
+          [selectedTask]="null"
+          placeholder="Message A Coordinator"
+          (messageChange)="inputValue.set($event)"
+          (send)="send()"
+          (stop)="cancelStream()"
+          (toggleAttachments)="onUploadClick()"
+          (removeFile)="removePendingFile($event)"
+          (removeSource)="
+            pendingConnectedSources.update((srcs) => srcs.filter((_, i) => i !== $event))
+          "
+          (focusInput)="onInputFocus()"
+        />
+      </div>
 
       @if (isDragActive()) {
         <div
@@ -516,7 +541,6 @@ interface OperationMessage {
         height: 100%;
         min-height: 0;
         overflow: hidden;
-        background: var(--ion-background-color, var(--nxt1-color-bg-primary, #0a0a0a));
         color: var(--nxt1-color-text-primary, #fff);
 
         --op-surface: var(
@@ -543,7 +567,6 @@ interface OperationMessage {
 
       :host-context(.light),
       :host-context([data-theme='light']) {
-        background: var(--ion-background-color, var(--nxt1-color-bg-primary, #ffffff));
         color: var(--nxt1-color-text-primary, #1a1a1a);
 
         --op-surface: var(--nxt1-color-surface-100, rgba(0, 0, 0, 0.03));
@@ -649,11 +672,22 @@ interface OperationMessage {
         flex: 1 1 auto;
         min-height: 0;
         overflow-y: auto;
-        padding: 16px 20px;
+        padding: 16px 20px calc(8px + var(--agent-keyboard-offset, 0px));
         display: flex;
         flex-direction: column;
         gap: 20px;
         -webkit-overflow-scrolling: touch;
+      }
+
+      /* ── Floating input footer — transparent, lifts with keyboard ── */
+      .chat-input-footer {
+        background: transparent;
+        transform: translateY(calc(-1 * var(--agent-keyboard-offset, 0px)));
+        transition: transform 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+      }
+
+      :host-context(.keyboard-open) .chat-input-footer {
+        transition-duration: 0.22s;
       }
 
       .messages-area--embedded {
@@ -1055,28 +1089,15 @@ interface OperationMessage {
 
       .quick-option-chip[data-coordinator] {
         --coordinator-pill-accent: var(--op-primary);
-        --coordinator-pill-surface: color-mix(
-          in srgb,
-          var(--coordinator-pill-accent) 18%,
-          var(--op-glass-bg)
-        );
-        --coordinator-pill-border: color-mix(
-          in srgb,
-          var(--coordinator-pill-accent) 54%,
-          var(--op-border)
-        );
-        --coordinator-pill-shadow: color-mix(
-          in srgb,
-          var(--coordinator-pill-accent) 22%,
-          transparent
-        );
-        border-color: var(--coordinator-pill-border);
-        background: var(--coordinator-pill-surface);
+        /* Use the accent directly — no color-mix with inherited bg vars that
+           may resolve incorrectly inside Ionic portal-rendered modals */
+        border-color: var(--coordinator-pill-accent);
+        background: color-mix(in srgb, var(--coordinator-pill-accent) 12%, transparent);
         color: var(--op-text);
         font-weight: 600;
         box-shadow:
-          0 16px 34px var(--coordinator-pill-shadow),
-          inset 0 1px 0 color-mix(in srgb, var(--coordinator-pill-accent) 10%, white);
+          0 4px 16px color-mix(in srgb, var(--coordinator-pill-accent) 20%, transparent),
+          inset 0 1px 0 color-mix(in srgb, var(--coordinator-pill-accent) 25%, white);
         backdrop-filter: var(--nxt1-glass-backdrop, saturate(180%) blur(20px));
         -webkit-backdrop-filter: var(--nxt1-glass-backdrop, saturate(180%) blur(20px));
         transition:
@@ -1088,13 +1109,24 @@ interface OperationMessage {
       }
 
       .quick-option-chip[data-coordinator]:active {
-        border-color: color-mix(in srgb, var(--coordinator-pill-accent) 72%, white);
-        background: color-mix(in srgb, var(--coordinator-pill-accent) 28%, var(--op-glass-bg));
-        color: var(--op-text);
+        background: color-mix(in srgb, var(--coordinator-pill-accent) 22%, transparent);
         box-shadow:
-          0 18px 36px color-mix(in srgb, var(--coordinator-pill-accent) 26%, transparent),
-          inset 0 1px 0 color-mix(in srgb, var(--coordinator-pill-accent) 14%, white);
+          0 6px 18px color-mix(in srgb, var(--coordinator-pill-accent) 28%, transparent),
+          inset 0 1px 0 color-mix(in srgb, var(--coordinator-pill-accent) 30%, white);
         transform: translateY(1px) scale(0.99);
+      }
+
+      /* ─── Light mode: slightly stronger tint since white bg needs more contrast ─── */
+      :host-context(.light) .quick-option-chip[data-coordinator],
+      :host-context([data-theme='light']) .quick-option-chip[data-coordinator],
+      :host-context([data-base-theme='light']) .quick-option-chip[data-coordinator] {
+        background: color-mix(in srgb, var(--coordinator-pill-accent) 16%, transparent);
+      }
+
+      :host-context(.light) .quick-option-chip[data-coordinator]:active,
+      :host-context([data-theme='light']) .quick-option-chip[data-coordinator]:active,
+      :host-context([data-base-theme='light']) .quick-option-chip[data-coordinator]:active {
+        background: color-mix(in srgb, var(--coordinator-pill-accent) 26%, transparent);
       }
 
       .quick-option-chip[data-coordinator='coord-recruiting'] {
@@ -1356,9 +1388,19 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   private readonly mediaViewer = inject(NxtMediaViewerService);
   private readonly getAuthToken = inject(AGENT_X_AUTH_TOKEN_FACTORY, { optional: true });
   private readonly destroyRef = inject(DestroyRef);
+  private readonly injector = inject(EnvironmentInjector);
   private readonly streamRegistry = inject(AgentXStreamRegistryService);
   private readonly operationEventService = inject(AgentXOperationEventService);
   private readonly agentXService = inject(AgentXService);
+  private readonly hostElement = inject(ElementRef);
+
+  /** Shared keyboard offset binding used by shell and operation chat. */
+  private keyboardOffsetBinding?: AgentXKeyboardOffsetBinding;
+  private readonly videoUploadService = inject(AgentXVideoUploadService);
+  private readonly intelService = inject(IntelService, { optional: true });
+  private readonly profileGenerationState = inject(ProfileGenerationStateService, {
+    optional: true,
+  });
 
   /** Pure API factory — used for SSE streaming. */
   private readonly api: AgentXApi = createAgentXApi(
@@ -1375,8 +1417,44 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   /** Active SSE abort controller — cancelled on destroy or when a new message starts. */
   private activeStream: AbortController | null = null;
 
+  /** Buffered token text waiting to be committed to the typing message. */
+  private pendingTypingDelta = '';
+
+  /** RAF handle for batched typing flushes. */
+  private pendingTypingFlushFrame: number | null = null;
+
+  /** RAF handle for batched auto-scroll writes. */
+  private pendingScrollFrame: number | null = null;
+
+  /** Most recent requested scroll behavior for the next batched scroll write. */
+  private pendingScrollBehavior: ScrollBehavior = 'auto';
+
+  /** Timers used for post-focus scroll corrections while keyboard animates in. */
+  private focusScrollTimers: ReturnType<typeof setTimeout>[] = [];
+
   /** Operation ID from the backend — used for explicit cancel endpoint. */
   private _currentOperationId: string | null = null;
+
+  /**
+   * Active Firestore job event subscription for background jobs (scrape, welcome
+   * graphic, etc.) that are enqueued without an open SSE connection.
+   * Cleaned up on destroy or when the job completes/errors.
+   */
+  private _activeFirestoreSub: OperationEventSubscription | null = null;
+
+  /**
+   * Shadow Firestore subscription opened the moment an SSE `thread` event
+   * arrives with an operationId. It uses no-op callbacks so nothing renders,
+   * but its shared `lastProcessedSeq` counter advances in lock-step as the
+   * DebouncedEventWriter flushes batches to Firestore.
+   *
+   * If the SSE connection drops, `_subscribeToFirestoreJobEvents` attaches UI
+   * callbacks to the *same* fanout entry — inheriting the already-advanced
+   * seq — so no events that were shown via SSE are replayed. Zero duplication.
+   *
+   * Cleaned up when the SSE stream resolves (success or error).
+   */
+  private _shadowFirestoreSub: OperationEventSubscription | null = null;
 
   // ============================================
   // INPUTS (from componentProps)
@@ -1419,6 +1497,9 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   /** Optional initial files to seed into the pending files strip when opening. */
   @Input() initialFiles: PendingFile[] = [];
 
+  /** Connected app sources used by the attachments bottom sheet. */
+  @Input() connectedSources: readonly ConnectedAppSource[] = [];
+
   /**
    * Optional MongoDB thread ID — when provided, loads the historical
    * conversation from the backend so the user can review past messages.
@@ -1446,8 +1527,12 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
    */
   @Input() errorMessage: string | null = null;
 
-  // ============================================
-  // LOCAL STATE
+  /**
+   * When set, the component immediately attaches to a resumed SSE stream
+   * for the given operationId on init — used by the web shell after
+   * an inline approval resolves and the backend resumes the operation.
+   */
+  @Input() resumeOperationId = '';
   // ============================================
 
   /** Isolated message history for this operation context. */
@@ -1458,6 +1543,21 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
   /** Whether an AI response is being generated. */
   protected readonly _loading = signal(false);
+
+  /**
+   * Video upload progress (0–100) while Cloudflare TUS upload is in-flight.
+   * `null` when no upload is active. Drives the progress indicator in the
+   * typing bubble so the user sees real-time feedback on large video uploads.
+   */
+  protected readonly _videoUploadPercent = signal<number | null>(null);
+
+  /** Human-readable upload phase label ('Uploading video… 42%'). */
+  protected readonly _videoUploadLabel = computed(() => {
+    const pct = this._videoUploadPercent();
+    if (pct === null) return null;
+    if (pct === 0) return 'Preparing video…';
+    return `Uploading video… ${pct}%`;
+  });
 
   /**
    * MongoDB thread ID resolved after the first message.
@@ -1499,6 +1599,9 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   /** Files staged for upload — displayed as previews above the input bar. */
   protected readonly pendingFiles = signal<PendingFile[]>([]);
 
+  /** Connected app sources staged from the attachments sheet — shown as chips in the input bar. */
+  protected readonly pendingConnectedSources = signal<ConnectedAppSource[]>([]);
+
   /** Pending files converted to AgentXPendingFile shape for prompt-input component. */
   protected readonly promptInputPendingFiles = computed<readonly AgentXPendingFile[]>(() =>
     this.pendingFiles().map((pf) => ({
@@ -1523,6 +1626,29 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     return last.role !== 'assistant' || !!last.isTyping;
   });
 
+  /** The latest active tool step driving the persistent thinking shimmer. */
+  protected readonly thinkingStep = computed<AgentXToolStep | null>(() => {
+    const messages = this.messages();
+    for (let messageIndex = messages.length - 1; messageIndex >= 0; messageIndex -= 1) {
+      const steps = messages[messageIndex]?.steps;
+      if (!steps?.length) continue;
+      for (let stepIndex = steps.length - 1; stepIndex >= 0; stepIndex -= 1) {
+        const step = steps[stepIndex];
+        if (step.status === 'active') {
+          return step;
+        }
+      }
+    }
+    return null;
+  });
+
+  /** Human-readable thinking shimmer label driven by structured agent progress. */
+  protected readonly thinkingLabel = computed(() => {
+    const uploadLabel = this._videoUploadLabel();
+    if (uploadLabel) return uploadLabel;
+    return getThinkingLabel(this.thinkingStep());
+  });
+
   /** Whether this is a background operation (vs a quick command). */
   protected get isOperation(): boolean {
     return this.contextType === 'operation';
@@ -1544,22 +1670,14 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     return `You're now talking to ${title}. How can I help you today?`;
   });
 
-  /** Normalized quick actions — uses provided actions, fills with fallbacks if needed. Operations get none. */
+  /** Normalized quick actions — only explicit coordinator-provided actions are shown. */
   protected readonly normalizedQuickActions = computed<OperationQuickAction[]>(() => {
     // Operations skip straight to work — no chatbot-style suggestion pills
     if (this.contextType === 'operation') return [];
 
-    const provided = this.quickActions.map((a, index) => ({
+    return this.quickActions.map((a, index) => ({
       ...a,
       id: a.id || `cmd-${index + 1}`,
-    }));
-
-    if (provided.length > 0) return provided;
-
-    return this.getFallbackActions().map((item, index) => ({
-      id: `fallback-${index + 1}`,
-      icon: this.contextIcon,
-      ...item,
     }));
   });
 
@@ -1637,7 +1755,6 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   // ============================================
 
   private readonly messagesArea = viewChild<ElementRef>('messagesArea');
-  private readonly fileInput = viewChild<ElementRef<HTMLInputElement>>('fileInput');
   private readonly actionCardRef = viewChild<AgentXActionCardComponent>('actionCard');
 
   constructor() {
@@ -1646,6 +1763,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     // background and buffers its output. When the user returns to this session,
     // the component remounts and rehydrates from the buffer.
     this.destroyRef.onDestroy(() => {
+      this.clearPendingTypingDelta();
       const threadId = this._resolvedThreadId();
       // Always detach listener to prevent dangling references on
       // completed entries (detach is a no-op if no entry exists).
@@ -1659,20 +1777,26 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
         this.activeStream?.abort();
       }
       this.activeStream = null;
+      // Clean up any active Firestore job event subscription.
+      this._activeFirestoreSub?.unsubscribe();
+      this._activeFirestoreSub = null;
+      // Clean up the shadow Firestore subscription if still open.
+      this._shadowFirestoreSub?.unsubscribe();
+      this._shadowFirestoreSub = null;
     });
 
     // Auto-scroll when messages change
     effect(() => {
       const msgs = this.messages();
       if (msgs.length > 0) {
-        this.scrollToBottom();
+        this.scrollToBottom({ onlyIfNearBottom: true, behavior: 'auto' });
       }
     });
 
     // Auto-scroll when an action card appears (yield state set)
     effect(() => {
       if (this.activeYieldState()) {
-        this.scrollToBottom();
+        this.scrollToBottom({ behavior: 'smooth' });
       }
     });
   }
@@ -1685,6 +1809,9 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   private initialMessageSent = false;
 
   ngAfterViewInit(): void {
+    // Bind immediately so all code paths (including early returns) get keyboard lift.
+    void this.bindKeyboardOffset();
+
     // If opening an existing operation/thread, check for an active stream first.
     if (this.threadId?.trim()) {
       this._isThreadMode.set(true);
@@ -1695,22 +1822,10 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       // kept it alive. Claim it now to get buffered state + live updates.
       const snapshot = this.streamRegistry.claim(this.threadId.trim(), {
         onDelta: (text) => {
-          this.messages.update((msgs) =>
-            msgs.map((m) => {
-              if (m.id !== 'typing') return m;
-              // Rebuild parts for live updates
-              const prevParts = [...(m.parts ?? [])];
-              const last = prevParts[prevParts.length - 1];
-              if (last?.type === 'text') {
-                prevParts[prevParts.length - 1] = { type: 'text', content: last.content + text };
-              } else {
-                prevParts.push({ type: 'text', content: text });
-              }
-              return { ...m, content: m.content + text, isTyping: false, parts: prevParts };
-            })
-          );
+          this.queueTypingDelta(text);
         },
         onStep: (step) => {
+          this.flushPendingTypingDelta();
           this.messages.update((msgs) =>
             msgs.map((m) => {
               if (m.id !== 'typing') return m;
@@ -1737,6 +1852,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
           );
         },
         onCard: (card) => {
+          this.flushPendingTypingDelta();
           this.messages.update((msgs) =>
             msgs.map((m) => {
               if (m.id !== 'typing') return m;
@@ -1747,6 +1863,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
           );
         },
         onDone: () => {
+          this.flushPendingTypingDelta();
           const finalId = this.uid();
           this.messages.update((msgs) =>
             msgs.map((m) => (m.id === 'typing' ? { ...m, id: finalId, isTyping: false } : m))
@@ -1824,8 +1941,107 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
         return;
       }
 
-      // No active stream — load from MongoDB as before
-      void this.loadThreadMessages(this.threadId.trim());
+      // No active SSE stream — load MongoDB history first.
+      // If this is a background operation still in-flight (scrape, welcome graphic, etc.)
+      // additionally attach a Firestore listener so the user sees live progress.
+      if (
+        this.contextId?.trim() &&
+        this.contextType === 'operation' &&
+        this.operationStatus === 'processing'
+      ) {
+        // Snapshot BEFORE the async load — reconciliation inside loadThreadMessages
+        // may optimistically flip status to 'complete' if an assistant reply exists.
+        // But reconciliation is a guess; Firestore is authoritative. Always attach
+        // the live listener when the job was in-progress going in.
+        const operationId = this.contextId.trim();
+        void this.loadThreadMessages(this.threadId.trim()).then(async () => {
+          // Branch on whether the thread already has a completed assistant reply.
+          const hasAssistantReply = this.messages().some(
+            (m) => !m.isTyping && m.role === 'assistant' && m.content?.trim()
+          );
+
+          if (hasAssistantReply) {
+            // ── Job is already done ──────────────────────────────────────────
+            // loadThreadMessages reconciliation already set operationStatus to
+            // 'complete' and broadcasted via emitOperationStatusUpdated.
+            // MongoDB has the full response — no Firestore subscription needed.
+            // Skip to avoid a hanging subscription (the done event would be
+            // filtered by startAfterSeq anyway and onDone would never fire).
+            this.logger.info('Thread already has assistant reply — skipping Firestore subscribe', {
+              operationId,
+            });
+            return;
+          }
+
+          // ── Job still in-flight ──────────────────────────────────────────
+          // The user refreshed mid-stream. Reconstruct the partial response
+          // from stored Firestore events so the user sees what was generated
+          // before the refresh, then continue live from the last stored seq.
+          const stored = await this.operationEventService.getStoredEventState(operationId);
+
+          if (stored.isDone) {
+            // The job completed while we were loading MongoDB history.
+            // Firestore already has the full response — no live subscribe needed.
+            // If MongoDB didn't save it yet (race), inject from Firestore state.
+            const alreadyHasAssistant = this.messages().some(
+              (m) => !m.isTyping && m.role === 'assistant' && m.content?.trim()
+            );
+            if (!alreadyHasAssistant && stored.content) {
+              this.messages.update((msgs) => [
+                ...msgs,
+                {
+                  id: this.uid(),
+                  role: 'assistant' as const,
+                  content: stored.content,
+                  timestamp: new Date(),
+                  isTyping: false,
+                  steps: stored.steps.length > 0 ? stored.steps : undefined,
+                },
+              ]);
+            }
+            this.operationStatus = 'complete';
+            this.operationEventService.emitOperationStatusUpdated(
+              this.threadId?.trim() ?? operationId,
+              'complete',
+              new Date().toISOString()
+            );
+            return;
+          }
+
+          // Job still running. Inject typing bubble with accumulated content
+          // from Firestore so the user immediately sees what was generated,
+          // then subscribe from maxSeq so new tokens append cleanly.
+          // IMPORTANT: parts must be pre-populated to match content — the template
+          // renders from `parts`, not `content`. Without this, onDelta builds parts
+          // from scratch and only post-refresh tokens appear.
+          const storedParts: AgentXMessagePart[] = [];
+          if (stored.steps.length > 0) {
+            storedParts.push({ type: 'tool-steps', steps: stored.steps });
+          }
+          if (stored.content) {
+            storedParts.push({ type: 'text', content: stored.content });
+          }
+          this.messages.update((msgs) => {
+            if (msgs.some((m) => m.id === 'typing')) return msgs;
+            return [
+              ...msgs,
+              {
+                id: 'typing',
+                role: 'assistant' as const,
+                content: stored.content,
+                timestamp: new Date(),
+                isTyping: !stored.content,
+                steps: stored.steps.length > 0 ? [...stored.steps] : undefined,
+                parts: storedParts.length > 0 ? storedParts : undefined,
+              },
+            ];
+          });
+          this._loading.set(true);
+          this._subscribeToFirestoreJobEvents(undefined, stored.maxSeq);
+        });
+      } else {
+        void this.loadThreadMessages(this.threadId.trim());
+      }
       return;
     }
 
@@ -1836,21 +2052,218 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       return;
     }
 
+    // Background operation with no threadId yet (thread creation race condition from
+    // agent-scrape.service / agent-welcome.service): subscribe directly to Firestore
+    // events so the user sees live progress without waiting for thread linkage.
+    if (
+      this.contextId?.trim() &&
+      this.contextType === 'operation' &&
+      this.operationStatus === 'processing'
+    ) {
+      this._isThreadMode.set(true);
+      this._subscribeToFirestoreJobEvents();
+      return;
+    }
+
     // Seed initial files if provided (from shell pending files)
     if (this.initialFiles.length > 0) {
       this.pendingFiles.set([...this.initialFiles]);
     }
 
-    if ((this.initialMessage?.trim() || this.initialFiles.length > 0) && !this.initialMessageSent) {
+    // Drop-recovery / inline-approval resume: attach to the given operationId stream.
+    if (this.resumeOperationId?.trim()) {
+      void this._attachToResumedOperation({
+        operationId: this.resumeOperationId.trim(),
+        threadId: this.threadId?.trim() || undefined,
+        afterSeq: 0,
+      });
+      return;
+    }
+
+    if (this.initialMessage?.trim() && !this.initialMessageSent) {
       this.initialMessageSent = true;
       // Slight delay to let the sheet animation settle
       setTimeout(() => {
-        if (this.initialMessage?.trim()) {
-          this.inputValue.set(this.initialMessage.trim());
-        }
+        this.inputValue.set(this.initialMessage.trim());
         this.send();
       }, 150);
     }
+  }
+
+  ngOnDestroy(): void {
+    this._clearPendingFiles();
+    this.clearFocusScrollTimers();
+    this.keyboardOffsetBinding?.teardown();
+  }
+
+  /** Bind shared keyboard offset behavior so operation chat matches shell exactly. */
+  private async bindKeyboardOffset(): Promise<void> {
+    this.keyboardOffsetBinding = await bindAgentXKeyboardOffset({
+      platformId: this.platformId,
+      hostElement: this.hostElement.nativeElement,
+      offsetCssVar: '--agent-keyboard-offset',
+      safeAreaCssVar: '--footer-safe-area',
+      keyboardOffsetTrimPx: -6,
+      onKeyboardShow: () => {
+        // When keyboard opens, scroll to bottom to show all content
+        this.scrollToBottom({ behavior: 'auto' });
+      },
+    });
+  }
+
+  /** Ensure latest messages remain visible when the input receives focus. */
+  protected onInputFocus(): void {
+    this.clearFocusScrollTimers();
+    this.scrollToBottom({ behavior: 'auto' });
+
+    // iOS keyboard and bottom-sheet reflow can settle a bit later; follow-up
+    // scrolls keep the last assistant content above the floating input.
+    for (const delay of [90, 190, 320]) {
+      const timer = setTimeout(() => this.scrollToBottom({ behavior: 'auto' }), delay);
+      this.focusScrollTimers.push(timer);
+    }
+  }
+
+  private clearFocusScrollTimers(): void {
+    for (const timer of this.focusScrollTimers) {
+      clearTimeout(timer);
+    }
+    this.focusScrollTimers = [];
+  }
+
+  /**
+   * Subscribe to `AgentJobs/{contextId}/events` via Firestore `onSnapshot` for
+   * background jobs (scrape, welcome graphic, etc.) that were enqueued without
+   * an open SSE connection. Called after MongoDB history has been loaded so that
+   * live events appear after the historical context, matching the stream registry
+   * rehydration pattern used for normal chat.
+   *
+   * Guards:
+   * - `contextId` must be set (it is the operationId)
+   * - Only starts if no subscription is already active (idempotent)
+   * - Cleans itself up on `done` / `error` / component destroy
+   */
+  private _subscribeToFirestoreJobEvents(
+    explicitOperationId?: string,
+    startAfterSeq?: number
+  ): void {
+    const operationId = explicitOperationId ?? this.contextId;
+    if (!operationId?.trim() || this._activeFirestoreSub) return;
+
+    this.logger.info('Attaching Firestore job event listener for background operation', {
+      operationId,
+      startAfterSeq,
+    });
+    this.breadcrumb.trackStateChange('operation-chat:firestore-subscribe', {
+      operationId,
+      startAfterSeq,
+    });
+
+    // Push a typing placeholder if one isn't already in the messages list.
+    // The post-refresh code path pre-injects the bubble before calling this
+    // method; the direct subscribe path (no thread) relies on this guard.
+    if (!this.messages().some((m) => m.id === 'typing')) {
+      this._loading.set(true);
+      this.messages.update((msgs) => [
+        ...msgs,
+        {
+          id: 'typing',
+          role: 'assistant' as const,
+          content: '',
+          timestamp: new Date(),
+          isTyping: true,
+        },
+      ]);
+    }
+
+    this._activeFirestoreSub = runInInjectionContext(this.injector, () =>
+      this.operationEventService.subscribe(
+        operationId,
+        {
+          onDelta: (text) => {
+            this.queueTypingDelta(text);
+          },
+
+          onStep: (step) => {
+            this.flushPendingTypingDelta();
+            this.messages.update((msgs) =>
+              msgs.map((m) => {
+                if (m.id !== 'typing') return m;
+                const prev = m.steps ?? [];
+                const idx = prev.findIndex((s) => s.id === step.id);
+                const next =
+                  idx >= 0 ? prev.map((s, i) => (i === idx ? step : s)) : [...prev, step];
+                const prevParts = [...(m.parts ?? [])];
+                const lastPart = prevParts[prevParts.length - 1];
+                if (lastPart?.type === 'tool-steps') {
+                  const prevSteps = [...lastPart.steps];
+                  const si = prevSteps.findIndex((s) => s.id === step.id);
+                  if (si >= 0) {
+                    prevSteps[si] = step;
+                  } else {
+                    prevSteps.push(step);
+                  }
+                  prevParts[prevParts.length - 1] = { type: 'tool-steps', steps: prevSteps };
+                } else {
+                  prevParts.push({ type: 'tool-steps', steps: [step] });
+                }
+                return { ...m, steps: next, parts: prevParts };
+              })
+            );
+          },
+
+          onCard: (card) => {
+            this.flushPendingTypingDelta();
+            this.messages.update((msgs) =>
+              msgs.map((m) => {
+                if (m.id !== 'typing') return m;
+                const prevParts = [...(m.parts ?? [])];
+                prevParts.push({ type: 'card', card });
+                return { ...m, cards: [...(m.cards ?? []), card], parts: prevParts };
+              })
+            );
+          },
+
+          onDone: () => {
+            this.flushPendingTypingDelta();
+            const finalId = this.uid();
+            this.messages.update((msgs) =>
+              msgs.map((m) => (m.id === 'typing' ? { ...m, id: finalId, isTyping: false } : m))
+            );
+            this._loading.set(false);
+            this._activeFirestoreSub?.unsubscribe();
+            this._activeFirestoreSub = null;
+            this.haptics.notification('success').catch(() => undefined);
+            this.responseComplete.emit();
+            this.logger.info('Background job stream complete (Firestore)', {
+              operationId,
+            });
+          },
+
+          onError: (error) => {
+            this.replaceTyping({
+              id: this.uid(),
+              role: 'assistant',
+              content: error || 'Something went wrong. Please try again.',
+              timestamp: new Date(),
+              error: true,
+            });
+            this._loading.set(false);
+            this._activeFirestoreSub?.unsubscribe();
+            this._activeFirestoreSub = null;
+            this.haptics.notification('error').catch(() => undefined);
+            this.logger.error('Background job stream error (Firestore)', new Error(error), {
+              operationId,
+            });
+            // Trigger a parent refresh so the operations log re-fetches the
+            // authoritative status from the backend. Firestore may have errored
+            // before the done event arrived, leaving the sidebar spinner stuck.
+            this.responseComplete.emit();
+          },
+        },
+        startAfterSeq !== undefined ? { startAfterSeq } : undefined
+      )
+    );
   }
 
   /**
@@ -1862,32 +2275,9 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     this.logger.info('Loading operation thread', { threadId, contextId: this.contextId });
 
     try {
-      const response = await firstValueFrom(
-        this.http.get<{
-          success: boolean;
-          data?: {
-            items: Array<{
-              id?: string;
-              role: string;
-              content: string;
-              createdAt?: string;
-              resultData?: Record<string, unknown>;
-              toolCalls?: Array<{
-                toolName: string;
-                input?: Record<string, unknown>;
-                output?: Record<string, unknown>;
-                status: string;
-                durationMs?: number;
-                timestamp?: string;
-              }>;
-            }>;
-            hasMore?: boolean;
-          };
-          error?: string;
-        }>(`${this.baseUrl}/agent-x/threads/${encodeURIComponent(threadId)}/messages?limit=50`)
-      );
+      const items = await this.agentXService.getPersistedThreadMessages(threadId);
 
-      if (!response.success || !response.data?.items?.length) {
+      if (!items.length) {
         this.logger.warn('Operation thread returned no messages', {
           threadId,
           contextId: this.contextId,
@@ -1899,9 +2289,16 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
         return;
       }
 
-      const mapped: OperationMessage[] = response.data.items.map((msg) => {
-        // Convert persisted toolCalls into AgentXToolStep[] for the chat bubble
-        const steps: AgentXToolStep[] = (msg.toolCalls ?? []).map((tc, idx) => ({
+      const mapped: OperationMessage[] = items.map((msg) => {
+        const persistedSteps: AgentXToolStep[] = (msg.steps ?? []).map((step) => {
+          const normalized = {
+            ...step,
+            label: getToolStepDisplayLabel(step),
+          } satisfies AgentXToolStep;
+          return normalized;
+        });
+
+        const fallbackSteps: AgentXToolStep[] = (msg.toolCalls ?? []).map((tc, idx) => ({
           id: `tc-${idx}-${tc.toolName}`,
           label: tc.toolName.replace(/_/g, ' '),
           status: tc.status === 'success' ? ('success' as const) : ('error' as const),
@@ -1913,12 +2310,38 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
                 : undefined,
         }));
 
+        const steps = persistedSteps.length > 0 ? persistedSteps : fallbackSteps;
+        const persistedParts =
+          msg.parts?.map((part) =>
+            part.type === 'tool-steps'
+              ? {
+                  type: 'tool-steps' as const,
+                  steps: part.steps.map((step) => ({
+                    ...step,
+                    label: getToolStepDisplayLabel(step),
+                  })),
+                }
+              : part.type === 'card'
+                ? {
+                    type: 'card' as const,
+                    card: {
+                      ...part.card,
+                      agentId:
+                        typeof (part.card as { agentId?: unknown }).agentId === 'string'
+                          ? (part.card as { agentId: AgentXRichCard['agentId'] }).agentId
+                          : 'router',
+                    },
+                  }
+                : part
+          ) ?? [];
+
         return {
           id: msg.id ?? this.uid(),
           role: msg.role === 'user' ? ('user' as const) : ('assistant' as const),
           content: msg.content,
           timestamp: msg.createdAt ? new Date(msg.createdAt) : new Date(),
           ...(steps.length > 0 ? { steps } : {}),
+          ...(persistedParts.length > 0 ? { parts: persistedParts } : {}),
           ...(typeof msg.resultData?.['imageUrl'] === 'string'
             ? { imageUrl: msg.resultData['imageUrl'] as string }
             : {}),
@@ -1939,6 +2362,34 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
         contextId: this.contextId,
         messageCount: mapped.length,
       });
+
+      // ── Status reconciliation ─────────────────────────────────────────
+      // If the sidebar still shows this entry as "processing" but the thread
+      // already has an assistant reply, the backend completed the job while
+      // the frontend had no live stream to receive the done event (e.g. the
+      // user refreshed mid-response). The thread content is the authoritative
+      // proof of completion — reconcile without waiting for an event that
+      // will never arrive.
+      const hasAssistantReply = mapped.some((m) => m.role === 'assistant' && m.content?.trim());
+      if (this.operationStatus === 'processing' && hasAssistantReply) {
+        this.logger.info(
+          'Thread content proves job complete — reconciling stale in-progress status',
+          {
+            threadId,
+            contextId: this.contextId,
+          }
+        );
+        this.operationStatus = 'complete';
+        // Broadcast directly through the shared event service so the operations
+        // log sidebar updates regardless of how this component was opened
+        // (bottom sheet, embedded, etc.). responseComplete.emit() is an @Output
+        // and is deaf when the component is opened imperatively via openSheet().
+        this.operationEventService.emitOperationStatusUpdated(
+          threadId,
+          'complete',
+          new Date().toISOString()
+        );
+      }
 
       // If this operation has failed, inject an AI error message at the end
       // so the user understands what happened.
@@ -2074,6 +2525,17 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       contextId: this.contextId,
       contextType: this.contextType,
     });
+
+    // Immediately mark the operations-log entry as complete so the sidebar
+    // spinner clears right away. The backend SSE will never deliver the terminal
+    // `event: operation` frame for an aborted stream, so we emit locally here.
+    if (threadId) {
+      this.operationEventService.emitOperationStatusUpdated(
+        threadId,
+        'complete',
+        new Date().toISOString()
+      );
+    }
   }
 
   /**
@@ -2104,18 +2566,30 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     const files = this.pendingFiles();
     if ((!text && files.length === 0) || this._loading()) return;
 
+    // Lock immediately — before any state mutations — to prevent concurrent sends
+    // triggered by tap + click double-emit (Ionic mobile) or rapid input events.
+    this._loading.set(true);
+
     this.inputValue.set('');
     if (!this.hasUserSent()) {
       this.hasUserSent.set(true);
       this.userMessageSent.emit();
     }
 
-    // Build display content
+    // Capture and clear connected sources
+    const pendingSources = this.pendingConnectedSources();
+    this.pendingConnectedSources.set([]);
+
+    // Build display content — append source context if present
     let displayContent = text;
-    if (files.length > 0 && text) {
-      displayContent = text;
-    } else if (files.length > 0) {
+    if (!text && files.length > 0) {
       displayContent = `📎 ${files.length} file${files.length > 1 ? 's' : ''}`;
+    }
+    if (pendingSources.length > 0) {
+      const sourceLabels = pendingSources.map((s) => s.platform).join(', ');
+      displayContent = displayContent
+        ? `${displayContent} [via ${sourceLabels}]`
+        : `[via ${sourceLabels}]`;
     }
 
     // Build display attachments from ALL pending files (images, videos, AND docs)
@@ -2145,7 +2619,6 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       timestamp: new Date(),
       isTyping: true,
     });
-    this._loading.set(true);
 
     try {
       // Upload files to Firebase Storage and get AgentXAttachment metadata
@@ -2167,13 +2640,18 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     } catch (err) {
       this.logger.error('Chat message failed', err, { contextId: this.contextId });
       await this.haptics.notification('error');
-      this.replaceTyping({
-        id: this.uid(),
-        role: 'assistant',
-        content: 'Something went wrong. Please try again.',
-        timestamp: new Date(),
-        error: true,
-      });
+      // Only inject the error bubble if onError (stream handler) didn't already do it.
+      // onError replaces the typing bubble then rejects — the catch would otherwise duplicate it.
+      const alreadyHasError = this.messages().some((m) => m.error && m.id !== 'typing');
+      if (!alreadyHasError) {
+        this.replaceTyping({
+          id: this.uid(),
+          role: 'assistant',
+          content: 'Something went wrong. Please try again.',
+          timestamp: new Date(),
+          error: true,
+        });
+      }
     } finally {
       this._loading.set(false);
     }
@@ -2190,9 +2668,69 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     await this.send();
   }
 
-  /** Open native file picker from the shared input plus button. */
-  protected onUploadClick(): void {
-    this.fileInput()?.nativeElement.click();
+  /** Retry the last user message after an error bubble's "Try again" is clicked. */
+  protected async onRetryErrorMessage(errorMsg: OperationMessage): Promise<void> {
+    // Find the user message that preceded this error bubble
+    const msgs = this.messages();
+    const errorIdx = msgs.findIndex((m) => m.id === errorMsg.id);
+    const lastUserMsg = [...msgs]
+      .slice(0, errorIdx)
+      .reverse()
+      .find((m) => m.role === 'user');
+
+    if (!lastUserMsg) return;
+
+    // Remove the error bubble and re-send the last user message
+    this.messages.update((prev) => prev.filter((m) => m.id !== errorMsg.id));
+    this.inputValue.set(lastUserMsg.content);
+    await this.send();
+  }
+
+  /** Open attachments bottom sheet over this operation sheet without dismissing it. */
+  protected async onUploadClick(): Promise<void> {
+    // Always read from AgentXService so connected sources are available regardless
+    // of whether this sheet was opened from the shell, the operations log, or anywhere else.
+    const sources = this.agentXService.attachmentConnectedSources();
+    const modal = await this.modalCtrl.create({
+      component: AgentXAttachmentsSheetComponent,
+      componentProps: {
+        connectedSources: sources,
+      },
+      breakpoints: [0, 0.5, 0.72],
+      initialBreakpoint: 0.5,
+      expandToScroll: false,
+      handle: true,
+      handleBehavior: 'cycle',
+      showBackdrop: true,
+      backdropBreakpoint: 0.5,
+      backdropDismiss: true,
+      canDismiss: true,
+      cssClass: ['nxt-bottom-sheet', 'nxt-bottom-sheet-content'],
+    });
+
+    await modal.present();
+    const result = await modal.onWillDismiss<File[] | ConnectedAppSource>();
+
+    if (result.data && result.role === 'files-selected') {
+      const files = result.data as File[];
+      this.stageFiles(files);
+      return;
+    }
+
+    if (result.data && result.role === 'source-selected') {
+      const source = result.data as ConnectedAppSource;
+      this.pendingConnectedSources.update((current) => {
+        const exists = current.some(
+          (item) => item.platform === source.platform && item.profileUrl === source.profileUrl
+        );
+        return exists ? current : [...current, source];
+      });
+      return;
+    }
+
+    if (result.role === 'manage-connected-apps') {
+      this.toast.info('Manage connected apps from your main Agent X page.');
+    }
   }
 
   /** Toggle the drag overlay while files hover over the chat surface. */
@@ -2225,14 +2763,6 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     });
   }
 
-  /** Handle selected files/images — stage them as pending previews above input. */
-  protected onFileSelected(event: Event): void {
-    const input = event.target as HTMLInputElement;
-    const files = Array.from(input.files ?? []);
-    this.stageFiles(files);
-    input.value = '';
-  }
-
   /** Remove a staged file from the pending preview strip. */
   protected removePendingFile(index: number): void {
     this.pendingFiles.update((prev) => {
@@ -2245,7 +2775,8 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   }
 
   /**
-   * Upload pending files to Firebase Storage via the backend upload endpoint.
+   * Upload pending files. Videos go via Cloudflare Stream TUS;
+   * images, PDFs, docs go via the existing Firebase Storage endpoint.
    * Returns AgentXAttachment metadata for inclusion in the chat request.
    * @internal
    */
@@ -2255,9 +2786,15 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   ): Promise<AgentXAttachment[]> {
     const uploaded: AgentXAttachment[] = [];
 
-    for (const pending of files) {
+    const videoFiles = files.filter((f) => f.isVideo);
+    const nonVideoFiles = files.filter((f) => !f.isVideo);
+
+    // --- Non-video files: upload to Firebase Storage via /agent-x/upload ---
+    for (const pending of nonVideoFiles) {
       const formData = new FormData();
       formData.append('file', pending.file);
+      const threadId = this._resolvedThreadId();
+      if (threadId) formData.append('threadId', threadId);
 
       const response = await fetch(`${this.baseUrl}${AGENT_X_ENDPOINTS.UPLOAD}`, {
         method: 'POST',
@@ -2271,7 +2808,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
           name: pending.file.name,
           status: response.status,
         });
-        continue; // Skip failed files, still send the rest
+        continue;
       }
 
       const result = (await response.json()) as {
@@ -2297,9 +2834,59 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       });
     }
 
+    // --- Video files: upload to Cloudflare Stream via TUS ---
+    for (const pending of videoFiles) {
+      try {
+        this._videoUploadPercent.set(0);
+        const videoResult = await new Promise<{ streamUrl: string; cloudflareVideoId: string }>(
+          (resolve, reject) => {
+            this.videoUploadService.uploadVideo(pending.file, authToken).subscribe({
+              next: (progress) => {
+                // Pipe intermediate progress into signal — user sees live % in the typing area
+                if (progress.phase === 'uploading' || progress.phase === 'provisioning') {
+                  this._videoUploadPercent.set(progress.percent);
+                }
+                if (
+                  progress.phase === 'complete' &&
+                  progress.streamUrl &&
+                  progress.cloudflareVideoId
+                ) {
+                  this._videoUploadPercent.set(100);
+                  resolve({
+                    streamUrl: progress.streamUrl,
+                    cloudflareVideoId: progress.cloudflareVideoId,
+                  });
+                } else if (progress.phase === 'error') {
+                  reject(new Error(progress.errorMessage ?? 'Video upload failed'));
+                }
+              },
+              error: (err) => reject(err),
+            });
+          }
+        );
+        this._videoUploadPercent.set(null);
+
+        uploaded.push({
+          id: crypto.randomUUID(),
+          url: videoResult.streamUrl,
+          name: pending.file.name,
+          mimeType: pending.file.type,
+          type: 'video',
+          sizeBytes: pending.file.size,
+          cloudflareVideoId: videoResult.cloudflareVideoId,
+        });
+      } catch (err) {
+        this._videoUploadPercent.set(null);
+        this.logger.error('Video Cloudflare upload failed', err, { name: pending.file.name });
+        this.toast.error(`Failed to upload video: ${pending.file.name}`);
+      }
+    }
+
     this.logger.info('Files uploaded for operation chat', {
       attempted: files.length,
       succeeded: uploaded.length,
+      videos: videoFiles.length,
+      nonVideos: nonVideoFiles.length,
     });
 
     return uploaded;
@@ -2307,39 +2894,22 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
   /** Open the media viewer for a pending file thumbnail. */
   protected openPendingFileViewer(index: number): void {
-    const mediaItems: MediaViewerItem[] = this.pendingFiles()
-      .filter((pf) => pf.previewUrl || (!pf.isImage && !pf.isVideo))
-      .map((pf) => {
-        if (pf.isImage || pf.isVideo) {
-          return {
-            url: pf.previewUrl!,
-            type: (pf.isVideo ? 'video' : 'image') as 'image' | 'video' | 'doc',
-            alt: pf.file.name,
-          };
-        }
-        return {
-          url: pf.previewUrl || URL.createObjectURL(pf.file),
-          type: 'doc' as const,
-          name: pf.file.name,
-          size: pf.file.size,
-        };
-      });
-
-    if (!mediaItems.length) return;
-
-    // Map the pending-file index to the viewer index
-    const viewableFiles = this.pendingFiles().filter(
-      (pf) => pf.previewUrl || (!pf.isImage && !pf.isVideo)
-    );
-    const target = this.pendingFiles()[index];
-    const mediaIndex = target ? viewableFiles.indexOf(target) : 0;
-
-    this.mediaViewer.open({
-      items: mediaItems,
-      initialIndex: Math.max(0, mediaIndex),
-      showShare: false,
-      source: 'agent-x-pending',
+    const viewer = buildPendingAttachmentViewer(this.pendingFiles(), index, {
+      createObjectURL: (file) => URL.createObjectURL(file),
+      revokeObjectURL: (url) => URL.revokeObjectURL(url),
     });
+
+    if (!viewer.items.length) return;
+
+    this.mediaViewer
+      .open({
+        items: viewer.items,
+        initialIndex: viewer.initialIndex,
+        showShare: false,
+        source: 'agent-x-pending',
+        presentation: 'overlay',
+      })
+      .finally(() => viewer.cleanup());
   }
 
   /** Open the media viewer for a sent message attachment thumbnail. */
@@ -2405,8 +2975,11 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
         continue;
       }
 
-      if (file.size > AGENT_X_MAX_FILE_SIZE) {
-        this.toast.error(`File too large: ${file.name} (max 20 MB)`);
+      const isVideoFile = file.type.startsWith('video/');
+      const maxSize = isVideoFile ? AGENT_X_MAX_VIDEO_FILE_SIZE : AGENT_X_MAX_FILE_SIZE;
+      const maxLabel = isVideoFile ? '500 MB' : '20 MB';
+      if (file.size > maxSize) {
+        this.toast.error(`File too large: ${file.name} (max ${maxLabel})`);
         this.logger.warn('Rejected oversized operation chat file', {
           contextId: this.contextId,
           fileName: file.name,
@@ -2439,10 +3012,6 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       types: nextPending.map((pending) => resolveAttachmentType(pending.file.type)),
     });
     return nextPending.length;
-  }
-
-  ngOnDestroy(): void {
-    this._clearPendingFiles();
   }
 
   /** Returns true when a message contains a data-table rich card (cards or parts). */
@@ -2490,32 +3059,6 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   // PRIVATE HELPERS
   // ============================================
 
-  private getFallbackActions(): Pick<OperationQuickAction, 'label' | 'description'>[] {
-    if (this.contextType === 'operation') {
-      return [
-        { label: 'Status', description: 'Check current progress and updates' },
-        { label: 'Progress', description: 'View detailed completion breakdown' },
-        { label: 'Refine', description: 'Adjust parameters and improve results' },
-        { label: 'Boost Quality', description: 'Enhance output with extra processing' },
-        { label: 'Set Priority', description: 'Change urgency and processing order' },
-        { label: 'Notify Me', description: 'Get alerted when this is done' },
-        { label: 'Pause', description: 'Temporarily hold this operation' },
-        { label: 'Export', description: 'Download or share the results' },
-      ];
-    }
-
-    return [
-      { label: 'Create Plan', description: 'Build a step-by-step action plan' },
-      { label: 'Generate Draft', description: 'Get a first draft ready to review' },
-      { label: 'Refine Output', description: 'Polish and improve existing work' },
-      { label: 'Next Steps', description: 'See recommended follow-up actions' },
-      { label: 'Best Version', description: 'Optimize for the highest quality' },
-      { label: 'Publish Ready', description: 'Finalize and prepare to share' },
-      { label: 'Save Draft', description: 'Store your progress for later' },
-      { label: 'Share', description: 'Send results to your team' },
-    ];
-  }
-
   /**
    * Send user message to backend Agent X chat.
    *
@@ -2523,26 +3066,42 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
    * in a browser with an available auth token. Tokens are appended to the
    * typing-indicator message in real time via `onDelta`, producing a fluid
    * "typing" effect.
-   *
-   * Falls back to a standard HTTP POST when streaming is unavailable
-   * (SSR, missing auth token, mobile Capacitor without ReadableStream).
    */
   private async callAgentChat(
     userInput: string,
     attachments: AgentXAttachment[] = []
   ): Promise<void> {
-    // Build conversation history from local messages (exclude typing indicators)
+    // Build conversation history: previous turns only.
+    // The current user message is sent as `message` — exclude it from history to avoid
+    // duplicating it in the backend context builder. Truncate long assistant responses
+    // (e.g. markdown reports) to a safe limit; the backend owns final context windowing.
+    const MAX_HISTORY_CONTENT_CHARS = 40_000;
+    const allMessages = this.messages().filter(
+      (m) => !m.isTyping && m.role !== 'system' && m.content.trim().length > 0
+    );
+    let lastUserIdx = -1;
+    for (let i = allMessages.length - 1; i >= 0; i--) {
+      if (allMessages[i].role === 'user') {
+        lastUserIdx = i;
+        break;
+      }
+    }
+    // Exclude the last user message — it IS the current turn, already in `message`.
+    const historyMessages =
+      lastUserIdx >= 0 ? allMessages.filter((_m, i) => i !== lastUserIdx) : allMessages;
+
     const request = {
       message: userInput,
-      history: this.messages()
-        .filter((m) => !m.isTyping && m.role !== 'system')
-        .slice(-10)
-        .map((m) => ({
-          id: this.uid(),
-          role: m.role as 'user' | 'assistant',
-          content: m.content,
-          timestamp: new Date(),
-        })),
+      history: historyMessages.slice(-20).map((m) => ({
+        id: this.uid(),
+        role: m.role as 'user' | 'assistant',
+        content:
+          m.content.length > MAX_HISTORY_CONTENT_CHARS
+            ? `${m.content.slice(0, MAX_HISTORY_CONTENT_CHARS)}…`
+            : m.content,
+        timestamp: new Date(),
+      })),
+      // NOTE: threadId identifies the conversation thread for server-side context lookup.
       ...(this._resolvedThreadId() ? { threadId: this._resolvedThreadId()! } : {}),
       ...(attachments.length > 0 ? { attachments } : {}),
     } satisfies AgentXChatRequest;
@@ -2558,8 +3117,22 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     if (authToken && isPlatformBrowser(this.platformId)) {
       await this._sendViaStream(request, authToken);
     } else {
-      // ── Fallback: standard HTTP POST (SSR / mobile / no token) ─────
-      await this._sendViaHttp(request);
+      this.logger.warn('Blocked Agent X send: streaming prerequisites unavailable', {
+        hasAuthToken: !!authToken,
+        browser: isPlatformBrowser(this.platformId),
+        contextId: this.contextId,
+      });
+      this.breadcrumb.trackStateChange('agent-x-operation-chat:stream-prereq-missing', {
+        contextId: this.contextId,
+        hasAuthToken: !!authToken,
+      });
+      this.replaceTyping({
+        id: this.uid(),
+        role: 'assistant',
+        content: 'Sign in to continue chatting with Agent X.',
+        timestamp: new Date(),
+        error: true,
+      });
     }
   }
 
@@ -2574,6 +3147,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
    */
   private _sendViaStream(request: AgentXChatRequest, authToken: string): Promise<void> {
     // Cancel any previous in-flight stream (via registry or raw controller)
+    this.clearPendingTypingDelta();
     const prevThreadId = this._resolvedThreadId();
     if (prevThreadId) {
       this.streamRegistry.abort(prevThreadId);
@@ -2602,6 +3176,33 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
             if (this.activeStream) {
               this.streamRegistry.register(evt.threadId, this.activeStream);
             }
+
+            // Link operationId → threadId in the registry so per-operation
+            // observers (e.g. ProfileGenerationStateService) receive events
+            // even after this component unmounts.
+            if (evt.operationId) {
+              this.streamRegistry.linkOperation(evt.operationId, evt.threadId);
+            }
+
+            // Open a shadow Firestore subscription so its lastProcessedSeq
+            // advances in parallel with the SSE stream. No UI callbacks — just
+            // seat-reservation. If SSE drops, _subscribeToFirestoreJobEvents
+            // joins this same fanout entry at the correct seq, preventing
+            // duplication of tokens already shown via SSE.
+            if (evt.operationId && !this._shadowFirestoreSub && !this._activeFirestoreSub) {
+              this._shadowFirestoreSub = runInInjectionContext(this.injector, () =>
+                this.operationEventService.subscribe(evt.operationId!, {
+                  onDelta: () => undefined,
+                  onStep: () => undefined,
+                  onCard: () => undefined,
+                  onDone: () => undefined,
+                  onError: () => undefined,
+                })
+              );
+              this.logger.debug('Shadow Firestore sub opened for SSE drop protection', {
+                operationId: evt.operationId,
+              });
+            }
           },
 
           onDelta: (evt) => {
@@ -2616,25 +3217,39 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
               parts.push({ type: 'text', content: evt.content });
             }
 
-            // Append the new token to the typing indicator in-place
-            this.messages.update((msgs) =>
-              msgs.map((m) =>
-                m.id === streamingId
-                  ? { ...m, content: m.content + evt.content, isTyping: false, parts: [...parts] }
-                  : m
-              )
-            );
+            // Batch token writes to one UI commit per frame.
+            this.queueTypingDelta(evt.content);
           },
 
           onStep: (evt: AgentXStreamStepEvent) => {
-            const step: AgentXToolStep = {
+            this.flushPendingTypingDelta();
+            const rawStep: AgentXToolStep = {
               id: evt.id,
               label: evt.label,
+              agentId: evt.agentId,
+              stageType: evt.stageType,
+              stage: evt.stage,
+              outcomeCode: evt.outcomeCode,
+              metadata: evt.metadata,
               status: evt.status,
+              icon: evt.icon,
               detail: evt.detail,
+            };
+            const step: AgentXToolStep = {
+              ...rawStep,
+              label: getToolStepDisplayLabel(rawStep),
             };
             const tid = this._resolvedThreadId();
             if (tid) this.streamRegistry.upsertStep(tid, step);
+
+            // Bridge write_intel tool steps to IntelService so the Intel tab
+            // shows the generating animation exactly when the agent is writing.
+            this.intelService?.notifyToolStep(evt.id, step.label, evt.status, evt.detail);
+            // Bridge all tool steps to ProfileGenerationStateService so the
+            // profile generation banner gets live progress from SSE (not Firestore).
+            if (this._currentOperationId) {
+              this.profileGenerationState?.receiveStep(this._currentOperationId, step);
+            }
 
             // Build interleaved parts: upsert into last tool-steps group or start new one
             const lastPart = parts[parts.length - 1];
@@ -2664,9 +3279,21 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
           },
 
           onCard: (evt: AgentXStreamCardEvent) => {
-            const card: AgentXRichCard = { type: evt.type, title: evt.title, payload: evt.payload };
+            this.flushPendingTypingDelta();
+            const card: AgentXRichCard = {
+              type: evt.type,
+              agentId: evt.agentId,
+              title: evt.title,
+              payload: evt.payload,
+            };
             const tid = this._resolvedThreadId();
             if (tid) this.streamRegistry.appendCard(tid, card);
+
+            // When the card supersedes preceding streamed text (e.g. ask_user),
+            // wipe all accumulated text parts so the question only appears once.
+            if (evt.clearText) {
+              parts.length = 0;
+            }
 
             // Each card is its own part in the interleaved sequence
             parts.push({ type: 'card', card });
@@ -2674,13 +3301,27 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
             this.messages.update((msgs) =>
               msgs.map((m) =>
                 m.id === streamingId
-                  ? { ...m, cards: [...(m.cards ?? []), card], parts: [...parts] }
+                  ? {
+                      ...m,
+                      // If the card supersedes streamed text, wipe it.
+                      content: evt.clearText ? '' : m.content,
+                      cards: [...(m.cards ?? []), card],
+                      parts: [...parts],
+                    }
                   : m
               )
             );
           },
 
           onOperation: (evt) => {
+            if (evt.operationId) {
+              this._currentOperationId = evt.operationId;
+            }
+            if (evt.status === 'awaiting_input' && evt.yieldState) {
+              this.activeYieldState.set(evt.yieldState);
+              this.yieldResolved.set(false);
+            }
+
             // Forward to the shared event service so the operations log sidebar
             // updates in real-time (in-progress spinner, complete, error states).
             this.operationEventService.emitOperationStatusUpdated(
@@ -2718,6 +3359,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
           },
 
           onDone: (evt) => {
+            this.flushPendingTypingDelta();
             const tid = this._resolvedThreadId();
             if (tid) {
               this.streamRegistry.markDone(tid, {
@@ -2744,6 +3386,10 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
               streaming: true,
               model: evt.model,
             });
+            // Notify profile generation banner that the job completed successfully.
+            if (this._currentOperationId) {
+              this.profileGenerationState?.receiveJobDone(this._currentOperationId, true);
+            }
             // Surface autoOpenPanel instruction to the shell via the central service
             // (fallback — the panel SSE event should have already surfaced it)
             if (evt.autoOpenPanel && !this.agentXService.requestedSidePanel()) {
@@ -2752,6 +3398,10 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
                 type: evt.autoOpenPanel.type,
               });
             }
+
+            // Shadow sub served its purpose — SSE completed normally.
+            this._shadowFirestoreSub?.unsubscribe();
+            this._shadowFirestoreSub = null;
 
             this.logger.info('Stream complete', {
               model: evt.model,
@@ -2771,14 +3421,69 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
             if (evt.status === 402) {
               const reason = this._mapBillingCode(evt.code);
               this._injectBillingCard(reason, evt.error);
+              this._shadowFirestoreSub?.unsubscribe();
+              this._shadowFirestoreSub = null;
               resolve(); // Resolved (not rejected) — user can act on the card
               return;
+            }
+
+            // ── Network drop fallback → seamlessly switch to Firestore watch ──
+            // If the SSE connection dropped (not a backend logic error) and we
+            // already have an operationId, the DebouncedEventWriter has been
+            // writing all events to Firestore in parallel. Subscribe to it now
+            // so the user sees the response arrive without an error bubble.
+            const isNetworkDrop = !evt.status || evt.status === 0 || evt.status >= 500;
+            if (isNetworkDrop && this._currentOperationId) {
+              this.logger.warn('SSE stream dropped — falling back to Firestore watch', {
+                operationId: this._currentOperationId,
+              });
+              this.breadcrumb.trackStateChange('agent-x-operation-chat:sse-fallback-firestore', {
+                operationId: this._currentOperationId,
+              });
+              // Ensure the typing indicator is still present for the Firestore path.
+              this.messages.update((msgs) => {
+                if (msgs.some((m) => m.id === 'typing')) return msgs;
+                return [
+                  ...msgs,
+                  {
+                    id: 'typing',
+                    role: 'assistant' as const,
+                    content: '',
+                    timestamp: new Date(),
+                    isTyping: true,
+                  },
+                ];
+              });
+              this._loading.set(true);
+              // Attach the UI callbacks to the existing fanout entry — the shadow
+              // sub's lastProcessedSeq is already advanced past events shown via SSE.
+              this._subscribeToFirestoreJobEvents(this._currentOperationId);
+              // Remove the shadow listener only after the UI listener has joined
+              // (operationEventService.subscribe is synchronous, so by this line
+              // the UI listener is already registered in the fanout map).
+              this._shadowFirestoreSub?.unsubscribe();
+              this._shadowFirestoreSub = null;
+              resolve(); // Hand control to the Firestore subscriber
+              return;
+            }
+
+            // Notify profile generation banner that the job failed.
+            if (this._currentOperationId) {
+              this.profileGenerationState?.receiveJobDone(
+                this._currentOperationId,
+                false,
+                evt.error
+              );
             }
 
             this.logger.error('Stream error', evt.error);
             this.breadcrumb.trackStateChange('agent-x-operation-chat:stream-error', {
               contextId: this.contextId,
             });
+            // Clean up shadow sub on any terminal non-network error.
+            this._shadowFirestoreSub?.unsubscribe();
+            this._shadowFirestoreSub = null;
+
             this.replaceTyping({
               id: this.uid(),
               role: 'assistant',
@@ -2795,42 +3500,6 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     });
   }
 
-  /**
-   * Fallback HTTP POST path — used when streaming is unavailable.
-   * @internal
-   */
-  private async _sendViaHttp(request: AgentXChatRequest): Promise<void> {
-    try {
-      const response = await this.api.sendMessage(request);
-
-      if (response.success && response.message) {
-        this.replaceTyping({
-          id: response.message.id ?? this.uid(),
-          role: 'assistant',
-          content: response.message.content,
-          timestamp: new Date(),
-        });
-        this.analytics?.trackEvent(APP_EVENTS.AGENT_X_MESSAGE_SENT, {
-          contextType: this.contextType,
-          contextId: this.contextId,
-          streaming: false,
-        });
-      } else {
-        throw new Error(response.error ?? 'No response from Agent X');
-      }
-    } catch (httpErr: unknown) {
-      // ── 402 billing gate → inject billing action card ──
-      const status = (httpErr as { status?: number }).status;
-      if (status === 402) {
-        const body = (httpErr as { error?: { code?: string; error?: string } }).error;
-        const reason = this._mapBillingCode(body?.code);
-        this._injectBillingCard(reason, body?.error);
-        return; // Handled — no rethrow
-      }
-      throw httpErr;
-    }
-  }
-
   /** Append a message to the local history. */
   private pushMessage(msg: OperationMessage): void {
     this.messages.update((prev) => [...prev, msg]);
@@ -2838,16 +3507,95 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
   /** Replace the typing indicator with a real message. */
   private replaceTyping(msg: OperationMessage): void {
+    this.clearPendingTypingDelta();
     this.messages.update((prev) => [...prev.filter((m) => m.id !== 'typing'), msg]);
   }
 
-  /** Scroll the messages area to the bottom. */
-  private scrollToBottom(): void {
-    const el = this.messagesArea()?.nativeElement;
-    if (el) {
-      // Scroll immediately without delay for instant keyboard response
-      el.scrollTop = el.scrollHeight;
+  /** Buffer a streamed token chunk and flush it once per animation frame. */
+  private queueTypingDelta(text: string): void {
+    if (!text) return;
+    this.pendingTypingDelta += text;
+
+    if (this.pendingTypingFlushFrame !== null) return;
+
+    if (isPlatformBrowser(this.platformId) && typeof requestAnimationFrame === 'function') {
+      this.pendingTypingFlushFrame = requestAnimationFrame(() => {
+        this.pendingTypingFlushFrame = null;
+        this.flushPendingTypingDelta();
+      });
+      return;
     }
+
+    this.flushPendingTypingDelta();
+  }
+
+  /** Flush buffered streamed token chunks into the typing message. */
+  private flushPendingTypingDelta(): void {
+    if (!this.pendingTypingDelta) return;
+
+    const delta = this.pendingTypingDelta;
+    this.pendingTypingDelta = '';
+
+    this.messages.update((msgs) =>
+      msgs.map((m) => {
+        if (m.id !== 'typing') return m;
+        const prevParts = [...(m.parts ?? [])];
+        const last = prevParts[prevParts.length - 1];
+        if (last?.type === 'text') {
+          prevParts[prevParts.length - 1] = { type: 'text', content: last.content + delta };
+        } else {
+          prevParts.push({ type: 'text', content: delta });
+        }
+        return { ...m, content: m.content + delta, isTyping: false, parts: prevParts };
+      })
+    );
+  }
+
+  /** Clear buffered streamed token chunks and cancel any scheduled flush. */
+  private clearPendingTypingDelta(): void {
+    this.pendingTypingDelta = '';
+    if (this.pendingTypingFlushFrame !== null && typeof cancelAnimationFrame === 'function') {
+      cancelAnimationFrame(this.pendingTypingFlushFrame);
+    }
+    this.pendingTypingFlushFrame = null;
+  }
+
+  /** Returns true when the viewport is pinned near the bottom of the message list. */
+  private isNearBottom(el: HTMLElement, thresholdPx = 120): boolean {
+    const distanceFromBottom = el.scrollHeight - (el.scrollTop + el.clientHeight);
+    return distanceFromBottom <= thresholdPx;
+  }
+
+  /** Scroll the messages area to the bottom. */
+  private scrollToBottom(options?: {
+    onlyIfNearBottom?: boolean;
+    behavior?: ScrollBehavior;
+  }): void {
+    const el = this.messagesArea()?.nativeElement;
+    if (!el) return;
+
+    if (options?.onlyIfNearBottom && !this.isNearBottom(el)) return;
+
+    this.pendingScrollBehavior = options?.behavior ?? 'auto';
+    if (this.pendingScrollFrame !== null) return;
+
+    const commitScroll = () => {
+      this.pendingScrollFrame = null;
+      const top = el.scrollHeight;
+      const behavior = this.pendingScrollBehavior;
+      if (typeof el.scrollTo === 'function') {
+        el.scrollTo({ top, behavior });
+      } else {
+        el.scrollTop = top;
+      }
+    };
+
+    if (isPlatformBrowser(this.platformId) && typeof requestAnimationFrame === 'function') {
+      this.pendingScrollFrame = requestAnimationFrame(commitScroll);
+      return;
+    }
+
+    commitScroll();
   }
 
   // ============================================
@@ -2876,17 +3624,72 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     }
   }
 
-  /** Handle draft email approval (HITL) — bubble up to parent shell/service. */
+  /** Handle draft approval through the shared approval-resolution pipeline. */
   protected onDraftSubmitted(event: DraftSubmittedEvent): void {
     this.logger.info('Draft email approved', {
       toEmail: event.toEmail,
       subject: event.subject?.slice(0, 50),
+      approvalId: event.approvalId,
     });
     this.breadcrumb.trackUserAction('draft-email-approved', {
       toEmail: event.toEmail,
       source: 'operation-chat',
+      approvalId: event.approvalId,
     });
-    this.draftSubmitted.emit(event);
+
+    if (event.approvalId) {
+      void this.resolveInlineApproval({
+        approvalId: event.approvalId,
+        decision: 'approved',
+        toolInput: {
+          ...(event.toEmail ? { toEmail: event.toEmail } : {}),
+          subject: event.subject,
+          bodyHtml: event.content,
+        },
+        successMessage: 'Draft approved — Agent X is resuming',
+      });
+      return;
+    }
+
+    this.logger.warn('Inline draft card missing approvalId', {
+      toEmail: event.toEmail,
+      subject: event.subject?.slice(0, 50),
+    });
+    this.toast.error('This draft can no longer be sent directly. Refresh and try again.');
+  }
+
+  protected onConfirmationAction(event: ConfirmationActionEvent): void {
+    if (!event.approvalId) {
+      this.logger.warn('Inline confirmation action missing approvalId', {
+        actionId: event.actionId,
+      });
+      return;
+    }
+
+    const decision =
+      event.actionId === 'approve' ? 'approved' : event.actionId === 'reject' ? 'rejected' : null;
+
+    if (!decision) {
+      this.logger.warn('Unsupported inline confirmation action', {
+        actionId: event.actionId,
+        approvalId: event.approvalId,
+      });
+      return;
+    }
+
+    void this.resolveInlineApproval({
+      approvalId: event.approvalId,
+      decision,
+      successMessage:
+        decision === 'approved' ? 'Approved — Agent X is resuming' : 'Request rejected',
+    });
+  }
+
+  /** Route an ask_user card reply into the chat as a normal user message. */
+  protected async onAskUserReply(event: AskUserReplyEvent): Promise<void> {
+    this.logger.info('ask_user reply submitted', { threadId: event.threadId });
+    this.inputValue.set(event.answer);
+    await this.send();
   }
 
   /** Handle approval/rejection from the action card. */
@@ -2945,7 +3748,11 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     });
 
     try {
-      const success = await this.jobService.replyOperation(event.operationId, event.response);
+      const activeYield = this.activeYieldState();
+      const success =
+        activeYield?.reason === 'needs_input'
+          ? await this.resumeYieldedOperation(event.operationId, event.response)
+          : await this.jobService.replyOperation(event.operationId, event.response);
       if (success) {
         await this.haptics.notification('success');
         this.actionCardRef()?.markResolved('Reply sent — resuming');
@@ -2981,11 +3788,211 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     }
   }
 
+  protected yieldOperationId(): string {
+    return this._currentOperationId ?? this.contextId;
+  }
+
+  private async resumeYieldedOperation(operationId: string, response: string): Promise<boolean> {
+    const authToken = await this.getAuthToken?.().catch(() => null);
+    if (!authToken || !isPlatformBrowser(this.platformId)) {
+      this.logger.warn('Cannot resume yielded operation without browser auth token', {
+        operationId,
+      });
+      this.toast.error('Sign in again to continue this operation');
+      return false;
+    }
+
+    const result = await this.api.resumeYieldedJob(operationId, response);
+    if (!result?.resumed || !result.operationId) {
+      this.logger.warn('Yielded operation resume failed', { operationId });
+      return false;
+    }
+
+    const threadId = result.threadId ?? this._resolvedThreadId() ?? undefined;
+    if (threadId) {
+      this._resolvedThreadId.set(threadId);
+    }
+
+    this._currentOperationId = result.operationId;
+    this.activeYieldState.set(null);
+
+    this.pushMessage({
+      id: 'typing',
+      role: 'assistant',
+      content: '',
+      timestamp: new Date(),
+      isTyping: true,
+    });
+    this._loading.set(true);
+
+    try {
+      await this._sendViaStream(
+        {
+          message: 'Resume yielded operation',
+          ...(threadId ? { threadId } : {}),
+          resumeOperationId: result.operationId,
+        },
+        authToken
+      );
+      this.responseComplete.emit();
+      return true;
+    } catch (err) {
+      this.logger.error('Failed to attach to resumed yielded operation stream', err, {
+        operationId,
+        resumedOperationId: result.operationId,
+      });
+      this.replaceTyping({
+        id: this.uid(),
+        role: 'assistant',
+        content: 'Your reply was saved, but I could not reconnect to the resumed operation.',
+        timestamp: new Date(),
+        error: true,
+      });
+      return false;
+    } finally {
+      this._loading.set(false);
+    }
+  }
+
   /** Generate a unique ID. */
   private uid(): string {
     return typeof crypto !== 'undefined' && crypto.randomUUID
       ? crypto.randomUUID()
       : `op-msg-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  }
+
+  // ============================================
+  // INLINE APPROVAL
+  // ============================================
+
+  /**
+   * Resolve an inline approval (draft email, confirmation card).
+   * Calls the backend `resolveApproval` endpoint, shows a toast, and — if the
+   * operation was resumed — attaches this component to the new SSE stream so the
+   * user sees the continuation in real time.
+   */
+  async resolveInlineApproval(params: {
+    approvalId: string;
+    decision: 'approved' | 'rejected';
+    toolInput?: Record<string, unknown>;
+    successMessage?: string;
+  }): Promise<boolean> {
+    this.logger.info('Resolving inline approval', {
+      approvalId: params.approvalId,
+      decision: params.decision,
+    });
+    this.breadcrumb.trackStateChange('agent-x-operation-chat:inline-approval', {
+      approvalId: params.approvalId,
+      decision: params.decision,
+    });
+
+    try {
+      const result = await this.api.resolveApproval(
+        params.approvalId,
+        params.decision,
+        params.toolInput
+      );
+
+      if (!result) {
+        this.logger.warn('Inline approval returned null', {
+          approvalId: params.approvalId,
+          decision: params.decision,
+        });
+        this.toast.error('Failed to process approval');
+        return false;
+      }
+
+      this.analytics?.trackEvent(APP_EVENTS.AGENT_X_OPERATION_APPROVED, {
+        approvalId: params.approvalId,
+        decision: params.decision,
+        resumed: result.resumed,
+      });
+
+      if (params.decision === 'rejected') {
+        this.toast.success(params.successMessage ?? 'Request rejected');
+        return true;
+      }
+
+      this.toast.success(params.successMessage ?? 'Approved — Agent X is resuming');
+
+      if (result.resumed && result.operationId) {
+        await this._attachToResumedOperation({
+          operationId: result.operationId,
+          threadId: result.threadId ?? undefined,
+        });
+      }
+
+      return true;
+    } catch (err) {
+      this.logger.error('Failed to resolve inline approval', err, {
+        approvalId: params.approvalId,
+        decision: params.decision,
+      });
+      this.toast.error('Failed to process approval');
+      return false;
+    }
+  }
+
+  /**
+   * Attach this component to a resumed SSE stream (after approval or drop-recovery).
+   * Injects a typing indicator and calls `_sendViaStream` with `resumeOperationId`.
+   * @internal
+   */
+  async _attachToResumedOperation(params: {
+    operationId: string;
+    threadId?: string;
+    afterSeq?: number;
+  }): Promise<void> {
+    const authToken = await this.getAuthToken?.().catch(() => null);
+    if (!authToken || !isPlatformBrowser(this.platformId)) {
+      this.logger.info('Approval resumed without live stream attachment', {
+        operationId: params.operationId,
+      });
+      return;
+    }
+
+    this.activeStream?.abort();
+    this.activeStream = null;
+
+    if (params.threadId) {
+      this._resolvedThreadId.set(params.threadId);
+    }
+
+    this._currentOperationId = params.operationId;
+
+    this.pushMessage({
+      id: 'typing',
+      role: 'assistant',
+      content: '',
+      timestamp: new Date(),
+      isTyping: true,
+    });
+    this._loading.set(true);
+
+    try {
+      await this._sendViaStream(
+        {
+          message: 'Resume approved operation',
+          ...(params.threadId ? { threadId: params.threadId } : {}),
+          resumeOperationId: params.operationId,
+          ...(params.afterSeq !== undefined ? { afterSeq: params.afterSeq } : {}),
+        },
+        authToken
+      );
+      this.responseComplete.emit();
+    } catch (err) {
+      this.logger.error('Failed to attach to resumed operation stream', err, {
+        operationId: params.operationId,
+      });
+      this.replaceTyping({
+        id: this.uid(),
+        role: 'assistant',
+        content: 'Failed to resume operation. Please refresh and try again.',
+        timestamp: new Date(),
+        error: true,
+      });
+      this._loading.set(false);
+    }
   }
 
   // ============================================
@@ -3013,6 +4020,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
    */
   private _injectBillingCard(reason: AgentXBillingActionReason, description?: string): void {
     const card: AgentXRichCard = {
+      agentId: 'router',
       type: 'billing-action',
       title: 'Action Required',
       payload: { reason, description },
