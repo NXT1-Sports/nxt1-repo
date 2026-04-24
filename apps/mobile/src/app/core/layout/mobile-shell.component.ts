@@ -912,7 +912,7 @@ export class MobileShellComponent implements OnInit, OnDestroy {
       await this.authFlow.signOut();
       await this.navController.navigateRoot(AUTH_ROUTES.ROOT);
     } catch (error) {
-      this.logger.error('Sign out failed', error);
+      // this.logger.error('Sign out failed', error);
     }
   }
 }
