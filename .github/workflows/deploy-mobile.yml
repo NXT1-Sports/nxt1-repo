@@ -65,8 +65,8 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
 
-      - name: Update npm to v11
-        run: npm install -g npm@11
+      - name: Enable Corepack (enforces packageManager field)
+        run: corepack enable npm
 
       - name: Install dependencies
         run: npm ci
@@ -105,8 +105,8 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
 
-      - name: Update npm to v11
-        run: npm install -g npm@11
+      - name: Enable Corepack (enforces packageManager field)
+        run: corepack enable npm
 
       - name: Download web assets
         uses: actions/download-artifact@v8
@@ -244,8 +244,8 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
 
-      - name: Update npm to v11
-        run: npm install -g npm@11
+      - name: Enable Corepack (enforces packageManager field)
+        run: corepack enable npm
 
       - name: Setup Java
         uses: actions/setup-java@v4

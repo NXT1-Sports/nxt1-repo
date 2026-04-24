@@ -122,8 +122,8 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
 
-      - name: Update npm to v11
-        run: npm install -g npm@11
+      - name: Enable Corepack (enforces packageManager field)
+        run: corepack enable npm
 
       - name: Cache Turbo
         uses: actions/cache@v5
@@ -163,8 +163,8 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
 
-      - name: Update npm to v11
-        run: npm install -g npm@11
+      - name: Enable Corepack (enforces packageManager field)
+        run: corepack enable npm
 
       - name: Cache Turbo
         uses: actions/cache@v5
@@ -200,8 +200,8 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
 
-      - name: Update npm to v11
-        run: npm install -g npm@11
+      - name: Enable Corepack (enforces packageManager field)
+        run: corepack enable npm
 
       - name: Cache Turbo
         uses: actions/cache@v5
@@ -242,8 +242,8 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
 
-      - name: Update npm to v11
-        run: npm install -g npm@11
+      - name: Enable Corepack (enforces packageManager field)
+        run: corepack enable npm
 
       - name: Cache Turbo
         uses: actions/cache@v5
@@ -294,8 +294,8 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
 
-      - name: Update npm to v11
-        run: npm install -g npm@11
+      - name: Enable Corepack (enforces packageManager field)
+        run: corepack enable npm
 
       - name: Cache Turbo
         uses: actions/cache@v5
@@ -342,8 +342,8 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
 
-      - name: Update npm to v11
-        run: npm install -g npm@11
+      - name: Enable Corepack (enforces packageManager field)
+        run: corepack enable npm
 
       - name: Cache Turbo
         uses: actions/cache@v5
