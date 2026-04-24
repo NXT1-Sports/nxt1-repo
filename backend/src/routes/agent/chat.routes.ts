@@ -13,51 +13,404 @@ import { appGuard } from '../../middleware/auth/auth.middleware.js';
 import { aiRateLimit } from '../../middleware/rate-limit/rate-limit.middleware.js';
 import { validateBody } from '../../middleware/validation/validation.middleware.js';
 import { AgentChatRequestDto, AgentEnqueueRequestDto } from '../../dtos/agent-x.dto.js';
-import type {
-  AgentJobPayload,
-  AgentJobOrigin,
-  AgentDashboardGoal,
-  AgentYieldState,
-} from '@nxt1/core';
-import { resolveAgentApprovalCopy } from '@nxt1/core';
-import { isAgentYield } from '../../modules/agent/exceptions/agent-yield.exception.js';
-import { getAgentEngineErrorCode } from '../../modules/agent/exceptions/agent-engine.error.js';
-import type { LLMMessage, LLMContentPart } from '../../modules/agent/llm/llm.types.js';
-import { buildSseStreamCallback } from './sse-stream-adapter.js';
-import { DebouncedEventWriter } from '../../modules/agent/queue/event-writer.js';
-import type { StreamEvent } from '../../modules/agent/queue/event-writer.js';
+import type { AgentJobPayload, AgentJobOrigin, AgentYieldState } from '@nxt1/core';
 import { STREAM_TERMINAL_EVENTS } from '../../modules/agent/queue/pubsub.service.js';
-import { notifyYield } from '../../modules/agent/services/yield-notifier.service.js';
 import { logger } from '../../utils/logger.js';
-import {
-  executeBillingDeduction,
-  resolveBillingTarget,
-  checkBudgetFromContext,
-} from '../../modules/billing/index.js';
+import { resolveBillingTarget, checkBudgetFromContext } from '../../modules/billing/index.js';
 import crypto from 'node:crypto';
+import { FieldValue, type Firestore } from 'firebase-admin/firestore';
 
 import {
   queueService,
   jobRepository,
   chatService,
-  contextBuilder,
-  llmService,
   pubsubService,
   activeAbortControllers,
   getAuthUser,
   resolveThread,
-  replayJobEventsAsSSE,
-  buildInlineApprovalCard,
-  buildInlineAskUserCard,
   forceProxyFlush,
-  agentRouterRef,
 } from './shared.js';
 
 const router = Router();
 
+const IDEMPOTENCY_KEY_HEADER = 'x-idempotency-key';
+const IDEMPOTENCY_KEY_RE = /^[a-zA-Z0-9:_-]{8,128}$/;
+const OUTBOX_COLLECTION = 'AgentJobOutbox';
+
+type AgentOutboxStatus = 'pending' | 'enqueued' | 'error';
+
+interface AgentOutboxDocument {
+  readonly operationId: string;
+  readonly userId: string;
+  readonly environment: 'staging' | 'production';
+  readonly status: AgentOutboxStatus;
+  readonly attempts: number;
+  readonly payload: AgentJobPayload;
+  readonly jobId?: string;
+  readonly lastError?: string;
+}
+
+function parseIdempotencyKey(req: Request): string | null {
+  const raw = req.get(IDEMPOTENCY_KEY_HEADER) ?? req.get('idempotency-key');
+  if (!raw) return null;
+  const value = raw.trim();
+  if (!value) return null;
+  return IDEMPOTENCY_KEY_RE.test(value) ? value : null;
+}
+
+async function isAgentInfraHealthy(): Promise<boolean> {
+  if (!queueService) return false;
+  const queueHealthy =
+    typeof queueService.isHealthy === 'function' ? await queueService.isHealthy() : true;
+  if (!queueHealthy) return false;
+  if (!pubsubService) return true;
+  return typeof pubsubService.isHealthy === 'function' ? pubsubService.isHealthy() : true;
+}
+
+function writeSseHeaders(res: Response): void {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders();
+  res.socket?.setNoDelay(true);
+}
+
+async function enqueueWithOutbox(
+  db: Firestore,
+  payload: AgentJobPayload,
+  environment: 'staging' | 'production'
+): Promise<{ jobId: string; deduplicated: boolean }> {
+  if (!queueService) throw new Error('Agent queue is unavailable');
+
+  const outboxRef = db.collection(OUTBOX_COLLECTION).doc(payload.operationId);
+  const existing = await outboxRef.get();
+  if (existing.exists) {
+    const existingData = existing.data() as Partial<AgentOutboxDocument>;
+    if (existingData.status === 'enqueued' && typeof existingData.jobId === 'string') {
+      return { jobId: existingData.jobId, deduplicated: true };
+    }
+  }
+
+  await outboxRef.set(
+    {
+      operationId: payload.operationId,
+      userId: payload.userId,
+      environment,
+      status: 'pending' as AgentOutboxStatus,
+      attempts: FieldValue.increment(1),
+      payload,
+      updatedAt: FieldValue.serverTimestamp(),
+      createdAt: FieldValue.serverTimestamp(),
+    },
+    { merge: true }
+  );
+
+  try {
+    const jobId = await queueService.enqueue(payload, environment);
+    await outboxRef.set(
+      {
+        status: 'enqueued' as AgentOutboxStatus,
+        jobId,
+        lastError: null,
+        enqueuedAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+    return { jobId, deduplicated: false };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    await outboxRef.set(
+      {
+        status: 'error' as AgentOutboxStatus,
+        lastError: message,
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+    throw err;
+  }
+}
+
+async function reconcileAgentOutbox(
+  db: Firestore,
+  environment: 'staging' | 'production',
+  limit = 10
+): Promise<void> {
+  if (!queueService) return;
+
+  const snapshot = await db
+    .collection(OUTBOX_COLLECTION)
+    .where('environment', '==', environment)
+    .where('status', 'in', ['pending', 'error'])
+    .limit(limit)
+    .get();
+
+  for (const doc of snapshot.docs) {
+    const outbox = doc.data() as Partial<AgentOutboxDocument>;
+    if (!outbox.payload || typeof outbox.payload !== 'object') {
+      await doc.ref.set(
+        {
+          status: 'error' as AgentOutboxStatus,
+          lastError: 'Missing payload in outbox document',
+          updatedAt: FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+      continue;
+    }
+
+    try {
+      const payload = outbox.payload as AgentJobPayload;
+      const jobId = await queueService.enqueue(payload, environment);
+      await doc.ref.set(
+        {
+          status: 'enqueued' as AgentOutboxStatus,
+          jobId,
+          lastError: null,
+          enqueuedAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+    } catch (err) {
+      await doc.ref.set(
+        {
+          status: 'error' as AgentOutboxStatus,
+          attempts: FieldValue.increment(1),
+          lastError: err instanceof Error ? err.message : String(err),
+          updatedAt: FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+    }
+  }
+}
+
+function emitReplayEvent(res: Response, rawEvt: unknown): void {
+  const evt = (rawEvt ?? {}) as Record<string, unknown>;
+  switch (evt['type']) {
+    case 'delta':
+      if (typeof evt['text'] === 'string') {
+        res.write(`event: delta\ndata: ${JSON.stringify({ content: evt['text'] })}\n\n`);
+      }
+      break;
+    case 'step_active':
+    case 'step_done':
+    case 'step_error': {
+      const type = String(evt['type']);
+      const status = type === 'step_active' ? 'active' : type === 'step_done' ? 'success' : 'error';
+      res.write(
+        `event: step\ndata: ${JSON.stringify({
+          id: evt['toolName'] ?? evt['agentId'] ?? type,
+          label: evt['message'] ?? type,
+          status,
+          agentId: evt['agentId'],
+        })}\n\n`
+      );
+      break;
+    }
+    case 'card':
+      if (evt['cardData'] && typeof evt['cardData'] === 'object') {
+        res.write(`event: card\ndata: ${JSON.stringify(evt['cardData'])}\n\n`);
+      }
+      break;
+    case 'done':
+      res.write(`event: done\ndata: ${JSON.stringify(evt)}\n\n`);
+      break;
+    default:
+      break;
+  }
+}
+
+async function streamOperationToSse(params: {
+  req: Request;
+  res: Response;
+  db: Firestore;
+  operationId: string;
+  userId: string;
+  afterSeq?: number;
+  initialThreadId?: string;
+  initialOperationStatus?: 'in-progress' | 'awaiting_input' | 'awaiting_approval';
+}): Promise<void> {
+  const {
+    req,
+    res,
+    db,
+    operationId,
+    userId,
+    afterSeq = -1,
+    initialThreadId,
+    initialOperationStatus,
+  } = params;
+
+  if (!jobRepository) {
+    res.status(503).json({ success: false, error: 'Agent job repository is unavailable' });
+    return;
+  }
+
+  const repo = jobRepository.withDb(db);
+  const job = await repo.getById(operationId);
+  if (!job || job.userId !== userId) {
+    res.status(404).json({
+      success: false,
+      error: 'Operation not found',
+      code: 'AGENT_OPERATION_NOT_FOUND',
+    });
+    return;
+  }
+
+  writeSseHeaders(res);
+
+  if (initialThreadId) {
+    res.write(
+      `event: thread\ndata: ${JSON.stringify({ threadId: initialThreadId, operationId })}\n\n`
+    );
+    forceProxyFlush(res);
+  }
+
+  if (initialOperationStatus && initialThreadId) {
+    res.write(
+      `event: operation\ndata: ${JSON.stringify({
+        threadId: initialThreadId,
+        operationId,
+        status: initialOperationStatus,
+        timestamp: new Date().toISOString(),
+      })}\n\n`
+    );
+    forceProxyFlush(res);
+  }
+
+  const events = await repo.getJobEvents(operationId);
+  let lastSeq = afterSeq;
+  let replaySawTerminal = false;
+  for (const evt of events) {
+    const seq = typeof evt.seq === 'number' ? evt.seq : -1;
+    if (seq <= afterSeq) continue;
+    emitReplayEvent(res, evt);
+    if (seq > lastSeq) lastSeq = seq;
+    if (STREAM_TERMINAL_EVENTS.has(String(evt.type ?? ''))) {
+      replaySawTerminal = true;
+    }
+  }
+
+  if (replaySawTerminal) {
+    res.end();
+    return;
+  }
+
+  const terminalStatuses = new Set(['completed', 'failed', 'cancelled']);
+  if (terminalStatuses.has(job.status)) {
+    res.write(
+      `event: done\ndata: ${JSON.stringify({
+        operationId,
+        threadId: job.threadId ?? undefined,
+        status: job.status,
+        timestamp: new Date().toISOString(),
+      })}\n\n`
+    );
+    res.end();
+    return;
+  }
+
+  let closed = false;
+  const closeCallbacks: Array<() => void> = [];
+  const closeStream = () => {
+    if (closed) return;
+    closed = true;
+    for (const cb of closeCallbacks) cb();
+  };
+
+  req.on('close', () => {
+    closeStream();
+    repo.markDetached(operationId).catch(() => undefined);
+  });
+
+  const heartbeat = setInterval(() => {
+    if (closed) return;
+    try {
+      res.write('event: ping\ndata: {}\n\n');
+    } catch {
+      closeStream();
+    }
+  }, 15_000);
+  closeCallbacks.push(() => clearInterval(heartbeat));
+
+  const pubsubHealthy =
+    !!pubsubService &&
+    (typeof pubsubService.isHealthy !== 'function' || (await pubsubService.isHealthy()));
+
+  if (pubsubHealthy && pubsubService) {
+    try {
+      const unsubscribe = await pubsubService.subscribe(operationId, (msg) => {
+        if (closed) return;
+        try {
+          res.write(`event: ${msg.event}\ndata: ${JSON.stringify(msg.data)}\n\n`);
+          if (STREAM_TERMINAL_EVENTS.has(msg.event)) {
+            closeStream();
+            res.end();
+          }
+        } catch {
+          closeStream();
+        }
+      });
+
+      closeCallbacks.push(() => {
+        void unsubscribe();
+      });
+      return;
+    } catch (err) {
+      logger.warn('PubSub subscribe failed; falling back to Firestore tailing', {
+        operationId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  // Fallback transport: Firestore tail polling when Redis PubSub is unavailable.
+  let polling = false;
+  const pollTimer = setInterval(async () => {
+    if (closed || polling) return;
+    polling = true;
+    try {
+      const latestEvents = await repo.getJobEvents(operationId);
+      for (const evt of latestEvents) {
+        const seq = typeof evt['seq'] === 'number' ? (evt['seq'] as number) : -1;
+        if (seq <= lastSeq) continue;
+        emitReplayEvent(res, evt);
+        lastSeq = Math.max(lastSeq, seq);
+      }
+
+      const latestJob = await repo.getById(operationId);
+      if (!latestJob || terminalStatuses.has(latestJob.status)) {
+        res.write(
+          `event: done\ndata: ${JSON.stringify({
+            operationId,
+            threadId: latestJob?.threadId ?? undefined,
+            status: latestJob?.status ?? 'completed',
+            timestamp: new Date().toISOString(),
+          })}\n\n`
+        );
+        closeStream();
+        res.end();
+      }
+    } catch (err) {
+      logger.warn('Firestore tail polling failed', {
+        operationId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      polling = false;
+    }
+  }, 1200);
+
+  closeCallbacks.push(() => clearInterval(pollTimer));
+}
+
 // ─── POST /cancel/:id — Explicit cancellation endpoint ───────────────────
 
-router.post('/cancel/:id', appGuard, (req: Request, res: Response) => {
+router.post('/cancel/:id', appGuard, async (req: Request, res: Response) => {
   const user = getAuthUser(req);
   if (!user?.uid) {
     res.status(401).json({ success: false, error: 'Unauthorized' });
@@ -70,22 +423,57 @@ router.post('/cancel/:id', appGuard, (req: Request, res: Response) => {
     return;
   }
 
+  const db = req.firebase?.db;
+  if (!db || !jobRepository) {
+    res.status(503).json({ success: false, error: 'Agent persistence unavailable' });
+    return;
+  }
+
+  const persistedJob = await jobRepository.withDb(db).getById(operationId);
+  if (!persistedJob || persistedJob.userId !== user.uid) {
+    logger.warn('Forbidden cancel attempt: operation belongs to another user or missing', {
+      operationId,
+      requesterUserId: user.uid,
+    });
+    res.status(404).json({ success: false, error: 'Operation not found' });
+    return;
+  }
+
   const entry = activeAbortControllers.get(operationId);
   if (entry) {
     entry.controller.abort();
     activeAbortControllers.delete(operationId);
-    logger.info('Agent X operation cancelled via explicit endpoint', {
-      operationId,
-      userId: user.uid,
-    });
-  } else {
-    logger.info('Cancel requested but operation not found (may have already completed)', {
-      operationId,
-      userId: user.uid,
-    });
   }
 
-  res.json({ success: true, cancelled: !!entry });
+  let queueCancelled = false;
+  if (queueService) {
+    try {
+      queueCancelled = await queueService.cancel(operationId);
+    } catch (err) {
+      logger.warn('Queue cancellation call failed', {
+        operationId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  await jobRepository
+    .withDb(db)
+    .markCancelled(operationId)
+    .catch((err: unknown) => {
+      logger.warn('Failed to mark operation cancelled in repository', {
+        operationId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
+
+  logger.info('Agent X operation cancelled via explicit endpoint', {
+    operationId,
+    userId: user.uid,
+    queueCancelled,
+  });
+
+  res.json({ success: true, cancelled: true, queueCancelled });
 });
 
 // ─── POST /resume-job/:operationId — Resume a yielded agent job ───────────
@@ -94,6 +482,16 @@ router.post('/resume-job/:operationId', appGuard, async (req: Request, res: Resp
   try {
     if (!queueService || !jobRepository) {
       res.status(503).json({ success: false, error: 'Agent queue not initialized' });
+      return;
+    }
+
+    if (!(await isAgentInfraHealthy())) {
+      res.setHeader('Retry-After', '10');
+      res.status(503).json({
+        success: false,
+        error: 'Agent infrastructure is temporarily unavailable. Please retry shortly.',
+        code: 'AGENT_INFRA_UNAVAILABLE',
+      });
       return;
     }
 
@@ -203,11 +601,8 @@ router.post('/resume-job/:operationId', appGuard, async (req: Request, res: Resp
       summary: `Resumed by user — continuing as ${resumedPayload.operationId}`,
       data: { resumedAs: resumedPayload.operationId },
     });
-
-    const jobId = await queueService.enqueue(
-      resumedPayload,
-      req.isStaging ? 'staging' : 'production'
-    );
+    const environment = req.isStaging ? 'staging' : 'production';
+    const enqueueResult = await enqueueWithOutbox(db, resumedPayload, environment);
 
     logger.info('Agent job resumed', {
       originalOperationId: operationId,
@@ -218,7 +613,7 @@ router.post('/resume-job/:operationId', appGuard, async (req: Request, res: Resp
     res.status(202).json({
       success: true,
       data: {
-        jobId,
+        jobId: enqueueResult.jobId,
         operationId: resumedPayload.operationId,
         threadId,
         resumedFrom: operationId,
@@ -373,10 +768,8 @@ router.post('/approvals/:id/resolve', appGuard, async (req: Request, res: Respon
       data: { resumedAs: resumedPayload.operationId, approvalId },
     });
 
-    const jobId = await queueService.enqueue(
-      resumedPayload,
-      req.isStaging ? 'staging' : 'production'
-    );
+    const environment = req.isStaging ? 'staging' : 'production';
+    const enqueueResult = await enqueueWithOutbox(db, resumedPayload, environment);
 
     logger.info('Approval resolved and job resumed', {
       approvalId,
@@ -391,7 +784,7 @@ router.post('/approvals/:id/resolve', appGuard, async (req: Request, res: Respon
       data: {
         decision,
         resumed: true,
-        jobId,
+        jobId: enqueueResult.jobId,
         operationId: resumedPayload.operationId,
         threadId,
       },
@@ -423,11 +816,62 @@ router.post(
         return;
       }
 
+      if (!(await isAgentInfraHealthy())) {
+        res.setHeader('Retry-After', '10');
+        res.status(503).json({
+          success: false,
+          error: 'Agent infrastructure is temporarily unavailable. Please retry shortly.',
+          code: 'AGENT_INFRA_UNAVAILABLE',
+        });
+        return;
+      }
+
       const { intent, userContext, threadId } = req.body as AgentEnqueueRequestDto;
       const db = req.firebase?.db;
       if (!db) {
         res.status(500).json({ success: false, error: 'Firestore unavailable' });
         return;
+      }
+      const environment = req.isStaging ? 'staging' : 'production';
+
+      // Opportunistic healing for previously failed/pending outbox entries.
+      void reconcileAgentOutbox(db, environment).catch((err: unknown) => {
+        logger.warn('Outbox reconciliation failed during /enqueue admission', {
+          error: err instanceof Error ? err.message : String(err),
+          environment,
+        });
+      });
+
+      const idempotencyKey = parseIdempotencyKey(req);
+      if ((req.get(IDEMPOTENCY_KEY_HEADER) || req.get('idempotency-key')) && !idempotencyKey) {
+        res.status(400).json({
+          success: false,
+          error:
+            'Invalid idempotency key. Use 8-128 chars: letters, numbers, colon, underscore, hyphen.',
+        });
+        return;
+      }
+
+      if (idempotencyKey) {
+        const existing = await jobRepository
+          .withDb(db)
+          .getByIdempotencyKey(user.uid, idempotencyKey);
+        if (existing) {
+          logger.info('Agent enqueue deduplicated by idempotency key', {
+            userId: user.uid,
+            operationId: existing.operationId,
+          });
+          res.status(202).json({
+            success: true,
+            deduplicated: true,
+            data: {
+              jobId: existing.operationId,
+              operationId: existing.operationId,
+              ...(existing.threadId ? { threadId: existing.threadId } : {}),
+            },
+          });
+          return;
+        }
       }
 
       let resolvedThreadId: string | undefined;
@@ -462,16 +906,18 @@ router.post(
         origin: 'user' as AgentJobOrigin,
         context: {
           ...(userContext ?? {}),
+          ...(idempotencyKey ? { idempotencyKey } : {}),
           ...(resolvedThreadId ? { threadId: resolvedThreadId } : {}),
         },
       };
 
       await jobRepository.withDb(db).create(payload);
-      const jobId = await queueService.enqueue(payload, req.isStaging ? 'staging' : 'production');
+      const enqueueResult = await enqueueWithOutbox(db, payload, environment);
 
       logger.info('Agent X background job enqueued', {
         operationId,
-        jobId,
+        jobId: enqueueResult.jobId,
+        deduplicated: enqueueResult.deduplicated,
         userId: user.uid,
         hasThread: !!resolvedThreadId,
       });
@@ -479,7 +925,7 @@ router.post(
       res.status(202).json({
         success: true,
         data: {
-          jobId,
+          jobId: enqueueResult.jobId,
           operationId,
           ...(resolvedThreadId ? { threadId: resolvedThreadId } : {}),
         },
@@ -503,47 +949,85 @@ router.post(
   aiRateLimit,
   validateBody(AgentChatRequestDto),
   async (req: Request, res: Response) => {
-    const chatOperationId = `chat-${crypto.randomUUID()}`;
-    const chatUser = getAuthUser(req);
-    let resolvedThreadId: string | undefined;
-    let chatEventWriter: DebouncedEventWriter | null = null;
-    const invokedTools: string[] = [];
-    const successfulTools: string[] = [];
-
-    const abortController = new AbortController();
-    activeAbortControllers.set(chatOperationId, {
-      controller: abortController,
-      createdAt: Date.now(),
-    });
-
-    req.on('close', () => {
-      if (!abortController.signal.aborted) {
-        abortController.abort();
-        logger.info('Agent X operation aborted via SSE disconnect', {
-          operationId: chatOperationId,
-          userId: chatUser?.uid,
-        });
-      }
-      activeAbortControllers.delete(chatOperationId);
-    });
-
     try {
-      const user = chatUser;
+      const user = getAuthUser(req);
       if (!user?.uid) {
         res.status(401).json({ success: false, error: 'Unauthorized' });
         return;
       }
 
-      const { message, mode, history, threadId, attachments, resumeOperationId, afterSeq } =
-        req.body as AgentChatRequestDto;
+      if (!queueService || !jobRepository) {
+        res.status(503).json({ success: false, error: 'Agent queue is unavailable' });
+        return;
+      }
 
-      // ── Pre-compute enriched message text ─────────────────────────────
-      // Build the full enriched text BEFORE Step 1 so it can be stored in
-      // thread history. This means follow-up turns always have full context
-      // (video IDs, image URLs, doc references) in their history — not just
-      // the raw typed message.
-      const _allAttachments = attachments ?? [];
-      const _fileAttachments = _allAttachments.filter(
+      if (!(await isAgentInfraHealthy())) {
+        res.setHeader('Retry-After', '10');
+        res.status(503).json({
+          success: false,
+          error: 'Agent infrastructure is temporarily unavailable. Please retry shortly.',
+          code: 'AGENT_INFRA_UNAVAILABLE',
+        });
+        return;
+      }
+
+      const { db } = req.firebase!;
+      const environment = req.isStaging ? 'staging' : 'production';
+
+      void reconcileAgentOutbox(db, environment).catch((err: unknown) => {
+        logger.warn('Outbox reconciliation failed during /chat admission', {
+          error: err instanceof Error ? err.message : String(err),
+          environment,
+        });
+      });
+
+      const { message, mode, threadId, attachments, resumeOperationId, afterSeq } =
+        req.body as AgentChatRequestDto;
+      const idempotencyKey = parseIdempotencyKey(req);
+
+      if ((req.get(IDEMPOTENCY_KEY_HEADER) || req.get('idempotency-key')) && !idempotencyKey) {
+        res.status(400).json({
+          success: false,
+          error:
+            'Invalid idempotency key. Use 8-128 chars: letters, numbers, colon, underscore, hyphen.',
+        });
+        return;
+      }
+
+      let effectiveOperationId: string | undefined = resumeOperationId;
+      let effectiveThreadId: string | undefined;
+
+      if (!effectiveOperationId && idempotencyKey) {
+        const existing = await jobRepository
+          .withDb(db)
+          .getByIdempotencyKey(user.uid, idempotencyKey);
+        if (existing) {
+          effectiveOperationId = existing.operationId;
+          effectiveThreadId = existing.threadId ?? undefined;
+          logger.info('Agent chat deduplicated by idempotency key; resuming existing operation', {
+            operationId: existing.operationId,
+            userId: user.uid,
+          });
+        }
+      }
+
+      // Resume existing operation stream (drop recovery or idempotent retry)
+      if (effectiveOperationId) {
+        await streamOperationToSse({
+          req,
+          res,
+          db,
+          operationId: effectiveOperationId,
+          userId: user.uid,
+          afterSeq,
+          initialThreadId: effectiveThreadId,
+        });
+        return;
+      }
+
+      // New request path: create thread/message, create+enqueue job, then stream from persistence + live pubsub.
+      const allAttachments = attachments ?? [];
+      const fileAttachments = allAttachments.filter(
         (a: { mimeType: string }) =>
           a.mimeType.startsWith('image/') ||
           a.mimeType === 'application/pdf' ||
@@ -561,7 +1045,7 @@ router.post(
         type: string;
         sizeBytes: number;
       }[];
-      const _videoAttachments = _allAttachments.filter((a: { mimeType: string }) =>
+      const videoAttachments = allAttachments.filter((a: { mimeType: string }) =>
         a.mimeType.startsWith('video/')
       ) as {
         id: string;
@@ -573,11 +1057,9 @@ router.post(
         cloudflareVideoId?: string;
       }[];
 
-      // Produce enriched text that carries all attachment references.
-      // This is what gets stored in thread history so future turns retain full context.
       let enrichedMessageText = message.trim();
-      if (_videoAttachments.length > 0) {
-        const videoRefs = _videoAttachments
+      if (videoAttachments.length > 0) {
+        const videoRefs = videoAttachments
           .map((v) => {
             const idPart = v.cloudflareVideoId
               ? ` | cloudflareVideoId: ${v.cloudflareVideoId}`
@@ -587,124 +1069,19 @@ router.post(
           .join('\n');
         enrichedMessageText = `${enrichedMessageText}\n\n${videoRefs}`;
       }
-      if (_fileAttachments.length > 0) {
-        const fileRefs = _fileAttachments
+      if (fileAttachments.length > 0) {
+        const fileRefs = fileAttachments
           .map((f) => `[Attached file: ${f.name} (${f.mimeType}) — ${f.url}]`)
           .join('\n');
         enrichedMessageText = `${enrichedMessageText}\n\n${fileRefs}`;
       }
 
-      // ── Drop Recovery ─────────────────────────────────────────────────
-      if (resumeOperationId && pubsubService && jobRepository) {
-        logger.info('Drop recovery: resuming heavy task stream', {
-          operationId: resumeOperationId,
-          userId: user.uid,
-        });
-
-        res.setHeader('Content-Type', 'text/event-stream');
-        res.setHeader('Cache-Control', 'no-cache');
-        res.setHeader('Connection', 'keep-alive');
-        res.setHeader('X-Accel-Buffering', 'no');
-        res.flushHeaders();
-
-        try {
-          const job = await jobRepository.getById(resumeOperationId);
-          if (!job || job.userId !== user.uid) {
-            res.write(
-              `event: error\ndata: ${JSON.stringify({ error: 'Operation not found or unauthorized', code: 'AGENT_OPERATION_NOT_FOUND' })}\n\n`
-            );
-            res.end();
-            return;
-          }
-
-          if (job.status === 'completed' || job.status === 'failed') {
-            const events = await jobRepository.getJobEvents(resumeOperationId);
-            replayJobEventsAsSSE(res, events, afterSeq);
-            res.write(
-              `event: done\ndata: ${JSON.stringify({
-                operationId: resumeOperationId,
-                status: job.status,
-                timestamp: new Date().toISOString(),
-              })}\n\n`
-            );
-            res.end();
-            logger.info('Drop recovery: replayed completed job from Firestore', {
-              operationId: resumeOperationId,
-              userId: user.uid,
-              eventCount: events.length,
-            });
-            return;
-          }
-
-          const events = await jobRepository.getJobEvents(resumeOperationId);
-          replayJobEventsAsSSE(res, events, afterSeq);
-
-          logger.info('Drop recovery: replayed events, subscribing to live stream', {
-            operationId: resumeOperationId,
-            userId: user.uid,
-            replayedCount: events.length,
-          });
-        } catch (replayErr) {
-          logger.warn('Drop recovery: Firestore replay failed, proceeding to PubSub only', {
-            operationId: resumeOperationId,
-            error: replayErr instanceof Error ? replayErr.message : String(replayErr),
-          });
-        }
-
-        const heartbeatInterval = setInterval(() => {
-          try {
-            res.write(`event: ping\ndata: {}\n\n`);
-          } catch {
-            clearInterval(heartbeatInterval);
-          }
-        }, 15_000);
-
-        const unsubscribe = await pubsubService.subscribe(resumeOperationId, (msg) => {
-          try {
-            res.write(`event: ${msg.event}\ndata: ${JSON.stringify(msg.data)}\n\n`);
-
-            if (STREAM_TERMINAL_EVENTS.has(msg.event)) {
-              clearInterval(heartbeatInterval);
-              void unsubscribe();
-              res.write(
-                `event: done\ndata: ${JSON.stringify({
-                  operationId: resumeOperationId,
-                  timestamp: new Date().toISOString(),
-                })}\n\n`
-              );
-              res.end();
-              logger.info('Drop recovery: PubSub stream completed', {
-                operationId: resumeOperationId,
-                userId: user.uid,
-              });
-            }
-          } catch {
-            clearInterval(heartbeatInterval);
-            void unsubscribe();
-          }
-        });
-
-        req.on('close', () => {
-          clearInterval(heartbeatInterval);
-          void unsubscribe();
-          logger.info('Drop recovery: client disconnected again', {
-            operationId: resumeOperationId,
-            userId: user.uid,
-          });
-        });
-
-        return;
-      }
-
-      // ── Step 1: Resolve thread ────────────────────────────────────────
-      const isNewThread = !threadId;
       if (chatService) {
         try {
-          resolvedThreadId = await resolveThread(chatService, user.uid, threadId, message);
-
-          if (resolvedThreadId) {
+          effectiveThreadId = await resolveThread(chatService, user.uid, threadId, message);
+          if (effectiveThreadId) {
             await chatService.addMessage({
-              threadId: resolvedThreadId,
+              threadId: effectiveThreadId,
               userId: user.uid,
               role: 'user',
               content: enrichedMessageText,
@@ -719,96 +1096,6 @@ router.post(
         }
       }
 
-      // ── Step 2: Build system prompt ───────────────────────────────────
-      const { db } = req.firebase!;
-      // ApprovalGateService is handled inside AgentRouter — no local instance needed.
-      let profileContext = '';
-      let threadHistoryStr = '';
-
-      if (contextBuilder) {
-        try {
-          const userContext = await contextBuilder.buildContext(user.uid, db);
-          profileContext = contextBuilder.compressToPrompt(userContext);
-        } catch (ctxErr) {
-          logger.warn('ContextBuilder failed, using minimal context', {
-            error: ctxErr instanceof Error ? ctxErr.message : String(ctxErr),
-            userId: user.uid,
-          });
-        }
-
-        if (resolvedThreadId) {
-          try {
-            threadHistoryStr = await contextBuilder.getRecentThreadHistory(resolvedThreadId, 20);
-          } catch {
-            // Thread history is non-critical
-          }
-        }
-      }
-
-      if (!profileContext) {
-        const userDoc = await db.collection('Users').doc(user.uid).get();
-        const userData = userDoc.data() ?? {};
-        const role = (userData['role'] ?? 'athlete') as string;
-        const displayName = (userData['displayName'] ?? '') as string;
-        const sport = (userData['sport'] ?? '') as string;
-        profileContext = `User: ${displayName} | Role: ${role}${sport ? ` | Sport: ${sport}` : ''}`;
-      }
-
-      const goalsDoc = await db.collection('Users').doc(user.uid).get();
-      const goalsData = goalsDoc.data() ?? {};
-      const agentGoals: AgentDashboardGoal[] = (goalsData['agentGoals'] ??
-        []) as AgentDashboardGoal[];
-      const goalContext =
-        agentGoals.length > 0 ? `\nGoals: ${agentGoals.map((g) => g.text).join('; ')}` : '';
-
-      const systemPrompt = [
-        `You are Agent X — The Ultimate AI Sports Coordinators. You are the AI assistant for NXT1, an AI-first sports platform.`,
-        `\n[User Profile]\n${profileContext}${goalContext}`,
-        threadHistoryStr ? `\n${threadHistoryStr}` : '',
-        `\nBe concise, actionable, and sports-aware. Format responses with markdown and bullet points when listing items.`,
-        `You can: create highlight reels, draft recruiting emails, generate scout reports, analyze film, build graphics, manage recruiting outreach, evaluate prospects, and handle NCAA compliance questions.`,
-        `\n[Tool Usage Rules]`,
-        `- When calling tools, extract userId, teamId, and organizationId from the [User Profile] above. NEVER ask the user for their UserID, TeamID, or OrgID — you already have them.`,
-        `- If a required parameter is available in the user profile context, use it directly.`,
-        `- When the user wants to BROWSE or SEE a website interactively, use the open_live_view tool. It opens a live browser in their command center. If they have a connected account for that platform, the session will be pre-authenticated.`,
-        `- After opening a live view, use navigate_live_view (change URL), read_live_view (extract page content), interact_with_live_view (click/type/scroll), and close_live_view (end session) to control the SAME browser the user sees. You do NOT need to pass a sessionId — the tools auto-resolve it from the userId. For content extraction from a separate URL, use scrape_webpage. For anything already open in live view, stay within the live-view tools so the user sees the same browser state.`,
-        `- You can safely call open_live_view again with a new URL — it automatically reuses the existing session. Only use close_live_view when the user explicitly asks to close the browser or the task is fully done.`,
-        mode ? `\nThe user is currently in "${mode}" mode.` : '',
-      ]
-        .filter(Boolean)
-        .join('');
-
-      // ── Step 3: Build LLM messages array ─────────────────────────────
-      const messages: LLMMessage[] = [{ role: 'system', content: systemPrompt }];
-
-      if (history?.length) {
-        const recentHistory = history.slice(-10);
-        for (const msg of recentHistory) {
-          if (msg.role === 'user' || msg.role === 'assistant') {
-            messages.push({ role: msg.role as 'user' | 'assistant', content: msg.content });
-          }
-        }
-      }
-
-      // Reuse the pre-computed attachment splits from above (already filtered).
-      const fileAttachments = _fileAttachments;
-      const videoAttachments = _videoAttachments;
-
-      // enrichedMessageText already contains video + file refs (built before Step 1).
-      if (fileAttachments.length > 0) {
-        const contentParts: LLMContentPart[] = [{ type: 'text', text: enrichedMessageText }];
-        for (const att of fileAttachments) {
-          contentParts.push({
-            type: 'image_url',
-            image_url: { url: att.url, detail: 'auto' },
-          });
-        }
-        messages.push({ role: 'user', content: contentParts });
-      } else {
-        messages.push({ role: 'user', content: enrichedMessageText });
-      }
-
-      // ── Step 4: Budget preflight ──────────────────────────────────────
       const chatTarget = await resolveBillingTarget(db, user.uid);
       const chatCtx = chatTarget.context;
       const chatBudgetCheck = checkBudgetFromContext(chatCtx);
@@ -823,556 +1110,57 @@ router.post(
         return;
       }
 
-      res.writeHead(200, {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache, no-transform',
-        Connection: 'keep-alive',
-        'X-Accel-Buffering': 'no',
-      });
-
-      res.flushHeaders();
-      res.socket?.setNoDelay(true);
-
-      if (resolvedThreadId) {
-        res.write(
-          `event: thread\ndata: ${JSON.stringify({ threadId: resolvedThreadId, operationId: chatOperationId })}\n\n`
-        );
-
-        forceProxyFlush(res);
-
-        res.write(
-          `event: operation\ndata: ${JSON.stringify({
-            threadId: resolvedThreadId,
-            status: 'in-progress',
-            timestamp: new Date().toISOString(),
-          })}\n\n`
-        );
-        logger.info('SSE operation event emitted: in-progress', { threadId: resolvedThreadId });
-
-        forceProxyFlush(res);
-      }
-
-      let responseContent = '';
-      let model = 'unknown';
-      let tokenUsage: { inputTokens: number; outputTokens: number; model: string } | undefined;
-      let pendingAutoOpenPanel: Record<string, unknown> | null = null;
-
-      // ── Step 3: Build AgentJobPayload + stream through AgentRouter ────
-      const chatPayload: AgentJobPayload = {
-        operationId: chatOperationId,
+      const operationId = `chat-${crypto.randomUUID()}`;
+      const payload: AgentJobPayload = {
+        operationId,
         userId: user.uid,
         intent: message.trim(),
         sessionId: crypto.randomUUID(),
         origin: 'user' as AgentJobOrigin,
-        // Direct-route to the Strategy Coordinator: skip Planner for low-latency chat.
-        // The Strategy Coordinator delegates via the `delegate_task` tool if a specialist is needed.
         agent: 'strategy_coordinator' as import('@nxt1/core').AgentIdentifier,
         context: {
-          ...(resolvedThreadId ? { threadId: resolvedThreadId } : {}),
+          ...(idempotencyKey ? { idempotencyKey } : {}),
+          ...(effectiveThreadId ? { threadId: effectiveThreadId } : {}),
           ...(mode ? { mode } : {}),
           ...(fileAttachments.length > 0 ? { attachments: fileAttachments } : {}),
           ...(videoAttachments.length > 0 ? { videoAttachments } : {}),
         },
       };
 
-      // Create a lightweight job record so /resume-job can locate the paused
-      // state if ask_user fires and the user needs to resume later.
-      if (jobRepository) {
-        try {
-          await jobRepository.withDb(db).create(chatPayload);
-          chatEventWriter = new DebouncedEventWriter(
-            jobRepository.withDb(db),
-            chatOperationId,
-            user.uid
-          );
-        } catch (createErr) {
-          logger.warn('Failed to create SSE chat job record in Firestore', {
-            operationId: chatOperationId,
-            error: createErr instanceof Error ? createErr.message : String(createErr),
-          });
-        }
-      }
+      await jobRepository.withDb(db).create(payload);
+      await enqueueWithOutbox(db, payload, environment);
 
-      const streamRef: import('./sse-stream-adapter.js').SseStreamRef = {
-        invokedTools,
-        successfulTools,
-        model,
-        tokenUsage: undefined,
-        pendingAutoOpenPanel: null,
-      };
-      const sseSink = buildSseStreamCallback(res, streamRef);
-      const onStreamEvent = (event: StreamEvent) => {
-        sseSink(event);
-        chatEventWriter?.emit(event);
-        if (pubsubService) {
-          pubsubService.publish(chatOperationId, event.type, event).catch(() => undefined);
-        }
-      };
-
-      if (agentRouterRef) {
-        try {
-          const result = await agentRouterRef.run(
-            chatPayload,
-            undefined,
-            db,
-            onStreamEvent,
-            req.isStaging ? 'staging' : 'production',
-            abortController.signal
-          );
-
-          responseContent = result.summary;
-          const resultData = result.data ?? {};
-          model = (resultData['model'] as string) ?? 'unknown';
-          const usage = resultData['usage'] as
-            | { inputTokens: number; outputTokens: number }
-            | undefined;
-          if (usage) {
-            tokenUsage = {
-              inputTokens: usage.inputTokens,
-              outputTokens: usage.outputTokens,
-              model,
-            };
-          }
-          pendingAutoOpenPanel = streamRef.pendingAutoOpenPanel;
-        } catch (err) {
-          // ── AgentYieldException (ask_user / approval gate) ────────────
-          // The agent paused mid-execution waiting for user input.
-          // Persist the yield state so /resume-job can reconstruct it,
-          // emit a card to the client, then close the SSE stream cleanly.
-          if (isAgentYield(err) && jobRepository) {
-            const yieldPayload = err.payload;
-            const now = new Date();
-            const yieldState: AgentYieldState = {
-              reason: yieldPayload.reason,
-              promptToUser: yieldPayload.promptToUser,
-              agentId: yieldPayload.agentId,
-              messages: yieldPayload.messages as unknown as readonly Record<string, unknown>[],
-              pendingToolCall: yieldPayload.pendingToolCall,
-              approvalId: yieldPayload.approvalId,
-              planContext: yieldPayload.planContext,
-              yieldedAt: now.toISOString(),
-              expiresAt: new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString(),
-            };
-
-            if (chatEventWriter) {
-              try {
-                await chatEventWriter.flush();
-              } catch {
-                /* non-critical */
-              }
-            }
-            await jobRepository.withDb(db).markYielded(chatOperationId, yieldState);
-
-            // Persist the agent's question to the conversation thread
-            if (chatService && resolvedThreadId && yieldPayload.promptToUser) {
-              try {
-                await chatService.addMessage({
-                  threadId: resolvedThreadId,
-                  userId: user.uid,
-                  role: 'assistant',
-                  content: yieldPayload.promptToUser,
-                  origin: 'user',
-                  agentId: yieldPayload.agentId,
-                });
-              } catch {
-                // Non-critical — thread history is best-effort
-              }
-            }
-
-            // Emit the appropriate card type
-            const yieldCardData =
-              yieldPayload.reason === 'needs_approval' && yieldPayload.pendingToolCall
-                ? buildInlineApprovalCard({
-                    agentId: yieldPayload.agentId,
-                    toolName: yieldPayload.pendingToolCall.toolName,
-                    approvalId: yieldPayload.approvalId ?? '',
-                    operationId: chatOperationId,
-                    promptToUser: yieldPayload.promptToUser,
-                    toolInput: yieldPayload.pendingToolCall.toolInput,
-                  })
-                : {
-                    ...buildInlineAskUserCard({
-                      agentId: yieldPayload.agentId,
-                      question: yieldPayload.promptToUser,
-                      context: '',
-                      threadId: resolvedThreadId,
-                    }),
-                    // Tell the frontend to discard any streamed text before
-                    // this card — the question lives solely in the card.
-                    clearText: true,
-                  };
-
-            try {
-              res.write(`event: card\ndata: ${JSON.stringify(yieldCardData)}\n\n`);
-              forceProxyFlush(res);
-              responseContent = yieldPayload.promptToUser;
-            } catch {
-              // Client disconnected
-            }
-
-            const notificationPayload =
-              yieldPayload.reason === 'needs_approval' && yieldPayload.pendingToolCall
-                ? {
-                    userId: user.uid,
-                    reason: 'needs_approval' as const,
-                    operationId: chatOperationId,
-                    ...(resolvedThreadId ? { threadId: resolvedThreadId } : {}),
-                    ...(yieldPayload.approvalId ? { approvalId: yieldPayload.approvalId } : {}),
-                    actionSummary: resolveAgentApprovalCopy({
-                      toolName: yieldPayload.pendingToolCall.toolName,
-                      toolInput: yieldPayload.pendingToolCall.toolInput,
-                    }).actionSummary,
-                  }
-                : {
-                    userId: user.uid,
-                    reason: 'needs_input' as const,
-                    operationId: chatOperationId,
-                    ...(resolvedThreadId ? { threadId: resolvedThreadId } : {}),
-                    ...(yieldPayload.approvalId ? { approvalId: yieldPayload.approvalId } : {}),
-                    promptToUser: yieldPayload.promptToUser,
-                  };
-
-            notifyYield(db, notificationPayload).catch((notifyErr: unknown) =>
-              logger.warn('Failed to dispatch yield notification', {
-                operationId: chatOperationId,
-                error: notifyErr instanceof Error ? notifyErr.message : String(notifyErr),
-              })
-            );
-
-            // Emit done + operation events, then close
-            try {
-              res.write(
-                `event: done\ndata: ${JSON.stringify({
-                  threadId: resolvedThreadId,
-                  operationId: chatOperationId,
-                  timestamp: new Date().toISOString(),
-                })}\n\n`
-              );
-              if (resolvedThreadId) {
-                res.write(
-                  `event: operation\ndata: ${JSON.stringify({
-                    threadId: resolvedThreadId,
-                    status: 'awaiting_input',
-                    operationId: chatOperationId,
-                    timestamp: new Date().toISOString(),
-                    yieldState,
-                  })}\n\n`
-                );
-                forceProxyFlush(res);
-              }
-            } catch {
-              // Client disconnected
-            }
-
-            logger.info('SSE chat yielded', {
-              operationId: chatOperationId,
-              reason: yieldPayload.reason,
-              agentId: yieldPayload.agentId,
-              userId: user.uid,
-              threadId: resolvedThreadId,
-            });
-
-            activeAbortControllers.delete(chatOperationId);
-            // Dispose event writer for yield path (fire-and-forget)
-            if (chatEventWriter) {
-              chatEventWriter.dispose().catch(() => undefined);
-              chatEventWriter = null;
-            }
-            res.end();
-
-            void executeBillingDeduction({
-              db,
-              userId: user.uid,
-              operationId: chatOperationId,
-              coordinatorId: yieldPayload.agentId,
-              agentTools: invokedTools,
-              successfulTools,
-              environment: (process.env['NODE_ENV'] === 'staging' ? 'staging' : 'production') as
-                | 'production'
-                | 'staging',
-              metadata: {
-                threadId: resolvedThreadId,
-                model,
-                mode,
-                agentTools: invokedTools,
-                successfulTools,
-                yielded: true,
-              },
-            });
-            return;
-          }
-
-          const isAbort =
-            abortController.signal.aborted || (err instanceof Error && err.name === 'AbortError');
-
-          if (isAbort) {
-            logger.info('Agent X chat aborted (user cancel or disconnect)', {
-              operationId: chatOperationId,
-              userId: user.uid,
-              partialContentLength: responseContent.length,
-            });
-          } else {
-            logger.warn('AgentRouter.run() failed — using fallback response', {
-              operationId: chatOperationId,
-              error: err instanceof Error ? err.message : String(err),
-            });
-            responseContent = `I understand you're asking about "${message.slice(0, 50)}". Agent X is being set up — full AI responses will be available shortly. In the meantime, explore the Coordinator cards on your dashboard for quick actions.`;
-            try {
-              res.write(`event: delta\ndata: ${JSON.stringify({ content: responseContent })}\n\n`);
-            } catch {
-              // Client disconnected
-            }
-          }
-        }
-      } else {
-        responseContent = `I understand you're asking about "${message.slice(0, 50)}". Agent X is being set up — full AI responses will be available shortly. In the meantime, explore the Coordinator cards on your dashboard for quick actions.`;
-        try {
-          res.write(`event: delta\ndata: ${JSON.stringify({ content: responseContent })}\n\n`);
-        } catch {
-          // Client disconnected
-        }
-      }
-      // ─── (old manual loop removed) ───────────────────────────────────
-
-      // ── Step 5: Persist assistant reply ──────────────────────────────
-      if (chatService && resolvedThreadId) {
-        try {
-          await chatService.addMessage({
-            threadId: resolvedThreadId,
-            userId: user.uid,
-            role: 'assistant',
-            content: responseContent,
-            origin: 'user',
-            agentId: 'strategy_coordinator',
-            tokenUsage,
-          });
-        } catch (chatErr) {
-          logger.warn('Failed to persist assistant reply to MongoDB', {
-            error: chatErr instanceof Error ? chatErr.message : String(chatErr),
-            userId: user.uid,
-          });
-        }
-      }
-
-      // ── Step 5b: Auto-generate thread title ───────────────────────────
-      let generatedTitle: string | null = null;
-      if (
-        !abortController.signal.aborted &&
-        isNewThread &&
-        chatService &&
-        llmService &&
-        resolvedThreadId &&
-        responseContent
-      ) {
-        try {
-          generatedTitle = await chatService.generateThreadTitle(
-            resolvedThreadId,
-            user.uid,
-            message,
-            responseContent,
-            llmService
-          );
-          if (generatedTitle) {
-            res.write(
-              `event: title_updated\ndata: ${JSON.stringify({ threadId: resolvedThreadId, title: generatedTitle })}\n\n`
-            );
-            forceProxyFlush(res);
-          }
-        } catch (titleErr) {
-          logger.warn('Title generation failed', {
-            error: titleErr instanceof Error ? titleErr.message : String(titleErr),
-            threadId: resolvedThreadId,
-          });
-        }
-      }
-
-      // ── Step 6: Send final done event ─────────────────────────────────
-      if (!abortController.signal.aborted) {
-        const donePayload: Record<string, unknown> = {
-          threadId: resolvedThreadId,
-          model,
-          usage: tokenUsage,
-          timestamp: new Date().toISOString(),
-          operationId: chatOperationId,
-        };
-
-        if (pendingAutoOpenPanel) {
-          donePayload['autoOpenPanel'] = pendingAutoOpenPanel;
-          logger.info('Including autoOpenPanel in done event', {
-            type: (pendingAutoOpenPanel as Record<string, unknown>)['type'],
-            userId: user.uid,
-          });
-        }
-
-        res.write(`event: done\ndata: ${JSON.stringify(donePayload)}\n\n`);
-
-        // Always emit operation:complete — use threadId if available, else operationId
-        // as the identifier so the frontend can always clear the spinner.
-        res.write(
-          `event: operation\ndata: ${JSON.stringify({
-            threadId: resolvedThreadId ?? chatOperationId,
-            operationId: chatOperationId,
-            status: 'complete',
-            timestamp: new Date().toISOString(),
-          })}\n\n`
-        );
-        forceProxyFlush(res);
-      }
-
-      logger.info('Agent X SSE chat completed', {
+      logger.info('Agent X chat admitted to queue (enqueue-first)', {
+        operationId,
         userId: user.uid,
-        model,
-        threadId: resolvedThreadId,
+        threadId: effectiveThreadId,
+        environment,
       });
 
-      activeAbortControllers.delete(chatOperationId);
-
-      if (jobRepository && chatEventWriter) {
-        try {
-          await chatEventWriter.dispose();
-          await jobRepository.withDb(db).markCompleted(chatOperationId, {
-            summary: responseContent.slice(0, 500),
-          });
-        } catch {
-          // Non-critical
-        }
-      }
-
-      res.end();
-
-      // ── Step 7: Billing deduction (fire-and-forget) ────────────────────
-      const { db: billingDb } = req.firebase!;
-      void executeBillingDeduction({
-        db: billingDb,
+      await streamOperationToSse({
+        req,
+        res,
+        db,
+        operationId,
         userId: user.uid,
-        operationId: chatOperationId,
-        coordinatorId: 'strategy_coordinator',
-        agentTools: invokedTools,
-        successfulTools,
-        environment: (process.env['NODE_ENV'] === 'staging' ? 'staging' : 'production') as
-          | 'production'
-          | 'staging',
-        metadata: {
-          threadId: resolvedThreadId,
-          model,
-          mode,
-          agentTools: invokedTools,
-          successfulTools,
-        },
+        afterSeq,
+        initialThreadId: effectiveThreadId,
+        initialOperationStatus: 'in-progress',
       });
-
-      // ── Step 8: Back-fill threadId if resolveThread failed earlier ────
-      // If chatService was available but resolveThread threw (e.g. MongoDB
-      // timeout), the Firestore job was created with threadId: null. Now that
-      // the stream is complete, attempt to create/recover the thread and patch
-      // the job so future operations-log fetches can correctly link the entry
-      // to its Firestore AgentJob document.
-      if (jobRepository && chatService && !resolvedThreadId && responseContent) {
-        void (async () => {
-          try {
-            const recoveredThreadId = await resolveThread(
-              chatService,
-              user.uid,
-              undefined,
-              message
-            );
-            if (recoveredThreadId) {
-              await chatService.addMessage({
-                threadId: recoveredThreadId,
-                userId: user.uid,
-                role: 'user',
-                content: message,
-                origin: 'user',
-              });
-              await chatService.addMessage({
-                threadId: recoveredThreadId,
-                userId: user.uid,
-                role: 'assistant',
-                content: responseContent,
-                origin: 'agent_chain',
-              });
-              await jobRepository.withDb(req.firebase!.db).patchContext(chatOperationId, {
-                threadId: recoveredThreadId,
-              });
-              logger.info('Back-filled threadId on Firestore job after resolveThread recovery', {
-                operationId: chatOperationId,
-                recoveredThreadId,
-                userId: user.uid,
-              });
-            }
-          } catch (recoveryErr) {
-            logger.warn('Post-stream thread recovery failed — job will remain without threadId', {
-              operationId: chatOperationId,
-              userId: user.uid,
-              error: recoveryErr instanceof Error ? recoveryErr.message : String(recoveryErr),
-            });
-          }
-        })();
-      }
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
-
-      const isAbort = abortController.signal.aborted || error.name === 'AbortError';
-
-      if (isAbort) {
-        logger.info('Agent X chat handler terminated by abort', {
-          operationId: chatOperationId,
-          userId: chatUser?.uid,
-        });
-        if (!res.writableEnded) {
-          try {
-            res.end();
-          } catch {
-            // Already closed
-          }
-        }
-        activeAbortControllers.delete(chatOperationId);
-        if (jobRepository && req.firebase?.db) {
-          jobRepository
-            .withDb(req.firebase.db)
-            .markCancelled(chatOperationId)
-            .catch(() => undefined);
-        }
-        return;
-      }
-
       logger.error('Agent X chat failed', { error: error.message, stack: error.stack });
-      const errorCode = getAgentEngineErrorCode(error) ?? 'AI_SERVICE_ERROR';
-
-      if (req.firebase?.db && chatUser?.uid) {
-        void executeBillingDeduction({
-          db: req.firebase.db,
-          userId: chatUser.uid,
-          operationId: chatOperationId,
-          coordinatorId: 'strategy_coordinator',
-          agentTools: invokedTools,
-          successfulTools,
-          environment: (process.env['NODE_ENV'] === 'staging' ? 'staging' : 'production') as
-            | 'production'
-            | 'staging',
-          metadata: { error: true, agentTools: invokedTools, successfulTools },
-        });
-      }
 
       if (!res.headersSent) {
         res.status(500).json({
           success: false,
           error: 'Failed to process message',
-          errorCode,
+          errorCode: 'AI_SERVICE_ERROR',
         });
       } else {
         try {
           res.write(
-            `event: error\ndata: ${JSON.stringify({ error: 'Failed to process message', code: errorCode })}\n\n`
-          );
-          // Always emit operation:error regardless of thread resolution
-          res.write(
-            `event: operation\ndata: ${JSON.stringify({
-              threadId: resolvedThreadId ?? chatOperationId,
-              operationId: chatOperationId,
-              status: 'error',
-              timestamp: new Date().toISOString(),
-            })}\n\n`
+            `event: error\ndata: ${JSON.stringify({ error: 'Failed to process message', code: 'AI_SERVICE_ERROR' })}\n\n`
           );
           forceProxyFlush(res);
           res.end();
@@ -1380,15 +1168,6 @@ router.post(
           // Client already disconnected
         }
       }
-
-      if (jobRepository && req.firebase?.db) {
-        jobRepository
-          .withDb(req.firebase.db)
-          .markFailed(chatOperationId, error.message ?? 'Unknown error')
-          .catch(() => undefined);
-      }
-
-      activeAbortControllers.delete(chatOperationId);
     }
   }
 );

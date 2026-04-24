@@ -2,6 +2,7 @@
  * @fileoverview Agent X — Playbook & briefing generation routes.
  *
  * POST /playbook/generate
+ * GET /playbook/generate/status/:operationId
  * POST /playbook/item/:id/status
  * POST /briefing/generate
  */
@@ -11,14 +12,14 @@ import { appGuard } from '../../middleware/auth/auth.middleware.js';
 import { aiRateLimit } from '../../middleware/rate-limit/rate-limit.middleware.js';
 import { validateBody } from '../../middleware/validation/validation.middleware.js';
 import { UpdatePlaybookItemStatusDto, GenerateBriefingDto } from '../../dtos/agent-x.dto.js';
-import type { ShellWeeklyPlaybookItem } from '@nxt1/core';
+import type { AgentJobPayload, ShellWeeklyPlaybookItem } from '@nxt1/core';
 import { logger } from '../../utils/logger.js';
 import {
   executeBillingDeduction,
   resolveBillingTarget,
   checkBudgetFromContext,
 } from '../../modules/billing/index.js';
-import { getAuthUser, getGenerationService } from './shared.js';
+import { getAuthUser, getGenerationService, jobRepository, queueService } from './shared.js';
 
 const router = Router();
 
@@ -49,40 +50,116 @@ router.post('/playbook/generate', appGuard, aiRateLimit, async (req: Request, re
       }
     }
 
-    const result = await getGenerationService().generatePlaybook(
-      user.uid,
-      req.firebase?.db,
-      playbookOpId
+    const db = req.firebase?.db;
+    if (!db || !queueService || !jobRepository) {
+      res.status(503).json({ success: false, error: 'Agent queue is unavailable' });
+      return;
+    }
+
+    const enqueuePayload: AgentJobPayload = {
+      operationId: playbookOpId,
+      userId: user.uid,
+      intent: 'Generate weekly playbook',
+      sessionId: crypto.randomUUID(),
+      origin: 'user',
+      agent: 'strategy_coordinator',
+      context: {
+        mode: 'playbook',
+      },
+    };
+
+    await jobRepository.withDb(db).create(enqueuePayload);
+
+    const environment = req.isStaging ? 'staging' : 'production';
+    const jobId = await queueService.enqueuePlaybookGeneration(
+      { operationId: playbookOpId, userId: user.uid },
+      environment
     );
 
-    if (req.firebase?.db) {
-      void executeBillingDeduction({
-        db: req.firebase.db,
-        userId: user.uid,
+    res.status(202).json({
+      success: true,
+      data: {
         operationId: playbookOpId,
-        feature: 'playbook-generation',
-        coordinatorId: 'strategy_coordinator',
-        environment: (process.env['NODE_ENV'] === 'staging' ? 'staging' : 'production') as
-          | 'production'
-          | 'staging',
-      });
-    }
-
-    res.json({ success: true, data: result });
+        jobId,
+        status: 'queued',
+      },
+    });
   } catch (err) {
     const error = err instanceof Error ? err : new Error(String(err));
-    if (error.message.includes('Set at least one goal')) {
-      res.status(400).json({ success: false, error: error.message });
-      return;
+    logger.error('Failed to enqueue playbook generation', {
+      error: error.message,
+      stack: error.stack,
+    });
+
+    if (req.firebase?.db && jobRepository) {
+      await jobRepository
+        .withDb(req.firebase.db)
+        .markFailed(playbookOpId, error.message)
+        .catch(() => undefined);
     }
-    if (error.message.includes('AI playbook generation unavailable')) {
-      res.status(503).json({ success: false, error: 'AI playbook generation unavailable' });
-      return;
-    }
-    logger.error('Failed to generate playbook', { error: error.message, stack: error.stack });
-    res.status(500).json({ success: false, error: 'Failed to generate playbook' });
+
+    res.status(500).json({ success: false, error: 'Failed to enqueue playbook generation' });
   }
 });
+
+// ─── GET /playbook/generate/status/:operationId ───────────────────────────
+
+router.get(
+  '/playbook/generate/status/:operationId',
+  appGuard,
+  async (req: Request, res: Response) => {
+    try {
+      // This endpoint is polled by clients; never allow HTTP caching/conditional 304
+      // responses because polling must always observe fresh operation state.
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+
+      const user = getAuthUser(req);
+      if (!user?.uid) {
+        res.status(401).json({ success: false, error: 'Unauthorized' });
+        return;
+      }
+
+      const operationId = req.params['operationId'];
+      if (!operationId || typeof operationId !== 'string') {
+        res.status(400).json({ success: false, error: 'Operation ID is required' });
+        return;
+      }
+
+      if (!req.firebase?.db || !jobRepository) {
+        res.status(503).json({ success: false, error: 'Agent job repository is unavailable' });
+        return;
+      }
+
+      const job = await jobRepository.withDb(req.firebase.db).getById(operationId);
+      if (!job || job.userId !== user.uid) {
+        res.status(404).json({ success: false, error: 'Playbook operation not found' });
+        return;
+      }
+
+      res.json({
+        success: true,
+        data: {
+          operationId,
+          status: job.status,
+          result: job.result,
+          error: job.error,
+          createdAt: job.createdAt,
+          updatedAt: job.updatedAt,
+          completedAt: job.completedAt,
+        },
+      });
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      logger.error('Failed to fetch playbook generation status', {
+        error: error.message,
+        stack: error.stack,
+      });
+      res.status(500).json({ success: false, error: 'Failed to fetch playbook generation status' });
+    }
+  }
+);
 
 // ─── POST /playbook/item/:id/status ───────────────────────────────────────
 

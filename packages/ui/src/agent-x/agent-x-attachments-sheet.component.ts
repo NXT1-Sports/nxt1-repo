@@ -21,7 +21,9 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ModalController } from '@ionic/angular/standalone';
+import { NxtSheetHeaderComponent } from '../components/bottom-sheet/sheet-header.component';
 import { NxtIconComponent } from '../components/icon/icon.component';
+import { NxtPlatformIconComponent } from '../components/platform-icon/platform-icon.component';
 import { HapticsService } from '../services/haptics/haptics.service';
 
 /**
@@ -30,6 +32,7 @@ import { HapticsService } from '../services/haptics/haptics.service';
 export interface ConnectedAppSource {
   readonly platform: string;
   readonly profileUrl: string;
+  readonly faviconUrl?: string;
   readonly scopeType?: 'global' | 'sport' | 'team';
   readonly scopeId?: string;
 }
@@ -45,16 +48,16 @@ export interface AttachmentSheetResult {
 @Component({
   selector: 'nxt1-agent-x-attachments-sheet',
   standalone: true,
-  imports: [CommonModule, NxtIconComponent],
+  imports: [CommonModule, NxtSheetHeaderComponent, NxtIconComponent, NxtPlatformIconComponent],
   template: `
     <div class="attachments-sheet">
-      <!-- Header -->
-      <div class="sheet-header">
-        <h2 class="sheet-title">Add Attachment</h2>
-        <button type="button" class="sheet-close" (click)="onClose()" aria-label="Close">
-          <nxt1-icon name="close" [size]="24" />
-        </button>
-      </div>
+      <nxt1-sheet-header
+        title="Add Attachment"
+        closePosition="right"
+        [centerTitle]="true"
+        [showBorder]="true"
+        (closeSheet)="onClose()"
+      />
 
       <!-- Content -->
       <div class="sheet-content">
@@ -63,7 +66,7 @@ export interface AttachmentSheetResult {
           <h3 class="section-label">Upload</h3>
           <button type="button" class="attachment-option" (click)="onSelectFile()">
             <div class="option-icon-wrapper">
-              <nxt1-icon name="documentAdd" [size]="28" />
+              <nxt1-icon name="plusCircle" [size]="28" />
             </div>
             <div class="option-info">
               <span class="option-title">Upload File</span>
@@ -82,30 +85,53 @@ export interface AttachmentSheetResult {
           />
         </section>
 
-        <!-- Connected Sources Section -->
-        @if (connectedSources().length > 0) {
-          <section class="attachment-section">
-            <h3 class="section-label">Connected Sources</h3>
-            <div class="connected-sources-grid">
-              @for (source of connectedSources(); track source.platform) {
+        <!-- Connected Apps Section -->
+        <section class="attachment-section">
+          <h3 class="section-label">Connected Apps</h3>
+          @if (connectedSources().length > 0) {
+            <div class="connected-apps-row" role="list" aria-label="Connected apps">
+              @for (source of connectedSources(); track source.platform + '-' + source.profileUrl) {
                 <button
                   type="button"
                   class="connected-source"
                   [attr.title]="source.platform"
                   (click)="onSelectSource(source)"
+                  role="listitem"
                 >
-                  <img
+                  <nxt1-platform-icon
                     class="source-favicon"
-                    [src]="getFaviconUrl(source)"
+                    icon="link"
+                    [faviconUrl]="source.faviconUrl"
+                    [size]="32"
                     [alt]="source.platform"
-                    loading="lazy"
                   />
                   <span class="source-label">{{ source.platform }}</span>
                 </button>
               }
+              <button type="button" class="connect-more-btn" (click)="onManageConnectedApps()">
+                <nxt1-icon name="plusCircle" [size]="14" />
+                Connect more
+              </button>
             </div>
-          </section>
-        }
+          } @else {
+            <button
+              type="button"
+              class="connected-apps-placeholder"
+              (click)="onManageConnectedApps()"
+            >
+              <div class="option-icon-wrapper">
+                <nxt1-icon name="link" [size]="22" />
+              </div>
+              <div class="option-info">
+                <span class="option-title">No connected apps yet</span>
+                <span class="option-subtitle"
+                  >Connect apps so Agent X can act on your latest data</span
+                >
+              </div>
+              <nxt1-icon name="chevronRight" [size]="20" className="option-arrow" />
+            </button>
+          }
+        </section>
       </div>
     </div>
   `,
@@ -123,42 +149,6 @@ export interface AttachmentSheetResult {
       :host-context([data-theme='light']) {
         background: var(--nxt1-color-bg-primary, #ffffff);
         color: var(--nxt1-color-text-primary, #1a1a1a);
-      }
-
-      /* ─── Header ─── */
-      .sheet-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: 16px;
-        border-bottom: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.09));
-      }
-
-      .sheet-title {
-        font-size: 18px;
-        font-weight: 600;
-        margin: 0;
-        line-height: 1.2;
-      }
-
-      .sheet-close {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        width: 36px;
-        height: 36px;
-        border: none;
-        border-radius: 8px;
-        background: transparent;
-        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
-        cursor: pointer;
-        transition:
-          background 0.15s ease,
-          color 0.15s ease;
-      }
-
-      .sheet-close:active {
-        background: var(--nxt1-color-surface-100, rgba(255, 255, 255, 0.06));
       }
 
       /* ─── Content ─── */
@@ -247,19 +237,59 @@ export interface AttachmentSheetResult {
         flex-shrink: 0;
       }
 
-      /* ─── Connected Sources Grid ─── */
-      .connected-sources-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
-        gap: 12px;
+      /* ─── Connected Apps Row ─── */
+      .connected-apps-row {
+        display: flex;
+        align-items: stretch;
+        gap: 10px;
+        overflow-x: auto;
+        padding-bottom: 2px;
+        scrollbar-width: none;
+      }
+
+      .connected-apps-row::-webkit-scrollbar {
+        display: none;
+      }
+
+      /* ─── Connect More Button (inline with chips) ─── */
+      .connect-more-btn {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        min-width: 88px;
+        max-width: 88px;
+        padding: 10px 8px;
+        border: 1px dashed var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.2));
+        border-radius: 12px;
+        background: transparent;
+        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
+        font-size: 10px;
+        font-weight: 500;
+        cursor: pointer;
+        flex-shrink: 0;
+        transition:
+          background 0.15s ease,
+          border-color 0.15s ease,
+          color 0.15s ease;
+      }
+
+      .connect-more-btn:active {
+        background: var(--nxt1-color-alpha-primary10, rgba(204, 255, 0, 0.06));
+        border-color: var(--nxt1-color-primary, #ccff00);
+        color: var(--nxt1-color-primary, #ccff00);
       }
 
       .connected-source {
         display: flex;
         flex-direction: column;
         align-items: center;
-        gap: 8px;
-        padding: 12px;
+        justify-content: center;
+        gap: 6px;
+        min-width: 88px;
+        max-width: 88px;
+        padding: 10px 8px;
         border: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.09));
         border-radius: 12px;
         background: var(--nxt1-color-surface-100, rgba(255, 255, 255, 0.04));
@@ -278,15 +308,15 @@ export interface AttachmentSheetResult {
       }
 
       .source-favicon {
-        width: 44px;
-        height: 44px;
+        width: 36px;
+        height: 36px;
         border-radius: 8px;
         object-fit: cover;
         background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.08));
       }
 
       .source-label {
-        font-size: 11px;
+        font-size: 10px;
         font-weight: 500;
         text-align: center;
         word-break: break-word;
@@ -297,6 +327,27 @@ export interface AttachmentSheetResult {
         display: -webkit-box;
         -webkit-line-clamp: 2;
         -webkit-box-orient: vertical;
+      }
+
+      .connected-apps-placeholder {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        width: 100%;
+        padding: 12px;
+        border: 1px dashed var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.16));
+        border-radius: 12px;
+        background: var(--nxt1-color-surface-100, rgba(255, 255, 255, 0.03));
+        color: inherit;
+        cursor: pointer;
+        transition:
+          background 0.15s ease,
+          border-color 0.15s ease;
+      }
+
+      .connected-apps-placeholder:active {
+        background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.08));
+        border-color: var(--nxt1-color-border-default, rgba(255, 255, 255, 0.2));
       }
 
       :host-context(.light) {
@@ -322,13 +373,6 @@ export class AgentXAttachmentsSheetComponent {
   // ── Outputs ──
   readonly fileSelected = output<File[]>();
   readonly sourceSelected = output<ConnectedAppSource>();
-
-  /** Get favicon URL for a platform. */
-  getFaviconUrl(source: ConnectedAppSource): string {
-    // Use Google favicon API as fallback
-    const url = new URL(source.profileUrl);
-    return `https://www.google.com/s2/favicons?domain=${url.hostname}&sz=128`;
-  }
 
   /** Close sheet. */
   protected async onClose(): Promise<void> {
@@ -359,5 +403,11 @@ export class AgentXAttachmentsSheetComponent {
     await this.haptics.impact('light');
     this.sourceSelected.emit(source);
     await this.modalCtrl.dismiss(source, 'source-selected');
+  }
+
+  /** Open connected sources manager from the empty Connected Apps state. */
+  protected async onManageConnectedApps(): Promise<void> {
+    await this.haptics.impact('light');
+    await this.modalCtrl.dismiss(null, 'manage-connected-apps');
   }
 }

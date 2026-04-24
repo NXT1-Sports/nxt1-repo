@@ -686,6 +686,8 @@ export const AGENT_X_ENDPOINTS = {
   GOALS: '/agent-x/goals',
   /** Generate or regenerate the weekly playbook */
   PLAYBOOK_GENERATE: '/agent-x/playbook/generate',
+  /** Poll status of an asynchronous playbook generation operation */
+  PLAYBOOK_GENERATE_STATUS: '/agent-x/playbook/generate/status',
   /** Update the status of a single playbook item */
   PLAYBOOK_ITEM_STATUS: '/agent-x/playbook/item',
   /** Generate or refresh the AI daily briefing */

@@ -11,17 +11,18 @@ import app, {
   __seedMockFirestoreDocument,
 } from '../../test-app.js';
 import { expectExpressRouter } from './route-test.utils.js';
-import { AgentYieldException } from '../../modules/agent/exceptions/agent-yield.exception.js';
 
 describe('Agent X Routes', () => {
   let router: unknown;
   let setAgentDependencies: typeof import('../../routes/agent/shared.js').setAgentDependencies;
+  let activeAbortControllers: typeof import('../../routes/agent/shared.js').activeAbortControllers;
 
   beforeAll(async () => {
     const module = await import('../../routes/agent/index.js');
     router = module.default;
     const shared = await import('../../routes/agent/shared.js');
     setAgentDependencies = shared.setAgentDependencies;
+    activeAbortControllers = shared.activeAbortControllers;
   }, 15_000);
 
   beforeEach(() => {
@@ -51,6 +52,7 @@ describe('Agent X Routes', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    activeAbortControllers.clear();
     __resetMockFirestore();
   });
 
@@ -164,29 +166,46 @@ describe('Agent X Routes', () => {
     });
   });
 
-  it('should persist and surface inline needs_input yields from /chat', async () => {
+  it('should enqueue chat and stream replayed yield events from persisted history', async () => {
     const jobRepository = createMockJobRepository();
+    jobRepository.getById.mockResolvedValue({
+      operationId: 'chat-op-1',
+      threadId: 'thread-123',
+      userId: 'test-user',
+      status: 'awaiting_input',
+    });
+    jobRepository.getJobEvents.mockResolvedValue([
+      {
+        seq: 1,
+        type: 'card',
+        cardData: {
+          type: 'ask_user',
+          title: 'Agent X has a question',
+          payload: { question: 'Which college should I target first?' },
+        },
+      },
+      {
+        seq: 2,
+        type: 'done',
+        message: 'Awaiting input',
+        status: 'awaiting_input',
+        yieldState: { reason: 'needs_input' },
+      },
+    ]);
+
     const chatService = {
       addMessage: vi.fn(),
       createThread: vi.fn().mockResolvedValue({ id: 'thread-123' }),
       getThread: vi.fn().mockResolvedValue(null),
       generateThreadTitle: vi.fn().mockResolvedValue(null),
     };
-    const agentRouter = {
-      run: vi.fn().mockRejectedValue(
-        new AgentYieldException({
-          reason: 'needs_input',
-          promptToUser: 'Which college should I target first?',
-          agentId: 'strategy_coordinator',
-          messages: [{ role: 'assistant', content: null }],
-        })
-      ),
+    const queueService = {
+      enqueue: vi.fn().mockResolvedValue('job-123'),
+      isHealthy: vi.fn().mockResolvedValue(true),
     };
 
     setAgentDependencies({
-      queueService: {
-        enqueue: vi.fn().mockResolvedValue('job-123'),
-      } as never,
+      queueService: queueService as never,
       jobRepository: jobRepository as never,
       chatService: chatService as never,
       contextBuilder: {
@@ -198,7 +217,9 @@ describe('Agent X Routes', () => {
         completeStream: vi.fn(),
         embed: vi.fn(),
       } as never,
-      agentRouter: agentRouter as never,
+      agentRouter: {
+        run: vi.fn().mockResolvedValue({ summary: '', data: {} }),
+      } as never,
     });
 
     const response = await request(app)
@@ -212,14 +233,95 @@ describe('Agent X Routes', () => {
     expect(response.text).toContain('"status":"awaiting_input"');
     expect(response.text).toContain('"yieldState"');
     expect(jobRepository.create).toHaveBeenCalledTimes(1);
-    expect(jobRepository.markYielded).toHaveBeenCalledTimes(1);
+    expect(queueService.enqueue).toHaveBeenCalledTimes(1);
     expect(chatService.addMessage).toHaveBeenCalledWith(
       expect.objectContaining({
         threadId: 'thread-123',
-        role: 'assistant',
-        content: 'Which college should I target first?',
+        role: 'user',
+        content: 'Help me build a recruiting plan',
       })
     );
+  });
+
+  it('should deduplicate /enqueue requests by idempotency key', async () => {
+    const jobRepository = createMockJobRepository({
+      operationId: 'op-existing-1',
+      threadId: 'thread-existing-1',
+      userId: 'test-user',
+    });
+    jobRepository.getByIdempotencyKey.mockResolvedValue({
+      operationId: 'op-existing-1',
+      threadId: 'thread-existing-1',
+      userId: 'test-user',
+    });
+
+    const queueService = {
+      enqueue: vi.fn().mockResolvedValue('job-new'),
+      isHealthy: vi.fn().mockResolvedValue(true),
+    };
+
+    setAgentDependencies({
+      queueService: queueService as never,
+      jobRepository: jobRepository as never,
+      chatService: {
+        addMessage: vi.fn(),
+      } as never,
+      contextBuilder: {
+        buildContext: vi.fn().mockResolvedValue({}),
+        compressToPrompt: vi.fn().mockReturnValue(''),
+        getRecentThreadHistory: vi.fn().mockResolvedValue(''),
+      } as never,
+      llmService: {
+        completeStream: vi.fn(),
+        embed: vi.fn(),
+      } as never,
+      agentRouter: {
+        run: vi.fn().mockResolvedValue({ summary: '', data: {} }),
+      } as never,
+    });
+
+    const response = await request(app)
+      .post('/api/v1/agent-x/enqueue')
+      .set('Authorization', 'Bearer test-token')
+      .set('x-idempotency-key', 'enqueue_retry_key_001')
+      .send({ intent: 'Generate weekly outreach plan' });
+
+    expect(response.status).toBe(202);
+    expect(response.body.success).toBe(true);
+    expect(response.body.deduplicated).toBe(true);
+    expect(response.body.data.operationId).toBe('op-existing-1');
+    expect(queueService.enqueue).not.toHaveBeenCalled();
+    expect(jobRepository.create).not.toHaveBeenCalled();
+  });
+
+  it('should reject invalid idempotency key format', async () => {
+    const response = await request(app)
+      .post('/api/v1/agent-x/enqueue')
+      .set('Authorization', 'Bearer test-token')
+      .set('x-idempotency-key', 'bad key with spaces')
+      .send({ intent: 'Plan my recruiting week' });
+
+    expect(response.status).toBe(400);
+    expect(response.body.success).toBe(false);
+    expect(String(response.body.error ?? '')).toContain('Invalid idempotency key');
+  });
+
+  it('should deny explicit cancel when operation belongs to another user', async () => {
+    const foreignAbortController = new AbortController();
+    activeAbortControllers.set('op-foreign', {
+      controller: foreignAbortController,
+      createdAt: Date.now(),
+      userId: 'another-user',
+    });
+
+    const response = await request(app)
+      .post('/api/v1/agent-x/cancel/op-foreign')
+      .set('Authorization', 'Bearer test-token')
+      .send({});
+
+    expect(response.status).toBe(404);
+    expect(response.body.success).toBe(false);
+    expect(foreignAbortController.signal.aborted).toBe(false);
   });
 });
 
@@ -227,10 +329,14 @@ function createMockJobRepository(jobDoc?: Record<string, unknown>) {
   const repository = {
     withDb: vi.fn(),
     getById: vi.fn().mockResolvedValue(jobDoc ?? null),
+    getByIdempotencyKey: vi.fn().mockResolvedValue(null),
+    getJobEvents: vi.fn().mockResolvedValue([]),
     create: vi.fn().mockResolvedValue(undefined),
     markYielded: vi.fn().mockResolvedValue(undefined),
     markCompleted: vi.fn().mockResolvedValue(undefined),
     markCancelled: vi.fn().mockResolvedValue(undefined),
+    markDetached: vi.fn().mockResolvedValue(undefined),
+    markFailed: vi.fn().mockResolvedValue(undefined),
   };
 
   repository.withDb.mockReturnValue(repository);

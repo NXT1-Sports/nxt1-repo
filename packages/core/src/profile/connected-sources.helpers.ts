@@ -9,6 +9,7 @@
  */
 
 import type { ConnectedSource } from '../models/user/user-base.model';
+import { getPlatformFaviconUrl } from '../platforms/platform-favicons';
 
 /**
  * A connected link source entry from the onboarding / add-sport form.
@@ -66,6 +67,7 @@ export function mapToConnectedSources(entries: readonly LinkSourceLike[]): Conne
     .map((e) => ({
       platform: e.platform,
       profileUrl: e.url ?? '',
+      faviconUrl: getPlatformFaviconUrl(e.platform) ?? undefined,
       scopeType: e.scopeType,
       scopeId: e.scopeId,
     }));

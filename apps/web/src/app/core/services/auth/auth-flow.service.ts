@@ -262,6 +262,68 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
   }
 
   /**
+   * Run an async operation with delayed loading state
+   * Only shows loader if operation takes > 300ms (standard UX pattern)
+   * Reduces visual noise for fast operations
+   *
+   * @param message - Loading message to display
+   * @param operation - The async operation to run
+   * @param onError - Error handler that receives the error and returns result
+   */
+  private async runWithDelayedLoading<T>(
+    message: string,
+    operation: () => Promise<T>,
+    onError: (err: unknown) => T
+  ): Promise<T> {
+    const LOADER_DELAY_MS = 300;
+    let loaderShown = false;
+
+    // Start the operation immediately
+    const operationPromise = operation();
+
+    // Schedule loader to show after delay
+    const loaderTimeout = setTimeout(() => {
+      loaderShown = true;
+      this.authManager.setLoading(true);
+    }, LOADER_DELAY_MS);
+
+    try {
+      // Wait for operation to complete
+      const result = await operationPromise;
+      return result;
+    } catch (err) {
+      // Call error handler
+      return onError(err);
+    } finally {
+      // Clear the timeout if operation completed before delay
+      clearTimeout(loaderTimeout);
+      // Only hide loader if it was actually shown
+      if (loaderShown) {
+        this.authManager.setLoading(false);
+      }
+    }
+  }
+
+  /**
+   * Run an async operation with immediate loading state.
+   * Used for OAuth post-selection work so loading starts right after
+   * Firebase returns a selected account credential.
+   */
+  private async runWithLoading<T>(
+    operation: () => Promise<T>,
+    onError: (err: unknown) => T
+  ): Promise<T> {
+    this.authManager.setLoading(true);
+    try {
+      return await operation();
+    } catch (err) {
+      return onError(err);
+    } finally {
+      this.authManager.setLoading(false);
+    }
+  }
+
+  /**
    * Store the Firebase ID token in authManager and set __session cookie.
    * Must be called BEFORE any API calls (like syncUserProfile) so the
    * auth interceptor can attach the Bearer token to outgoing requests.
@@ -763,7 +825,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
    *
    * Enterprise-grade authentication flow:
    * 1. Validates Firebase is available
-   * 2. Sets loading state for UI feedback
+   * 2. Sets loading state for UI feedback (with 300ms delay)
    * 3. Attempts Firebase authentication
    * 4. Tracks success/failure analytics
    * 5. Properly handles and displays errors
@@ -774,46 +836,46 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
       return false;
     }
 
-    // Set loading state and clear previous errors
-    this.authManager.setLoading(true);
+    // Clear previous errors
     this.authManager.setError(null);
 
-    try {
-      // Dynamic import for SSR safety
-      const { signInWithEmailAndPassword } = await import('@angular/fire/auth');
+    return this.runWithDelayedLoading(
+      'Signing in...',
+      async () => {
+        // Dynamic import for SSR safety
+        const { signInWithEmailAndPassword } = await import('@angular/fire/auth');
 
-      const result = await signInWithEmailAndPassword(
-        this.firebaseAuth,
-        credentials.email,
-        credentials.password
-      );
+        const result = await signInWithEmailAndPassword(
+          this.firebaseAuth!,
+          credentials.email,
+          credentials.password
+        );
 
-      // Track successful sign in
-      this.analytics.trackEvent(APP_EVENTS.AUTH_SIGNED_IN, { method: AUTH_METHODS.EMAIL });
-      this.analytics.setUserId(result.user.uid);
+        // Track successful sign in
+        this.analytics.trackEvent(APP_EVENTS.AUTH_SIGNED_IN, { method: AUTH_METHODS.EMAIL });
+        this.analytics.setUserId(result.user.uid);
 
-      // Auth state listener handles profile sync and navigation
-      return true;
-    } catch (err) {
-      this.logger.error('Sign in failed', err);
+        // Auth state listener handles profile sync and navigation
+        return true;
+      },
+      (err) => {
+        this.logger.error('Sign in failed', err);
 
-      // Use centralized auth error handler
-      const handledError = this.authErrorHandler.handle(err);
+        // Use centralized auth error handler
+        const handledError = this.authErrorHandler.handle(err);
 
-      // Track error for analytics
-      this.analytics.trackEvent(APP_EVENTS.AUTH_SIGNIN_ERROR, {
-        method: AUTH_METHODS.EMAIL,
-        error_code: handledError.code,
-        recovery_action: handledError.recovery?.type,
-      });
+        // Track error for analytics
+        this.analytics.trackEvent(APP_EVENTS.AUTH_SIGNIN_ERROR, {
+          method: AUTH_METHODS.EMAIL,
+          error_code: handledError.code,
+          recovery_action: handledError.recovery?.type,
+        });
 
-      // Set user-friendly error message
-      this.authManager.setError(handledError.message);
-      return false;
-    } finally {
-      // Always clear loading state
-      this.authManager.setLoading(false);
-    }
+        // Set user-friendly error message
+        this.authManager.setError(handledError.message);
+        return false;
+      }
+    );
   }
 
   // ============================================
@@ -1000,7 +1062,6 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
       return false;
     }
 
-    this.authManager.setLoading(true);
     this.authManager.setError(null);
 
     this.logger.info('🎯 Starting Google OAuth (popup)');
@@ -1020,102 +1081,150 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
         prompt: 'consent', // Force consent screen to ensure refresh token
       });
 
+      // UX boundary: popup/account selection happens here without loading state.
       const result = await signInWithPopup(this.firebaseAuth, provider);
 
-      // Check if this is a new user (Firebase detection can be unreliable)
-      // @ts-expect-error additionalUserInfo is on the result
-      const isNewUser = result._tokenResponse?.isNewUser ?? false;
+      return this.runWithLoading(
+        async () => {
+          // Check if this is a new user (Firebase detection can be unreliable)
+          // @ts-expect-error additionalUserInfo is on the result
+          const isNewUser = result._tokenResponse?.isNewUser ?? false;
 
-      this.logger.debug('🔍 Firebase detected isNewUser', { isNewUser });
+          this.logger.debug('🔍 Firebase detected isNewUser', { isNewUser });
 
-      // Track analytics
-      this.analytics.trackEvent(isNewUser ? APP_EVENTS.AUTH_SIGNED_UP : APP_EVENTS.AUTH_SIGNED_IN, {
-        method: AUTH_METHODS.GOOGLE,
-      });
-      this.analytics.setUserId(result.user.uid);
-      this.analytics.setUserProperties({ user_type: this.user()?.role });
+          // Track analytics
+          this.analytics.trackEvent(
+            isNewUser ? APP_EVENTS.AUTH_SIGNED_UP : APP_EVENTS.AUTH_SIGNED_IN,
+            {
+              method: AUTH_METHODS.GOOGLE,
+            }
+          );
+          this.analytics.setUserId(result.user.uid);
+          this.analytics.setUserProperties({ user_type: this.user()?.role });
 
-      // Set flag to prevent auth state listener from racing with user setup (via core state manager)
-      this.authManager.setSignupInProgress(true);
+          // Set flag to prevent auth state listener from racing with user setup (via core state manager)
+          this.authManager.setSignupInProgress(true);
 
-      // Store token BEFORE any API calls so the auth interceptor can attach it
-      await this.storeTokenFromUser(result.user);
+          // Store token BEFORE any API calls so the auth interceptor can attach it
+          await this.storeTokenFromUser(result.user);
 
-      let isNewlyCreated = false;
+          let isNewlyCreated = false;
 
-      try {
-        try {
-          this.logger.debug('📡 Attempting to sync existing user profile');
-          await this.syncUserProfile(result.user, true);
-          this.logger.info('✅ User profile sync successful - existing user');
-        } catch (syncError: unknown) {
-          const errorObj = syncError as { message?: string };
-          this.logger.warn('❌ User sync failed, attempting to create new user', {
-            error: errorObj?.message,
-          });
+          try {
+            try {
+              this.logger.debug('📡 Attempting to sync existing user profile');
+              await this.syncUserProfile(result.user, true);
+              this.logger.info('✅ User profile sync successful - existing user');
+            } catch (syncError: unknown) {
+              const errorObj = syncError as { message?: string };
+              this.logger.warn('❌ User sync failed, attempting to create new user', {
+                error: errorObj?.message,
+              });
 
-          this.logger.debug('📝 Creating new user via OAuth', {
-            uid: result.user.uid,
-            email: result.user.email!,
-            teamCode: teamCode || 'none',
-            referralId: referralId || 'none',
-          });
+              this.logger.debug('📝 Creating new user via OAuth', {
+                uid: result.user.uid,
+                email: result.user.email!,
+                teamCode: teamCode || 'none',
+                referralId: referralId || 'none',
+              });
 
-          const createResult = await this.authApi.createUser({
-            uid: result.user.uid,
-            email: result.user.email!,
-            teamCode: teamCode || undefined,
-            referralId: referralId || undefined,
-          });
+              const createResult = await this.authApi.createUser({
+                uid: result.user.uid,
+                email: result.user.email!,
+                teamCode: teamCode || undefined,
+                referralId: referralId || undefined,
+              });
 
-          if (createResult.success) {
-            this.logger.info('✅ New user created successfully (OAuth)');
-            isNewlyCreated = true;
-          } else {
-            this.logger.warn(
-              '⚠️ createUser returned failure, user already exists — retrying sync',
-              {
-                code: (createResult as { error?: { code?: string } }).error?.code,
+              if (createResult.success) {
+                this.logger.info('✅ New user created successfully (OAuth)');
+                isNewlyCreated = true;
+              } else {
+                this.logger.warn(
+                  '⚠️ createUser returned failure, user already exists — retrying sync',
+                  {
+                    code: (createResult as { error?: { code?: string } }).error?.code,
+                  }
+                );
               }
-            );
+
+              // Sync profile regardless of whether we just created or it already existed
+              await this.syncUserProfile(result.user);
+            }
+
+            // Refresh token capture: the `beforeUserCreate` blocking Cloud Function
+            // captures the Google refresh token (offline access was requested on the
+            // provider above) and writes it to Users/{uid}/oauthTokens/google during
+            // account creation. No post-signup popup or backend token exchange is
+            // required here — a second popup would force another Google consent and
+            // double-write to the legacy emailTokens collection.
+            if (isNewUser || isNewlyCreated) {
+              this.logger.info(
+                'New Google account — refresh token persisted by beforeUserCreate Cloud Function',
+                { uid: result.user.uid }
+              );
+            }
+
+            // Step 2: Navigate — outside the sync/create try/catch so nav errors propagate cleanly
+            const currentUser = this.user();
+            const needsOnboarding = isNewlyCreated || !currentUser?.hasCompletedOnboarding;
+
+            if (needsOnboarding) {
+              this.logger.info(
+                `🚀 Navigating to onboarding (${isNewlyCreated ? 'new user' : 'existing user, incomplete'})`
+              );
+              await this.navigateForward(AUTH_ROUTES.ONBOARDING);
+            } else {
+              this.logger.info('🏠 User already completed onboarding, navigating to /home');
+              await this.navigateRoot(AUTH_REDIRECTS.DEFAULT);
+            }
+
+            return true;
+          } finally {
+            // Always clear flag to prevent state leaks (via core state manager)
+            this.authManager.setSignupInProgress(false);
+          }
+        },
+        (err: unknown) => {
+          const authErr = err as { code?: string; message?: string; customData?: unknown };
+          this.logger.error('Google OAuth failed', err, {
+            code: authErr?.code,
+            message: authErr?.message,
+            customData: authErr?.customData,
+          });
+
+          // Check for specific Firebase service unavailable errors
+          const isServiceUnavailable =
+            authErr?.code === 'auth/error-code:-47' ||
+            authErr?.code === 'auth/internal-error' ||
+            authErr?.message?.includes('503') ||
+            authErr?.message?.includes('Service Unavailable');
+
+          let errorMessage: string;
+
+          if (isServiceUnavailable) {
+            errorMessage =
+              'Google sign-in service is temporarily unavailable due to Firebase server issues (Error -47). This usually resolves within 5-10 minutes. Please try again later or use Microsoft/Email sign-in as an alternative.';
+          } else if (authErr?.code === 'auth/popup-closed-by-user') {
+            errorMessage = 'Sign-in was cancelled. Please try again.';
+          } else if (authErr?.code === 'auth/popup-blocked') {
+            errorMessage =
+              'Pop-up was blocked by your browser. Please allow pop-ups and try again.';
+          } else {
+            // Use centralized auth error handler for other errors
+            const handledError = this.authErrorHandler.handle(err);
+            errorMessage = handledError.message;
           }
 
-          // Sync profile regardless of whether we just created or it already existed
-          await this.syncUserProfile(result.user);
+          this.analytics.trackEvent(APP_EVENTS.AUTH_SIGNIN_ERROR, {
+            method: AUTH_METHODS.GOOGLE,
+            error_code: authErr?.code || 'unknown',
+            recovery_action: isServiceUnavailable ? 'retry_later' : 'unknown',
+          });
+
+          this.authManager.setError(errorMessage);
+          return false;
         }
-
-        // Refresh token capture: the `beforeUserCreate` blocking Cloud Function
-        // captures the Google refresh token (offline access was requested on the
-        // provider above) and writes it to Users/{uid}/oauthTokens/google during
-        // account creation. No post-signup popup or backend token exchange is
-        // required here — a second popup would force another Google consent and
-        // double-write to the legacy emailTokens collection.
-        if (isNewUser || isNewlyCreated) {
-          this.logger.info(
-            'New Google account — refresh token persisted by beforeUserCreate Cloud Function',
-            { uid: result.user.uid }
-          );
-        }
-
-        // Step 2: Navigate — outside the sync/create try/catch so nav errors propagate cleanly
-        const currentUser = this.user();
-        const needsOnboarding = isNewlyCreated || !currentUser?.hasCompletedOnboarding;
-
-        if (needsOnboarding) {
-          this.logger.info(
-            `🚀 Navigating to onboarding (${isNewlyCreated ? 'new user' : 'existing user, incomplete'})`
-          );
-          await this.navigateForward(AUTH_ROUTES.ONBOARDING);
-        } else {
-          this.logger.info('🏠 User already completed onboarding, navigating to /home');
-          await this.navigateRoot(AUTH_REDIRECTS.DEFAULT);
-        }
-      } finally {
-        // Always clear flag to prevent state leaks (via core state manager)
-        this.authManager.setSignupInProgress(false);
-      }
-
-      return true;
+      );
     } catch (err: unknown) {
       const authErr = err as { code?: string; message?: string; customData?: unknown };
       this.logger.error('Google OAuth failed', err, {
@@ -1154,8 +1263,6 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
 
       this.authManager.setError(errorMessage);
       return false;
-    } finally {
-      this.authManager.setLoading(false);
     }
   }
 
@@ -1171,7 +1278,6 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
       return false;
     }
 
-    this.authManager.setLoading(true);
     this.authManager.setError(null);
 
     try {
@@ -1194,36 +1300,63 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
       provider.addScope('Files.ReadWrite'); // Required for OneDrive Agent X actions
 
       this.logger.info('🚀 Starting Microsoft OAuth (popup)');
+      // UX boundary: popup/account selection happens here without loading state.
       const result = await signInWithPopup(this.firebaseAuth, provider);
 
-      // Extract the Microsoft access token from the credential
-      const microsoftCredential = OAuthProvider.credentialFromResult(result);
-      const popupAccessToken =
-        microsoftCredential?.accessToken ??
-        (result as { _tokenResponse?: { oauthAccessToken?: string } })._tokenResponse
-          ?.oauthAccessToken ??
-        null;
+      return this.runWithLoading(
+        async () => {
+          // Extract the Microsoft access token from the credential
+          const microsoftCredential = OAuthProvider.credentialFromResult(result);
+          const popupAccessToken =
+            microsoftCredential?.accessToken ??
+            (result as { _tokenResponse?: { oauthAccessToken?: string } })._tokenResponse
+              ?.oauthAccessToken ??
+            null;
 
-      this.logger.info('✅ Microsoft OAuth popup success', {
-        uid: result.user.uid,
-        email: result.user.email,
-        displayName: result.user.displayName,
-        hasAccessToken: !!popupAccessToken,
-      });
+          this.logger.info('✅ Microsoft OAuth popup success', {
+            uid: result.user.uid,
+            email: result.user.email,
+            displayName: result.user.displayName,
+            hasAccessToken: !!popupAccessToken,
+          });
 
-      // Process result using helper method
-      const success = await this.processMicrosoftAuthResult(result, teamCode, referralId);
+          // Process result using helper method
+          const success = await this.processMicrosoftAuthResult(result, teamCode, referralId);
 
-      // Persist the access token to backend after successful auth
-      if (success && popupAccessToken) {
-        await this.persistMicrosoftAccessToken(popupAccessToken);
-      } else if (success && !popupAccessToken) {
-        this.logger.warn('Microsoft OAuth completed without an access token for backend connect', {
-          uid: result.user.uid,
-        });
-      }
+          // Persist the access token to backend after successful auth
+          if (success && popupAccessToken) {
+            await this.persistMicrosoftAccessToken(popupAccessToken);
+          } else if (success && !popupAccessToken) {
+            this.logger.warn(
+              'Microsoft OAuth completed without an access token for backend connect',
+              {
+                uid: result.user.uid,
+              }
+            );
+          }
 
-      return success;
+          return success;
+        },
+        (err: unknown) => {
+          const authErr = err as { code?: string; message?: string; customData?: unknown };
+          this.logger.error('Microsoft sign in failed', err, {
+            code: authErr?.code,
+            message: authErr?.message,
+            customData: authErr?.customData,
+          });
+
+          const errorMessage = this.handleOAuthError(err, 'Microsoft');
+
+          // this.analytics.trackEvent(APP_EVENTS.AUTH_SIGNIN_ERROR, {
+          //   method: AUTH_METHODS.MICROSOFT,
+          //   error_code: err?.code || 'unknown',
+          //   recovery_action: err?.code === 'auth/error-code:-47' ? 'retry_later' : 'unknown',
+          // });
+
+          this.authManager.setError(errorMessage);
+          return false;
+        }
+      );
     } catch (err: unknown) {
       const authErr = err as { code?: string; message?: string; customData?: unknown };
       this.logger.error('Microsoft sign in failed', err, {
@@ -1242,8 +1375,6 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
 
       this.authManager.setError(errorMessage);
       return false;
-    } finally {
-      this.authManager.setLoading(false);
     }
   }
 
@@ -1259,7 +1390,6 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
       return false;
     }
 
-    this.authManager.setLoading(true);
     this.authManager.setError(null);
 
     this.logger.info('🍎 Starting Apple OAuth (popup)');
@@ -1274,84 +1404,111 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
       provider.addScope('email');
       provider.addScope('name');
 
+      // UX boundary: popup/account selection happens here without loading state.
       const result = await signInWithPopup(this.firebaseAuth, provider);
 
-      // Check if this is a new user (Firebase detection can be unreliable)
-      // @ts-expect-error additionalUserInfo is on the result
-      const isNewUser = result._tokenResponse?.isNewUser ?? false;
+      return this.runWithLoading(
+        async () => {
+          // Check if this is a new user (Firebase detection can be unreliable)
+          // @ts-expect-error additionalUserInfo is on the result
+          const isNewUser = result._tokenResponse?.isNewUser ?? false;
 
-      this.logger.debug('🔍 Firebase detected isNewUser (Apple)', { isNewUser });
+          this.logger.debug('🔍 Firebase detected isNewUser (Apple)', { isNewUser });
 
-      // Track analytics
-      this.analytics.trackEvent(isNewUser ? APP_EVENTS.AUTH_SIGNED_UP : APP_EVENTS.AUTH_SIGNED_IN, {
-        method: AUTH_METHODS.APPLE,
-      });
-      this.analytics.setUserId(result.user.uid);
-      this.analytics.setUserProperties({ user_type: this.user()?.role });
+          // Track analytics
+          this.analytics.trackEvent(
+            isNewUser ? APP_EVENTS.AUTH_SIGNED_UP : APP_EVENTS.AUTH_SIGNED_IN,
+            {
+              method: AUTH_METHODS.APPLE,
+            }
+          );
+          this.analytics.setUserId(result.user.uid);
+          this.analytics.setUserProperties({ user_type: this.user()?.role });
 
-      // Set flag to prevent auth state listener from racing with user setup (via core state manager)
-      this.authManager.setSignupInProgress(true);
+          // Set flag to prevent auth state listener from racing with user setup (via core state manager)
+          this.authManager.setSignupInProgress(true);
 
-      // Store token BEFORE any API calls so the auth interceptor can attach it
-      await this.storeTokenFromUser(result.user);
+          // Store token BEFORE any API calls so the auth interceptor can attach it
+          await this.storeTokenFromUser(result.user);
 
-      try {
-        // ALWAYS try to sync existing user first (Firebase isNewUser can be unreliable)
-        this.logger.debug('📡 Attempting to sync existing user profile (Apple)');
-        await this.syncUserProfile(result.user);
-        this.logger.info('✅ User profile sync successful - existing user (Apple)');
+          try {
+            // ALWAYS try to sync existing user first (Firebase isNewUser can be unreliable)
+            this.logger.debug('📡 Attempting to sync existing user profile (Apple)');
+            await this.syncUserProfile(result.user);
+            this.logger.info('✅ User profile sync successful - existing user (Apple)');
 
-        // Check if user needs onboarding
-        const currentUser = this.user();
-        const needsOnboarding = !currentUser?.hasCompletedOnboarding;
+            // Check if user needs onboarding
+            const currentUser = this.user();
+            const needsOnboarding = !currentUser?.hasCompletedOnboarding;
 
-        if (needsOnboarding) {
-          this.logger.info('🚀 Navigating to onboarding (existing user, incomplete) (Apple)');
-          await this.navigateForward(AUTH_ROUTES.ONBOARDING);
-        } else {
-          this.logger.info('🏠 User already completed onboarding, navigating to /home (Apple)');
-          await this.navigateRoot(AUTH_REDIRECTS.DEFAULT);
-        }
-      } catch (syncError: unknown) {
-        const errorObj = syncError as { message?: string };
-        this.logger.warn('❌ User sync failed, attempting to create new user (Apple)', {
-          error: errorObj?.message,
-        });
+            if (needsOnboarding) {
+              this.logger.info('🚀 Navigating to onboarding (existing user, incomplete) (Apple)');
+              await this.navigateForward(AUTH_ROUTES.ONBOARDING);
+            } else {
+              this.logger.info('🏠 User already completed onboarding, navigating to /home (Apple)');
+              await this.navigateRoot(AUTH_REDIRECTS.DEFAULT);
+            }
+          } catch (syncError: unknown) {
+            const errorObj = syncError as { message?: string };
+            this.logger.warn('❌ User sync failed, attempting to create new user (Apple)', {
+              error: errorObj?.message,
+            });
 
-        try {
-          // User doesn't exist in backend, create new user
-          this.logger.debug('📝 Creating new user via Apple OAuth', {
-            uid: result.user.uid,
-            email: result.user.email!,
-            teamCode: teamCode || 'none',
-            referralId: referralId || 'none',
+            try {
+              // User doesn't exist in backend, create new user
+              this.logger.debug('📝 Creating new user via Apple OAuth', {
+                uid: result.user.uid,
+                email: result.user.email!,
+                teamCode: teamCode || 'none',
+                referralId: referralId || 'none',
+              });
+
+              const createResult = await this.authApi.createUser({
+                uid: result.user.uid,
+                email: result.user.email!,
+                teamCode: teamCode || undefined,
+                referralId: referralId || undefined,
+              });
+
+              this.logger.info('✅ New user created successfully (Apple)', { createResult });
+
+              // Sync the newly created user to local state
+              await this.syncUserProfile(result.user);
+
+              // Navigate to onboarding for new users
+              this.logger.info('🚀 Navigating to onboarding (new user) (Apple)');
+              await this.navigateForward(AUTH_ROUTES.ONBOARDING);
+            } catch (createError: unknown) {
+              this.logger.error('❌ Failed to create new user (Apple)', createError);
+              throw createError; // Re-throw to be handled by outer catch
+            }
+          } finally {
+            // Always clear flag to prevent state leaks (via core state manager)
+            this.authManager.setSignupInProgress(false);
+          }
+
+          return true;
+        },
+        (err: unknown) => {
+          const authErr = err as { code?: string; message?: string; customData?: unknown };
+          this.logger.error('Apple sign in failed', err, {
+            code: authErr?.code,
+            message: authErr?.message,
+            customData: authErr?.customData,
           });
 
-          const createResult = await this.authApi.createUser({
-            uid: result.user.uid,
-            email: result.user.email!,
-            teamCode: teamCode || undefined,
-            referralId: referralId || undefined,
+          const errorMessage = this.handleOAuthError(err, 'Apple');
+
+          this.analytics.trackEvent(APP_EVENTS.AUTH_SIGNIN_ERROR, {
+            method: AUTH_METHODS.APPLE,
+            error_code: authErr?.code || 'unknown',
+            recovery_action: authErr?.code === 'auth/error-code:-47' ? 'retry_later' : 'unknown',
           });
 
-          this.logger.info('✅ New user created successfully (Apple)', { createResult });
-
-          // Sync the newly created user to local state
-          await this.syncUserProfile(result.user);
-
-          // Navigate to onboarding for new users
-          this.logger.info('🚀 Navigating to onboarding (new user) (Apple)');
-          await this.navigateForward(AUTH_ROUTES.ONBOARDING);
-        } catch (createError: unknown) {
-          this.logger.error('❌ Failed to create new user (Apple)', createError);
-          throw createError; // Re-throw to be handled by outer catch
+          this.authManager.setError(errorMessage);
+          return false;
         }
-      } finally {
-        // Always clear flag to prevent state leaks (via core state manager)
-        this.authManager.setSignupInProgress(false);
-      }
-
-      return true;
+      );
     } catch (err: unknown) {
       const authErr = err as { code?: string; message?: string; customData?: unknown };
       this.logger.error('Apple sign in failed', err, {
@@ -1370,8 +1527,6 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
 
       this.authManager.setError(errorMessage);
       return false;
-    } finally {
-      this.authManager.setLoading(false);
     }
   }
 
@@ -1391,90 +1546,91 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
     // Set flag to prevent auth state listener from calling syncUserProfile
     // before we create the backend user (via core state manager)
     this.authManager.setSignupInProgress(true);
-    this.authManager.setLoading(true);
     this.authManager.setError(null);
 
-    try {
-      // Dynamic import for SSR safety
-      const { createUserWithEmailAndPassword } = await import('@angular/fire/auth');
+    return this.runWithDelayedLoading(
+      'Creating account...',
+      async () => {
+        // Dynamic import for SSR safety
+        const { createUserWithEmailAndPassword } = await import('@angular/fire/auth');
 
-      // Create Firebase user
-      const result = await createUserWithEmailAndPassword(
-        this.firebaseAuth,
-        credentials.email,
-        credentials.password
-      );
+        // Create Firebase user
+        const result = await createUserWithEmailAndPassword(
+          this.firebaseAuth!,
+          credentials.email,
+          credentials.password
+        );
 
-      try {
-        // Create user in backend
-        this.logger.debug('📝 Creating new user via Email signup', {
-          uid: result.user.uid,
-          email: credentials.email,
-          teamCode: credentials.teamCode || 'none',
-          referralId: credentials.referralId || 'none',
-        });
-
-        const createResult = await this.authApi.createUser({
-          uid: result.user.uid,
-          email: credentials.email,
-          teamCode: credentials.teamCode,
-          referralId: credentials.referralId,
-        });
-
-        this.logger.info('✅ Email signup user created', { createResult });
-
-        if (!createResult.success) {
-          throw new Error(
-            'error' in createResult ? createResult.error.message : 'Failed to create user'
-          );
-        }
-
-        // Track successful sign up
-        this.analytics.trackEvent(APP_EVENTS.AUTH_SIGNED_UP, {
-          method: AUTH_METHODS.EMAIL,
-          team_code: credentials.teamCode,
-          referral_source: credentials.referralId,
-        });
-        this.analytics.setUserId(result.user.uid);
-
-        // Sync user state BEFORE navigating (required for onboarding page)
-        await this.syncUserProfile(result.user);
-
-        // Send verification email for email/password signups
-        // OAuth users (Google/Apple/Microsoft) are pre-verified
         try {
-          await this.sendVerificationEmail();
-          this.logger.info('📧 Verification email sent after signup');
-        } catch (verifyError: unknown) {
-          this.logger.warn('Failed to send verification email', {
-            error: verifyError instanceof Error ? verifyError.message : String(verifyError),
+          // Create user in backend
+          this.logger.debug('📝 Creating new user via Email signup', {
+            uid: result.user.uid,
+            email: credentials.email,
+            teamCode: credentials.teamCode || 'none',
+            referralId: credentials.referralId || 'none',
           });
-          // Continue anyway - user can resend from verify page
+
+          const createResult = await this.authApi.createUser({
+            uid: result.user.uid,
+            email: credentials.email,
+            teamCode: credentials.teamCode,
+            referralId: credentials.referralId,
+          });
+
+          this.logger.info('✅ Email signup user created', { createResult });
+
+          if (!createResult.success) {
+            throw new Error(
+              'error' in createResult ? createResult.error.message : 'Failed to create user'
+            );
+          }
+
+          // Track successful sign up
+          this.analytics.trackEvent(APP_EVENTS.AUTH_SIGNED_UP, {
+            method: AUTH_METHODS.EMAIL,
+            team_code: credentials.teamCode,
+            referral_source: credentials.referralId,
+          });
+          this.analytics.setUserId(result.user.uid);
+
+          // Sync user state BEFORE navigating (required for onboarding page)
+          await this.syncUserProfile(result.user);
+
+          // Send verification email for email/password signups
+          // OAuth users (Google/Apple/Microsoft) are pre-verified
+          try {
+            await this.sendVerificationEmail();
+            this.logger.info('📧 Verification email sent after signup');
+          } catch (verifyError: unknown) {
+            this.logger.warn('Failed to send verification email', {
+              error: verifyError instanceof Error ? verifyError.message : String(verifyError),
+            });
+            // Continue anyway - user can resend from verify page
+          }
+
+          // Navigate to email verification page (not onboarding yet)
+          await this.navigateForward(AUTH_ROUTES.VERIFY_EMAIL);
+          return true;
+        } finally {
+          // Always clear flag to prevent state leaks (via core state manager)
+          this.authManager.setSignupInProgress(false);
         }
+      },
+      (err) => {
+        this.logger.error('Sign up failed', err);
 
-        // Navigate to email verification page (not onboarding yet)
-        await this.navigateForward(AUTH_ROUTES.VERIFY_EMAIL);
-        return true;
-      } finally {
-        // Always clear flag to prevent state leaks (via core state manager)
-        this.authManager.setSignupInProgress(false);
+        // Use centralized auth error handler
+        const handledError = this.authErrorHandler.handle(err);
+
+        this.analytics.trackEvent(APP_EVENTS.AUTH_SIGNUP_ERROR, {
+          method: AUTH_METHODS.EMAIL,
+          error_code: handledError.code,
+          recovery_action: handledError.recovery?.type,
+        });
+        this.authManager.setError(handledError.message);
+        return false;
       }
-    } catch (err) {
-      this.logger.error('Sign up failed', err);
-
-      // Use centralized auth error handler
-      const handledError = this.authErrorHandler.handle(err);
-
-      this.analytics.trackEvent(APP_EVENTS.AUTH_SIGNUP_ERROR, {
-        method: AUTH_METHODS.EMAIL,
-        error_code: handledError.code,
-        recovery_action: handledError.recovery?.type,
-      });
-      this.authManager.setError(handledError.message);
-      return false;
-    } finally {
-      this.authManager.setLoading(false);
-    }
+    );
   }
 
   // ============================================

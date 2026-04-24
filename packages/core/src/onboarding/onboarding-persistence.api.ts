@@ -31,6 +31,7 @@
 
 import type { LinkSourcesFormData, SportEntry } from './onboarding-navigation.api';
 import { USER_ROLES } from '../constants/user.constants';
+import { getPlatformFaviconUrl } from '../platforms/platform-favicons';
 
 // ============================================
 // ADAPTER INTERFACE
@@ -472,6 +473,7 @@ export function buildUserUpdatePayload(state: OnboardingPersistenceState): Recor
   const connectedSourcesList: Array<{
     platform: string;
     profileUrl: string;
+    faviconUrl?: string;
     syncStatus: 'idle';
     scopeType?: 'global' | 'sport' | 'team';
     scopeId?: string;
@@ -486,6 +488,7 @@ export function buildUserUpdatePayload(state: OnboardingPersistenceState): Recor
     connectedSourcesList.push({
       platform: link.platform,
       profileUrl: value.startsWith('http') ? value : `https://${value}`,
+      faviconUrl: getPlatformFaviconUrl(link.platform) ?? undefined,
       syncStatus: 'idle',
       scopeType: link.scopeType,
       scopeId: link.scopeId,

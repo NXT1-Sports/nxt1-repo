@@ -301,11 +301,48 @@ export function createAgentXApi(http: HttpAdapter, baseUrl: string) {
      */
     async generatePlaybook(force = false): Promise<AgentDashboardPlaybook | null> {
       try {
-        const response = await http.post<ApiResponse<AgentDashboardPlaybook>>(
+        const enqueueResponse = await http.post<ApiResponse<{ operationId: string }>>(
           endpoint(AGENT_X_ENDPOINTS.PLAYBOOK_GENERATE),
           { force }
         );
-        return response.success ? (response.data ?? null) : null;
+
+        if (!enqueueResponse.success || !enqueueResponse.data?.operationId) {
+          return null;
+        }
+
+        const operationId = enqueueResponse.data.operationId;
+        const maxAttempts = 50;
+        const pollIntervalMs = 1500;
+
+        for (let attempt = 0; attempt < maxAttempts; attempt++) {
+          const cacheBust = Date.now();
+          const statusResponse = await http.get<
+            ApiResponse<{
+              status: string;
+              result?: { data?: { playbook?: AgentDashboardPlaybook } };
+              error?: string;
+            }>
+          >(
+            `${endpoint(AGENT_X_ENDPOINTS.PLAYBOOK_GENERATE_STATUS)}/${encodeURIComponent(operationId)}?_=${cacheBust}`
+          );
+
+          if (!statusResponse.success || !statusResponse.data) {
+            return null;
+          }
+
+          const status = statusResponse.data.status;
+          if (status === 'completed') {
+            return statusResponse.data.result?.data?.playbook ?? null;
+          }
+
+          if (status === 'failed' || status === 'cancelled') {
+            return null;
+          }
+
+          await new Promise<void>((resolve) => setTimeout(resolve, pollIntervalMs));
+        }
+
+        return null;
       } catch {
         return null;
       }

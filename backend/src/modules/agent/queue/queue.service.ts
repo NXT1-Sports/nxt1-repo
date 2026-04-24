@@ -31,6 +31,7 @@ import type {
   AgentQueueJobResult,
   AgentJobProgress,
   AgentJobStatusResponse,
+  PlaybookGenerationQueueJobData,
   ThreadSummarizationQueueJobData,
 } from './queue.types.js';
 import {
@@ -92,6 +93,31 @@ export class AgentQueueService {
     });
 
     return job.id ?? payload.operationId;
+  }
+
+  /**
+   * Add a new asynchronous playbook generation job to the queue.
+   * @param input - Minimal job identity payload used by the worker.
+   * @param environment - Which Firestore the job document lives in (staging vs production).
+   * @returns The BullMQ job ID (same as operationId for easy lookup).
+   */
+  async enqueuePlaybookGeneration(
+    input: { operationId: string; userId: string },
+    environment: 'staging' | 'production' = 'production'
+  ): Promise<string> {
+    const jobData: PlaybookGenerationQueueJobData = {
+      kind: 'playbook_generation',
+      operationId: input.operationId,
+      userId: input.userId,
+      enqueuedAt: new Date().toISOString(),
+      environment,
+    };
+
+    const job = await this.queue.add(input.operationId, jobData, {
+      jobId: input.operationId,
+    });
+
+    return job.id ?? input.operationId;
   }
 
   /**
@@ -205,6 +231,20 @@ export class AgentQueueService {
    */
   async getCounts(): Promise<Record<string, number>> {
     return this.queue.getJobCounts('waiting', 'active', 'completed', 'failed', 'delayed', 'paused');
+  }
+
+  /**
+   * Lightweight health probe for queue admission control.
+   * Returns true only when the underlying Redis connection can respond to PING.
+   */
+  async isHealthy(): Promise<boolean> {
+    try {
+      const client = await this.queue.client;
+      const pong = await client.ping();
+      return pong === 'PONG';
+    } catch {
+      return false;
+    }
   }
 
   /**

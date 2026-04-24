@@ -1147,6 +1147,7 @@ export abstract class BaseAgent {
     const toolExecContext: ToolExecutionContext = {
       userId,
       ...(sessionContext?.environment && { environment: sessionContext.environment }),
+      ...(sessionContext?.operationId && { operationId: sessionContext.operationId }),
       ...(sessionContext?.threadId && { threadId: sessionContext.threadId }),
       ...(sessionContext?.sessionId && { sessionId: sessionContext.sessionId }),
       ...(sessionContext?.allowedToolNames && {

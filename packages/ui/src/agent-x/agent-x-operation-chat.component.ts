@@ -111,6 +111,11 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/ass
 import type { AgentXPendingFile } from './agent-x-pending-file';
 import { getThinkingLabel, getToolStepDisplayLabel } from './agent-x-agent-presentation';
 import {
+  AgentXAttachmentsSheetComponent,
+  type ConnectedAppSource,
+} from './agent-x-attachments-sheet.component';
+import { buildPendingAttachmentViewer } from './pending-attachments-viewer.util';
+import {
   bindAgentXKeyboardOffset,
   type AgentXKeyboardOffsetBinding,
 } from './agent-x-keyboard-offset.util';
@@ -309,6 +314,7 @@ interface OperationMessage {
               variant="agent-operation"
               [isOwn]="msg.role === 'user'"
               [content]="msg.content"
+              [isStreaming]="msg.id === 'typing'"
               [isTyping]="!!msg.isTyping"
               [typingLabel]="msg.id === 'typing' ? thinkingLabel() : 'Thinking...'"
               [isError]="!!msg.error"
@@ -483,6 +489,7 @@ interface OperationMessage {
           [isLoading]="_loading()"
           [canSend]="canSend()"
           [pendingFiles]="promptInputPendingFiles()"
+          [pendingSources]="pendingConnectedSources()"
           [selectedTask]="null"
           placeholder="Message A Coordinator"
           (messageChange)="inputValue.set($event)"
@@ -490,14 +497,10 @@ interface OperationMessage {
           (stop)="cancelStream()"
           (toggleAttachments)="onUploadClick()"
           (removeFile)="removePendingFile($event)"
-        />
-        <input
-          #fileInput
-          class="file-input-hidden"
-          type="file"
-          [accept]="acceptedFileTypes"
-          multiple
-          (change)="onFileSelected($event)"
+          (removeSource)="
+            pendingConnectedSources.update((srcs) => srcs.filter((_, i) => i !== $event))
+          "
+          (focusInput)="onInputFocus()"
         />
       </div>
 
@@ -669,7 +672,7 @@ interface OperationMessage {
         flex: 1 1 auto;
         min-height: 0;
         overflow-y: auto;
-        padding: 16px 20px 8px;
+        padding: 16px 20px calc(8px + var(--agent-keyboard-offset, 0px));
         display: flex;
         flex-direction: column;
         gap: 20px;
@@ -679,8 +682,12 @@ interface OperationMessage {
       /* ── Floating input footer — transparent, lifts with keyboard ── */
       .chat-input-footer {
         background: transparent;
-        transform: translateY(calc(-1 * var(--chat-keyboard-offset, 0px)));
+        transform: translateY(calc(-1 * var(--agent-keyboard-offset, 0px)));
         transition: transform 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+      }
+
+      :host-context(.keyboard-open) .chat-input-footer {
+        transition-duration: 0.22s;
       }
 
       .messages-area--embedded {
@@ -1082,28 +1089,15 @@ interface OperationMessage {
 
       .quick-option-chip[data-coordinator] {
         --coordinator-pill-accent: var(--op-primary);
-        --coordinator-pill-surface: color-mix(
-          in srgb,
-          var(--coordinator-pill-accent) 18%,
-          var(--op-glass-bg)
-        );
-        --coordinator-pill-border: color-mix(
-          in srgb,
-          var(--coordinator-pill-accent) 54%,
-          var(--op-border)
-        );
-        --coordinator-pill-shadow: color-mix(
-          in srgb,
-          var(--coordinator-pill-accent) 22%,
-          transparent
-        );
-        border-color: var(--coordinator-pill-border);
-        background: var(--coordinator-pill-surface);
+        /* Use the accent directly — no color-mix with inherited bg vars that
+           may resolve incorrectly inside Ionic portal-rendered modals */
+        border-color: var(--coordinator-pill-accent);
+        background: color-mix(in srgb, var(--coordinator-pill-accent) 12%, transparent);
         color: var(--op-text);
         font-weight: 600;
         box-shadow:
-          0 16px 34px var(--coordinator-pill-shadow),
-          inset 0 1px 0 color-mix(in srgb, var(--coordinator-pill-accent) 10%, white);
+          0 4px 16px color-mix(in srgb, var(--coordinator-pill-accent) 20%, transparent),
+          inset 0 1px 0 color-mix(in srgb, var(--coordinator-pill-accent) 25%, white);
         backdrop-filter: var(--nxt1-glass-backdrop, saturate(180%) blur(20px));
         -webkit-backdrop-filter: var(--nxt1-glass-backdrop, saturate(180%) blur(20px));
         transition:
@@ -1115,13 +1109,24 @@ interface OperationMessage {
       }
 
       .quick-option-chip[data-coordinator]:active {
-        border-color: color-mix(in srgb, var(--coordinator-pill-accent) 72%, white);
-        background: color-mix(in srgb, var(--coordinator-pill-accent) 28%, var(--op-glass-bg));
-        color: var(--op-text);
+        background: color-mix(in srgb, var(--coordinator-pill-accent) 22%, transparent);
         box-shadow:
-          0 18px 36px color-mix(in srgb, var(--coordinator-pill-accent) 26%, transparent),
-          inset 0 1px 0 color-mix(in srgb, var(--coordinator-pill-accent) 14%, white);
+          0 6px 18px color-mix(in srgb, var(--coordinator-pill-accent) 28%, transparent),
+          inset 0 1px 0 color-mix(in srgb, var(--coordinator-pill-accent) 30%, white);
         transform: translateY(1px) scale(0.99);
+      }
+
+      /* ─── Light mode: slightly stronger tint since white bg needs more contrast ─── */
+      :host-context(.light) .quick-option-chip[data-coordinator],
+      :host-context([data-theme='light']) .quick-option-chip[data-coordinator],
+      :host-context([data-base-theme='light']) .quick-option-chip[data-coordinator] {
+        background: color-mix(in srgb, var(--coordinator-pill-accent) 16%, transparent);
+      }
+
+      :host-context(.light) .quick-option-chip[data-coordinator]:active,
+      :host-context([data-theme='light']) .quick-option-chip[data-coordinator]:active,
+      :host-context([data-base-theme='light']) .quick-option-chip[data-coordinator]:active {
+        background: color-mix(in srgb, var(--coordinator-pill-accent) 26%, transparent);
       }
 
       .quick-option-chip[data-coordinator='coord-recruiting'] {
@@ -1412,6 +1417,21 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   /** Active SSE abort controller — cancelled on destroy or when a new message starts. */
   private activeStream: AbortController | null = null;
 
+  /** Buffered token text waiting to be committed to the typing message. */
+  private pendingTypingDelta = '';
+
+  /** RAF handle for batched typing flushes. */
+  private pendingTypingFlushFrame: number | null = null;
+
+  /** RAF handle for batched auto-scroll writes. */
+  private pendingScrollFrame: number | null = null;
+
+  /** Most recent requested scroll behavior for the next batched scroll write. */
+  private pendingScrollBehavior: ScrollBehavior = 'auto';
+
+  /** Timers used for post-focus scroll corrections while keyboard animates in. */
+  private focusScrollTimers: ReturnType<typeof setTimeout>[] = [];
+
   /** Operation ID from the backend — used for explicit cancel endpoint. */
   private _currentOperationId: string | null = null;
 
@@ -1476,6 +1496,9 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
   /** Optional initial files to seed into the pending files strip when opening. */
   @Input() initialFiles: PendingFile[] = [];
+
+  /** Connected app sources used by the attachments bottom sheet. */
+  @Input() connectedSources: readonly ConnectedAppSource[] = [];
 
   /**
    * Optional MongoDB thread ID — when provided, loads the historical
@@ -1576,6 +1599,9 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   /** Files staged for upload — displayed as previews above the input bar. */
   protected readonly pendingFiles = signal<PendingFile[]>([]);
 
+  /** Connected app sources staged from the attachments sheet — shown as chips in the input bar. */
+  protected readonly pendingConnectedSources = signal<ConnectedAppSource[]>([]);
+
   /** Pending files converted to AgentXPendingFile shape for prompt-input component. */
   protected readonly promptInputPendingFiles = computed<readonly AgentXPendingFile[]>(() =>
     this.pendingFiles().map((pf) => ({
@@ -1644,22 +1670,14 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     return `You're now talking to ${title}. How can I help you today?`;
   });
 
-  /** Normalized quick actions — uses provided actions, fills with fallbacks if needed. Operations get none. */
+  /** Normalized quick actions — only explicit coordinator-provided actions are shown. */
   protected readonly normalizedQuickActions = computed<OperationQuickAction[]>(() => {
     // Operations skip straight to work — no chatbot-style suggestion pills
     if (this.contextType === 'operation') return [];
 
-    const provided = this.quickActions.map((a, index) => ({
+    return this.quickActions.map((a, index) => ({
       ...a,
       id: a.id || `cmd-${index + 1}`,
-    }));
-
-    if (provided.length > 0) return provided;
-
-    return this.getFallbackActions().map((item, index) => ({
-      id: `fallback-${index + 1}`,
-      icon: this.contextIcon,
-      ...item,
     }));
   });
 
@@ -1737,7 +1755,6 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   // ============================================
 
   private readonly messagesArea = viewChild<ElementRef>('messagesArea');
-  private readonly fileInput = viewChild<ElementRef<HTMLInputElement>>('fileInput');
   private readonly actionCardRef = viewChild<AgentXActionCardComponent>('actionCard');
 
   constructor() {
@@ -1746,6 +1763,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     // background and buffers its output. When the user returns to this session,
     // the component remounts and rehydrates from the buffer.
     this.destroyRef.onDestroy(() => {
+      this.clearPendingTypingDelta();
       const threadId = this._resolvedThreadId();
       // Always detach listener to prevent dangling references on
       // completed entries (detach is a no-op if no entry exists).
@@ -1771,14 +1789,14 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     effect(() => {
       const msgs = this.messages();
       if (msgs.length > 0) {
-        this.scrollToBottom();
+        this.scrollToBottom({ onlyIfNearBottom: true, behavior: 'auto' });
       }
     });
 
     // Auto-scroll when an action card appears (yield state set)
     effect(() => {
       if (this.activeYieldState()) {
-        this.scrollToBottom();
+        this.scrollToBottom({ behavior: 'smooth' });
       }
     });
   }
@@ -1791,6 +1809,9 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   private initialMessageSent = false;
 
   ngAfterViewInit(): void {
+    // Bind immediately so all code paths (including early returns) get keyboard lift.
+    void this.bindKeyboardOffset();
+
     // If opening an existing operation/thread, check for an active stream first.
     if (this.threadId?.trim()) {
       this._isThreadMode.set(true);
@@ -1801,22 +1822,10 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       // kept it alive. Claim it now to get buffered state + live updates.
       const snapshot = this.streamRegistry.claim(this.threadId.trim(), {
         onDelta: (text) => {
-          this.messages.update((msgs) =>
-            msgs.map((m) => {
-              if (m.id !== 'typing') return m;
-              // Rebuild parts for live updates
-              const prevParts = [...(m.parts ?? [])];
-              const last = prevParts[prevParts.length - 1];
-              if (last?.type === 'text') {
-                prevParts[prevParts.length - 1] = { type: 'text', content: last.content + text };
-              } else {
-                prevParts.push({ type: 'text', content: text });
-              }
-              return { ...m, content: m.content + text, isTyping: false, parts: prevParts };
-            })
-          );
+          this.queueTypingDelta(text);
         },
         onStep: (step) => {
+          this.flushPendingTypingDelta();
           this.messages.update((msgs) =>
             msgs.map((m) => {
               if (m.id !== 'typing') return m;
@@ -1843,6 +1852,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
           );
         },
         onCard: (card) => {
+          this.flushPendingTypingDelta();
           this.messages.update((msgs) =>
             msgs.map((m) => {
               if (m.id !== 'typing') return m;
@@ -1853,6 +1863,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
           );
         },
         onDone: () => {
+          this.flushPendingTypingDelta();
           const finalId = this.uid();
           this.messages.update((msgs) =>
             msgs.map((m) => (m.id === 'typing' ? { ...m, id: finalId, isTyping: false } : m))
@@ -2069,22 +2080,19 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       return;
     }
 
-    if ((this.initialMessage?.trim() || this.initialFiles.length > 0) && !this.initialMessageSent) {
+    if (this.initialMessage?.trim() && !this.initialMessageSent) {
       this.initialMessageSent = true;
       // Slight delay to let the sheet animation settle
       setTimeout(() => {
-        if (this.initialMessage?.trim()) {
-          this.inputValue.set(this.initialMessage.trim());
-        }
+        this.inputValue.set(this.initialMessage.trim());
         this.send();
       }, 150);
     }
-
-    void this.bindKeyboardOffset();
   }
 
   ngOnDestroy(): void {
     this._clearPendingFiles();
+    this.clearFocusScrollTimers();
     this.keyboardOffsetBinding?.teardown();
   }
 
@@ -2093,9 +2101,34 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     this.keyboardOffsetBinding = await bindAgentXKeyboardOffset({
       platformId: this.platformId,
       hostElement: this.hostElement.nativeElement,
-      offsetCssVar: '--chat-keyboard-offset',
-      keyboardOffsetTrimPx: 10,
+      offsetCssVar: '--agent-keyboard-offset',
+      safeAreaCssVar: '--footer-safe-area',
+      keyboardOffsetTrimPx: -6,
+      onKeyboardShow: () => {
+        // When keyboard opens, scroll to bottom to show all content
+        this.scrollToBottom({ behavior: 'auto' });
+      },
     });
+  }
+
+  /** Ensure latest messages remain visible when the input receives focus. */
+  protected onInputFocus(): void {
+    this.clearFocusScrollTimers();
+    this.scrollToBottom({ behavior: 'auto' });
+
+    // iOS keyboard and bottom-sheet reflow can settle a bit later; follow-up
+    // scrolls keep the last assistant content above the floating input.
+    for (const delay of [90, 190, 320]) {
+      const timer = setTimeout(() => this.scrollToBottom({ behavior: 'auto' }), delay);
+      this.focusScrollTimers.push(timer);
+    }
+  }
+
+  private clearFocusScrollTimers(): void {
+    for (const timer of this.focusScrollTimers) {
+      clearTimeout(timer);
+    }
+    this.focusScrollTimers = [];
   }
 
   /**
@@ -2148,22 +2181,11 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
         operationId,
         {
           onDelta: (text) => {
-            this.messages.update((msgs) =>
-              msgs.map((m) => {
-                if (m.id !== 'typing') return m;
-                const prevParts = [...(m.parts ?? [])];
-                const last = prevParts[prevParts.length - 1];
-                if (last?.type === 'text') {
-                  prevParts[prevParts.length - 1] = { type: 'text', content: last.content + text };
-                } else {
-                  prevParts.push({ type: 'text', content: text });
-                }
-                return { ...m, content: m.content + text, isTyping: false, parts: prevParts };
-              })
-            );
+            this.queueTypingDelta(text);
           },
 
           onStep: (step) => {
+            this.flushPendingTypingDelta();
             this.messages.update((msgs) =>
               msgs.map((m) => {
                 if (m.id !== 'typing') return m;
@@ -2191,6 +2213,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
           },
 
           onCard: (card) => {
+            this.flushPendingTypingDelta();
             this.messages.update((msgs) =>
               msgs.map((m) => {
                 if (m.id !== 'typing') return m;
@@ -2202,6 +2225,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
           },
 
           onDone: () => {
+            this.flushPendingTypingDelta();
             const finalId = this.uid();
             this.messages.update((msgs) =>
               msgs.map((m) => (m.id === 'typing' ? { ...m, id: finalId, isTyping: false } : m))
@@ -2552,12 +2576,20 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       this.userMessageSent.emit();
     }
 
-    // Build display content
+    // Capture and clear connected sources
+    const pendingSources = this.pendingConnectedSources();
+    this.pendingConnectedSources.set([]);
+
+    // Build display content — append source context if present
     let displayContent = text;
-    if (files.length > 0 && text) {
-      displayContent = text;
-    } else if (files.length > 0) {
+    if (!text && files.length > 0) {
       displayContent = `📎 ${files.length} file${files.length > 1 ? 's' : ''}`;
+    }
+    if (pendingSources.length > 0) {
+      const sourceLabels = pendingSources.map((s) => s.platform).join(', ');
+      displayContent = displayContent
+        ? `${displayContent} [via ${sourceLabels}]`
+        : `[via ${sourceLabels}]`;
     }
 
     // Build display attachments from ALL pending files (images, videos, AND docs)
@@ -2654,9 +2686,51 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     await this.send();
   }
 
-  /** Open native file picker from the shared input plus button. */
-  protected onUploadClick(): void {
-    this.fileInput()?.nativeElement.click();
+  /** Open attachments bottom sheet over this operation sheet without dismissing it. */
+  protected async onUploadClick(): Promise<void> {
+    // Always read from AgentXService so connected sources are available regardless
+    // of whether this sheet was opened from the shell, the operations log, or anywhere else.
+    const sources = this.agentXService.attachmentConnectedSources();
+    const modal = await this.modalCtrl.create({
+      component: AgentXAttachmentsSheetComponent,
+      componentProps: {
+        connectedSources: sources,
+      },
+      breakpoints: [0, 0.5, 0.72],
+      initialBreakpoint: 0.5,
+      expandToScroll: false,
+      handle: true,
+      handleBehavior: 'cycle',
+      showBackdrop: true,
+      backdropBreakpoint: 0.5,
+      backdropDismiss: true,
+      canDismiss: true,
+      cssClass: ['nxt-bottom-sheet', 'nxt-bottom-sheet-content'],
+    });
+
+    await modal.present();
+    const result = await modal.onWillDismiss<File[] | ConnectedAppSource>();
+
+    if (result.data && result.role === 'files-selected') {
+      const files = result.data as File[];
+      this.stageFiles(files);
+      return;
+    }
+
+    if (result.data && result.role === 'source-selected') {
+      const source = result.data as ConnectedAppSource;
+      this.pendingConnectedSources.update((current) => {
+        const exists = current.some(
+          (item) => item.platform === source.platform && item.profileUrl === source.profileUrl
+        );
+        return exists ? current : [...current, source];
+      });
+      return;
+    }
+
+    if (result.role === 'manage-connected-apps') {
+      this.toast.info('Manage connected apps from your main Agent X page.');
+    }
   }
 
   /** Toggle the drag overlay while files hover over the chat surface. */
@@ -2687,14 +2761,6 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       contextType: this.contextType,
       count: addedCount,
     });
-  }
-
-  /** Handle selected files/images — stage them as pending previews above input. */
-  protected onFileSelected(event: Event): void {
-    const input = event.target as HTMLInputElement;
-    const files = Array.from(input.files ?? []);
-    this.stageFiles(files);
-    input.value = '';
   }
 
   /** Remove a staged file from the pending preview strip. */
@@ -2828,39 +2894,22 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
   /** Open the media viewer for a pending file thumbnail. */
   protected openPendingFileViewer(index: number): void {
-    const mediaItems: MediaViewerItem[] = this.pendingFiles()
-      .filter((pf) => pf.previewUrl || (!pf.isImage && !pf.isVideo))
-      .map((pf) => {
-        if (pf.isImage || pf.isVideo) {
-          return {
-            url: pf.previewUrl!,
-            type: (pf.isVideo ? 'video' : 'image') as 'image' | 'video' | 'doc',
-            alt: pf.file.name,
-          };
-        }
-        return {
-          url: pf.previewUrl || URL.createObjectURL(pf.file),
-          type: 'doc' as const,
-          name: pf.file.name,
-          size: pf.file.size,
-        };
-      });
-
-    if (!mediaItems.length) return;
-
-    // Map the pending-file index to the viewer index
-    const viewableFiles = this.pendingFiles().filter(
-      (pf) => pf.previewUrl || (!pf.isImage && !pf.isVideo)
-    );
-    const target = this.pendingFiles()[index];
-    const mediaIndex = target ? viewableFiles.indexOf(target) : 0;
-
-    this.mediaViewer.open({
-      items: mediaItems,
-      initialIndex: Math.max(0, mediaIndex),
-      showShare: false,
-      source: 'agent-x-pending',
+    const viewer = buildPendingAttachmentViewer(this.pendingFiles(), index, {
+      createObjectURL: (file) => URL.createObjectURL(file),
+      revokeObjectURL: (url) => URL.revokeObjectURL(url),
     });
+
+    if (!viewer.items.length) return;
+
+    this.mediaViewer
+      .open({
+        items: viewer.items,
+        initialIndex: viewer.initialIndex,
+        showShare: false,
+        source: 'agent-x-pending',
+        presentation: 'overlay',
+      })
+      .finally(() => viewer.cleanup());
   }
 
   /** Open the media viewer for a sent message attachment thumbnail. */
@@ -3010,32 +3059,6 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   // PRIVATE HELPERS
   // ============================================
 
-  private getFallbackActions(): Pick<OperationQuickAction, 'label' | 'description'>[] {
-    if (this.contextType === 'operation') {
-      return [
-        { label: 'Status', description: 'Check current progress and updates' },
-        { label: 'Progress', description: 'View detailed completion breakdown' },
-        { label: 'Refine', description: 'Adjust parameters and improve results' },
-        { label: 'Boost Quality', description: 'Enhance output with extra processing' },
-        { label: 'Set Priority', description: 'Change urgency and processing order' },
-        { label: 'Notify Me', description: 'Get alerted when this is done' },
-        { label: 'Pause', description: 'Temporarily hold this operation' },
-        { label: 'Export', description: 'Download or share the results' },
-      ];
-    }
-
-    return [
-      { label: 'Create Plan', description: 'Build a step-by-step action plan' },
-      { label: 'Generate Draft', description: 'Get a first draft ready to review' },
-      { label: 'Refine Output', description: 'Polish and improve existing work' },
-      { label: 'Next Steps', description: 'See recommended follow-up actions' },
-      { label: 'Best Version', description: 'Optimize for the highest quality' },
-      { label: 'Publish Ready', description: 'Finalize and prepare to share' },
-      { label: 'Save Draft', description: 'Store your progress for later' },
-      { label: 'Share', description: 'Send results to your team' },
-    ];
-  }
-
   /**
    * Send user message to backend Agent X chat.
    *
@@ -3043,9 +3066,6 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
    * in a browser with an available auth token. Tokens are appended to the
    * typing-indicator message in real time via `onDelta`, producing a fluid
    * "typing" effect.
-   *
-   * Falls back to a standard HTTP POST when streaming is unavailable
-   * (SSR, missing auth token, mobile Capacitor without ReadableStream).
    */
   private async callAgentChat(
     userInput: string,
@@ -3097,8 +3117,22 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     if (authToken && isPlatformBrowser(this.platformId)) {
       await this._sendViaStream(request, authToken);
     } else {
-      // ── Fallback: standard HTTP POST (SSR / mobile / no token) ─────
-      await this._sendViaHttp(request);
+      this.logger.warn('Blocked Agent X send: streaming prerequisites unavailable', {
+        hasAuthToken: !!authToken,
+        browser: isPlatformBrowser(this.platformId),
+        contextId: this.contextId,
+      });
+      this.breadcrumb.trackStateChange('agent-x-operation-chat:stream-prereq-missing', {
+        contextId: this.contextId,
+        hasAuthToken: !!authToken,
+      });
+      this.replaceTyping({
+        id: this.uid(),
+        role: 'assistant',
+        content: 'Sign in to continue chatting with Agent X.',
+        timestamp: new Date(),
+        error: true,
+      });
     }
   }
 
@@ -3113,6 +3147,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
    */
   private _sendViaStream(request: AgentXChatRequest, authToken: string): Promise<void> {
     // Cancel any previous in-flight stream (via registry or raw controller)
+    this.clearPendingTypingDelta();
     const prevThreadId = this._resolvedThreadId();
     if (prevThreadId) {
       this.streamRegistry.abort(prevThreadId);
@@ -3182,17 +3217,12 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
               parts.push({ type: 'text', content: evt.content });
             }
 
-            // Append the new token to the typing indicator in-place
-            this.messages.update((msgs) =>
-              msgs.map((m) =>
-                m.id === streamingId
-                  ? { ...m, content: m.content + evt.content, isTyping: false, parts: [...parts] }
-                  : m
-              )
-            );
+            // Batch token writes to one UI commit per frame.
+            this.queueTypingDelta(evt.content);
           },
 
           onStep: (evt: AgentXStreamStepEvent) => {
+            this.flushPendingTypingDelta();
             const rawStep: AgentXToolStep = {
               id: evt.id,
               label: evt.label,
@@ -3249,6 +3279,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
           },
 
           onCard: (evt: AgentXStreamCardEvent) => {
+            this.flushPendingTypingDelta();
             const card: AgentXRichCard = {
               type: evt.type,
               agentId: evt.agentId,
@@ -3328,6 +3359,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
           },
 
           onDone: (evt) => {
+            this.flushPendingTypingDelta();
             const tid = this._resolvedThreadId();
             if (tid) {
               this.streamRegistry.markDone(tid, {
@@ -3468,42 +3500,6 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     });
   }
 
-  /**
-   * Fallback HTTP POST path — used when streaming is unavailable.
-   * @internal
-   */
-  private async _sendViaHttp(request: AgentXChatRequest): Promise<void> {
-    try {
-      const response = await this.api.sendMessage(request);
-
-      if (response.success && response.message) {
-        this.replaceTyping({
-          id: response.message.id ?? this.uid(),
-          role: 'assistant',
-          content: response.message.content,
-          timestamp: new Date(),
-        });
-        this.analytics?.trackEvent(APP_EVENTS.AGENT_X_MESSAGE_SENT, {
-          contextType: this.contextType,
-          contextId: this.contextId,
-          streaming: false,
-        });
-      } else {
-        throw new Error(response.error ?? 'No response from Agent X');
-      }
-    } catch (httpErr: unknown) {
-      // ── 402 billing gate → inject billing action card ──
-      const status = (httpErr as { status?: number }).status;
-      if (status === 402) {
-        const body = (httpErr as { error?: { code?: string; error?: string } }).error;
-        const reason = this._mapBillingCode(body?.code);
-        this._injectBillingCard(reason, body?.error);
-        return; // Handled — no rethrow
-      }
-      throw httpErr;
-    }
-  }
-
   /** Append a message to the local history. */
   private pushMessage(msg: OperationMessage): void {
     this.messages.update((prev) => [...prev, msg]);
@@ -3511,16 +3507,95 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
   /** Replace the typing indicator with a real message. */
   private replaceTyping(msg: OperationMessage): void {
+    this.clearPendingTypingDelta();
     this.messages.update((prev) => [...prev.filter((m) => m.id !== 'typing'), msg]);
   }
 
-  /** Scroll the messages area to the bottom. */
-  private scrollToBottom(): void {
-    const el = this.messagesArea()?.nativeElement;
-    if (el) {
-      // Scroll immediately without delay for instant keyboard response
-      el.scrollTop = el.scrollHeight;
+  /** Buffer a streamed token chunk and flush it once per animation frame. */
+  private queueTypingDelta(text: string): void {
+    if (!text) return;
+    this.pendingTypingDelta += text;
+
+    if (this.pendingTypingFlushFrame !== null) return;
+
+    if (isPlatformBrowser(this.platformId) && typeof requestAnimationFrame === 'function') {
+      this.pendingTypingFlushFrame = requestAnimationFrame(() => {
+        this.pendingTypingFlushFrame = null;
+        this.flushPendingTypingDelta();
+      });
+      return;
     }
+
+    this.flushPendingTypingDelta();
+  }
+
+  /** Flush buffered streamed token chunks into the typing message. */
+  private flushPendingTypingDelta(): void {
+    if (!this.pendingTypingDelta) return;
+
+    const delta = this.pendingTypingDelta;
+    this.pendingTypingDelta = '';
+
+    this.messages.update((msgs) =>
+      msgs.map((m) => {
+        if (m.id !== 'typing') return m;
+        const prevParts = [...(m.parts ?? [])];
+        const last = prevParts[prevParts.length - 1];
+        if (last?.type === 'text') {
+          prevParts[prevParts.length - 1] = { type: 'text', content: last.content + delta };
+        } else {
+          prevParts.push({ type: 'text', content: delta });
+        }
+        return { ...m, content: m.content + delta, isTyping: false, parts: prevParts };
+      })
+    );
+  }
+
+  /** Clear buffered streamed token chunks and cancel any scheduled flush. */
+  private clearPendingTypingDelta(): void {
+    this.pendingTypingDelta = '';
+    if (this.pendingTypingFlushFrame !== null && typeof cancelAnimationFrame === 'function') {
+      cancelAnimationFrame(this.pendingTypingFlushFrame);
+    }
+    this.pendingTypingFlushFrame = null;
+  }
+
+  /** Returns true when the viewport is pinned near the bottom of the message list. */
+  private isNearBottom(el: HTMLElement, thresholdPx = 120): boolean {
+    const distanceFromBottom = el.scrollHeight - (el.scrollTop + el.clientHeight);
+    return distanceFromBottom <= thresholdPx;
+  }
+
+  /** Scroll the messages area to the bottom. */
+  private scrollToBottom(options?: {
+    onlyIfNearBottom?: boolean;
+    behavior?: ScrollBehavior;
+  }): void {
+    const el = this.messagesArea()?.nativeElement;
+    if (!el) return;
+
+    if (options?.onlyIfNearBottom && !this.isNearBottom(el)) return;
+
+    this.pendingScrollBehavior = options?.behavior ?? 'auto';
+    if (this.pendingScrollFrame !== null) return;
+
+    const commitScroll = () => {
+      this.pendingScrollFrame = null;
+      const top = el.scrollHeight;
+      const behavior = this.pendingScrollBehavior;
+      if (typeof el.scrollTo === 'function') {
+        el.scrollTo({ top, behavior });
+      } else {
+        el.scrollTop = top;
+      }
+    };
+
+    if (isPlatformBrowser(this.platformId) && typeof requestAnimationFrame === 'function') {
+      this.pendingScrollFrame = requestAnimationFrame(commitScroll);
+      return;
+    }
+
+    commitScroll();
   }
 
   // ============================================

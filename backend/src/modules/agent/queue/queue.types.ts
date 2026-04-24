@@ -103,8 +103,25 @@ export interface ThreadSummarizationQueueJobData {
   readonly environment: 'staging' | 'production';
 }
 
+/** Queue payload for asynchronous Agent X weekly playbook generation. */
+export interface PlaybookGenerationQueueJobData {
+  /** Discriminator for the worker. */
+  readonly kind: 'playbook_generation';
+  /** Stable operation id used for polling and billing telemetry correlation. */
+  readonly operationId: string;
+  /** Owner of the generated playbook. */
+  readonly userId: string;
+  /** ISO timestamp of when the job was enqueued. */
+  readonly enqueuedAt: string;
+  /** Which Firestore the job document lives in — used by the worker to write back to the correct DB. */
+  readonly environment: 'staging' | 'production';
+}
+
 /** Union of all BullMQ payloads handled by the agent queue worker. */
-export type AgentQueueJobData = StandardAgentQueueJobData | ThreadSummarizationQueueJobData;
+export type AgentQueueJobData =
+  | StandardAgentQueueJobData
+  | ThreadSummarizationQueueJobData
+  | PlaybookGenerationQueueJobData;
 
 /**
  * The return value from a completed BullMQ job.

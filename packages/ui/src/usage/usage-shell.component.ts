@@ -150,6 +150,34 @@ export interface UsageUser {
       <nxt-refresher (onRefresh)="handleRefresh($event)" (onTimeout)="handleRefreshTimeout()" />
 
       <div class="usage-dashboard">
+        @if (svc.activeSection() === 'overview' && svc.canSwitchToOrganizationBilling()) {
+          <div class="billing-mode-toggle" [attr.data-testid]="testIds.BILLING_MODE_TOGGLE">
+            <span class="billing-mode-toggle__label">Billing Mode</span>
+            <div class="billing-mode-toggle__actions" role="tablist" aria-label="Billing mode">
+              <button
+                type="button"
+                class="billing-mode-toggle__btn"
+                [class.billing-mode-toggle__btn--active]="svc.billingMode() === 'organization'"
+                [disabled]="svc.billingMode() === 'organization' || svc.isLoading()"
+                [attr.data-testid]="testIds.BILLING_MODE_ORG_BTN"
+                (click)="onSwitchBillingMode('organization')"
+              >
+                Organization
+              </button>
+              <button
+                type="button"
+                class="billing-mode-toggle__btn"
+                [class.billing-mode-toggle__btn--active]="svc.billingMode() === 'personal'"
+                [disabled]="svc.billingMode() === 'personal' || svc.isLoading()"
+                [attr.data-testid]="testIds.BILLING_MODE_PERSONAL_BTN"
+                (click)="onSwitchBillingMode('personal')"
+              >
+                Personal
+              </button>
+            </div>
+          </div>
+        }
+
         <!-- Desktop Page Title (visible when page header is hidden) -->
         @if (!showPageHeader()) {
           <header class="dashboard-header">
@@ -346,6 +374,59 @@ export interface UsageUser {
         padding-bottom: calc(var(--nxt1-spacing-20, 80px) + env(safe-area-inset-bottom, 0));
       }
 
+      .billing-mode-toggle {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--nxt1-spacing-3);
+        padding: var(--nxt1-spacing-3);
+        margin-bottom: var(--nxt1-spacing-4);
+        border: 1px solid var(--nxt1-color-border-default);
+        border-radius: var(--nxt1-radius-lg, 12px);
+        background: var(--nxt1-color-surface-100);
+      }
+
+      .billing-mode-toggle__label {
+        font-size: var(--nxt1-fontSize-sm);
+        font-weight: var(--nxt1-fontWeight-medium);
+        color: var(--nxt1-color-text-secondary);
+      }
+
+      .billing-mode-toggle__actions {
+        display: inline-flex;
+        gap: var(--nxt1-spacing-1);
+        padding: 2px;
+        border-radius: var(--nxt1-radius-md, 10px);
+        background: var(--nxt1-color-surface-200);
+      }
+
+      .billing-mode-toggle__btn {
+        border: 1px solid transparent;
+        border-radius: var(--nxt1-radius-sm, 8px);
+        background: transparent;
+        color: var(--nxt1-color-text-secondary);
+        font-size: var(--nxt1-fontSize-xs);
+        font-weight: var(--nxt1-fontWeight-semibold);
+        padding: 6px 10px;
+        cursor: pointer;
+        transition: all var(--nxt1-duration-fast, 100ms) var(--nxt1-easing-out, ease-out);
+      }
+
+      .billing-mode-toggle__btn:hover:not(:disabled) {
+        color: var(--nxt1-color-text-primary);
+      }
+
+      .billing-mode-toggle__btn--active {
+        color: var(--nxt1-color-text-primary);
+        background: var(--nxt1-color-surface-100);
+        border-color: var(--nxt1-color-border-default);
+      }
+
+      .billing-mode-toggle__btn:disabled {
+        opacity: 0.8;
+        cursor: default;
+      }
+
       /* ==============================
        DESKTOP PAGE TITLE
        (Only shown when page header is hidden)
@@ -508,6 +589,11 @@ export interface UsageUser {
         .dashboard-layout {
           grid-template-columns: 1fr;
           gap: var(--nxt1-spacing-4);
+        }
+
+        .billing-mode-toggle {
+          align-items: flex-start;
+          flex-direction: column;
         }
 
         /* Hide desktop side nav on mobile */
@@ -777,6 +863,7 @@ export class UsageShellComponent implements OnInit, OnDestroy {
       autoTopupEnabled: this.svc.autoTopUpEnabled(),
       autoTopupThresholdCents: this.svc.autoTopUpThresholdCents(),
       autoTopupAmountCents: this.svc.autoTopUpAmountCents(),
+      allowIap: this.svc.isPersonalBillingMode(),
     });
     if (amountCents !== null) {
       // Pass organizationId for org admins so the top-up targets the org wallet

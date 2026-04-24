@@ -2425,9 +2425,15 @@ export async function addWalletTopUp(
     throw new Error('Top-up amount must be positive');
   }
 
-  // getOrCreateBillingContext is safe to call concurrently — it does an
-  // existence check and returns early if one already exists.
-  await ensureUserBillingState(db, userId);
+  // Read the stored billing target first so we can preserve the user's
+  // organizationId/teamId context on the personal target.
+  // NOTE: We intentionally do NOT call ensureUserBillingState() here.
+  // That function can overwrite activeBillingTarget to 'individual' when
+  // it is called without a teamId (because it finds no org and concludes
+  // the user is no longer in an org). For org admins doing an IAP top-up
+  // this would silently switch them to personal billing mode.
+  // ensureNormalizedBillingOwner() below is sufficient to create missing
+  // billing documents without touching activeBillingTarget.
   const storedTarget = await getStoredBillingTarget(db, userId);
   const personalTarget = buildPersonalBillingTarget(
     userId,

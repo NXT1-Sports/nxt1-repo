@@ -111,7 +111,7 @@ export const PLATFORM_KEY_RE = /^[a-z0-9_]+$/i;
  */
 export const activeAbortControllers = new Map<
   string,
-  { controller: AbortController; createdAt: number }
+  { controller: AbortController; createdAt: number; userId: string }
 >();
 
 // Sweep stale entries every 60 seconds.

@@ -25,6 +25,7 @@ export interface ToolResult {
 export interface ToolExecutionContext {
   readonly userId: string;
   readonly environment?: 'staging' | 'production';
+  readonly operationId?: string;
   readonly threadId?: string;
   readonly sessionId?: string;
   readonly allowedEntityGroups?: readonly AgentToolEntityGroup[];

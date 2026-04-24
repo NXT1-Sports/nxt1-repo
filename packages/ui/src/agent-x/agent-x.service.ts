@@ -70,6 +70,7 @@ import { AGENT_X_API_BASE_URL, AGENT_X_AUTH_TOKEN_FACTORY } from './agent-x-job.
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import type { AgentXPendingFile } from './agent-x-pending-file';
+import type { ConnectedAppSource } from './agent-x-attachments-sheet.component';
 
 /** sessionStorage key for in-flight operation drop-recovery. */
 const AGENT_X_PENDING_OP_KEY = 'nxt1_pending_agent_op';
@@ -114,6 +115,8 @@ export class AgentXService {
   private readonly _currentTitle = signal(AGENT_X_CONFIG.welcomeTitles[0]);
   private readonly _selectedMode = signal<AgentXMode>(AGENT_X_DEFAULT_MODE);
   private readonly _userContext = signal<AgentXUserContext | null>(null);
+  /** Filtered connected app sources available for file attachments — set by the shell, read by operation-chat. */
+  private readonly _attachmentConnectedSources = signal<readonly ConnectedAppSource[]>([]);
   /** The MongoDB thread ID for the current conversation (persisted across messages). */
   private readonly _currentThreadId = signal<string | null>(null);
 
@@ -169,6 +172,8 @@ export class AgentXService {
   // Retry counter for loadDashboard() when auth token not yet available
   private _dashboardRetryCount = 0;
   private static readonly MAX_DASHBOARD_RETRIES = 4;
+  private static readonly PLAYBOOK_POLL_INTERVAL_MS = 1500;
+  private static readonly PLAYBOOK_POLL_MAX_ATTEMPTS = 50;
 
   // ============================================
   // DASHBOARD STATE (live from backend)
@@ -216,6 +221,9 @@ export class AgentXService {
 
   /** User context for personalization */
   readonly userContext = computed(() => this._userContext());
+
+  /** Filtered connected app sources for the attachment picker — shared across all Agent X surfaces. */
+  readonly attachmentConnectedSources = computed(() => this._attachmentConnectedSources());
 
   /** Whether conversation is empty */
   readonly isEmpty = computed(() => this._messages().length === 0);
@@ -421,6 +429,15 @@ export class AgentXService {
    */
   setUserContext(context: AgentXUserContext): void {
     this._userContext.set(context);
+  }
+
+  /**
+   * Store the filtered + favicon-enriched connected sources so all Agent X surfaces
+   * (shell input bar, operation-chat bottom sheet, operations log → chat) read from
+   * a single source of truth instead of relying on `componentProps` being passed.
+   */
+  setAttachmentConnectedSources(sources: readonly ConnectedAppSource[]): void {
+    this._attachmentConnectedSources.set(sources);
   }
 
   /**
@@ -763,7 +780,7 @@ export class AgentXService {
 
   /**
    * Stage files for upload. Validates MIME type, size, and attachment count.
-   * Creates preview URLs for images. Call before sendMessage().
+   * Creates preview URLs for images and videos. Call before sendMessage().
    */
   addFiles(files: File[]): void {
     const current = this._pendingFiles();
@@ -789,8 +806,9 @@ export class AgentXService {
         continue;
       }
 
+      const shouldCreatePreview = file.type.startsWith('image/') || file.type.startsWith('video/');
       const previewUrl =
-        file.type.startsWith('image/') && isPlatformBrowser(this.platformId)
+        shouldCreatePreview && isPlatformBrowser(this.platformId)
           ? URL.createObjectURL(file)
           : null;
       const pending: AgentXPendingFile = {
@@ -1176,40 +1194,126 @@ export class AgentXService {
     this.breadcrumb.trackStateChange('agent-x:playbook-generating');
 
     try {
-      const response = await firstValueFrom(
-        this.http.post<{ success: boolean; data?: AgentDashboardPlaybook; error?: string }>(
-          `${this.baseUrl}/agent-x/playbook/generate`,
-          { force }
-        )
+      type PlaybookEnqueueResponse = {
+        success: boolean;
+        data?: { operationId?: string };
+        error?: string;
+      };
+
+      const enqueueResponse = await firstValueFrom(
+        this.http.post<PlaybookEnqueueResponse>(`${this.baseUrl}/agent-x/playbook/generate`, {
+          force,
+        })
       );
 
-      if (response.success && response.data) {
+      if (!enqueueResponse.success || !enqueueResponse.data?.operationId) {
+        this.toast.error(enqueueResponse.error ?? 'Failed to queue playbook generation');
+        return;
+      }
+
+      const operationId = enqueueResponse.data.operationId;
+      this.logger.info('Playbook generation queued', { operationId, force });
+
+      const pollResult = await this.pollPlaybookGenerationStatus(operationId);
+      if (!pollResult.success) {
+        this.toast.error(pollResult.error ?? 'Playbook generation failed');
+        return;
+      }
+
+      if (pollResult.playbook) {
         // Append new items to existing ones rather than replacing.
         // Completed/snoozed items from prior batches are preserved so
         // the progress bar shows cumulative weekly progress (e.g. 5 of 10).
         const existing = this._weeklyPlaybook();
-        const newItems = response.data.items as ShellWeeklyPlaybookItem[];
-        // De-duplicate by id in case backend returned overlapping tasks
+        const newItems = pollResult.playbook.items as ShellWeeklyPlaybookItem[];
         const existingIds = new Set(existing.map((i) => i.id));
         const uniqueNew = newItems.filter((i) => !existingIds.has(i.id));
         this._weeklyPlaybook.set([...existing, ...uniqueNew]);
         this.resetCategoryFilter();
-        this._playbookGeneratedAt.set(response.data.generatedAt);
-        this._canRegenerate.set(true);
-        this.toast.success('Weekly playbook generated!');
-        this.analytics?.trackEvent(APP_EVENTS.AGENT_X_PLAYBOOK_GENERATED, {
-          itemCount: response.data.items.length,
-          forced: force,
-        });
+        this._playbookGeneratedAt.set(pollResult.playbook.generatedAt);
       } else {
-        this.toast.error(response.error ?? 'Failed to generate playbook');
+        // Fallback: refresh dashboard if worker completion payload is unavailable.
+        await this.loadDashboard();
       }
+
+      this._canRegenerate.set(true);
+      this.toast.success('Weekly playbook generated!');
+      this.analytics?.trackEvent(APP_EVENTS.AGENT_X_PLAYBOOK_GENERATED, {
+        itemCount: pollResult.playbook?.items.length ?? this._weeklyPlaybook().length,
+        forced: force,
+      });
     } catch (err) {
       this.logger.error('Failed to generate playbook', err);
       this.toast.error('Failed to generate playbook');
     } finally {
       this._playbookGenerating.set(false);
     }
+  }
+
+  private async pollPlaybookGenerationStatus(operationId: string): Promise<{
+    success: boolean;
+    playbook: AgentDashboardPlaybook | null;
+    error?: string;
+  }> {
+    type PlaybookStatusPayload = {
+      operationId: string;
+      status: string;
+      result?: {
+        data?: {
+          playbook?: AgentDashboardPlaybook;
+        };
+      };
+      error?: string | null;
+    };
+
+    type PlaybookStatusResponse = {
+      success: boolean;
+      data?: PlaybookStatusPayload;
+      error?: string;
+    };
+
+    for (let attempt = 0; attempt < AgentXService.PLAYBOOK_POLL_MAX_ATTEMPTS; attempt++) {
+      const cacheBust = Date.now();
+      const response = await firstValueFrom(
+        this.http.get<PlaybookStatusResponse>(
+          `${this.baseUrl}/agent-x/playbook/generate/status/${encodeURIComponent(operationId)}?_=${cacheBust}`
+        )
+      );
+
+      if (!response.success || !response.data) {
+        return {
+          success: false,
+          playbook: null,
+          error: response.error ?? 'Failed to fetch playbook generation status',
+        };
+      }
+
+      const status = response.data.status;
+      if (status === 'completed') {
+        return {
+          success: true,
+          playbook: response.data.result?.data?.playbook ?? null,
+        };
+      }
+
+      if (status === 'failed' || status === 'cancelled') {
+        return {
+          success: false,
+          playbook: null,
+          error: response.data.error ?? 'Playbook generation failed',
+        };
+      }
+
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, AgentXService.PLAYBOOK_POLL_INTERVAL_MS);
+      });
+    }
+
+    return {
+      success: false,
+      playbook: null,
+      error: 'Playbook generation timed out. Please refresh in a moment.',
+    };
   }
 
   /**

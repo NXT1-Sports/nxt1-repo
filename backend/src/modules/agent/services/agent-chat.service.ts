@@ -203,6 +203,39 @@ export class AgentChatService {
   }
 
   /**
+   * Permanently delete a thread and all of its MongoDB messages.
+   *
+   * This is a true data delete (not archive):
+   * - Deletes the `AgentThread` document
+   * - Deletes all `AgentMessage` documents for the thread
+   * - Clears Redis/session memory for that thread (best-effort)
+   */
+  async deleteThread(threadId: string, userId: string): Promise<boolean> {
+    const threadDelete = await AgentThreadModel.deleteOne({ _id: threadId, userId }).exec();
+
+    if (threadDelete.deletedCount === 0) {
+      return false;
+    }
+
+    // Best-effort message cleanup; if this fails we surface the error so callers
+    // can decide whether to retry/compensate.
+    await AgentMessageModel.deleteMany({ threadId, userId }).exec();
+
+    if (this.sessionMemory) {
+      // Best-effort cache cleanup; TTL fallback covers any failure.
+      this.sessionMemory.clear(userId, threadId).catch((err) => {
+        logger.warn('[AgentChatService] Failed to clear session memory on delete', {
+          threadId,
+          userId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+    }
+
+    return true;
+  }
+
+  /**
    * Update thread title (user rename or auto-generated summary).
    */
   async updateThreadTitle(threadId: string, userId: string, title: string): Promise<boolean> {

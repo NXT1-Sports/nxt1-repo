@@ -183,6 +183,34 @@ export type { UsageUser };
       <nxt-refresher (onRefresh)="handleRefresh($event)" (onTimeout)="handleRefreshTimeout()" />
 
       <div class="usage-dashboard">
+        @if (svc.activeSection() === 'overview' && svc.canSwitchToOrganizationBilling()) {
+          <div class="billing-mode-toggle" [attr.data-testid]="testIds.BILLING_MODE_TOGGLE">
+            <span class="billing-mode-toggle__label">Billing Mode</span>
+            <div class="billing-mode-toggle__actions" role="tablist" aria-label="Billing mode">
+              <button
+                type="button"
+                class="billing-mode-toggle__btn"
+                [class.billing-mode-toggle__btn--active]="svc.billingMode() === 'organization'"
+                [disabled]="svc.billingMode() === 'organization' || svc.isLoading()"
+                [attr.data-testid]="testIds.BILLING_MODE_ORG_BTN"
+                (click)="onSwitchBillingMode('organization')"
+              >
+                Organization
+              </button>
+              <button
+                type="button"
+                class="billing-mode-toggle__btn"
+                [class.billing-mode-toggle__btn--active]="svc.billingMode() === 'personal'"
+                [disabled]="svc.billingMode() === 'personal' || svc.isLoading()"
+                [attr.data-testid]="testIds.BILLING_MODE_PERSONAL_BTN"
+                (click)="onSwitchBillingMode('personal')"
+              >
+                Personal
+              </button>
+            </div>
+          </div>
+        }
+
         <!-- Mobile option scroller — sectionNavs() already filters tabs per role -->
         <div class="usage-mobile-scroller">
           <nxt1-option-scroller-web
@@ -324,6 +352,62 @@ export type { UsageUser };
         padding-bottom: var(--nxt1-spacing-16);
       }
 
+      .billing-mode-toggle {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--nxt1-spacing-3, 12px);
+        margin-bottom: var(--nxt1-spacing-4, 16px);
+        padding: var(--nxt1-spacing-3, 12px);
+        border: 1px solid var(--nxt1-color-border-default);
+        border-radius: var(--nxt1-borderRadius-lg, 0.75rem);
+        background: var(--nxt1-color-surface-100);
+      }
+
+      .billing-mode-toggle__label {
+        font-size: var(--nxt1-fontSize-sm);
+        font-weight: var(--nxt1-fontWeight-medium);
+        color: var(--nxt1-color-text-secondary);
+      }
+
+      .billing-mode-toggle__actions {
+        display: inline-flex;
+        gap: var(--nxt1-spacing-1, 4px);
+        padding: 2px;
+        border-radius: var(--nxt1-borderRadius-md, 0.5rem);
+        background: var(--nxt1-color-surface-200);
+      }
+
+      .billing-mode-toggle__btn {
+        border: 1px solid transparent;
+        border-radius: var(--nxt1-borderRadius-sm, 0.375rem);
+        background: transparent;
+        color: var(--nxt1-color-text-secondary);
+        font-size: var(--nxt1-fontSize-xs);
+        font-weight: var(--nxt1-fontWeight-semibold);
+        padding: 6px 10px;
+        cursor: pointer;
+        transition:
+          color var(--nxt1-transition-fast, 0.15s ease),
+          background var(--nxt1-transition-fast, 0.15s ease),
+          border-color var(--nxt1-transition-fast, 0.15s ease);
+      }
+
+      .billing-mode-toggle__btn:hover:not(:disabled) {
+        color: var(--nxt1-color-text-primary);
+      }
+
+      .billing-mode-toggle__btn--active {
+        color: var(--nxt1-color-text-primary);
+        background: var(--nxt1-color-surface-100);
+        border-color: var(--nxt1-color-border-default);
+      }
+
+      .billing-mode-toggle__btn:disabled {
+        opacity: 0.8;
+        cursor: default;
+      }
+
       /* ==============================
        HEADER PORTAL STYLES
        Wrapper + title from design-tokens .nxt1-header-portal
@@ -404,6 +488,11 @@ export type { UsageUser };
         .usage-dashboard {
           padding: 0 var(--nxt1-spacing-4, 16px);
           padding-bottom: var(--nxt1-spacing-16);
+        }
+
+        .billing-mode-toggle {
+          align-items: flex-start;
+          flex-direction: column;
         }
 
         .dashboard-layout {

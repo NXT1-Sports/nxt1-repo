@@ -10,12 +10,87 @@
  */
 
 import { Router, type Request, type Response } from 'express';
+import type { Firestore, QueryDocumentSnapshot } from 'firebase-admin/firestore';
 import { appGuard } from '../../middleware/auth/auth.middleware.js';
 import type { AgentThreadCategory } from '@nxt1/core';
 import { logger } from '../../utils/logger.js';
 import { chatService, isValidObjectId, VALID_THREAD_CATEGORIES } from './shared.js';
 
 const router = Router();
+
+const AGENT_JOBS_COLLECTION = 'AgentJobs';
+const AGENT_JOB_EVENTS_SUBCOLLECTION = 'events';
+const DELETE_BATCH_SIZE = 450;
+
+async function deleteJobEvents(
+  db: Firestore,
+  jobDoc: QueryDocumentSnapshot,
+  userId: string,
+  threadId: string
+): Promise<void> {
+  let lastEventDoc: QueryDocumentSnapshot | undefined;
+
+  while (true) {
+    let query = jobDoc.ref
+      .collection(AGENT_JOB_EVENTS_SUBCOLLECTION)
+      .orderBy('__name__')
+      .limit(DELETE_BATCH_SIZE);
+
+    if (lastEventDoc) {
+      query = query.startAfter(lastEventDoc);
+    }
+
+    const snapshot = await query.get();
+    if (snapshot.empty) break;
+
+    const batch = db.batch();
+    for (const eventDoc of snapshot.docs) {
+      batch.delete(eventDoc.ref);
+    }
+    await batch.commit();
+
+    lastEventDoc = snapshot.docs[snapshot.docs.length - 1];
+  }
+
+  logger.info('Deleted AgentJob events for thread', {
+    userId,
+    threadId,
+    operationId: jobDoc.id,
+  });
+}
+
+async function deleteAgentJobsForThread(
+  db: Firestore,
+  userId: string,
+  threadId: string
+): Promise<number> {
+  let deletedCount = 0;
+
+  // Query by threadId to avoid requiring a composite index; enforce user ownership in code.
+  const jobsSnapshot = await db
+    .collection(AGENT_JOBS_COLLECTION)
+    .where('threadId', '==', threadId)
+    .get();
+
+  for (const jobDoc of jobsSnapshot.docs) {
+    const data = jobDoc.data() as { userId?: string };
+    if (data.userId !== userId) continue;
+
+    await deleteJobEvents(db, jobDoc, userId, threadId);
+    await jobDoc.ref.delete();
+    deletedCount += 1;
+  }
+
+  if (deletedCount > 0) {
+    logger.info('Deleted AgentJobs for thread', {
+      userId,
+      threadId,
+      deletedCount,
+    });
+  }
+
+  return deletedCount;
+}
 
 // ─── GET /threads ─────────────────────────────────────────────────────────
 
@@ -191,6 +266,11 @@ router.patch('/threads/:threadId', appGuard, async (req: Request, res: Response)
 });
 
 // ─── POST /threads/:threadId/archive ─────────────────────────────────────
+// NOTE: This endpoint now performs a permanent delete for the thread.
+// It removes:
+// - MongoDB thread document
+// - MongoDB messages for the thread
+// - Firestore AgentJobs rows linked to the thread (plus events subcollection)
 
 router.post('/threads/:threadId/archive', appGuard, async (req: Request, res: Response) => {
   try {
@@ -211,17 +291,27 @@ router.post('/threads/:threadId/archive', appGuard, async (req: Request, res: Re
       return;
     }
 
-    const archived = await chatService.archiveThread(threadId, user.uid);
-    if (!archived) {
+    const deleted = await chatService.deleteThread(threadId, user.uid);
+    if (!deleted) {
       res.status(404).json({ success: false, error: 'Thread not found' });
       return;
+    }
+
+    const db = req.firebase?.db;
+    if (db) {
+      await deleteAgentJobsForThread(db, user.uid, threadId);
+    } else {
+      logger.warn('Firestore db unavailable while deleting AgentJobs for thread', {
+        userId: user.uid,
+        threadId,
+      });
     }
 
     res.json({ success: true });
   } catch (err) {
     const error = err instanceof Error ? err : new Error(String(err));
-    logger.error('Failed to archive thread', { error: error.message, stack: error.stack });
-    res.status(500).json({ success: false, error: 'Failed to archive thread' });
+    logger.error('Failed to delete thread', { error: error.message, stack: error.stack });
+    res.status(500).json({ success: false, error: 'Failed to delete thread' });
   }
 });
 

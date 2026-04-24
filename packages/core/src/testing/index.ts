@@ -696,6 +696,9 @@ export const USAGE_TEST_IDS = {
 
   // Shell-level
   HELP_BTN: 'usage-help-btn',
+  BILLING_MODE_TOGGLE: 'usage-billing-mode-toggle',
+  BILLING_MODE_ORG_BTN: 'usage-billing-mode-org-btn',
+  BILLING_MODE_PERSONAL_BTN: 'usage-billing-mode-personal-btn',
 } as const;
 
 /**

@@ -117,11 +117,12 @@ export class UsageBottomSheetService {
   }
 
   /** Open credit package selector for buying credits (B2C). */
-  async showBuyCreditsOptions(): Promise<number | null> {
+  async showBuyCreditsOptions(options?: { allowIap?: boolean }): Promise<number | null> {
     const result = await this.openBuyCreditsSheet({
       autoTopupEnabled: false,
       autoTopupThresholdCents: 500,
       autoTopupAmountCents: 1_000,
+      allowIap: options?.allowIap ?? true,
     });
 
     if (result?.type === 'buy-iap') {
@@ -146,6 +147,7 @@ export class UsageBottomSheetService {
     autoTopupEnabled: boolean;
     autoTopupThresholdCents: number;
     autoTopupAmountCents: number;
+    allowIap: boolean;
   }): Promise<{
     amountCents: number | null;
     autoTopup: { enabled: boolean; thresholdCents: number; amountCents: number } | null;
@@ -179,6 +181,7 @@ export class UsageBottomSheetService {
     autoTopupEnabled: boolean;
     autoTopupThresholdCents: number;
     autoTopupAmountCents: number;
+    allowIap: boolean;
   }): Promise<BuyCreditsAutoTopupResult> {
     const result = await this.bottomSheet.openSheet<BuyCreditsAutoTopupResult>({
       component: BuyCreditsAutoTopupSheetComponent,
@@ -186,7 +189,7 @@ export class UsageBottomSheetService {
         initialAutoTopupEnabled: opts.autoTopupEnabled,
         initialThresholdCents: opts.autoTopupThresholdCents,
         initialAutoTopupAmountCents: opts.autoTopupAmountCents,
-        showIapPayButton: this._buyCreditsIapHandler !== null,
+        showIapPayButton: opts.allowIap && this._buyCreditsIapHandler !== null,
       },
       ...SHEET_PRESETS.FULL,
       showHandle: true,

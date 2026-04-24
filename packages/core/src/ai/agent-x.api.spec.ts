@@ -253,7 +253,14 @@ describe('createAgentXApi', () => {
     it('should generate playbook without force flag', async () => {
       vi.mocked(http.post).mockResolvedValue({
         success: true,
-        data: mockPlaybook,
+        data: { operationId: 'playbook-op-1' },
+      });
+      vi.mocked(http.get).mockResolvedValue({
+        success: true,
+        data: {
+          status: 'completed',
+          result: { data: { playbook: mockPlaybook } },
+        },
       });
 
       const result = await api.generatePlaybook();
@@ -261,13 +268,25 @@ describe('createAgentXApi', () => {
       expect(http.post).toHaveBeenCalledWith(`${baseUrl}${AGENT_X_ENDPOINTS.PLAYBOOK_GENERATE}`, {
         force: false,
       });
+      expect(vi.mocked(http.get).mock.calls[0]?.[0]).toMatch(
+        new RegExp(
+          `^${baseUrl}${AGENT_X_ENDPOINTS.PLAYBOOK_GENERATE_STATUS}/playbook-op-1\\?_=\\d+$`
+        )
+      );
       expect(result).toEqual(mockPlaybook);
     });
 
     it('should generate playbook with force flag', async () => {
       vi.mocked(http.post).mockResolvedValue({
         success: true,
-        data: mockPlaybook,
+        data: { operationId: 'playbook-op-2' },
+      });
+      vi.mocked(http.get).mockResolvedValue({
+        success: true,
+        data: {
+          status: 'completed',
+          result: { data: { playbook: mockPlaybook } },
+        },
       });
 
       const result = await api.generatePlaybook(true);
@@ -282,6 +301,21 @@ describe('createAgentXApi', () => {
       vi.mocked(http.post).mockResolvedValue({
         success: false,
         error: 'No goals set',
+      });
+
+      const result = await api.generatePlaybook();
+
+      expect(result).toBeNull();
+    });
+
+    it('should return null when queued playbook generation fails during polling', async () => {
+      vi.mocked(http.post).mockResolvedValue({
+        success: true,
+        data: { operationId: 'playbook-op-failed' },
+      });
+      vi.mocked(http.get).mockResolvedValue({
+        success: true,
+        data: { status: 'failed', error: 'Generation failed' },
       });
 
       const result = await api.generatePlaybook();

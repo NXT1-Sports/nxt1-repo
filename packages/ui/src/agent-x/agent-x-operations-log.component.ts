@@ -38,6 +38,8 @@ import {
   input,
   output,
   DestroyRef,
+  ElementRef,
+  HostListener,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
@@ -55,6 +57,7 @@ import { AgentXOperationChatComponent } from './agent-x-operation-chat.component
 import { AgentXOperationEventService } from './agent-x-operation-event.service';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import type { OperationLogEntry, OperationLogStatus, OperationsLogResponse } from '@nxt1/core';
+import { NxtToastService } from '../services/toast/toast.service';
 
 // ============================================
 // INTERFACES (local, non-exported)
@@ -103,6 +106,9 @@ export const OPERATIONS_LOG_TEST_IDS = {
   EMPTY_STATE: 'operations-log-empty',
   ERROR_STATE: 'operations-log-error',
   SKELETON: 'operations-log-skeleton',
+  ENTRY_MENU_BUTTON: 'operations-log-entry-menu-button',
+  ENTRY_MENU: 'operations-log-entry-menu',
+  ENTRY_RENAME_INPUT: 'operations-log-entry-rename-input',
 } as const;
 
 @Component({
@@ -169,7 +175,7 @@ export const OPERATIONS_LOG_TEST_IDS = {
             Retry
           </button>
         </div>
-      } @else if (filteredGroups().length === 0) {
+      } @else if (scheduledEntries().length === 0 && filteredGroups().length === 0) {
         <!-- Empty State -->
         <div class="log-empty" [attr.data-testid]="testIds.EMPTY_STATE">
           <div class="log-empty-icon">
@@ -180,69 +186,347 @@ export const OPERATIONS_LOG_TEST_IDS = {
         </div>
       } @else {
         <!-- Grouped Timeline -->
-        @for (group of filteredGroups(); track group.date) {
-          <div class="log-day-group" [attr.data-testid]="testIds.DAY_GROUP">
-            <div class="log-day-label">{{ group.label }}</div>
-            @for (entry of group.entries; track entry.id) {
-              <button
-                type="button"
+        @if (scheduledEntries().length > 0) {
+          <div
+            class="log-day-group log-day-group--scheduled"
+            [attr.data-testid]="testIds.DAY_GROUP"
+          >
+            <div class="log-day-label">Scheduled Tasks</div>
+            @for (entry of scheduledEntries(); track entry.id) {
+              <div
                 class="log-entry"
                 [attr.data-testid]="testIds.ENTRY"
+                [class.log-entry--menu-open]="isMenuOpen(entry)"
                 [class.log-entry--unread]="isUnread(entry)"
                 [class.log-entry--error]="entry.status === 'error'"
                 [class.log-entry--cancelled]="entry.status === 'cancelled'"
                 [class.log-entry--active]="entry.status === 'in-progress'"
                 [class.log-entry--awaiting]="entry.status === 'awaiting_input'"
-                (click)="onEntryTap(entry)"
               >
-                <!-- Status indicator (hidden for completed entries) -->
-                @if (entry.status !== 'complete') {
-                  <span
-                    class="log-entry-status"
-                    [class.log-entry-status--error]="entry.status === 'error'"
-                    [class.log-entry-status--cancelled]="entry.status === 'cancelled'"
-                    [class.log-entry-status--active]="entry.status === 'in-progress'"
-                    [class.log-entry-status--awaiting]="entry.status === 'awaiting_input'"
-                  >
-                    @switch (entry.status) {
-                      @case ('error') {
-                        <nxt1-icon name="alertCircle" [size]="14" />
+                <button type="button" class="log-entry-main" (click)="onEntryTap(entry)">
+                  <!-- Status indicator (hidden for completed entries) -->
+                  @if (entry.status !== 'complete') {
+                    <span
+                      class="log-entry-status"
+                      [class.log-entry-status--error]="entry.status === 'error'"
+                      [class.log-entry-status--cancelled]="entry.status === 'cancelled'"
+                      [class.log-entry-status--active]="entry.status === 'in-progress'"
+                      [class.log-entry-status--awaiting]="entry.status === 'awaiting_input'"
+                    >
+                      @switch (entry.status) {
+                        @case ('error') {
+                          <nxt1-icon name="alertCircle" [size]="14" />
+                        }
+                        @case ('cancelled') {
+                          <nxt1-icon name="close" [size]="14" />
+                        }
+                        @case ('in-progress') {
+                          <span class="log-entry-spinner">
+                            <nxt1-icon name="refresh" [size]="14" />
+                          </span>
+                        }
+                        @case ('awaiting_input') {
+                          <nxt1-icon name="hand-left" [size]="14" />
+                        }
                       }
-                      @case ('cancelled') {
-                        <nxt1-icon name="close" [size]="14" />
-                      }
-                      @case ('in-progress') {
-                        <span class="log-entry-spinner">
-                          <nxt1-icon name="refresh" [size]="14" />
+                    </span>
+                  }
+
+                  <!-- Content -->
+                  <div class="log-entry-content">
+                    <h4 class="log-entry-title">{{ entry.title }}</h4>
+                    <div class="log-entry-meta">
+                      <span class="log-entry-time">{{ formatTime(entry.timestamp) }}</span>
+                      @if (entry.duration) {
+                        <span class="log-entry-duration">
+                          <nxt1-icon name="time" [size]="10" />
+                          {{ entry.duration }}
                         </span>
                       }
-                      @case ('awaiting_input') {
-                        <nxt1-icon name="hand-left" [size]="14" />
+                      @if (entry.isScheduled) {
+                        <span class="log-entry-scheduled">
+                          <nxt1-icon name="calendar" [size]="10" />
+                          Scheduled
+                        </span>
                       }
-                    }
-                  </span>
-                }
-
-                <!-- Content -->
-                <div class="log-entry-content">
-                  <h4 class="log-entry-title">{{ entry.title }}</h4>
-                  <div class="log-entry-meta">
-                    <span class="log-entry-time">{{ formatTime(entry.timestamp) }}</span>
-                    @if (entry.duration) {
-                      <span class="log-entry-duration">
-                        <nxt1-icon name="time" [size]="10" />
-                        {{ entry.duration }}
-                      </span>
-                    }
-                    @if (entry.isScheduled) {
-                      <span class="log-entry-scheduled">
-                        <nxt1-icon name="calendar" [size]="10" />
-                        Scheduled
-                      </span>
-                    }
+                    </div>
                   </div>
+                </button>
+
+                <div class="log-entry-actions">
+                  <button
+                    type="button"
+                    class="log-entry-menu-trigger"
+                    [attr.data-testid]="testIds.ENTRY_MENU_BUTTON"
+                    [attr.aria-expanded]="isMenuOpen(entry)"
+                    aria-haspopup="menu"
+                    aria-label="Open session actions"
+                    [disabled]="isMutationBusy(entry)"
+                    (click)="onEntryMenuToggle(entry, $event)"
+                  >
+                    <nxt1-icon name="moreHorizontal" [size]="18" />
+                  </button>
+
+                  @if (isMenuOpen(entry)) {
+                    <div
+                      class="log-entry-menu"
+                      [attr.data-testid]="testIds.ENTRY_MENU"
+                      role="menu"
+                      aria-label="Session actions"
+                    >
+                      @if (isRenaming(entry)) {
+                        <div class="log-entry-menu-rename" (click)="$event.stopPropagation()">
+                          <label class="log-entry-menu-label" for="rename-{{ entry.id }}">
+                            Rename session
+                          </label>
+                          <input
+                            id="rename-{{ entry.id }}"
+                            type="text"
+                            class="log-entry-menu-input"
+                            [attr.data-testid]="testIds.ENTRY_RENAME_INPUT"
+                            [value]="renameDraft()"
+                            maxlength="200"
+                            (click)="$event.stopPropagation()"
+                            (input)="onRenameInput($any($event.target).value)"
+                            (keydown.enter)="onRenameConfirm(entry, $event)"
+                            (keydown.escape)="onRenameCancel($event)"
+                          />
+                          <div class="log-entry-menu-row">
+                            <button
+                              type="button"
+                              class="log-entry-menu-item"
+                              (click)="onRenameCancel($event)"
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              type="button"
+                              class="log-entry-menu-item log-entry-menu-item--primary"
+                              [disabled]="isMutationBusy(entry)"
+                              (click)="onRenameConfirm(entry, $event)"
+                            >
+                              Save
+                            </button>
+                          </div>
+                        </div>
+                      } @else if (isDeleteConfirming(entry)) {
+                        <div class="log-entry-menu-confirm" (click)="$event.stopPropagation()">
+                          <p class="log-entry-menu-confirm-text">Delete this session?</p>
+                          <div class="log-entry-menu-row">
+                            <button
+                              type="button"
+                              class="log-entry-menu-item"
+                              (click)="onDeleteCancel($event)"
+                            >
+                              Keep
+                            </button>
+                            <button
+                              type="button"
+                              class="log-entry-menu-item log-entry-menu-item--danger"
+                              [disabled]="isMutationBusy(entry)"
+                              (click)="onDeleteConfirm(entry, $event)"
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        </div>
+                      } @else {
+                        <button
+                          type="button"
+                          class="log-entry-menu-item"
+                          role="menuitem"
+                          [disabled]="!canManageEntry(entry)"
+                          (click)="onRenameStart(entry, $event)"
+                        >
+                          <nxt1-icon name="pencil" [size]="16" />
+                          Rename
+                        </button>
+                        <button
+                          type="button"
+                          class="log-entry-menu-item log-entry-menu-item--danger"
+                          role="menuitem"
+                          [disabled]="!canManageEntry(entry)"
+                          (click)="onDeleteArm(entry, $event)"
+                        >
+                          <nxt1-icon name="trash" [size]="16" />
+                          Delete
+                        </button>
+                      }
+                    </div>
+                  }
                 </div>
-              </button>
+              </div>
+            }
+          </div>
+        }
+
+        @for (group of filteredGroups(); track group.date) {
+          <div class="log-day-group" [attr.data-testid]="testIds.DAY_GROUP">
+            <div class="log-day-label">{{ group.label }}</div>
+            @for (entry of group.entries; track entry.id) {
+              <div
+                class="log-entry"
+                [attr.data-testid]="testIds.ENTRY"
+                [class.log-entry--menu-open]="isMenuOpen(entry)"
+                [class.log-entry--unread]="isUnread(entry)"
+                [class.log-entry--error]="entry.status === 'error'"
+                [class.log-entry--cancelled]="entry.status === 'cancelled'"
+                [class.log-entry--active]="entry.status === 'in-progress'"
+                [class.log-entry--awaiting]="entry.status === 'awaiting_input'"
+              >
+                <button type="button" class="log-entry-main" (click)="onEntryTap(entry)">
+                  <!-- Status indicator (hidden for completed entries) -->
+                  @if (entry.status !== 'complete') {
+                    <span
+                      class="log-entry-status"
+                      [class.log-entry-status--error]="entry.status === 'error'"
+                      [class.log-entry-status--cancelled]="entry.status === 'cancelled'"
+                      [class.log-entry-status--active]="entry.status === 'in-progress'"
+                      [class.log-entry-status--awaiting]="entry.status === 'awaiting_input'"
+                    >
+                      @switch (entry.status) {
+                        @case ('error') {
+                          <nxt1-icon name="alertCircle" [size]="14" />
+                        }
+                        @case ('cancelled') {
+                          <nxt1-icon name="close" [size]="14" />
+                        }
+                        @case ('in-progress') {
+                          <span class="log-entry-spinner">
+                            <nxt1-icon name="refresh" [size]="14" />
+                          </span>
+                        }
+                        @case ('awaiting_input') {
+                          <nxt1-icon name="hand-left" [size]="14" />
+                        }
+                      }
+                    </span>
+                  }
+
+                  <!-- Content -->
+                  <div class="log-entry-content">
+                    <h4 class="log-entry-title">{{ entry.title }}</h4>
+                    <div class="log-entry-meta">
+                      <span class="log-entry-time">{{ formatTime(entry.timestamp) }}</span>
+                      @if (entry.duration) {
+                        <span class="log-entry-duration">
+                          <nxt1-icon name="time" [size]="10" />
+                          {{ entry.duration }}
+                        </span>
+                      }
+                      @if (entry.isScheduled) {
+                        <span class="log-entry-scheduled">
+                          <nxt1-icon name="calendar" [size]="10" />
+                          Scheduled
+                        </span>
+                      }
+                    </div>
+                  </div>
+                </button>
+
+                <div class="log-entry-actions">
+                  <button
+                    type="button"
+                    class="log-entry-menu-trigger"
+                    [attr.data-testid]="testIds.ENTRY_MENU_BUTTON"
+                    [attr.aria-expanded]="isMenuOpen(entry)"
+                    aria-haspopup="menu"
+                    aria-label="Open session actions"
+                    [disabled]="isMutationBusy(entry)"
+                    (click)="onEntryMenuToggle(entry, $event)"
+                  >
+                    <nxt1-icon name="moreHorizontal" [size]="18" />
+                  </button>
+
+                  @if (isMenuOpen(entry)) {
+                    <div
+                      class="log-entry-menu"
+                      [attr.data-testid]="testIds.ENTRY_MENU"
+                      role="menu"
+                      aria-label="Session actions"
+                    >
+                      @if (isRenaming(entry)) {
+                        <div class="log-entry-menu-rename" (click)="$event.stopPropagation()">
+                          <label class="log-entry-menu-label" for="rename-{{ entry.id }}">
+                            Rename session
+                          </label>
+                          <input
+                            id="rename-{{ entry.id }}"
+                            type="text"
+                            class="log-entry-menu-input"
+                            [attr.data-testid]="testIds.ENTRY_RENAME_INPUT"
+                            [value]="renameDraft()"
+                            maxlength="200"
+                            (click)="$event.stopPropagation()"
+                            (input)="onRenameInput($any($event.target).value)"
+                            (keydown.enter)="onRenameConfirm(entry, $event)"
+                            (keydown.escape)="onRenameCancel($event)"
+                          />
+                          <div class="log-entry-menu-row">
+                            <button
+                              type="button"
+                              class="log-entry-menu-item"
+                              (click)="onRenameCancel($event)"
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              type="button"
+                              class="log-entry-menu-item log-entry-menu-item--primary"
+                              [disabled]="isMutationBusy(entry)"
+                              (click)="onRenameConfirm(entry, $event)"
+                            >
+                              Save
+                            </button>
+                          </div>
+                        </div>
+                      } @else if (isDeleteConfirming(entry)) {
+                        <div class="log-entry-menu-confirm" (click)="$event.stopPropagation()">
+                          <p class="log-entry-menu-confirm-text">Delete this session?</p>
+                          <div class="log-entry-menu-row">
+                            <button
+                              type="button"
+                              class="log-entry-menu-item"
+                              (click)="onDeleteCancel($event)"
+                            >
+                              Keep
+                            </button>
+                            <button
+                              type="button"
+                              class="log-entry-menu-item log-entry-menu-item--danger"
+                              [disabled]="isMutationBusy(entry)"
+                              (click)="onDeleteConfirm(entry, $event)"
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        </div>
+                      } @else {
+                        <button
+                          type="button"
+                          class="log-entry-menu-item"
+                          role="menuitem"
+                          [disabled]="!canManageEntry(entry)"
+                          (click)="onRenameStart(entry, $event)"
+                        >
+                          <nxt1-icon name="pencil" [size]="16" />
+                          Rename
+                        </button>
+                        <button
+                          type="button"
+                          class="log-entry-menu-item log-entry-menu-item--danger"
+                          role="menuitem"
+                          [disabled]="!canManageEntry(entry)"
+                          (click)="onDeleteArm(entry, $event)"
+                        >
+                          <nxt1-icon name="trash" [size]="16" />
+                          Delete
+                        </button>
+                      }
+                    </div>
+                  }
+                </div>
+              </div>
             }
           </div>
         }
@@ -410,6 +694,12 @@ export const OPERATIONS_LOG_TEST_IDS = {
       /* ═══ DAY GROUP ═══ */
       .log-day-group {
         margin-bottom: var(--nxt1-spacing-5, 20px);
+        position: relative;
+        z-index: 0;
+      }
+
+      .log-day-group--scheduled {
+        margin-bottom: var(--nxt1-spacing-4, 16px);
       }
 
       .log-day-label {
@@ -438,11 +728,17 @@ export const OPERATIONS_LOG_TEST_IDS = {
         margin-bottom: var(--nxt1-spacing-2, 8px);
         text-align: left;
         font-family: inherit;
-        cursor: pointer;
+        position: relative;
+        z-index: 1;
+        isolation: isolate;
         -webkit-tap-highlight-color: transparent;
         transition:
           background 0.15s ease,
           border-color 0.15s ease;
+      }
+
+      .log-entry--menu-open {
+        z-index: 40;
       }
 
       .log-entry:last-child {
@@ -452,6 +748,165 @@ export const OPERATIONS_LOG_TEST_IDS = {
       .log-entry:active {
         background: var(--log-surface-hover);
         border-color: color-mix(in srgb, var(--log-primary) 30%, var(--log-border));
+      }
+
+      .log-entry-main {
+        display: flex;
+        align-items: center;
+        gap: var(--nxt1-spacing-2, 8px);
+        flex: 1;
+        min-width: 0;
+        background: transparent;
+        border: 0;
+        padding: 0;
+        margin: 0;
+        text-align: left;
+        font: inherit;
+        color: inherit;
+        cursor: pointer;
+      }
+
+      .log-entry-actions {
+        position: relative;
+        display: flex;
+        align-items: center;
+        flex-shrink: 0;
+        z-index: 3;
+      }
+
+      .log-entry-menu-trigger {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 32px;
+        height: 32px;
+        border: none;
+        border-radius: 50%;
+        background: transparent;
+        padding: 0;
+        color: var(--log-text-secondary);
+        cursor: pointer;
+        transition:
+          background 0.15s ease,
+          color 0.15s ease;
+        flex-shrink: 0;
+      }
+
+      .log-entry-menu-trigger:active {
+        background: color-mix(in srgb, var(--log-text-primary) 10%, transparent);
+      }
+
+      .log-entry-menu-trigger[aria-expanded='true'] {
+        background: color-mix(in srgb, var(--log-text-primary) 8%, transparent);
+        color: var(--log-primary);
+      }
+
+      .log-entry-menu-trigger:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
+
+      .log-entry-menu {
+        position: absolute;
+        top: calc(100% + 6px);
+        right: 0;
+        z-index: 50;
+        min-width: var(--nxt1-spacing-52, 13rem);
+        padding: var(--nxt1-spacing-1, 4px);
+        border: 1px solid var(--nxt1-color-border-default);
+        border-radius: var(--nxt1-ui-radius-lg, 12px);
+        background: var(--nxt1-color-surface-100);
+        box-shadow: var(--nxt1-navigation-dropdown);
+        overflow: hidden;
+      }
+
+      .log-entry-menu-item {
+        display: flex;
+        align-items: center;
+        justify-content: flex-start;
+        gap: var(--nxt1-spacing-3, 0.75rem);
+        width: 100%;
+        border: 0;
+        border-radius: var(--nxt1-ui-radius-default, 8px);
+        background: transparent;
+        color: var(--nxt1-nav-text);
+        font-size: var(--nxt1-fontSize-sm, 0.875rem);
+        font-weight: var(--nxt1-fontWeight-medium, 500);
+        line-height: 1.25;
+        padding: var(--nxt1-spacing-2, 0.5rem) var(--nxt1-spacing-3, 0.75rem);
+        cursor: pointer;
+        text-align: left;
+        transition: background-color var(--nxt1-nav-transition-fast, 0.15s ease);
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      .log-entry-menu-item:active {
+        background: var(--nxt1-nav-hover-bg);
+      }
+
+      .log-entry-menu-item:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+
+      .log-entry-menu-item--primary {
+        color: var(--log-primary);
+      }
+
+      .log-entry-menu-item--danger {
+        color: var(--nxt1-color-error, #ff4c4c);
+      }
+
+      .log-entry-menu-rename,
+      .log-entry-menu-confirm {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+
+      .log-entry-menu-label {
+        color: var(--log-text-secondary);
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        padding: 2px 4px 0;
+      }
+
+      .log-entry-menu-input {
+        width: 100%;
+        border: 1px solid var(--log-border);
+        border-radius: var(--nxt1-radius-md, 10px);
+        background: var(--log-surface);
+        color: var(--log-text-primary);
+        font-size: 12px;
+        font-weight: 500;
+        font-family: inherit;
+        padding: 8px 10px;
+        outline: none;
+      }
+
+      .log-entry-menu-input:focus {
+        border-color: color-mix(in srgb, var(--log-primary) 65%, var(--log-border));
+        box-shadow: 0 0 0 2px color-mix(in srgb, var(--log-primary) 15%, transparent);
+      }
+
+      .log-entry-menu-confirm-text {
+        margin: 0;
+        font-size: 13px;
+        font-weight: 600;
+        line-height: 1.4;
+        color: var(--nxt1-nav-text);
+        padding: 2px 4px;
+      }
+
+      .log-entry-menu-row {
+        display: flex;
+        gap: 4px;
+      }
+
+      .log-entry-menu-row .log-entry-menu-item {
+        justify-content: center;
       }
 
       /* ── Entry Content ── */
@@ -728,6 +1183,8 @@ export class AgentXOperationsLogComponent {
   private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
   private readonly breadcrumb = inject(NxtBreadcrumbService);
   private readonly haptics = inject(HapticsService);
+  private readonly toast = inject(NxtToastService);
+  private readonly elementRef = inject(ElementRef<HTMLElement>);
 
   /** HttpClient for API calls. */
   private readonly http = inject(HttpClient);
@@ -771,6 +1228,11 @@ export class AgentXOperationsLogComponent {
   private readonly _operations = signal<readonly OperationLogEntry[]>([]);
   private readonly _activeFilter = signal<OperationLogStatus | 'all' | 'scheduled'>('all');
   private readonly _error = signal<string | null>(null);
+  private readonly _menuOpenEntryId = signal<string | null>(null);
+  private readonly _renamingEntryId = signal<string | null>(null);
+  private readonly _deleteConfirmEntryId = signal<string | null>(null);
+  private readonly _renameDraft = signal('');
+  private readonly _mutationInFlightEntryIds = signal<ReadonlySet<string>>(new Set());
 
   /**
    * Tracks threadIds that completed during this session via the SSE stream
@@ -783,6 +1245,7 @@ export class AgentXOperationsLogComponent {
   protected readonly operations = computed(() => this._operations());
   protected readonly activeFilter = computed(() => this._activeFilter());
   protected readonly error = computed(() => this._error());
+  protected readonly renameDraft = computed(() => this._renameDraft());
   protected readonly statusFilters = STATUS_FILTERS;
 
   // ============================================
@@ -812,6 +1275,18 @@ export class AgentXOperationsLogComponent {
     () => this._operations().filter((o) => o.status === 'awaiting_input').length
   );
 
+  /** Scheduled tasks pinned above regular session history. */
+  protected readonly scheduledEntries = computed(() => {
+    const filter = this._activeFilter();
+    const ops = this._operations();
+
+    if (filter === 'all' || filter === 'scheduled') {
+      return ops.filter((o) => o.isScheduled === true);
+    }
+
+    return ops.filter((o) => o.isScheduled === true && o.status === filter);
+  });
+
   /**
    * Filtered operations based on the active filter chip.
    *
@@ -823,9 +1298,9 @@ export class AgentXOperationsLogComponent {
   protected readonly filteredOperations = computed(() => {
     const filter = this._activeFilter();
     const ops = this._operations();
-    if (filter === 'all') return ops;
-    if (filter === 'scheduled') return ops.filter((o) => o.isScheduled === true);
-    return ops.filter((o) => o.status === filter);
+    if (filter === 'all') return ops.filter((o) => o.isScheduled !== true);
+    if (filter === 'scheduled') return [];
+    return ops.filter((o) => o.isScheduled !== true && o.status === filter);
   });
 
   /** Grouped operations by day. */
@@ -1048,9 +1523,221 @@ export class AgentXOperationsLogComponent {
   /** Set active filter with haptic and tracking. */
   protected async onFilterTap(filter: OperationLogStatus | 'all' | 'scheduled'): Promise<void> {
     await this.haptics.impact('light');
+    this.resetMenuState();
     this._activeFilter.set(filter);
     this.logger.info('Filter applied', { filter });
     this.breadcrumb.trackStateChange('operations-log: filter changed', { filter });
+  }
+
+  protected canManageEntry(entry: OperationLogEntry): boolean {
+    return typeof entry.threadId === 'string' && entry.threadId.length > 0;
+  }
+
+  protected isMenuOpen(entry: OperationLogEntry): boolean {
+    return this._menuOpenEntryId() === entry.id;
+  }
+
+  protected isRenaming(entry: OperationLogEntry): boolean {
+    return this._renamingEntryId() === entry.id;
+  }
+
+  protected isDeleteConfirming(entry: OperationLogEntry): boolean {
+    return this._deleteConfirmEntryId() === entry.id;
+  }
+
+  protected isMutationBusy(entry: OperationLogEntry): boolean {
+    return this._mutationInFlightEntryIds().has(entry.id);
+  }
+
+  protected async onEntryMenuToggle(entry: OperationLogEntry, event: Event): Promise<void> {
+    event.stopPropagation();
+    event.preventDefault();
+    await this.haptics.impact('light');
+
+    if (this._menuOpenEntryId() === entry.id) {
+      this.resetMenuState();
+      return;
+    }
+
+    this._menuOpenEntryId.set(entry.id);
+    this._renamingEntryId.set(null);
+    this._deleteConfirmEntryId.set(null);
+    this._renameDraft.set(entry.title ?? '');
+  }
+
+  @HostListener('document:click', ['$event'])
+  protected onDocumentClick(event: Event): void {
+    if (!this._menuOpenEntryId()) return;
+    const target = event.target;
+    if (target instanceof Element && target.closest('.log-entry-actions')) {
+      return;
+    }
+    if (!this.elementRef.nativeElement.isConnected) return;
+    this.resetMenuState();
+  }
+
+  @HostListener('document:keydown.escape')
+  protected onEscapeKey(): void {
+    if (this._menuOpenEntryId()) {
+      this.resetMenuState();
+    }
+  }
+
+  protected onRenameInput(value: string): void {
+    this._renameDraft.set(value);
+  }
+
+  protected onRenameStart(entry: OperationLogEntry, event: Event): void {
+    event.stopPropagation();
+    event.preventDefault();
+    this._renamingEntryId.set(entry.id);
+    this._deleteConfirmEntryId.set(null);
+    this._renameDraft.set(entry.title ?? '');
+  }
+
+  protected onRenameCancel(event: Event): void {
+    event.stopPropagation();
+    event.preventDefault();
+    this._renamingEntryId.set(null);
+  }
+
+  protected async onRenameConfirm(entry: OperationLogEntry, event: Event): Promise<void> {
+    event.stopPropagation();
+    event.preventDefault();
+
+    const threadId = entry.threadId;
+    if (!threadId) {
+      this.toast.error('This session cannot be renamed yet');
+      return;
+    }
+
+    const nextTitle = this._renameDraft().trim();
+    if (!nextTitle) {
+      this.toast.warning('Title cannot be empty');
+      return;
+    }
+
+    if (nextTitle.length > 200) {
+      this.toast.warning('Title must be 200 characters or less');
+      return;
+    }
+
+    if (nextTitle === entry.title) {
+      this._renamingEntryId.set(null);
+      return;
+    }
+
+    const previousTitle = entry.title;
+    this.markMutationBusy(entry.id, true);
+    this._operations.update((ops) =>
+      ops.map((op) =>
+        op.id === entry.id || (op.threadId && op.threadId === threadId)
+          ? { ...op, title: nextTitle }
+          : op
+      )
+    );
+
+    try {
+      const url = `${this.baseUrl}/agent-x/threads/${encodeURIComponent(threadId)}`;
+      const response = await firstValueFrom(
+        this.http.patch<{ success: boolean; error?: string }>(url, { title: nextTitle })
+      );
+
+      if (!response.success) {
+        throw new Error(response.error ?? 'Failed to rename session');
+      }
+
+      this.logger.info('Session renamed from operations log', { threadId });
+      this.breadcrumb.trackStateChange('operations-log: thread renamed', { threadId });
+      this.toast.success('Session renamed');
+      this._renamingEntryId.set(null);
+      this._menuOpenEntryId.set(null);
+    } catch (err) {
+      this._operations.update((ops) =>
+        ops.map((op) =>
+          op.id === entry.id || (op.threadId && op.threadId === threadId)
+            ? { ...op, title: previousTitle }
+            : op
+        )
+      );
+      const message = err instanceof Error ? err.message : 'Failed to rename session';
+      this.logger.error('Failed to rename session', { threadId, error: message });
+      this.toast.error(message);
+    } finally {
+      this.markMutationBusy(entry.id, false);
+    }
+  }
+
+  protected onDeleteArm(entry: OperationLogEntry, event: Event): void {
+    event.stopPropagation();
+    event.preventDefault();
+    this._deleteConfirmEntryId.set(entry.id);
+    this._renamingEntryId.set(null);
+  }
+
+  protected onDeleteCancel(event: Event): void {
+    event.stopPropagation();
+    event.preventDefault();
+    this._deleteConfirmEntryId.set(null);
+  }
+
+  protected async onDeleteConfirm(entry: OperationLogEntry, event: Event): Promise<void> {
+    event.stopPropagation();
+    event.preventDefault();
+
+    const threadId = entry.threadId;
+    if (!threadId) {
+      this.toast.error('This session cannot be deleted yet');
+      return;
+    }
+
+    const previous = this._operations();
+    this.markMutationBusy(entry.id, true);
+    this._operations.update((ops) =>
+      ops.filter((op) => !(op.id === entry.id || (op.threadId && op.threadId === threadId)))
+    );
+
+    try {
+      const url = `${this.baseUrl}/agent-x/threads/${encodeURIComponent(threadId)}/archive`;
+      const response = await firstValueFrom(
+        this.http.post<{ success: boolean; error?: string }>(url, {})
+      );
+
+      if (!response.success) {
+        throw new Error(response.error ?? 'Failed to delete session');
+      }
+
+      this.logger.info('Session archived from operations log', { threadId });
+      this.breadcrumb.trackStateChange('operations-log: thread archived', { threadId });
+      this.toast.success('Session deleted');
+      this.resetMenuState();
+    } catch (err) {
+      this._operations.set(previous);
+      const message = err instanceof Error ? err.message : 'Failed to delete session';
+      this.logger.error('Failed to archive session', { threadId, error: message });
+      this.toast.error(message);
+    } finally {
+      this.markMutationBusy(entry.id, false);
+    }
+  }
+
+  private markMutationBusy(entryId: string, busy: boolean): void {
+    this._mutationInFlightEntryIds.update((set) => {
+      const next = new Set(set);
+      if (busy) {
+        next.add(entryId);
+      } else {
+        next.delete(entryId);
+      }
+      return next;
+    });
+  }
+
+  private resetMenuState(): void {
+    this._menuOpenEntryId.set(null);
+    this._renamingEntryId.set(null);
+    this._deleteConfirmEntryId.set(null);
+    this._renameDraft.set('');
   }
 
   /** Get count for a specific filter. */
@@ -1074,6 +1761,7 @@ export class AgentXOperationsLogComponent {
   /** Handle entry tap with haptic feedback. */
   protected async onEntryTap(entry: OperationLogEntry): Promise<void> {
     await this.haptics.impact('light');
+    this.resetMenuState();
     this.logger.info('Entry tapped', { entryId: entry.id, status: entry.status });
 
     // Clear unread state when user opens the entry

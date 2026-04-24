@@ -267,7 +267,7 @@ export class FirebaseAuthService implements OnDestroy {
    * @returns UserCredential from Firebase Auth
    * @throws Error on failure (cancellation returns null internally, but this throws)
    */
-  async signInWithGoogle(): Promise<UserCredential> {
+  async signInWithGoogle(onAccountSelected?: () => void): Promise<UserCredential> {
     // Use native auth on iOS/Android
     if (this.nativeAuth.isNativeAvailable) {
       this.logger.debug('Using native Google Sign-In via @capacitor-firebase/authentication');
@@ -280,6 +280,10 @@ export class FirebaseAuthService implements OnDestroy {
           this.logger.debug('User cancelled Google Sign-In');
           throw new Error('Sign-in was cancelled');
         }
+
+        // Native account has been chosen. Signal the caller so UI can show loading
+        // while Firebase auth state sync / token work continues.
+        onAccountSelected?.();
 
         // @capacitor-firebase/authentication should have signed in to Firebase automatically
         // But sometimes auth state hasn't synced yet. Wait a bit and check again.
@@ -384,7 +388,7 @@ export class FirebaseAuthService implements OnDestroy {
    * @returns UserCredential from Firebase Auth
    * @throws Error on failure
    */
-  async signInWithApple(): Promise<UserCredential> {
+  async signInWithApple(onAccountSelected?: () => void): Promise<UserCredential> {
     // Use native auth on iOS/Android
     if (this.nativeAuth.isNativeAvailable) {
       this.logger.debug('Using native Apple Sign-In');
@@ -396,6 +400,9 @@ export class FirebaseAuthService implements OnDestroy {
         if (!nativeResult) {
           throw new Error('Sign-in was cancelled');
         }
+
+        // Native account has been chosen. Signal the caller so UI can show loading.
+        onAccountSelected?.();
 
         // @capacitor-community/apple-sign-in does NOT auto-sign into Firebase
         // (unlike @capacitor-firebase/authentication for Google).
@@ -441,7 +448,7 @@ export class FirebaseAuthService implements OnDestroy {
    * @returns UserCredential from Firebase Auth or null if not available
    * @throws Error on failure
    */
-  async signInWithMicrosoft(): Promise<UserCredential | null> {
+  async signInWithMicrosoft(onAccountSelected?: () => void): Promise<UserCredential | null> {
     this.logger.debug('Starting Microsoft Sign-In');
 
     if (this.nativeAuth.isNativeAvailable) {
@@ -461,6 +468,9 @@ export class FirebaseAuthService implements OnDestroy {
           this.logger.debug('User cancelled Microsoft Sign-In');
           return null;
         }
+
+        // Native account has been chosen. Signal the caller so UI can show loading.
+        onAccountSelected?.();
 
         const userCredential = await this.signInWithNativeCredential(result);
 

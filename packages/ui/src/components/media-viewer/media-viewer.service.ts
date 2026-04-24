@@ -67,7 +67,10 @@ export class NxtMediaViewerService {
 
     const initialIndex = Math.max(0, Math.min(config.initialIndex ?? 0, config.items.length - 1));
     const showCounter = config.showCounter ?? config.items.length > 1;
-    const presentation = this.shouldUseOverlay() ? 'web-overlay' : 'bottom-sheet';
+    const forceOverlay = config.presentation === 'overlay';
+    const forceBottomSheet = config.presentation === 'bottom-sheet';
+    const useOverlay = forceOverlay || (!forceBottomSheet && this.shouldUseOverlay());
+    const presentation = useOverlay ? 'web-overlay' : 'bottom-sheet';
 
     this.logger.info('Opening media viewer', {
       count: config.items.length,
@@ -88,7 +91,7 @@ export class NxtMediaViewerService {
 
     const prepared = { ...config, initialIndex, showCounter };
 
-    if (this.shouldUseOverlay()) {
+    if (useOverlay) {
       return this.openWebOverlay(prepared);
     }
 

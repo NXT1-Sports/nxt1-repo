@@ -45,7 +45,7 @@ import {
 import { Location } from '@angular/common';
 import { Router } from '@angular/router';
 import { FormsModule } from '@angular/forms';
-import { IonContent } from '@ionic/angular/standalone';
+import { IonContent, NavController } from '@ionic/angular/standalone';
 import { Capacitor } from '@capacitor/core';
 import { NxtPageHeaderComponent } from '../components/page-header';
 import { NxtRefresherComponent, type RefreshEvent } from '../components/refresh-container';
@@ -70,17 +70,21 @@ import { AgentXDashboardSkeletonComponent } from './agent-x-dashboard-skeleton.c
 import { HapticsService } from '../services/haptics/haptics.service';
 import { NxtToastService } from '../services/toast/toast.service';
 import { NxtBottomSheetService, SHEET_PRESETS } from '../components/bottom-sheet';
+import { NxtMediaViewerService } from '../components/media-viewer/media-viewer.service';
 import { type ShellWeeklyPlaybookItem, type AgentYieldState } from '@nxt1/core/ai';
 import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/assets';
 import { NxtStateViewComponent } from '../components/state-view';
 import { ActivityService } from '../activity/activity.service';
 import { buildLinkSourcesFormData, type OnboardingUserType } from '@nxt1/core';
 import type { LinkSourcesFormData } from '@nxt1/core/api';
+import { getPlatformFaviconUrl } from '@nxt1/core/platforms';
 import type { ConnectedAccountsResyncSource } from '../components/connected-sources';
+import { buildPendingAttachmentViewer } from './pending-attachments-viewer.util';
 import {
   bindAgentXKeyboardOffset,
   type AgentXKeyboardOffsetBinding,
 } from './agent-x-keyboard-offset.util';
+import { NxtSidenavService } from '../components/sidenav/sidenav.service';
 
 // ============================================
 // INTERFACES
@@ -95,6 +99,7 @@ export interface AgentXUser {
   readonly connectedSources?: readonly {
     platform: string;
     profileUrl: string;
+    faviconUrl?: string;
     scopeType?: 'global' | 'sport' | 'team';
     scopeId?: string;
   }[];
@@ -155,6 +160,75 @@ export interface WeeklyPlaybookItem {
   readonly actionLabel: string;
   readonly status: 'pending' | 'in-progress' | 'complete' | 'snoozed' | 'problem';
   readonly goal?: GoalTag;
+}
+
+const FALLBACK_COORDINATOR_CATEGORIES: readonly CommandCategory[] = [
+  {
+    id: 'coord-admin',
+    label: 'Admin Coordinator',
+    icon: 'settings',
+    description: 'Manage scheduling, operations, and organizational tasks.',
+    commands: [],
+  },
+  {
+    id: 'coord-brand',
+    label: 'Brand Coordinator',
+    icon: 'image',
+    description: 'Build graphics, content ideas, and brand assets.',
+    commands: [],
+  },
+  {
+    id: 'coord-strategy',
+    label: 'Strategy Coordinator',
+    icon: 'rocket',
+    description: 'Plan next steps and high-level execution strategy.',
+    commands: [],
+  },
+  {
+    id: 'coord-recruiting',
+    label: 'Recruiting Coordinator',
+    icon: 'search',
+    description: 'Plan outreach, targeting, and recruiting tasks.',
+    commands: [],
+  },
+  {
+    id: 'coord-performance',
+    label: 'Performance Coordinator',
+    icon: 'analytics',
+    description: 'Review performance, film notes, and evaluations.',
+    commands: [],
+  },
+  {
+    id: 'coord-data',
+    label: 'Data Coordinator',
+    icon: 'barChart',
+    description: 'Track metrics, trends, and decision-ready data.',
+    commands: [],
+  },
+] as const;
+
+const COORDINATOR_ORDER: readonly string[] = [
+  'admin coordinator',
+  'brand coordinator',
+  'strategy coordinator',
+  'recruiting coordinator',
+  'performance coordinator',
+  'data coordinator',
+] as const;
+
+function sortCoordinatorCategories(
+  categories: readonly CommandCategory[]
+): readonly CommandCategory[] {
+  const rank = new Map<string, number>(
+    COORDINATOR_ORDER.map((label, index) => [label, index] as const)
+  );
+
+  return [...categories].sort((a, b) => {
+    const aRank = rank.get(a.label.trim().toLowerCase()) ?? Number.MAX_SAFE_INTEGER;
+    const bRank = rank.get(b.label.trim().toLowerCase()) ?? Number.MAX_SAFE_INTEGER;
+    if (aRank !== bRank) return aRank - bRank;
+    return a.label.localeCompare(b.label);
+  });
 }
 
 @Component({
@@ -541,17 +615,40 @@ export interface WeeklyPlaybookItem {
 
     <!-- ═══ FOOTER — Coordinators + Claude-style input box ═══ -->
     <div class="agent-x-shell-footer" role="group" aria-label="Agent input">
+      <section
+        class="floating-coordinators"
+        [class.has-files]="agentX.pendingFiles().length > 0"
+        aria-label="Coordinators"
+      >
+        <div class="floating-coordinators-scroll" role="list">
+          @for (cat of commandCategories(); track cat.id) {
+            <button
+              type="button"
+              role="listitem"
+              class="floating-coordinator-pill"
+              [attr.data-coordinator]="cat.id"
+              (click)="onCategoryTap(cat)"
+            >
+              {{ cat.label }}
+            </button>
+          }
+        </div>
+      </section>
+
       <nxt1-agent-x-input-bar
         [userMessage]="agentX.userMessage()"
         [isLoading]="agentX.isLoading()"
         [uploading]="agentX.uploading()"
         [canSend]="agentX.canSend()"
         [pendingFiles]="agentX.pendingFiles()"
+        [pendingSources]="pendingConnectedSources()"
         [selectedTask]="agentX.selectedTask()?.title ?? null"
         (messageChange)="onInputChange($event)"
         (send)="onSendMessage()"
         (toggleAttachments)="onToggleAttachments()"
+        (openFile)="onOpenPendingFileViewer($event)"
         (removeFile)="agentX.removeFile($event)"
+        (removeSource)="onRemovePendingSource($event)"
         (removeTask)="agentX.clearTask()"
       />
     </div>
@@ -714,7 +811,6 @@ export interface WeeklyPlaybookItem {
       .agent-x-container {
         display: flex;
         flex-direction: column;
-        min-height: 100%;
         padding: var(--nxt1-spacing-4, 16px);
         padding-bottom: calc(280px + env(safe-area-inset-bottom, 0px));
       }
@@ -729,7 +825,7 @@ export interface WeeklyPlaybookItem {
 
       @media (max-width: 767px) {
         .agent-x-container {
-          padding-bottom: calc(330px + env(safe-area-inset-bottom, 0px));
+          padding-bottom: calc(320px + env(safe-area-inset-bottom, 0px));
         }
       }
 
@@ -1115,7 +1211,7 @@ export interface WeeklyPlaybookItem {
       .floating-coordinators {
         position: relative;
         padding: 0 var(--nxt1-footer-left, 16px);
-        margin-bottom: 8px;
+        margin-bottom: 0;
         pointer-events: none;
       }
 
@@ -1145,20 +1241,16 @@ export interface WeeklyPlaybookItem {
 
       .floating-coordinator-pill {
         --coordinator-pill-accent: var(--agent-primary);
+        --coordinator-pill-text: var(--agent-text-primary);
         --coordinator-pill-surface: color-mix(
           in srgb,
-          var(--coordinator-pill-accent) 18%,
-          var(--agent-glass-bg)
+          var(--coordinator-pill-accent) 16%,
+          var(--agent-bg)
         );
         --coordinator-pill-border: color-mix(
           in srgb,
-          var(--coordinator-pill-accent) 54%,
+          var(--coordinator-pill-accent) 52%,
           var(--agent-border)
-        );
-        --coordinator-pill-shadow: color-mix(
-          in srgb,
-          var(--coordinator-pill-accent) 22%,
-          transparent
         );
         flex-shrink: 0;
         display: inline-flex;
@@ -1167,17 +1259,15 @@ export interface WeeklyPlaybookItem {
         border-radius: var(--nxt1-radius-full, 9999px);
         padding: 11px 16px;
         background: var(--coordinator-pill-surface);
-        color: var(--agent-text-primary);
+        color: var(--coordinator-pill-text);
         font-size: 13px;
         font-weight: 600;
         line-height: 1;
         white-space: nowrap;
         box-shadow:
-          0 10px 24px var(--coordinator-pill-shadow),
-          inset 0 1px 0 color-mix(in srgb, var(--coordinator-pill-accent) 10%, white);
+          0 0 0 1px color-mix(in srgb, var(--coordinator-pill-accent) 24%, transparent),
+          inset 0 1px 0 color-mix(in srgb, var(--coordinator-pill-accent) 12%, white);
         border-color: var(--coordinator-pill-border);
-        backdrop-filter: var(--nxt1-glass-backdrop, saturate(180%) blur(20px));
-        -webkit-backdrop-filter: var(--nxt1-glass-backdrop, saturate(180%) blur(20px));
         transition:
           border-color 0.15s ease,
           background 0.15s ease,
@@ -1187,15 +1277,36 @@ export interface WeeklyPlaybookItem {
 
       .floating-coordinator-pill:active {
         border-color: color-mix(in srgb, var(--coordinator-pill-accent) 72%, white);
-        background: color-mix(in srgb, var(--coordinator-pill-accent) 28%, var(--agent-glass-bg));
+        background: color-mix(in srgb, var(--coordinator-pill-accent) 22%, var(--agent-bg));
         box-shadow:
-          0 12px 28px color-mix(in srgb, var(--coordinator-pill-accent) 26%, transparent),
+          0 0 0 1px color-mix(in srgb, var(--coordinator-pill-accent) 28%, transparent),
           inset 0 1px 0 color-mix(in srgb, var(--coordinator-pill-accent) 14%, white);
         transform: scale(0.98);
       }
 
+      .floating-coordinator-pill[data-coordinator='coord-admin'] {
+        --coordinator-pill-accent: #3fa3ff;
+      }
+
+      .floating-coordinator-pill[data-coordinator='coord-brand'] {
+        --coordinator-pill-accent: #ff7a45;
+      }
+
+      .floating-coordinator-pill[data-coordinator='coord-strategy'] {
+        --coordinator-pill-accent: #9d7bff;
+      }
+
+      .floating-coordinator-pill[data-coordinator='coord-performance'] {
+        --coordinator-pill-accent: #41b8ff;
+      }
+
+      .floating-coordinator-pill[data-coordinator='coord-data'] {
+        --coordinator-pill-accent: #2fd39a;
+      }
+
       .floating-coordinator-pill[data-coordinator='coord-recruiting'] {
         --coordinator-pill-accent: #ccff00;
+        --coordinator-pill-text: #12170a;
       }
 
       .floating-coordinator-pill[data-coordinator='coord-media'] {
@@ -1770,10 +1881,13 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
   private readonly haptics = inject(HapticsService);
   private readonly toast = inject(NxtToastService);
   private readonly bottomSheet = inject(NxtBottomSheetService);
+  private readonly mediaViewer = inject(NxtMediaViewerService);
   private readonly location = inject(Location);
   private readonly router = inject(Router);
+  private readonly navController = inject(NavController);
   private readonly injector = inject(EnvironmentInjector);
   private readonly activityService = inject(ActivityService);
+  private readonly sidenavService = inject(NxtSidenavService, { optional: true });
   private readonly hostElement = inject(ElementRef<HTMLElement>);
   private readonly platformId = inject(PLATFORM_ID);
 
@@ -1806,6 +1920,9 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
     { label: 'Generating personalized tasks' },
     { label: 'Finalizing your playbook' },
   ];
+
+  /** Connected app sources staged from attachment sheet taps. */
+  protected readonly pendingConnectedSources = signal<ConnectedAppSource[]>([]);
 
   // ============================================
   // OUTPUTS
@@ -1911,8 +2028,12 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
     return Math.round((this.playbookCompletedCount() / total) * 100);
   });
 
-  /** Coordinator cards — live from service only. */
-  protected readonly commandCategories = computed(() => this.agentX.coordinators());
+  /** Coordinator cards with a fallback list so pills always render in mobile footer. */
+  protected readonly commandCategories = computed(() => {
+    const categories = this.agentX.coordinators();
+    const source = categories.length > 0 ? categories : FALLBACK_COORDINATOR_CATEGORIES;
+    return sortCoordinatorCategories(source);
+  });
 
   // ============================================
   // HEADER CONFIG
@@ -1942,6 +2063,12 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
         pending.threadId
       );
     });
+
+    // Keep AgentXService in sync with the shell's filtered connected sources so
+    // operation-chat can always read them regardless of how it was opened.
+    effect(() => {
+      this.agentX.setAttachmentConnectedSources(this.getAttachmentConnectedSources());
+    });
   }
 
   async ngOnInit(): Promise<void> {
@@ -1952,7 +2079,13 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
       hostElement: this.hostElement.nativeElement,
       offsetCssVar: '--agent-keyboard-offset',
       safeAreaCssVar: '--footer-safe-area',
-      keyboardOffsetTrimPx: 10,
+      keyboardOffsetTrimPx: -6,
+      onKeyboardShow: () => {
+        if (!this.sidenavService?.isOpen()) return;
+
+        this.hostElement.nativeElement.style.setProperty('--agent-keyboard-offset', '0px');
+        this.hostElement.nativeElement.style.removeProperty('--footer-safe-area');
+      },
     });
   }
 
@@ -1966,12 +2099,12 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
 
   protected async onActivityLogClick(): Promise<void> {
     await this.haptics.impact('light');
-    await this.router.navigate(['/activity']);
+    await this.navController.navigateForward('/activity');
   }
 
   protected async onBillingActionClick(): Promise<void> {
     await this.haptics.impact('light');
-    await this.router.navigate(['/usage']);
+    await this.navController.navigateForward('/usage');
   }
 
   /**
@@ -2105,6 +2238,11 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
 
   /**
    * Open the dedicated bottom sheet chat for an operation or command.
+   *
+   * Any pending files staged in the main input bar are captured and passed
+   * as `initialFiles` so the coordinator chat receives the user's attachments.
+   * The files are taken from the service (clearing the main shell strip) so
+   * ownership transfers to the operation-chat component.
    */
   private async openOperationChat(
     contextId: string,
@@ -2120,6 +2258,19 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
     errorMessage: string | null = null,
     scheduledActions: OperationQuickAction[] = []
   ): Promise<void> {
+    // Capture and transfer any pending attachments from the main input strip
+    const servicePendingFiles = this.agentX.pendingFiles();
+    const initialFiles = servicePendingFiles.map((f) => ({
+      file: f.file,
+      previewUrl: f.previewUrl,
+      isImage: f.type === 'image',
+      isVideo: f.type === 'video',
+    }));
+    if (servicePendingFiles.length > 0) {
+      // Transfer ownership — the operation-chat component now owns the File objects
+      this.agentX.takePendingFiles();
+    }
+
     await this.bottomSheet.openSheet({
       component: AgentXOperationChatComponent,
       componentProps: {
@@ -2127,10 +2278,12 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
         contextTitle,
         contextIcon,
         contextType,
+        connectedSources: this.getAttachmentConnectedSources(),
         quickActions,
         contextDescription,
         threadId,
         initialMessage,
+        initialFiles,
         yieldState,
         operationStatus,
         errorMessage,
@@ -2229,6 +2382,7 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
     this.agentX.setUserMessage('');
     this.agentX.clearTask();
     this.agentX.takePendingFiles();
+    this.pendingConnectedSources.set([]);
     await this.haptics.impact('light');
 
     // Open the operation chat bottom sheet with the message and files
@@ -2239,6 +2393,7 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
         contextTitle: 'Agent X',
         contextIcon: 'bolt',
         contextType: 'command',
+        connectedSources: this.getAttachmentConnectedSources(),
         initialMessage: message,
         initialFiles,
       },
@@ -2262,10 +2417,10 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
     const result = await this.bottomSheet.openSheet({
       component: AgentXAttachmentsSheetComponent,
       componentProps: {
-        connectedSources: this.user()?.connectedSources ?? [],
+        connectedSources: this.getAttachmentConnectedSources(),
       },
-      breakpoints: [0, 0.25, 0.5],
-      initialBreakpoint: 0.25,
+      breakpoints: [0, 0.5, 0.72],
+      initialBreakpoint: 0.5,
       canDismiss: true,
     });
 
@@ -2276,8 +2431,92 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
       }
     } else if (result.data && result.role === 'source-selected') {
       const source = result.data as ConnectedAppSource;
-      this.toast.info(`Coming soon: Import from ${source.platform}`);
+      this.pendingConnectedSources.update((current) => {
+        const exists = current.some(
+          (item) => item.platform === source.platform && item.profileUrl === source.profileUrl
+        );
+        return exists ? current : [...current, source];
+      });
+    } else if (result.role === 'manage-connected-apps') {
+      await this.openConnectedAccounts();
     }
+  }
+
+  protected onRemovePendingSource(index: number): void {
+    this.pendingConnectedSources.update((current) => current.filter((_, i) => i !== index));
+  }
+
+  /** Open shared media viewer for a pending attachment chip (matches web behavior). */
+  protected async onOpenPendingFileViewer(index: number): Promise<void> {
+    const pendingFiles = this.agentX.pendingFiles();
+    if (!pendingFiles.length || index < 0 || index >= pendingFiles.length) {
+      return;
+    }
+
+    const viewer = buildPendingAttachmentViewer(pendingFiles, index, {
+      createObjectURL: (file) => URL.createObjectURL(file),
+      revokeObjectURL: (url) => URL.revokeObjectURL(url),
+    });
+
+    if (!viewer.items.length) {
+      return;
+    }
+
+    try {
+      await this.mediaViewer.open({
+        items: viewer.items,
+        initialIndex: viewer.initialIndex,
+        showShare: false,
+        source: 'agent-x-pending',
+        presentation: 'overlay',
+      });
+    } finally {
+      viewer.cleanup();
+    }
+  }
+
+  /**
+   * Role-aware connected sources for the attachment sheet:
+   * - Athletes: non-team sources (personal/global + sport)
+   * - Coaches/Directors: team-scoped + selected sport-scoped + global sources
+   */
+  private getAttachmentConnectedSources(): readonly ConnectedAppSource[] {
+    const user = this.user();
+    const role = (user?.role ?? '').toLowerCase();
+    const sources = user?.connectedSources ?? [];
+    const selectedSportKeys = new Set(
+      (user?.selectedSports ?? [])
+        .map((sport) => this.normalizeScopeKey(sport))
+        .filter((key): key is string => key.length > 0)
+    );
+
+    const withFavicons = sources.map((source) => ({
+      ...source,
+      faviconUrl:
+        source.faviconUrl ?? getPlatformFaviconUrl(source.platform.toLowerCase()) ?? undefined,
+    }));
+
+    if (role === 'coach' || role === 'director') {
+      return withFavicons.filter((source) => {
+        if (source.scopeType === 'team' || source.scopeType === 'global' || !source.scopeType) {
+          return true;
+        }
+
+        if (source.scopeType === 'sport') {
+          const sourceSportKey = this.normalizeScopeKey(source.scopeId);
+          return sourceSportKey.length > 0 && selectedSportKeys.has(sourceSportKey);
+        }
+
+        return false;
+      });
+    }
+
+    return withFavicons.filter((source) => source.scopeType !== 'team');
+  }
+
+  /** Normalize source/sport keys so scopeId like "baseball" matches selected sport "Baseball". */
+  private normalizeScopeKey(value: string | undefined): string {
+    return (value ?? '').trim().toLowerCase();
   }
 
   /**

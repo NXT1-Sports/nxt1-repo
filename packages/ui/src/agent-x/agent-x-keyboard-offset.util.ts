@@ -11,6 +11,9 @@ export interface BindAgentXKeyboardOffsetOptions {
   readonly offsetCssVar: string;
   readonly safeAreaCssVar?: string;
   readonly keyboardOffsetTrimPx?: number;
+  readonly maxOffsetPx?: number;
+  readonly onKeyboardShow?: (keyboardHeight: number) => void;
+  readonly onKeyboardHide?: () => void;
 }
 
 /**
@@ -21,6 +24,7 @@ export async function bindAgentXKeyboardOffset(
   options: BindAgentXKeyboardOffsetOptions
 ): Promise<AgentXKeyboardOffsetBinding> {
   const trim = options.keyboardOffsetTrimPx ?? 10;
+  const maxOffset = options.maxOffsetPx;
   const teardownNoop = (): void => {
     options.hostElement.style.setProperty(options.offsetCssVar, '0px');
     if (options.safeAreaCssVar) {
@@ -38,11 +42,13 @@ export async function bindAgentXKeyboardOffset(
     const showListener: PluginListenerHandle = await Keyboard.addListener(
       'keyboardWillShow',
       (info) => {
-        const offset = Math.max(0, info.keyboardHeight - trim);
+        const rawOffset = Math.max(0, info.keyboardHeight - trim);
+        const offset = typeof maxOffset === 'number' ? Math.min(rawOffset, maxOffset) : rawOffset;
         options.hostElement.style.setProperty(options.offsetCssVar, `${offset}px`);
         if (options.safeAreaCssVar) {
           options.hostElement.style.setProperty(options.safeAreaCssVar, '0px');
         }
+        options.onKeyboardShow?.(offset);
       }
     );
 
@@ -53,6 +59,7 @@ export async function bindAgentXKeyboardOffset(
         if (options.safeAreaCssVar) {
           options.hostElement.style.removeProperty(options.safeAreaCssVar);
         }
+        options.onKeyboardHide?.();
       }
     );
 

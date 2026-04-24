@@ -109,6 +109,39 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
       jobs = [];
     }
 
+    let activeThreads: Awaited<
+      ReturnType<NonNullable<typeof chatService>['getUserThreads']>
+    >['items'] = [];
+    const activeThreadIds = new Set<string>();
+
+    if (chatService) {
+      try {
+        const threadResult = await chatService.getUserThreads({
+          userId: user.uid,
+          archived: false,
+          limit,
+        });
+        activeThreads = threadResult.items ?? [];
+
+        for (const thread of activeThreads) {
+          if (thread.id) activeThreadIds.add(thread.id);
+        }
+
+        if (threadResult.hasMore) {
+          logger.warn('Operations log thread augmentation truncated — consider increasing limit', {
+            userId: user.uid,
+            displayedCount: activeThreads.length,
+            limit,
+          });
+        }
+      } catch (threadErr) {
+        logger.warn('Failed to fetch active threads for operations log filtering', {
+          userId: user.uid,
+          error: threadErr instanceof Error ? threadErr.message : String(threadErr),
+        });
+      }
+    }
+
     // ── Deduplicate by threadId: keep the most recent job per thread ────
     // jobs[] is already ordered by createdAt DESC from Firestore, so the
     // first job seen for a threadId is the most recent one.
@@ -125,6 +158,9 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
       // If this job belongs to a thread we've already represented, skip it.
       // This collapses multiple messages in the same conversation into one row.
       if (threadId) {
+        // Guardrail: ignore stale jobs referencing deleted/archived threads.
+        if (activeThreadIds.size > 0 && !activeThreadIds.has(threadId)) continue;
+
         if (seenThreadIds.has(threadId)) continue;
         seenThreadIds.add(threadId);
         representedThreadIds.add(threadId);
@@ -165,22 +201,6 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
 
     if (chatService) {
       try {
-        const threadResult = await chatService.getUserThreads({
-          userId: user.uid,
-          archived: false,
-          limit,
-        });
-        const threads = threadResult.items ?? [];
-        const threadsHasMore = threadResult.hasMore ?? false;
-
-        if (threadsHasMore) {
-          logger.warn('Operations log thread augmentation truncated — consider increasing limit', {
-            userId: user.uid,
-            displayedCount: threads.length,
-            limit,
-          });
-        }
-
         // Build reverse map: MongoDB threadId → Firestore operationId.
         // This is necessary because AgentJobs docs have threadId patched in
         // asynchronously after creation. At the time getByUser runs, some jobs
@@ -195,7 +215,7 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
           if (tid && oid) threadIdToOperationId.set(tid, oid);
         }
 
-        for (const thread of threads) {
+        for (const thread of activeThreads) {
           if (!thread.id || representedThreadIds.has(thread.id)) continue;
 
           const category = inferCategory(thread.title);

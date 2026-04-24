@@ -419,6 +419,7 @@ export class AgentXBillingActionCardComponent {
           autoTopupEnabled: this.usageService.autoTopUpEnabled(),
           autoTopupThresholdCents: this.usageService.autoTopUpThresholdCents(),
           autoTopupAmountCents: this.usageService.autoTopUpAmountCents(),
+          allowIap: this.usageService.isPersonalBillingMode(),
         });
 
         if (amountCents !== null) {

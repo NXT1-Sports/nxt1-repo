@@ -126,6 +126,7 @@ function ttlFromNow(days: number): FirebaseFirestore.Timestamp {
 export interface AgentJobDocument {
   readonly operationId: string;
   readonly userId: string;
+  readonly idempotencyKey?: string | null;
   readonly intent: string;
   readonly origin: string;
   readonly status: AgentOperationStatus;
@@ -171,6 +172,7 @@ export class AgentJobRepository {
       .set({
         operationId: payload.operationId,
         userId: payload.userId,
+        idempotencyKey: (payload.context?.['idempotencyKey'] as string) ?? null,
         intent: payload.intent,
         origin: payload.origin,
         status: 'queued' satisfies AgentOperationStatus,
@@ -264,6 +266,20 @@ export class AgentJobRepository {
   }
 
   /**
+   * Mark that the live viewer disconnected while the operation continues.
+   * This is observability metadata only; it does not change operation status.
+   */
+  async markDetached(operationId: string): Promise<void> {
+    await this.db.collection(COLLECTION).doc(operationId).set(
+      {
+        viewerDetachedAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+  }
+
+  /**
    * Patch a subset of context fields onto an existing job document.
    * Used for best-effort updates that happen after the job is already enqueued
    * (e.g. stitching in a `threadId` that was created asynchronously).
@@ -304,6 +320,25 @@ export class AgentJobRepository {
     const doc = await this.db.collection(COLLECTION).doc(operationId).get();
 
     return doc.exists ? (doc.data() as AgentJobDocument) : null;
+  }
+
+  /**
+   * Find an existing operation for a given user and idempotency key.
+   * Used to deduplicate client retries.
+   */
+  async getByIdempotencyKey(
+    userId: string,
+    idempotencyKey: string
+  ): Promise<AgentJobDocument | null> {
+    const snapshot = await this.db
+      .collection(COLLECTION)
+      .where('userId', '==', userId)
+      .where('idempotencyKey', '==', idempotencyKey)
+      .limit(1)
+      .get();
+
+    if (snapshot.empty) return null;
+    return snapshot.docs[0]?.data() as AgentJobDocument;
   }
 
   // ─── Event Subcollection (Real-Time Streaming) ──────────────────────────

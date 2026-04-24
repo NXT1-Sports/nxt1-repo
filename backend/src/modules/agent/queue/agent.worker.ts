@@ -70,6 +70,7 @@ import { logAgentTaskCompletion, logAgentTaskFailure } from '../services/agent-a
 import { getAgentAnalyticsGate } from '../services/agent-analytics-gate.js';
 import { processRecapForUser } from '../services/weekly-recap-email.service.js';
 import { logger } from '../../../utils/logger.js';
+import { AgentGenerationService } from '../services/generation.service.js';
 
 const AGENT_IDENTIFIER_SET = new Set<AgentIdentifier>([
   'router',
@@ -216,6 +217,120 @@ export class AgentWorker {
     };
   }
 
+  private async processPlaybookGenerationJob(
+    job: Job<AgentQueueJobData, AgentQueueJobResult>
+  ): Promise<AgentQueueJobResult> {
+    if (job.data.kind !== 'playbook_generation') {
+      throw new AgentEngineError(
+        'AGENT_JOB_PAYLOAD_INVALID',
+        'Invalid playbook generation job payload',
+        { metadata: { kind: (job.data as { kind?: unknown }).kind } }
+      );
+    }
+
+    const startMs = Date.now();
+    const { operationId, userId } = job.data;
+    const repo = this.getJobRepo(job);
+    const billingDb = await this.getActivityFirestore(job);
+    const generationService = new AgentGenerationService(this.llmService);
+
+    const processingProgress: AgentJobProgress = {
+      status: 'thinking',
+      message: 'Generating your weekly playbook',
+      agentId: 'strategy_coordinator',
+      stageType: 'router',
+      stage: 'agent_thinking',
+      percent: 20,
+      currentStep: 1,
+      totalSteps: 2,
+      updatedAt: new Date().toISOString(),
+    };
+
+    await job.updateProgress(processingProgress);
+    await repo.updateProgress(operationId, processingProgress).catch((err: unknown) => {
+      logger.warn('Failed to write playbook progress to Firestore', {
+        operationId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
+
+    try {
+      const playbook = await generationService.generatePlaybook(userId, billingDb, operationId);
+
+      const completionSummary = `Playbook generated with ${playbook.items.length} items.`;
+      const operationResult: AgentOperationResult = {
+        summary: completionSummary,
+        data: {
+          generatedAt: playbook.generatedAt,
+          itemCount: playbook.items.length,
+          goalCount: playbook.goals.length,
+          canRegenerate: playbook.canRegenerate,
+          playbook,
+        },
+      };
+
+      const completedProgress: AgentJobProgress = {
+        status: 'completed',
+        message: 'Playbook generation complete',
+        agentId: 'strategy_coordinator',
+        outcomeCode: 'success_default',
+        percent: 100,
+        currentStep: 2,
+        totalSteps: 2,
+        updatedAt: new Date().toISOString(),
+      };
+
+      await job.updateProgress(completedProgress);
+      await repo.markCompleted(operationId, operationResult).catch((err: unknown) => {
+        logger.warn('Failed to persist playbook completion to Firestore', {
+          operationId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+
+      void executeBillingDeduction({
+        db: billingDb,
+        userId,
+        operationId,
+        feature: 'playbook-generation',
+        coordinatorId: 'strategy_coordinator',
+        environment: job.data.environment,
+      });
+
+      return {
+        result: operationResult,
+        durationMs: Date.now() - startMs,
+        completedAt: new Date().toISOString(),
+      };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to generate playbook';
+
+      const failedProgress: AgentJobProgress = {
+        status: 'failed',
+        message,
+        agentId: 'strategy_coordinator',
+        stageType: 'router',
+        stage: 'routing_to_agent',
+        outcomeCode: 'task_failed',
+        metadata: { errorCode: 'PLAYBOOK_GENERATION_FAILED' },
+        percent: 100,
+        currentStep: 2,
+        totalSteps: 2,
+        updatedAt: new Date().toISOString(),
+      };
+
+      await job.updateProgress(failedProgress);
+      await repo.markFailed(operationId, message).catch((fsErr: unknown) => {
+        logger.warn('Failed to persist playbook failure to Firestore', {
+          operationId,
+          error: fsErr instanceof Error ? fsErr.message : String(fsErr),
+        });
+      });
+
+      throw err;
+    }
+  }
+
   // ─── Job Processor ──────────────────────────────────────────────────────
 
   /**
@@ -232,6 +347,10 @@ export class AgentWorker {
       return this.processThreadSummarizationJob(job);
     }
 
+    if (job.data.kind === 'playbook_generation') {
+      return this.processPlaybookGenerationJob(job);
+    }
+
     if (job.data.kind !== 'agent') {
       throw new AgentEngineError(
         'AGENT_JOB_KIND_UNSUPPORTED',
@@ -241,6 +360,12 @@ export class AgentWorker {
     }
 
     const { payload } = job.data;
+    const payloadContext =
+      typeof payload.context === 'object' && payload.context !== null ? payload.context : {};
+    const payloadThreadId =
+      typeof (payloadContext as Record<string, unknown>)['threadId'] === 'string'
+        ? ((payloadContext as Record<string, unknown>)['threadId'] as string)
+        : undefined;
     const startMs = Date.now();
     const repo = this.getJobRepo(job);
 
@@ -349,7 +474,7 @@ export class AgentWorker {
       eventWriter.emit(event);
 
       // 2. Redis PubSub (new — real-time SSE pipe to Express)
-      const sseEvent = this.streamEventToSSE(event);
+      const sseEvent = this.streamEventToSSE(event, payload.operationId, payloadThreadId);
       if (sseEvent) {
         this.pubsub
           .publish(payload.operationId, sseEvent.event, sseEvent.data)
@@ -735,14 +860,27 @@ export class AgentWorker {
       metadata: { agent: payload.agent, agentTools: invokedTools, successfulTools },
     });
 
-    // Dispatch activity feed item + push notification (fire-and-forget)
+    // Dispatch activity feed item + push notification (fire-and-forget).
+    // Skip push when the operation currently has an active live stream subscriber.
+    // The user is already watching the completion in real time.
     try {
-      const activityDb = await this.getActivityFirestore(job);
-      await logAgentTaskCompletion(activityDb, {
-        userId: payload.userId,
-        job: payload,
-        result,
-      });
+      const activeSubscribers =
+        typeof this.pubsub.subscriberCount === 'function'
+          ? await this.pubsub.subscriberCount(payload.operationId)
+          : 0;
+      if (activeSubscribers > 0) {
+        logger.info('Skipping completion push; active live subscribers detected', {
+          operationId: payload.operationId,
+          subscriberCount: activeSubscribers,
+        });
+      } else {
+        const activityDb = await this.getActivityFirestore(job);
+        await logAgentTaskCompletion(activityDb, {
+          userId: payload.userId,
+          job: payload,
+          result,
+        });
+      }
     } catch (notifyErr) {
       logger.error('Failed to dispatch activity/notification', {
         operationId: payload.operationId,
@@ -885,7 +1023,11 @@ export class AgentWorker {
    *
    * Returns null for events that don't map to SSE (shouldn't happen in practice).
    */
-  private streamEventToSSE(event: StreamEvent): { event: string; data: unknown } | null {
+  private streamEventToSSE(
+    event: StreamEvent,
+    operationId: string,
+    threadId?: string
+  ): { event: string; data: unknown } | null {
     switch (event.type) {
       case 'card':
         return { event: 'card', data: event.cardData ?? {} };
@@ -950,9 +1092,13 @@ export class AgentWorker {
         return {
           event: 'done',
           data: {
+            operationId,
+            ...(threadId ? { threadId } : {}),
+            status: event.success === false ? 'failed' : 'complete',
             success: event.success ?? true,
             error: event.error,
             message: event.message,
+            timestamp: new Date().toISOString(),
           },
         };
       default:
@@ -967,7 +1113,11 @@ export class AgentWorker {
       if (job) {
         const duration = job.returnvalue?.durationMs ?? 0;
         const operationId =
-          'payload' in job.data ? job.data.payload.operationId : `summarize:${job.data.threadId}`;
+          job.data.kind === 'agent'
+            ? job.data.payload.operationId
+            : job.data.kind === 'thread_summarization'
+              ? `summarize:${job.data.threadId}`
+              : job.data.operationId;
 
         logger.info('Agent queue job completed', {
           jobId: job.id,
@@ -979,11 +1129,13 @@ export class AgentWorker {
 
     this.worker.on('failed', (job, err) => {
       const operationId =
-        job && 'payload' in job.data
+        job?.data.kind === 'agent'
           ? job.data.payload.operationId
           : job?.data.kind === 'thread_summarization'
             ? `summarize:${job.data.threadId}`
-            : undefined;
+            : job?.data.kind === 'playbook_generation'
+              ? job.data.operationId
+              : undefined;
 
       logger.error('Agent queue job failed', {
         jobId: job?.id,

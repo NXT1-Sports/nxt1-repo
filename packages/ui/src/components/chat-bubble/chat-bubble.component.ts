@@ -41,6 +41,7 @@ import {
   AgentXAskUserCardComponent,
   type AskUserReplyEvent,
 } from '../../agent-x/agent-x-ask-user-card.component';
+import { NxtIconComponent } from '../icon/icon.component';
 import { NxtMarkdownComponent } from '../markdown/markdown.component';
 import { buildAgentCardThemeStyle } from '../../agent-x/agent-x-agent-presentation';
 
@@ -62,6 +63,7 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
     AgentXFilmTimelineCardComponent,
     AgentXBillingActionCardComponent,
     AgentXAskUserCardComponent,
+    NxtIconComponent,
     NxtMarkdownComponent,
   ],
   host: {
@@ -69,6 +71,7 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
     '[class.variant-agent-chat]': 'variant() === "agent-chat"',
     '[class.variant-agent-operation]': 'variant() === "agent-operation"',
     '[class.variant-agent-fab]': 'variant() === "agent-fab"',
+    '[class.is-streaming]': 'isStreaming()',
     '[class.own]': 'isOwn()',
     '[class.is-error]': 'isError()',
     '[class.is-system]': 'isSystem()',
@@ -99,7 +102,7 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
       @for (part of parts(); track $index) {
         @switch (part.type) {
           @case ('text') {
-            @if (isOwn()) {
+            @if (isOwn() || isStreaming()) {
               <p class="bubble-text">{{ part.content }}</p>
             } @else {
               <nxt1-markdown [content]="part.content" />
@@ -196,7 +199,7 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
         <nxt1-agent-x-tool-steps [steps]="steps()" />
       }
       @if (content()) {
-        @if (isOwn()) {
+        @if (isOwn() || isStreaming()) {
           <p class="bubble-text">{{ content() }}</p>
         } @else {
           <nxt1-markdown [content]="content()" />
@@ -281,19 +284,7 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
     @if (isError()) {
       <div class="bubble-error-actions">
         <button type="button" class="bubble-retry-btn" (click)="retryRequested.emit()">
-          <svg
-            viewBox="0 0 16 16"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="1.8"
-            width="11"
-            height="11"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          >
-            <path d="M13.5 2.5A6.5 6.5 0 1 1 7 1.5" />
-            <polyline points="13.5 0 13.5 2.5 11 2.5" />
-          </svg>
+          <nxt1-icon name="refresh" size="11" className="bubble-retry-icon" />
           Try again
         </button>
       </div>
@@ -313,6 +304,11 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
         max-width: 100%;
         word-wrap: break-word;
         overflow-wrap: break-word;
+        --bubble-error: var(--nxt1-color-error, #ef4444);
+        --bubble-error-bg: var(--nxt1-color-errorBg, rgba(239, 68, 68, 0.1));
+        --bubble-error-border: color-mix(in srgb, var(--bubble-error) 44%, transparent);
+        --bubble-error-border-soft: color-mix(in srgb, var(--bubble-error) 28%, transparent);
+        --bubble-error-text: var(--nxt1-color-errorLight, var(--bubble-error));
       }
 
       .bubble-text {
@@ -448,12 +444,10 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
 
       /* Failed state */
       :host(.variant-message.is-error) {
-        opacity: 0.7;
-      }
-
-      :host(.variant-message.own.is-error) {
-        background: var(--nxt1-color-error);
-        color: var(--nxt1-color-text-primary, #ffffff);
+        opacity: 1;
+        background: var(--bubble-error-bg);
+        border: 1px solid var(--bubble-error-border);
+        color: var(--bubble-error-text);
       }
 
       /* ============================================
@@ -484,8 +478,8 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
       }
 
       :host(.variant-agent-chat.is-error) {
-        background: rgba(239, 68, 68, 0.1);
-        border-color: rgba(239, 68, 68, 0.3);
+        background: var(--bubble-error-bg);
+        border-color: var(--bubble-error-border);
       }
 
       :host(.variant-agent-chat) .typing-dots {
@@ -510,6 +504,14 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
       :host(.variant-agent-operation) .bubble-text {
         font-size: 14px;
         line-height: 1.5;
+      }
+
+      /* Keep streaming typography aligned with final markdown output. */
+      :host(.variant-agent-operation.is-streaming:not(.own)) .bubble-text,
+      :host(.variant-agent-chat.is-streaming:not(.own)) .bubble-text,
+      :host(.variant-agent-fab.is-streaming:not(.own)) .bubble-text {
+        font-size: 1rem;
+        line-height: 1.6;
       }
 
       :host(.variant-agent-operation.own) {
@@ -539,15 +541,22 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
       }
 
       :host(.variant-agent-operation.is-error) {
-        background: rgba(239, 68, 68, 0.08);
-        border-color: rgba(239, 68, 68, 0.25);
+        background: var(--bubble-error-bg);
+        border: 1px solid var(--bubble-error-border);
+        border-radius: 12px;
+        padding: 10px 12px;
+        color: var(--bubble-error-text);
+      }
+
+      :host(.variant-agent-operation.is-error) .bubble-text {
+        color: var(--bubble-error-text);
       }
 
       :host(.variant-agent-operation.is-error) .bubble-error-actions,
       :host(.variant-agent-fab.is-error) .bubble-error-actions {
         margin-top: 8px;
         padding-top: 8px;
-        border-top: 1px solid rgba(239, 68, 68, 0.2);
+        border-top: 1px solid var(--bubble-error-border-soft);
       }
 
       .bubble-error-actions {
@@ -561,9 +570,9 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
         gap: 5px;
         padding: 4px 10px;
         border-radius: 20px;
-        border: 1px solid rgba(239, 68, 68, 0.35);
-        background: rgba(239, 68, 68, 0.12);
-        color: rgba(239, 68, 68, 0.9);
+        border: 1px solid var(--bubble-error-border);
+        background: color-mix(in srgb, var(--bubble-error) 12%, transparent);
+        color: var(--bubble-error-text);
         font-size: 11px;
         font-weight: 500;
         letter-spacing: 0.01em;
@@ -573,13 +582,17 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
           border-color 0.15s;
       }
 
+      .bubble-retry-icon {
+        flex-shrink: 0;
+      }
+
       .bubble-retry-btn:hover {
-        background: rgba(239, 68, 68, 0.2);
-        border-color: rgba(239, 68, 68, 0.5);
+        background: color-mix(in srgb, var(--bubble-error) 18%, transparent);
+        border-color: var(--bubble-error-border);
       }
 
       .bubble-retry-btn:active {
-        background: rgba(239, 68, 68, 0.28);
+        background: color-mix(in srgb, var(--bubble-error) 24%, transparent);
       }
 
       :host(.variant-agent-operation) .typing-dots span {
@@ -614,8 +627,8 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
       }
 
       :host(.variant-agent-fab.is-error) {
-        background: var(--panel-error-bg, rgba(239, 68, 68, 0.1));
-        border-color: var(--panel-error-border, rgba(239, 68, 68, 0.3));
+        background: var(--bubble-error-bg);
+        border-color: var(--bubble-error-border);
       }
 
       :host(.variant-agent-fab) .typing-dots span {
@@ -693,6 +706,9 @@ export class NxtChatBubbleComponent {
 
   /** Show typing indicator dots instead of text. */
   readonly isTyping = input(false);
+
+  /** True while this bubble is receiving live stream deltas. */
+  readonly isStreaming = input(false);
 
   /** Label shown inside the typing shimmer. */
   readonly typingLabel = input('Thinking...');

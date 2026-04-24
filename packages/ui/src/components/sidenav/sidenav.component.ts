@@ -49,6 +49,7 @@ import {
   inject,
   signal,
   computed,
+  effect,
   input,
   output,
   HostBinding,
@@ -56,6 +57,7 @@ import {
   PLATFORM_ID,
   afterNextRender,
   DestroyRef,
+  viewChild,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { isPlatformBrowser } from '@angular/common';
@@ -539,6 +541,7 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/ass
         <nxt1-floating-action-bar
           [config]="floatingBarConfig()"
           [followItems]="fabFollowItems()"
+          (linkClick)="onFloatingLinkClick()"
           (ctaAction)="onNewSession()"
         />
       </div>
@@ -1395,13 +1398,13 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/ass
         margin: 4px 0;
         padding: 12px 4px 4px;
         border-top: 1px solid var(--nxt1-sidenav-border);
-        /* Zero out the operations log's internal horizontal scroll padding
-           so cards stretch edge-to-edge within the sessions panel */
-        --log-scroll-padding-inline: 0;
+        /* Keep session card column exactly aligned with the sessions header text. */
+        --nxt1-sidenav-sessions-inline: 8px;
+        --log-scroll-padding-inline: var(--nxt1-sidenav-sessions-inline);
       }
 
       .nxt1-sidenav-sessions__header {
-        padding: 0 8px 8px;
+        padding: 0 var(--nxt1-sidenav-sessions-inline) 8px;
       }
 
       .nxt1-sidenav-sessions__title-row {
@@ -1516,6 +1519,9 @@ export class NxtSidenavComponent {
   /** Whether component is in browser */
   private readonly isBrowser = isPlatformBrowser(this.platformId);
 
+  /** Direct menu reference so gesture state can be synced after Ionic initializes. */
+  private readonly ionMenu = viewChild<IonMenu>('ionMenu');
+
   // ============================================
   // COMPUTED SIGNALS
   // ============================================
@@ -1564,6 +1570,15 @@ export class NxtSidenavComponent {
   // ============================================
 
   constructor() {
+    effect(() => {
+      const menu = this.ionMenu();
+      if (!menu || !this.isBrowser) {
+        return;
+      }
+
+      menu.swipeGesture = this.menuSwipeGestureEnabled();
+    });
+
     // Initialize expanded sections from config
     afterNextRender(() => {
       this.initExpandedSections();
@@ -1924,6 +1939,14 @@ export class NxtSidenavComponent {
   async onNewSession(): Promise<void> {
     await this.close();
     void this.router.navigate(['/agent-x']);
+  }
+
+  /**
+   * Handle floating panel legal/follow link taps.
+   * Keeps sidenav behavior consistent with standard menu item navigation.
+   */
+  async onFloatingLinkClick(): Promise<void> {
+    await this.close();
   }
 
   /**

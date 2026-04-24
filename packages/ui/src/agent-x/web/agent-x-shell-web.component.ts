@@ -166,6 +166,75 @@ interface AgentXDesktopResizeState {
   readonly startWidth: number;
 }
 
+const FALLBACK_COORDINATOR_CATEGORIES: readonly CommandCategory[] = [
+  {
+    id: 'coord-admin',
+    label: 'Admin Coordinator',
+    icon: 'settings',
+    description: 'Manage scheduling, operations, and organizational tasks.',
+    commands: [],
+  },
+  {
+    id: 'coord-brand',
+    label: 'Brand Coordinator',
+    icon: 'image',
+    description: 'Build graphics, content ideas, and brand assets.',
+    commands: [],
+  },
+  {
+    id: 'coord-strategy',
+    label: 'Strategy Coordinator',
+    icon: 'rocket',
+    description: 'Plan next steps and high-level execution strategy.',
+    commands: [],
+  },
+  {
+    id: 'coord-recruiting',
+    label: 'Recruiting Coordinator',
+    icon: 'search',
+    description: 'Plan outreach, targeting, and recruiting tasks.',
+    commands: [],
+  },
+  {
+    id: 'coord-performance',
+    label: 'Performance Coordinator',
+    icon: 'analytics',
+    description: 'Review performance, film notes, and evaluations.',
+    commands: [],
+  },
+  {
+    id: 'coord-data',
+    label: 'Data Coordinator',
+    icon: 'barChart',
+    description: 'Track metrics, trends, and decision-ready data.',
+    commands: [],
+  },
+] as const;
+
+const COORDINATOR_ORDER: readonly string[] = [
+  'admin coordinator',
+  'brand coordinator',
+  'strategy coordinator',
+  'recruiting coordinator',
+  'performance coordinator',
+  'data coordinator',
+] as const;
+
+function sortCoordinatorCategories(
+  categories: readonly CommandCategory[]
+): readonly CommandCategory[] {
+  const rank = new Map<string, number>(
+    COORDINATOR_ORDER.map((label, index) => [label, index] as const)
+  );
+
+  return [...categories].sort((a, b) => {
+    const aRank = rank.get(a.label.trim().toLowerCase()) ?? Number.MAX_SAFE_INTEGER;
+    const bRank = rank.get(b.label.trim().toLowerCase()) ?? Number.MAX_SAFE_INTEGER;
+    if (aRank !== bRank) return aRank - bRank;
+    return a.label.localeCompare(b.label);
+  });
+}
+
 @Component({
   selector: 'nxt1-agent-x-shell-web',
   standalone: true,
@@ -3183,7 +3252,7 @@ interface AgentXDesktopResizeState {
         right: var(--nxt1-footer-right, 16px);
 
         bottom: calc(
-          var(--nxt1-footer-bottom, 20px) + var(--nxt1-pill-height, 44px) + 16px + 52px + 8px +
+          var(--nxt1-footer-bottom, 20px) + var(--nxt1-pill-height, 44px) + 16px + 52px + 0px +
             var(--keyboard-offset, 0px)
         );
         z-index: calc(var(--nxt1-z-index-fixed, 999) - 1);
@@ -3209,20 +3278,16 @@ interface AgentXDesktopResizeState {
 
       .m-coordinator-pill {
         --coordinator-pill-accent: var(--agent-primary);
+        --coordinator-pill-text: var(--nxt1-color-text-primary, #f5f7fa);
         --coordinator-pill-surface: color-mix(
           in srgb,
-          var(--coordinator-pill-accent) 18%,
-          var(--agent-glass-bg)
+          var(--coordinator-pill-accent) 16%,
+          var(--nxt1-color-background-primary, #0f1217)
         );
         --coordinator-pill-border: color-mix(
           in srgb,
-          var(--coordinator-pill-accent) 54%,
-          var(--agent-border)
-        );
-        --coordinator-pill-shadow: color-mix(
-          in srgb,
-          var(--coordinator-pill-accent) 22%,
-          transparent
+          var(--coordinator-pill-accent) 52%,
+          var(--nxt1-color-background-primary, #0f1217)
         );
         flex-shrink: 0;
         display: inline-flex;
@@ -3231,17 +3296,15 @@ interface AgentXDesktopResizeState {
         border-radius: var(--nxt1-radius-full, 9999px);
         padding: 11px 16px;
         background: var(--coordinator-pill-surface);
-        color: var(--agent-text-primary);
+        color: var(--coordinator-pill-text);
         font-size: 13px;
         font-weight: 600;
         line-height: 1;
         white-space: nowrap;
         box-shadow:
-          0 10px 24px var(--coordinator-pill-shadow),
-          inset 0 1px 0 color-mix(in srgb, var(--coordinator-pill-accent) 10%, white);
+          0 0 0 1px color-mix(in srgb, var(--coordinator-pill-accent) 24%, #000),
+          inset 0 1px 0 color-mix(in srgb, var(--coordinator-pill-accent) 12%, #fff);
         border-color: var(--coordinator-pill-border);
-        backdrop-filter: var(--nxt1-glass-backdrop, saturate(180%) blur(20px));
-        -webkit-backdrop-filter: var(--nxt1-glass-backdrop, saturate(180%) blur(20px));
         transition:
           border-color 0.15s ease,
           background 0.15s ease,
@@ -3255,15 +3318,40 @@ interface AgentXDesktopResizeState {
 
       .m-coordinator-pill:active {
         border-color: color-mix(in srgb, var(--coordinator-pill-accent) 72%, white);
-        background: color-mix(in srgb, var(--coordinator-pill-accent) 28%, var(--agent-glass-bg));
+        background: color-mix(
+          in srgb,
+          var(--coordinator-pill-accent) 22%,
+          var(--nxt1-color-background-primary, #0f1217)
+        );
         box-shadow:
-          0 12px 28px color-mix(in srgb, var(--coordinator-pill-accent) 26%, transparent),
-          inset 0 1px 0 color-mix(in srgb, var(--coordinator-pill-accent) 14%, white);
+          0 0 0 1px color-mix(in srgb, var(--coordinator-pill-accent) 28%, #000),
+          inset 0 1px 0 color-mix(in srgb, var(--coordinator-pill-accent) 14%, #fff);
         transform: scale(0.98);
+      }
+
+      .m-coordinator-pill[data-coordinator='coord-admin'] {
+        --coordinator-pill-accent: #3fa3ff;
+      }
+
+      .m-coordinator-pill[data-coordinator='coord-brand'] {
+        --coordinator-pill-accent: #ff7a45;
+      }
+
+      .m-coordinator-pill[data-coordinator='coord-strategy'] {
+        --coordinator-pill-accent: #9d7bff;
+      }
+
+      .m-coordinator-pill[data-coordinator='coord-performance'] {
+        --coordinator-pill-accent: #41b8ff;
+      }
+
+      .m-coordinator-pill[data-coordinator='coord-data'] {
+        --coordinator-pill-accent: #2fd39a;
       }
 
       .m-coordinator-pill[data-coordinator='coord-recruiting'] {
         --coordinator-pill-accent: #ccff00;
+        --coordinator-pill-text: #12170a;
       }
 
       .m-coordinator-pill[data-coordinator='coord-media'] {
@@ -3825,8 +3913,12 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     return items.length > 0 && items.every((t) => t.status === 'snoozed');
   });
 
-  /** Coordinator cards — live from service only. */
-  protected readonly commandCategories = computed(() => this.agentX.coordinators());
+  /** Coordinator cards with a fallback list so mobile web pills always render. */
+  protected readonly commandCategories = computed(() => {
+    const categories = this.agentX.coordinators();
+    const source = categories.length > 0 ? categories : FALLBACK_COORDINATOR_CATEGORIES;
+    return sortCoordinatorCategories(source);
+  });
 
   constructor() {
     this.resetToDefaultDesktopSession();
