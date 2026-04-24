@@ -43,7 +43,6 @@ import {
   OnDestroy,
 } from '@angular/core';
 import { Location } from '@angular/common';
-import { Router } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { IonContent, NavController } from '@ionic/angular/standalone';
 import { Capacitor } from '@capacitor/core';
@@ -1883,7 +1882,6 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
   private readonly bottomSheet = inject(NxtBottomSheetService);
   private readonly mediaViewer = inject(NxtMediaViewerService);
   private readonly location = inject(Location);
-  private readonly router = inject(Router);
   private readonly navController = inject(NavController);
   private readonly injector = inject(EnvironmentInjector);
   private readonly activityService = inject(ActivityService);
