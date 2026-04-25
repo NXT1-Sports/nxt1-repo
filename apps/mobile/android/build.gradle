@@ -24,6 +24,10 @@ allprojects {
     repositories {
         google()
         mavenCentral()
+        // Microsoft Surface Duo SDK — required by recognizebv-capacitor-plugin-msauth
+        // (com.microsoft.identity.client:msal -> com.microsoft.device.display:display-mask:0.3.0)
+        // This artifact was removed from JCenter and is only on Microsoft's Azure DevOps feed.
+        maven { url 'https://pkgs.dev.azure.com/MicrosoftDeviceSDK/DuoSDK-Public/_packaging/Duo-SDK-Feed/maven/v1' }
         // Some older plugins might still require jcenter.
         maven { url 'https://jcenter.bintray.com' }
     }
