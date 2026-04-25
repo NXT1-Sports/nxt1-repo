@@ -194,8 +194,12 @@ export class OnboardingCongratulationsComponent implements OnInit {
     this.themeService.setTemporaryOverride('dark');
     this.logger.debug('Set dark theme for congratulations page');
 
-    // Refresh user profile to get updated firstName/lastName from backend
-    this.authFlow.refreshUserProfile();
+    // NOTE: Profile was already refreshed (awaited) in onboarding.component.ts
+    // before navigating here. A fire-and-forget call here would invalidate the
+    // in-memory cache mid-transition and cause the shell to render with
+    // role: 'athlete' while the concurrent fetch is still in-flight.
+    // The awaited refresh is instead deferred to onLoadingComplete() just before
+    // navigating to /agent so the signal is guaranteed to be fresh.
 
     // Set SEO
     this.seo.updatePage({
@@ -248,6 +252,13 @@ export class OnboardingCongratulationsComponent implements OnInit {
     // restore the user's preference once we hand off to the dashboard route.
     this.themeService.clearTemporaryOverride();
     this.logger.debug('Cleared temporary theme override, restored user preference');
+
+    // Ensure the authFlow signal reflects the latest backend role (e.g. 'director')
+    // before the shell renders. Without this await, a newly registered Director
+    // would see the Athlete UI on first load because the previous refresh may have
+    // raced with navigation and left a stale signal.
+    await this.authFlow.refreshUserProfile();
+    this.logger.debug('User profile refreshed before dashboard navigation');
 
     await this.router.navigate([AUTH_REDIRECTS.AGENT], { replaceUrl: true });
   }

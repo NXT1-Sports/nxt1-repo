@@ -118,7 +118,7 @@ jobs:
       - name: Install Node dependencies
         run: npm ci
 
-      - name: Capacitor sync (copies web assets + config to iOS native)
+      - name: Copy web assets to iOS native
         working-directory: apps/mobile
         run: npx cap copy ios
 

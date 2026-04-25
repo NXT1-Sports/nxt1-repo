@@ -63,6 +63,9 @@ export interface BackendProfileLike {
   readonly role?: string | null;
   readonly onboardingCompleted?: boolean;
   readonly completeSignUp?: boolean;
+  /** Which sport index is currently active for sport switching. Preserved so
+   * the sidebar shows the correct active team after refreshUserProfile(). */
+  readonly activeSportIndex?: number;
   readonly connectedEmails?: readonly ConnectedEmail[];
   readonly connectedSources?: readonly ConnectedSource[];
   readonly teamCode?: BackendTeamCodeLike | string | null;
@@ -179,6 +182,12 @@ export function mapBackendProfileToCachedUserProfile(user: BackendProfileLike): 
         : null,
     primarySport,
     selectedSports: sports.map((sport) => sport.sport),
+    // Preserve activeSportIndex so the sport switcher stays on the correct sport
+    // after refreshUserProfile(). Without this, the sidebar resets to index 0 (order=0)
+    // even when the user just activated a different sport via the add-sport wizard.
+    ...(typeof user.activeSportIndex === 'number'
+      ? { activeSportIndex: user.activeSportIndex }
+      : {}),
     connectedEmails: Array.isArray(user.connectedEmails) ? [...user.connectedEmails] : undefined,
     organizationAccess,
     sports: sports.map((sport) => ({

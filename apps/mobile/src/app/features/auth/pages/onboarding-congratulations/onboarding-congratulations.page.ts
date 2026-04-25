@@ -194,10 +194,12 @@ export class OnboardingCongratulationsPage implements OnInit {
     this.themeService.setTemporaryOverride('dark');
     this.logger.debug('Set dark theme for congratulations page');
 
-    // Refresh user profile to get updated firstName/lastName from backend
-    this.authFlow.refreshUserProfile().catch((err) => {
-      this.logger.warn('Failed to refresh user profile', { error: err });
-    });
+    // NOTE: Profile was already refreshed (awaited) in the onboarding page
+    // before navigating here. A fire-and-forget call here would invalidate the
+    // in-memory cache mid-transition and cause the shell to render with
+    // role: 'athlete' while the concurrent fetch is still in-flight.
+    // The awaited refresh is deferred to saveGoalsAndNavigate() just before
+    // navigating to /agent so the signal is guaranteed to be fresh.
   }
 
   // ============================================
@@ -283,6 +285,13 @@ export class OnboardingCongratulationsPage implements OnInit {
     // This ensures the app respects user's original theme choice going forward
     this.themeService.clearTemporaryOverride();
     this.logger.debug('Cleared temporary theme override, restored user preference');
+
+    // Ensure the authFlow signal reflects the latest backend role (e.g. 'director')
+    // before the shell renders. Without this await, a newly registered Director
+    // would see the Athlete UI on first load because the previous refresh may have
+    // raced with navigation and left a stale signal.
+    await this.authFlow.refreshUserProfile();
+    this.logger.debug('User profile refreshed before dashboard navigation');
 
     // ⭐ REQUEST PUSH NOTIFICATION PERMISSION: Triggered here at the natural
     // end of onboarding — the ideal moment (user has context, is engaged).

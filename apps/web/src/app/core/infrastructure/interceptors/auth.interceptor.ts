@@ -44,6 +44,12 @@ const PUBLIC_ENDPOINTS = [
   '/college/list',
   '/programs/search', // Onboarding program search — no auth on backend
   '/help-center', // Help Center is publicly accessible (backend uses optionalAuth)
+  // Team public profile pages — accessible without auth (backend uses optionalAuth)
+
+  // Need public link to team profile pages to allow sharing team profiles with unauthenticated users, and to allow unauthenticated access to team profiles for SEO purposes. The backend uses optionalAuth for these routes, so they will return public team data even without a valid token.
+  // '/teams/by-teamcode/', // /team/:slug/:teamCode canonical URL
+  // '/teams/by-slug/', // /team/:slug SEO-friendly URL
+  // '/teams/by-id/', // Direct team ID lookup
 ];
 
 /**

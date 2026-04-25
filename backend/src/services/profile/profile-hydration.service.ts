@@ -45,6 +45,10 @@ interface ResolvedTeamData {
   organizationId: string;
   /** Team type from the Team doc */
   teamType: string;
+  /** Team code (short code, e.g. "D897TP") for constructing team profile URL */
+  teamCode?: string;
+  /** URL slug (e.g. "sotatek-football-5") for constructing team profile URL */
+  slug?: string;
   /** Whether the parent organization is claimed. */
   isOrganizationClaimed: boolean;
   /** Whether this user appears in the parent organization's admins array. */
@@ -164,7 +168,7 @@ export class ProfileHydrationService {
       teamIds.map((id) => this.db.collection(this.TEAMS_COLLECTION).doc(id).get())
     );
 
-    // Build teamId → { sport, organizationId, teamType } map
+    // Build teamId → { sport, organizationId, teamType, teamCode, slug, ... } map
     const teamMap = new Map<
       string,
       {
@@ -172,6 +176,8 @@ export class ProfileHydrationService {
         organizationId: string;
         teamType: string;
         teamName: string;
+        teamCode?: string;
+        slug?: string;
         logoUrl?: string;
         primaryColor?: string;
         secondaryColor?: string;
@@ -186,6 +192,9 @@ export class ProfileHydrationService {
           organizationId: (data['organizationId'] as string) ?? '',
           teamType: (data['teamType'] as string) ?? 'high-school',
           teamName: (data['teamName'] as string) ?? '',
+          // teamCode + slug are required for building the canonical team profile URL
+          teamCode: (data['teamCode'] as string) ?? undefined,
+          slug: (data['slug'] as string) ?? undefined,
           logoUrl: (data['logoUrl'] as string) ?? (data['teamLogoImg'] as string) ?? undefined,
           primaryColor:
             (data['primaryColor'] as string) ?? (data['teamColor1'] as string) ?? undefined,
@@ -224,6 +233,8 @@ export class ProfileHydrationService {
         teamId: entry.teamId,
         organizationId: team.organizationId,
         teamType: team.teamType,
+        teamCode: team.teamCode,
+        slug: team.slug,
         isOrganizationClaimed: governance.isOrganizationClaimed,
         isUserOrganizationAdmin: governance.isUserOrganizationAdmin,
         org: {
@@ -245,76 +256,91 @@ export class ProfileHydrationService {
   /**
    * Overlay live Organization data onto User.sports[].team.
    *
-   * Matching strategy: Case-insensitive match of Team.sport → User.sports[].sport.
-   * If multiple teams match the same sport, the first match becomes the sport's
-   * embedded team affiliation. Additional affiliations are resolved relationally.
+   * Matching strategy (in priority order):
+   *   1. Match by teamId — `sports[i].team.teamId === resolvedTeam.teamId`
+   *      Direct, unique, and never ambiguous.
+   *   2. Fall back to case-insensitive sport-name match for legacy entries
+   *      that were written before teamId was stored.
+   *
+   * Any resolved team not matched to an existing sport entry is synthesized
+   * as a new SportProfile (required for Coaches/Directors who have no physical
+   * sports[] in Firestore — their sport list is built purely from RosterEntries).
    *
    * Returns a new User object (does not mutate the original).
    */
   private overlayTeamData(user: User, resolvedTeams: ResolvedTeamData[]): User {
     const existingSports: SportProfile[] = user.sports ?? [];
 
-    // Group resolved teams by sport name (lowercased)
-    const bySport = new Map<string, ResolvedTeamData[]>();
+    // Index resolved teams by teamId (fast O(1) primary lookup)
+    const byTeamId = new Map<string, ResolvedTeamData>();
+    // Secondary index by sport name for legacy fallback
+    const bySportName = new Map<string, ResolvedTeamData>();
     for (const rt of resolvedTeams) {
-      const key = rt.sport.toLowerCase();
-      if (!bySport.has(key)) bySport.set(key, []);
-      bySport.get(key)!.push(rt);
+      byTeamId.set(rt.teamId, rt);
+      // Only store the first match per sport (don't overwrite with a secondary team)
+      if (!bySportName.has(rt.sport.toLowerCase())) {
+        bySportName.set(rt.sport.toLowerCase(), rt);
+      }
     }
 
-    // Track which sports were matched to physical entries
-    const matchedSportKeys = new Set<string>();
+    // Track which teamIds were matched to existing physical sport entries
+    const matchedTeamIds = new Set<string>();
 
     const hydratedSports: SportProfile[] = existingSports.map((sport) => {
-      const sportKey = (sport.sport ?? '').toLowerCase();
-      const matches = bySport.get(sportKey);
+      // Primary lookup: by teamId stored in the sport entry
+      const storedTeamId = sport.team?.teamId;
+      const match =
+        (storedTeamId ? byTeamId.get(storedTeamId) : undefined) ??
+        bySportName.get((sport.sport ?? '').toLowerCase());
 
-      if (!matches?.length) return sport;
+      if (!match) return sport;
 
-      matchedSportKeys.add(sportKey);
+      matchedTeamIds.add(match.teamId);
 
-      // Primary team: first match (usually school/org team)
-      const primaryMatch = matches[0]!;
       const hydratedTeam = {
         ...(sport.team ?? {}),
-        name: primaryMatch.org.name,
-        type: primaryMatch.teamType as TeamType,
-        isOrganizationClaimed: primaryMatch.isOrganizationClaimed,
-        isUserOrganizationAdmin: primaryMatch.isUserOrganizationAdmin,
-        logoUrl: primaryMatch.org.logoUrl,
-        primaryColor: primaryMatch.org.primaryColor,
-        secondaryColor: primaryMatch.org.secondaryColor,
-        mascot: primaryMatch.org.mascot,
-        organizationId: primaryMatch.organizationId,
-        teamId: primaryMatch.teamId,
+        name: match.org.name,
+        type: match.teamType as TeamType,
+        isOrganizationClaimed: match.isOrganizationClaimed,
+        isUserOrganizationAdmin: match.isUserOrganizationAdmin,
+        logoUrl: match.org.logoUrl,
+        primaryColor: match.org.primaryColor,
+        secondaryColor: match.org.secondaryColor,
+        mascot: match.org.mascot,
+        organizationId: match.organizationId,
+        teamId: match.teamId,
+        // teamCode + slug are needed by the frontend mapper to build the canonical
+        // team profile URL (/team/<slug>/<teamCode>). Without them the mapper
+        // cannot resolve the route and falls back to /add-sport.
+        ...(match.teamCode ? { teamCode: match.teamCode } : {}),
+        ...(match.slug ? { slug: match.slug } : {}),
       };
 
-      const result: SportProfile = { ...sport, team: hydratedTeam };
-
-      return result;
+      return { ...sport, team: hydratedTeam };
     });
 
     // Synthesize SportProfiles for roster associations with no physical sport entry.
     // This is the key architecture shift: Coaches/Directors do NOT store physical
-    // sports[] in the database — their sport dropdown is built purely from RosterEntries.
-    for (const [sportKey, matches] of bySport) {
-      if (matchedSportKeys.has(sportKey)) continue;
+    // sports[] in Firestore — their sport dropdown is built purely from RosterEntries.
+    for (const rt of resolvedTeams) {
+      if (matchedTeamIds.has(rt.teamId)) continue;
 
-      const primaryMatch = matches[0]!;
       const synthesized: SportProfile = {
-        sport: primaryMatch.sport,
+        sport: rt.sport,
         order: hydratedSports.length,
         team: {
-          name: primaryMatch.org.name,
-          type: primaryMatch.teamType as TeamType,
-          isOrganizationClaimed: primaryMatch.isOrganizationClaimed,
-          isUserOrganizationAdmin: primaryMatch.isUserOrganizationAdmin,
-          logoUrl: primaryMatch.org.logoUrl,
-          primaryColor: primaryMatch.org.primaryColor,
-          secondaryColor: primaryMatch.org.secondaryColor,
-          mascot: primaryMatch.org.mascot,
-          organizationId: primaryMatch.organizationId,
-          teamId: primaryMatch.teamId,
+          name: rt.org.name,
+          type: rt.teamType as TeamType,
+          isOrganizationClaimed: rt.isOrganizationClaimed,
+          isUserOrganizationAdmin: rt.isUserOrganizationAdmin,
+          logoUrl: rt.org.logoUrl,
+          primaryColor: rt.org.primaryColor,
+          secondaryColor: rt.org.secondaryColor,
+          mascot: rt.org.mascot,
+          organizationId: rt.organizationId,
+          teamId: rt.teamId,
+          ...(rt.teamCode ? { teamCode: rt.teamCode } : {}),
+          ...(rt.slug ? { slug: rt.slug } : {}),
         },
       } as SportProfile;
 

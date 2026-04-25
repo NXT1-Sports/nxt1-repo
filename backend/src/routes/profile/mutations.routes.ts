@@ -539,9 +539,11 @@ router.post(
           );
         }
 
-        // Add the new sport to the user's profile
+        // Add the new sport to the user's profile and make it the active sport
+        // so the UI immediately reflects the just-added sport in the switcher.
         await userRef.update({
           sports: FieldValue.arrayUnion(newSport),
+          activeSportIndex: existingSports.length,
           updatedAt: FieldValue.serverTimestamp(),
         });
 
@@ -643,69 +645,113 @@ router.post(
 
       try {
         const batch = db.batch();
-        const candidateCode = await generateUniqueTeamCode(db);
 
-        const team = await teamCodeService.createTeamCode(
-          db,
-          {
-            teamCode: candidateCode,
-            teamName: inheritedTeamName,
-            teamType: inheritedTeamType as
-              | 'high-school'
-              | 'club'
-              | 'college'
-              | 'middle-school'
-              | 'juco'
-              | 'organization',
-            sport: newSport.sport as string,
-            createdBy: userId,
-            creatorRole: userRole as 'athlete' | 'coach' | 'director',
-            creatorName:
-              `${currentData['firstName'] || ''} ${currentData['lastName'] || ''}`.trim(),
-            creatorEmail: currentData['email'] || '',
-            creatorPhoneNumber: currentData['phoneNumber'] || '',
-          },
-          batch
-        );
-
+        // Dedup: if a Team for this (orgId, sport) already exists, reuse it
+        // rather than creating a duplicate. Mirrors `ensureTeamForSport` from
+        // the onboarding-program-provisioning service.
+        let reusedTeamId: string | undefined;
+        let reusedTeamCode: string | undefined;
         if (inheritedOrgId) {
+          const existingTeamSnap = await db
+            .collection('Teams')
+            .where('organizationId', '==', inheritedOrgId)
+            .where('sport', '==', newSport.sport)
+            .where('isActive', '==', true)
+            .limit(1)
+            .get();
+          const existingTeamDoc = existingTeamSnap.docs[0];
+          if (existingTeamDoc) {
+            reusedTeamId = existingTeamDoc.id;
+            reusedTeamCode = existingTeamDoc.data()?.['teamCode'] as string | undefined;
+          }
+        }
+
+        const candidateCode = reusedTeamId ? '' : await generateUniqueTeamCode(db);
+
+        const team = reusedTeamId
+          ? { id: reusedTeamId, teamCode: reusedTeamCode }
+          : await teamCodeService.createTeamCode(
+              db,
+              {
+                teamCode: candidateCode,
+                teamName: inheritedTeamName,
+                teamType: inheritedTeamType as
+                  | 'high-school'
+                  | 'club'
+                  | 'college'
+                  | 'middle-school'
+                  | 'juco'
+                  | 'organization',
+                sport: newSport.sport as string,
+                createdBy: userId,
+                creatorRole: userRole as 'athlete' | 'coach' | 'director',
+                creatorName:
+                  `${currentData['firstName'] || ''} ${currentData['lastName'] || ''}`.trim(),
+                creatorEmail: currentData['email'] || '',
+                creatorPhoneNumber: currentData['phoneNumber'] || '',
+              },
+              batch
+            );
+
+        if (inheritedOrgId && !reusedTeamId) {
           batch.update(db.collection('Teams').doc(team.id!), {
             organizationId: inheritedOrgId,
             isClaimed: true,
           });
         }
 
-        const rosterEntryService = createRosterEntryService(db);
-        await rosterEntryService.createRosterEntry(
-          {
-            userId,
-            teamId: team.id!,
-            organizationId: inheritedOrgId,
-            role: userRole,
-            sport: newSport.sport as string,
-            status: RosterEntryStatus.ACTIVE,
-            firstName: (currentData['firstName'] as string) || '',
-            lastName: (currentData['lastName'] as string) || '',
-            displayName: (
-              (currentData['displayName'] as string | undefined) ??
-              `${currentData['firstName'] || ''} ${currentData['lastName'] || ''}`
-            ).trim(),
-            unicode: ((currentData['unicode'] as string | undefined) ?? userId).trim(),
-            profileCode: (
-              (currentData['profileCode'] as string | undefined) ??
-              (currentData['unicode'] as string | undefined) ??
-              userId
-            ).trim(),
-            email: (currentData['email'] as string) || '',
-            phoneNumber: (currentData['phoneNumber'] as string) || '',
-            profileImgs: (currentData['profileImgs'] as string[]) || [],
-          },
-          batch
-        );
+        // Backfill newSport.team so the sport switcher / team route resolution
+        // can navigate to the new team without a roundtrip refresh. Without
+        // this, `resolveTeamRouteForSportIndex` returns null and /profile
+        // bounces back to the OLD primary team.
+        newSport.team = {
+          ...(newSport.team ?? {}),
+          name: inheritedTeamName,
+          teamId: team.id!,
+          ...(inheritedOrgId ? { organizationId: inheritedOrgId } : {}),
+          ...(team.teamCode ? { teamCode: team.teamCode } : {}),
+          type: (newSport.team?.type || inheritedTeamType) as import('@nxt1/core').TeamType,
+        };
 
-        // Add the new sport to the user's profile atomically
+        const rosterEntryService = createRosterEntryService(db);
+        // Skip duplicate roster entry if reusing an existing team and an
+        // active/pending entry already links this user to the team.
+        const existingRoster = reusedTeamId
+          ? await rosterEntryService.getActiveOrPendingRosterEntry(userId, reusedTeamId)
+          : null;
+        if (!existingRoster)
+          await rosterEntryService.createRosterEntry(
+            {
+              userId,
+              teamId: team.id!,
+              organizationId: inheritedOrgId,
+              role: userRole,
+              sport: newSport.sport as string,
+              status: RosterEntryStatus.ACTIVE,
+              firstName: (currentData['firstName'] as string) || '',
+              lastName: (currentData['lastName'] as string) || '',
+              displayName: (
+                (currentData['displayName'] as string | undefined) ??
+                `${currentData['firstName'] || ''} ${currentData['lastName'] || ''}`
+              ).trim(),
+              unicode: ((currentData['unicode'] as string | undefined) ?? userId).trim(),
+              profileCode: (
+                (currentData['profileCode'] as string | undefined) ??
+                (currentData['unicode'] as string | undefined) ??
+                userId
+              ).trim(),
+              email: (currentData['email'] as string) || '',
+              phoneNumber: (currentData['phoneNumber'] as string) || '',
+              profileImgs: (currentData['profileImgs'] as string[]) || [],
+            },
+            batch
+          );
+
+        // Add the new sport to the user's profile atomically and activate it
+        // so the switcher / team route immediately reflects the new sport.
         batch.update(userRef, {
           sports: FieldValue.arrayUnion(newSport),
+          activeSportIndex: existingSports.length,
           updatedAt: FieldValue.serverTimestamp(),
         });
 
@@ -714,6 +760,7 @@ router.post(
         logger.info('[Profile] Atomic sport+team+roster created for coach/director', {
           userId,
           teamId: team.id,
+          reusedTeam: !!reusedTeamId,
           sport: newSport.sport,
         });
 
@@ -762,6 +809,7 @@ router.post(
 
     await userRef.update({
       sports: FieldValue.arrayUnion(newSport),
+      activeSportIndex: existingSports.length,
       ...(incomingConnectedSources.length > 0
         ? {
             connectedSources: mergeConnectedSources(

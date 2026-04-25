@@ -138,6 +138,7 @@ import { environment } from '../../../environments/environment';
         [teamId]="routeTeamCode()"
         [isTeamAdmin]="isTeamAdmin()"
         [skipInternalLoad]="true"
+        [hideFooterFab]="true"
         (backClick)="onBackClick()"
         (tabChange)="onTabChange($event)"
         (shareClick)="onShare()"
