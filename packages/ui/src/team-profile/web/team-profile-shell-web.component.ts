@@ -345,7 +345,9 @@ const TEAM_TIMELINE_EMPTY_STATE_BY_SECTION: Readonly<
                     }
 
                     @case ('timeline') {
-                      @if (isTeamAdmin() && !platform.isMobile()) {
+                      @if (
+                        isTeamAdmin() && !platform.isMobile() && !platform.isBelowBreakpoint('md')
+                      ) {
                         <div class="desktop-intel-action-bar">
                           <button
                             type="button"
@@ -457,7 +459,13 @@ const TEAM_TIMELINE_EMPTY_STATE_BY_SECTION: Readonly<
         <!-- Projected content (e.g. CTA banner for logged-out users) -->
         <ng-content />
 
-        @if (isTeamAdmin() && teamProfile.activeTab() === 'timeline' && !platform.isMobile()) {
+        @if (
+          isTeamAdmin() &&
+          teamProfile.activeTab() === 'timeline' &&
+          !platform.isMobile() &&
+          platform.isBelowBreakpoint('md') &&
+          !hideFooterFab()
+        ) {
           <div class="mobile-web-fab-bar">
             <button
               type="button"
@@ -1178,6 +1186,13 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
    * and push data via TeamProfileService.loadFromExternalData().
    */
   readonly skipInternalLoad = input(false);
+
+  /**
+   * When true, hide the built-in mobile FAB footer bar.
+   * Use this when the parent component renders its own footer action bar
+   * (e.g. mobile team.page.ts which has its own team-action-footer-bar).
+   */
+  readonly hideFooterFab = input(false);
 
   // ============================================
   // OUTPUTS

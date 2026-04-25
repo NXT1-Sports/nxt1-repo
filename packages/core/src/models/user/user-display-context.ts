@@ -315,14 +315,31 @@ function buildTeamContext(user: UserDisplayInput, personalName: string): UserDis
     ? (user.sports
         ?.map((s, i) => ({ s, i }))
         .filter(({ s }) => s.sport?.trim().toLowerCase() !== primarySportNorm)
-        .map(({ s, i }) => ({
-          id: `team-sport-${i}`,
-          originalIndex: i,
-          sport: isPersonalIdentityFallback ? formatSportDisplayName(s.sport) : name,
-          position: isPersonalIdentityFallback ? undefined : formatSportDisplayName(s.sport),
-          isActive: i === activeSportIndex,
-          profileImg: isPersonalIdentityFallback ? undefined : profileImg,
-        })) ?? [])
+        .map(({ s, i }) => {
+          // Each additional sport may belong to a different org/team — use its own
+          // team name instead of the active sport's team name. This prevents all
+          // entries from showing the same org name when the user manages multiple teams.
+          const additionalTeamName = (s.team as Record<string, unknown> | undefined)?.['name'] as
+            | string
+            | undefined;
+          const additionalIsPersonalFallback =
+            isPersonalIdentityFallback || !additionalTeamName?.trim();
+          const additionalLogoUrl = (s.team as Record<string, unknown> | undefined)?.['logoUrl'] as
+            | string
+            | undefined;
+          return {
+            id: `team-sport-${i}`,
+            originalIndex: i,
+            sport: additionalIsPersonalFallback
+              ? formatSportDisplayName(s.sport)
+              : additionalTeamName!.trim(),
+            position: additionalIsPersonalFallback ? undefined : formatSportDisplayName(s.sport),
+            isActive: i === activeSportIndex,
+            profileImg: additionalIsPersonalFallback
+              ? undefined
+              : additionalLogoUrl || profileImg || undefined,
+          };
+        }) ?? [])
     : [];
 
   const sportProfiles: SidenavSportProfile[] = [

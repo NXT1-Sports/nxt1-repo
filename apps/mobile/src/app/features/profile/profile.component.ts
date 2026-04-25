@@ -311,11 +311,17 @@ export class ProfileComponent {
    */
   protected readonly teamSlug = computed(() => {
     const profile = this.fetchedProfile();
-    // Prefer teamCode.slug, fall back to teamCode.unicode or managedTeamCodes[0]
+    // Prefer teamCode.slug, fall back to teamCode.unicode or managedTeamCodes[0].
+    // Also check sports[activeSportIndex].team.slug set by profile hydration for
+    // directors/coaches whose top-level teamCode is not yet written to Firestore.
+    const activeSportTeam =
+      profile?.sports?.[profile.activeSportIndex ?? 0]?.team ?? profile?.sports?.[0]?.team;
+    const sportTeam = activeSportTeam as Record<string, unknown> | undefined;
     return (
       profile?.teamCode?.slug ??
       profile?.teamCode?.unicode ??
       profile?.coach?.managedTeamCodes?.[0] ??
+      (sportTeam?.['slug'] as string | undefined) ??
       ''
     );
   });
@@ -557,6 +563,32 @@ export class ProfileComponent {
                 return;
               }
 
+              // No team path and no team slug yet — brand-new director/coach
+              // who hasn't completed team setup. Redirect to add-sport wizard
+              // rather than showing a "No team associated" error screen.
+              // Also check sports[activeSportIndex].team for slug/teamCode set by
+              // profile hydration (users whose top-level teamCode is not yet written).
+              const activeSportTeam =
+                profile.sports?.[profile.activeSportIndex ?? 0]?.team ?? profile.sports?.[0]?.team;
+              const hasTeamSlug = !!(
+                profile.teamCode?.slug ||
+                profile.teamCode?.unicode ||
+                profile.coach?.managedTeamCodes?.[0] ||
+                (activeSportTeam as Record<string, unknown> | undefined)?.['slug'] ||
+                (activeSportTeam as Record<string, unknown> | undefined)?.['teamCode']
+              );
+              if (!hasTeamSlug) {
+                this.logger.info('New coach/director has no team yet, redirecting to add-sport', {
+                  role: profile.role,
+                  userId: profile.id,
+                });
+                this.breadcrumb.trackStateChange('profile:no_team_redirect_add_sport', {
+                  role: profile.role,
+                });
+                void this.navController.navigateRoot('/add-sport');
+                return;
+              }
+
               this.breadcrumb.trackStateChange('profile:team_profile_loading', {
                 role: profile.role,
               });
@@ -601,12 +633,30 @@ export class ProfileComponent {
    * → pushes into TeamProfileService for the shell to render.
    */
   private async loadTeamProfile(profile: User): Promise<void> {
+    // Prefer top-level teamCode fields; fall back to sports[activeSportIndex].team
+    // which is populated by profile hydration for directors/coaches whose top-level
+    // teamCode is not yet written to Firestore.
+    const activeSportTeam =
+      profile.sports?.[profile.activeSportIndex ?? 0]?.team ?? profile.sports?.[0]?.team;
+    const sportTeamSlug = (activeSportTeam as Record<string, unknown> | undefined)?.['slug'] as
+      | string
+      | undefined;
+    const sportTeamCode = (activeSportTeam as Record<string, unknown> | undefined)?.['teamCode'] as
+      | string
+      | undefined;
+
     const slug =
-      profile.teamCode?.slug ?? profile.teamCode?.unicode ?? profile.coach?.managedTeamCodes?.[0];
+      profile.teamCode?.slug ??
+      profile.teamCode?.unicode ??
+      profile.coach?.managedTeamCodes?.[0] ??
+      sportTeamSlug ??
+      sportTeamCode;
 
     if (!slug) {
-      this.logger.warn('Coach/director has no team slug', { userId: profile.id });
-      this.teamProfile.setError('No team associated with this account');
+      this.logger.info('Coach/director has no team slug — redirecting to add-sport', {
+        userId: profile.id,
+      });
+      void this.navController.navigateRoot('/add-sport');
       return;
     }
 
@@ -1155,11 +1205,18 @@ export class ProfileComponent {
   }
 
   private buildTeamPathFromUser(profile: User): string | null {
+    // Fall back to sports[activeSportIndex].team for directors/coaches whose
+    // top-level teamCode is not yet written (hydration puts slug+teamCode there).
+    const activeSportTeam =
+      profile.sports?.[profile.activeSportIndex ?? 0]?.team ?? profile.sports?.[0]?.team;
+    const sportTeam = activeSportTeam as Record<string, unknown> | undefined;
+
     return (
       resolveCanonicalTeamRoute({
-        slug: profile.teamCode?.slug?.trim(),
-        teamName: profile.teamCode?.teamName?.trim(),
-        teamCode: profile.teamCode?.teamCode?.trim(),
+        slug: profile.teamCode?.slug?.trim() ?? (sportTeam?.['slug'] as string | undefined),
+        teamName: profile.teamCode?.teamName?.trim() ?? (sportTeam?.['name'] as string | undefined),
+        teamCode:
+          profile.teamCode?.teamCode?.trim() ?? (sportTeam?.['teamCode'] as string | undefined),
         code: profile.teamCode?.code?.trim(),
       })?.path ?? null
     );

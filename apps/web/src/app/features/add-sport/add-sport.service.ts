@@ -408,6 +408,9 @@ export class AddSportService {
       // Invalidate profile cache so home page reflects new sport
       this.profileService.invalidateCache(uid);
 
+      // Refresh the auth user signal so sidebar/header reflect new sport immediately
+      await this.authFlow.refreshUserProfile();
+
       const label = this.isTeamRoleUser() ? 'Team' : 'Sport';
       this.analytics?.trackEvent(APP_EVENTS.PROFILE_SPORT_ADDED, {
         sport: primarySport.sport,
