@@ -3,6 +3,7 @@
 # ============================================================================
 # Builds iOS/Android apps using EAS (Expo Application Services)
 # Supports development, staging, and production builds
+# Last updated: 2026-04-25 — Android build fixes (cap sync, JDK 21, SDK 36, Firebase config)
 # ============================================================================
 
 name: Deploy Mobile
