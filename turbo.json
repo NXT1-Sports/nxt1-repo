@@ -93,6 +93,16 @@
       "cache": false,
       "env": ["FIREBASE_PROJECT_PROD"]
     },
+    "deploy:staging:no-test": {
+      "dependsOn": ["^build"],
+      "cache": false,
+      "env": ["FIREBASE_PROJECT_STAGING"]
+    },
+    "deploy:prod:no-test": {
+      "dependsOn": ["^build"],
+      "cache": false,
+      "env": ["FIREBASE_PROJECT_PROD"]
+    },
     "e2e": {
       "dependsOn": ["build"],
       "inputs": ["$TURBO_DEFAULT$", "e2e/**"],
