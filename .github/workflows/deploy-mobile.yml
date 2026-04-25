@@ -118,7 +118,11 @@ jobs:
       - name: Install Node dependencies
         run: npm ci
 
-      - name: Copy web assets to iOS native
+      - name: Switch Firebase config for iOS (always production)
+        working-directory: apps/mobile
+        run: node scripts/auto-switch-firebase-env.js production
+
+      - name: Sync Capacitor plugins and web assets to iOS native
         working-directory: apps/mobile
         run: npx cap copy ios
 
@@ -268,6 +272,10 @@ jobs:
 
       - name: Install Node dependencies
         run: npm ci
+
+      - name: Switch Firebase config for Android (always production)
+        working-directory: apps/mobile
+        run: node scripts/auto-switch-firebase-env.js production
 
       - name: Sync Capacitor plugins and web assets to Android native
         working-directory: apps/mobile
