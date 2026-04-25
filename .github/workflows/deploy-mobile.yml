@@ -269,9 +269,9 @@ jobs:
       - name: Install Node dependencies
         run: npm ci
 
-      - name: Copy web assets to Android native
+      - name: Sync Capacitor plugins and web assets to Android native
         working-directory: apps/mobile
-        run: npx cap copy android
+        run: npx cap sync android
 
       - name: Setup Ruby
         uses: ruby/setup-ruby@v1
