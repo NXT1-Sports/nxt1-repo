@@ -266,6 +266,13 @@ jobs:
           name: mobile-www
           path: apps/mobile/www
 
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Copy web assets to Android native
+        working-directory: apps/mobile
+        run: npx cap copy android
+
       - name: Setup Ruby
         uses: ruby/setup-ruby@v1
         with:
