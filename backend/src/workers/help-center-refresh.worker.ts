@@ -294,7 +294,7 @@ export class HelpCenterRefreshWorker {
               lastAgentRefresh: now2,
             },
           },
-          { upsert: true, new: true }
+          { upsert: true, returnDocument: 'after' }
         );
 
         if (existing) {
@@ -344,7 +344,7 @@ export class HelpCenterRefreshWorker {
               helpfulCount: existingFaqDoc ? ((existingFaqDoc['helpfulCount'] as number) ?? 0) : 0,
             },
           },
-          { upsert: true, new: true }
+          { upsert: true, returnDocument: 'after' }
         );
 
         if (existing) {

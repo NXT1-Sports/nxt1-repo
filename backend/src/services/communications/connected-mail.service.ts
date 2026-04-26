@@ -606,7 +606,7 @@ export async function syncUserEmails(
           $set: conversationData,
           $setOnInsert: { createdAt: threadEmails[0].date },
         },
-        { upsert: true, new: true, setDefaultsOnInsert: true }
+        { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true }
       );
 
       // Upsert messages — track newly synced inbound messages for unread count

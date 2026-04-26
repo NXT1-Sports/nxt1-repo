@@ -211,7 +211,7 @@ export async function getArticle(slug: string): Promise<HelpArticle | null> {
   const doc = await HelpArticleModel.findOneAndUpdate(
     { slug, isPublished: true },
     { $inc: { viewCount: 1 } },
-    { new: true }
+    { returnDocument: 'after' }
   ).lean();
 
   if (!doc) return null;
