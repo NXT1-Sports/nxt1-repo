@@ -199,9 +199,15 @@ function ttlFromNow(days: number): FirebaseFirestore.Timestamp {
 function sanitizeForFirestore<T>(value: T): T {
   if (value === null || value === undefined) return value;
   try {
-    return JSON.parse(JSON.stringify(value)) as T;
+    // JSON round-trip strips `undefined` values, class instances, and other
+    // non-Firestore-safe types. A custom replacer first converts `undefined`
+    // to the JSON literal `null` so they become explicit nulls rather than
+    // being silently omitted, which can leave stale undefined-keyed fields.
+    // This is belt-and-suspenders on top of sanitizeAgentPayload.
+    const json = JSON.stringify(value, (_key, val) => (val === undefined ? null : val));
+    return JSON.parse(json) as T;
   } catch {
-    // Circular reference or non-serializable value — return a safe shell
+    // Circular reference or non-serializable value (BigInt, etc.) — return a safe shell
     if (Array.isArray(value)) return [] as unknown as T;
     if (typeof value === 'object') return {} as unknown as T;
     return value;

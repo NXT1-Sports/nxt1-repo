@@ -289,7 +289,9 @@ export abstract class BaseMcpClientService {
         this.shouldRetryAfterFailure(errorKind);
 
       if (shouldRetry) {
-        logger.warn(`[MCP:${this.serverName}] Transport error detected — attempting reconnect`);
+        logger.warn(
+          `[MCP:${this.serverName}] Dependency failure (${errorKind}) — attempting reconnect`
+        );
         await this.disconnect();
         await this.ensureConnected();
 
@@ -490,6 +492,10 @@ export abstract class BaseMcpClientService {
     try {
       const result = await this.client.callTool({ name: toolName, arguments: args }, undefined, {
         signal: timeoutController.signal,
+        // Align the SDK's internal request timer with our per-operation timeout.
+        // Without this, the SDK defaults to 60 s and fires before our AbortSignal
+        // for longer operations (e.g. EXTRACT_TIMEOUT_MS = 90 s).
+        timeout: timeoutMs,
       });
       return result;
     } catch (err) {
@@ -684,9 +690,14 @@ export abstract class BaseMcpClientService {
 
   /**
    * Retry only safe, retryable dependency failures.
+   *
+   * NOTE: `timeout` is intentionally excluded. A timeout means the remote
+   * service is slow/overloaded — reconnecting does not help and doubles the
+   * user-visible wait time. Only broken-transport and server-crash errors
+   * benefit from a reconnect+retry.
    */
   private shouldRetryAfterFailure(errorKind: McpErrorKind): boolean {
-    return ['timeout', 'transport', 'server'].includes(errorKind);
+    return ['transport', 'server'].includes(errorKind);
   }
 
   /**
