@@ -111,3 +111,51 @@ if (iOSValid && androidValid) {
 }
 
 log(`🚀 Ready for ${buildEnv} build!`, colors.bright);
+
+// ─── Environment-specific native config ───────────────────────────────────────
+// Determines whether this is a production build to configure:
+//   • capacitor.config.json  → android.webContentsDebuggingEnabled
+//   • App.entitlements       → aps-environment (iOS push notifications)
+const isProduction = firebaseEnv === 'production';
+
+// 1. Update capacitor.config.json — android.webContentsDebuggingEnabled
+const capacitorConfigPath = path.join(projectRoot, 'capacitor.config.json');
+if (fs.existsSync(capacitorConfigPath)) {
+  try {
+    const capConfig = JSON.parse(fs.readFileSync(capacitorConfigPath, 'utf8'));
+    if (!capConfig.android) capConfig.android = {};
+    capConfig.android.webContentsDebuggingEnabled = !isProduction;
+    fs.writeFileSync(capacitorConfigPath, JSON.stringify(capConfig, null, 2) + '\n');
+    log(
+      `✅ capacitor.config.json: webContentsDebuggingEnabled = ${!isProduction} (${firebaseEnv})`,
+      isProduction ? colors.green : colors.yellow
+    );
+  } catch (err) {
+    log(`❌ Failed to update capacitor.config.json: ${err.message}`, colors.red);
+  }
+} else {
+  log(`⚠️  capacitor.config.json not found`, colors.yellow);
+}
+
+// 2. Update App.entitlements — aps-environment
+const entitlementsPath = path.join(projectRoot, 'ios', 'App', 'App', 'App.entitlements');
+if (fs.existsSync(entitlementsPath)) {
+  try {
+    let entitlements = fs.readFileSync(entitlementsPath, 'utf8');
+    const apsEnv = isProduction ? 'production' : 'development';
+    // Replace the value after the aps-environment key
+    entitlements = entitlements.replace(
+      /(<key>aps-environment<\/key>\s*<string>)(development|production)(<\/string>)/,
+      `$1${apsEnv}$3`
+    );
+    fs.writeFileSync(entitlementsPath, entitlements);
+    log(
+      `✅ App.entitlements: aps-environment = ${apsEnv} (${firebaseEnv})`,
+      isProduction ? colors.green : colors.yellow
+    );
+  } catch (err) {
+    log(`❌ Failed to update App.entitlements: ${err.message}`, colors.red);
+  }
+} else {
+  log(`⚠️  App.entitlements not found at ${entitlementsPath}`, colors.yellow);
+}
