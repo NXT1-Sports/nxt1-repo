@@ -54,8 +54,8 @@ import { NxtFloatingActionBarComponent } from '../floating-action-bar';
 import { NxtThemeService } from '../../services/theme';
 import { HapticsService } from '../../services/haptics';
 import { NxtBrowserService } from '../../services/browser';
-import { AgentXOperationsLogComponent } from '../../agent-x/agent-x-operations-log.component';
-import { AgentXOperationChatComponent } from '../../agent-x/agent-x-operation-chat.component';
+import { AgentXOperationsLogComponent } from '../../agent-x/components/shared/agent-x-operations-log.component';
+import { AgentXOperationChatComponent } from '../../agent-x/components/chat/agent-x-operation-chat.component';
 import { NxtBottomSheetService, SHEET_PRESETS } from '../bottom-sheet';
 import type { OperationLogEntry } from '@nxt1/core';
 import type {

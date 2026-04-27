@@ -69,13 +69,6 @@ export const routes: Routes = [
           import('./features/activity/activity.routes').then((m) => m.ACTIVITY_ROUTES),
       },
 
-      // Messages - User Conversations & Direct Messages
-      {
-        path: 'messages',
-        loadChildren: () =>
-          import('./features/messages/messages.routes').then((m) => m.MESSAGES_ROUTES),
-      },
-
       // Settings - User Settings & Preferences
       {
         path: 'settings',

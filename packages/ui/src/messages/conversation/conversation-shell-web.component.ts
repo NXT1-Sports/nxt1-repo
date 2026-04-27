@@ -43,7 +43,7 @@ import { NxtLoggingService } from '../../services/logging/logging.service';
 import { ConversationService } from './conversation.service';
 import { ConversationHeaderComponent } from './conversation-header.component';
 import { MessageBubbleComponent } from './message-bubble.component';
-import { AgentXInputComponent } from '../../agent-x/agent-x-input.component';
+import { AgentXInputComponent } from '../../agent-x/components/inputs/agent-x-input.component';
 
 @Component({
   selector: 'nxt1-conversation-shell-web',

@@ -55,25 +55,25 @@ import { NxtHeaderPortalService } from '../../services/header-portal/header-port
 import { NxtOverlayService } from '../../components/overlay';
 import { ConnectedAccountsModalService } from '../../components/connected-sources';
 import type { ConnectedAccountsResyncSource } from '../../components/connected-sources';
-import { AgentXService } from '../agent-x.service';
-import { LiveViewSessionService } from '../live-view-session.service';
-import { AgentXDashboardSkeletonComponent } from '../agent-x-dashboard-skeleton.component';
+import { AgentXService } from '../services/agent-x.service';
+import { LiveViewSessionService } from '../services/live-view-session.service';
+import { AgentXDashboardSkeletonComponent } from '../components/shared/agent-x-dashboard-skeleton.component';
 import {
   LiveViewLauncherComponent,
   type LiveViewLaunchEvent,
 } from './live-view-launcher.component';
-import { AgentXControlPanelComponent } from '../agent-x-control-panel.component';
-import { AgentXOperationsLogComponent } from '../agent-x-operations-log.component';
+import { AgentXControlPanelComponent } from '../components/shell/agent-x-control-panel.component';
+import { AgentXOperationsLogComponent } from '../components/shared/agent-x-operations-log.component';
 import {
   AgentXOperationChatComponent,
   type OperationQuickAction,
-} from '../agent-x-operation-chat.component';
-import type { DraftSubmittedEvent } from '../agent-x-draft-card.component';
-import { AgentXPromptInputComponent } from '../agent-x-prompt-input.component';
+} from '../components/chat/agent-x-operation-chat.component';
+import type { DraftSubmittedEvent } from '../components/cards/agent-x-draft-card.component';
+import { AgentXPromptInputComponent } from '../components/inputs/agent-x-prompt-input.component';
 import {
   AgentXControlPanelStateService,
   type AgentXControlPanelKind,
-} from '../agent-x-control-panel-state.service';
+} from '../services/agent-x-control-panel-state.service';
 import { NxtToastService } from '../../services/toast/toast.service';
 import { HapticsService } from '../../services/haptics/haptics.service';
 import { NxtLoggingService } from '../../services/logging/logging.service';
@@ -82,8 +82,8 @@ import { NxtPlatformService } from '../../services/platform/platform.service';
 import {
   AgentXOperationEventService,
   type ThreadTitleUpdatedEvent,
-} from '../agent-x-operation-event.service';
-import type { CommandCategory } from '../agent-x-shell.component';
+} from '../services/agent-x-operation-event.service';
+import type { CommandCategory } from '../components/shell/agent-x-shell.component';
 import {
   type ShellWeeklyPlaybookItem,
   type OperationLogEntry,
@@ -95,7 +95,7 @@ import type { LinkSourcesFormData } from '@nxt1/core/api';
 import { TEST_IDS } from '@nxt1/core/testing';
 import { NxtBrowserService } from '../../services/browser';
 import { getPlatformFaviconUrl } from '@nxt1/core/platforms';
-import type { ConnectedAppSource } from '../agent-x-attachments-sheet.component';
+import type { ConnectedAppSource } from '../components/modals/agent-x-attachments-sheet.component';
 
 /**
  * Content descriptor for the expanded side panel.

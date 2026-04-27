@@ -499,12 +499,6 @@ export {
   AgentXInputComponent,
   AgentXOperationChatComponent,
   type OperationQuickAction,
-  // Mode Content (shared web & mobile)
-  AgentXModeContentComponent,
-  AgentXDraftsComponent,
-  AgentXTemplateGridComponent,
-  AgentXBundlesComponent,
-  AgentXTaskListComponent,
   // Types
   type AgentXConnectedAccountsSaveRequest,
   type AgentXUser,

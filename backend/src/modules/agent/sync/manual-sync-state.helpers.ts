@@ -7,7 +7,7 @@
  * delta pipeline.
  */
 
-import type { DistilledProfile } from '../tools/scraping/distillers/distiller.types.js';
+import type { DistilledProfile } from '../tools/integrations/firecrawl/scraping/distillers/distiller.types.js';
 import type { PreviousProfileState } from './sync-diff.service.js';
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {

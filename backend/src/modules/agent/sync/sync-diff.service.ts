@@ -46,7 +46,7 @@ import type {
   DistilledScheduleEvent,
   DistilledVideo,
   DistilledMetric,
-} from '../tools/scraping/distillers/distiller.types.js';
+} from '../tools/integrations/firecrawl/scraping/distillers/distiller.types.js';
 
 // ─── Types for Previous State ───────────────────────────────────────────────
 

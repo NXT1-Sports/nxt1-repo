@@ -33,12 +33,12 @@ export { CallApifyActorTool } from './apify/call-apify-actor.tool.js';
 export { GetApifyActorOutputTool } from './apify/get-apify-actor-output.tool.js';
 
 // ── Firecrawl — Web scraping ──────────────────────────────────────────────
-export { FirecrawlMcpBridgeService } from './firecrawl/firecrawl-mcp-bridge.service.js';
-export { FirecrawlScrapeTool } from './firecrawl/firecrawl-scrape.tool.js';
-export { FirecrawlSearchTool } from './firecrawl/firecrawl-search.tool.js';
-export { FirecrawlMapTool } from './firecrawl/firecrawl-map.tool.js';
-export { FirecrawlExtractTool } from './firecrawl/firecrawl-extract.tool.js';
-export { FirecrawlAgentTool } from './firecrawl/firecrawl-agent.tool.js';
+export { FirecrawlMcpBridgeService } from './firecrawl/mcp/firecrawl-mcp-bridge.service.js';
+export { FirecrawlScrapeTool } from './firecrawl/mcp/firecrawl-scrape.tool.js';
+export { FirecrawlSearchTool } from './firecrawl/mcp/firecrawl-search.tool.js';
+export { FirecrawlMapTool } from './firecrawl/mcp/firecrawl-map.tool.js';
+export { FirecrawlExtractTool } from './firecrawl/mcp/firecrawl-extract.tool.js';
+export { FirecrawlAgentTool } from './firecrawl/mcp/firecrawl-agent.tool.js';
 
 // ── Firebase MCP — Read-only Firestore access ─────────────────────────────
 export { FirebaseMcpBridgeService } from './firebase-mcp/firebase-mcp-bridge.service.js';
@@ -154,6 +154,12 @@ export {
 
 // ── Runway — AI video/image generation ───────────────────────────────────
 export { RunwayMcpBridgeService } from './runway/runway-mcp-bridge.service.js';
+export {
+  RunwayGenerateVideoTool,
+  RunwayEditVideoTool,
+  RunwayUpscaleVideoTool,
+  RunwayCheckTaskTool,
+} from './runway/index.js';
 
 // ── Social — Twitter/Instagram scrapers ──────────────────────────────────
 export { ScraperMediaService } from './social/scraper-media.service.js';

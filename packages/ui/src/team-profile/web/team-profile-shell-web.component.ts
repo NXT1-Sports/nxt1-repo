@@ -66,7 +66,7 @@ import { NxtLoggingService } from '../../services/logging/logging.service';
 import { NxtHeaderPortalService } from '../../services/header-portal';
 import { NxtBottomSheetService, SHEET_PRESETS } from '../../components/bottom-sheet';
 import type { BottomSheetAction } from '../../components/bottom-sheet/bottom-sheet.types';
-import { AgentXService } from '../../agent-x/agent-x.service';
+import { AgentXService } from '../../agent-x/services/agent-x.service';
 import { AgentXOperationChatComponent } from '../../agent-x';
 import { NxtPlatformService } from '../../services/platform/platform.service';
 import { Router } from '@angular/router';

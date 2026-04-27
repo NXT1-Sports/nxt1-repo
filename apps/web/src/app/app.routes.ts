@@ -82,12 +82,6 @@ export const routes: Routes = [
         redirectTo: 'agent-x',
       },
 
-      // Messages - User Messages & Conversations
-      {
-        path: 'messages',
-        loadChildren: () => import('./features/messages/messages.routes'),
-      },
-
       // Agent X - AI Assistant (canonical route)
       {
         path: 'agent-x',

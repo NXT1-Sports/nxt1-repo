@@ -1069,7 +1069,6 @@ export class WebShellComponent {
       ['/profile', 'Profile'],
       ['/agent-x', 'Agent X'],
       ['/activity', 'Activity'],
-      ['/messages', 'Messages'],
       ['/settings', 'Settings'],
       ['/usage', 'Billing & Usage'],
       ['/help-center', 'Help Center'],

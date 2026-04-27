@@ -16,8 +16,8 @@ import {
   AgentGenerationService,
   isLegacyFallbackPlaybook,
 } from '../../modules/agent/services/generation.service.js';
-import { FirecrawlProfileService } from '../../modules/agent/tools/scraping/firecrawl-profile.service.js';
-import { LiveViewSessionService } from '../../modules/agent/tools/scraping/live-view-session.service.js';
+import { FirecrawlProfileService } from '../../modules/agent/tools/integrations/firecrawl/browser/firecrawl-profile.service.js';
+import { LiveViewSessionService } from '../../modules/agent/tools/integrations/firecrawl/browser/live-view-session.service.js';
 import { AGENT_X_ALLOWED_MIME_TYPES, AGENT_X_MAX_FILE_SIZE } from '@nxt1/core';
 import { logger } from '../../utils/logger.js';
 import multer from 'multer';

@@ -54,7 +54,6 @@ import {
   ACTIVITY_API_BASE_URL,
   ACTIVITY_API_ADAPTER,
   INVITE_API_BASE_URL,
-  MESSAGES_API_BASE_URL,
   USAGE_API_BASE_URL,
   PERFORMANCE_ADAPTER,
   INTEL_API_BASE_URL,
@@ -296,9 +295,6 @@ export const appConfig: ApplicationConfig = {
 
     // Invite API base URL
     { provide: INVITE_API_BASE_URL, useFactory: () => environment.apiUrl },
-
-    // Messages API base URL
-    { provide: MESSAGES_API_BASE_URL, useFactory: () => environment.apiUrl },
 
     // Usage API base URL
     { provide: USAGE_API_BASE_URL, useFactory: () => environment.apiUrl },

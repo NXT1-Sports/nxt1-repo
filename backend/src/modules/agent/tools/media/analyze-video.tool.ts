@@ -21,7 +21,7 @@
 
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
 import type { OpenRouterService } from '../../llm/openrouter.service.js';
-import type { ScraperService } from '../scraping/scraper.service.js';
+import type { ScraperService } from '../integrations/firecrawl/scraping/scraper.service.js';
 import type { LLMContentPart, LLMMessage } from '../../llm/llm.types.js';
 import { VIDEO_ANALYSIS_TIMEOUT_MS } from '../../llm/llm.types.js';
 import { logger } from '../../../../utils/logger.js';

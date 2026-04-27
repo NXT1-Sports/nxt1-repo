@@ -41,7 +41,7 @@ import {
 } from '../exceptions/agent-delegation.exception.js';
 import { AgentEngineError } from '../exceptions/agent-engine.error.js';
 import type { ApprovalGateService } from '../services/approval-gate.service.js';
-import { ASK_USER_CONTEXT_KEY, type AskUserToolContext } from '../tools/comms/ask-user.tool.js';
+import { ASK_USER_CONTEXT_KEY, type AskUserToolContext } from '../tools/system/ask-user.tool.js';
 import { isToolAllowedByPatterns } from './tool-policy.js';
 import {
   sanitizeAgentOutputText,

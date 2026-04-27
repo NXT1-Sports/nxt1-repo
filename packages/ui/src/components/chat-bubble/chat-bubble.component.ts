@@ -15,35 +15,35 @@
 
 import { Component, ChangeDetectionStrategy, input, output } from '@angular/core';
 import type { AgentXToolStep, AgentXRichCard, AgentXMessagePart } from '@nxt1/core/ai';
-import { AgentXToolStepsComponent } from '../../agent-x/agent-x-tool-steps.component';
-import { AgentXPlannerCardComponent } from '../../agent-x/agent-x-planner-card.component';
-import { AgentXDataTableCardComponent } from '../../agent-x/agent-x-data-table-card.component';
+import { AgentXToolStepsComponent } from '../../agent-x/components/shared/agent-x-tool-steps.component';
+import { AgentXPlannerCardComponent } from '../../agent-x/components/cards/agent-x-planner-card.component';
+import { AgentXDataTableCardComponent } from '../../agent-x/components/cards/agent-x-data-table-card.component';
 import {
   AgentXConfirmationCardComponent,
   type ConfirmationActionEvent,
-} from '../../agent-x/agent-x-confirmation-card.component';
-import { AgentXCitationsCardComponent } from '../../agent-x/agent-x-citations-card.component';
+} from '../../agent-x/components/cards/agent-x-confirmation-card.component';
+import { AgentXCitationsCardComponent } from '../../agent-x/components/cards/agent-x-citations-card.component';
 import {
   AgentXParameterFormCardComponent,
   type ParameterFormSubmitEvent,
-} from '../../agent-x/agent-x-parameter-form-card.component';
+} from '../../agent-x/components/cards/agent-x-parameter-form-card.component';
 import {
   AgentXDraftCardComponent,
   type DraftSubmittedEvent,
-} from '../../agent-x/agent-x-draft-card.component';
-import { AgentXProfileCardComponent } from '../../agent-x/agent-x-profile-card.component';
-import { AgentXFilmTimelineCardComponent } from '../../agent-x/agent-x-film-timeline-card.component';
+} from '../../agent-x/components/cards/agent-x-draft-card.component';
+import { AgentXProfileCardComponent } from '../../agent-x/components/cards/agent-x-profile-card.component';
+import { AgentXFilmTimelineCardComponent } from '../../agent-x/components/cards/agent-x-film-timeline-card.component';
 import {
   AgentXBillingActionCardComponent,
   type BillingActionResolvedEvent,
-} from '../../agent-x/agent-x-billing-action-card.component';
+} from '../../agent-x/components/cards/agent-x-billing-action-card.component';
 import {
   AgentXAskUserCardComponent,
   type AskUserReplyEvent,
-} from '../../agent-x/agent-x-ask-user-card.component';
+} from '../../agent-x/components/cards/agent-x-ask-user-card.component';
 import { NxtIconComponent } from '../icon/icon.component';
 import { NxtMarkdownComponent } from '../markdown/markdown.component';
-import { buildAgentCardThemeStyle } from '../../agent-x/agent-x-agent-presentation';
+import { buildAgentCardThemeStyle } from '../../agent-x/types/agent-x-agent-presentation';
 
 /** Visual variant controlling sizing, colors, and border‑radius. */
 export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | 'agent-fab';

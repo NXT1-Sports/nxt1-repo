@@ -29,12 +29,14 @@ describe('mapToConnectedSources', () => {
 
     expect(result).toEqual([
       {
+        faviconUrl: 'https://icons.duckduckgo.com/ip3/hudl.com.ico',
         platform: 'hudl',
         profileUrl: 'https://hudl.com/p/1',
         scopeType: undefined,
         scopeId: undefined,
       },
       {
+        faviconUrl: 'https://icons.duckduckgo.com/ip3/x.com.ico',
         platform: 'twitter',
         profileUrl: 'https://twitter.com/user',
         scopeType: undefined,

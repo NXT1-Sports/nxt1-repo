@@ -112,8 +112,9 @@ export class ActivityComponent implements OnInit {
       deepLink: item.deepLink,
     });
 
-    const threadId = this.resolveAgentThreadId(item, item.deepLink);
-    if (item.type === 'agent_task' && threadId) {
+    const normalizedLink = item.deepLink.replace(/^\/agent(?=[/?]|$)/, '/agent-x');
+    const threadId = this.resolveAgentThreadId(item, normalizedLink);
+    if (this.shouldOpenAgentThread(item, normalizedLink, threadId)) {
       void this.bottomSheet.openSheet({
         component: AgentXOperationChatComponent,
         componentProps: {
@@ -132,7 +133,7 @@ export class ActivityComponent implements OnInit {
       return;
     }
 
-    void this.router.navigateByUrl(item.deepLink);
+    void this.router.navigateByUrl(normalizedLink);
   }
 
   private resolveAgentThreadId(item: ActivityItem, deepLink: string): string | null {
@@ -155,6 +156,20 @@ export class ActivityComponent implements OnInit {
       });
       return null;
     }
+  }
+
+  private shouldOpenAgentThread(
+    item: ActivityItem,
+    deepLink: string,
+    threadId: string | null
+  ): threadId is string {
+    if (!threadId) return false;
+
+    if (item.type === 'agent_task') return true;
+    if (deepLink.startsWith('/agent-x')) return true;
+
+    const metadata = item.metadata as AgentTaskActivityMetadata | undefined;
+    return Boolean(metadata?.operationId?.trim() || metadata?.sessionId?.trim());
   }
 
   /**

@@ -30,8 +30,8 @@ import { ANALYTICS_ADAPTER } from '../../services/analytics/analytics-adapter.to
 import { NxtBreadcrumbService } from '../../services/breadcrumb/breadcrumb.service';
 import { HapticsService } from '../../services/haptics/haptics.service';
 import { PERFORMANCE_ADAPTER } from '../../services/performance';
-import { AgentXService } from '../agent-x.service';
-import { AGENT_X_API_BASE_URL } from '../agent-x-job.service';
+import { AgentXService } from '../services/agent-x.service';
+import { AGENT_X_API_BASE_URL } from '../services/agent-x-job.service';
 
 @Injectable({ providedIn: 'root' })
 export class AgentOnboardingService {

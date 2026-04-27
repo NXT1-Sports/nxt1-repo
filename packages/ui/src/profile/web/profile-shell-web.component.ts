@@ -83,7 +83,7 @@ import {
 } from '../../components/bottom-sheet';
 import { Router } from '@angular/router';
 import { NxtPlatformService } from '../../services/platform';
-import { AgentXService } from '../../agent-x/agent-x.service';
+import { AgentXService } from '../../agent-x/services/agent-x.service';
 import { AgentXOperationChatComponent } from '../../agent-x';
 
 import { ProfileTimelineComponent } from '../profile-timeline.component';

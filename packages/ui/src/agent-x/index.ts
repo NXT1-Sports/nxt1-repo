@@ -9,32 +9,32 @@
  */
 
 // Services
-export { AgentXService } from './agent-x.service';
+export { AgentXService } from './services/agent-x.service';
 export {
   AgentXVideoUploadService,
   type VideoUploadProgress,
   type VideoUploadPhase,
-} from './agent-x-video-upload.service';
+} from './services/agent-x-video-upload.service';
 export {
   AgentXJobService,
   AGENT_X_API_BASE_URL,
   AGENT_X_AUTH_TOKEN_FACTORY,
   isEnqueueFailure,
   type EnqueueFailure,
-} from './agent-x-job.service';
+} from './services/agent-x-job.service';
 export {
   AgentXStreamRegistryService,
   type StreamSnapshot,
   type StreamListener,
-} from './agent-x-stream-registry.service';
+} from './services/agent-x-stream-registry.service';
 export {
   AgentXOperationEventService,
   FIRESTORE_ADAPTER,
   type FirestoreAdapter,
   type OperationEventCallbacks,
   type OperationEventSubscription,
-} from './agent-x-operation-event.service';
-export { LiveViewSessionService } from './live-view-session.service';
+} from './services/agent-x-operation-event.service';
+export { LiveViewSessionService } from './services/live-view-session.service';
 
 // Components
 export {
@@ -44,39 +44,39 @@ export {
   type ActionChip,
   type CommandCategory,
   type BriefingInsight,
-} from './agent-x-shell.component';
+} from './components/shell/agent-x-shell.component';
 export {
   AgentXOperationChatComponent,
   type OperationQuickAction,
-} from './agent-x-operation-chat.component';
+} from './components/chat/agent-x-operation-chat.component';
 export {
   AgentXOperationsLogComponent,
   OPERATIONS_LOG_TEST_IDS,
-} from './agent-x-operations-log.component';
-export { AgentXDashboardSkeletonComponent } from './agent-x-dashboard-skeleton.component';
-export { AgentXControlPanelComponent } from './agent-x-control-panel.component';
-export { AgentXWelcomeComponent } from './agent-x-welcome.component';
-export { AgentXGoalHistoryComponent } from './agent-x-goal-history.component';
+} from './components/shared/agent-x-operations-log.component';
+export { AgentXDashboardSkeletonComponent } from './components/shared/agent-x-dashboard-skeleton.component';
+export { AgentXControlPanelComponent } from './components/shell/agent-x-control-panel.component';
+export { AgentXWelcomeComponent } from './components/shell/agent-x-welcome.component';
+export { AgentXGoalHistoryComponent } from './components/shared/agent-x-goal-history.component';
 export {
   AgentXActionCardComponent,
   type ActionCardApprovalEvent,
   type ActionCardReplyEvent,
-} from './agent-x-action-card.component';
-export { AgentXInputComponent } from './agent-x-input.component';
-export { AgentXPromptInputComponent } from './agent-x-prompt-input.component';
-export { AgentXInputBarComponent } from './agent-x-input-bar.component';
-export { ChatBubbleActionsComponent } from './agent-x-chat-bubble-actions.component';
-export { AgentXMessageEditComponent } from './agent-x-message-edit.component';
+} from './components/cards/agent-x-action-card.component';
+export { AgentXInputComponent } from './components/inputs/agent-x-input.component';
+export { AgentXPromptInputComponent } from './components/inputs/agent-x-prompt-input.component';
+export { AgentXInputBarComponent } from './components/inputs/agent-x-input-bar.component';
+export { ChatBubbleActionsComponent } from './components/chat/agent-x-chat-bubble-actions.component';
+export { AgentXMessageEditComponent } from './components/chat/agent-x-message-edit.component';
 export {
   AgentXFeedbackModalComponent,
   type AgentXFeedbackSubmitEvent,
-} from './agent-x-feedback-modal.component';
-export { AgentXMessageUndoComponent } from './agent-x-message-undo.component';
+} from './components/modals/agent-x-feedback-modal.component';
+export { AgentXMessageUndoComponent } from './components/chat/agent-x-message-undo.component';
 export {
   AgentXAttachmentsSheetComponent,
   type ConnectedAppSource,
   type AttachmentSheetResult,
-} from './agent-x-attachments-sheet.component';
+} from './components/modals/agent-x-attachments-sheet.component';
 export {
   AgentXControlPanelStateService,
   AGENT_X_STATUS_DEFINITIONS,
@@ -88,19 +88,10 @@ export {
   type AgentXStatusDefinition,
   type AgentXGoalOption,
   type AgentXBudgetSettings,
-} from './agent-x-control-panel-state.service';
-
-// Mode Content (shared between web & mobile)
-export {
-  AgentXModeContentComponent,
-  AgentXDraftsComponent,
-  AgentXTemplateGridComponent,
-  AgentXBundlesComponent,
-  AgentXTaskListComponent,
-} from './modes';
+} from './services/agent-x-control-panel-state.service';
 
 // Landing Page
-export { NxtAgentXLandingComponent } from './agent-x-landing.component';
+export { NxtAgentXLandingComponent } from './components/shell/agent-x-landing.component';
 export {
   NxtAgentXIdentitySectionComponent,
   type IdentityTreeInput,
@@ -124,26 +115,29 @@ export { AgentXFabChatPanelComponent } from './fab';
 export { AgentXFabService, type FabPanelState } from './fab';
 
 // Rich card components
-export { AgentXToolStepsComponent } from './agent-x-tool-steps.component';
-export { AgentXPlannerCardComponent } from './agent-x-planner-card.component';
-export { AgentXDataTableCardComponent } from './agent-x-data-table-card.component';
+export { AgentXToolStepsComponent } from './components/shared/agent-x-tool-steps.component';
+export { AgentXPlannerCardComponent } from './components/cards/agent-x-planner-card.component';
+export { AgentXDataTableCardComponent } from './components/cards/agent-x-data-table-card.component';
 export {
   AgentXConfirmationCardComponent,
   type ConfirmationActionEvent,
-} from './agent-x-confirmation-card.component';
-export { AgentXCitationsCardComponent } from './agent-x-citations-card.component';
+} from './components/cards/agent-x-confirmation-card.component';
+export { AgentXCitationsCardComponent } from './components/cards/agent-x-citations-card.component';
 export {
   AgentXParameterFormCardComponent,
   type ParameterFormSubmitEvent,
-} from './agent-x-parameter-form-card.component';
-export { AgentXDraftCardComponent, type DraftSubmittedEvent } from './agent-x-draft-card.component';
-export { AgentXProfileCardComponent } from './agent-x-profile-card.component';
-export { AgentXFilmTimelineCardComponent } from './agent-x-film-timeline-card.component';
+} from './components/cards/agent-x-parameter-form-card.component';
+export {
+  AgentXDraftCardComponent,
+  type DraftSubmittedEvent,
+} from './components/cards/agent-x-draft-card.component';
+export { AgentXProfileCardComponent } from './components/cards/agent-x-profile-card.component';
+export { AgentXFilmTimelineCardComponent } from './components/cards/agent-x-film-timeline-card.component';
 export {
   AgentXBillingActionCardComponent,
   type BillingActionResolvedEvent,
-} from './agent-x-billing-action-card.component';
+} from './components/cards/agent-x-billing-action-card.component';
 export {
   AgentXAskUserCardComponent,
   type AskUserReplyEvent,
-} from './agent-x-ask-user-card.component';
+} from './components/cards/agent-x-ask-user-card.component';

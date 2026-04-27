@@ -77,14 +77,6 @@ export const serverRoutes: ServerRoute[] = [
     renderMode: RenderMode.Server,
   },
   {
-    path: 'messages',
-    renderMode: RenderMode.Server,
-  },
-  {
-    path: 'messages/**',
-    renderMode: RenderMode.Server,
-  },
-  {
     path: 'activity',
     renderMode: RenderMode.Server,
   },

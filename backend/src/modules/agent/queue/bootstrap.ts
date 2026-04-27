@@ -28,8 +28,8 @@ import { AgentQueueService } from './queue.service.js';
 import { AgentWorker } from './agent.worker.js';
 import { AgentJobRepository } from './job.repository.js';
 import { AgentPubSubService } from './pubsub.service.js';
-import { AgentRouter } from '../agent.router.js';
 import { OpenRouterService } from '../llm/openrouter.service.js';
+import { AgentRouter } from '../agent.router.js';
 import { ToolRegistry } from '../tools/tool-registry.js';
 import {
   ScrapeAndIndexProfileTool,
@@ -42,7 +42,7 @@ import {
   LiveViewSessionService,
   ScraperService,
   DispatchExtractionTool,
-} from '../tools/scraping/index.js';
+} from '../tools/integrations/firecrawl/index.js';
 import {
   WriteCoreIdentityTool,
   WriteAwardsTool,
@@ -54,47 +54,42 @@ import {
   WriteAthleteVideosTool,
   WriteIntelTool,
   UpdateIntelTool,
-  SearchNxt1PlatformTool,
-  QueryNxt1PlatformDataTool,
-  SearchMemoryTool,
-  SearchCollegesTool,
-  SearchCollegeCoachesTool,
-  GetCollegeLogosTool,
-  GetConferenceLogosTool,
-  TrackAnalyticsEventTool,
-  GetAnalyticsSummaryTool,
-  GetRecentSyncSummariesTool,
-  SaveMemoryTool,
-  DeleteMemoryTool,
   WriteConnectedSourceTool,
   WriteScheduleTool,
   WriteTeamStatsTool,
   WriteTeamNewsTool,
   WriteTeamPostTool,
   WriteRosterEntriesTool,
-} from '../tools/database/index.js';
+  WriteTimelinePostTool,
+} from '../tools/intel/index.js';
 import {
-  GenerateGraphicTool,
-  AnalyzeVideoTool,
-  RunwayGenerateVideoTool,
-  RunwayEditVideoTool,
-  RunwayUpscaleVideoTool,
-  RunwayCheckTaskTool,
-} from '../tools/media/index.js';
-import { DynamicExportTool } from '../tools/data/index.js';
+  SearchNxt1PlatformTool,
+  QueryNxt1PlatformDataTool,
+  SearchCollegesTool,
+  SearchCollegeCoachesTool,
+  ScanTimelinePostsTool,
+} from '../tools/platform/index.js';
+import { GetCollegeLogosTool, GetConferenceLogosTool } from '../tools/assets/index.js';
+import {
+  TrackAnalyticsEventTool,
+  GetAnalyticsSummaryTool,
+  GetRecentSyncSummariesTool,
+} from '../tools/analytics/index.js';
+import { SearchMemoryTool, SaveMemoryTool, DeleteMemoryTool } from '../tools/memory/index.js';
+import { GenerateGraphicTool, AnalyzeVideoTool } from '../tools/media/index.js';
+import { AskUserTool, DelegateTaskTool, DynamicExportTool } from '../tools/system/index.js';
 import { WebSearchTool } from '../tools/integrations/web/web-search.tool.js';
 import { SendEmailTool } from '../tools/integrations/email/send-email.tool.js';
 import { ScrapeTwitterTool } from '../tools/integrations/social/scrape-twitter.tool.js';
 import { ScrapeInstagramTool } from '../tools/integrations/social/scrape-instagram.tool.js';
 import { ApifyService } from '../tools/integrations/apify/apify.service.js';
 import { ScraperMediaService } from '../tools/integrations/social/scraper-media.service.js';
-import { ApifyMcpBridgeService } from '../tools/integrations/apify/apify-mcp-bridge.service.js';
-import { db as appDb } from '../../../utils/firebase.js';
-import { SearchApifyActorsTool } from '../tools/integrations/apify/search-apify-actors.tool.js';
-import { GetApifyActorDetailsTool } from '../tools/integrations/apify/get-apify-actor-details.tool.js';
-import { CallApifyActorTool } from '../tools/integrations/apify/call-apify-actor.tool.js';
-import { GetApifyActorOutputTool } from '../tools/integrations/apify/get-apify-actor-output.tool.js';
 import {
+  ApifyMcpBridgeService,
+  SearchApifyActorsTool,
+  GetApifyActorDetailsTool,
+  CallApifyActorTool,
+  GetApifyActorOutputTool,
   FirecrawlMcpBridgeService,
   FirebaseMcpBridgeService,
   GoogleWorkspaceMcpSessionService,
@@ -120,11 +115,11 @@ import {
   EnableDownloadTool,
   ManageWatermarkTool,
   DeleteVideoTool,
+  RunwayGenerateVideoTool,
+  RunwayEditVideoTool,
+  RunwayUpscaleVideoTool,
+  RunwayCheckTaskTool,
 } from '../tools/integrations/index.js';
-import { AskUserTool } from '../tools/comms/ask-user.tool.js';
-import { WriteTimelinePostTool } from '../tools/comms/write-timeline-post.tool.js';
-import { ScanTimelinePostsTool } from '../tools/comms/scan-timeline-posts.tool.js';
-import { DelegateTaskTool } from '../tools/system/index.js';
 import {
   ScheduleRecurringTaskTool,
   ListRecurringTasksTool,
@@ -136,6 +131,9 @@ import { SessionMemoryService } from '../memory/session.service.js';
 import { KnowledgeRetrievalService } from '../memory/knowledge-retrieval.service.js';
 import { AgentChatService } from '../services/agent-chat.service.js';
 import { getCacheService } from '../../../services/core/cache.service.js';
+import { db as appDb } from '../../../utils/firebase.js';
+import { stagingDb } from '../../../utils/firebase-staging.js';
+import { logger } from '../../../utils/logger.js';
 import {
   SkillRegistry,
   ScoutingRubricSkill,
@@ -157,8 +155,6 @@ import {
 import { setAgentDependencies } from '../../../routes/agent/shared.js';
 import { setWelcomeDependencies } from '../services/agent-welcome.service.js';
 import { setScrapeDependencies } from '../services/agent-scrape.service.js';
-import { stagingDb } from '../../../utils/firebase-staging.js';
-import { logger } from '../../../utils/logger.js';
 import { addJobCost } from './job-cost-tracker.js';
 import { getAgentRunConfig } from '../config/agent-app-config.js';
 

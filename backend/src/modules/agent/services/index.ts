@@ -36,6 +36,7 @@ export {
   type CsvExportOptions,
   type PdfExportOptions,
 } from './export.service.js';
+export * from './analytics/index.js';
 export {
   buildEliteContext,
   getSeasonInfo,
