@@ -804,6 +804,59 @@ export class AgentWorker {
             });
           }
 
+          // Persist whatever partial response the agent streamed so far to MongoDB.
+          // Without this, when the user returns to the session they see the yield
+          // card but all streamed content (tool steps, partial text) is gone.
+          // This applies to both pause and cancel — cancelled jobs also benefit from
+          // having partial context visible in the thread.
+          if (this.chatService) {
+            const contextObj =
+              typeof payload.context === 'object' && payload.context !== null
+                ? payload.context
+                : {};
+            const threadId =
+              typeof (contextObj as Record<string, unknown>)['threadId'] === 'string'
+                ? ((contextObj as Record<string, unknown>)['threadId'] as string)
+                : undefined;
+
+            if (threadId) {
+              const partialSnapshot = persistedAssistantStream.snapshot();
+              const hasContent =
+                partialSnapshot.content.length > 0 ||
+                partialSnapshot.steps.length > 0 ||
+                partialSnapshot.parts.length > 0;
+
+              if (hasContent) {
+                try {
+                  await this.chatService.addMessage({
+                    threadId,
+                    userId: payload.userId,
+                    role: 'assistant',
+                    content: partialSnapshot.content || `[${controlledMessage}]`,
+                    origin: payload.origin,
+                    agentId: 'router',
+                    operationId: payload.operationId,
+                    ...(partialSnapshot.steps.length > 0 ? { steps: partialSnapshot.steps } : {}),
+                    ...(partialSnapshot.parts.length > 0 ? { parts: partialSnapshot.parts } : {}),
+                  });
+                  logger.info('Persisted partial agent response on controlled abort', {
+                    operationId: payload.operationId,
+                    threadId,
+                    controlledStatus,
+                    contentLength: partialSnapshot.content.length,
+                    stepCount: partialSnapshot.steps.length,
+                  });
+                } catch (chatErr) {
+                  logger.warn('Failed to persist partial response on controlled abort', {
+                    operationId: payload.operationId,
+                    threadId,
+                    error: chatErr instanceof Error ? chatErr.message : String(chatErr),
+                  });
+                }
+              }
+            }
+          }
+
           logger.info('Agent job aborted after explicit lifecycle transition', {
             operationId: payload.operationId,
             userId: payload.userId,
@@ -1614,6 +1667,8 @@ export class AgentWorker {
             id: event.stepId ?? event.agentId ?? 'unknown',
             label: event.message ?? '',
             agentId: event.agentId,
+            stageType: event.stageType,
+            stage: event.stage,
             status: 'active',
             icon: event.icon,
           },
@@ -1626,6 +1681,8 @@ export class AgentWorker {
             id: event.stepId ?? event.agentId ?? 'unknown',
             label: event.message ?? '',
             agentId: event.agentId,
+            stageType: event.stageType,
+            stage: event.stage,
             status: 'success',
             icon: event.icon,
           },
@@ -1638,22 +1695,18 @@ export class AgentWorker {
             id: event.stepId ?? event.agentId ?? 'unknown',
             label: event.message ?? '',
             agentId: event.agentId,
+            stageType: event.stageType,
+            stage: event.stage,
             status: 'error',
             icon: event.icon,
           },
         };
       case 'tool_call':
-        return {
-          event: 'step',
-          data: {
-            ...seqPayload,
-            id: event.stepId ?? event.toolName ?? 'tool',
-            label: event.message ?? '',
-            agentId: event.agentId,
-            status: 'active',
-            icon: event.icon,
-          },
-        };
+        // tool_call fires during LLM streaming and has no stepId yet.
+        // step_active always follows immediately with the same stepId and a
+        // richer label, so skip SSE step creation for tool_call to avoid
+        // creating a duplicate active row that would never resolve.
+        return null;
       case 'tool_result':
         return {
           event: 'step',
@@ -1662,6 +1715,8 @@ export class AgentWorker {
             id: event.stepId ?? event.toolName ?? 'tool',
             label: event.message ?? '',
             agentId: event.agentId,
+            stageType: event.stageType,
+            stage: event.stage,
             status: event.toolSuccess ? 'success' : 'error',
             icon: event.icon,
           },

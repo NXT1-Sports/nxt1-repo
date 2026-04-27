@@ -1192,6 +1192,23 @@ router.post('/pause/:id', appGuard, async (req: Request, res: Response) => {
     return;
   }
 
+  const fallbackAgentId =
+    typeof persistedJob.progress?.agentId === 'string' && persistedJob.progress.agentId.length > 0
+      ? persistedJob.progress.agentId
+      : 'router';
+  const pauseYieldState = buildPauseYieldState({
+    existingYieldState,
+    operationId,
+    fallbackAgentId,
+  });
+
+  // CRITICAL: Write 'paused' status to Firestore BEFORE calling abort().
+  // The BullMQ worker catches AbortError and immediately reads Firestore to
+  // determine whether the abort was a pause or an uncontrolled failure. If we
+  // abort first, the worker may read the old 'running' status and treat it as
+  // a failure instead of a controlled pause.
+  await repo.markPaused(operationId, pauseYieldState);
+
   const entry = activeAbortControllers.get(operationId);
   if (entry) {
     entry.controller.abort();
@@ -1209,18 +1226,6 @@ router.post('/pause/:id', appGuard, async (req: Request, res: Response) => {
       });
     }
   }
-
-  const fallbackAgentId =
-    typeof persistedJob.progress?.agentId === 'string' && persistedJob.progress.agentId.length > 0
-      ? persistedJob.progress.agentId
-      : 'router';
-  const pauseYieldState = buildPauseYieldState({
-    existingYieldState,
-    operationId,
-    fallbackAgentId,
-  });
-
-  await repo.markPaused(operationId, pauseYieldState);
 
   const nowIso = new Date().toISOString();
   const threadId = persistedJob.threadId ?? undefined;

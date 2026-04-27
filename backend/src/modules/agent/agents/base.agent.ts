@@ -432,6 +432,7 @@ export abstract class BaseAgent {
         agentId: this.id,
         stepId: pendingToolCall.id,
         toolName: pendingToolCall.function.name,
+        stageType: 'tool',
         icon: this.resolveToolStepIcon(pendingToolCall.function.name),
         message: this.resolveToolInvocationLabel(
           pendingToolCall.function.name,
@@ -461,6 +462,7 @@ export abstract class BaseAgent {
         agentId: this.id,
         stepId: pendingToolCall.id,
         toolName: pendingToolCall.function.name,
+        stageType: 'tool',
         toolSuccess: true,
         icon: this.resolveToolStepIcon(pendingToolCall.function.name),
         message: this.resolveToolInvocationLabel(
@@ -668,6 +670,7 @@ export abstract class BaseAgent {
             agentId: this.id,
             stepId: toolCall.id,
             toolName: toolCall.function.name,
+            stageType: 'tool',
             icon: this.resolveToolStepIcon(toolCall.function.name),
             message: this.resolveToolInvocationLabel(
               toolCall.function.name,
@@ -706,6 +709,7 @@ export abstract class BaseAgent {
               agentId: this.id,
               stepId: toolCall.id,
               toolName: toolCall.function.name,
+              stageType: 'tool',
               icon: this.resolveToolStepIcon(toolCall.function.name),
               message: this.resolveToolInvocationLabel(
                 toolCall.function.name,
@@ -803,6 +807,7 @@ export abstract class BaseAgent {
             agentId: this.id,
             stepId: toolCall.id,
             toolName: toolCall.function.name,
+            stageType: 'tool',
             toolSuccess,
             toolResult,
             icon: this.resolveToolStepIcon(toolCall.function.name),

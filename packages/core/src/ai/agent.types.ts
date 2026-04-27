@@ -1052,6 +1052,9 @@ export interface JobEvent {
   readonly text?: string;
   /** Tool name for `tool_call` / `tool_result` events. */
   readonly toolName?: string;
+  /** LLM-assigned stable tool call ID shared across step_active / emitStage / tool_result
+   *  events for the same tool invocation. Used as the stable frontend step row identity. */
+  readonly stepId?: string;
   /** Tool arguments (JSON string) for `tool_call` events. */
   readonly toolArgs?: string;
   /** Tool result summary for `tool_result` events. */
