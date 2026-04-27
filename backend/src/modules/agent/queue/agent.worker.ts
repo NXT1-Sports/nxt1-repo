@@ -1241,15 +1241,36 @@ export class AgentWorker {
     // SSE event is published by the route immediately after thread creation.
     const summary = this.resolveResultSummary(result);
 
+    // Flush any pending data/delta events to subscribers, but DEFER the terminal
+    // `operation` event until AFTER the Firestore write succeeds. This prevents
+    // a race where the frontend receives `complete` over SSE before the
+    // `AgentJobs/{operationId}` document is updated, leaving the UI in an
+    // inconsistent state (SSE says done, Firestore snapshot still shows running).
     await eventWriter.flush().catch(() => undefined);
     const terminalStatus = maxIterationsReached || planFailed ? 'error' : 'complete';
-    eventWriter.emit({
-      type: 'operation',
-      operationId: payload.operationId,
-      threadId: payloadThreadId,
-      status: terminalStatus === 'error' ? 'failed' : 'complete',
-      timestamp: new Date().toISOString(),
-    });
+    const terminalOperationStatus: 'failed' | 'complete' =
+      terminalStatus === 'error' ? 'failed' : 'complete';
+
+    const emitTerminalOperationEvent = async (
+      status: 'failed' | 'complete' = terminalOperationStatus
+    ): Promise<void> => {
+      try {
+        eventWriter.emit({
+          type: 'operation',
+          operationId: payload.operationId,
+          threadId: payloadThreadId,
+          status,
+          timestamp: new Date().toISOString(),
+        });
+        await eventWriter.flush().catch(() => undefined);
+      } catch (emitErr) {
+        logger.warn('Failed to emit terminal operation SSE event', {
+          operationId: payload.operationId,
+          status,
+          error: emitErr instanceof Error ? emitErr.message : String(emitErr),
+        });
+      }
+    };
 
     const terminalProgress: AgentJobProgress = {
       status: maxIterationsReached || planFailed ? 'failed' : 'completed',
@@ -1281,6 +1302,10 @@ export class AgentWorker {
           error: err instanceof Error ? err.message : String(err),
         });
       });
+
+      // Emit terminal SSE event AFTER persistence so the frontend's SSE-derived
+      // state cannot get ahead of the Firestore document.
+      await emitTerminalOperationEvent('failed');
 
       if (scheduledRunContext) {
         try {
@@ -1323,6 +1348,10 @@ export class AgentWorker {
           error: err instanceof Error ? err.message : String(err),
         });
       });
+
+      // Emit terminal SSE event AFTER persistence so the frontend's SSE-derived
+      // state cannot get ahead of the Firestore document.
+      await emitTerminalOperationEvent('failed');
 
       if (scheduledRunContext) {
         try {
@@ -1378,12 +1407,20 @@ export class AgentWorker {
           });
         });
 
+      // Notify clients that the operation failed even though it ran to completion
+      // logically — the durable record is the source of truth.
+      await emitTerminalOperationEvent('failed');
+
       throw new AgentEngineError(
         'AGENT_COMPLETION_PERSIST_FAILED',
         `Failed to persist completion state: ${persistError}`,
         { metadata: { operationId: payload.operationId } }
       );
     }
+
+    // Firestore write succeeded — now safe to tell SSE subscribers we're done.
+    // Frontend `onSnapshot` and SSE listeners will now agree on the terminal state.
+    await emitTerminalOperationEvent('complete');
 
     // Billing deduction: use centralized pipeline
     void executeBillingDeduction({

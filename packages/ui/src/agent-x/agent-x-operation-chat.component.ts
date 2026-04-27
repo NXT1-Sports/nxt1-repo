@@ -3026,8 +3026,20 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       const persistedPendingYieldState = this.coercePersistedYieldState(latestPausedYieldState);
 
       if (!items.length) {
+        // No DB rows returned for this thread. This is unexpected — startConversation
+        // always persists the user's prompt. Do NOT wipe the local message array
+        // here: doing so produces the "messages disappear on resume, only yield card
+        // shows" bug reported in production. If MongoDB has nothing for this thread,
+        // preserving whatever the user already saw is strictly better than blanking
+        // the timeline.
+        this.logger.warn('Operation thread returned no messages — preserving local state', {
+          threadId,
+          contextId: this.contextId,
+          hasPersistedYield: !!persistedPendingYieldState,
+          localMessageCount: this.messages().length,
+        });
+
         if (persistedPendingYieldState) {
-          this.messages.set([]);
           this.applyPendingYieldState(
             persistedPendingYieldState,
             threadId,
@@ -3036,10 +3048,6 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
           return;
         }
 
-        this.logger.warn('Operation thread returned no messages', {
-          threadId,
-          contextId: this.contextId,
-        });
         // Even with no messages, if the operation failed inject the error context
         if (this.operationStatus === 'error') {
           this.injectFailureMessage();
