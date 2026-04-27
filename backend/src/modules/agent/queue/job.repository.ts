@@ -196,21 +196,70 @@ function ttlFromNow(days: number): FirebaseFirestore.Timestamp {
  * instances, and deep structures) with a defensive fallback to an empty
  * object if the value cannot be serialized (e.g. circular references).
  */
+/**
+ * Recursively walk a value and produce a Firestore-safe deep clone.
+ * Used as a fallback when JSON round-trip fails (e.g. BigInt, circular refs).
+ *
+ * Firestore-safe values: string, number (finite), boolean, null, plain object,
+ * array, Timestamp/GeoPoint/DocumentReference (passed through untouched).
+ *
+ * Strips: undefined, function, symbol, BigInt, NaN/Infinity (→ null),
+ * class instances (→ plain object of own enumerable props), Maps, Sets.
+ */
+function deepSanitize(value: unknown, seen: WeakSet<object>): unknown {
+  if (value === null) return null;
+  if (value === undefined) return null;
+
+  const t = typeof value;
+  if (t === 'string' || t === 'boolean') return value;
+  if (t === 'number') return Number.isFinite(value as number) ? value : null;
+  if (t === 'bigint') return (value as bigint).toString();
+  if (t === 'function' || t === 'symbol') return null;
+
+  if (value instanceof Date) return value.toISOString();
+
+  if (Array.isArray(value)) {
+    if (seen.has(value)) return [];
+    seen.add(value);
+    return value.map((entry) => deepSanitize(entry, seen));
+  }
+
+  if (value instanceof Map) {
+    return Object.fromEntries(
+      Array.from(value.entries()).map(([k, v]) => [String(k), deepSanitize(v, seen)])
+    );
+  }
+
+  if (value instanceof Set) {
+    return Array.from(value.values()).map((v) => deepSanitize(v, seen));
+  }
+
+  if (typeof value === 'object') {
+    if (seen.has(value)) return {};
+    seen.add(value);
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      if (v === undefined) continue;
+      out[k] = deepSanitize(v, seen);
+    }
+    return out;
+  }
+
+  return null;
+}
+
 function sanitizeForFirestore<T>(value: T): T {
   if (value === null || value === undefined) return value;
   try {
-    // JSON round-trip strips `undefined` values, class instances, and other
-    // non-Firestore-safe types. A custom replacer first converts `undefined`
-    // to the JSON literal `null` so they become explicit nulls rather than
-    // being silently omitted, which can leave stale undefined-keyed fields.
-    // This is belt-and-suspenders on top of sanitizeAgentPayload.
+    // Fast path: JSON round-trip handles 99% of cases (strips undefined,
+    // class instances, functions, symbols). The replacer converts undefined
+    // to null so partial updates don't leave stale fields.
     const json = JSON.stringify(value, (_key, val) => (val === undefined ? null : val));
     return JSON.parse(json) as T;
   } catch {
-    // Circular reference or non-serializable value (BigInt, etc.) — return a safe shell
-    if (Array.isArray(value)) return [] as unknown as T;
-    if (typeof value === 'object') return {} as unknown as T;
-    return value;
+    // Slow path: JSON.stringify threw (BigInt, circular ref, etc.).
+    // Fall back to a recursive sanitizer that preserves data.
+    return deepSanitize(value, new WeakSet()) as T;
   }
 }
 
