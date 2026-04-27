@@ -79,6 +79,8 @@ export function sanitizeAgentPayload<T>(value: T): T {
   if (value && typeof value === 'object') {
     const sanitizedEntries = Object.entries(value as Record<string, unknown>)
       .filter(([key]) => !isSensitiveKey(key))
+      // Strip undefined values — Firestore rejects `undefined` at any nesting level.
+      .filter(([, val]) => val !== undefined)
       .map(([key, entry]) => [key, sanitizeAgentPayload(entry)]);
     return Object.fromEntries(sanitizedEntries) as T;
   }

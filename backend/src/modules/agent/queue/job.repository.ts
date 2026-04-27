@@ -35,6 +35,7 @@ import type {
   OperationOutcomeCode,
   AgentYieldState,
 } from '@nxt1/core';
+import { logger } from '../../../utils/logger.js';
 import type { AgentJobProgress } from './queue.types.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
@@ -186,6 +187,127 @@ function ttlFromNow(days: number): FirebaseFirestore.Timestamp {
   return Timestamp.fromMillis(expiresAtMs);
 }
 
+/**
+ * Recursively strip `undefined` values and convert non-plain-object types
+ * to Firestore-safe primitives. Firestore rejects documents containing
+ * `undefined` values or non-serializable nested entities (class instances,
+ * Maps, Sets, etc.) with INVALID_ARGUMENT errors.
+ *
+ * Critical Firestore constraint handled here: **nested arrays are not
+ * supported**. An array containing another array (e.g. `[[1,2],[3,4]]`)
+ * is rejected with "invalid nested entity". MCP tool outputs (firecrawl,
+ * scrapers) routinely produce such shapes, so we wrap inner arrays in a
+ * `{ values: [...] }` object before writing.
+ */
+/**
+ * Recursively walk a value and produce a Firestore-safe deep clone.
+ *
+ * Firestore-safe values: string, number (finite), boolean, null, plain object,
+ * array of non-array primitives/objects.
+ *
+ * Strips: undefined, function, symbol, NaN/Infinity (→ null), class instances
+ * (→ plain object of own enumerable props), Maps, Sets, BigInt (→ string).
+ *
+ * Wraps: nested arrays as `{ values: [...] }` (Firestore disallows array of arrays).
+ */
+function deepSanitize(value: unknown, seen: WeakSet<object>, depth = 0): unknown {
+  // Hard depth cap — Firestore allows max 20 levels of nesting.
+  if (depth > 18) return null;
+
+  if (value === null || value === undefined) return null;
+
+  const t = typeof value;
+  if (t === 'string' || t === 'boolean') return value;
+  if (t === 'number') return Number.isFinite(value as number) ? value : null;
+  if (t === 'bigint') return (value as bigint).toString();
+  if (t === 'function' || t === 'symbol') return null;
+
+  if (value instanceof Date) return value.toISOString();
+
+  if (Array.isArray(value)) {
+    if (seen.has(value)) return [];
+    seen.add(value);
+    return value.map((entry) => {
+      const sanitized = deepSanitize(entry, seen, depth + 1);
+      // Firestore disallows nested arrays — wrap any inner array in an object.
+      return Array.isArray(sanitized) ? { values: sanitized } : sanitized;
+    });
+  }
+
+  if (value instanceof Map) {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of value.entries()) {
+      const sk = String(k);
+      const sv = deepSanitize(v, seen, depth + 1);
+      if (sv !== undefined) out[sk] = sv;
+    }
+    return out;
+  }
+
+  if (value instanceof Set) {
+    return Array.from(value.values()).map((v) => {
+      const sanitized = deepSanitize(v, seen, depth + 1);
+      return Array.isArray(sanitized) ? { values: sanitized } : sanitized;
+    });
+  }
+
+  if (typeof value === 'object') {
+    if (seen.has(value)) return {};
+    seen.add(value);
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      if (v === undefined) continue;
+      // Firestore field names cannot be empty strings.
+      const safeKey = k.length === 0 ? '_' : k;
+      out[safeKey] = deepSanitize(v, seen, depth + 1);
+    }
+    return out;
+  }
+
+  return null;
+}
+
+function sanitizeForFirestore<T>(value: T): T {
+  if (value === null || value === undefined) return value;
+  // Always run the recursive walker — JSON round-trip alone does NOT handle
+  // nested arrays, which Firestore rejects with INVALID_ARGUMENT.
+  return deepSanitize(value, new WeakSet()) as T;
+}
+
+/**
+ * Diagnostic helper: produce a compact type/shape description of a value
+ * so we can identify which path is causing a Firestore INVALID_ARGUMENT
+ * without leaking PII or producing massive logs.
+ */
+function describeStructure(value: unknown, depth: number, maxDepth: number): unknown {
+  if (depth > maxDepth) return '<truncated-depth>';
+  if (value === null) return 'null';
+  if (value === undefined) return 'undefined';
+  const t = typeof value;
+  if (t !== 'object') return t;
+  if (Array.isArray(value)) {
+    if (value.length === 0) return 'array[0]';
+    const sampleTypes = new Set<string>();
+    for (const entry of value.slice(0, 3)) {
+      sampleTypes.add(
+        Array.isArray(entry) ? 'NESTED_ARRAY' : entry === null ? 'null' : typeof entry
+      );
+    }
+    return {
+      __kind: 'array',
+      length: value.length,
+      sample: Array.from(sampleTypes),
+      first: describeStructure(value[0], depth + 1, maxDepth),
+    };
+  }
+  const obj = value as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const k of Object.keys(obj).slice(0, 20)) {
+    out[k] = describeStructure(obj[k], depth + 1, maxDepth);
+  }
+  return out;
+}
+
 // ─── Document Shape ─────────────────────────────────────────────────────────
 
 export interface AgentJobDocument {
@@ -297,18 +419,33 @@ export class AgentJobRepository {
       outcomeCode: 'success_default',
     });
 
-    await this.db
-      .collection(COLLECTION)
-      .doc(operationId)
-      .update({
-        status: 'completed' satisfies AgentOperationStatus,
-        result,
-        progress,
-        yieldState: null,
-        updatedAt: FieldValue.serverTimestamp(),
-        completedAt: FieldValue.serverTimestamp(),
-        expiresAt: ttlFromNow(TERMINAL_JOB_RETENTION_DAYS),
+    // Sanitize before write: strip `undefined` values and non-serializable
+    // nested objects that cause Firestore INVALID_ARGUMENT errors.
+    const safeResult = sanitizeForFirestore(result);
+
+    try {
+      await this.db
+        .collection(COLLECTION)
+        .doc(operationId)
+        .update({
+          status: 'completed' satisfies AgentOperationStatus,
+          result: safeResult,
+          progress,
+          yieldState: null,
+          updatedAt: FieldValue.serverTimestamp(),
+          completedAt: FieldValue.serverTimestamp(),
+          expiresAt: ttlFromNow(TERMINAL_JOB_RETENTION_DAYS),
+        });
+    } catch (err) {
+      // Diagnostic: dump the structure of the offending payload so we can
+      // pinpoint which field shape is being rejected by Firestore.
+      logger.error('markCompleted Firestore update failed — dumping payload structure', {
+        operationId,
+        error: err instanceof Error ? err.message : String(err),
+        resultStructure: describeStructure(safeResult, 0, 4),
       });
+      throw err;
+    }
   }
 
   /**
@@ -340,6 +477,7 @@ export class AgentJobRepository {
    * Stores the serialized yield state so the resume route can reconstruct the agent.
    */
   async markYielded(operationId: string, yieldState: AgentYieldState): Promise<void> {
+    const safeYieldState = sanitizeForFirestore(yieldState);
     await this.db
       .collection(COLLECTION)
       .doc(operationId)
@@ -348,7 +486,7 @@ export class AgentJobRepository {
           yieldState.reason === 'needs_approval'
             ? ('awaiting_approval' satisfies AgentOperationStatus)
             : ('awaiting_input' satisfies AgentOperationStatus),
-        yieldState,
+        yieldState: safeYieldState,
         updatedAt: FieldValue.serverTimestamp(),
         expiresAt: ttlFromNow(ACTIVE_JOB_RETENTION_DAYS),
       });
@@ -367,7 +505,7 @@ export class AgentJobRepository {
       .doc(operationId)
       .update({
         status: 'paused' satisfies AgentOperationStatus,
-        yieldState,
+        yieldState: sanitizeForFirestore(yieldState),
         updatedAt: FieldValue.serverTimestamp(),
         expiresAt: ttlFromNow(ACTIVE_JOB_RETENTION_DAYS),
       });

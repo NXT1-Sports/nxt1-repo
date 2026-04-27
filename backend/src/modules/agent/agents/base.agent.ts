@@ -432,6 +432,7 @@ export abstract class BaseAgent {
         agentId: this.id,
         stepId: pendingToolCall.id,
         toolName: pendingToolCall.function.name,
+        stageType: 'tool',
         icon: this.resolveToolStepIcon(pendingToolCall.function.name),
         message: this.resolveToolInvocationLabel(
           pendingToolCall.function.name,
@@ -461,6 +462,7 @@ export abstract class BaseAgent {
         agentId: this.id,
         stepId: pendingToolCall.id,
         toolName: pendingToolCall.function.name,
+        stageType: 'tool',
         toolSuccess: true,
         icon: this.resolveToolStepIcon(pendingToolCall.function.name),
         message: this.resolveToolInvocationLabel(
@@ -543,6 +545,12 @@ export abstract class BaseAgent {
       // SSE chat now provides onStreamEvent, so streaming is always active for live requests.
       const result = onStreamEvent
         ? await llm.completeStream(messages, llmOptions, (delta) => {
+            // Abort the stream eagerly if the operation was paused/cancelled
+            // mid-stream — without this check, deltas could keep flowing for
+            // hundreds of ms after `signal.abort()` because the underlying
+            // fetch reader buffers chunks. Throwing here causes the OpenRouter
+            // adapter to reject and propagate the AbortError up.
+            this.throwIfAborted(context.signal);
             if (delta.content) {
               onStreamEvent({
                 type: 'delta',
@@ -668,6 +676,7 @@ export abstract class BaseAgent {
             agentId: this.id,
             stepId: toolCall.id,
             toolName: toolCall.function.name,
+            stageType: 'tool',
             icon: this.resolveToolStepIcon(toolCall.function.name),
             message: this.resolveToolInvocationLabel(
               toolCall.function.name,
@@ -706,6 +715,7 @@ export abstract class BaseAgent {
               agentId: this.id,
               stepId: toolCall.id,
               toolName: toolCall.function.name,
+              stageType: 'tool',
               icon: this.resolveToolStepIcon(toolCall.function.name),
               message: this.resolveToolInvocationLabel(
                 toolCall.function.name,
@@ -803,6 +813,7 @@ export abstract class BaseAgent {
             agentId: this.id,
             stepId: toolCall.id,
             toolName: toolCall.function.name,
+            stageType: 'tool',
             toolSuccess,
             toolResult,
             icon: this.resolveToolStepIcon(toolCall.function.name),

@@ -662,7 +662,7 @@ export class AgentWorker {
             .catch(() => undefined);
         },
         onPersistedEventMetrics: ({ type, durationMs, seq }) => {
-          if (durationMs >= 400) {
+          if (durationMs >= 1500) {
             logger.warn('Stream event persistence latency high', {
               operationId: payload.operationId,
               eventType: type,
@@ -802,6 +802,59 @@ export class AgentWorker {
                 error: e instanceof Error ? e.message : String(e),
               });
             });
+          }
+
+          // Persist whatever partial response the agent streamed so far to MongoDB.
+          // Without this, when the user returns to the session they see the yield
+          // card but all streamed content (tool steps, partial text) is gone.
+          // This applies to both pause and cancel — cancelled jobs also benefit from
+          // having partial context visible in the thread.
+          if (this.chatService) {
+            const contextObj =
+              typeof payload.context === 'object' && payload.context !== null
+                ? payload.context
+                : {};
+            const threadId =
+              typeof (contextObj as Record<string, unknown>)['threadId'] === 'string'
+                ? ((contextObj as Record<string, unknown>)['threadId'] as string)
+                : undefined;
+
+            if (threadId) {
+              const partialSnapshot = persistedAssistantStream.snapshot();
+              const hasContent =
+                partialSnapshot.content.length > 0 ||
+                partialSnapshot.steps.length > 0 ||
+                partialSnapshot.parts.length > 0;
+
+              if (hasContent) {
+                try {
+                  await this.chatService.addMessage({
+                    threadId,
+                    userId: payload.userId,
+                    role: 'assistant',
+                    content: partialSnapshot.content || `[${controlledMessage}]`,
+                    origin: payload.origin,
+                    agentId: 'router',
+                    operationId: payload.operationId,
+                    ...(partialSnapshot.steps.length > 0 ? { steps: partialSnapshot.steps } : {}),
+                    ...(partialSnapshot.parts.length > 0 ? { parts: partialSnapshot.parts } : {}),
+                  });
+                  logger.info('Persisted partial agent response on controlled abort', {
+                    operationId: payload.operationId,
+                    threadId,
+                    controlledStatus,
+                    contentLength: partialSnapshot.content.length,
+                    stepCount: partialSnapshot.steps.length,
+                  });
+                } catch (chatErr) {
+                  logger.warn('Failed to persist partial response on controlled abort', {
+                    operationId: payload.operationId,
+                    threadId,
+                    error: chatErr instanceof Error ? chatErr.message : String(chatErr),
+                  });
+                }
+              }
+            }
           }
 
           logger.info('Agent job aborted after explicit lifecycle transition', {
@@ -1188,15 +1241,36 @@ export class AgentWorker {
     // SSE event is published by the route immediately after thread creation.
     const summary = this.resolveResultSummary(result);
 
+    // Flush any pending data/delta events to subscribers, but DEFER the terminal
+    // `operation` event until AFTER the Firestore write succeeds. This prevents
+    // a race where the frontend receives `complete` over SSE before the
+    // `AgentJobs/{operationId}` document is updated, leaving the UI in an
+    // inconsistent state (SSE says done, Firestore snapshot still shows running).
     await eventWriter.flush().catch(() => undefined);
     const terminalStatus = maxIterationsReached || planFailed ? 'error' : 'complete';
-    eventWriter.emit({
-      type: 'operation',
-      operationId: payload.operationId,
-      threadId: payloadThreadId,
-      status: terminalStatus === 'error' ? 'failed' : 'complete',
-      timestamp: new Date().toISOString(),
-    });
+    const terminalOperationStatus: 'failed' | 'complete' =
+      terminalStatus === 'error' ? 'failed' : 'complete';
+
+    const emitTerminalOperationEvent = async (
+      status: 'failed' | 'complete' = terminalOperationStatus
+    ): Promise<void> => {
+      try {
+        eventWriter.emit({
+          type: 'operation',
+          operationId: payload.operationId,
+          threadId: payloadThreadId,
+          status,
+          timestamp: new Date().toISOString(),
+        });
+        await eventWriter.flush().catch(() => undefined);
+      } catch (emitErr) {
+        logger.warn('Failed to emit terminal operation SSE event', {
+          operationId: payload.operationId,
+          status,
+          error: emitErr instanceof Error ? emitErr.message : String(emitErr),
+        });
+      }
+    };
 
     const terminalProgress: AgentJobProgress = {
       status: maxIterationsReached || planFailed ? 'failed' : 'completed',
@@ -1228,6 +1302,10 @@ export class AgentWorker {
           error: err instanceof Error ? err.message : String(err),
         });
       });
+
+      // Emit terminal SSE event AFTER persistence so the frontend's SSE-derived
+      // state cannot get ahead of the Firestore document.
+      await emitTerminalOperationEvent('failed');
 
       if (scheduledRunContext) {
         try {
@@ -1270,6 +1348,10 @@ export class AgentWorker {
           error: err instanceof Error ? err.message : String(err),
         });
       });
+
+      // Emit terminal SSE event AFTER persistence so the frontend's SSE-derived
+      // state cannot get ahead of the Firestore document.
+      await emitTerminalOperationEvent('failed');
 
       if (scheduledRunContext) {
         try {
@@ -1325,12 +1407,20 @@ export class AgentWorker {
           });
         });
 
+      // Notify clients that the operation failed even though it ran to completion
+      // logically — the durable record is the source of truth.
+      await emitTerminalOperationEvent('failed');
+
       throw new AgentEngineError(
         'AGENT_COMPLETION_PERSIST_FAILED',
         `Failed to persist completion state: ${persistError}`,
         { metadata: { operationId: payload.operationId } }
       );
     }
+
+    // Firestore write succeeded — now safe to tell SSE subscribers we're done.
+    // Frontend `onSnapshot` and SSE listeners will now agree on the terminal state.
+    await emitTerminalOperationEvent('complete');
 
     // Billing deduction: use centralized pipeline
     void executeBillingDeduction({
@@ -1614,6 +1704,8 @@ export class AgentWorker {
             id: event.stepId ?? event.agentId ?? 'unknown',
             label: event.message ?? '',
             agentId: event.agentId,
+            stageType: event.stageType,
+            stage: event.stage,
             status: 'active',
             icon: event.icon,
           },
@@ -1626,6 +1718,8 @@ export class AgentWorker {
             id: event.stepId ?? event.agentId ?? 'unknown',
             label: event.message ?? '',
             agentId: event.agentId,
+            stageType: event.stageType,
+            stage: event.stage,
             status: 'success',
             icon: event.icon,
           },
@@ -1638,22 +1732,18 @@ export class AgentWorker {
             id: event.stepId ?? event.agentId ?? 'unknown',
             label: event.message ?? '',
             agentId: event.agentId,
+            stageType: event.stageType,
+            stage: event.stage,
             status: 'error',
             icon: event.icon,
           },
         };
       case 'tool_call':
-        return {
-          event: 'step',
-          data: {
-            ...seqPayload,
-            id: event.stepId ?? event.toolName ?? 'tool',
-            label: event.message ?? '',
-            agentId: event.agentId,
-            status: 'active',
-            icon: event.icon,
-          },
-        };
+        // tool_call fires during LLM streaming and has no stepId yet.
+        // step_active always follows immediately with the same stepId and a
+        // richer label, so skip SSE step creation for tool_call to avoid
+        // creating a duplicate active row that would never resolve.
+        return null;
       case 'tool_result':
         return {
           event: 'step',
@@ -1662,6 +1752,8 @@ export class AgentWorker {
             id: event.stepId ?? event.toolName ?? 'tool',
             label: event.message ?? '',
             agentId: event.agentId,
+            stageType: event.stageType,
+            stage: event.stage,
             status: event.toolSuccess ? 'success' : 'error',
             icon: event.icon,
           },

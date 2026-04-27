@@ -319,10 +319,17 @@ export class AgentXOperationEventService {
             // Hide router-stage chatter (Reviewing, Routing, Planning) from
             // the rebuilt step list — only real tool calls are visible rows.
             if (event.type === 'step_active' && event.stageType !== 'tool') break;
+            // tool_call events have no stepId and no message — skip to avoid
+            // duplicate active rows (step_active follows with proper stepId + label).
+            if (event.type === 'tool_call') break;
             const label = this.resolveBackendStepLabel(event);
             if (!label) break;
-            const stepId = `${event.toolName ?? 'step'}-${event.seq}`;
-            if (event.toolName) {
+            // Prefer the LLM-assigned stepId for stable identity across sub-step
+            // stage updates. Same emitStage events share the same stepId so they
+            // update the same row instead of creating multiple orphaned rows.
+            const explicitStepId = this.getEventStepId(event);
+            const stepId = explicitStepId ?? `${event.toolName ?? 'step'}-${event.seq}`;
+            if (!explicitStepId && event.toolName) {
               const q = pendingStepIds.get(event.toolName) ?? [];
               q.push(stepId);
               pendingStepIds.set(event.toolName, q);
@@ -336,8 +343,12 @@ export class AgentXOperationEventService {
             if (event.type === 'step_done' && event.stageType !== 'tool') break;
             const label = this.resolveBackendStepLabel(event);
             if (!label) break;
-            const q = event.toolName ? pendingStepIds.get(event.toolName) : undefined;
-            const stepId = q?.shift() ?? `${event.toolName ?? 'step'}-${event.seq}`;
+            // Prefer the LLM-assigned stepId for direct resolution.
+            const explicitStepId = this.getEventStepId(event);
+            const stepId =
+              explicitStepId ??
+              (event.toolName ? pendingStepIds.get(event.toolName)?.shift() : undefined) ??
+              `${event.toolName ?? 'step'}-${event.seq}`;
             const idx = steps.findIndex((s) => s.id === stepId);
             const resolved = this.buildToolStep(
               event,
@@ -664,8 +675,15 @@ export class AgentXOperationEventService {
         if (isRouterChatter) break;
         const label = this.resolveBackendStepLabel(event);
         if (!label) break;
-        const stepId = `${event.toolName ?? 'step'}-${event.seq}`;
-        if (event.toolName) {
+        // Prefer the LLM-assigned stepId (stable, unique per tool call) so that
+        // sub-step stage updates (emitStage) update the same row instead of
+        // creating multiple orphaned active rows. Fall back to seq-based ID when
+        // stepId is absent (legacy events).
+        const explicitStepId = this.getEventStepId(event);
+        const stepId = explicitStepId ?? `${event.toolName ?? 'step'}-${event.seq}`;
+        if (!explicitStepId && event.toolName) {
+          // Only push to FIFO queue when there is no explicit stepId,
+          // so tool_result can correlate via the same queue.
           const queue = pendingStepIds.get(event.toolName) ?? [];
           queue.push(stepId);
           pendingStepIds.set(event.toolName, queue);
@@ -675,24 +693,22 @@ export class AgentXOperationEventService {
       }
 
       case 'tool_call': {
-        const label = this.resolveBackendStepLabel(event);
-        if (!label) break;
-        const stepId = `${event.toolName ?? 'tool'}-${event.seq}`;
-        if (event.toolName) {
-          const queue = pendingStepIds.get(event.toolName) ?? [];
-          queue.push(stepId);
-          pendingStepIds.set(event.toolName, queue);
-        }
-        callbacks.onStep(this.buildToolStep(event, stepId, 'active', label));
+        // tool_call fires during LLM streaming and has no stepId yet.
+        // step_active always follows with the real stepId and a richer label,
+        // so skip step creation here to avoid duplicate active rows.
         break;
       }
 
       case 'tool_result': {
         const label = this.resolveBackendStepLabel(event);
         if (!label) break;
-        // Pair with the earliest pending step_active/tool_call for this tool
-        const queue = event.toolName ? pendingStepIds.get(event.toolName) : undefined;
-        const stepId = queue?.shift() ?? `${event.toolName ?? 'tool'}-${event.seq}`;
+        // Prefer the LLM-assigned stepId for direct resolution (no queue pop needed).
+        // Fall back to FIFO queue when stepId is absent (legacy events).
+        const explicitStepId = this.getEventStepId(event);
+        const stepId =
+          explicitStepId ??
+          (event.toolName ? pendingStepIds.get(event.toolName)?.shift() : undefined) ??
+          `${event.toolName ?? 'tool'}-${event.seq}`;
         callbacks.onStep(
           this.buildToolStep(
             event,
@@ -800,6 +816,11 @@ export class AgentXOperationEventService {
    * Convert a tool result object into a short human-readable string
    * for the tool step detail accordion.
    */
+  private getEventStepId(event: JobEvent): string | null {
+    const stepId = (event as JobEvent & { readonly stepId?: unknown }).stepId;
+    return typeof stepId === 'string' && stepId.trim().length > 0 ? stepId : null;
+  }
+
   private summarizeToolResult(result: Record<string, unknown>): string {
     // Common patterns: { items: [...] }, { count: N }, { url: '...' }
     if (Array.isArray(result['items'])) {

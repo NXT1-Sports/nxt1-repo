@@ -3032,8 +3032,20 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       const persistedPendingYieldState = this.coercePersistedYieldState(latestPausedYieldState);
 
       if (!items.length) {
+        // No DB rows returned for this thread. This is unexpected — startConversation
+        // always persists the user's prompt. Do NOT wipe the local message array
+        // here: doing so produces the "messages disappear on resume, only yield card
+        // shows" bug reported in production. If MongoDB has nothing for this thread,
+        // preserving whatever the user already saw is strictly better than blanking
+        // the timeline.
+        this.logger.warn('Operation thread returned no messages — preserving local state', {
+          threadId,
+          contextId: this.contextId,
+          hasPersistedYield: !!persistedPendingYieldState,
+          localMessageCount: this.messages().length,
+        });
+
         if (persistedPendingYieldState) {
-          this.messages.set([]);
           this.applyPendingYieldState(
             persistedPendingYieldState,
             threadId,
@@ -3042,10 +3054,6 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
           return;
         }
 
-        this.logger.warn('Operation thread returned no messages', {
-          threadId,
-          contextId: this.contextId,
-        });
         // Even with no messages, if the operation failed inject the error context
         if (this.operationStatus === 'error') {
           this.injectFailureMessage();
@@ -5167,7 +5175,6 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
           },
 
           onStep: (evt: AgentXStreamStepEvent) => {
-            this.flushPendingTypingDelta();
             const label = evt.label.trim();
             if (!label) return;
             const rawStep: AgentXToolStep = {
@@ -5201,14 +5208,56 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
             // indicator. This matches VS Code Copilot's chat UX.
             if (evt.stageType !== 'tool') return;
 
+            // Capture and drain any buffered delta text so it is committed in
+            // the same signal write as the step upsert. A single messages.update()
+            // call means ONE change-detection cycle — not two — per step event,
+            // which eliminates the visual flicker of text appearing then
+            // immediately re-rendering with a new tool step row.
+            const deltaToFlush = this.pendingTypingDelta;
+            this.pendingTypingDelta = '';
+            if (this.pendingTypingFlushFrame !== null) {
+              if (typeof cancelAnimationFrame === 'function') {
+                cancelAnimationFrame(this.pendingTypingFlushFrame);
+              }
+              this.pendingTypingFlushFrame = null;
+            }
+
             this.messages.update((msgs) =>
               msgs.map((m) => {
                 if (m.id !== streamingId) return m;
+
+                // 1. Apply any buffered delta text first (keeps text-before-tool ordering).
+                let nextParts = [...(m.parts ?? [])];
+                let nextContent = m.content;
+                if (deltaToFlush) {
+                  const last = nextParts[nextParts.length - 1];
+                  if (last?.type === 'text') {
+                    nextParts[nextParts.length - 1] = {
+                      type: 'text',
+                      content: last.content + deltaToFlush,
+                    };
+                  } else {
+                    nextParts.push({ type: 'text', content: deltaToFlush });
+                  }
+                  nextContent = nextContent + deltaToFlush;
+                }
+
+                // 2. Upsert the step row into the parts list.
+                nextParts = this.withUpsertedToolStepPart(nextParts, step);
+
+                // 3. Upsert into flat steps array (used by thinkingStep computed).
                 const prev = m.steps ?? [];
                 const idx = prev.findIndex((s) => s.id === evt.id);
-                const next =
+                const nextSteps =
                   idx >= 0 ? prev.map((s, i) => (i === idx ? step : s)) : [...prev, step];
-                return { ...m, steps: next, parts: this.withUpsertedToolStepPart(m.parts, step) };
+
+                return {
+                  ...m,
+                  content: nextContent,
+                  isTyping: false,
+                  steps: nextSteps,
+                  parts: nextParts,
+                };
               })
             );
           },
@@ -5271,6 +5320,21 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
                 evt.yieldState,
                 evt.operationId ?? this._currentOperationId ?? this.contextId
               );
+            }
+
+            // Drive operationStatus directly from the SSE operation event so the
+            // UI transitions immediately — without waiting for the Firestore
+            // AgentJobs document to update (which happens slightly later).
+            if (evt.status === 'complete') {
+              this.operationStatus = 'complete';
+            } else if (evt.status === 'failed') {
+              this.operationStatus = 'error';
+            } else if (evt.status === 'paused') {
+              this.operationStatus = 'paused';
+            } else if (evt.status === 'awaiting_input') {
+              this.operationStatus = 'awaiting_input';
+            } else if (evt.status === 'awaiting_approval') {
+              this.operationStatus = 'awaiting_approval';
             }
 
             // Forward to the shared event service so the operations log sidebar

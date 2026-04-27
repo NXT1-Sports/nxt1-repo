@@ -35,7 +35,7 @@ import type {
   LiveViewAuthStatus,
   LiveViewSessionCapabilities,
 } from '@nxt1/core';
-import { FirecrawlProfileService } from '../firecrawl-profile.service.js';
+import { FirecrawlProfileService } from '../browser/firecrawl-profile.service.js';
 import { validateUrl } from './url-validator.js';
 import { logger } from '../../../../../../utils/logger.js';
 import { AgentEngineError } from '../../../../exceptions/agent-engine.error.js';

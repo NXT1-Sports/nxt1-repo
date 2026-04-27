@@ -178,14 +178,17 @@ function isPlannerExecutionOptions(
 const intentClassificationSchema = z.object({
   isConversational: z
     .boolean()
+    .default(false)
     .describe('True if this is conversational Q&A; false if planning/delegation needed'),
-  reasoning: z.string().describe('Brief explanation of the classification'),
+  reasoning: z.string().default('').describe('Brief explanation of the classification'),
   directResponse: z
     .string()
     .nullable()
+    .default(null)
     .describe('Direct answer to the user when isConversational=true'),
   estimatedComplexity: z
     .enum(['simple', 'moderate', 'complex'])
+    .default('moderate')
     .describe('Rough complexity estimate'),
 });
 
@@ -404,7 +407,7 @@ Classify it. If conversational, also provide a direct answer. If planning-requir
         tier: chatRouting.tier,
         maxTokens: chatRouting.maxTokens,
         temperature: 0.3,
-        timeoutMs: 8_000,
+        timeoutMs: 5_000,
         outputSchema: {
           name: 'intent_classification',
           schema: intentClassificationSchema,
