@@ -42,8 +42,26 @@ env:
     secret: GMAIL_APP_PASSWORD
     availability:
       - RUNTIME
+  - variable: STAGING_GOOGLE_WORKSPACE_MCP_URL
+    secret: STAGING_GOOGLE_WORKSPACE_MCP_URL
+    availability:
+      - RUNTIME
+  - variable: PRODUCTION_GOOGLE_WORKSPACE_MCP_URL
+    secret: PRODUCTION_GOOGLE_WORKSPACE_MCP_URL
+    availability:
+      - RUNTIME
   - variable: GOOGLE_WORKSPACE_MCP_URL
     secret: GOOGLE_WORKSPACE_MCP_URL
+    availability:
+      - RUNTIME
+  - variable: STAGING_GOOGLE_WORKSPACE_MCP_STATE_BUCKET
+    secret: STAGING_GOOGLE_WORKSPACE_MCP_STATE_BUCKET
+    availability:
+      - RUNTIME
+  - variable: PRODUCTION_GOOGLE_WORKSPACE_MCP_STATE_BUCKET
+    secret: PRODUCTION_GOOGLE_WORKSPACE_MCP_STATE_BUCKET
+    availability:
+      - RUNTIME
   - variable: GOOGLE_WORKSPACE_MCP_STATE_BUCKET
     secret: GOOGLE_WORKSPACE_MCP_STATE_BUCKET
     availability:
