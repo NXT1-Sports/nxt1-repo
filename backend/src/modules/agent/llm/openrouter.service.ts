@@ -107,9 +107,15 @@ function buildHeliconeHeaders(
 }
 
 /**
- * Recursively strip JSON Schema keywords that OpenAI's structured output mode
- * does not support. Currently strips `propertyNames`, which Zod emits when
- * `z.record(z.string(), ...)` is converted via `z.toJSONSchema()`.
+ * Recursively strip JSON Schema keywords that Anthropic / OpenAI structured
+ * output mode do not support. Zod v4's `z.toJSONSchema()` emits several
+ * keywords that providers reject:
+ *
+ * - `$schema`        — Providers don't accept the draft-2020-12 $schema URI;
+ *                      Anthropic rejects the whole request when it appears.
+ * - `propertyNames`  — Emitted by `z.record(z.string(), ...)`. Neither
+ *                      Anthropic nor OpenAI strict-mode accept this keyword.
+ * - `unevaluatedProperties` — Same issue as propertyNames.
  *
  * OpenAI structured output whitelist reference:
  * https://platform.openai.com/docs/guides/structured-outputs/supported-schemas
@@ -122,7 +128,9 @@ function sanitizeJsonSchemaForOpenAI(schema: unknown): unknown {
 
   for (const [key, value] of Object.entries(obj)) {
     // Drop unsupported keywords
+    if (key === '$schema') continue;
     if (key === 'propertyNames') continue;
+    if (key === 'unevaluatedProperties') continue;
 
     // Recurse into nested schemas
     if (value && typeof value === 'object' && !Array.isArray(value)) {
@@ -830,7 +838,11 @@ export class OpenRouterService {
         type: 'json_schema',
         json_schema: {
           name: options.outputSchema.name,
-          strict: true,
+          // strict: false — schemas containing z.record() produce
+          // `additionalProperties: {}` which strict mode rejects.
+          // Non-strict mode still enforces the schema shape but permits
+          // open-ended objects.
+          strict: false,
           schema: sanitizeJsonSchemaForOpenAI(z.toJSONSchema(options.outputSchema.schema)),
         },
       };
