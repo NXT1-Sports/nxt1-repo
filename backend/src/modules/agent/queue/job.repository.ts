@@ -186,6 +186,28 @@ function ttlFromNow(days: number): FirebaseFirestore.Timestamp {
   return Timestamp.fromMillis(expiresAtMs);
 }
 
+/**
+ * Recursively strip `undefined` values and convert non-plain-object types
+ * to Firestore-safe primitives. Firestore rejects documents containing
+ * `undefined` values or non-serializable nested entities (class instances,
+ * Maps, Sets, etc.) with INVALID_ARGUMENT errors.
+ *
+ * Uses a JSON round-trip as the primary strategy (handles undefined, class
+ * instances, and deep structures) with a defensive fallback to an empty
+ * object if the value cannot be serialized (e.g. circular references).
+ */
+function sanitizeForFirestore<T>(value: T): T {
+  if (value === null || value === undefined) return value;
+  try {
+    return JSON.parse(JSON.stringify(value)) as T;
+  } catch {
+    // Circular reference or non-serializable value — return a safe shell
+    if (Array.isArray(value)) return [] as unknown as T;
+    if (typeof value === 'object') return {} as unknown as T;
+    return value;
+  }
+}
+
 // ─── Document Shape ─────────────────────────────────────────────────────────
 
 export interface AgentJobDocument {
@@ -297,12 +319,16 @@ export class AgentJobRepository {
       outcomeCode: 'success_default',
     });
 
+    // Sanitize before write: strip `undefined` values and non-serializable
+    // nested objects that cause Firestore INVALID_ARGUMENT errors.
+    const safeResult = sanitizeForFirestore(result);
+
     await this.db
       .collection(COLLECTION)
       .doc(operationId)
       .update({
         status: 'completed' satisfies AgentOperationStatus,
-        result,
+        result: safeResult,
         progress,
         yieldState: null,
         updatedAt: FieldValue.serverTimestamp(),
@@ -340,6 +366,7 @@ export class AgentJobRepository {
    * Stores the serialized yield state so the resume route can reconstruct the agent.
    */
   async markYielded(operationId: string, yieldState: AgentYieldState): Promise<void> {
+    const safeYieldState = sanitizeForFirestore(yieldState);
     await this.db
       .collection(COLLECTION)
       .doc(operationId)
@@ -348,7 +375,7 @@ export class AgentJobRepository {
           yieldState.reason === 'needs_approval'
             ? ('awaiting_approval' satisfies AgentOperationStatus)
             : ('awaiting_input' satisfies AgentOperationStatus),
-        yieldState,
+        yieldState: safeYieldState,
         updatedAt: FieldValue.serverTimestamp(),
         expiresAt: ttlFromNow(ACTIVE_JOB_RETENTION_DAYS),
       });
@@ -367,7 +394,7 @@ export class AgentJobRepository {
       .doc(operationId)
       .update({
         status: 'paused' satisfies AgentOperationStatus,
-        yieldState,
+        yieldState: sanitizeForFirestore(yieldState),
         updatedAt: FieldValue.serverTimestamp(),
         expiresAt: ttlFromNow(ACTIVE_JOB_RETENTION_DAYS),
       });
