@@ -104,6 +104,10 @@ export class ChatAttachmentDto {
   url!: string;
 
   @IsString()
+  @IsOptional()
+  storagePath?: string;
+
+  @IsString()
   @IsNotEmpty()
   name!: string;
 
@@ -222,6 +226,78 @@ export class CancelAgentTaskDto {
   @IsOptional()
   @Length(0, 500)
   reason?: string;
+}
+
+// ============================================
+// AGENT MESSAGE ACTION DTOs
+// ============================================
+
+export class UpdateAgentMessageDto {
+  @IsString()
+  @IsNotEmpty()
+  @Length(1, 5000, { message: 'Message must be between 1 and 5000 characters' })
+  message!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @Matches(/^[a-f0-9]{24}$/i, { message: 'threadId must be a valid 24-character hex string' })
+  threadId!: string;
+
+  @IsString()
+  @IsOptional()
+  @Length(0, 120)
+  reason?: string;
+}
+
+export class DeleteAgentMessageDto {
+  @IsString()
+  @IsNotEmpty()
+  @Matches(/^[a-f0-9]{24}$/i, { message: 'threadId must be a valid 24-character hex string' })
+  threadId!: string;
+
+  @IsBoolean()
+  @IsOptional()
+  deleteResponse?: boolean;
+}
+
+export class UndoAgentMessageDto {
+  @IsString()
+  @IsNotEmpty()
+  @Length(8, 128)
+  restoreTokenId!: string;
+}
+
+export class AgentMessageFeedbackDto {
+  @IsInt()
+  @Min(1)
+  @Max(5)
+  rating!: 1 | 2 | 3 | 4 | 5;
+
+  @IsString()
+  @IsOptional()
+  @IsIn(['helpful', 'incorrect', 'incomplete', 'confusing', 'other'])
+  category?: 'helpful' | 'incorrect' | 'incomplete' | 'confusing' | 'other';
+
+  @IsString()
+  @IsOptional()
+  @Length(0, 500)
+  text?: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @Matches(/^[a-f0-9]{24}$/i, { message: 'threadId must be a valid 24-character hex string' })
+  threadId!: string;
+}
+
+export class AgentMessageAnnotationDto {
+  @IsString()
+  @IsNotEmpty()
+  @IsIn(['copied', 'viewed'])
+  action!: 'copied' | 'viewed';
+
+  @IsObject()
+  @IsOptional()
+  metadata?: Record<string, unknown>;
 }
 
 // ============================================

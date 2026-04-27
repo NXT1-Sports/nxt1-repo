@@ -17,9 +17,10 @@
  * - { expiresAt: 1 } (TTL)       → Auto-delete old messages after retention period
  */
 
-import { model, Schema, Model } from 'mongoose';
+import { Schema, Model, type Connection } from 'mongoose';
 import type { AgentMessage, AgentMessageRole, AgentMessageTokenUsage } from '@nxt1/core';
 import type { AgentIdentifier, AgentJobOrigin, AgentToolCallRecord } from '@nxt1/core';
+import { getMongoEnvironmentConnection } from '../../config/database.config.js';
 
 // ─── Enum values for Mongoose validation ────────────────────────────────────
 
@@ -42,6 +43,17 @@ const AGENT_IDS: readonly AgentIdentifier[] = [
   'recruiting_coordinator',
   'performance_coordinator',
 ];
+
+const MESSAGE_ACTION_TYPES = [
+  'copied',
+  'viewed',
+  'edited',
+  'deleted',
+  'undone',
+  'feedback_submitted',
+] as const;
+
+const FEEDBACK_CATEGORIES = ['helpful', 'incorrect', 'incomplete', 'confusing', 'other'] as const;
 
 // ─── Sub-schemas ────────────────────────────────────────────────────────────
 
@@ -71,7 +83,41 @@ const TokenUsageSchema = new Schema<AgentMessageTokenUsage>(
   { _id: false, versionKey: false }
 );
 
+const MessageEditRecordSchema = new Schema(
+  {
+    editedAt: { type: String, required: true },
+    originalContent: { type: String, required: true },
+    newContent: { type: String, required: true },
+    reason: { type: String },
+    agentRerunId: { type: String },
+  },
+  { _id: false, versionKey: false }
+);
+
+const MessageFeedbackSchema = new Schema(
+  {
+    userId: { type: String, required: true },
+    rating: { type: Number, required: true, min: 1, max: 5 },
+    text: { type: String, maxlength: 500 },
+    category: { type: String, enum: FEEDBACK_CATEGORIES },
+    createdAt: { type: String, required: true },
+  },
+  { _id: false, versionKey: false }
+);
+
+const MessageActionRecordSchema = new Schema(
+  {
+    type: { type: String, required: true, enum: MESSAGE_ACTION_TYPES },
+    userId: { type: String, required: true },
+    timestamp: { type: String, required: true },
+    metadata: { type: Schema.Types.Mixed },
+  },
+  { _id: false, versionKey: false }
+);
+
 // ─── Main Schema ────────────────────────────────────────────────────────────
+
+const AGENT_MESSAGE_MODEL_NAME = 'AgentMessage';
 
 const AgentMessageSchema = new Schema<AgentMessage>(
   {
@@ -86,7 +132,14 @@ const AgentMessageSchema = new Schema<AgentMessage>(
     toolCalls: { type: [ToolCallRecordSchema] },
     steps: { type: [Schema.Types.Mixed] },
     parts: { type: [Schema.Types.Mixed] },
+    attachments: { type: [Schema.Types.Mixed] },
     tokenUsage: { type: TokenUsageSchema },
+    editHistory: { type: [MessageEditRecordSchema], default: [] },
+    feedback: { type: MessageFeedbackSchema },
+    actions: { type: [MessageActionRecordSchema], default: [] },
+    deletedAt: { type: Date, default: null, sparse: true },
+    deletedBy: { type: String, sparse: true },
+    restoreTokenId: { type: String, sparse: true },
     // Phase 2: Vector embedding for Atlas Vector Search.
     // select: false prevents loading large arrays on every query.
     embedding: { type: [Number], select: false },
@@ -111,13 +164,44 @@ AgentMessageSchema.index({ userId: 1, createdAt: -1 });
 // Sparse index on operationId (most messages won't have one)
 AgentMessageSchema.index({ operationId: 1 }, { sparse: true });
 
+// Active vs soft-deleted message lookups.
+AgentMessageSchema.index({ threadId: 1, deletedAt: 1, createdAt: 1 });
+
+// Feedback and interaction analytics queries.
+AgentMessageSchema.index({ 'feedback.userId': 1, createdAt: -1 }, { sparse: true });
+AgentMessageSchema.index({ 'actions.type': 1, createdAt: -1 }, { sparse: true });
+
 // TTL index — MongoDB automatically deletes documents once expiresAt is in the past.
 // The `expireAfterSeconds: 0` means "expire exactly at the expiresAt date".
 AgentMessageSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 
 // ─── Model ──────────────────────────────────────────────────────────────────
 
-export const AgentMessageModel: Model<AgentMessage> = model<AgentMessage>(
-  'AgentMessage',
-  AgentMessageSchema
-);
+export function getAgentMessageModel(
+  connection: Connection = getMongoEnvironmentConnection()
+): Model<AgentMessage> {
+  const existingModel = connection.models[AGENT_MESSAGE_MODEL_NAME] as
+    | Model<AgentMessage>
+    | undefined;
+  if (existingModel) return existingModel;
+
+  return connection.model<AgentMessage>(AGENT_MESSAGE_MODEL_NAME, AgentMessageSchema);
+}
+
+export const AgentMessageModel = new Proxy({} as Model<AgentMessage>, {
+  get(_target, prop) {
+    const model = getAgentMessageModel();
+    const value = (model as unknown as Record<PropertyKey, unknown>)[prop];
+    return typeof value === 'function' ? value.bind(model) : value;
+  },
+  has(_target, prop) {
+    const model = getAgentMessageModel();
+    return prop in model;
+  },
+  getOwnPropertyDescriptor(_target, prop) {
+    const model = getAgentMessageModel() as unknown as Record<PropertyKey, unknown>;
+    const value = model[prop];
+    if (value === undefined) return undefined;
+    return { configurable: true, enumerable: true, writable: true, value };
+  },
+});

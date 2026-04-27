@@ -19,8 +19,7 @@ import type { AgentWeeklyRecap } from '@nxt1/core';
 import { OpenRouterService } from '../llm/openrouter.service.js';
 import { resolveStructuredOutput } from '../llm/structured-output.js';
 import { sendPlatformEmail } from '../../../services/communications/platform-email.service.js';
-import { dispatch } from '../../../services/communications/notification.service.js';
-import { NOTIFICATION_TYPES } from '@nxt1/core';
+import { dispatchAgentPush } from './agent-push-adapter.service.js';
 import { logger } from '../../../utils/logger.js';
 import { z } from 'zod';
 
@@ -568,18 +567,13 @@ export async function processRecapForUser(
     logger.info('[WeeklyRecap] Recap saved', { uid, recapId: savedId, recapNumber });
 
     // ── 8. Push notification (fire-and-forget — non-critical) ───────────────
-    dispatch(db, {
+    dispatchAgentPush(db, {
+      kind: 'agent_weekly_recap_ready',
       userId: uid,
-      type: NOTIFICATION_TYPES.AGENT_ACTION,
+      operationId: jobId ?? `weekly-recap-${uid}-${recapNumber}`,
       title: `📊 Week ${recapNumber} Recap is Ready`,
       body: 'Your weekly Agent X Recap is ready to review.',
-      deepLink: '/agent-x',
-      source: { userName: 'Agent X' },
-      metadata: {
-        agentId: 'weekly_recap',
-        resultTitle: `Week ${recapNumber} Recap`,
-        mode: 'recap',
-      },
+      recapNumber,
     }).catch(() => {
       /* non-critical — never block the recap flow */
     });

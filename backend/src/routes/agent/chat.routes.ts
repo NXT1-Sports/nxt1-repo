@@ -1,6 +1,7 @@
 /**
  * @fileoverview Agent X — Chat & conversation routes.
  *
+ * POST /pause/:id
  * POST /cancel/:id
  * POST /resume-job/:operationId
  * POST /approvals/:id/resolve
@@ -13,17 +14,23 @@ import { appGuard } from '../../middleware/auth/auth.middleware.js';
 import { aiRateLimit } from '../../middleware/rate-limit/rate-limit.middleware.js';
 import { validateBody } from '../../middleware/validation/validation.middleware.js';
 import { AgentChatRequestDto, AgentEnqueueRequestDto } from '../../dtos/agent-x.dto.js';
-import type { AgentJobPayload, AgentJobOrigin, AgentYieldState } from '@nxt1/core';
+import type {
+  AgentJobPayload,
+  AgentJobOrigin,
+  AgentYieldState,
+  AgentXOperationLifecycleStatus,
+} from '@nxt1/core';
 import { STREAM_TERMINAL_EVENTS } from '../../modules/agent/queue/pubsub.service.js';
 import { logger } from '../../utils/logger.js';
 import { resolveBillingTarget, checkBudgetFromContext } from '../../modules/billing/index.js';
 import crypto from 'node:crypto';
-import { FieldValue, type Firestore } from 'firebase-admin/firestore';
+import { FieldValue, Timestamp, type Firestore } from 'firebase-admin/firestore';
 
 import {
   queueService,
   jobRepository,
   chatService,
+  llmService,
   pubsubService,
   activeAbortControllers,
   getAuthUser,
@@ -36,6 +43,45 @@ const router = Router();
 const IDEMPOTENCY_KEY_HEADER = 'x-idempotency-key';
 const IDEMPOTENCY_KEY_RE = /^[a-zA-Z0-9:_-]{8,128}$/;
 const OUTBOX_COLLECTION = 'AgentJobOutbox';
+// Outbox TTL durations — Firestore auto-deletes docs once expiresAt passes.
+const OUTBOX_TTL_PENDING_DAYS = 1; // stuck-pending safety floor; fast cleanup
+const OUTBOX_TTL_ENQUEUED_DAYS = 7; // successfully delivered; keep for debug audit
+const OUTBOX_TTL_ERROR_DAYS = 7; // failed delivery; keep for ops triage
+const MAX_CONCURRENT_STREAMS_PER_USER = 5;
+const POLL_BACKOFF_INITIAL_MS = 1200;
+const POLL_BACKOFF_MAX_MS = 30_000;
+const FALLBACK_ALERT_THRESHOLD_MS = 30_000;
+const STREAM_IDLE_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes — auto-cleanup zombie streams
+const LIVE_BUFFER_MAX_EVENTS = 500;
+const PAUSE_YIELD_TTL_MS = 24 * 60 * 60 * 1000;
+const PAUSE_RESUME_TOOL_NAME = 'resume_paused_operation';
+
+const activeUserStreams = new Map<string, Set<string>>();
+
+interface ActiveOperationStreamLease {
+  readonly userId: string;
+  readonly streamId: string;
+  terminate(reason: 'replaced', replacedByStreamId: string): void;
+}
+
+const activeOperationStreams = new Map<string, ActiveOperationStreamLease>();
+
+const streamObservability = {
+  streamAttachedTotal: 0,
+  streamCompletedTotal: 0,
+  streamFallbackActivatedTotal: 0,
+  streamFallbackAlertedTotal: 0,
+  streamFallbackPollTotal: 0,
+  streamFallbackPollErrorTotal: 0,
+  streamFallbackCompletedTotal: 0,
+  replayCountTotal: 0,
+  liveBufferedCountTotal: 0,
+  liveDroppedBySeqTotal: 0,
+  terminalDuplicateDroppedTotal: 0,
+  seqRegressionDetectedTotal: 0,
+  doneSuccessMissingMessageIdTotal: 0,
+  streamTakeoverTotal: 0,
+};
 
 type AgentOutboxStatus = 'pending' | 'enqueued' | 'error';
 
@@ -48,6 +94,143 @@ interface AgentOutboxDocument {
   readonly payload: AgentJobPayload;
   readonly jobId?: string;
   readonly lastError?: string;
+  /** Firestore TTL field — document is auto-deleted once this timestamp passes. */
+  readonly expiresAt?: FirebaseFirestore.Timestamp;
+}
+
+interface ResumeMessageShape extends Record<string, unknown> {
+  readonly role: string;
+  readonly content: unknown;
+  readonly tool_call_id?: string;
+  readonly tool_calls?: readonly unknown[];
+}
+
+function normalizeYieldMessages(
+  messages: readonly Record<string, unknown>[]
+): ResumeMessageShape[] {
+  const results: ResumeMessageShape[] = [];
+  for (const message of messages) {
+    const role = typeof message['role'] === 'string' ? message['role'].trim() : '';
+    const hasContentKey = Object.prototype.hasOwnProperty.call(message, 'content');
+    const content = hasContentKey ? (message['content'] ?? '') : '';
+    const toolCalls =
+      Array.isArray(message['tool_calls']) && message['tool_calls'].length > 0
+        ? (message['tool_calls'] as readonly unknown[])
+        : undefined;
+    const toolCallId =
+      typeof message['tool_call_id'] === 'string' && message['tool_call_id'].trim().length > 0
+        ? message['tool_call_id'].trim()
+        : undefined;
+
+    if (!role || (!hasContentKey && !toolCalls)) continue;
+    results.push({
+      ...message,
+      role,
+      content,
+      ...(toolCallId ? { tool_call_id: toolCallId } : {}),
+      ...(toolCalls ? { tool_calls: toolCalls } : {}),
+    });
+  }
+  return results;
+}
+
+function stripToolResultForCallId(
+  messages: readonly ResumeMessageShape[],
+  toolCallId: string
+): ResumeMessageShape[] {
+  const targetId = toolCallId.trim();
+  if (!targetId) return [...messages];
+
+  const sanitized: ResumeMessageShape[] = [];
+
+  for (const message of messages) {
+    const role = typeof message.role === 'string' ? message.role : '';
+    const msgToolCallId =
+      typeof message.tool_call_id === 'string' ? message.tool_call_id.trim() : undefined;
+
+    // Drop role=tool result messages that already match this tool call.
+    if (role === 'tool' && msgToolCallId === targetId) {
+      continue;
+    }
+
+    if (Array.isArray(message.content)) {
+      const filteredContent = message.content.filter((block) => {
+        if (!block || typeof block !== 'object') return true;
+        const record = block as Record<string, unknown>;
+        const type = typeof record['type'] === 'string' ? record['type'] : '';
+        if (type !== 'tool_result') return true;
+
+        const useId =
+          typeof record['tool_use_id'] === 'string'
+            ? record['tool_use_id'].trim()
+            : typeof record['tool_call_id'] === 'string'
+              ? record['tool_call_id'].trim()
+              : '';
+
+        return useId !== targetId;
+      });
+
+      sanitized.push({
+        ...message,
+        content: filteredContent,
+      });
+      continue;
+    }
+
+    sanitized.push(message);
+  }
+
+  return sanitized;
+}
+
+function isPauseResumeToolCallId(toolCallId: string | undefined): boolean {
+  return typeof toolCallId === 'string' && toolCallId.trim().startsWith('pause_resume_');
+}
+
+function stripPauseResumeToolResults(
+  messages: readonly ResumeMessageShape[]
+): ResumeMessageShape[] {
+  const sanitized: ResumeMessageShape[] = [];
+
+  for (const message of messages) {
+    const role = typeof message.role === 'string' ? message.role : '';
+    const msgToolCallId =
+      typeof message.tool_call_id === 'string' ? message.tool_call_id.trim() : undefined;
+
+    // Pause yield uses a synthetic resume tool call marker with no preceding model tool_use.
+    // Remove these before replaying history to LLM providers that strictly validate tool_result pairing.
+    if (role === 'tool' && isPauseResumeToolCallId(msgToolCallId)) {
+      continue;
+    }
+
+    if (Array.isArray(message.content)) {
+      const filteredContent = message.content.filter((block) => {
+        if (!block || typeof block !== 'object') return true;
+        const record = block as Record<string, unknown>;
+        const type = typeof record['type'] === 'string' ? record['type'] : '';
+        if (type !== 'tool_result') return true;
+
+        const useId =
+          typeof record['tool_use_id'] === 'string'
+            ? record['tool_use_id'].trim()
+            : typeof record['tool_call_id'] === 'string'
+              ? record['tool_call_id'].trim()
+              : '';
+
+        return !isPauseResumeToolCallId(useId);
+      });
+
+      sanitized.push({
+        ...message,
+        content: filteredContent,
+      });
+      continue;
+    }
+
+    sanitized.push(message);
+  }
+
+  return sanitized;
 }
 
 function parseIdempotencyKey(req: Request): string | null {
@@ -65,6 +248,11 @@ async function isAgentInfraHealthy(): Promise<boolean> {
   if (!queueHealthy) return false;
   if (!pubsubService) return true;
   return typeof pubsubService.isHealthy === 'function' ? pubsubService.isHealthy() : true;
+}
+
+/** Build a Firestore Timestamp N days from now for outbox TTL writes. */
+function outboxTtlFromNow(days: number): FirebaseFirestore.Timestamp {
+  return Timestamp.fromMillis(Date.now() + days * 24 * 60 * 60 * 1000);
 }
 
 function writeSseHeaders(res: Response): void {
@@ -100,6 +288,7 @@ async function enqueueWithOutbox(
       status: 'pending' as AgentOutboxStatus,
       attempts: FieldValue.increment(1),
       payload,
+      expiresAt: outboxTtlFromNow(OUTBOX_TTL_PENDING_DAYS),
       updatedAt: FieldValue.serverTimestamp(),
       createdAt: FieldValue.serverTimestamp(),
     },
@@ -113,6 +302,7 @@ async function enqueueWithOutbox(
         status: 'enqueued' as AgentOutboxStatus,
         jobId,
         lastError: null,
+        expiresAt: outboxTtlFromNow(OUTBOX_TTL_ENQUEUED_DAYS),
         enqueuedAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
       },
@@ -125,6 +315,7 @@ async function enqueueWithOutbox(
       {
         status: 'error' as AgentOutboxStatus,
         lastError: message,
+        expiresAt: outboxTtlFromNow(OUTBOX_TTL_ERROR_DAYS),
         updatedAt: FieldValue.serverTimestamp(),
       },
       { merge: true }
@@ -154,6 +345,7 @@ async function reconcileAgentOutbox(
         {
           status: 'error' as AgentOutboxStatus,
           lastError: 'Missing payload in outbox document',
+          expiresAt: outboxTtlFromNow(OUTBOX_TTL_ERROR_DAYS),
           updatedAt: FieldValue.serverTimestamp(),
         },
         { merge: true }
@@ -169,6 +361,7 @@ async function reconcileAgentOutbox(
           status: 'enqueued' as AgentOutboxStatus,
           jobId,
           lastError: null,
+          expiresAt: outboxTtlFromNow(OUTBOX_TTL_ENQUEUED_DAYS),
           enqueuedAt: FieldValue.serverTimestamp(),
           updatedAt: FieldValue.serverTimestamp(),
         },
@@ -180,6 +373,7 @@ async function reconcileAgentOutbox(
           status: 'error' as AgentOutboxStatus,
           attempts: FieldValue.increment(1),
           lastError: err instanceof Error ? err.message : String(err),
+          expiresAt: outboxTtlFromNow(OUTBOX_TTL_ERROR_DAYS),
           updatedAt: FieldValue.serverTimestamp(),
         },
         { merge: true }
@@ -216,12 +410,155 @@ function emitReplayEvent(res: Response, rawEvt: unknown): void {
         res.write(`event: card\ndata: ${JSON.stringify(evt['cardData'])}\n\n`);
       }
       break;
+    case 'title_updated':
+      res.write(
+        `event: title_updated\ndata: ${JSON.stringify({
+          operationId: evt['operationId'],
+          threadId: evt['threadId'],
+          title: evt['title'],
+          timestamp:
+            typeof evt['timestamp'] === 'string' ? evt['timestamp'] : new Date().toISOString(),
+        })}\n\n`
+      );
+      break;
+    case 'operation':
+      res.write(
+        `event: operation\ndata: ${JSON.stringify({
+          operationId: evt['operationId'],
+          threadId: evt['threadId'],
+          status: evt['status'],
+          agentId: evt['agentId'],
+          stageType: evt['stageType'],
+          stage: evt['stage'],
+          outcomeCode: evt['outcomeCode'],
+          metadata: evt['metadata'],
+          message: evt['message'],
+          yieldState: evt['yieldState'],
+          timestamp:
+            typeof evt['timestamp'] === 'string' ? evt['timestamp'] : new Date().toISOString(),
+        })}\n\n`
+      );
+      break;
+    case 'progress_stage':
+    case 'progress_subphase':
+    case 'metric':
+      res.write(
+        `event: progress\ndata: ${JSON.stringify({
+          operationId: evt['operationId'],
+          threadId: evt['threadId'],
+          type: evt['type'],
+          agentId: evt['agentId'],
+          stageType: evt['stageType'],
+          stage: evt['stage'],
+          outcomeCode: evt['outcomeCode'],
+          metadata: evt['metadata'],
+          message: evt['message'],
+          timestamp:
+            typeof evt['timestamp'] === 'string' ? evt['timestamp'] : new Date().toISOString(),
+        })}\n\n`
+      );
+      break;
     case 'done':
       res.write(`event: done\ndata: ${JSON.stringify(evt)}\n\n`);
       break;
     default:
       break;
   }
+}
+
+function extractEventSeq(payload: unknown): number | null {
+  if (!payload || typeof payload !== 'object') return null;
+  const record = payload as Record<string, unknown>;
+  return typeof record['seq'] === 'number' ? record['seq'] : null;
+}
+
+function mapJobStatusToLifecycleStatus(
+  status: unknown,
+  yieldState?: AgentYieldState
+): AgentXOperationLifecycleStatus | null {
+  if (typeof status !== 'string') return null;
+  switch (status) {
+    case 'pending':
+    case 'queued':
+      return 'queued';
+    case 'processing':
+    case 'thinking':
+    case 'acting':
+      return 'running';
+    case 'paused':
+      return 'paused';
+    case 'awaiting_input':
+      return isPauseYieldState(yieldState) ? 'paused' : 'awaiting_input';
+    case 'awaiting_approval':
+      return 'awaiting_approval';
+    case 'completed':
+      return 'complete';
+    case 'failed':
+      return 'failed';
+    case 'cancelled':
+      return 'cancelled';
+    default:
+      return null;
+  }
+}
+
+function isPauseYieldState(yieldState: AgentYieldState | undefined): boolean {
+  return yieldState?.pendingToolCall?.toolName === PAUSE_RESUME_TOOL_NAME;
+}
+
+async function resolveCompletedOperationMessageId(
+  operationId: string,
+  threadId?: string
+): Promise<string | undefined> {
+  const resolver = chatService as {
+    getLatestAssistantMessageForOperation?: (
+      operationId: string
+    ) => Promise<{ id?: string | null } | null>;
+  } | null;
+
+  if (!resolver || typeof resolver.getLatestAssistantMessageForOperation !== 'function') {
+    return undefined;
+  }
+
+  try {
+    const message = await resolver.getLatestAssistantMessageForOperation(operationId);
+    return typeof message?.id === 'string' && message.id.length > 0 ? message.id : undefined;
+  } catch (err) {
+    logger.warn('Failed to resolve completed operation message ID for synthetic done event', {
+      operationId,
+      threadId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return undefined;
+  }
+}
+
+function buildPauseYieldState(params: {
+  existingYieldState?: AgentYieldState;
+  operationId: string;
+  fallbackAgentId: string;
+}): AgentYieldState {
+  const nowIso = new Date().toISOString();
+  const expiresAtIso = new Date(Date.now() + PAUSE_YIELD_TTL_MS).toISOString();
+  const existing = params.existingYieldState;
+
+  return {
+    reason: 'needs_input',
+    promptToUser: 'Operation paused. Resume whenever you are ready.',
+    agentId: (existing?.agentId ?? params.fallbackAgentId) as AgentYieldState['agentId'],
+    messages: existing?.messages ?? [],
+    ...(existing?.planContext ? { planContext: existing.planContext } : {}),
+    pendingToolCall: {
+      toolName: PAUSE_RESUME_TOOL_NAME,
+      toolInput: {
+        operationId: params.operationId,
+        pauseRequestedAt: nowIso,
+      },
+      toolCallId: existing?.pendingToolCall?.toolCallId ?? `pause_resume_${params.operationId}`,
+    },
+    yieldedAt: nowIso,
+    expiresAt: expiresAtIso,
+  };
 }
 
 async function streamOperationToSse(params: {
@@ -232,7 +569,7 @@ async function streamOperationToSse(params: {
   userId: string;
   afterSeq?: number;
   initialThreadId?: string;
-  initialOperationStatus?: 'in-progress' | 'awaiting_input' | 'awaiting_approval';
+  initialOperationStatus?: AgentXOperationLifecycleStatus;
 }): Promise<void> {
   const {
     req,
@@ -261,7 +598,41 @@ async function streamOperationToSse(params: {
     return;
   }
 
+  const streamId = `${operationId}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
+  const existingOperationStream = activeOperationStreams.get(operationId);
+  if (existingOperationStream && existingOperationStream.userId === userId) {
+    existingOperationStream.terminate('replaced', streamId);
+    streamObservability.streamTakeoverTotal += 1;
+  }
+
+  const userStreams = activeUserStreams.get(userId) ?? new Set<string>();
+  if (userStreams.size >= MAX_CONCURRENT_STREAMS_PER_USER) {
+    res.status(429).json({
+      success: false,
+      error: `Too many active streams. Limit is ${MAX_CONCURRENT_STREAMS_PER_USER} per user.`,
+      code: 'AGENT_STREAM_LIMIT_REACHED',
+    });
+    return;
+  }
+  userStreams.add(streamId);
+  activeUserStreams.set(userId, userStreams);
+  streamObservability.streamAttachedTotal += 1;
+
+  const releaseStreamSlot = () => {
+    const streams = activeUserStreams.get(userId);
+    if (!streams) return;
+    streams.delete(streamId);
+    if (streams.size === 0) activeUserStreams.delete(userId);
+  };
+
   writeSseHeaders(res);
+
+  repo
+    .patchContext(operationId, {
+      viewerAttachedAt: new Date().toISOString(),
+      viewerLastSeenAt: new Date().toISOString(),
+    })
+    .catch(() => undefined);
 
   if (initialThreadId) {
     res.write(
@@ -270,48 +641,21 @@ async function streamOperationToSse(params: {
     forceProxyFlush(res);
   }
 
-  if (initialOperationStatus && initialThreadId) {
+  const replayInitialLifecycleStatus =
+    initialOperationStatus ??
+    mapJobStatusToLifecycleStatus(job.status, job.yieldState as AgentYieldState | undefined) ??
+    undefined;
+
+  if (replayInitialLifecycleStatus && initialThreadId) {
     res.write(
       `event: operation\ndata: ${JSON.stringify({
         threadId: initialThreadId,
         operationId,
-        status: initialOperationStatus,
+        status: replayInitialLifecycleStatus,
         timestamp: new Date().toISOString(),
       })}\n\n`
     );
     forceProxyFlush(res);
-  }
-
-  const events = await repo.getJobEvents(operationId);
-  let lastSeq = afterSeq;
-  let replaySawTerminal = false;
-  for (const evt of events) {
-    const seq = typeof evt.seq === 'number' ? evt.seq : -1;
-    if (seq <= afterSeq) continue;
-    emitReplayEvent(res, evt);
-    if (seq > lastSeq) lastSeq = seq;
-    if (STREAM_TERMINAL_EVENTS.has(String(evt.type ?? ''))) {
-      replaySawTerminal = true;
-    }
-  }
-
-  if (replaySawTerminal) {
-    res.end();
-    return;
-  }
-
-  const terminalStatuses = new Set(['completed', 'failed', 'cancelled']);
-  if (terminalStatuses.has(job.status)) {
-    res.write(
-      `event: done\ndata: ${JSON.stringify({
-        operationId,
-        threadId: job.threadId ?? undefined,
-        status: job.status,
-        timestamp: new Date().toISOString(),
-      })}\n\n`
-    );
-    res.end();
-    return;
   }
 
   let closed = false;
@@ -319,8 +663,55 @@ async function streamOperationToSse(params: {
   const closeStream = () => {
     if (closed) return;
     closed = true;
+    clearTimeout(idleTimeoutHandle);
     for (const cb of closeCallbacks) cb();
+    const activeLease = activeOperationStreams.get(operationId);
+    if (activeLease && activeLease.streamId === streamId) {
+      activeOperationStreams.delete(operationId);
+    }
+    releaseStreamSlot();
   };
+
+  const terminateStream = (reason: 'replaced', replacedByStreamId: string) => {
+    if (closed) return;
+    try {
+      res.write(
+        `event: stream_replaced\ndata: ${JSON.stringify({
+          operationId,
+          replacedByStreamId,
+          reason,
+          timestamp: new Date().toISOString(),
+        })}\n\n`
+      );
+      forceProxyFlush(res);
+    } catch {
+      // Ignore write failures while terminating stale streams.
+    }
+    closeStream();
+    try {
+      res.end();
+    } catch {
+      // Client may already be disconnected.
+    }
+  };
+
+  activeOperationStreams.set(operationId, {
+    userId,
+    streamId,
+    terminate: terminateStream,
+  });
+
+  // Safety timeout: if stream hasn't sent data in 10 minutes, auto-cleanup (zombie prevention)
+  const idleTimeoutHandle = setTimeout(() => {
+    if (!closed) {
+      logger.warn('Stream idle timeout — auto-closing zombie stream', {
+        operationId,
+        userId,
+      });
+      closeStream();
+      res.end();
+    }
+  }, STREAM_IDLE_TIMEOUT_MS);
 
   req.on('close', () => {
     closeStream();
@@ -331,35 +722,81 @@ async function streamOperationToSse(params: {
     if (closed) return;
     try {
       res.write('event: ping\ndata: {}\n\n');
+      repo
+        .patchContext(operationId, {
+          viewerLastSeenAt: new Date().toISOString(),
+        })
+        .catch(() => undefined);
     } catch {
       closeStream();
     }
   }, 15_000);
   closeCallbacks.push(() => clearInterval(heartbeat));
 
+  const terminalStatuses = new Set(['completed', 'failed', 'cancelled']);
+  let lastSeq = afterSeq;
+  let streamTerminalSeen = false;
+  let replayComplete = false;
+  const liveBuffer: Array<{ event: string; data: unknown }> = [];
+
+  const processLiveEvent = (msg: { event: string; data: unknown }): void => {
+    if (closed) return;
+
+    const seq = extractEventSeq(msg.data);
+    if (seq !== null && seq <= lastSeq) {
+      streamObservability.liveDroppedBySeqTotal += 1;
+      if (seq < lastSeq) {
+        streamObservability.seqRegressionDetectedTotal += 1;
+      }
+      return;
+    }
+    if (seq !== null) {
+      lastSeq = seq;
+    }
+
+    const isTerminal = STREAM_TERMINAL_EVENTS.has(msg.event);
+    if (isTerminal && streamTerminalSeen) {
+      streamObservability.terminalDuplicateDroppedTotal += 1;
+      return;
+    }
+
+    try {
+      res.write(`event: ${msg.event}\ndata: ${JSON.stringify(msg.data)}\n\n`);
+      if (isTerminal) {
+        streamTerminalSeen = true;
+        streamObservability.streamCompletedTotal += 1;
+        closeStream();
+        res.end();
+      }
+    } catch {
+      closeStream();
+    }
+  };
+
   const pubsubHealthy =
     !!pubsubService &&
     (typeof pubsubService.isHealthy !== 'function' || (await pubsubService.isHealthy()));
 
+  let hasLivePubsub = false;
   if (pubsubHealthy && pubsubService) {
     try {
       const unsubscribe = await pubsubService.subscribe(operationId, (msg) => {
         if (closed) return;
-        try {
-          res.write(`event: ${msg.event}\ndata: ${JSON.stringify(msg.data)}\n\n`);
-          if (STREAM_TERMINAL_EVENTS.has(msg.event)) {
-            closeStream();
-            res.end();
+        if (!replayComplete) {
+          if (liveBuffer.length >= LIVE_BUFFER_MAX_EVENTS) {
+            liveBuffer.shift();
           }
-        } catch {
-          closeStream();
+          liveBuffer.push({ event: msg.event, data: msg.data });
+          streamObservability.liveBufferedCountTotal += 1;
+          return;
         }
+        processLiveEvent({ event: msg.event, data: msg.data });
       });
 
       closeCallbacks.push(() => {
         void unsubscribe();
       });
-      return;
+      hasLivePubsub = true;
     } catch (err) {
       logger.warn('PubSub subscribe failed; falling back to Firestore tailing', {
         operationId,
@@ -368,47 +805,404 @@ async function streamOperationToSse(params: {
     }
   }
 
+  const events = await repo.getJobEvents(operationId);
+  for (const evt of events) {
+    const seq = typeof evt.seq === 'number' ? evt.seq : -1;
+    if (seq <= afterSeq) continue;
+    emitReplayEvent(res, evt);
+    streamObservability.replayCountTotal += 1;
+    if (seq > lastSeq) lastSeq = seq;
+    if (STREAM_TERMINAL_EVENTS.has(String(evt.type ?? ''))) {
+      streamTerminalSeen = true;
+      streamObservability.streamCompletedTotal += 1;
+      break;
+    }
+  }
+  replayComplete = true;
+
+  if (!streamTerminalSeen && liveBuffer.length > 0) {
+    const buffered = [...liveBuffer];
+    liveBuffer.length = 0;
+    buffered.sort((a, b) => {
+      const aSeq = extractEventSeq(a.data);
+      const bSeq = extractEventSeq(b.data);
+      if (aSeq === null || bSeq === null) return 0;
+      return aSeq - bSeq;
+    });
+    for (const msg of buffered) {
+      processLiveEvent(msg);
+      if (streamTerminalSeen || closed) break;
+    }
+  }
+
+  if (streamTerminalSeen) {
+    closeStream();
+    res.end();
+    return;
+  }
+
+  if (terminalStatuses.has(job.status)) {
+    const terminalLifecycleStatus = mapJobStatusToLifecycleStatus(job.status);
+    const terminalSuccess = job.status === 'completed';
+    const terminalMessageId = terminalSuccess
+      ? await resolveCompletedOperationMessageId(operationId, job.threadId ?? undefined)
+      : undefined;
+    if (terminalSuccess && !terminalMessageId) {
+      streamObservability.doneSuccessMissingMessageIdTotal += 1;
+      logger.warn('Synthetic terminal completed event missing canonical DB message ID', {
+        operationId,
+        threadId: job.threadId ?? undefined,
+      });
+    }
+    res.write(
+      `event: done\ndata: ${JSON.stringify({
+        operationId,
+        threadId: job.threadId ?? undefined,
+        status: terminalLifecycleStatus ?? job.status,
+        success: terminalSuccess,
+        ...(terminalMessageId ? { messageId: terminalMessageId } : {}),
+        timestamp: new Date().toISOString(),
+      })}\n\n`
+    );
+    closeStream();
+    res.end();
+    return;
+  }
+
+  if (hasLivePubsub) return;
+
   // Fallback transport: Firestore tail polling when Redis PubSub is unavailable.
-  let polling = false;
-  const pollTimer = setInterval(async () => {
-    if (closed || polling) return;
-    polling = true;
+  const fallbackStartedAt = Date.now();
+  let pollDelayMs = POLL_BACKOFF_INITIAL_MS;
+  let pollTimer: ReturnType<typeof setTimeout> | null = null;
+  let fallbackAlerted = false;
+  let fallbackPollCount = 0;
+  let fallbackReadSuccessCount = 0;
+  let fallbackReadErrorCount = 0;
+  let fallbackMaxDelayMs = pollDelayMs;
+
+  logger.warn('SSE entered Firestore fallback polling mode', {
+    operationId,
+    userId,
+    initialDelayMs: pollDelayMs,
+  });
+  streamObservability.streamFallbackActivatedTotal += 1;
+
+  const scheduleNextPoll = (delayMs: number) => {
+    if (closed) return;
+    pollTimer = setTimeout(() => {
+      void runFallbackPoll();
+    }, delayMs);
+  };
+
+  const runFallbackPoll = async (): Promise<void> => {
+    if (closed) return;
+    fallbackPollCount += 1;
+    streamObservability.streamFallbackPollTotal += 1;
     try {
       const latestEvents = await repo.getJobEvents(operationId);
+      fallbackReadSuccessCount += 1;
+      let tailSawTerminal = false;
+
       for (const evt of latestEvents) {
         const seq = typeof evt['seq'] === 'number' ? (evt['seq'] as number) : -1;
-        if (seq <= lastSeq) continue;
+        if (seq <= lastSeq) {
+          if (seq >= 0 && seq < lastSeq) {
+            streamObservability.seqRegressionDetectedTotal += 1;
+          }
+          continue;
+        }
         emitReplayEvent(res, evt);
         lastSeq = Math.max(lastSeq, seq);
+
+        if (STREAM_TERMINAL_EVENTS.has(String(evt['type'] ?? ''))) {
+          tailSawTerminal = true;
+          break;
+        }
+      }
+
+      if (tailSawTerminal) {
+        logger.info('SSE fallback stream completed from persisted terminal event', {
+          operationId,
+          userId,
+          fallbackDurationMs: Date.now() - fallbackStartedAt,
+          fallbackPollCount,
+          fallbackReadSuccessCount,
+          fallbackReadErrorCount,
+          fallbackMaxDelayMs,
+        });
+        closeStream();
+        res.end();
+        streamObservability.streamCompletedTotal += 1;
+        streamObservability.streamFallbackCompletedTotal += 1;
+        return;
       }
 
       const latestJob = await repo.getById(operationId);
       if (!latestJob || terminalStatuses.has(latestJob.status)) {
+        const terminalSuccess = latestJob?.status === 'completed' || !latestJob;
+        const terminalMessageId =
+          latestJob?.status === 'completed'
+            ? await resolveCompletedOperationMessageId(operationId, latestJob.threadId ?? undefined)
+            : undefined;
+        if (latestJob?.status === 'completed' && !terminalMessageId) {
+          streamObservability.doneSuccessMissingMessageIdTotal += 1;
+          logger.warn('Fallback terminal completed event missing canonical DB message ID', {
+            operationId,
+            threadId: latestJob.threadId ?? undefined,
+          });
+        }
         res.write(
           `event: done\ndata: ${JSON.stringify({
             operationId,
             threadId: latestJob?.threadId ?? undefined,
             status: latestJob?.status ?? 'completed',
+            success: terminalSuccess,
+            ...(terminalMessageId ? { messageId: terminalMessageId } : {}),
             timestamp: new Date().toISOString(),
           })}\n\n`
         );
         closeStream();
         res.end();
+        streamObservability.streamCompletedTotal += 1;
+        streamObservability.streamFallbackCompletedTotal += 1;
+        logger.info('SSE fallback stream completed from terminal job status', {
+          operationId,
+          userId,
+          fallbackDurationMs: Date.now() - fallbackStartedAt,
+          fallbackPollCount,
+          fallbackReadSuccessCount,
+          fallbackReadErrorCount,
+          fallbackMaxDelayMs,
+        });
+        return;
       }
+
+      // Successful polling read resets backoff to keep fallback responsive.
+      pollDelayMs = POLL_BACKOFF_INITIAL_MS;
     } catch (err) {
+      fallbackReadErrorCount += 1;
+      streamObservability.streamFallbackPollErrorTotal += 1;
       logger.warn('Firestore tail polling failed', {
         operationId,
         error: err instanceof Error ? err.message : String(err),
+        nextDelayMs: Math.min(POLL_BACKOFF_MAX_MS, pollDelayMs * 2),
       });
-    } finally {
-      polling = false;
-    }
-  }, 1200);
 
-  closeCallbacks.push(() => clearInterval(pollTimer));
+      pollDelayMs = Math.min(
+        POLL_BACKOFF_MAX_MS,
+        Math.max(POLL_BACKOFF_INITIAL_MS, pollDelayMs * 2)
+      );
+      fallbackMaxDelayMs = Math.max(fallbackMaxDelayMs, pollDelayMs);
+    }
+
+    if (!fallbackAlerted && Date.now() - fallbackStartedAt >= FALLBACK_ALERT_THRESHOLD_MS) {
+      fallbackAlerted = true;
+      streamObservability.streamFallbackAlertedTotal += 1;
+      logger.warn('SSE fallback polling exceeded alert threshold', {
+        operationId,
+        userId,
+        fallbackDurationMs: Date.now() - fallbackStartedAt,
+      });
+    }
+
+    scheduleNextPoll(pollDelayMs);
+  };
+
+  closeCallbacks.push(() => {
+    if (pollTimer) clearTimeout(pollTimer);
+  });
+
+  scheduleNextPoll(pollDelayMs);
 }
 
+router.get('/stream-observability', appGuard, async (req: Request, res: Response) => {
+  const user = getAuthUser(req);
+  if (!user?.uid) {
+    res.status(401).json({ success: false, error: 'Unauthorized' });
+    return;
+  }
+
+  const activeForUser = activeUserStreams.get(user.uid)?.size ?? 0;
+  const activeGlobal = [...activeUserStreams.values()].reduce((count, set) => count + set.size, 0);
+
+  res.json({
+    success: true,
+    data: {
+      timestamp: new Date().toISOString(),
+      activeStreams: {
+        user: activeForUser,
+        global: activeGlobal,
+        usersWithActiveStreams: activeUserStreams.size,
+      },
+      counters: { ...streamObservability },
+      rates: {
+        fallbackErrorRate:
+          streamObservability.streamFallbackPollTotal > 0
+            ? Number(
+                (
+                  streamObservability.streamFallbackPollErrorTotal /
+                  streamObservability.streamFallbackPollTotal
+                ).toFixed(4)
+              )
+            : 0,
+      },
+    },
+  });
+});
+
 // ─── POST /cancel/:id — Explicit cancellation endpoint ───────────────────
+
+router.post('/pause/:id', appGuard, async (req: Request, res: Response) => {
+  const user = getAuthUser(req);
+  if (!user?.uid) {
+    res.status(401).json({ success: false, error: 'Unauthorized' });
+    return;
+  }
+
+  const operationId = req.params['id'] as string;
+  if (!operationId) {
+    res.status(400).json({ success: false, error: 'Operation ID is required' });
+    return;
+  }
+
+  const db = req.firebase?.db;
+  if (!db || !jobRepository) {
+    res.status(503).json({ success: false, error: 'Agent persistence unavailable' });
+    return;
+  }
+
+  const repo = jobRepository.withDb(db);
+  const persistedJob = await repo.getById(operationId);
+  if (!persistedJob || persistedJob.userId !== user.uid) {
+    logger.warn('Forbidden pause attempt: operation belongs to another user or missing', {
+      operationId,
+      requesterUserId: user.uid,
+    });
+    res.status(404).json({ success: false, error: 'Operation not found' });
+    return;
+  }
+
+  if (
+    persistedJob.status === 'completed' ||
+    persistedJob.status === 'failed' ||
+    persistedJob.status === 'cancelled'
+  ) {
+    res.status(409).json({
+      success: false,
+      error: `Operation is already terminal (${persistedJob.status}) and cannot be paused`,
+    });
+    return;
+  }
+
+  const existingYieldState = persistedJob.yieldState as AgentYieldState | undefined;
+  if (isPauseYieldState(existingYieldState)) {
+    res.json({
+      success: true,
+      paused: true,
+      queueCancelled: false,
+      status: 'paused',
+      operationId,
+      threadId: persistedJob.threadId ?? null,
+    });
+    return;
+  }
+
+  const entry = activeAbortControllers.get(operationId);
+  if (entry) {
+    entry.controller.abort();
+    activeAbortControllers.delete(operationId);
+  }
+
+  let queueCancelled = false;
+  if (queueService) {
+    try {
+      queueCancelled = await queueService.cancel(operationId);
+    } catch (err) {
+      logger.warn('Queue pause call failed', {
+        operationId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  const fallbackAgentId =
+    typeof persistedJob.progress?.agentId === 'string' && persistedJob.progress.agentId.length > 0
+      ? persistedJob.progress.agentId
+      : 'router';
+  const pauseYieldState = buildPauseYieldState({
+    existingYieldState,
+    operationId,
+    fallbackAgentId,
+  });
+
+  await repo.markPaused(operationId, pauseYieldState);
+
+  const nowIso = new Date().toISOString();
+  const threadId = persistedJob.threadId ?? undefined;
+
+  // Persist pausedYieldState on thread so Resume card survives session re-entry
+  if (threadId && chatService) {
+    try {
+      await chatService.updateThreadPausedYieldState(threadId, pauseYieldState);
+    } catch (err) {
+      logger.warn('Failed to update thread with paused yield state', {
+        threadId,
+        operationId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  const operationEvent = {
+    userId: user.uid,
+    type: 'operation' as const,
+    operationId,
+    ...(threadId ? { threadId } : {}),
+    status: 'paused' as const,
+    yieldState: pauseYieldState,
+    timestamp: nowIso,
+  };
+
+  let operationSeq = -1;
+  try {
+    const startSeq = await repo.allocateEventSeqRange(operationId, 1);
+    operationSeq = startSeq;
+    await repo.writeJobEvent(operationId, {
+      seq: operationSeq,
+      ...operationEvent,
+    });
+  } catch (err) {
+    logger.warn('Failed to persist pause lifecycle event', {
+      operationId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  if (pubsubService) {
+    void pubsubService
+      .publish(operationId, 'operation', {
+        ...operationEvent,
+        ...(operationSeq >= 0 ? { seq: operationSeq } : {}),
+      })
+      .catch(() => undefined);
+  }
+
+  logger.info('Agent X operation paused via explicit endpoint', {
+    operationId,
+    userId: user.uid,
+    queueCancelled,
+  });
+
+  res.json({
+    success: true,
+    paused: true,
+    queueCancelled,
+    status: 'paused',
+    operationId,
+    threadId: persistedJob.threadId ?? null,
+  });
+});
 
 router.post('/cancel/:id', appGuard, async (req: Request, res: Response) => {
   const user = getAuthUser(req);
@@ -467,6 +1261,81 @@ router.post('/cancel/:id', appGuard, async (req: Request, res: Response) => {
       });
     });
 
+  const threadId = persistedJob.threadId ?? undefined;
+
+  // Clear paused yield state from thread so stale Resume card doesn't appear
+  if (threadId && chatService) {
+    try {
+      await chatService.clearThreadPausedYieldState(threadId);
+    } catch (err) {
+      logger.warn('Failed to clear thread paused yield state on cancel', {
+        threadId,
+        operationId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  const repo = jobRepository.withDb(db);
+  const nowIso = new Date().toISOString();
+
+  const cancellationOperationEvent = {
+    userId: user.uid,
+    type: 'operation' as const,
+    operationId,
+    ...(threadId ? { threadId } : {}),
+    status: 'cancelled' as const,
+    timestamp: nowIso,
+  };
+
+  const cancellationDoneEvent = {
+    userId: user.uid,
+    type: 'done' as const,
+    operationId,
+    ...(threadId ? { threadId } : {}),
+    status: 'cancelled' as const,
+    success: false,
+    message: 'Operation cancelled by user',
+    timestamp: nowIso,
+  };
+  let cancellationOperationSeq = -1;
+  let cancellationDoneSeq = -1;
+
+  try {
+    const startSeq = await repo.allocateEventSeqRange(operationId, 2);
+    cancellationOperationSeq = startSeq;
+    cancellationDoneSeq = startSeq + 1;
+
+    await repo.writeJobEvent(operationId, {
+      seq: cancellationOperationSeq,
+      ...cancellationOperationEvent,
+    });
+    await repo.writeJobEvent(operationId, {
+      seq: cancellationDoneSeq,
+      ...cancellationDoneEvent,
+    });
+  } catch (err) {
+    logger.warn('Failed to persist cancellation stream events', {
+      operationId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  if (pubsubService) {
+    void pubsubService
+      .publish(operationId, 'operation', {
+        ...cancellationOperationEvent,
+        ...(cancellationOperationSeq >= 0 ? { seq: cancellationOperationSeq } : {}),
+      })
+      .catch(() => undefined);
+    void pubsubService
+      .publish(operationId, 'done', {
+        ...cancellationDoneEvent,
+        ...(cancellationDoneSeq >= 0 ? { seq: cancellationDoneSeq } : {}),
+      })
+      .catch(() => undefined);
+  }
+
   logger.info('Agent X operation cancelled via explicit endpoint', {
     operationId,
     userId: user.uid,
@@ -508,12 +1377,12 @@ router.post('/resume-job/:operationId', appGuard, async (req: Request, res: Resp
     }
 
     const { response: userResponse } = req.body as { response?: string };
-    if (!userResponse || typeof userResponse !== 'string' || userResponse.trim().length === 0) {
-      res.status(400).json({ success: false, error: 'A non-empty response is required' });
+    if (userResponse !== undefined && typeof userResponse !== 'string') {
+      res.status(400).json({ success: false, error: 'Response must be a string when provided' });
       return;
     }
 
-    if (userResponse.length > 5000) {
+    if (typeof userResponse === 'string' && userResponse.length > 5000) {
       res.status(400).json({ success: false, error: 'Response must be 5000 characters or less' });
       return;
     }
@@ -531,7 +1400,7 @@ router.post('/resume-job/:operationId', appGuard, async (req: Request, res: Resp
     }
 
     const status = jobDoc.status;
-    if (status !== 'awaiting_input' && status !== 'awaiting_approval') {
+    if (status !== 'awaiting_input' && status !== 'awaiting_approval' && status !== 'paused') {
       res.status(409).json({
         success: false,
         error: `Job is in "${status}" state — only yielded jobs can be resumed`,
@@ -545,6 +1414,13 @@ router.post('/resume-job/:operationId', appGuard, async (req: Request, res: Resp
       return;
     }
 
+    const trimmedUserResponse = typeof userResponse === 'string' ? userResponse.trim() : '';
+    const resumeFromPausedState = isPauseYieldState(yieldState);
+    if (!resumeFromPausedState && trimmedUserResponse.length === 0) {
+      res.status(400).json({ success: false, error: 'A non-empty response is required' });
+      return;
+    }
+
     if (new Date(yieldState.expiresAt).getTime() < Date.now()) {
       await jobRepository.withDb(db).markFailed(operationId, 'Yield expired before user responded');
       res.status(410).json({ success: false, error: 'This request has expired' });
@@ -552,13 +1428,13 @@ router.post('/resume-job/:operationId', appGuard, async (req: Request, res: Resp
     }
 
     const threadId = jobDoc.threadId;
-    if (threadId && chatService) {
+    if (threadId && chatService && trimmedUserResponse.length > 0) {
       try {
         await chatService.addMessage({
           threadId,
           userId: user.uid,
           role: 'user',
-          content: userResponse.trim(),
+          content: trimmedUserResponse,
           origin: 'user',
           operationId,
         });
@@ -569,6 +1445,47 @@ router.post('/resume-job/:operationId', appGuard, async (req: Request, res: Resp
         });
       }
     }
+
+    const pendingToolCallId = yieldState.pendingToolCall?.toolCallId ?? 'ask_user_response';
+    const normalizedMessages = stripToolResultForCallId(
+      normalizeYieldMessages(yieldState.messages),
+      pendingToolCallId
+    );
+
+    const sanitizedMessages = resumeFromPausedState
+      ? stripPauseResumeToolResults(normalizedMessages)
+      : normalizedMessages;
+
+    // When a user pauses before the first LLM turn completes, the stored
+    // message history can be empty. Fall back to the original job intent so
+    // OpenRouter receives at least one valid message and the resumed agent
+    // has enough context to continue rather than asking "what do you want?"
+    const effectiveSanitizedMessages: ResumeMessageShape[] =
+      sanitizedMessages.length === 0 && jobDoc.intent?.trim()
+        ? [{ role: 'user', content: jobDoc.intent.trim() }]
+        : sanitizedMessages;
+
+    const resumedMessages = resumeFromPausedState
+      ? trimmedUserResponse.length > 0
+        ? [
+            ...effectiveSanitizedMessages,
+            {
+              role: 'user',
+              content: trimmedUserResponse,
+            },
+          ]
+        : effectiveSanitizedMessages
+      : [
+          ...effectiveSanitizedMessages,
+          {
+            role: 'tool',
+            content: JSON.stringify({
+              success: true,
+              data: { userResponse: trimmedUserResponse },
+            }),
+            tool_call_id: pendingToolCallId,
+          },
+        ];
 
     const resumedPayload: AgentJobPayload = {
       operationId: crypto.randomUUID(),
@@ -581,26 +1498,35 @@ router.post('/resume-job/:operationId', appGuard, async (req: Request, res: Resp
         resumedFrom: operationId,
         yieldState: {
           ...yieldState,
-          messages: [
-            ...yieldState.messages,
-            {
-              role: 'tool',
-              content: JSON.stringify({
-                success: true,
-                data: { userResponse: userResponse.trim() },
-              }),
-              tool_call_id: yieldState.pendingToolCall?.toolCallId ?? 'ask_user_response',
-            },
-          ],
+          messages: resumedMessages,
         } satisfies AgentYieldState,
       },
     };
 
     await jobRepository.withDb(db).create(resumedPayload);
     await jobRepository.withDb(db).markCompleted(operationId, {
-      summary: `Resumed by user — continuing as ${resumedPayload.operationId}`,
-      data: { resumedAs: resumedPayload.operationId },
+      summary: resumeFromPausedState
+        ? `Resumed after pause — continuing as ${resumedPayload.operationId}`
+        : `Resumed by user — continuing as ${resumedPayload.operationId}`,
+      data: {
+        resumedAs: resumedPayload.operationId,
+        ...(resumeFromPausedState ? { resumedFromPause: true } : {}),
+      },
     });
+
+    // Clear paused yield state from thread so stale Resume card doesn't appear later
+    if (threadId && chatService) {
+      try {
+        await chatService.clearThreadPausedYieldState(threadId);
+      } catch (err) {
+        logger.warn('Failed to clear thread paused yield state on resume', {
+          threadId,
+          operationId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
     const environment = req.isStaging ? 'staging' : 'production';
     const enqueueResult = await enqueueWithOutbox(db, resumedPayload, environment);
 
@@ -613,6 +1539,7 @@ router.post('/resume-job/:operationId', appGuard, async (req: Request, res: Resp
     res.status(202).json({
       success: true,
       data: {
+        resumed: true,
         jobId: enqueueResult.jobId,
         operationId: resumedPayload.operationId,
         threadId,
@@ -738,6 +1665,10 @@ router.post('/approvals/:id/resolve', appGuard, async (req: Request, res: Respon
     }
 
     const threadId = jobDoc.threadId;
+    const normalizedApprovalMessages = stripToolResultForCallId(
+      normalizeYieldMessages(yieldState.messages),
+      yieldState.pendingToolCall.toolCallId
+    );
 
     const resumedPayload: AgentJobPayload = {
       operationId: crypto.randomUUID(),
@@ -752,6 +1683,7 @@ router.post('/approvals/:id/resolve', appGuard, async (req: Request, res: Respon
         yieldState: yieldState.pendingToolCall
           ? {
               ...yieldState,
+              messages: normalizedApprovalMessages,
               approvalId,
               pendingToolCall: {
                 ...yieldState.pendingToolCall,
@@ -885,7 +1817,6 @@ router.post(
               role: 'user',
               content: intent.trim(),
               origin: 'user',
-              agentId: 'strategy_coordinator',
             });
           }
         } catch (threadErr) {
@@ -912,6 +1843,54 @@ router.post(
       };
 
       await jobRepository.withDb(db).create(payload);
+
+      // ── Prompt-only title generation (fire-and-forget) ───────────────────
+      // New threads only: generate an AI title from the user's message before
+      // the worker even starts. Replaces the old approach of blocking title
+      // generation at the end of the full agent run (which took seconds).
+      if (chatService && llmService && resolvedThreadId && !threadId) {
+        const _titleThreadId = resolvedThreadId;
+        const _titleOpId = operationId;
+        const _titleDb = db;
+        void (async () => {
+          try {
+            const title = await chatService.generateTitleFromPromptOnly(intent.trim(), llmService);
+            if (!title) return;
+            const applied = await chatService.applyGeneratedThreadTitle(
+              _titleThreadId,
+              user.uid,
+              intent.trim(),
+              title
+            );
+            if (!applied) return;
+            logger.info('Prompt-only thread title generated (enqueue)', {
+              operationId: _titleOpId,
+              threadId: _titleThreadId,
+              title,
+            });
+            void pubsubService?.publish(_titleOpId, 'title_updated', {
+              operationId: _titleOpId,
+              threadId: _titleThreadId,
+              title,
+              timestamp: new Date().toISOString(),
+            });
+            await jobRepository.withDb(_titleDb).writeJobEventWithAutoSeq(_titleOpId, {
+              type: 'title_updated' as const,
+              userId: user.uid,
+              threadId: _titleThreadId,
+              title,
+              operationId: _titleOpId,
+              timestamp: new Date().toISOString(),
+            });
+          } catch (err) {
+            logger.warn('Prompt-only title generation failed (enqueue)', {
+              error: err instanceof Error ? err.message : String(err),
+              threadId: _titleThreadId,
+            });
+          }
+        })();
+      }
+
       const enqueueResult = await enqueueWithOutbox(db, payload, environment);
 
       logger.info('Agent X background job enqueued', {
@@ -1027,35 +2006,37 @@ router.post(
 
       // New request path: create thread/message, create+enqueue job, then stream from persistence + live pubsub.
       const allAttachments = attachments ?? [];
-      const fileAttachments = allAttachments.filter(
-        (a: { mimeType: string }) =>
-          a.mimeType.startsWith('image/') ||
-          a.mimeType === 'application/pdf' ||
-          a.mimeType === 'text/csv' ||
-          a.mimeType === 'text/plain' ||
-          a.mimeType === 'application/vnd.ms-excel' ||
-          a.mimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
-          a.mimeType === 'application/msword' ||
-          a.mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-      ) as {
-        id: string;
-        url: string;
-        name: string;
-        mimeType: string;
-        type: string;
-        sizeBytes: number;
-      }[];
-      const videoAttachments = allAttachments.filter((a: { mimeType: string }) =>
-        a.mimeType.startsWith('video/')
-      ) as {
-        id: string;
-        url: string;
-        name: string;
-        mimeType: string;
-        type: string;
-        sizeBytes: number;
-        cloudflareVideoId?: string;
-      }[];
+      const fileAttachments = allAttachments
+        .filter(
+          (a: { mimeType: string }) =>
+            a.mimeType.startsWith('image/') ||
+            a.mimeType === 'application/pdf' ||
+            a.mimeType === 'text/csv' ||
+            a.mimeType === 'text/plain' ||
+            a.mimeType === 'application/vnd.ms-excel' ||
+            a.mimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+            a.mimeType === 'application/msword' ||
+            a.mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        )
+        .map((a) => ({
+          id: a.id,
+          url: a.url,
+          name: a.name,
+          mimeType: a.mimeType,
+          type: a.type,
+          sizeBytes: a.sizeBytes,
+        }));
+      const videoAttachments = allAttachments
+        .filter((a: { mimeType: string }) => a.mimeType.startsWith('video/'))
+        .map((a) => ({
+          id: a.id,
+          url: a.url,
+          name: a.name,
+          mimeType: a.mimeType,
+          type: a.type,
+          sizeBytes: a.sizeBytes,
+          ...(a.cloudflareVideoId ? { cloudflareVideoId: a.cloudflareVideoId } : {}),
+        }));
 
       let enrichedMessageText = message.trim();
       if (videoAttachments.length > 0) {
@@ -1117,7 +2098,6 @@ router.post(
         intent: message.trim(),
         sessionId: crypto.randomUUID(),
         origin: 'user' as AgentJobOrigin,
-        agent: 'strategy_coordinator' as import('@nxt1/core').AgentIdentifier,
         context: {
           ...(idempotencyKey ? { idempotencyKey } : {}),
           ...(effectiveThreadId ? { threadId: effectiveThreadId } : {}),
@@ -1129,6 +2109,54 @@ router.post(
 
       await jobRepository.withDb(db).create(payload);
       await enqueueWithOutbox(db, payload, environment);
+
+      // ── Prompt-only title generation (fire-and-forget) ───────────────────
+      // New threads only: generate an AI title from the raw user message.
+      // Publishes title_updated via pubsub so the open SSE stream receives it
+      // within ~300-600ms of stream open — before the first agent delta arrives.
+      if (chatService && llmService && effectiveThreadId && !threadId) {
+        const _titleThreadId = effectiveThreadId;
+        const _titleOpId = operationId;
+        const _rawPrompt = message.trim();
+        const _titleDb = db;
+        void (async () => {
+          try {
+            const title = await chatService.generateTitleFromPromptOnly(_rawPrompt, llmService);
+            if (!title) return;
+            const applied = await chatService.applyGeneratedThreadTitle(
+              _titleThreadId,
+              user.uid,
+              _rawPrompt,
+              title
+            );
+            if (!applied) return;
+            logger.info('Prompt-only thread title generated (chat)', {
+              operationId: _titleOpId,
+              threadId: _titleThreadId,
+              title,
+            });
+            void pubsubService?.publish(_titleOpId, 'title_updated', {
+              operationId: _titleOpId,
+              threadId: _titleThreadId,
+              title,
+              timestamp: new Date().toISOString(),
+            });
+            await jobRepository.withDb(_titleDb).writeJobEventWithAutoSeq(_titleOpId, {
+              type: 'title_updated' as const,
+              userId: user.uid,
+              threadId: _titleThreadId,
+              title,
+              operationId: _titleOpId,
+              timestamp: new Date().toISOString(),
+            });
+          } catch (err) {
+            logger.warn('Prompt-only title generation failed (chat)', {
+              error: err instanceof Error ? err.message : String(err),
+              threadId: _titleThreadId,
+            });
+          }
+        })();
+      }
 
       logger.info('Agent X chat admitted to queue (enqueue-first)', {
         operationId,
@@ -1145,7 +2173,7 @@ router.post(
         userId: user.uid,
         afterSeq,
         initialThreadId: effectiveThreadId,
-        initialOperationStatus: 'in-progress',
+        initialOperationStatus: 'queued',
       });
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
@@ -1173,3 +2201,36 @@ router.post(
 );
 
 export default router;
+
+export const __agentChatRouteTestUtils = {
+  clearActiveUserStreams(): void {
+    activeUserStreams.clear();
+    activeOperationStreams.clear();
+  },
+  setActiveUserStreams(userId: string, count: number): void {
+    const slots = new Set<string>();
+    for (let index = 0; index < Math.max(0, count); index += 1) {
+      slots.add(`test-stream-${index}`);
+    }
+    activeUserStreams.set(userId, slots);
+  },
+  setActiveOperationStream(userId: string, operationId: string, streamId = 'test-stream-0'): void {
+    const slots = activeUserStreams.get(userId) ?? new Set<string>();
+    slots.add(streamId);
+    activeUserStreams.set(userId, slots);
+
+    activeOperationStreams.set(operationId, {
+      userId,
+      streamId,
+      terminate: () => {
+        const userSlots = activeUserStreams.get(userId);
+        if (!userSlots) return;
+        userSlots.delete(streamId);
+        if (userSlots.size === 0) activeUserStreams.delete(userId);
+      },
+    });
+  },
+  getActiveUserStreamCount(userId: string): number {
+    return activeUserStreams.get(userId)?.size ?? 0;
+  },
+};

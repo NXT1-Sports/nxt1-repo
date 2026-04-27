@@ -17,8 +17,8 @@
  */
 
 import type { Firestore } from 'firebase-admin/firestore';
-import { NOTIFICATION_TYPES, resolveAgentYieldCopy } from '@nxt1/core';
-import { dispatch } from '../../../services/communications/notification.service.js';
+import { resolveAgentYieldCopy } from '@nxt1/core';
+import { dispatchAgentPush } from './agent-push-adapter.service.js';
 import { logger } from '../../../utils/logger.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -70,34 +70,39 @@ export async function notifyYield(db: Firestore, notification: YieldNotification
 
   // ── Push Notification ─────────────────────────────────────────────────
   try {
-    const deepLink = threadId ? `/agent-x?thread=${encodeURIComponent(threadId)}` : '/agent-x';
-
-    const notificationType = NOTIFICATION_TYPES.DYNAMIC_AGENT_ALERT;
-
-    await dispatch(db, {
-      userId,
-      type: notificationType,
-      title: copy.title,
-      body: copy.body,
-      deepLink,
-      data: {
-        // For 'chat' origin, omit operationId from action data — the client
-        // resumes by sending the next message in the thread, not /resume-job.
-        ...(origin !== 'chat' ? { operationId } : {}),
-        reason,
-        origin: origin ?? 'worker',
-        ...(threadId ? { threadId, sessionId: threadId } : {}),
-        ...(approvalId ? { approvalId, entityId: approvalId } : {}),
-      },
-      source: { userName: 'Agent X' },
-      priority: 'high',
-    });
+    if (reason === 'needs_approval') {
+      await dispatchAgentPush(db, {
+        kind: 'agent_needs_approval',
+        userId,
+        operationId,
+        threadId,
+        approvalId: approvalId ?? operationId,
+        reason: 'needs_approval',
+        title: copy.title,
+        body: copy.body,
+        origin,
+        sessionId: threadId,
+      });
+    } else {
+      await dispatchAgentPush(db, {
+        kind: 'agent_needs_input',
+        userId,
+        operationId,
+        threadId,
+        reason: 'needs_input',
+        title: copy.title,
+        body: copy.body,
+        origin,
+        sessionId: threadId,
+        approvalId,
+      });
+    }
 
     logger.info('Yield push notification dispatched', {
       userId,
       operationId,
       reason,
-      notificationType,
+      notificationType: 'dynamic_agent_alert',
     });
   } catch (pushErr) {
     logger.warn('Failed to dispatch yield push notification', {

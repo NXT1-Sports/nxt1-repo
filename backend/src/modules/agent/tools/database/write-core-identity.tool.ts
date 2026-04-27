@@ -28,7 +28,6 @@ import { invalidateTeamCache } from '../../../../services/team/team-code.service
 import { CACHE_KEYS as USER_CACHE_KEYS } from '../../../../services/profile/users.service.js';
 import { ContextBuilder } from '../../memory/context-builder.js';
 import { invalidateProfileCaches } from '../../../../routes/profile/shared.js';
-import { getAnalyticsLoggerService } from '../../../../services/core/analytics-logger.service.js';
 import { provisionOnboardingPrograms } from '../../../../services/platform/onboarding-program-provisioning.service.js';
 import { platformDisplayName } from './platform-utils.js';
 import { SyncDiffService, type PreviousProfileState } from '../../sync/index.js';
@@ -926,36 +925,6 @@ export class WriteCoreIdentityTool extends BaseTool {
             error: err instanceof Error ? err.message : String(err),
           });
         }
-      }
-
-      if (shouldUpdateUserDoc) {
-        void getAnalyticsLoggerService()
-          .safeTrack({
-            subjectId: userId,
-            subjectType: 'user',
-            domain: 'system',
-            eventType: 'tool_write_completed',
-            source: accessGrant?.isSelfWrite ? 'user' : 'agent',
-            actorUserId: context.userId,
-            value: writtenSections.length,
-            tags: ['profile', 'identity', targetSport, source],
-            payload: {
-              toolName: this.name,
-              profileUrl,
-              targetSport,
-              sectionCount: writtenSections.length,
-              writtenSections,
-            },
-            metadata: {
-              initiatedBy: 'write-core-identity',
-            },
-          })
-          .catch((error) => {
-            logger.warn('[WriteCoreIdentity] Analytics tracking failed', {
-              userId,
-              error: error instanceof Error ? error.message : String(error),
-            });
-          });
       }
 
       return {

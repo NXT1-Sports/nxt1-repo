@@ -15,7 +15,8 @@
  *   2. Stream callbacks call `appendDelta()`, `upsertStep()`, `appendCard()`, `markDone()`
  *   3. Component destroy does NOT abort — stream continues here
  *   4. Remounting component calls `claim(threadId)` → gets buffered state + live updates
- *   5. Stream completes → entry kept for 60s (rehydration window) → auto-pruned
+ *   5. Stream completes → entry kept by retention profile (standard vs long-running)
+ *      → auto-pruned
  *
  * ⭐ SHARED BETWEEN WEB AND MOBILE ⭐
  */
@@ -48,8 +49,28 @@ export interface StreamEntry {
   doneMetadata: Record<string, unknown> | null;
   /** Timestamp when the stream completed (for auto-prune). */
   completedAt: number | null;
+  /** Per-stream completed-entry TTL, used by prune(). */
+  completedEntryTtlMs: number;
   /** Callback for the currently-attached component to receive live updates. */
   listener: StreamListener | null;
+}
+
+/** Retention profile for completed stream entries. */
+export type StreamRetentionHint = 'standard' | 'long-running';
+
+/** Optional registration options for per-operation stream behavior. */
+export interface StreamRegisterOptions {
+  /**
+   * Retention profile for completed entries.
+   * - standard: short rehydration window
+   * - long-running: 24h rehydration window
+   */
+  readonly retentionHint?: StreamRetentionHint;
+  /**
+   * Explicit completed-entry TTL override for this stream.
+   * When provided, takes precedence over retentionHint.
+   */
+  readonly completedEntryTtlMs?: number;
 }
 
 /** Live update callbacks — set by the component that "owns" the UI for this thread. */
@@ -85,8 +106,11 @@ export interface StreamSnapshot {
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
-/** How long to keep a completed stream entry for rehydration (ms). */
-const COMPLETED_ENTRY_TTL_MS = 60_000; // 60 seconds
+/** How long to keep a completed stream entry for standard rehydration (ms). */
+const COMPLETED_ENTRY_TTL_STANDARD_MS = 60_000; // 60 seconds
+
+/** Default completed-entry TTL for long-running operations (ms). */
+const COMPLETED_ENTRY_TTL_LONG_RUNNING_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 /** How often to run the prune sweep (ms). */
 const PRUNE_INTERVAL_MS = 30_000; // 30 seconds
@@ -173,12 +197,14 @@ export class AgentXStreamRegistryService {
    * Register a new stream. If one already exists for this threadId,
    * the old one is aborted and replaced.
    */
-  register(threadId: string, abort: AbortController): void {
+  register(threadId: string, abort: AbortController, options?: StreamRegisterOptions): void {
     const existing = this.entries.get(threadId);
     if (existing && !existing.done) {
       existing.abort.abort();
       this.logger.info('Replaced existing stream', { threadId });
     }
+
+    const completedEntryTtlMs = this.resolveCompletedEntryTtlMs(options);
 
     this.entries.set(threadId, {
       threadId,
@@ -191,11 +217,16 @@ export class AgentXStreamRegistryService {
       error: null,
       doneMetadata: null,
       completedAt: null,
+      completedEntryTtlMs,
       listener: null,
     });
 
     this.ensurePruneTimer();
-    this.logger.info('Stream registered', { threadId });
+    this.logger.info('Stream registered', {
+      threadId,
+      retentionHint: options?.retentionHint ?? 'standard',
+      completedEntryTtlMs,
+    });
   }
 
   // ─── Stream callbacks (called from _sendViaStream) ───────────────────
@@ -264,6 +295,10 @@ export class AgentXStreamRegistryService {
   markDone(threadId: string, metadata: Record<string, unknown> | null): void {
     const entry = this.entries.get(threadId);
     if (!entry) return;
+    if (entry.done) {
+      this.logger.debug('Duplicate stream done suppressed', { threadId });
+      return;
+    }
     entry.done = true;
     entry.doneMetadata = metadata;
     entry.completedAt = Date.now();
@@ -281,6 +316,12 @@ export class AgentXStreamRegistryService {
   markError(threadId: string, error: string): void {
     const entry = this.entries.get(threadId);
     if (!entry) return;
+    if (entry.done) {
+      this.logger.debug('Duplicate stream error suppressed after terminal state', {
+        threadId,
+      });
+      return;
+    }
     entry.done = true;
     entry.error = error;
     entry.completedAt = Date.now();
@@ -388,7 +429,7 @@ export class AgentXStreamRegistryService {
   private prune(): void {
     const now = Date.now();
     for (const [threadId, entry] of this.entries) {
-      if (entry.completedAt && now - entry.completedAt > COMPLETED_ENTRY_TTL_MS) {
+      if (entry.completedAt && now - entry.completedAt > entry.completedEntryTtlMs) {
         this.entries.delete(threadId);
       }
     }
@@ -396,5 +437,17 @@ export class AgentXStreamRegistryService {
       clearInterval(this.pruneTimer);
       this.pruneTimer = null;
     }
+  }
+
+  private resolveCompletedEntryTtlMs(options?: StreamRegisterOptions): number {
+    if (typeof options?.completedEntryTtlMs === 'number' && options.completedEntryTtlMs > 0) {
+      return options.completedEntryTtlMs;
+    }
+
+    if (options?.retentionHint === 'long-running') {
+      return COMPLETED_ENTRY_TTL_LONG_RUNNING_MS;
+    }
+
+    return COMPLETED_ENTRY_TTL_STANDARD_MS;
   }
 }

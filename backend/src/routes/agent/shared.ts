@@ -53,7 +53,7 @@ export function setAgentDependencies(deps: {
   contextBuilder: ContextBuilder;
   llmService: OpenRouterService;
   toolRegistry?: ToolRegistry;
-  pubsub?: import('../../modules/agent/queue/pubsub.service.js').AgentPubSubService;
+  pubsub?: import('../../modules/agent/queue/pubsub.service.js').AgentPubSubService | null;
   agentRouter?: import('../../modules/agent/agent.router.js').AgentRouter;
 }): void {
   queueService = deps.queueService;
@@ -62,7 +62,7 @@ export function setAgentDependencies(deps: {
   contextBuilder = deps.contextBuilder;
   llmService = deps.llmService;
   if (deps.toolRegistry) toolRegistryRef = deps.toolRegistry;
-  if (deps.pubsub) pubsubService = deps.pubsub;
+  if ('pubsub' in deps) pubsubService = deps.pubsub ?? null;
   if (deps.agentRouter) agentRouterRef = deps.agentRouter;
 
   // Reset generation service cache when dependencies change
@@ -306,14 +306,15 @@ export function replayJobEventsAsSSE(
 /**
  * Build an inline ask_user card for the SSE `card` event.
  * The frontend renders this as a question prompt with a text input.
- * The user submits their answer as a normal chat message via POST /chat
- * with the same threadId — thread history handles the resume naturally.
+ * The user submits their answer through POST /resume-job/:operationId
+ * so the backend resumes the exact yielded tool context deterministically.
  */
 export function buildInlineAskUserCard(params: {
   agentId: AgentIdentifier;
   question: string;
   context?: string;
   threadId?: string;
+  operationId?: string;
 }): {
   agentId: AgentIdentifier;
   type: 'ask_user';
@@ -328,6 +329,7 @@ export function buildInlineAskUserCard(params: {
       question: params.question,
       context: params.context ?? '',
       ...(params.threadId ? { threadId: params.threadId } : {}),
+      ...(params.operationId ? { operationId: params.operationId } : {}),
     },
   };
 }

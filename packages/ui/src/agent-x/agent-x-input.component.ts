@@ -18,6 +18,7 @@ import { FormsModule } from '@angular/forms';
 import { NxtIconComponent } from '../components/icon/icon.component';
 import type { AgentXQuickTask } from '@nxt1/core';
 import { AGENT_X_ALLOWED_MIME_TYPES } from '@nxt1/core';
+import { TEST_IDS } from '@nxt1/core/testing';
 import type { AgentXPendingFile } from './agent-x-pending-file';
 
 @Component({
@@ -43,9 +44,14 @@ import type { AgentXPendingFile } from './agent-x-pending-file';
 
       <!-- Pending File Previews -->
       @if (pendingFiles().length > 0) {
-        <div class="attachment-strip">
+        <div class="attachment-strip" [attr.data-testid]="testIds.ATTACHMENT_STRIP">
           @for (pending of pendingFiles(); track $index) {
-            <div class="attachment-preview" [title]="pending.file.name">
+            <div
+              class="attachment-preview"
+              [title]="pending.file.name"
+              [attr.data-testid]="testIds.ATTACHMENT_PREVIEW"
+              (click)="openFile.emit($index)"
+            >
               @if (pending.previewUrl) {
                 <img
                   [src]="pending.previewUrl"
@@ -60,8 +66,9 @@ import type { AgentXPendingFile } from './agent-x-pending-file';
               <button
                 type="button"
                 class="attachment-remove"
-                (click)="onRemoveFile($index)"
+                (click)="$event.stopPropagation(); onRemoveFile($index)"
                 aria-label="Remove file"
+                [attr.data-testid]="testIds.ATTACHMENT_REMOVE_BTN"
               >
                 <nxt1-icon name="close" [size]="12" />
               </button>
@@ -271,6 +278,7 @@ import type { AgentXPendingFile } from './agent-x-pending-file';
         align-items: center;
         gap: 0.25rem;
         width: 64px;
+        cursor: pointer;
       }
 
       .attachment-thumb {
@@ -509,16 +517,18 @@ export class AgentXInputComponent {
 
   readonly messageChange = output<string>();
   readonly send = output<void>();
-  readonly stop = output<void>();
+  readonly pause = output<void>();
   readonly removeTask = output<void>();
   readonly toggleTasks = output<void>();
   readonly filesAdded = output<File[]>();
   readonly fileRemoved = output<number>();
+  readonly openFile = output<number>();
 
   // ============================================
   // CONSTANTS
   // ============================================
 
+  protected readonly testIds = TEST_IDS.AGENT_X_INPUT;
   protected readonly acceptTypes = AGENT_X_ALLOWED_MIME_TYPES.join(',');
 
   // ============================================
@@ -551,7 +561,7 @@ export class AgentXInputComponent {
   }
 
   protected onStopAction(): void {
-    this.stop.emit();
+    this.pause.emit();
   }
 
   protected onFilesSelected(event: Event): void {

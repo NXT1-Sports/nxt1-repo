@@ -43,7 +43,7 @@ import {
                 stroke-linecap="round"
               />
             </svg>
-          } @else if (hasError()) {
+          } @else if (allFailed()) {
             <svg
               class="tool-steps__summary-icon tool-steps__summary-error"
               viewBox="0 0 16 16"
@@ -55,6 +55,21 @@ import {
                 stroke-width="2"
                 stroke-linecap="round"
               />
+            </svg>
+          } @else if (hasMixedOutcome()) {
+            <svg
+              class="tool-steps__summary-icon tool-steps__summary-warning"
+              viewBox="0 0 16 16"
+              fill="none"
+            >
+              <path
+                d="M8 2.5L14 13H2L8 2.5Z"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linejoin="round"
+              />
+              <path d="M8 6V9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+              <circle cx="8" cy="11.25" r="0.75" fill="currentColor" />
             </svg>
           } @else {
             <svg
@@ -83,8 +98,8 @@ import {
           </svg>
         </summary>
 
-        <div class="tool-steps__list">
-          @for (step of steps(); track step.id) {
+        <div class="tool-steps__list" [class.tool-steps__list--scrollable]="hasOverflow()">
+          @for (step of orderedSteps(); track step.id) {
             <div
               class="tool-step"
               [class.tool-step--active]="step.status === 'active'"
@@ -352,6 +367,10 @@ import {
         color: var(--nxt1-color-error, #ef4444);
       }
 
+      .tool-steps__summary-warning {
+        color: var(--nxt1-color-warning, #f59e0b);
+      }
+
       .tool-steps__summary-label {
         flex: 1;
         min-width: 0;
@@ -379,6 +398,43 @@ import {
         border-left: 1px solid var(--nxt1-color-border, rgba(255, 255, 255, 0.08));
         margin-left: 7px;
         animation: stepsReveal 0.2s ease-out;
+      }
+
+      .tool-steps__list--scrollable {
+        max-height: 220px;
+        overflow-y: auto;
+        padding-right: 6px;
+        -webkit-mask-image: linear-gradient(
+          to bottom,
+          transparent 0,
+          #000 16px,
+          #000 calc(100% - 16px),
+          transparent 100%
+        );
+        mask-image: linear-gradient(
+          to bottom,
+          transparent 0,
+          #000 16px,
+          #000 calc(100% - 16px),
+          transparent 100%
+        );
+        -webkit-mask-size: 100% 100%;
+        mask-size: 100% 100%;
+        scrollbar-width: thin;
+        scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
+      }
+
+      .tool-steps__list--scrollable::-webkit-scrollbar {
+        width: 6px;
+      }
+
+      .tool-steps__list--scrollable::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, 0.2);
+        border-radius: 999px;
+      }
+
+      .tool-steps__list--scrollable::-webkit-scrollbar-thumb:hover {
+        background: rgba(255, 255, 255, 0.3);
       }
 
       .tool-step {
@@ -524,11 +580,30 @@ export class AgentXToolStepsComponent {
   /** The list of tool execution steps to render. */
   readonly steps = input<readonly AgentXToolStep[]>([]);
 
+  /** Render newest tool calls first for easier recency scanning. */
+  protected readonly orderedSteps = computed(() => [...this.steps()].reverse());
+
+  /** Switch to overflow scroll when history grows long. */
+  protected readonly hasOverflow = computed(() => this.steps().length > 8);
+
   /** Whether any step is currently active (running). */
   protected readonly hasActive = computed(() => this.steps().some((s) => s.status === 'active'));
 
   /** Whether any step errored. */
   protected readonly hasError = computed(() => this.steps().some((s) => s.status === 'error'));
+
+  /** Whether there is at least one successful step. */
+  protected readonly hasSuccess = computed(() => this.steps().some((s) => s.status === 'success'));
+
+  /** True when all terminal steps failed and none succeeded. */
+  protected readonly allFailed = computed(
+    () => this.hasError() && !this.hasSuccess() && !this.hasActive()
+  );
+
+  /** True when the run completed with a mix of success + failure steps. */
+  protected readonly hasMixedOutcome = computed(
+    () => this.hasError() && this.hasSuccess() && !this.hasActive()
+  );
 
   /** Accordion summary label. */
   protected readonly summaryLabel = computed(() => getToolStepsSummaryLabel(this.steps()));
@@ -542,6 +617,9 @@ export class AgentXToolStepsComponent {
   }
 
   protected resolvedIcon(step: AgentXToolStep): string {
-    return normalizeToolStepIcon(step.icon) ?? 'default';
+    const icon = normalizeToolStepIcon(step.icon);
+    // Keep the processing spinner only while the step is actively running.
+    if (icon === 'processing' && step.status !== 'active') return 'default';
+    return icon ?? 'default';
   }
 }

@@ -29,7 +29,6 @@ import {
 import { CACHE_KEYS as USER_CACHE_KEYS } from '../../../../services/profile/users.service.js';
 import { invalidateProfileCaches } from '../../../../routes/profile/shared.js';
 import { SyncDiffService, type PreviousScheduleEntry } from '../../sync/index.js';
-import { getAnalyticsLoggerService } from '../../../../services/core/analytics-logger.service.js';
 import { onDailySyncComplete } from '../../triggers/trigger.listeners.js';
 import { logger } from '../../../../utils/logger.js';
 import { normalizeOpponentName } from './dedup-utils.js';
@@ -370,27 +369,6 @@ export class WriteScheduleTool extends BaseTool {
             error: err instanceof Error ? err.message : String(err),
           });
         }
-      }
-
-      if (written > 0) {
-        await getAnalyticsLoggerService().safeTrack({
-          subjectId: ownerId,
-          subjectType: ownerType === 'team' ? 'team' : 'user',
-          domain: 'system',
-          eventType: 'tool_write_completed',
-          source: 'agent',
-          actorUserId: context.userId,
-          value: written,
-          tags: ['schedule', sportId, source, ownerType],
-          payload: {
-            toolName: this.name,
-            sportId,
-            ownerType,
-            eventsWritten: written,
-            eventsSkipped: skipped,
-          },
-          metadata: { initiatedBy: 'write-schedule' },
-        });
       }
 
       return {

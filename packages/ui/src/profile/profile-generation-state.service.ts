@@ -265,7 +265,9 @@ export class ProfileGenerationStateService {
           // registered observers receive subsequent step/done/error events.
           this.streamRegistry.linkOperation(operationId, evt.threadId);
           if (this.resumeStream) {
-            this.streamRegistry.register(evt.threadId, this.resumeStream);
+            this.streamRegistry.register(evt.threadId, this.resumeStream, {
+              retentionHint: 'long-running',
+            });
           }
           this.logger.info('SSE resume stream thread resolved', {
             operationId,

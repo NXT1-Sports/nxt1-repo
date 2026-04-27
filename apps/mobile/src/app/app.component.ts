@@ -126,7 +126,7 @@ export class AppComponent {
       currentUrl !== '/' &&
       currentUrl !== '/auth' &&
       currentUrl !== '/home' &&
-      currentUrl !== '/agent'
+      currentUrl !== '/agent-x'
     ) {
       this.logger.debug('On specific route, respecting current navigation');
       return;

@@ -292,7 +292,8 @@ export class NotFoundComponent {
 
   /** Derive routes from shared @nxt1/core navigation constants — zero hardcoding */
   protected readonly homeRoute = DEFAULT_FOOTER_TABS.find((t) => t.id === 'home')?.route ?? '/home';
-  protected readonly agentRoute = DEFAULT_FOOTER_TABS.find((t) => t.id === 'ai')?.route ?? '/agent';
+  protected readonly agentRoute =
+    DEFAULT_FOOTER_TABS.find((t) => t.id === 'ai')?.route ?? '/agent-x';
   protected readonly helpRoute =
     DEFAULT_USER_MENU_ITEMS.find((m) => m.id === 'help')?.route ?? '/help-center';
 

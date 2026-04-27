@@ -95,6 +95,6 @@ export class ConversationComponent {
   /** Navigate to Agent X from conversation header */
   protected async onAgentX(): Promise<void> {
     this.logger.debug('Agent X requested from conversation header');
-    await this.navController.navigateForward('/agent');
+    await this.navController.navigateForward('/agent-x');
   }
 }

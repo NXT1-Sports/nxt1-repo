@@ -27,16 +27,10 @@ export class ReadLiveViewTool extends BaseTool {
   });
 
   readonly isMutation = false;
-  readonly category = 'analytics' as const;
+  readonly category = 'system' as const;
 
   readonly entityGroup = 'platform_tools' as const;
-  override readonly allowedAgents = [
-    'data_coordinator',
-    'performance_coordinator',
-    'recruiting_coordinator',
-    'strategy_coordinator',
-    'brand_coordinator',
-  ] as const;
+  override readonly allowedAgents = ['*'] as const;
 
   private readonly sessionService: LiveViewSessionService;
 

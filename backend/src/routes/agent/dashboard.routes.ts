@@ -113,6 +113,11 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
       ReturnType<NonNullable<typeof chatService>['getUserThreads']>
     >['items'] = [];
     const activeThreadIds = new Set<string>();
+    const threadTitleById = new Map<string, string>();
+    // Track whether the thread query ran successfully. When true, activeThreadIds
+    // is authoritative — even if empty (user archived everything). When false
+    // (query threw), we fall back to lenient filtering to avoid hiding valid jobs.
+    let threadQuerySucceeded = false;
 
     if (chatService) {
       try {
@@ -122,9 +127,12 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
           limit,
         });
         activeThreads = threadResult.items ?? [];
+        threadQuerySucceeded = true;
 
         for (const thread of activeThreads) {
-          if (thread.id) activeThreadIds.add(thread.id);
+          if (!thread.id) continue;
+          activeThreadIds.add(thread.id);
+          threadTitleById.set(thread.id, thread.title);
         }
 
         if (threadResult.hasMore) {
@@ -154,20 +162,25 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
       if (!intent) continue;
 
       const threadId = (job['threadId'] as string) ?? undefined;
+      const resolvedTitle = threadId ? (threadTitleById.get(threadId)?.trim() ?? '') : '';
 
       // If this job belongs to a thread we've already represented, skip it.
       // This collapses multiple messages in the same conversation into one row.
       if (threadId) {
         // Guardrail: ignore stale jobs referencing deleted/archived threads.
-        if (activeThreadIds.size > 0 && !activeThreadIds.has(threadId)) continue;
+        // Only apply when threadQuerySucceeded — distinguishes "query returned 0
+        // active threads" (user archived everything) from "query failed" (be lenient).
+        if (threadQuerySucceeded && !activeThreadIds.has(threadId)) continue;
 
         if (seenThreadIds.has(threadId)) continue;
         seenThreadIds.add(threadId);
         representedThreadIds.add(threadId);
       }
 
-      const status = mapJobStatus((job['status'] as string) ?? '', (raw: string) =>
-        logger.warn('Unknown job status mapped to in-progress', { status: raw })
+      const status = mapJobStatus(
+        (job['status'] as string) ?? '',
+        (raw: string) => logger.warn('Unknown job status mapped to in-progress', { status: raw }),
+        job['yieldState']
       );
       const category = inferCategory(intent);
       const createdAt = job['createdAt'] as Timestamp | undefined;
@@ -179,7 +192,7 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
       entries.push({
         id: threadId ?? (job['operationId'] as string) ?? '',
         operationId: (job['operationId'] as string) ?? undefined,
-        title: intent.slice(0, 120),
+        title: (resolvedTitle || intent).slice(0, 120),
         summary:
           result?.summary ??
           (status === 'error' ? ((job['error'] as string) ?? 'Operation failed') : 'Processing...'),
@@ -204,8 +217,8 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
         // Build reverse map: MongoDB threadId → Firestore operationId.
         // This is necessary because AgentJobs docs have threadId patched in
         // asynchronously after creation. At the time getByUser runs, some jobs
-        // may have threadId: null, so their MongoDB thread never enters
-        // representedThreadIds and gets added as a thread-only entry below —
+        // may not yet have threadId and therefore fall through to thread-only
+        // entries below without an operationId.
         // without an operationId. This map ensures those entries still carry
         // the correct UUID for the Firestore events subscription.
         const threadIdToOperationId = new Map<string, string>();
@@ -595,7 +608,10 @@ router.get('/goal-history', appGuard, async (req: Request, res: Response) => {
 });
 
 // ─── POST /upload ─────────────────────────────────────────────────────────
-
+// Upload non-video attachments (images, PDFs, docs) to Firebase Storage.
+// Videos use Cloudflare Stream TUS and bypass this endpoint.
+// ThreadId may be null on first message (SSE thread event fires after upload starts).
+// Falls back to unbound storage path if threadId unavailable.
 router.post(
   '/upload',
   appGuard,
@@ -615,39 +631,47 @@ router.post(
         return;
       }
 
-      const threadId = req.body?.threadId as string | undefined;
-      if (!threadId) {
-        res.status(400).json({ success: false, error: 'threadId is required' });
-        return;
-      }
-
+      const threadId = (req.body?.threadId as string | undefined) ?? null;
       const bucket = getStorage().bucket();
       const timestamp = Date.now();
       const sanitizedName = file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_');
-      const storagePath = `Users/${user.uid}/threads/${threadId}/media/${timestamp}_${sanitizedName}`;
+
+      // Determine storage path: use thread-bound or fallback to unbound
+      const storagePath = threadId
+        ? `Users/${user.uid}/threads/${threadId}/media/${timestamp}_${sanitizedName}`
+        : `Users/${user.uid}/uploads/unbound/${timestamp}_${sanitizedName}`;
+
       const storageFile = bucket.file(storagePath);
 
       await storageFile.save(file.buffer, {
         metadata: {
           contentType: file.mimetype,
-          cacheControl: 'public, max-age=31536000',
+          cacheControl: 'private, max-age=0', // Private; require signed URL for access
         },
       });
 
-      await storageFile.makePublic();
-      const url = `https://storage.googleapis.com/${bucket.name}/${storagePath}`;
+      // Generate a 24-hour signed URL for the AI to access the file
+      const expiresAt = Date.now() + 24 * 60 * 60 * 1000; // 24 hours
+      const [signedUrl] = await storageFile.getSignedUrl({
+        version: 'v4',
+        action: 'read',
+        expires: expiresAt,
+      });
 
       logger.info('Agent X file uploaded', {
         userId: user.uid,
+        threadId: threadId || 'unbound',
         mimeType: file.mimetype,
         sizeBytes: file.size,
         storagePath,
+        signedUrlExpires: new Date(expiresAt).toISOString(),
       });
 
       res.json({
         success: true,
         data: {
-          url,
+          url: signedUrl,
+          storagePath,
           name: file.originalname,
           mimeType: file.mimetype,
           sizeBytes: file.size,
@@ -655,6 +679,35 @@ router.post(
       });
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
+      const errorCode = (error as any).code;
+
+      // Normalize multer errors to structured 400s
+      if (errorCode === 'LIMIT_FILE_SIZE') {
+        logger.warn('File upload size limit exceeded', {
+          error: error.message,
+          userId: (req as any).user?.uid,
+        });
+        res.status(400).json({
+          success: false,
+          error: 'File exceeds maximum size limit (20 MB)',
+          code: 'FILE_TOO_LARGE',
+        });
+        return;
+      }
+
+      if (errorCode === 'LIMIT_UNEXPECTED_FILE') {
+        logger.warn('Unexpected file in upload', {
+          error: error.message,
+          userId: (req as any).user?.uid,
+        });
+        res.status(400).json({
+          success: false,
+          error: 'Unexpected file field',
+          code: 'INVALID_FILE_FIELD',
+        });
+        return;
+      }
+
       logger.error('Agent X file upload failed', { error: error.message, stack: error.stack });
       res.status(500).json({ success: false, error: 'Failed to upload file' });
     }

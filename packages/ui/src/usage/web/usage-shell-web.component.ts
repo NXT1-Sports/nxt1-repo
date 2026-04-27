@@ -183,34 +183,6 @@ export type { UsageUser };
       <nxt-refresher (onRefresh)="handleRefresh($event)" (onTimeout)="handleRefreshTimeout()" />
 
       <div class="usage-dashboard">
-        @if (svc.activeSection() === 'overview' && svc.canSwitchToOrganizationBilling()) {
-          <div class="billing-mode-toggle" [attr.data-testid]="testIds.BILLING_MODE_TOGGLE">
-            <span class="billing-mode-toggle__label">Billing Mode</span>
-            <div class="billing-mode-toggle__actions" role="tablist" aria-label="Billing mode">
-              <button
-                type="button"
-                class="billing-mode-toggle__btn"
-                [class.billing-mode-toggle__btn--active]="svc.billingMode() === 'organization'"
-                [disabled]="svc.billingMode() === 'organization' || svc.isLoading()"
-                [attr.data-testid]="testIds.BILLING_MODE_ORG_BTN"
-                (click)="onSwitchBillingMode('organization')"
-              >
-                Organization
-              </button>
-              <button
-                type="button"
-                class="billing-mode-toggle__btn"
-                [class.billing-mode-toggle__btn--active]="svc.billingMode() === 'personal'"
-                [disabled]="svc.billingMode() === 'personal' || svc.isLoading()"
-                [attr.data-testid]="testIds.BILLING_MODE_PERSONAL_BTN"
-                (click)="onSwitchBillingMode('personal')"
-              >
-                Personal
-              </button>
-            </div>
-          </div>
-        }
-
         <!-- Mobile option scroller — sectionNavs() already filters tabs per role -->
         <div class="usage-mobile-scroller">
           <nxt1-option-scroller-web
@@ -235,6 +207,34 @@ export type { UsageUser };
           />
 
           <section class="section-content nxt1-section-content" role="tabpanel">
+            @if (svc.activeSection() === 'overview' && svc.canSwitchToOrganizationBilling()) {
+              <div class="billing-mode-toggle" [attr.data-testid]="testIds.BILLING_MODE_TOGGLE">
+                <span class="billing-mode-toggle__label">Billing Mode</span>
+                <div class="billing-mode-toggle__actions" role="tablist" aria-label="Billing mode">
+                  <button
+                    type="button"
+                    class="billing-mode-toggle__btn"
+                    [class.billing-mode-toggle__btn--active]="svc.billingMode() === 'organization'"
+                    [disabled]="svc.billingMode() === 'organization' || svc.isLoading()"
+                    [attr.data-testid]="testIds.BILLING_MODE_ORG_BTN"
+                    (click)="onSwitchBillingMode('organization')"
+                  >
+                    Organization
+                  </button>
+                  <button
+                    type="button"
+                    class="billing-mode-toggle__btn"
+                    [class.billing-mode-toggle__btn--active]="svc.billingMode() === 'personal'"
+                    [disabled]="svc.billingMode() === 'personal' || svc.isLoading()"
+                    [attr.data-testid]="testIds.BILLING_MODE_PERSONAL_BTN"
+                    (click)="onSwitchBillingMode('personal')"
+                  >
+                    Personal
+                  </button>
+                </div>
+              </div>
+            }
+
             @if (svc.error() && !hasData()) {
               <nxt1-usage-error-state
                 [message]="svc.error() ?? 'Failed to load usage data'"

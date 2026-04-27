@@ -25,8 +25,9 @@
  * ```
  */
 
-import { model, Schema, type Model } from 'mongoose';
+import { Schema, type Model, type Connection } from 'mongoose';
 import type { KnowledgeCategory, KnowledgeSourceType } from '@nxt1/core';
+import { getMongoGlobalConnection } from '../../../config/database.config.js';
 
 // ─── Document Interface ──────────────────────────────────────────────────────
 
@@ -87,7 +88,36 @@ GlobalKnowledgeSchema.index({ category: 1, version: 1 });
 // Text index for fallback keyword search when vector search is unavailable
 GlobalKnowledgeSchema.index({ content: 'text', title: 'text' });
 
-export const GlobalKnowledgeModel: Model<GlobalKnowledgeDocument> = model<GlobalKnowledgeDocument>(
-  'AgentGlobalKnowledge',
-  GlobalKnowledgeSchema
-);
+const GLOBAL_KNOWLEDGE_MODEL_NAME = 'AgentGlobalKnowledge';
+
+export function getGlobalKnowledgeModel(
+  connection: Connection = getMongoGlobalConnection()
+): Model<GlobalKnowledgeDocument> {
+  const existingModel = connection.models[GLOBAL_KNOWLEDGE_MODEL_NAME] as
+    | Model<GlobalKnowledgeDocument>
+    | undefined;
+  if (existingModel) return existingModel;
+
+  return connection.model<GlobalKnowledgeDocument>(
+    GLOBAL_KNOWLEDGE_MODEL_NAME,
+    GlobalKnowledgeSchema
+  );
+}
+
+export const GlobalKnowledgeModel = new Proxy({} as Model<GlobalKnowledgeDocument>, {
+  get(_target, prop) {
+    const model = getGlobalKnowledgeModel();
+    const value = (model as unknown as Record<PropertyKey, unknown>)[prop];
+    return typeof value === 'function' ? value.bind(model) : value;
+  },
+  has(_target, prop) {
+    const model = getGlobalKnowledgeModel();
+    return prop in model;
+  },
+  getOwnPropertyDescriptor(_target, prop) {
+    const model = getGlobalKnowledgeModel() as unknown as Record<PropertyKey, unknown>;
+    const value = model[prop];
+    if (value === undefined) return undefined;
+    return { configurable: true, enumerable: true, writable: true, value };
+  },
+});

@@ -22,12 +22,16 @@ const GetAnalyticsSummaryInputSchema = z.object({
   subjectType: z.string().trim().min(1).optional(),
   domain: z.string().trim().min(1),
   timeframe: z.string().trim().min(1).optional(),
+  templateKey: z.string().trim().min(1).optional(),
+  templateBaseDomain: z
+    .enum(['recruiting', 'nil', 'performance', 'engagement', 'communication'])
+    .optional(),
 });
 
 export class GetAnalyticsSummaryTool extends BaseTool {
   readonly name = 'get_analytics_summary';
   readonly description =
-    'Gets a pre-aggregated analytics summary for a subject and domain, including total tracked events and counts by event type.';
+    'Gets an analytics summary for a subject and domain, including total tracked events, counts by event type, and custom-template breakdowns for custom-domain queries.';
 
   readonly parameters = GetAnalyticsSummaryInputSchema;
 
@@ -73,6 +77,8 @@ export class GetAnalyticsSummaryTool extends BaseTool {
       subjectType,
       domain,
       timeframe: normalizedTimeframe,
+      templateKey: parsed.data.templateKey,
+      templateBaseDomain: parsed.data.templateBaseDomain,
     });
 
     return {

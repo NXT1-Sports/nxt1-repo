@@ -39,14 +39,40 @@ import type {
 } from '@nxt1/core';
 import { COORDINATOR_AGENT_IDS, MODEL_ROUTING_DEFAULTS } from '@nxt1/core';
 import type { OpenRouterService } from '../llm/openrouter.service.js';
+import type { ToolRegistry } from '../tools/tool-registry.js';
+import type { SkillRegistry } from '../skills/skill-registry.js';
+import type { OnStreamEvent } from '../queue/event-writer.js';
+import type { ApprovalGateService } from '../services/approval-gate.service.js';
 import { z } from 'zod';
-import { getConfiguredCoordinatorDescriptors } from '../config/agent-app-config.js';
+import {
+  getConfiguredCoordinatorDescriptors,
+  resolvePlannerSystemPrompt,
+} from '../config/agent-app-config.js';
 import { AgentEngineError } from '../exceptions/agent-engine.error.js';
+import { sanitizeAgentOutputText } from '../utils/platform-identifier-sanitizer.js';
+import { createHash } from 'node:crypto';
 
-const plannerResponseSchema = z
+// IMPORTANT: This schema is passed directly to OpenRouter via z.toJSONSchema().
+// Keep it transform-free; normalize values after parsing.
+const plannerResponseSchema = z.object({
+  summary: z.string().optional(),
+  estimatedSteps: z.number().optional(),
+  directResponse: z.string().optional(),
+  tasks: z.array(
+    z.object({
+      id: z.union([z.string(), z.number()]).optional(),
+      assignedAgent: z.string().optional(),
+      description: z.string().optional(),
+      dependsOn: z.array(z.union([z.string(), z.number()])).optional(),
+    })
+  ),
+});
+
+const normalizedPlannerResponseSchema = z
   .object({
     summary: z.string().optional(),
     estimatedSteps: z.number().optional(),
+    directResponse: z.string().optional(),
     tasks: z.array(
       z.object({
         id: z.union([z.string(), z.number()]).optional(),
@@ -59,6 +85,7 @@ const plannerResponseSchema = z
   .transform((data) => ({
     summary: data.summary,
     estimatedSteps: data.estimatedSteps,
+    directResponse: data.directResponse,
     tasks: data.tasks.map((task, idx) => ({
       id: String(task.id ?? idx + 1),
       assignedAgent: task.assignedAgent ?? 'strategy_coordinator',
@@ -104,12 +131,78 @@ function normalizePlannerAssignedAgent(agentIdRaw: string): AgentIdentifier | nu
   return aliased ?? null;
 }
 
+interface PlannerCapabilityCoordinatorSnapshot {
+  readonly agentId: Exclude<AgentIdentifier, 'router'>;
+  readonly allowedToolNames: readonly string[];
+  readonly allowedEntityGroups: readonly string[];
+  readonly matchedToolNames: readonly string[];
+  readonly staticSkillHints: readonly string[];
+  readonly matchedSkillHints: readonly string[];
+  readonly confidence: {
+    readonly matchedToolCount: number;
+    readonly allowedToolCount: number;
+    readonly toolCoverageRatio: number;
+    readonly matchedSkillCount: number;
+    readonly staticSkillCount: number;
+    readonly skillCoverageRatio: number;
+  };
+}
+
+export interface PlannerCapabilitySnapshot {
+  readonly schemaVersion: number;
+  readonly hash: string;
+  readonly coordinators: readonly PlannerCapabilityCoordinatorSnapshot[];
+}
+
+interface PlannerExecutionOptions {
+  readonly capabilitySnapshot?: PlannerCapabilitySnapshot;
+}
+
+function isPlannerExecutionOptions(
+  value: ToolRegistry | PlannerExecutionOptions | undefined
+): value is PlannerExecutionOptions {
+  if (!value || typeof value !== 'object') return false;
+  return 'capabilitySnapshot' in value;
+}
+
+/**
+ * Classification schema for determining if an intent should use chat tier (conversational)
+ * or routing tier (planning-required). This is a fast, lightweight decision.
+ */
+const intentClassificationSchema = z.object({
+  isConversational: z
+    .boolean()
+    .describe('True if this is conversational Q&A; false if planning/delegation needed'),
+  reasoning: z.string().describe('Brief explanation of the classification'),
+  directResponse: z
+    .string()
+    .optional()
+    .describe('Direct answer to the user when isConversational=true'),
+  estimatedComplexity: z
+    .enum(['simple', 'moderate', 'complex'])
+    .describe('Rough complexity estimate'),
+});
+
+const CLASSIFICATION_CACHE_TTL_MS = 5 * 60_000;
+
 export class PlannerAgent extends BaseAgent {
   readonly id: AgentIdentifier = 'router';
   readonly name = 'Chief of Staff';
 
   /** Default LLM instance (used when execute() is called without an llm parameter). */
   private readonly defaultLlm: OpenRouterService;
+  private readonly classificationCache = new Map<
+    string,
+    {
+      readonly result: {
+        readonly isConversational: boolean;
+        readonly reasoning: string;
+        readonly complexity: 'simple' | 'moderate' | 'complex';
+        readonly directResponse?: string;
+      };
+      readonly expiresAt: number;
+    }
+  >();
 
   constructor(llm: OpenRouterService) {
     super();
@@ -131,8 +224,8 @@ export class PlannerAgent extends BaseAgent {
 
     const prompt = `You are the Chief of Staff for Agent X, the AI engine of NXT1 Sports.
 
-Your ONLY job is to decompose the user's request into a structured execution plan (a To-Do list).
-You do NOT execute any actions. You ONLY plan and assign tasks to coordinators.
+Your job is to decompose the user's request into a structured execution plan (a To-Do list),
+OR to respond directly as the Chief of Staff when no coordinator action is needed.
 
 ## Available Coordinators
 ${agentCatalogue}
@@ -147,12 +240,22 @@ ${agentCatalogue}
    data-consuming tasks (email, share, post).
 5. If a request is simple (single action), return a plan with ONE task. Do not over-decompose.
 6. If the user's request is ambiguous, create the most reasonable plan and note assumptions.
+7. **Direct Response (Chief of Staff mode)**: ALWAYS respond directly (tasks: [], directResponse: "...") for:
+   - Greetings: "hi", "hello", "hey", "what's up"
+   - Identity questions: "who are you", "who am I speaking to", "what is Agent X", "what can you do"
+   - Platform explanation: "how does NXT1 work", "what features do you have"
+   - Sports knowledge questions that don't require fetching or sending anything
+   - ANY conversational message that does NOT require a coordinator to perform work
+   NEVER create a task just to answer a question. You are the Chief of Staff — answer directly.
+   Only assign tasks to coordinators when real work must be executed: emails sent, data fetched,
+   reports generated, content created, or operations run.
 
 ## Output Format (STRICT JSON)
 Respond with ONLY a JSON object matching this schema — no markdown, no explanation:
 {
-  "summary": "One-sentence description of the overall plan",
+  "summary": "One-sentence description of the overall plan or response",
   "estimatedSteps": <number>,
+  "directResponse": "<your answer here — ONLY set this when tasks is empty and you are responding directly as Chief of Staff>",
   "tasks": [
     {
       "id": "1",
@@ -161,13 +264,34 @@ Respond with ONLY a JSON object matching this schema — no markdown, no explana
       "dependsOn": []
     }
   ]
-}`;
+}
+Omit "directResponse" entirely when tasks is non-empty.`;
 
-    return this.withConfiguredSystemPrompt(prompt);
+    return resolvePlannerSystemPrompt(prompt);
   }
 
   private getCoordinatorDescriptors(): readonly AgentDescriptor[] {
     return getConfiguredCoordinatorDescriptors().filter((descriptor) => descriptor.id !== 'router');
+  }
+
+  private buildCapabilitySnapshotPrompt(snapshot: PlannerCapabilitySnapshot): string {
+    const compactPayload = snapshot.coordinators.map((coordinator) => ({
+      agentId: coordinator.agentId,
+      allowedToolCount: coordinator.allowedToolNames.length,
+      matchedTools: coordinator.matchedToolNames.slice(0, 8),
+      allowedEntityGroups: coordinator.allowedEntityGroups,
+      staticSkillHints: coordinator.staticSkillHints.slice(0, 6),
+      matchedSkillHints: coordinator.matchedSkillHints.slice(0, 4),
+      confidence: coordinator.confidence,
+    }));
+
+    return [
+      '[Coordinator Capability Snapshot]',
+      `schemaVersion: ${snapshot.schemaVersion}`,
+      `hash: ${snapshot.hash}`,
+      'Use this snapshot as the source of truth for feasible coordinator assignment.',
+      `snapshot: ${JSON.stringify(compactPayload)}`,
+    ].join('\n');
   }
 
   /**
@@ -188,12 +312,128 @@ Respond with ONLY a JSON object matching this schema — no markdown, no explana
   }
 
   /**
-   * Execute the planning phase.
+   * Uses the "chat" tier — lightweight conversational Q&A and classification.
+   * DeepSeek-v3.2 is cost-effective for simple routing decisions.
+   */
+  getChatModelRouting(): ModelRoutingConfig {
+    return { ...MODEL_ROUTING_DEFAULTS['chat'], maxTokens: 512 };
+  }
+
+  /**
+   * Classify the intent to determine if it should use chat tier (conversational Q&A)
+   * or routing tier (planning-required). This is a cost-optimization step.
    *
-   * 1. Call the LLM with the system prompt + user intent.
-   * 2. Parse the JSON response into an AgentExecutionPlan.
-   * 3. Validate task IDs and dependency references.
-   * 4. Return the plan as the operation result.
+   * Uses the lightweight chat tier (DeepSeek) for classification; escalates to
+   * routing tier (Sonnet) only if planning/delegation is needed.
+   */
+  private async classifyIntentTier(
+    intent: string,
+    context: AgentSessionContext,
+    llm: OpenRouterService
+  ): Promise<{
+    isConversational: boolean;
+    reasoning: string;
+    complexity: 'simple' | 'moderate' | 'complex';
+    directResponse?: string;
+  }> {
+    const cacheKey = this.buildClassificationCacheKey(context.userId, intent);
+    const cached = this.classificationCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.result;
+    }
+
+    const chatRouting = this.getChatModelRouting();
+    const classificationPrompt = `You are classifying a user request to determine if it should be answered directly (conversational) or requires planning/delegation to specialist agents.
+
+CONVERSATIONAL (answer directly):
+- General questions about NXT1 features, sports, recruiting, rules
+- "How do I..." platform help questions
+- Status checks ("what's my profile status?")
+- Sports knowledge questions
+- Brief advice or explanations
+
+PLANNING-REQUIRED (delegate to specialists):
+- "Generate my recruiting email" → needs recruiting_coordinator
+- "Analyze my highlight tape" → needs performance_coordinator
+- "Create a social post" → needs brand_coordinator
+- Multi-step work (grade tape + email coaches)
+- Create/modify/send/post operations
+- Anything requiring backend work
+
+User request: "${intent}"
+
+Classify it. If conversational, also provide a direct answer. If planning-required, explain what work needs to happen.`;
+
+    try {
+      // Send the raw intent as the user turn so providers that require at least
+      // one non-empty user message do not reject structured classification calls.
+      const result = await llm.prompt(classificationPrompt, intent, {
+        tier: chatRouting.tier,
+        maxTokens: chatRouting.maxTokens,
+        temperature: 0.3,
+        timeoutMs: 8_000,
+        outputSchema: {
+          name: 'intent_classification',
+          schema: intentClassificationSchema,
+        },
+        ...(context.operationId && {
+          telemetryContext: {
+            operationId: context.operationId,
+            userId: context.userId,
+            agentId: this.id,
+          },
+        }),
+      });
+
+      const classification = result.parsedOutput as
+        | z.infer<typeof intentClassificationSchema>
+        | undefined;
+      if (!classification) {
+        // Fallback: if chat classification fails, assume planning-required
+        return {
+          isConversational: false,
+          reasoning: 'Classification failed, escalating to routing tier',
+          complexity: 'moderate',
+        };
+      }
+
+      const classificationResult = {
+        isConversational: classification.isConversational,
+        reasoning: classification.reasoning,
+        complexity: classification.estimatedComplexity,
+        directResponse: classification.directResponse?.trim() || undefined,
+      };
+
+      this.classificationCache.set(cacheKey, {
+        result: classificationResult,
+        expiresAt: Date.now() + CLASSIFICATION_CACHE_TTL_MS,
+      });
+
+      return classificationResult;
+    } catch (_err) {
+      // If classification call fails, escalate to routing tier for safety
+      return {
+        isConversational: false,
+        reasoning: 'Classification LLM failed, escalating to routing tier',
+        complexity: 'moderate',
+      };
+    }
+  }
+
+  private buildClassificationCacheKey(userId: string, intent: string): string {
+    const normalizedIntent = intent.trim().toLowerCase().replace(/\s+/g, ' ');
+    const intentHash = createHash('sha1').update(normalizedIntent).digest('hex');
+    return `${userId}:${intentHash}`;
+  }
+
+  /**
+   * Execute the planning phase with intelligent tier selection.
+   *
+   * 1. Classify intent to determine tier (chat for conversational, routing for planning).
+   * 2. For conversational: use chat tier (DeepSeek) for direct responses.
+   * 3. For planning: use routing tier (Sonnet) to build task DAG.
+   * 4. Validate task IDs and dependency references.
+   * 5. Return the plan as the operation result.
    *
    * The Worker Queue reads .result.data.plan to get the task list.
    */
@@ -201,16 +441,75 @@ Respond with ONLY a JSON object matching this schema — no markdown, no explana
     intent: string,
     context: AgentSessionContext,
     _tools: readonly AgentToolDefinition[],
-    llm?: OpenRouterService
+    llm?: OpenRouterService,
+    toolRegistryOrOptions?: ToolRegistry | PlannerExecutionOptions,
+    _skillRegistry?: SkillRegistry,
+    _onStreamEvent?: OnStreamEvent,
+    _approvalGate?: ApprovalGateService,
+    options?: PlannerExecutionOptions
   ): Promise<AgentOperationResult> {
     const activeLlm = llm ?? this.defaultLlm;
-    const routing = this.getModelRouting();
+    const plannerOptions = isPlannerExecutionOptions(toolRegistryOrOptions)
+      ? toolRegistryOrOptions
+      : options;
 
-    // ── Phase 1: Call LLM ─────────────────────────────────────────────
-    const result = await activeLlm.prompt(this.getSystemPrompt(context), intent, {
-      tier: routing.tier,
-      maxTokens: routing.maxTokens,
-      temperature: routing.temperature,
+    // ── Step 1: Classify intent to determine tier ──────────────────────────
+    let classification: {
+      isConversational: boolean;
+      reasoning: string;
+      complexity: 'simple' | 'moderate' | 'complex';
+      directResponse?: string;
+    };
+    try {
+      classification = await this.classifyIntentTier(intent, context, activeLlm);
+    } catch (_err) {
+      // If classification fails entirely, fall back to routing tier (safe default)
+      classification = {
+        isConversational: false,
+        reasoning: 'Classification failed, using routing tier',
+        complexity: 'moderate',
+      };
+    }
+
+    if (classification.isConversational && classification.directResponse) {
+      const direct = sanitizeAgentOutputText(classification.directResponse);
+      return {
+        summary: direct,
+        data: {
+          directResponse: direct,
+          metadata: {
+            tier: 'chat',
+            complexity: classification.complexity,
+            classificationReasoning: classification.reasoning,
+            conversationalFastPath: true,
+          },
+        },
+        suggestions: [],
+      };
+    }
+
+    // ── Step 2: Route to appropriate tier ──────────────────────────────────
+    let modelRouting: ModelRoutingConfig;
+    let modelTier: 'chat' | 'routing';
+
+    if (classification.isConversational) {
+      modelRouting = this.getChatModelRouting();
+      modelTier = 'chat';
+    } else {
+      modelRouting = this.getModelRouting();
+      modelTier = 'routing';
+    }
+
+    // ── Step 3: Call LLM with selected tier ───────────────────────────────
+    const plannerIntent =
+      modelTier === 'routing' && plannerOptions?.capabilitySnapshot
+        ? `${intent}\n\n${this.buildCapabilitySnapshotPrompt(plannerOptions.capabilitySnapshot)}`
+        : intent;
+
+    const result = await activeLlm.prompt(this.getSystemPrompt(context), plannerIntent, {
+      tier: modelRouting.tier,
+      maxTokens: modelRouting.maxTokens,
+      temperature: modelRouting.temperature,
       outputSchema: {
         name: 'planner_execution_plan',
         schema: plannerResponseSchema,
@@ -231,10 +530,10 @@ Respond with ONLY a JSON object matching this schema — no markdown, no explana
       );
     }
 
-    // ── Phase 2: Resolve structured response ──────────────────────────────
+    // ── Step 5: Resolve structured response ───────────────────────────────
     const parsed = this.resolvePlanResponse(result);
 
-    // ── Phase 3: Build the execution plan ─────────────────────────────────
+    // ── Step 6: Build the execution plan ──────────────────────────────────
     const now = new Date().toISOString();
 
     const tasks: AgentTask[] = parsed.tasks.map((t) => ({
@@ -252,18 +551,33 @@ Respond with ONLY a JSON object matching this schema — no markdown, no explana
       createdAt: now,
     };
 
-    // ── Phase 4: Validate dependency graph ────────────────────────────────
+    // ── Step 7: Validate dependency graph ─────────────────────────────────
     this.validateDependencyGraph(plan.tasks);
 
     const output: AgentPlannerOutput = {
       plan,
-      summary: parsed.summary ?? `Created execution plan with ${plan.tasks.length} task(s).`,
+      summary:
+        parsed.summary ??
+        (parsed.directResponse
+          ? 'Direct response from Chief of Staff.'
+          : `Created execution plan with ${plan.tasks.length} task(s).`),
       estimatedSteps: parsed.estimatedSteps ?? plan.tasks.length,
     };
 
     return {
-      summary: output.summary,
-      data: { plan: output.plan, estimatedSteps: output.estimatedSteps },
+      summary: sanitizeAgentOutputText(output.summary),
+      data: {
+        plan: output.plan,
+        estimatedSteps: output.estimatedSteps,
+        ...(parsed.directResponse
+          ? { directResponse: sanitizeAgentOutputText(parsed.directResponse) }
+          : {}),
+        metadata: {
+          tier: modelTier,
+          complexity: classification.complexity,
+          classificationReasoning: classification.reasoning,
+        },
+      },
       suggestions: [],
     };
   }
@@ -274,7 +588,7 @@ Respond with ONLY a JSON object matching this schema — no markdown, no explana
    * Resolve the LLM structured payload into a validated plan structure.
    */
   private resolvePlanResponse(result: AgentPlannerLlmResult): PlannerLLMResponse {
-    const validated = plannerResponseSchema.safeParse(result.parsedOutput);
+    const validated = normalizedPlannerResponseSchema.safeParse(result.parsedOutput);
     if (!validated.success) {
       const firstIssue = validated.error.issues[0];
       const path = firstIssue?.path.length ? firstIssue.path.join('.') : 'response';
@@ -389,6 +703,7 @@ Respond with ONLY a JSON object matching this schema — no markdown, no explana
 interface PlannerLLMResponse {
   readonly summary?: string;
   readonly estimatedSteps?: number;
+  readonly directResponse?: string;
   readonly tasks: readonly PlannerLLMTask[];
 }
 

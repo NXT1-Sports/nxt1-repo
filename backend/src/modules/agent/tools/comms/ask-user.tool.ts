@@ -12,8 +12,8 @@
  * 4. Complete the BullMQ job cleanly (no failure).
  *
  * When the user replies (via chat or the notification deep link),
- * the resume route re-enqueues a new job that injects the user's
- * answer into the saved message array and continues the ReAct loop.
+ * POST /resume-job/:operationId re-enqueues a new job that injects
+ * the user's answer into the saved message array and continues the ReAct loop.
  */
 
 import { BaseTool, type ToolResult } from '../base.tool.js';
@@ -56,7 +56,7 @@ export class AskUserTool extends BaseTool {
     context: z.string().trim().min(1).optional(),
   });
   readonly isMutation = false;
-  readonly category: AgentToolCategory = 'communication';
+  readonly category: AgentToolCategory = 'system';
 
   readonly entityGroup = 'user_tools' as const;
   override readonly allowedAgents: readonly (AgentIdentifier | '*')[] = ['*'];

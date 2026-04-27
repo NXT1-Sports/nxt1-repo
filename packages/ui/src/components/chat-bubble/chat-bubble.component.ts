@@ -102,7 +102,7 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
       @for (part of parts(); track $index) {
         @switch (part.type) {
           @case ('text') {
-            @if (isOwn() || isStreaming()) {
+            @if (isOwn()) {
               <p class="bubble-text">{{ part.content }}</p>
             } @else {
               <nxt1-markdown [content]="part.content" />
@@ -199,7 +199,7 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
         <nxt1-agent-x-tool-steps [steps]="steps()" />
       }
       @if (content()) {
-        @if (isOwn() || isStreaming()) {
+        @if (isOwn()) {
           <p class="bubble-text">{{ content() }}</p>
         } @else {
           <nxt1-markdown [content]="content()" />

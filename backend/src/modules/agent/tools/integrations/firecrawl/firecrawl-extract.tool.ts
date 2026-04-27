@@ -62,7 +62,7 @@ export class FirecrawlExtractTool extends BaseTool {
   });
 
   readonly isMutation = false;
-  readonly category = 'analytics' as const;
+  readonly category = 'system' as const;
 
   readonly entityGroup = 'platform_tools' as const;
   private readonly bridge: FirecrawlMcpBridgeService;

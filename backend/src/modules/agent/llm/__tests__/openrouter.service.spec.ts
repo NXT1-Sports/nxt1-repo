@@ -492,6 +492,25 @@ describe('OpenRouterService', () => {
     expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 
+  it('should stop fallback chain when abort signal is triggered after first model failure', async () => {
+    const controller = new AbortController();
+
+    fetchSpy.mockImplementationOnce(async () => {
+      controller.abort();
+      return new Response('Bad request', { status: 400 });
+    });
+
+    await expect(
+      service.complete([{ role: 'user', content: 'test' }], {
+        tier: 'extraction',
+        signal: controller.signal,
+      })
+    ).rejects.toThrow('OpenRouter API error 400');
+
+    // Must not attempt the next fallback model once aborted
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
   // ─── Telemetry ──────────────────────────────────────────────────────────
 
   it('should emit telemetry callback after each call', async () => {

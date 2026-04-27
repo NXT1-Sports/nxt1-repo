@@ -41,6 +41,7 @@ import { toMarkdownTable } from '../markdown-helpers.js';
 import { CollegeModel } from '../../../../models/core/college.model.js';
 import { getFirestore } from 'firebase-admin/firestore';
 import { resolvePrimarySport } from '../../memory/context-builder.js';
+import { logger } from '../../../../utils/logger.js';
 import { z } from 'zod';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
@@ -126,35 +127,62 @@ const SPORTS_DB_KEYS = [
   'Football',
   'Basketball Mens',
   'Basketball Womens',
+  "Men's Basketball",
+  "Women's Basketball",
   'Baseball',
   'Softball',
   'Soccer Mens',
   'Soccer Womens',
+  "Men's Soccer",
+  "Women's Soccer",
   'Lacrosse Mens',
   'Lacrosse Womens',
+  "Men's Lacrosse",
+  "Women's Lacrosse",
   'Volleyball Mens',
   'Volleyball Womens',
+  "Men's Volleyball",
+  "Women's Volleyball",
   'Golf Mens',
   'Golf Womens',
+  "Men's Golf",
+  "Women's Golf",
   'Track & Field Mens',
   'Track & Field Womens',
+  "Men's Track & Field",
+  "Women's Track & Field",
   'Cross Country Mens',
   'Cross Country Womens',
+  "Men's Cross Country",
+  "Women's Cross Country",
   'Field Hockey',
   'Ice Hockey Mens',
   'Ice Hockey Womens',
+  "Men's Ice Hockey",
+  "Women's Ice Hockey",
   'Tennis Mens',
   'Tennis Womens',
+  "Men's Tennis",
+  "Women's Tennis",
   'Swimming & Diving Mens',
   'Swimming & Diving Womens',
+  "Men's Swimming & Diving",
+  "Women's Swimming & Diving",
   'Rowing Mens',
   'Rowing Womens',
+  "Men's Rowing",
+  "Women's Rowing",
   'Wrestling',
   'Gymnastics Mens',
   'Gymnastics Womens',
+  "Men's Gymnastics",
+  "Women's Gymnastics",
   'Water Polo Mens',
   'Water Polo Womens',
+  "Men's Water Polo",
+  "Women's Water Polo",
   'Bowling Womens',
+  "Women's Bowling",
 ] as const;
 
 /** Case-insensitive lookup: lowercased DB key → original casing. */
@@ -162,7 +190,7 @@ const SPORT_KEY_LOOKUP = new Map<string, string>(SPORTS_DB_KEYS.map((k) => [k.to
 
 /** Sports that exist only as one gender (no gender qualification needed). */
 const SINGLE_GENDER_DEFAULTS: Record<string, string> = {
-  bowling: 'Bowling Womens',
+  bowling: "Women's Bowling",
 };
 
 /** Base sport names that require gender qualification in the DB. */
@@ -383,7 +411,10 @@ export class SearchCollegesTool extends BaseTool {
       if (fullName) patterns.push(escapeRegex(fullName));
       preMatch['state'] = { $regex: `^(${patterns.join('|')})$`, $options: 'i' };
     }
-    if (name) preMatch['$text'] = { $search: name };
+    if (name) {
+      // Use regex instead of $text so the tool remains functional when text indexes drift.
+      preMatch['name'] = { $regex: escapeRegex(name), $options: 'i' };
+    }
     if (maxGpa != null && maxGpa > 0) preMatch['averageGPA'] = { $lte: maxGpa };
     if (maxTuition != null && maxTuition > 0) preMatch['totalCost'] = { $lte: maxTuition };
     if (maxMathSAT != null && maxMathSAT > 0) preMatch['mathSAT'] = { $lte: maxMathSAT };
@@ -414,9 +445,10 @@ export class SearchCollegesTool extends BaseTool {
 
     // Build the per-sport-entry condition for $filter over $objectToArray.
     // $$si.k = the Map key (sport name), $$si.v = the SportInfo sub-doc.
+    const sportKeyVariants = buildSportKeyVariants(sport);
     const sportEntryConditions: unknown[] = [
-      // Primary: case-insensitive sport name match
-      { $eq: [{ $toLower: '$$si.k' }, sport.toLowerCase()] },
+      // Primary: case-insensitive sport name match with DB naming variants
+      { $in: [{ $toLower: '$$si.k' }, sportKeyVariants] },
     ];
 
     if (divisionRegex) {
@@ -491,14 +523,57 @@ export class SearchCollegesTool extends BaseTool {
       ]);
 
     try {
+      // ── DEBUG: Log database connection info ─────────────────────
+      logger.info('[search_colleges] Executing college search', {
+        tool: 'search_colleges',
+        sport,
+        state,
+        division,
+        conference,
+        name,
+        limit,
+        preMatch: JSON.stringify(preMatch),
+        modelName: CollegeModel.modelName,
+        collectionName: CollegeModel.collection.name,
+      });
+
+      // ── DEBUG: Log connection details ──────────────────────────
+      const mongooseConnection = CollegeModel.collection.conn;
+      const dbName = mongooseConnection.db?.databaseName ?? 'unknown';
+      const dbNamespace = CollegeModel.collection.namespace;
+
+      logger.info('[search_colleges] MongoDB Connection Details', {
+        tool: 'search_colleges',
+        dbName,
+        dbNamespace,
+        mongooseConnectionName: mongooseConnection.name,
+      });
+
       // Attempt 1: full filters
       let colleges = await runQuery(preMatch);
+
+      logger.info('[search_colleges] Attempt 1 (full filters)', {
+        tool: 'search_colleges',
+        sport,
+        state,
+        matchConditions: Object.keys(preMatch),
+        resultsCount: colleges.length,
+      });
+
       const relaxed: string[] = [];
 
       // Retry 1: drop academic/financial filters
       if (colleges.length === 0) {
         const retry1 = dropKeys(preMatch, ACADEMIC_FILTER_KEYS);
         if (Object.keys(retry1).length < Object.keys(preMatch).length) {
+          logger.info('[search_colleges] Attempt 2: Retrying without academic filters', {
+            tool: 'search_colleges',
+            sport,
+            state,
+            droppedFilters: ACADEMIC_FILTER_KEYS,
+            remainingMatchConditions: Object.keys(retry1),
+          });
+
           emitStage?.('fetching_data', {
             icon: 'search',
             sport,
@@ -506,6 +581,14 @@ export class SearchCollegesTool extends BaseTool {
             phase: 'retry_without_academic_filters',
           });
           colleges = await runQuery(retry1);
+
+          logger.info('[search_colleges] Attempt 2 results', {
+            tool: 'search_colleges',
+            sport,
+            state,
+            resultsCount: colleges.length,
+          });
+
           relaxed.push('academic and financial filters (GPA, SAT, tuition, acceptance rate)');
         }
       }
@@ -516,6 +599,14 @@ export class SearchCollegesTool extends BaseTool {
         const retry2 = dropKeys(preMatch, allDropped);
         const retry1KeyCount = Object.keys(dropKeys(preMatch, ACADEMIC_FILTER_KEYS)).length;
         if (Object.keys(retry2).length < retry1KeyCount) {
+          logger.info('[search_colleges] Attempt 3: Retrying without extended filters', {
+            tool: 'search_colleges',
+            sport,
+            state,
+            droppedFilters: EXTENDED_FILTER_KEYS,
+            remainingMatchConditions: Object.keys(retry2),
+          });
+
           emitStage?.('fetching_data', {
             icon: 'search',
             sport,
@@ -523,6 +614,14 @@ export class SearchCollegesTool extends BaseTool {
             phase: 'retry_without_extended_filters',
           });
           colleges = await runQuery(retry2);
+
+          logger.info('[search_colleges] Attempt 3 results', {
+            tool: 'search_colleges',
+            sport,
+            state,
+            resultsCount: colleges.length,
+          });
+
           relaxed.push('major and religious affiliation filters');
         }
       }
@@ -686,6 +785,16 @@ export class SearchCollegesTool extends BaseTool {
       };
     } catch (err) {
       const message = err instanceof Error ? err.message : 'College search failed';
+      logger.error('[search_colleges] Error executing college search', {
+        tool: 'search_colleges',
+        error: message,
+        sport,
+        state,
+        division,
+        conference,
+        name,
+        stack: err instanceof Error ? err.stack : undefined,
+      });
       return { success: false, error: message };
     }
   }
@@ -887,21 +996,34 @@ function normalizeSportInput(raw: string): {
 
 /** Try to resolve "SportPart Gender" to a DB key, handling "&" / "and" variants + aliases. */
 function resolveGenderedSport(sportPart: string, gender: string): string | null {
-  const candidates = [
-    `${sportPart} ${gender}`,
-    `${sportPart.replace(/\band\b/gi, '&')} ${gender}`,
-    `${sportPart.replace(/&/g, 'and')} ${gender}`,
+  const isWomen = gender.toLowerCase() === 'womens';
+  const suffixToken = isWomen ? 'Womens' : 'Mens';
+  const prefixToken = isWomen ? "Women's" : "Men's";
+
+  const normalizedParts = [
+    sportPart,
+    sportPart.replace(/\band\b/gi, '&'),
+    sportPart.replace(/&/g, 'and'),
   ];
-  for (const c of candidates) {
-    const match = SPORT_KEY_LOOKUP.get(c.toLowerCase());
+
+  const candidates = normalizedParts.flatMap((part) => [
+    `${part} ${suffixToken}`,
+    `${prefixToken} ${part}`,
+  ]);
+
+  for (const candidate of candidates) {
+    const match = SPORT_KEY_LOOKUP.get(candidate.toLowerCase());
     if (match) return match;
   }
 
   // Try aliases (e.g., "Swimming" → "Swimming & Diving")
   const alias = SPORT_ALIASES[sportPart.toLowerCase()];
   if (alias) {
-    const match = SPORT_KEY_LOOKUP.get(`${alias} ${gender}`.toLowerCase());
-    if (match) return match;
+    const aliasCandidates = [`${alias} ${suffixToken}`, `${prefixToken} ${alias}`];
+    for (const candidate of aliasCandidates) {
+      const match = SPORT_KEY_LOOKUP.get(candidate.toLowerCase());
+      if (match) return match;
+    }
   }
 
   return null;
@@ -953,6 +1075,46 @@ function buildArraySafeRegexCondition(field: string, regex: string): unknown {
       },
     ],
   };
+}
+
+/**
+ * Build case-insensitive sport key variants to handle multiple DB naming conventions.
+ * Example: "Basketball Mens" <-> "Men's Basketball".
+ */
+function buildSportKeyVariants(sport: string): string[] {
+  const variants = new Set<string>();
+  const add = (value: string): void => {
+    const normalized = value.trim().toLowerCase().replace(/\s+/g, ' ');
+    if (normalized) variants.add(normalized);
+  };
+
+  add(sport);
+  add(sport.replace(/\band\b/gi, '&'));
+  add(sport.replace(/&/g, 'and'));
+
+  for (const value of [...variants]) {
+    const suffix = value.match(/^(.*)\s+(mens|womens)$/i);
+    if (suffix) {
+      const base = suffix[1]?.trim() ?? '';
+      const gender = (suffix[2] ?? '').toLowerCase();
+      if (base && gender) {
+        const prefix = gender === 'mens' ? "men's" : "women's";
+        add(`${prefix} ${base}`);
+      }
+    }
+
+    const prefix = value.match(/^(men's|women's)\s+(.+)$/i);
+    if (prefix) {
+      const gender = (prefix[1] ?? '').toLowerCase();
+      const base = prefix[2]?.trim() ?? '';
+      if (base && gender) {
+        const suffixGender = gender === "men's" ? 'mens' : 'womens';
+        add(`${base} ${suffixGender}`);
+      }
+    }
+  }
+
+  return [...variants];
 }
 
 /**

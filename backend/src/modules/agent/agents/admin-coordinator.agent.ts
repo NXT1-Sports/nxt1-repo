@@ -17,6 +17,7 @@
 import type { AgentIdentifier, AgentSessionContext, ModelRoutingConfig } from '@nxt1/core';
 import { MODEL_ROUTING_DEFAULTS } from '@nxt1/core';
 import { BaseAgent } from './base.agent.js';
+import { getAgentToolPolicy } from './tool-policy.js';
 
 export class AdminCoordinatorAgent extends BaseAgent {
   readonly id: AgentIdentifier = 'admin_coordinator';
@@ -59,7 +60,7 @@ export class AdminCoordinatorAgent extends BaseAgent {
   }
 
   getAvailableTools(): readonly string[] {
-    return ['search_web', 'scrape_webpage', 'ask_user'];
+    return getAgentToolPolicy(this.id);
   }
 
   override getSkills(): readonly string[] {

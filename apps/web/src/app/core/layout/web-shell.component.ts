@@ -207,7 +207,7 @@ const DESKTOP_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] = [
   {
     id: 'main',
     items: [
-      { id: 'agent', label: 'Agent X', icon: 'agent-x', route: '/agent' },
+      { id: 'agent', label: 'Agent X', icon: 'agent-x', route: '/agent-x' },
       {
         id: 'invite-team',
         label: 'Invite team',
@@ -242,7 +242,7 @@ const DESKTOP_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] = [
 const WEB_LOGGED_OUT_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] = [
   {
     id: 'main',
-    items: [{ id: 'agent', label: 'Agent X', icon: 'agent-x', route: '/agent' }],
+    items: [{ id: 'agent', label: 'Agent X', icon: 'agent-x', route: '/agent-x' }],
   },
   {
     id: 'follow-us',
@@ -1025,16 +1025,16 @@ export class WebShellComponent {
   // MOBILE HEADER CONFIGURATION (YouTube-style top bar)
   // ============================================
 
-  /** Only /agent gets a hamburger on mobile — all other top-level pages have no left icon */
-  private readonly _showMobileMenu = computed(() => this._currentRoute().startsWith('/agent'));
+  /** Only /agent-x gets a hamburger on mobile — all other top-level pages have no left icon */
+  private readonly _showMobileMenu = computed(() => this._currentRoute().startsWith('/agent-x'));
 
   /** Whether the current route should show a back arrow.
-   * All authenticated non-agent routes get a back arrow — /agent uses the hamburger. */
+   * All authenticated non-agent routes get a back arrow — /agent-x uses the hamburger. */
   private readonly _showMobileBack = computed(() => {
     const route = this._currentRoute();
     if (!this.isAuthenticated()) return false;
-    // /agent uses the hamburger sidebar — no back arrow
-    if (route.startsWith('/agent')) return false;
+    // /agent-x uses the hamburger sidebar — no back arrow
+    if (route.startsWith('/agent-x')) return false;
     return true;
   });
 
@@ -1067,7 +1067,7 @@ export class WebShellComponent {
 
     const MAP: ReadonlyArray<[string, string]> = [
       ['/profile', 'Profile'],
-      ['/agent', 'Agent X'],
+      ['/agent-x', 'Agent X'],
       ['/activity', 'Activity'],
       ['/messages', 'Messages'],
       ['/settings', 'Settings'],
@@ -1360,7 +1360,7 @@ export class WebShellComponent {
    * Navigate to explore page on mobile.
    */
   onMobileSearchClick(): void {
-    this.router.navigate(['/agent']);
+    this.router.navigate(['/agent-x']);
   }
 
   /**
@@ -1522,12 +1522,12 @@ export class WebShellComponent {
   onHeaderSearchSubmit(event: TopNavSearchSubmitEvent): void {
     const query = event.query.trim();
     if (query) {
-      void this.router.navigate(['/agent'], { queryParams: { q: query } });
+      void this.router.navigate(['/agent-x'], { queryParams: { q: query } });
     }
   }
 
   onHeaderSeeAllResults(query: string): void {
-    void this.router.navigate(['/agent'], { queryParams: { q: query } });
+    void this.router.navigate(['/agent-x'], { queryParams: { q: query } });
   }
 
   // eslint-disable-next-line @typescript-eslint/no-empty-function
@@ -1627,11 +1627,11 @@ export class WebShellComponent {
 
   /**
    * Handle logo click with auth-aware destination.
-   * Authenticated users go to /agent, guests go to root landing (/).
+   * Authenticated users go to /agent-x, guests go to root landing (/).
    */
   onLogoClick(): void {
     if (this.authFlow.isAuthenticated()) {
-      this.router.navigate(['/agent']);
+      this.router.navigate(['/agent-x']);
       return;
     }
 

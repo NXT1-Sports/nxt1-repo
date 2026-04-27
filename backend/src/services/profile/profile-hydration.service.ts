@@ -45,10 +45,14 @@ interface ResolvedTeamData {
   organizationId: string;
   /** Team type from the Team doc */
   teamType: string;
-  /** Team code (short code, e.g. "D897TP") for constructing team profile URL */
+  /** Canonical team code used by /team/:slug/:teamCode routes */
   teamCode?: string;
-  /** URL slug (e.g. "sotatek-football-5") for constructing team profile URL */
+  /** Legacy alias for teamCode used in older payloads */
+  code?: string;
+  /** SEO slug segment for canonical team route */
   slug?: string;
+  /** Legacy identifier kept for backward compatibility */
+  unicode?: string;
   /** Whether the parent organization is claimed. */
   isOrganizationClaimed: boolean;
   /** Whether this user appears in the parent organization's admins array. */
@@ -177,7 +181,9 @@ export class ProfileHydrationService {
         teamType: string;
         teamName: string;
         teamCode?: string;
+        code?: string;
         slug?: string;
+        unicode?: string;
         logoUrl?: string;
         primaryColor?: string;
         secondaryColor?: string;
@@ -192,9 +198,10 @@ export class ProfileHydrationService {
           organizationId: (data['organizationId'] as string) ?? '',
           teamType: (data['teamType'] as string) ?? 'high-school',
           teamName: (data['teamName'] as string) ?? '',
-          // teamCode + slug are required for building the canonical team profile URL
           teamCode: (data['teamCode'] as string) ?? undefined,
+          code: (data['code'] as string) ?? undefined,
           slug: (data['slug'] as string) ?? undefined,
+          unicode: (data['unicode'] as string) ?? undefined,
           logoUrl: (data['logoUrl'] as string) ?? (data['teamLogoImg'] as string) ?? undefined,
           primaryColor:
             (data['primaryColor'] as string) ?? (data['teamColor1'] as string) ?? undefined,
@@ -234,7 +241,9 @@ export class ProfileHydrationService {
         organizationId: team.organizationId,
         teamType: team.teamType,
         teamCode: team.teamCode,
+        code: team.code,
         slug: team.slug,
+        unicode: team.unicode,
         isOrganizationClaimed: governance.isOrganizationClaimed,
         isUserOrganizationAdmin: governance.isUserOrganizationAdmin,
         org: {
@@ -301,6 +310,10 @@ export class ProfileHydrationService {
         ...(sport.team ?? {}),
         name: match.org.name,
         type: match.teamType as TeamType,
+        teamCode: match.teamCode ?? (sport.team as { teamCode?: string } | undefined)?.teamCode,
+        code: match.code ?? (sport.team as { code?: string } | undefined)?.code,
+        slug: match.slug ?? (sport.team as { slug?: string } | undefined)?.slug,
+        unicode: match.unicode ?? (sport.team as { unicode?: string } | undefined)?.unicode,
         isOrganizationClaimed: match.isOrganizationClaimed,
         isUserOrganizationAdmin: match.isUserOrganizationAdmin,
         logoUrl: match.org.logoUrl,
@@ -309,11 +322,6 @@ export class ProfileHydrationService {
         mascot: match.org.mascot,
         organizationId: match.organizationId,
         teamId: match.teamId,
-        // teamCode + slug are needed by the frontend mapper to build the canonical
-        // team profile URL (/team/<slug>/<teamCode>). Without them the mapper
-        // cannot resolve the route and falls back to /add-sport.
-        ...(match.teamCode ? { teamCode: match.teamCode } : {}),
-        ...(match.slug ? { slug: match.slug } : {}),
       };
 
       return { ...sport, team: hydratedTeam };
@@ -331,6 +339,10 @@ export class ProfileHydrationService {
         team: {
           name: rt.org.name,
           type: rt.teamType as TeamType,
+          teamCode: rt.teamCode,
+          code: rt.code,
+          slug: rt.slug,
+          unicode: rt.unicode,
           isOrganizationClaimed: rt.isOrganizationClaimed,
           isUserOrganizationAdmin: rt.isUserOrganizationAdmin,
           logoUrl: rt.org.logoUrl,
@@ -339,8 +351,6 @@ export class ProfileHydrationService {
           mascot: rt.org.mascot,
           organizationId: rt.organizationId,
           teamId: rt.teamId,
-          ...(rt.teamCode ? { teamCode: rt.teamCode } : {}),
-          ...(rt.slug ? { slug: rt.slug } : {}),
         },
       } as SportProfile;
 

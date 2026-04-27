@@ -28,15 +28,16 @@
  * ```
  */
 
-import { Worker, Job } from 'bullmq';
+import { Worker, Job, UnrecoverableError } from 'bullmq';
 import type {
   AgentIdentifier,
+  AgentJobPayload,
   AgentJobUpdate,
   AgentOperationResult,
   AgentYieldState,
 } from '@nxt1/core';
 import { AgentEngineError } from '../exceptions/agent-engine.error.js';
-import { resolveAgentApprovalCopy } from '@nxt1/core';
+import { resolveAgentApprovalCopy, resolveAgentSuccessNotificationCopy } from '@nxt1/core';
 import type { AgentRouter } from '../agent.router.js';
 import type { AgentQueueJobData, AgentQueueJobResult, AgentJobProgress } from './queue.types.js';
 import {
@@ -67,10 +68,11 @@ import {
 } from '../../billing/budget.service.js';
 import { executeBillingDeduction } from '../../billing/usage-deduction.service.js';
 import { logAgentTaskCompletion, logAgentTaskFailure } from '../services/agent-activity.service.js';
-import { getAgentAnalyticsGate } from '../services/agent-analytics-gate.js';
 import { processRecapForUser } from '../services/weekly-recap-email.service.js';
+import { dispatchAgentPush } from '../services/agent-push-adapter.service.js';
 import { logger } from '../../../utils/logger.js';
 import { AgentGenerationService } from '../services/generation.service.js';
+import crypto from 'node:crypto';
 
 const AGENT_IDENTIFIER_SET = new Set<AgentIdentifier>([
   'router',
@@ -86,6 +88,27 @@ function isAgentIdentifier(value: unknown): value is AgentIdentifier {
   return typeof value === 'string' && AGENT_IDENTIFIER_SET.has(value as AgentIdentifier);
 }
 
+const MAX_TIMEOUT_AUTO_CONTINUATIONS = 6;
+
+function isJobTimeoutError(err: unknown): err is Error {
+  if (!(err instanceof Error)) return false;
+  return err.message.startsWith('Agent job timed out after ');
+}
+
+function normalizeTerminalMessageText(value: string): string {
+  return value.toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+const PAUSE_RESUME_TOOL_NAME = 'resume_paused_operation';
+
+function isPauseYieldState(yieldState: AgentYieldState | null | undefined): boolean {
+  return yieldState?.pendingToolCall?.toolName === PAUSE_RESUME_TOOL_NAME;
+}
+
+function isAbortError(err: unknown): err is Error {
+  return err instanceof Error && err.name === 'AbortError';
+}
+
 // ─── Worker ─────────────────────────────────────────────────────────────────
 
 export class AgentWorker {
@@ -99,7 +122,12 @@ export class AgentWorker {
     private readonly pubsub: AgentPubSubService,
     private readonly stagingFirestore?: FirebaseFirestore.Firestore,
     private readonly llmService?: OpenRouterService,
-    redisUrl?: string
+    redisUrl?: string,
+    private readonly enqueueContinuationJob?: (
+      payload: AgentJobPayload,
+      environment: 'staging' | 'production'
+    ) => Promise<string>,
+    private readonly queueService?: AgentQueueService
   ) {
     const url = redisUrl ?? process.env['REDIS_URL'] ?? 'redis://localhost:6379';
 
@@ -143,6 +171,162 @@ export class AgentWorker {
     return getFirestore();
   }
 
+  private getScheduledRunContext(
+    job: Job<AgentQueueJobData, AgentQueueJobResult>,
+    payload: import('@nxt1/core').AgentJobPayload
+  ): { scheduleId: string; runId: string } | null {
+    if (payload.origin !== 'system_cron') {
+      return null;
+    }
+
+    const runId = job.id?.toString() ?? `${payload.operationId}-${job.timestamp}`;
+    const repeatJobKey = (job as unknown as { repeatJobKey?: string }).repeatJobKey;
+    const scheduleId = repeatJobKey && repeatJobKey.trim().length > 0 ? repeatJobKey : job.name;
+
+    return { scheduleId, runId };
+  }
+
+  private async shouldSuppressTerminalCompletionForPause(
+    repo: AgentJobRepository,
+    operationId: string
+  ): Promise<{ suppressed: boolean; persistedStatus?: string }> {
+    try {
+      const latest = await repo.getById(operationId);
+      if (!latest) {
+        return { suppressed: false };
+      }
+
+      const persistedStatus = latest.status;
+      const explicitPaused = persistedStatus === 'paused';
+      const inferredPaused =
+        persistedStatus === 'awaiting_input' && isPauseYieldState(latest.yieldState ?? undefined);
+
+      return {
+        suppressed: explicitPaused || inferredPaused,
+        persistedStatus,
+      };
+    } catch (err) {
+      logger.warn('Failed to read latest job state before terminal completion guard', {
+        operationId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return { suppressed: false };
+    }
+  }
+
+  private async continueTimedOutJob(
+    job: Job<AgentQueueJobData, AgentQueueJobResult>,
+    repo: AgentJobRepository,
+    payload: AgentJobPayload,
+    timeoutMessage: string,
+    eventWriter: DebouncedEventWriter,
+    startMs: number,
+    billingDb: FirebaseFirestore.Firestore,
+    iapHoldId: string | null
+  ): Promise<AgentQueueJobResult | null> {
+    if (!this.enqueueContinuationJob) {
+      return null;
+    }
+
+    const contextObj =
+      typeof payload.context === 'object' && payload.context !== null ? payload.context : {};
+    const timeoutContinuationCountRaw = (contextObj as Record<string, unknown>)[
+      'timeoutContinuationCount'
+    ];
+    const timeoutContinuationCount =
+      typeof timeoutContinuationCountRaw === 'number'
+        ? Math.max(0, Math.floor(timeoutContinuationCountRaw))
+        : 0;
+
+    if (timeoutContinuationCount >= MAX_TIMEOUT_AUTO_CONTINUATIONS) {
+      return null;
+    }
+
+    const nextOperationId = crypto.randomUUID();
+    const nextPayload: AgentJobPayload = {
+      ...payload,
+      operationId: nextOperationId,
+      sessionId: crypto.randomUUID(),
+      context: {
+        ...(contextObj as Record<string, unknown>),
+        resumedFrom: payload.operationId,
+        timeoutContinuationCount: timeoutContinuationCount + 1,
+        timeoutContinuedFrom: payload.operationId,
+        timeoutContinuedAt: new Date().toISOString(),
+      },
+    };
+
+    await repo.create(nextPayload);
+    await this.enqueueContinuationJob(nextPayload, job.data.environment);
+
+    const continuationMessage = `Operation slice timed out; automatically continuing as ${nextOperationId}.`;
+
+    await job.updateProgress({
+      status: 'completed',
+      message: continuationMessage,
+      agentId: 'router',
+      outcomeCode: 'success_default',
+      metadata: {
+        continuationReason: 'timeout',
+        continuedAs: nextOperationId,
+      },
+      percent: 100,
+      currentStep: 1,
+      totalSteps: 1,
+      updatedAt: new Date().toISOString(),
+    });
+
+    eventWriter.emit({
+      type: 'done',
+      success: true,
+      message: continuationMessage,
+      agentId: 'router',
+      metadata: {
+        continuationReason: 'timeout',
+        continuedAs: nextOperationId,
+      },
+    });
+    await eventWriter.dispose();
+
+    await repo.markCompleted(payload.operationId, {
+      summary: continuationMessage,
+      data: {
+        resumedAs: nextOperationId,
+        continuationReason: 'timeout',
+        timeoutMessage,
+      },
+    });
+
+    if (iapHoldId) {
+      releaseWalletHold(billingDb, iapHoldId).catch((e: unknown) => {
+        logger.warn('[billing] Failed to release IAP hold on timeout continuation', {
+          holdId: iapHoldId,
+          error: e instanceof Error ? e.message : String(e),
+        });
+      });
+    }
+
+    logger.warn('Agent job auto-continued after timeout window', {
+      operationId: payload.operationId,
+      continuedAs: nextOperationId,
+      timeoutContinuationCount: timeoutContinuationCount + 1,
+      timeoutLimit: MAX_TIMEOUT_AUTO_CONTINUATIONS,
+    });
+
+    return {
+      result: {
+        summary: continuationMessage,
+        data: {
+          continuedAs: nextOperationId,
+          continuationReason: 'timeout',
+          timeoutContinuationCount: timeoutContinuationCount + 1,
+        },
+      },
+      durationMs: Date.now() - startMs,
+      completedAt: new Date().toISOString(),
+    };
+  }
+
   private async processThreadSummarizationJob(
     job: Job<AgentQueueJobData, AgentQueueJobResult>
   ): Promise<AgentQueueJobResult> {
@@ -163,7 +347,7 @@ export class AgentWorker {
 
     const startMs = Date.now();
     await job.updateProgress({
-      status: 'thinking',
+      status: 'acting',
       message: 'Summarizing idle thread memory',
       agentId: 'router',
       stageType: 'router',
@@ -235,7 +419,7 @@ export class AgentWorker {
     const generationService = new AgentGenerationService(this.llmService);
 
     const processingProgress: AgentJobProgress = {
-      status: 'thinking',
+      status: 'acting',
       message: 'Generating your weekly playbook',
       agentId: 'strategy_coordinator',
       stageType: 'router',
@@ -366,6 +550,7 @@ export class AgentWorker {
       typeof (payloadContext as Record<string, unknown>)['threadId'] === 'string'
         ? ((payloadContext as Record<string, unknown>)['threadId'] as string)
         : undefined;
+    const scheduledRunContext = this.getScheduledRunContext(job, payload);
     const startMs = Date.now();
     const repo = this.getJobRepo(job);
 
@@ -453,7 +638,77 @@ export class AgentWorker {
     // ── Debounced Event Writer: streams granular events to Firestore subcollection ──
     // The frontend subscribes to `AgentJobs/{operationId}/events` via onSnapshot
     // to render a live "watch it work" chat experience.
-    const eventWriter = new DebouncedEventWriter(repo, payload.operationId, payload.userId);
+    const eventWriter = new DebouncedEventWriter(
+      repo,
+      payload.operationId,
+      payload.userId,
+      undefined,
+      {
+        /**
+         * LIVE EVENT HOOK: Publishes each delta to SSE immediately (token-by-token)
+         * This is the "real-time" path — deltas appear in the client stream instantly,
+         * without waiting for the 300ms Firestore batch. Professional typing feel.
+         */
+        onLiveEvent: (event) => {
+          // Only handle deltas here; other events go through onPersistedEvent
+          if (event.type !== 'delta') return;
+
+          const sseEvent = this.streamEventToSSE(event, payload.operationId, payloadThreadId);
+          if (!sseEvent) return;
+
+          // Fire-and-forget publish; no latency tracking needed for live events
+          this.pubsub
+            .publish(payload.operationId, sseEvent.event, sseEvent.data)
+            .catch(() => undefined);
+        },
+        onPersistedEventMetrics: ({ type, durationMs, seq }) => {
+          if (durationMs >= 400) {
+            logger.warn('Stream event persistence latency high', {
+              operationId: payload.operationId,
+              eventType: type,
+              seq,
+              durationMs,
+            });
+          }
+        },
+        /**
+         * PERSISTED EVENT HOOK: Publishes non-delta events and persistence milestones
+         * Called AFTER Firestore write with final seq number. For terminal events,
+         * state transitions, etc. Deltas already published via onLiveEvent.
+         */
+        onPersistedEvent: (event) => {
+          // Skip deltas here (already published via onLiveEvent for real-time)
+          if (event.type === 'delta') return;
+
+          const sseEvent = this.streamEventToSSE(event, payload.operationId, payloadThreadId);
+          if (!sseEvent) return;
+          const publishStartedAt = Date.now();
+          this.pubsub
+            .publish(payload.operationId, sseEvent.event, sseEvent.data)
+            .then(() => {
+              const publishDurationMs = Date.now() - publishStartedAt;
+              if (publishDurationMs >= 300) {
+                logger.warn('Stream event publish latency high', {
+                  operationId: payload.operationId,
+                  eventType: sseEvent.event,
+                  durationMs: publishDurationMs,
+                });
+              }
+            })
+            .catch(() => undefined);
+        },
+      }
+    );
+
+    // Emit canonical lifecycle transition as soon as worker execution begins.
+    eventWriter.emit({
+      type: 'operation',
+      operationId: payload.operationId,
+      threadId: payloadThreadId,
+      status: 'running',
+      timestamp: new Date().toISOString(),
+    });
+
     const persistedAssistantStream = new PersistedAssistantStreamBuilder();
 
     // ── Dual-write callback: Firestore (persistence) + Redis PubSub (real-time SSE pipe) ──
@@ -473,17 +728,17 @@ export class AgentWorker {
       // 1. Firestore (existing — persistence for reconnection/replay)
       eventWriter.emit(event);
 
-      // 2. Redis PubSub (new — real-time SSE pipe to Express)
-      const sseEvent = this.streamEventToSSE(event, payload.operationId, payloadThreadId);
-      if (sseEvent) {
-        this.pubsub
-          .publish(payload.operationId, sseEvent.event, sseEvent.data)
-          .catch(() => undefined);
-      }
+      // 2. Redis PubSub is emitted by the event writer only after persistence.
     };
 
     // Execute the full agent pipeline (with overall timeout)
     let result: AgentOperationResult;
+
+    // Create a job-scoped AbortController so the cancel endpoint can halt the
+    // LLM router mid-execution. Registered in queueService; cleaned up in finally.
+    const jobAbortController = new AbortController();
+    this.queueService?.registerController(payload.operationId, jobAbortController);
+
     try {
       const userFirestore = this.getUserFirestore(job);
       const routerPromise = this.router.run(
@@ -491,20 +746,118 @@ export class AgentWorker {
         onUpdate,
         userFirestore,
         onStreamEvent,
-        job.data.environment
+        job.data.environment,
+        jobAbortController.signal
       );
+      const timeoutMinutes = Math.round(JOB_TIMEOUT_MS / 60_000);
       const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error('Agent job timed out after 5 minutes')), JOB_TIMEOUT_MS);
+        setTimeout(
+          () => reject(new Error(`Agent job timed out after ${timeoutMinutes} minutes`)),
+          JOB_TIMEOUT_MS
+        );
       });
       result = await Promise.race([routerPromise, timeoutPromise]);
     } catch (err) {
       // Flush any buffered deltas before handling the error
       await eventWriter.flush().catch(() => undefined);
 
+      let handledError: unknown = err;
+
+      if (isAbortError(err)) {
+        const latest = await repo.getById(payload.operationId).catch(() => null);
+        const persistedStatus = latest?.status;
+        const abortedAsPaused =
+          persistedStatus === 'paused' ||
+          (persistedStatus === 'awaiting_input' && isPauseYieldState(latest?.yieldState));
+        const abortedAsCancelled = persistedStatus === 'cancelled';
+
+        if (abortedAsPaused || abortedAsCancelled) {
+          await eventWriter.dispose();
+
+          const controlledStatus = abortedAsPaused ? 'paused' : 'cancelled';
+          const controlledMessage =
+            controlledStatus === 'paused'
+              ? 'Operation paused by user'
+              : 'Operation cancelled by user';
+
+          await job.updateProgress({
+            status: controlledStatus,
+            message: controlledMessage,
+            agentId: 'router',
+            outcomeCode: controlledStatus === 'paused' ? 'input_required' : 'cancelled',
+            metadata: {
+              reason: abortedAsPaused ? 'paused_by_user' : 'cancelled_by_user',
+              persistedStatus,
+            },
+            percent: Math.min(99, Math.round((stepIndex / Math.max(totalSteps, 1)) * 100)),
+            currentStep: stepIndex,
+            totalSteps,
+            updatedAt: new Date().toISOString(),
+          });
+
+          if (iapHoldId) {
+            releaseWalletHold(billingDb, iapHoldId).catch((e: unknown) => {
+              logger.warn('[billing] Failed to release IAP hold after controlled abort', {
+                holdId: iapHoldId,
+                error: e instanceof Error ? e.message : String(e),
+              });
+            });
+          }
+
+          logger.info('Agent job aborted after explicit lifecycle transition', {
+            operationId: payload.operationId,
+            userId: payload.userId,
+            controlledStatus,
+          });
+
+          return {
+            result: {
+              summary:
+                controlledStatus === 'paused'
+                  ? 'Operation paused. Resume whenever you are ready.'
+                  : 'Operation cancelled by user.',
+              data: {
+                aborted: true,
+                controlledStatus,
+                operationStatus: controlledStatus,
+              },
+            },
+            durationMs: Date.now() - startMs,
+            completedAt: new Date().toISOString(),
+          };
+        }
+
+        // Abort without a controlled persisted state should fail once, never retry.
+        handledError = new UnrecoverableError(err.message || 'Operation aborted');
+      }
+
+      if (isJobTimeoutError(handledError)) {
+        try {
+          const continuationResult = await this.continueTimedOutJob(
+            job,
+            repo,
+            payload,
+            handledError.message,
+            eventWriter,
+            startMs,
+            billingDb,
+            iapHoldId
+          );
+          if (continuationResult) {
+            return continuationResult;
+          }
+        } catch (continuationErr) {
+          logger.error('Failed to auto-continue timed out agent job', {
+            operationId: payload.operationId,
+            error:
+              continuationErr instanceof Error ? continuationErr.message : String(continuationErr),
+          });
+        }
+      }
+
       // ── Yield handling: agent needs user input or approval ─────────────
-      if (isAgentYield(err)) {
-        await eventWriter.dispose();
-        const yieldPayload = err.payload;
+      if (isAgentYield(handledError)) {
+        const yieldPayload = handledError.payload;
         const now = new Date();
         const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000); // 24 hours
         const yieldStatus =
@@ -557,6 +910,16 @@ export class AgentWorker {
           typeof (contextObj as Record<string, unknown>)['threadId'] === 'string'
             ? ((contextObj as Record<string, unknown>)['threadId'] as string)
             : undefined;
+
+        eventWriter.emit({
+          type: 'operation',
+          operationId: payload.operationId,
+          threadId,
+          status: yieldStatus,
+          yieldState,
+          timestamp: new Date().toISOString(),
+        });
+        await eventWriter.dispose();
 
         if (threadId && this.chatService) {
           try {
@@ -643,8 +1006,8 @@ export class AgentWorker {
         };
       }
 
-      const message = err instanceof Error ? err.message : 'Agent pipeline error';
-      const errorCode = getAgentEngineErrorCode(err) ?? 'AGENT_PIPELINE_FAILED';
+      const message = handledError instanceof Error ? handledError.message : 'Agent pipeline error';
+      const errorCode = getAgentEngineErrorCode(handledError) ?? 'AGENT_PIPELINE_FAILED';
       const failedAgentId = isAgentIdentifier(payload.agent)
         ? payload.agent
         : isAgentIdentifier((payload.context as Record<string, unknown> | undefined)?.['agentId'])
@@ -664,6 +1027,13 @@ export class AgentWorker {
       });
 
       // Write terminal 'done' event with error so frontend's Firestore listener knows to stop
+      eventWriter.emit({
+        type: 'operation',
+        operationId: payload.operationId,
+        threadId: payloadThreadId,
+        status: 'failed',
+        timestamp: new Date().toISOString(),
+      });
       eventWriter.emit({
         type: 'done',
         success: false,
@@ -686,30 +1056,31 @@ export class AgentWorker {
       // Notify the user that their task failed (they shouldn't just see silence)
       try {
         const activityDb = await this.getActivityFirestore(job);
-        await logAgentTaskFailure(activityDb, {
-          userId: payload.userId,
-          job: payload,
-          errorMessage: message,
-        });
+        if (scheduledRunContext) {
+          await dispatchAgentPush(activityDb, {
+            kind: 'agent_scheduled_execution_failed',
+            userId: payload.userId,
+            operationId: payload.operationId,
+            scheduleId: scheduledRunContext.scheduleId,
+            runId: scheduledRunContext.runId,
+            threadId: payloadThreadId,
+            title: 'Scheduled Agent Task Failed',
+            body: message,
+            errorMessage: message,
+          });
+        } else {
+          await logAgentTaskFailure(activityDb, {
+            userId: payload.userId,
+            job: payload,
+            errorMessage: message,
+          });
+        }
       } catch (notifyErr) {
         logger.error('Failed to dispatch failure notification', {
           operationId: payload.operationId,
           error: notifyErr instanceof Error ? notifyErr.message : String(notifyErr),
         });
       }
-
-      // Track job failure in user's analytics record (fire-and-forget)
-      getAgentAnalyticsGate().trackJobFailed({
-        userId: payload.userId,
-        agentId: failedAgentId ?? 'router',
-        operationId: payload.operationId,
-        error: message,
-        durationMs: Date.now() - startMs,
-        threadId:
-          typeof (payload.context as Record<string, unknown> | undefined)?.['threadId'] === 'string'
-            ? ((payload.context as Record<string, unknown>)['threadId'] as string)
-            : undefined,
-      });
 
       // Release any IAP hold — job failed, funds should not stay locked
       if (iapHoldId) {
@@ -721,13 +1092,69 @@ export class AgentWorker {
         });
       }
 
-      throw err;
+      throw handledError;
+    } finally {
+      // Always unregister the AbortController — the LLM router is no longer
+      // running at this point regardless of success, failure, or yield.
+      this.queueService?.unregisterController(payload.operationId);
     }
 
     const resultData =
       typeof result.data === 'object' && result.data !== null
         ? (result.data as Record<string, unknown>)
         : undefined;
+    const pauseCompletionGuard = await this.shouldSuppressTerminalCompletionForPause(
+      repo,
+      payload.operationId
+    );
+    if (pauseCompletionGuard.suppressed) {
+      await eventWriter.flush().catch(() => undefined);
+      await eventWriter.dispose();
+
+      await job.updateProgress({
+        status: 'paused',
+        message: 'Operation paused by user',
+        agentId: 'router',
+        outcomeCode: 'input_required',
+        metadata: {
+          reason: 'paused_by_user',
+          persistedStatus: pauseCompletionGuard.persistedStatus,
+        },
+        percent: Math.min(99, Math.round((stepIndex / Math.max(totalSteps, 1)) * 100)),
+        currentStep: stepIndex,
+        totalSteps,
+        updatedAt: new Date().toISOString(),
+      });
+
+      if (iapHoldId) {
+        releaseWalletHold(billingDb, iapHoldId).catch((e: unknown) => {
+          logger.warn('[billing] Failed to release IAP hold for paused operation', {
+            holdId: iapHoldId,
+            error: e instanceof Error ? e.message : String(e),
+          });
+        });
+      }
+
+      logger.info('Pause guard suppressed terminal completion and side effects', {
+        operationId: payload.operationId,
+        userId: payload.userId,
+        persistedStatus: pauseCompletionGuard.persistedStatus,
+      });
+
+      return {
+        result: {
+          summary: 'Operation paused. Resume whenever you are ready.',
+          data: {
+            paused: true,
+            suppressedTerminalCompletion: true,
+            persistedStatus: pauseCompletionGuard.persistedStatus,
+          },
+        },
+        durationMs: Date.now() - startMs,
+        completedAt: new Date().toISOString(),
+      };
+    }
+
     const maxIterationsReached = resultData?.['maxIterationsReached'] === true;
     const planFailed = resultData?.['operationStatus'] === 'failed';
     const terminalMessage =
@@ -754,16 +1181,22 @@ export class AgentWorker {
     const terminalOutcomeCode =
       maxIterationsReached || planFailed ? 'task_failed' : 'success_default';
 
-    // ── Flush remaining deltas and write terminal 'done' event ──────────
+    // ── Flush remaining deltas and write terminal events ─────────────────
+    //
+    // Thread titles are now generated at enqueue time via generateTitleFromPromptOnly
+    // in the route handler. No LLM call or blocking needed here — the title_updated
+    // SSE event is published by the route immediately after thread creation.
+    const summary = this.resolveResultSummary(result);
+
     await eventWriter.flush().catch(() => undefined);
+    const terminalStatus = maxIterationsReached || planFailed ? 'error' : 'complete';
     eventWriter.emit({
-      type: 'done',
-      success: !maxIterationsReached && !planFailed,
-      message: terminalMessage,
-      outcomeCode: terminalOutcomeCode,
-      agentId: finalAgentId,
+      type: 'operation',
+      operationId: payload.operationId,
+      threadId: payloadThreadId,
+      status: terminalStatus === 'error' ? 'failed' : 'complete',
+      timestamp: new Date().toISOString(),
     });
-    await eventWriter.dispose();
 
     const terminalProgress: AgentJobProgress = {
       status: maxIterationsReached || planFailed ? 'failed' : 'completed',
@@ -795,6 +1228,29 @@ export class AgentWorker {
           error: err instanceof Error ? err.message : String(err),
         });
       });
+
+      if (scheduledRunContext) {
+        try {
+          const activityDb = await this.getActivityFirestore(job);
+          await dispatchAgentPush(activityDb, {
+            kind: 'agent_scheduled_execution_failed',
+            userId: payload.userId,
+            operationId: payload.operationId,
+            scheduleId: scheduledRunContext.scheduleId,
+            runId: scheduledRunContext.runId,
+            threadId: payloadThreadId,
+            title: 'Scheduled Agent Task Failed',
+            body: terminalMessage,
+            errorMessage: terminalMessage,
+          });
+        } catch (notifyErr) {
+          logger.error('Failed to dispatch scheduled max-iterations failure notification', {
+            operationId: payload.operationId,
+            error: notifyErr instanceof Error ? notifyErr.message : String(notifyErr),
+          });
+        }
+      }
+
       return {
         result,
         durationMs: Date.now() - startMs,
@@ -814,6 +1270,29 @@ export class AgentWorker {
           error: err instanceof Error ? err.message : String(err),
         });
       });
+
+      if (scheduledRunContext) {
+        try {
+          const activityDb = await this.getActivityFirestore(job);
+          await dispatchAgentPush(activityDb, {
+            kind: 'agent_scheduled_execution_failed',
+            userId: payload.userId,
+            operationId: payload.operationId,
+            scheduleId: scheduledRunContext.scheduleId,
+            runId: scheduledRunContext.runId,
+            threadId: payloadThreadId,
+            title: 'Scheduled Agent Task Failed',
+            body: terminalMessage,
+            errorMessage: terminalMessage,
+          });
+        } catch (notifyErr) {
+          logger.error('Failed to dispatch scheduled plan-failure notification', {
+            operationId: payload.operationId,
+            error: notifyErr instanceof Error ? notifyErr.message : String(notifyErr),
+          });
+        }
+      }
+
       return {
         result,
         durationMs: Date.now() - startMs,
@@ -821,31 +1300,37 @@ export class AgentWorker {
       };
     }
 
-    const summary = this.resolveResultSummary(result);
-    let generatedOperationTitle: string | null = null;
+    // `summary` and `generatedOperationTitle` are already computed above in the
+    // terminal-events section. Re-use them here so we avoid a redundant LLM call;
+    // `result.title` was already set if a title was generated in time.
 
-    if (this.llmService) {
-      generatedOperationTitle = await this.chatService.generateOperationTitle(
-        payload.intent,
-        summary,
-        this.llmService
-      );
-
-      if (generatedOperationTitle) {
-        result = {
-          ...result,
-          title: generatedOperationTitle,
-        };
-      }
-    }
-
-    // Persist final result to Firestore
-    await repo.markCompleted(payload.operationId, result).catch((err: unknown) => {
-      logger.warn('Failed to write completion to Firestore', {
+    // Persist final result to Firestore.
+    // Fail closed: if completion state cannot be persisted, do not continue with
+    // success side-effects while the durable job record is inconsistent.
+    try {
+      await repo.markCompleted(payload.operationId, result);
+    } catch (err: unknown) {
+      const persistError = err instanceof Error ? err.message : String(err);
+      logger.error('Failed to write completion to Firestore', {
         operationId: payload.operationId,
-        error: err instanceof Error ? err.message : String(err),
+        error: persistError,
       });
-    });
+
+      await repo
+        .markFailed(payload.operationId, `Completion persistence failed: ${persistError}`)
+        .catch((markFailedErr: unknown) => {
+          logger.error('Failed to persist fallback failed status after completion write error', {
+            operationId: payload.operationId,
+            error: markFailedErr instanceof Error ? markFailedErr.message : String(markFailedErr),
+          });
+        });
+
+      throw new AgentEngineError(
+        'AGENT_COMPLETION_PERSIST_FAILED',
+        `Failed to persist completion state: ${persistError}`,
+        { metadata: { operationId: payload.operationId } }
+      );
+    }
 
     // Billing deduction: use centralized pipeline
     void executeBillingDeduction({
@@ -864,22 +1349,53 @@ export class AgentWorker {
     // Skip push when the operation currently has an active live stream subscriber.
     // The user is already watching the completion in real time.
     try {
-      const activeSubscribers =
-        typeof this.pubsub.subscriberCount === 'function'
-          ? await this.pubsub.subscriberCount(payload.operationId)
-          : 0;
-      if (activeSubscribers > 0) {
-        logger.info('Skipping completion push; active live subscribers detected', {
+      const activityDb = await this.getActivityFirestore(job);
+
+      if (scheduledRunContext) {
+        const schedCopy = resolveAgentSuccessNotificationCopy({
+          title: result.title?.trim() || undefined,
+          summary: result.summary?.trim() || undefined,
+        });
+        await dispatchAgentPush(activityDb, {
+          kind: 'agent_scheduled_execution_completed',
+          userId: payload.userId,
           operationId: payload.operationId,
-          subscriberCount: activeSubscribers,
+          scheduleId: scheduledRunContext.scheduleId,
+          runId: scheduledRunContext.runId,
+          threadId: payloadThreadId,
+          title: schedCopy.title,
+          body: schedCopy.body,
         });
       } else {
-        const activityDb = await this.getActivityFirestore(job);
-        await logAgentTaskCompletion(activityDb, {
-          userId: payload.userId,
-          job: payload,
-          result,
-        });
+        const latestJobDoc =
+          typeof (repo as { getById?: unknown }).getById === 'function'
+            ? await repo.getById(payload.operationId)
+            : null;
+        const viewerLastSeenAtRaw = (latestJobDoc as Record<string, unknown> | null)?.[
+          'viewerLastSeenAt'
+        ];
+        const viewerLastSeenAtMs =
+          typeof viewerLastSeenAtRaw === 'string' ? Date.parse(viewerLastSeenAtRaw) : Number.NaN;
+        const hasRecentViewerHeartbeat =
+          Number.isFinite(viewerLastSeenAtMs) && Date.now() - viewerLastSeenAtMs <= 60_000;
+
+        const activeSubscribers =
+          typeof this.pubsub.subscriberCount === 'function'
+            ? await this.pubsub.subscriberCount(payload.operationId)
+            : 0;
+        if (activeSubscribers > 0 && hasRecentViewerHeartbeat) {
+          logger.info('Skipping completion push; active engaged viewer detected', {
+            operationId: payload.operationId,
+            subscriberCount: activeSubscribers,
+            viewerLastSeenAt: viewerLastSeenAtRaw,
+          });
+        } else {
+          await logAgentTaskCompletion(activityDb, {
+            userId: payload.userId,
+            job: payload,
+            result,
+          });
+        }
       }
     } catch (notifyErr) {
       logger.error('Failed to dispatch activity/notification', {
@@ -894,6 +1410,10 @@ export class AgentWorker {
       void processRecapForUser(payload.userId, summary, job.id?.toString(), getFirestore());
     }
 
+    const persistedStreamSnapshot = persistedAssistantStream.snapshot();
+    const persistedAssistantContentForDone =
+      persistedStreamSnapshot.content.length > 0 ? persistedStreamSnapshot.content : summary;
+
     // ─── Persist assistant response to MongoDB thread ─────────────────────
     const contextObj =
       typeof payload.context === 'object' && payload.context !== null ? payload.context : {};
@@ -901,18 +1421,10 @@ export class AgentWorker {
       typeof (contextObj as Record<string, unknown>)['threadId'] === 'string'
         ? ((contextObj as Record<string, unknown>)['threadId'] as string)
         : undefined;
+    let persistedAssistantMessageId: string | undefined;
 
-    // Track job completion in user's analytics record (fire-and-forget)
-    getAgentAnalyticsGate().trackJobCompleted({
-      userId: payload.userId,
-      agentId: typeof payload.agent === 'string' ? payload.agent : 'unknown',
-      operationId: payload.operationId,
-      durationMs: Date.now() - startMs,
-      threadId,
-    });
     if (threadId && this.chatService) {
       try {
-        const persistedStreamSnapshot = persistedAssistantStream.snapshot();
         // Extract agentId with runtime type check
         const rawAgent =
           typeof result.data === 'object' && result.data !== null
@@ -932,12 +1444,11 @@ export class AgentWorker {
           ? (rawToolCalls as import('@nxt1/core').AgentToolCallRecord[])
           : undefined;
 
-        await this.chatService.addMessage({
+        const persistedAssistantMessage = await this.chatService.addMessage({
           threadId,
           userId: payload.userId,
           role: 'assistant',
-          content:
-            persistedStreamSnapshot.content.length > 0 ? persistedStreamSnapshot.content : summary,
+          content: persistedAssistantContentForDone,
           origin: payload.origin,
           agentId,
           operationId: payload.operationId,
@@ -953,35 +1464,18 @@ export class AgentWorker {
               ? (result.data as Record<string, unknown>)
               : undefined,
         });
+        persistedAssistantMessageId = persistedAssistantMessage.id;
         logger.info('Agent response persisted to MongoDB thread', {
           threadId,
           operationId: payload.operationId,
+          messageId: persistedAssistantMessageId,
         });
 
-        const generatedTitle = generatedOperationTitle
-          ? await this.chatService.applyGeneratedThreadTitle(
-              threadId,
-              payload.userId,
-              payload.intent,
-              generatedOperationTitle
-            )
-          : this.llmService
-            ? await this.chatService.generateThreadTitle(
-                threadId,
-                payload.userId,
-                payload.intent,
-                summary,
-                this.llmService
-              )
-            : null;
-
-        if (generatedTitle) {
-          logger.info('Agent thread title auto-generated from worker response', {
-            threadId,
-            operationId: payload.operationId,
-            title: generatedTitle,
-          });
-        }
+        // Thread title is managed at enqueue time via generateTitleFromPromptOnly
+        // in the route handler (chat.routes.ts). No LLM call is needed here.
+        // If the upstream title gen failed, the thread title remains the raw
+        // prompt prefix — still readable. applyGeneratedThreadTitle's guard
+        // prevents any accidental overwrite if both paths ran.
       } catch (chatErr) {
         // Chat persistence must never fail the job
         logger.warn('Failed to persist agent response to MongoDB', {
@@ -991,6 +1485,23 @@ export class AgentWorker {
         });
       }
     }
+
+    const shouldSuppressDoneMessage =
+      !maxIterationsReached &&
+      !planFailed &&
+      normalizeTerminalMessageText(terminalMessage) ===
+        normalizeTerminalMessageText(persistedAssistantContentForDone);
+    const doneMessageForEvent = shouldSuppressDoneMessage ? undefined : terminalMessage;
+
+    eventWriter.emit({
+      type: 'done',
+      success: !maxIterationsReached && !planFailed,
+      message: doneMessageForEvent,
+      outcomeCode: terminalOutcomeCode,
+      agentId: finalAgentId,
+      messageId: persistedAssistantMessageId,
+    });
+    await eventWriter.dispose();
 
     return {
       result,
@@ -1028,15 +1539,78 @@ export class AgentWorker {
     operationId: string,
     threadId?: string
   ): { event: string; data: unknown } | null {
+    const seqPayload = typeof event.seq === 'number' ? { seq: event.seq } : {};
     switch (event.type) {
       case 'card':
-        return { event: 'card', data: event.cardData ?? {} };
+        return {
+          event: 'card',
+          data: {
+            ...(event.cardData ?? {}),
+            ...seqPayload,
+          },
+        };
+      case 'title_updated':
+        return {
+          event: 'title_updated',
+          data: {
+            ...seqPayload,
+            operationId,
+            ...(event.threadId ? { threadId: event.threadId } : {}),
+            title: event.title ?? '',
+            timestamp: event.timestamp ?? new Date().toISOString(),
+          },
+        };
+      case 'operation':
+        return {
+          event: 'operation',
+          data: {
+            ...seqPayload,
+            operationId,
+            ...(event.threadId ? { threadId: event.threadId } : {}),
+            status: event.status ?? 'in-progress',
+            ...(event.agentId ? { agentId: event.agentId } : {}),
+            ...(event.stageType ? { stageType: event.stageType } : {}),
+            ...(event.stage ? { stage: event.stage } : {}),
+            ...(event.outcomeCode ? { outcomeCode: event.outcomeCode } : {}),
+            ...(event.metadata ? { metadata: event.metadata } : {}),
+            ...(event.message ? { message: event.message } : {}),
+            ...(event.yieldState ? { yieldState: event.yieldState } : {}),
+            timestamp: event.timestamp ?? new Date().toISOString(),
+          },
+        };
+      case 'progress_stage':
+      case 'progress_subphase':
+      case 'metric':
+        return {
+          event: 'progress',
+          data: {
+            ...seqPayload,
+            operationId,
+            ...(event.threadId ? { threadId: event.threadId } : {}),
+            type: event.type,
+            ...(event.agentId ? { agentId: event.agentId } : {}),
+            ...(event.stageType ? { stageType: event.stageType } : {}),
+            ...(event.stage ? { stage: event.stage } : {}),
+            ...(event.outcomeCode ? { outcomeCode: event.outcomeCode } : {}),
+            ...(event.metadata ? { metadata: event.metadata } : {}),
+            ...(event.message ? { message: event.message } : {}),
+            timestamp: event.timestamp ?? new Date().toISOString(),
+          },
+        };
       case 'delta':
-        return { event: 'delta', data: { content: event.text ?? '' } };
+        return {
+          event: 'delta',
+          data: {
+            ...seqPayload,
+            content: event.text ?? '',
+            emittedAt: new Date().toISOString(),
+          },
+        };
       case 'step_active':
         return {
           event: 'step',
           data: {
+            ...seqPayload,
             id: event.agentId ?? 'unknown',
             label: event.message ?? '',
             agentId: event.agentId,
@@ -1048,6 +1622,7 @@ export class AgentWorker {
         return {
           event: 'step',
           data: {
+            ...seqPayload,
             id: event.agentId ?? 'unknown',
             label: event.message ?? '',
             agentId: event.agentId,
@@ -1059,6 +1634,7 @@ export class AgentWorker {
         return {
           event: 'step',
           data: {
+            ...seqPayload,
             id: event.agentId ?? 'unknown',
             label: event.message ?? '',
             agentId: event.agentId,
@@ -1070,6 +1646,7 @@ export class AgentWorker {
         return {
           event: 'step',
           data: {
+            ...seqPayload,
             id: event.toolName ?? 'tool',
             label: event.message ?? event.toolName ?? 'Running tool',
             agentId: event.agentId,
@@ -1081,6 +1658,7 @@ export class AgentWorker {
         return {
           event: 'step',
           data: {
+            ...seqPayload,
             id: event.toolName ?? 'tool',
             label: event.message ?? event.toolName ?? 'Tool complete',
             agentId: event.agentId,
@@ -1088,19 +1666,24 @@ export class AgentWorker {
             icon: event.icon,
           },
         };
-      case 'done':
+      case 'done': {
+        const doneStatus =
+          event.status ?? (event.success === false ? 'error' : event.error ? 'error' : 'complete');
         return {
           event: 'done',
           data: {
+            ...seqPayload,
             operationId,
             ...(threadId ? { threadId } : {}),
-            status: event.success === false ? 'failed' : 'complete',
+            status: doneStatus,
             success: event.success ?? true,
             error: event.error,
             message: event.message,
+            messageId: event.messageId,
             timestamp: new Date().toISOString(),
           },
         };
+      }
       default:
         return null;
     }
@@ -1116,7 +1699,7 @@ export class AgentWorker {
           job.data.kind === 'agent'
             ? job.data.payload.operationId
             : job.data.kind === 'thread_summarization'
-              ? `summarize:${job.data.threadId}`
+              ? `summarize_${job.data.threadId}`
               : job.data.operationId;
 
         logger.info('Agent queue job completed', {
@@ -1132,7 +1715,7 @@ export class AgentWorker {
         job?.data.kind === 'agent'
           ? job.data.payload.operationId
           : job?.data.kind === 'thread_summarization'
-            ? `summarize:${job.data.threadId}`
+            ? `summarize_${job.data.threadId}`
             : job?.data.kind === 'playbook_generation'
               ? job.data.operationId
               : undefined;

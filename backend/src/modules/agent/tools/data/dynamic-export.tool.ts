@@ -65,7 +65,7 @@ export class DynamicExportTool extends BaseTool {
   });
 
   readonly isMutation = true;
-  readonly category = 'data' as const;
+  readonly category = 'system' as const;
 
   readonly entityGroup = 'platform_tools' as const;
   /** All agents can generate exports. */

@@ -7,7 +7,11 @@
  */
 
 import { Page, Locator, expect } from '@playwright/test';
-import { COMMON_TEST_IDS } from '@nxt1/core/testing';
+
+const COMMON_LOADING_TEST_IDS = {
+  LOADING: 'loading',
+  SPINNER: 'spinner',
+} as const;
 
 /**
  * Configuration options for page objects
@@ -139,8 +143,8 @@ export abstract class BasePage {
   async waitForLoadingComplete(): Promise<void> {
     // Wait for common loading indicators to disappear
     const loadingIndicators = [
-      this.page.locator(`[data-testid="${COMMON_TEST_IDS.LOADING}"]`),
-      this.page.locator(`[data-testid="${COMMON_TEST_IDS.SPINNER}"]`),
+      this.page.locator(`[data-testid="${COMMON_LOADING_TEST_IDS.LOADING}"]`),
+      this.page.locator(`[data-testid="${COMMON_LOADING_TEST_IDS.SPINNER}"]`),
       this.page.locator('ion-spinner'),
       this.page.locator('.loading'),
     ];

@@ -43,6 +43,30 @@ const COLLECTION = 'AgentJobs' as const;
 const EVENTS_SUBCOLLECTION = 'events' as const;
 const ACTIVE_JOB_RETENTION_DAYS = 14;
 const TERMINAL_JOB_RETENTION_DAYS = 30;
+const LOCKED_PROGRESS_STATUSES = new Set<AgentOperationStatus>([
+  'paused',
+  'awaiting_input',
+  'awaiting_approval',
+  'completed',
+  'failed',
+  'cancelled',
+]);
+
+function buildTerminalProgress(params: {
+  status: AgentJobProgress['status'];
+  message: string;
+  outcomeCode?: OperationOutcomeCode;
+}): AgentJobProgress {
+  return {
+    status: params.status,
+    message: params.message,
+    ...(params.outcomeCode ? { outcomeCode: params.outcomeCode } : {}),
+    percent: 100,
+    currentStep: 1,
+    totalSteps: 1,
+    updatedAt: new Date().toISOString(),
+  };
+}
 
 // ─── Job Event Types (Subcollection: AgentJobs/{operationId}/events) ────────
 
@@ -56,6 +80,9 @@ const TERMINAL_JOB_RETENTION_DAYS = 30;
  * - `delta`        — Debounced text chunk from the LLM stream
  * - `tool_call`    — LLM requested a tool invocation
  * - `tool_result`  — Tool execution produced a result
+ * - `progress_stage` — High-level phase transition (context/planning/execution)
+ * - `progress_subphase` — Granular status update inside a phase
+ * - `metric`       — Structured numeric telemetry (latency/sample counters)
  * - `done`         — The entire job finished (success or failure)
  */
 export type JobEventType =
@@ -65,7 +92,12 @@ export type JobEventType =
   | 'delta'
   | 'tool_call'
   | 'tool_result'
+  | 'progress_stage'
+  | 'progress_subphase'
+  | 'metric'
   | 'card'
+  | 'title_updated'
+  | 'operation'
   | 'done';
 
 /**
@@ -112,6 +144,28 @@ export interface JobEvent {
   readonly icon?: AgentXToolStepIcon;
   /** Rich card payload for `card` events (planner, data-table, etc.). */
   readonly cardData?: Record<string, unknown>;
+  /** Updated thread title emitted by worker after auto-title generation. */
+  readonly title?: string;
+  /** Thread ID associated with operation/title events. */
+  readonly threadId?: string;
+  /** Canonical persisted assistant message ID for terminal done events. */
+  readonly messageId?: string;
+  /** Canonical operation status transitions for sidebar/session state. */
+  readonly status?:
+    | 'queued'
+    | 'running'
+    | 'paused'
+    | 'awaiting_input'
+    | 'awaiting_approval'
+    | 'complete'
+    | 'failed'
+    | 'cancelled';
+  /** Serialized yield context for awaiting_input / awaiting_approval transitions. */
+  readonly yieldState?: AgentYieldState;
+  /** Operation id for operation lifecycle events. */
+  readonly operationId?: string;
+  /** ISO timestamp for operation/title transitions. */
+  readonly timestamp?: string;
   /** Server timestamp set by Firestore. */
   readonly createdAt: FirebaseFirestore.Timestamp;
 }
@@ -140,6 +194,8 @@ export interface AgentJobDocument {
   readonly createdAt: FirebaseFirestore.Timestamp;
   readonly updatedAt: FirebaseFirestore.Timestamp;
   readonly completedAt: FirebaseFirestore.Timestamp | null;
+  /** Next event sequence to allocate (atomic counter for events subcollection). */
+  readonly nextEventSeq?: number;
   /** TTL field for Firestore automatic expiration. */
   readonly expiresAt: FirebaseFirestore.Timestamp;
 }
@@ -180,6 +236,7 @@ export class AgentJobRepository {
         result: null,
         error: null,
         threadId: (payload.context?.['threadId'] as string) ?? null,
+        nextEventSeq: 0,
         createdAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
         completedAt: null,
@@ -192,10 +249,27 @@ export class AgentJobRepository {
    * Called by the AgentWorker's onUpdate callback.
    */
   async updateProgress(operationId: string, progress: AgentJobProgress): Promise<void> {
-    await this.db.collection(COLLECTION).doc(operationId).update({
-      status: progress.status,
-      progress,
-      updatedAt: FieldValue.serverTimestamp(),
+    const jobRef = this.db.collection(COLLECTION).doc(operationId);
+
+    await this.db.runTransaction(async (tx) => {
+      const snapshot = await tx.get(jobRef);
+      if (!snapshot.exists) {
+        return;
+      }
+
+      const currentStatus = snapshot.get('status');
+      if (
+        typeof currentStatus === 'string' &&
+        LOCKED_PROGRESS_STATUSES.has(currentStatus as AgentOperationStatus)
+      ) {
+        return;
+      }
+
+      tx.update(jobRef, {
+        status: progress.status,
+        progress,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
     });
   }
 
@@ -203,12 +277,23 @@ export class AgentJobRepository {
    * Mark the job as completed and store the final result.
    */
   async markCompleted(operationId: string, result: AgentOperationResult): Promise<void> {
+    const progress = buildTerminalProgress({
+      status: 'completed',
+      message:
+        typeof result.summary === 'string' && result.summary.trim().length > 0
+          ? result.summary
+          : 'Operation completed.',
+      outcomeCode: 'success_default',
+    });
+
     await this.db
       .collection(COLLECTION)
       .doc(operationId)
       .update({
         status: 'completed' satisfies AgentOperationStatus,
         result,
+        progress,
+        yieldState: null,
         updatedAt: FieldValue.serverTimestamp(),
         completedAt: FieldValue.serverTimestamp(),
         expiresAt: ttlFromNow(TERMINAL_JOB_RETENTION_DAYS),
@@ -219,12 +304,20 @@ export class AgentJobRepository {
    * Mark the job as failed and store the error message.
    */
   async markFailed(operationId: string, error: string): Promise<void> {
+    const progress = buildTerminalProgress({
+      status: 'failed',
+      message: error,
+      outcomeCode: 'task_failed',
+    });
+
     await this.db
       .collection(COLLECTION)
       .doc(operationId)
       .update({
         status: 'failed' satisfies AgentOperationStatus,
         error,
+        progress,
+        yieldState: null,
         updatedAt: FieldValue.serverTimestamp(),
         completedAt: FieldValue.serverTimestamp(),
         expiresAt: ttlFromNow(TERMINAL_JOB_RETENTION_DAYS),
@@ -251,14 +344,40 @@ export class AgentJobRepository {
   }
 
   /**
+   * Mark the job as explicitly paused (resumable).
+   *
+   * Unlike generic yielded state, this preserves an explicit paused lifecycle
+   * status for UI contracts while still storing the same yield context needed
+   * by the resume route.
+   */
+  async markPaused(operationId: string, yieldState: AgentYieldState): Promise<void> {
+    await this.db
+      .collection(COLLECTION)
+      .doc(operationId)
+      .update({
+        status: 'paused' satisfies AgentOperationStatus,
+        yieldState,
+        updatedAt: FieldValue.serverTimestamp(),
+        expiresAt: ttlFromNow(ACTIVE_JOB_RETENTION_DAYS),
+      });
+  }
+
+  /**
    * Mark the job as cancelled (user-initiated).
    */
   async markCancelled(operationId: string): Promise<void> {
+    const progress = buildTerminalProgress({
+      status: 'cancelled',
+      message: 'Operation cancelled by user.',
+    });
+
     await this.db
       .collection(COLLECTION)
       .doc(operationId)
       .update({
         status: 'cancelled' satisfies AgentOperationStatus,
+        progress,
+        yieldState: null,
         updatedAt: FieldValue.serverTimestamp(),
         completedAt: FieldValue.serverTimestamp(),
         expiresAt: ttlFromNow(TERMINAL_JOB_RETENTION_DAYS),
@@ -359,6 +478,105 @@ export class AgentJobRepository {
         ...event,
         createdAt: FieldValue.serverTimestamp(),
       });
+  }
+
+  /**
+   * Reserve a contiguous range of event sequence numbers atomically.
+   *
+   * Returns the first reserved sequence. Callers can use
+   * `[start, start + 1, ...]` for multi-event writes that must preserve order.
+   */
+  async allocateEventSeqRange(operationId: string, count = 1): Promise<number> {
+    if (!Number.isInteger(count) || count <= 0) {
+      throw new Error('allocateEventSeqRange count must be a positive integer');
+    }
+
+    const parentRef = this.db.collection(COLLECTION).doc(operationId);
+
+    return this.db.runTransaction(async (txn) => {
+      const parentSnap = await txn.get(parentRef);
+      if (!parentSnap.exists) {
+        throw new Error(`Operation ${operationId} not found`);
+      }
+
+      const currentRaw = parentSnap.get('nextEventSeq');
+      let currentSeq =
+        typeof currentRaw === 'number' && Number.isFinite(currentRaw)
+          ? Math.max(0, Math.floor(currentRaw))
+          : 0;
+
+      // Backward compatibility for operations created before nextEventSeq existed.
+      if (typeof currentRaw !== 'number') {
+        const latestEventQuery = parentRef
+          .collection(EVENTS_SUBCOLLECTION)
+          .orderBy('seq', 'desc')
+          .limit(1);
+        const latestEventSnap = await txn.get(latestEventQuery);
+        const latestDoc = latestEventSnap.docs[0];
+        const latestSeq = latestDoc ? latestDoc.get('seq') : -1;
+        if (typeof latestSeq === 'number' && Number.isFinite(latestSeq)) {
+          currentSeq = Math.max(currentSeq, Math.floor(latestSeq) + 1);
+        }
+      }
+
+      txn.update(parentRef, {
+        nextEventSeq: currentSeq + count,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+
+      return currentSeq;
+    });
+  }
+
+  /**
+   * Atomically allocate and persist a single event sequence number.
+   *
+   * Returns the persisted sequence so callers can forward it to live transports.
+   */
+  async writeJobEventWithAutoSeq(
+    operationId: string,
+    event: Omit<JobEvent, 'createdAt' | 'seq'>
+  ): Promise<number> {
+    const parentRef = this.db.collection(COLLECTION).doc(operationId);
+
+    return this.db.runTransaction(async (txn) => {
+      const parentSnap = await txn.get(parentRef);
+      if (!parentSnap.exists) {
+        throw new Error(`Operation ${operationId} not found`);
+      }
+
+      const currentRaw = parentSnap.get('nextEventSeq');
+      let nextSeq =
+        typeof currentRaw === 'number' && Number.isFinite(currentRaw)
+          ? Math.max(0, Math.floor(currentRaw))
+          : 0;
+
+      if (typeof currentRaw !== 'number') {
+        const latestEventQuery = parentRef
+          .collection(EVENTS_SUBCOLLECTION)
+          .orderBy('seq', 'desc')
+          .limit(1);
+        const latestEventSnap = await txn.get(latestEventQuery);
+        const latestDoc = latestEventSnap.docs[0];
+        const latestSeq = latestDoc ? latestDoc.get('seq') : -1;
+        if (typeof latestSeq === 'number' && Number.isFinite(latestSeq)) {
+          nextSeq = Math.max(nextSeq, Math.floor(latestSeq) + 1);
+        }
+      }
+
+      const eventRef = parentRef.collection(EVENTS_SUBCOLLECTION).doc();
+      txn.set(eventRef, {
+        ...event,
+        seq: nextSeq,
+        createdAt: FieldValue.serverTimestamp(),
+      });
+      txn.update(parentRef, {
+        nextEventSeq: nextSeq + 1,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+
+      return nextSeq;
+    });
   }
 
   /**

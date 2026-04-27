@@ -1963,9 +1963,13 @@ export class NxtSidenavComponent {
           ? 'complete'
           : entry.status === 'error'
             ? 'error'
-            : entry.status === 'awaiting_input'
-              ? 'awaiting_input'
-              : null;
+            : entry.status === 'paused'
+              ? 'paused'
+              : entry.status === 'awaiting_input'
+                ? 'awaiting_input'
+                : entry.status === 'awaiting_approval'
+                  ? 'awaiting_approval'
+                  : null;
     const isFirestoreOperationId = (id: string | undefined): boolean => {
       if (!id) return false;
       const bare = id.startsWith('chat-') ? id.slice(5) : id;

@@ -52,21 +52,14 @@ export const routes: Routes = [
       {
         path: '',
         pathMatch: 'full',
-        redirectTo: 'agent',
+        redirectTo: 'agent-x',
       },
 
-      // Agent X Tab - AI Assistant
-      {
-        path: 'agent',
-        loadChildren: () =>
-          import('./features/agent-x/agent-x.routes').then((m) => m.AGENT_X_ROUTES),
-      },
-
-      // Redirect /agent-x → /agent (web deep links use /agent-x)
+      // Agent X Tab - AI Assistant (canonical)
       {
         path: 'agent-x',
-        redirectTo: 'agent',
-        pathMatch: 'prefix',
+        loadChildren: () =>
+          import('./features/agent-x/agent-x.routes').then((m) => m.AGENT_X_ROUTES),
       },
 
       // Activity Tab - Notifications & Activity Feed

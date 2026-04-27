@@ -34,16 +34,15 @@
 
 import { isDeepStrictEqual } from 'node:util';
 import type { Firestore } from 'firebase-admin/firestore';
-import { FieldValue } from 'firebase-admin/firestore';
+import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import type {
   AgentApprovalReasonCode,
   AgentApprovalRequest,
   AgentApprovalStatus,
   AgentApprovalPolicy,
 } from '@nxt1/core';
-import { AGENT_APPROVAL_POLICIES, NOTIFICATION_TYPES, resolveAgentApprovalCopy } from '@nxt1/core';
-import { dispatch } from '../../../services/communications/notification.service.js';
-import { getAgentAnalyticsGate } from './agent-analytics-gate.js';
+import { AGENT_APPROVAL_POLICIES, resolveAgentApprovalCopy } from '@nxt1/core';
+import { dispatchAgentPush } from './agent-push-adapter.service.js';
 import { logger } from '../../../utils/logger.js';
 
 /** Firestore collection for approval request documents. */
@@ -60,6 +59,12 @@ const LIVE_VIEW_APPROVAL_POLICY: AgentApprovalPolicy = {
   riskLevel: 'high',
 };
 
+const APPROVAL_RETENTION_TTL_DAYS = 30;
+
+function approvalRecordTtlFromNow(days: number): FirebaseFirestore.Timestamp {
+  return Timestamp.fromMillis(Date.now() + days * 24 * 60 * 60 * 1000);
+}
+
 export interface ApprovalRequirement {
   readonly policy: AgentApprovalPolicy;
   readonly reasonCode: AgentApprovalReasonCode;
@@ -68,6 +73,34 @@ export interface ApprovalRequirement {
 
 export class ApprovalGateService {
   constructor(private readonly db: Firestore) {}
+
+  /**
+   * Canonicalize a tool's input object before it is persisted in Firestore.
+   *
+   * The LLM sometimes generates aliased field names (e.g. `to` instead of
+   * `toEmail`, `body` instead of `bodyHtml`). Stripping those down to the
+   * single canonical field set keeps approval documents clean and ensures
+   * the tool receives exactly what its Zod schema expects on resume.
+   */
+  private normalizeToolInput(
+    toolName: string,
+    toolInput: Record<string, unknown>
+  ): Record<string, unknown> {
+    if (toolName === 'send_email') {
+      return {
+        userId: toolInput['userId'],
+        toEmail: toolInput['toEmail'] ?? toolInput['to'],
+        subject: toolInput['subject'],
+        bodyHtml:
+          toolInput['bodyHtml'] ??
+          toolInput['body'] ??
+          toolInput['bodyText'] ??
+          toolInput['message'],
+      };
+    }
+
+    return toolInput;
+  }
 
   /**
    * Check whether a tool call requires user approval.
@@ -160,11 +193,12 @@ export class ApprovalGateService {
     reasoning?: string;
     threadId?: string;
   }): Promise<AgentApprovalRequest> {
-    const requirement = this.getApprovalRequirement(params.toolName, params.toolInput);
+    const normalizedInput = this.normalizeToolInput(params.toolName, params.toolInput);
+    const requirement = this.getApprovalRequirement(params.toolName, normalizedInput);
     const policy = requirement?.policy ?? this.getApprovalPolicy(params.toolName);
     const fallbackCopy = resolveAgentApprovalCopy({
       toolName: params.toolName,
-      toolInput: params.toolInput,
+      toolInput: normalizedInput,
     });
     const approvalCopy = requirement ?? {
       policy: policy ?? LIVE_VIEW_APPROVAL_POLICY,
@@ -177,10 +211,11 @@ export class ApprovalGateService {
       operationId: params.operationId,
       taskId: params.taskId,
       userId: params.userId,
+      ...(params.threadId ? { threadId: params.threadId } : {}),
       actionSummary: approvalCopy.actionSummary,
       reasonCode: approvalCopy.reasonCode,
       toolName: params.toolName,
-      toolInput: params.toolInput,
+      toolInput: normalizedInput,
       reasoning: params.reasoning,
       status: 'pending',
       createdAt: new Date().toISOString(),
@@ -193,6 +228,7 @@ export class ApprovalGateService {
       .doc(request.id)
       .set({
         ...request,
+        expiresAt: approvalRecordTtlFromNow(APPROVAL_RETENTION_TTL_DAYS),
         firestoreCreatedAt: FieldValue.serverTimestamp(),
       });
 
@@ -203,32 +239,18 @@ export class ApprovalGateService {
       userId: params.userId,
     });
 
-    // Track the approval-pending event in the user's analytics record (fire-and-forget)
-    getAgentAnalyticsGate().trackApprovalRequested({
-      userId: params.userId,
-      operationId: params.operationId,
-      toolName: params.toolName,
-      threadId: params.threadId,
-    });
-
     // Send push notification via unified NotificationService
     try {
-      await dispatch(this.db, {
+      await dispatchAgentPush(this.db, {
+        kind: 'agent_needs_approval',
         userId: params.userId,
-        type: NOTIFICATION_TYPES.DYNAMIC_AGENT_ALERT,
+        operationId: params.operationId,
+        threadId: params.threadId,
+        approvalId: request.id,
+        toolName: params.toolName,
+        reason: 'needs_approval',
         title: fallbackCopy.notificationTitle,
         body: fallbackCopy.notificationBody,
-        deepLink: params.threadId
-          ? `/agent-x?thread=${encodeURIComponent(params.threadId)}`
-          : '/agent-x',
-        data: {
-          approvalId: request.id,
-          operationId: params.operationId,
-          toolName: params.toolName,
-          ...(params.threadId ? { threadId: params.threadId } : {}),
-        },
-        source: { userName: 'Agent X' },
-        priority: 'high',
       });
     } catch (notifyErr) {
       // Push is best-effort — don't fail the approval creation
@@ -293,14 +315,6 @@ export class ApprovalGateService {
         decision,
         resolvedBy,
         operationId: request.operationId,
-      });
-
-      // Track the approval decision in the user's analytics record (fire-and-forget)
-      getAgentAnalyticsGate().trackApprovalResolved({
-        userId: request.userId,
-        operationId: request.operationId,
-        toolName: request.toolName,
-        decision,
       });
 
       return {

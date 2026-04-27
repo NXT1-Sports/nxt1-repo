@@ -1666,6 +1666,19 @@ export const UI_ICONS = {
     ],
   },
 
+  /** Copy / duplicate icon (two overlapping documents) — ChatGPT style */
+  copyDocs: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 1.75,
+    paths: [
+      // Background document peeking top-left
+      { d: 'M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1' },
+      // Foreground document (destination)
+      { d: 'M11 9h9a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-9a2 2 0 0 1-2-2v-9a2 2 0 0 1 2-2z' },
+    ],
+  },
+
   /** Clipboard icon - for evaluation/scouting reports */
   clipboard: {
     viewBox: '0 0 24 24',
@@ -2133,6 +2146,8 @@ export const ALIAS_ICONS = {
   'chat-history-outline': UI_ICONS.chatHistory,
   'list-outline': UI_ICONS.list,
   'clipboard-outline': UI_ICONS.clipboard,
+  'copy-docs': UI_ICONS.copyDocs,
+  copyDocs: UI_ICONS.copyDocs,
   'notifications-outline': UI_ICONS.notifications,
   'chevron-forward-outline': UI_ICONS.chevronForward,
 

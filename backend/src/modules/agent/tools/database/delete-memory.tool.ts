@@ -54,7 +54,7 @@ export class DeleteMemoryTool extends BaseTool {
   ] as const;
 
   readonly isMutation = true;
-  readonly category = 'database' as const;
+  readonly category = 'system' as const;
 
   readonly entityGroup = 'platform_tools' as const;
   private readonly vectorMemory: VectorMemoryService;

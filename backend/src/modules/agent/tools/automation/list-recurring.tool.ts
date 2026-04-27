@@ -23,7 +23,7 @@ export class ListRecurringTasksTool extends BaseTool {
   readonly name = 'list_recurring_tasks';
   readonly description =
     'List all active recurring scheduled tasks for a user. ' +
-    "Returns each task's key, action summary, cron expression, and next execution time.";
+    "Returns each task's key, action summary, cron expression, timezone, and next execution time.";
 
   readonly parameters = ListRecurringTasksInputSchema;
 
@@ -72,16 +72,36 @@ export class ListRecurringTasksTool extends BaseTool {
 
       // Cross-reference with BullMQ to surface live nextRun timestamps.
       const repeatables = await this.queueService.getAllRepeatableJobs();
-      const nextRunMap = new Map(repeatables.map((r) => [r.key, r.next]));
+      const repeatableMap = new Map(
+        repeatables.map((r) => [
+          r.key,
+          {
+            nextRun: r.next,
+            timezone: r.tz,
+          },
+        ])
+      );
 
       const tasks: RecurringJobInfo[] = snap.docs.map((doc) => {
         const data = doc.data();
-        const next = nextRunMap.get(doc.id);
+        const repeatable = repeatableMap.get(doc.id);
+        const persistedTimezone = data['timezone'];
+        const resolvedTimezone =
+          typeof persistedTimezone === 'string' && persistedTimezone.length > 0
+            ? persistedTimezone
+            : (repeatable?.timezone ?? 'UTC');
         return {
           key: doc.id,
           actionSummary: data['actionSummary'] as string,
           cronExpression: data['cronExpression'] as string,
-          nextRun: next ? new Date(next).toISOString() : null,
+          timezone: resolvedTimezone,
+          ...(typeof data['sourceId'] === 'string' && data['sourceId'].length > 0
+            ? { sourceId: data['sourceId'] as string }
+            : {}),
+          nextRun:
+            typeof repeatable?.nextRun === 'number'
+              ? new Date(repeatable.nextRun).toISOString()
+              : null,
           createdAt: (data['createdAt'] as Timestamp).toDate().toISOString(),
         };
       });

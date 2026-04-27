@@ -47,8 +47,8 @@ export const ANALYTICS_EVENT_TYPES = {
     'message_sent',
     'follow_up_scheduled',
   ],
-  system: ['agent_task_completed', 'agent_task_failed', 'tool_write_completed', 'sync_completed'],
-  custom: ['custom_recorded'],
+  system: ['sync_completed'],
+  custom: [],
 } as const satisfies Record<AnalyticsDomain, readonly string[]>;
 
 export type AnalyticsEventType =
@@ -92,6 +92,30 @@ export interface AnalyticsRollupRecord {
   readonly lastAggregatedAt: string;
 }
 
+export interface AnalyticsTemplateBreakdownRecord {
+  readonly templateKey: string;
+  readonly templateBaseDomain: Exclude<AnalyticsDomain, 'system' | 'custom'> | 'unknown';
+  readonly totalCount: number;
+  readonly numericValueTotal: number;
+  readonly countsByEventType: Readonly<Record<string, number>>;
+  readonly lastEventAt: string | null;
+}
+
+export interface AnalyticsSummaryRecord {
+  readonly subjectId: string;
+  readonly subjectType: AnalyticsSubjectType;
+  readonly domain: AnalyticsDomain;
+  readonly timeframe: AnalyticsSummaryTimeframe;
+  readonly totalCount: number;
+  readonly numericValueTotal: number;
+  readonly countsByEventType: Readonly<Record<string, number>>;
+  readonly countsByTemplateKey?: Readonly<Record<string, number>>;
+  readonly countsByTemplateBaseDomain?: Readonly<Record<string, number>>;
+  readonly templateBreakdown?: readonly AnalyticsTemplateBreakdownRecord[];
+  readonly lastEventAt: string | null;
+  readonly lastAggregatedAt: string | null;
+}
+
 export function isAnalyticsDomain(value: unknown): value is AnalyticsDomain {
   return typeof value === 'string' && ANALYTICS_DOMAINS.includes(value as AnalyticsDomain);
 }
@@ -131,9 +155,12 @@ export function getDefaultAnalyticsEventType(domain: AnalyticsDomain): Analytics
     case 'communication':
       return 'email_sent';
     case 'system':
-      return 'tool_write_completed';
+      return 'sync_completed';
     case 'custom':
+      throw new Error(
+        'Custom domain does not have a default event type. Use registry-backed templates instead.'
+      );
     default:
-      return 'custom_recorded';
+      throw new Error(`Unknown analytics domain: ${domain}`);
   }
 }

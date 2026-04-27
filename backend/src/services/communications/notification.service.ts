@@ -93,6 +93,7 @@ export async function dispatch(
     mediaUrl,
     mediaType,
     skipActivity,
+    idempotencyKey,
   } = input;
 
   const category = NOTIFICATION_TYPE_CATEGORY[type];
@@ -119,13 +120,18 @@ export async function dispatch(
       ? body.slice(0, PUSH_CONFIG.MAX_BODY_LENGTH - 1) + '…'
       : body;
 
-  // Deterministic 5-minute dedup ID — if the same event fires twice (e.g. network
-  // retry, double-tap), the second batch.set() overwrites the existing doc without
-  // re-triggering onNotificationCreated (onCreate only fires on document creation).
-  const timeBucket = Math.floor(Date.now() / (5 * 60 * 1000));
-  const entityPart = (data?.['entityId'] ?? data?.['teamId'] ?? '') as string;
-  const rawKey = `${userId}_${type}_${entityPart}_${timeBucket}`;
-  const dedupId = rawKey.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 100);
+  // Deterministic dedup ID:
+  // 1) explicit idempotencyKey if caller provides one (exactly-once by logical event)
+  // 2) fallback to legacy 5-minute bucket dedup
+  const dedupId = (() => {
+    if (idempotencyKey && idempotencyKey.trim().length > 0) {
+      return idempotencyKey.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 100);
+    }
+    const timeBucket = Math.floor(Date.now() / (5 * 60 * 1000));
+    const entityPart = (data?.['entityId'] ?? data?.['teamId'] ?? '') as string;
+    const rawKey = `${userId}_${type}_${entityPart}_${timeBucket}`;
+    return rawKey.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 100);
+  })();
 
   // Prepare document references
   const notificationRef = db.collection(NOTIFICATION_COLLECTIONS.NOTIFICATIONS).doc(dedupId);

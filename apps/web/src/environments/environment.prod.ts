@@ -12,9 +12,6 @@ export const environment = {
   // Backend API URLs (Production)
   apiURL: 'https://api.nxt1sports.com/api/v1',
 
-  // Logging Configuration
-  loggingEndpoint: 'https://api.nxt1sports.com/api/v1/logs', // Remote logging endpoint
-
   // Firebase Configuration (Production)
   firebase: {
     apiKey: 'AIzaSyAg0ln9P4HxZkqRsOi8ceVDNz1YEXhmN9I',

@@ -38,6 +38,7 @@ export { FirecrawlScrapeTool } from './firecrawl/firecrawl-scrape.tool.js';
 export { FirecrawlSearchTool } from './firecrawl/firecrawl-search.tool.js';
 export { FirecrawlMapTool } from './firecrawl/firecrawl-map.tool.js';
 export { FirecrawlExtractTool } from './firecrawl/firecrawl-extract.tool.js';
+export { FirecrawlAgentTool } from './firecrawl/firecrawl-agent.tool.js';
 
 // ── Firebase MCP — Read-only Firestore access ─────────────────────────────
 export { FirebaseMcpBridgeService } from './firebase-mcp/firebase-mcp-bridge.service.js';

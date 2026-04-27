@@ -22,6 +22,7 @@ export type AgentOperationStatus =
   | 'queued'
   | 'thinking'
   | 'acting'
+  | 'paused'
   | 'awaiting_approval'
   | 'awaiting_input'
   | 'streaming_result'
@@ -754,6 +755,8 @@ export interface AgentApprovalRequest {
   readonly operationId: string;
   readonly taskId: string;
   readonly userId: string;
+  /** The conversation thread this approval belongs to. */
+  readonly threadId?: string;
   /** What the agent wants to do (human-readable). */
   readonly actionSummary: string;
   /** Typed reason code used to keep approval UX copy consistent. */
@@ -1005,6 +1008,11 @@ export type JobEventType =
   | 'tool_call'
   | 'tool_result'
   | 'card'
+  | 'title_updated'
+  | 'operation'
+  | 'progress_stage'
+  | 'progress_subphase'
+  | 'metric'
   | 'done';
 
 /**
@@ -1052,6 +1060,30 @@ export interface JobEvent {
   readonly errorCode?: string;
   /** Rich card payload for `card` events (planner, data-table, etc.). */
   readonly cardData?: Record<string, unknown>;
+  /** Updated thread title emitted by worker after auto-title generation. */
+  readonly title?: string;
+  /** Thread ID associated with operation/title events. */
+  readonly threadId?: string;
+  /** Canonical persisted assistant message ID for terminal done events. */
+  readonly messageId?: string;
+  /** Canonical operation status transitions for sidebar/session state. */
+  readonly status?:
+    | 'queued'
+    | 'running'
+    | 'in-progress'
+    | 'paused'
+    | 'awaiting_input'
+    | 'awaiting_approval'
+    | 'complete'
+    | 'failed'
+    | 'error'
+    | 'cancelled';
+  /** Serialized yield context for awaiting_input / awaiting_approval transitions. */
+  readonly yieldState?: AgentYieldState;
+  /** Operation id for operation lifecycle events. */
+  readonly operationId?: string;
+  /** ISO timestamp for operation/title transitions. */
+  readonly timestamp?: string;
   /** Server timestamp (Firestore Timestamp — reads as { seconds, nanoseconds }). */
   readonly createdAt?: unknown;
 }

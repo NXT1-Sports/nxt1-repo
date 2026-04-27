@@ -17,6 +17,7 @@ import type {
   AgentProgressMetadata,
   AgentProgressStage,
   AgentProgressStageType,
+  AgentYieldState,
   AgentXRichCard,
   AgentXToolStepIcon,
   OperationOutcomeCode,
@@ -31,6 +32,8 @@ import { logger } from '../../../utils/logger.js';
 
 /** Callback signature matching what the Router/BaseAgent emit. */
 export interface StreamEvent {
+  /** Persisted event sequence number (attached by writer post-persist). */
+  readonly seq?: number;
   readonly type: JobEventType;
   readonly agentId?: AgentIdentifier;
   readonly stageType?: AgentProgressStageType;
@@ -39,6 +42,11 @@ export interface StreamEvent {
   readonly metadata?: AgentProgressMetadata;
   readonly message?: string;
   readonly text?: string;
+  /**
+   * When true for delta events, bypass debounced coalescing and persist
+   * this delta as its own event record.
+   */
+  readonly noBatch?: boolean;
   readonly toolName?: string;
   readonly toolArgs?: string;
   readonly toolResult?: Record<string, unknown>;
@@ -49,9 +57,50 @@ export interface StreamEvent {
   readonly icon?: AgentXToolStepIcon;
   /** Rich card payload for `card` events (planner, data-table, etc.). */
   readonly cardData?: AgentXRichCard;
+  /** Updated thread title emitted by worker after auto-title generation. */
+  readonly title?: string;
+  /** Thread ID associated with operation/title events. */
+  readonly threadId?: string;
+  /** Canonical persisted assistant message ID for terminal done events. */
+  readonly messageId?: string;
+  /** Canonical operation status transitions for sidebar/session state. */
+  readonly status?:
+    | 'queued'
+    | 'running'
+    | 'paused'
+    | 'awaiting_input'
+    | 'awaiting_approval'
+    | 'complete'
+    | 'failed'
+    | 'cancelled';
+  /** Serialized yield context for awaiting_input / awaiting_approval transitions. */
+  readonly yieldState?: AgentYieldState;
+  /** Operation id for operation lifecycle events. */
+  readonly operationId?: string;
+  /** ISO timestamp for operation/title transitions. */
+  readonly timestamp?: string;
 }
 
 export type OnStreamEvent = (event: StreamEvent) => void;
+
+export interface EventWriterHooks {
+  /**
+   * Called for each delta as it's buffered, immediately (not batched).
+   * Used for real-time SSE publish without waiting for Firestore persistence.
+   * Live deltas do NOT have a seq number yet.
+   */
+  readonly onLiveEvent?: OnStreamEvent;
+  /**
+   * Called after event is persisted to Firestore, with final seq number.
+   * For terminal events and final persistence metrics.
+   */
+  readonly onPersistedEvent?: OnStreamEvent;
+  readonly onPersistedEventMetrics?: (payload: {
+    type: JobEventType;
+    durationMs: number;
+    seq: number;
+  }) => void;
+}
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -85,17 +134,18 @@ function stripUndefined<T extends Record<string, unknown>>(obj: T): T {
  * ```
  */
 export class DebouncedEventWriter {
-  private seq = 0;
   private pendingDeltaText = '';
   private pendingDeltaAgentId: string | undefined;
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
+  private writeChain: Promise<void> = Promise.resolve();
   private readonly flushIntervalMs: number;
 
   constructor(
     private readonly repo: AgentJobRepository,
     private readonly operationId: string,
     private readonly userId: string,
-    flushIntervalMs?: number
+    flushIntervalMs?: number,
+    private readonly hooks?: EventWriterHooks
   ) {
     this.flushIntervalMs = flushIntervalMs ?? DEFAULT_FLUSH_INTERVAL_MS;
   }
@@ -111,19 +161,16 @@ export class DebouncedEventWriter {
     if (event.type === 'delta') {
       this.bufferDelta(event);
     } else {
-      // Non-delta events: flush any pending delta first, then write immediately.
-      // Chain them so the delta write completes before the immediate write starts,
-      // preventing Firestore onSnapshot from briefly showing events out of seq order.
-      const deltaPromise = this.flushDeltaPendingIfNeeded();
-      deltaPromise
-        .then(() => this.writeImmediate(event))
-        .catch((err) => {
-          logger.warn('[event-writer] Chained write failed', {
-            operationId: this.operationId,
-            type: event.type,
-            error: err instanceof Error ? err.message : String(err),
-          });
+      this.queueWrite(async () => {
+        await this.flushDeltaPendingIfNeeded();
+        await this.writeImmediate(event);
+      }).catch((err) => {
+        logger.warn('[event-writer] Chained write failed', {
+          operationId: this.operationId,
+          type: event.type,
+          error: err instanceof Error ? err.message : String(err),
         });
+      });
     }
   }
 
@@ -139,6 +186,7 @@ export class DebouncedEventWriter {
     if (this.pendingDeltaText.length > 0) {
       await this.writeDeltaEvent();
     }
+    await this.writeChain;
   }
 
   /**
@@ -155,13 +203,55 @@ export class DebouncedEventWriter {
     if (this.pendingDeltaText.length > 0) {
       await this.writeDeltaEvent().catch(() => undefined);
     }
+    await this.writeChain.catch(() => undefined);
   }
 
   // ─── Internal ───────────────────────────────────────────────────────────
 
   private bufferDelta(event: StreamEvent): void {
-    this.pendingDeltaText += event.text ? sanitizeAgentOutputText(event.text) : '';
+    const sanitizedDeltaText = event.text ? sanitizeAgentOutputText(event.text) : '';
+
+    if (sanitizedDeltaText.length === 0) {
+      return;
+    }
+
+    this.pendingDeltaText += sanitizedDeltaText;
     this.pendingDeltaAgentId = event.agentId ?? this.pendingDeltaAgentId;
+
+    // ╔════════════════════════════════════════════════════════════════════╗
+    // ║  LIVE DELTA PUBLISH (Token-by-Token Real-Time Streaming)          ║
+    // ╠════════════════════════════════════════════════════════════════════╣
+    // ║  Publish this delta IMMEDIATELY to SSE for professional UX.       ║
+    // ║  Note: No seq yet; live events don't have sequence numbers.        ║
+    // ║  Firestore persists coalesced deltas separately (still 300ms).     ║
+    // ╚════════════════════════════════════════════════════════════════════╝
+    this.hooks?.onLiveEvent?.({
+      type: 'delta',
+      agentId: event.agentId,
+      text: sanitizedDeltaText,
+      noBatch: event.noBatch,
+    });
+
+    if (event.noBatch) {
+      this.queueWrite(async () => {
+        this.pendingDeltaText = this.pendingDeltaText.slice(0, -sanitizedDeltaText.length);
+        if (this.pendingDeltaText.length === 0) {
+          this.pendingDeltaAgentId = undefined;
+        }
+        await this.flushDeltaPendingIfNeeded();
+        await this.writeImmediate({
+          ...event,
+          type: 'delta',
+          text: sanitizedDeltaText,
+        });
+      }).catch((err) => {
+        logger.warn('[event-writer] Non-batched delta write failed', {
+          operationId: this.operationId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+      return;
+    }
 
     // Schedule a flush if one isn't already pending
     if (!this.flushTimer) {
@@ -187,10 +277,18 @@ export class DebouncedEventWriter {
       clearTimeout(this.flushTimer);
       this.flushTimer = null;
     }
-    return this.writeDeltaEvent();
+    return this.persistPendingDelta();
   }
 
   private async writeDeltaEvent(): Promise<void> {
+    if (this.pendingDeltaText.length === 0) return;
+
+    await this.queueWrite(async () => {
+      await this.persistPendingDelta();
+    });
+  }
+
+  private async persistPendingDelta(): Promise<void> {
     if (this.pendingDeltaText.length === 0) return;
 
     const text = this.pendingDeltaText;
@@ -198,27 +296,24 @@ export class DebouncedEventWriter {
     this.pendingDeltaText = '';
     this.pendingDeltaAgentId = undefined;
 
-    const jobEvent: Omit<JobEvent, 'createdAt'> = {
-      seq: this.seq++,
+    const jobEvent: Omit<JobEvent, 'createdAt' | 'seq'> = {
       type: 'delta',
       userId: this.userId,
       agentId,
       text,
     };
 
-    await this.repo.writeJobEvent(this.operationId, jobEvent).catch((err) => {
-      logger.warn('[event-writer] Delta write failed', {
-        operationId: this.operationId,
-        error: err instanceof Error ? err.message : String(err),
-      });
+    await this.persistEvent(jobEvent, {
+      type: 'delta',
+      agentId: typeof agentId === 'string' ? (agentId as AgentIdentifier) : undefined,
+      text,
     });
   }
 
-  private writeImmediate(event: StreamEvent): void {
+  private async writeImmediate(event: StreamEvent): Promise<void> {
     // Build event object, stripping undefined fields so Firestore writes
     // are self-contained and don't rely on ignoreUndefinedProperties.
-    const jobEvent: Omit<JobEvent, 'createdAt'> = stripUndefined({
-      seq: this.seq++,
+    const jobEvent: Omit<JobEvent, 'createdAt' | 'seq'> = stripUndefined({
       type: event.type,
       userId: this.userId,
       agentId: event.agentId,
@@ -239,15 +334,71 @@ export class DebouncedEventWriter {
       cardData: event.cardData
         ? sanitizeAgentPayload(event.cardData as unknown as Record<string, unknown>)
         : undefined,
+      title: event.title ? sanitizeAgentOutputText(event.title) : undefined,
+      threadId: event.threadId,
+      messageId: event.messageId,
+      status: event.status,
+      yieldState: event.yieldState
+        ? (sanitizeAgentPayload(
+            event.yieldState as unknown as Record<string, unknown>
+          ) as unknown as AgentYieldState)
+        : undefined,
+      operationId: event.operationId,
+      timestamp: event.timestamp,
     });
 
-    // Fire-and-forget — never block the agent pipeline on Firestore writes
-    this.repo.writeJobEvent(this.operationId, jobEvent).catch((err) => {
-      logger.warn('[event-writer] Immediate write failed', {
-        operationId: this.operationId,
-        type: event.type,
-        error: err instanceof Error ? err.message : String(err),
+    await this.persistEvent(jobEvent, event);
+  }
+
+  private queueWrite(task: () => Promise<void>): Promise<void> {
+    const run = this.writeChain.then(task, task);
+    this.writeChain = run.catch(() => undefined);
+    return run;
+  }
+
+  private async persistEvent(
+    jobEvent: Omit<JobEvent, 'createdAt' | 'seq'>,
+    sourceEvent: StreamEvent
+  ) {
+    const startedAt = Date.now();
+    const seq = await this.repo
+      .writeJobEventWithAutoSeq(this.operationId, jobEvent)
+      .catch((err) => {
+        const message = err instanceof Error ? err.message : String(err);
+        logger.warn('[event-writer] Persist failed', {
+          operationId: this.operationId,
+          type: sourceEvent.type,
+          category: this.classifyWriteFailure(err),
+          error: message,
+        });
+        throw err;
       });
+
+    const durationMs = Date.now() - startedAt;
+    this.hooks?.onPersistedEventMetrics?.({
+      type: sourceEvent.type,
+      durationMs,
+      seq,
     });
+
+    this.hooks?.onPersistedEvent?.({
+      ...sourceEvent,
+      seq,
+    });
+  }
+
+  private classifyWriteFailure(err: unknown): 'quota' | 'auth' | 'network' | 'unknown' {
+    const message = String(err instanceof Error ? err.message : err).toLowerCase();
+    if (message.includes('permission') || message.includes('unauth')) return 'auth';
+    if (message.includes('quota') || message.includes('resource_exhausted')) return 'quota';
+    if (
+      message.includes('deadline') ||
+      message.includes('unavailable') ||
+      message.includes('network') ||
+      message.includes('socket')
+    ) {
+      return 'network';
+    }
+    return 'unknown';
   }
 }

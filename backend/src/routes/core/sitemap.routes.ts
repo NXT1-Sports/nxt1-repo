@@ -16,7 +16,7 @@
 import { Router, type Router as ExpressRouter, Request, Response } from 'express';
 import { logger } from '../../utils/logger.js';
 import { CollegeModel } from '../../models/core/college.model.js';
-import { HelpArticleModel } from '../../models/help-center/help-article.model.js';
+import { getHelpArticleModel } from '../../models/help-center/help-article.model.js';
 import { HELP_CATEGORIES } from '@nxt1/core';
 import mongoose from 'mongoose';
 
@@ -230,6 +230,7 @@ router.get('/sitemap.xml', async (req: Request, res: Response): Promise<void> =>
 
       // Dynamic article pages from MongoDB
       if (mongoose.connection.readyState === 1) {
+        const HelpArticleModel = getHelpArticleModel();
         const articles = await HelpArticleModel.find({ isPublished: true }, 'slug updatedAt')
           .lean()
           .exec();

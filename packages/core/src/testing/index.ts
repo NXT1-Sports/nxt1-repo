@@ -766,6 +766,55 @@ export const AGENT_X_OPERATION_CHAT_TEST_IDS = {
   DROP_OVERLAY: 'agent-op-chat-drop-overlay',
 } as const;
 
+export const AGENT_X_CHAT_BUBBLE_ACTIONS_TEST_IDS = {
+  ROOT: 'agent-chat-bubble-actions-root',
+  BTN_COPY: 'agent-chat-bubble-actions-btn-copy',
+  BTN_FEEDBACK: 'agent-chat-bubble-actions-btn-feedback',
+  BTN_EDIT: 'agent-chat-bubble-actions-btn-edit',
+  BTN_DELETE: 'agent-chat-bubble-actions-btn-delete',
+} as const;
+
+export const AGENT_X_MESSAGE_EDIT_TEST_IDS = {
+  ROOT: 'agent-message-edit-root',
+  TEXTAREA: 'agent-message-edit-textarea',
+  BTN_CANCEL: 'agent-message-edit-btn-cancel',
+  BTN_SAVE: 'agent-message-edit-btn-save',
+} as const;
+
+export const AGENT_X_FEEDBACK_MODAL_TEST_IDS = {
+  OVERLAY: 'agent-feedback-modal-overlay',
+  MODAL: 'agent-feedback-modal',
+  STAR_BUTTON: 'agent-feedback-modal-star-button',
+  CATEGORY_SELECT: 'agent-feedback-modal-category-select',
+  TEXTAREA: 'agent-feedback-modal-textarea',
+  BTN_CANCEL: 'agent-feedback-modal-btn-cancel',
+  BTN_SUBMIT: 'agent-feedback-modal-btn-submit',
+} as const;
+
+export const AGENT_X_MESSAGE_UNDO_TEST_IDS = {
+  BANNER: 'agent-message-undo-banner',
+  BTN_UNDO: 'agent-message-undo-btn',
+  TIMER: 'agent-message-undo-timer',
+} as const;
+
+export const AGENT_X_INPUT_TEST_IDS = {
+  ATTACHMENT_STRIP: 'agent-input-attachment-strip',
+  ATTACHMENT_PREVIEW: 'agent-input-attachment-preview',
+  ATTACHMENT_REMOVE_BTN: 'agent-input-attachment-remove-btn',
+  ATTACHMENT_THUMB: 'agent-input-attachment-thumb',
+  ATTACHMENT_FILE_ICON: 'agent-input-attachment-file-icon',
+  ATTACHMENT_NAME: 'agent-input-attachment-name',
+} as const;
+
+export const AGENT_X_ATTACHMENTS_SHEET_TEST_IDS = {
+  FILE_UPLOAD_BTN: 'agent-sheet-file-upload-btn',
+  FILE_INPUT: 'agent-sheet-file-input',
+  CONNECTED_APPS_SECTION: 'agent-sheet-connected-apps-section',
+  CONNECTED_SOURCE_BTN: 'agent-sheet-connected-source-btn',
+  CONNECT_MORE_BTN: 'agent-sheet-connect-more-btn',
+  PLACEHOLDER_BTN: 'agent-sheet-placeholder-btn',
+} as const;
+
 /**
  * All test IDs combined for easy import
  */
@@ -1244,6 +1293,12 @@ export const TEST_IDS = {
   AGENT_X_ACTION_CARD: AGENT_X_ACTION_CARD_TEST_IDS,
   AGENT_X_BILLING_CARD: AGENT_X_BILLING_CARD_TEST_IDS,
   AGENT_X_OPERATION_CHAT: AGENT_X_OPERATION_CHAT_TEST_IDS,
+  AGENT_X_CHAT_BUBBLE_ACTIONS: AGENT_X_CHAT_BUBBLE_ACTIONS_TEST_IDS,
+  AGENT_X_MESSAGE_EDIT: AGENT_X_MESSAGE_EDIT_TEST_IDS,
+  AGENT_X_FEEDBACK_MODAL: AGENT_X_FEEDBACK_MODAL_TEST_IDS,
+  AGENT_X_MESSAGE_UNDO: AGENT_X_MESSAGE_UNDO_TEST_IDS,
+  AGENT_X_INPUT: AGENT_X_INPUT_TEST_IDS,
+  AGENT_X_ATTACHMENTS_SHEET: AGENT_X_ATTACHMENTS_SHEET_TEST_IDS,
   AGENT_X_GOALS: AGENT_X_GOALS_TEST_IDS,
   NEWS: NEWS_TEST_IDS,
   FEED_CARD: FEED_CARD_TEST_IDS,

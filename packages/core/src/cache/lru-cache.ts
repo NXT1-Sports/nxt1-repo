@@ -296,16 +296,25 @@ export function createLRUCache<T>(options: LRUCacheOptions): LRUCache<T> {
     },
 
     async invalidate(pattern: string): Promise<number> {
+      // Apply namespace so pattern matches stored keys (which include namespace prefix)
+      const namespacedPattern = getKey(pattern);
       const keysToDelete: string[] = [];
 
       map.forEach((_, key) => {
-        if (matchPattern(key, pattern)) {
+        if (matchPattern(key, namespacedPattern)) {
           keysToDelete.push(key);
         }
       });
 
       for (const key of keysToDelete) {
-        await this.delete(key);
+        // Direct map access — keys are already fully-namespaced.
+        // Cannot use this.delete(key) here because that would re-apply getKey(),
+        // resulting in a double-namespaced lookup that finds nothing.
+        const node = map.get(key);
+        if (node) {
+          removeNode(node);
+          map.delete(key);
+        }
       }
 
       return keysToDelete.length;

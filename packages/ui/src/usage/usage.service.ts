@@ -703,14 +703,6 @@ export class UsageService implements OnDestroy {
     this.breadcrumb.trackStateChange('usage:opening-billing-portal');
     const isNativePlatform = typeof window !== 'undefined' && Capacitor.isNativePlatform();
 
-    // On web, window.open() called after an async operation is blocked by popup blockers.
-    // Pre-open a blank window synchronously before the API call, then redirect it to the URL.
-    // On native (Capacitor), window.open is not used — the Capacitor Browser plugin handles it.
-    const preOpenedWindow =
-      !isNativePlatform && typeof window !== 'undefined' && typeof window.open === 'function'
-        ? window.open('about:blank', '_blank')
-        : null;
-
     try {
       const url = await this.runWithSharedLoader({ message: 'Opening billing portal...' }, () =>
         this.api.createPortalSession()
@@ -719,15 +711,19 @@ export class UsageService implements OnDestroy {
       // Flag the shell to force-refresh when the user returns from the portal
       this._pendingPortalRefresh = true;
 
-      if (preOpenedWindow) {
-        // Web: redirect the pre-opened window to the Stripe portal URL
-        preOpenedWindow.location.href = url;
-      } else {
+      if (isNativePlatform) {
         // Native (Capacitor): use the in-app browser plugin
+        await this.browser.open({ url, presentationStyle: 'fullscreen' });
+      } else if (typeof window !== 'undefined' && typeof window.location?.assign === 'function') {
+        // Web/Desktop: open Stripe in a new tab and keep current page intact.
+        const opened = window.open(url, '_blank', 'noopener,noreferrer');
+        if (!opened) {
+          this.toast.warning('Popup blocked. Please allow popups for this site to open Stripe.');
+        }
+      } else {
         await this.browser.open({ url, presentationStyle: 'fullscreen' });
       }
     } catch (err) {
-      preOpenedWindow?.close();
       const message = err instanceof Error ? err.message : 'Failed to open billing portal';
       this.logger.error('Failed to open billing portal', err);
       this.toast.error(message);
@@ -879,12 +875,6 @@ export class UsageService implements OnDestroy {
 
     const hasSavedDefaultMethod = this.defaultPaymentMethod() !== null;
     const isNativePlatform = typeof window !== 'undefined' && Capacitor.isNativePlatform();
-    const canOpenBrowserWindow = typeof window !== 'undefined' && typeof window.open === 'function';
-
-    const preOpenedWindow =
-      !isNativePlatform && !hasSavedDefaultMethod && canOpenBrowserWindow
-        ? window.open('about:blank', USAGE_CHECKOUT_POPUP_NAME)
-        : null;
 
     try {
       const result = await this.runWithSharedLoader(
@@ -900,7 +890,6 @@ export class UsageService implements OnDestroy {
 
       if (result.type === 'credited') {
         // Saved card charged directly — no redirect needed.
-        preOpenedWindow?.close();
         await this.haptics.notification('success');
         this.toast.success(`$${(amountCents / 100).toFixed(2)} added to your wallet`);
         // Reload so balance card and payment history update immediately.
@@ -909,18 +898,20 @@ export class UsageService implements OnDestroy {
         // Hosted checkout returns asynchronously and can race the webhook that
         // credits the wallet, so force a fresh reload when the user returns.
         this._pendingPortalRefresh = true;
-        if (preOpenedWindow) {
-          preOpenedWindow.location.href = result.url;
-        } else if (isNativePlatform) {
+        if (isNativePlatform) {
           await this.browser.open({ url: result.url, presentationStyle: 'fullscreen' });
-        } else if (canOpenBrowserWindow && typeof window.location?.assign === 'function') {
-          window.location.assign(result.url);
+        } else if (typeof window !== 'undefined' && typeof window.location?.assign === 'function') {
+          // Web/Desktop: open Stripe Checkout in a named tab with opener preserved.
+          // This allows the return page to postMessage back and close itself.
+          const opened = window.open(result.url, USAGE_CHECKOUT_POPUP_NAME);
+          if (!opened) {
+            this.toast.warning('Popup blocked. Please allow popups for this site to open Stripe.');
+          }
         } else {
           await this.browser.open({ url: result.url, presentationStyle: 'fullscreen' });
         }
       }
     } catch (err) {
-      preOpenedWindow?.close();
       const message = err instanceof Error ? err.message : 'Failed to start credit purchase';
       this.logger.error('Failed to purchase credits', err, { amountCents, organizationId });
       this.toast.error(message);

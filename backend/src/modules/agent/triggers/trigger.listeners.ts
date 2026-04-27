@@ -400,7 +400,7 @@ export async function runStaleProfileCheck(): Promise<void> {
 }
 
 /**
- * Called by Cloud Scheduler on Wednesday + Friday at 6:00 PM (cron: 0 18 * * 3,5).
+ * Called by Cloud Scheduler on Wednesday + Saturday at 6:00 PM (cron: 0 18 * * 3,6).
  *
  * For every user whose current-week playbook is still active, dispatches a
  * personalized progress-nudge push notification summarising:
@@ -412,8 +412,7 @@ export async function runStaleProfileCheck(): Promise<void> {
  */
 export async function runPlaybookNudge(): Promise<void> {
   const { getFirestore, FieldValue } = await import('firebase-admin/firestore');
-  const { dispatch } = await import('../../../services/communications/notification.service.js');
-  const { NOTIFICATION_TYPES } = await import('@nxt1/core');
+  const { dispatchAgentPush } = await import('../services/agent-push-adapter.service.js');
 
   const db = getFirestore();
   const now = Date.now();
@@ -473,20 +472,12 @@ export async function runPlaybookNudge(): Promise<void> {
       }
 
       // ── 4. Dispatch push ─────────────────────────────────────────────
-      await dispatch(db, {
+      await dispatchAgentPush(db, {
+        kind: 'agent_playbook_nudge',
         userId: uid,
-        type: NOTIFICATION_TYPES.AGENT_ACTION,
+        operationId: `playbook-nudge-${uid}-${Math.floor(now / DEDUP_WINDOW_MS)}`,
         title: nudge.title,
         body: nudge.body,
-        deepLink: '/agent-x?tab=playbook',
-        data: { tab: 'playbook', nudge: 'playbook-progress' },
-        source: { userName: 'Agent X' },
-        metadata: {
-          agentId: 'playbook_nudge',
-          resultTitle: nudge.title,
-          resultSummary: nudge.body,
-          mode: 'playbook',
-        },
       });
 
       // ── 5. Stamp lastPlaybookNudgeAt to enforce dedup ────────────────

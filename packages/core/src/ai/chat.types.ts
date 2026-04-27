@@ -18,6 +18,7 @@
 
 import type { AgentIdentifier, AgentJobOrigin, AgentToolCallRecord } from './agent.types';
 import type { AgentXMessagePart, AgentXToolStep } from './agent-x.types';
+import type { AgentXAttachment } from './agent-x.types';
 
 // ─── Thread ─────────────────────────────────────────────────────────────────
 
@@ -64,6 +65,41 @@ export type AgentThreadCategory =
 /** Role of a message sender — aligns with existing AgentSessionMessage. */
 export type AgentMessageRole = 'user' | 'assistant' | 'system' | 'tool';
 
+/** User action types that can be recorded against a persisted message. */
+export type AgentMessageActionType =
+  | 'copied'
+  | 'viewed'
+  | 'edited'
+  | 'deleted'
+  | 'undone'
+  | 'feedback_submitted';
+
+/** Immutable record of a user edit to a message. */
+export interface AgentMessageEditRecord {
+  readonly editedAt: string;
+  readonly originalContent: string;
+  readonly newContent: string;
+  readonly reason?: string;
+  readonly agentRerunId?: string;
+}
+
+/** Optional user feedback attached to a message. */
+export interface AgentMessageFeedback {
+  readonly userId: string;
+  readonly rating: 1 | 2 | 3 | 4 | 5;
+  readonly text?: string;
+  readonly category?: 'helpful' | 'incorrect' | 'incomplete' | 'confusing' | 'other';
+  readonly createdAt: string;
+}
+
+/** Immutable action event recorded for analytics and auditing. */
+export interface AgentMessageActionRecord {
+  readonly type: AgentMessageActionType;
+  readonly userId: string;
+  readonly timestamp: string;
+  readonly metadata?: Record<string, unknown>;
+}
+
 /**
  * A single message within an AgentThread.
  * Extends the lightweight AgentSessionMessage with persistence metadata.
@@ -85,6 +121,8 @@ export interface AgentMessage {
   readonly agentId?: AgentIdentifier;
   /** Link to the background operation that produced this reply. */
   readonly operationId?: string;
+  /** File attachments (images, videos, docs) sent with this message. */
+  readonly attachments?: readonly AgentXAttachment[];
   /** Structured result data the UI can render (graphics, emails, etc.). */
   readonly resultData?: Record<string, unknown>;
   /** Tool calls made during this message's generation. */
@@ -102,12 +140,24 @@ export interface AgentMessage {
   readonly parts?: readonly AgentXMessagePart[];
   /** Token usage for this message (for usage tracking in the UI). */
   readonly tokenUsage?: AgentMessageTokenUsage;
+  /** User edit history (most recent edit appended last). */
+  readonly editHistory?: readonly AgentMessageEditRecord[];
+  /** Optional user feedback for this message. */
+  readonly feedback?: AgentMessageFeedback;
+  /** Action timeline for copy/edit/delete/undo/feedback interactions. */
+  readonly actions?: readonly AgentMessageActionRecord[];
   /**
    * Vector embedding for semantic search (Phase 2).
    * Populated asynchronously after message creation.
    * Stored as a number array for MongoDB Atlas Vector Search.
    */
   readonly embedding?: readonly number[];
+  /** Soft-delete marker; omitted when the message is active. */
+  readonly deletedAt?: string | null;
+  /** User who soft-deleted the message. */
+  readonly deletedBy?: string;
+  /** Recovery token used to restore soft-deleted messages (undo). */
+  readonly restoreTokenId?: string;
   readonly createdAt: string;
   /** Backend-only: MongoDB TTL expiration date. */
   readonly expiresAt?: Date;

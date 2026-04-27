@@ -16,6 +16,7 @@
 import type { AgentIdentifier, AgentSessionContext, ModelRoutingConfig } from '@nxt1/core';
 import { MODEL_ROUTING_DEFAULTS } from '@nxt1/core';
 import { BaseAgent } from './base.agent.js';
+import { getAgentToolPolicy } from './tool-policy.js';
 
 export class PerformanceCoordinatorAgent extends BaseAgent {
   readonly id: AgentIdentifier = 'performance_coordinator';
@@ -55,27 +56,7 @@ export class PerformanceCoordinatorAgent extends BaseAgent {
   }
 
   getAvailableTools(): readonly string[] {
-    return [
-      'search_nxt1_platform',
-      'query_nxt1_platform_data',
-      'list_nxt1_data_views',
-      'query_nxt1_data',
-      'search_web',
-      'scrape_webpage',
-      'scrape_and_index_profile',
-      'read_distilled_section',
-      'write_season_stats',
-      'write_combine_metrics',
-      'write_intel',
-      'update_intel',
-      'open_live_view',
-      'navigate_live_view',
-      'interact_with_live_view',
-      'read_live_view',
-      'close_live_view',
-      'ask_user',
-      'scan_timeline_posts',
-    ];
+    return getAgentToolPolicy(this.id);
   }
 
   override getSkills(): readonly string[] {

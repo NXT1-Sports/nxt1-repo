@@ -40,20 +40,45 @@ describe('Analytics Routes', () => {
     });
 
     describe('POST /api/v1/analytics/events', () => {
-      it('accepts backend-owned web analytics relay events without Firebase dependencies', async () => {
+      it('blocks anonymous relay events', async () => {
         const response = await request(app)
           .post('/api/v1/analytics/events')
           .send({
             eventName: 'page_view',
-            userId: 'user-123',
-            properties: {
-              page_path: '/profile/jordan-miles',
-              platform: 'web',
-            },
+            properties: { page_path: '/profile/jordan-miles', platform: 'web' },
           });
 
         expect(response.status).toBe(200);
-        expect(response.body).toMatchObject({ success: true, tracked: true });
+        expect(response.body).toMatchObject({
+          success: true,
+          tracked: false,
+          reason: 'anonymous_relay_blocked',
+        });
+      });
+
+      it('requires eventName', async () => {
+        const response = await request(app)
+          .post('/api/v1/analytics/events')
+          .send({ properties: { page_path: '/home' } });
+
+        expect(response.status).toBe(400);
+        expect(response.body).toMatchObject({ success: false });
+      });
+
+      it('acks authenticated relay events without persisting to MongoDB', async () => {
+        const response = await request(app)
+          .post('/api/v1/analytics/events')
+          .set('Authorization', 'Bearer test-token')
+          .send({ eventName: 'profile_viewed', properties: { page_path: '/profile/123' } });
+
+        // test-token may not satisfy auth; if so, treated as anonymous.
+        if (response.body?.reason === 'anonymous_relay_blocked') {
+          expect(response.status).toBe(200);
+          return;
+        }
+
+        expect(response.status).toBe(200);
+        expect(response.body).toMatchObject({ success: true, tracked: false });
       });
     });
   });

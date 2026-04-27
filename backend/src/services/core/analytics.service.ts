@@ -177,7 +177,7 @@ export async function recordProfileView(
       subjectType: 'user',
       domain: 'engagement',
       eventType: 'profile_viewed',
-      source: viewerUserId ? 'user' : 'system',
+      source: 'user',
       actorUserId: viewerUserId,
       tags: viewerRole ? [viewerRole] : [],
       payload: {

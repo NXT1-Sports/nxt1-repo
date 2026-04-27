@@ -172,8 +172,9 @@ router.patch(
       [key]: mergedValue,
     };
 
-    // Invalidate cache
-    await getCacheService().del(buildPrefsCacheKey(userId));
+    // Write updated preferences to cache (not just invalidate) so analytics
+    // gate reads the correct activityTracking value without a Firestore round-trip.
+    await getCacheService().set(buildPrefsCacheKey(userId), updatedPrefs, { ttl: PREFS_CACHE_TTL });
 
     logger.info('[Settings] preference updated', { userId, key });
     res.json({ success: true, data: updatedPrefs });
@@ -275,8 +276,9 @@ router.patch(
       },
     };
 
-    // Invalidate cache
-    await getCacheService().del(buildPrefsCacheKey(userId));
+    // Write updated preferences to cache (not just invalidate) so analytics
+    // gate reads the correct activityTracking value without a Firestore round-trip.
+    await getCacheService().set(buildPrefsCacheKey(userId), updatedPrefs, { ttl: PREFS_CACHE_TTL });
 
     logger.info('[Settings] preferences bulk updated', { userId, keys: Object.keys(body) });
     res.json({ success: true, data: updatedPrefs });

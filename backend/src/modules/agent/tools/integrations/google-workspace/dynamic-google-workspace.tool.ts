@@ -16,7 +16,10 @@ export class DynamicGoogleWorkspaceTool extends GoogleWorkspaceBaseTool {
   constructor(
     sessionService: GoogleWorkspaceMcpSessionService,
     definition: GoogleWorkspaceDiscoveredToolDefinition,
-    allowedAgents: readonly (AgentIdentifier | '*')[] = ['strategy_coordinator']
+    allowedAgents: readonly (AgentIdentifier | '*')[] = [
+      'recruiting_coordinator',
+      'strategy_coordinator',
+    ]
   ) {
     super(sessionService);
     this.name = definition.name;

@@ -42,12 +42,12 @@ import {
 import { AgentEngineError } from '../exceptions/agent-engine.error.js';
 import type { ApprovalGateService } from '../services/approval-gate.service.js';
 import { ASK_USER_CONTEXT_KEY, type AskUserToolContext } from '../tools/comms/ask-user.tool.js';
+import { isToolAllowedByPatterns } from './tool-policy.js';
 import {
   sanitizeAgentOutputText,
   sanitizeAgentPayload,
 } from '../utils/platform-identifier-sanitizer.js';
 import { parallelBatch } from '../utils/parallel-batch.js';
-import { getAgentAnalyticsGate } from '../services/agent-analytics-gate.js';
 import { getCachedAgentAppConfig, resolveAgentSystemPrompt } from '../config/agent-app-config.js';
 import { logger } from '../../../utils/logger.js';
 
@@ -163,10 +163,7 @@ export abstract class BaseAgent {
     // infrastructure that every coordinator needs.
     const toolSchemas: LLMToolSchema[] = toolDefinitions
       .filter(
-        (def) =>
-          def.category === 'system' ||
-          allowedToolNames.length === 0 ||
-          allowedToolNames.includes(def.name)
+        (def) => def.category === 'system' || isToolAllowedByPatterns(def.name, allowedToolNames)
       )
       .map((def) => ({
         type: 'function' as const,
@@ -241,6 +238,10 @@ export abstract class BaseAgent {
     // Video attachments are injected as text URL references (videos can't be passed
     // as vision content) so tools like write_athlete_videos have access to the URL.
     let intentText = intent;
+    // Non-image, non-video attachments (PDFs, CSVs, DOCs) are also text references
+    // since OpenRouter only supports images + videos for vision content.
+
+    // Add video references
     if (context.videoAttachments?.length) {
       const videoRefs = context.videoAttachments
         .map((v) => `[Attached video: ${v.name} — ${v.url}]`)
@@ -248,18 +249,47 @@ export abstract class BaseAgent {
       intentText = `${intent}\n\n${videoRefs}`;
     }
 
-    const userMessage: LLMMessage = context.attachments?.length
-      ? {
-          role: 'user',
-          content: [
-            { type: 'text' as const, text: intentText },
-            ...context.attachments.map((a) => ({
-              type: 'image_url' as const,
-              image_url: { url: a.url, detail: 'auto' as const },
-            })),
-          ],
-        }
-      : { role: 'user', content: intentText };
+    // Only map image attachments to vision content
+    const imageAttachments = (context.attachments ?? []).filter((a) =>
+      a.mimeType.startsWith('image/')
+    );
+
+    // Add non-image, non-video attachment references
+    const nonImageAttachments = (context.attachments ?? []).filter(
+      (a) => !a.mimeType.startsWith('image/')
+    );
+    if (nonImageAttachments.length > 0) {
+      const docRefs = nonImageAttachments
+        .map((a) => `[Attached document: ${a.mimeType} — ${a.url}]`)
+        .join('\n');
+      intentText = `${intentText}\n\n${docRefs}`;
+    }
+
+    const userMessage: LLMMessage =
+      imageAttachments.length > 0
+        ? {
+            role: 'user',
+            content: [
+              { type: 'text' as const, text: intentText },
+              ...imageAttachments.map((a) => ({
+                type: 'image_url' as const,
+                image_url: { url: a.url, detail: 'auto' as const },
+              })),
+            ],
+          }
+        : { role: 'user', content: intentText };
+
+    // Some chat-tier models in OpenRouter do not accept image_url content.
+    // When user image attachments are present, force vision tier routing.
+    const effectiveRouting: ModelRoutingConfig =
+      imageAttachments.length > 0 && routing.tier !== 'vision_analysis'
+        ? {
+            ...routing,
+            tier: 'vision_analysis',
+            maxTokens: Math.max(routing.maxTokens ?? 0, 4096),
+            temperature: 0,
+          }
+        : routing;
 
     // Inject prior conversation turns so the agent has cross-message continuity.
     // history contains ONLY user + assistant turns from previous messages in this
@@ -279,8 +309,9 @@ export abstract class BaseAgent {
     logger.info(`[${this.id}] Starting ReAct loop`, {
       agentId: this.id,
       userId: context.userId,
-      tier: routing.tier,
+      tier: effectiveRouting.tier,
       tools: allowedToolNames,
+      hasImageAttachments: imageAttachments.length > 0,
     });
 
     const effectiveAllowedToolNames = toolSchemas.map((schema) => schema.function.name);
@@ -300,7 +331,7 @@ export abstract class BaseAgent {
       toolSchemas,
       effectiveAllowedToolNames,
       effectiveAllowedEntityGroups,
-      routing,
+      effectiveRouting,
       onStreamEvent,
       approvalGate
     );
@@ -346,10 +377,7 @@ export abstract class BaseAgent {
     const allowedToolNames = this.getAvailableTools();
     const toolSchemas: LLMToolSchema[] = _toolDefinitions
       .filter(
-        (def) =>
-          def.category === 'system' ||
-          allowedToolNames.length === 0 ||
-          allowedToolNames.includes(def.name)
+        (def) => def.category === 'system' || isToolAllowedByPatterns(def.name, allowedToolNames)
       )
       .map((def) => ({
         type: 'function' as const,
@@ -398,6 +426,7 @@ export abstract class BaseAgent {
         pendingToolCall,
         toolRegistry,
         context.userId,
+        context.signal,
         {
           agentId: this.id,
           messages,
@@ -460,6 +489,8 @@ export abstract class BaseAgent {
     // ── ReAct Loop ────────────────────────────────────────────────────────
 
     for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
+      this.throwIfAborted(context.signal);
+
       // Prune the context window before every LLM call (except the first iteration
       // which only has system + user messages — nothing to prune yet).
       // No-op when total tool-calling exchanges is below CONTEXT_PRUNE_THRESHOLD.
@@ -507,6 +538,8 @@ export abstract class BaseAgent {
             }
           })
         : await llm.complete(messages, llmOptions);
+
+      this.throwIfAborted(context.signal);
 
       // If the LLM responded with text and no tool calls → we're done
       if (result.toolCalls.length === 0) {
@@ -593,6 +626,8 @@ export abstract class BaseAgent {
 
       // 1. Emit step_active for ALL tools upfront so the UI shows them all as active.
       for (const toolCall of result.toolCalls) {
+        this.throwIfAborted(context.signal);
+
         logger.info(`[${this.id}] Executing tool: ${toolCall.function.name}`, {
           agentId: this.id,
           tool: toolCall.function.name,
@@ -628,6 +663,7 @@ export abstract class BaseAgent {
             toolCall,
             toolRegistry,
             context.userId,
+            context.signal,
             yieldCtxSnapshot,
             sessionCtxForTools,
             messages,
@@ -642,6 +678,8 @@ export abstract class BaseAgent {
       //    so the messages array is complete and structurally valid for OpenRouter.
       let pendingThrow: unknown = undefined;
       for (let ti = 0; ti < result.toolCalls.length; ti++) {
+        this.throwIfAborted(context.signal);
+
         const toolCall = result.toolCalls[ti];
         const br = toolBatchResults[ti];
 
@@ -727,6 +765,8 @@ export abstract class BaseAgent {
 
       // 5. Rethrow yield/delegation only after all tool messages are committed.
       if (pendingThrow) throw pendingThrow;
+
+      this.throwIfAborted(context.signal);
     }
 
     logger.warn(
@@ -1053,12 +1093,15 @@ export abstract class BaseAgent {
     toolCall: LLMToolCall,
     registry: ToolRegistry,
     userId: string,
+    signal?: AbortSignal,
     yieldContext?: AskUserToolContext,
     sessionContext?: ToolSessionContext,
     currentMessages?: readonly LLMMessage[],
     approvalGate?: ApprovalGateService,
     onStreamEvent?: OnStreamEvent
   ): Promise<string> {
+    this.throwIfAborted(signal);
+
     const toolName = toolCall.function.name;
 
     // Re-check permissions: ensure the LLM isn't calling a tool outside its allowlist.
@@ -1146,6 +1189,7 @@ export abstract class BaseAgent {
     // so tools can use thread-scoped storage paths, audit logging, etc.
     const toolExecContext: ToolExecutionContext = {
       userId,
+      ...(signal && { signal }),
       ...(sessionContext?.environment && { environment: sessionContext.environment }),
       ...(sessionContext?.operationId && { operationId: sessionContext.operationId }),
       ...(sessionContext?.threadId && { threadId: sessionContext.threadId }),
@@ -1178,21 +1222,10 @@ export abstract class BaseAgent {
     // AgentRouter can re-dispatch through the PlannerAgent.
     try {
       const result = await registry.execute(toolName, input, toolExecContext);
+      this.throwIfAborted(signal);
+
       const sanitizedData =
         result.data !== undefined ? sanitizeAgentPayload(result.data) : undefined;
-      // Fire-and-forget: track this tool execution in the user's analytics record.
-      // Self-tracking tools (send_email, write_recruiting_activity, etc.) are
-      // skipped inside the gate to prevent double-counting.
-      if (result.success) {
-        getAgentAnalyticsGate().trackToolExecution({
-          userId,
-          agentId: this.id,
-          toolName,
-          sessionId: sessionContext?.sessionId,
-          threadId: sessionContext?.threadId,
-          operationId: sessionContext?.operationId,
-        });
-      }
 
       if (result.success && result.markdown) {
         return result.markdown;
@@ -1208,6 +1241,7 @@ export abstract class BaseAgent {
       );
     } catch (err) {
       if (isAgentYield(err)) throw err; // Let yields propagate
+      if (this.isAbortError(err)) throw err;
       if (isAgentDelegation(err)) {
         // Enrich the delegation payload with the actual agent ID before propagating
         throw new AgentDelegationException({
@@ -1222,6 +1256,17 @@ export abstract class BaseAgent {
         ),
       });
     }
+  }
+
+  private isAbortError(err: unknown): err is Error {
+    return err instanceof Error && err.name === 'AbortError';
+  }
+
+  private throwIfAborted(signal?: AbortSignal): void {
+    if (!signal?.aborted) return;
+    const abortError = new Error('Operation aborted');
+    abortError.name = 'AbortError';
+    throw abortError;
   }
 
   private resolveToolStepIcon(toolName: string, stage?: ToolStage): AgentXToolStepIcon {

@@ -13,6 +13,10 @@
 
 import type { GoogleWorkspaceMcpSessionService } from './google-workspace-mcp-session.service.js';
 import { GoogleWorkspaceBaseTool } from './google-workspace-base.tool.js';
+import { createHash, randomUUID } from 'node:crypto';
+import type { ToolExecutionContext, ToolResult } from '../../base.tool.js';
+import { buildTrackedEmailHtmlWithRecipientHash } from '../../../../../services/communications/connected-mail.service.js';
+import { getAnalyticsLoggerService } from '../../../../../services/core/analytics-logger.service.js';
 import { z } from 'zod';
 
 const EmptyGmailInputSchema = z.object({}).strict();
@@ -43,6 +47,15 @@ const GmailReplyToEmailInputSchema = z.object({
   send: z.boolean().optional(),
   reply_all: z.boolean().optional(),
 });
+
+function hashTrackingRecipients(emails: readonly string[]): string | null {
+  const normalized = emails
+    .map((email) => email.trim().toLowerCase())
+    .filter(Boolean)
+    .sort();
+  if (normalized.length === 0) return null;
+  return createHash('sha256').update(normalized.join(',')).digest('hex');
+}
 
 // ─── query_gmail_emails ─────────────────────────────────────────────────────
 
@@ -98,6 +111,71 @@ export class GmailSendEmailTool extends GoogleWorkspaceBaseTool {
   constructor(sessionService: GoogleWorkspaceMcpSessionService) {
     super(sessionService);
   }
+
+  override async execute(
+    input: Record<string, unknown>,
+    context?: ToolExecutionContext
+  ): Promise<ToolResult> {
+    if (!context?.userId) {
+      return { success: false, error: 'Authenticated user context is required.' };
+    }
+
+    const parsed = GmailSendEmailInputSchema.safeParse(input);
+    if (!parsed.success) {
+      return {
+        success: false,
+        error: parsed.error.issues.map((issue) => issue.message).join(', '),
+      };
+    }
+
+    const recipientEmailHash = hashTrackingRecipients([
+      ...parsed.data.to,
+      ...(parsed.data.cc ?? []),
+      ...(parsed.data.bcc ?? []),
+    ]);
+
+    const trackedBody = buildTrackedEmailHtmlWithRecipientHash(parsed.data.body, {
+      userId: context.userId,
+      trackingId: randomUUID(),
+      recipientEmailHash,
+    });
+
+    const result = await super.execute(
+      {
+        ...parsed.data,
+        body: trackedBody,
+      },
+      context
+    );
+
+    if (result.success) {
+      void getAnalyticsLoggerService().safeTrack({
+        subjectId: context.userId,
+        subjectType: 'user',
+        domain: 'communication',
+        eventType: 'email_sent',
+        source: 'agent',
+        actorUserId: context.userId,
+        sessionId: context.sessionId ?? null,
+        threadId: context.threadId ?? null,
+        tags: ['gmail', 'google-workspace-mcp', 'gmail_send_email'],
+        payload: {
+          provider: 'gmail',
+          toCount: parsed.data.to.length,
+          ccCount: parsed.data.cc?.length ?? 0,
+          bccCount: parsed.data.bcc?.length ?? 0,
+          subjectLength: parsed.data.subject.length,
+        },
+        metadata: {
+          toolName: this.name,
+          mcpToolName: this.mcpToolName,
+          recipientEmailHash,
+        },
+      });
+    }
+
+    return result;
+  }
 }
 
 // ─── create_gmail_draft ─────────────────────────────────────────────────────
@@ -116,6 +194,43 @@ export class CreateGmailDraftTool extends GoogleWorkspaceBaseTool {
   constructor(sessionService: GoogleWorkspaceMcpSessionService) {
     super(sessionService);
   }
+
+  override async execute(
+    input: Record<string, unknown>,
+    context?: ToolExecutionContext
+  ): Promise<ToolResult> {
+    if (!context?.userId) {
+      return { success: false, error: 'Authenticated user context is required.' };
+    }
+
+    const parsed = CreateGmailDraftInputSchema.safeParse(input);
+    if (!parsed.success) {
+      return {
+        success: false,
+        error: parsed.error.issues.map((issue) => issue.message).join(', '),
+      };
+    }
+
+    const recipientEmailHash = hashTrackingRecipients([
+      parsed.data.to,
+      ...(parsed.data.cc ? [parsed.data.cc] : []),
+      ...(parsed.data.bcc ? [parsed.data.bcc] : []),
+    ]);
+
+    const trackedBody = buildTrackedEmailHtmlWithRecipientHash(parsed.data.body, {
+      userId: context.userId,
+      trackingId: randomUUID(),
+      recipientEmailHash,
+    });
+
+    return super.execute(
+      {
+        ...parsed.data,
+        body: trackedBody,
+      },
+      context
+    );
+  }
 }
 
 // ─── gmail_reply_to_email ───────────────────────────────────────────────────
@@ -133,6 +248,37 @@ export class GmailReplyToEmailTool extends GoogleWorkspaceBaseTool {
 
   constructor(sessionService: GoogleWorkspaceMcpSessionService) {
     super(sessionService);
+  }
+
+  override async execute(
+    input: Record<string, unknown>,
+    context?: ToolExecutionContext
+  ): Promise<ToolResult> {
+    if (!context?.userId) {
+      return { success: false, error: 'Authenticated user context is required.' };
+    }
+
+    const parsed = GmailReplyToEmailInputSchema.safeParse(input);
+    if (!parsed.success) {
+      return {
+        success: false,
+        error: parsed.error.issues.map((issue) => issue.message).join(', '),
+      };
+    }
+
+    const trackedReplyBody = buildTrackedEmailHtmlWithRecipientHash(parsed.data.reply_body, {
+      userId: context.userId,
+      trackingId: randomUUID(),
+      recipientEmailHash: null,
+    });
+
+    return super.execute(
+      {
+        ...parsed.data,
+        reply_body: trackedReplyBody,
+      },
+      context
+    );
   }
 }
 

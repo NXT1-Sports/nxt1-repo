@@ -10,6 +10,7 @@ export {
   type AgentActivityInput,
   type AgentFailureInput,
 } from './agent-activity.service.js';
+export { dispatchAgentPush, toDispatchInput } from './agent-push-adapter.service.js';
 export { AgentChatService } from './agent-chat.service.js';
 export {
   enqueueLinkedAccountScrape,

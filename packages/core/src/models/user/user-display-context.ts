@@ -260,7 +260,29 @@ function getResolvedActiveSport(
 function buildTeamContext(user: UserDisplayInput, personalName: string): UserDisplayContext {
   const activeSportIndex = getResolvedActiveSportIndex(user);
   const activeSport = getResolvedActiveSport(user);
-  const activeTeam = activeSport?.team;
+  const activeSportTeam = activeSport?.team;
+
+  // Fall back to top-level teamCode when the active sport's team affiliation is not
+  // yet populated — this happens for newly registered coaches/directors whose
+  // sports[].team hasn't synced from the backend yet but user.teamCode is already set.
+  const rawTopLevelTeamCode =
+    user.teamCode && typeof user.teamCode === 'object' ? user.teamCode : null;
+
+  const activeTeam: UserDisplayTeamAffiliation | undefined =
+    activeSportTeam ??
+    (rawTopLevelTeamCode
+      ? {
+          name: rawTopLevelTeamCode.teamName,
+          logoUrl: rawTopLevelTeamCode.logoUrl ?? null,
+          logo: (rawTopLevelTeamCode as { teamLogoImg?: string | null }).teamLogoImg ?? null,
+          teamId: rawTopLevelTeamCode.teamId,
+          teamCode: rawTopLevelTeamCode.teamCode,
+          code: rawTopLevelTeamCode.code,
+          slug: rawTopLevelTeamCode.slug,
+          unicode: rawTopLevelTeamCode.unicode,
+        }
+      : undefined);
+
   // Account for varied payloads where team name could be `name` or `teamName`
   const teamName = activeTeam?.name?.trim() || (activeTeam as any)?.teamName?.trim();
   const hasCanonicalTeamReference = !!(activeTeam?.teamCode?.trim() || activeTeam?.code?.trim());
@@ -273,7 +295,8 @@ function buildTeamContext(user: UserDisplayInput, personalName: string): UserDis
     teamCode: activeTeam?.teamCode?.trim() || activeTeam?.code?.trim(),
     unicode: activeTeam?.unicode?.trim(),
   });
-  const sport = activeSport?.sport?.trim() || user.primarySport?.trim();
+  const sport =
+    activeSport?.sport?.trim() || rawTopLevelTeamCode?.sport?.trim() || user.primarySport?.trim();
   const logoUrl = activeTeam?.logoUrl ?? activeTeam?.logo ?? null;
 
   // Name: ALWAYS the team name for team roles. If no team name set, show explicit fallback.

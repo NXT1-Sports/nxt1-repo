@@ -40,6 +40,8 @@ import type {
   AgentXStreamStepEvent,
   AgentXStreamCardEvent,
   AgentXStreamOperationEvent,
+  AgentXStreamProgressEvent,
+  AgentXStreamReplacedEvent,
   AutoOpenPanelInstruction,
   CompletedGoalRecord,
   AgentCompleteGoalResponse,
@@ -82,11 +84,39 @@ interface HistoryResponse {
  * Thread messages response from API.
  * Uses the backend AgentMessage shape (createdAt, resultData, etc.)
  * rather than the UI AgentXMessage shape. Callers must map to AgentXMessage.
+ * Includes thread metadata like latestPausedYieldState for session lifecycle.
  */
 export interface ThreadMessagesResponse {
   readonly messages: AgentMessage[];
   readonly hasMore: boolean;
   readonly nextCursor?: string;
+  readonly threadMetadata?: {
+    readonly id: string;
+    readonly latestPausedYieldState?: unknown;
+  };
+}
+
+export interface AgentMessageActionResult {
+  readonly success: boolean;
+  readonly error?: string;
+}
+
+export interface EditMessageResult extends AgentMessageActionResult {
+  readonly data?: {
+    readonly message: AgentMessage;
+    readonly operationId: string;
+    readonly rerunEnqueued: boolean;
+    readonly deletedAssistantMessageId?: string;
+  };
+}
+
+export interface DeleteMessageResult extends AgentMessageActionResult {
+  readonly data?: {
+    readonly messageId: string;
+    readonly deletedResponseMessageId?: string;
+    readonly restoreTokenId: string;
+    readonly undoExpiresAt: string;
+  };
 }
 
 // ============================================
@@ -405,18 +435,172 @@ export function createAgentXApi(http: HttpAdapter, baseUrl: string) {
         if (before) {
           url += `&before=${encodeURIComponent(before)}`;
         }
-        const response =
-          await http.get<
-            ApiResponse<{ items: AgentMessage[]; hasMore: boolean; nextCursor?: string }>
-          >(url);
+        const response = await http.get<
+          ApiResponse<{
+            items: AgentMessage[];
+            hasMore: boolean;
+            nextCursor?: string;
+            thread?: { id: string; latestPausedYieldState?: unknown };
+          }>
+        >(url);
         if (!response.success || !response.data) return null;
         return {
           messages: response.data.items,
           hasMore: response.data.hasMore,
           nextCursor: response.data.nextCursor,
+          threadMetadata: response.data.thread,
         };
       } catch {
         return null;
+      }
+    },
+
+    /**
+     * Fetch one active message by ID.
+     */
+    async getMessage(messageId: string): Promise<AgentMessage | null> {
+      try {
+        const response = await http.get<ApiResponse<AgentMessage>>(
+          `${endpoint(AGENT_X_ENDPOINTS.MESSAGES)}/${encodeURIComponent(messageId)}`
+        );
+        return response.success ? (response.data ?? null) : null;
+      } catch {
+        return null;
+      }
+    },
+
+    /**
+     * Edit a user message and enqueue a rerun operation.
+     */
+    async editMessage(
+      messageId: string,
+      payload: { message: string; threadId: string; reason?: string }
+    ): Promise<EditMessageResult> {
+      try {
+        const response = await http.put<
+          ApiResponse<{
+            message: AgentMessage;
+            operationId: string;
+            rerunEnqueued: boolean;
+            deletedAssistantMessageId?: string;
+          }>
+        >(`${endpoint(AGENT_X_ENDPOINTS.MESSAGES)}/${encodeURIComponent(messageId)}`, payload);
+
+        if (!response.success) {
+          return { success: false, error: response.error ?? 'Failed to edit message' };
+        }
+
+        return {
+          success: true,
+          data: response.data,
+        };
+      } catch {
+        return { success: false, error: 'Failed to edit message' };
+      }
+    },
+
+    /**
+     * Soft-delete a message (with optional paired assistant reply deletion).
+     */
+    async deleteMessage(
+      messageId: string,
+      payload: { threadId: string; deleteResponse?: boolean }
+    ): Promise<DeleteMessageResult> {
+      try {
+        const response = await http.post<
+          ApiResponse<{
+            messageId: string;
+            deletedResponseMessageId?: string;
+            restoreTokenId: string;
+            undoExpiresAt: string;
+          }>
+        >(
+          `${endpoint(AGENT_X_ENDPOINTS.MESSAGES)}/${encodeURIComponent(messageId)}/delete`,
+          payload
+        );
+
+        if (!response.success) {
+          return { success: false, error: response.error ?? 'Failed to delete message' };
+        }
+
+        return {
+          success: true,
+          data: response.data,
+        };
+      } catch {
+        return { success: false, error: 'Failed to delete message' };
+      }
+    },
+
+    /**
+     * Undo a soft-deleted message using a restore token.
+     */
+    async undoMessage(
+      messageId: string,
+      payload: { restoreTokenId: string }
+    ): Promise<AgentMessageActionResult> {
+      try {
+        const response = await http.post<ApiResponse<{ message: AgentMessage }>>(
+          `${endpoint(AGENT_X_ENDPOINTS.MESSAGES)}/${encodeURIComponent(messageId)}/undo`,
+          payload
+        );
+
+        return {
+          success: response.success,
+          ...(response.success ? {} : { error: response.error ?? 'Failed to restore message' }),
+        };
+      } catch {
+        return { success: false, error: 'Failed to restore message' };
+      }
+    },
+
+    /**
+     * Submit feedback on a message.
+     */
+    async submitMessageFeedback(
+      messageId: string,
+      payload: {
+        threadId: string;
+        rating: 1 | 2 | 3 | 4 | 5;
+        category?: 'helpful' | 'incorrect' | 'incomplete' | 'confusing' | 'other';
+        text?: string;
+      }
+    ): Promise<AgentMessageActionResult> {
+      try {
+        const response = await http.post<
+          ApiResponse<{ messageId: string; feedbackSaved: boolean }>
+        >(
+          `${endpoint(AGENT_X_ENDPOINTS.MESSAGES)}/${encodeURIComponent(messageId)}/feedback`,
+          payload
+        );
+
+        return {
+          success: response.success,
+          ...(response.success ? {} : { error: response.error ?? 'Failed to submit feedback' }),
+        };
+      } catch {
+        return { success: false, error: 'Failed to submit feedback' };
+      }
+    },
+
+    /**
+     * Record lightweight message interaction annotations (copy/view).
+     */
+    async annotateMessage(
+      messageId: string,
+      payload: { action: 'copied' | 'viewed'; metadata?: Record<string, unknown> }
+    ): Promise<AgentMessageActionResult> {
+      try {
+        const response = await http.post<ApiResponse<void>>(
+          `${endpoint(AGENT_X_ENDPOINTS.MESSAGES)}/${encodeURIComponent(messageId)}/annotation`,
+          payload
+        );
+        return {
+          success: response.success,
+          ...(response.success ? {} : { error: response.error ?? 'Failed to annotate message' }),
+        };
+      } catch {
+        return { success: false, error: 'Failed to annotate message' };
       }
     },
 
@@ -640,12 +824,50 @@ export function createAgentXApi(http: HttpAdapter, baseUrl: string) {
                   }
                   case 'operation': {
                     const op = payload as Record<string, unknown>;
+                    const validStatuses = new Set([
+                      'queued',
+                      'running',
+                      'paused',
+                      'awaiting_input',
+                      'awaiting_approval',
+                      'complete',
+                      'failed',
+                      'cancelled',
+                    ]);
                     if (
                       op &&
                       typeof op['threadId'] === 'string' &&
-                      typeof op['status'] === 'string'
+                      typeof op['status'] === 'string' &&
+                      validStatuses.has(op['status'])
                     ) {
                       callbacks.onOperation?.(op as unknown as AgentXStreamOperationEvent);
+                    }
+                    break;
+                  }
+                  case 'progress': {
+                    const progress = payload as Record<string, unknown>;
+                    const validTypes = new Set(['progress_stage', 'progress_subphase', 'metric']);
+                    if (
+                      progress &&
+                      typeof progress['type'] === 'string' &&
+                      validTypes.has(progress['type'])
+                    ) {
+                      callbacks.onProgress?.(progress as unknown as AgentXStreamProgressEvent);
+                    }
+                    break;
+                  }
+                  case 'stream_replaced': {
+                    const streamReplaced = payload as Record<string, unknown>;
+                    if (
+                      streamReplaced &&
+                      typeof streamReplaced['operationId'] === 'string' &&
+                      typeof streamReplaced['replacedByStreamId'] === 'string' &&
+                      streamReplaced['reason'] === 'replaced' &&
+                      typeof streamReplaced['timestamp'] === 'string'
+                    ) {
+                      callbacks.onStreamReplaced?.(
+                        streamReplaced as unknown as AgentXStreamReplacedEvent
+                      );
                     }
                     break;
                   }

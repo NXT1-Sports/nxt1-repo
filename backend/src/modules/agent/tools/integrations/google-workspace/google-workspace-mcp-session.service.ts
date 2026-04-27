@@ -9,11 +9,11 @@ import {
   isGoogleWorkspaceAllowedToolName,
 } from './shared.js';
 import { AgentEngineError } from '../../../exceptions/agent-engine.error.js';
+import { resolveGoogleWorkspaceMcpUrl } from './google-workspace-env.js';
 
 const GOOGLE_WORKSPACE_TOOL_TIMEOUT_MS = 90_000;
 const GOOGLE_WORKSPACE_SESSION_IDLE_TTL_MS = 2 * 60 * 1_000;
 const GOOGLE_WORKSPACE_MAX_SESSIONS = 100;
-const GOOGLE_WORKSPACE_MCP_DEFAULT_URL = 'http://127.0.0.1:8000/mcp';
 
 interface GoogleWorkspaceSessionEntry {
   readonly bridge: GoogleWorkspaceMcpBridgeService;
@@ -28,19 +28,13 @@ function isAuthenticationError(error: unknown): boolean {
   return /401|403|unauthorized|forbidden|invalid token|bearer/i.test(message.toLowerCase());
 }
 
-function normalizeGoogleWorkspaceMcpUrl(rawUrl: string): string {
-  const trimmed = rawUrl.trim();
-  return trimmed.endsWith('/') ? trimmed.slice(0, -1) : trimmed;
-}
-
 export class GoogleWorkspaceMcpSessionService {
   private readonly sessions = new Map<string, GoogleWorkspaceSessionEntry>();
   private readonly endpointUrl: string;
 
   constructor(
     private readonly tokenManager: GoogleWorkspaceTokenManagerService = new GoogleWorkspaceTokenManagerService(),
-    endpointUrl = process.env['GOOGLE_WORKSPACE_MCP_URL'] ??
-      (process.env['NODE_ENV'] === 'production' ? '' : GOOGLE_WORKSPACE_MCP_DEFAULT_URL)
+    endpointUrl = resolveGoogleWorkspaceMcpUrl()
   ) {
     if (!endpointUrl) {
       throw new AgentEngineError(
@@ -48,14 +42,13 @@ export class GoogleWorkspaceMcpSessionService {
         'GOOGLE_WORKSPACE_MCP_URL is required in production before Google Workspace MCP tools can be enabled.'
       );
     }
-    const normalized = normalizeGoogleWorkspaceMcpUrl(endpointUrl);
-    if (!normalized.startsWith('http://') && !normalized.startsWith('https://')) {
+    if (!endpointUrl.startsWith('http://') && !endpointUrl.startsWith('https://')) {
       throw new AgentEngineError(
         'GOOGLE_WORKSPACE_CONFIG_INVALID',
         'GOOGLE_WORKSPACE_MCP_URL must be an absolute http(s) URL.'
       );
     }
-    this.endpointUrl = normalized;
+    this.endpointUrl = endpointUrl;
   }
 
   async listAllowedTools(

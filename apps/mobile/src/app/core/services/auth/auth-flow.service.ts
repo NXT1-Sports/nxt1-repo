@@ -449,10 +449,10 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
         hasCompletedOnboarding,
       });
 
-      // Derive displayName from User model (firstName + lastName)
-      const userDisplayName = userProfile
-        ? `${userProfile.firstName} ${userProfile.lastName}`.trim()
-        : undefined;
+      // Derive display name from backend profile first, then fallback to Firebase.
+      const userDisplayName =
+        userProfile?.displayName ||
+        `${userProfile?.firstName ?? ''} ${userProfile?.lastName ?? ''}`.trim();
 
       // Extract email from multiple sources (Firebase sometimes doesn't populate firebaseUser.email)
       const userEmail =
@@ -463,17 +463,23 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
       const authUser: AuthUser = {
         uid: firebaseUser.uid,
         email: userEmail,
-        displayName: firebaseUser.displayName ?? userDisplayName ?? 'User',
+        displayName: userDisplayName || firebaseUser.displayName || 'User',
         profileImg: userProfile?.profileImgs?.[0] ?? undefined,
         role: this.profileService.role() ?? 'athlete',
+        teamCode: userProfile?.teamCode ?? null,
+        managedTeamCodes: userProfile?.coach?.managedTeamCodes ?? null,
+        sports: userProfile?.sports,
+        activeSportIndex: userProfile?.activeSportIndex,
         hasCompletedOnboarding,
         provider,
         emailVerified: firebaseUser.emailVerified,
-        createdAt: firebaseUser.metadata.creationTime ?? new Date().toISOString(),
+        createdAt:
+          userProfile?.createdAt ?? firebaseUser.metadata.creationTime ?? new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         connectedEmails: Array.isArray(userProfile?.connectedEmails)
           ? userProfile.connectedEmails
           : [],
+        connectedSources: userProfile?.connectedSources,
       };
 
       await this.authManager.setUser(authUser);
@@ -1080,6 +1086,10 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
    * Call after completing onboarding to update hasCompletedOnboarding flag.
    * Invalidates cache first to ensure fresh data from backend.
    *
+   * ⭐ Phase 2: Single-fetch determinism — one refresh operation, one profile load.
+   * Delegates to ProfileService for user data management.
+   * Re-syncs auth state using the already-refreshed profile data.
+   *
    * ⭐ Delegates to ProfileService for user data management.
    */
   async refreshUserProfile(): Promise<void> {
@@ -1089,12 +1099,54 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
       return;
     }
 
-    // Refresh profile with explicit uid (handles case where profile wasn't loaded yet)
+    // ⭐ Phase 2: One authoritative refresh + load operation (NOT two separate calls)
+    // profileService.refresh() invalidates cache and calls fetchProfile() internally,
+    // which issues ONE network request and sets state to 'loaded'.
+    this.logger.debug('Starting profile refresh', { uid: firebaseUser.uid });
     await this.profileService.refresh(firebaseUser.uid);
     this.logger.debug('Profile refreshed via ProfileService', { uid: firebaseUser.uid });
 
-    // Re-sync auth state with new profile data
-    await this.syncUserProfile(firebaseUser.uid);
+    // ⭐ Phase 2: Sync auth state using the now-loaded profile data (no second fetch)
+    // Reuse the profile that was just refreshed — do not call profileService.load() again.
+    const profile = this.profileService.user();
+    const currentAuthUser = this.user(); // Get current auth state safely
+    const role = profile?.role ?? 'athlete';
+    const displayName =
+      profile?.displayName ||
+      `${profile?.firstName ?? ''} ${profile?.lastName ?? ''}`.trim() ||
+      firebaseUser.displayName ||
+      'User';
+    const hasCompletedOnboarding =
+      profile?.onboardingCompleted === true || currentAuthUser?.hasCompletedOnboarding === true;
+
+    const updatedAuthUser: AuthUser = {
+      uid: firebaseUser.uid,
+      email: firebaseUser.email ?? profile?.email ?? '',
+      displayName,
+      profileImg: profile?.profileImgs?.[0] ?? undefined,
+      role,
+      teamCode: profile?.teamCode ?? currentAuthUser?.teamCode ?? null,
+      managedTeamCodes:
+        profile?.coach?.managedTeamCodes ?? currentAuthUser?.managedTeamCodes ?? null,
+      sports: profile?.sports ?? currentAuthUser?.sports,
+      activeSportIndex: profile?.activeSportIndex ?? currentAuthUser?.activeSportIndex,
+      hasCompletedOnboarding,
+      provider: currentAuthUser?.provider ?? 'email',
+      emailVerified: firebaseUser.emailVerified,
+      createdAt:
+        profile?.createdAt ?? firebaseUser.metadata?.creationTime ?? new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      connectedEmails: Array.isArray(profile?.connectedEmails) ? profile.connectedEmails : [],
+      connectedSources: profile?.connectedSources ?? currentAuthUser?.connectedSources,
+    };
+
+    await this.authManager.setUser(updatedAuthUser);
+    this.logger.info('Auth state synced with refreshed profile', {
+      role,
+      uid: firebaseUser.uid,
+      hasCompletedOnboarding,
+      displayName,
+    });
   }
 
   // ============================================

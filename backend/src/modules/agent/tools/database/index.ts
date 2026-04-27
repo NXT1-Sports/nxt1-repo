@@ -31,6 +31,8 @@ export { GetCollegeLogosTool } from './get-college-logos.tool.js';
 export { GetConferenceLogosTool } from './get-conference-logos.tool.js';
 export { TrackAnalyticsEventTool } from './track-analytics-event.tool.js';
 export { GetAnalyticsSummaryTool } from './get-analytics-summary.tool.js';
+export { DiscoverAnalyticsTemplatesTask } from './discover-analytics-templates.tool.js';
+export { RegisterAnalyticsTemplateTask } from './register-analytics-template.tool.js';
 export { SaveMemoryTool } from './save-memory.tool.js';
 export { DeleteMemoryTool } from './delete-memory.tool.js';
 export { WriteConnectedSourceTool } from './write-connected-source.tool.js';

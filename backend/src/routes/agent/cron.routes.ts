@@ -4,12 +4,14 @@
  * POST /cron/daily-briefings
  * POST /cron/summarize-threads
  * POST /cron/cleanup-thread-media
+ * POST /cron/reconcile-job-thread-links
  */
 
 import { Router, type Request, type Response } from 'express';
 import { cronGuard } from '../../middleware/auth/auth.middleware.js';
 import { logger } from '../../utils/logger.js';
 import { llmService } from './shared.js';
+import { AgentLinkReconciliationService } from '../../modules/agent/services/agent-link-reconciliation.service.js';
 
 const router = Router();
 
@@ -239,6 +241,52 @@ router.post('/cron/cleanup-stale-jobs', cronGuard, async (req: Request, res: Res
     const error = err instanceof Error ? err : new Error(String(err));
     logger.error('CRON cleanup-stale-jobs failed', { error: error.message, stack: error.stack });
     res.status(500).json({ success: false, error: 'Stale job cleanup failed' });
+  }
+});
+
+// ─── POST /cron/reconcile-job-thread-links ──────────────────────────────────
+// Repairs missing Firestore AgentJobs.threadId links using MongoDB messages.
+// Called every 6 hours by the reconcileAgentJobThreadLinks Cloud Function.
+
+router.post('/cron/reconcile-job-thread-links', cronGuard, async (req: Request, res: Response) => {
+  try {
+    const db = (
+      req as typeof req & { firebase?: { db: import('firebase-admin').firestore.Firestore } }
+    ).firebase?.db;
+    if (!db) {
+      res.status(503).json({ success: false, error: 'Firestore not available' });
+      return;
+    }
+
+    const parseNumber = (value: unknown): number | undefined => {
+      if (typeof value === 'number' && Number.isFinite(value)) return value;
+      if (typeof value === 'string' && value.trim().length > 0) {
+        const parsed = Number(value);
+        return Number.isFinite(parsed) ? parsed : undefined;
+      }
+      return undefined;
+    };
+
+    const body = req.body as Record<string, unknown> | undefined;
+    const options = {
+      lookbackDays: parseNumber(body?.['lookbackDays'] ?? req.query['lookbackDays']),
+      messageScanLimit: parseNumber(body?.['messageScanLimit'] ?? req.query['messageScanLimit']),
+      repairLimit: parseNumber(body?.['repairLimit'] ?? req.query['repairLimit']),
+      batchSize: parseNumber(body?.['batchSize'] ?? req.query['batchSize']),
+      repairMismatchedThreadId: body?.['repairMismatchedThreadId'] === true,
+    };
+
+    const reconciler = new AgentLinkReconciliationService();
+    const result = await reconciler.reconcileJobThreadLinks(db, options);
+
+    res.json({ success: true, data: result });
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('CRON reconcile-job-thread-links failed', {
+      error: error.message,
+      stack: error.stack,
+    });
+    res.status(500).json({ success: false, error: 'Job-thread link reconciliation failed' });
   }
 });
 

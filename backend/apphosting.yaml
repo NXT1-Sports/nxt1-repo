@@ -45,6 +45,6 @@ env:
   - variable: GOOGLE_WORKSPACE_MCP_URL
     secret: GOOGLE_WORKSPACE_MCP_URL
   - variable: GOOGLE_WORKSPACE_MCP_STATE_BUCKET
-    value: nxt-1-staging-v2-mcp-gw-state
+    secret: GOOGLE_WORKSPACE_MCP_STATE_BUCKET
     availability:
       - RUNTIME

@@ -168,4 +168,61 @@ describe('BaseAgent identifier scrubbing', () => {
       })
     );
   });
+
+  it('maps only image attachments to image_url content and appends document refs as text', async () => {
+    const agent = new FakeAgent();
+    const registry = new ToolRegistry();
+    const llm = {
+      complete: vi.fn().mockResolvedValue({
+        content: 'Processed attachments.',
+        toolCalls: [],
+        model: 'test-model',
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+        latencyMs: 1,
+        costUsd: 0,
+        finishReason: 'stop',
+      }),
+    };
+
+    const context: AgentSessionContext = {
+      ...createMockContext(),
+      attachments: [
+        { url: 'https://storage.example/image.jpg', mimeType: 'image/jpeg' },
+        { url: 'https://storage.example/report.pdf', mimeType: 'application/pdf' },
+      ],
+      videoAttachments: [
+        {
+          url: 'https://video.example/clip.mp4',
+          mimeType: 'video/mp4',
+          name: 'clip.mp4',
+        },
+      ],
+    };
+
+    await agent.execute('Analyze these files', context, [], llm as never, registry);
+
+    const completeMessages = vi.mocked(llm.complete).mock.calls[0]?.[0] as Array<{
+      role: string;
+      content: unknown;
+    }>;
+    const userMessage = completeMessages.find((message) => message.role === 'user');
+    expect(userMessage).toBeDefined();
+    expect(Array.isArray(userMessage?.content)).toBe(true);
+
+    const contentParts = userMessage?.content as Array<Record<string, unknown>>;
+    const imageParts = contentParts.filter((part) => part['type'] === 'image_url');
+    const textPart = contentParts.find((part) => part['type'] === 'text');
+    const textBody = String((textPart?.['text'] as string | undefined) ?? '');
+    const llmOptions = vi.mocked(llm.complete).mock.calls[0]?.[1] as {
+      tier?: string;
+    };
+
+    expect(imageParts).toHaveLength(1);
+    expect(JSON.stringify(imageParts[0])).toContain('https://storage.example/image.jpg');
+    expect(textBody).toContain('[Attached video: clip.mp4 — https://video.example/clip.mp4]');
+    expect(textBody).toContain(
+      '[Attached document: application/pdf — https://storage.example/report.pdf]'
+    );
+    expect(llmOptions?.tier).toBe('vision_analysis');
+  });
 });

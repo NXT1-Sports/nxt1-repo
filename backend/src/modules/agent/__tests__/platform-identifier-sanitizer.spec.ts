@@ -38,4 +38,15 @@ describe('platform identifier sanitizer', () => {
     expect(sanitized).not.toContain('FBN123');
     expect(sanitized).toContain('[redacted]');
   });
+
+  it('redacts compact ID labels used in conversational responses', () => {
+    const sanitized = sanitizeAgentOutputText(
+      'UserID 19oowBH8EfZ6AYrU4fNuRSreonO2, TeamID mC3D9qg5d9amvcO0otvi, OrgID nB8n9iNsm5M5KBxfGUC9'
+    );
+
+    expect(sanitized).not.toContain('19oowBH8EfZ6AYrU4fNuRSreonO2');
+    expect(sanitized).not.toContain('mC3D9qg5d9amvcO0otvi');
+    expect(sanitized).not.toContain('nB8n9iNsm5M5KBxfGUC9');
+    expect(sanitized).toContain('[redacted]');
+  });
 });

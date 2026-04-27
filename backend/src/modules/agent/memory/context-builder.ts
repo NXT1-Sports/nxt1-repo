@@ -276,11 +276,7 @@ export class ContextBuilder {
   ): string {
     const lines: string[] = [];
 
-    const teamPart = context.teamId ? ` | TeamID: ${context.teamId}` : '';
-    const orgPart = context.organizationId ? ` | OrgID: ${context.organizationId}` : '';
-    lines.push(
-      `User: ${context.displayName} | Role: ${context.role} | UserID: ${context.userId}${teamPart}${orgPart}`
-    );
+    lines.push(`User: ${context.displayName} | Role: ${context.role}`);
 
     if (context.sport) {
       const pos = context.position ? ` | Pos: ${context.position}` : '';
@@ -333,10 +329,10 @@ export class ContextBuilder {
     }
 
     if (context.currentPlaybookSummary) {
-      const { playbookId, total, completed, snoozed } = context.currentPlaybookSummary;
+      const { total, completed, snoozed } = context.currentPlaybookSummary;
       const active = total - completed - snoozed;
       lines.push(
-        `This Week's Playbook: ${completed}/${total} done, ${active} active, ${snoozed} snoozed [ID: ${playbookId}]`
+        `This Week's Playbook: ${completed}/${total} done, ${active} active, ${snoozed} snoozed`
       );
     }
 

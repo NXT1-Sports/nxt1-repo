@@ -26,6 +26,7 @@ import { initializeCacheService } from './services/core/cache.service.js';
 
 // Middleware
 import { firebaseContext } from './middleware/firebase/firebase-context.middleware.js';
+import { mongoScopeMiddleware } from './middleware/mongo/mongo-scope.middleware.js';
 import {
   performanceMiddleware,
   testPerformance,
@@ -177,6 +178,9 @@ async function setupApplication() {
 
   // Attach Firebase context to all requests
   app.use(firebaseContext);
+
+  // Attach request-scoped Mongo environment context (staging vs production)
+  app.use(mongoScopeMiddleware);
 
   // Performance monitoring for all requests
   app.use(performanceMiddleware);

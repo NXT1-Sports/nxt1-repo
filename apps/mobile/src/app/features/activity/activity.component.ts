@@ -139,8 +139,8 @@ export class ActivityComponent {
       deepLink: item.deepLink,
     });
 
-    // Normalize deep link: web uses /agent-x, mobile uses /agent
-    const normalizedLink = item.deepLink.replace(/^\/agent-x(?=[/?]|$)/, '/agent');
+    // Normalize deep link: canonical route is /agent-x.
+    const normalizedLink = item.deepLink.replace(/^\/agent(?=[/?]|$)/, '/agent-x');
 
     const threadId = this.resolveAgentThreadId(item, normalizedLink);
     if (item.type === 'agent_task' && threadId) {
@@ -193,7 +193,7 @@ export class ActivityComponent {
       return metadata.threadId.trim();
     }
 
-    if (!normalizedLink.startsWith('/agent')) {
+    if (!normalizedLink.startsWith('/agent-x')) {
       return null;
     }
 

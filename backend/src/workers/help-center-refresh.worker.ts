@@ -9,7 +9,7 @@
  *      a. agentGlobalKnowledge (vector read) — what the platform already knows
  *      b. agentMemories (MongoDB) — what users ask Agent X that isn't answered
  *      c. analyticsRollups (7d) — behavioral activity spikes by domain
- *      d. analyticsEvents (agent_task_failed 7d) — what breaks → troubleshooting
+ *      d. AgentJobs operational failures — what breaks → troubleshooting
  *      e. Web search (Tavily) — current NCAA/NIL/sports intel for grounding
  *
  *   2. Two-pass LLM pipeline:
@@ -25,18 +25,18 @@
  */
 
 import { HELP_CATEGORIES, HELP_CACHE_KEYS } from '@nxt1/core';
-import type { HelpCategoryId } from '@nxt1/core';
-import { HelpArticleModel } from '../models/help-center/help-article.model.js';
-import { HelpFaqModel } from '../models/help-center/help-faq.model.js';
+import type { HelpCategory, HelpCategoryId } from '@nxt1/core';
+import { getHelpArticleModel } from '../models/help-center/help-article.model.js';
+import { getHelpFaqModel } from '../models/help-center/help-faq.model.js';
 import { AgentMemoryModel } from '../modules/agent/memory/vector.service.js';
 import { AnalyticsRollupModel } from '../models/analytics/analytics-rollup.model.js';
-import { AnalyticsEventModel } from '../models/analytics/analytics-event.model.js';
 import type { OpenRouterService } from '../modules/agent/llm/openrouter.service.js';
 import { KnowledgeIngestionService } from '../modules/agent/memory/knowledge-ingestion.service.js';
 import { KnowledgeRetrievalService } from '../modules/agent/memory/knowledge-retrieval.service.js';
 import { WebSearchTool } from '../modules/agent/tools/integrations/web/web-search.tool.js';
 import { getCacheService } from '../services/core/cache.service.js';
 import { logger } from '../utils/logger.js';
+import { z } from 'zod';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -140,6 +140,58 @@ interface TopicBrief {
   }>;
 }
 
+const HELP_CATEGORY_ID_SCHEMA = z
+  .string()
+  .refine(
+    (value): value is HelpCategoryId => VALID_CATEGORY_IDS.includes(value as HelpCategoryId),
+    {
+      message: 'Invalid help center category id',
+    }
+  );
+
+const TOPIC_BRIEF_SCHEMA: z.ZodType<TopicBrief> = z.object({
+  articleTopics: z.array(
+    z.object({
+      categoryId: HELP_CATEGORY_ID_SCHEMA,
+      title: z.string(),
+      rationale: z.string(),
+      urgency: z.enum(['gap', 'refresh', 'critical']),
+    })
+  ),
+  faqTopics: z.array(
+    z.object({
+      categoryId: HELP_CATEGORY_ID_SCHEMA,
+      question: z.string(),
+      rationale: z.string(),
+    })
+  ),
+});
+
+const WRITE_CONTENT_SCHEMA: z.ZodType<{ articles: ArticleProposal[]; faqs: FaqProposal[] }> =
+  z.object({
+    articles: z.array(
+      z.object({
+        categoryId: HELP_CATEGORY_ID_SCHEMA,
+        title: z.string(),
+        slug: z.string(),
+        content: z.string(),
+        excerpt: z.string(),
+        tags: z.array(z.string()),
+        confidence: z.number(),
+        readingTimeMinutes: z.number().optional(),
+      })
+    ),
+    faqs: z.array(
+      z.object({
+        categoryId: HELP_CATEGORY_ID_SCHEMA,
+        question: z.string(),
+        answer: z.string(),
+        tags: z.array(z.string()),
+        confidence: z.number(),
+      })
+    ),
+  });
+
 export interface HelpCenterRefreshResult {
   articlesCreated: number;
   articlesUpdated: number;
@@ -164,6 +216,8 @@ export class HelpCenterRefreshWorker {
   }
 
   async run(): Promise<HelpCenterRefreshResult> {
+    const HelpArticleModel = getHelpArticleModel();
+    const HelpFaqModel = getHelpFaqModel();
     const startTime = Date.now();
     logger.info('[HelpCenterRefresh] Starting weekly refresh run');
 
@@ -463,32 +517,7 @@ export class HelpCenterRefreshWorker {
   }
 
   private async pullAgentFailures(): Promise<string> {
-    try {
-      const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-      const failures = await AnalyticsEventModel.find({
-        domain: 'system',
-        eventType: 'agent_task_failed',
-        occurredAt: { $gte: sevenDaysAgo },
-      })
-        .sort({ occurredAt: -1 })
-        .limit(50)
-        .lean();
-
-      if (failures.length === 0) return '(No agent task failures in last 7 days.)';
-
-      const summary = failures
-        .map((f) => {
-          const doc = f as unknown as Record<string, unknown>;
-          const meta = (doc['metadata'] ?? {}) as Record<string, unknown>;
-          return `Task: ${meta['taskType'] ?? 'unknown'} | Error: ${String(meta['error'] ?? 'unknown').slice(0, 100)}`;
-        })
-        .join('\n');
-
-      return `## Agent Task Failures (last 7 days — ${failures.length} failures)\n\n${summary}`;
-    } catch (err) {
-      logger.warn('[HelpCenterRefresh] Agent failure pull failed', { error: String(err) });
-      return '(Agent failures unavailable.)';
-    }
+    return '(Agent operational failures now come from AgentJobs telemetry, not analyticsEvents.)';
   }
 
   private async pullExistingArticles(): Promise<
@@ -501,6 +530,7 @@ export class HelpCenterRefreshWorker {
     }>
   > {
     try {
+      const HelpArticleModel = getHelpArticleModel();
       return (await HelpArticleModel.find(
         {},
         {
@@ -588,7 +618,7 @@ export class HelpCenterRefreshWorker {
 
     const categoryGaps = VALID_CATEGORY_IDS.map((id) => {
       const count = categoryCoverage.get(id) ?? 0;
-      const label = HELP_CATEGORIES.find((c) => c.id === id)?.label ?? id;
+      const label = HELP_CATEGORIES.find((c: HelpCategory) => c.id === id)?.label ?? id;
       const status =
         count < MIN_ARTICLES_PER_CATEGORY
           ? `⚠️ NEEDS CONTENT (${count} articles)`
@@ -603,7 +633,7 @@ ${PLATFORM_FACTS}
 
 ## Available Content Categories
 ${VALID_CATEGORY_IDS.map((id) => {
-  const cat = HELP_CATEGORIES.find((c) => c.id === id);
+  const cat = HELP_CATEGORIES.find((c: HelpCategory) => c.id === id);
   return `- ${id}: ${cat?.label} — ${cat?.description}`;
 }).join('\n')}
 
@@ -662,7 +692,16 @@ Respond with ONLY valid JSON matching this structure:
       tier: 'evaluator',
       temperature: 0.3,
       maxTokens: 2000,
+      jsonMode: true,
+      outputSchema: {
+        name: 'help_center_topic_brief',
+        schema: TOPIC_BRIEF_SCHEMA,
+      },
     });
+
+    if (raw.parsedOutput) {
+      return raw.parsedOutput;
+    }
 
     return this.parseJson<TopicBrief>(raw.content ?? '', { articleTopics: [], faqTopics: [] });
   }
@@ -762,15 +801,19 @@ Respond with ONLY valid JSON matching this structure exactly:
       tier: 'chat',
       temperature: 0.5,
       maxTokens: 8000,
+      jsonMode: true,
+      outputSchema: {
+        name: 'help_center_content_payload',
+        schema: WRITE_CONTENT_SCHEMA,
+      },
     });
 
-    const parsed = this.parseJson<{ articles: ArticleProposal[]; faqs: FaqProposal[] }>(
-      raw.content ?? '',
-      {
+    const parsed =
+      raw.parsedOutput ??
+      this.parseJson<{ articles: ArticleProposal[]; faqs: FaqProposal[] }>(raw.content ?? '', {
         articles: [],
         faqs: [],
-      }
-    );
+      });
 
     // Validate category IDs
     parsed.articles = parsed.articles.filter((a) => VALID_CATEGORY_IDS.includes(a.categoryId));
@@ -810,15 +853,55 @@ Respond with ONLY valid JSON matching this structure exactly:
   }
 
   private parseJson<T>(raw: string, fallback: T): T {
+    const candidates: string[] = [];
+    const trimmed = raw.trim();
+    if (trimmed) {
+      candidates.push(trimmed);
+    }
+
+    const fencedMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
+    if (fencedMatch?.[1]) {
+      candidates.push(fencedMatch[1].trim());
+    }
+
+    const objectMatch = raw.match(/(\{[\s\S]*\})/);
+    if (objectMatch?.[1]) {
+      candidates.push(objectMatch[1].trim());
+    }
+
+    const arrayMatch = raw.match(/(\[[\s\S]*\])/);
+    if (arrayMatch?.[1]) {
+      candidates.push(arrayMatch[1].trim());
+    }
+
+    let lastError: unknown;
     try {
-      // Extract JSON block from markdown code fences if present
-      const jsonMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/) ?? raw.match(/(\{[\s\S]*\})/);
-      const jsonStr = jsonMatch ? jsonMatch[1] : raw;
-      return JSON.parse(jsonStr.trim()) as T;
+      for (const candidate of candidates) {
+        try {
+          return JSON.parse(candidate) as T;
+        } catch (err) {
+          lastError = err;
+          const repaired = candidate
+            .replace(/^\uFEFF/, '')
+            .replace(/[\u201C\u201D]/g, '"')
+            .replace(/[\u2018\u2019]/g, "'")
+            .replace(/,\s*([}\]])/g, '$1');
+
+          if (repaired !== candidate) {
+            try {
+              return JSON.parse(repaired) as T;
+            } catch (repairErr) {
+              lastError = repairErr;
+            }
+          }
+        }
+      }
+
+      throw lastError instanceof Error ? lastError : new Error('No JSON candidates found');
     } catch (err) {
       logger.error('[HelpCenterRefresh] Failed to parse LLM JSON response', {
         error: String(err),
-        rawPreview: raw.slice(0, 200),
+        rawPreview: raw.slice(0, 350),
       });
       return fallback;
     }

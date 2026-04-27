@@ -17,7 +17,6 @@
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
 import { getCacheService } from '../../../../services/core/cache.service.js';
-import { getAnalyticsLoggerService } from '../../../../services/core/analytics-logger.service.js';
 import { logger } from '../../../../utils/logger.js';
 import { resolveCreatedAt, seasonToDate } from './doc-date-utils.js';
 import { z } from 'zod';
@@ -230,26 +229,6 @@ export class WriteTeamStatsTool extends BaseTool {
       } catch {
         // Best-effort
       }
-
-      await getAnalyticsLoggerService().safeTrack({
-        subjectId: teamId,
-        subjectType: 'team',
-        domain: 'system',
-        eventType: 'tool_write_completed',
-        source: 'agent',
-        actorUserId: context.userId,
-        value: validStats.length,
-        tags: ['team_stats', normalizedSportId, source, season],
-        payload: {
-          toolName: this.name,
-          teamId,
-          sportId: normalizedSportId,
-          season,
-          statsWritten: validStats.length,
-          statsSkipped: skipped,
-        },
-        metadata: { initiatedBy: 'write-team-stats' },
-      });
 
       return {
         success: true,

@@ -25,6 +25,7 @@ import { NxtSheetHeaderComponent } from '../components/bottom-sheet/sheet-header
 import { NxtIconComponent } from '../components/icon/icon.component';
 import { NxtPlatformIconComponent } from '../components/platform-icon/platform-icon.component';
 import { HapticsService } from '../services/haptics/haptics.service';
+import { TEST_IDS } from '@nxt1/core/testing';
 
 /**
  * Connected app source with platform identifier and profile URL for favicon.
@@ -64,7 +65,12 @@ export interface AttachmentSheetResult {
         <!-- File Upload Section -->
         <section class="attachment-section">
           <h3 class="section-label">Upload</h3>
-          <button type="button" class="attachment-option" (click)="onSelectFile()">
+          <button
+            type="button"
+            class="attachment-option"
+            (click)="onSelectFile()"
+            [attr.data-testid]="testIds.FILE_UPLOAD_BTN"
+          >
             <div class="option-icon-wrapper">
               <nxt1-icon name="plusCircle" [size]="28" />
             </div>
@@ -97,6 +103,7 @@ export interface AttachmentSheetResult {
                   [attr.title]="source.platform"
                   (click)="onSelectSource(source)"
                   role="listitem"
+                  [attr.data-testid]="testIds.CONNECTED_SOURCE_BTN"
                 >
                   <nxt1-platform-icon
                     class="source-favicon"
@@ -108,7 +115,12 @@ export interface AttachmentSheetResult {
                   <span class="source-label">{{ source.platform }}</span>
                 </button>
               }
-              <button type="button" class="connect-more-btn" (click)="onManageConnectedApps()">
+              <button
+                type="button"
+                class="connect-more-btn"
+                (click)="onManageConnectedApps()"
+                [attr.data-testid]="testIds.CONNECT_MORE_BTN"
+              >
                 <nxt1-icon name="plusCircle" [size]="14" />
                 Connect more
               </button>
@@ -362,6 +374,8 @@ export interface AttachmentSheetResult {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AgentXAttachmentsSheetComponent {
+  protected readonly testIds = TEST_IDS.AGENT_X_ATTACHMENTS_SHEET;
+
   private readonly modalCtrl = inject(ModalController);
   private readonly haptics = inject(HapticsService);
 

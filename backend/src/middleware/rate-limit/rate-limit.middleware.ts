@@ -122,6 +122,9 @@ export const aiRateLimit = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
+  // Consistent with getRateLimiter() — relax limits outside production so test
+  // suites and local development are not blocked by the strict 20-req/min cap.
+  skip: () => process.env['NODE_ENV'] !== 'production',
 });
 
 /**

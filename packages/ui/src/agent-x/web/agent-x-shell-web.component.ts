@@ -94,6 +94,8 @@ import { buildLinkSourcesFormData, buildTrackedLinkUrl, type OnboardingUserType 
 import type { LinkSourcesFormData } from '@nxt1/core/api';
 import { TEST_IDS } from '@nxt1/core/testing';
 import { NxtBrowserService } from '../../services/browser';
+import { getPlatformFaviconUrl } from '@nxt1/core/platforms';
+import type { ConnectedAppSource } from '../agent-x-attachments-sheet.component';
 
 /**
  * Content descriptor for the expanded side panel.
@@ -151,7 +153,14 @@ interface AgentXDesktopSession {
   readonly scheduledActions?: readonly OperationQuickAction[];
   readonly initialMessage?: string;
   readonly threadId?: string;
-  readonly operationStatus?: 'processing' | 'complete' | 'error' | 'awaiting_input' | null;
+  readonly operationStatus?:
+    | 'processing'
+    | 'complete'
+    | 'error'
+    | 'paused'
+    | 'awaiting_input'
+    | 'awaiting_approval'
+    | null;
   readonly errorMessage?: string | null;
   readonly yieldState?: AgentYieldState;
   /** When set, the mounted op-chat immediately connects to this resumed stream. */
@@ -165,51 +174,6 @@ interface AgentXDesktopResizeState {
   readonly startX: number;
   readonly startWidth: number;
 }
-
-const FALLBACK_COORDINATOR_CATEGORIES: readonly CommandCategory[] = [
-  {
-    id: 'coord-admin',
-    label: 'Admin Coordinator',
-    icon: 'settings',
-    description: 'Manage scheduling, operations, and organizational tasks.',
-    commands: [],
-  },
-  {
-    id: 'coord-brand',
-    label: 'Brand Coordinator',
-    icon: 'image',
-    description: 'Build graphics, content ideas, and brand assets.',
-    commands: [],
-  },
-  {
-    id: 'coord-strategy',
-    label: 'Strategy Coordinator',
-    icon: 'rocket',
-    description: 'Plan next steps and high-level execution strategy.',
-    commands: [],
-  },
-  {
-    id: 'coord-recruiting',
-    label: 'Recruiting Coordinator',
-    icon: 'search',
-    description: 'Plan outreach, targeting, and recruiting tasks.',
-    commands: [],
-  },
-  {
-    id: 'coord-performance',
-    label: 'Performance Coordinator',
-    icon: 'analytics',
-    description: 'Review performance, film notes, and evaluations.',
-    commands: [],
-  },
-  {
-    id: 'coord-data',
-    label: 'Data Coordinator',
-    icon: 'barChart',
-    description: 'Track metrics, trends, and decision-ready data.',
-    commands: [],
-  },
-] as const;
 
 const COORDINATOR_ORDER: readonly string[] = [
   'admin coordinator',
@@ -554,10 +518,12 @@ function sortCoordinatorCategories(
                 [yieldState]="session.yieldState ?? null"
                 [operationStatus]="session.operationStatus ?? null"
                 [errorMessage]="session.errorMessage ?? null"
+                [user]="user()"
                 (userMessageSent)="onUserMessageSent()"
                 (responseComplete)="onResponseComplete()"
                 (draftSubmitted)="onDraftSubmitted($event)"
                 (coordinatorQuickActionSelected)="onEmbeddedCoordinatorQuickAction($event)"
+                (connectedAccountsSave)="connectedAccountsSave.emit($event)"
               />
             }
           </div>
@@ -1300,19 +1266,25 @@ function sortCoordinatorCategories(
 
       <!-- ═══ FLOATING COORDINATOR CHIPS ═══ -->
       <section class="m-floating-coordinators" aria-label="Coordinators">
-        <div class="m-coordinators-scroll" role="list">
-          @for (cat of commandCategories(); track cat.id) {
-            <button
-              type="button"
-              role="listitem"
-              class="m-coordinator-pill"
-              [attr.data-coordinator]="cat.id"
-              (click)="onMobileCategoryTap(cat)"
-            >
-              {{ cat.label }}
-            </button>
-          }
-        </div>
+        @if (commandCategories().length > 0) {
+          <div class="m-coordinators-scroll" role="list">
+            @for (cat of commandCategories(); track cat.id) {
+              <button
+                type="button"
+                role="listitem"
+                class="m-coordinator-pill"
+                [attr.data-coordinator]="cat.id"
+                (click)="onMobileCategoryTap(cat)"
+              >
+                {{ cat.label }}
+              </button>
+            }
+          </div>
+        } @else {
+          <div class="m-coordinators-empty" role="status" aria-live="polite">
+            No coordinators are configured for this role.
+          </div>
+        }
       </section>
 
       <!-- ═══ INPUT BAR ═══ -->
@@ -1619,6 +1591,9 @@ function sortCoordinatorCategories(
         flex: 1;
         min-height: 0;
         overflow: hidden;
+        width: min(100%, var(--agent-chat-max-width, 1040px));
+        margin-left: auto;
+        margin-right: auto;
       }
 
       .chat-briefing {
@@ -3329,6 +3304,25 @@ function sortCoordinatorCategories(
         transform: scale(0.98);
       }
 
+      .m-coordinators-empty {
+        pointer-events: auto;
+        border: 1px solid var(--agent-border);
+        border-radius: var(--nxt1-radius-full, 9999px);
+        background: color-mix(in srgb, var(--agent-surface) 90%, transparent);
+        color: var(--agent-text-secondary);
+        font-size: 12px;
+        font-weight: 500;
+        line-height: 1;
+        padding: 12px 14px;
+        white-space: nowrap;
+        overflow-x: auto;
+        scrollbar-width: none;
+      }
+
+      .m-coordinators-empty::-webkit-scrollbar {
+        display: none;
+      }
+
       .m-coordinator-pill[data-coordinator='coord-admin'] {
         --coordinator-pill-accent: #3fa3ff;
       }
@@ -3913,11 +3907,9 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     return items.length > 0 && items.every((t) => t.status === 'snoozed');
   });
 
-  /** Coordinator cards with a fallback list so mobile web pills always render. */
+  /** Coordinator cards are rendered strictly from backend dashboard config. */
   protected readonly commandCategories = computed(() => {
-    const categories = this.agentX.coordinators();
-    const source = categories.length > 0 ? categories : FALLBACK_COORDINATOR_CATEGORIES;
-    return sortCoordinatorCategories(source);
+    return sortCoordinatorCategories(this.agentX.coordinators());
   });
 
   constructor() {
@@ -3934,6 +3926,12 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       this.showActionPlanModal();
       this.expandedSidePanel();
       untracked(() => this.clampDesktopPanelWidths());
+    });
+
+    // Keep AgentXService in sync with the shell's filtered connected sources so
+    // operation-chat can always read them regardless of how it was opened.
+    effect(() => {
+      this.agentX.setAttachmentConnectedSources(this.getAttachmentConnectedSources());
     });
 
     // React to pending thread requests (push notifications, deep links, activity taps)
@@ -4242,9 +4240,13 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
           ? 'complete'
           : entry.status === 'error'
             ? 'error'
-            : entry.status === 'awaiting_input'
-              ? 'awaiting_input'
-              : null;
+            : entry.status === 'paused'
+              ? 'paused'
+              : entry.status === 'awaiting_input'
+                ? 'awaiting_input'
+                : entry.status === 'awaiting_approval'
+                  ? 'awaiting_approval'
+                  : null;
 
     const isFirestoreOperationId = (id: string | undefined): boolean => {
       if (!id) return false;
@@ -4637,7 +4639,9 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
         contextType: 'command',
         initialMessage: message,
         initialFiles,
+        connectedSources: this.getAttachmentConnectedSources(),
         quickActions: this.commandQuickActions(),
+        user: this.user(),
       },
       size: 'full',
       backdropDismiss: true,
@@ -4715,5 +4719,51 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       ...session,
       mountKey: this.desktopSessionCounter,
     });
+  }
+
+  /**
+   * Get user's connected sources filtered by role and selected sports.
+   * Parallel to agent-x-shell.component.ts for web/mobile parity.
+   * These sources are available for selection in the attachments sheet.
+   */
+  private getAttachmentConnectedSources(): readonly ConnectedAppSource[] {
+    const user = this.user();
+    const role = (user?.role ?? '').toLowerCase();
+    const sources = user?.connectedSources ?? [];
+    const selectedSportKeys = new Set(
+      (user?.selectedSports ?? [])
+        .map((sport) => this.normalizeScopeKey(sport))
+        .filter((key): key is string => key.length > 0)
+    );
+
+    const withFavicons = sources.map((source) => {
+      const favicon =
+        (source as { faviconUrl?: string }).faviconUrl ??
+        getPlatformFaviconUrl(source.platform.toLowerCase()) ??
+        undefined;
+      return { ...source, faviconUrl: favicon } as ConnectedAppSource;
+    });
+
+    if (role === 'coach' || role === 'director') {
+      return withFavicons.filter((source) => {
+        if (source.scopeType === 'team' || source.scopeType === 'global' || !source.scopeType) {
+          return true;
+        }
+
+        if (source.scopeType === 'sport') {
+          const sourceSportKey = this.normalizeScopeKey(source.scopeId);
+          return sourceSportKey.length > 0 && selectedSportKeys.has(sourceSportKey);
+        }
+
+        return false;
+      });
+    }
+
+    return withFavicons.filter((source) => source.scopeType !== 'team');
+  }
+
+  /** Normalize source/sport keys so scopeId like "baseball" matches selected sport "Baseball". */
+  private normalizeScopeKey(value: string | undefined): string {
+    return (value ?? '').trim().toLowerCase();
   }
 }

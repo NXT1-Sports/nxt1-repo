@@ -31,9 +31,9 @@ import type {
   HelpSearchFilter,
   HelpPagination,
 } from '@nxt1/core';
-import { HelpArticleModel } from '../../models/help-center/help-article.model.js';
-import { HelpFaqModel } from '../../models/help-center/help-faq.model.js';
-import { ArticleFeedbackModel } from '../../models/help-center/article-feedback.model.js';
+import { getHelpArticleModel } from '../../models/help-center/help-article.model.js';
+import { getHelpFaqModel } from '../../models/help-center/help-faq.model.js';
+import { getArticleFeedbackModel } from '../../models/help-center/article-feedback.model.js';
 
 // ============================================
 // CACHE CONFIG
@@ -85,6 +85,8 @@ function userTypeFilter(_userType?: string): Record<string, unknown> {
  * Returns popular articles, categories with counts, top FAQs, quick actions.
  */
 export async function getHome(): Promise<HelpCenterHome> {
+  const HelpArticleModel = getHelpArticleModel();
+  const HelpFaqModel = getHelpFaqModel();
   const cacheKey = HELP_CACHE_KEYS.HOME;
 
   // Try cache
@@ -143,6 +145,8 @@ export async function getCategoryDetail(
   page: number = HELP_PAGINATION_DEFAULTS.INITIAL_PAGE,
   limit: number = HELP_PAGINATION_DEFAULTS.LIMIT
 ): Promise<HelpCategoryDetail | null> {
+  const HelpArticleModel = getHelpArticleModel();
+  const HelpFaqModel = getHelpFaqModel();
   const category = HELP_CATEGORIES.find((c) => c.id === categoryId);
   if (!category) return null;
 
@@ -192,6 +196,7 @@ export async function getCategoryDetail(
  * Get a single article by slug. Increments view count.
  */
 export async function getArticle(slug: string): Promise<HelpArticle | null> {
+  const HelpArticleModel = getHelpArticleModel();
   if (!slug) return null;
 
   const cacheKey = `${HELP_CACHE_KEYS.ARTICLE}${slug}`;
@@ -225,6 +230,8 @@ export async function getArticle(slug: string): Promise<HelpArticle | null> {
  * Search help center content (articles + FAQs).
  */
 export async function search(filter: HelpSearchFilter): Promise<HelpSearchResponse> {
+  const HelpArticleModel = getHelpArticleModel();
+  const HelpFaqModel = getHelpFaqModel();
   const { query, categories, types, page, limit } = {
     page: HELP_PAGINATION_DEFAULTS.INITIAL_PAGE,
     limit: HELP_PAGINATION_DEFAULTS.LIMIT,
@@ -334,6 +341,8 @@ export async function submitFeedback(
   isHelpful: boolean,
   feedback?: string
 ): Promise<{ updated: boolean }> {
+  const ArticleFeedbackModel = getArticleFeedbackModel();
+  const HelpArticleModel = getHelpArticleModel();
   logger.info('[HelpCenter] Submitting feedback', { articleId, userId, isHelpful });
 
   // Upsert user feedback
@@ -383,6 +392,7 @@ export async function submitFeedback(
  * Get FAQs, optionally filtered by category and user type.
  */
 export async function getFaqs(categoryId?: HelpCategoryId, userType?: string): Promise<FaqItem[]> {
+  const HelpFaqModel = getHelpFaqModel();
   const cacheKey = generateCacheKey(HELP_CACHE_KEYS.FAQS, { categoryId, userType });
 
   const cache = getCache();

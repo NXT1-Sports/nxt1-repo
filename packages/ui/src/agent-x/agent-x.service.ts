@@ -35,6 +35,7 @@ import { Injectable, inject, signal, computed, DestroyRef, PLATFORM_ID } from '@
 import { isPlatformBrowser } from '@angular/common';
 import {
   type AgentMessage,
+  type AgentXAttachment,
   type AgentXMessage,
   type AgentXQuickTask,
   type AgentXMode,
@@ -623,7 +624,9 @@ export class AgentXService {
     this._isLoading.set(true);
 
     try {
-      const persistedMessages = await this.getPersistedThreadMessages(threadId);
+      const { messages: persistedMessages, latestPausedYieldState } =
+        await this.getPersistedThreadMessages(threadId);
+
       if (persistedMessages.length === 0) {
         this.logger.warn('Thread not found or empty', { threadId });
         return;
@@ -633,10 +636,12 @@ export class AgentXService {
 
       this._messages.set(messages);
       this._currentThreadId.set(threadId);
+
       this.logger.info('Thread loaded', { threadId, messageCount: messages.length });
       this.breadcrumb.trackStateChange('agent-x:thread-loaded', {
         threadId,
         messageCount: messages.length,
+        hasPendingYield: !!latestPausedYieldState,
       });
     } catch (err) {
       this.logger.error('Failed to load thread', err, { threadId });
@@ -650,18 +655,27 @@ export class AgentXService {
    * Load the full persisted history for a thread by draining every cursor page.
    * This powers history display and is intentionally separate from the smaller
    * context window sent back to the LLM on new messages.
+   * Also returns thread metadata including latestPausedYieldState.
    */
-  async getPersistedThreadMessages(threadId: string): Promise<AgentMessage[]> {
+  async getPersistedThreadMessages(
+    threadId: string
+  ): Promise<{ messages: AgentMessage[]; latestPausedYieldState?: unknown }> {
     const pageLimit = 200;
     const allMessages: AgentMessage[] = [];
     const seenMessageIds = new Set<string>();
     let before: string | undefined;
     let pageCount = 0;
+    let latestPausedYieldState: unknown;
 
     while (pageCount < 100) {
       const result = await this.api.getThreadMessages(threadId, pageLimit, before);
       if (!result || result.messages.length === 0) {
         break;
+      }
+
+      // Capture thread metadata from the first page
+      if (pageCount === 0 && result.threadMetadata) {
+        latestPausedYieldState = result.threadMetadata.latestPausedYieldState;
       }
 
       const pageMessages = result.messages.filter((message) => {
@@ -691,9 +705,10 @@ export class AgentXService {
       threadId,
       messageCount: allMessages.length,
       pageCount,
+      hasLatestPausedYieldState: !!latestPausedYieldState,
     });
 
-    return allMessages;
+    return { messages: allMessages, latestPausedYieldState };
   }
 
   // ============================================
@@ -922,13 +937,23 @@ export class AgentXService {
 
   private mapPersistedMessageToUi(message: AgentMessage): AgentXMessage {
     const imageUrl = message.resultData?.['imageUrl'] as string | undefined;
+    const attachments = (message.attachments ?? []) as readonly AgentXAttachment[];
+
+    // Strip the AI-context annotation lines appended by the backend before display.
+    // These "[Attached file: ...]" / "[Attached video: ...]" suffixes are injected into
+    // the message content so the LLM knows what was attached — they are not meant for
+    // the chat UI and would show up as raw text when the thread is reloaded from MongoDB.
+    const displayContent = message.content
+      .replace(/\n\n\[Attached (?:file|video): .+/gs, '')
+      .trim();
 
     return {
       id: message.id || this.generateId(),
       role: message.role === 'user' ? ('user' as const) : ('assistant' as const),
-      content: message.content,
+      content: displayContent,
       timestamp: message.createdAt ? new Date(message.createdAt) : new Date(),
       ...(imageUrl ? { imageUrl } : {}),
+      ...(attachments.length > 0 ? { attachments } : {}),
     };
   }
 
@@ -1367,7 +1392,7 @@ export class AgentXService {
     title: string;
     actionLabel: string;
   } {
-    const intent = `${item.actionLabel}: ${item.title}. ${item.details}`;
+    const intent = this.buildPlaybookActionIntent(item);
     this.logger.info('Preparing playbook action for chat', {
       itemId: item.id,
       actionLabel: item.actionLabel,
@@ -1384,6 +1409,64 @@ export class AgentXService {
     });
 
     return { intent, itemId: item.id, title: item.title, actionLabel: item.actionLabel };
+  }
+
+  private buildPlaybookActionIntent(item: ShellWeeklyPlaybookItem): string {
+    const summary = item.summary.trim();
+    const details = this.normalizePlaybookDetailsToRequest(item.details);
+    const objective = this.normalizeObjectiveToFirstPerson(summary);
+    const executionRequest = this.normalizeExecutionRequestToFirstPerson(details);
+
+    return [
+      `I want to ${item.actionLabel.toLowerCase()}: ${item.title}.`,
+      'Please execute this action now.',
+      objective ? `Objective: ${objective}` : '',
+      executionRequest ? `Execution request: ${executionRequest}` : '',
+    ]
+      .filter(Boolean)
+      .join(' ');
+  }
+
+  private normalizeObjectiveToFirstPerson(summary: string): string {
+    const normalized = this.convertSecondPersonToFirstPerson(summary);
+    if (!normalized) return '';
+    if (/^i\b/i.test(normalized)) return normalized;
+    return `I want to ${this.lowercaseFirst(normalized)}`;
+  }
+
+  private normalizeExecutionRequestToFirstPerson(details: string): string {
+    const normalized = this.convertSecondPersonToFirstPerson(details);
+    if (!normalized) return '';
+    if (/^i\b/i.test(normalized)) return normalized;
+    return `I need you to ${this.lowercaseFirst(normalized)}`;
+  }
+
+  private normalizePlaybookDetailsToRequest(details: string): string {
+    const trimmed = details.trim();
+    if (!trimmed) return '';
+
+    return trimmed
+      .replace(/\bAgent X has prepared\b/gi, 'Prepare')
+      .replace(/\bAgent X already prepared\b/gi, 'Prepare')
+      .replace(/\bhas prepared\b/gi, 'prepare')
+      .replace(/\balready prepared\b/gi, 'prepare now')
+      .replace(/\bhas created\b/gi, 'create')
+      .replace(/\balready generated\b/gi, 'generate now');
+  }
+
+  private convertSecondPersonToFirstPerson(text: string): string {
+    return text
+      .replace(/\byour\b/gi, 'my')
+      .replace(/\byou are\b/gi, 'I am')
+      .replace(/\byou have\b/gi, 'I have')
+      .replace(/\byou\'re\b/gi, "I'm")
+      .replace(/\byou\'ve\b/gi, "I've")
+      .trim();
+  }
+
+  private lowercaseFirst(text: string): string {
+    if (!text) return text;
+    return text[0].toLowerCase() + text.slice(1);
   }
 
   /**

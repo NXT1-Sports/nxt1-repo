@@ -106,6 +106,7 @@ import {
   FirecrawlSearchTool,
   FirecrawlMapTool,
   FirecrawlExtractTool,
+  FirecrawlAgentTool,
   ListNxt1DataViewsTool,
   QueryNxt1DataTool,
   CloudflareMcpBridgeService,
@@ -373,8 +374,9 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
     toolRegistry.register(new FirecrawlSearchTool(firecrawlMcpBridge));
     toolRegistry.register(new FirecrawlMapTool(firecrawlMcpBridge));
     toolRegistry.register(new FirecrawlExtractTool(firecrawlMcpBridge));
+    toolRegistry.register(new FirecrawlAgentTool(firecrawlMcpBridge));
     logger.info(
-      'MCP-bridged Firecrawl tools registered (scrape_webpage, firecrawl_search_web, map_website, extract_web_data)'
+      'MCP-bridged Firecrawl tools registered (scrape_webpage, firecrawl_search_web, map_website, extract_web_data, firecrawl_agent_research)'
     );
   }
 
@@ -505,7 +507,10 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
     agentChatService,
     pubsub,
     stagingDb,
-    llm
+    llm,
+    undefined,
+    (payload, environment) => queueService.enqueue(payload, environment),
+    queueService
   );
 
   // ── 6. Inject dependencies into the REST routes ───────────────────────

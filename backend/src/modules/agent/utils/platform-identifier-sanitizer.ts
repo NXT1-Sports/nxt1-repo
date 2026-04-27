@@ -56,6 +56,10 @@ function sanitizeStringInternal(value: string): string {
     .replace(
       /\b(?:uid|unicode|team\s*code|teamcode|cursor|next\s*cursor)\s*[:#]?\s*[A-Za-z0-9_-]+/gi,
       (match) => match.replace(/[:#]?\s*[A-Za-z0-9_-]+$/i, ` ${REDACTED_TOKEN}`)
+    )
+    .replace(
+      /\b(?:userid|teamid|orgid|organizationid|postid|eventid|threadid|sessionid|operationid|approvalid)\s*[:#]?\s*[A-Za-z0-9_-]+/gi,
+      (match) => match.replace(/[:#]?\s*[A-Za-z0-9_-]+$/i, ` ${REDACTED_TOKEN}`)
     );
 }
 

@@ -56,6 +56,7 @@ import {
   AgentXService,
   ANALYTICS_ADAPTER,
 } from '@nxt1/ui';
+import { AgentOnboardingLoadingComponent } from '@nxt1/ui/agent-x/onboarding';
 import type { ILogger } from '@nxt1/core/logging';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 
@@ -76,6 +77,7 @@ import { FcmRegistrationService } from '../../../../core/services/native/fcm-reg
     AuthShellComponent,
     OnboardingWelcomeComponent,
     OnboardingButtonMobileComponent,
+    AgentOnboardingLoadingComponent,
   ],
   template: `
     <nxt1-auth-shell
@@ -83,36 +85,71 @@ import { FcmRegistrationService } from '../../../../core/services/native/fcm-reg
       [showLogo]="true"
       [showBackButton]="false"
       [maxWidth]="'600px'"
-      [mobileFooterPadding]="true"
+      [mobileFooterPadding]="!isTransitioningToAgent()"
     >
-      <div authContent>
-        <nxt1-onboarding-welcome
-          #welcomeSlides
-          [userRole]="userRole()"
-          [firstName]="firstName()"
-          [showNavigationButtons]="false"
-          [showDotNavigation]="false"
-          (complete)="onComplete()"
-          (skip)="onSkip()"
-          (slideViewed)="onSlideViewed($event)"
-          (goalsChanged)="onGoalsChanged($event)"
-        />
+      <div authContent class="welcome-content-container">
+        @if (isTransitioningToAgent()) {
+          <nxt1-agent-onboarding-loading
+            [readyToComplete]="initialGenerationReady()"
+            (loadingComplete)="onLoadingComplete()"
+          />
+        } @else {
+          <nxt1-onboarding-welcome
+            #welcomeSlides
+            [userRole]="userRole()"
+            [firstName]="firstName()"
+            [showNavigationButtons]="false"
+            [showDotNavigation]="false"
+            (complete)="onComplete()"
+            (skip)="onSkip()"
+            (slideViewed)="onSlideViewed($event)"
+            (goalsChanged)="onGoalsChanged($event)"
+          />
+        }
       </div>
     </nxt1-auth-shell>
 
-    <nxt1-onboarding-button-mobile
-      [totalSteps]="totalSlides()"
-      [currentStepIndex]="currentSlideIndex()"
-      [completedStepIndices]="completedSlideIndices()"
-      [showSkip]="!isLastSlide()"
-      [isLastStep]="isLastSlide()"
-      [loading]="isSaving()"
-      [disabled]="isGoalsSlide() && !hasSelectedGoals()"
-      [showSignOut]="false"
-      (skipClick)="onSkip()"
-      (continueClick)="onFooterContinue()"
-    />
+    @if (!isTransitioningToAgent()) {
+      <nxt1-onboarding-button-mobile
+        [totalSteps]="totalSlides()"
+        [currentStepIndex]="currentSlideIndex()"
+        [completedStepIndices]="completedSlideIndices()"
+        [showSkip]="!isLastSlide()"
+        [isLastStep]="isLastSlide()"
+        [loading]="false"
+        [disabled]="isGoalsSlide() && !hasSelectedGoals()"
+        [showSignOut]="false"
+        (skipClick)="onSkip()"
+        (continueClick)="onFooterContinue()"
+      />
+    }
   `,
+  styles: [
+    `
+      /*
+       * Fixed-height container so the card does not resize when the Agent X loading
+       * animation replaces the welcome slides. Both children fill this height via
+       * their own flex/min-height: 100% rules. On small phones the slides can grow
+       * naturally (auto), but we lock the card during the animation by providing an
+       * explicit height the loading orb can fill.
+       */
+      .welcome-content-container {
+        min-height: 480px;
+        width: 100%;
+        display: flex;
+        flex-direction: column;
+      }
+
+      .welcome-content-container nxt1-onboarding-welcome,
+      .welcome-content-container nxt1-agent-onboarding-loading {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        width: 100%;
+        height: 100%;
+      }
+    `,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class OnboardingCongratulationsPage implements OnInit {
@@ -129,11 +166,14 @@ export class OnboardingCongratulationsPage implements OnInit {
   /** Current slide index for sticky footer progress */
   readonly currentSlideIndex = signal(0);
 
+  /** True while the Agent X handoff animation runs before navigating */
+  readonly isTransitioningToAgent = signal(false);
+
+  /** Set once the initial briefing work has actually finished */
+  readonly initialGenerationReady = signal(false);
+
   /** Selected goals from the goals slide */
   private readonly selectedGoals = signal<AgentGoal[]>([]);
-
-  /** Whether goals are being saved */
-  readonly isSaving = signal(false);
 
   /** Reused across final-slide prewarm and CTA completion to avoid duplicate work. */
   private initialPreparationPromise: Promise<void> | null = null;
@@ -215,14 +255,14 @@ export class OnboardingCongratulationsPage implements OnInit {
   /** Handle complete (CTA button click) */
   async onComplete(): Promise<void> {
     this.logger.info('User completed welcome slides');
-    await this.saveGoalsAndNavigate();
+    await this.startAgentTransition();
   }
 
   /** Handle skip — advance to next slide, or finish if on last slide */
   async onSkip(): Promise<void> {
     if (this.isLastSlide()) {
       this.logger.info('User skipped last slide — completing');
-      await this.saveGoalsAndNavigate();
+      await this.startAgentTransition();
     } else {
       this.logger.info('User skipped slide', { index: this.currentSlideIndex() });
       this.welcomeSlidesRef?.nextSlide();
@@ -258,22 +298,25 @@ export class OnboardingCongratulationsPage implements OnInit {
   // ============================================
 
   /**
-   * Save goals to backend and navigate to Agent X.
-   * Uses navigateRoot to replace the navigation stack (no back to onboarding).
-   *
-   * Also clears the temporary theme override, restoring user's saved preference.
+   * Start the Agent X handoff transition — shows the loading animation while
+   * briefing generation runs in parallel. Matches web's startAgentTransition().
    */
-  private async saveGoalsAndNavigate(): Promise<void> {
-    const goals = this.selectedGoals();
-
-    this.isSaving.set(true);
-    try {
-      await this.prepareInitialAgentStateIfNeeded();
-    } finally {
-      this.isSaving.set(false);
+  private async startAgentTransition(): Promise<void> {
+    if (this.isTransitioningToAgent()) {
+      this.logger.debug('Agent transition already in progress');
+      return;
     }
 
-    this.logger.info('Navigating to Agent X', { target: AUTH_REDIRECTS.AGENT });
+    this.isTransitioningToAgent.set(true);
+    this.initialGenerationReady.set(false);
+    void this.prepareInitialAgentStateIfNeeded();
+  }
+
+  /** Called by AgentOnboardingLoadingComponent when animation + briefing are both done */
+  async onLoadingComplete(): Promise<void> {
+    this.logger.info('Agent transition complete, navigating to Agent X');
+
+    const goals = this.selectedGoals();
 
     // Track onboarding completion
     this.analytics?.trackEvent(APP_EVENTS.ONBOARDING_COMPLETED, {
@@ -282,7 +325,6 @@ export class OnboardingCongratulationsPage implements OnInit {
     });
 
     // ⭐ THEME RESTORATION: Clear temporary override, restore user's preference
-    // This ensures the app respects user's original theme choice going forward
     this.themeService.clearTemporaryOverride();
     this.logger.debug('Cleared temporary theme override, restored user preference');
 
@@ -310,7 +352,10 @@ export class OnboardingCongratulationsPage implements OnInit {
       return this.initialPreparationPromise;
     }
 
-    this.initialPreparationPromise = this.prepareInitialAgentState();
+    this.initialPreparationPromise = this.prepareInitialAgentState().finally(() => {
+      this.initialGenerationReady.set(true);
+    });
+
     return this.initialPreparationPromise;
   }
 

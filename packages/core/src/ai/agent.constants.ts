@@ -89,12 +89,11 @@ export const AGENT_DESCRIPTORS: Record<AgentIdentifier, AgentDescriptor> = {
     name: 'Strategy Coordinator',
     icon: 'compass',
     description:
-      'Owns planning, prioritization, platform guidance, high-level recommendations, and general strategic support when a request does not belong to a specialized execution coordinator.',
+      'Drives strategic planning, goal prioritization, and weekly gameplanning for athletes, coaches, and programs. Use ONLY for requests requiring an actual strategic plan, goal breakdown, or weekly priority list. Do NOT use for greetings, identity questions, platform explanations, or general conversation — the Chief of Staff handles those directly.',
     capabilities: [
-      'general_qa',
-      'platform_help',
       'strategic_planning',
       'goal_prioritization',
+      'game_planning',
       'sports_guidance',
       'google_workspace',
     ],
@@ -245,6 +244,7 @@ export const OPERATION_STATUS_LABELS: Record<string, string> = {
   queued: 'Queued',
   thinking: 'Thinking...',
   acting: 'Taking action...',
+  paused: 'Paused',
   awaiting_approval: 'Waiting for your approval...',
   awaiting_input: 'Waiting for your response...',
   streaming_result: 'Wrapping up...',

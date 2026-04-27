@@ -24,6 +24,7 @@ import {
   NxtLoggingService,
   NxtBottomSheetService,
   NxtToastService,
+  NxtModalService,
   SHEET_PRESETS,
   type SettingsUser,
   type SettingsNavigateEvent,
@@ -97,6 +98,7 @@ export class SettingsComponent {
   private readonly authService = inject(AuthFlowService);
   private readonly settingsService = inject(SettingsService);
   private readonly bottomSheet = inject(NxtBottomSheetService);
+  private readonly modal = inject(NxtModalService);
   private readonly navController = inject(NavController);
   private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('SettingsComponent');
@@ -355,7 +357,13 @@ export class SettingsComponent {
     if (result.confirmed) {
       this.logger.info('Delete account confirmed');
 
-      const deleteResult = await this.authService.deleteAccount();
+      await this.modal.showLoading({ message: 'Deleting account…', backdropDismiss: false });
+      let deleteResult: { success: boolean; error?: string };
+      try {
+        deleteResult = await this.authService.deleteAccount();
+      } finally {
+        await this.modal.hideLoading();
+      }
 
       if (deleteResult.success) {
         this.logger.info('Account deleted — redirecting to auth');

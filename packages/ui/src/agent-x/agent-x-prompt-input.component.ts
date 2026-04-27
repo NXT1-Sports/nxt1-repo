@@ -587,7 +587,7 @@ export class AgentXPromptInputComponent {
 
   readonly messageChange = output<string>();
   readonly send = output<void>();
-  readonly stop = output<void>();
+  readonly pause = output<void>();
   readonly removeTask = output<void>();
   readonly toggleTasks = output<void>();
   readonly filesAdded = output<File[]>();
@@ -630,7 +630,7 @@ export class AgentXPromptInputComponent {
   }
 
   protected onStopAction(): void {
-    this.stop.emit();
+    this.pause.emit();
   }
 
   protected onFilesSelected(event: Event): void {

@@ -90,11 +90,11 @@ describe('AgentQueueService', () => {
     });
 
     it('should enqueue a delayed thread summarization job with a deterministic job id', async () => {
-      mockAdd.mockResolvedValue({ id: 'summarize:thread-123' });
+      mockAdd.mockResolvedValue({ id: 'summarize_thread-123' });
 
       const jobId = await service.enqueueThreadSummarization('thread-123', 'user-abc', 3_600_000);
 
-      expect(jobId).toBe('summarize:thread-123');
+      expect(jobId).toBe('summarize_thread-123');
       expect(mockAdd).toHaveBeenCalledWith(
         'THREAD_SUMMARIZATION',
         expect.objectContaining({
@@ -103,7 +103,7 @@ describe('AgentQueueService', () => {
           delayMs: 3_600_000,
         }),
         expect.objectContaining({
-          jobId: 'summarize:thread-123',
+          jobId: 'summarize_thread-123',
           delay: 3_600_000,
         })
       );

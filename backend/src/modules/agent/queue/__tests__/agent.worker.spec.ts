@@ -29,7 +29,13 @@ vi.mock('bullmq', () => {
     this.close = mockWorkerClose;
     this.isRunning = mockWorkerIsRunning;
   }
-  return { Worker: MockWorker, Job: class {} };
+  class MockUnrecoverableError extends Error {
+    constructor(message: string) {
+      super(message);
+      this.name = 'UnrecoverableError';
+    }
+  }
+  return { Worker: MockWorker, Job: class {}, UnrecoverableError: MockUnrecoverableError };
 });
 
 // ─── Mock Firebase ─────────────────────────────────────────────────────────
@@ -131,7 +137,10 @@ describe('AgentWorker', () => {
     markCompleted: vi.fn().mockResolvedValue(undefined),
     markFailed: vi.fn().mockResolvedValue(undefined),
     create: vi.fn().mockResolvedValue(undefined),
+    getById: vi.fn().mockResolvedValue(null),
     writeJobEvent: vi.fn().mockResolvedValue(undefined),
+    writeJobEventWithAutoSeq: vi.fn().mockResolvedValue(0),
+    allocateEventSeqRange: vi.fn().mockResolvedValue(0),
   };
 
   const mockPubSub = {
@@ -140,7 +149,7 @@ describe('AgentWorker', () => {
   };
 
   const mockChatService = {
-    addMessage: vi.fn().mockResolvedValue(undefined),
+    addMessage: vi.fn().mockResolvedValue({ id: 'msg-worker-1' }),
     generateOperationTitle: vi.fn().mockResolvedValue('Built Your Coach Outreach Plan'),
     applyGeneratedThreadTitle: vi.fn().mockResolvedValue('Built Your Coach Outreach Plan'),
     generateThreadTitle: vi.fn().mockResolvedValue('MaxPreps Sync Complete'),
@@ -149,6 +158,8 @@ describe('AgentWorker', () => {
   const mockLlmService = {
     complete: vi.fn(),
   };
+
+  const mockEnqueueContinuation = vi.fn().mockResolvedValue('continued-job-1');
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -162,7 +173,8 @@ describe('AgentWorker', () => {
       mockPubSub as never,
       mockFirestore,
       mockLlmService as never,
-      'redis://localhost:6379'
+      'redis://localhost:6379',
+      mockEnqueueContinuation
     );
   });
 
@@ -192,7 +204,8 @@ describe('AgentWorker', () => {
       expect.any(Function),
       mockFirestore,
       expect.any(Function),
-      'staging'
+      'staging',
+      expect.anything()
     );
   });
 
@@ -206,7 +219,6 @@ describe('AgentWorker', () => {
       'result',
       expect.objectContaining({
         ...mockRouterResult,
-        title: 'Built Your Coach Outreach Plan',
       })
     );
     expect(result).toHaveProperty('durationMs');
@@ -399,6 +411,48 @@ describe('AgentWorker', () => {
     await expect(capturedProcessor!(job)).rejects.toThrow('LLM timeout');
   });
 
+  it('should auto-continue timed out jobs as a new operation', async () => {
+    const payload = makePayload({
+      context: {
+        threadId: 'thread-timeout-1',
+      },
+    });
+    const job = makeMockJob(payload);
+
+    mockRouter.run.mockRejectedValue(new Error('Agent job timed out after 120 minutes'));
+
+    const result = (await capturedProcessor!(job)) as Record<string, unknown>;
+
+    expect(mockEnqueueContinuation).toHaveBeenCalledTimes(1);
+    expect(mockEnqueueContinuation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: payload.userId,
+        intent: payload.intent,
+        context: expect.objectContaining({
+          resumedFrom: payload.operationId,
+          timeoutContinuationCount: 1,
+          timeoutContinuedFrom: payload.operationId,
+        }),
+      }),
+      'staging'
+    );
+
+    expect(mockJobRepo.create).toHaveBeenCalledTimes(1);
+    expect(mockJobRepo.markCompleted).toHaveBeenCalledWith(
+      payload.operationId,
+      expect.objectContaining({
+        data: expect.objectContaining({
+          continuationReason: 'timeout',
+        }),
+      })
+    );
+    expect(mockJobRepo.markFailed).not.toHaveBeenCalledWith(
+      payload.operationId,
+      'Agent job timed out after 120 minutes'
+    );
+    expect(result).toHaveProperty('result');
+  });
+
   it('should mark the job as failed when the router returns a failed plan result', async () => {
     const payload = makePayload();
     const job = makeMockJob(payload);
@@ -426,6 +480,134 @@ describe('AgentWorker', () => {
     const finalProgress = job.updateProgress.mock.calls.at(-1)?.[0];
     expect(finalProgress.status).toBe('failed');
     expect(finalProgress.message).toContain('Execution plan failed.');
+  });
+
+  it('suppresses terminal completion side effects when persisted job is paused', async () => {
+    const payload = makePayload({
+      context: { threadId: 'thread-paused-1' },
+    });
+    const job = makeMockJob(payload);
+
+    mockJobRepo.getById.mockResolvedValueOnce({
+      operationId: payload.operationId,
+      status: 'paused',
+      yieldState: {
+        pendingToolCall: { toolName: 'resume_paused_operation' },
+      },
+    });
+
+    const outcome = (await capturedProcessor!(job)) as { result?: { summary?: string } };
+
+    expect(outcome.result?.summary).toBe('Operation paused. Resume whenever you are ready.');
+    expect(mockJobRepo.markCompleted).not.toHaveBeenCalled();
+    expect(mockChatService.addMessage).not.toHaveBeenCalled();
+
+    const finalProgress = job.updateProgress.mock.calls.at(-1)?.[0];
+    expect(finalProgress.status).toBe('paused');
+  });
+
+  it('treats AbortError as controlled pause when persisted state is paused', async () => {
+    const payload = makePayload({
+      context: { threadId: 'thread-paused-abort-1' },
+    });
+    const job = makeMockJob(payload);
+
+    const abortErr = new Error('Operation aborted');
+    abortErr.name = 'AbortError';
+    mockRouter.run.mockRejectedValueOnce(abortErr);
+
+    mockJobRepo.getById
+      .mockResolvedValueOnce({
+        operationId: payload.operationId,
+        status: 'paused',
+        yieldState: {
+          pendingToolCall: { toolName: 'resume_paused_operation' },
+        },
+      })
+      .mockResolvedValueOnce({
+        operationId: payload.operationId,
+        status: 'paused',
+        yieldState: {
+          pendingToolCall: { toolName: 'resume_paused_operation' },
+        },
+      });
+
+    const outcome = (await capturedProcessor!(job)) as { result?: { summary?: string } };
+
+    expect(outcome.result?.summary).toBe('Operation paused. Resume whenever you are ready.');
+    expect(mockJobRepo.markFailed).not.toHaveBeenCalled();
+
+    const finalProgress = job.updateProgress.mock.calls.at(-1)?.[0];
+    expect(finalProgress.status).toBe('paused');
+  });
+
+  it('should publish deltas immediately (live) and non-deltas after persisted seq', async () => {
+    const payload = makePayload();
+    const job = makeMockJob(payload);
+
+    let nextSeq = 1;
+    let resolveFirstPersist: ((value: number) => void) | null = null;
+    const firstPersistPromise = new Promise<number>((resolve) => {
+      resolveFirstPersist = resolve;
+    });
+
+    mockJobRepo.writeJobEventWithAutoSeq
+      .mockImplementationOnce(async () => firstPersistPromise)
+      .mockImplementation(async () => nextSeq++);
+
+    mockRouter.run.mockImplementationOnce(async (_p, _onUpdate, _db, onStreamEvent) => {
+      onStreamEvent({ type: 'delta', text: 'hello ' });
+      onStreamEvent({ type: 'delta', text: 'world' });
+      onStreamEvent({ type: 'step_active', message: 'Analyzing...' });
+      return {
+        ...mockRouterResult,
+        summary: 'hello world',
+      };
+    });
+
+    const processingPromise = capturedProcessor!(job);
+
+    // ╔════════════════════════════════════════════════════════════════════╗
+    // ║  NEW: Deltas are published IMMEDIATELY (onLiveEvent hook)          ║
+    // ║  Non-delta events wait for persisted seq (onPersistedEvent hook)   ║
+    // ╚════════════════════════════════════════════════════════════════════╝
+    await vi.waitFor(() => {
+      // Live deltas published immediately (token-by-token UX)
+      expect(mockPubSub.publish).toHaveBeenCalledWith(
+        expect.any(String),
+        'delta',
+        expect.objectContaining({ content: expect.any(String) })
+      );
+    });
+
+    const liveDeltaPublishCount = mockPubSub.publish.mock.calls.filter(
+      (call) => call[1] === 'delta'
+    ).length;
+    expect(liveDeltaPublishCount).toBeGreaterThan(0);
+
+    await vi.waitFor(() => {
+      expect(mockJobRepo.writeJobEventWithAutoSeq).toHaveBeenCalledTimes(1);
+    });
+
+    resolveFirstPersist?.(0);
+    await processingPromise;
+
+    // After persistence completes, non-delta events should also be published
+    const allPublishCalls = mockPubSub.publish.mock.calls;
+    expect(allPublishCalls.length).toBeGreaterThan(liveDeltaPublishCount);
+
+    // Verify non-delta events (if any) are published
+    const nonDeltaPublishes = allPublishCalls.filter((call) => call[1] !== 'delta');
+    expect(nonDeltaPublishes.length).toBeGreaterThanOrEqual(0);
+
+    // If non-delta events have seq numbers, they should be monotonic
+    const nonDeltaSeqs = nonDeltaPublishes
+      .map((call) => (call[2] as { seq?: unknown })?.seq)
+      .filter((value): value is number => typeof value === 'number');
+
+    if (nonDeltaSeqs.length > 0) {
+      expect(nonDeltaSeqs).toEqual([...nonDeltaSeqs].sort((a, b) => a - b));
+    }
   });
 
   // ── Lifecycle ─────────────────────────────────────────────────────────

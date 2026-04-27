@@ -21,14 +21,10 @@
 import type { Firestore } from 'firebase-admin/firestore';
 import type { AgentJobPayload, AgentOperationResult } from '@nxt1/core';
 import {
-  NOTIFICATION_TYPES,
   resolveAgentFailureNotificationCopy,
   resolveAgentSuccessNotificationCopy,
 } from '@nxt1/core';
-import {
-  dispatch,
-  type DispatchResult,
-} from '../../../services/communications/notification.service.js';
+import { dispatchAgentPush, type DispatchResult } from './agent-push-adapter.service.js';
 import { logger } from '../../../utils/logger.js';
 
 export interface AgentActivityInput {
@@ -47,40 +43,25 @@ export async function logAgentTaskCompletion(
     summary: stripMarkdown(result.summary),
   });
   const threadId = job.context?.['threadId'] as string | undefined;
-  const deepLink = threadId ? `/agent-x?thread=${encodeURIComponent(threadId)}` : '/agent-x';
 
   const imageUrl = (result.data?.['imageUrl'] as string) ?? '';
   const videoUrl = (result.data?.['videoUrl'] as string) ?? '';
 
-  const dispatchResult = await dispatch(db, {
+  const dispatchResult = await dispatchAgentPush(db, {
+    kind: 'agent_task_completed',
     userId,
-    type: NOTIFICATION_TYPES.AGENT_ACTION,
+    operationId: job.operationId,
+    sessionId: job.sessionId,
+    threadId,
+    agentId: job.agent ?? 'router',
     title: notificationCopy.title,
     body: notificationCopy.body,
-    deepLink,
-    ...(imageUrl ? { mediaUrl: imageUrl, mediaType: 'image' as const } : {}),
-    ...(videoUrl && !imageUrl ? { mediaUrl: videoUrl, mediaType: 'video' as const } : {}),
-    data: {
-      sessionId: job.sessionId,
-      operationId: job.operationId,
-      ...(threadId ? { threadId } : {}),
-      ...(imageUrl ? { imageUrl } : {}),
-      ...(videoUrl ? { videoUrl } : {}),
-      ...(job.context?.['origin'] ? { origin: String(job.context['origin']) } : {}),
-    },
-    source: { userName: 'Agent X' },
-    metadata: {
-      sessionId: job.sessionId,
-      ...(threadId ? { threadId } : {}),
-      operationId: job.operationId,
-      agentId: job.agent,
-      resultTitle: stripMarkdown(result.title ?? ''),
-      resultSummary: stripMarkdown(result.summary),
-      outcomeCode: notificationCopy.outcomeCode,
-      mode: job.context?.['mode'],
-      ...(imageUrl ? { imageUrl } : {}),
-      ...(videoUrl ? { videoUrl } : {}),
-    },
+    outcomeCode: notificationCopy.outcomeCode,
+    mode: typeof job.context?.['mode'] === 'string' ? String(job.context['mode']) : undefined,
+    origin: job.context?.['origin'] ? String(job.context['origin']) : undefined,
+    imageUrl: imageUrl || undefined,
+    videoUrl: videoUrl || undefined,
+    resultSummary: stripMarkdown(result.summary),
   });
 
   logger.info('Agent action dispatched via unified service', {
@@ -107,30 +88,18 @@ export async function logAgentTaskFailure(
   const { userId, job, errorMessage } = input;
   const notificationCopy = resolveAgentFailureNotificationCopy(errorMessage);
   const threadId = job.context?.['threadId'] as string | undefined;
-  const deepLink = threadId ? `/agent-x?thread=${encodeURIComponent(threadId)}` : '/agent-x';
 
-  const dispatchResult = await dispatch(db, {
+  const dispatchResult = await dispatchAgentPush(db, {
+    kind: 'agent_task_failed',
     userId,
-    type: NOTIFICATION_TYPES.AGENT_ACTION,
+    operationId: job.operationId,
+    sessionId: job.sessionId,
+    threadId,
+    agentId: job.agent ?? 'router',
     title: notificationCopy.title,
     body: notificationCopy.body,
-    deepLink,
-    data: {
-      sessionId: job.sessionId,
-      operationId: job.operationId,
-      ...(threadId ? { threadId } : {}),
-      failed: 'true',
-    },
-    source: { userName: 'Agent X' },
-    metadata: {
-      sessionId: job.sessionId,
-      ...(threadId ? { threadId } : {}),
-      operationId: job.operationId,
-      agentId: job.agent,
-      outcomeCode: notificationCopy.outcomeCode,
-      failed: true,
-      errorMessage,
-    },
+    outcomeCode: notificationCopy.outcomeCode,
+    errorMessage,
   });
 
   logger.info('Agent action failure notification dispatched', {

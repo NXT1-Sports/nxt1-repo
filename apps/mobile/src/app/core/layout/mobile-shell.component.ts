@@ -474,6 +474,13 @@ export class MobileShellComponent implements OnInit, OnDestroy {
    */
   private earlyRetryTimer: ReturnType<typeof setTimeout> | null = null;
 
+  /**
+   * ⭐ Phase 4: Self-healing guard — prevent repeated profile hydration fallback attempts.
+   * On first shell init, if profile is null/idle but user is authenticated, issue ONE refresh
+   * to recover from post-onboarding race conditions. Prevents loops via this guard.
+   */
+  private _profileHydrationAttempted = signal(false);
+
   /** Bound handler for cleanup */
   private readonly onVisibilityChange = (): void => {
     const isAuthenticated = this.authFlow.isAuthenticated();
@@ -623,7 +630,44 @@ export class MobileShellComponent implements OnInit, OnDestroy {
         this.syncActiveTabFromRoute(event.urlAfterRedirects);
       });
 
-    // sidenavUser is now a computed signal that automatically reacts to auth state changes
+    // ⭐ Phase 4: Self-healing safety net for post-onboarding race conditions.
+    // If authenticated user exists but profile is idle/null, trigger one-shot refresh.
+    // This catches edge cases where the onboarding completion gate timed out or network failed.
+    this.tryHealProfileHydrationIfNeeded();
+  }
+
+  /**
+   * ⭐ Phase 4: Self-healing fallback — one-shot profile refresh when hydration is missing.
+   * Triggered on shell init if: user is authenticated AND profile is idle or null.
+   * Uses _profileHydrationAttempted guard to prevent repeated attempts.
+   */
+  private tryHealProfileHydrationIfNeeded(): void {
+    // Guard: only attempt once per shell lifetime
+    if (this._profileHydrationAttempted()) {
+      return;
+    }
+
+    const user = this.authFlow.user();
+    const profileState = this.profileService.state();
+    const profile = this.profileService.user();
+
+    // Condition: User is authenticated, but profile is not yet loaded or is missing
+    if (user && (profileState === 'idle' || profileState === 'error' || !profile)) {
+      this._profileHydrationAttempted.set(true);
+      this.logger.warn('Profile hydration missing on shell init, attempting recovery', {
+        profile_state: profileState,
+        has_profile: !!profile,
+      });
+
+      // Fire-and-forget refresh (does not block shell rendering)
+      // This is safe because we've already guarded against repeated attempts
+      this.authFlow.refreshUserProfile().catch((err) => {
+        this.logger.error('Self-healing profile refresh failed', {
+          error: err,
+          user_id: user.uid,
+        });
+      });
+    }
   }
 
   // ============================================

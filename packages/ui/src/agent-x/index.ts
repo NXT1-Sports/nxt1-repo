@@ -65,6 +65,13 @@ export {
 export { AgentXInputComponent } from './agent-x-input.component';
 export { AgentXPromptInputComponent } from './agent-x-prompt-input.component';
 export { AgentXInputBarComponent } from './agent-x-input-bar.component';
+export { ChatBubbleActionsComponent } from './agent-x-chat-bubble-actions.component';
+export { AgentXMessageEditComponent } from './agent-x-message-edit.component';
+export {
+  AgentXFeedbackModalComponent,
+  type AgentXFeedbackSubmitEvent,
+} from './agent-x-feedback-modal.component';
+export { AgentXMessageUndoComponent } from './agent-x-message-undo.component';
 export {
   AgentXAttachmentsSheetComponent,
   type ConnectedAppSource,

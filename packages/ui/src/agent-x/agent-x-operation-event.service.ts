@@ -35,9 +35,12 @@
 import { Injectable, inject, InjectionToken, NgZone } from '@angular/core';
 import type {
   JobEvent,
+  AgentYieldState,
+  AgentXOperationLifecycleStatus,
   AgentXToolStep,
   AgentXToolStepStatus,
   AgentXStreamCardEvent,
+  AgentXStreamProgressEvent,
 } from '@nxt1/core/ai';
 import type { OperationLogStatus } from '@nxt1/core';
 import { NxtLoggingService } from '../services/logging/logging.service';
@@ -63,6 +66,19 @@ export interface OperationStatusUpdatedEvent {
   readonly status: OperationLogStatus;
   readonly timestamp: string;
 }
+
+const LIFECYCLE_TO_LOG_STATUS: Readonly<
+  Record<AgentXOperationLifecycleStatus, OperationLogStatus>
+> = {
+  queued: 'in-progress',
+  running: 'in-progress',
+  paused: 'paused',
+  awaiting_input: 'awaiting_input',
+  awaiting_approval: 'awaiting_approval',
+  complete: 'complete',
+  failed: 'error',
+  cancelled: 'cancelled',
+};
 
 // ─── Firestore Adapter (Injection Token) ────────────────────────────────────
 
@@ -128,12 +144,15 @@ export interface OperationEventCallbacks {
   onStep: (step: AgentXToolStep) => void;
   /** Called when a rich card (planner, data-table, etc.) should be rendered. */
   onCard?: (card: AgentXStreamCardEvent) => void;
+  /** Called when progress commentary/metrics events arrive. */
+  onProgress?: (event: AgentXStreamProgressEvent) => void;
   /** Called when the entire job finishes (success or failure). */
   onDone: (event: {
     success: boolean;
     message?: string;
     error?: string;
     errorCode?: string;
+    messageId?: string;
   }) => void;
   /** Called if the Firestore listener encounters an error. */
   onError: (message: string) => void;
@@ -207,12 +226,22 @@ export class AgentXOperationEventService {
    */
   emitOperationStatusUpdated(
     threadId: string,
-    status: OperationLogStatus,
+    status: AgentXOperationLifecycleStatus | OperationLogStatus,
     timestamp: string
   ): void {
-    this.logger.debug('Emitting operation status update', { threadId, status });
+    const normalizedStatus =
+      status in LIFECYCLE_TO_LOG_STATUS
+        ? LIFECYCLE_TO_LOG_STATUS[status as AgentXOperationLifecycleStatus]
+        : (status as OperationLogStatus);
+    this.logger.debug('Emitting operation status update', { threadId, status: normalizedStatus });
     // Run inside NgZone — same reason as emitTitleUpdated above.
-    this.ngZone.run(() => this._operationStatusUpdated$.next({ threadId, status, timestamp }));
+    this.ngZone.run(() =>
+      this._operationStatusUpdated$.next({
+        threadId,
+        status: normalizedStatus,
+        timestamp,
+      })
+    );
   }
 
   /**
@@ -232,24 +261,48 @@ export class AgentXOperationEventService {
   async getStoredEventState(operationId: string): Promise<{
     content: string;
     steps: AgentXToolStep[];
+    cards: AgentXStreamCardEvent[];
+    latestYieldState: AgentYieldState | null;
+    latestLifecycleStatus: AgentXOperationLifecycleStatus | null;
     isDone: boolean;
     doneSuccess: boolean;
     maxSeq: number;
   }> {
     if (!this.firestoreAdapter) {
-      return { content: '', steps: [], isDone: false, doneSuccess: false, maxSeq: -1 };
+      return {
+        content: '',
+        steps: [],
+        cards: [],
+        latestYieldState: null,
+        latestLifecycleStatus: null,
+        isDone: false,
+        doneSuccess: false,
+        maxSeq: -1,
+      };
     }
     try {
       const docs = await this.firestoreAdapter.getDocs(`AgentJobs/${operationId}/events`, 'seq');
       if (docs.length === 0) {
-        return { content: '', steps: [], isDone: false, doneSuccess: false, maxSeq: -1 };
+        return {
+          content: '',
+          steps: [],
+          cards: [],
+          latestYieldState: null,
+          latestLifecycleStatus: null,
+          isDone: false,
+          doneSuccess: false,
+          maxSeq: -1,
+        };
       }
 
       let content = '';
       let isDone = false;
       let doneSuccess = false;
       const steps: AgentXToolStep[] = [];
+      const cards: AgentXStreamCardEvent[] = [];
       const pendingStepIds = new Map<string, string[]>();
+      let latestYieldState: AgentYieldState | null = null;
+      let latestLifecycleStatus: AgentXOperationLifecycleStatus | null = null;
       let maxSeq = -1;
 
       for (const doc of docs) {
@@ -321,6 +374,55 @@ export class AgentXOperationEventService {
             isDone = true;
             doneSuccess = event.success ?? false;
             break;
+
+          case 'card': {
+            const cardData = event.cardData;
+            const payload =
+              cardData && typeof cardData === 'object'
+                ? (cardData['payload'] as unknown)
+                : undefined;
+            if (
+              cardData &&
+              typeof cardData === 'object' &&
+              typeof cardData['type'] === 'string' &&
+              typeof cardData['agentId'] === 'string' &&
+              payload !== undefined &&
+              payload !== null &&
+              typeof payload === 'object'
+            ) {
+              cards.push({
+                type: cardData['type'] as AgentXStreamCardEvent['type'],
+                agentId: normalizeAgentIdentifier(cardData['agentId']) ?? 'router',
+                title: typeof cardData['title'] === 'string' ? cardData['title'] : 'Agent X',
+                payload: payload as AgentXStreamCardEvent['payload'],
+              });
+            }
+            break;
+          }
+
+          case 'operation': {
+            const eventRecord = event as unknown as Record<string, unknown>;
+            const statusRaw =
+              event && typeof event === 'object' && typeof eventRecord['status'] === 'string'
+                ? (eventRecord['status'] as string)
+                : null;
+            if (
+              statusRaw === 'queued' ||
+              statusRaw === 'running' ||
+              statusRaw === 'paused' ||
+              statusRaw === 'awaiting_input' ||
+              statusRaw === 'awaiting_approval' ||
+              statusRaw === 'complete' ||
+              statusRaw === 'failed' ||
+              statusRaw === 'cancelled'
+            ) {
+              latestLifecycleStatus = statusRaw;
+            }
+            if (event.yieldState && typeof event.yieldState === 'object') {
+              latestYieldState = event.yieldState as AgentYieldState;
+            }
+            break;
+          }
         }
       }
 
@@ -328,16 +430,37 @@ export class AgentXOperationEventService {
         operationId,
         contentLength: content.length,
         stepCount: steps.length,
+        cardCount: cards.length,
+        hasYieldState: !!latestYieldState,
+        lifecycleStatus: latestLifecycleStatus,
         isDone,
         maxSeq,
       });
-      return { content, steps, isDone, doneSuccess, maxSeq };
+      return {
+        content,
+        steps,
+        cards,
+        latestYieldState,
+        latestLifecycleStatus,
+        isDone,
+        doneSuccess,
+        maxSeq,
+      };
     } catch (err) {
       this.logger.warn('Failed to reconstruct stored event state — starting fresh', {
         operationId,
         error: err instanceof Error ? err.message : String(err),
       });
-      return { content: '', steps: [], isDone: false, doneSuccess: false, maxSeq: -1 };
+      return {
+        content: '',
+        steps: [],
+        cards: [],
+        latestYieldState: null,
+        latestLifecycleStatus: null,
+        isDone: false,
+        doneSuccess: false,
+        maxSeq: -1,
+      };
     }
   }
 
@@ -610,6 +733,28 @@ export class AgentXOperationEventService {
         break;
       }
 
+      case 'title_updated': {
+        if (typeof event.threadId === 'string' && typeof event.title === 'string') {
+          this.emitTitleUpdated(event.threadId, event.title);
+        }
+        break;
+      }
+
+      case 'operation': {
+        if (typeof event.threadId === 'string' && typeof event.status === 'string') {
+          const lifecycleStatus = event.status as AgentXOperationLifecycleStatus;
+          const mappedStatus = LIFECYCLE_TO_LOG_STATUS[lifecycleStatus];
+          if (mappedStatus) {
+            this.emitOperationStatusUpdated(
+              event.threadId,
+              mappedStatus,
+              typeof event.timestamp === 'string' ? event.timestamp : new Date().toISOString()
+            );
+          }
+        }
+        break;
+      }
+
       case 'done':
         this.logger.info('Operation completed', {
           operationId,
@@ -624,6 +769,7 @@ export class AgentXOperationEventService {
           message: event.message,
           error: event.error,
           errorCode: typeof event.errorCode === 'string' ? event.errorCode : undefined,
+          messageId: typeof event.messageId === 'string' ? event.messageId : undefined,
         });
         // Auto-unsubscribe when the operation is terminal
         this.unsubscribe(operationId);

@@ -35,6 +35,8 @@
     "reconcile:usage:staging": "tsx scripts/reconcile-usage-events.ts --staging",
     "migrate:billing-contexts": "tsx scripts/migrate-billing-contexts.ts",
     "migrate:billing-contexts:dry-run": "tsx scripts/migrate-billing-contexts.ts --dry-run",
+    "cleanup:analytics:lifecycle-noise": "tsx scripts/cleanup-analytics-lifecycle-noise.ts",
+    "cleanup:analytics:lifecycle-noise:dry-run": "tsx scripts/cleanup-analytics-lifecycle-noise.ts --dry-run",
     "backfill:activity-badges": "tsx scripts/backfill-activity-badges.ts",
     "backfill:activity-badges:commit": "tsx scripts/backfill-activity-badges.ts --commit",
     "backfill:activity-badges:staging": "tsx scripts/backfill-activity-badges.ts --staging",
@@ -47,7 +49,10 @@
     "seed:agent-config:staging-v2": "GOOGLE_CLOUD_PROJECT=nxt-1-staging-v2 GCLOUD_PROJECT=nxt-1-staging-v2 tsx --tsconfig tsconfig.scripts.json scripts/migrate-agent-config.ts --staging",
     "seed:knowledge": "tsx ../scripts/seed-knowledge/index.ts",
     "deploy:mcp:stateful": "bash ./scripts/deploy-stateful-mcp.sh",
-    "deploy:mcp:google-workspace": "bash ./scripts/deploy-google-workspace-mcp.sh"
+    "deploy:mcp:google-workspace": "bash ./scripts/deploy-google-workspace-mcp.sh",
+    "backfill:agent-message-interactions": "tsx scripts/backfill-agent-message-interactions.ts",
+    "backfill:agent-message-interactions:commit": "tsx scripts/backfill-agent-message-interactions.ts --commit",
+    "backfill:agent-message-interactions:prod": "NODE_ENV=production tsx scripts/backfill-agent-message-interactions.ts --commit"
   },
   "dependencies": {
     "@apple/app-store-server-library": "^3.0.0",

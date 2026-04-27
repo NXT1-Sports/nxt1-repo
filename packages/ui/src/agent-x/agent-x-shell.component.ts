@@ -161,51 +161,6 @@ export interface WeeklyPlaybookItem {
   readonly goal?: GoalTag;
 }
 
-const FALLBACK_COORDINATOR_CATEGORIES: readonly CommandCategory[] = [
-  {
-    id: 'coord-admin',
-    label: 'Admin Coordinator',
-    icon: 'settings',
-    description: 'Manage scheduling, operations, and organizational tasks.',
-    commands: [],
-  },
-  {
-    id: 'coord-brand',
-    label: 'Brand Coordinator',
-    icon: 'image',
-    description: 'Build graphics, content ideas, and brand assets.',
-    commands: [],
-  },
-  {
-    id: 'coord-strategy',
-    label: 'Strategy Coordinator',
-    icon: 'rocket',
-    description: 'Plan next steps and high-level execution strategy.',
-    commands: [],
-  },
-  {
-    id: 'coord-recruiting',
-    label: 'Recruiting Coordinator',
-    icon: 'search',
-    description: 'Plan outreach, targeting, and recruiting tasks.',
-    commands: [],
-  },
-  {
-    id: 'coord-performance',
-    label: 'Performance Coordinator',
-    icon: 'analytics',
-    description: 'Review performance, film notes, and evaluations.',
-    commands: [],
-  },
-  {
-    id: 'coord-data',
-    label: 'Data Coordinator',
-    icon: 'barChart',
-    description: 'Track metrics, trends, and decision-ready data.',
-    commands: [],
-  },
-] as const;
-
 const COORDINATOR_ORDER: readonly string[] = [
   'admin coordinator',
   'brand coordinator',
@@ -619,19 +574,25 @@ function sortCoordinatorCategories(
         [class.has-files]="agentX.pendingFiles().length > 0"
         aria-label="Coordinators"
       >
-        <div class="floating-coordinators-scroll" role="list">
-          @for (cat of commandCategories(); track cat.id) {
-            <button
-              type="button"
-              role="listitem"
-              class="floating-coordinator-pill"
-              [attr.data-coordinator]="cat.id"
-              (click)="onCategoryTap(cat)"
-            >
-              {{ cat.label }}
-            </button>
-          }
-        </div>
+        @if (commandCategories().length > 0) {
+          <div class="floating-coordinators-scroll" role="list">
+            @for (cat of commandCategories(); track cat.id) {
+              <button
+                type="button"
+                role="listitem"
+                class="floating-coordinator-pill"
+                [attr.data-coordinator]="cat.id"
+                (click)="onCategoryTap(cat)"
+              >
+                {{ cat.label }}
+              </button>
+            }
+          </div>
+        } @else {
+          <div class="floating-coordinators-empty" role="status" aria-live="polite">
+            No coordinators are configured for this role.
+          </div>
+        }
       </section>
 
       <nxt1-agent-x-input-bar
@@ -1281,6 +1242,25 @@ function sortCoordinatorCategories(
           0 0 0 1px color-mix(in srgb, var(--coordinator-pill-accent) 28%, transparent),
           inset 0 1px 0 color-mix(in srgb, var(--coordinator-pill-accent) 14%, white);
         transform: scale(0.98);
+      }
+
+      .floating-coordinators-empty {
+        pointer-events: auto;
+        border: 1px solid var(--agent-border);
+        border-radius: var(--nxt1-radius-full, 9999px);
+        background: color-mix(in srgb, var(--agent-surface) 88%, transparent);
+        color: var(--agent-text-secondary);
+        font-size: 12px;
+        font-weight: 500;
+        line-height: 1;
+        padding: 12px 14px;
+        white-space: nowrap;
+        overflow-x: auto;
+        scrollbar-width: none;
+      }
+
+      .floating-coordinators-empty::-webkit-scrollbar {
+        display: none;
       }
 
       .floating-coordinator-pill[data-coordinator='coord-admin'] {
@@ -2026,11 +2006,9 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
     return Math.round((this.playbookCompletedCount() / total) * 100);
   });
 
-  /** Coordinator cards with a fallback list so pills always render in mobile footer. */
+  /** Coordinator cards are rendered strictly from backend dashboard config. */
   protected readonly commandCategories = computed(() => {
-    const categories = this.agentX.coordinators();
-    const source = categories.length > 0 ? categories : FALLBACK_COORDINATOR_CATEGORIES;
-    return sortCoordinatorCategories(source);
+    return sortCoordinatorCategories(this.agentX.coordinators());
   });
 
   // ============================================
@@ -2252,7 +2230,13 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
     threadId = '',
     initialMessage = '',
     yieldState: AgentYieldState | null = null,
-    operationStatus: 'processing' | 'complete' | 'error' | 'awaiting_input' = 'processing',
+    operationStatus:
+      | 'processing'
+      | 'complete'
+      | 'error'
+      | 'paused'
+      | 'awaiting_input'
+      | 'awaiting_approval' = 'processing',
     errorMessage: string | null = null,
     scheduledActions: OperationQuickAction[] = []
   ): Promise<void> {

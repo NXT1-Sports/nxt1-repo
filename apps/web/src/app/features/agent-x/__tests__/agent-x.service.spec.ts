@@ -49,7 +49,7 @@ function createPersistedMessage(id: string, content: string, createdAt: string):
 
 function createService() {
   const httpMock = {
-    get: vi.fn(),
+    get: vi.fn().mockReturnValue(of({ success: true, data: [] })),
     post: vi.fn(),
     put: vi.fn(),
     patch: vi.fn(),
@@ -148,10 +148,13 @@ describe('AgentXService', () => {
     httpMock.get.mockReturnValueOnce(of(newestPage)).mockReturnValueOnce(of(olderPage));
 
     const messages = await service.getPersistedThreadMessages('thread-123');
+    const historyCalls = httpMock.get.mock.calls.filter((call) =>
+      String(call[0]).includes('/threads/thread-123/messages')
+    );
 
     expect(messages.map((message) => message.id)).toEqual(['m-1', 'm-2', 'm-3', 'm-4']);
-    expect(httpMock.get).toHaveBeenCalledTimes(2);
-    expect(httpMock.get.mock.calls[1][0]).toContain('before=2026-04-13T10%3A03%3A00.000Z');
+    expect(historyCalls).toHaveLength(2);
+    expect(String(historyCalls[1]?.[0] ?? '')).toContain('before=2026-04-13T10%3A03%3A00.000Z');
   });
 
   it('loads a reopened thread with the full persisted history', async () => {
@@ -187,6 +190,46 @@ describe('AgentXService', () => {
       'Second',
       'Third',
       'Fourth',
+    ]);
+  });
+
+  it('hydrates persisted attachments when loading thread history', async () => {
+    const persistedWithAttachment: AgentMessage = {
+      ...createPersistedMessage('m-attach-1', 'Review this report', '2026-04-13T10:05:00.000Z'),
+      attachments: [
+        {
+          id: 'att-1',
+          url: 'https://storage.example/report.pdf',
+          name: 'report.pdf',
+          mimeType: 'application/pdf',
+          type: 'pdf',
+          sizeBytes: 2048,
+        },
+      ],
+    };
+
+    httpMock.get.mockReturnValueOnce(
+      of({
+        success: true,
+        data: {
+          items: [persistedWithAttachment],
+          hasMore: false,
+        },
+      })
+    );
+
+    await service.loadThread('thread-123');
+
+    const [message] = service.messages();
+    expect(message?.attachments).toEqual([
+      {
+        id: 'att-1',
+        url: 'https://storage.example/report.pdf',
+        name: 'report.pdf',
+        mimeType: 'application/pdf',
+        type: 'pdf',
+        sizeBytes: 2048,
+      },
     ]);
   });
 });

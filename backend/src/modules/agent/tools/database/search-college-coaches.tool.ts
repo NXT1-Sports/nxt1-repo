@@ -28,6 +28,7 @@
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
 import { CollegeModel } from '../../../../models/core/college.model.js';
 import { ContactModel } from '../../../../models/core/contact.model.js';
+import { logger } from '../../../../utils/logger.js';
 import { z } from 'zod';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
@@ -161,12 +162,8 @@ export class SearchCollegeCoachesTool extends BaseTool {
     // ── 2. Build the college match filter ──────────────────────────────
     const collegeMatch: Record<string, unknown> = {};
 
-    // College name: use text search if available, fallback to regex
-    if (collegeName.length >= 3) {
-      collegeMatch['$text'] = { $search: collegeName };
-    } else {
-      collegeMatch['name'] = { $regex: escapeRegex(collegeName), $options: 'i' };
-    }
+    // Use regex matching so this tool doesn't fail if Mongo text indexes are unavailable.
+    collegeMatch['name'] = { $regex: escapeRegex(collegeName), $options: 'i' };
 
     // State filter (same dual-format regex as search-colleges)
     if (rawState) {
@@ -295,7 +292,41 @@ export class SearchCollegeCoachesTool extends BaseTool {
         },
       ];
 
+      // ── DEBUG: Log database connection info ─────────────────────
+      logger.info('[search_college_coaches] Executing coach search', {
+        tool: 'search_college_coaches',
+        collegeName,
+        sport,
+        rawState,
+        position,
+        limit,
+        collegeMatch: JSON.stringify(collegeMatch),
+        collegeModelName: CollegeModel.modelName,
+        collegeCollectionName: CollegeModel.collection.name,
+        contactModelName: ContactModel.modelName,
+        contactCollectionName: ContactModel.collection.name,
+      });
+
+      // ── DEBUG: Log connection details ──────────────────────────
+      const mongooseConnection = CollegeModel.collection.conn;
+      const dbName = mongooseConnection.db?.databaseName ?? 'unknown';
+      const dbNamespace = CollegeModel.collection.namespace;
+
+      logger.info('[search_college_coaches] MongoDB Connection Details', {
+        tool: 'search_college_coaches',
+        dbName,
+        dbNamespace,
+        mongooseConnectionName: mongooseConnection.name,
+      });
+
       const colleges = await CollegeModel.aggregate(pipeline);
+
+      logger.info('[search_college_coaches] Query results', {
+        tool: 'search_college_coaches',
+        collegeName,
+        collegesFound: colleges.length,
+        pipelineStages: pipeline.length,
+      });
 
       // ── 4. Map to distilled DTO ────────────────────────────────────────
       interface AggregateCollege {
@@ -383,6 +414,14 @@ export class SearchCollegeCoachesTool extends BaseTool {
       };
     } catch (err) {
       const message = err instanceof Error ? err.message : 'College coach search failed';
+      logger.error('[search_college_coaches] Error executing coach search', {
+        tool: 'search_college_coaches',
+        error: message,
+        collegeName,
+        sport,
+        position,
+        stack: err instanceof Error ? err.stack : undefined,
+      });
       return { success: false, error: message };
     }
   }

@@ -79,7 +79,7 @@ export const routes: Routes = [
       {
         path: '',
         pathMatch: 'full',
-        redirectTo: 'agent',
+        redirectTo: 'agent-x',
       },
 
       // Messages - User Messages & Conversations
@@ -88,13 +88,9 @@ export const routes: Routes = [
         loadChildren: () => import('./features/messages/messages.routes'),
       },
 
-      // Agent X - AI Assistant (also accessible via /agent for mobile parity)
+      // Agent X - AI Assistant (canonical route)
       {
         path: 'agent-x',
-        loadChildren: () => import('./features/agent-x/agent-x.routes'),
-      },
-      {
-        path: 'agent',
         loadChildren: () => import('./features/agent-x/agent-x.routes'),
       },
 

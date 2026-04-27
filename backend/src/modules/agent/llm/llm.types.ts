@@ -25,7 +25,7 @@ export const MODEL_CATALOGUE: Record<ModelTier, string> = {
   compliance: 'openai/gpt-4o',
   copywriting: 'anthropic/claude-sonnet-4-5',
   prompt_engineering: 'anthropic/claude-sonnet-4-5',
-  chat: 'deepseek/deepseek-v3.2',
+  chat: 'anthropic/claude-haiku-4-5',
   task_automation: 'anthropic/claude-sonnet-4-5',
 
   // ── Media Tiers ─────────────────────────────────────────────────────────
@@ -59,7 +59,7 @@ export const MODEL_FALLBACK_CHAIN: Record<ModelTier, readonly string[]> = {
   compliance: ['openai/gpt-4o', 'anthropic/claude-sonnet-4', 'anthropic/claude-haiku-4-5'],
   copywriting: ['anthropic/claude-sonnet-4', 'openai/gpt-4o', 'qwen/qwen3.6-plus'],
   prompt_engineering: ['anthropic/claude-sonnet-4', 'openai/gpt-4o', 'anthropic/claude-haiku-4-5'],
-  chat: ['deepseek/deepseek-v3.2', 'anthropic/claude-haiku-4-5', 'openai/gpt-4o-mini'],
+  chat: ['anthropic/claude-haiku-4-5', 'openai/gpt-4o-mini', 'deepseek/deepseek-v3.2'],
   task_automation: ['anthropic/claude-sonnet-4', 'openai/gpt-4o', 'anthropic/claude-haiku-4-5'],
 
   // ── Media Tiers ─────────────────────────────────────────────────────────
@@ -202,6 +202,8 @@ export interface LLMCompletionOptions<TStructuredOutput = unknown> {
   };
   /** Abort signal for cancellation. */
   readonly signal?: AbortSignal;
+  /** Optional per-call timeout override in milliseconds. */
+  readonly timeoutMs?: number;
   /** Telemetry context — passed through to the onTelemetry callback. */
   readonly telemetryContext?: {
     readonly operationId: string;
@@ -319,6 +321,8 @@ export interface LLMStreamOptions {
   readonly tools?: readonly LLMToolSchema[];
   /** Abort signal for cancellation. */
   readonly signal?: AbortSignal;
+  /** Optional per-call timeout override in milliseconds. */
+  readonly timeoutMs?: number;
   /** Telemetry context — passed through to the onTelemetry callback. */
   readonly telemetryContext?: {
     readonly operationId: string;

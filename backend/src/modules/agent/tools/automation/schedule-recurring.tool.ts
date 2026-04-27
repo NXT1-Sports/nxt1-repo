@@ -24,10 +24,27 @@ import { z } from 'zod';
 
 const RECURRING_TASKS_COLLECTION = 'RecurringTasks' as const;
 
+function isValidIanaTimezone(value: string): boolean {
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: value });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 const ScheduleRecurringTaskInputSchema = z.object({
   userId: z.string().trim().min(1),
   actionSummary: z.string().trim().min(1),
   cronExpression: z.string().trim().min(1),
+  timezone: z
+    .string()
+    .trim()
+    .min(1)
+    .refine((value) => isValidIanaTimezone(value), {
+      message: 'timezone must be a valid IANA timezone (for example, America/Chicago)',
+    }),
+  sourceId: z.string().trim().min(1).optional(),
 });
 
 /**
@@ -70,12 +87,14 @@ export class ScheduleRecurringTaskTool extends BaseTool {
   readonly description =
     'Create a recurring scheduled task that Agent X will automatically execute on a cron schedule. ' +
     'Provide a human-readable action summary (what to do each time), a standard cron expression, ' +
-    'and the userId. The minimum allowed interval is 1 hour.';
+    'an IANA timezone (for example America/Chicago), and the userId. ' +
+    'Optionally include sourceId (the originating thread ID) so recurring runs can hydrate the same context. ' +
+    'The minimum allowed interval is 1 hour.';
 
   readonly parameters = ScheduleRecurringTaskInputSchema;
 
   readonly isMutation = true;
-  readonly category: AgentToolCategory = 'automation';
+  readonly category: AgentToolCategory = 'system';
 
   readonly entityGroup = 'platform_tools' as const;
 
@@ -97,7 +116,7 @@ export class ScheduleRecurringTaskTool extends BaseTool {
       };
     }
 
-    const { userId, actionSummary, cronExpression } = parsed.data;
+    const { userId, actionSummary, cronExpression, timezone, sourceId } = parsed.data;
 
     // ── 1. Validate cron frequency ────────────────────────────────────
     const intervalMs = estimateCronIntervalMs(cronExpression);
@@ -131,6 +150,14 @@ export class ScheduleRecurringTaskTool extends BaseTool {
       intent: actionSummary,
       sessionId: `scheduled-${userId}`,
       origin: 'system_cron',
+      ...(sourceId
+        ? {
+            context: {
+              sourceId,
+              threadId: sourceId,
+            },
+          }
+        : {}),
     };
 
     // ── 4. Enqueue via BullMQ then persist durable metadata ──────────
@@ -138,25 +165,33 @@ export class ScheduleRecurringTaskTool extends BaseTool {
       const key = await this.queueService.enqueueRecurring(
         jobName,
         cronExpression,
+        timezone,
         payload,
         'production'
       );
 
       // Firestore is the durable source of truth for recurring task metadata.
       // Redis is ephemeral — it must NEVER be used for persistent business data.
-      await this.db.collection(RECURRING_TASKS_COLLECTION).doc(key).set({
-        userId,
-        actionSummary,
-        cronExpression,
-        jobName,
-        createdAt: FieldValue.serverTimestamp(),
-        environment: 'production',
-      });
+      await this.db
+        .collection(RECURRING_TASKS_COLLECTION)
+        .doc(key)
+        .set({
+          userId,
+          actionSummary,
+          cronExpression,
+          timezone,
+          ...(sourceId ? { sourceId } : {}),
+          jobName,
+          createdAt: FieldValue.serverTimestamp(),
+          environment: 'production',
+        });
 
       logger.info('Recurring task scheduled', {
         userId,
         key,
         cronExpression,
+        timezone,
+        ...(sourceId ? { sourceId } : {}),
         actionSummary,
       });
 
@@ -166,7 +201,11 @@ export class ScheduleRecurringTaskTool extends BaseTool {
           key,
           actionSummary,
           cronExpression,
-          message: `Recurring task scheduled successfully. Action "${actionSummary}" will run on schedule: ${cronExpression}.`,
+          timezone,
+          ...(sourceId ? { sourceId } : {}),
+          message:
+            `Recurring task scheduled successfully. Action "${actionSummary}" will run on schedule: ` +
+            `${cronExpression} (${timezone}).`,
         },
       };
     } catch (err) {
@@ -174,6 +213,8 @@ export class ScheduleRecurringTaskTool extends BaseTool {
       logger.error('Failed to schedule recurring task', {
         userId,
         cronExpression,
+        timezone,
+        ...(sourceId ? { sourceId } : {}),
         error: message,
       });
       return { success: false, error: message };

@@ -9,6 +9,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AgentRouter } from '../agent.router.js';
 import type { BaseAgent } from '../agents/base.agent.js';
+import { RecruitingCoordinatorAgent } from '../agents/recruiting-coordinator.agent.js';
 import type { OpenRouterService } from '../llm/openrouter.service.js';
 import type { ToolRegistry } from '../tools/tool-registry.js';
 import type { ContextBuilder } from '../memory/context-builder.js';
@@ -181,13 +182,13 @@ describe('AgentRouter', () => {
       expect(agentId).toBe('router');
     });
 
-    it('should return "strategy_coordinator" when plan has no tasks', async () => {
+    it('should return "router" when plan has no tasks', async () => {
       llm = createMockLLM({ tasks: [] });
 
       const router = new AgentRouter(llm, toolRegistry, contextBuilder);
       const agentId = await router.classify('ambiguous request', 'user-123');
 
-      expect(agentId).toBe('strategy_coordinator');
+      expect(agentId).toBe('router');
     });
 
     it('should build user context before classifying', async () => {
@@ -208,6 +209,38 @@ describe('AgentRouter', () => {
   // ─── run() ──────────────────────────────────────────────────────────────
 
   describe('run()', () => {
+    it('should stop execution when agentic turn count exceeds maxAgenticTurns', async () => {
+      llm = createMockLLM({ tasks: [] });
+
+      const router = new AgentRouter(llm, toolRegistry, contextBuilder);
+      const payload: AgentJobPayload = {
+        operationId: 'op-turn-limit',
+        userId: 'user-123',
+        intent: 'Keep researching until complete',
+        origin: TEST_ORIGIN,
+        priority: 'normal',
+        createdAt: new Date().toISOString(),
+        context: {
+          agenticTurnCount: 6,
+        },
+      };
+
+      const updates: AgentJobUpdate[] = [];
+      const result = await router.run(payload, (u) => updates.push(u));
+
+      expect(result.summary).toContain('maximum execution turn limit');
+      expect(result.data).toEqual(
+        expect.objectContaining({
+          maxIterationsReached: true,
+          operationStatus: 'failed',
+          maxAgenticTurns: 6,
+          agenticTurnCount: 7,
+        })
+      );
+      expect(contextBuilder.buildPromptContext).not.toHaveBeenCalled();
+      expect(updates.some((u) => u.status === 'failed')).toBe(true);
+    });
+
     it('should resume yielded approval jobs via resumeExecution and forward approvalId', async () => {
       llm = createMockLLM({ tasks: [] });
 
@@ -477,11 +510,94 @@ describe('AgentRouter', () => {
 
       const result = await router.run(payload);
 
-      expect(result.summary).toContain('Could not create an execution plan');
-      expect(result.suggestions).toBeDefined();
+      expect(result.summary).toBe('Created execution plan with 0 task(s).');
+      expect(result.suggestions).toEqual([]);
     });
 
-    it('should throw when assigned agent is not registered', async () => {
+    it('should answer greeting chat through the Chief of Staff direct-response path', async () => {
+      llm = createMockLLM({
+        summary: 'Chief of Staff greeting response.',
+        directResponse:
+          "I'm Agent X, your NXT1 Chief of Staff. UserID 19oowBH8EfZ6AYrU4fNuRSreonO2 TeamID mC3D9qg5d9amvcO0otvi OrgID nB8n9iNsm5M5KBxfGUC9.",
+        tasks: [],
+      });
+
+      const router = new AgentRouter(llm, toolRegistry, contextBuilder);
+
+      const payload: AgentJobPayload = {
+        operationId: 'op-chief-of-staff-fallback',
+        userId: 'user-123',
+        intent: 'hello',
+        origin: TEST_ORIGIN,
+        priority: 'normal',
+        createdAt: new Date().toISOString(),
+      };
+
+      const updates: AgentJobUpdate[] = [];
+      const result = await router.run(payload, (update) => updates.push(update));
+
+      expect(result.summary).toContain("I'm Agent X, your NXT1 Chief of Staff.");
+      expect(result.summary).not.toContain('19oowBH8EfZ6AYrU4fNuRSreonO2');
+      expect(result.summary).not.toContain('mC3D9qg5d9amvcO0otvi');
+      expect(result.summary).not.toContain('nB8n9iNsm5M5KBxfGUC9');
+      expect(
+        updates.some(
+          (update) =>
+            (update.agentId === 'router' || update.step?.agentId === 'router') &&
+            (update.metadata?.['executionMode'] === 'chief_of_staff_direct' ||
+              update.step?.metadata?.['executionMode'] === 'chief_of_staff_direct')
+        )
+      ).toBe(true);
+      expect(
+        updates.some(
+          (update) =>
+            (typeof update.step?.message === 'string' &&
+              update.step.message.includes('[redacted]')) ||
+            (typeof (update as { message?: unknown }).message === 'string' &&
+              ((update as { message?: string }).message?.includes('[redacted]') ?? false))
+        )
+      ).toBe(true);
+    });
+
+    it('should stream Chief of Staff direct responses as multiple non-batched deltas', async () => {
+      const directResponse =
+        "Hi John! I'm the Chief of Staff for Agent X, the AI engine of NXT1 Sports. I'm here to help you manage your Crown Point Bulldogs basketball program. What would you like to accomplish today?";
+
+      llm = createMockLLM({
+        summary: 'Chief of Staff greeting response.',
+        directResponse,
+        tasks: [],
+      });
+
+      const router = new AgentRouter(llm, toolRegistry, contextBuilder);
+
+      const payload: AgentJobPayload = {
+        operationId: 'op-chief-of-staff-stream-chunks',
+        userId: 'user-123',
+        intent: 'hello',
+        origin: TEST_ORIGIN,
+        priority: 'normal',
+        createdAt: new Date().toISOString(),
+      };
+
+      const streamedEvents: Array<{ type?: string; text?: string; noBatch?: boolean }> = [];
+
+      const result = await router.run(payload, undefined, undefined, (event) =>
+        streamedEvents.push(event)
+      );
+
+      const deltaEvents = streamedEvents.filter((event) => event.type === 'delta');
+      expect(deltaEvents.length).toBeGreaterThan(1);
+      expect(deltaEvents.every((event) => event.noBatch === true)).toBe(true);
+
+      const streamedText = deltaEvents
+        .map((event) => event.text ?? '')
+        .join('')
+        .trim();
+      expect(streamedText).toBe(result.summary.trim());
+    });
+
+    it('should fail when planner assigns a non-routable agent', async () => {
       llm = createMockLLM({
         tasks: [{ id: '1', assignedAgent: 'nonexistent', description: 'test', dependsOn: [] }],
       });
@@ -498,10 +614,726 @@ describe('AgentRouter', () => {
       };
 
       const updates: AgentJobUpdate[] = [];
-      await router.run(payload, (u) => updates.push(u));
+      const result = await router.run(payload, (u) => updates.push(u));
 
-      // Should emit failure for the unregistered agent
-      expect(updates.some((u) => u.step?.message?.includes('No agent registered'))).toBe(true);
+      expect(result.summary).toContain('Planner assigned non-routable agents');
+      expect(updates.some((u) => u.status === 'failed')).toBe(true);
+    });
+
+    it('should perform one constrained replan when first plan is infeasible', async () => {
+      llm = {
+        prompt: vi.fn().mockImplementation(async (_system, _input, config) => {
+          if ((config?.maxTokens ?? 0) <= 512) {
+            const classificationResult = {
+              isConversational: false,
+              reasoning: 'Coordinator execution required',
+              estimatedComplexity: 'moderate',
+            };
+
+            return {
+              content: JSON.stringify(classificationResult),
+              parsedOutput: classificationResult,
+              toolCalls: [],
+              model: 'deepseek/deepseek-v3.2',
+              usage: { inputTokens: 50, outputTokens: 20, totalTokens: 70 },
+              latencyMs: 100,
+              costUsd: 0.00005,
+              finishReason: 'stop',
+            };
+          }
+
+          const plan =
+            (llm.prompt as ReturnType<typeof vi.fn>).mock.calls.length <= 2
+              ? {
+                  summary: 'Initial infeasible plan.',
+                  tasks: [
+                    {
+                      id: '1',
+                      assignedAgent: 'admin_coordinator',
+                      description: 'invalid task',
+                      dependsOn: [],
+                    },
+                  ],
+                }
+              : {
+                  summary: 'Replanned feasible plan.',
+                  tasks: [
+                    {
+                      id: '1',
+                      assignedAgent: 'strategy_coordinator',
+                      description: 'valid task',
+                      dependsOn: [],
+                    },
+                  ],
+                };
+
+          return {
+            content: JSON.stringify(plan),
+            parsedOutput: plan,
+            toolCalls: [],
+            model: 'anthropic/claude-sonnet-4.5',
+            usage: { inputTokens: 100, outputTokens: 40, totalTokens: 140 },
+            latencyMs: 150,
+            costUsd: 0.0002,
+            finishReason: 'stop',
+          };
+        }),
+        complete: vi.fn(),
+        embed: vi.fn().mockResolvedValue([0.1, 0.2, 0.3]),
+      } as unknown as OpenRouterService;
+
+      const strategyAgent = createMockAgent('strategy_coordinator', {
+        summary: 'Replanned task executed successfully.',
+        suggestions: [],
+      });
+
+      const router = new AgentRouter(llm, toolRegistry, contextBuilder);
+      router.registerAgent(strategyAgent);
+
+      const payload: AgentJobPayload = {
+        operationId: 'op-replan-once',
+        userId: 'user-123',
+        intent: 'Do the task with replanning if needed',
+        origin: TEST_ORIGIN,
+        priority: 'normal',
+        createdAt: new Date().toISOString(),
+      };
+
+      const updates: AgentJobUpdate[] = [];
+      const result = await router.run(payload, (u) => updates.push(u));
+
+      expect((llm.prompt as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThanOrEqual(2);
+      expect(updates.some((u) => u.step?.message?.includes('attempting constrained replan'))).toBe(
+        true
+      );
+      expect(result.summary.length).toBeGreaterThan(0);
+    });
+
+    it('should fail with capability_mismatch after one constrained replan', async () => {
+      let planningCalls = 0;
+
+      llm = {
+        prompt: vi.fn().mockImplementation(async (_system, _input, config) => {
+          if ((config?.maxTokens ?? 0) <= 512) {
+            const classificationResult = {
+              isConversational: false,
+              reasoning: 'Coordinator execution required',
+              estimatedComplexity: 'moderate',
+            };
+
+            return {
+              content: JSON.stringify(classificationResult),
+              parsedOutput: classificationResult,
+              toolCalls: [],
+              model: 'deepseek/deepseek-v3.2',
+              usage: { inputTokens: 50, outputTokens: 20, totalTokens: 70 },
+              latencyMs: 100,
+              costUsd: 0.00005,
+              finishReason: 'stop',
+            };
+          }
+
+          planningCalls += 1;
+          const plan =
+            planningCalls === 1
+              ? {
+                  summary: 'Initial capability-mismatched plan.',
+                  tasks: [
+                    {
+                      id: '1',
+                      assignedAgent: 'strategy_coordinator',
+                      description: 'task one',
+                      dependsOn: [],
+                    },
+                  ],
+                }
+              : {
+                  summary: 'Replanned but still mismatched.',
+                  tasks: [
+                    {
+                      id: '2',
+                      assignedAgent: 'strategy_coordinator',
+                      description: 'task two',
+                      dependsOn: [],
+                    },
+                  ],
+                };
+
+          return {
+            content: JSON.stringify(plan),
+            parsedOutput: plan,
+            toolCalls: [],
+            model: 'anthropic/claude-sonnet-4.5',
+            usage: { inputTokens: 100, outputTokens: 40, totalTokens: 140 },
+            latencyMs: 150,
+            costUsd: 0.0002,
+            finishReason: 'stop',
+          };
+        }),
+        complete: vi.fn(),
+        embed: vi.fn().mockResolvedValue([0.1, 0.2, 0.3]),
+      } as unknown as OpenRouterService;
+
+      const router = new AgentRouter(llm, toolRegistry, contextBuilder);
+      router.registerAgent(createMockAgent('strategy_coordinator'));
+      router.registerAgent(createMockAgent('recruiting_coordinator'));
+
+      (
+        router as unknown as {
+          buildCapabilitySnapshot: (
+            intent: string,
+            toolAccessContext: unknown
+          ) => Promise<{
+            schemaVersion: number;
+            hash: string;
+            coordinators: Array<{
+              agentId: string;
+              allowedToolNames: string[];
+              allowedEntityGroups: string[];
+              matchedToolNames: string[];
+              staticSkillHints: string[];
+              matchedSkillHints: string[];
+              confidence: {
+                matchedToolCount: number;
+                allowedToolCount: number;
+                toolCoverageRatio: number;
+                matchedSkillCount: number;
+                staticSkillCount: number;
+                skillCoverageRatio: number;
+              };
+            }>;
+          }>;
+        }
+      ).buildCapabilitySnapshot = vi.fn().mockResolvedValue({
+        schemaVersion: 1,
+        hash: 'snapshot-hash',
+        coordinators: [
+          {
+            agentId: 'strategy_coordinator',
+            allowedToolNames: ['plan_strategy'],
+            allowedEntityGroups: [],
+            matchedToolNames: [],
+            staticSkillHints: [],
+            matchedSkillHints: [],
+            confidence: {
+              matchedToolCount: 0,
+              allowedToolCount: 1,
+              toolCoverageRatio: 0,
+              matchedSkillCount: 0,
+              staticSkillCount: 0,
+              skillCoverageRatio: 0,
+            },
+          },
+          {
+            agentId: 'recruiting_coordinator',
+            allowedToolNames: ['send_email'],
+            allowedEntityGroups: [],
+            matchedToolNames: ['send_email'],
+            staticSkillHints: [],
+            matchedSkillHints: [],
+            confidence: {
+              matchedToolCount: 1,
+              allowedToolCount: 1,
+              toolCoverageRatio: 1,
+              matchedSkillCount: 0,
+              staticSkillCount: 0,
+              skillCoverageRatio: 0,
+            },
+          },
+        ],
+      });
+
+      const payload: AgentJobPayload = {
+        operationId: 'op-capability-mismatch',
+        userId: 'user-123',
+        intent: 'Find coaches and run recruiting outreach',
+        origin: TEST_ORIGIN,
+        priority: 'normal',
+        createdAt: new Date().toISOString(),
+      };
+
+      const updates: AgentJobUpdate[] = [];
+      const result = await router.run(payload, (u) => updates.push(u));
+
+      expect((llm.prompt as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThanOrEqual(2);
+      expect(result.summary).toContain('infeasible execution plan');
+      expect(result.summary).toContain('capability_mismatch');
+      expect(result.data?.['operationStatus']).toBe('failed');
+      expect(result.data?.['preflightIssueCounts']).toMatchObject({ capability_mismatch: 1 });
+      expect(updates.some((u) => u.step?.message?.includes('attempting constrained replan'))).toBe(
+        true
+      );
+    });
+
+    it('should fail fast when constrained replan is a no-op', async () => {
+      llm = createMockLLM({ tasks: [] });
+
+      const router = new AgentRouter(llm, toolRegistry, contextBuilder);
+      router.registerAgent(createMockAgent('strategy_coordinator'));
+
+      const noOpPlan = {
+        summary: 'Invalid plan returned repeatedly.',
+        tasks: [
+          {
+            id: '1',
+            assignedAgent: 'strategy_coordinator',
+            description: 'invalid dependency chain',
+            dependsOn: ['missing-task-99'],
+          },
+        ],
+      };
+
+      const mockedPlanner = {
+        execute: vi
+          .fn()
+          .mockResolvedValueOnce({
+            summary: 'Initial invalid plan.',
+            data: { plan: noOpPlan },
+            suggestions: [],
+          })
+          .mockResolvedValueOnce({
+            summary: 'Replanned invalid plan is identical.',
+            data: { plan: noOpPlan },
+            suggestions: [],
+          }),
+      };
+
+      (router as unknown as { planner: { execute: typeof mockedPlanner.execute } }).planner =
+        mockedPlanner;
+
+      const payload: AgentJobPayload = {
+        operationId: 'op-noop-replan',
+        userId: 'user-123',
+        intent: 'Generate a valid strategy plan',
+        origin: TEST_ORIGIN,
+        priority: 'normal',
+        createdAt: new Date().toISOString(),
+      };
+
+      const updates: AgentJobUpdate[] = [];
+      const result = await router.run(payload, (u) => updates.push(u));
+
+      expect(result.summary).toContain('did not change the infeasible execution plan');
+      expect(result.data?.['operationStatus']).toBe('failed');
+      expect(result.data?.['replanNoOp']).toBe(true);
+      expect(result.data?.['preflightIssueCounts']).toMatchObject({ unknown_dependency: 1 });
+      expect(mockedPlanner.execute).toHaveBeenCalledTimes(2);
+      expect(updates.some((u) => u.step?.message?.includes('attempting constrained replan'))).toBe(
+        true
+      );
+    });
+
+    it('should fail preflight when planner emits duplicate task IDs', async () => {
+      llm = createMockLLM({
+        summary: 'Duplicate IDs plan',
+        tasks: [
+          {
+            id: '1',
+            assignedAgent: 'strategy_coordinator',
+            description: 'first task',
+            dependsOn: [],
+          },
+          {
+            id: '1',
+            assignedAgent: 'strategy_coordinator',
+            description: 'second task with duplicate id',
+            dependsOn: [],
+          },
+        ],
+      });
+
+      const router = new AgentRouter(llm, toolRegistry, contextBuilder);
+      router.registerAgent(createMockAgent('strategy_coordinator'));
+
+      const payload: AgentJobPayload = {
+        operationId: 'op-duplicate-task-id',
+        userId: 'user-123',
+        intent: 'Run duplicate ID plan',
+        origin: TEST_ORIGIN,
+        priority: 'normal',
+        createdAt: new Date().toISOString(),
+      };
+
+      const updates: AgentJobUpdate[] = [];
+      const result = await router.run(payload, (u) => updates.push(u));
+
+      expect(result.summary).toContain('infeasible execution plan');
+      expect(result.summary).toContain('duplicate_task_id');
+      expect(result.data?.['operationStatus']).toBe('failed');
+      expect(updates.some((u) => u.step?.message?.includes('attempting constrained replan'))).toBe(
+        true
+      );
+    });
+
+    it('should fail preflight when planner emits circular dependencies', async () => {
+      llm = createMockLLM({ tasks: [] });
+
+      const router = new AgentRouter(llm, toolRegistry, contextBuilder);
+      router.registerAgent(createMockAgent('strategy_coordinator'));
+
+      const circularPlan = {
+        summary: 'Circular dependency plan',
+        tasks: [
+          {
+            id: '1',
+            assignedAgent: 'strategy_coordinator',
+            description: 'task one',
+            dependsOn: ['2'],
+          },
+          {
+            id: '2',
+            assignedAgent: 'strategy_coordinator',
+            description: 'task two',
+            dependsOn: ['1'],
+          },
+        ],
+      };
+
+      const mockedPlanner = {
+        execute: vi
+          .fn()
+          .mockResolvedValueOnce({
+            summary: 'Initial circular plan.',
+            data: { plan: circularPlan },
+            suggestions: [],
+          })
+          .mockResolvedValueOnce({
+            summary: 'Replanned circular plan still invalid.',
+            data: { plan: circularPlan },
+            suggestions: [],
+          }),
+      };
+
+      (router as unknown as { planner: { execute: typeof mockedPlanner.execute } }).planner =
+        mockedPlanner;
+
+      const payload: AgentJobPayload = {
+        operationId: 'op-circular-dependency',
+        userId: 'user-123',
+        intent: 'Run circular dependency plan',
+        origin: TEST_ORIGIN,
+        priority: 'normal',
+        createdAt: new Date().toISOString(),
+      };
+
+      const updates: AgentJobUpdate[] = [];
+      const result = await router.run(payload, (u) => updates.push(u));
+
+      expect(result.summary).toContain('infeasible execution plan');
+      expect(result.summary).toContain('circular_dependency');
+      expect(result.data?.['operationStatus']).toBe('failed');
+      expect(mockedPlanner.execute).toHaveBeenCalledTimes(2);
+      expect(updates.some((u) => u.step?.message?.includes('attempting constrained replan'))).toBe(
+        true
+      );
+    });
+
+    it('should fail preflight when planner emits an empty task id', async () => {
+      llm = createMockLLM({
+        summary: 'Missing task id plan',
+        tasks: [
+          {
+            id: '',
+            assignedAgent: 'strategy_coordinator',
+            description: 'task missing id',
+            dependsOn: [],
+          },
+        ],
+      });
+
+      const router = new AgentRouter(llm, toolRegistry, contextBuilder);
+      router.registerAgent(createMockAgent('strategy_coordinator'));
+
+      const payload: AgentJobPayload = {
+        operationId: 'op-missing-task-id',
+        userId: 'user-123',
+        intent: 'Run missing task id plan',
+        origin: TEST_ORIGIN,
+        priority: 'normal',
+        createdAt: new Date().toISOString(),
+      };
+
+      const updates: AgentJobUpdate[] = [];
+      const result = await router.run(payload, (u) => updates.push(u));
+
+      expect(result.summary).toContain('infeasible execution plan');
+      expect(result.summary).toContain('missing_task_id');
+      expect(result.data?.['operationStatus']).toBe('failed');
+      expect(updates.some((u) => u.step?.message?.includes('attempting constrained replan'))).toBe(
+        true
+      );
+    });
+
+    it('should fail preflight when planner emits self dependency', async () => {
+      llm = createMockLLM({ tasks: [] });
+
+      const router = new AgentRouter(llm, toolRegistry, contextBuilder);
+      router.registerAgent(createMockAgent('strategy_coordinator'));
+
+      const selfDependencyPlan = {
+        summary: 'Self dependency plan',
+        tasks: [
+          {
+            id: '1',
+            assignedAgent: 'strategy_coordinator',
+            description: 'task depends on itself',
+            dependsOn: ['1'],
+          },
+        ],
+      };
+
+      const mockedPlanner = {
+        execute: vi
+          .fn()
+          .mockResolvedValueOnce({
+            summary: 'Initial self-dependency plan.',
+            data: { plan: selfDependencyPlan },
+            suggestions: [],
+          })
+          .mockResolvedValueOnce({
+            summary: 'Replanned self-dependency plan still invalid.',
+            data: { plan: selfDependencyPlan },
+            suggestions: [],
+          }),
+      };
+
+      (router as unknown as { planner: { execute: typeof mockedPlanner.execute } }).planner =
+        mockedPlanner;
+
+      const payload: AgentJobPayload = {
+        operationId: 'op-self-dependency',
+        userId: 'user-123',
+        intent: 'Run self dependency plan',
+        origin: TEST_ORIGIN,
+        priority: 'normal',
+        createdAt: new Date().toISOString(),
+      };
+
+      const updates: AgentJobUpdate[] = [];
+      const result = await router.run(payload, (u) => updates.push(u));
+
+      expect(result.summary).toContain('infeasible execution plan');
+      expect(result.summary).toContain('self_dependency');
+      expect(result.data?.['operationStatus']).toBe('failed');
+      expect(mockedPlanner.execute).toHaveBeenCalledTimes(2);
+      expect(updates.some((u) => u.step?.message?.includes('attempting constrained replan'))).toBe(
+        true
+      );
+    });
+
+    it('should fail preflight when planner emits an oversized task plan', async () => {
+      llm = createMockLLM({ tasks: [] });
+
+      const router = new AgentRouter(llm, toolRegistry, contextBuilder);
+      router.registerAgent(createMockAgent('strategy_coordinator'));
+
+      const oversizedPlan = {
+        summary: 'Oversized plan with too many tasks',
+        tasks: Array.from({ length: 25 }, (_, index) => ({
+          id: `${index + 1}`,
+          assignedAgent: 'strategy_coordinator',
+          description: `task ${index + 1}`,
+          dependsOn: [],
+        })),
+      };
+
+      const mockedPlanner = {
+        execute: vi
+          .fn()
+          .mockResolvedValueOnce({
+            summary: 'Initial oversized plan.',
+            data: { plan: oversizedPlan },
+            suggestions: [],
+          })
+          .mockResolvedValueOnce({
+            summary: 'Replanned oversized plan still invalid.',
+            data: { plan: oversizedPlan },
+            suggestions: [],
+          }),
+      };
+
+      (router as unknown as { planner: { execute: typeof mockedPlanner.execute } }).planner =
+        mockedPlanner;
+
+      const payload: AgentJobPayload = {
+        operationId: 'op-oversized-plan',
+        userId: 'user-123',
+        intent: 'Build an extremely detailed mega plan',
+        origin: TEST_ORIGIN,
+        priority: 'normal',
+        createdAt: new Date().toISOString(),
+      };
+
+      const result = await router.run(payload);
+
+      expect(result.summary).toContain('plan_task_limit_exceeded');
+      expect(result.data?.['operationStatus']).toBe('failed');
+      expect(result.data?.['preflightIssueCounts']).toMatchObject({
+        plan_task_limit_exceeded: 1,
+      });
+      expect(mockedPlanner.execute).toHaveBeenCalledTimes(2);
+    });
+
+    it('should fail preflight when task dependencies exceed limits or repeat', async () => {
+      llm = createMockLLM({ tasks: [] });
+
+      const router = new AgentRouter(llm, toolRegistry, contextBuilder);
+      router.registerAgent(createMockAgent('strategy_coordinator'));
+
+      const excessiveDependenciesPlan = {
+        summary: 'Task has too many dependencies and duplicates',
+        tasks: [
+          {
+            id: '1',
+            assignedAgent: 'strategy_coordinator',
+            description: 'aggregate all prior steps',
+            dependsOn: ['2', '2', '3', '4', '5', '6', '7', '8', '9'],
+          },
+          ...Array.from({ length: 8 }, (_, index) => ({
+            id: `${index + 2}`,
+            assignedAgent: 'strategy_coordinator',
+            description: `dependency task ${index + 2}`,
+            dependsOn: [],
+          })),
+        ],
+      };
+
+      const mockedPlanner = {
+        execute: vi
+          .fn()
+          .mockResolvedValueOnce({
+            summary: 'Initial dependency-heavy plan.',
+            data: { plan: excessiveDependenciesPlan },
+            suggestions: [],
+          })
+          .mockResolvedValueOnce({
+            summary: 'Replanned dependency-heavy plan still invalid.',
+            data: { plan: excessiveDependenciesPlan },
+            suggestions: [],
+          }),
+      };
+
+      (router as unknown as { planner: { execute: typeof mockedPlanner.execute } }).planner =
+        mockedPlanner;
+
+      const payload: AgentJobPayload = {
+        operationId: 'op-dependency-limit',
+        userId: 'user-123',
+        intent: 'Build dependency heavy plan',
+        origin: TEST_ORIGIN,
+        priority: 'normal',
+        createdAt: new Date().toISOString(),
+      };
+
+      const result = await router.run(payload);
+
+      expect(result.summary).toContain('task_dependency_limit_exceeded');
+      expect(result.summary).toContain('duplicate_dependency');
+      expect(result.data?.['operationStatus']).toBe('failed');
+      expect(result.data?.['preflightIssueCounts']).toMatchObject({
+        task_dependency_limit_exceeded: 1,
+        duplicate_dependency: 1,
+      });
+      expect(mockedPlanner.execute).toHaveBeenCalledTimes(2);
+    });
+
+    it('should emit replan issue-delta telemetry when constrained replan fixes issues', async () => {
+      llm = createMockLLM({ tasks: [] });
+
+      const router = new AgentRouter(llm, toolRegistry, contextBuilder);
+      router.registerAgent(createMockAgent('strategy_coordinator'));
+
+      const mockedPlanner = {
+        execute: vi
+          .fn()
+          .mockResolvedValueOnce({
+            summary: 'Initial invalid plan.',
+            data: {
+              plan: {
+                summary: 'Unknown dependency plan',
+                tasks: [
+                  {
+                    id: '1',
+                    assignedAgent: 'strategy_coordinator',
+                    description: 'run analysis',
+                    dependsOn: ['missing-task-999'],
+                  },
+                ],
+              },
+            },
+            suggestions: [],
+          })
+          .mockResolvedValueOnce({
+            summary: 'Corrected plan.',
+            data: {
+              plan: {
+                summary: 'Feasible plan',
+                tasks: [
+                  {
+                    id: '1',
+                    assignedAgent: 'strategy_coordinator',
+                    description: 'run analysis',
+                    dependsOn: [],
+                  },
+                ],
+              },
+            },
+            suggestions: [],
+          }),
+      };
+
+      (router as unknown as { planner: { execute: typeof mockedPlanner.execute } }).planner =
+        mockedPlanner;
+
+      const payload: AgentJobPayload = {
+        operationId: 'op-replan-delta',
+        userId: 'user-123',
+        intent: 'Run the analysis task',
+        origin: TEST_ORIGIN,
+        priority: 'normal',
+        createdAt: new Date().toISOString(),
+      };
+
+      const updates: AgentJobUpdate[] = [];
+      const result = await router.run(payload, (u) => updates.push(u));
+
+      const replanFinished = updates.find(
+        (u) =>
+          typeof u.step?.payload === 'object' &&
+          u.step?.payload !== null &&
+          (u.step?.payload as Record<string, unknown>)['eventType'] === 'plan_replan_finished'
+      );
+
+      expect(replanFinished).toBeDefined();
+      const issueDelta = (replanFinished?.step?.payload as Record<string, unknown>)[
+        'issueDelta'
+      ] as {
+        beforeCount: number;
+        afterCount: number;
+        resolved: string[];
+        introduced: string[];
+      };
+      expect(issueDelta.beforeCount).toBe(1);
+      expect(issueDelta.afterCount).toBe(0);
+      expect(issueDelta.resolved).toContain('1:unknown_dependency');
+      expect(issueDelta.introduced).toEqual([]);
+
+      const planCreatedUpdate = updates.find(
+        (u) =>
+          typeof u.step?.payload === 'object' &&
+          u.step?.payload !== null &&
+          (u.step?.payload as Record<string, unknown>)['eventType'] === 'plan_created'
+      );
+
+      expect(planCreatedUpdate?.metadata?.['preflightIssueDelta']).toEqual(
+        expect.objectContaining({
+          beforeCount: 1,
+          afterCount: 0,
+        })
+      );
+
+      expect(result.data?.['operationStatus']).toBeUndefined();
+      expect(mockedPlanner.execute).toHaveBeenCalledTimes(2);
     });
   });
 
@@ -531,8 +1363,11 @@ describe('AgentRouter', () => {
       await router.run(payload);
 
       // The LLM prompt (planner) should receive enriched intent
-      const promptCall = (llm.prompt as ReturnType<typeof vi.fn>).mock.calls[0];
-      const userMessage = promptCall[1] as string;
+      const plannerCalls = (llm.prompt as ReturnType<typeof vi.fn>).mock.calls;
+      const planningCall =
+        plannerCalls.find((call) => call[2]?.outputSchema?.name === 'planner_execution_plan') ??
+        plannerCalls[plannerCalls.length - 1];
+      const userMessage = planningCall[1] as string;
 
       expect(userMessage).toContain('[User Profile]');
       expect(userMessage).toContain('Test Athlete');
@@ -540,6 +1375,95 @@ describe('AgentRouter', () => {
       expect(userMessage).toContain('MemoryCount: 1');
       expect(userMessage).toContain('[Request]');
       expect(userMessage).toContain('Help me improve my stats');
+    });
+
+    it('should attach planner-time capability snapshot to planning input', async () => {
+      llm = createMockLLM({
+        tasks: [
+          { id: '1', assignedAgent: 'strategy_coordinator', description: 'test', dependsOn: [] },
+        ],
+      });
+
+      const router = new AgentRouter(llm, toolRegistry, contextBuilder);
+      router.registerAgent(createMockAgent('strategy_coordinator'));
+
+      const payload: AgentJobPayload = {
+        operationId: 'op-capability-snapshot',
+        userId: 'user-123',
+        intent: 'Build a weekly recruiting strategy',
+        origin: TEST_ORIGIN,
+        priority: 'normal',
+        createdAt: new Date().toISOString(),
+      };
+
+      await router.run(payload);
+
+      const planningCall = (llm.prompt as ReturnType<typeof vi.fn>).mock.calls[1];
+      const planningIntent = planningCall[1] as string;
+
+      expect(planningIntent).toContain('[Coordinator Capability Snapshot]');
+      expect(planningIntent).toContain('schemaVersion: 1');
+      expect(planningIntent).toContain('strategy_coordinator');
+    });
+
+    it('should keep capability snapshot aligned with policy-filtered tool exposure', async () => {
+      llm = createMockLLM({ tasks: [] });
+
+      const router = new AgentRouter(llm, toolRegistry, contextBuilder);
+      router.registerAgent(new RecruitingCoordinatorAgent());
+
+      const toolAccessContext = {
+        operationId: 'op-policy-alignment',
+        userId: 'user-123',
+        origin: TEST_ORIGIN,
+        environment: 'production' as const,
+      };
+
+      (toolRegistry.getDefinitions as ReturnType<typeof vi.fn>).mockImplementation(
+        (agentId: string) => {
+          if (agentId !== 'recruiting_coordinator') return [];
+          return [
+            {
+              name: 'search_colleges',
+              description: 'Search colleges',
+              category: 'database',
+            },
+            {
+              name: 'query_gmail_emails',
+              description: 'Query Gmail',
+              category: 'integration',
+            },
+            {
+              name: 'unassigned_internal_tool',
+              description: 'Should not be surfaced in capability snapshot',
+              category: 'integration',
+            },
+          ];
+        }
+      );
+
+      const snapshot = await (
+        router as unknown as {
+          buildCapabilitySnapshot: (
+            intent: string,
+            accessContext: typeof toolAccessContext
+          ) => Promise<{
+            coordinators: Array<{
+              agentId: string;
+              allowedToolNames: string[];
+            }>;
+          }>;
+        }
+      ).buildCapabilitySnapshot('Find football colleges and email coaches', toolAccessContext);
+
+      const recruitingSnapshot = snapshot.coordinators.find(
+        (coordinator) => coordinator.agentId === 'recruiting_coordinator'
+      );
+
+      expect(recruitingSnapshot).toBeDefined();
+      expect(recruitingSnapshot?.allowedToolNames).toContain('search_colleges');
+      expect(recruitingSnapshot?.allowedToolNames).toContain('query_gmail_emails');
+      expect(recruitingSnapshot?.allowedToolNames).not.toContain('unassigned_internal_tool');
     });
   });
 
@@ -726,37 +1650,106 @@ describe('AgentRouter', () => {
       expect(updates.some((u) => u.step?.message?.includes('Transferring'))).toBe(true);
     });
 
-    it('should fail the task when delegation occurs in DAG execution (Planner path)', async () => {
-      // Direct agent path: brand_coordinator delegates → Router re-dispatches through Planner
-      // → Planner routes to brand_coordinator again → DAG catch treats it as immediate task failure
-      llm = createMockLLM({
-        summary: 'Route to brand media.',
-        tasks: [
-          {
-            id: '1',
-            assignedAgent: 'brand_coordinator',
-            description: 'Handle it',
-            dependsOn: [],
-          },
-        ],
-      });
+    it('should reroute the task when delegation occurs in DAG execution (Planner path)', async () => {
+      const plannerCallCount = { value: 0 };
 
-      const brandMediaAgent = createMockAgent('brand_coordinator');
-      (brandMediaAgent.execute as ReturnType<typeof vi.fn>).mockRejectedValue(
+      llm = {
+        prompt: vi.fn().mockImplementation(async () => {
+          plannerCallCount.value++;
+
+          if (plannerCallCount.value === 1 || plannerCallCount.value === 3) {
+            const classificationResult = {
+              isConversational: false,
+              reasoning: 'Coordinator execution required',
+              estimatedComplexity: 'moderate',
+            };
+
+            return {
+              content: JSON.stringify(classificationResult),
+              parsedOutput: classificationResult,
+              toolCalls: [],
+              model: 'deepseek/deepseek-v3.2',
+              usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
+              latencyMs: 200,
+              costUsd: 0.0001,
+              finishReason: 'stop',
+            };
+          }
+
+          if (plannerCallCount.value === 2) {
+            const initialPlan = {
+              summary: 'Route to admin.',
+              tasks: [
+                {
+                  id: '1',
+                  assignedAgent: 'admin_coordinator',
+                  description:
+                    'Send email to nxt1@nxt1sports.com asking them to check out the platform.',
+                  dependsOn: [],
+                },
+              ],
+            };
+
+            return {
+              content: JSON.stringify(initialPlan),
+              parsedOutput: initialPlan,
+              toolCalls: [],
+              model: 'anthropic/claude-haiku-4-5',
+              usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
+              latencyMs: 200,
+              costUsd: 0.0001,
+              finishReason: 'stop',
+            };
+          }
+
+          const reroutedPlan = {
+            summary: 'Route to recruiting.',
+            tasks: [
+              {
+                id: '1',
+                assignedAgent: 'recruiting_coordinator',
+                description: 'Draft and send the requested email to nxt1@nxt1sports.com.',
+                dependsOn: [],
+              },
+            ],
+          };
+
+          return {
+            content: JSON.stringify(reroutedPlan),
+            parsedOutput: reroutedPlan,
+            toolCalls: [],
+            model: 'anthropic/claude-haiku-4-5',
+            usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
+            latencyMs: 200,
+            costUsd: 0.0001,
+            finishReason: 'stop',
+          };
+        }),
+        complete: vi.fn(),
+      } as unknown as OpenRouterService;
+
+      const adminAgent = createMockAgent('admin_coordinator');
+      (adminAgent.execute as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
         new AgentDelegationException({
-          forwardingIntent: 'I cannot handle this',
-          sourceAgent: 'brand_coordinator',
+          forwardingIntent:
+            'Send an email to nxt1@nxt1sports.com with a link to nxt1sports.com and a message to check out the platform.',
+          sourceAgent: 'admin_coordinator',
         })
       );
 
+      const recruitingAgent = createMockAgent('recruiting_coordinator', {
+        summary: 'Email sent successfully.',
+        suggestions: [],
+      });
+
       const router = new AgentRouter(llm, toolRegistry, contextBuilder);
-      router.registerAgent(brandMediaAgent);
+      router.registerAgent(adminAgent);
+      router.registerAgent(recruitingAgent);
 
       const payload: AgentJobPayload = {
         operationId: 'op-delegation-loop',
         userId: 'user-123',
-        intent: 'Do something ambiguous',
-        agent: 'brand_coordinator' as AgentJobPayload['agent'],
+        intent: 'Send email to nxt1@nxt1sports.com asking them to check out the platform',
         origin: TEST_ORIGIN,
         priority: 'normal',
         createdAt: new Date().toISOString(),
@@ -765,19 +1758,13 @@ describe('AgentRouter', () => {
       const updates: AgentJobUpdate[] = [];
       const result = await router.run(payload, (u) => updates.push(u));
 
-      expect(result.summary).toContain('Execution plan failed.');
-      expect(result.summary).toContain('brand_coordinator');
-      expect(result.data).toMatchObject({
-        operationStatus: 'failed',
-        firstFailedTask: {
-          id: '1',
-          assignedAgent: 'brand_coordinator',
-        },
-      });
-      // The brand coordinator should have been called at least twice (direct + DAG)
-      expect(brandMediaAgent.execute).toHaveBeenCalled();
-      // Should have emitted a "misrouted" update from the DAG handler
-      expect(updates.some((u) => u.step?.message?.includes('misrouted'))).toBe(true);
+      expect(result.summary).toContain('Email sent successfully.');
+      expect(adminAgent.execute).toHaveBeenCalledTimes(1);
+      expect(recruitingAgent.execute).toHaveBeenCalledTimes(1);
+      expect(plannerCallCount.value).toBe(4);
+      expect(
+        updates.some((u) => u.step?.message?.includes('rerouted to recruiting_coordinator'))
+      ).toBe(true);
     });
 
     it('should include routing hint to avoid same-agent bounce', async () => {

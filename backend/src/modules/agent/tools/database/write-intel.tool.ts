@@ -30,14 +30,9 @@ export class WriteIntelTool extends BaseTool {
 
   readonly parameters = WriteIntelInputSchema;
 
-  override readonly allowedAgents = [
-    'data_coordinator',
-    'performance_coordinator',
-    'recruiting_coordinator',
-    'strategy_coordinator',
-  ] as const;
+  override readonly allowedAgents = ['*'] as const;
   readonly isMutation = true;
-  readonly category = 'database' as const;
+  readonly category = 'system' as const;
 
   readonly entityGroup = 'platform_tools' as const;
   constructor(private readonly db: Firestore = getFirestore()) {

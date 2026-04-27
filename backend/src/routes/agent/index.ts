@@ -2,11 +2,12 @@
  * @fileoverview Agent X route barrel — composes all sub-routers.
  *
  * Sub-routers (in mount order):
- *   chat          — /cancel/:id, /resume-job/:operationId, /approvals/:id/resolve, /enqueue, /chat
+ *   chat          — /pause/:id, /cancel/:id, /resume-job/:operationId, /approvals/:id/resolve, /enqueue, /chat
  *   dashboard     — /history, /operations-log, /dashboard, /goals, /upload
  *   generation    — /playbook/generate, /playbook/item/:id/status, /briefing/generate
  *   admin-queue   — /pause, /resume, /queue-stats
- *   cron          — /cron/daily-briefings, /cron/summarize-threads, /cron/cleanup-thread-media
+ *   cron          — /cron/daily-briefings, /cron/summarize-threads, /cron/cleanup-thread-media,
+ *                   /cron/reconcile-job-thread-links
  *   threads       — /threads, /threads/:threadId, /threads/:threadId/messages
  *   firecrawl     — /firecrawl/session/*, /firecrawl/accounts
  *   live-view     — /live-view/start, /live-view/navigate, /live-view/refresh, /live-view/close, /health
@@ -22,6 +23,7 @@ import threadsRoutes from './threads.routes.js';
 import firecrawlRoutes from './firecrawl.routes.js';
 import liveViewRoutes from './live-view.routes.js';
 import knowledgeAdminRoutes from './knowledge-admin.routes.js';
+import messagesRoutes from './messages.routes.js';
 
 const router = Router();
 
@@ -34,5 +36,6 @@ router.use(threadsRoutes);
 router.use(firecrawlRoutes);
 router.use(liveViewRoutes);
 router.use(knowledgeAdminRoutes);
+router.use(messagesRoutes);
 
 export default router;

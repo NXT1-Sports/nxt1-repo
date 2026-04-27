@@ -19,5 +19,6 @@ export { summarizeInactiveThreads } from './summarizeInactiveThreads';
 export { scanTimelinePosts } from './scanTimelinePosts';
 export { cleanupThreadMedia } from './cleanupThreadMedia';
 export { cleanupStaleAgentJobs } from './cleanupStaleAgentJobs';
+export { reconcileAgentJobThreadLinks } from './reconcileAgentJobThreadLinks';
 export { cleanupStaleWalletHolds } from './cleanupStaleWalletHolds';
 export { weeklyHelpCenterRefresh } from './weeklyHelpCenterRefresh';

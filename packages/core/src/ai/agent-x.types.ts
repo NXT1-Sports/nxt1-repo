@@ -34,8 +34,10 @@ export type AgentXAttachmentType = 'image' | 'video' | 'pdf' | 'csv' | 'doc';
 export interface AgentXAttachment {
   /** Unique attachment identifier (UUID v4). */
   readonly id: string;
-  /** Public CDN URL of the uploaded file in Firebase Storage. */
+  /** Signed/read URL for the uploaded file. May be refreshed by backend on history reads. */
   readonly url: string;
+  /** Firebase Storage object path used to re-sign URLs (non-video files). */
+  readonly storagePath?: string;
   /** Original file name as chosen by the user. */
   readonly name: string;
   /** MIME type (e.g. `image/jpeg`, `application/pdf`). */
@@ -504,6 +506,8 @@ export interface AgentXAskUserPayload {
   readonly context?: string;
   /** The thread ID — used when posting the user's reply. */
   readonly threadId?: string;
+  /** Operation ID that is currently yielded and must be resumed. */
+  readonly operationId?: string;
 }
 
 // ── Citations ──
@@ -689,6 +693,8 @@ export interface AgentXStreamTitleUpdatedEvent {
  */
 export interface AgentXStreamDeltaEvent {
   readonly content: string;
+  /** ISO timestamp set by backend when the chunk was emitted to SSE. */
+  readonly emittedAt?: string;
 }
 
 /**
@@ -696,8 +702,14 @@ export interface AgentXStreamDeltaEvent {
  * Final frame sent after all deltas — contains usage metadata.
  */
 export interface AgentXStreamDoneEvent {
-  readonly threadId: string;
-  readonly model: string;
+  readonly threadId?: string;
+  /** Canonical persisted assistant message ID (Mongo ObjectId). */
+  readonly messageId?: string;
+  readonly model?: string;
+  /** Operation ID associated with this terminal frame. */
+  readonly operationId?: string;
+  /** Canonical terminal status mirrored from backend lifecycle state. */
+  readonly status?: 'complete' | 'error' | 'cancelled';
   readonly usage?: {
     readonly inputTokens: number;
     readonly outputTokens: number;
@@ -783,15 +795,82 @@ export interface AgentXStreamCardEvent {
 export interface AgentXStreamOperationEvent {
   /** The thread ID this operation belongs to. */
   readonly threadId: string;
-  /** Current operation status. */
-  readonly status: OperationLogStatus;
+  /** Current backend-authoritative lifecycle status. */
+  readonly status: AgentXOperationLifecycleStatus;
   /** ISO timestamp of the status transition. */
   readonly timestamp: string;
   /** Operation ID associated with the lifecycle update. */
   readonly operationId?: string;
+  /** Which agent emitted this lifecycle transition, when known. */
+  readonly agentId?: AgentIdentifier;
+  /** Which execution layer emitted this lifecycle transition, when structured stages are available. */
+  readonly stageType?: AgentProgressStageType;
+  /** Typed machine-readable stage key for frontend dictionaries. */
+  readonly stage?: AgentProgressStage;
+  /** Structured outcome for notable or terminal states. */
+  readonly outcomeCode?: OperationOutcomeCode;
+  /** Additional typed hydration data for UI rendering. */
+  readonly metadata?: AgentProgressMetadata;
+  /** Human-readable operation message for UX commentary. */
+  readonly message?: string;
   /** Serialized yield payload when the operation is awaiting user input or approval. */
   readonly yieldState?: AgentYieldState;
 }
+
+/**
+ * Payload of the `event: progress` SSE frame.
+ * Emitted for stage/subphase/metric commentary updates while work is in-flight.
+ */
+export interface AgentXStreamProgressEvent {
+  /** Event subtype emitted by backend (`progress_stage`, `progress_subphase`, `metric`). */
+  readonly type: 'progress_stage' | 'progress_subphase' | 'metric';
+  /** Operation ID associated with the progress update. */
+  readonly operationId?: string;
+  /** Thread ID associated with the progress update. */
+  readonly threadId?: string;
+  /** Which agent emitted the update, when known. */
+  readonly agentId?: AgentIdentifier;
+  /** Which execution layer emitted this update, when structured stages are available. */
+  readonly stageType?: AgentProgressStageType;
+  /** Typed machine-readable stage key for frontend dictionaries. */
+  readonly stage?: AgentProgressStage;
+  /** Structured outcome for notable or terminal states. */
+  readonly outcomeCode?: OperationOutcomeCode;
+  /** Additional typed hydration data for UI rendering. */
+  readonly metadata?: AgentProgressMetadata;
+  /** Human-readable commentary text to display in the UI. */
+  readonly message?: string;
+  /** ISO timestamp emitted by backend. */
+  readonly timestamp?: string;
+}
+
+/**
+ * Payload of the `event: stream_replaced` SSE frame.
+ * Emitted when a newer stream lease takes over the same operation.
+ */
+export interface AgentXStreamReplacedEvent {
+  readonly operationId: string;
+  readonly replacedByStreamId: string;
+  readonly reason: 'replaced';
+  readonly timestamp: string;
+}
+
+/**
+ * Canonical operation lifecycle statuses emitted by backend SSE streams.
+ *
+ * This contract is intentionally backend-owned and stable so web/mobile
+ * clients can render deterministic lifecycle state without inferring from
+ * partial tool-step events.
+ */
+export type AgentXOperationLifecycleStatus =
+  | 'queued'
+  | 'running'
+  | 'paused'
+  | 'awaiting_input'
+  | 'awaiting_approval'
+  | 'complete'
+  | 'failed'
+  | 'cancelled';
 
 /**
  * Callbacks consumed by `streamMessage()` in the API factory.
@@ -813,10 +892,14 @@ export interface AgentXStreamCallbacks {
   onTitleUpdated?: (event: AgentXStreamTitleUpdatedEvent) => void;
   /** Called when the operation lifecycle status changes (in-progress → complete/error/awaiting_input). */
   onOperation?: (event: AgentXStreamOperationEvent) => void;
+  /** Called for stage/subphase/metric progress commentary updates. */
+  onProgress?: (event: AgentXStreamProgressEvent) => void;
   /** Called immediately when a tool emits an autoOpenPanel instruction (before done). */
   onPanel?: (event: AutoOpenPanelInstruction) => void;
   /** Called when a tool produces a media artifact (image/video URL). */
   onMedia?: (event: AgentXStreamMediaEvent) => void;
+  /** Called when this stream is explicitly replaced by a newer stream lease. */
+  onStreamReplaced?: (event: AgentXStreamReplacedEvent) => void;
 }
 
 /**
@@ -1092,7 +1175,9 @@ export type OperationLogStatus =
   | 'error'
   | 'cancelled'
   | 'in-progress'
-  | 'awaiting_input';
+  | 'paused'
+  | 'awaiting_input'
+  | 'awaiting_approval';
 
 /** Category of an operation for icon/color grouping. */
 export type OperationLogCategory =

@@ -59,6 +59,12 @@ const CRAWL_TIMEOUT_MS = 30_000;
 /** Timeout for crawl status check (30s — polling endpoint). */
 const CRAWL_STATUS_TIMEOUT_MS = 30_000;
 
+/** Timeout for starting an async agent research job (30s — just enqueues, does not wait for completion). */
+const AGENT_TIMEOUT_MS = 30_000;
+
+/** Timeout for a single agent job status poll (15s — lightweight status endpoint). */
+const AGENT_STATUS_TIMEOUT_MS = 15_000;
+
 /** Maximum URLs allowed in a single batch scrape/extract call (prevent token overflow). */
 const MAX_BATCH_URLS = 25;
 
@@ -198,6 +204,29 @@ const CrawlInitResponseSchema = z.union([
 /** Schema for firecrawl_check_crawl_status — status + optional results. */
 const CrawlStatusResponseSchema = JsonValueSchema;
 
+/** Schema for firecrawl_agent initiation — returns a job ID string or object with id. */
+const AgentJobResponseSchema = z.union([
+  z.string().min(1),
+  z
+    .object({
+      id: z.string().optional(),
+      jobId: z.string().optional(),
+    })
+    .passthrough()
+    .refine((p) => p.id !== undefined || p.jobId !== undefined, {
+      message: 'Agent job response must include id or jobId',
+    }),
+]);
+
+/** Schema for firecrawl_agent_status — status + optional data and credit usage. */
+const AgentStatusResponseSchema = z
+  .object({
+    status: z.string(),
+    data: z.unknown().optional(),
+    creditsUsed: z.number().optional(),
+  })
+  .passthrough();
+
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 export interface FirecrawlScrapeOptions {
@@ -239,6 +268,13 @@ export interface FirecrawlCrawlOptions {
   readonly limit?: number;
   readonly allowExternalLinks?: boolean;
   readonly deduplicateSimilarURLs?: boolean;
+}
+
+export interface FirecrawlAgentOptions {
+  readonly urls?: readonly string[];
+  readonly schema?: Record<string, unknown>;
+  readonly maxCredits?: number;
+  readonly model?: 'spark-1-mini' | 'spark-1-pro';
 }
 
 // ─── Payload Extraction ─────────────────────────────────────────────────────
@@ -563,6 +599,93 @@ export class FirecrawlMcpBridgeService extends BaseMcpClientService {
       extractPayload(result),
       'firecrawl_check_crawl_status'
     );
+  }
+
+  // ── Private Helpers ───────────────────────────────────────────────────────
+  /**
+   * Start an async Firecrawl Agent research job.
+   *
+   * NOT cached: each research job is unique to its prompt.
+   * Returns the job ID immediately — poll `getAgentStatus(id)` for results.
+   *
+   * @param prompt - Natural language research task description.
+   * @param options - Optional URLs, output schema, model, and credit cap.
+   * @returns The job ID string for subsequent status polls.
+   */
+  async agent(prompt: string, options?: FirecrawlAgentOptions): Promise<string> {
+    const args: Record<string, unknown> = { prompt };
+    if (options?.urls && options.urls.length > 0) args['urls'] = options.urls;
+    if (options?.schema) args['schema'] = options.schema;
+    if (options?.maxCredits !== undefined) args['maxCredits'] = options.maxCredits;
+    if (options?.model) args['model'] = options.model;
+
+    const result = await this.executeTool('firecrawl_agent', args, {
+      timeoutMs: AGENT_TIMEOUT_MS,
+    });
+
+    if (result.isError) {
+      const payload = extractPayload(result);
+      logger.error('[FirecrawlMCP] firecrawl_agent returned error', {
+        prompt: prompt.slice(0, 100),
+        error: payload,
+      });
+      throw new AgentEngineError(
+        'FIRECRAWL_REQUEST_FAILED',
+        `Firecrawl agent job failed: ${JSON.stringify(payload)}`,
+        { metadata: { operation: 'firecrawl_agent' } }
+      );
+    }
+
+    const validated = this.validatePayload(
+      AgentJobResponseSchema,
+      extractPayload(result),
+      'firecrawl_agent'
+    );
+
+    if (typeof validated === 'string') return validated;
+    const id = validated.id ?? validated.jobId;
+    if (!id) {
+      throw new AgentEngineError(
+        'FIRECRAWL_INVALID_RESPONSE',
+        'Firecrawl agent response contained no job ID',
+        { metadata: { operation: 'firecrawl_agent' } }
+      );
+    }
+    return id;
+  }
+
+  /**
+   * Poll the status of a running Firecrawl Agent research job.
+   *
+   * @param id - The job ID returned by `agent()`.
+   * @returns Status object with `status`, optional `data`, and `creditsUsed`.
+   */
+  async getAgentStatus(
+    id: string
+  ): Promise<{ status: string; data?: unknown; creditsUsed?: number }> {
+    const result = await this.executeTool(
+      'firecrawl_agent_status',
+      { id },
+      {
+        timeoutMs: AGENT_STATUS_TIMEOUT_MS,
+      }
+    );
+
+    if (result.isError) {
+      const payload = extractPayload(result);
+      logger.error('[FirecrawlMCP] firecrawl_agent_status returned error', { id, error: payload });
+      throw new AgentEngineError(
+        'FIRECRAWL_REQUEST_FAILED',
+        `Firecrawl agent status check failed for job "${id}": ${JSON.stringify(payload)}`,
+        { metadata: { operation: 'firecrawl_agent_status', jobId: id } }
+      );
+    }
+
+    return this.validatePayload(
+      AgentStatusResponseSchema,
+      extractPayload(result),
+      'firecrawl_agent_status'
+    ) as { status: string; data?: unknown; creditsUsed?: number };
   }
 
   // ── Private Helpers ───────────────────────────────────────────────────────

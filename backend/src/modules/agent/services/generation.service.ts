@@ -27,6 +27,7 @@ import { resolveStructuredOutput } from '../llm/structured-output.js';
 import { z } from 'zod';
 import { getAgentAppConfig } from '../config/agent-app-config.js';
 import { AgentEngineError } from '../exceptions/agent-engine.error.js';
+import { dispatchAgentPush } from './agent-push-adapter.service.js';
 
 // ─── Shared Helpers ─────────────────────────────────────────────────────────
 
@@ -53,7 +54,11 @@ const playbookItemSchema = z.object({
   coordinator: playbookCoordinatorSchema.optional(),
 });
 
-const playbookResponseSchema = z.array(playbookItemSchema);
+const playbookResponseSchema = z.object({
+  notificationTitle: z.string().optional(),
+  notificationBody: z.string().optional(),
+  items: z.array(playbookItemSchema),
+});
 
 const briefingInsightSchema = z.object({
   id: z.string().optional(),
@@ -558,7 +563,10 @@ export class AgentGenerationService {
       `Available coordinators (assign the most relevant one to each task):\n${coordinatorsList}`,
       ``,
       `═══ OUTPUT FORMAT (CATEGORIZED PLAYBOOK) ═══`,
-      `Return a JSON array of EXACTLY 5 playbook items split into TWO categories:`,
+      `Return a JSON object (no markdown fences) with three keys:`,
+      `- "notificationTitle": A short, exciting push notification title (max 60 chars) the user will receive when their playbook is ready. Personalize it — reference their primary goal or sport. Example: "Your Film Study plan is ready" or "Your recruiting push starts now".`,
+      `- "notificationBody": A preview body for the notification (max 100 chars). Tease the top 1-2 tasks by name separated by " · ". Example: "Film review session · Send 3 coach emails".`,
+      `- "items": a JSON array of EXACTLY 5 playbook items split into TWO categories:`,
       ``,
       `CATEGORY 1 — RECURRING HABITS (exactly 2 items):`,
       `  These are routine maintenance tasks from the habits menu above.`,
@@ -576,21 +584,22 @@ export class AgentGenerationService {
       `- "title": short action title (max 50 chars)`,
       `- "summary": one-sentence description of the task`,
       `- "why": a compelling, hyper-personal reason WHY this matters — reference their specific profile data (class year, position, sport, season, team, location). Example: "As a Class of 2026 PG heading into summer AAU, this exposure window closes in 8 weeks."`,
-      `- "details": detailed explanation of what Agent X prepared`,
+      `- "details": detailed execution request for what Agent X should do next (future tense, action-oriented)`,
       `- "actionLabel": button text (e.g., "Review Draft", "Send Emails", "Sync Now")`,
       `- "status": always "pending"`,
       `- "goal": object with "id" and "label" as described above`,
       `- "coordinator": object with "id", "label", and "icon" from the available coordinators list above`,
       ``,
-      `IMPORTANT: Return the 2 recurring items FIRST, then the 3 goal items (ordered most time-sensitive first). The "why" field is critical — hook the user emotionally. Never produce generic advice — always ground it in their reality using their profile data.`,
+      `IMPORTANT: Return the 2 recurring items FIRST, then the 3 goal items (ordered most time-sensitive first). The "why" field is critical — hook the user emotionally. Never produce generic advice — always ground it in their reality using their profile data. Never write "details" as if work is already completed (avoid phrases like "has prepared", "already created", "already generated").`,
       ``,
-      `Return ONLY the JSON array, no markdown fences, no explanation.`,
+      `Return ONLY the JSON object, no markdown fences, no explanation.`,
     ]
       .filter(Boolean)
       .join('\n');
 
     let playbookItems: ShellWeeklyPlaybookItem[] = [];
     let llmRawContent: string | null | undefined;
+    let parsedPlaybookResult: z.infer<typeof playbookResponseSchema> | null = null;
 
     try {
       const { parsed, rawContent } = await this.generateStructuredPayload(
@@ -598,7 +607,7 @@ export class AgentGenerationService {
           {
             role: 'system',
             content:
-              "You are Agent X, a hyper-personalized AI sports assistant. You deeply understand each user's role, sport, season, and goals. Return only valid JSON arrays. Every task you generate must feel hand-crafted for this specific user — never generic.",
+              "You are Agent X, a hyper-personalized AI sports assistant. You deeply understand each user's role, sport, season, and goals. Return only valid JSON (object with notificationTitle, notificationBody, items array). Every task you generate must feel hand-crafted for this specific user — never generic.",
           },
           { role: 'user', content: prompt },
         ],
@@ -607,7 +616,7 @@ export class AgentGenerationService {
           maxTokens: 2048,
           temperature: 0.7,
           outputSchema: {
-            name: 'agent_playbook_items',
+            name: 'agent_playbook_response',
             schema: playbookResponseSchema,
           },
           ...(operationId
@@ -625,7 +634,8 @@ export class AgentGenerationService {
         db
       );
       llmRawContent = rawContent;
-      playbookItems = parsed.map((item) => ({
+      parsedPlaybookResult = parsed;
+      playbookItems = parsed.items.map((item) => ({
         id: item.id ?? `wp-${crypto.randomUUID().slice(0, 8)}`,
         weekLabel: item.weekLabel ?? '',
         title: item.title ?? '',
@@ -679,55 +689,45 @@ export class AgentGenerationService {
     });
 
     // Notify user that their Action Plan / Playbook is ready
+    // Prefer AI-generated title/body from the LLM response; fall back to
+    // goal-derived copy if the model omitted the fields.
     try {
-      const { dispatch } = await import('../../../services/communications/notification.service.js');
-      const { NOTIFICATION_TYPES } = await import('@nxt1/core');
+      const llmTitle = parsedPlaybookResult?.notificationTitle;
+      const llmBody = parsedPlaybookResult?.notificationBody;
 
-      // ── Build personalized notification copy ──────────────────────────
-      // Derive the primary goal name from whichever goal has the most items
-      const goalItemCounts = new Map<string, { text: string; count: number }>();
-      for (const item of playbookItems) {
-        if (item.goal?.id && item.goal?.label) {
-          const existing = goalItemCounts.get(item.goal.id);
-          goalItemCounts.set(item.goal.id, {
-            text: item.goal.label,
-            count: (existing?.count ?? 0) + 1,
-          });
+      // Fallback title: derive from goal with most items
+      const fallbackTitle = (() => {
+        const goalItemCounts = new Map<string, { text: string; count: number }>();
+        for (const item of playbookItems) {
+          if (item.goal?.id && item.goal?.label) {
+            const existing = goalItemCounts.get(item.goal.id);
+            goalItemCounts.set(item.goal.id, {
+              text: item.goal.label,
+              count: (existing?.count ?? 0) + 1,
+            });
+          }
         }
-      }
-      const primaryGoal = [...goalItemCounts.values()].sort((a, b) => b.count - a.count)[0];
+        const primaryGoal = [...goalItemCounts.values()].sort((a, b) => b.count - a.count)[0];
+        return primaryGoal
+          ? `Your ${primaryGoal.text} plan is ready`
+          : '🗂 Your Weekly Playbook is Ready';
+      })();
 
-      // Notification title: goal-aware or fallback
-      const notifTitle = primaryGoal
-        ? `Your ${primaryGoal.text} plan is ready`
-        : '🗂 Your Weekly Playbook is Ready';
-
-      // Body: top 2 action titles as a teaser + total count
-      const topActions = playbookItems.slice(0, 2).map((i) => i.title);
-      const teaser =
-        topActions.length > 0
+      // Fallback body: teaser of top 2 task titles
+      const fallbackBody = (() => {
+        const topActions = playbookItems.slice(0, 2).map((i) => i.title);
+        return topActions.length > 0
           ? topActions.join(' · ') +
-            (playbookItems.length > 2 ? ` +${playbookItems.length - 2} more` : '')
+              (playbookItems.length > 2 ? ` +${playbookItems.length - 2} more` : '')
           : `${playbookItems.length} action items ready`;
+      })();
 
-      await dispatch(db, {
+      await dispatchAgentPush(db, {
+        kind: 'agent_playbook_ready',
         userId: uid,
-        type: NOTIFICATION_TYPES.AGENT_ACTION,
-        title: notifTitle,
-        body: teaser,
-        deepLink: '/agent-x?tab=playbook',
-        data: {
-          operationId: operationId || 'playbook-gen',
-          tab: 'playbook',
-        },
-        source: { userName: 'Agent X' },
-        metadata: {
-          agentId: 'playbook_planner',
-          resultTitle: notifTitle,
-          resultSummary: teaser,
-          operationId: operationId || 'playbook-gen',
-          mode: 'playbook',
-        },
+        operationId: operationId || 'playbook-gen',
+        title: llmTitle?.trim() || fallbackTitle,
+        body: llmBody?.trim() || fallbackBody,
       });
     } catch (notifErr) {
       logger.warn('Failed to dispatch playbook generation notification', {
@@ -990,29 +990,14 @@ export class AgentGenerationService {
 
     // Notify user that their Daily Briefing is ready
     try {
-      const { dispatch } = await import('../../../services/communications/notification.service.js');
-      const { NOTIFICATION_TYPES } = await import('@nxt1/core');
-      await dispatch(db, {
+      await dispatchAgentPush(db, {
+        kind: 'agent_briefing_ready',
         userId: uid,
-        type: NOTIFICATION_TYPES.AGENT_ACTION,
+        operationId: operationId || 'briefing-gen',
         title: 'Your Daily Briefing is Ready',
         body:
           briefingPreviewText ||
           `Agent X prepared ${briefingInsights.length} insights for your day.`,
-        deepLink: '/agent-x',
-        data: {
-          operationId: 'briefing-gen',
-        },
-        source: { userName: 'Agent X' },
-        metadata: {
-          agentId: 'daily_briefing',
-          resultTitle: 'Your Daily Briefing is Ready',
-          resultSummary:
-            briefingPreviewText ||
-            `Agent X prepared ${briefingInsights.length} insights for your day.`,
-          operationId: 'briefing-gen',
-          mode: 'briefing',
-        },
       });
     } catch (notifErr) {
       logger.warn('Failed to dispatch briefing generation notification', {

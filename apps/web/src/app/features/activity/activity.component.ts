@@ -141,7 +141,7 @@ export class ActivityComponent implements OnInit {
       return metadata.threadId.trim();
     }
 
-    if (!deepLink.startsWith('/agent')) {
+    if (!deepLink.startsWith('/agent-x')) {
       return null;
     }
 

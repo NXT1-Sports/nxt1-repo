@@ -1788,7 +1788,7 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
       });
     } else {
       this.agentX.queueStartupMessage(message);
-      void this.router.navigate(['/agent']);
+      void this.router.navigate(['/agent-x']);
     }
   }
 
@@ -1824,7 +1824,7 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
       }
     } else {
       this.agentX.queueStartupMessage(initialMessage);
-      void this.router.navigate(['/agent']);
+      void this.router.navigate(['/agent-x']);
     }
   }
 
@@ -1854,7 +1854,7 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
       }
     } else {
       this.agentX.queueStartupMessage(message);
-      void this.router.navigate(['/agent']);
+      void this.router.navigate(['/agent-x']);
     }
   }
 

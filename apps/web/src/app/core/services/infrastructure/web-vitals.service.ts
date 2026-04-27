@@ -30,8 +30,6 @@ import { Injectable, inject, PLATFORM_ID } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
 import type { ILogger } from '@nxt1/core/logging';
 import { NxtLoggingService } from '@nxt1/ui/services';
-import { AnalyticsService } from './analytics.service';
-
 /** Threshold ratings aligned with Google's "good / needs-improvement / poor" bands. */
 type VitalRating = 'good' | 'needs-improvement' | 'poor';
 
@@ -48,7 +46,6 @@ interface MetricEntry {
 @Injectable({ providedIn: 'root' })
 export class WebVitalsService {
   private readonly platformId = inject(PLATFORM_ID);
-  private readonly analytics = inject(AnalyticsService);
   private readonly logger: ILogger = inject(NxtLoggingService).child('WebVitals');
 
   /** Guard: only run in the browser */
@@ -123,15 +120,8 @@ export class WebVitalsService {
       metric_delta: Math.round(delta * 1000) / 1000,
       nav_type: navigationType,
     });
-
-    // Fire analytics event (shows in Firebase Console → Events)
-    this.analytics.trackEvent('web_vital', {
-      metric_name: name,
-      metric_value: rounded,
-      metric_rating: rating,
-      metric_delta: Math.round(delta * 1000) / 1000,
-      metric_id: id,
-      nav_type: navigationType,
-    });
+    // NOTE: web_vital events are NOT relayed to MongoDB — Firebase Performance
+    // (providePerformance) captures all Core Web Vitals natively in the Firebase
+    // Console. Storing them here would be a redundant duplicate.
   }
 }

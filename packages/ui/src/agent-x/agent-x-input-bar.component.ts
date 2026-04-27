@@ -152,8 +152,8 @@ interface PendingConnectedSource {
               <button
                 type="button"
                 class="input-btn input-btn--circle"
-                (click)="stop.emit()"
-                aria-label="Stop"
+                (click)="pause.emit()"
+                aria-label="Pause"
               >
                 <div class="input-stop-loader">
                   <svg class="input-stop-svg" viewBox="0 0 36 36">
@@ -287,6 +287,7 @@ interface PendingConnectedSource {
         display: flex;
         align-items: center;
         justify-content: center;
+        cursor: pointer;
       }
 
       .input-attachment-thumb {
@@ -502,7 +503,9 @@ interface PendingConnectedSource {
         transition:
           background 0.15s ease,
           color 0.15s ease,
-          border-color 0.15s ease;
+          border-color 0.15s ease,
+          transform 0.18s ease,
+          box-shadow 0.18s ease;
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
       }
 
@@ -516,6 +519,33 @@ interface PendingConnectedSource {
 
       .input-btn--attach {
         margin-left: -6px;
+      }
+
+      .input-btn--attach nxt1-icon {
+        transition: transform 0.2s ease;
+      }
+
+      @media (hover: hover) and (pointer: fine) {
+        .input-btn--attach:hover {
+          background: color-mix(in srgb, var(--input-primary-glow) 78%, var(--input-surface));
+          color: var(--input-primary);
+          border-color: color-mix(in srgb, var(--input-primary) 48%, var(--input-border));
+          transform: translateY(-1px) scale(1.04);
+          box-shadow: 0 8px 18px rgba(204, 255, 0, 0.16);
+        }
+
+        .input-btn--attach:hover nxt1-icon {
+          transform: rotate(90deg) scale(1.06);
+        }
+
+        .input-btn--attach:focus-visible {
+          outline: 2px solid color-mix(in srgb, var(--input-primary) 65%, transparent);
+          outline-offset: 2px;
+          background: color-mix(in srgb, var(--input-primary-glow) 72%, var(--input-surface));
+          color: var(--input-primary);
+          border-color: color-mix(in srgb, var(--input-primary) 52%, var(--input-border));
+          box-shadow: 0 8px 18px rgba(204, 255, 0, 0.16);
+        }
       }
 
       .input-send-btn {
@@ -608,7 +638,7 @@ export class AgentXInputBarComponent {
   // ── Outputs ──
   readonly messageChange = output<string>();
   readonly send = output<void>();
-  readonly stop = output<void>();
+  readonly pause = output<void>();
   readonly toggleAttachments = output<void>();
   readonly openFile = output<number>();
   readonly removeFile = output<number>();

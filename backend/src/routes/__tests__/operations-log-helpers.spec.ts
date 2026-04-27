@@ -65,6 +65,9 @@ describe('mapJobStatus', () => {
     ['completed', 'complete'],
     ['failed', 'error'],
     ['cancelled', 'cancelled'],
+    ['paused', 'paused'],
+    ['awaiting_approval', 'awaiting_approval'],
+    ['awaiting_input', 'awaiting_input'],
     ['pending', 'in-progress'],
     ['queued', 'in-progress'],
     ['processing', 'in-progress'],
@@ -94,6 +97,16 @@ describe('mapJobStatus', () => {
 
   it('handles empty string as unknown', () => {
     expect(mapJobStatus('')).toBe('in-progress');
+  });
+
+  it('maps awaiting_input to paused when pause yield marker exists', () => {
+    const pauseYieldState = {
+      pendingToolCall: {
+        toolName: 'resume_paused_operation',
+      },
+    };
+
+    expect(mapJobStatus('awaiting_input', undefined, pauseYieldState)).toBe('paused');
   });
 });
 

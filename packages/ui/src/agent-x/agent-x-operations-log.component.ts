@@ -55,6 +55,7 @@ import { ANALYTICS_ADAPTER } from '../services/analytics/analytics-adapter.token
 import { AGENT_X_API_BASE_URL } from './agent-x-job.service';
 import { AgentXOperationChatComponent } from './agent-x-operation-chat.component';
 import { AgentXOperationEventService } from './agent-x-operation-event.service';
+import { AgentXStreamRegistryService } from './agent-x-stream-registry.service';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import type { OperationLogEntry, OperationLogStatus, OperationsLogResponse } from '@nxt1/core';
 import { NxtToastService } from '../services/toast/toast.service';
@@ -84,7 +85,9 @@ const STATUS_FILTERS: readonly StatusFilter[] = [
   { id: 'all', label: 'All' },
   { id: 'complete', label: 'Completed' },
   { id: 'in-progress', label: 'Active' },
+  { id: 'paused', label: 'Paused' },
   { id: 'awaiting_input', label: 'Needs Input' },
+  { id: 'awaiting_approval', label: 'Needs Approval' },
   { id: 'error', label: 'Failed' },
   { id: 'cancelled', label: 'Cancelled' },
   { id: 'scheduled', label: 'Scheduled' },
@@ -201,7 +204,11 @@ export const OPERATIONS_LOG_TEST_IDS = {
                 [class.log-entry--error]="entry.status === 'error'"
                 [class.log-entry--cancelled]="entry.status === 'cancelled'"
                 [class.log-entry--active]="entry.status === 'in-progress'"
-                [class.log-entry--awaiting]="entry.status === 'awaiting_input'"
+                [class.log-entry--awaiting]="
+                  entry.status === 'paused' ||
+                  entry.status === 'awaiting_input' ||
+                  entry.status === 'awaiting_approval'
+                "
               >
                 <button type="button" class="log-entry-main" (click)="onEntryTap(entry)">
                   <!-- Status indicator (hidden for completed entries) -->
@@ -211,7 +218,11 @@ export const OPERATIONS_LOG_TEST_IDS = {
                       [class.log-entry-status--error]="entry.status === 'error'"
                       [class.log-entry-status--cancelled]="entry.status === 'cancelled'"
                       [class.log-entry-status--active]="entry.status === 'in-progress'"
-                      [class.log-entry-status--awaiting]="entry.status === 'awaiting_input'"
+                      [class.log-entry-status--awaiting]="
+                        entry.status === 'paused' ||
+                        entry.status === 'awaiting_input' ||
+                        entry.status === 'awaiting_approval'
+                      "
                     >
                       @switch (entry.status) {
                         @case ('error') {
@@ -225,8 +236,14 @@ export const OPERATIONS_LOG_TEST_IDS = {
                             <nxt1-icon name="refresh" [size]="14" />
                           </span>
                         }
+                        @case ('paused') {
+                          <nxt1-icon name="time" [size]="14" />
+                        }
                         @case ('awaiting_input') {
-                          <nxt1-icon name="hand-left" [size]="14" />
+                          <nxt1-icon name="handLeft" [size]="14" />
+                        }
+                        @case ('awaiting_approval') {
+                          <nxt1-icon name="shieldCheck" [size]="14" />
                         }
                       }
                     </span>
@@ -311,7 +328,7 @@ export const OPERATIONS_LOG_TEST_IDS = {
                         </div>
                       } @else if (isDeleteConfirming(entry)) {
                         <div class="log-entry-menu-confirm" (click)="$event.stopPropagation()">
-                          <p class="log-entry-menu-confirm-text">Delete this session?</p>
+                          <p class="log-entry-menu-confirm-text">Archive this session?</p>
                           <div class="log-entry-menu-row">
                             <button
                               type="button"
@@ -326,7 +343,7 @@ export const OPERATIONS_LOG_TEST_IDS = {
                               [disabled]="isMutationBusy(entry)"
                               (click)="onDeleteConfirm(entry, $event)"
                             >
-                              Delete
+                              Archive
                             </button>
                           </div>
                         </div>
@@ -349,7 +366,7 @@ export const OPERATIONS_LOG_TEST_IDS = {
                           (click)="onDeleteArm(entry, $event)"
                         >
                           <nxt1-icon name="trash" [size]="16" />
-                          Delete
+                          Archive
                         </button>
                       }
                     </div>
@@ -372,7 +389,11 @@ export const OPERATIONS_LOG_TEST_IDS = {
                 [class.log-entry--error]="entry.status === 'error'"
                 [class.log-entry--cancelled]="entry.status === 'cancelled'"
                 [class.log-entry--active]="entry.status === 'in-progress'"
-                [class.log-entry--awaiting]="entry.status === 'awaiting_input'"
+                [class.log-entry--awaiting]="
+                  entry.status === 'paused' ||
+                  entry.status === 'awaiting_input' ||
+                  entry.status === 'awaiting_approval'
+                "
               >
                 <button type="button" class="log-entry-main" (click)="onEntryTap(entry)">
                   <!-- Status indicator (hidden for completed entries) -->
@@ -382,7 +403,11 @@ export const OPERATIONS_LOG_TEST_IDS = {
                       [class.log-entry-status--error]="entry.status === 'error'"
                       [class.log-entry-status--cancelled]="entry.status === 'cancelled'"
                       [class.log-entry-status--active]="entry.status === 'in-progress'"
-                      [class.log-entry-status--awaiting]="entry.status === 'awaiting_input'"
+                      [class.log-entry-status--awaiting]="
+                        entry.status === 'paused' ||
+                        entry.status === 'awaiting_input' ||
+                        entry.status === 'awaiting_approval'
+                      "
                     >
                       @switch (entry.status) {
                         @case ('error') {
@@ -396,8 +421,14 @@ export const OPERATIONS_LOG_TEST_IDS = {
                             <nxt1-icon name="refresh" [size]="14" />
                           </span>
                         }
+                        @case ('paused') {
+                          <nxt1-icon name="time" [size]="14" />
+                        }
                         @case ('awaiting_input') {
-                          <nxt1-icon name="hand-left" [size]="14" />
+                          <nxt1-icon name="handLeft" [size]="14" />
+                        }
+                        @case ('awaiting_approval') {
+                          <nxt1-icon name="shieldCheck" [size]="14" />
                         }
                       }
                     </span>
@@ -482,7 +513,7 @@ export const OPERATIONS_LOG_TEST_IDS = {
                         </div>
                       } @else if (isDeleteConfirming(entry)) {
                         <div class="log-entry-menu-confirm" (click)="$event.stopPropagation()">
-                          <p class="log-entry-menu-confirm-text">Delete this session?</p>
+                          <p class="log-entry-menu-confirm-text">Archive this session?</p>
                           <div class="log-entry-menu-row">
                             <button
                               type="button"
@@ -497,7 +528,7 @@ export const OPERATIONS_LOG_TEST_IDS = {
                               [disabled]="isMutationBusy(entry)"
                               (click)="onDeleteConfirm(entry, $event)"
                             >
-                              Delete
+                              Archive
                             </button>
                           </div>
                         </div>
@@ -520,7 +551,7 @@ export const OPERATIONS_LOG_TEST_IDS = {
                           (click)="onDeleteArm(entry, $event)"
                         >
                           <nxt1-icon name="trash" [size]="16" />
-                          Delete
+                          Archive
                         </button>
                       }
                     </div>
@@ -1195,6 +1226,9 @@ export class AgentXOperationsLogComponent {
   /** Operation event service — used to receive real-time title updates. */
   private readonly operationEventService = inject(AgentXOperationEventService);
 
+  /** Stream registry — used to abort live SSE connections on archive. */
+  private readonly streamRegistry = inject(AgentXStreamRegistryService);
+
   /** DestroyRef for auto-unsubscribing observables. */
   private readonly destroyRef = inject(DestroyRef);
 
@@ -1241,6 +1275,18 @@ export class AgentXOperationsLogComponent {
    */
   private readonly _unreadThreadIds = signal<ReadonlySet<string>>(new Set());
 
+  /**
+   * LLM-generated titles received via `title_updated` SSE events, keyed by threadId.
+   *
+   * These must survive `silentRefresh()` merges because the backend's MongoDB thread
+   * title update (`applyGeneratedThreadTitle`) runs AFTER the `done` SSE event is
+   * emitted. If `silentRefresh()` fires immediately on `done` (before the DB write
+   * completes), the HTTP response still returns the raw intent as the title and would
+   * overwrite the SSE-delivered LLM title. Storing them here lets `silentRefresh`
+   * re-apply the correct title regardless of HTTP response timing.
+   */
+  private readonly _sseGeneratedTitles = new Map<string, string>();
+
   protected readonly loading = computed(() => this._loading());
   protected readonly operations = computed(() => this._operations());
   protected readonly activeFilter = computed(() => this._activeFilter());
@@ -1272,7 +1318,11 @@ export class AgentXOperationsLogComponent {
 
   /** Count of awaiting-input operations. */
   protected readonly awaitingCount = computed(
-    () => this._operations().filter((o) => o.status === 'awaiting_input').length
+    () =>
+      this._operations().filter(
+        (o) =>
+          o.status === 'paused' || o.status === 'awaiting_input' || o.status === 'awaiting_approval'
+      ).length
   );
 
   /** Scheduled tasks pinned above regular session history. */
@@ -1335,6 +1385,9 @@ export class AgentXOperationsLogComponent {
     // Subscribe to real-time title updates from the Agent X SSE stream.
     // When the backend auto-generates a title for a new thread, update
     // the matching entry in the local list so the sidebar reflects it instantly.
+    // Also cache it in _sseGeneratedTitles so silentRefresh() can re-apply it
+    // if the HTTP response still returns the stale intent-as-title (race condition
+    // between done event and MongoDB applyGeneratedThreadTitle write).
     this.operationEventService.titleUpdated$
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((evt) => {
@@ -1345,9 +1398,13 @@ export class AgentXOperationsLogComponent {
         this.breadcrumb.trackStateChange('operations-log:title-updated', {
           threadId: evt.threadId,
         });
-        this._operations.update((ops) =>
-          ops.map((op) => (op.threadId === evt.threadId ? { ...op, title: evt.title } : op))
-        );
+        // Cache so silentRefresh() can win the race against MongoDB persistence
+        this._sseGeneratedTitles.set(evt.threadId, evt.title);
+        this._operations.update((ops) => {
+          const target = ops.find((op) => op.threadId === evt.threadId);
+          if (!target || target.title === evt.title) return ops;
+          return ops.map((op) => (op.threadId === evt.threadId ? { ...op, title: evt.title } : op));
+        });
       });
 
     // Subscribe to real-time operation status updates from the /chat SSE stream.
@@ -1368,6 +1425,9 @@ export class AgentXOperationsLogComponent {
         this._operations.update((ops) => {
           const idx = ops.findIndex((op) => op.threadId === evt.threadId);
           if (idx >= 0) {
+            if (ops[idx]?.status === evt.status) {
+              return ops;
+            }
             // Update existing entry's status in place
             return ops.map((op) =>
               op.threadId === evt.threadId ? { ...op, status: evt.status } : op
@@ -1435,23 +1495,44 @@ export class AgentXOperationsLogComponent {
       if (response.success && response.data) {
         let entries = response.data;
 
-        if (liveStatuses.size > 0) {
+        if (liveStatuses.size > 0 || this._sseGeneratedTitles.size > 0) {
           // Re-apply live SSE statuses that the HTTP response may lag behind on.
           // Rule: prefer in-memory live status ONLY when it represents a more
           // advanced state than HTTP. If HTTP already shows a terminal state
           // (complete / error) but in-memory is still 'in-progress' (because
           // the Firestore listener was interrupted before the done event), the
           // backend is the source of truth — use the HTTP terminal state.
-          const terminalStates = new Set<OperationLogStatus>(['complete', 'error']);
+          //
+          // Also re-apply SSE-generated titles. The backend worker emits
+          // `title_updated` BEFORE `done`, but persists the LLM title to MongoDB
+          // AFTER `done`. Because silentRefresh() fires immediately on the `done`
+          // event, the HTTP response often still carries the raw intent as the
+          // title. The SSE cache wins until MongoDB catches up.
+          const terminalStates = new Set<OperationLogStatus>(['complete', 'error', 'cancelled']);
           const httpThreadIds = new Set(entries.filter((e) => e.threadId).map((e) => e.threadId));
           entries = entries.map((entry) => {
             const live = entry.threadId ? liveStatuses.get(entry.threadId) : undefined;
-            if (!live) return entry;
-            const httpIsTerminal = terminalStates.has(entry.status);
-            const liveIsTerminal = terminalStates.has(live);
-            // HTTP terminal beats stale in-memory in-progress
-            if (httpIsTerminal && !liveIsTerminal) return entry;
-            return { ...entry, status: live };
+            const sseTitle = entry.threadId
+              ? this._sseGeneratedTitles.get(entry.threadId)
+              : undefined;
+
+            let merged = entry;
+
+            // Merge live status (prefer more-advanced state)
+            if (live) {
+              const httpIsTerminal = terminalStates.has(entry.status);
+              const liveIsTerminal = terminalStates.has(live);
+              if (!httpIsTerminal || liveIsTerminal) {
+                merged = { ...merged, status: live };
+              }
+            }
+
+            // Merge SSE-generated title — beats HTTP when HTTP still shows raw intent
+            if (sseTitle && merged.title !== sseTitle) {
+              merged = { ...merged, title: sseTitle };
+            }
+
+            return merged;
           });
 
           // Re-insert entries created by SSE that haven't been persisted yet
@@ -1460,7 +1541,10 @@ export class AgentXOperationsLogComponent {
           for (const [threadId, status] of liveStatuses) {
             if (
               !httpThreadIds.has(threadId) &&
-              (status === 'in-progress' || status === 'awaiting_input')
+              (status === 'in-progress' ||
+                status === 'paused' ||
+                status === 'awaiting_input' ||
+                status === 'awaiting_approval')
             ) {
               const existing = liveEntries.get(threadId);
               if (existing) entries = [existing, ...entries];
@@ -1687,7 +1771,7 @@ export class AgentXOperationsLogComponent {
 
     const threadId = entry.threadId;
     if (!threadId) {
-      this.toast.error('This session cannot be deleted yet');
+      this.toast.error('This session cannot be archived yet');
       return;
     }
 
@@ -1704,16 +1788,19 @@ export class AgentXOperationsLogComponent {
       );
 
       if (!response.success) {
-        throw new Error(response.error ?? 'Failed to delete session');
+        throw new Error(response.error ?? 'Failed to archive session');
       }
 
+      // Abort any live SSE stream for this thread so it releases its slot
+      // in the backend's per-user concurrent stream limit (MAX 5).
+      this.streamRegistry.abort(threadId);
       this.logger.info('Session archived from operations log', { threadId });
       this.breadcrumb.trackStateChange('operations-log: thread archived', { threadId });
-      this.toast.success('Session deleted');
+      this.toast.success('Session archived');
       this.resetMenuState();
     } catch (err) {
       this._operations.set(previous);
-      const message = err instanceof Error ? err.message : 'Failed to delete session';
+      const message = err instanceof Error ? err.message : 'Failed to archive session';
       this.logger.error('Failed to archive session', { threadId, error: message });
       this.toast.error(message);
     } finally {
@@ -1794,9 +1881,13 @@ export class AgentXOperationsLogComponent {
           ? 'complete'
           : entry.status === 'error'
             ? 'error'
-            : entry.status === 'awaiting_input'
-              ? 'awaiting_input'
-              : null;
+            : entry.status === 'paused'
+              ? 'paused'
+              : entry.status === 'awaiting_input'
+                ? 'awaiting_input'
+                : entry.status === 'awaiting_approval'
+                  ? 'awaiting_approval'
+                  : null;
 
     // Validate that the operationId is a real Firestore AgentJobs UUID (chat-{uuid}
     // or a bare UUID). MongoDB ObjectIds are 24 hex chars and must never be

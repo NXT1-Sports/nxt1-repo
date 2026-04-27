@@ -16,11 +16,19 @@
  * ⭐ SHARED BETWEEN WEB AND MOBILE ⭐
  */
 
-import { Component, ChangeDetectionStrategy, input, output, signal, computed } from '@angular/core';
+import {
+  Component,
+  ChangeDetectionStrategy,
+  input,
+  output,
+  signal,
+  computed,
+  effect,
+} from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import type { AgentYieldState } from '@nxt1/core';
 import { AGENT_X_ACTION_CARD_TEST_IDS } from '@nxt1/core/testing';
-import { NxtIconComponent } from '../components/icon';
+import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/assets';
 
 // ============================================
 // INTERFACES
@@ -30,6 +38,8 @@ import { NxtIconComponent } from '../components/icon';
 export interface ActionCardApprovalEvent {
   readonly operationId: string;
   readonly decision: 'approve' | 'reject';
+  readonly approvalId?: string;
+  readonly toolInput?: Record<string, unknown>;
 }
 
 /** Emitted when the user replies to an agent's question. */
@@ -44,28 +54,27 @@ type CardState = 'idle' | 'submitting' | 'resolved';
 @Component({
   selector: 'nxt1-agent-action-card',
   standalone: true,
-  imports: [FormsModule, NxtIconComponent],
+  imports: [FormsModule],
   template: `
     <div
       class="action-card"
       [class.action-card--approval]="isApproval()"
       [class.action-card--input]="!isApproval()"
-      [class.action-card--submitting]="cardState() === 'submitting'"
-      [class.action-card--resolved]="cardState() === 'resolved'"
+      [class.action-card--submitting]="displayCardState() === 'submitting'"
+      [class.action-card--resolved]="displayCardState() === 'resolved'"
       [attr.data-testid]="testIds.CARD"
     >
       <!-- ═══ HEADER ═══ -->
       <div class="action-card__header" [attr.data-testid]="testIds.HEADER">
         <div class="action-card__icon-wrap">
-          @if (isApproval()) {
-            <nxt1-icon name="shield-checkmark" [size]="18" />
-          } @else {
-            <nxt1-icon name="help-circle" [size]="18" />
-          }
+          <svg class="action-card__agent-mark" viewBox="0 0 612 792" aria-hidden="true">
+            <path [attr.d]="agentXLogoPath" />
+            <polygon [attr.points]="agentXLogoPolygon" />
+          </svg>
         </div>
         <div class="action-card__header-text">
           <span class="action-card__title">
-            {{ isApproval() ? 'Agent Needs Approval' : 'Question from Agent X' }}
+            {{ isApproval() ? 'Review and Confirm' : 'Quick Question from Agent X' }}
           </span>
           @if (expiresLabel()) {
             <span class="action-card__expires">{{ expiresLabel() }}</span>
@@ -83,19 +92,58 @@ type CardState = 'idle' | 'submitting' | 'resolved';
         @if (isApproval() && yield().pendingToolCall) {
           <details class="action-card__details" [attr.data-testid]="testIds.DETAILS_TOGGLE">
             <summary class="action-card__details-summary">
-              <nxt1-icon name="code-slash" [size]="14" />
-              <span>{{ yield().pendingToolCall!.toolName }}</span>
-              <nxt1-icon name="chevron-down" [size]="12" class="action-card__chevron" />
+              <span class="action-card__summary-bullet" aria-hidden="true"></span>
+              <span>{{ friendlyToolName() }}</span>
+              <svg class="action-card__chevron" viewBox="0 0 12 12" aria-hidden="true">
+                <path d="M2.25 4.5L6 8.25L9.75 4.5" />
+              </svg>
             </summary>
-            <pre class="action-card__code" [attr.data-testid]="testIds.TOOL_ARGS">{{
-              toolArgsJson()
-            }}</pre>
+            @if (isEmailDraftApproval()) {
+              <div class="action-card__editor">
+                <label class="action-card__editor-label" for="ax-email-to">To</label>
+                <input
+                  id="ax-email-to"
+                  class="action-card__editor-input"
+                  type="text"
+                  [(ngModel)]="editEmailTo"
+                />
+
+                <label class="action-card__editor-label" for="ax-email-subject">Subject</label>
+                <input
+                  id="ax-email-subject"
+                  class="action-card__editor-input"
+                  type="text"
+                  [(ngModel)]="editEmailSubject"
+                />
+
+                <label class="action-card__editor-label" for="ax-email-body">Message</label>
+                <textarea
+                  id="ax-email-body"
+                  class="action-card__editor-textarea"
+                  rows="8"
+                  [(ngModel)]="editEmailBody"
+                ></textarea>
+              </div>
+            } @else if (toolSummaryLines().length > 0) {
+              <ul class="action-card__summary-list">
+                @for (line of toolSummaryLines(); track line) {
+                  <li>{{ line }}</li>
+                }
+              </ul>
+            }
+            @if (!isEmailDraftApproval() && toolDetailLines().length > 0) {
+              <ul class="action-card__summary-list action-card__summary-list--compact">
+                @for (line of toolDetailLines(); track line) {
+                  <li>{{ line }}</li>
+                }
+              </ul>
+            }
           </details>
         }
       </div>
 
       <!-- ═══ ACTIONS ═══ -->
-      @switch (cardState()) {
+      @switch (displayCardState()) {
         @case ('submitting') {
           <div
             class="action-card__footer action-card__footer--loading"
@@ -112,8 +160,8 @@ type CardState = 'idle' | 'submitting' | 'resolved';
             class="action-card__footer action-card__footer--resolved"
             [attr.data-testid]="testIds.RESOLVED"
           >
-            <nxt1-icon name="checkmark-circle" [size]="16" />
-            <span class="action-card__resolved-text">{{ resolvedText() }}</span>
+            <span class="action-card__resolved-dot" aria-hidden="true"></span>
+            <span class="action-card__resolved-text">{{ displayResolvedText() }}</span>
           </div>
         }
         @default {
@@ -126,7 +174,9 @@ type CardState = 'idle' | 'submitting' | 'resolved';
                 [attr.data-testid]="testIds.BTN_REJECT"
                 (click)="onReject()"
               >
-                <nxt1-icon name="close" [size]="14" />
+                <svg class="action-card__btn-icon" viewBox="0 0 16 16" aria-hidden="true">
+                  <path d="M4 4L12 12M12 4L4 12" />
+                </svg>
                 Reject
               </button>
               <button
@@ -135,7 +185,9 @@ type CardState = 'idle' | 'submitting' | 'resolved';
                 [attr.data-testid]="testIds.BTN_APPROVE"
                 (click)="onApprove()"
               >
-                <nxt1-icon name="checkmark" [size]="14" />
+                <svg class="action-card__btn-icon" viewBox="0 0 16 16" aria-hidden="true">
+                  <path d="M3.5 8.5L6.5 11.5L12.5 4.5" />
+                </svg>
                 Approve
               </button>
             </div>
@@ -156,7 +208,9 @@ type CardState = 'idle' | 'submitting' | 'resolved';
                 [disabled]="!replyText.trim()"
                 (click)="onSendReply()"
               >
-                <nxt1-icon name="send" [size]="14" />
+                <svg class="action-card__btn-icon" viewBox="0 0 16 16" aria-hidden="true">
+                  <path d="M2 8H12M8 4L12 8L8 12" />
+                </svg>
                 Reply
               </button>
             </div>
@@ -175,7 +229,8 @@ type CardState = 'idle' | 'submitting' | 'resolved';
         border-radius: 14px;
         overflow: hidden;
         animation: card-entrance 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
-        max-width: 340px;
+        width: 100%;
+        max-width: 100%;
       }
 
       @keyframes card-entrance {
@@ -239,13 +294,19 @@ type CardState = 'idle' | 'submitting' | 'resolved';
       }
 
       .action-card--approval .action-card__icon-wrap {
-        background: rgba(255, 152, 0, 0.12);
-        color: #ff9800;
+        background: var(--nxt1-color-alpha-primary10, rgba(204, 255, 0, 0.1));
+        color: var(--nxt1-color-primary, #ccff00);
       }
 
       .action-card--input .action-card__icon-wrap {
-        background: rgba(204, 255, 0, 0.1);
-        color: #ccff00;
+        background: var(--nxt1-color-alpha-primary10, rgba(204, 255, 0, 0.1));
+        color: var(--nxt1-color-primary, #ccff00);
+      }
+
+      .action-card__agent-mark {
+        width: 18px;
+        height: 18px;
+        fill: currentColor;
       }
 
       .action-card__header-text {
@@ -301,6 +362,14 @@ type CardState = 'idle' | 'submitting' | 'resolved';
         list-style: none;
       }
 
+      .action-card__summary-bullet {
+        width: 6px;
+        height: 6px;
+        border-radius: 999px;
+        background: var(--nxt1-color-primary, #ccff00);
+        flex-shrink: 0;
+      }
+
       .action-card__details-summary::-webkit-details-marker {
         display: none;
       }
@@ -311,22 +380,70 @@ type CardState = 'idle' | 'submitting' | 'resolved';
 
       .action-card__chevron {
         margin-left: auto;
+        width: 12px;
+        height: 12px;
+        stroke: currentColor;
+        stroke-width: 1.5;
+        fill: none;
         transition: transform 0.2s ease;
       }
 
-      .action-card__code {
+      .action-card__btn-icon {
+        width: 14px;
+        height: 14px;
+        stroke: currentColor;
+        stroke-width: 1.7;
+        fill: none;
+      }
+
+      .action-card__summary-list {
         margin: 0;
-        padding: 10px;
-        font-family: 'SF Mono', 'Fira Code', monospace;
-        font-size: 11px;
-        line-height: 1.4;
-        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
-        background: rgba(0, 0, 0, 0.3);
+        padding: 0 10px 8px 24px;
+        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.8));
+        font-size: 12px;
+        line-height: 1.5;
+      }
+
+      .action-card__summary-list--compact {
+        padding-top: 0;
+      }
+
+      .action-card__editor {
+        display: grid;
+        gap: 8px;
+        padding: 8px 10px 10px;
         border-top: 1px solid rgba(255, 255, 255, 0.04);
-        overflow-x: auto;
-        white-space: pre-wrap;
-        word-break: break-all;
-        max-height: 180px;
+      }
+
+      .action-card__editor-label {
+        font-size: 11px;
+        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.6));
+        margin-top: 2px;
+      }
+
+      .action-card__editor-input,
+      .action-card__editor-textarea {
+        width: 100%;
+        border-radius: 8px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        background: rgba(0, 0, 0, 0.24);
+        color: var(--nxt1-color-text-primary, #fff);
+        font-size: 12px;
+        line-height: 1.45;
+        padding: 8px 10px;
+        box-sizing: border-box;
+        outline: none;
+      }
+
+      .action-card__editor-textarea {
+        resize: vertical;
+        min-height: 132px;
+        font-family: inherit;
+      }
+
+      .action-card__editor-input:focus,
+      .action-card__editor-textarea:focus {
+        border-color: color-mix(in srgb, var(--nxt1-color-primary, #ccff00) 45%, transparent);
       }
 
       /* ── FOOTER / ACTIONS ── */
@@ -464,6 +581,13 @@ type CardState = 'idle' | 'submitting' | 'resolved';
         color: rgba(76, 175, 80, 0.9);
       }
 
+      .action-card__resolved-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 999px;
+        background: currentColor;
+      }
+
       .action-card__resolved-text {
         font-size: 13px;
         font-weight: 500;
@@ -483,6 +607,12 @@ export class AgentXActionCardComponent {
   /** The operation ID needed to approve/reply. */
   readonly operationId = input.required<string>();
 
+  /** Optional externally controlled visual state for inline timeline rendering. */
+  readonly externalCardState = input<CardState | null>(null);
+
+  /** Optional externally controlled resolved label for inline timeline rendering. */
+  readonly externalResolvedText = input<string>('');
+
   // ============================================
   // OUTPUTS
   // ============================================
@@ -499,9 +629,15 @@ export class AgentXActionCardComponent {
 
   /** Test IDs from @nxt1/core/testing constants. */
   protected readonly testIds = AGENT_X_ACTION_CARD_TEST_IDS;
+  protected readonly agentXLogoPath = AGENT_X_LOGO_PATH;
+  protected readonly agentXLogoPolygon = AGENT_X_LOGO_POLYGON;
 
   /** Inline reply text bound to textarea. */
   replyText = '';
+  editEmailTo = '';
+  editEmailSubject = '';
+  editEmailBody = '';
+  private lastLoadedDraftKey = '';
 
   /** Visual card state for optimistic transitions. */
   readonly cardState = signal<CardState>('idle');
@@ -509,22 +645,80 @@ export class AgentXActionCardComponent {
   /** Text shown after the card resolves. */
   readonly resolvedText = signal('');
 
+  /** Effective visual state, allowing parent timeline to own the card lifecycle. */
+  readonly displayCardState = computed<CardState>(
+    () => this.externalCardState() ?? this.cardState()
+  );
+
+  /** Effective resolved text, allowing parent timeline to own the resolved label. */
+  readonly displayResolvedText = computed(() => this.externalResolvedText() || this.resolvedText());
+
   // ============================================
   // DERIVED STATE
   // ============================================
 
   /** Whether this card is an approval variant. */
   readonly isApproval = computed(() => this.yield().reason === 'needs_approval');
+  readonly isEmailDraftApproval = computed(
+    () => this.isApproval() && this.yield().pendingToolCall?.toolName === 'send_email'
+  );
 
-  /** Prettified JSON of the pending tool call arguments. */
-  readonly toolArgsJson = computed(() => {
-    const toolCall = this.yield().pendingToolCall;
-    if (!toolCall) return '';
-    try {
-      return JSON.stringify(toolCall.toolInput, null, 2);
-    } catch {
-      return '{ … }';
+  /** Human-friendly tool name label for athletes/coaches. */
+  readonly friendlyToolName = computed(() => {
+    const name = this.yield().pendingToolCall?.toolName ?? '';
+    switch (name) {
+      case 'send_email':
+        return 'Email Draft Ready';
+      case 'post_to_social':
+        return 'Social Post Draft';
+      case 'send_sms':
+        return 'Text Message Draft';
+      default:
+        return 'Agent Action Details';
     }
+  });
+
+  /** Friendly summary lines without developer/internal IDs. */
+  readonly toolSummaryLines = computed(() => {
+    const toolCall = this.yield().pendingToolCall;
+    if (!toolCall) return [] as string[];
+    const input = (toolCall.toolInput ?? {}) as Record<string, unknown>;
+
+    if (toolCall.toolName === 'send_email') {
+      const to = this.readString(input, ['toEmail', 'to', 'recipientEmail']);
+      const subject = this.readString(input, ['subject']);
+      const message =
+        this.readString(input, ['bodyText', 'body', 'message']) ??
+        this.htmlToText(this.readString(input, ['bodyHtml']) ?? '');
+      const summary: string[] = [];
+      if (to) summary.push(`To: ${to}`);
+      if (subject) summary.push(`Subject: ${subject}`);
+      if (message) summary.push(`Message: ${this.truncate(message, 160)}`);
+      return summary;
+    }
+
+    return [] as string[];
+  });
+
+  /** Clean key-value details for all tools (no raw HTML/JSON dump). */
+  readonly toolDetailLines = computed(() => {
+    const toolCall = this.yield().pendingToolCall;
+    if (!toolCall) return [] as string[];
+
+    const raw = this.redactPayload(toolCall.toolInput);
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return [] as string[];
+
+    const payload = raw as Record<string, unknown>;
+    const lines: string[] = [];
+
+    for (const [key, value] of Object.entries(payload)) {
+      const formatted = this.formatDetailValue(value);
+      if (!formatted) continue;
+      lines.push(`${this.humanizeKey(key)}: ${formatted}`);
+      if (lines.length >= 6) break;
+    }
+
+    return lines;
   });
 
   /** Human-readable expiry label. */
@@ -548,6 +742,8 @@ export class AgentXActionCardComponent {
     this.approve.emit({
       operationId: this.operationId(),
       decision: 'approve',
+      approvalId: this.yield().approvalId,
+      toolInput: this.buildEditedToolInput(),
     });
   }
 
@@ -556,6 +752,30 @@ export class AgentXActionCardComponent {
     this.approve.emit({
       operationId: this.operationId(),
       decision: 'reject',
+      approvalId: this.yield().approvalId,
+    });
+  }
+
+  constructor() {
+    effect(() => {
+      const yieldState = this.yield();
+      const toolCall = yieldState.pendingToolCall;
+      const draftKey = `${yieldState.approvalId ?? ''}:${toolCall?.toolName ?? ''}`;
+
+      if (!toolCall || toolCall.toolName !== 'send_email') {
+        this.lastLoadedDraftKey = '';
+        return;
+      }
+      if (draftKey === this.lastLoadedDraftKey) return;
+
+      const input = (toolCall.toolInput ?? {}) as Record<string, unknown>;
+      this.editEmailTo = this.readString(input, ['toEmail', 'to', 'recipientEmail']) ?? '';
+      this.editEmailSubject = this.readString(input, ['subject']) ?? '';
+      this.editEmailBody =
+        this.readString(input, ['bodyText', 'body', 'message']) ??
+        this.htmlToText(this.readString(input, ['bodyHtml']) ?? '');
+
+      this.lastLoadedDraftKey = draftKey;
     });
   }
 
@@ -587,5 +807,144 @@ export class AgentXActionCardComponent {
   /** Reset the card back to idle (e.g. on API failure). */
   markIdle(): void {
     this.cardState.set('idle');
+  }
+
+  private readString(source: Record<string, unknown>, keys: readonly string[]): string | null {
+    for (const key of keys) {
+      const value = source[key];
+      if (typeof value === 'string' && value.trim().length > 0) {
+        return value.trim();
+      }
+    }
+    return null;
+  }
+
+  private truncate(value: string, maxLength: number): string {
+    if (value.length <= maxLength) return value;
+    return `${value.slice(0, maxLength).trim()}...`;
+  }
+
+  private htmlToText(html: string): string {
+    return html
+      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, ' ')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  private humanizeKey(key: string): string {
+    return key
+      .replace(/([a-z])([A-Z])/g, '$1 $2')
+      .replace(/[_-]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .replace(/^./, (char) => char.toUpperCase());
+  }
+
+  private formatDetailValue(value: unknown): string | null {
+    if (value === null || value === undefined) return null;
+
+    if (typeof value === 'string') {
+      const cleaned = this.htmlToText(value);
+      return cleaned ? this.truncate(cleaned, 120) : null;
+    }
+
+    if (typeof value === 'number' || typeof value === 'boolean') {
+      return String(value);
+    }
+
+    if (Array.isArray(value)) {
+      const items = value
+        .map((item) => this.formatDetailValue(item))
+        .filter((item): item is string => !!item);
+      if (!items.length) return null;
+      return this.truncate(items.join(', '), 120);
+    }
+
+    if (typeof value === 'object') {
+      const entries = Object.entries(value as Record<string, unknown>)
+        .filter(([key]) => !this.isSensitiveKey(key))
+        .slice(0, 2)
+        .map(([key, item]) => {
+          const formatted = this.formatDetailValue(item);
+          if (!formatted) return null;
+          return `${this.humanizeKey(key)} ${formatted}`;
+        })
+        .filter((item): item is string => !!item);
+
+      if (!entries.length) return null;
+      return this.truncate(entries.join(' | '), 120);
+    }
+
+    return null;
+  }
+
+  private redactPayload(value: unknown): unknown {
+    if (Array.isArray(value)) {
+      return value.map((item) => this.redactPayload(item));
+    }
+    if (!value || typeof value !== 'object') return value;
+
+    const objectValue = value as Record<string, unknown>;
+    const redacted: Record<string, unknown> = {};
+    for (const [key, raw] of Object.entries(objectValue)) {
+      if (this.isSensitiveKey(key)) {
+        continue;
+      }
+      redacted[key] = this.redactPayload(raw);
+    }
+    return redacted;
+  }
+
+  private buildEditedToolInput(): Record<string, unknown> | undefined {
+    const toolCall = this.yield().pendingToolCall;
+    if (!toolCall || toolCall.toolName !== 'send_email') return undefined;
+
+    const base =
+      toolCall.toolInput &&
+      typeof toolCall.toolInput === 'object' &&
+      !Array.isArray(toolCall.toolInput)
+        ? ({ ...(toolCall.toolInput as Record<string, unknown>) } as Record<string, unknown>)
+        : ({} as Record<string, unknown>);
+
+    const to = this.editEmailTo.trim();
+    const subject = this.editEmailSubject.trim();
+    const body = this.editEmailBody.trim();
+
+    base['toEmail'] = to;
+    base['to'] = to;
+    base['subject'] = subject;
+    base['body'] = body;
+    base['bodyText'] = body;
+    base['message'] = body;
+    if ('bodyHtml' in base) {
+      base['bodyHtml'] = this.textToHtml(body);
+    }
+
+    return base;
+  }
+
+  private textToHtml(text: string): string {
+    const escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return escaped.replace(/\n/g, '<br/>');
+  }
+
+  private isSensitiveKey(key: string): boolean {
+    const normalized = key.toLowerCase();
+    return (
+      normalized === 'userid' ||
+      normalized === 'toolcallid' ||
+      normalized === 'operationid' ||
+      normalized === 'approvalid' ||
+      normalized === 'threadid' ||
+      normalized === 'sessionid' ||
+      normalized === 'developer' ||
+      normalized === 'internal' ||
+      normalized.endsWith('token') ||
+      normalized.endsWith('secret') ||
+      normalized.endsWith('apikey') ||
+      normalized.endsWith('password')
+    );
   }
 }

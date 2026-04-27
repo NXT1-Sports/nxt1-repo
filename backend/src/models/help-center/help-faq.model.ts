@@ -6,8 +6,9 @@
  * Maps to FaqItem type from @nxt1/core.
  */
 
-import { model, Schema, type Model } from 'mongoose';
+import { Schema, type Model, type Connection } from 'mongoose';
 import type { FaqItem } from '@nxt1/core';
+import { getMongoGlobalConnection } from '../../config/database.config.js';
 
 /**
  * Stored FAQ document (writable version of FaqItem + isPublished flag)
@@ -16,6 +17,8 @@ export interface HelpFaqDocument extends Omit<FaqItem, 'id'> {
   readonly isPublished: boolean;
   readonly lastAgentRefresh?: Date | null;
 }
+
+const HELP_FAQ_MODEL_NAME = 'HelpFaq';
 
 const HelpFaqSchema = new Schema<HelpFaqDocument>(
   {
@@ -41,7 +44,31 @@ HelpFaqSchema.index(
 // Compound index for category + sort
 HelpFaqSchema.index({ category: 1, order: 1 });
 
-export const HelpFaqModel: Model<HelpFaqDocument> = model<HelpFaqDocument>(
-  'HelpFaq',
-  HelpFaqSchema
-);
+export function getHelpFaqModel(
+  connection: Connection = getMongoGlobalConnection()
+): Model<HelpFaqDocument> {
+  const existingModel = connection.models[HELP_FAQ_MODEL_NAME] as
+    | Model<HelpFaqDocument>
+    | undefined;
+  if (existingModel) return existingModel;
+
+  return connection.model<HelpFaqDocument>(HELP_FAQ_MODEL_NAME, HelpFaqSchema);
+}
+
+export const HelpFaqModel = new Proxy({} as Model<HelpFaqDocument>, {
+  get(_target, prop) {
+    const model = getHelpFaqModel();
+    const value = (model as unknown as Record<PropertyKey, unknown>)[prop];
+    return typeof value === 'function' ? value.bind(model) : value;
+  },
+  has(_target, prop) {
+    const model = getHelpFaqModel();
+    return prop in model;
+  },
+  getOwnPropertyDescriptor(_target, prop) {
+    const model = getHelpFaqModel() as unknown as Record<PropertyKey, unknown>;
+    const value = model[prop];
+    if (value === undefined) return undefined;
+    return { configurable: true, enumerable: true, writable: true, value };
+  },
+});

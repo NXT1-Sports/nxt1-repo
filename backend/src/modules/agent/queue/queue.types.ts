@@ -71,7 +71,7 @@ export const JOB_LOCK_DURATION_MS = 300_000 as const;
  * Overall timeout for a single agent job (ms).
  * If the job hasn't completed within this window, it's force-failed.
  */
-export const JOB_TIMEOUT_MS = 300_000 as const;
+export const JOB_TIMEOUT_MS = 7_200_000 as const;
 
 // ─── Job Data Shapes ────────────────────────────────────────────────────────
 
@@ -202,6 +202,10 @@ export interface RecurringJobInfo {
   readonly actionSummary: string;
   /** The cron pattern controlling execution. */
   readonly cronExpression: string;
+  /** IANA timezone used when evaluating the cron expression. */
+  readonly timezone: string;
+  /** Optional source thread/message identifier captured at schedule creation. */
+  readonly sourceId?: string;
   /** ISO timestamp of the next scheduled execution (null if paused/unknown). */
   readonly nextRun: string | null;
   /** ISO timestamp of when the schedule was created. */

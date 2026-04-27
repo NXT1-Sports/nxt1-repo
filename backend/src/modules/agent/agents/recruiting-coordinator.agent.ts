@@ -16,6 +16,7 @@
 import type { AgentIdentifier, AgentSessionContext, ModelRoutingConfig } from '@nxt1/core';
 import { MODEL_ROUTING_DEFAULTS } from '@nxt1/core';
 import { BaseAgent } from './base.agent.js';
+import { getAgentToolPolicy } from './tool-policy.js';
 
 export class RecruitingCoordinatorAgent extends BaseAgent {
   readonly id: AgentIdentifier = 'recruiting_coordinator';
@@ -51,26 +52,7 @@ export class RecruitingCoordinatorAgent extends BaseAgent {
   }
 
   getAvailableTools(): readonly string[] {
-    return [
-      'search_nxt1_platform',
-      'query_nxt1_platform_data',
-      'list_nxt1_data_views',
-      'query_nxt1_data',
-      'search_web',
-      'scrape_webpage',
-      'write_intel',
-      'update_intel',
-      'open_live_view',
-      'navigate_live_view',
-      'interact_with_live_view',
-      'read_live_view',
-      'close_live_view',
-      'send_email',
-      'ask_user',
-      'scan_timeline_posts',
-      'list_google_workspace_tools',
-      'run_google_workspace_tool',
-    ];
+    return getAgentToolPolicy(this.id);
   }
 
   override getSkills(): readonly string[] {

@@ -583,12 +583,13 @@ export class LiveViewSessionService {
   /**
    * Extract the current page content from an active live-view session.
    *
-   * Uses a two-pass approach:
-   * 1. Get URL + title via lightweight Playwright expressions.
-   * 2. Use Firecrawl's built-in AI prompt to extract meaningful page content.
-   *    This handles SPAs (Hudl, MaxPreps, etc.) where the real data is rendered
-   *    dynamically and raw HTML stripping returns only script bundles/noise.
-   *    Falls back to `document.body.innerText` if the prompt fails.
+   * Uses the `agent-browser` bash CLI pre-installed in Firecrawl's interact
+   * sandbox. A single bash call retrieves URL, title, and full accessibility
+   * tree snapshot without any Playwright code written by us and at 2 credits/min
+   * (code-only mode) instead of 7 credits/min (AI prompt mode).
+   *
+   * Falls back to the AI prompt approach if the bash call fails, and to a
+   * static error string if both fail.
    */
   async extractContent(
     sessionId: string,
@@ -598,13 +599,64 @@ export class LiveViewSessionService {
 
     logger.info('[LiveViewSession] Extracting content', { sessionId });
 
-    // 1. Lightweight metadata via Playwright (bare expressions — no `const` declarations
-    //    because Firecrawl's persistent Node scope would collide across calls).
-    const url = await this.executeBrowserCommand(sessionId, 'page.url()');
-    const title = await this.executeBrowserCommand(sessionId, 'await page.title()');
+    // Primary: single bash call — agent-browser CLI (2 credits/min, no Playwright code from us).
+    // The echo prefixes let us parse URL and TITLE reliably from stdout regardless of
+    // page title content. The snapshot command dumps the full accessibility tree.
+    const BASH_CMD =
+      'echo "URL:$(agent-browser get url)" && ' +
+      'echo "TITLE:$(agent-browser get title)" && ' +
+      'echo "---CONTENT---" && ' +
+      'agent-browser snapshot';
 
-    // 2. Use Firecrawl's AI prompt extraction — it reads the live accessibility tree
-    //    and rendered content, so it works on heavy SPAs where raw HTML is useless.
+    try {
+      const bashResult: ScrapeExecuteResponse = await this.client.interact(sessionId, {
+        code: BASH_CMD,
+        language: 'bash' as Parameters<typeof this.client.interact>[1]['language'],
+      });
+
+      const stdout = bashResult.stdout?.trim() ?? '';
+      if (bashResult.success && stdout) {
+        const lines = stdout.split('\n');
+        const urlLine = lines.find((l) => l.startsWith('URL:'));
+        const titleLine = lines.find((l) => l.startsWith('TITLE:'));
+        const contentStart = lines.indexOf('---CONTENT---');
+        const contentLines = contentStart >= 0 ? lines.slice(contentStart + 1) : [];
+
+        const url = urlLine ? urlLine.slice('URL:'.length).trim() : '';
+        const title = titleLine ? titleLine.slice('TITLE:'.length).trim() : '';
+        const content = contentLines.join('\n').trim();
+
+        if (url && content) {
+          logger.info('[LiveViewSession] Bash extraction succeeded', {
+            sessionId,
+            url,
+            contentLength: content.length,
+          });
+          return { url, title, content: content.slice(0, 30_000) };
+        }
+      }
+
+      logger.warn(
+        '[LiveViewSession] Bash extraction returned empty output, falling back to AI prompt',
+        {
+          sessionId,
+          exitCode: bashResult.exitCode,
+          stderr: bashResult.stderr?.slice(0, 200),
+        }
+      );
+    } catch (err) {
+      logger.warn('[LiveViewSession] Bash extraction threw, falling back to AI prompt', {
+        sessionId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
+    // Fallback: AI prompt extraction (7 credits/min — used only when bash fails).
+    // Firecrawl reads the live accessibility tree and rendered content, handling
+    // heavy SPAs (Hudl, MaxPreps, etc.) where raw HTML is useless.
+    const url = await this.executeBrowserCommand(sessionId, 'page.url()').catch(() => '');
+    const title = await this.executeBrowserCommand(sessionId, 'await page.title()').catch(() => '');
+
     let content = '';
     try {
       const result: ScrapeExecuteResponse = await this.client.interact(sessionId, {
@@ -617,43 +669,23 @@ export class LiveViewSessionService {
 
       if (result.success && result.output) {
         content = result.output.trim();
-        logger.info('[LiveViewSession] AI extraction succeeded', {
+        logger.info('[LiveViewSession] AI prompt extraction succeeded', {
           sessionId,
           contentLength: content.length,
         });
       }
     } catch (err) {
-      logger.warn('[LiveViewSession] AI extraction failed, falling back to innerText', {
+      logger.warn('[LiveViewSession] AI prompt extraction failed', {
         sessionId,
         error: err instanceof Error ? err.message : String(err),
       });
     }
 
-    // 3. Fallback: grab visible text via innerText (much better than raw HTML stripping)
     if (!content) {
-      try {
-        content = await this.executeBrowserCommand(
-          sessionId,
-          'await page.$eval("body", el => el.innerText)'
-        );
-        logger.info('[LiveViewSession] innerText fallback succeeded', {
-          sessionId,
-          contentLength: content.length,
-        });
-      } catch (fallbackErr) {
-        logger.warn('[LiveViewSession] innerText fallback also failed', {
-          sessionId,
-          error: fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr),
-        });
-        content = '(Page content could not be extracted — the page may still be loading)';
-      }
+      content = '(Page content could not be extracted — the page may still be loading)';
     }
 
-    return {
-      url,
-      title,
-      content: content.slice(0, 30000),
-    };
+    return { url, title, content: content.slice(0, 30_000) };
   }
 
   /**

@@ -20,6 +20,7 @@
 import type { AgentIdentifier, AgentSessionContext, ModelRoutingConfig } from '@nxt1/core';
 import { MODEL_ROUTING_DEFAULTS } from '@nxt1/core';
 import { BaseAgent } from './base.agent.js';
+import { getAgentToolPolicy } from './tool-policy.js';
 
 export class BrandCoordinatorAgent extends BaseAgent {
   readonly id: AgentIdentifier = 'brand_coordinator';
@@ -30,19 +31,7 @@ export class BrandCoordinatorAgent extends BaseAgent {
   }
 
   getAvailableTools(): readonly string[] {
-    return [
-      'generate_graphic',
-      'get_college_logos',
-      'get_conference_logos',
-      'write_timeline_post',
-      'scrape_webpage',
-      'open_live_view',
-      'navigate_live_view',
-      'interact_with_live_view',
-      'read_live_view',
-      'close_live_view',
-      'ask_user',
-    ];
+    return getAgentToolPolicy(this.id);
   }
 
   override getSkills(): readonly string[] {

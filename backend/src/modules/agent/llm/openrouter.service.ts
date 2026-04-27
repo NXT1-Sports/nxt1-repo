@@ -56,6 +56,8 @@ import { logger } from '../../../utils/logger.js';
 const DEFAULT_TIMEOUT_MS = 60_000;
 const MAX_RETRIES = 2;
 const RETRY_DELAY_MS = 750;
+const MODEL_CIRCUIT_BREAKER_FAILURE_THRESHOLD = 3;
+const MODEL_CIRCUIT_BREAKER_WINDOW_MS = 60_000;
 
 /** Status codes that are safe to retry on. */
 const RETRYABLE_STATUS_CODES = new Set([429, 500, 502, 503, 504]);
@@ -113,6 +115,14 @@ export class OpenRouterService {
   private readonly siteName: string;
   private readonly telemetryCallback?: LLMTelemetryCallback;
   private readonly hydrateAgentConfig: () => Promise<void>;
+  private readonly modelCircuitBreaker = new Map<
+    string,
+    {
+      failures: number;
+      lastFailureAt: number;
+      openUntil: number;
+    }
+  >();
 
   constructor(options?: {
     onTelemetry?: LLMTelemetryCallback;
@@ -176,11 +186,30 @@ export class OpenRouterService {
     let lastError: Error | undefined;
 
     for (let i = 0; i < chain.length; i++) {
+      this.throwIfAborted(options.signal);
       const model = chain[i];
+      if (this.isModelCircuitOpen(model)) {
+        const isLastModel = i === chain.length - 1;
+        logger.warn('[OpenRouter] Circuit breaker open, skipping model', {
+          model,
+          tier: options.tier,
+          chainPosition: `${i + 1}/${chain.length}`,
+        });
+        if (isLastModel) {
+          throw new AgentEngineError(
+            'OPENROUTER_NO_MODELS_AVAILABLE',
+            'All fallback models are currently unavailable due to repeated failures.'
+          );
+        }
+        continue;
+      }
       try {
-        return await this.completeWithModel(messages, options, model);
+        const completed = await this.completeWithModel(messages, options, model);
+        this.recordModelSuccess(model);
+        return completed;
       } catch (err) {
         lastError = err instanceof Error ? err : new Error(String(err));
+        this.recordModelFailure(model);
 
         // Never retry on user abort
         if (options.signal?.aborted) throw lastError;
@@ -193,11 +222,15 @@ export class OpenRouterService {
             tier: options.tier,
             chainPosition: `${i + 1}/${chain.length}`,
           });
-          await this.sleep(RETRY_DELAY_MS * 3); // 2.25s backoff for rate limits
+          await this.sleep(RETRY_DELAY_MS * 3, options.signal); // 2.25s backoff for rate limits
+          this.throwIfAborted(options.signal);
           try {
-            return await this.completeWithModel(messages, options, model);
+            const completed = await this.completeWithModel(messages, options, model);
+            this.recordModelSuccess(model);
+            return completed;
           } catch (retryErr) {
             lastError = retryErr instanceof Error ? retryErr : new Error(String(retryErr));
+            this.recordModelFailure(model);
             // Fall through to next model in chain
           }
         }
@@ -213,7 +246,7 @@ export class OpenRouterService {
           nextModel: chain[i + 1],
           tier: options.tier,
           chainPosition: `${i + 1}/${chain.length}`,
-          errorType: lastError instanceof OpenRouterError ? `HTTP ${lastError.status}` : 'unknown',
+          errorType: this.classifyErrorType(lastError),
           error: lastError.message,
         });
       }
@@ -248,7 +281,7 @@ export class OpenRouterService {
     const raw = await this.fetchWithRetry(
       body,
       options.signal,
-      DEFAULT_TIMEOUT_MS,
+      options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
       options.telemetryContext
     );
     const latencyMs = Date.now() - startMs;
@@ -473,11 +506,30 @@ export class OpenRouterService {
     let lastError: Error | undefined;
 
     for (let i = 0; i < chain.length; i++) {
+      this.throwIfAborted(options.signal);
       const model = chain[i];
+      if (this.isModelCircuitOpen(model)) {
+        const isLastModel = i === chain.length - 1;
+        logger.warn('[OpenRouter] Stream circuit breaker open, skipping model', {
+          model,
+          tier: options.tier,
+          chainPosition: `${i + 1}/${chain.length}`,
+        });
+        if (isLastModel) {
+          throw new AgentEngineError(
+            'OPENROUTER_NO_MODELS_AVAILABLE',
+            'All fallback stream models are currently unavailable due to repeated failures.'
+          );
+        }
+        continue;
+      }
       try {
-        return await this._completeStreamWithModel(messages, options, onDelta, model);
+        const streamed = await this._completeStreamWithModel(messages, options, onDelta, model);
+        this.recordModelSuccess(model);
+        return streamed;
       } catch (err) {
         lastError = err instanceof Error ? err : new Error(String(err));
+        this.recordModelFailure(model);
 
         // Never retry on user abort
         if (options.signal?.aborted) throw lastError;
@@ -495,7 +547,7 @@ export class OpenRouterService {
           nextModel: chain[i + 1],
           tier: options.tier,
           chainPosition: `${i + 1}/${chain.length}`,
-          errorType: statusCode ? `HTTP ${statusCode}` : 'unknown',
+          errorType: this.classifyErrorType(lastError),
           error: lastError.message,
         });
       }
@@ -525,7 +577,7 @@ export class OpenRouterService {
     const body = this.buildStreamRequestBody(messages, model, options);
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
+    const timeoutId = setTimeout(() => controller.abort(), options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
 
     // Merge external abort signal with our timeout
     const onAbort = () => controller.abort();
@@ -774,12 +826,23 @@ export class OpenRouterService {
     const JSON_SUFFIX =
       '\n\nIMPORTANT: You MUST respond with valid JSON only. No markdown, no code fences, no explanatory text. Output raw JSON.';
 
-    return messages.map((msg) => {
+    const patched = messages.map((msg) => {
       if (msg.role === 'system' && typeof msg.content === 'string') {
         return { ...msg, content: msg.content + JSON_SUFFIX };
       }
       return msg;
     });
+
+    const hasSystem = patched.some((msg) => msg.role === 'system');
+    if (hasSystem) return patched;
+
+    return [
+      {
+        role: 'system',
+        content: `You are a strict JSON output engine.${JSON_SUFFIX}`,
+      },
+      ...patched,
+    ];
   }
 
   /**
@@ -841,6 +904,7 @@ export class OpenRouterService {
     let currentApiKey = this.apiKey;
 
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      this.throwIfAborted(signal);
       try {
         return await this.fetchOnce(body, signal, timeoutMs, telemetryContext, currentApiKey);
       } catch (err) {
@@ -868,7 +932,7 @@ export class OpenRouterService {
         // Exponential backoff
         if (attempt < MAX_RETRIES) {
           const delay = RETRY_DELAY_MS * Math.pow(2, attempt);
-          await this.sleep(delay);
+          await this.sleep(delay, signal);
         }
       }
     }
@@ -887,7 +951,11 @@ export class OpenRouterService {
     apiKey?: string
   ): Promise<OpenRouterRawResponse> {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    let timedOut = false;
+    const timeoutId = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, timeoutMs);
 
     // Merge external abort signal with our timeout
     const onAbort = () => controller.abort();
@@ -917,6 +985,28 @@ export class OpenRouterService {
       }
 
       return (await response.json()) as OpenRouterRawResponse;
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+
+      if (error.name === 'AbortError') {
+        if (timedOut) {
+          throw new AgentEngineError(
+            'OPENROUTER_REQUEST_TIMEOUT',
+            `OpenRouter request timed out after ${timeoutMs}ms`,
+            { cause: error, metadata: { timeoutMs } }
+          );
+        }
+
+        if (signal?.aborted) {
+          throw new AgentEngineError(
+            'OPENROUTER_REQUEST_ABORTED',
+            'OpenRouter request was aborted by caller signal.',
+            { cause: error }
+          );
+        }
+      }
+
+      throw error;
     } finally {
       clearTimeout(timeoutId);
       signal?.removeEventListener('abort', onAbort);
@@ -924,6 +1014,11 @@ export class OpenRouterService {
   }
 
   private isRetryable(error: Error): boolean {
+    if (error instanceof AgentEngineError) {
+      if (error.code === 'OPENROUTER_REQUEST_TIMEOUT') return true;
+      if (error.code === 'OPENROUTER_REQUEST_ABORTED') return false;
+    }
+
     if (error instanceof OpenRouterError) {
       return RETRYABLE_STATUS_CODES.has(error.status);
     }
@@ -932,8 +1027,95 @@ export class OpenRouterService {
     return error.message.includes('fetch failed');
   }
 
-  private sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
+  private isModelCircuitOpen(model: string): boolean {
+    const state = this.modelCircuitBreaker.get(model);
+    if (!state) return false;
+
+    if (state.openUntil > Date.now()) {
+      return true;
+    }
+
+    if (state.openUntil > 0) {
+      this.modelCircuitBreaker.set(model, {
+        failures: 0,
+        lastFailureAt: state.lastFailureAt,
+        openUntil: 0,
+      });
+    }
+    return false;
+  }
+
+  private recordModelSuccess(model: string): void {
+    const existing = this.modelCircuitBreaker.get(model);
+    if (!existing) return;
+    if (existing.failures === 0 && existing.openUntil === 0) return;
+
+    this.modelCircuitBreaker.set(model, {
+      failures: 0,
+      lastFailureAt: Date.now(),
+      openUntil: 0,
+    });
+  }
+
+  private recordModelFailure(model: string): void {
+    const now = Date.now();
+    const existing = this.modelCircuitBreaker.get(model);
+    const withinWindow =
+      !!existing && now - existing.lastFailureAt <= MODEL_CIRCUIT_BREAKER_WINDOW_MS;
+    const failures = withinWindow ? existing.failures + 1 : 1;
+    const openUntil =
+      failures >= MODEL_CIRCUIT_BREAKER_FAILURE_THRESHOLD
+        ? now + MODEL_CIRCUIT_BREAKER_WINDOW_MS
+        : 0;
+
+    this.modelCircuitBreaker.set(model, {
+      failures,
+      lastFailureAt: now,
+      openUntil,
+    });
+  }
+
+  private throwIfAborted(signal?: AbortSignal): void {
+    if (!signal?.aborted) return;
+    throw this.createAbortError();
+  }
+
+  private classifyErrorType(error: Error): string {
+    if (error instanceof OpenRouterError) return `HTTP ${error.status}`;
+    if (error instanceof AgentEngineError) return error.code;
+    if (error.name === 'AbortError') return 'ABORTED';
+    return 'unknown';
+  }
+
+  private createAbortError(): Error {
+    const abortError = new Error('The operation was aborted.');
+    abortError.name = 'AbortError';
+    return abortError;
+  }
+
+  private sleep(ms: number, signal?: AbortSignal): Promise<void> {
+    if (!signal) {
+      return new Promise((resolve) => setTimeout(resolve, ms));
+    }
+
+    if (signal.aborted) {
+      return Promise.reject(this.createAbortError());
+    }
+
+    return new Promise((resolve, reject) => {
+      const timeoutId = setTimeout(() => {
+        signal.removeEventListener('abort', onAbort);
+        resolve();
+      }, ms);
+
+      const onAbort = () => {
+        clearTimeout(timeoutId);
+        signal.removeEventListener('abort', onAbort);
+        reject(this.createAbortError());
+      };
+
+      signal.addEventListener('abort', onAbort);
+    });
   }
 
   // ─── Response Parser ────────────────────────────────────────────────────

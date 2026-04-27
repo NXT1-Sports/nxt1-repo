@@ -118,16 +118,11 @@ export class ScanTimelinePostsTool extends BaseTool {
   });
 
   readonly isMutation = true;
-  readonly category: AgentToolCategory = 'communication';
+  readonly category: AgentToolCategory = 'system';
 
   readonly entityGroup = 'user_tools' as const;
 
-  override readonly allowedAgents: readonly (AgentIdentifier | '*')[] = [
-    'data_coordinator',
-    'strategy_coordinator',
-    'recruiting_coordinator',
-    'performance_coordinator',
-  ];
+  override readonly allowedAgents: readonly (AgentIdentifier | '*')[] = ['*'];
 
   constructor(
     private readonly db: Firestore,

@@ -156,27 +156,297 @@ describe('PlannerAgent', () => {
 
   // ─── LLM Call Verification ──────────────────────────────────────────────
 
-  it('should call LLM with a structured output schema and balanced tier', async () => {
-    const llm = createMockLLM();
+  it('should call LLM twice: first for classification, then for planning', async () => {
+    const classificationResult = {
+      isConversational: false,
+      reasoning: 'Complex request',
+      estimatedComplexity: 'complex',
+    };
+
+    const planResult = {
+      tasks: [
+        { id: '1', assignedAgent: 'strategy_coordinator', description: 'test', dependsOn: [] },
+      ],
+    };
+
+    const llm = {
+      prompt: vi
+        .fn()
+        .mockResolvedValueOnce({
+          parsedOutput: classificationResult,
+          content: JSON.stringify(classificationResult),
+          model: 'deepseek/deepseek-v3.2',
+          usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
+          latencyMs: 200,
+          costUsd: 0.0001,
+          toolCalls: [],
+          finishReason: 'stop',
+        })
+        .mockResolvedValueOnce({
+          parsedOutput: planResult,
+          content: JSON.stringify(planResult),
+          model: 'anthropic/claude-sonnet-4-5',
+          usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
+          latencyMs: 200,
+          costUsd: 0.001,
+          toolCalls: [],
+          finishReason: 'stop',
+        }),
+      complete: vi.fn(),
+    } as unknown as OpenRouterService;
+
     const planner = new PlannerAgent(llm);
+    await planner.execute('Do something complex', context, []);
 
-    await planner.execute('Do something', context, []);
+    // Should be called twice: once for classification, once for planning
+    expect(llm.prompt).toHaveBeenCalledTimes(2);
 
-    expect(llm.prompt).toHaveBeenCalledTimes(1);
-    const callArgs = (llm.prompt as ReturnType<typeof vi.fn>).mock.calls[0];
-
-    // System prompt should mention "Chief of Staff"
-    expect(callArgs[0]).toContain('Chief of Staff');
-
-    // User message should be the intent
-    expect(callArgs[1]).toBe('Do something');
-
-    // Options should include a structured output schema
-    expect(callArgs[2]).toMatchObject({
-      tier: 'routing',
+    // First call: classification with chat tier
+    const classificationCall = (llm.prompt as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(classificationCall[2]).toMatchObject({
+      tier: 'chat',
+      maxTokens: 512,
     });
-    expect(callArgs[2].outputSchema).toBeDefined();
-    expect(callArgs[2].outputSchema.name).toBe('planner_execution_plan');
+    expect(classificationCall[2].outputSchema.name).toBe('intent_classification');
+
+    // Second call: planning with routing tier
+    const planningCall = (llm.prompt as ReturnType<typeof vi.fn>).mock.calls[1];
+    expect(planningCall[0]).toContain('Chief of Staff');
+    expect(planningCall[2]).toMatchObject({
+      tier: 'routing',
+      maxTokens: 1024,
+    });
+    expect(planningCall[2].outputSchema.name).toBe('planner_execution_plan');
+  });
+
+  it('should inject capability snapshot context into routing-tier planning input', async () => {
+    const classificationResult = {
+      isConversational: false,
+      reasoning: 'Coordinator execution needed',
+      estimatedComplexity: 'moderate',
+    };
+
+    const planResult = {
+      tasks: [
+        { id: '1', assignedAgent: 'strategy_coordinator', description: 'test', dependsOn: [] },
+      ],
+    };
+
+    const llm = {
+      prompt: vi
+        .fn()
+        .mockResolvedValueOnce({
+          parsedOutput: classificationResult,
+          content: JSON.stringify(classificationResult),
+          model: 'deepseek/deepseek-v3.2',
+          usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
+          latencyMs: 200,
+          costUsd: 0.0001,
+          toolCalls: [],
+          finishReason: 'stop',
+        })
+        .mockResolvedValueOnce({
+          parsedOutput: planResult,
+          content: JSON.stringify(planResult),
+          model: 'anthropic/claude-sonnet-4-5',
+          usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
+          latencyMs: 200,
+          costUsd: 0.001,
+          toolCalls: [],
+          finishReason: 'stop',
+        }),
+      complete: vi.fn(),
+    } as unknown as OpenRouterService;
+
+    const planner = new PlannerAgent(llm);
+    await planner.execute('Build a scouting workflow', context, [], undefined, {
+      capabilitySnapshot: {
+        schemaVersion: 1,
+        hash: 'snapshot-hash',
+        coordinators: [
+          {
+            agentId: 'strategy_coordinator',
+            allowedToolNames: ['generate_scout_report'],
+            allowedEntityGroups: ['platform_tools'],
+            matchedToolNames: ['generate_scout_report'],
+            staticSkillHints: ['global_knowledge'],
+            matchedSkillHints: ['global_knowledge'],
+            confidence: {
+              matchedToolCount: 1,
+              allowedToolCount: 1,
+              toolCoverageRatio: 1,
+              matchedSkillCount: 1,
+              staticSkillCount: 1,
+              skillCoverageRatio: 1,
+            },
+          },
+        ],
+      },
+    });
+
+    const planningCall = (llm.prompt as ReturnType<typeof vi.fn>).mock.calls[1];
+    const planningIntent = planningCall[1] as string;
+
+    expect(planningIntent).toContain('[Coordinator Capability Snapshot]');
+    expect(planningIntent).toContain('snapshot-hash');
+    expect(planningIntent).toContain('strategy_coordinator');
+  });
+
+  it('should classify capability questions through the conversational LLM path', async () => {
+    const classificationResult = {
+      isConversational: true,
+      reasoning: 'Capability question is conversational',
+      estimatedComplexity: 'simple',
+    };
+
+    const planResult = {
+      tasks: [],
+      directResponse: 'I can help with recruiting, video workflows, and platform guidance.',
+    };
+
+    const llm = {
+      prompt: vi
+        .fn()
+        .mockResolvedValueOnce({
+          parsedOutput: classificationResult,
+          content: JSON.stringify(classificationResult),
+          model: 'deepseek/deepseek-v3.2',
+          usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
+          latencyMs: 200,
+          costUsd: 0.0001,
+          toolCalls: [],
+          finishReason: 'stop',
+        })
+        .mockResolvedValueOnce({
+          parsedOutput: planResult,
+          content: JSON.stringify(planResult),
+          model: 'deepseek/deepseek-v3.2',
+          usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
+          latencyMs: 200,
+          costUsd: 0.0001,
+          toolCalls: [],
+          finishReason: 'stop',
+        }),
+      complete: vi.fn(),
+    } as unknown as OpenRouterService;
+
+    const planner = new PlannerAgent(llm);
+    const result = await planner.execute('What can you do?', context, []);
+
+    expect(llm.prompt).toHaveBeenCalledTimes(2);
+    expect(result.data?.['directResponse']).toContain('recruiting');
+    const plan = result.data?.['plan'] as { tasks: unknown[] };
+    expect(plan.tasks).toHaveLength(0);
+  });
+
+  it('should classify greetings through the conversational LLM path', async () => {
+    const classificationResult = {
+      isConversational: true,
+      reasoning: 'Greeting is conversational',
+      estimatedComplexity: 'simple',
+    };
+
+    const planResult = {
+      tasks: [],
+      directResponse: 'Hey. What do you want to get done?',
+    };
+
+    const llm = {
+      prompt: vi
+        .fn()
+        .mockResolvedValueOnce({
+          parsedOutput: classificationResult,
+          content: JSON.stringify(classificationResult),
+          model: 'deepseek/deepseek-v3.2',
+          usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
+          latencyMs: 200,
+          costUsd: 0.0001,
+          toolCalls: [],
+          finishReason: 'stop',
+        })
+        .mockResolvedValueOnce({
+          parsedOutput: planResult,
+          content: JSON.stringify(planResult),
+          model: 'deepseek/deepseek-v3.2',
+          usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
+          latencyMs: 200,
+          costUsd: 0.0001,
+          toolCalls: [],
+          finishReason: 'stop',
+        }),
+      complete: vi.fn(),
+    } as unknown as OpenRouterService;
+
+    const planner = new PlannerAgent(llm);
+    const result = await planner.execute('Hey there', context, []);
+
+    expect(llm.prompt).toHaveBeenCalledTimes(2);
+    expect(result.data?.['directResponse']).toBe('Hey. What do you want to get done?');
+    const plan = result.data?.['plan'] as { tasks: unknown[] };
+    expect(plan.tasks).toHaveLength(0);
+  });
+
+  it('should not bypass conversational LLM path when assistant history exists', async () => {
+    const classificationResult = {
+      isConversational: true,
+      reasoning: 'Follow-up conversational turn',
+      estimatedComplexity: 'simple',
+    };
+
+    const planResult = {
+      tasks: [],
+      directResponse: 'I can keep going from our thread. What should I do next?',
+    };
+
+    const llm = {
+      prompt: vi
+        .fn()
+        .mockResolvedValueOnce({
+          parsedOutput: classificationResult,
+          content: JSON.stringify(classificationResult),
+          model: 'deepseek/deepseek-v3.2',
+          usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
+          latencyMs: 200,
+          costUsd: 0.0001,
+          toolCalls: [],
+          finishReason: 'stop',
+        })
+        .mockResolvedValueOnce({
+          parsedOutput: planResult,
+          content: JSON.stringify(planResult),
+          model: 'deepseek/deepseek-v3.2',
+          usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
+          latencyMs: 200,
+          costUsd: 0.0001,
+          toolCalls: [],
+          finishReason: 'stop',
+        }),
+      complete: vi.fn(),
+    } as unknown as OpenRouterService;
+
+    const planner = new PlannerAgent(llm);
+    const followUpContext = createMockContext({
+      conversationHistory: [
+        {
+          role: 'user',
+          content: 'What can you do?',
+          timestamp: new Date().toISOString(),
+        },
+        {
+          role: 'assistant',
+          content: "I'm Agent X, the NXT1 Chief of Staff...",
+          timestamp: new Date().toISOString(),
+        },
+      ],
+    });
+
+    const result = await planner.execute('What can you do?', followUpContext, []);
+
+    expect(llm.prompt).toHaveBeenCalledTimes(2);
+    expect(result.data?.['directResponse']).toBe(
+      'I can keep going from our thread. What should I do next?'
+    );
+    expect(result.summary).not.toBe('Chief of Staff capability response.');
   });
 
   // ─── Error Handling ─────────────────────────────────────────────────────
@@ -409,5 +679,290 @@ describe('PlannerAgent', () => {
     const routing = planner.getModelRouting();
     expect(routing.tier).toBe('routing');
     expect(routing.maxTokens).toBe(1024);
+  });
+
+  it('should use chat model tier with 512 maxTokens', () => {
+    const llm = createMockLLM('{}');
+    const planner = new PlannerAgent(llm);
+
+    const chatRouting = planner.getChatModelRouting();
+    expect(chatRouting.tier).toBe('chat');
+    expect(chatRouting.maxTokens).toBe(512);
+  });
+
+  // ─── Tier Classification (DeepSeek-First Optimization) ──────────────────
+
+  it('should not skip classification for greetings', async () => {
+    const classificationResult = {
+      isConversational: true,
+      reasoning: 'Greeting is conversational',
+      estimatedComplexity: 'simple',
+    };
+
+    const planResult = {
+      tasks: [],
+      directResponse: 'Hello. How can I help?',
+    };
+
+    const llm = {
+      prompt: vi
+        .fn()
+        .mockResolvedValueOnce({
+          parsedOutput: classificationResult,
+          content: JSON.stringify(classificationResult),
+          model: 'deepseek/deepseek-v3.2',
+          usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
+          latencyMs: 200,
+          costUsd: 0.0001,
+          toolCalls: [],
+          finishReason: 'stop',
+        })
+        .mockResolvedValueOnce({
+          parsedOutput: planResult,
+          content: JSON.stringify(planResult),
+          model: 'deepseek/deepseek-v3.2',
+          usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
+          latencyMs: 200,
+          costUsd: 0.0001,
+          toolCalls: [],
+          finishReason: 'stop',
+        }),
+      complete: vi.fn(),
+    } as unknown as OpenRouterService;
+
+    const planner = new PlannerAgent(llm);
+    const result = await planner.execute('Hi there!', context, []);
+
+    expect(result.data!['directResponse']).toBe('Hello. How can I help?');
+    expect(result.data!['plan']).toMatchObject({ tasks: [] });
+    expect(llm.prompt).toHaveBeenCalledTimes(2);
+  });
+
+  it('should include metadata with tier and complexity for executed plan', async () => {
+    const parsedOutput = {
+      summary: 'Grade tape and email coaches.',
+      tasks: [
+        {
+          id: '1',
+          assignedAgent: 'performance_coordinator',
+          description: 'Grade tape',
+          dependsOn: [],
+        },
+      ],
+    };
+
+    const llm = createMockLLM({ content: JSON.stringify(parsedOutput), parsedOutput });
+    const planner = new PlannerAgent(llm);
+
+    const result = await planner.execute('Grade my tape and email coaches', context, []);
+
+    // Should include metadata about the execution
+    expect(result.data).toHaveProperty('metadata');
+    const metadata = result.data!['metadata'] as Record<string, unknown>;
+    expect(metadata).toHaveProperty('tier');
+    expect(metadata).toHaveProperty('complexity');
+    expect(metadata).toHaveProperty('classificationReasoning');
+  });
+
+  it('should classify simple question as conversational (uses chat tier)', async () => {
+    const classificationResult = {
+      isConversational: true,
+      reasoning: 'Simple platform help question',
+      estimatedComplexity: 'simple',
+    };
+
+    const planResult = {
+      tasks: [],
+      directResponse: 'Here is how you do that...',
+    };
+
+    const llm = {
+      prompt: vi
+        .fn()
+        .mockResolvedValueOnce({
+          // First call: classification
+          parsedOutput: classificationResult,
+          content: JSON.stringify(classificationResult),
+          model: 'deepseek/deepseek-v3.2',
+          usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
+          latencyMs: 200,
+          costUsd: 0.0001,
+          toolCalls: [],
+          finishReason: 'stop',
+        })
+        .mockResolvedValueOnce({
+          // Second call: planning (with chat tier)
+          parsedOutput: planResult,
+          content: JSON.stringify(planResult),
+          model: 'deepseek/deepseek-v3.2',
+          usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
+          latencyMs: 200,
+          costUsd: 0.0001,
+          toolCalls: [],
+          finishReason: 'stop',
+        }),
+      complete: vi.fn(),
+    } as unknown as OpenRouterService;
+
+    const planner = new PlannerAgent(llm);
+    const result = await planner.execute('How do I edit my profile?', context, []);
+
+    expect(result.data!['directResponse']).toBeDefined();
+    const metadata = result.data!['metadata'] as Record<string, unknown>;
+    expect(metadata.tier).toBe('chat');
+    expect(metadata.complexity).toBe('simple');
+  });
+
+  it('should sanitize direct responses returned from conversational planning', async () => {
+    const classificationResult = {
+      isConversational: true,
+      reasoning: 'Simple profile question',
+      estimatedComplexity: 'simple',
+    };
+
+    const planResult = {
+      tasks: [],
+      directResponse:
+        'You are John Doe. UserID 19oowBH8EfZ6AYrU4fNuRSreonO2, TeamID mC3D9qg5d9amvcO0otvi, OrgID nB8n9iNsm5M5KBxfGUC9',
+    };
+
+    const llm = {
+      prompt: vi
+        .fn()
+        .mockResolvedValueOnce({
+          parsedOutput: classificationResult,
+          content: JSON.stringify(classificationResult),
+          model: 'deepseek/deepseek-v3.2',
+          usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
+          latencyMs: 200,
+          costUsd: 0.0001,
+          toolCalls: [],
+          finishReason: 'stop',
+        })
+        .mockResolvedValueOnce({
+          parsedOutput: planResult,
+          content: JSON.stringify(planResult),
+          model: 'deepseek/deepseek-v3.2',
+          usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
+          latencyMs: 200,
+          costUsd: 0.0001,
+          toolCalls: [],
+          finishReason: 'stop',
+        }),
+      complete: vi.fn(),
+    } as unknown as OpenRouterService;
+
+    const planner = new PlannerAgent(llm);
+    const result = await planner.execute('What do you know about me?', context, []);
+
+    const directResponse = String(result.data?.['directResponse'] ?? '');
+    expect(directResponse).not.toContain('19oowBH8EfZ6AYrU4fNuRSreonO2');
+    expect(directResponse).not.toContain('mC3D9qg5d9amvcO0otvi');
+    expect(directResponse).not.toContain('nB8n9iNsm5M5KBxfGUC9');
+    expect(directResponse).toContain('[redacted]');
+  });
+
+  it('should classify complex request as requiring planning (uses routing tier)', async () => {
+    const classificationResult = {
+      isConversational: false,
+      reasoning: 'Multi-step work requiring coordinator delegation',
+      estimatedComplexity: 'complex',
+    };
+
+    const planResult = {
+      summary: 'Grade tape and email coaches',
+      tasks: [
+        {
+          id: '1',
+          assignedAgent: 'performance_coordinator',
+          description: 'Grade tape',
+          dependsOn: [],
+        },
+        {
+          id: '2',
+          assignedAgent: 'recruiting_coordinator',
+          description: 'Email D3 coaches',
+          dependsOn: ['1'],
+        },
+      ],
+    };
+
+    const llm = {
+      prompt: vi
+        .fn()
+        .mockResolvedValueOnce({
+          // First call: classification
+          parsedOutput: classificationResult,
+          content: JSON.stringify(classificationResult),
+          model: 'deepseek/deepseek-v3.2',
+          usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
+          latencyMs: 200,
+          costUsd: 0.0001,
+          toolCalls: [],
+          finishReason: 'stop',
+        })
+        .mockResolvedValueOnce({
+          // Second call: planning (with routing tier)
+          parsedOutput: planResult,
+          content: JSON.stringify(planResult),
+          model: 'anthropic/claude-sonnet-4-5',
+          usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
+          latencyMs: 200,
+          costUsd: 0.001,
+          toolCalls: [],
+          finishReason: 'stop',
+        }),
+      complete: vi.fn(),
+    } as unknown as OpenRouterService;
+
+    const planner = new PlannerAgent(llm);
+    const result = await planner.execute('Grade my tape and email D3 coaches in Ohio', context, []);
+
+    const plan = result.data!['plan'] as { tasks: Array<{ id: string; dependsOn: string[] }> };
+    expect(plan.tasks).toHaveLength(2);
+    expect(plan.tasks[1].dependsOn).toContain('1');
+
+    const metadata = result.data!['metadata'] as Record<string, unknown>;
+    expect(metadata.tier).toBe('routing');
+    expect(metadata.complexity).toBe('complex');
+  });
+
+  it('should fallback to routing tier if classification LLM fails', async () => {
+    const planResult = {
+      summary: 'Execute request',
+      tasks: [
+        {
+          id: '1',
+          assignedAgent: 'strategy_coordinator',
+          description: 'Process',
+          dependsOn: [],
+        },
+      ],
+    };
+
+    const llm = {
+      prompt: vi
+        .fn()
+        .mockRejectedValueOnce(new Error('Classification failed'))
+        .mockResolvedValueOnce({
+          // Fallback to routing tier
+          parsedOutput: planResult,
+          content: JSON.stringify(planResult),
+          model: 'anthropic/claude-sonnet-4-5',
+          usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
+          latencyMs: 200,
+          costUsd: 0.001,
+          toolCalls: [],
+          finishReason: 'stop',
+        }),
+      complete: vi.fn(),
+    } as unknown as OpenRouterService;
+
+    const planner = new PlannerAgent(llm);
+    const result = await planner.execute('Do something', context, []);
+
+    const metadata = result.data!['metadata'] as Record<string, unknown>;
+    expect(metadata.tier).toBe('routing');
+    expect(metadata.classificationReasoning).toContain('failed');
   });
 });

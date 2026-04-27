@@ -67,6 +67,10 @@ export type {
   AgentXStreamStepEvent,
   AgentXStreamCardEvent,
   AgentXStreamMediaEvent,
+  AgentXStreamOperationEvent,
+  AgentXStreamProgressEvent,
+  AgentXStreamReplacedEvent,
+  AgentXOperationLifecycleStatus,
   AgentXStreamCallbacks,
   // Tool step & rich card types
   AgentXToolStepStatus,
@@ -150,6 +154,22 @@ export {
   type AgentNotificationCopy,
 } from './agent-copy';
 
+export {
+  AGENT_PUSH_INTENT_KINDS,
+  type AgentPushIntentKind,
+  type AgentPushIntent,
+  type AgentTaskCompletedIntent,
+  type AgentTaskFailedIntent,
+  type AgentNeedsInputIntent,
+  type AgentNeedsApprovalIntent,
+  type AgentPlaybookReadyIntent,
+  type AgentBriefingReadyIntent,
+  type AgentWeeklyRecapReadyIntent,
+  type AgentPlaybookNudgeIntent,
+  type AgentScheduledExecutionCompletedIntent,
+  type AgentScheduledExecutionFailedIntent,
+} from './agent-push-intents.types';
+
 // Agent Onboarding Types
 export type {
   AgentOnboardingStepId,
@@ -188,6 +208,10 @@ export type {
   AgentThread,
   AgentThreadCategory,
   AgentMessageRole,
+  AgentMessageActionType,
+  AgentMessageFeedback,
+  AgentMessageActionRecord,
+  AgentMessageEditRecord,
   AgentMessage,
   AgentMessageTokenUsage,
   AgentThreadQuery,

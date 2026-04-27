@@ -21,6 +21,7 @@
 import type { AgentIdentifier, AgentSessionContext, ModelRoutingConfig } from '@nxt1/core';
 import { MODEL_ROUTING_DEFAULTS } from '@nxt1/core';
 import { BaseAgent } from './base.agent.js';
+import { getAgentToolPolicy } from './tool-policy.js';
 
 export class DataCoordinatorAgent extends BaseAgent {
   readonly id: AgentIdentifier = 'data_coordinator';
@@ -343,57 +344,7 @@ export class DataCoordinatorAgent extends BaseAgent {
   }
 
   getAvailableTools(): readonly string[] {
-    return [
-      // ── Primary pipeline (Distill → Read → Write) ──
-      'scrape_and_index_profile',
-      'read_distilled_section',
-      'dispatch_extraction',
-      'write_core_identity',
-      'write_awards',
-      'write_combine_metrics',
-      'write_rankings',
-      'write_season_stats',
-      'write_recruiting_activity',
-      'write_calendar_events',
-      'write_schedule',
-      'write_team_stats',
-      'write_athlete_videos',
-      'write_intel',
-      'update_intel',
-      'write_timeline_post',
-      'write_team_post',
-      'search_nxt1_platform',
-      'query_nxt1_platform_data',
-      'list_nxt1_data_views',
-      'query_nxt1_data',
-
-      // ── Verification & enrichment ──
-      'search_web',
-
-      // ── Raw fallback scraping ──
-      'scrape_webpage',
-      'map_website',
-
-      // ── Social media scraping (Apify-hosted actors) ──
-      'scrape_twitter',
-
-      // ── General Apify MCP tools (dynamic actor discovery & execution) ──
-      'search_apify_actors',
-      'get_apify_actor_details',
-      'call_apify_actor',
-      'get_apify_actor_output',
-
-      // ── Live browsing (auth-protected pages) ──
-      'open_live_view',
-      'navigate_live_view',
-      'interact_with_live_view',
-      'read_live_view',
-      'close_live_view',
-
-      // ── Communication ──
-      'ask_user',
-      'scan_timeline_posts',
-    ];
+    return getAgentToolPolicy(this.id);
   }
 
   getModelRouting(): ModelRoutingConfig {

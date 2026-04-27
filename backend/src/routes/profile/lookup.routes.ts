@@ -31,6 +31,21 @@ import {
 
 const router = Router();
 
+function shouldBypassProfileCache(req: Request): boolean {
+  const noCacheHeader = (req.get('x-no-cache') ?? '').toLowerCase();
+  if (noCacheHeader === 'true' || noCacheHeader === '1') {
+    return true;
+  }
+
+  const cacheControl = (req.get('cache-control') ?? '').toLowerCase();
+  if (cacheControl.includes('no-cache') || cacheControl.includes('no-store')) {
+    return true;
+  }
+
+  const noCacheQuery = String(req.query['noCache'] ?? '').toLowerCase();
+  return noCacheQuery === 'true' || noCacheQuery === '1';
+}
+
 // ─── GET /me ──────────────────────────────────────────────────────────────────
 
 router.get(
@@ -40,8 +55,9 @@ router.get(
     const userId = req.user!.uid;
     const cacheKey = buildProfileByIdCacheKey(userId);
     const cache = getCacheService();
+    const bypassCache = shouldBypassProfileCache(req);
 
-    const cached = await cache.get<User>(cacheKey);
+    const cached = bypassCache ? null : await cache.get<User>(cacheKey);
     if (cached) {
       logger.debug('[Profile] /me cache hit', { userId });
       markCacheHit(req, 'redis', cacheKey);
@@ -309,8 +325,9 @@ router.get(
 
     const cacheKey = buildProfileByIdCacheKey(userId);
     const cache = getCacheService();
+    const bypassCache = shouldBypassProfileCache(req);
 
-    const cached = await cache.get<User>(cacheKey);
+    const cached = bypassCache ? null : await cache.get<User>(cacheKey);
     if (cached) {
       logger.debug('[Profile] Profile cache hit', { userId });
       markCacheHit(req, 'redis', cacheKey);

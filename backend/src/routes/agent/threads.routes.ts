@@ -10,86 +10,78 @@
  */
 
 import { Router, type Request, type Response } from 'express';
-import type { Firestore, QueryDocumentSnapshot } from 'firebase-admin/firestore';
 import { appGuard } from '../../middleware/auth/auth.middleware.js';
-import type { AgentThreadCategory } from '@nxt1/core';
+import type { AgentThreadCategory, AgentMessage, AgentXAttachment } from '@nxt1/core';
 import { logger } from '../../utils/logger.js';
 import { chatService, isValidObjectId, VALID_THREAD_CATEGORIES } from './shared.js';
+import { getStorage } from 'firebase-admin/storage';
 
 const router = Router();
 
-const AGENT_JOBS_COLLECTION = 'AgentJobs';
-const AGENT_JOB_EVENTS_SUBCOLLECTION = 'events';
-const DELETE_BATCH_SIZE = 450;
-
-async function deleteJobEvents(
-  db: Firestore,
-  jobDoc: QueryDocumentSnapshot,
-  userId: string,
-  threadId: string
-): Promise<void> {
-  let lastEventDoc: QueryDocumentSnapshot | undefined;
-
-  while (true) {
-    let query = jobDoc.ref
-      .collection(AGENT_JOB_EVENTS_SUBCOLLECTION)
-      .orderBy('__name__')
-      .limit(DELETE_BATCH_SIZE);
-
-    if (lastEventDoc) {
-      query = query.startAfter(lastEventDoc);
+function extractStoragePathFromUrl(url: string, bucketName: string): string | null {
+  try {
+    const parsed = new URL(url);
+    const pathname = decodeURIComponent(parsed.pathname.replace(/^\//, ''));
+    if (pathname.startsWith(`${bucketName}/`)) {
+      return pathname.slice(bucketName.length + 1);
     }
-
-    const snapshot = await query.get();
-    if (snapshot.empty) break;
-
-    const batch = db.batch();
-    for (const eventDoc of snapshot.docs) {
-      batch.delete(eventDoc.ref);
-    }
-    await batch.commit();
-
-    lastEventDoc = snapshot.docs[snapshot.docs.length - 1];
+    return null;
+  } catch {
+    return null;
   }
-
-  logger.info('Deleted AgentJob events for thread', {
-    userId,
-    threadId,
-    operationId: jobDoc.id,
-  });
 }
 
-async function deleteAgentJobsForThread(
-  db: Firestore,
-  userId: string,
-  threadId: string
-): Promise<number> {
-  let deletedCount = 0;
+async function refreshAttachmentUrl(
+  attachment: AgentXAttachment,
+  bucketName: string
+): Promise<AgentXAttachment> {
+  if (attachment.type === 'video') return attachment;
 
-  // Query by threadId to avoid requiring a composite index; enforce user ownership in code.
-  const jobsSnapshot = await db
-    .collection(AGENT_JOBS_COLLECTION)
-    .where('threadId', '==', threadId)
-    .get();
+  const storagePath =
+    attachment.storagePath ?? extractStoragePathFromUrl(attachment.url, bucketName);
+  if (!storagePath) return attachment;
 
-  for (const jobDoc of jobsSnapshot.docs) {
-    const data = jobDoc.data() as { userId?: string };
-    if (data.userId !== userId) continue;
-
-    await deleteJobEvents(db, jobDoc, userId, threadId);
-    await jobDoc.ref.delete();
-    deletedCount += 1;
-  }
-
-  if (deletedCount > 0) {
-    logger.info('Deleted AgentJobs for thread', {
-      userId,
-      threadId,
-      deletedCount,
+  try {
+    const expiresAt = Date.now() + 24 * 60 * 60 * 1000;
+    const storageFile = getStorage().bucket(bucketName).file(storagePath);
+    const [signedUrl] = await storageFile.getSignedUrl({
+      version: 'v4',
+      action: 'read',
+      expires: expiresAt,
     });
-  }
 
-  return deletedCount;
+    return {
+      ...attachment,
+      url: signedUrl,
+      storagePath,
+    };
+  } catch (err) {
+    logger.warn('Failed to refresh attachment signed URL', {
+      storagePath,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return {
+      ...attachment,
+      ...(storagePath ? { storagePath } : {}),
+    };
+  }
+}
+
+async function refreshMessageAttachments(message: AgentMessage): Promise<AgentMessage> {
+  const attachments = message.attachments;
+  if (!attachments || attachments.length === 0) return message;
+
+  const bucketName = getStorage().bucket().name;
+  const refreshedAttachments = await Promise.all(
+    attachments.map((attachment) =>
+      refreshAttachmentUrl(attachment as AgentXAttachment, bucketName)
+    )
+  );
+
+  return {
+    ...message,
+    attachments: refreshedAttachments,
+  };
 }
 
 // ─── GET /threads ─────────────────────────────────────────────────────────
@@ -198,7 +190,7 @@ router.get('/threads/:threadId/messages', appGuard, async (req: Request, res: Re
       return;
     }
 
-    const thread = await chatService.getThread(threadId, user.uid);
+    const thread = await chatService.getThreadWithMetadata(threadId, user.uid);
     if (!thread) {
       res.status(404).json({ success: false, error: 'Thread not found' });
       return;
@@ -209,8 +201,21 @@ router.get('/threads/:threadId/messages', appGuard, async (req: Request, res: Re
     const before = typeof req.query['before'] === 'string' ? req.query['before'] : undefined;
 
     const result = await chatService.getThreadMessages({ threadId, limit, before });
+    const refreshedItems = await Promise.all(
+      result.items.map((item) => refreshMessageAttachments(item))
+    );
 
-    res.json({ success: true, data: result });
+    res.json({
+      success: true,
+      data: {
+        ...result,
+        items: refreshedItems,
+        thread: {
+          id: thread.id,
+          latestPausedYieldState: thread.latestPausedYieldState,
+        },
+      },
+    });
   } catch (err) {
     const error = err instanceof Error ? err : new Error(String(err));
     logger.error('Failed to get thread messages', { error: error.message, stack: error.stack });
@@ -266,11 +271,6 @@ router.patch('/threads/:threadId', appGuard, async (req: Request, res: Response)
 });
 
 // ─── POST /threads/:threadId/archive ─────────────────────────────────────
-// NOTE: This endpoint now performs a permanent delete for the thread.
-// It removes:
-// - MongoDB thread document
-// - MongoDB messages for the thread
-// - Firestore AgentJobs rows linked to the thread (plus events subcollection)
 
 router.post('/threads/:threadId/archive', appGuard, async (req: Request, res: Response) => {
   try {
@@ -291,27 +291,17 @@ router.post('/threads/:threadId/archive', appGuard, async (req: Request, res: Re
       return;
     }
 
-    const deleted = await chatService.deleteThread(threadId, user.uid);
-    if (!deleted) {
+    const archived = await chatService.archiveThread(threadId, user.uid);
+    if (!archived) {
       res.status(404).json({ success: false, error: 'Thread not found' });
       return;
-    }
-
-    const db = req.firebase?.db;
-    if (db) {
-      await deleteAgentJobsForThread(db, user.uid, threadId);
-    } else {
-      logger.warn('Firestore db unavailable while deleting AgentJobs for thread', {
-        userId: user.uid,
-        threadId,
-      });
     }
 
     res.json({ success: true });
   } catch (err) {
     const error = err instanceof Error ? err : new Error(String(err));
-    logger.error('Failed to delete thread', { error: error.message, stack: error.stack });
-    res.status(500).json({ success: false, error: 'Failed to delete thread' });
+    logger.error('Failed to archive thread', { error: error.message, stack: error.stack });
+    res.status(500).json({ success: false, error: 'Failed to archive thread' });
   }
 });
 

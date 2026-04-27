@@ -85,6 +85,9 @@ import { AuthFlowService } from './auth-flow.service';
 import { AuthApiService } from './auth-api.service';
 import { OnboardingAnalyticsService } from './onboarding-analytics.service';
 
+// State services
+import { ProfileService } from '../state/profile.service';
+
 // Feature services
 import { EditProfileApiService } from '../api/edit-profile-api.service';
 import { PerformanceService } from '../infrastructure/performance.service';
@@ -119,6 +122,7 @@ export class OnboardingService {
   private readonly navController = inject(NavController);
   private readonly location = inject(Location);
   private readonly authFlow = inject(AuthFlowService);
+  private readonly profileService = inject(ProfileService);
   private readonly profileGenerationState = inject(ProfileGenerationStateService);
   private readonly authApi = inject(AuthApiService);
   private readonly haptics = inject(HapticsService);
@@ -911,7 +915,13 @@ export class OnboardingService {
         });
       }
     } catch (saveError) {
-      this.logger.warn('Failed to save profile data, continuing', { error: saveError });
+      this.logger.error('Failed to save onboarding profile — BLOCKING', {
+        error: saveError,
+        userId: user.uid,
+        userType: formData.userType,
+      });
+      this.toast.error('Failed to save your profile. Please check your connection and try again.');
+      return; // Abort — do NOT navigate to congratulations with missing data
     }
 
     if (formData.referralSource?.source) {
@@ -935,13 +945,8 @@ export class OnboardingService {
 
     // Refresh user profile (bulk save already set onboardingCompleted: true)
     this.logger.debug('Refreshing user profile');
-    try {
-      await this.authFlow.refreshUserProfile();
-    } catch (refreshError) {
-      this.logger.error('refreshUserProfile failed', refreshError);
-    }
-
-    await this.waitForOnboardingComplete();
+    await this.authFlow.refreshUserProfile();
+    this.logger.info('User profile refreshed post-onboarding');
     await this.clearSession();
     this.trackCompleted();
 
@@ -955,16 +960,6 @@ export class OnboardingService {
       animated: true,
       animationDirection: 'forward',
     });
-  }
-
-  private async waitForOnboardingComplete(maxWaitMs = 2000): Promise<void> {
-    const startTime = Date.now();
-    let delay = 50;
-
-    while (!this.authFlow.hasCompletedOnboarding() && Date.now() - startTime < maxWaitMs) {
-      await new Promise((resolve) => setTimeout(resolve, delay));
-      delay = Math.min(delay * 1.5, 200);
-    }
   }
 
   // ============================================

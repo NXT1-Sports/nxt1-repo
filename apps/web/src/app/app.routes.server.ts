@@ -109,14 +109,6 @@ export const serverRoutes: ServerRoute[] = [
     renderMode: RenderMode.Server,
   },
   {
-    path: 'agent',
-    renderMode: RenderMode.Server,
-  },
-  {
-    path: 'agent/**',
-    renderMode: RenderMode.Server,
-  },
-  {
     path: 'invite',
     renderMode: RenderMode.Server,
   },

@@ -496,7 +496,7 @@ describe('ContextBuilder', () => {
         displayName: 'Unknown User',
       });
 
-      expect(prompt).toBe('User: Unknown User | Role: athlete | UserID: unknown');
+      expect(prompt).toBe('User: Unknown User | Role: athlete');
     });
 
     it('should produce correct prompt for a coach', async () => {

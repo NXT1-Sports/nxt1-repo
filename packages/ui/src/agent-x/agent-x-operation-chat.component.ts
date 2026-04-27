@@ -54,6 +54,7 @@ import type {
   AgentXAttachment,
   AgentXChatRequest,
   AgentXToolStep,
+  AgentXPlannerItem,
   AgentXMessagePart,
   AgentXRichCard,
   AgentXBillingActionReason,
@@ -80,6 +81,9 @@ import { ANALYTICS_ADAPTER } from '../services/analytics/analytics-adapter.token
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import { AGENT_X_OPERATION_CHAT_TEST_IDS } from '@nxt1/core/testing';
 import { AgentXInputBarComponent } from './agent-x-input-bar.component';
+import { ChatBubbleActionsComponent } from './agent-x-chat-bubble-actions.component';
+import { type AgentXFeedbackSubmitEvent } from './agent-x-feedback-modal.component';
+import { AgentXMessageUndoComponent } from './agent-x-message-undo.component';
 import {
   AGENT_X_API_BASE_URL,
   AGENT_X_AUTH_TOKEN_FACTORY,
@@ -96,6 +100,7 @@ import { IntelService } from '../intel/intel.service';
 import { ProfileGenerationStateService } from '../profile/profile-generation-state.service';
 import { NxtMediaViewerService } from '../components/media-viewer/media-viewer.service';
 import type { MediaViewerItem } from '../components/media-viewer/media-viewer.types';
+import { NxtPlatformIconComponent } from '../components/platform-icon/platform-icon.component';
 import { NxtDragDropDirective } from '../services/gesture';
 import {
   AgentXActionCardComponent,
@@ -104,9 +109,15 @@ import {
 } from './agent-x-action-card.component';
 import type { BillingActionResolvedEvent } from './agent-x-billing-action-card.component';
 import type { ConfirmationActionEvent } from './agent-x-confirmation-card.component';
-import type { AskUserReplyEvent } from './agent-x-ask-user-card.component';
+import {
+  AgentXAskUserCardComponent,
+  type AskUserReplyEvent,
+} from './agent-x-ask-user-card.component';
+import { AgentXPausedCardComponent, type PauseResumeEvent } from './agent-x-paused-card.component';
 import type { DraftSubmittedEvent } from './agent-x-draft-card.component';
 import type { AgentYieldState } from '@nxt1/core';
+import { buildLinkSourcesFormData, type OnboardingUserType } from '@nxt1/core';
+import type { LinkSourcesFormData } from '@nxt1/core/api';
 import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/assets';
 import type { AgentXPendingFile } from './agent-x-pending-file';
 import { getThinkingLabel, getToolStepDisplayLabel } from './agent-x-agent-presentation';
@@ -114,6 +125,7 @@ import {
   AgentXAttachmentsSheetComponent,
   type ConnectedAppSource,
 } from './agent-x-attachments-sheet.component';
+import type { AgentXUser, AgentXConnectedAccountsSaveRequest } from './agent-x-shell.component';
 import { buildPendingAttachmentViewer } from './pending-attachments-viewer.util';
 import {
   bindAgentXKeyboardOffset,
@@ -153,6 +165,7 @@ interface OperationMessage {
   readonly role: 'user' | 'assistant' | 'system';
   readonly content: string;
   readonly timestamp: Date;
+  readonly operationId?: string;
   readonly imageUrl?: string;
   readonly videoUrl?: string;
   readonly attachments?: readonly MessageAttachment[];
@@ -161,7 +174,12 @@ interface OperationMessage {
   readonly steps?: readonly AgentXToolStep[];
   readonly cards?: readonly AgentXRichCard[];
   readonly parts?: readonly AgentXMessagePart[];
+  readonly yieldState?: AgentYieldState;
+  readonly yieldCardState?: 'idle' | 'submitting' | 'resolved';
+  readonly yieldResolvedText?: string;
 }
+
+const PAUSE_RESUME_TOOL_NAME = 'resume_paused_operation';
 
 @Component({
   selector: 'nxt1-agent-x-operation-chat',
@@ -176,8 +194,13 @@ interface OperationMessage {
     NxtChatBubbleComponent,
     NxtIconComponent,
     NxtDragDropDirective,
+    NxtPlatformIconComponent,
     AgentXInputBarComponent,
+    ChatBubbleActionsComponent,
+    AgentXMessageUndoComponent,
     AgentXActionCardComponent,
+    AgentXAskUserCardComponent,
+    AgentXPausedCardComponent,
   ],
   template: `
     <div
@@ -185,6 +208,7 @@ interface OperationMessage {
       nxtDragDrop
       (dragStateChange)="onDragStateChange($event)"
       (filesDropped)="onFilesDropped($event)"
+      (click)="onShellClick($event)"
     >
       @if (!embedded) {
         <!-- ═══ HEADER ═══ -->
@@ -308,27 +332,51 @@ interface OperationMessage {
             [class.msg-assistant]="msg.role === 'assistant'"
             [class.msg-system]="msg.role === 'system'"
             [class.msg-error]="msg.error"
-            [class.msg-row--wide]="msgHasDataTable(msg)"
+            [class.msg-row--wide]="msgHasDataTable(msg) || !!msg.yieldState"
           >
-            <nxt1-chat-bubble
-              variant="agent-operation"
-              [isOwn]="msg.role === 'user'"
-              [content]="msg.content"
-              [isStreaming]="msg.id === 'typing'"
-              [isTyping]="!!msg.isTyping"
-              [typingLabel]="msg.id === 'typing' ? thinkingLabel() : 'Thinking...'"
-              [isError]="!!msg.error"
-              [isSystem]="msg.role === 'system'"
-              [steps]="msg.steps ?? []"
-              [cards]="msg.cards ?? []"
-              [parts]="msg.parts ?? []"
-              (billingActionResolved)="onBillingActionResolved($event)"
-              (confirmationAction)="onConfirmationAction($event)"
-              (draftSubmitted)="onDraftSubmitted($event)"
-              (askUserReply)="onAskUserReply($event)"
-              (retryRequested)="onRetryErrorMessage(msg)"
-            />
-            @if (msg.attachments?.length) {
+            @if (msg.yieldState?.reason === 'needs_approval') {
+              <nxt1-agent-action-card
+                [yield]="msg.yieldState!"
+                [operationId]="msg.operationId || yieldOperationId()"
+                [externalCardState]="msg.yieldCardState ?? null"
+                [externalResolvedText]="msg.yieldResolvedText ?? ''"
+                (approve)="onApproveAction($event)"
+                (reply)="onReplyAction($event)"
+              />
+            } @else if (isPauseYieldMessage(msg)) {
+              <nxt1-agent-x-paused-card
+                [operationId]="msg.operationId || yieldOperationId()"
+                [message]="
+                  msg.yieldState?.promptToUser || 'Operation paused. Resume whenever you are ready.'
+                "
+                (resumeRequested)="onPauseResume($event)"
+              />
+            } @else if (isAskUserYield(msg)) {
+              <nxt1-agent-x-ask-user-card
+                [card]="buildAskUserCardFromYield(msg)"
+                (replySubmitted)="onAskUserReply($event)"
+              />
+            } @else {
+              <nxt1-chat-bubble
+                variant="agent-operation"
+                [isOwn]="msg.role === 'user'"
+                [content]="msg.content"
+                [isStreaming]="msg.id === 'typing'"
+                [isTyping]="!!msg.isTyping"
+                [typingLabel]="msg.id === 'typing' ? thinkingLabel() : 'Thinking...'"
+                [isError]="!!msg.error"
+                [isSystem]="msg.role === 'system'"
+                [steps]="msg.steps ?? []"
+                [cards]="messageCardsForBubble(msg)"
+                [parts]="messagePartsForBubble(msg)"
+                (billingActionResolved)="onBillingActionResolved($event)"
+                (confirmationAction)="onConfirmationAction($event)"
+                (draftSubmitted)="onDraftSubmitted($event)"
+                (askUserReply)="onAskUserReply($event)"
+                (retryRequested)="onRetryErrorMessage(msg)"
+              />
+            }
+            @if (!msg.yieldState && msg.attachments?.length) {
               <div class="msg-attachments">
                 @for (att of msg.attachments; track att.name + $index) {
                   <div class="msg-attachment" [class.msg-attachment--media]="att.type !== 'doc'">
@@ -386,6 +434,12 @@ interface OperationMessage {
                 }
               </div>
             }
+            @if (!msg.yieldState && msg.id !== 'typing' && msg.role !== 'system' && !msg.error) {
+              <nxt1-agent-x-chat-bubble-actions
+                [alignEnd]="msg.role === 'user'"
+                (copy)="copyMessageContent(msg)"
+              />
+            }
           </div>
         }
 
@@ -416,58 +470,6 @@ interface OperationMessage {
           </div>
         }
 
-        <!-- ═══ HITL ACTION CARD (when operation is yielded — approval only) ═══ -->
-        <!-- ask_user yields are handled inline via the rich card in the chat bubble -->
-        @if (
-          activeYieldState() && !yieldResolved() && activeYieldState()!.reason === 'needs_approval'
-        ) {
-          <div class="msg-row msg-assistant">
-            <nxt1-agent-action-card
-              #actionCard
-              [yield]="activeYieldState()!"
-              [operationId]="yieldOperationId()"
-              (approve)="onApproveAction($event)"
-              (reply)="onReplyAction($event)"
-            />
-          </div>
-        }
-
-        <!-- ═══ FAILURE BANNER (when operation has failed) ═══ -->
-        @if (isFailed() && !retryStarted()) {
-          <div class="failure-banner" [attr.data-testid]="failureTestIds.FAILURE_BANNER">
-            <div class="failure-banner__header">
-              <nxt1-icon name="alert-circle" [size]="20" />
-              <span class="failure-banner__title" [attr.data-testid]="failureTestIds.FAILURE_TITLE"
-                >Operation Failed</span
-              >
-            </div>
-            <p class="failure-banner__message" [attr.data-testid]="failureTestIds.FAILURE_MESSAGE">
-              {{ failureMessage() }}
-            </p>
-            <div class="failure-banner__actions">
-              <button
-                type="button"
-                class="failure-banner__btn failure-banner__btn--retry"
-                [attr.data-testid]="failureTestIds.BTN_RETRY"
-                (click)="onRetry()"
-              >
-                <nxt1-icon name="refresh" [size]="14" />
-                Retry
-              </button>
-              @if (!embedded) {
-                <button
-                  type="button"
-                  class="failure-banner__btn failure-banner__btn--dismiss"
-                  [attr.data-testid]="failureTestIds.BTN_DISMISS"
-                  (click)="dismiss()"
-                >
-                  Dismiss
-                </button>
-              }
-            </div>
-          </div>
-        }
-
         @if (retryStarted()) {
           <div class="msg-row msg-system">
             <nxt1-chat-bubble
@@ -484,6 +486,84 @@ interface OperationMessage {
 
       <!-- ═══ INPUT FOOTER (floating, keyboard-aware) ═══ -->
       <div class="chat-input-footer">
+        @if (executionPlanCard(); as executionPlan) {
+          <details
+            class="execution-plan-dock"
+            [open]="executionPlanExpanded()"
+            (toggle)="onExecutionPlanToggle($event)"
+          >
+            <summary class="execution-plan-dock__summary">
+              <span class="execution-plan-dock__title">{{ executionPlan.title }}</span>
+              <span class="execution-plan-dock__progress"
+                >{{ executionPlanDoneCount() }}/{{ executionPlanTotalCount() }}</span
+              >
+              <svg class="execution-plan-dock__chevron" viewBox="0 0 16 16" fill="none">
+                <path
+                  d="M6 4L10 8L6 12"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </summary>
+
+            <div class="execution-plan-dock__body">
+              <div class="execution-plan-dock__items">
+                @for (item of executionPlanItems(); track item.id) {
+                  <div
+                    class="execution-plan-dock__item"
+                    [class.execution-plan-dock__item--done]="item.done"
+                  >
+                    <span class="execution-plan-dock__item-check" aria-hidden="true">
+                      @if (item.done) {
+                        <svg viewBox="0 0 16 16" fill="none">
+                          <rect
+                            x="1"
+                            y="1"
+                            width="14"
+                            height="14"
+                            rx="3"
+                            fill="var(--nxt1-color-primary, #ccff00)"
+                          />
+                          <path
+                            d="M4.5 8L7 10.5L11.5 5.5"
+                            stroke="var(--nxt1-color-text-onPrimary, #0a0a0a)"
+                            stroke-width="2"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                          />
+                        </svg>
+                      } @else {
+                        <svg viewBox="0 0 16 16" fill="none">
+                          <rect
+                            x="1.5"
+                            y="1.5"
+                            width="13"
+                            height="13"
+                            rx="2.5"
+                            stroke="currentColor"
+                            stroke-width="1"
+                          />
+                        </svg>
+                      }
+                    </span>
+                    <span class="execution-plan-dock__item-label">{{ item.label }}</span>
+                  </div>
+                }
+              </div>
+            </div>
+          </details>
+        }
+
+        <nxt1-agent-x-message-undo
+          [visible]="pendingUndoState() !== null"
+          [triggerId]="undoBannerTriggerId()"
+          [durationSeconds]="10"
+          (undo)="undoDeletedMessage()"
+          (expired)="clearUndoState()"
+        />
+
         <nxt1-agent-x-input-bar
           [userMessage]="inputValue()"
           [isLoading]="_loading()"
@@ -494,13 +574,95 @@ interface OperationMessage {
           placeholder="Message A Coordinator"
           (messageChange)="inputValue.set($event)"
           (send)="send()"
-          (stop)="cancelStream()"
+          (pause)="pauseStream()"
           (toggleAttachments)="onUploadClick()"
+          (openFile)="openPendingFileViewer($event)"
           (removeFile)="removePendingFile($event)"
           (removeSource)="
             pendingConnectedSources.update((srcs) => srcs.filter((_, i) => i !== $event))
           "
           (focusInput)="onInputFocus()"
+        ></nxt1-agent-x-input-bar>
+
+        @if (showDesktopAttachmentMenu()) {
+          <button
+            type="button"
+            class="desktop-attach-menu-backdrop"
+            aria-label="Close attachment menu"
+            (click)="closeDesktopAttachmentMenu()"
+          ></button>
+          <div class="desktop-attach-menu" role="menu" aria-label="Attachment options">
+            <button
+              type="button"
+              class="desktop-attach-menu__item desktop-attach-menu__item--primary"
+              (click)="onDesktopAttachmentUploadClick()"
+            >
+              <nxt1-icon name="plus" [size]="15" />
+              <div class="desktop-attach-menu__copy">
+                <span class="desktop-attach-menu__title">Upload File</span>
+                <span class="desktop-attach-menu__meta">Photo, video, PDF, doc, or sheet</span>
+              </div>
+            </button>
+
+            <div class="desktop-attach-menu__section">Connected Apps</div>
+
+            @if (desktopAttachmentSources().length > 0) {
+              <div class="desktop-attach-menu__apps-row" role="list">
+                @for (
+                  source of desktopAttachmentSources();
+                  track source.platform + source.profileUrl
+                ) {
+                  <button
+                    type="button"
+                    class="desktop-attach-menu__app-chip"
+                    [title]="source.platform"
+                    role="listitem"
+                    (click)="onDesktopAttachmentSourceSelected(source)"
+                  >
+                    <nxt1-platform-icon
+                      icon="link"
+                      [faviconUrl]="source.faviconUrl"
+                      [size]="30"
+                      [alt]="source.platform"
+                    />
+                    <span class="desktop-attach-menu__app-chip-label">{{ source.platform }}</span>
+                  </button>
+                }
+                <button
+                  type="button"
+                  class="desktop-attach-menu__connect-more"
+                  (click)="onDesktopManageConnectedApps()"
+                >
+                  <nxt1-icon name="plusCircle" [size]="14" />
+                  Connect more
+                </button>
+              </div>
+            } @else {
+              <button
+                type="button"
+                class="desktop-attach-menu__apps-placeholder"
+                (click)="onDesktopManageConnectedApps()"
+              >
+                <div class="desktop-attach-menu__apps-placeholder-icon">
+                  <nxt1-icon name="link" [size]="18" />
+                </div>
+                <div class="desktop-attach-menu__copy">
+                  <span class="desktop-attach-menu__title">No connected apps yet</span>
+                  <span class="desktop-attach-menu__meta">Connect apps for richer context</span>
+                </div>
+                <nxt1-icon name="chevronRight" [size]="16" />
+              </button>
+            }
+          </div>
+        }
+
+        <input
+          #desktopAttachmentFileInput
+          type="file"
+          class="file-input-hidden"
+          [accept]="acceptedFileTypes"
+          multiple
+          (change)="onDesktopAttachmentFilesSelected($event)"
         />
       </div>
 
@@ -681,9 +843,326 @@ interface OperationMessage {
 
       /* ── Floating input footer — transparent, lifts with keyboard ── */
       .chat-input-footer {
+        position: relative;
         background: transparent;
         transform: translateY(calc(-1 * var(--agent-keyboard-offset, 0px)));
         transition: transform 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+      }
+
+      .execution-plan-dock {
+        margin: 0 18px 4px;
+        border: 1px solid var(--op-border);
+        border-radius: 14px;
+        background: color-mix(in srgb, var(--op-surface) 86%, transparent);
+        overflow: hidden;
+      }
+
+      .execution-plan-dock__summary {
+        list-style: none;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 12px;
+        cursor: pointer;
+        user-select: none;
+        border-bottom: 1px solid transparent;
+      }
+
+      .execution-plan-dock__summary::-webkit-details-marker,
+      .execution-plan-dock__summary::marker {
+        display: none;
+        content: '';
+      }
+
+      .execution-plan-dock[open] .execution-plan-dock__summary {
+        border-bottom-color: var(--op-border);
+      }
+
+      .execution-plan-dock__title {
+        flex: 1;
+        min-width: 0;
+        font-size: 0.8rem;
+        font-weight: 600;
+        color: var(--op-text);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .execution-plan-dock__progress {
+        font-size: 0.74rem;
+        color: var(--op-text-muted);
+        font-variant-numeric: tabular-nums;
+      }
+
+      .execution-plan-dock__chevron {
+        width: 14px;
+        height: 14px;
+        color: var(--op-text-muted);
+        transition: transform 0.2s ease;
+      }
+
+      .execution-plan-dock[open] .execution-plan-dock__chevron {
+        transform: rotate(90deg);
+      }
+
+      .execution-plan-dock__body {
+        padding: 8px 10px 10px;
+      }
+
+      .execution-plan-dock__items {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+
+      .execution-plan-dock__item {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+        color: var(--op-text-secondary);
+      }
+
+      .execution-plan-dock__item--done .execution-plan-dock__item-label {
+        text-decoration: line-through;
+        color: var(--op-text-muted);
+      }
+
+      .execution-plan-dock__item-check {
+        width: 16px;
+        height: 16px;
+        flex-shrink: 0;
+        margin-top: 1px;
+        color: var(--op-text-muted);
+      }
+
+      .execution-plan-dock__item-check svg {
+        width: 16px;
+        height: 16px;
+      }
+
+      .execution-plan-dock__item-label {
+        font-size: 0.76rem;
+        line-height: 1.45;
+      }
+
+      .operation-cancel-inline {
+        margin: 8px 18px 0;
+        border: 1px solid var(--op-border);
+        border-radius: 999px;
+        background: var(--op-surface);
+        color: var(--op-text-secondary);
+        padding: 6px 12px;
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+
+      .operation-cancel-inline:hover {
+        color: var(--op-text);
+      }
+
+      .desktop-attach-menu-backdrop {
+        position: fixed;
+        inset: 0;
+        border: 0;
+        background: transparent;
+        z-index: 30;
+      }
+
+      .desktop-attach-menu {
+        position: absolute;
+        left: 18px;
+        bottom: calc(100% + 10px);
+        width: min(380px, calc(100% - 24px));
+        z-index: 40;
+        padding: 8px;
+        border: 1px solid var(--nxt1-color-border-default, rgba(255, 255, 255, 0.1));
+        border-radius: 14px;
+        background: var(--nxt1-color-surface-100, rgba(15, 18, 14, 0.96));
+        box-shadow: var(--nxt1-navigation-dropdown, 0 24px 48px rgba(0, 0, 0, 0.38));
+        backdrop-filter: blur(14px);
+        -webkit-backdrop-filter: blur(14px);
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+
+      .desktop-attach-menu__section {
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--op-text-muted);
+        padding: 8px 10px 2px;
+      }
+
+      .desktop-attach-menu__item {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        width: 100%;
+        border: 0;
+        border-radius: 10px;
+        background: transparent;
+        color: var(--op-text);
+        text-align: left;
+        padding: 10px;
+        cursor: pointer;
+        transition: background-color 0.15s ease;
+      }
+
+      .desktop-attach-menu__item:hover {
+        background: var(--op-surface);
+      }
+
+      .desktop-attach-menu__item--primary {
+        border: 1px solid color-mix(in srgb, var(--op-primary) 30%, var(--op-border));
+        background: color-mix(in srgb, var(--op-primary-glow) 72%, transparent);
+      }
+
+      .desktop-attach-menu__copy {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        min-width: 0;
+      }
+
+      .desktop-attach-menu__title {
+        font-size: 13px;
+        font-weight: 600;
+        line-height: 1.3;
+        color: var(--op-text);
+      }
+
+      .desktop-attach-menu__meta {
+        font-size: 11px;
+        line-height: 1.35;
+        color: var(--op-text-muted);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 300px;
+      }
+
+      /* ─── Connected Apps Row (chips, matches mobile sheet) ─── */
+      .desktop-attach-menu__apps-row {
+        display: flex;
+        align-items: stretch;
+        gap: 8px;
+        overflow-x: auto;
+        padding: 4px 2px 6px;
+        scrollbar-width: none;
+      }
+
+      .desktop-attach-menu__apps-row::-webkit-scrollbar {
+        display: none;
+      }
+
+      .desktop-attach-menu__app-chip {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 5px;
+        min-width: 72px;
+        max-width: 72px;
+        padding: 8px 6px;
+        border: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.09));
+        border-radius: 10px;
+        background: var(--op-surface);
+        color: inherit;
+        cursor: pointer;
+        flex-shrink: 0;
+        transition:
+          background 0.15s ease,
+          border-color 0.15s ease,
+          transform 0.12s ease;
+      }
+
+      .desktop-attach-menu__app-chip:hover {
+        background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.08));
+        border-color: var(--nxt1-color-border-default, rgba(255, 255, 255, 0.15));
+      }
+
+      .desktop-attach-menu__app-chip:active {
+        transform: scale(0.96);
+      }
+
+      .desktop-attach-menu__app-chip-label {
+        font-size: 9px;
+        font-weight: 500;
+        text-align: center;
+        line-height: 1.2;
+        color: var(--op-text);
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .desktop-attach-menu__connect-more {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 5px;
+        min-width: 72px;
+        max-width: 72px;
+        padding: 8px 6px;
+        border: 1px dashed rgba(255, 255, 255, 0.2);
+        border-radius: 10px;
+        background: transparent;
+        color: var(--op-text-muted);
+        font-size: 9px;
+        font-weight: 500;
+        cursor: pointer;
+        flex-shrink: 0;
+        transition:
+          background 0.15s ease,
+          border-color 0.15s ease,
+          color 0.15s ease;
+      }
+
+      .desktop-attach-menu__connect-more:hover {
+        background: var(--nxt1-color-alpha-primary10, rgba(204, 255, 0, 0.06));
+        border-color: var(--nxt1-color-primary, #ccff00);
+        color: var(--nxt1-color-primary, #ccff00);
+      }
+
+      /* ─── Empty state (no connected apps) ─── */
+      .desktop-attach-menu__apps-placeholder {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        width: 100%;
+        padding: 10px;
+        border: 1px dashed var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.16));
+        border-radius: 10px;
+        background: var(--nxt1-color-surface-100, rgba(255, 255, 255, 0.03));
+        color: inherit;
+        cursor: pointer;
+        text-align: left;
+        transition:
+          background 0.15s ease,
+          border-color 0.15s ease;
+      }
+
+      .desktop-attach-menu__apps-placeholder:hover {
+        background: var(--op-surface);
+        border-color: rgba(255, 255, 255, 0.22);
+      }
+
+      .desktop-attach-menu__apps-placeholder-icon {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 34px;
+        height: 34px;
+        border-radius: 8px;
+        background: var(--nxt1-color-alpha-primary10, rgba(204, 255, 0, 0.08));
+        color: var(--nxt1-color-primary, #ccff00);
+        flex-shrink: 0;
       }
 
       :host-context(.keyboard-open) .chat-input-footer {
@@ -698,7 +1177,16 @@ interface OperationMessage {
         max-width: calc(100% - 48px);
         margin-left: auto;
         margin-right: auto;
-        padding-bottom: 8px;
+        padding-bottom: 24px;
+      }
+
+      :host.agent-x-operation-chat--embedded .chat-input-footer {
+        width: 100%;
+        max-width: calc(100% - 48px);
+        margin-left: auto;
+        margin-right: auto;
+        padding-bottom: 14px;
+        box-sizing: border-box;
       }
 
       .msg-row {
@@ -1393,6 +1881,9 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   private readonly operationEventService = inject(AgentXOperationEventService);
   private readonly agentXService = inject(AgentXService);
   private readonly hostElement = inject(ElementRef);
+  private readonly desktopAttachmentFileInput = viewChild<ElementRef<HTMLInputElement>>(
+    'desktopAttachmentFileInput'
+  );
 
   /** Shared keyboard offset binding used by shell and operation chat. */
   private keyboardOffsetBinding?: AgentXKeyboardOffsetBinding;
@@ -1416,6 +1907,9 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
   /** Active SSE abort controller — cancelled on destroy or when a new message starts. */
   private activeStream: AbortController | null = null;
+
+  /** Last operationId explicitly attached via resume flow (approval/input handoff). */
+  private _lastResumeAttachOperationId: string | null = null;
 
   /** Buffered token text waiting to be committed to the typing message. */
   private pendingTypingDelta = '';
@@ -1500,6 +1994,9 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   /** Connected app sources used by the attachments bottom sheet. */
   @Input() connectedSources: readonly ConnectedAppSource[] = [];
 
+  /** Current user — needed to open the connected accounts modal. */
+  @Input() user: AgentXUser | null = null;
+
   /**
    * Optional MongoDB thread ID — when provided, loads the historical
    * conversation from the backend so the user can review past messages.
@@ -1513,13 +2010,23 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   @Input()
   set yieldState(value: AgentYieldState | null) {
     this.activeYieldState.set(value);
+    if (value) {
+      this.upsertInlineYieldMessage(value, this.resolveYieldOperationId(value));
+    }
   }
 
   /**
    * Current operation status — when `'error'`, the failure banner is shown
    * after thread messages load so the user knows what happened.
    */
-  @Input() operationStatus: 'processing' | 'complete' | 'error' | 'awaiting_input' | null = null;
+  @Input() operationStatus:
+    | 'processing'
+    | 'complete'
+    | 'error'
+    | 'paused'
+    | 'awaiting_input'
+    | 'awaiting_approval'
+    | null = null;
 
   /**
    * Human-readable error description when `operationStatus === 'error'`.
@@ -1537,6 +2044,28 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
   /** Isolated message history for this operation context. */
   protected readonly messages = signal<OperationMessage[]>([]);
+
+  /** Active inline edit target for a user message. */
+  protected readonly editingMessageId = signal<string | null>(null);
+
+  /** Current draft text shown in the inline edit component. */
+  protected readonly editingMessageDraft = signal('');
+
+  /** Assistant message selected for feedback modal submission. */
+  protected readonly feedbackTargetMessageId = signal<string | null>(null);
+
+  /** Preferred initial star rating when opening the feedback modal. */
+  protected readonly feedbackDefaultRating = signal<1 | 2 | 3 | 4 | 5>(5);
+
+  /** Pending delete token used by the undo countdown banner. */
+  protected readonly pendingUndoState = signal<{
+    messageId: string;
+    restoreTokenId: string;
+    threadId: string;
+  } | null>(null);
+
+  /** Incremented for each delete action so the undo countdown restarts. */
+  protected readonly undoBannerTriggerId = signal(0);
 
   /** Current user input value. */
   protected readonly inputValue = signal('');
@@ -1558,6 +2087,9 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     if (pct === 0) return 'Preparing video…';
     return `Uploading video… ${pct}%`;
   });
+
+  /** Most recent backend progress commentary message (stage/subphase/metric). */
+  protected readonly _latestProgressLabel = signal<string | null>(null);
 
   /**
    * MongoDB thread ID resolved after the first message.
@@ -1602,6 +2134,14 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   /** Connected app sources staged from the attachments sheet — shown as chips in the input bar. */
   protected readonly pendingConnectedSources = signal<ConnectedAppSource[]>([]);
 
+  /** Desktop-only attachment menu visibility (embedded web mode). */
+  protected readonly showDesktopAttachmentMenu = signal(false);
+
+  /** Desktop attachment menu connected sources (same source contract as mobile sheet). */
+  protected readonly desktopAttachmentSources = computed(() =>
+    this.agentXService.attachmentConnectedSources()
+  );
+
   /** Pending files converted to AgentXPendingFile shape for prompt-input component. */
   protected readonly promptInputPendingFiles = computed<readonly AgentXPendingFile[]>(() =>
     this.pendingFiles().map((pf) => ({
@@ -1611,6 +2151,62 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     }))
   );
 
+  /** Most recent planner card so execution plan can dock above the composer. */
+  protected readonly executionPlanCard = computed<AgentXRichCard | null>(() => {
+    const messages = this.messages();
+    for (let messageIndex = messages.length - 1; messageIndex >= 0; messageIndex -= 1) {
+      const message = messages[messageIndex];
+      if (!message) continue;
+
+      const parts = message.parts ?? [];
+      for (let partIndex = parts.length - 1; partIndex >= 0; partIndex -= 1) {
+        const part = parts[partIndex];
+        if (part?.type === 'card' && part.card.type === 'planner') {
+          return part.card;
+        }
+      }
+
+      const cards = message.cards ?? [];
+      for (let cardIndex = cards.length - 1; cardIndex >= 0; cardIndex -= 1) {
+        const card = cards[cardIndex];
+        if (card?.type === 'planner') {
+          return card;
+        }
+      }
+    }
+
+    return null;
+  });
+
+  /** Composer-adjacent execution-plan accordion expansion state. */
+  protected readonly executionPlanExpanded = signal(true);
+
+  /** Summary progress count for the docked execution plan. */
+  protected readonly executionPlanTotalCount = computed(() => {
+    const card = this.executionPlanCard();
+    if (!card || card.type !== 'planner') return 0;
+    const payload = card.payload;
+    if (!('items' in payload) || !Array.isArray(payload.items)) return 0;
+    return payload.items.length;
+  });
+
+  /** Completed item count for the docked execution plan. */
+  protected readonly executionPlanDoneCount = computed(() => {
+    const card = this.executionPlanCard();
+    if (!card || card.type !== 'planner') return 0;
+    const payload = card.payload;
+    if (!('items' in payload) || !Array.isArray(payload.items)) return 0;
+    return payload.items.filter((item) => Boolean(item?.done)).length;
+  });
+
+  protected readonly executionPlanItems = computed<readonly AgentXPlannerItem[]>(() => {
+    const card = this.executionPlanCard();
+    if (!card || card.type !== 'planner') return [];
+    const payload = card.payload;
+    if (!('items' in payload) || !Array.isArray(payload.items)) return [];
+    return payload.items as readonly AgentXPlannerItem[];
+  });
+
   /** Whether a drag operation is hovering over the chat surface. */
   protected readonly isDragActive = signal(false);
 
@@ -1619,8 +2215,11 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     if (this.contextType !== 'operation') return false;
     if (this.operationStatus !== 'processing') return false;
     if (this.activeYieldState()) return false;
-    // Don't show if the last message is already an assistant reply (thread loaded real content)
     const msgs = this.messages();
+    // Avoid duplicate loaders during refresh/rehydration while the inline typing
+    // placeholder is already rendering the in-flight response state.
+    if (msgs.some((msg) => msg.id === 'typing')) return false;
+    // Don't show if the last message is already an assistant reply (thread loaded real content)
     if (msgs.length === 0) return true;
     const last = msgs[msgs.length - 1];
     return last.role !== 'assistant' || !!last.isTyping;
@@ -1646,6 +2245,8 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   protected readonly thinkingLabel = computed(() => {
     const uploadLabel = this._videoUploadLabel();
     if (uploadLabel) return uploadLabel;
+    const progressLabel = this._latestProgressLabel();
+    if (progressLabel) return progressLabel;
     return getThinkingLabel(this.thinkingStep());
   });
 
@@ -1722,6 +2323,18 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   /** Emitted when a coordinator chip should open a dedicated coordinator context. */
   readonly coordinatorQuickActionSelected = output<OperationQuickAction>();
 
+  /** Emitted when the user saves connected accounts from the connected accounts modal. */
+  readonly connectedAccountsSave = output<AgentXConnectedAccountsSaveRequest>();
+
+  /** Monotonic response turn counter used for completion idempotency. */
+  private _responseTurnId = 0;
+
+  /** Whether `responseComplete` already emitted for the active turn. */
+  private _responseCompleteEmitted = false;
+
+  /** Rolling latency samples for streamed delta chunks (ms). */
+  private deltaLatencySamples: number[] = [];
+
   /** Whether this chat was opened to view a historical thread (suppresses generic welcome). */
   private readonly _isThreadMode = signal(false);
 
@@ -1736,6 +2349,68 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     if (this.contextType !== 'operation') return 'Quick Command';
     return this.isFailed() ? 'Failed Operation' : 'Active Operation';
   });
+
+  private isFirestoreOperationId(value: string | null | undefined): value is string {
+    const trimmed = value?.trim();
+    if (!trimmed) return false;
+    const bare = trimmed.startsWith('chat-') ? trimmed.slice(5) : trimmed;
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(bare);
+  }
+
+  private resolveFirestoreOperationId(): string | null {
+    const candidates = [
+      this._currentOperationId,
+      this.resumeOperationId?.trim() || null,
+      this.contextId?.trim() || null,
+    ];
+
+    for (const candidate of candidates) {
+      if (this.isFirestoreOperationId(candidate)) return candidate;
+    }
+
+    return null;
+  }
+
+  private inferOperationStatusFromYield(
+    yieldState: AgentYieldState
+  ): 'paused' | 'awaiting_input' | 'awaiting_approval' {
+    if (yieldState.reason === 'needs_approval') return 'awaiting_approval';
+    if (yieldState.pendingToolCall?.toolName === PAUSE_RESUME_TOOL_NAME) return 'paused';
+    return 'awaiting_input';
+  }
+
+  private coercePersistedYieldState(value: unknown): AgentYieldState | null {
+    if (!value || typeof value !== 'object') return null;
+
+    const candidate = value as Partial<AgentYieldState>;
+    if (typeof candidate.reason !== 'string') return null;
+    if (!candidate.pendingToolCall || typeof candidate.pendingToolCall.toolName !== 'string') {
+      return null;
+    }
+
+    return candidate as AgentYieldState;
+  }
+
+  private applyPendingYieldState(
+    yieldState: AgentYieldState,
+    threadId: string,
+    source: string
+  ): void {
+    const pendingStatus = this.inferOperationStatusFromYield(yieldState);
+    this.activeYieldState.set(yieldState);
+    this.yieldResolved.set(false);
+    this.upsertInlineYieldMessage(yieldState, this.resolveYieldOperationId(yieldState));
+    this.operationStatus = pendingStatus;
+
+    this.logger.info('Applied pending yield state on thread load', {
+      threadId,
+      contextId: this.contextId,
+      source,
+      pendingStatus,
+      reason: yieldState.reason,
+      toolName: yieldState.pendingToolCall?.toolName,
+    });
+  }
 
   /**
    * Short header title — truncates to ~5 words for a professional look.
@@ -1755,8 +2430,6 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   // ============================================
 
   private readonly messagesArea = viewChild<ElementRef>('messagesArea');
-  private readonly actionCardRef = viewChild<AgentXActionCardComponent>('actionCard');
-
   constructor() {
     // When the component is destroyed (e.g. session switch), detach from the
     // stream registry instead of aborting. The stream continues running in the
@@ -1795,7 +2468,11 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
     // Auto-scroll when an action card appears (yield state set)
     effect(() => {
-      if (this.activeYieldState()) {
+      const yieldState = this.activeYieldState();
+      if (yieldState) {
+        // Keep timeline and yield state in sync so cards always render inline,
+        // even if a specific event path misses direct insertion.
+        this.upsertInlineYieldMessage(yieldState, this.resolveYieldOperationId(yieldState));
         this.scrollToBottom({ behavior: 'smooth' });
       }
     });
@@ -1862,15 +2539,19 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
             })
           );
         },
-        onDone: () => {
+        onDone: (evt) => {
           this.flushPendingTypingDelta();
-          const finalId = this.uid();
-          this.messages.update((msgs) =>
-            msgs.map((m) => (m.id === 'typing' ? { ...m, id: finalId, isTyping: false } : m))
-          );
+          this.finalizeStreamedAssistantMessage({
+            streamingId: 'typing',
+            messageId:
+              evt != null && typeof evt['messageId'] === 'string' ? evt['messageId'] : undefined,
+            success:
+              evt != null && typeof evt['success'] === 'boolean' ? evt['success'] : undefined,
+            source: 'stream-registry-done',
+          });
           this._loading.set(false);
           this.haptics.notification('success').catch(() => undefined);
-          this.responseComplete.emit();
+          this.emitResponseCompleteOnce('stream-registry-done');
         },
         onError: (error) => {
           this.replaceTyping({
@@ -1953,8 +2634,15 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
         // may optimistically flip status to 'complete' if an assistant reply exists.
         // But reconciliation is a guess; Firestore is authoritative. Always attach
         // the live listener when the job was in-progress going in.
-        const operationId = this.contextId.trim();
+        const operationId = this.resolveFirestoreOperationId();
         void this.loadThreadMessages(this.threadId.trim()).then(async () => {
+          if (!operationId) {
+            this.logger.warn('Skipping Firestore operation rehydrate: no valid operationId', {
+              contextId: this.contextId,
+              threadId: this.threadId,
+            });
+            return;
+          }
           // Branch on whether the thread already has a completed assistant reply.
           const hasAssistantReply = this.messages().some(
             (m) => !m.isTyping && m.role === 'assistant' && m.content?.trim()
@@ -1978,6 +2666,12 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
           // from stored Firestore events so the user sees what was generated
           // before the refresh, then continue live from the last stored seq.
           const stored = await this.operationEventService.getStoredEventState(operationId);
+
+          if (stored.latestYieldState) {
+            this.activeYieldState.set(stored.latestYieldState);
+            this.yieldResolved.set(false);
+            this.upsertInlineYieldMessage(stored.latestYieldState, operationId);
+          }
 
           if (stored.isDone) {
             // The job completed while we were loading MongoDB history.
@@ -2040,7 +2734,21 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
           this._subscribeToFirestoreJobEvents(undefined, stored.maxSeq);
         });
       } else {
-        void this.loadThreadMessages(this.threadId.trim());
+        void this.loadThreadMessages(this.threadId.trim()).then(async () => {
+          const pendingStatus =
+            this.operationStatus === 'paused' ||
+            this.operationStatus === 'awaiting_input' ||
+            this.operationStatus === 'awaiting_approval';
+          const operationId = this.resolveFirestoreOperationId();
+          if (!pendingStatus || !operationId) return;
+
+          const stored = await this.operationEventService.getStoredEventState(operationId);
+          if (!stored.latestYieldState) return;
+
+          this.activeYieldState.set(stored.latestYieldState);
+          this.yieldResolved.set(false);
+          this.upsertInlineYieldMessage(stored.latestYieldState, operationId);
+        });
       }
       return;
     }
@@ -2091,6 +2799,9 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    // Stream lifecycle cleanup is handled in the constructor's destroyRef callback.
+    // Keep this hook for non-stream resources only to avoid aborting resumed runs
+    // during component remounts.
     this._clearPendingFiles();
     this.clearFocusScrollTimers();
     this.keyboardOffsetBinding?.teardown();
@@ -2149,6 +2860,10 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   ): void {
     const operationId = explicitOperationId ?? this.contextId;
     if (!operationId?.trim() || this._activeFirestoreSub) return;
+
+    // Viewing an existing in-flight operation is a new UI turn even when no user
+    // message is sent from this component instance.
+    this.beginResponseTurn('firestore-subscribe');
 
     this.logger.info('Attaching Firestore job event listener for background operation', {
       operationId,
@@ -2224,23 +2939,33 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
             );
           },
 
-          onDone: () => {
+          onProgress: (event) => {
+            const message = typeof event.message === 'string' ? event.message.trim() : '';
+            if (!message) return;
+            this._latestProgressLabel.set(message);
+          },
+
+          onDone: (evt) => {
             this.flushPendingTypingDelta();
-            const finalId = this.uid();
-            this.messages.update((msgs) =>
-              msgs.map((m) => (m.id === 'typing' ? { ...m, id: finalId, isTyping: false } : m))
-            );
+            this._latestProgressLabel.set(null);
+            this.finalizeStreamedAssistantMessage({
+              streamingId: 'typing',
+              messageId: evt.messageId,
+              success: evt.success,
+              source: 'firestore-done',
+            });
             this._loading.set(false);
             this._activeFirestoreSub?.unsubscribe();
             this._activeFirestoreSub = null;
             this.haptics.notification('success').catch(() => undefined);
-            this.responseComplete.emit();
+            this.emitResponseCompleteOnce('firestore-done');
             this.logger.info('Background job stream complete (Firestore)', {
               operationId,
             });
           },
 
           onError: (error) => {
+            this._latestProgressLabel.set(null);
             this.replaceTyping({
               id: this.uid(),
               role: 'assistant',
@@ -2258,7 +2983,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
             // Trigger a parent refresh so the operations log re-fetches the
             // authoritative status from the backend. Firestore may have errored
             // before the done event arrived, leaving the sidebar spinner stuck.
-            this.responseComplete.emit();
+            this.emitResponseCompleteOnce('firestore-error');
           },
         },
         startAfterSeq !== undefined ? { startAfterSeq } : undefined
@@ -2275,9 +3000,21 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     this.logger.info('Loading operation thread', { threadId, contextId: this.contextId });
 
     try {
-      const items = await this.agentXService.getPersistedThreadMessages(threadId);
+      const { messages: items, latestPausedYieldState } =
+        await this.agentXService.getPersistedThreadMessages(threadId);
+      const persistedPendingYieldState = this.coercePersistedYieldState(latestPausedYieldState);
 
       if (!items.length) {
+        if (persistedPendingYieldState) {
+          this.messages.set([]);
+          this.applyPendingYieldState(
+            persistedPendingYieldState,
+            threadId,
+            'thread-metadata-empty'
+          );
+          return;
+        }
+
         this.logger.warn('Operation thread returned no messages', {
           threadId,
           contextId: this.contextId,
@@ -2338,7 +3075,10 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
         return {
           id: msg.id ?? this.uid(),
           role: msg.role === 'user' ? ('user' as const) : ('assistant' as const),
-          content: msg.content,
+          operationId: typeof msg.operationId === 'string' ? msg.operationId : undefined,
+          // Strip model-context attachment annotations from legacy rows.
+          // UI should show attachment cards, never raw URL reference text.
+          content: msg.content.replace(/\n\n\[Attached (?:file|video): .+/gs, '').trim(),
           timestamp: msg.createdAt ? new Date(msg.createdAt) : new Date(),
           ...(steps.length > 0 ? { steps } : {}),
           ...(persistedParts.length > 0 ? { parts: persistedParts } : {}),
@@ -2348,10 +3088,49 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
           ...(typeof msg.resultData?.['videoUrl'] === 'string'
             ? { videoUrl: msg.resultData['videoUrl'] as string }
             : {}),
+          ...((msg.attachments?.length ?? 0) > 0
+            ? {
+                attachments: (msg.attachments ?? []).map((a) => ({
+                  url: a.url,
+                  name: a.name,
+                  type: (a.type === 'image' ? 'image' : a.type === 'video' ? 'video' : 'doc') as
+                    | 'image'
+                    | 'video'
+                    | 'doc',
+                })),
+              }
+            : {}),
         };
       });
 
       this.messages.set(mapped);
+
+      // Recover the most recent Firestore operation id from persisted messages.
+      // On session re-entry, contextId can be a non-Firestore id (e.g. thread id),
+      // but paused/awaiting yield rehydration requires a real AgentJobs operationId.
+      const latestMessageOperationId = [...items]
+        .reverse()
+        .map((msg) => (typeof msg.operationId === 'string' ? msg.operationId.trim() : ''))
+        .find((id) => this.isFirestoreOperationId(id));
+      if (latestMessageOperationId) {
+        this._currentOperationId = latestMessageOperationId;
+      }
+
+      // Thread metadata is the canonical persisted source for paused yields.
+      // Hydrate it before any status reconciliation so the resume card renders
+      // regardless of whether an assistant message exists.
+      if (persistedPendingYieldState) {
+        this.applyPendingYieldState(persistedPendingYieldState, threadId, 'thread-metadata');
+      }
+
+      // loadThreadMessages replaces the full timeline; if a pending yield was
+      // already known (input setter / stream / rehydrate), project it back into
+      // the shared message list so rich cards do not disappear on revisit.
+      const activeYield = this.activeYieldState();
+      if (activeYield) {
+        this.upsertInlineYieldMessage(activeYield, this._currentOperationId ?? this.contextId);
+      }
+
       const hadUser = mapped.some((msg) => msg.role === 'user');
       if (hadUser && !this.hasUserSent()) {
         this.hasUserSent.set(true);
@@ -2371,24 +3150,55 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       // proof of completion — reconcile without waiting for an event that
       // will never arrive.
       const hasAssistantReply = mapped.some((m) => m.role === 'assistant' && m.content?.trim());
-      if (this.operationStatus === 'processing' && hasAssistantReply) {
-        this.logger.info(
-          'Thread content proves job complete — reconciling stale in-progress status',
-          {
+      if (this.operationStatus === 'processing' && hasAssistantReply && !this.activeYieldState()) {
+        // Fallback for legacy data where thread metadata has no paused yield
+        // but Firestore event state still contains one.
+        let pendingYieldState: AgentYieldState | null = null;
+
+        const operationId = this.resolveFirestoreOperationId();
+        if (operationId) {
+          const stored = await this.operationEventService.getStoredEventState(operationId);
+          pendingYieldState = stored.latestYieldState;
+        }
+
+        if (pendingYieldState) {
+          this.applyPendingYieldState(pendingYieldState, threadId, 'firestore-fallback');
+        } else {
+          this.logger.info(
+            'Thread content proves job complete — reconciling stale in-progress status',
+            {
+              threadId,
+              contextId: this.contextId,
+            }
+          );
+          this.operationStatus = 'complete';
+          // Broadcast directly through the shared event service so the operations
+          // log sidebar updates regardless of how this component was opened
+          // (bottom sheet, embedded, etc.). responseComplete.emit() is an @Output
+          // and is deaf when the component is opened imperatively via openSheet().
+          this.operationEventService.emitOperationStatusUpdated(
             threadId,
-            contextId: this.contextId,
-          }
-        );
-        this.operationStatus = 'complete';
-        // Broadcast directly through the shared event service so the operations
-        // log sidebar updates regardless of how this component was opened
-        // (bottom sheet, embedded, etc.). responseComplete.emit() is an @Output
-        // and is deaf when the component is opened imperatively via openSheet().
-        this.operationEventService.emitOperationStatusUpdated(
-          threadId,
-          'complete',
-          new Date().toISOString()
-        );
+            'complete',
+            new Date().toISOString()
+          );
+        }
+      }
+
+      // Persisted thread history can contain stale `active` tool states when a
+      // refresh happened before the final status write landed in MongoDB.
+      // Normalize here so completed/error operations never keep spinning icons.
+      if (
+        this.operationStatus === 'complete' ||
+        (this.operationStatus !== 'processing' && hasAssistantReply)
+      ) {
+        this.settleActiveToolSteps('success');
+      } else if (
+        this.operationStatus === 'error' ||
+        this.operationStatus === 'paused' ||
+        this.operationStatus === 'awaiting_input' ||
+        this.operationStatus === 'awaiting_approval'
+      ) {
+        this.settleActiveToolSteps('error');
       }
 
       // If this operation has failed, inject an AI error message at the end
@@ -2462,8 +3272,109 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   }
 
   /**
+   * Pause the active stream and persist a resumable backend paused state.
+   *
+   * Unlike cancel, pause keeps the operation resumable via /resume-job.
+   */
+  pauseStream(): void {
+    let pausedOperationId: string | null = null;
+    const threadId = this._resolvedThreadId();
+    if (threadId) {
+      this.streamRegistry.abort(threadId);
+    }
+
+    if (this.activeStream) {
+      this.activeStream.abort();
+      this.activeStream = null;
+    }
+
+    if (this._currentOperationId) {
+      const opId = this._currentOperationId;
+      pausedOperationId = opId;
+      this._firePauseRequest(opId);
+    }
+
+    this.messages.update((msgs) =>
+      msgs.map((m) => {
+        const hasTyping = m.isTyping === true;
+        const hasActiveSteps = m.steps?.some((s) => s.status === 'active');
+        const hasActiveParts = m.parts?.some(
+          (p) => p.type === 'tool-steps' && p.steps.some((s) => s.status === 'active')
+        );
+        if (!hasTyping && !hasActiveSteps && !hasActiveParts) return m;
+
+        const pauseStep = (s: AgentXToolStep): AgentXToolStep =>
+          s.status === 'active' ? { ...s, status: 'error', label: 'Paused' } : s;
+
+        return {
+          ...m,
+          isTyping: false,
+          steps: m.steps?.map(pauseStep),
+          parts: m.parts?.map((p) =>
+            p.type === 'tool-steps' ? { ...p, steps: p.steps.map(pauseStep) } : p
+          ),
+        };
+      })
+    );
+
+    this._loading.set(false);
+
+    const targetOperationId = pausedOperationId ?? this.contextId;
+    if (targetOperationId) {
+      // Ensure the effect that mirrors activeYieldState into the timeline uses
+      // the same operation id so pause cards update in place (no duplicates).
+      this._currentOperationId = targetOperationId;
+      const pauseYieldState = this.buildLocalPauseYieldState(targetOperationId);
+      this.activeYieldState.set(pauseYieldState);
+      this.yieldResolved.set(false);
+    }
+
+    this.logger.info('Stream paused by user');
+    this.breadcrumb.trackStateChange('agent-x-operation-chat:stream-paused', {
+      contextId: this.contextId,
+    });
+    this.analytics?.trackEvent(APP_EVENTS.AGENT_X_STREAM_PAUSED, {
+      threadId: threadId ?? undefined,
+      contextId: this.contextId,
+      contextType: this.contextType,
+    });
+
+    if (threadId) {
+      this.operationEventService.emitOperationStatusUpdated(
+        threadId,
+        'paused',
+        new Date().toISOString()
+      );
+    }
+  }
+
+  private buildLocalPauseYieldState(operationId: string): AgentYieldState {
+    const nowIso = new Date().toISOString();
+    const expiresAtIso = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    const existing = this.activeYieldState();
+
+    return {
+      reason: 'needs_input',
+      promptToUser: 'Operation paused. Resume whenever you are ready.',
+      agentId: (existing?.agentId ?? 'router') as AgentYieldState['agentId'],
+      messages: existing?.messages ?? [],
+      ...(existing?.planContext ? { planContext: existing.planContext } : {}),
+      pendingToolCall: {
+        toolName: PAUSE_RESUME_TOOL_NAME,
+        toolInput: {
+          operationId,
+          pauseRequestedAt: nowIso,
+        },
+        toolCallId: existing?.pendingToolCall?.toolCallId ?? `pause_resume_${operationId}`,
+      },
+      yieldedAt: nowIso,
+      expiresAt: expiresAtIso,
+    };
+  }
+
+  /**
    * Cancel the active SSE stream (if any) and reset loading state.
-   * Bound to the stop button in the input bar.
+   * Bound to the explicit "Cancel run" action in the input footer.
    *
    * This performs four actions:
    * 1. Aborts the frontend fetch (drops the SSE connection).
@@ -2494,11 +3405,12 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     // ✅ ACTION 3: Transition 'active' tool steps to 'error' (show "Cancelled")
     this.messages.update((msgs) =>
       msgs.map((m) => {
+        const hasTyping = m.isTyping === true;
         const hasActiveSteps = m.steps?.some((s) => s.status === 'active');
         const hasActiveParts = m.parts?.some(
           (p) => p.type === 'tool-steps' && p.steps.some((s) => s.status === 'active')
         );
-        if (!hasActiveSteps && !hasActiveParts) return m;
+        if (!hasTyping && !hasActiveSteps && !hasActiveParts) return m;
 
         const cancelStep = (s: AgentXToolStep): AgentXToolStep =>
           s.status === 'active' ? { ...s, status: 'error', label: 'Cancelled' } : s;
@@ -2560,6 +3472,28 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       });
   }
 
+  /**
+   * Fire-and-forget POST to explicit pause endpoint.
+   * Non-critical for UX responsiveness; local stream abort remains immediate.
+   * @internal
+   */
+  private _firePauseRequest(operationId: string): void {
+    const url = `${this.baseUrl}/agent-x/pause/${operationId}`;
+    this.getAuthToken?.()
+      .then((token) => {
+        if (!token) return;
+        return firstValueFrom(
+          this.http.post(url, {}, { headers: { Authorization: `Bearer ${token}` } })
+        );
+      })
+      .catch((err) => {
+        this.logger.debug('Explicit pause request failed (non-critical)', {
+          operationId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+  }
+
   /** Send the current input as a user message. */
   async send(): Promise<void> {
     const text = this.inputValue().trim();
@@ -2574,6 +3508,49 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     if (!this.hasUserSent()) {
       this.hasUserSent.set(true);
       this.userMessageSent.emit();
+    }
+
+    const activeYield = this.activeYieldState();
+    const pausedOperationId =
+      activeYield?.pendingToolCall?.toolName === PAUSE_RESUME_TOOL_NAME
+        ? this.yieldOperationId()
+        : null;
+
+    // A user can intentionally move on from a paused operation by sending a
+    // brand-new message. Keep this as a NORMAL chat send (new turn with full
+    // thread context), and abandon the paused card state.
+    if (pausedOperationId) {
+      this.logger.info('New message sent while paused; abandoning paused operation state', {
+        pausedOperationId,
+        contextId: this.contextId,
+      });
+      this.breadcrumb.trackUserAction('send-while-paused', {
+        operationId: pausedOperationId,
+      });
+
+      // Best-effort cancel clears persisted paused state on the backend thread.
+      // If this fails, normal send still proceeds and the stream events can
+      // overwrite stale state.
+      this._fireCancelRequest(pausedOperationId);
+
+      // Prevent stale paused operation IDs from being reused by a rapid
+      // follow-up pause tap before the new stream publishes onThread/onOperation.
+      this._currentOperationId = null;
+
+      this.activeYieldState.set(null);
+      this.yieldResolved.set(true);
+      this.messages.update((messages) =>
+        messages.filter(
+          (message) =>
+            !(
+              message.operationId === pausedOperationId &&
+              message.yieldState?.pendingToolCall?.toolName === PAUSE_RESUME_TOOL_NAME
+            )
+        )
+      );
+
+      // Transition the operation view back into active send mode for this turn.
+      this.operationStatus = 'processing';
     }
 
     // Capture and clear connected sources
@@ -2612,6 +3589,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     });
 
     // Show typing indicator
+    this.beginResponseTurn('send');
     this.pushMessage({
       id: 'typing',
       role: 'assistant',
@@ -2627,16 +3605,49 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
         const authToken = await this.getAuthToken?.().catch(() => null);
         if (authToken) {
           uploadedAttachments = await this._uploadFiles(files, authToken);
+          if (uploadedAttachments.length === 0) {
+            this.replaceTyping({
+              id: this.uid(),
+              role: 'assistant',
+              content:
+                'I could not upload your attachment(s). Please check your connection and try again.',
+              timestamp: new Date(),
+              error: true,
+            });
+            await this.haptics.notification('error');
+            return;
+          }
         } else {
-          this.logger.warn('No auth token — files will not be sent to AI', {
+          this.logger.error('Auth token unavailable — staged attachments cannot be sent to AI', {
             count: files.length,
+            contextId: this.contextId,
           });
+          this.breadcrumb.trackUserAction('agent-x-upload-auth-missing', {
+            contextId: this.contextId,
+            stagedFileCount: files.length,
+          });
+          this.analytics?.trackEvent(APP_EVENTS.AGENT_X_ERROR_AUTH_MISSING, {
+            contextId: this.contextId,
+            contextType: this.contextType,
+            stagedFileCount: files.length,
+          });
+          this.toast.error(
+            `Session expired: ${files.length} attached file(s) cannot be sent. Please re-authenticate.`
+          );
+          this.replaceTyping({
+            id: this.uid(),
+            role: 'assistant',
+            content: 'Your session expired before attachments could upload. Please sign in again.',
+            timestamp: new Date(),
+            error: true,
+          });
+          await this.haptics.notification('error');
+          return;
         }
       }
 
       await this.callAgentChat(displayContent, uploadedAttachments);
       await this.haptics.notification('success');
-      this.responseComplete.emit();
     } catch (err) {
       this.logger.error('Chat message failed', err, { contextId: this.contextId });
       await this.haptics.notification('error');
@@ -2688,6 +3699,12 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
   /** Open attachments bottom sheet over this operation sheet without dismissing it. */
   protected async onUploadClick(): Promise<void> {
+    // Desktop embedded mode (web): use inline professional menu, not mobile bottom-sheet UI.
+    if (this.isDesktopAttachmentMenuMode()) {
+      this.showDesktopAttachmentMenu.update((open) => !open);
+      return;
+    }
+
     // Always read from AgentXService so connected sources are available regardless
     // of whether this sheet was opened from the shell, the operations log, or anywhere else.
     const sources = this.agentXService.attachmentConnectedSources();
@@ -2729,8 +3746,96 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     }
 
     if (result.role === 'manage-connected-apps') {
-      this.toast.info('Manage connected apps from your main Agent X page.');
+      await this.openConnectedAccountsModal();
     }
+  }
+
+  protected closeDesktopAttachmentMenu(): void {
+    this.showDesktopAttachmentMenu.set(false);
+  }
+
+  /** Close desktop attachment menu when clicking anywhere outside the menu/attach trigger. */
+  protected onShellClick(event: MouseEvent): void {
+    if (!this.showDesktopAttachmentMenu()) {
+      return;
+    }
+
+    const target = event.target as HTMLElement | null;
+    if (!target) {
+      return;
+    }
+
+    if (target.closest('.desktop-attach-menu') || target.closest('.input-btn--attach')) {
+      return;
+    }
+
+    this.closeDesktopAttachmentMenu();
+  }
+
+  protected onDesktopAttachmentUploadClick(): void {
+    this.showDesktopAttachmentMenu.set(false);
+    this.desktopAttachmentFileInput()?.nativeElement.click();
+  }
+
+  protected async onDesktopAttachmentFilesSelected(event: Event): Promise<void> {
+    const input = event.target as HTMLInputElement;
+    const files = input.files ? Array.from(input.files) : [];
+    input.value = '';
+
+    if (!files.length) {
+      return;
+    }
+
+    const addedCount = this.stageFiles(files);
+    if (addedCount > 0) {
+      await this.haptics.impact('light');
+    }
+  }
+
+  protected onDesktopAttachmentSourceSelected(source: ConnectedAppSource): void {
+    this.pendingConnectedSources.update((current) => {
+      const exists = current.some(
+        (item) => item.platform === source.platform && item.profileUrl === source.profileUrl
+      );
+      return exists ? current : [...current, source];
+    });
+    this.showDesktopAttachmentMenu.set(false);
+  }
+
+  protected async onDesktopManageConnectedApps(): Promise<void> {
+    this.showDesktopAttachmentMenu.set(false);
+    await this.openConnectedAccountsModal();
+  }
+
+  private async openConnectedAccountsModal(): Promise<void> {
+    const user = this.user;
+    const role = (user?.role as OnboardingUserType) ?? null;
+    const { ConnectedAccountsModalService } = await import('../components/connected-sources');
+    const service = runInInjectionContext(this.injector, () =>
+      inject(ConnectedAccountsModalService)
+    );
+    const result = await service.open({
+      role,
+      selectedSports: user?.selectedSports ?? [],
+      linkSourcesData: buildLinkSourcesFormData({
+        connectedSources: user?.connectedSources ?? [],
+        connectedEmails: user?.connectedEmails ?? [],
+        firebaseProviders: user?.firebaseProviders ?? [],
+      }) as LinkSourcesFormData | null,
+      scope: role === 'coach' || role === 'director' ? 'team' : 'athlete',
+    });
+
+    if (result.linkSources) {
+      this.connectedAccountsSave.emit({
+        linkSources: result.linkSources,
+        requestResync: result.resync === true,
+        resyncSources: result.sources ?? [],
+      });
+    }
+  }
+
+  private isDesktopAttachmentMenuMode(): boolean {
+    return this.embedded && isPlatformBrowser(this.platformId) && window.innerWidth >= 768;
   }
 
   /** Toggle the drag overlay while files hover over the chat surface. */
@@ -2778,13 +3883,18 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
    * Upload pending files. Videos go via Cloudflare Stream TUS;
    * images, PDFs, docs go via the existing Firebase Storage endpoint.
    * Returns AgentXAttachment metadata for inclusion in the chat request.
+   * Tracks upload success/failure with observability (logging, analytics, breadcrumbs, toasts).
    * @internal
    */
   private async _uploadFiles(
     files: readonly PendingFile[],
     authToken: string
   ): Promise<AgentXAttachment[]> {
+    const UPLOAD_TIMEOUT_MS = 20_000;
+    const MAX_UPLOAD_ATTEMPTS = 2;
+
     const uploaded: AgentXAttachment[] = [];
+    const failed: string[] = [];
 
     const videoFiles = files.filter((f) => f.isVideo);
     const nonVideoFiles = files.filter((f) => !f.isVideo);
@@ -2794,44 +3904,135 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       const formData = new FormData();
       formData.append('file', pending.file);
       const threadId = this._resolvedThreadId();
+      // threadId may be null on first message (SSE thread event fires after upload starts).
+      // Backend accepts null and uses fallback unbound storage path.
       if (threadId) formData.append('threadId', threadId);
 
-      const response = await fetch(`${this.baseUrl}${AGENT_X_ENDPOINTS.UPLOAD}`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${authToken}` },
-        body: formData,
-      });
+      let uploadedThisFile = false;
+      let lastErrorMessage = 'Unknown upload failure';
 
-      if (!response.ok) {
-        const errText = await response.text().catch(() => 'Upload failed');
-        this.logger.error('File upload failed', errText, {
-          name: pending.file.name,
-          status: response.status,
-        });
-        continue;
+      for (let attempt = 1; attempt <= MAX_UPLOAD_ATTEMPTS; attempt++) {
+        try {
+          const abortController = new AbortController();
+          const timeoutId = setTimeout(() => abortController.abort(), UPLOAD_TIMEOUT_MS);
+
+          const response = await fetch(`${this.baseUrl}${AGENT_X_ENDPOINTS.UPLOAD}`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${authToken}` },
+            body: formData,
+            signal: abortController.signal,
+          }).finally(() => clearTimeout(timeoutId));
+
+          if (!response.ok) {
+            const errText = await response.text().catch(() => 'Upload failed');
+            lastErrorMessage = `HTTP ${response.status}: ${errText || 'Unknown error'}`;
+            throw new Error(lastErrorMessage);
+          }
+
+          const result = (await response.json()) as {
+            success: boolean;
+            data?: {
+              url: string;
+              storagePath?: string;
+              name: string;
+              mimeType: string;
+              sizeBytes: number;
+            };
+            error?: string;
+          };
+
+          if (!result.success || !result.data) {
+            lastErrorMessage = result.error || 'Unknown backend error';
+            throw new Error(lastErrorMessage);
+          }
+
+          uploaded.push({
+            id: crypto.randomUUID(),
+            url: result.data.url,
+            ...(result.data.storagePath ? { storagePath: result.data.storagePath } : {}),
+            name: result.data.name,
+            mimeType: result.data.mimeType,
+            type: resolveAttachmentType(result.data.mimeType),
+            sizeBytes: result.data.sizeBytes,
+          });
+
+          this.logger.info('File uploaded successfully', {
+            contextId: this.contextId,
+            fileName: pending.file.name,
+            fileSize: pending.file.size,
+            mimeType: result.data.mimeType,
+            hasThreadId: !!threadId,
+            attempt,
+          });
+
+          uploadedThisFile = true;
+          break;
+        } catch (err) {
+          lastErrorMessage = err instanceof Error ? err.message : String(err);
+
+          if (attempt < MAX_UPLOAD_ATTEMPTS) {
+            this.logger.warn('File upload attempt failed; retrying once', {
+              contextId: this.contextId,
+              fileName: pending.file.name,
+              attempt,
+              maxAttempts: MAX_UPLOAD_ATTEMPTS,
+              errorMessage: lastErrorMessage,
+            });
+            continue;
+          }
+
+          this.logger.error('File upload failed after retries', err, {
+            contextId: this.contextId,
+            fileName: pending.file.name,
+            fileSize: pending.file.size,
+            fileMimeType: pending.file.type,
+            hasThreadId: !!threadId,
+            maxAttempts: MAX_UPLOAD_ATTEMPTS,
+            errorMessage: lastErrorMessage,
+          });
+          this.breadcrumb.trackUserAction('agent-x-upload-network-error', {
+            contextId: this.contextId,
+            fileName: pending.file.name,
+          });
+        }
       }
 
-      const result = (await response.json()) as {
-        success: boolean;
-        data?: { url: string; name: string; mimeType: string; sizeBytes: number };
-        error?: string;
-      };
-
-      if (!result.success || !result.data) {
-        this.logger.error('File upload returned error', result.error, {
-          name: pending.file.name,
-        });
-        continue;
+      if (!uploadedThisFile) {
+        failed.push(pending.file.name);
       }
+    }
 
-      uploaded.push({
-        id: crypto.randomUUID(),
-        url: result.data.url,
-        name: result.data.name,
-        mimeType: result.data.mimeType,
-        type: resolveAttachmentType(result.data.mimeType),
-        sizeBytes: result.data.sizeBytes,
+    // Track upload metrics and show user feedback
+    if (nonVideoFiles.length > 0) {
+      this.logger.info('Non-video attachment upload batch complete', {
+        contextId: this.contextId,
+        attempted: nonVideoFiles.length,
+        succeeded: uploaded.length,
+        failed: failed.length,
+        failedNames: failed,
       });
+
+      this.analytics?.trackEvent(APP_EVENTS.AGENT_X_ATTACHMENTS_UPLOADED, {
+        contextId: this.contextId,
+        contextType: this.contextType,
+        totalAttempted: nonVideoFiles.length,
+        successCount: uploaded.length,
+        failureCount: failed.length,
+        failureReasons: 'see breadcrumbs',
+      });
+
+      // Show user feedback if any uploads failed
+      if (failed.length > 0 && failed.length === nonVideoFiles.length) {
+        // All failed
+        this.toast.error(
+          `All ${failed.length} file(s) failed to upload. Check your connection and try again.`
+        );
+      } else if (failed.length > 0) {
+        // Partial failure
+        this.toast.warning(
+          `${failed.length} of ${nonVideoFiles.length} file(s) failed to upload: ${failed.join(', ')}. Other files sent.`
+        );
+      }
     }
 
     // --- Video files: upload to Cloudflare Stream via TUS ---
@@ -2877,14 +4078,46 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
         });
       } catch (err) {
         this._videoUploadPercent.set(null);
-        this.logger.error('Video Cloudflare upload failed', err, { name: pending.file.name });
-        this.toast.error(`Failed to upload video: ${pending.file.name}`);
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        this.logger.error('Video Cloudflare upload failed', err, {
+          contextId: this.contextId,
+          fileName: pending.file.name,
+          fileSize: pending.file.size,
+          errorMessage: errorMsg,
+        });
+        this.breadcrumb.trackUserAction('agent-x-video-upload-error', {
+          contextId: this.contextId,
+          fileName: pending.file.name,
+          errorType: err instanceof Error ? 'network' : 'unknown',
+        });
+        this.analytics?.trackEvent(APP_EVENTS.AGENT_X_VIDEO_UPLOAD_FAILED, {
+          contextId: this.contextId,
+          contextType: this.contextType,
+          fileName: pending.file.name,
+          errorMessage: errorMsg,
+        });
+        failed.push(pending.file.name);
       }
     }
 
-    this.logger.info('Files uploaded for operation chat', {
-      attempted: files.length,
-      succeeded: uploaded.length,
+    // Track video upload metrics
+    if (videoFiles.length > 0) {
+      const videoFailureCount = failed.filter((f) =>
+        videoFiles.some((v) => v.file.name === f)
+      ).length;
+      this.logger.info('Video attachment upload batch complete', {
+        contextId: this.contextId,
+        attempted: videoFiles.length,
+        succeeded: videoFiles.length - videoFailureCount,
+        failed: videoFailureCount,
+      });
+    }
+
+    this.logger.info('All file uploads complete for operation chat', {
+      contextId: this.contextId,
+      totalAttempted: files.length,
+      totalSucceeded: uploaded.length,
+      totalFailed: failed.length,
       videos: videoFiles.length,
       nonVideos: nonVideoFiles.length,
     });
@@ -2936,6 +4169,531 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       initialIndex: Math.max(0, Math.min(index, mediaItems.length - 1)),
       source: 'agent-x-chat',
     });
+  }
+
+  protected isPersistedMessageId(messageId: string): boolean {
+    return /^[a-f0-9]{24}$/i.test(messageId);
+  }
+
+  protected onExecutionPlanToggle(event: Event): void {
+    const details = event.currentTarget as HTMLDetailsElement | null;
+    this.executionPlanExpanded.set(Boolean(details?.open));
+  }
+
+  private settleActiveToolSteps(status: 'success' | 'error'): void {
+    this.messages.update((msgs) =>
+      msgs.map((message) => {
+        const hasActiveSteps = message.steps?.some((step) => step.status === 'active');
+        const hasActiveParts = message.parts?.some(
+          (part) =>
+            part.type === 'tool-steps' && part.steps.some((step) => step.status === 'active')
+        );
+        if (!hasActiveSteps && !hasActiveParts) return message;
+
+        const finalizeStep = (step: AgentXToolStep): AgentXToolStep =>
+          step.status === 'active' ? { ...step, status } : step;
+
+        return {
+          ...message,
+          steps: message.steps?.map(finalizeStep),
+          parts: message.parts?.map((part) =>
+            part.type === 'tool-steps' ? { ...part, steps: part.steps.map(finalizeStep) } : part
+          ),
+        };
+      })
+    );
+  }
+
+  private finalizeStreamedAssistantMessage(params: {
+    streamingId: string;
+    messageId?: string;
+    success?: boolean;
+    threadId?: string;
+    source: string;
+  }): void {
+    const streamedMessage = this.messages().find((m) => m.id === params.streamingId);
+    const hasVisibleContent =
+      Boolean(streamedMessage?.content.trim()) ||
+      Boolean(streamedMessage?.parts?.length) ||
+      Boolean(streamedMessage?.cards?.length) ||
+      Boolean(streamedMessage?.steps?.length);
+
+    const persistedMessageId =
+      typeof params.messageId === 'string' && this.isPersistedMessageId(params.messageId)
+        ? params.messageId
+        : null;
+
+    this.settleActiveToolSteps(params.success === false ? 'error' : 'success');
+
+    if (persistedMessageId) {
+      this.messages.update((msgs) =>
+        msgs.map((m) =>
+          m.id === params.streamingId ? { ...m, id: persistedMessageId, isTyping: false } : m
+        )
+      );
+      return;
+    }
+
+    if (params.success === false) {
+      const localFailureId = this.uid();
+      this.messages.update((msgs) =>
+        msgs.map((m) =>
+          m.id === params.streamingId ? { ...m, id: localFailureId, isTyping: false } : m
+        )
+      );
+      return;
+    }
+
+    const resolvedThreadId =
+      (typeof params.threadId === 'string' && params.threadId.trim().length > 0
+        ? params.threadId.trim()
+        : null) ??
+      this._resolvedThreadId() ??
+      (this.threadId?.trim() || null);
+
+    this.logger.error(
+      'Successful streamed assistant completion missing persisted DB message ID',
+      new Error('Missing persisted DB message ID'),
+      {
+        source: params.source,
+        contextId: this.contextId,
+        contextType: this.contextType,
+        streamingId: params.streamingId,
+        threadId: resolvedThreadId,
+      }
+    );
+
+    this.messages.update((msgs) =>
+      msgs.map((m) =>
+        m.id === params.streamingId
+          ? {
+              ...m,
+              isTyping: false,
+              content: hasVisibleContent
+                ? m.content
+                : 'Resumed. Waiting for synced updates from Agent X…',
+            }
+          : m
+      )
+    );
+
+    if (resolvedThreadId) {
+      void this.loadThreadMessages(resolvedThreadId).catch((err) => {
+        this.logger.error('Failed to reload persisted thread after missing DB message ID', err, {
+          source: params.source,
+          contextId: this.contextId,
+          threadId: resolvedThreadId,
+        });
+      });
+    }
+  }
+
+  protected async copyMessageContent(msg: OperationMessage): Promise<void> {
+    const text = msg.content.trim();
+    if (!text) return;
+
+    this.logger.info('Copying operation chat message', {
+      contextId: this.contextId,
+      contextType: this.contextType,
+      messageId: msg.id,
+      role: msg.role,
+    });
+    this.breadcrumb.trackUserAction('agent-x-message-copy', {
+      contextId: this.contextId,
+      contextType: this.contextType,
+      messageId: msg.id,
+      role: msg.role,
+    });
+
+    try {
+      const copied = await this.copyText(text);
+      if (!copied) {
+        this.logger.warn('Failed to copy operation chat message to clipboard', {
+          contextId: this.contextId,
+          messageId: msg.id,
+        });
+        this.toast.error('Failed to copy message');
+        return;
+      }
+
+      await this.haptics.impact('light');
+      this.toast.success('Message copied');
+      this.analytics?.trackEvent(APP_EVENTS.AGENT_X_MESSAGE_COPIED, {
+        contextId: this.contextId,
+        contextType: this.contextType,
+        role: msg.role,
+      });
+
+      if (this.isPersistedMessageId(msg.id)) {
+        await this.api.annotateMessage(msg.id, {
+          action: 'copied',
+          metadata: { source: 'operation-chat' },
+        });
+      }
+    } catch (err) {
+      this.logger.error('Copy message action failed', err, {
+        contextId: this.contextId,
+        contextType: this.contextType,
+        messageId: msg.id,
+      });
+      this.toast.error('Failed to copy message');
+    }
+  }
+
+  protected openFeedbackModal(msg: OperationMessage): void {
+    if (!this.isPersistedMessageId(msg.id) || msg.role !== 'assistant') return;
+
+    this.logger.info('Opening message feedback modal', {
+      contextId: this.contextId,
+      contextType: this.contextType,
+      messageId: msg.id,
+    });
+    this.breadcrumb.trackUserAction('agent-x-message-feedback-opened', {
+      contextId: this.contextId,
+      contextType: this.contextType,
+      messageId: msg.id,
+    });
+    this.analytics?.trackEvent(APP_EVENTS.AGENT_X_MESSAGE_FEEDBACK_OPENED, {
+      contextId: this.contextId,
+      contextType: this.contextType,
+    });
+
+    this.feedbackTargetMessageId.set(msg.id);
+    this.feedbackDefaultRating.set(5);
+  }
+
+  protected closeFeedbackModal(): void {
+    this.feedbackTargetMessageId.set(null);
+  }
+
+  protected async submitMessageFeedbackFromModal(event: AgentXFeedbackSubmitEvent): Promise<void> {
+    const messageId = this.feedbackTargetMessageId();
+    const threadId = this.resolveActiveThreadId();
+    if (!messageId || !threadId) return;
+
+    this.logger.info('Submitting message feedback', {
+      contextId: this.contextId,
+      contextType: this.contextType,
+      messageId,
+      threadId,
+      rating: event.rating,
+      category: event.category ?? null,
+    });
+    this.breadcrumb.trackUserAction('agent-x-message-feedback-submit', {
+      contextId: this.contextId,
+      messageId,
+      rating: event.rating,
+      category: event.category ?? null,
+    });
+
+    try {
+      const result = await this.api.submitMessageFeedback(messageId, {
+        threadId,
+        rating: event.rating,
+        category: event.category,
+        text: event.text,
+      });
+
+      if (!result.success) {
+        this.logger.warn('Message feedback submission rejected', {
+          contextId: this.contextId,
+          contextType: this.contextType,
+          messageId,
+          threadId,
+          error: result.error ?? null,
+        });
+        this.toast.error(result.error ?? 'Failed to submit feedback');
+        return;
+      }
+
+      this.closeFeedbackModal();
+      await this.haptics.impact('light');
+      this.toast.success('Feedback submitted');
+      this.analytics?.trackEvent(APP_EVENTS.AGENT_X_MESSAGE_FEEDBACK_SUBMITTED, {
+        contextId: this.contextId,
+        contextType: this.contextType,
+        rating: event.rating,
+        feedbackCategory: event.category ?? undefined,
+      });
+    } catch (err) {
+      this.logger.error('Message feedback submission failed', err, {
+        contextId: this.contextId,
+        contextType: this.contextType,
+        messageId,
+        threadId,
+      });
+      this.toast.error('Failed to submit feedback');
+    }
+  }
+
+  protected isEditingMessage(messageId: string): boolean {
+    return this.editingMessageId() === messageId;
+  }
+
+  protected startEditingMessage(msg: OperationMessage): void {
+    if (msg.role !== 'user' || !this.isPersistedMessageId(msg.id)) return;
+
+    this.logger.info('Opening inline message editor', {
+      contextId: this.contextId,
+      contextType: this.contextType,
+      messageId: msg.id,
+    });
+    this.breadcrumb.trackUserAction('agent-x-message-edit-started', {
+      contextId: this.contextId,
+      contextType: this.contextType,
+      messageId: msg.id,
+    });
+    this.analytics?.trackEvent(APP_EVENTS.AGENT_X_MESSAGE_EDIT_STARTED, {
+      contextId: this.contextId,
+      contextType: this.contextType,
+    });
+
+    this.editingMessageId.set(msg.id);
+    this.editingMessageDraft.set(msg.content);
+  }
+
+  protected cancelEditingMessage(): void {
+    this.editingMessageId.set(null);
+    this.editingMessageDraft.set('');
+  }
+
+  protected async saveEditedMessage(msg: OperationMessage, nextText: string): Promise<void> {
+    if (!this.isPersistedMessageId(msg.id)) return;
+    const trimmed = nextText.trim();
+    if (!trimmed || trimmed === msg.content.trim()) {
+      this.cancelEditingMessage();
+      return;
+    }
+
+    const threadId = this.resolveActiveThreadId();
+    if (!threadId) {
+      this.toast.error('Unable to edit message without thread context');
+      return;
+    }
+
+    this.logger.info('Saving inline message edit', {
+      contextId: this.contextId,
+      contextType: this.contextType,
+      messageId: msg.id,
+      threadId,
+      length: trimmed.length,
+    });
+    this.breadcrumb.trackUserAction('agent-x-message-edit-submit', {
+      contextId: this.contextId,
+      contextType: this.contextType,
+      messageId: msg.id,
+      threadId,
+    });
+
+    try {
+      const result = await this.api.editMessage(msg.id, {
+        message: trimmed,
+        threadId,
+        reason: 'user_edit',
+      });
+
+      if (!result.success || !result.data) {
+        this.logger.warn('Message edit rejected by backend', {
+          contextId: this.contextId,
+          contextType: this.contextType,
+          messageId: msg.id,
+          threadId,
+          error: result.error ?? null,
+        });
+        this.toast.error(result.error ?? 'Failed to edit message');
+        return;
+      }
+
+      this.messages.update((messages) =>
+        messages.map((entry) => (entry.id === msg.id ? { ...entry, content: trimmed } : entry))
+      );
+      this.cancelEditingMessage();
+
+      await this.haptics.notification('success');
+      this.toast.success('Message edited. Regenerating response...');
+      this.analytics?.trackEvent(APP_EVENTS.AGENT_X_MESSAGE_EDIT_SAVED, {
+        contextId: this.contextId,
+        contextType: this.contextType,
+        rerunEnqueued: !!result.data.rerunEnqueued,
+      });
+
+      if (result.data.rerunEnqueued && result.data.operationId) {
+        await this._attachToResumedOperation({
+          operationId: result.data.operationId,
+          threadId,
+        });
+      }
+    } catch (err) {
+      this.logger.error('Saving inline message edit failed', err, {
+        contextId: this.contextId,
+        contextType: this.contextType,
+        messageId: msg.id,
+        threadId,
+      });
+      this.toast.error('Failed to edit message');
+    }
+  }
+
+  protected async deleteMessage(msg: OperationMessage): Promise<void> {
+    if (!this.isPersistedMessageId(msg.id)) return;
+    const threadId = this.resolveActiveThreadId();
+    if (!threadId) {
+      this.toast.error('Unable to delete message without thread context');
+      return;
+    }
+
+    this.logger.info('Deleting operation chat message', {
+      contextId: this.contextId,
+      contextType: this.contextType,
+      messageId: msg.id,
+      threadId,
+      deleteResponse: msg.role === 'user',
+    });
+    this.breadcrumb.trackUserAction('agent-x-message-delete', {
+      contextId: this.contextId,
+      contextType: this.contextType,
+      messageId: msg.id,
+      threadId,
+    });
+
+    try {
+      const result = await this.api.deleteMessage(msg.id, {
+        threadId,
+        deleteResponse: msg.role === 'user',
+      });
+
+      if (!result.success || !result.data) {
+        this.logger.warn('Message delete rejected by backend', {
+          contextId: this.contextId,
+          contextType: this.contextType,
+          messageId: msg.id,
+          threadId,
+          error: result.error ?? null,
+        });
+        this.toast.error(result.error ?? 'Failed to delete message');
+        return;
+      }
+
+      this.messages.update((messages) =>
+        messages.filter(
+          (entry) =>
+            entry.id !== result.data?.messageId &&
+            entry.id !== (result.data?.deletedResponseMessageId ?? '__none__')
+        )
+      );
+
+      await this.haptics.impact('light');
+
+      this.pendingUndoState.set({
+        messageId: msg.id,
+        restoreTokenId: result.data.restoreTokenId,
+        threadId,
+      });
+      this.undoBannerTriggerId.update((value) => value + 1);
+      this.toast.success('Message deleted');
+      this.analytics?.trackEvent(APP_EVENTS.AGENT_X_MESSAGE_DELETED, {
+        contextId: this.contextId,
+        contextType: this.contextType,
+        deleteResponse: msg.role === 'user',
+      });
+    } catch (err) {
+      this.logger.error('Delete message action failed', err, {
+        contextId: this.contextId,
+        contextType: this.contextType,
+        messageId: msg.id,
+        threadId,
+      });
+      this.toast.error('Failed to delete message');
+    }
+  }
+
+  protected clearUndoState(): void {
+    this.pendingUndoState.set(null);
+  }
+
+  protected async undoDeletedMessage(): Promise<void> {
+    const undoState = this.pendingUndoState();
+    if (!undoState) return;
+
+    this.logger.info('Restoring deleted operation chat message', {
+      contextId: this.contextId,
+      contextType: this.contextType,
+      messageId: undoState.messageId,
+      threadId: undoState.threadId,
+    });
+    this.breadcrumb.trackUserAction('agent-x-message-undo', {
+      contextId: this.contextId,
+      contextType: this.contextType,
+      messageId: undoState.messageId,
+      threadId: undoState.threadId,
+    });
+
+    try {
+      const undoResult = await this.api.undoMessage(undoState.messageId, {
+        restoreTokenId: undoState.restoreTokenId,
+      });
+
+      if (!undoResult.success) {
+        this.logger.warn('Undo message rejected by backend', {
+          contextId: this.contextId,
+          contextType: this.contextType,
+          messageId: undoState.messageId,
+          threadId: undoState.threadId,
+          error: undoResult.error ?? null,
+        });
+        this.toast.error(undoResult.error ?? 'Failed to restore message');
+        return;
+      }
+
+      await this.loadThreadMessages(undoState.threadId);
+      this.clearUndoState();
+      this.toast.success('Message restored');
+      this.analytics?.trackEvent(APP_EVENTS.AGENT_X_MESSAGE_UNDONE, {
+        contextId: this.contextId,
+        contextType: this.contextType,
+      });
+    } catch (err) {
+      this.logger.error('Undo message action failed', err, {
+        contextId: this.contextId,
+        contextType: this.contextType,
+        messageId: undoState.messageId,
+        threadId: undoState.threadId,
+      });
+      this.toast.error('Failed to restore message');
+    }
+  }
+
+  private resolveActiveThreadId(): string | null {
+    const threadId = this._resolvedThreadId() ?? this.threadId.trim();
+    return threadId && threadId.length > 0 ? threadId : null;
+  }
+
+  private async copyText(value: string): Promise<boolean> {
+    if (!isPlatformBrowser(this.platformId)) return false;
+
+    try {
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(value);
+        return true;
+      }
+    } catch {
+      // Fallback below.
+    }
+
+    try {
+      const textarea = document.createElement('textarea');
+      textarea.value = value;
+      textarea.style.position = 'fixed';
+      textarea.style.left = '-9999px';
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      const copied = document.execCommand('copy');
+      document.body.removeChild(textarea);
+      return copied;
+    } catch {
+      return false;
+    }
   }
 
   /** Revoke all pending file object URLs (cleanup). */
@@ -3021,6 +4779,124 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     return false;
   }
 
+  /** Hide planner cards inline in bubbles; planner is rendered once in the composer dock. */
+  protected messageCardsForBubble(msg: OperationMessage): readonly AgentXRichCard[] {
+    return (msg.cards ?? []).filter((card) => card.type !== 'planner');
+  }
+
+  /** Hide planner card parts inline in bubbles; planner is rendered once in the composer dock. */
+  protected messagePartsForBubble(msg: OperationMessage): readonly AgentXMessagePart[] {
+    return (msg.parts ?? []).filter(
+      (part) => !(part.type === 'card' && part.card.type === 'planner')
+    );
+  }
+
+  /** Build the ask_user card payload directly from the yield message in the shared timeline. */
+  protected buildAskUserCardFromYield(msg: OperationMessage): AgentXRichCard {
+    const yieldState = msg.yieldState;
+    const pendingInput = yieldState?.pendingToolCall?.toolInput;
+    const question =
+      pendingInput && typeof pendingInput['question'] === 'string'
+        ? pendingInput['question']
+        : (yieldState?.promptToUser ?? '');
+    const context =
+      pendingInput && typeof pendingInput['context'] === 'string'
+        ? pendingInput['context']
+        : undefined;
+    const threadId = this._resolvedThreadId() ?? (this.threadId.trim() || undefined);
+
+    return {
+      type: 'ask_user',
+      agentId: yieldState?.agentId ?? 'router',
+      title: 'Quick Question',
+      payload: {
+        question,
+        ...(context ? { context } : {}),
+        ...(threadId ? { threadId } : {}),
+        ...(msg.operationId ? { operationId: msg.operationId } : {}),
+      },
+    };
+  }
+
+  protected isPauseYieldMessage(msg: OperationMessage): boolean {
+    const yieldState = msg.yieldState;
+    if (!yieldState || yieldState.reason !== 'needs_input') return false;
+    if (msg.yieldCardState === 'submitting' || msg.yieldCardState === 'resolved') return false;
+    return yieldState.pendingToolCall?.toolName === PAUSE_RESUME_TOOL_NAME;
+  }
+
+  /**
+   * True only for genuine ask-user yields (not pause yields in any state).
+   * Pause yields have toolName === PAUSE_RESUME_TOOL_NAME and must never
+   * fall through to the Quick Question card, even while being dismissed.
+   */
+  protected isAskUserYield(msg: OperationMessage): boolean {
+    return (
+      msg.yieldState?.reason === 'needs_input' &&
+      msg.yieldState?.pendingToolCall?.toolName !== PAUSE_RESUME_TOOL_NAME
+    );
+  }
+
+  /** Deterministic message id for inline yield cards so they update in place. */
+  private inlineYieldMessageId(yieldState: AgentYieldState, operationId?: string): string {
+    const discriminator =
+      yieldState.approvalId ?? yieldState.pendingToolCall?.toolCallId ?? yieldState.reason;
+    return `yield:${operationId ?? this.contextId}:${discriminator}`;
+  }
+
+  /** Ensure the current yield is represented inline in the shared message timeline. */
+  private upsertInlineYieldMessage(yieldState: AgentYieldState, operationId?: string): void {
+    const resolvedOperationId = operationId || this.contextId;
+    const messageId = this.inlineYieldMessageId(yieldState, resolvedOperationId);
+
+    this.messages.update((messages) => {
+      const existingIndex = messages.findIndex((message) => message.id === messageId);
+      if (existingIndex >= 0) {
+        return messages.map((message, index) =>
+          index === existingIndex
+            ? { ...message, yieldState, operationId: resolvedOperationId }
+            : message
+        );
+      }
+
+      const typingIndex = messages.findIndex((message) => message.id === 'typing');
+      const yieldMessage: OperationMessage = {
+        id: messageId,
+        role: 'assistant',
+        content: '',
+        timestamp: new Date(),
+        operationId: resolvedOperationId,
+        yieldState,
+        yieldCardState: 'idle',
+      };
+
+      if (typingIndex < 0) {
+        return [...messages, yieldMessage];
+      }
+
+      return [...messages.slice(0, typingIndex), yieldMessage, ...messages.slice(typingIndex)];
+    });
+  }
+
+  /** Update the visual lifecycle of inline yield cards without leaving the shared timeline. */
+  private updateInlineYieldMessageState(
+    operationId: string,
+    state: 'idle' | 'submitting' | 'resolved',
+    resolvedText?: string
+  ): void {
+    this.messages.update((messages) =>
+      messages.map((message) =>
+        message.yieldState && message.operationId === operationId
+          ? {
+              ...message,
+              yieldCardState: state,
+              ...(resolvedText !== undefined ? { yieldResolvedText: resolvedText } : {}),
+            }
+          : message
+      )
+    );
+  }
+
   /** File extension → colour (returns rgba string). */
   protected getFileColor(filename: string, alpha: number): string {
     const ext = this.getFileExt(filename).toLowerCase();
@@ -3102,7 +4978,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
         timestamp: new Date(),
       })),
       // NOTE: threadId identifies the conversation thread for server-side context lookup.
-      ...(this._resolvedThreadId() ? { threadId: this._resolvedThreadId()! } : {}),
+      ...(this.resolveActiveThreadId() ? { threadId: this.resolveActiveThreadId()! } : {}),
       ...(attachments.length > 0 ? { attachments } : {}),
     } satisfies AgentXChatRequest;
 
@@ -3115,7 +4991,43 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     });
 
     if (authToken && isPlatformBrowser(this.platformId)) {
-      await this._sendViaStream(request, authToken);
+      try {
+        await this._sendViaStream(request, authToken);
+      } catch (err) {
+        if (this.isStreamLimitError(err)) {
+          this.logger.warn('Stream limited on initial send; retrying once with backoff', {
+            contextId: this.contextId,
+          });
+          this.breadcrumb.trackStateChange('agent-x-operation-chat:stream-limit-retry', {
+            contextId: this.contextId,
+          });
+
+          // Retry once after a short backoff to allow stale stream slots to clear.
+          await new Promise((resolve) => setTimeout(resolve, 900));
+
+          try {
+            await this._sendViaStream(request, authToken);
+            return;
+          } catch (retryErr) {
+            if (this.isStreamLimitError(retryErr)) {
+              this.logger.warn('Stream limit persisted after retry', {
+                contextId: this.contextId,
+              });
+              this.replaceTyping({
+                id: this.uid(),
+                role: 'assistant',
+                content:
+                  'Too many active Agent X sessions right now. Close other tabs or wait a moment, then try again.',
+                timestamp: new Date(),
+                error: true,
+              });
+            }
+            throw retryErr;
+          }
+        }
+
+        throw err;
+      }
     } else {
       this.logger.warn('Blocked Agent X send: streaming prerequisites unavailable', {
         hasAuthToken: !!authToken,
@@ -3134,6 +5046,13 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
         error: true,
       });
     }
+  }
+
+  /** True when backend rejected stream attach due to active stream limits. */
+  private isStreamLimitError(err: unknown): boolean {
+    if (!err || typeof err !== 'object') return false;
+    const asRecord = err as Record<string, unknown>;
+    return asRecord['status'] === 429 || asRecord['code'] === 'AGENT_STREAM_LIMIT_REACHED';
   }
 
   /**
@@ -3174,7 +5093,9 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
             // This MUST happen here (not earlier) because we need the threadId
             // for the registry key, and the AbortController for cleanup.
             if (this.activeStream) {
-              this.streamRegistry.register(evt.threadId, this.activeStream);
+              this.streamRegistry.register(evt.threadId, this.activeStream, {
+                retentionHint: this.contextType === 'operation' ? 'long-running' : 'standard',
+              });
             }
 
             // Link operationId → threadId in the registry so per-operation
@@ -3208,6 +5129,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
           onDelta: (evt) => {
             const tid = this._resolvedThreadId();
             if (tid) this.streamRegistry.appendDelta(tid, evt.content);
+            this.recordDeltaLatency(evt.emittedAt);
 
             // Build interleaved parts: append to last text part or start new one
             const last = parts[parts.length - 1];
@@ -3317,9 +5239,18 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
             if (evt.operationId) {
               this._currentOperationId = evt.operationId;
             }
-            if (evt.status === 'awaiting_input' && evt.yieldState) {
+            if (
+              (evt.status === 'paused' ||
+                evt.status === 'awaiting_input' ||
+                evt.status === 'awaiting_approval') &&
+              evt.yieldState
+            ) {
               this.activeYieldState.set(evt.yieldState);
               this.yieldResolved.set(false);
+              this.upsertInlineYieldMessage(
+                evt.yieldState,
+                evt.operationId ?? this._currentOperationId ?? this.contextId
+              );
             }
 
             // Forward to the shared event service so the operations log sidebar
@@ -3358,22 +5289,48 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
             );
           },
 
+          onStreamReplaced: (evt) => {
+            this.flushPendingTypingDelta();
+            this.activeStream = null;
+            this.messages.update((msgs) => msgs.filter((m) => m.id !== streamingId));
+            this._loading.set(false);
+
+            // Shadow Firestore fanout may continue feeding the newer stream lease.
+            this._shadowFirestoreSub?.unsubscribe();
+            this._shadowFirestoreSub = null;
+
+            this.logger.info('SSE stream replaced by newer lease', {
+              operationId: evt.operationId,
+              replacedByStreamId: evt.replacedByStreamId,
+            });
+            this.breadcrumb.trackStateChange('agent-x-operation-chat:stream-replaced', {
+              operationId: evt.operationId,
+            });
+            this.emitResponseCompleteOnce('sse-stream-replaced');
+            resolve();
+          },
+
           onDone: (evt) => {
             this.flushPendingTypingDelta();
+            this._latestProgressLabel.set(null);
             const tid = this._resolvedThreadId();
             if (tid) {
               this.streamRegistry.markDone(tid, {
                 model: evt.model,
                 threadId: evt.threadId,
+                messageId: evt.messageId,
                 usage: evt.usage,
               });
             }
 
             // Freeze the final message — replace typing indicator with permanent ID
-            const finalId = this.uid();
-            this.messages.update((msgs) =>
-              msgs.map((m) => (m.id === streamingId ? { ...m, id: finalId, isTyping: false } : m))
-            );
+            this.finalizeStreamedAssistantMessage({
+              streamingId,
+              messageId: evt.messageId,
+              success: true,
+              threadId: evt.threadId,
+              source: 'sse-done',
+            });
 
             this.activeStream = null;
             this.breadcrumb.trackStateChange('agent-x-operation-chat:stream-complete', {
@@ -3407,7 +5364,9 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
               model: evt.model,
               outputTokens: evt.usage?.outputTokens,
               threadId: evt.threadId,
+              deltaLatency: this.summarizeDeltaLatencies(),
             });
+            this.emitResponseCompleteOnce('sse-done');
             resolve();
           },
 
@@ -3416,6 +5375,17 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
             if (tid) this.streamRegistry.markError(tid, evt.error);
 
             this.activeStream = null;
+            this._latestProgressLabel.set(null);
+
+            // 429 is usually a transient concurrent-stream cap. Let caller decide
+            // whether to retry instead of immediately rendering a terminal error.
+            if (evt.status === 429) {
+              const error = new Error(evt.error);
+              (error as Error & { status?: number; code?: string }).status = evt.status;
+              (error as Error & { status?: number; code?: string }).code = evt.code;
+              reject(error);
+              return;
+            }
 
             // ── 402 billing gate → inject billing action card ──
             if (evt.status === 402) {
@@ -3433,12 +5403,16 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
             // writing all events to Firestore in parallel. Subscribe to it now
             // so the user sees the response arrive without an error bubble.
             const isNetworkDrop = !evt.status || evt.status === 0 || evt.status >= 500;
-            if (isNetworkDrop && this._currentOperationId) {
-              this.logger.warn('SSE stream dropped — falling back to Firestore watch', {
+            const isResumeThrottle = evt.status === 429 && Boolean(request.resumeOperationId);
+            if ((isNetworkDrop || isResumeThrottle) && this._currentOperationId) {
+              this.logger.warn('SSE stream unavailable — falling back to Firestore watch', {
                 operationId: this._currentOperationId,
+                status: evt.status,
+                resumeOperationId: request.resumeOperationId,
               });
               this.breadcrumb.trackStateChange('agent-x-operation-chat:sse-fallback-firestore', {
                 operationId: this._currentOperationId,
+                status: evt.status,
               });
               // Ensure the typing indicator is still present for the Firestore path.
               this.messages.update((msgs) => {
@@ -3491,7 +5465,10 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
               timestamp: new Date(),
               error: true,
             });
-            reject(new Error(evt.error));
+            const error = new Error(evt.error);
+            (error as Error & { status?: number; code?: string }).status = evt.status;
+            (error as Error & { status?: number; code?: string }).code = evt.code;
+            reject(error);
           },
         },
         authToken,
@@ -3503,6 +5480,62 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   /** Append a message to the local history. */
   private pushMessage(msg: OperationMessage): void {
     this.messages.update((prev) => [...prev, msg]);
+  }
+
+  /** Start a new response turn and clear completion guards. */
+  private beginResponseTurn(source: string): void {
+    this._responseTurnId += 1;
+    this._responseCompleteEmitted = false;
+    this._latestProgressLabel.set(null);
+    this.logger.debug('Response turn started', {
+      turnId: this._responseTurnId,
+      source,
+      contextId: this.contextId,
+    });
+  }
+
+  /** Emit `responseComplete` at most once for the active response turn. */
+  private emitResponseCompleteOnce(source: string): void {
+    if (this._responseCompleteEmitted) {
+      this.logger.debug('Duplicate responseComplete suppressed', {
+        turnId: this._responseTurnId,
+        source,
+        contextId: this.contextId,
+      });
+      return;
+    }
+
+    this._responseCompleteEmitted = true;
+    this.responseComplete.emit();
+  }
+
+  private recordDeltaLatency(emittedAt?: string): void {
+    if (!emittedAt) return;
+
+    const emittedAtMs = Date.parse(emittedAt);
+    if (Number.isNaN(emittedAtMs)) return;
+
+    const latencyMs = Date.now() - emittedAtMs;
+    if (latencyMs < 0 || latencyMs > 120_000) return;
+
+    this.deltaLatencySamples.push(latencyMs);
+    if (this.deltaLatencySamples.length > 120) {
+      this.deltaLatencySamples.shift();
+    }
+  }
+
+  private summarizeDeltaLatencies(): { count: number; avgMs: number; p95Ms: number } {
+    if (this.deltaLatencySamples.length === 0) {
+      return { count: 0, avgMs: 0, p95Ms: 0 };
+    }
+
+    const sorted = [...this.deltaLatencySamples].sort((a, b) => a - b);
+    const count = sorted.length;
+    const avgMs = Math.round(sorted.reduce((sum, value) => sum + value, 0) / count);
+    const p95Index = Math.min(count - 1, Math.floor(count * 0.95));
+    const p95Ms = Math.round(sorted[p95Index] ?? 0);
+
+    return { count, avgMs, p95Ms };
   }
 
   /** Replace the typing indicator with a real message. */
@@ -3702,17 +5735,39 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       operationId: event.operationId,
       decision: event.decision,
     });
+    this.updateInlineYieldMessageState(event.operationId, 'submitting');
+
+    const approvalId = event.approvalId ?? this.activeYieldState()?.approvalId;
+    if (!approvalId) {
+      this.logger.warn('Action card approval missing approvalId', {
+        operationId: event.operationId,
+        decision: event.decision,
+      });
+      await this.haptics.notification('error');
+      this.updateInlineYieldMessageState(event.operationId, 'idle');
+      this.toast.error('This approval request is no longer available. Refresh and try again.');
+      return;
+    }
 
     try {
-      const success = await this.jobService.approveOperation(event.operationId, event.decision);
+      const success = await this.resolveInlineApproval({
+        approvalId,
+        decision: event.decision === 'approve' ? 'approved' : 'rejected',
+        ...(event.toolInput ? { toolInput: event.toolInput } : {}),
+        successMessage:
+          event.decision === 'approve' ? 'Approved — Agent X is resuming' : 'Request rejected',
+      });
       if (success) {
         await this.haptics.notification('success');
-        this.actionCardRef()?.markResolved(
+        this.updateInlineYieldMessageState(
+          event.operationId,
+          'resolved',
           event.decision === 'approve' ? 'Approved — resuming' : 'Rejected — cancelled'
         );
         this.analytics?.trackEvent(APP_EVENTS.AGENT_X_OPERATION_APPROVED, {
           operationId: event.operationId,
           decision: event.decision,
+          approvalId,
           source: 'operation-chat',
         });
         // Brief delay to show resolved state before hiding
@@ -3731,12 +5786,12 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       } else {
         this.logger.warn('Approve API returned false', { operationId: event.operationId });
         await this.haptics.notification('error');
-        this.actionCardRef()?.markIdle();
+        this.updateInlineYieldMessageState(event.operationId, 'idle');
       }
     } catch (err) {
       this.logger.error('Action card approval failed', err, { operationId: event.operationId });
       await this.haptics.notification('error');
-      this.actionCardRef()?.markIdle();
+      this.updateInlineYieldMessageState(event.operationId, 'idle');
     }
   }
 
@@ -3746,6 +5801,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     this.breadcrumb.trackUserAction('action-card-reply', {
       operationId: event.operationId,
     });
+    this.updateInlineYieldMessageState(event.operationId, 'submitting');
 
     try {
       const activeYield = this.activeYieldState();
@@ -3755,7 +5811,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
           : await this.jobService.replyOperation(event.operationId, event.response);
       if (success) {
         await this.haptics.notification('success');
-        this.actionCardRef()?.markResolved('Reply sent — resuming');
+        this.updateInlineYieldMessageState(event.operationId, 'resolved', 'Reply sent — resuming');
         this.analytics?.trackEvent(APP_EVENTS.AGENT_X_OPERATION_REPLIED, {
           operationId: event.operationId,
           source: 'operation-chat',
@@ -3779,17 +5835,75 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       } else {
         this.logger.warn('Reply API returned false', { operationId: event.operationId });
         await this.haptics.notification('error');
-        this.actionCardRef()?.markIdle();
+        this.updateInlineYieldMessageState(event.operationId, 'idle');
       }
     } catch (err) {
       this.logger.error('Action card reply failed', err, { operationId: event.operationId });
       await this.haptics.notification('error');
-      this.actionCardRef()?.markIdle();
+      this.updateInlineYieldMessageState(event.operationId, 'idle');
+    }
+  }
+
+  protected async onPauseResume(event: PauseResumeEvent): Promise<void> {
+    this.logger.info('Pause card resume requested', { operationId: event.operationId });
+    this.breadcrumb.trackUserAction('pause-card-resume', {
+      operationId: event.operationId,
+    });
+    this.updateInlineYieldMessageState(event.operationId, 'submitting');
+
+    try {
+      // Empty string = plain resume with no extra user input. Sending a sentinel
+      // word like 'resume' would be appended to the replay history and cause the
+      // LLM to treat it as a fresh message rather than continuing the paused task.
+      const success = await this.resumeYieldedOperation(event.operationId, '');
+      if (success) {
+        await this.haptics.notification('success');
+        this.updateInlineYieldMessageState(event.operationId, 'resolved', 'Resuming operation…');
+        this.analytics?.trackEvent(APP_EVENTS.AGENT_X_OPERATION_REPLIED, {
+          operationId: event.operationId,
+          source: 'operation-chat-pause-card',
+        });
+
+        setTimeout(() => {
+          this.yieldResolved.set(true);
+        }, 600);
+      } else {
+        await this.haptics.notification('error');
+        this.updateInlineYieldMessageState(event.operationId, 'idle');
+      }
+    } catch (err) {
+      this.logger.error('Pause card resume failed', err, { operationId: event.operationId });
+      await this.haptics.notification('error');
+      this.updateInlineYieldMessageState(event.operationId, 'idle');
     }
   }
 
   protected yieldOperationId(): string {
-    return this._currentOperationId ?? this.contextId;
+    const activeYield = this.activeYieldState();
+    return this.resolveYieldOperationId(activeYield ?? undefined) ?? this.contextId;
+  }
+
+  private resolveYieldOperationId(yieldState?: AgentYieldState | null): string | undefined {
+    const toolInputOperationId =
+      yieldState?.pendingToolCall?.toolInput &&
+      typeof yieldState.pendingToolCall.toolInput['operationId'] === 'string'
+        ? yieldState.pendingToolCall.toolInput['operationId'].trim()
+        : null;
+
+    const candidates = [
+      toolInputOperationId,
+      this._currentOperationId?.trim() || undefined,
+      this.resumeOperationId?.trim() || undefined,
+      this.resolveFirestoreOperationId() ?? undefined,
+      this.contextId?.trim() || undefined,
+    ];
+
+    for (const candidate of candidates) {
+      if (!candidate) continue;
+      if (this.isFirestoreOperationId(candidate)) return candidate;
+    }
+
+    return candidates.find((candidate): candidate is string => !!candidate);
   }
 
   private async resumeYieldedOperation(operationId: string, response: string): Promise<boolean> {
@@ -3815,6 +5929,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
     this._currentOperationId = result.operationId;
     this.activeYieldState.set(null);
+    this.beginResponseTurn('resume-yielded');
 
     this.pushMessage({
       id: 'typing',
@@ -3834,7 +5949,6 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
         },
         authToken
       );
-      this.responseComplete.emit();
       return true;
     } catch (err) {
       this.logger.error('Failed to attach to resumed yielded operation stream', err, {
@@ -3943,10 +6057,36 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     threadId?: string;
     afterSeq?: number;
   }): Promise<void> {
+    const trimmedOperationId = params.operationId?.trim();
+    if (!trimmedOperationId) {
+      this.logger.warn('Cannot attach to resumed operation without operationId');
+      return;
+    }
+
+    if (
+      this._currentOperationId === trimmedOperationId &&
+      this.activeStream &&
+      !this.activeStream.signal.aborted
+    ) {
+      this.logger.debug('Skipping duplicate resumed stream attach (already active)', {
+        operationId: trimmedOperationId,
+      });
+      return;
+    }
+
+    if (this._lastResumeAttachOperationId === trimmedOperationId && this._loading()) {
+      this.logger.debug('Skipping duplicate resumed stream attach (in-flight)', {
+        operationId: trimmedOperationId,
+      });
+      return;
+    }
+
+    this._lastResumeAttachOperationId = trimmedOperationId;
+
     const authToken = await this.getAuthToken?.().catch(() => null);
     if (!authToken || !isPlatformBrowser(this.platformId)) {
       this.logger.info('Approval resumed without live stream attachment', {
-        operationId: params.operationId,
+        operationId: trimmedOperationId,
       });
       return;
     }
@@ -3958,7 +6098,8 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       this._resolvedThreadId.set(params.threadId);
     }
 
-    this._currentOperationId = params.operationId;
+    this._currentOperationId = trimmedOperationId;
+    this.beginResponseTurn('attach-resumed-operation');
 
     this.pushMessage({
       id: 'typing',
@@ -3974,15 +6115,14 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
         {
           message: 'Resume approved operation',
           ...(params.threadId ? { threadId: params.threadId } : {}),
-          resumeOperationId: params.operationId,
+          resumeOperationId: trimmedOperationId,
           ...(params.afterSeq !== undefined ? { afterSeq: params.afterSeq } : {}),
         },
         authToken
       );
-      this.responseComplete.emit();
     } catch (err) {
       this.logger.error('Failed to attach to resumed operation stream', err, {
-        operationId: params.operationId,
+        operationId: trimmedOperationId,
       });
       this.replaceTyping({
         id: this.uid(),

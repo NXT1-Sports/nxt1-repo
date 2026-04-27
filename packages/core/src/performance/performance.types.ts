@@ -386,6 +386,7 @@ export const TRACE_NAMES = {
   // Connected accounts / Firecrawl traces
   FIRECRAWL_SESSION_START: 'firecrawl_session_start',
   FIRECRAWL_SESSION_COMPLETE: 'firecrawl_session_complete',
+  FIRECRAWL_AGENT_RESEARCH: 'firecrawl_agent_research',
 
   // Live view session traces
   LIVE_VIEW_SESSION_START: 'live_view_session_start',

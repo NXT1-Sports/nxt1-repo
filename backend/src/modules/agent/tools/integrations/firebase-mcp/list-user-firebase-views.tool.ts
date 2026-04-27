@@ -13,15 +13,10 @@ export class ListNxt1DataViewsTool extends BaseTool {
 
   readonly parameters = ListNxt1DataViewsInputSchema;
 
-  override readonly allowedAgents = [
-    'strategy_coordinator',
-    'data_coordinator',
-    'performance_coordinator',
-    'recruiting_coordinator',
-  ] as const;
+  override readonly allowedAgents = ['*'] as const;
 
   readonly isMutation = false;
-  readonly category = 'database' as const;
+  readonly category = 'system' as const;
 
   readonly entityGroup = 'platform_tools' as const;
   constructor(private readonly bridge: FirebaseMcpBridgeService) {

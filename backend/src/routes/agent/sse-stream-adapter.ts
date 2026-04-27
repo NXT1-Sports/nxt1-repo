@@ -215,6 +215,56 @@ export function buildSseStreamCallback(res: Response, streamRef: SseStreamRef): 
         return;
       }
 
+      // ── Operation lifecycle / phase commentary ────────────────────────
+      case 'operation': {
+        try {
+          res.write(
+            `event: operation\ndata: ${JSON.stringify({
+              operationId: event.operationId,
+              threadId: event.threadId,
+              status: event.status,
+              agentId: event.agentId,
+              stageType: event.stageType,
+              stage: event.stage,
+              outcomeCode: event.outcomeCode,
+              metadata: event.metadata,
+              message: event.message,
+              yieldState: event.yieldState,
+              timestamp: event.timestamp ?? new Date().toISOString(),
+            })}\n\n`
+          );
+          forceProxyFlush(res);
+        } catch {
+          // Client disconnected
+        }
+        return;
+      }
+
+      case 'progress_stage':
+      case 'progress_subphase':
+      case 'metric': {
+        try {
+          res.write(
+            `event: progress\ndata: ${JSON.stringify({
+              operationId: event.operationId,
+              threadId: event.threadId,
+              type: event.type,
+              agentId: event.agentId,
+              stageType: event.stageType,
+              stage: event.stage,
+              outcomeCode: event.outcomeCode,
+              metadata: event.metadata,
+              message: event.message,
+              timestamp: event.timestamp ?? new Date().toISOString(),
+            })}\n\n`
+          );
+          forceProxyFlush(res);
+        } catch {
+          // Client disconnected
+        }
+        return;
+      }
+
       // All other event types (e.g. 'done', 'error') are handled by the
       // route handler directly — not emitted by base.agent.ts callbacks.
       default:
