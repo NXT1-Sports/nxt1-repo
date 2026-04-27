@@ -2,12 +2,10 @@
  * @fileoverview Search Memory Tool — MongoDB Atlas Vector Search
  * @module @nxt1/backend/modules/agent/tools/database
  *
- * Enables Agent X to manually inspect long-term memories after the automatic
- * prompt-context retrieval path has already run.
+ * Enables Agent X to inspect long-term memories on demand.
  *
- * Use this tool for scoped drill-down, memory audits, or locating a memory ID
- * before deletion. It is no longer the primary retrieval mechanism for normal
- * prompt assembly.
+ * Use this tool for scoped recall, memory audits, locating a memory ID before
+ * deletion, or whenever a coordinator needs durable user history to answer well.
  *
  * Storage backend: MongoDB Atlas Vector Search (`agentMemories` collection).
  * Embedding model: OpenAI text-embedding-3-small (1536 dimensions).
@@ -53,22 +51,14 @@ const SearchMemoryInputSchema = z.object({
 export class SearchMemoryTool extends BaseTool {
   readonly name = 'search_memory';
   readonly description =
-    'Manual semantic search over long-term stored memories. ' +
-    'Automatic prompt assembly already injects the most relevant memories before normal agent reasoning. ' +
-    'Use this only when you need deeper drill-down, scope-specific recall (user/team/organization), ' +
-    'or a memory ID for delete_memory. Results are grouped by scope and ranked by similarity to your query.';
+    'Semantic search over long-term stored memories on demand. ' +
+    'Use this when you need scope-specific recall (user/team/organization), past preferences, goals, recruiting context, or a memory ID for delete_memory. ' +
+    'Results are grouped by scope and ranked by similarity to your query.';
 
   readonly parameters = SearchMemoryInputSchema;
 
   // All coordinators can recall context from the knowledge base
-  override readonly allowedAgents = [
-    'strategy_coordinator',
-    'recruiting_coordinator',
-    'performance_coordinator',
-    'admin_coordinator',
-    'data_coordinator',
-    'brand_coordinator',
-  ] as const;
+  override readonly allowedAgents = ['*'] as const;
 
   readonly isMutation = false;
   readonly category = 'analytics' as const;

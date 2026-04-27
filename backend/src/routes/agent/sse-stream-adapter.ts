@@ -13,12 +13,12 @@
  *   step_error   → event: step    { id, label, status: 'error' }
  *   card         → event: card    { ...cardData }
  *   tool_result  → captures heavyTaskOperationId / media / autoOpenPanel
- *   tool_call    → no-op (step_active already covers the UI update)
+ *   tool_call    → no-op (step_active carries the canonical UI step identity)
  */
 
 import type { Response } from 'express';
 import type { OnStreamEvent, StreamEvent } from '../../modules/agent/queue/event-writer.js';
-import { humanizeToolName, forceProxyFlush } from './shared.js';
+import { forceProxyFlush } from './shared.js';
 
 // ─── Shared mutable ref ────────────────────────────────────────────────────
 
@@ -37,6 +37,30 @@ export interface SseStreamRef {
   tokenUsage: { inputTokens: number; outputTokens: number; model: string } | undefined;
   /** autoOpenPanel payload from tools (e.g. live view, media panel). */
   pendingAutoOpenPanel: Record<string, unknown> | null;
+}
+
+function toStepPayload(
+  event: StreamEvent,
+  status: 'active' | 'success' | 'error'
+): Record<string, unknown> | null {
+  const stepId = typeof event.stepId === 'string' ? event.stepId.trim() : '';
+  const label = typeof event.message === 'string' ? event.message.trim() : '';
+  if (!stepId || !label) return null;
+
+  return {
+    ...(typeof event.seq === 'number' ? { seq: event.seq } : {}),
+    emittedAt: new Date().toISOString(),
+    ...(event.messageKey ? { messageKey: event.messageKey } : {}),
+    id: stepId,
+    label,
+    ...(event.agentId ? { agentId: event.agentId } : {}),
+    ...(event.stageType ? { stageType: event.stageType } : {}),
+    ...(event.stage ? { stage: event.stage } : {}),
+    ...(event.outcomeCode ? { outcomeCode: event.outcomeCode } : {}),
+    ...(event.metadata ? { metadata: event.metadata } : {}),
+    ...(event.icon ? { icon: event.icon } : {}),
+    status,
+  };
 }
 
 // ─── Step ID tracker ──────────────────────────────────────────────────────
@@ -85,18 +109,17 @@ export function buildSseStreamCallback(res: Response, streamRef: SseStreamRef): 
       }
 
       // ── Tool starting ─────────────────────────────────────────────────
-      case 'step_active':
       case 'tool_call': {
+        return;
+      }
+
+      case 'step_active': {
         if (!event.toolName) return;
-        const stepId = stepTracker.getOrCreate(event.toolName);
+        const stepId = event.stepId ?? stepTracker.getOrCreate(event.toolName);
+        const payload = toStepPayload({ ...event, stepId }, 'active');
+        if (!payload) return;
         try {
-          res.write(
-            `event: step\ndata: ${JSON.stringify({
-              id: stepId,
-              label: humanizeToolName(event.toolName),
-              status: 'active',
-            })}\n\n`
-          );
+          res.write(`event: step\ndata: ${JSON.stringify(payload)}\n\n`);
           forceProxyFlush(res);
         } catch {
           // Client disconnected
@@ -109,21 +132,20 @@ export function buildSseStreamCallback(res: Response, streamRef: SseStreamRef): 
       case 'step_done':
       case 'tool_result': {
         if (!event.toolName) return;
-        const stepId = stepTracker.get(event.toolName) ?? stepTracker.getOrCreate(event.toolName);
+        const stepId =
+          event.stepId ??
+          stepTracker.get(event.toolName) ??
+          stepTracker.getOrCreate(event.toolName);
         const succeeded = event.toolSuccess !== false;
+        const payload = toStepPayload({ ...event, stepId }, succeeded ? 'success' : 'error');
+        if (!payload) return;
 
         if (succeeded && event.toolName) {
           streamRef.successfulTools.push(event.toolName);
         }
 
         try {
-          res.write(
-            `event: step\ndata: ${JSON.stringify({
-              id: stepId,
-              label: humanizeToolName(event.toolName),
-              status: succeeded ? 'success' : 'error',
-            })}\n\n`
-          );
+          res.write(`event: step\ndata: ${JSON.stringify(payload)}\n\n`);
           forceProxyFlush(res);
         } catch {
           // Client disconnected
@@ -187,15 +209,14 @@ export function buildSseStreamCallback(res: Response, streamRef: SseStreamRef): 
       // ── Tool failed ───────────────────────────────────────────────────
       case 'step_error': {
         if (!event.toolName) return;
-        const stepId = stepTracker.get(event.toolName) ?? stepTracker.getOrCreate(event.toolName);
+        const stepId =
+          event.stepId ??
+          stepTracker.get(event.toolName) ??
+          stepTracker.getOrCreate(event.toolName);
+        const payload = toStepPayload({ ...event, stepId }, 'error');
+        if (!payload) return;
         try {
-          res.write(
-            `event: step\ndata: ${JSON.stringify({
-              id: stepId,
-              label: humanizeToolName(event.toolName),
-              status: 'error',
-            })}\n\n`
-          );
+          res.write(`event: step\ndata: ${JSON.stringify(payload)}\n\n`);
           forceProxyFlush(res);
         } catch {
           // Client disconnected

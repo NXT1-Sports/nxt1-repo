@@ -199,6 +199,7 @@ export interface LLMCompletionOptions<TStructuredOutput = unknown> {
   readonly outputSchema?: {
     readonly name: string;
     readonly schema: ZodType<TStructuredOutput>;
+    readonly strict?: boolean;
   };
   /** Abort signal for cancellation. */
   readonly signal?: AbortSignal;

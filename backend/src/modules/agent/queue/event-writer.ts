@@ -36,6 +36,9 @@ export interface StreamEvent {
   readonly seq?: number;
   readonly type: JobEventType;
   readonly agentId?: AgentIdentifier;
+  /** Stable step identity for UI reconciliation across live + replay paths. */
+  readonly stepId?: string;
+  readonly messageKey?: string;
   readonly stageType?: AgentProgressStageType;
   readonly stage?: AgentProgressStage;
   readonly outcomeCode?: OperationOutcomeCode;
@@ -317,6 +320,8 @@ export class DebouncedEventWriter {
       type: event.type,
       userId: this.userId,
       agentId: event.agentId,
+      stepId: event.stepId,
+      messageKey: event.messageKey,
       stageType: event.stageType,
       stage: event.stage,
       outcomeCode: event.outcomeCode,

@@ -1024,12 +1024,20 @@ export type JobEventType =
  * firebase-admin types.
  */
 export interface JobEvent {
+  /** Event contract schema version for backward-compatible parsing. */
+  readonly schemaVersion?: number;
+  /** Stable unique event identifier. */
+  readonly eventId?: string;
   /** Monotonically increasing sequence number (0-based). */
   readonly seq: number;
+  /** ISO timestamp when backend emitted this event. */
+  readonly emittedAt?: string;
   /** What kind of event this is. */
   readonly type: JobEventType;
   /** Agent identifier if known (e.g. 'recruiting', 'performance'). */
   readonly agentId?: string;
+  /** Stable backend-authored localization key paired with message text when available. */
+  readonly messageKey?: string;
   /** Which execution layer emitted the event, when structured stages are available. */
   readonly stageType?: AgentProgressStageType;
   /** Typed machine-readable stage key for frontend dictionaries. */

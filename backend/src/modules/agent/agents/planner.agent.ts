@@ -156,13 +156,19 @@ export interface PlannerCapabilitySnapshot {
 
 interface PlannerExecutionOptions {
   readonly capabilitySnapshot?: PlannerCapabilitySnapshot;
+  readonly capabilitySnapshotResolver?: () => Promise<PlannerCapabilitySnapshot | undefined>;
+  readonly skipClassification?: boolean;
 }
 
 function isPlannerExecutionOptions(
   value: ToolRegistry | PlannerExecutionOptions | undefined
 ): value is PlannerExecutionOptions {
   if (!value || typeof value !== 'object') return false;
-  return 'capabilitySnapshot' in value;
+  return (
+    'capabilitySnapshot' in value ||
+    'capabilitySnapshotResolver' in value ||
+    'skipClassification' in value
+  );
 }
 
 /**
@@ -176,7 +182,7 @@ const intentClassificationSchema = z.object({
   reasoning: z.string().describe('Brief explanation of the classification'),
   directResponse: z
     .string()
-    .optional()
+    .nullable()
     .describe('Direct answer to the user when isConversational=true'),
   estimatedComplexity: z
     .enum(['simple', 'moderate', 'complex'])
@@ -184,6 +190,14 @@ const intentClassificationSchema = z.object({
 });
 
 const CLASSIFICATION_CACHE_TTL_MS = 5 * 60_000;
+const CLASSIFICATION_CACHE_MAX_ENTRIES = 512;
+const ACTION_INTENT_VERB_PATTERN =
+  /\b(open|launch|navigate|go to|visit|watch|analyze|grade|create|generate|build|draft|write|send|post|upload|download|scrape|collect|fetch|find|search|book|schedule|login|log in|sign in|click|tap|run|start)\b/i;
+const ACTION_INTENT_TARGET_PATTERN =
+  /\b(hudl|youtube|vimeo|instagram|tiktok|twitter|x\b|linkedin|gmail|outlook|website|web page|url|live view|browser|film|highlight|report|graphic|email|operation|workflow)\b/i;
+const ACTION_INTENT_DIRECTIVE_PATTERN =
+  /\b(for me|please|let'?s|can you|could you|i need you to|help me|start|run)\b/i;
+const HOW_TO_QUESTION_PATTERN = /^\s*(how do i|how can i|how to)\b/i;
 
 export class PlannerAgent extends BaseAgent {
   readonly id: AgentIdentifier = 'router';
@@ -329,18 +343,36 @@ Omit "directResponse" entirely when tasks is non-empty.`;
   private async classifyIntentTier(
     intent: string,
     context: AgentSessionContext,
-    llm: OpenRouterService
+    llm: OpenRouterService,
+    onStreamEvent?: OnStreamEvent
   ): Promise<{
     isConversational: boolean;
     reasoning: string;
     complexity: 'simple' | 'moderate' | 'complex';
     directResponse?: string;
   }> {
-    const cacheKey = this.buildClassificationCacheKey(context.userId, intent);
+    const cacheKey = this.buildClassificationCacheKey(context, intent);
     const cached = this.classificationCache.get(cacheKey);
     if (cached && cached.expiresAt > Date.now()) {
+      this.emitClassificationProgress(onStreamEvent, context, 'Using recent intent analysis.', {
+        eventType: 'progress_subphase',
+        phase: 'classification',
+        source: 'cache_hit',
+      });
       return cached.result;
     }
+
+    this.emitClassificationProgress(
+      onStreamEvent,
+      context,
+      'Analyzing your request to determine execution path...',
+      {
+        eventType: 'progress_stage',
+        phase: 'classification',
+        phaseIndex: 1,
+        phaseTotal: 3,
+      }
+    );
 
     const chatRouting = this.getChatModelRouting();
     const classificationPrompt = `You are classifying a user request to determine if it should be answered directly (conversational) or requires planning/delegation to specialist agents.
@@ -353,6 +385,7 @@ CONVERSATIONAL (answer directly):
 - Brief advice or explanations
 
 PLANNING-REQUIRED (delegate to specialists):
+- Any imperative action request ("open", "go to", "watch", "log in", "send", "create", "run") where the user is asking Agent X to perform work.
 - "Generate my recruiting email" → needs recruiting_coordinator
 - "Analyze my highlight tape" → needs performance_coordinator
 - "Create a social post" → needs brand_coordinator
@@ -408,9 +441,46 @@ Classify it. If conversational, also provide a direct answer. If planning-requir
         result: classificationResult,
         expiresAt: Date.now() + CLASSIFICATION_CACHE_TTL_MS,
       });
+      this.pruneClassificationCache();
+
+      this.emitClassificationProgress(
+        onStreamEvent,
+        context,
+        classificationResult.isConversational
+          ? 'Request looks conversational. Preparing direct response.'
+          : 'Request requires planning with specialist coordinators.',
+        {
+          eventType: 'progress_subphase',
+          phase: 'classification',
+          complexity: classificationResult.complexity,
+          mode: classificationResult.isConversational ? 'conversational' : 'planning',
+        }
+      );
 
       return classificationResult;
     } catch (_err) {
+      this.emitClassificationProgress(
+        onStreamEvent,
+        context,
+        'Intent analysis failed over to planning-safe mode.',
+        {
+          eventType: 'progress_subphase',
+          phase: 'classification',
+          status: 'fallback',
+        }
+      );
+      this.emitClassificationMetric(
+        onStreamEvent,
+        context,
+        'fallback_activation',
+        1,
+        'Fallback activated: planner classification failed open.',
+        {
+          phase: 'classification',
+          fallbackType: 'planner_classification_fail_open',
+        }
+      );
+
       // If classification call fails, escalate to routing tier for safety
       return {
         isConversational: false,
@@ -420,10 +490,91 @@ Classify it. If conversational, also provide a direct answer. If planning-requir
     }
   }
 
-  private buildClassificationCacheKey(userId: string, intent: string): string {
+  private isActionIntentDominant(intent: string): boolean {
+    const normalizedIntent = intent.trim();
+    if (!normalizedIntent) return false;
+
+    const hasActionVerb = ACTION_INTENT_VERB_PATTERN.test(normalizedIntent);
+    const hasActionTarget = ACTION_INTENT_TARGET_PATTERN.test(normalizedIntent);
+    const hasDirectiveCue = ACTION_INTENT_DIRECTIVE_PATTERN.test(normalizedIntent);
+    const isHowToQuestion = HOW_TO_QUESTION_PATTERN.test(normalizedIntent);
+
+    if (!hasActionVerb || !hasActionTarget) return false;
+    if (isHowToQuestion && !hasDirectiveCue) return false;
+
+    return true;
+  }
+
+  private emitClassificationProgress(
+    onStreamEvent: OnStreamEvent | undefined,
+    context: AgentSessionContext,
+    message: string,
+    metadata: Record<string, unknown>
+  ): void {
+    if (!onStreamEvent || !context.operationId) return;
+
+    const eventType =
+      metadata['eventType'] === 'progress_subphase' ? 'progress_subphase' : 'progress_stage';
+
+    onStreamEvent({
+      type: eventType,
+      operationId: context.operationId,
+      agentId: this.id,
+      stageType: 'router',
+      stage: 'decomposing_intent',
+      message,
+      metadata,
+    });
+  }
+
+  private emitClassificationMetric(
+    onStreamEvent: OnStreamEvent | undefined,
+    context: AgentSessionContext,
+    metricName: string,
+    value: number,
+    message: string,
+    metadata?: Record<string, unknown>
+  ): void {
+    if (!onStreamEvent || !context.operationId) return;
+
+    onStreamEvent({
+      type: 'metric',
+      operationId: context.operationId,
+      agentId: this.id,
+      stageType: 'router',
+      stage: 'decomposing_intent',
+      message,
+      metadata: {
+        eventType: 'metric',
+        metricName,
+        value,
+        ...(metadata ?? {}),
+      },
+    });
+  }
+
+  private buildClassificationCacheKey(context: AgentSessionContext, intent: string): string {
     const normalizedIntent = intent.trim().toLowerCase().replace(/\s+/g, ' ');
     const intentHash = createHash('sha1').update(normalizedIntent).digest('hex');
-    return `${userId}:${intentHash}`;
+    const mode = context.mode?.trim().toLowerCase() ?? 'default';
+    const threadId = context.threadId?.trim() ?? 'no-thread';
+    const environment = context.environment ?? 'unknown';
+    return `${context.userId}:${mode}:${environment}:${threadId}:${intentHash}`;
+  }
+
+  private pruneClassificationCache(): void {
+    const now = Date.now();
+    for (const [key, value] of this.classificationCache) {
+      if (value.expiresAt <= now) {
+        this.classificationCache.delete(key);
+      }
+    }
+
+    while (this.classificationCache.size > CLASSIFICATION_CACHE_MAX_ENTRIES) {
+      const oldestKey = this.classificationCache.keys().next().value;
+      if (!oldestKey) break;
+      this.classificationCache.delete(oldestKey);
+    }
   }
 
   /**
@@ -444,7 +595,7 @@ Classify it. If conversational, also provide a direct answer. If planning-requir
     llm?: OpenRouterService,
     toolRegistryOrOptions?: ToolRegistry | PlannerExecutionOptions,
     _skillRegistry?: SkillRegistry,
-    _onStreamEvent?: OnStreamEvent,
+    onStreamEvent?: OnStreamEvent,
     _approvalGate?: ApprovalGateService,
     options?: PlannerExecutionOptions
   ): Promise<AgentOperationResult> {
@@ -460,15 +611,42 @@ Classify it. If conversational, also provide a direct answer. If planning-requir
       complexity: 'simple' | 'moderate' | 'complex';
       directResponse?: string;
     };
-    try {
-      classification = await this.classifyIntentTier(intent, context, activeLlm);
-    } catch (_err) {
-      // If classification fails entirely, fall back to routing tier (safe default)
+    if (plannerOptions?.skipClassification) {
       classification = {
         isConversational: false,
-        reasoning: 'Classification failed, using routing tier',
+        reasoning: 'Classification skipped because routing tier was already selected upstream',
         complexity: 'moderate',
       };
+    } else {
+      try {
+        classification = await this.classifyIntentTier(intent, context, activeLlm, onStreamEvent);
+      } catch (_err) {
+        // If classification fails entirely, fall back to routing tier (safe default)
+        classification = {
+          isConversational: false,
+          reasoning: 'Classification failed, using routing tier',
+          complexity: 'moderate',
+        };
+      }
+    }
+
+    if (classification.isConversational && this.isActionIntentDominant(intent)) {
+      classification = {
+        ...classification,
+        isConversational: false,
+        directResponse: undefined,
+        reasoning: `Action intent dominance override: ${classification.reasoning}`,
+      };
+      this.emitClassificationProgress(
+        onStreamEvent,
+        context,
+        'Detected executable action intent. Routing to planning mode.',
+        {
+          eventType: 'progress_subphase',
+          phase: 'classification',
+          source: 'action_intent_override',
+        }
+      );
     }
 
     if (classification.isConversational && classification.directResponse) {
@@ -501,9 +679,17 @@ Classify it. If conversational, also provide a direct answer. If planning-requir
     }
 
     // ── Step 3: Call LLM with selected tier ───────────────────────────────
+    const capabilitySnapshot =
+      modelTier === 'routing'
+        ? (plannerOptions?.capabilitySnapshot ??
+          (plannerOptions?.capabilitySnapshotResolver
+            ? await plannerOptions.capabilitySnapshotResolver()
+            : undefined))
+        : undefined;
+
     const plannerIntent =
-      modelTier === 'routing' && plannerOptions?.capabilitySnapshot
-        ? `${intent}\n\n${this.buildCapabilitySnapshotPrompt(plannerOptions.capabilitySnapshot)}`
+      modelTier === 'routing' && capabilitySnapshot
+        ? `${intent}\n\n${this.buildCapabilitySnapshotPrompt(capabilitySnapshot)}`
         : intent;
 
     const result = await activeLlm.prompt(this.getSystemPrompt(context), plannerIntent, {

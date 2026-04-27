@@ -2,41 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { getAllAgentToolPolicies } from '../tool-policy.js';
+import { getToolGovernancePolicy, isToolClassified } from '../tool-policy.js';
 
 const BOOTSTRAP_PATH = fileURLToPath(new URL('../../queue/bootstrap.ts', import.meta.url));
 const TOOLS_DIR = fileURLToPath(new URL('../../tools/', import.meta.url));
-
-const INTERNAL_ONLY_REGISTERED_TOOLS = new Set<string>([]);
-
-const IMPLICITLY_EXPOSED_SYSTEM_TOOLS = new Set<string>([
-  'delegate_task',
-  'track_analytics_event',
-  'delete_memory',
-  'dynamic_export',
-  'ask_user',
-  'search_web',
-  'scrape_webpage',
-  'open_live_view',
-  'navigate_live_view',
-  'interact_with_live_view',
-  'read_live_view',
-  'close_live_view',
-  'schedule_recurring_task',
-  'list_google_workspace_tools',
-  'run_google_workspace_tool',
-  'search_nxt1_platform',
-  'query_nxt1_platform_data',
-  'list_nxt1_data_views',
-  'query_nxt1_data',
-  'scan_timeline_posts',
-  'write_intel',
-  'update_intel',
-  'firecrawl_search_web',
-  'firecrawl_agent_research',
-  'map_website',
-  'extract_web_data',
-]);
 
 const ALLOWED_UNRESOLVED_TOOL_CLASSES = new Set<string>(['DynamicGoogleWorkspaceTool']);
 
@@ -122,25 +91,21 @@ describe('Agent tool governance', () => {
     );
     expect(unsupportedUnresolvedClasses).toEqual([]);
 
-    const policy = getAllAgentToolPolicies();
-    const policyExposedTools = new Set<string>();
-    for (const tools of Object.values(policy)) {
-      for (const toolName of tools) {
-        if (!toolName.endsWith('*')) {
-          policyExposedTools.add(toolName);
-        }
-      }
-    }
-
+    const governance = getToolGovernancePolicy();
     const effectiveExposedTools = new Set<string>([
-      ...policyExposedTools,
-      ...IMPLICITLY_EXPOSED_SYSTEM_TOOLS,
+      ...governance.globalSystem.filter((toolName) => !toolName.endsWith('*')),
+      ...Object.values(governance.coordinatorSpecialized)
+        .flat()
+        .filter((toolName) => !toolName.endsWith('*')),
     ]);
+    const internalOnlyTools = new Set<string>(governance.internalOnly);
 
     const registeredButUnexposed = [...registeredToolNames]
       .filter(
         (toolName) =>
-          !effectiveExposedTools.has(toolName) && !INTERNAL_ONLY_REGISTERED_TOOLS.has(toolName)
+          !effectiveExposedTools.has(toolName) &&
+          !internalOnlyTools.has(toolName) &&
+          !isToolClassified(toolName)
       )
       .sort();
 

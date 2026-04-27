@@ -51,6 +51,25 @@ class FakeAgent extends BaseAgent {
   }
 }
 
+class FakeSearchCollegeCoachesTool extends BaseTool {
+  readonly name = 'search_college_coaches';
+  readonly description = 'Looks up coaching staff for a school.';
+  readonly parameters = z.object({ schoolName: z.string() });
+  readonly isMutation = false;
+  readonly category = 'search' as const;
+  readonly entityGroup = 'platform_tools' as const;
+  override readonly allowedAgents = ['strategy_coordinator'] as const;
+
+  async execute(input: Record<string, unknown>): Promise<ToolResult> {
+    return {
+      success: true,
+      data: {
+        schoolName: input['schoolName'],
+      },
+    };
+  }
+}
+
 function createMockContext(): AgentSessionContext {
   const now = new Date().toISOString();
   return {
@@ -166,6 +185,98 @@ describe('BaseAgent identifier scrubbing', () => {
         toolCallRecords: expect.any(Array),
         name: 'Jordan Miles',
       })
+    );
+  });
+
+  it('emits stable step ids and contextual labels for parallel tool calls', async () => {
+    const agent = new FakeAgent();
+    const registry = new ToolRegistry();
+    registry.register(new FakeSearchCollegeCoachesTool());
+
+    const events: Array<Record<string, unknown>> = [];
+    let callCount = 0;
+    const llm = {
+      completeStream: vi.fn().mockImplementation(async (_messages, _options, _onDelta) => {
+        callCount += 1;
+
+        if (callCount === 1) {
+          return {
+            content: 'Let me search for coaching staff contact information.',
+            toolCalls: [
+              {
+                id: 'call_ohio_state',
+                type: 'function',
+                function: {
+                  name: 'search_college_coaches',
+                  arguments: JSON.stringify({ schoolName: 'Ohio State' }),
+                },
+              },
+              {
+                id: 'call_michigan',
+                type: 'function',
+                function: {
+                  name: 'search_college_coaches',
+                  arguments: JSON.stringify({ schoolName: 'Michigan' }),
+                },
+              },
+            ],
+            model: 'test-model',
+            usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+            latencyMs: 1,
+            costUsd: 0,
+            finishReason: 'tool_calls',
+          };
+        }
+
+        return {
+          content: 'Found coaching contacts for both schools.',
+          toolCalls: [],
+          model: 'test-model',
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+          latencyMs: 1,
+          costUsd: 0,
+          finishReason: 'stop',
+        };
+      }),
+    };
+
+    await agent.execute(
+      'Find coach contacts',
+      createMockContext(),
+      [],
+      llm as never,
+      registry,
+      undefined,
+      (event) => events.push(event as unknown as Record<string, unknown>)
+    );
+
+    const activeEvents = events.filter((event) => event['type'] === 'step_active');
+    const resultEvents = events.filter((event) => event['type'] === 'tool_result');
+
+    expect(activeEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          stepId: 'call_ohio_state',
+          message: 'Search College Coaches: Ohio State',
+        }),
+        expect.objectContaining({
+          stepId: 'call_michigan',
+          message: 'Search College Coaches: Michigan',
+        }),
+      ])
+    );
+
+    expect(resultEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          stepId: 'call_ohio_state',
+          message: 'Search College Coaches: Ohio State',
+        }),
+        expect.objectContaining({
+          stepId: 'call_michigan',
+          message: 'Search College Coaches: Michigan',
+        }),
+      ])
     );
   });
 

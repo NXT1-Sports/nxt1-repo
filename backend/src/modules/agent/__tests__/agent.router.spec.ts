@@ -61,6 +61,10 @@ function createMockContextBuilder(userContext?: AgentUserContext): ContextBuilde
   return {
     buildContext: vi.fn().mockResolvedValue(ctx),
     buildPromptContext: vi.fn().mockResolvedValue(promptContext),
+    getMemoriesForContext: vi.fn().mockResolvedValue(promptContext.memories),
+    getRecentSyncSummariesForContext: vi.fn().mockResolvedValue([]),
+    getRecentThreadHistory: vi.fn().mockResolvedValue(''),
+    getActiveThreadsSummary: vi.fn().mockResolvedValue(''),
     compressToPrompt: vi
       .fn()
       .mockImplementation(
@@ -201,7 +205,7 @@ describe('AgentRouter', () => {
       const router = new AgentRouter(llm, toolRegistry, contextBuilder);
       await router.classify('hello', 'user-123');
 
-      expect(contextBuilder.buildPromptContext).toHaveBeenCalledWith('user-123', 'hello');
+      expect(contextBuilder.buildContext).toHaveBeenCalledWith('user-123');
       expect(contextBuilder.compressToPrompt).toHaveBeenCalled();
     });
   });
@@ -209,6 +213,559 @@ describe('AgentRouter', () => {
   // ─── run() ──────────────────────────────────────────────────────────────
 
   describe('run()', () => {
+    it('should answer conversational requests without building full prompt context', async () => {
+      const llm = {
+        prompt: vi.fn().mockResolvedValueOnce({
+          parsedOutput: {
+            route: 'chat',
+            requiredContextScopes: [],
+            directResponse: 'Hi there! How can I help today?',
+            planSummary: null,
+          },
+          content: JSON.stringify({
+            route: 'chat',
+            requiredContextScopes: [],
+            directResponse: 'Hi there! How can I help today?',
+            planSummary: null,
+          }),
+          model: 'anthropic/claude-haiku-4-5',
+          usage: { inputTokens: 40, outputTokens: 20, totalTokens: 60 },
+          latencyMs: 120,
+          costUsd: 0.0001,
+          toolCalls: [],
+          finishReason: 'stop',
+        }),
+        complete: vi.fn(),
+        embed: vi.fn().mockResolvedValue([0.1, 0.2, 0.3]),
+      } as unknown as OpenRouterService;
+
+      const router = new AgentRouter(llm, toolRegistry, contextBuilder);
+      const result = await router.run({
+        operationId: 'op-chat-fast-path',
+        userId: 'user-123',
+        intent: 'Hi',
+        origin: TEST_ORIGIN,
+        priority: 'normal',
+        createdAt: new Date().toISOString(),
+      });
+
+      expect(result.summary).toBe('Hi there! How can I help today?');
+      expect(contextBuilder.buildPromptContext).not.toHaveBeenCalled();
+      expect(contextBuilder.buildContext).not.toHaveBeenCalled();
+      expect(llm.prompt).toHaveBeenCalledTimes(1);
+    });
+
+    it('should fetch only profile context for conversational questions that need personalization', async () => {
+      const llm = {
+        prompt: vi
+          .fn()
+          .mockResolvedValueOnce({
+            parsedOutput: {
+              route: 'chat',
+              requiredContextScopes: ['profile'],
+              directResponse: null,
+              planSummary: null,
+            },
+            content: JSON.stringify({
+              route: 'chat',
+              requiredContextScopes: ['profile'],
+              directResponse: null,
+              planSummary: null,
+            }),
+            model: 'anthropic/claude-haiku-4-5',
+            usage: { inputTokens: 40, outputTokens: 20, totalTokens: 60 },
+            latencyMs: 120,
+            costUsd: 0.0001,
+            toolCalls: [],
+            finishReason: 'stop',
+          })
+          .mockResolvedValueOnce({
+            parsedOutput: undefined,
+            content: 'As a football QB, I can help with recruiting, film, branding, and planning.',
+            model: 'anthropic/claude-haiku-4-5',
+            usage: { inputTokens: 60, outputTokens: 40, totalTokens: 100 },
+            latencyMs: 180,
+            costUsd: 0.0002,
+            toolCalls: [],
+            finishReason: 'stop',
+          }),
+        complete: vi.fn(),
+        embed: vi.fn().mockResolvedValue([0.1, 0.2, 0.3]),
+      } as unknown as OpenRouterService;
+
+      const router = new AgentRouter(llm, toolRegistry, contextBuilder);
+      const result = await router.run({
+        operationId: 'op-chat-profile-context',
+        userId: 'user-123',
+        intent: 'How can you help me?',
+        origin: TEST_ORIGIN,
+        priority: 'normal',
+        createdAt: new Date().toISOString(),
+      });
+
+      expect(result.summary).toContain('As a football QB');
+      expect(contextBuilder.buildContext).toHaveBeenCalledWith('user-123', undefined);
+      expect(contextBuilder.buildPromptContext).not.toHaveBeenCalled();
+      expect(contextBuilder.getRecentThreadHistory).not.toHaveBeenCalled();
+      expect(llm.prompt).toHaveBeenCalledTimes(2);
+    });
+
+    it('should deterministically load memory and sync context for self-introspection questions', async () => {
+      const llm = {
+        prompt: vi.fn().mockResolvedValueOnce({
+          parsedOutput: undefined,
+          content:
+            'I know you are a football QB, you prefer weekly milestone plans, and your recent sync shows updated recruiting priorities.',
+          model: 'anthropic/claude-haiku-4-5',
+          usage: { inputTokens: 80, outputTokens: 50, totalTokens: 130 },
+          latencyMs: 180,
+          costUsd: 0.0002,
+          toolCalls: [],
+          finishReason: 'stop',
+        }),
+        complete: vi.fn(),
+        embed: vi.fn().mockResolvedValue([0.1, 0.2, 0.3]),
+      } as unknown as OpenRouterService;
+
+      (
+        contextBuilder.getRecentSyncSummariesForContext as ReturnType<typeof vi.fn>
+      ).mockResolvedValue(['Sync delta: recruiting priorities updated yesterday.']);
+      (contextBuilder.getActiveThreadsSummary as ReturnType<typeof vi.fn>).mockResolvedValue(
+        '\n- Recruiting follow-up plan\n- QB mechanics review'
+      );
+      (contextBuilder.getRecentThreadHistory as ReturnType<typeof vi.fn>).mockResolvedValue(
+        '--- Recent conversation history ---\n[User]: Summarize what you know about me\n--- End conversation history ---'
+      );
+
+      const router = new AgentRouter(llm, toolRegistry, contextBuilder);
+      const result = await router.run({
+        operationId: 'op-chat-self-knowledge',
+        userId: 'user-123',
+        intent: 'What do you know about me?',
+        origin: TEST_ORIGIN,
+        priority: 'normal',
+        createdAt: new Date().toISOString(),
+        context: { threadId: 'thread-self-knowledge' },
+      });
+
+      expect(result.summary).toContain('football QB');
+      expect(contextBuilder.buildContext).toHaveBeenCalledWith('user-123', undefined);
+      expect(contextBuilder.getMemoriesForContext).toHaveBeenCalledWith(
+        createMockUserContext(),
+        'What do you know about me?'
+      );
+      expect(contextBuilder.getRecentSyncSummariesForContext).toHaveBeenCalledWith(
+        createMockUserContext()
+      );
+      expect(contextBuilder.getActiveThreadsSummary).toHaveBeenCalledWith('user-123', 8);
+      expect(contextBuilder.getRecentThreadHistory).toHaveBeenCalledWith(
+        'thread-self-knowledge',
+        20
+      );
+      expect(contextBuilder.buildPromptContext).not.toHaveBeenCalled();
+      expect(llm.prompt).toHaveBeenCalledTimes(1);
+    });
+
+    it('should reuse safe conversational cache for repeated no-context chat requests', async () => {
+      const llm = {
+        prompt: vi.fn().mockResolvedValue({
+          parsedOutput: {
+            route: 'chat',
+            requiredContextScopes: [],
+            directResponse: 'Hi there! How can I help today?',
+            planSummary: null,
+          },
+          content: JSON.stringify({
+            route: 'chat',
+            requiredContextScopes: [],
+            directResponse: 'Hi there! How can I help today?',
+            planSummary: null,
+          }),
+          model: 'anthropic/claude-haiku-4-5',
+          usage: { inputTokens: 40, outputTokens: 20, totalTokens: 60 },
+          latencyMs: 120,
+          costUsd: 0.0001,
+          toolCalls: [],
+          finishReason: 'stop',
+        }),
+        complete: vi.fn(),
+        embed: vi.fn().mockResolvedValue([0.1, 0.2, 0.3]),
+      } as unknown as OpenRouterService;
+
+      const router = new AgentRouter(llm, toolRegistry, contextBuilder);
+      const payload: AgentJobPayload = {
+        operationId: 'op-chat-cache-1',
+        userId: 'user-123',
+        intent: 'Hi',
+        origin: TEST_ORIGIN,
+        priority: 'normal',
+        createdAt: new Date().toISOString(),
+      };
+
+      const first = await router.run(payload);
+      const second = await router.run({
+        ...payload,
+        operationId: 'op-chat-cache-2',
+      });
+
+      expect(first.summary).toBe('Hi there! How can I help today?');
+      expect(second.summary).toBe('Hi there! How can I help today?');
+      expect(llm.prompt).toHaveBeenCalledTimes(1);
+    });
+
+    it('should not cache conversational responses that depend on thread context scopes', async () => {
+      const routeDecision = {
+        parsedOutput: {
+          route: 'chat',
+          requiredContextScopes: ['thread_history'],
+          directResponse: null,
+          planSummary: null,
+        },
+        content: JSON.stringify({
+          route: 'chat',
+          requiredContextScopes: ['thread_history'],
+          directResponse: null,
+          planSummary: null,
+        }),
+        model: 'anthropic/claude-haiku-4-5',
+        usage: { inputTokens: 40, outputTokens: 20, totalTokens: 60 },
+        latencyMs: 120,
+        costUsd: 0.0001,
+        toolCalls: [],
+        finishReason: 'stop',
+      };
+
+      const contextualResponse = {
+        parsedOutput: undefined,
+        content: 'Based on our recent thread, here is the follow-up.',
+        model: 'anthropic/claude-haiku-4-5',
+        usage: { inputTokens: 60, outputTokens: 40, totalTokens: 100 },
+        latencyMs: 180,
+        costUsd: 0.0002,
+        toolCalls: [],
+        finishReason: 'stop',
+      };
+
+      const llm = {
+        prompt: vi
+          .fn()
+          .mockResolvedValueOnce(routeDecision)
+          .mockResolvedValueOnce(contextualResponse)
+          .mockResolvedValueOnce(routeDecision)
+          .mockResolvedValueOnce(contextualResponse),
+        complete: vi.fn(),
+        embed: vi.fn().mockResolvedValue([0.1, 0.2, 0.3]),
+      } as unknown as OpenRouterService;
+
+      (contextBuilder.getRecentThreadHistory as ReturnType<typeof vi.fn>).mockResolvedValue(
+        '--- Recent conversation history ---\n[User]: Continue that idea\n--- End conversation history ---'
+      );
+
+      const router = new AgentRouter(llm, toolRegistry, contextBuilder);
+      const basePayload: AgentJobPayload = {
+        operationId: 'op-thread-live-1',
+        userId: 'user-123',
+        intent: 'Continue from before',
+        origin: TEST_ORIGIN,
+        priority: 'normal',
+        createdAt: new Date().toISOString(),
+        context: { threadId: 'thread-1' },
+      };
+
+      await router.run(basePayload);
+      await router.run({
+        ...basePayload,
+        operationId: 'op-thread-live-2',
+      });
+
+      expect(contextBuilder.getRecentThreadHistory).toHaveBeenCalledTimes(2);
+      expect(llm.prompt).toHaveBeenCalledTimes(4);
+    });
+
+    it('should skip planner classification when conversational triage escalates to planning', async () => {
+      const llm = {
+        prompt: vi
+          .fn()
+          .mockResolvedValueOnce({
+            parsedOutput: {
+              route: 'plan',
+              requiredContextScopes: [],
+              directResponse: null,
+              planSummary: 'send recruiting emails to colleges',
+            },
+            content: JSON.stringify({
+              route: 'plan',
+              requiredContextScopes: [],
+              directResponse: null,
+              planSummary: 'send recruiting emails to colleges',
+            }),
+            model: 'anthropic/claude-haiku-4-5',
+            usage: { inputTokens: 40, outputTokens: 20, totalTokens: 60 },
+            latencyMs: 120,
+            costUsd: 0.0001,
+            toolCalls: [],
+            finishReason: 'stop',
+          })
+          .mockResolvedValueOnce({
+            parsedOutput: {
+              summary: 'Send recruiting emails.',
+              estimatedSteps: 1,
+              tasks: [
+                {
+                  id: '1',
+                  assignedAgent: 'recruiting_coordinator',
+                  description: 'Draft and send recruiting emails',
+                  dependsOn: [],
+                },
+              ],
+            },
+            content: JSON.stringify({
+              summary: 'Send recruiting emails.',
+              estimatedSteps: 1,
+              tasks: [
+                {
+                  id: '1',
+                  assignedAgent: 'recruiting_coordinator',
+                  description: 'Draft and send recruiting emails',
+                  dependsOn: [],
+                },
+              ],
+            }),
+            model: 'anthropic/claude-sonnet-4-5',
+            usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
+            latencyMs: 240,
+            costUsd: 0.001,
+            toolCalls: [],
+            finishReason: 'stop',
+          }),
+        complete: vi.fn(),
+        embed: vi.fn().mockResolvedValue([0.1, 0.2, 0.3]),
+      } as unknown as OpenRouterService;
+
+      const recruitingAgent = createMockAgent('recruiting_coordinator', {
+        summary: 'Recruiting emails queued.',
+        data: { sent: true },
+        suggestions: [],
+      });
+
+      const router = new AgentRouter(llm, toolRegistry, contextBuilder);
+      router.registerAgent(recruitingAgent);
+
+      const streamEvents: Array<Record<string, unknown>> = [];
+      const result = await router.run(
+        {
+          operationId: 'op-plan-escalation',
+          userId: 'user-123',
+          intent: 'Send recruiting emails to college coaches',
+          origin: TEST_ORIGIN,
+          priority: 'normal',
+          createdAt: new Date().toISOString(),
+        },
+        undefined,
+        undefined,
+        (event) => streamEvents.push(event as Record<string, unknown>)
+      );
+
+      expect(result.summary).toBe('Recruiting emails queued.');
+      expect(contextBuilder.buildContext).toHaveBeenCalled();
+      expect(contextBuilder.buildPromptContext).not.toHaveBeenCalled();
+      expect(llm.prompt).toHaveBeenCalledTimes(2);
+      expect((llm.prompt as ReturnType<typeof vi.fn>).mock.calls[1]?.[2]).toMatchObject({
+        outputSchema: { name: 'planner_execution_plan' },
+      });
+      expect(streamEvents.some((event) => event.type === 'delta')).toBe(true);
+    });
+
+    it('should keep planner classification when conversational triage fails and falls through', async () => {
+      const llm = {
+        prompt: vi
+          .fn()
+          .mockRejectedValueOnce(new Error('triage timeout'))
+          .mockResolvedValueOnce({
+            parsedOutput: {
+              isConversational: false,
+              reasoning: 'Coordinator execution needed',
+              estimatedComplexity: 'moderate',
+            },
+            content: JSON.stringify({
+              isConversational: false,
+              reasoning: 'Coordinator execution needed',
+              estimatedComplexity: 'moderate',
+            }),
+            model: 'anthropic/claude-haiku-4-5',
+            usage: { inputTokens: 40, outputTokens: 20, totalTokens: 60 },
+            latencyMs: 120,
+            costUsd: 0.0001,
+            toolCalls: [],
+            finishReason: 'stop',
+          })
+          .mockResolvedValueOnce({
+            parsedOutput: {
+              summary: 'Send recruiting emails.',
+              estimatedSteps: 1,
+              tasks: [
+                {
+                  id: '1',
+                  assignedAgent: 'recruiting_coordinator',
+                  description: 'Draft and send recruiting emails',
+                  dependsOn: [],
+                },
+              ],
+            },
+            content: JSON.stringify({
+              summary: 'Send recruiting emails.',
+              estimatedSteps: 1,
+              tasks: [
+                {
+                  id: '1',
+                  assignedAgent: 'recruiting_coordinator',
+                  description: 'Draft and send recruiting emails',
+                  dependsOn: [],
+                },
+              ],
+            }),
+            model: 'anthropic/claude-sonnet-4-5',
+            usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
+            latencyMs: 240,
+            costUsd: 0.001,
+            toolCalls: [],
+            finishReason: 'stop',
+          }),
+        complete: vi.fn(),
+        embed: vi.fn().mockResolvedValue([0.1, 0.2, 0.3]),
+      } as unknown as OpenRouterService;
+
+      const recruitingAgent = createMockAgent('recruiting_coordinator', {
+        summary: 'Recruiting emails queued.',
+        data: { sent: true },
+        suggestions: [],
+      });
+
+      const router = new AgentRouter(llm, toolRegistry, contextBuilder);
+      router.registerAgent(recruitingAgent);
+
+      const result = await router.run({
+        operationId: 'op-triage-fallback',
+        userId: 'user-123',
+        intent: 'Send recruiting emails to college coaches',
+        origin: TEST_ORIGIN,
+        priority: 'normal',
+        createdAt: new Date().toISOString(),
+      });
+
+      expect(result.summary).toBe('Recruiting emails queued.');
+      expect(llm.prompt).toHaveBeenCalledTimes(3);
+      expect((llm.prompt as ReturnType<typeof vi.fn>).mock.calls[1]?.[2]).toMatchObject({
+        outputSchema: { name: 'intent_classification' },
+      });
+      expect((llm.prompt as ReturnType<typeof vi.fn>).mock.calls[2]?.[2]).toMatchObject({
+        outputSchema: { name: 'planner_execution_plan' },
+      });
+    });
+
+    it('should emit baseline run metrics for first progress, first token, planner latency, completion, and success', async () => {
+      const llm = {
+        prompt: vi
+          .fn()
+          .mockResolvedValueOnce({
+            parsedOutput: {
+              route: 'plan',
+              requiredContextScopes: [],
+              directResponse: null,
+              planSummary: 'send recruiting emails',
+            },
+            content: JSON.stringify({
+              route: 'plan',
+              requiredContextScopes: [],
+              directResponse: null,
+              planSummary: 'send recruiting emails',
+            }),
+            model: 'anthropic/claude-haiku-4-5',
+            usage: { inputTokens: 40, outputTokens: 20, totalTokens: 60 },
+            latencyMs: 120,
+            costUsd: 0.0001,
+            toolCalls: [],
+            finishReason: 'stop',
+          })
+          .mockResolvedValueOnce({
+            parsedOutput: {
+              summary: 'Send recruiting emails.',
+              estimatedSteps: 1,
+              tasks: [
+                {
+                  id: '1',
+                  assignedAgent: 'recruiting_coordinator',
+                  description: 'Draft and send recruiting emails',
+                  dependsOn: [],
+                },
+              ],
+            },
+            content: JSON.stringify({
+              summary: 'Send recruiting emails.',
+              estimatedSteps: 1,
+              tasks: [
+                {
+                  id: '1',
+                  assignedAgent: 'recruiting_coordinator',
+                  description: 'Draft and send recruiting emails',
+                  dependsOn: [],
+                },
+              ],
+            }),
+            model: 'anthropic/claude-sonnet-4-5',
+            usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
+            latencyMs: 240,
+            costUsd: 0.001,
+            toolCalls: [],
+            finishReason: 'stop',
+          }),
+        complete: vi.fn(),
+        embed: vi.fn().mockResolvedValue([0.1, 0.2, 0.3]),
+      } as unknown as OpenRouterService;
+
+      const recruitingAgent = createMockAgent('recruiting_coordinator', {
+        summary: 'Recruiting emails queued.',
+        data: { sent: true },
+        suggestions: [],
+      });
+
+      const router = new AgentRouter(llm, toolRegistry, contextBuilder);
+      router.registerAgent(recruitingAgent);
+
+      const streamEvents: Array<Record<string, unknown>> = [];
+      await router.run(
+        {
+          operationId: 'op-metrics-baseline',
+          userId: 'user-123',
+          intent: 'Send recruiting emails to college coaches',
+          origin: TEST_ORIGIN,
+          priority: 'normal',
+          createdAt: new Date().toISOString(),
+        },
+        () => undefined,
+        undefined,
+        (event) => streamEvents.push(event as Record<string, unknown>)
+      );
+
+      const metricNames = streamEvents
+        .filter((event) => event.type === 'metric')
+        .map((event) => (event.metadata as Record<string, unknown> | undefined)?.['metricName'])
+        .filter((metricName): metricName is string => typeof metricName === 'string');
+      const metricEvent = streamEvents.find(
+        (event) =>
+          event.type === 'metric' &&
+          (event.metadata as Record<string, unknown> | undefined)?.['metricName'] ===
+            'planner_latency_ms'
+      );
+
+      expect(metricNames).toContain('first_progress_ms');
+      expect(metricNames).toContain('first_token_ms');
+      expect(metricNames).toContain('planner_latency_ms');
+      expect(metricNames).toContain('completion_latency_ms');
+      expect(metricNames).toContain('success_rate');
+      expect(metricEvent?.messageKey).toBe('agent.metric.planner_latency_ms');
+    });
+
     it('should stop execution when agentic turn count exceeds maxAgenticTurns', async () => {
       llm = createMockLLM({ tasks: [] });
 
@@ -1372,7 +1929,7 @@ describe('AgentRouter', () => {
       expect(userMessage).toContain('[User Profile]');
       expect(userMessage).toContain('Test Athlete');
       expect(userMessage).toContain('football');
-      expect(userMessage).toContain('MemoryCount: 1');
+      expect(userMessage).toContain('MemoryCount: 0');
       expect(userMessage).toContain('[Request]');
       expect(userMessage).toContain('Help me improve my stats');
     });

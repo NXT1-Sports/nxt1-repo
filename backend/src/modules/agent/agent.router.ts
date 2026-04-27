@@ -22,7 +22,7 @@ import type {
   AgentJobPayload,
   AgentJobUpdate,
   AgentProgressMetadata,
-  AgentPromptContext,
+  AgentProgressStage,
   AgentOperationResult,
   AgentIdentifier,
   AgentRouterStage,
@@ -39,6 +39,7 @@ import type {
 } from '@nxt1/core';
 import { COORDINATOR_AGENT_IDS } from '@nxt1/core';
 import { createHash } from 'node:crypto';
+import { z } from 'zod';
 import type { OpenRouterService } from './llm/openrouter.service.js';
 import type { ToolRegistry } from './tools/tool-registry.js';
 import type { ContextBuilder } from './memory/context-builder.js';
@@ -130,6 +131,45 @@ const PLAN_PREFLIGHT_LIMITS = {
   maxDependenciesPerTask: 8,
 } as const;
 
+const CONVERSATION_ROUTE_SCOPE_SCHEMA = z.enum([
+  'profile',
+  'thread_history',
+  'active_threads',
+  'memories',
+  'recent_sync',
+]);
+type ConversationRouteScope = z.infer<typeof CONVERSATION_ROUTE_SCOPE_SCHEMA>;
+
+const conversationRouteDecisionSchema = z.object({
+  route: z.enum(['chat', 'plan']),
+  requiredContextScopes: z.array(CONVERSATION_ROUTE_SCOPE_SCHEMA).default([]),
+  directResponse: z.string().nullable(),
+  planSummary: z.string().nullable(),
+});
+
+type ConversationRouteDecision = z.infer<typeof conversationRouteDecisionSchema>;
+
+type ConversationRouteOutcome =
+  | {
+      readonly kind: 'handled';
+      readonly result: AgentOperationResult;
+    }
+  | {
+      readonly kind: 'escalate_to_planning';
+    }
+  | {
+      readonly kind: 'fallthrough';
+    };
+
+const EMPTY_RETRIEVED_MEMORIES: AgentRetrievedMemories = {
+  user: [],
+  team: [],
+  organization: [],
+};
+
+const CONVERSATIONAL_CACHE_TTL_MS = 5 * 60_000;
+const CONVERSATIONAL_CACHE_MAX_ENTRIES = 512;
+
 const routableCoordinatorSet = new Set<string>(COORDINATOR_AGENT_IDS);
 
 function isRoutableCoordinatorAgent(
@@ -145,6 +185,14 @@ export class AgentRouter {
   private readonly agents = new Map<AgentIdentifier, BaseAgent>();
   private readonly semanticCache: SemanticCacheService;
   private readonly phaseLatencySamples = new Map<string, number[]>();
+  private readonly metricSamples = new Map<string, number[]>();
+  private readonly conversationalResponseCache = new Map<
+    string,
+    {
+      readonly result: AgentOperationResult;
+      readonly expiresAt: number;
+    }
+  >();
 
   constructor(
     private readonly llm: OpenRouterService,
@@ -202,16 +250,9 @@ export class AgentRouter {
    * that task's agent. If multi-task, returns 'router' (meaning: run the full plan).
    */
   async classify(intent: string, userId: string): Promise<AgentIdentifier> {
-    const promptContext = await this.contextBuilder.buildPromptContext(userId, intent);
+    const userContext = await this.contextBuilder.buildContext(userId);
     const context = this.buildSessionContext(userId);
-    const enrichedIntent = this.enrichIntentWithContext(
-      intent,
-      promptContext.profile,
-      undefined,
-      undefined,
-      promptContext.memories,
-      promptContext.recentSyncSummaries ?? []
-    );
+    const enrichedIntent = this.enrichIntentWithContext(intent, userContext, undefined, undefined);
 
     const result = await this.planner.execute(enrichedIntent, context, []);
     const plan = result.data?.['plan'] as AgentExecutionPlan | undefined;
@@ -238,6 +279,7 @@ export class AgentRouter {
   ): Promise<AgentOperationResult> {
     const { operationId, userId, intent } = payload;
     const approvalGate = firestore ? new ApprovalGateService(firestore) : undefined;
+    const operationStartMs = Date.now();
 
     const rawContextObj =
       typeof payload.context === 'object' && payload.context !== null ? payload.context : {};
@@ -311,81 +353,157 @@ export class AgentRouter {
       );
     }
 
-    // ── Step 1: Build context ─────────────────────────────────────────────
-    const contextPhaseStartMs = Date.now();
-    this.emitUpdate(
-      onUpdate,
-      operationId,
-      'acting',
-      'Building your profile context...',
-      undefined,
-      {
-        agentId: 'router',
-        stage: 'building_context',
-        metadata: { phase: 'context_build', phaseIndex: 1, phaseTotal: 5 },
-      }
-    );
-    this.emitProgressOperation(onStreamEvent, {
-      operationId,
-      stage: 'building_context',
-      message: 'Building your profile context...',
-      metadata: {
-        eventType: 'progress_stage',
-        phase: 'context_build',
-        phaseIndex: 1,
-        phaseTotal: 5,
-      },
-    });
+    const rawOnUpdate = onUpdate;
+    const rawOnStreamEvent = onStreamEvent;
+    let firstProgressMetricRecorded = false;
+    let firstTokenMetricRecorded = false;
+    let completionMetricRecorded = false;
 
-    let promptContext: AgentPromptContext;
-    try {
-      promptContext = await this.contextBuilder.buildPromptContext(userId, intent, firestore);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Context building failed';
-      this.emitUpdate(onUpdate, operationId, 'failed', `Context error: ${message}`, undefined, {
-        agentId: 'router',
-        stage: 'building_context',
-        outcomeCode: 'context_build_failed',
+    const recordFirstProgressMetric = (
+      stage: AgentProgressStage = 'agent_thinking',
+      metadata?: AgentProgressMetadata
+    ): void => {
+      if (firstProgressMetricRecorded) return;
+      firstProgressMetricRecorded = true;
+      const durationMs = Date.now() - operationStartMs;
+      this.emitMetricSample(rawOnStreamEvent, {
+        operationId,
+        stage,
+        metricName: 'first_progress_ms',
+        value: durationMs,
+        message: `First progress latency: ${Math.max(0, Math.round(durationMs))}ms`,
+        metadata: {
+          phase: 'operation_start',
+          ...(metadata ?? {}),
+        },
+        sampleContext: {
+          operationId,
+          userId,
+        },
       });
-      return {
-        summary: `Failed to build user context: ${message}`,
-        suggestions: ['Try again later or contact support.'],
-      };
-    }
+    };
 
-    const userContext = promptContext.profile;
-    const contextBuildDurationMs = Date.now() - contextPhaseStartMs;
-    this.recordPhaseLatency('context_build', contextBuildDurationMs, {
-      operationId,
-      userId,
-    });
-    this.emitProgressOperation(onStreamEvent, {
-      operationId,
-      stage: 'building_context',
-      message: `Context build latency: ${contextBuildDurationMs}ms`,
-      metadata: {
-        eventType: 'metric',
-        metricName: 'phase_latency_ms',
-        phase: 'context_build',
-        value: contextBuildDurationMs,
-      },
-    });
-    this.emitProgressOperation(onStreamEvent, {
-      operationId,
-      stage: 'building_context',
-      message: 'Context loaded.',
-      metadata: { eventType: 'progress_subphase', phase: 'context_build', status: 'done' },
-    });
-    const toolAccessContext = this.buildToolAccessContext(userContext);
+    const recordFirstTokenMetric = (
+      stage: AgentProgressStage = 'agent_thinking',
+      metadata?: AgentProgressMetadata
+    ): void => {
+      if (firstTokenMetricRecorded) return;
+      firstTokenMetricRecorded = true;
+      const durationMs = Date.now() - operationStartMs;
+      this.emitMetricSample(rawOnStreamEvent, {
+        operationId,
+        stage,
+        metricName: 'first_token_ms',
+        value: durationMs,
+        message: `First token latency: ${Math.max(0, Math.round(durationMs))}ms`,
+        metadata: {
+          phase: 'operation_start',
+          ...(metadata ?? {}),
+        },
+        sampleContext: {
+          operationId,
+          userId,
+        },
+      });
+    };
 
-    // Extract threadId for conversation continuity + thread-scoped storage
-    // (contextObj already extracted above for resume detection)
+    const recordCompletionMetrics = (
+      status: AgentJobUpdate['status'],
+      stage: AgentProgressStage = 'agent_thinking',
+      outcomeCode?: OperationOutcomeCode,
+      metadata?: AgentProgressMetadata
+    ): void => {
+      if (completionMetricRecorded) return;
+      if (status !== 'completed' && status !== 'failed') return;
+
+      completionMetricRecorded = true;
+      const durationMs = Date.now() - operationStartMs;
+      const successValue = status === 'completed' ? 1 : 0;
+
+      this.emitMetricSample(rawOnStreamEvent, {
+        operationId,
+        stage,
+        metricName: 'completion_latency_ms',
+        value: durationMs,
+        message: `Completion latency: ${Math.max(0, Math.round(durationMs))}ms`,
+        metadata: {
+          phase: 'operation',
+          outcomeCode,
+          ...(metadata ?? {}),
+        },
+        sampleContext: {
+          operationId,
+          userId,
+          status,
+          outcomeCode,
+        },
+      });
+
+      this.emitMetricSample(rawOnStreamEvent, {
+        operationId,
+        stage,
+        metricName: 'success_rate',
+        value: successValue,
+        message: `Success rate sample: ${successValue}`,
+        metadata: {
+          phase: 'operation',
+          outcomeCode,
+          ...(metadata ?? {}),
+        },
+        sampleContext: {
+          operationId,
+          userId,
+          status,
+          outcomeCode,
+        },
+      });
+    };
+
+    onUpdate = rawOnUpdate
+      ? (update) => {
+          recordFirstProgressMetric(update.stage ?? update.step?.stage ?? 'agent_thinking', {
+            ...(update.metadata ?? {}),
+            ...(update.step?.metadata ?? {}),
+          });
+          recordCompletionMetrics(
+            update.status,
+            update.stage ?? update.step?.stage ?? 'agent_thinking',
+            update.outcomeCode ?? update.step?.outcomeCode,
+            update.metadata ?? update.step?.metadata
+          );
+          rawOnUpdate(update);
+        }
+      : undefined;
+
+    onStreamEvent = rawOnStreamEvent
+      ? (event) => {
+          if (
+            event.type === 'operation' ||
+            event.type === 'progress_stage' ||
+            event.type === 'progress_subphase'
+          ) {
+            recordFirstProgressMetric(event.stage ?? 'agent_thinking', event.metadata);
+          }
+          if (event.type === 'delta' && typeof event.text === 'string' && event.text.length > 0) {
+            recordFirstProgressMetric(event.stage ?? 'agent_thinking', event.metadata);
+            recordFirstTokenMetric(event.stage ?? 'agent_thinking', event.metadata);
+          }
+          rawOnStreamEvent(event);
+        }
+      : undefined;
+
+    recordFirstProgressMetric('agent_thinking', { phase: 'operation_start' });
+
+    this.emitUpdate(onUpdate, operationId, 'thinking', 'Reviewing your message...', undefined, {
+      agentId: 'router',
+      stage: 'agent_thinking',
+    });
+
     const threadId =
       typeof (contextObj as Record<string, unknown>)['threadId'] === 'string'
         ? ((contextObj as Record<string, unknown>)['threadId'] as string)
         : undefined;
 
-    // Extract SSE-specific context fields injected by the chat route
     const mode =
       typeof (contextObj as Record<string, unknown>)['mode'] === 'string'
         ? ((contextObj as Record<string, unknown>)['mode'] as string)
@@ -406,9 +524,6 @@ export class AgentRouter {
         }[])
       : undefined;
 
-    // ── Session Memory: hydrate prior conversation turns from Redis ─────────
-    // getOrCreate runs BEFORE the user message is appended so conversationHistory
-    // contains only prior turns — never the current message (no duplication).
     let sessionContext: AgentSessionContext | undefined;
     if (this.sessionMemory) {
       try {
@@ -438,9 +553,6 @@ export class AgentRouter {
       sessionContext?.conversationHistory
     );
 
-    // Append user message to Redis BEFORE the DAG runs.
-    // This is awaited (not fire-and-forget) so any concurrent request reading
-    // the same thread session sees this turn in the history.
     if (this.sessionMemory && threadId) {
       try {
         await this.sessionMemory.appendMessage(userId, threadId, {
@@ -456,6 +568,95 @@ export class AgentRouter {
         });
       }
     }
+
+    let skipPlannerClassification = false;
+
+    if (!payload.agent) {
+      const conversationalOutcome = await this.tryConversationalRoute({
+        payload,
+        context,
+        threadId,
+        firestore,
+        onUpdate,
+        onStreamEvent,
+        environment,
+        signal,
+      });
+
+      if (conversationalOutcome.kind === 'handled') {
+        return conversationalOutcome.result;
+      }
+
+      if (conversationalOutcome.kind === 'escalate_to_planning') {
+        skipPlannerClassification = true;
+      }
+    }
+
+    // ── Step 1: Build context ─────────────────────────────────────────────
+    const contextPhaseStartMs = Date.now();
+    this.emitUpdate(
+      onUpdate,
+      operationId,
+      'acting',
+      'Building your profile context...',
+      undefined,
+      {
+        agentId: 'router',
+        stage: 'building_context',
+        metadata: { phase: 'context_build', phaseIndex: 1, phaseTotal: 5 },
+      }
+    );
+    this.emitProgressOperation(onStreamEvent, {
+      operationId,
+      stage: 'building_context',
+      message: 'Building your profile context...',
+      metadata: {
+        eventType: 'progress_stage',
+        phase: 'context_build',
+        phaseIndex: 1,
+        phaseTotal: 5,
+      },
+    });
+
+    let userContext: AgentUserContext;
+    try {
+      userContext = await this.contextBuilder.buildContext(userId, firestore);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Context building failed';
+      this.emitUpdate(onUpdate, operationId, 'failed', `Context error: ${message}`, undefined, {
+        agentId: 'router',
+        stage: 'building_context',
+        outcomeCode: 'context_build_failed',
+      });
+      return {
+        summary: `Failed to build user context: ${message}`,
+        suggestions: ['Try again later or contact support.'],
+      };
+    }
+
+    const contextBuildDurationMs = Date.now() - contextPhaseStartMs;
+    this.recordPhaseLatency('context_build', contextBuildDurationMs, {
+      operationId,
+      userId,
+    });
+    this.emitProgressOperation(onStreamEvent, {
+      operationId,
+      stage: 'building_context',
+      message: `Context build latency: ${contextBuildDurationMs}ms`,
+      metadata: {
+        eventType: 'metric',
+        metricName: 'phase_latency_ms',
+        phase: 'context_build',
+        value: contextBuildDurationMs,
+      },
+    });
+    this.emitProgressOperation(onStreamEvent, {
+      operationId,
+      stage: 'building_context',
+      message: 'Context loaded.',
+      metadata: { eventType: 'progress_subphase', phase: 'context_build', status: 'done' },
+    });
+    const toolAccessContext = this.buildToolAccessContext(userContext);
 
     // Inject thread history for conversation continuity (belt-and-suspenders
     // during rollout — can be removed once Redis session memory is stable)
@@ -482,8 +683,8 @@ export class AgentRouter {
       userContext,
       payload.context,
       threadHistoryStr,
-      promptContext.memories,
-      promptContext.recentSyncSummaries ?? [],
+      undefined,
+      undefined,
       activeThreadsSummary
     );
 
@@ -658,9 +859,9 @@ export class AgentRouter {
 
           return this.run(
             delegatedPayload,
-            onUpdate,
+            rawOnUpdate,
             firestore,
-            onStreamEvent,
+            rawOnStreamEvent,
             environment,
             signal
           );
@@ -758,12 +959,57 @@ export class AgentRouter {
     });
 
     let capabilitySnapshotForPlanning: AgentPlannerCapabilitySnapshot | undefined;
+    let capabilitySnapshotPromise: Promise<AgentPlannerCapabilitySnapshot | undefined> | undefined;
     let planResult: AgentOperationResult;
     let plannerPassCount = 1;
+
+    const resolveCapabilitySnapshotForPlanning = async (): Promise<
+      AgentPlannerCapabilitySnapshot | undefined
+    > => {
+      if (!capabilitySnapshotPromise) {
+        capabilitySnapshotPromise = this.buildCapabilitySnapshot(enrichedIntent, toolAccessContext)
+          .then((snapshot) => {
+            capabilitySnapshotForPlanning = snapshot;
+            return snapshot;
+          })
+          .catch((error) => {
+            logger.warn('[AgentRouter] Failed to build capability snapshot for planning', {
+              operationId,
+              error: error instanceof Error ? error.message : String(error),
+            });
+            this.emitMetricSample(rawOnStreamEvent, {
+              operationId,
+              stage: 'decomposing_intent',
+              metricName: 'fallback_activation',
+              value: 1,
+              message: 'Fallback activated: capability snapshot unavailable.',
+              metadata: {
+                phase: 'planning',
+                fallbackType: 'capability_snapshot_unavailable',
+              },
+              sampleContext: {
+                operationId,
+                userId,
+              },
+            });
+            capabilitySnapshotForPlanning = undefined;
+            return undefined;
+          });
+      }
+
+      return capabilitySnapshotPromise;
+    };
+
+    if (skipPlannerClassification) {
+      void resolveCapabilitySnapshotForPlanning();
+    }
+
     try {
       this.throwIfAborted(signal);
       planResult = await this.planner.execute(enrichedIntent, context, [], undefined, {
         capabilitySnapshot: capabilitySnapshotForPlanning,
+        capabilitySnapshotResolver: resolveCapabilitySnapshotForPlanning,
+        skipClassification: skipPlannerClassification,
       });
       this.throwIfAborted(signal);
     } catch (err) {
@@ -785,6 +1031,22 @@ export class AgentRouter {
           phase: 'planning',
           status: 'failed',
           value: planningDurationMs,
+        },
+      });
+      this.emitMetricSample(rawOnStreamEvent, {
+        operationId,
+        stage: 'decomposing_intent',
+        metricName: 'planner_latency_ms',
+        value: planningDurationMs,
+        message: `Planner latency: ${planningDurationMs}ms`,
+        metadata: {
+          phase: 'planning',
+          status: 'failed',
+        },
+        sampleContext: {
+          operationId,
+          userId,
+          status: 'failed',
         },
       });
       this.emitUpdate(onUpdate, operationId, 'failed', `Planning error: ${message}`, undefined, {
@@ -832,6 +1094,22 @@ export class AgentRouter {
           phase: 'planning',
           executionMode: 'chief_of_staff_direct',
           value: planningDurationMs,
+        },
+      });
+      this.emitMetricSample(rawOnStreamEvent, {
+        operationId,
+        stage: 'decomposing_intent',
+        metricName: 'planner_latency_ms',
+        value: planningDurationMs,
+        message: `Planner latency: ${planningDurationMs}ms`,
+        metadata: {
+          phase: 'planning',
+          executionMode: 'chief_of_staff_direct',
+        },
+        sampleContext: {
+          operationId,
+          userId,
+          executionMode: 'chief_of_staff_direct',
         },
       });
 
@@ -886,16 +1164,9 @@ export class AgentRouter {
       message: 'Matching skills and tools for the best execution path...',
       metadata: { eventType: 'progress_subphase', phase: 'planning', status: 'capability_match' },
     });
-    try {
-      capabilitySnapshotForPlanning = await this.buildCapabilitySnapshot(
-        enrichedIntent,
-        toolAccessContext
-      );
-    } catch (error) {
-      logger.warn('[AgentRouter] Failed to build capability snapshot before preflight', {
-        operationId,
-        error: error instanceof Error ? error.message : String(error),
-      });
+
+    if (!capabilitySnapshotForPlanning) {
+      capabilitySnapshotForPlanning = await resolveCapabilitySnapshotForPlanning();
     }
 
     const firstPassPreflight = this.preflightPlan(plan, capabilitySnapshotForPlanning);
@@ -958,14 +1229,7 @@ export class AgentRouter {
         plannerPassCount += 1;
 
         if (!capabilitySnapshotForPlanning) {
-          try {
-            capabilitySnapshotForPlanning = await this.buildCapabilitySnapshot(
-              replanIntent,
-              toolAccessContext
-            );
-          } catch {
-            capabilitySnapshotForPlanning = undefined;
-          }
+          capabilitySnapshotForPlanning = await resolveCapabilitySnapshotForPlanning();
         }
 
         planResult = await this.planner.execute(replanIntent, context, [], undefined, {
@@ -1128,6 +1392,24 @@ export class AgentRouter {
         taskCount: plan.tasks.length,
         plannerPassCount,
         value: planningDurationMs,
+      },
+    });
+    this.emitMetricSample(rawOnStreamEvent, {
+      operationId,
+      stage: 'decomposing_intent',
+      metricName: 'planner_latency_ms',
+      value: planningDurationMs,
+      message: `Planner latency: ${planningDurationMs}ms`,
+      metadata: {
+        phase: 'planning',
+        taskCount: plan.tasks.length,
+        plannerPassCount,
+      },
+      sampleContext: {
+        operationId,
+        userId,
+        taskCount: plan.tasks.length,
+        plannerPassCount,
       },
     });
     this.emitProgressOperation(onStreamEvent, {
@@ -1720,18 +2002,13 @@ export class AgentRouter {
     }
 
     // Build user context for the resumed execution
-    let promptContext: AgentPromptContext | undefined;
+    let userContext: AgentUserContext;
     try {
-      promptContext = await this.contextBuilder.buildPromptContext(userId, intent, firestore);
+      userContext = await this.contextBuilder.buildContext(userId, firestore);
     } catch {
       // Non-critical — resume with whatever context we have
-      promptContext = {
-        profile: { userId } as AgentUserContext,
-        memories: { user: [], team: [], organization: [] },
-      };
+      userContext = { userId } as AgentUserContext;
     }
-
-    const userContext = promptContext.profile;
 
     const resumeContextObj =
       typeof payload.context === 'object' && payload.context !== null ? payload.context : {};
@@ -1778,8 +2055,8 @@ export class AgentRouter {
       userContext,
       payload.context,
       undefined,
-      promptContext.memories,
-      promptContext.recentSyncSummaries ?? [],
+      undefined,
+      undefined,
       resumeActiveThreadsSummary
     );
     const approvalGate = firestore ? new ApprovalGateService(firestore) : undefined;
@@ -2283,6 +2560,601 @@ export class AgentRouter {
     return enriched;
   }
 
+  private async tryConversationalRoute(payload: {
+    readonly payload: AgentJobPayload;
+    readonly context: AgentSessionContext;
+    readonly threadId?: string;
+    readonly firestore?: FirebaseFirestore.Firestore;
+    readonly onUpdate?: (update: AgentJobUpdate) => void;
+    readonly onStreamEvent?: OnStreamEvent;
+    readonly environment: 'staging' | 'production';
+    readonly signal?: AbortSignal;
+  }): Promise<ConversationRouteOutcome> {
+    const {
+      payload: jobPayload,
+      context,
+      threadId,
+      firestore,
+      onUpdate,
+      onStreamEvent,
+      signal,
+    } = payload;
+    const { operationId, userId, intent } = jobPayload;
+    const conversationalPhaseStartMs = Date.now();
+
+    const cacheKey = this.buildConversationalCacheKey(context, intent);
+    const cached = this.conversationalResponseCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      const cachedResponse = await this.emitConversationalResponse({
+        operationId,
+        userId,
+        threadId,
+        responseText: cached.result.summary,
+        onUpdate,
+        onStreamEvent,
+        signal,
+        cacheSource: 'conversation_cache',
+      });
+
+      this.recordConversationalRouteLatency(
+        operationId,
+        userId,
+        Date.now() - conversationalPhaseStartMs,
+        'chat_cache_hit',
+        [],
+        true,
+        onStreamEvent
+      );
+
+      return { kind: 'handled', result: cachedResponse };
+    }
+
+    this.emitProgressOperation(onStreamEvent, {
+      operationId,
+      stage: 'agent_thinking',
+      message: 'Understanding whether this needs conversation context or a full plan...',
+      metadata: {
+        eventType: 'progress_stage',
+        phase: 'conversation_triage',
+        phaseIndex: 1,
+        phaseTotal: 2,
+      },
+    });
+
+    const routeDecision = await this.getConversationRouteDecision(intent, context);
+    if (!routeDecision) {
+      this.emitMetricSample(onStreamEvent, {
+        operationId,
+        stage: 'agent_thinking',
+        metricName: 'fallback_activation',
+        value: 1,
+        message: 'Fallback activated: conversational triage failed open.',
+        metadata: {
+          phase: 'conversation_triage',
+          fallbackType: 'conversation_triage_fail_open',
+        },
+        sampleContext: {
+          operationId,
+          userId,
+        },
+      });
+      return { kind: 'fallthrough' };
+    }
+
+    if (routeDecision.route === 'plan') {
+      const planSummary =
+        routeDecision.planSummary?.trim() || 'handle this request with specialist execution';
+      const planningPrelude = sanitizeAgentOutputText(
+        `I see you want to ${planSummary}. Let me put a plan together for this.`
+      );
+      if (onStreamEvent) {
+        await this.emitStreamedTextChunks(onStreamEvent, {
+          operationId,
+          agentId: 'router',
+          text: planningPrelude,
+          targetChunkSize: 28,
+          cadenceMs: 24,
+          signal,
+        });
+      }
+      this.emitProgressOperation(onStreamEvent, {
+        operationId,
+        stage: 'decomposing_intent',
+        message: planningPrelude,
+        metadata: {
+          eventType: 'progress_subphase',
+          phase: 'conversation_triage',
+          route: 'plan',
+        },
+      });
+      this.recordConversationalRouteLatency(
+        operationId,
+        userId,
+        Date.now() - conversationalPhaseStartMs,
+        'planning_escalation',
+        [],
+        false,
+        onStreamEvent
+      );
+      return { kind: 'escalate_to_planning' };
+    }
+
+    const requiredContextScopes = Array.from(new Set(routeDecision.requiredContextScopes));
+    if (requiredContextScopes.length === 0 && routeDecision.directResponse?.trim()) {
+      const response = await this.emitConversationalResponse({
+        operationId,
+        userId,
+        threadId,
+        responseText: routeDecision.directResponse,
+        onUpdate,
+        onStreamEvent,
+        signal,
+        cacheSource: 'triage_direct',
+      });
+      this.storeConversationalCache(
+        cacheKey,
+        response,
+        this.shouldCacheConversationalResponse(context, requiredContextScopes)
+      );
+      this.recordConversationalRouteLatency(
+        operationId,
+        userId,
+        Date.now() - conversationalPhaseStartMs,
+        'chat_no_context',
+        requiredContextScopes,
+        true,
+        onStreamEvent
+      );
+      return { kind: 'handled', result: response };
+    }
+
+    const scopedContext = await this.resolveConversationContextScopes(
+      userId,
+      intent,
+      requiredContextScopes,
+      threadId,
+      firestore
+    );
+    const scopedContextText = this.buildConversationalContextText(scopedContext);
+    const contextualResponse = await this.generateContextualConversationResponse(
+      intent,
+      scopedContextText,
+      context
+    );
+
+    const response = await this.emitConversationalResponse({
+      operationId,
+      userId,
+      threadId,
+      responseText: contextualResponse,
+      onUpdate,
+      onStreamEvent,
+      signal,
+      cacheSource: requiredContextScopes.every((scope) => scope === 'profile')
+        ? 'contextual_profile'
+        : 'live',
+    });
+
+    const shouldCache = this.shouldCacheConversationalResponse(context, requiredContextScopes);
+    this.storeConversationalCache(cacheKey, response, shouldCache);
+    this.recordConversationalRouteLatency(
+      operationId,
+      userId,
+      Date.now() - conversationalPhaseStartMs,
+      requiredContextScopes.length === 0 ? 'chat_no_context' : 'chat_contextual',
+      requiredContextScopes,
+      shouldCache,
+      onStreamEvent
+    );
+
+    return { kind: 'handled', result: response };
+  }
+
+  private async getConversationRouteDecision(
+    intent: string,
+    context: AgentSessionContext
+  ): Promise<ConversationRouteDecision | null> {
+    const deterministicDecision = this.getDeterministicConversationRouteDecision(intent, context);
+    if (deterministicDecision) {
+      return deterministicDecision;
+    }
+
+    const systemPrompt = `You are Agent X's conversation triage layer. Decide whether the user should receive a direct conversational response now or whether this request requires specialist planning.
+
+Respond with JSON only.
+
+Rules:
+- route="chat" when the user is asking a question, wants guidance, wants platform help, wants a conversational explanation, or needs context-aware advice.
+- route="plan" only when the user wants Agent X to perform specialist work or execute an operation such as outreach, film analysis, graphics/content generation, reporting, list building, posting, or multi-step coordination.
+- requiredContextScopes should include only the minimum scopes needed for a high-quality conversational answer.
+- Available scopes: profile, thread_history, active_threads, memories, recent_sync.
+- directResponse should only be present when route="chat" and no additional context is needed.
+- planSummary should only be present when route="plan" and should be a short plain-English description of the requested work.
+- For bare greetings, acknowledgements, identity questions, and general openers, do NOT request profile or memory context. Use route="chat", requiredContextScopes=[], and provide directResponse.
+- Do NOT request profile context just to make a response warmer or more personalized. Request profile only when the user's question actually depends on knowing their role, sport, position, goals, or account state.
+- If the user can be answered well without retrieved context, prefer directResponse with requiredContextScopes=[].
+- Examples that should stay no-context chat: \"hi\", \"hello\", \"thanks\", \"who are you\", \"what is Agent X\", \"what can you do\".
+- Examples that may need profile context: \"how can you help me\", \"what should I work on\", \"what should I focus on next\", \"what features do I have access to\".`;
+
+    try {
+      const result = await this.llm.prompt(systemPrompt, intent, {
+        tier: 'chat',
+        maxTokens: 300,
+        temperature: 0.2,
+        timeoutMs: 6_000,
+        outputSchema: {
+          name: 'conversation_route_decision',
+          schema: conversationRouteDecisionSchema,
+        },
+        ...(context.operationId && {
+          telemetryContext: {
+            operationId: context.operationId,
+            userId: context.userId,
+            agentId: 'router',
+          },
+        }),
+      });
+
+      const parsed = conversationRouteDecisionSchema.safeParse(result.parsedOutput);
+      if (parsed.success) {
+        return parsed.data;
+      }
+
+      if (this.looksLikePlannerPayload(result.parsedOutput)) {
+        return {
+          route: 'plan',
+          requiredContextScopes: [],
+          directResponse: null,
+          planSummary:
+            this.extractPlannerSummary(result.parsedOutput) ??
+            'handle this request with specialist execution',
+        };
+      }
+
+      if (this.looksLikeIntentClassificationPayload(result.parsedOutput)) {
+        const fallback = this.extractIntentClassificationFallback(result.parsedOutput);
+        if (fallback) {
+          return fallback;
+        }
+      }
+
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  private getDeterministicConversationRouteDecision(
+    intent: string,
+    context: AgentSessionContext
+  ): ConversationRouteDecision | null {
+    if (!this.isSelfKnowledgeIntent(intent)) {
+      return null;
+    }
+
+    const requiredContextScopes: ConversationRouteScope[] = [
+      'profile',
+      'memories',
+      'recent_sync',
+      'active_threads',
+      ...(context.threadId ? (['thread_history'] as const) : []),
+    ];
+
+    return {
+      route: 'chat',
+      requiredContextScopes,
+      directResponse: null,
+      planSummary: null,
+    };
+  }
+
+  private isSelfKnowledgeIntent(intent: string): boolean {
+    const normalizedIntent = intent.trim().toLowerCase().replace(/\s+/g, ' ');
+    if (!normalizedIntent) {
+      return false;
+    }
+
+    const selfKnowledgePhrases = [
+      'what do you know about me',
+      'what all do you know about me',
+      'tell me what you know about me',
+      'what do you remember about me',
+      'what have you learned about me',
+      'what have i told you about me',
+      'what information do you have about me',
+      'what info do you have about me',
+      'what context do you have about me',
+    ];
+
+    return selfKnowledgePhrases.some((phrase) => normalizedIntent.includes(phrase));
+  }
+
+  private looksLikePlannerPayload(value: unknown): boolean {
+    if (!value || typeof value !== 'object') return false;
+    const candidate = value as Record<string, unknown>;
+    const tasks = candidate['tasks'];
+    return Array.isArray(tasks) && tasks.length > 0;
+  }
+
+  private extractPlannerSummary(value: unknown): string | null {
+    if (!value || typeof value !== 'object') return null;
+    const candidate = value as Record<string, unknown>;
+    const summary = candidate['summary'];
+    return typeof summary === 'string' && summary.trim().length > 0 ? summary.trim() : null;
+  }
+
+  private looksLikeIntentClassificationPayload(value: unknown): boolean {
+    if (!value || typeof value !== 'object') return false;
+    const candidate = value as Record<string, unknown>;
+    return typeof candidate['isConversational'] === 'boolean';
+  }
+
+  private extractIntentClassificationFallback(value: unknown): ConversationRouteDecision | null {
+    if (!value || typeof value !== 'object') return null;
+    const candidate = value as Record<string, unknown>;
+    const isConversational = candidate['isConversational'];
+    if (typeof isConversational !== 'boolean') return null;
+
+    if (isConversational) {
+      const directResponse =
+        typeof candidate['directResponse'] === 'string' ? candidate['directResponse'] : null;
+      return {
+        route: 'chat',
+        requiredContextScopes: [],
+        directResponse,
+        planSummary: null,
+      };
+    }
+
+    return {
+      route: 'plan',
+      requiredContextScopes: [],
+      directResponse: null,
+      planSummary: null,
+    };
+  }
+
+  private async resolveConversationContextScopes(
+    userId: string,
+    intent: string,
+    scopes: readonly ConversationRouteScope[],
+    threadId: string | undefined,
+    firestore?: FirebaseFirestore.Firestore
+  ): Promise<{
+    readonly profile?: AgentUserContext;
+    readonly memories: AgentRetrievedMemories;
+    readonly recentSyncSummaries: readonly string[];
+    readonly threadHistory: string;
+    readonly activeThreadsSummary: string;
+  }> {
+    const normalizedScopes = new Set(scopes);
+    const needsProfile =
+      normalizedScopes.has('profile') ||
+      normalizedScopes.has('memories') ||
+      normalizedScopes.has('recent_sync');
+
+    const profile = needsProfile
+      ? await this.contextBuilder.buildContext(userId, firestore)
+      : undefined;
+
+    const memoriesPromise =
+      normalizedScopes.has('memories') && profile
+        ? this.contextBuilder.getMemoriesForContext(profile, intent)
+        : Promise.resolve(EMPTY_RETRIEVED_MEMORIES);
+    const recentSyncPromise =
+      normalizedScopes.has('recent_sync') && profile
+        ? this.contextBuilder.getRecentSyncSummariesForContext(profile)
+        : Promise.resolve([] as readonly string[]);
+    const threadHistoryPromise =
+      normalizedScopes.has('thread_history') && threadId
+        ? this.contextBuilder.getRecentThreadHistory(threadId, 20)
+        : Promise.resolve('');
+    const activeThreadsPromise = normalizedScopes.has('active_threads')
+      ? this.contextBuilder.getActiveThreadsSummary(userId, 8)
+      : Promise.resolve('');
+
+    const [memories, recentSyncSummaries, threadHistory, activeThreadsSummary] = await Promise.all([
+      memoriesPromise,
+      recentSyncPromise,
+      threadHistoryPromise,
+      activeThreadsPromise,
+    ]);
+
+    return {
+      profile,
+      memories,
+      recentSyncSummaries,
+      threadHistory,
+      activeThreadsSummary,
+    };
+  }
+
+  private buildConversationalContextText(context: {
+    readonly profile?: AgentUserContext;
+    readonly memories: AgentRetrievedMemories;
+    readonly recentSyncSummaries: readonly string[];
+    readonly threadHistory: string;
+    readonly activeThreadsSummary: string;
+  }): string {
+    const sections: string[] = [];
+
+    if (context.profile) {
+      sections.push(
+        `[User Context]\n${this.contextBuilder.compressToPrompt(
+          context.profile,
+          context.memories,
+          context.recentSyncSummaries
+        )}`
+      );
+    }
+
+    if (context.activeThreadsSummary) {
+      sections.push(`[Recent Conversation Topics]${context.activeThreadsSummary}`);
+    }
+
+    if (context.threadHistory) {
+      sections.push(context.threadHistory.trim());
+    }
+
+    return sections.join('\n\n');
+  }
+
+  private async generateContextualConversationResponse(
+    intent: string,
+    scopedContextText: string,
+    context: AgentSessionContext
+  ): Promise<string> {
+    const systemPrompt = `You are Agent X, NXT1's AI sports assistant. Answer the user conversationally using provided context when it is relevant. Stay concise, grounded, and practical. Do not create plans, tool calls, or coordinator tasks unless explicitly instructed; the routing layer already chose conversational handling for this message. Never invent profile details that are not in the provided context.`;
+
+    const userMessage = scopedContextText
+      ? `${scopedContextText}\n\n[User Message]\n${intent}`
+      : intent;
+
+    const result = await this.llm.prompt(systemPrompt, userMessage, {
+      tier: 'chat',
+      maxTokens: 512,
+      temperature: 0.4,
+      timeoutMs: 8_000,
+      ...(context.operationId && {
+        telemetryContext: {
+          operationId: context.operationId,
+          userId: context.userId,
+          agentId: 'router',
+        },
+      }),
+    });
+
+    return sanitizeAgentOutputText(result.content || "I'm here and ready to help.");
+  }
+
+  private async emitConversationalResponse(payload: {
+    readonly operationId: string;
+    readonly userId: string;
+    readonly threadId?: string;
+    readonly responseText: string;
+    readonly onUpdate?: (update: AgentJobUpdate) => void;
+    readonly onStreamEvent?: OnStreamEvent;
+    readonly signal?: AbortSignal;
+    readonly cacheSource: string;
+  }): Promise<AgentOperationResult> {
+    const safeResponseText = sanitizeAgentOutputText(payload.responseText);
+    this.emitUpdate(
+      payload.onUpdate,
+      payload.operationId,
+      'completed',
+      safeResponseText,
+      undefined,
+      {
+        agentId: 'router',
+        stage: 'agent_thinking',
+        outcomeCode: 'success_default',
+        metadata: { executionMode: 'conversation', source: payload.cacheSource },
+      }
+    );
+
+    if (payload.onStreamEvent) {
+      await this.emitStreamedTextChunks(payload.onStreamEvent, {
+        operationId: payload.operationId,
+        agentId: 'router',
+        text: safeResponseText,
+        targetChunkSize: 28,
+        cadenceMs: 24,
+        signal: payload.signal,
+      });
+    }
+
+    this.appendAssistantMessage(payload.userId, payload.threadId, safeResponseText);
+    return { summary: safeResponseText, suggestions: [] };
+  }
+
+  private buildConversationalCacheKey(context: AgentSessionContext, intent: string): string {
+    const normalizedIntent = intent.trim().toLowerCase().replace(/\s+/g, ' ');
+    const intentHash = createHash('sha1').update(normalizedIntent).digest('hex');
+    const mode = context.mode?.trim().toLowerCase() ?? 'default';
+    const threadId = context.threadId?.trim() ?? 'no-thread';
+    const environment = context.environment ?? 'unknown';
+    return `${context.userId}:${mode}:${environment}:${threadId}:${intentHash}`;
+  }
+
+  private shouldCacheConversationalResponse(
+    context: AgentSessionContext,
+    scopes: readonly ConversationRouteScope[]
+  ): boolean {
+    if ((context.attachments?.length ?? 0) > 0 || (context.videoAttachments?.length ?? 0) > 0) {
+      return false;
+    }
+
+    if (scopes.length === 0) {
+      return true;
+    }
+
+    return scopes.every((scope) => scope === 'profile');
+  }
+
+  private storeConversationalCache(
+    cacheKey: string,
+    result: AgentOperationResult,
+    shouldCache: boolean
+  ): void {
+    if (!shouldCache) {
+      return;
+    }
+
+    this.pruneConversationalCache();
+    this.conversationalResponseCache.set(cacheKey, {
+      result,
+      expiresAt: Date.now() + CONVERSATIONAL_CACHE_TTL_MS,
+    });
+  }
+
+  private recordConversationalRouteLatency(
+    operationId: string,
+    userId: string,
+    durationMs: number,
+    routeType: 'chat_cache_hit' | 'chat_no_context' | 'chat_contextual' | 'planning_escalation',
+    scopes: readonly ConversationRouteScope[],
+    cacheEligible: boolean,
+    onStreamEvent?: OnStreamEvent
+  ): void {
+    this.recordPhaseLatency('conversation_triage', durationMs, {
+      operationId,
+      userId,
+      routeType,
+      contextScopes: scopes,
+      cacheEligible,
+    });
+
+    this.emitProgressOperation(onStreamEvent, {
+      operationId,
+      stage: routeType === 'planning_escalation' ? 'decomposing_intent' : 'agent_thinking',
+      message: `Conversation triage latency: ${Math.max(0, Math.round(durationMs))}ms`,
+      metadata: {
+        eventType: 'metric',
+        metricName: 'phase_latency_ms',
+        phase: 'conversation_triage',
+        routeType,
+        contextScopes: scopes,
+        cacheEligible,
+        value: Math.max(0, Math.round(durationMs)),
+      },
+    });
+  }
+
+  private pruneConversationalCache(): void {
+    const now = Date.now();
+    for (const [key, value] of this.conversationalResponseCache) {
+      if (value.expiresAt <= now) {
+        this.conversationalResponseCache.delete(key);
+      }
+    }
+
+    while (this.conversationalResponseCache.size > CONVERSATIONAL_CACHE_MAX_ENTRIES) {
+      const oldestKey = this.conversationalResponseCache.keys().next().value;
+      if (!oldestKey) break;
+      this.conversationalResponseCache.delete(oldestKey);
+    }
+  }
+
   private hasPendingTasks(tasks: readonly (AgentTask & { status: AgentTaskStatus })[]): boolean {
     return tasks.some((t) => t.status === 'pending');
   }
@@ -2510,7 +3382,7 @@ export class AgentRouter {
     payload: {
       readonly operationId: string;
       readonly message: string;
-      readonly stage?: AgentRouterStage;
+      readonly stage?: AgentProgressStage;
       readonly status?:
         | 'queued'
         | 'running'
@@ -2535,12 +3407,17 @@ export class AgentRouter {
       metadataEventType === 'metric'
         ? metadataEventType
         : undefined;
+    const messageKey = this.buildProgressMessageKey(
+      payload.stage ?? 'agent_thinking',
+      payload.metadata
+    );
 
     onStreamEvent({
       type: 'operation',
       operationId: payload.operationId,
       status: payload.status ?? 'running',
       agentId: 'router',
+      messageKey,
       stageType: 'router',
       stage: payload.stage ?? 'agent_thinking',
       message: payload.message,
@@ -2555,12 +3432,53 @@ export class AgentRouter {
       operationId: payload.operationId,
       status: payload.status ?? 'running',
       agentId: 'router',
+      messageKey,
       stageType: 'router',
       stage: payload.stage ?? 'agent_thinking',
       message: payload.message,
       metadata: payload.metadata,
       timestamp: new Date().toISOString(),
     });
+  }
+
+  private buildProgressMessageKey(
+    stage: AgentProgressStage,
+    metadata?: AgentProgressMetadata
+  ): string {
+    const explicitMessageKey =
+      typeof metadata?.['messageKey'] === 'string' ? metadata['messageKey'] : undefined;
+    if (explicitMessageKey) {
+      return explicitMessageKey;
+    }
+
+    const eventType =
+      typeof metadata?.['eventType'] === 'string' ? metadata['eventType'] : undefined;
+    const metricName =
+      typeof metadata?.['metricName'] === 'string' ? metadata['metricName'] : undefined;
+    const phase = typeof metadata?.['phase'] === 'string' ? metadata['phase'] : undefined;
+    const status = typeof metadata?.['status'] === 'string' ? metadata['status'] : undefined;
+
+    if (eventType === 'metric' && metricName) {
+      return `agent.metric.${this.toMessageKeySegment(metricName)}`;
+    }
+
+    if (phase && status) {
+      return `agent.progress.${this.toMessageKeySegment(phase)}.${this.toMessageKeySegment(status)}`;
+    }
+
+    if (phase) {
+      return `agent.progress.${this.toMessageKeySegment(phase)}`;
+    }
+
+    return `agent.progress.${this.toMessageKeySegment(stage)}`;
+  }
+
+  private toMessageKeySegment(value: string): string {
+    return value
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '');
   }
 
   private recordPhaseLatency(
@@ -2584,6 +3502,64 @@ export class AgentRouter {
       phase,
       durationMs: safeDurationMs,
       averageMs,
+      sampleCount: samples.length,
+      ...(context ?? {}),
+    });
+  }
+
+  private emitMetricSample(
+    onStreamEvent: OnStreamEvent | undefined,
+    payload: {
+      readonly operationId: string;
+      readonly stage: AgentProgressStage;
+      readonly metricName: string;
+      readonly value: number;
+      readonly message: string;
+      readonly metadata?: AgentProgressMetadata;
+      readonly sampleContext?: Readonly<Record<string, unknown>>;
+    }
+  ): void {
+    if (!Number.isFinite(payload.value)) return;
+
+    const safeValue = Math.max(0, Math.round(payload.value));
+    this.recordOperationMetric(payload.metricName, safeValue, payload.sampleContext);
+
+    this.emitProgressOperation(onStreamEvent, {
+      operationId: payload.operationId,
+      stage: payload.stage,
+      message: payload.message,
+      metadata: {
+        eventType: 'metric',
+        metricName: payload.metricName,
+        value: safeValue,
+        ...(payload.metadata ?? {}),
+      },
+    });
+  }
+
+  private recordOperationMetric(
+    metricName: string,
+    value: number,
+    context?: Readonly<Record<string, unknown>>
+  ): void {
+    if (!Number.isFinite(value)) return;
+
+    const safeValue = Math.max(0, Math.round(value));
+    const samples = this.metricSamples.get(metricName) ?? [];
+    samples.push(safeValue);
+    if (samples.length > 100) {
+      samples.shift();
+    }
+    this.metricSamples.set(metricName, samples);
+
+    const averageValue = Math.round(
+      samples.reduce((acc, sample) => acc + sample, 0) / samples.length
+    );
+
+    logger.info('[AgentRouter] Metric sample', {
+      metricName,
+      value: safeValue,
+      averageValue,
       sampleCount: samples.length,
       ...(context ?? {}),
     });

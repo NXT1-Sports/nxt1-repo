@@ -12,7 +12,6 @@
 import { Component, ChangeDetectionStrategy, input, computed } from '@angular/core';
 import type { AgentXToolStep } from '@nxt1/core/ai';
 import {
-  getToolStepDisplayLabel,
   getToolStepContextLabel,
   getToolStepsSummaryLabel,
   normalizeToolStepIcon,
@@ -613,7 +612,7 @@ export class AgentXToolStepsComponent {
   }
 
   protected displayLabel(step: AgentXToolStep): string {
-    return getToolStepDisplayLabel(step);
+    return step.label;
   }
 
   protected resolvedIcon(step: AgentXToolStep): string {

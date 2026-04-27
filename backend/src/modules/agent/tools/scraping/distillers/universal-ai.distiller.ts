@@ -392,10 +392,7 @@ export async function distillWithAI(
       tier: 'extraction',
       maxTokens: MAX_RESPONSE_TOKENS,
       temperature: 0,
-      outputSchema: {
-        name: 'distilled_profile',
-        schema: distilledProfileSchema,
-      },
+      jsonMode: true,
       telemetryContext: {
         operationId: `ai-distill-${crypto.randomUUID()}`,
         userId: 'system',

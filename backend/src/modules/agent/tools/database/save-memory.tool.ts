@@ -8,8 +8,7 @@
  * When the user says things like "remember that I only want SEC schools"
  * or "my goal is to get a D1 scholarship by senior year", the agent
  * invokes this tool to embed and store that information so future
- * sessions can recall it automatically through prompt-context retrieval,
- * with `search_memory` available only for manual deep inspection.
+ * sessions can recall it through on-demand memory retrieval.
  *
  * Categories are restricted to prevent the agent from polluting the
  * memory store with transient data or internal reasoning.
@@ -18,7 +17,7 @@
  * Agent flow for "Please remember I only want to play for SEC schools":
  * 1. Call save_memory({ content: "User only wants to target SEC conference schools for recruiting.", category: "preference" })
  * 2. VectorMemoryService embeds and persists to MongoDB
- * 3. Future sessions receive it through automatic retrieval before prompting
+ * 3. Future sessions can retrieve it with search_memory when needed
  */
 
 import { BaseTool, type ToolResult } from '../base.tool.js';

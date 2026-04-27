@@ -63,6 +63,7 @@ import {
   GetConferenceLogosTool,
   TrackAnalyticsEventTool,
   GetAnalyticsSummaryTool,
+  GetRecentSyncSummariesTool,
   SaveMemoryTool,
   DeleteMemoryTool,
   WriteConnectedSourceTool,
@@ -333,6 +334,7 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   const vectorMemory = new VectorMemoryService(llm);
   toolRegistry.register(new WebSearchTool());
   toolRegistry.register(new SearchMemoryTool(vectorMemory));
+  toolRegistry.register(new GetRecentSyncSummariesTool());
   toolRegistry.register(new SaveMemoryTool(vectorMemory));
   toolRegistry.register(new DeleteMemoryTool(vectorMemory));
   toolRegistry.register(new WriteConnectedSourceTool(stagingDb));

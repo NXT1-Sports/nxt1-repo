@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { getAllAgentToolPolicies } from '../tool-policy.js';
+import { getToolGovernancePolicy } from '../tool-policy.js';
 
 const BOOTSTRAP_PATH = fileURLToPath(new URL('../../queue/bootstrap.ts', import.meta.url));
 const TOOLS_DIR = fileURLToPath(new URL('../../tools/', import.meta.url));
@@ -138,11 +138,14 @@ describe('Tool Policy Governance - Inverse Drift Detection', () => {
 
     expect(registeredToolNames.size).toBeGreaterThan(0);
 
-    const policy = getAllAgentToolPolicies();
+    const governance = getToolGovernancePolicy();
     const policyExactToolNames = new Set<string>();
     const policyWildcardPatterns = new Set<string>();
 
-    for (const tools of Object.values(policy)) {
+    for (const tools of [
+      governance.globalSystem,
+      ...Object.values(governance.coordinatorSpecialized),
+    ]) {
       for (const toolName of tools) {
         if (toolName.endsWith('*')) {
           policyWildcardPatterns.add(toolName);

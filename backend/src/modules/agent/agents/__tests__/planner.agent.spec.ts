@@ -219,6 +219,77 @@ describe('PlannerAgent', () => {
     expect(planningCall[2].outputSchema.name).toBe('planner_execution_plan');
   });
 
+  it('should resolve the capability snapshot only after classification', async () => {
+    const ordering: string[] = [];
+    const classificationResult = {
+      isConversational: false,
+      reasoning: 'Needs planning',
+      estimatedComplexity: 'moderate',
+      directResponse: null,
+    };
+
+    const planResult = {
+      summary: 'Plan created',
+      tasks: [
+        {
+          id: '1',
+          assignedAgent: 'strategy_coordinator',
+          description: 'Handle request',
+          dependsOn: [],
+        },
+      ],
+    };
+
+    const llm = {
+      prompt: vi.fn().mockImplementation(async (_systemPrompt, _userPrompt, options) => {
+        if (options?.outputSchema?.name === 'intent_classification') {
+          ordering.push('classification');
+          return {
+            parsedOutput: classificationResult,
+            content: JSON.stringify(classificationResult),
+            model: 'anthropic/claude-haiku-4-5',
+            usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
+            latencyMs: 120,
+            costUsd: 0.0001,
+            toolCalls: [],
+            finishReason: 'stop',
+          };
+        }
+
+        ordering.push('planning');
+        expect(ordering).toEqual(['classification', 'snapshot', 'planning']);
+        return {
+          parsedOutput: planResult,
+          content: JSON.stringify(planResult),
+          model: 'anthropic/claude-sonnet-4-5',
+          usage: { inputTokens: 120, outputTokens: 60, totalTokens: 180 },
+          latencyMs: 220,
+          costUsd: 0.001,
+          toolCalls: [],
+          finishReason: 'stop',
+        };
+      }),
+      complete: vi.fn(),
+    } as unknown as OpenRouterService;
+
+    const planner = new PlannerAgent(llm);
+    const capabilitySnapshotResolver = vi.fn().mockImplementation(async () => {
+      ordering.push('snapshot');
+      return {
+        schemaVersion: 1,
+        hash: 'hash-123',
+        coordinators: [],
+      };
+    });
+
+    await planner.execute('Build a recruiting plan', context, [], undefined, {
+      capabilitySnapshotResolver,
+    });
+
+    expect(capabilitySnapshotResolver).toHaveBeenCalledTimes(1);
+    expect((llm.prompt as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(2);
+  });
+
   it('should inject capability snapshot context into routing-tier planning input', async () => {
     const classificationResult = {
       isConversational: false,
@@ -927,6 +998,65 @@ describe('PlannerAgent', () => {
     expect(metadata.complexity).toBe('complex');
   });
 
+  it('should force action-oriented Hudl requests into planning mode even when classification says conversational', async () => {
+    const classificationResult = {
+      isConversational: true,
+      reasoning: 'Looks conversational',
+      estimatedComplexity: 'simple',
+      directResponse: "I can't directly open Hudl.",
+    };
+
+    const planResult = {
+      summary: 'Opening live view for Hudl workflow.',
+      tasks: [
+        {
+          id: '1',
+          assignedAgent: 'strategy_coordinator',
+          description: 'Open live view and navigate to Hudl.',
+          dependsOn: [],
+        },
+      ],
+    };
+
+    const llm = {
+      prompt: vi
+        .fn()
+        .mockResolvedValueOnce({
+          parsedOutput: classificationResult,
+          content: JSON.stringify(classificationResult),
+          model: 'deepseek/deepseek-v3.2',
+          usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
+          latencyMs: 200,
+          costUsd: 0.0001,
+          toolCalls: [],
+          finishReason: 'stop',
+        })
+        .mockResolvedValueOnce({
+          parsedOutput: planResult,
+          content: JSON.stringify(planResult),
+          model: 'anthropic/claude-sonnet-4-5',
+          usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
+          latencyMs: 200,
+          costUsd: 0.001,
+          toolCalls: [],
+          finishReason: 'stop',
+        }),
+      complete: vi.fn(),
+    } as unknown as OpenRouterService;
+
+    const planner = new PlannerAgent(llm);
+    const result = await planner.execute('open hudl for me please lets watch film', context, []);
+
+    expect(llm.prompt).toHaveBeenCalledTimes(2);
+    expect(result.data?.['directResponse']).toBeUndefined();
+    const plan = result.data?.['plan'] as { tasks: unknown[] };
+    expect(plan.tasks).toHaveLength(1);
+
+    const metadata = result.data?.['metadata'] as Record<string, unknown>;
+    expect(metadata.tier).toBe('routing');
+    expect(String(metadata.classificationReasoning)).toContain('Action intent dominance override');
+  });
+
   it('should fallback to routing tier if classification LLM fails', async () => {
     const planResult = {
       summary: 'Execute request',
@@ -964,5 +1094,141 @@ describe('PlannerAgent', () => {
     const metadata = result.data!['metadata'] as Record<string, unknown>;
     expect(metadata.tier).toBe('routing');
     expect(metadata.classificationReasoning).toContain('failed');
+  });
+
+  it('should reuse cached classification for repeated intents in same context scope', async () => {
+    const classificationResult = {
+      isConversational: false,
+      reasoning: 'Coordinator execution needed',
+      estimatedComplexity: 'moderate',
+    };
+
+    const planResult = {
+      summary: 'Run planner path',
+      tasks: [
+        {
+          id: '1',
+          assignedAgent: 'strategy_coordinator',
+          description: 'Handle request',
+          dependsOn: [],
+        },
+      ],
+    };
+
+    const llm = {
+      prompt: vi
+        .fn()
+        .mockResolvedValueOnce({
+          parsedOutput: classificationResult,
+          content: JSON.stringify(classificationResult),
+          model: 'anthropic/claude-haiku-4-5',
+          usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
+          latencyMs: 200,
+          costUsd: 0.0001,
+          toolCalls: [],
+          finishReason: 'stop',
+        })
+        .mockResolvedValueOnce({
+          parsedOutput: planResult,
+          content: JSON.stringify(planResult),
+          model: 'anthropic/claude-sonnet-4-5',
+          usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
+          latencyMs: 200,
+          costUsd: 0.001,
+          toolCalls: [],
+          finishReason: 'stop',
+        })
+        .mockResolvedValueOnce({
+          parsedOutput: planResult,
+          content: JSON.stringify(planResult),
+          model: 'anthropic/claude-sonnet-4-5',
+          usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
+          latencyMs: 200,
+          costUsd: 0.001,
+          toolCalls: [],
+          finishReason: 'stop',
+        }),
+      complete: vi.fn(),
+    } as unknown as OpenRouterService;
+
+    const planner = new PlannerAgent(llm);
+
+    await planner.execute('Build me a recruiting execution plan', context, []);
+    await planner.execute('Build me a recruiting execution plan', context, []);
+
+    expect(llm.prompt).toHaveBeenCalledTimes(3);
+    const firstCall = (llm.prompt as ReturnType<typeof vi.fn>).mock.calls[0];
+    const secondRunCall = (llm.prompt as ReturnType<typeof vi.fn>).mock.calls[2];
+    expect(firstCall[2].outputSchema.name).toBe('intent_classification');
+    expect(secondRunCall[2].outputSchema.name).toBe('planner_execution_plan');
+  });
+
+  it('should emit backend classification progress events when stream callback is provided', async () => {
+    const classificationResult = {
+      isConversational: false,
+      reasoning: 'Requires planning',
+      estimatedComplexity: 'complex',
+    };
+
+    const planResult = {
+      summary: 'Create execution plan',
+      tasks: [
+        {
+          id: '1',
+          assignedAgent: 'strategy_coordinator',
+          description: 'Plan the workflow',
+          dependsOn: [],
+        },
+      ],
+    };
+
+    const llm = {
+      prompt: vi
+        .fn()
+        .mockResolvedValueOnce({
+          parsedOutput: classificationResult,
+          content: JSON.stringify(classificationResult),
+          model: 'anthropic/claude-haiku-4-5',
+          usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
+          latencyMs: 200,
+          costUsd: 0.0001,
+          toolCalls: [],
+          finishReason: 'stop',
+        })
+        .mockResolvedValueOnce({
+          parsedOutput: planResult,
+          content: JSON.stringify(planResult),
+          model: 'anthropic/claude-sonnet-4-5',
+          usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
+          latencyMs: 200,
+          costUsd: 0.001,
+          toolCalls: [],
+          finishReason: 'stop',
+        }),
+      complete: vi.fn(),
+    } as unknown as OpenRouterService;
+
+    const planner = new PlannerAgent(llm);
+    const onStreamEvent = vi.fn();
+    const streamContext = createMockContext({ operationId: 'op-progress-001' });
+
+    await planner.execute(
+      'Generate a multi-step recruiting plan',
+      streamContext,
+      [],
+      undefined,
+      undefined,
+      undefined,
+      onStreamEvent
+    );
+
+    expect(onStreamEvent).toHaveBeenCalled();
+    const emittedTypes = onStreamEvent.mock.calls.map((call) => call[0]?.type);
+    expect(emittedTypes).toContain('progress_stage');
+    expect(emittedTypes).toContain('progress_subphase');
+    const allProgressEvents = onStreamEvent.mock.calls
+      .map((call) => call[0])
+      .filter((event) => event?.type === 'progress_stage' || event?.type === 'progress_subphase');
+    expect(allProgressEvents.every((event) => event.operationId === 'op-progress-001')).toBe(true);
   });
 });

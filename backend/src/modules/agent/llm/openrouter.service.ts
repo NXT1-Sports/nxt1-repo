@@ -58,6 +58,7 @@ const MAX_RETRIES = 2;
 const RETRY_DELAY_MS = 750;
 const MODEL_CIRCUIT_BREAKER_FAILURE_THRESHOLD = 3;
 const MODEL_CIRCUIT_BREAKER_WINDOW_MS = 60_000;
+const MODEL_CIRCUIT_BREAKER_HALF_OPEN_SUCCESS_THRESHOLD = 1;
 
 /** Status codes that are safe to retry on. */
 const RETRYABLE_STATUS_CODES = new Set([429, 500, 502, 503, 504]);
@@ -157,9 +158,12 @@ export class OpenRouterService {
   private readonly modelCircuitBreaker = new Map<
     string,
     {
+      state: 'closed' | 'open' | 'half_open';
       failures: number;
       lastFailureAt: number;
       openUntil: number;
+      halfOpenSuccesses: number;
+      probeInFlight: boolean;
     }
   >();
 
@@ -240,6 +244,9 @@ export class OpenRouterService {
             'All fallback models are currently unavailable due to repeated failures.'
           );
         }
+        continue;
+      }
+      if (!this.beginModelCircuitAttempt(model)) {
         continue;
       }
       try {
@@ -562,6 +569,9 @@ export class OpenRouterService {
         }
         continue;
       }
+      if (!this.beginModelCircuitAttempt(model)) {
+        continue;
+      }
       try {
         const streamed = await this._completeStreamWithModel(messages, options, onDelta, model);
         this.recordModelSuccess(model);
@@ -842,7 +852,7 @@ export class OpenRouterService {
           // `additionalProperties: {}` which strict mode rejects.
           // Non-strict mode still enforces the schema shape but permits
           // open-ended objects.
-          strict: false,
+          strict: options.outputSchema.strict ?? false,
           schema: sanitizeJsonSchemaForOpenAI(z.toJSONSchema(options.outputSchema.schema)),
         },
       };
@@ -1073,48 +1083,117 @@ export class OpenRouterService {
   private isModelCircuitOpen(model: string): boolean {
     const state = this.modelCircuitBreaker.get(model);
     if (!state) return false;
+    const now = Date.now();
 
-    if (state.openUntil > Date.now()) {
+    if (state.state === 'open') {
+      if (state.openUntil > now) {
+        return true;
+      }
+
+      this.modelCircuitBreaker.set(model, {
+        ...state,
+        state: 'half_open',
+        failures: 0,
+        openUntil: 0,
+        halfOpenSuccesses: 0,
+        probeInFlight: false,
+      });
+      return false;
+    }
+
+    if (state.state === 'half_open' && state.probeInFlight) {
       return true;
     }
 
-    if (state.openUntil > 0) {
-      this.modelCircuitBreaker.set(model, {
-        failures: 0,
-        lastFailureAt: state.lastFailureAt,
-        openUntil: 0,
-      });
-    }
     return false;
+  }
+
+  private beginModelCircuitAttempt(model: string): boolean {
+    const state = this.modelCircuitBreaker.get(model);
+    if (!state) return true;
+
+    if (state.state !== 'half_open') {
+      return true;
+    }
+
+    if (state.probeInFlight) {
+      return false;
+    }
+
+    this.modelCircuitBreaker.set(model, {
+      ...state,
+      probeInFlight: true,
+    });
+    return true;
   }
 
   private recordModelSuccess(model: string): void {
     const existing = this.modelCircuitBreaker.get(model);
     if (!existing) return;
-    if (existing.failures === 0 && existing.openUntil === 0) return;
+
+    if (existing.state === 'half_open') {
+      const halfOpenSuccesses = existing.halfOpenSuccesses + 1;
+      if (halfOpenSuccesses >= MODEL_CIRCUIT_BREAKER_HALF_OPEN_SUCCESS_THRESHOLD) {
+        this.modelCircuitBreaker.set(model, {
+          state: 'closed',
+          failures: 0,
+          lastFailureAt: Date.now(),
+          openUntil: 0,
+          halfOpenSuccesses: 0,
+          probeInFlight: false,
+        });
+      } else {
+        this.modelCircuitBreaker.set(model, {
+          ...existing,
+          halfOpenSuccesses,
+          probeInFlight: false,
+        });
+      }
+      return;
+    }
+
+    if (existing.state === 'closed' && existing.failures === 0) {
+      return;
+    }
 
     this.modelCircuitBreaker.set(model, {
+      state: 'closed',
       failures: 0,
       lastFailureAt: Date.now(),
       openUntil: 0,
+      halfOpenSuccesses: 0,
+      probeInFlight: false,
     });
   }
 
   private recordModelFailure(model: string): void {
     const now = Date.now();
     const existing = this.modelCircuitBreaker.get(model);
+
+    if (existing?.state === 'half_open') {
+      this.modelCircuitBreaker.set(model, {
+        state: 'open',
+        failures: MODEL_CIRCUIT_BREAKER_FAILURE_THRESHOLD,
+        lastFailureAt: now,
+        openUntil: now + MODEL_CIRCUIT_BREAKER_WINDOW_MS,
+        halfOpenSuccesses: 0,
+        probeInFlight: false,
+      });
+      return;
+    }
+
     const withinWindow =
       !!existing && now - existing.lastFailureAt <= MODEL_CIRCUIT_BREAKER_WINDOW_MS;
     const failures = withinWindow ? existing.failures + 1 : 1;
-    const openUntil =
-      failures >= MODEL_CIRCUIT_BREAKER_FAILURE_THRESHOLD
-        ? now + MODEL_CIRCUIT_BREAKER_WINDOW_MS
-        : 0;
+    const isOpen = failures >= MODEL_CIRCUIT_BREAKER_FAILURE_THRESHOLD;
 
     this.modelCircuitBreaker.set(model, {
+      state: isOpen ? 'open' : 'closed',
       failures,
       lastFailureAt: now,
-      openUntil,
+      openUntil: isOpen ? now + MODEL_CIRCUIT_BREAKER_WINDOW_MS : 0,
+      halfOpenSuccesses: 0,
+      probeInFlight: false,
     });
   }
 

@@ -120,6 +120,18 @@ export abstract class BaseAgent {
     return [];
   }
 
+  /**
+   * Maximum number of tools to execute in parallel within a single LLM
+   * iteration. Defaults to 1 (sequential) so the user sees one step at a time
+   * and the visual stream stays in deterministic order. Override in subclasses
+   * (e.g. agents that fan out N read_distilled_section calls) when ordered
+   * concurrency is desired \u2014 parallelBatch still preserves input order so
+   * the messages array remains structurally valid for OpenRouter.
+   */
+  getToolConcurrency(): number {
+    return 1;
+  }
+
   protected withConfiguredSystemPrompt(
     basePrompt: string,
     templateValues?: Readonly<Record<string, string | undefined>>
@@ -418,8 +430,13 @@ export abstract class BaseAgent {
       onStreamEvent?.({
         type: 'step_active',
         agentId: this.id,
+        stepId: pendingToolCall.id,
         toolName: pendingToolCall.function.name,
         icon: this.resolveToolStepIcon(pendingToolCall.function.name),
+        message: this.resolveToolInvocationLabel(
+          pendingToolCall.function.name,
+          pendingToolCall.function.arguments
+        ),
       });
 
       let observation = await this.executeTool(
@@ -442,9 +459,14 @@ export abstract class BaseAgent {
       onStreamEvent?.({
         type: 'tool_result',
         agentId: this.id,
+        stepId: pendingToolCall.id,
         toolName: pendingToolCall.function.name,
         toolSuccess: true,
         icon: this.resolveToolStepIcon(pendingToolCall.function.name),
+        message: this.resolveToolInvocationLabel(
+          pendingToolCall.function.name,
+          pendingToolCall.function.arguments
+        ),
       });
 
       messages.push({
@@ -617,32 +639,45 @@ export abstract class BaseAgent {
         tools: result.toolCalls.map((t) => t.function.name),
       });
 
-      // ── Parallel tool execution ────────────────────────────────────────────
-      // When the LLM requests multiple tools in one iteration (common after scraping:
-      // 3–5 read_distilled_section calls), execute them all concurrently instead of
-      // serially. parallelBatch preserves input order so the messages array stays
-      // structurally valid — OpenRouter requires every tool_call to have a matching
-      // tool response message with the same tool_call_id.
+      // ── Tool execution (sequential by default, concurrent when opted-in) ──
+      // The agent declares its tool concurrency via getToolConcurrency() (default 1).
+      // parallelBatch preserves input order regardless of concurrency, so the
+      // messages array stays structurally valid \u2014 OpenRouter requires every
+      // tool_call to have a matching tool response message with the same id.
+      const toolConcurrency = Math.max(
+        1,
+        Math.min(this.getToolConcurrency(), result.toolCalls.length)
+      );
+      const runConcurrent = toolConcurrency > 1;
 
-      // 1. Emit step_active for ALL tools upfront so the UI shows them all as active.
-      for (const toolCall of result.toolCalls) {
-        this.throwIfAborted(context.signal);
-
-        logger.info(`[${this.id}] Executing tool: ${toolCall.function.name}`, {
-          agentId: this.id,
-          tool: toolCall.function.name,
-          args: toolCall.function.arguments,
-        });
-        onStreamEvent?.({
-          type: 'step_active',
-          agentId: this.id,
-          toolName: toolCall.function.name,
-          icon: this.resolveToolStepIcon(toolCall.function.name),
-          message: `Running ${toolCall.function.name}...`,
-        });
+      // 1. When running concurrently, emit step_active for ALL tools upfront so
+      //    the UI shows the full batch as active in invocation order. When running
+      //    sequentially, defer the step_active emission until the worker actually
+      //    starts \u2014 this keeps the visual stream in strict order (one step
+      //    spinning at a time) and avoids the "ugly" all-at-once flash.
+      if (runConcurrent) {
+        for (const toolCall of result.toolCalls) {
+          this.throwIfAborted(context.signal);
+          logger.info(`[${this.id}] Executing tool: ${toolCall.function.name}`, {
+            agentId: this.id,
+            tool: toolCall.function.name,
+            args: toolCall.function.arguments,
+          });
+          onStreamEvent?.({
+            type: 'step_active',
+            agentId: this.id,
+            stepId: toolCall.id,
+            toolName: toolCall.function.name,
+            icon: this.resolveToolStepIcon(toolCall.function.name),
+            message: this.resolveToolInvocationLabel(
+              toolCall.function.name,
+              toolCall.function.arguments
+            ),
+          });
+        }
       }
 
-      // 2. Capture session context once — shared read-only across all parallel workers.
+      // 2. Capture session context once \u2014 shared read-only across all workers.
       const sessionCtxForTools: ToolSessionContext = {
         sessionId: context.sessionId,
         threadId: context.threadId,
@@ -651,15 +686,34 @@ export abstract class BaseAgent {
         allowedEntityGroups,
       };
 
-      // 3. Fire all tools in parallel (N is typically 1–5; no throttle needed).
+      // 3. Run tools \u2014 sequential or concurrent depending on agent config.
       //    The yield-context messages snapshot is captured here, before any tool
-      //    observations are pushed — safe because ask_user is never co-emitted
+      //    observations are pushed \u2014 safe because ask_user is never co-emitted
       //    alongside data tools in the same LLM response.
       const yieldCtxSnapshot = { agentId: this.id, messages };
       const toolBatchResults = await parallelBatch(
         result.toolCalls,
-        (toolCall) =>
-          this.executeTool(
+        async (toolCall) => {
+          if (!runConcurrent) {
+            this.throwIfAborted(context.signal);
+            logger.info(`[${this.id}] Executing tool: ${toolCall.function.name}`, {
+              agentId: this.id,
+              tool: toolCall.function.name,
+              args: toolCall.function.arguments,
+            });
+            onStreamEvent?.({
+              type: 'step_active',
+              agentId: this.id,
+              stepId: toolCall.id,
+              toolName: toolCall.function.name,
+              icon: this.resolveToolStepIcon(toolCall.function.name),
+              message: this.resolveToolInvocationLabel(
+                toolCall.function.name,
+                toolCall.function.arguments
+              ),
+            });
+          }
+          return this.executeTool(
             toolCall,
             toolRegistry,
             context.userId,
@@ -669,8 +723,9 @@ export abstract class BaseAgent {
             messages,
             approvalGate,
             onStreamEvent
-          ),
-        { concurrency: result.toolCalls.length }
+          );
+        },
+        { concurrency: toolConcurrency }
       );
 
       // 4. Process results in original order, push tool messages, emit tool_result events.
@@ -746,13 +801,15 @@ export abstract class BaseAgent {
           onStreamEvent({
             type: 'tool_result',
             agentId: this.id,
+            stepId: toolCall.id,
             toolName: toolCall.function.name,
             toolSuccess,
             toolResult,
             icon: this.resolveToolStepIcon(toolCall.function.name),
-            message: toolSuccess
-              ? `${toolCall.function.name} completed`
-              : `${toolCall.function.name} failed`,
+            message: this.resolveToolInvocationLabel(
+              toolCall.function.name,
+              toolCall.function.arguments
+            ),
           });
         }
 
@@ -1205,12 +1262,13 @@ export abstract class BaseAgent {
           onStreamEvent({
             type: 'step_active',
             agentId: this.id,
+            stepId: toolCall.id,
             toolName,
             stageType: 'tool',
             stage,
             metadata,
             icon: metadata?.icon ?? this.resolveToolStepIcon(toolName, stage),
-            message: this.resolveToolStageLabel(toolName, stage, metadata),
+            message: this.resolveToolStageLabel(toolName, stage, metadata, input),
           });
         },
       }),
@@ -1285,11 +1343,204 @@ export abstract class BaseAgent {
     return 'processing';
   }
 
+  private humanizeToolName(toolName: string): string {
+    const KNOWN_TOOLS: Record<string, string> = {
+      // Firecrawl & Web
+      firecrawl_agent_research: 'Conducting web research',
+      firecrawl_search_web: 'Searching the web',
+      extract_web_data: 'Extracting structured data',
+      scrape_webpage: 'Scraping web page',
+      map_website: 'Mapping website structure',
+      search_web: 'Searching the web',
+
+      // Social & Intel
+      scrape_instagram: 'Scanning Instagram',
+      scrape_twitter: 'Scanning Twitter (X)',
+      scrape_and_index_profile: 'Indexing profile data',
+      update_intel: 'Updating intelligence file',
+      write_intel: 'Writing intelligence report',
+
+      // Memory
+      search_memory: 'Recalling memory',
+      save_memory: 'Saving to memory',
+      delete_memory: 'Updating memory records',
+
+      // Database & Platform
+      query_nxt1_data: 'Querying platform database',
+      query_nxt1_platform_data: 'Querying platform database',
+      search_colleges: 'Searching college database',
+      search_college_coaches: 'Searching coaching staff',
+      search_nxt1_platform: 'Searching platform registry',
+      write_season_stats: 'Updating athletic stats',
+      write_team_stats: 'Updating team statistics',
+      write_roster_entries: 'Updating team roster',
+      write_schedule: 'Updating season schedule',
+      write_awards: 'Adding career awards',
+
+      // Media & Video
+      generate_graphic: 'Designing graphic',
+      runway_generate_video: 'Generating AI video',
+      analyze_video: 'Analyzing game film',
+      runway_upscale_video: 'Enhancing video quality',
+      clip_video: 'Clipping video highlight',
+      import_video: 'Importing media',
+      generate_captions: 'Transcribing audio/video',
+
+      // Workspace & Documents
+      docs_create_document: 'Drafting document',
+      sheets_create_spreadsheet: 'Building spreadsheet',
+      gmail_send_email: 'Sending email',
+      create_gmail_draft: 'Drafting email',
+      query_gmail_emails: 'Checking inbox',
+      create_calendar_event: 'Scheduling event',
+      calendar_get_events: 'Checking calendar',
+
+      // Automation
+      enqueue_heavy_task: 'Queueing background operation',
+      schedule_recurring_task: 'Scheduling automation',
+      call_apify_actor: 'Running cloud automation',
+      delegate_task: 'Delegating to specialized agent',
+
+      // Live Browser
+      open_live_view: 'Opening virtual browser',
+      read_live_view: 'Scanning virtual browser',
+      navigate_live_view: 'Navigating webpage',
+
+      // Comms
+      scan_timeline_posts: 'Scanning recent posts',
+      write_timeline_post: 'Drafting new post',
+      send_email: 'Sending email',
+      dynamic_export: 'Generating data export',
+    };
+
+    if (KNOWN_TOOLS[toolName]) return KNOWN_TOOLS[toolName];
+
+    // Fallback for unknown tools
+    return toolName
+      .replace(/([a-z])([A-Z])/g, '$1 $2')
+      .replace(/[_-]+/g, ' ')
+      .split(/\s+/)
+      .filter((token) => token.length > 0)
+      .map((token) => token.charAt(0).toUpperCase() + token.slice(1))
+      .join(' ');
+  }
+
+  private resolveToolInvocationLabel(
+    toolName: string,
+    inputOrArgs?: Record<string, unknown> | string
+  ): string {
+    const baseLabel = this.humanizeToolName(toolName);
+    const descriptor = this.resolveToolInvocationDescriptor(inputOrArgs);
+    return descriptor ? `${baseLabel}: ${descriptor}` : baseLabel;
+  }
+
+  private resolveToolInvocationDescriptor(
+    inputOrArgs?: Record<string, unknown> | string
+  ): string | null {
+    let input: Record<string, unknown> | null = null;
+
+    if (typeof inputOrArgs === 'string') {
+      try {
+        const parsed = JSON.parse(inputOrArgs) as unknown;
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          input = parsed as Record<string, unknown>;
+        }
+      } catch {
+        return null;
+      }
+    } else if (inputOrArgs && typeof inputOrArgs === 'object' && !Array.isArray(inputOrArgs)) {
+      input = inputOrArgs;
+    }
+
+    if (!input) return null;
+
+    const priorityKeys = [
+      'programName',
+      'schoolName',
+      'collegeName',
+      'teamName',
+      'organizationName',
+      'school',
+      'query',
+      'url',
+      'hostname',
+      'name',
+      'title',
+      'profileName',
+      'personName',
+    ] as const;
+
+    for (const key of priorityKeys) {
+      const candidate = this.formatToolInvocationValue(input[key]);
+      if (candidate) return candidate;
+    }
+
+    for (const [key, value] of Object.entries(input)) {
+      if (!this.isMeaningfulInvocationKey(key)) continue;
+      const candidate = this.formatToolInvocationValue(value);
+      if (candidate) return candidate;
+    }
+
+    return null;
+  }
+
+  private isMeaningfulInvocationKey(key: string): boolean {
+    return ![
+      'page',
+      'limit',
+      'offset',
+      'cursor',
+      'count',
+      'ids',
+      'include',
+      'sort',
+      'order',
+      'filters',
+      'options',
+      'metadata',
+      'userId',
+      'threadId',
+      'operationId',
+    ].includes(key);
+  }
+
+  private formatToolInvocationValue(value: unknown): string | null {
+    if (typeof value === 'string') {
+      const normalized = value.trim();
+      if (!normalized) return null;
+      return normalized.length > 80 ? `${normalized.slice(0, 77)}...` : normalized;
+    }
+
+    if (typeof value === 'number' || typeof value === 'boolean') {
+      return String(value);
+    }
+
+    if (Array.isArray(value)) {
+      if (value.length === 0) return null;
+      const first = this.formatToolInvocationValue(value[0]);
+      if (!first) return `${value.length} item${value.length === 1 ? '' : 's'}`;
+      return value.length === 1 ? first : `${first} +${value.length - 1}`;
+    }
+
+    if (value && typeof value === 'object') {
+      const record = value as Record<string, unknown>;
+      for (const key of ['name', 'title', 'label', 'url', 'hostname'] as const) {
+        const candidate = this.formatToolInvocationValue(record[key]);
+        if (candidate) return candidate;
+      }
+    }
+
+    return null;
+  }
+
   private resolveToolStageLabel(
     toolName: string,
     stage: ToolStage,
-    metadata?: Record<string, unknown>
+    metadata?: Record<string, unknown>,
+    inputOrArgs?: Record<string, unknown> | string
   ): string {
+    const invocationLabel = this.resolveToolInvocationLabel(toolName, inputOrArgs);
+
     if (stage === 'invoking_sub_agent') {
       const subAgentId =
         typeof metadata?.['subAgentId'] === 'string' ? (metadata['subAgentId'] as string) : null;
@@ -1298,21 +1549,21 @@ export abstract class BaseAgent {
 
     switch (stage) {
       case 'fetching_data':
-        return `Fetching data for ${toolName}...`;
+        return `Fetching data • ${invocationLabel}`;
       case 'processing_media':
-        return `Processing media for ${toolName}...`;
+        return `Processing media • ${invocationLabel}`;
       case 'uploading_assets':
-        return `Uploading assets for ${toolName}...`;
+        return `Uploading assets • ${invocationLabel}`;
       case 'submitting_job':
-        return `Submitting ${toolName}...`;
+        return `Submitting • ${invocationLabel}`;
       case 'checking_status':
-        return `Checking status for ${toolName}...`;
+        return `Checking status • ${invocationLabel}`;
       case 'persisting_result':
-        return `Saving results from ${toolName}...`;
+        return `Saving results • ${invocationLabel}`;
       case 'deleting_resource':
-        return `Deleting resources with ${toolName}...`;
+        return `Deleting resources • ${invocationLabel}`;
       default:
-        return `Running ${toolName}...`;
+        return invocationLabel;
     }
   }
 }

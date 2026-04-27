@@ -4,6 +4,12 @@ type CoordinatorAgentId = Exclude<AgentIdentifier, 'router'>;
 
 type ToolPattern = string;
 
+export interface ToolGovernancePolicy {
+  readonly globalSystem: readonly ToolPattern[];
+  readonly coordinatorSpecialized: Readonly<Record<CoordinatorAgentId, readonly ToolPattern[]>>;
+  readonly internalOnly: readonly string[];
+}
+
 function composeToolPatterns(
   ...groups: ReadonlyArray<readonly ToolPattern[]>
 ): readonly ToolPattern[] {
@@ -20,6 +26,39 @@ function composeToolPatterns(
 
   return merged;
 }
+
+const GLOBAL_SYSTEM_TOOL_POLICY: readonly ToolPattern[] = composeToolPatterns([
+  'delegate_task',
+  'track_analytics_event',
+  'search_memory',
+  'get_recent_sync_summaries',
+  'delete_memory',
+  'dynamic_export',
+  'ask_user',
+  'search_web',
+  'scrape_webpage',
+  'open_live_view',
+  'navigate_live_view',
+  'interact_with_live_view',
+  'read_live_view',
+  'close_live_view',
+  'schedule_recurring_task',
+  'list_google_workspace_tools',
+  'run_google_workspace_tool',
+  'search_nxt1_platform',
+  'query_nxt1_platform_data',
+  'list_nxt1_data_views',
+  'query_nxt1_data',
+  'scan_timeline_posts',
+  'write_intel',
+  'update_intel',
+  'firecrawl_search_web',
+  'firecrawl_agent_research',
+  'map_website',
+  'extract_web_data',
+]);
+
+const INTERNAL_ONLY_TOOL_POLICY: readonly string[] = [];
 
 const AGENT_TOOL_POLICY: Readonly<Record<CoordinatorAgentId, readonly ToolPattern[]>> = {
   admin_coordinator: [],
@@ -66,7 +105,6 @@ const AGENT_TOOL_POLICY: Readonly<Record<CoordinatorAgentId, readonly ToolPatter
     'write_connected_source',
     'scrape_twitter',
     'scrape_instagram',
-    'search_memory',
     'save_memory',
     'search_apify_actors',
     'get_apify_actor_details',
@@ -170,4 +208,38 @@ export function getAllAgentToolPolicies(): Readonly<
   Record<CoordinatorAgentId, readonly ToolPattern[]>
 > {
   return AGENT_TOOL_POLICY;
+}
+
+export function getGlobalSystemToolPolicy(): readonly ToolPattern[] {
+  return GLOBAL_SYSTEM_TOOL_POLICY;
+}
+
+export function getInternalOnlyToolPolicy(): readonly string[] {
+  return INTERNAL_ONLY_TOOL_POLICY;
+}
+
+export function getToolGovernancePolicy(): ToolGovernancePolicy {
+  return {
+    globalSystem: GLOBAL_SYSTEM_TOOL_POLICY,
+    coordinatorSpecialized: AGENT_TOOL_POLICY,
+    internalOnly: INTERNAL_ONLY_TOOL_POLICY,
+  };
+}
+
+export function isToolClassified(toolName: string): boolean {
+  if (INTERNAL_ONLY_TOOL_POLICY.includes(toolName)) {
+    return true;
+  }
+
+  if (isToolAllowedByPatterns(toolName, GLOBAL_SYSTEM_TOOL_POLICY)) {
+    return true;
+  }
+
+  return Object.values(AGENT_TOOL_POLICY).some((patterns) =>
+    isToolAllowedByPatterns(toolName, patterns)
+  );
+}
+
+export function getAllGovernedToolPatterns(): readonly ToolPattern[] {
+  return composeToolPatterns(GLOBAL_SYSTEM_TOOL_POLICY, ...Object.values(AGENT_TOOL_POLICY));
 }

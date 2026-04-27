@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { TrackAnalyticsEventTool } from '../track-analytics-event.tool.js';
 import { GetAnalyticsSummaryTool } from '../get-analytics-summary.tool.js';
+import { GetRecentSyncSummariesTool } from '../get-recent-sync-summaries.tool.js';
 
 describe('analytics agent tools', () => {
   it('tracks a custom analytics event via a registered template', async () => {
@@ -239,5 +240,46 @@ describe('analytics agent tools', () => {
         templateBaseDomain: 'performance',
       })
     );
+  });
+
+  it('reads recent sync summaries on demand', async () => {
+    const syncDeltaEvents = {
+      listRecentSummaries: vi
+        .fn()
+        .mockResolvedValue([
+          'football sync via hudl: 2 stat changes. Highlights: passing_yards → 250',
+          'football sync via maxpreps: 1 recruiting update.',
+        ]),
+    } as any;
+
+    const tool = new GetRecentSyncSummariesTool(syncDeltaEvents);
+    const result = await tool.execute({
+      userId: 'user_123',
+      teamId: 'team_456',
+      limit: 2,
+    });
+
+    expect(result.success).toBe(true);
+    expect(syncDeltaEvents.listRecentSummaries).toHaveBeenCalledWith({
+      userId: 'user_123',
+      teamId: 'team_456',
+      limit: 2,
+    });
+    expect((result.data as { count: number }).count).toBe(2);
+    expect(result.markdown).toContain('Recent Sync Summaries');
+  });
+
+  it('validates recent sync summary input', async () => {
+    const syncDeltaEvents = {
+      listRecentSummaries: vi.fn(),
+    } as any;
+
+    const tool = new GetRecentSyncSummariesTool(syncDeltaEvents);
+    const result = await tool.execute({
+      userId: '',
+    });
+
+    expect(result.success).toBe(false);
+    expect(syncDeltaEvents.listRecentSummaries).not.toHaveBeenCalled();
   });
 });

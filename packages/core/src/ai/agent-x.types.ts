@@ -375,6 +375,8 @@ export interface AgentXToolStep {
   readonly id: string;
   /** Short human-readable label (e.g. "Searching athlete database…"). */
   readonly label: string;
+  /** Stable backend-authored localization key paired with label text when available. */
+  readonly messageKey?: string;
   /** Which agent emitted the step, when known. */
   readonly agentId?: AgentIdentifier;
   /** Which execution layer emitted this step, when structured stages are available. */
@@ -672,6 +674,14 @@ export interface AgentXDocumentPayload {
  * the threadId without waiting for the full response.
  */
 export interface AgentXStreamThreadEvent {
+  /** Event contract schema version. */
+  readonly schemaVersion?: number;
+  /** Stable unique event identifier. */
+  readonly eventId?: string;
+  /** Monotonic stream sequence number when available. */
+  readonly seq?: number;
+  /** ISO timestamp when backend emitted this event. */
+  readonly emittedAt?: string;
   readonly threadId: string;
   /** The backend operation ID for this chat request. Used for explicit cancellation via POST /cancel/:operationId. */
   readonly operationId?: string;
@@ -683,6 +693,10 @@ export interface AgentXStreamThreadEvent {
  * using a cheap/fast model. Only emitted on the first turn of a new thread.
  */
 export interface AgentXStreamTitleUpdatedEvent {
+  readonly schemaVersion?: number;
+  readonly eventId?: string;
+  readonly seq?: number;
+  readonly emittedAt?: string;
   readonly threadId: string;
   readonly title: string;
 }
@@ -692,9 +706,11 @@ export interface AgentXStreamTitleUpdatedEvent {
  * One frame per token chunk emitted by the LLM.
  */
 export interface AgentXStreamDeltaEvent {
-  readonly content: string;
-  /** ISO timestamp set by backend when the chunk was emitted to SSE. */
+  readonly schemaVersion?: number;
+  readonly eventId?: string;
+  readonly seq?: number;
   readonly emittedAt?: string;
+  readonly content: string;
 }
 
 /**
@@ -702,6 +718,11 @@ export interface AgentXStreamDeltaEvent {
  * Final frame sent after all deltas — contains usage metadata.
  */
 export interface AgentXStreamDoneEvent {
+  readonly schemaVersion?: number;
+  readonly eventId?: string;
+  readonly seq?: number;
+  readonly emittedAt?: string;
+  readonly messageKey?: string;
   readonly threadId?: string;
   /** Canonical persisted assistant message ID (Mongo ObjectId). */
   readonly messageId?: string;
@@ -724,6 +745,10 @@ export interface AgentXStreamDoneEvent {
  * Payload of the `event: error` SSE frame.
  */
 export interface AgentXStreamErrorEvent {
+  readonly schemaVersion?: number;
+  readonly eventId?: string;
+  readonly seq?: number;
+  readonly emittedAt?: string;
   readonly error: string;
   /** HTTP status code when the error originated from the initial HTTP response. */
   readonly status?: number;
@@ -736,6 +761,11 @@ export interface AgentXStreamErrorEvent {
  * Sent when the backend begins, updates, or completes a tool execution step.
  */
 export interface AgentXStreamStepEvent {
+  readonly schemaVersion?: number;
+  readonly eventId?: string;
+  readonly seq?: number;
+  readonly emittedAt?: string;
+  readonly messageKey?: string;
   /** Unique step identifier. */
   readonly id: string;
   /** Short human-readable label (e.g. "Querying athlete stats…"). */
@@ -763,6 +793,10 @@ export interface AgentXStreamStepEvent {
  * Sent when the backend wants to embed a rich interactive card in the chat.
  */
 export interface AgentXStreamCardEvent {
+  readonly schemaVersion?: number;
+  readonly eventId?: string;
+  readonly seq?: number;
+  readonly emittedAt?: string;
   /** Which agent generated the card, used for per-agent colorways. */
   readonly agentId: AgentIdentifier;
   /** Card type discriminator. */
@@ -793,6 +827,11 @@ export interface AgentXStreamCardEvent {
  * can update in real-time without polling.
  */
 export interface AgentXStreamOperationEvent {
+  readonly schemaVersion?: number;
+  readonly eventId?: string;
+  readonly seq?: number;
+  readonly emittedAt?: string;
+  readonly messageKey?: string;
   /** The thread ID this operation belongs to. */
   readonly threadId: string;
   /** Current backend-authoritative lifecycle status. */
@@ -822,6 +861,11 @@ export interface AgentXStreamOperationEvent {
  * Emitted for stage/subphase/metric commentary updates while work is in-flight.
  */
 export interface AgentXStreamProgressEvent {
+  readonly schemaVersion?: number;
+  readonly eventId?: string;
+  readonly seq?: number;
+  readonly emittedAt?: string;
+  readonly messageKey?: string;
   /** Event subtype emitted by backend (`progress_stage`, `progress_subphase`, `metric`). */
   readonly type: 'progress_stage' | 'progress_subphase' | 'metric';
   /** Operation ID associated with the progress update. */
@@ -849,6 +893,10 @@ export interface AgentXStreamProgressEvent {
  * Emitted when a newer stream lease takes over the same operation.
  */
 export interface AgentXStreamReplacedEvent {
+  readonly schemaVersion?: number;
+  readonly eventId?: string;
+  readonly seq?: number;
+  readonly emittedAt?: string;
   readonly operationId: string;
   readonly replacedByStreamId: string;
   readonly reason: 'replaced';
@@ -906,6 +954,10 @@ export interface AgentXStreamCallbacks {
  * Emitted when a tool produces a media artifact (e.g. generated graphic, video).
  */
 export interface AgentXStreamMediaEvent {
+  readonly schemaVersion?: number;
+  readonly eventId?: string;
+  readonly seq?: number;
+  readonly emittedAt?: string;
   readonly type: 'image' | 'video';
   readonly url: string;
   readonly mimeType?: string;

@@ -55,6 +55,7 @@ const STREAM_IDLE_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes — auto-cleanup zo
 const LIVE_BUFFER_MAX_EVENTS = 500;
 const PAUSE_YIELD_TTL_MS = 24 * 60 * 60 * 1000;
 const PAUSE_RESUME_TOOL_NAME = 'resume_paused_operation';
+const AGENT_STREAM_EVENT_SCHEMA_VERSION = 2;
 
 const activeUserStreams = new Map<string, Set<string>>();
 
@@ -384,10 +385,50 @@ async function reconcileAgentOutbox(
 
 function emitReplayEvent(res: Response, rawEvt: unknown): void {
   const evt = (rawEvt ?? {}) as Record<string, unknown>;
+  const withEnvelope = (payload: Record<string, unknown>): Record<string, unknown> => ({
+    schemaVersion: AGENT_STREAM_EVENT_SCHEMA_VERSION,
+    eventId:
+      typeof evt['eventId'] === 'string' && evt['eventId'].length > 0
+        ? evt['eventId']
+        : crypto.randomUUID(),
+    emittedAt:
+      typeof evt['emittedAt'] === 'string' && evt['emittedAt'].length > 0
+        ? evt['emittedAt']
+        : new Date().toISOString(),
+    ...(typeof evt['seq'] === 'number' ? { seq: evt['seq'] } : {}),
+    ...payload,
+  });
+
+  const buildStepEnvelope = (
+    status: 'active' | 'success' | 'error'
+  ): Record<string, unknown> | null => {
+    const stepId = typeof evt['stepId'] === 'string' ? evt['stepId'].trim() : '';
+    const label = typeof evt['message'] === 'string' ? evt['message'].trim() : '';
+    if (!stepId || !label) return null;
+
+    return {
+      ...withEnvelope({}),
+      ...(typeof evt['messageKey'] === 'string' ? { messageKey: evt['messageKey'] } : {}),
+      id: stepId,
+      label,
+      ...(typeof evt['agentId'] === 'string' ? { agentId: evt['agentId'] } : {}),
+      ...(typeof evt['stageType'] === 'string' ? { stageType: evt['stageType'] } : {}),
+      ...(typeof evt['stage'] === 'string' ? { stage: evt['stage'] } : {}),
+      ...(typeof evt['outcomeCode'] === 'string' ? { outcomeCode: evt['outcomeCode'] } : {}),
+      ...(evt['metadata'] && typeof evt['metadata'] === 'object'
+        ? { metadata: evt['metadata'] }
+        : {}),
+      ...(typeof evt['icon'] === 'string' ? { icon: evt['icon'] } : {}),
+      status,
+    };
+  };
+
   switch (evt['type']) {
     case 'delta':
       if (typeof evt['text'] === 'string') {
-        res.write(`event: delta\ndata: ${JSON.stringify({ content: evt['text'] })}\n\n`);
+        res.write(
+          `event: delta\ndata: ${JSON.stringify(withEnvelope({ content: evt['text'] }))}\n\n`
+        );
       }
       break;
     case 'step_active':
@@ -395,24 +436,32 @@ function emitReplayEvent(res: Response, rawEvt: unknown): void {
     case 'step_error': {
       const type = String(evt['type']);
       const status = type === 'step_active' ? 'active' : type === 'step_done' ? 'success' : 'error';
-      res.write(
-        `event: step\ndata: ${JSON.stringify({
-          id: evt['toolName'] ?? evt['agentId'] ?? type,
-          label: evt['message'] ?? type,
-          status,
-          agentId: evt['agentId'],
-        })}\n\n`
-      );
+      const payload = buildStepEnvelope(status);
+      if (!payload) break;
+      res.write(`event: step\ndata: ${JSON.stringify(payload)}\n\n`);
       break;
     }
+    case 'tool_result': {
+      const payload = buildStepEnvelope(evt['toolSuccess'] === false ? 'error' : 'success');
+      if (!payload) break;
+      res.write(`event: step\ndata: ${JSON.stringify(payload)}\n\n`);
+      break;
+    }
+    case 'tool_call':
+      break;
     case 'card':
       if (evt['cardData'] && typeof evt['cardData'] === 'object') {
-        res.write(`event: card\ndata: ${JSON.stringify(evt['cardData'])}\n\n`);
+        res.write(
+          `event: card\ndata: ${JSON.stringify(
+            withEnvelope(evt['cardData'] as Record<string, unknown>)
+          )}\n\n`
+        );
       }
       break;
     case 'title_updated':
       res.write(
         `event: title_updated\ndata: ${JSON.stringify({
+          ...withEnvelope({}),
           operationId: evt['operationId'],
           threadId: evt['threadId'],
           title: evt['title'],
@@ -424,6 +473,7 @@ function emitReplayEvent(res: Response, rawEvt: unknown): void {
     case 'operation':
       res.write(
         `event: operation\ndata: ${JSON.stringify({
+          ...withEnvelope({}),
           operationId: evt['operationId'],
           threadId: evt['threadId'],
           status: evt['status'],
@@ -444,6 +494,7 @@ function emitReplayEvent(res: Response, rawEvt: unknown): void {
     case 'metric':
       res.write(
         `event: progress\ndata: ${JSON.stringify({
+          ...withEnvelope({}),
           operationId: evt['operationId'],
           threadId: evt['threadId'],
           type: evt['type'],
@@ -459,7 +510,7 @@ function emitReplayEvent(res: Response, rawEvt: unknown): void {
       );
       break;
     case 'done':
-      res.write(`event: done\ndata: ${JSON.stringify(evt)}\n\n`);
+      res.write(`event: done\ndata: ${JSON.stringify(withEnvelope(evt))}\n\n`);
       break;
     default:
       break;
@@ -634,9 +685,29 @@ async function streamOperationToSse(params: {
     })
     .catch(() => undefined);
 
+  let sseSeq = afterSeq;
+  const buildStreamEnvelope = (preferredSeq?: number) => {
+    if (typeof preferredSeq === 'number' && preferredSeq > sseSeq) {
+      sseSeq = preferredSeq;
+    } else {
+      sseSeq += 1;
+    }
+
+    return {
+      schemaVersion: AGENT_STREAM_EVENT_SCHEMA_VERSION,
+      eventId: crypto.randomUUID(),
+      seq: sseSeq,
+      emittedAt: new Date().toISOString(),
+    };
+  };
+
   if (initialThreadId) {
     res.write(
-      `event: thread\ndata: ${JSON.stringify({ threadId: initialThreadId, operationId })}\n\n`
+      `event: thread\ndata: ${JSON.stringify({
+        ...buildStreamEnvelope(),
+        threadId: initialThreadId,
+        operationId,
+      })}\n\n`
     );
     forceProxyFlush(res);
   }
@@ -649,6 +720,7 @@ async function streamOperationToSse(params: {
   if (replayInitialLifecycleStatus && initialThreadId) {
     res.write(
       `event: operation\ndata: ${JSON.stringify({
+        ...buildStreamEnvelope(),
         threadId: initialThreadId,
         operationId,
         status: replayInitialLifecycleStatus,
@@ -677,6 +749,7 @@ async function streamOperationToSse(params: {
     try {
       res.write(
         `event: stream_replaced\ndata: ${JSON.stringify({
+          ...buildStreamEnvelope(),
           operationId,
           replacedByStreamId,
           reason,
@@ -761,7 +834,16 @@ async function streamOperationToSse(params: {
     }
 
     try {
-      res.write(`event: ${msg.event}\ndata: ${JSON.stringify(msg.data)}\n\n`);
+      const payload =
+        msg.data && typeof msg.data === 'object'
+          ? ({ ...(msg.data as Record<string, unknown>) } as Record<string, unknown>)
+          : { value: msg.data };
+      const normalizedPayload = {
+        ...buildStreamEnvelope(seq ?? undefined),
+        ...payload,
+      };
+
+      res.write(`event: ${msg.event}\ndata: ${JSON.stringify(normalizedPayload)}\n\n`);
       if (isTerminal) {
         streamTerminalSeen = true;
         streamObservability.streamCompletedTotal += 1;
@@ -856,6 +938,7 @@ async function streamOperationToSse(params: {
     }
     res.write(
       `event: done\ndata: ${JSON.stringify({
+        ...buildStreamEnvelope(),
         operationId,
         threadId: job.threadId ?? undefined,
         status: terminalLifecycleStatus ?? job.status,
@@ -954,6 +1037,7 @@ async function streamOperationToSse(params: {
         }
         res.write(
           `event: done\ndata: ${JSON.stringify({
+            ...buildStreamEnvelope(),
             operationId,
             threadId: latestJob?.threadId ?? undefined,
             status: latestJob?.status ?? 'completed',
@@ -2188,7 +2272,13 @@ router.post(
       } else {
         try {
           res.write(
-            `event: error\ndata: ${JSON.stringify({ error: 'Failed to process message', code: 'AI_SERVICE_ERROR' })}\n\n`
+            `event: error\ndata: ${JSON.stringify({
+              schemaVersion: AGENT_STREAM_EVENT_SCHEMA_VERSION,
+              eventId: crypto.randomUUID(),
+              emittedAt: new Date().toISOString(),
+              error: 'Failed to process message',
+              code: 'AI_SERVICE_ERROR',
+            })}\n\n`
           );
           forceProxyFlush(res);
           res.end();

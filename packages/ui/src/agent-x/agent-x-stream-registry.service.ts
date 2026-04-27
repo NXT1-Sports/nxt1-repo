@@ -250,6 +250,17 @@ export class AgentXStreamRegistryService {
   upsertStep(threadId: string, step: AgentXToolStep): void {
     const entry = this.entries.get(threadId);
     if (!entry) return;
+    // Only real tool invocations become visible rows. Router-stage chatter
+    // (Reviewing, Routing, Planning, etc.) is internal telemetry and is
+    // hidden from the chat — the streaming prose IS the thinking indicator.
+    if (step.stageType !== 'tool') {
+      entry.listener?.onStep(step);
+      const operationId = this.threadToOperation.get(threadId);
+      if (operationId) {
+        this.operationObservers.get(operationId)?.forEach((obs) => obs.onStep(step));
+      }
+      return;
+    }
     const idx = entry.steps.findIndex((s) => s.id === step.id);
     if (idx >= 0) {
       entry.steps[idx] = step;
@@ -257,19 +268,33 @@ export class AgentXStreamRegistryService {
       entry.steps.push(step);
     }
 
-    // Build interleaved parts: upsert into last tool-steps group or start new one
-    const last = entry.parts[entry.parts.length - 1];
-    if (last?.type === 'tool-steps') {
-      const prevSteps = [...last.steps];
-      const si = prevSteps.findIndex((s) => s.id === step.id);
-      if (si >= 0) {
-        prevSteps[si] = step;
+    // Build interleaved parts. Search ALL existing tool-steps groups for this step id
+    // first — when a tool_result arrives after intervening text deltas, we must update
+    // the original step in place rather than spawn a duplicate group. Only when the id
+    // is brand-new do we either extend the trailing group or start a new one.
+    let updatedExisting = false;
+    for (let i = 0; i < entry.parts.length; i++) {
+      const part = entry.parts[i];
+      if (part.type !== 'tool-steps') continue;
+      const si = part.steps.findIndex((s) => s.id === step.id);
+      if (si < 0) continue;
+      const nextSteps = [...part.steps];
+      nextSteps[si] = step;
+      entry.parts[i] = { type: 'tool-steps', steps: nextSteps };
+      updatedExisting = true;
+      break;
+    }
+
+    if (!updatedExisting) {
+      const last = entry.parts[entry.parts.length - 1];
+      if (last?.type === 'tool-steps') {
+        entry.parts[entry.parts.length - 1] = {
+          type: 'tool-steps',
+          steps: [...last.steps, step],
+        };
       } else {
-        prevSteps.push(step);
+        entry.parts.push({ type: 'tool-steps', steps: [step] });
       }
-      entry.parts[entry.parts.length - 1] = { type: 'tool-steps', steps: prevSteps };
-    } else {
-      entry.parts.push({ type: 'tool-steps', steps: [step] });
     }
 
     entry.listener?.onStep(step);

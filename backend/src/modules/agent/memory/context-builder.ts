@@ -259,6 +259,17 @@ export class ContextBuilder {
     return { profile, memories, recentSyncSummaries };
   }
 
+  async getMemoriesForContext(
+    context: AgentUserContext,
+    query: string
+  ): Promise<AgentRetrievedMemories> {
+    return this.retrieveMemories(context, query);
+  }
+
+  async getRecentSyncSummariesForContext(context: AgentUserContext): Promise<readonly string[]> {
+    return this.retrieveRecentSyncSummaries(context);
+  }
+
   async invalidateContext(userId: string): Promise<void> {
     try {
       const cache = getCacheService();

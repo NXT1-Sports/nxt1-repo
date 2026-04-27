@@ -90,47 +90,27 @@ export class PersistedAssistantStreamBuilder {
       }
 
       case 'step_active': {
-        const stepId = this.nextStepId(event.toolName ?? 'step');
-        if (event.toolName) {
-          const queue = this.pendingStepIds.get(event.toolName) ?? [];
-          queue.push(stepId);
-          this.pendingStepIds.set(event.toolName, queue);
-        }
-        this.upsertStep(
-          this.buildStep(
-            event,
-            stepId,
-            'active',
-            event.message ?? event.toolName ?? 'Processing...'
-          )
-        );
+        const label = this.resolveStepLabel(event);
+        if (!label) return;
+        const stepId = this.resolveStartedStepId(event, event.toolName ?? 'step');
+        this.upsertStep(this.buildStep(event, stepId, 'active', label));
         return;
       }
 
       case 'tool_call': {
-        const stepId = this.nextStepId(event.toolName ?? 'tool');
-        if (event.toolName) {
-          const queue = this.pendingStepIds.get(event.toolName) ?? [];
-          queue.push(stepId);
-          this.pendingStepIds.set(event.toolName, queue);
-        }
-        this.upsertStep(
-          this.buildStep(event, stepId, 'active', `Running ${event.toolName ?? 'tool'}...`)
-        );
         return;
       }
 
       case 'tool_result': {
-        const stepId = event.toolName
-          ? (this.pendingStepIds.get(event.toolName)?.shift() ?? this.nextStepId(event.toolName))
-          : this.nextStepId('tool');
+        const label = this.resolveStepLabel(event);
+        if (!label) return;
+        const stepId = this.resolveCompletedStepId(event, 'tool');
         this.upsertStep(
           this.buildStep(
             event,
             stepId,
             event.toolSuccess ? 'success' : 'error',
-            event.message ??
-              `${event.toolName ?? 'Tool'} ${event.toolSuccess ? 'completed' : 'failed'}`,
+            label,
             event.toolResult ? summarizeToolResult(event.toolResult) : undefined
           )
         );
@@ -138,22 +118,18 @@ export class PersistedAssistantStreamBuilder {
       }
 
       case 'step_done': {
-        const stepId = event.toolName
-          ? (this.pendingStepIds.get(event.toolName)?.shift() ?? this.nextStepId(event.toolName))
-          : this.nextStepId('step');
-        this.upsertStep(
-          this.buildStep(event, stepId, 'success', event.message ?? 'Step completed')
-        );
+        const label = this.resolveStepLabel(event);
+        if (!label) return;
+        const stepId = this.resolveCompletedStepId(event, 'step');
+        this.upsertStep(this.buildStep(event, stepId, 'success', label));
         return;
       }
 
       case 'step_error': {
-        const stepId = event.toolName
-          ? (this.pendingStepIds.get(event.toolName)?.shift() ?? this.nextStepId(event.toolName))
-          : this.nextStepId('step');
-        this.upsertStep(
-          this.buildStep(event, stepId, 'error', event.message ?? event.error ?? 'Step failed')
-        );
+        const label = this.resolveStepLabel(event);
+        if (!label) return;
+        const stepId = this.resolveCompletedStepId(event, 'step');
+        this.upsertStep(this.buildStep(event, stepId, 'error', label));
         return;
       }
 
@@ -187,6 +163,34 @@ export class PersistedAssistantStreamBuilder {
     return id;
   }
 
+  private resolveStartedStepId(event: StreamEvent, prefix: string): string {
+    if (typeof event.stepId === 'string' && event.stepId.trim().length > 0) {
+      return event.stepId;
+    }
+
+    const stepId = this.nextStepId(prefix);
+    if (event.toolName) {
+      const queue = this.pendingStepIds.get(event.toolName) ?? [];
+      queue.push(stepId);
+      this.pendingStepIds.set(event.toolName, queue);
+    }
+    return stepId;
+  }
+
+  private resolveCompletedStepId(event: StreamEvent, fallbackPrefix: string): string {
+    if (typeof event.stepId === 'string' && event.stepId.trim().length > 0) {
+      return event.stepId;
+    }
+
+    if (event.toolName) {
+      const pending = this.pendingStepIds.get(event.toolName)?.shift();
+      if (pending) return pending;
+      return this.nextStepId(event.toolName);
+    }
+
+    return this.nextStepId(fallbackPrefix);
+  }
+
   private buildStep(
     event: StreamEvent,
     id: string,
@@ -197,6 +201,7 @@ export class PersistedAssistantStreamBuilder {
     return {
       id,
       label: sanitizeAgentOutputText(label),
+      messageKey: event.messageKey,
       agentId: event.agentId,
       stageType: event.stageType,
       stage: event.stage,
@@ -208,6 +213,12 @@ export class PersistedAssistantStreamBuilder {
     };
   }
 
+  private resolveStepLabel(event: StreamEvent): string | null {
+    const label =
+      typeof event.message === 'string' ? sanitizeAgentOutputText(event.message).trim() : '';
+    return label.length > 0 ? label : null;
+  }
+
   private upsertStep(step: AgentXToolStep): void {
     const index = this.steps.findIndex((candidate) => candidate.id === step.id);
     if (index >= 0) {
@@ -216,16 +227,26 @@ export class PersistedAssistantStreamBuilder {
       this.steps.push(step);
     }
 
+    // Search ALL tool-steps groups for an existing step with this id. When a
+    // tool_result arrives after intervening text deltas, we must update the
+    // original step in place rather than create a duplicate in a new group.
+    for (let i = 0; i < this.parts.length; i++) {
+      const part = this.parts[i];
+      if (part.type !== 'tool-steps') continue;
+      const existingIndex = part.steps.findIndex((candidate) => candidate.id === step.id);
+      if (existingIndex < 0) continue;
+      const nextSteps = [...part.steps];
+      nextSteps[existingIndex] = step;
+      this.parts[i] = { type: 'tool-steps', steps: nextSteps };
+      return;
+    }
+
     const last = this.parts[this.parts.length - 1];
     if (last?.type === 'tool-steps') {
-      const nextSteps = [...last.steps];
-      const existingIndex = nextSteps.findIndex((candidate) => candidate.id === step.id);
-      if (existingIndex >= 0) {
-        nextSteps[existingIndex] = step;
-      } else {
-        nextSteps.push(step);
-      }
-      this.parts[this.parts.length - 1] = { type: 'tool-steps', steps: nextSteps };
+      this.parts[this.parts.length - 1] = {
+        type: 'tool-steps',
+        steps: [...last.steps, step],
+      };
       return;
     }
 

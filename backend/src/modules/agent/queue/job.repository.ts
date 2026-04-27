@@ -41,6 +41,7 @@ import type { AgentJobProgress } from './queue.types.js';
 
 const COLLECTION = 'AgentJobs' as const;
 const EVENTS_SUBCOLLECTION = 'events' as const;
+const JOB_EVENT_SCHEMA_VERSION = 2;
 const ACTIVE_JOB_RETENTION_DAYS = 14;
 const TERMINAL_JOB_RETENTION_DAYS = 30;
 const LOCKED_PROGRESS_STATUSES = new Set<AgentOperationStatus>([
@@ -106,14 +107,24 @@ export type JobEventType =
  * the live agent execution as a chat-like experience.
  */
 export interface JobEvent {
+  /** Event contract schema version for backward-compatible parsing. */
+  readonly schemaVersion?: number;
+  /** Stable unique event identifier (matches Firestore event doc id). */
+  readonly eventId?: string;
   /** Monotonically increasing sequence number (0-based). */
   readonly seq: number;
+  /** ISO timestamp when backend emitted this event. */
+  readonly emittedAt?: string;
   /** Owner's Firebase UID — stamped on write so Firestore rules can check without a parent doc get(). */
   readonly userId: string;
   /** What kind of event this is. */
   readonly type: JobEventType;
   /** Agent identifier if known (e.g. 'recruiting', 'performance'). */
   readonly agentId?: string;
+  /** Stable logical step identity shared by live and replay rendering. */
+  readonly stepId?: string;
+  /** Stable backend-authored localization key paired with message text when available. */
+  readonly messageKey?: string;
   /** Which execution layer emitted the event, when structured stages are available. */
   readonly stageType?: AgentProgressStageType;
   /** Typed machine-readable stage key for frontend dictionaries. */
@@ -470,11 +481,22 @@ export class AgentJobRepository {
    * Uses auto-generated document IDs — ordering is guaranteed by the `seq` field.
    */
   async writeJobEvent(operationId: string, event: Omit<JobEvent, 'createdAt'>): Promise<void> {
+    const eventRef = this.db
+      .collection(COLLECTION)
+      .doc(operationId)
+      .collection(EVENTS_SUBCOLLECTION)
+      .doc();
+
     await this.db
       .collection(COLLECTION)
       .doc(operationId)
       .collection(EVENTS_SUBCOLLECTION)
-      .add({
+      .doc(eventRef.id)
+      .set({
+        schemaVersion: JOB_EVENT_SCHEMA_VERSION,
+        eventId: eventRef.id,
+        emittedAt: new Date().toISOString(),
+        operationId: event.operationId ?? operationId,
         ...event,
         createdAt: FieldValue.serverTimestamp(),
       });
@@ -566,6 +588,10 @@ export class AgentJobRepository {
 
       const eventRef = parentRef.collection(EVENTS_SUBCOLLECTION).doc();
       txn.set(eventRef, {
+        schemaVersion: JOB_EVENT_SCHEMA_VERSION,
+        eventId: eventRef.id,
+        emittedAt: new Date().toISOString(),
+        operationId: event.operationId ?? operationId,
         ...event,
         seq: nextSeq,
         createdAt: FieldValue.serverTimestamp(),
@@ -595,6 +621,10 @@ export class AgentJobRepository {
     for (const event of events) {
       const docRef = parentRef.collection(EVENTS_SUBCOLLECTION).doc();
       batch.set(docRef, {
+        schemaVersion: JOB_EVENT_SCHEMA_VERSION,
+        eventId: docRef.id,
+        emittedAt: new Date().toISOString(),
+        operationId: event.operationId ?? operationId,
         ...event,
         createdAt: FieldValue.serverTimestamp(),
       });

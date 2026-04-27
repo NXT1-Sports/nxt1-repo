@@ -46,11 +46,7 @@ import type { OperationLogStatus } from '@nxt1/core';
 import { NxtLoggingService } from '../services/logging/logging.service';
 import { NxtBreadcrumbService } from '../services/breadcrumb/breadcrumb.service';
 import { Subject } from 'rxjs';
-import {
-  getToolStepDisplayLabel,
-  normalizeAgentIdentifier,
-  normalizeToolStepIcon,
-} from './agent-x-agent-presentation';
+import { normalizeAgentIdentifier, normalizeToolStepIcon } from './agent-x-agent-presentation';
 
 // ─── Title Updated Event ────────────────────────────────────────────────────
 
@@ -317,27 +313,26 @@ export class AgentXOperationEventService {
 
           case 'step_active':
           case 'tool_call': {
+            // Hide router-stage chatter (Reviewing, Routing, Planning) from
+            // the rebuilt step list — only real tool calls are visible rows.
+            if (event.type === 'step_active' && event.stageType !== 'tool') break;
+            const label = this.resolveBackendStepLabel(event);
+            if (!label) break;
             const stepId = `${event.toolName ?? 'step'}-${event.seq}`;
             if (event.toolName) {
               const q = pendingStepIds.get(event.toolName) ?? [];
               q.push(stepId);
               pendingStepIds.set(event.toolName, q);
             }
-            steps.push(
-              this.buildToolStep(
-                event,
-                stepId,
-                'active',
-                event.type === 'tool_call'
-                  ? `Running ${event.toolName ?? 'tool'}...`
-                  : (event.message ?? event.toolName ?? 'Processing...')
-              )
-            );
+            steps.push(this.buildToolStep(event, stepId, 'active', label));
             break;
           }
 
           case 'tool_result':
           case 'step_done': {
+            if (event.type === 'step_done' && event.stageType !== 'tool') break;
+            const label = this.resolveBackendStepLabel(event);
+            if (!label) break;
             const q = event.toolName ? pendingStepIds.get(event.toolName) : undefined;
             const stepId = q?.shift() ?? `${event.toolName ?? 'step'}-${event.seq}`;
             const idx = steps.findIndex((s) => s.id === stepId);
@@ -345,7 +340,7 @@ export class AgentXOperationEventService {
               event,
               stepId,
               event.toolSuccess === false ? 'error' : 'success',
-              event.message ?? `${event.toolName ?? 'Step'} completed`,
+              label,
               event.type === 'tool_result' && event.toolResult
                 ? this.summarizeToolResult(event.toolResult)
                 : undefined
@@ -356,6 +351,7 @@ export class AgentXOperationEventService {
           }
 
           case 'step_error': {
+            if (event.stageType !== 'tool') break;
             const q = event.toolName ? pendingStepIds.get(event.toolName) : undefined;
             const stepId = q?.shift() ?? `${event.toolName ?? 'step'}-${event.seq}`;
             const idx = steps.findIndex((s) => s.id === stepId);
@@ -645,6 +641,15 @@ export class AgentXOperationEventService {
     operationId: string,
     pendingStepIds: Map<string, string[]>
   ): void {
+    // Router-stage chatter (Reviewing, Routing, Planning, etc.) is internal
+    // telemetry and is hidden from the chat — the streaming prose IS the
+    // thinking indicator. Only real tool invocations become visible rows.
+    // This matches VS Code Copilot's chat UX and keeps SSE + Firestore replay
+    // visually consistent.
+    const isRouterChatter =
+      (event.type === 'step_active' || event.type === 'step_done' || event.type === 'step_error') &&
+      event.stageType !== 'tool';
+
     switch (event.type) {
       case 'delta':
         if (event.text) {
@@ -653,37 +658,35 @@ export class AgentXOperationEventService {
         break;
 
       case 'step_active': {
+        if (isRouterChatter) break;
+        const label = this.resolveBackendStepLabel(event);
+        if (!label) break;
         const stepId = `${event.toolName ?? 'step'}-${event.seq}`;
         if (event.toolName) {
           const queue = pendingStepIds.get(event.toolName) ?? [];
           queue.push(stepId);
           pendingStepIds.set(event.toolName, queue);
         }
-        callbacks.onStep(
-          this.buildToolStep(
-            event,
-            stepId,
-            'active',
-            event.message ?? event.toolName ?? 'Processing...'
-          )
-        );
+        callbacks.onStep(this.buildToolStep(event, stepId, 'active', label));
         break;
       }
 
       case 'tool_call': {
+        const label = this.resolveBackendStepLabel(event);
+        if (!label) break;
         const stepId = `${event.toolName ?? 'tool'}-${event.seq}`;
         if (event.toolName) {
           const queue = pendingStepIds.get(event.toolName) ?? [];
           queue.push(stepId);
           pendingStepIds.set(event.toolName, queue);
         }
-        callbacks.onStep(
-          this.buildToolStep(event, stepId, 'active', `Running ${event.toolName ?? 'tool'}...`)
-        );
+        callbacks.onStep(this.buildToolStep(event, stepId, 'active', label));
         break;
       }
 
       case 'tool_result': {
+        const label = this.resolveBackendStepLabel(event);
+        if (!label) break;
         // Pair with the earliest pending step_active/tool_call for this tool
         const queue = event.toolName ? pendingStepIds.get(event.toolName) : undefined;
         const stepId = queue?.shift() ?? `${event.toolName ?? 'tool'}-${event.seq}`;
@@ -692,7 +695,7 @@ export class AgentXOperationEventService {
             event,
             stepId,
             event.toolSuccess ? 'success' : 'error',
-            event.toolSuccess ? 'Step completed' : 'Step failed',
+            label,
             event.toolResult ? this.summarizeToolResult(event.toolResult) : undefined
           )
         );
@@ -700,16 +703,22 @@ export class AgentXOperationEventService {
       }
 
       case 'step_done': {
+        if (isRouterChatter) break;
+        const label = this.resolveBackendStepLabel(event);
+        if (!label) break;
         const queue = event.toolName ? pendingStepIds.get(event.toolName) : undefined;
         const stepId = queue?.shift() ?? `${event.toolName ?? 'step'}-${event.seq}`;
-        callbacks.onStep(this.buildToolStep(event, stepId, 'success', 'Step completed'));
+        callbacks.onStep(this.buildToolStep(event, stepId, 'success', label));
         break;
       }
 
       case 'step_error': {
+        if (isRouterChatter) break;
+        const label = this.resolveBackendStepLabel(event);
+        if (!label) break;
         const queue = event.toolName ? pendingStepIds.get(event.toolName) : undefined;
         const stepId = queue?.shift() ?? `${event.toolName ?? 'step'}-${event.seq}`;
-        callbacks.onStep(this.buildToolStep(event, stepId, 'error', 'Step failed'));
+        callbacks.onStep(this.buildToolStep(event, stepId, 'error', label));
         break;
       }
 
@@ -830,9 +839,11 @@ export class AgentXOperationEventService {
       ...(detail ? { detail } : {}),
     };
 
-    return {
-      ...step,
-      label: getToolStepDisplayLabel(step),
-    };
+    return step;
+  }
+
+  private resolveBackendStepLabel(event: Pick<JobEvent, 'message'>): string | null {
+    const label = typeof event.message === 'string' ? event.message.trim() : '';
+    return label.length > 0 ? label : null;
   }
 }

@@ -1611,7 +1611,7 @@ export class AgentWorker {
           event: 'step',
           data: {
             ...seqPayload,
-            id: event.agentId ?? 'unknown',
+            id: event.stepId ?? event.agentId ?? 'unknown',
             label: event.message ?? '',
             agentId: event.agentId,
             status: 'active',
@@ -1623,7 +1623,7 @@ export class AgentWorker {
           event: 'step',
           data: {
             ...seqPayload,
-            id: event.agentId ?? 'unknown',
+            id: event.stepId ?? event.agentId ?? 'unknown',
             label: event.message ?? '',
             agentId: event.agentId,
             status: 'success',
@@ -1635,7 +1635,7 @@ export class AgentWorker {
           event: 'step',
           data: {
             ...seqPayload,
-            id: event.agentId ?? 'unknown',
+            id: event.stepId ?? event.agentId ?? 'unknown',
             label: event.message ?? '',
             agentId: event.agentId,
             status: 'error',
@@ -1647,8 +1647,8 @@ export class AgentWorker {
           event: 'step',
           data: {
             ...seqPayload,
-            id: event.toolName ?? 'tool',
-            label: event.message ?? event.toolName ?? 'Running tool',
+            id: event.stepId ?? event.toolName ?? 'tool',
+            label: event.message ?? '',
             agentId: event.agentId,
             status: 'active',
             icon: event.icon,
@@ -1659,8 +1659,8 @@ export class AgentWorker {
           event: 'step',
           data: {
             ...seqPayload,
-            id: event.toolName ?? 'tool',
-            label: event.message ?? event.toolName ?? 'Tool complete',
+            id: event.stepId ?? event.toolName ?? 'tool',
+            label: event.message ?? '',
             agentId: event.agentId,
             status: event.toolSuccess ? 'success' : 'error',
             icon: event.icon,

@@ -120,7 +120,7 @@ import { buildLinkSourcesFormData, type OnboardingUserType } from '@nxt1/core';
 import type { LinkSourcesFormData } from '@nxt1/core/api';
 import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/assets';
 import type { AgentXPendingFile } from './agent-x-pending-file';
-import { getThinkingLabel, getToolStepDisplayLabel } from './agent-x-agent-presentation';
+import { getThinkingLabel } from './agent-x-agent-presentation';
 import {
   AgentXAttachmentsSheetComponent,
   type ConnectedAppSource,
@@ -466,7 +466,9 @@ const PAUSE_RESUME_TOOL_NAME = 'resume_paused_operation';
                 />
               </svg>
             </div>
-            <span class="thinking-block__label">{{ thinkingLabel() }}</span>
+            @if (thinkingLabel()) {
+              <span class="thinking-block__label">{{ thinkingLabel() }}</span>
+            }
           </div>
         }
 
@@ -1950,6 +1952,29 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
    */
   private _shadowFirestoreSub: OperationEventSubscription | null = null;
 
+  /**
+   * Forward Watermark Reconciliation state for the active SSE turn.
+   *
+   * - `optimisticChars` — total characters already rendered to the UI via
+   *   the live SSE delta stream.
+   * - `confirmedChars`  — total characters silently observed by the shadow
+   *   Firestore listener (advances 300 ms behind SSE as the
+   *   DebouncedEventWriter flushes batches).
+   *
+   * When SSE drops mid-stream, the Firestore fallback uses these counts to
+   * slice each incoming batch by length and emit ONLY the new tail beyond
+   * `optimisticChars`. The user never sees a flicker, rollback, or
+   * duplicated word — text generation is append-only, so length-based
+   * reconciliation is mathematically exact.
+   *
+   * Reset to `null` at the start of every new turn and on every terminal
+   * stream event (done, fatal error, stream-replaced).
+   */
+  private _streamTurnWatermark: {
+    optimisticChars: number;
+    confirmedChars: number;
+  } | null = null;
+
   // ============================================
   // INPUTS (from componentProps)
   // ============================================
@@ -2210,7 +2235,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   /** Whether a drag operation is hovering over the chat surface. */
   protected readonly isDragActive = signal(false);
 
-  /** Whether to show the persistent "Agent X is thinking" indicator. */
+  /** Whether to show the persistent backend-driven progress indicator. */
   protected readonly showThinking = computed(() => {
     if (this.contextType !== 'operation') return false;
     if (this.operationStatus !== 'processing') return false;
@@ -2503,28 +2528,14 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
         },
         onStep: (step) => {
           this.flushPendingTypingDelta();
+          if (!step.label.trim()) return;
           this.messages.update((msgs) =>
             msgs.map((m) => {
               if (m.id !== 'typing') return m;
               const prev = m.steps ?? [];
               const idx = prev.findIndex((s) => s.id === step.id);
               const next = idx >= 0 ? prev.map((s, i) => (i === idx ? step : s)) : [...prev, step];
-              // Rebuild parts for live updates
-              const prevParts = [...(m.parts ?? [])];
-              const lastPart = prevParts[prevParts.length - 1];
-              if (lastPart?.type === 'tool-steps') {
-                const prevSteps = [...lastPart.steps];
-                const si = prevSteps.findIndex((s) => s.id === step.id);
-                if (si >= 0) {
-                  prevSteps[si] = step;
-                } else {
-                  prevSteps.push(step);
-                }
-                prevParts[prevParts.length - 1] = { type: 'tool-steps', steps: prevSteps };
-              } else {
-                prevParts.push({ type: 'tool-steps', steps: [step] });
-              }
-              return { ...m, steps: next, parts: prevParts };
+              return { ...m, steps: next, parts: this.withUpsertedToolStepPart(m.parts, step) };
             })
           );
         },
@@ -2856,7 +2867,8 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
    */
   private _subscribeToFirestoreJobEvents(
     explicitOperationId?: string,
-    startAfterSeq?: number
+    startAfterSeq?: number,
+    deltaWatermark?: { optimisticChars: number; confirmedChars: number } | null
   ): void {
     const operationId = explicitOperationId ?? this.contextId;
     if (!operationId?.trim() || this._activeFirestoreSub) return;
@@ -2896,11 +2908,32 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
         operationId,
         {
           onDelta: (text) => {
+            // Forward Watermark Reconciliation:
+            // If a watermark is provided (SSE → Firestore fallback path), slice
+            // this batch against the chars already shown via SSE so we emit
+            // only the genuinely new tail. Length-based deduping is exact
+            // because LLM text generation is strictly append-only.
+            if (deltaWatermark) {
+              const start = deltaWatermark.confirmedChars;
+              deltaWatermark.confirmedChars += text.length;
+              if (deltaWatermark.confirmedChars <= deltaWatermark.optimisticChars) {
+                // Entire batch was already rendered via SSE before the drop.
+                return;
+              }
+              const skipChars = Math.max(0, deltaWatermark.optimisticChars - start);
+              const tail = skipChars > 0 ? text.slice(skipChars) : text;
+              if (tail.length > 0) {
+                deltaWatermark.optimisticChars += tail.length;
+                this.queueTypingDelta(tail);
+              }
+              return;
+            }
             this.queueTypingDelta(text);
           },
 
           onStep: (step) => {
             this.flushPendingTypingDelta();
+            if (!step.label.trim()) return;
             this.messages.update((msgs) =>
               msgs.map((m) => {
                 if (m.id !== 'typing') return m;
@@ -2908,21 +2941,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
                 const idx = prev.findIndex((s) => s.id === step.id);
                 const next =
                   idx >= 0 ? prev.map((s, i) => (i === idx ? step : s)) : [...prev, step];
-                const prevParts = [...(m.parts ?? [])];
-                const lastPart = prevParts[prevParts.length - 1];
-                if (lastPart?.type === 'tool-steps') {
-                  const prevSteps = [...lastPart.steps];
-                  const si = prevSteps.findIndex((s) => s.id === step.id);
-                  if (si >= 0) {
-                    prevSteps[si] = step;
-                  } else {
-                    prevSteps.push(step);
-                  }
-                  prevParts[prevParts.length - 1] = { type: 'tool-steps', steps: prevSteps };
-                } else {
-                  prevParts.push({ type: 'tool-steps', steps: [step] });
-                }
-                return { ...m, steps: next, parts: prevParts };
+                return { ...m, steps: next, parts: this.withUpsertedToolStepPart(m.parts, step) };
               })
             );
           },
@@ -2957,6 +2976,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
             this._loading.set(false);
             this._activeFirestoreSub?.unsubscribe();
             this._activeFirestoreSub = null;
+            this._streamTurnWatermark = null;
             this.haptics.notification('success').catch(() => undefined);
             this.emitResponseCompleteOnce('firestore-done');
             this.logger.info('Background job stream complete (Firestore)', {
@@ -2976,6 +2996,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
             this._loading.set(false);
             this._activeFirestoreSub?.unsubscribe();
             this._activeFirestoreSub = null;
+            this._streamTurnWatermark = null;
             this.haptics.notification('error').catch(() => undefined);
             this.logger.error('Background job stream error (Firestore)', new Error(error), {
               operationId,
@@ -3027,36 +3048,25 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       }
 
       const mapped: OperationMessage[] = items.map((msg) => {
-        const persistedSteps: AgentXToolStep[] = (msg.steps ?? []).map((step) => {
-          const normalized = {
-            ...step,
-            label: getToolStepDisplayLabel(step),
-          } satisfies AgentXToolStep;
-          return normalized;
-        });
+        const persistedSteps: AgentXToolStep[] = (msg.steps ?? []).filter(
+          (step): step is AgentXToolStep =>
+            typeof step.label === 'string' &&
+            step.label.trim().length > 0 &&
+            step.stageType === 'tool'
+        );
 
-        const fallbackSteps: AgentXToolStep[] = (msg.toolCalls ?? []).map((tc, idx) => ({
-          id: `tc-${idx}-${tc.toolName}`,
-          label: tc.toolName.replace(/_/g, ' '),
-          status: tc.status === 'success' ? ('success' as const) : ('error' as const),
-          detail:
-            tc.status === 'error' && tc.output?.['error']
-              ? String(tc.output['error'])
-              : tc.status === 'success'
-                ? `${tc.toolName.replace(/_/g, ' ')} completed`
-                : undefined,
-        }));
-
-        const steps = persistedSteps.length > 0 ? persistedSteps : fallbackSteps;
+        const steps = persistedSteps;
         const persistedParts =
           msg.parts?.map((part) =>
             part.type === 'tool-steps'
               ? {
                   type: 'tool-steps' as const,
-                  steps: part.steps.map((step) => ({
-                    ...step,
-                    label: getToolStepDisplayLabel(step),
-                  })),
+                  steps: part.steps.filter(
+                    (step): step is AgentXToolStep =>
+                      typeof step.label === 'string' &&
+                      step.label.trim().length > 0 &&
+                      step.stageType === 'tool'
+                  ),
                 }
               : part.type === 'card'
                 ? {
@@ -5076,10 +5086,12 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
     const streamingId = 'typing'; // The ID used by the existing typing indicator
 
-    return new Promise<void>((resolve, reject) => {
-      // Mutable parts accumulator — builds Copilot-style interleaved sequence
-      const parts: AgentXMessagePart[] = [];
+    // Reset Forward Watermark state at the start of every turn. The shadow
+    // Firestore listener and the SSE onDelta handler both mutate this object
+    // so a later fallback can dedupe by character count, not by seq number.
+    this._streamTurnWatermark = { optimisticChars: 0, confirmedChars: 0 };
 
+    return new Promise<void>((resolve, reject) => {
       this.activeStream = this.api.streamMessage(
         request,
         {
@@ -5113,7 +5125,14 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
             if (evt.operationId && !this._shadowFirestoreSub && !this._activeFirestoreSub) {
               this._shadowFirestoreSub = runInInjectionContext(this.injector, () =>
                 this.operationEventService.subscribe(evt.operationId!, {
-                  onDelta: () => undefined,
+                  // Silent confirmation: advance confirmedChars in lock-step
+                  // with DebouncedEventWriter flushes. No UI render — the SSE
+                  // path owns rendering until/unless it drops.
+                  onDelta: (text) => {
+                    if (this._streamTurnWatermark) {
+                      this._streamTurnWatermark.confirmedChars += text.length;
+                    }
+                  },
                   onStep: () => undefined,
                   onCard: () => undefined,
                   onDone: () => undefined,
@@ -5131,23 +5150,26 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
             if (tid) this.streamRegistry.appendDelta(tid, evt.content);
             this.recordDeltaLatency(evt.emittedAt);
 
-            // Build interleaved parts: append to last text part or start new one
-            const last = parts[parts.length - 1];
-            if (last?.type === 'text') {
-              parts[parts.length - 1] = { type: 'text', content: last.content + evt.content };
-            } else {
-              parts.push({ type: 'text', content: evt.content });
+            // Advance the optimistic watermark so a later Firestore fallback
+            // can slice incoming batches by length and emit only the new tail.
+            if (this._streamTurnWatermark) {
+              this._streamTurnWatermark.optimisticChars += evt.content.length;
             }
 
-            // Batch token writes to one UI commit per frame.
+            // Batch token writes to one UI commit per frame. flushPendingTypingDelta
+            // (called below in onStep / onCard / onDone) coalesces deltas into the
+            // typing message's last text part — there is no separate `parts` array
+            // here; the typing message itself owns the part list.
             this.queueTypingDelta(evt.content);
           },
 
           onStep: (evt: AgentXStreamStepEvent) => {
             this.flushPendingTypingDelta();
+            const label = evt.label.trim();
+            if (!label) return;
             const rawStep: AgentXToolStep = {
               id: evt.id,
-              label: evt.label,
+              label,
               agentId: evt.agentId,
               stageType: evt.stageType,
               stage: evt.stage,
@@ -5157,10 +5179,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
               icon: evt.icon,
               detail: evt.detail,
             };
-            const step: AgentXToolStep = {
-              ...rawStep,
-              label: getToolStepDisplayLabel(rawStep),
-            };
+            const step: AgentXToolStep = rawStep;
             const tid = this._resolvedThreadId();
             if (tid) this.streamRegistry.upsertStep(tid, step);
 
@@ -5173,20 +5192,11 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
               this.profileGenerationState?.receiveStep(this._currentOperationId, step);
             }
 
-            // Build interleaved parts: upsert into last tool-steps group or start new one
-            const lastPart = parts[parts.length - 1];
-            if (lastPart?.type === 'tool-steps') {
-              const prevSteps = [...lastPart.steps];
-              const idx = prevSteps.findIndex((s) => s.id === evt.id);
-              if (idx >= 0) {
-                prevSteps[idx] = step;
-              } else {
-                prevSteps.push(step);
-              }
-              parts[parts.length - 1] = { type: 'tool-steps', steps: prevSteps };
-            } else {
-              parts.push({ type: 'tool-steps', steps: [step] });
-            }
+            // Only real tool invocations are rendered as inline rows in the
+            // chat. Router-stage chatter (Reviewing, Routing, Planning, etc.)
+            // is internal telemetry — the streaming prose IS the thinking
+            // indicator. This matches VS Code Copilot's chat UX.
+            if (evt.stageType !== 'tool') return;
 
             this.messages.update((msgs) =>
               msgs.map((m) => {
@@ -5195,7 +5205,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
                 const idx = prev.findIndex((s) => s.id === evt.id);
                 const next =
                   idx >= 0 ? prev.map((s, i) => (i === idx ? step : s)) : [...prev, step];
-                return { ...m, steps: next, parts: [...parts] };
+                return { ...m, steps: next, parts: this.withUpsertedToolStepPart(m.parts, step) };
               })
             );
           },
@@ -5214,21 +5224,28 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
             // When the card supersedes preceding streamed text (e.g. ask_user),
             // wipe all accumulated text parts so the question only appears once.
             if (evt.clearText) {
-              parts.length = 0;
+              this.messages.update((msgs) =>
+                msgs.map((m) =>
+                  m.id === streamingId
+                    ? {
+                        ...m,
+                        content: '',
+                        cards: [...(m.cards ?? []), card],
+                        parts: [{ type: 'card', card }],
+                      }
+                    : m
+                )
+              );
+              return;
             }
-
-            // Each card is its own part in the interleaved sequence
-            parts.push({ type: 'card', card });
 
             this.messages.update((msgs) =>
               msgs.map((m) =>
                 m.id === streamingId
                   ? {
                       ...m,
-                      // If the card supersedes streamed text, wipe it.
-                      content: evt.clearText ? '' : m.content,
                       cards: [...(m.cards ?? []), card],
-                      parts: [...parts],
+                      parts: [...(m.parts ?? []), { type: 'card', card }],
                     }
                   : m
               )
@@ -5282,10 +5299,11 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
               evt.type === 'video'
                 ? { type: 'video', url: evt.url }
                 : { type: 'image', url: evt.url };
-            parts.push(mediaPart);
 
             this.messages.update((msgs) =>
-              msgs.map((m) => (m.id === streamingId ? { ...m, parts: [...parts] } : m))
+              msgs.map((m) =>
+                m.id === streamingId ? { ...m, parts: [...(m.parts ?? []), mediaPart] } : m
+              )
             );
           },
 
@@ -5298,6 +5316,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
             // Shadow Firestore fanout may continue feeding the newer stream lease.
             this._shadowFirestoreSub?.unsubscribe();
             this._shadowFirestoreSub = null;
+            this._streamTurnWatermark = null;
 
             this.logger.info('SSE stream replaced by newer lease', {
               operationId: evt.operationId,
@@ -5359,6 +5378,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
             // Shadow sub served its purpose — SSE completed normally.
             this._shadowFirestoreSub?.unsubscribe();
             this._shadowFirestoreSub = null;
+            this._streamTurnWatermark = null;
 
             this.logger.info('Stream complete', {
               model: evt.model,
@@ -5393,6 +5413,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
               this._injectBillingCard(reason, evt.error);
               this._shadowFirestoreSub?.unsubscribe();
               this._shadowFirestoreSub = null;
+              this._streamTurnWatermark = null;
               resolve(); // Resolved (not rejected) — user can act on the card
               return;
             }
@@ -5429,9 +5450,15 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
                 ];
               });
               this._loading.set(true);
-              // Attach the UI callbacks to the existing fanout entry — the shadow
-              // sub's lastProcessedSeq is already advanced past events shown via SSE.
-              this._subscribeToFirestoreJobEvents(this._currentOperationId);
+              // Hand control to Firestore using Forward Watermark Reconciliation.
+              // The shadow sub silently advanced confirmedChars; the SSE loop
+              // advanced optimisticChars. Future Firestore batches are sliced
+              // against the watermark — ZERO duplication, ZERO visible rollback.
+              this._subscribeToFirestoreJobEvents(
+                this._currentOperationId,
+                undefined,
+                this._streamTurnWatermark
+              );
               // Remove the shadow listener only after the UI listener has joined
               // (operationEventService.subscribe is synchronous, so by this line
               // the UI listener is already registered in the fanout map).
@@ -5457,6 +5484,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
             // Clean up shadow sub on any terminal non-network error.
             this._shadowFirestoreSub?.unsubscribe();
             this._shadowFirestoreSub = null;
+            this._streamTurnWatermark = null;
 
             this.replaceTyping({
               id: this.uid(),
@@ -5542,6 +5570,36 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   private replaceTyping(msg: OperationMessage): void {
     this.clearPendingTypingDelta();
     this.messages.update((prev) => [...prev.filter((m) => m.id !== 'typing'), msg]);
+  }
+
+  private withUpsertedToolStepPart(
+    parts: readonly AgentXMessagePart[] | undefined,
+    step: AgentXToolStep
+  ): AgentXMessagePart[] {
+    const nextParts = [...(parts ?? [])];
+
+    for (let i = 0; i < nextParts.length; i += 1) {
+      const part = nextParts[i];
+      if (part?.type !== 'tool-steps') continue;
+      const stepIndex = part.steps.findIndex((candidate) => candidate.id === step.id);
+      if (stepIndex < 0) continue;
+      const nextSteps = [...part.steps];
+      nextSteps[stepIndex] = step;
+      nextParts[i] = { type: 'tool-steps', steps: nextSteps };
+      return nextParts;
+    }
+
+    const lastPart = nextParts[nextParts.length - 1];
+    if (lastPart?.type === 'tool-steps') {
+      nextParts[nextParts.length - 1] = {
+        type: 'tool-steps',
+        steps: [...lastPart.steps, step],
+      };
+      return nextParts;
+    }
+
+    nextParts.push({ type: 'tool-steps', steps: [step] });
+    return nextParts;
   }
 
   /** Buffer a streamed token chunk and flush it once per animation frame. */

@@ -328,6 +328,53 @@ describe('OpenRouterService', () => {
     expect(body.response_format.json_schema.schema.type).toBe('object');
   });
 
+  it('should mark nullable schema fields as required in native json_schema output', async () => {
+    fetchSpy.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          ...MOCK_RESPONSE,
+          choices: [
+            {
+              index: 0,
+              message: {
+                role: 'assistant',
+                content: JSON.stringify({
+                  route: 'chat',
+                  directResponse: 'Hi',
+                  planSummary: null,
+                }),
+              },
+              finish_reason: 'stop',
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }
+      )
+    );
+
+    await service.complete([{ role: 'user', content: 'test' }], {
+      tier: 'extraction',
+      outputSchema: {
+        name: 'conversation_route_decision',
+        schema: z.object({
+          route: z.enum(['chat', 'plan']),
+          directResponse: z.string().nullable(),
+          planSummary: z.string().nullable(),
+        }),
+      },
+    });
+
+    const body = JSON.parse((fetchSpy.mock.calls[0] as [string, RequestInit])[1].body as string);
+    expect(body.response_format.json_schema.schema.required).toEqual([
+      'route',
+      'directResponse',
+      'planSummary',
+    ]);
+  });
+
   it('should return parsedOutput when outputSchema is provided and content matches the schema', async () => {
     fetchSpy.mockResolvedValueOnce(
       new Response(
@@ -511,9 +558,84 @@ describe('OpenRouterService', () => {
     expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 
+  it('should skip an open-circuit model and use the next fallback model', async () => {
+    fetchSpy.mockImplementation(async (_url, options) => {
+      const body = JSON.parse((options as RequestInit).body as string) as { model: string };
+      if (body.model === 'anthropic/claude-haiku-4-5') {
+        return new Response('Bad request', { status: 400 });
+      }
+      return new Response(JSON.stringify(MOCK_RESPONSE), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    });
+
+    // Trip circuit for first extraction model (haiku) via repeated non-retryable failures.
+    await service.complete([{ role: 'user', content: 'test-1' }], { tier: 'extraction' });
+    await service.complete([{ role: 'user', content: 'test-2' }], { tier: 'extraction' });
+    await service.complete([{ role: 'user', content: 'test-3' }], { tier: 'extraction' });
+
+    const callsBeforeOpenSkip = fetchSpy.mock.calls.length;
+    await service.complete([{ role: 'user', content: 'test-4' }], { tier: 'extraction' });
+
+    // With open circuit, only one request is needed (next model succeeds immediately).
+    expect(fetchSpy.mock.calls.length).toBe(callsBeforeOpenSkip + 1);
+  });
+
+  it('should allow a half-open probe after cool-down and close circuit on success', async () => {
+    const mockNow = vi.spyOn(Date, 'now');
+    let nowMs = 1_000_000;
+    mockNow.mockImplementation(() => nowMs);
+
+    fetchSpy.mockImplementation(async (_url, options) => {
+      const body = JSON.parse((options as RequestInit).body as string) as { model: string };
+      if (body.model === 'anthropic/claude-haiku-4-5') {
+        // Initial period: fail haiku to open circuit.
+        if (nowMs < 1_070_000) {
+          return new Response('Bad request', { status: 400 });
+        }
+        // After cool-down, probe succeeds.
+        return new Response(
+          JSON.stringify({
+            ...MOCK_RESPONSE,
+            model: 'anthropic/claude-haiku-4-5',
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }
+        );
+      }
+
+      return new Response(JSON.stringify(MOCK_RESPONSE), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    });
+
+    await service.complete([{ role: 'user', content: 'trip-1' }], { tier: 'extraction' });
+    await service.complete([{ role: 'user', content: 'trip-2' }], { tier: 'extraction' });
+    await service.complete([{ role: 'user', content: 'trip-3' }], { tier: 'extraction' });
+
+    // Immediately after open, haiku should be skipped.
+    await service.complete([{ role: 'user', content: 'skip-while-open' }], { tier: 'extraction' });
+
+    // Move beyond open window so the next attempt is a half-open probe.
+    nowMs = 1_070_001;
+    const callsBeforeProbe = fetchSpy.mock.calls.length;
+
+    const result = await service.complete([{ role: 'user', content: 'probe-success' }], {
+      tier: 'extraction',
+    });
+
+    expect(result.model).toBe('anthropic/claude-haiku-4-5');
+    expect(fetchSpy.mock.calls.length).toBe(callsBeforeProbe + 1);
+  });
+
   // ─── Telemetry ──────────────────────────────────────────────────────────
 
   it('should emit telemetry callback after each call', async () => {
+    setCachedAgentAppConfig(DEFAULT_AGENT_APP_CONFIG);
     vi.stubEnv('OPENROUTER_API_KEY', 'key-for-telemetry');
     const telemetrySpy = vi.fn();
     const serviceWithTelemetry = new OpenRouterService({

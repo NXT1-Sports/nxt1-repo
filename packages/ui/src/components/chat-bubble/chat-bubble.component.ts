@@ -93,7 +93,9 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
             stroke-linecap="round"
           />
         </svg>
-        <span class="typing-shimmer__text">{{ typingLabel() }}</span>
+        @if (typingLabel()) {
+          <span class="typing-shimmer__text">{{ typingLabel() }}</span>
+        }
       </div>
     } @else if (isSystem()) {
       <p class="bubble-text bubble-text--system">{{ content() }}</p>

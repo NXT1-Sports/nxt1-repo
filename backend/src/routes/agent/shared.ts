@@ -251,8 +251,16 @@ export function replayJobEventsAsSSE(
     seq?: number;
     type: string;
     text?: string;
+    stepId?: string;
+    agentId?: string;
+    stageType?: string;
+    stage?: string;
+    outcomeCode?: string;
+    metadata?: Record<string, unknown>;
+    icon?: string;
     toolName?: string;
     message?: string;
+    messageKey?: string;
     toolSuccess?: boolean;
   }>,
   afterSeq = -1
@@ -270,33 +278,51 @@ export function replayJobEventsAsSSE(
       case 'step_error': {
         const status =
           evt.type === 'step_active' ? 'active' : evt.type === 'step_done' ? 'success' : 'error';
+        const stepId = typeof evt.stepId === 'string' ? evt.stepId.trim() : '';
+        const label = typeof evt.message === 'string' ? evt.message.trim() : '';
+        if (!stepId || !label) break;
         res.write(
           `event: step\ndata: ${JSON.stringify({
-            id: evt.toolName ?? evt.type,
-            label: evt.message ?? evt.type,
+            ...(typeof evt.seq === 'number' ? { seq: evt.seq } : {}),
+            emittedAt: new Date().toISOString(),
+            ...(evt.messageKey ? { messageKey: evt.messageKey } : {}),
+            id: stepId,
+            label,
+            ...(evt.agentId ? { agentId: evt.agentId } : {}),
+            ...(evt.stageType ? { stageType: evt.stageType } : {}),
+            ...(evt.stage ? { stage: evt.stage } : {}),
+            ...(evt.outcomeCode ? { outcomeCode: evt.outcomeCode } : {}),
+            ...(evt.metadata ? { metadata: evt.metadata } : {}),
+            ...(evt.icon ? { icon: evt.icon } : {}),
             status,
           })}\n\n`
         );
         break;
       }
       case 'tool_call':
-        res.write(
-          `event: step\ndata: ${JSON.stringify({
-            id: evt.toolName ?? 'tool',
-            label: evt.message ?? evt.toolName ?? 'Tool',
-            status: 'active',
-          })}\n\n`
-        );
         break;
-      case 'tool_result':
+      case 'tool_result': {
+        const stepId = typeof evt.stepId === 'string' ? evt.stepId.trim() : '';
+        const label = typeof evt.message === 'string' ? evt.message.trim() : '';
+        if (!stepId || !label) break;
         res.write(
           `event: step\ndata: ${JSON.stringify({
-            id: evt.toolName ?? 'tool',
-            label: evt.message ?? evt.toolName ?? 'Tool',
+            ...(typeof evt.seq === 'number' ? { seq: evt.seq } : {}),
+            emittedAt: new Date().toISOString(),
+            ...(evt.messageKey ? { messageKey: evt.messageKey } : {}),
+            id: stepId,
+            label,
+            ...(evt.agentId ? { agentId: evt.agentId } : {}),
+            ...(evt.stageType ? { stageType: evt.stageType } : {}),
+            ...(evt.stage ? { stage: evt.stage } : {}),
+            ...(evt.outcomeCode ? { outcomeCode: evt.outcomeCode } : {}),
+            ...(evt.metadata ? { metadata: evt.metadata } : {}),
+            ...(evt.icon ? { icon: evt.icon } : {}),
             status: evt.toolSuccess ? 'success' : 'error',
           })}\n\n`
         );
         break;
+      }
       default:
         break;
     }
