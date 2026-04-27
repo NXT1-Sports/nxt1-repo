@@ -35,6 +35,7 @@ import type {
   OperationOutcomeCode,
   AgentYieldState,
 } from '@nxt1/core';
+import { logger } from '../../../utils/logger.js';
 import type { AgentJobProgress } from './queue.types.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
@@ -192,23 +193,28 @@ function ttlFromNow(days: number): FirebaseFirestore.Timestamp {
  * `undefined` values or non-serializable nested entities (class instances,
  * Maps, Sets, etc.) with INVALID_ARGUMENT errors.
  *
- * Uses a JSON round-trip as the primary strategy (handles undefined, class
- * instances, and deep structures) with a defensive fallback to an empty
- * object if the value cannot be serialized (e.g. circular references).
+ * Critical Firestore constraint handled here: **nested arrays are not
+ * supported**. An array containing another array (e.g. `[[1,2],[3,4]]`)
+ * is rejected with "invalid nested entity". MCP tool outputs (firecrawl,
+ * scrapers) routinely produce such shapes, so we wrap inner arrays in a
+ * `{ values: [...] }` object before writing.
  */
 /**
  * Recursively walk a value and produce a Firestore-safe deep clone.
- * Used as a fallback when JSON round-trip fails (e.g. BigInt, circular refs).
  *
  * Firestore-safe values: string, number (finite), boolean, null, plain object,
- * array, Timestamp/GeoPoint/DocumentReference (passed through untouched).
+ * array of non-array primitives/objects.
  *
- * Strips: undefined, function, symbol, BigInt, NaN/Infinity (→ null),
- * class instances (→ plain object of own enumerable props), Maps, Sets.
+ * Strips: undefined, function, symbol, NaN/Infinity (→ null), class instances
+ * (→ plain object of own enumerable props), Maps, Sets, BigInt (→ string).
+ *
+ * Wraps: nested arrays as `{ values: [...] }` (Firestore disallows array of arrays).
  */
-function deepSanitize(value: unknown, seen: WeakSet<object>): unknown {
-  if (value === null) return null;
-  if (value === undefined) return null;
+function deepSanitize(value: unknown, seen: WeakSet<object>, depth = 0): unknown {
+  // Hard depth cap — Firestore allows max 20 levels of nesting.
+  if (depth > 18) return null;
+
+  if (value === null || value === undefined) return null;
 
   const t = typeof value;
   if (t === 'string' || t === 'boolean') return value;
@@ -221,17 +227,28 @@ function deepSanitize(value: unknown, seen: WeakSet<object>): unknown {
   if (Array.isArray(value)) {
     if (seen.has(value)) return [];
     seen.add(value);
-    return value.map((entry) => deepSanitize(entry, seen));
+    return value.map((entry) => {
+      const sanitized = deepSanitize(entry, seen, depth + 1);
+      // Firestore disallows nested arrays — wrap any inner array in an object.
+      return Array.isArray(sanitized) ? { values: sanitized } : sanitized;
+    });
   }
 
   if (value instanceof Map) {
-    return Object.fromEntries(
-      Array.from(value.entries()).map(([k, v]) => [String(k), deepSanitize(v, seen)])
-    );
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of value.entries()) {
+      const sk = String(k);
+      const sv = deepSanitize(v, seen, depth + 1);
+      if (sv !== undefined) out[sk] = sv;
+    }
+    return out;
   }
 
   if (value instanceof Set) {
-    return Array.from(value.values()).map((v) => deepSanitize(v, seen));
+    return Array.from(value.values()).map((v) => {
+      const sanitized = deepSanitize(v, seen, depth + 1);
+      return Array.isArray(sanitized) ? { values: sanitized } : sanitized;
+    });
   }
 
   if (typeof value === 'object') {
@@ -240,7 +257,9 @@ function deepSanitize(value: unknown, seen: WeakSet<object>): unknown {
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
       if (v === undefined) continue;
-      out[k] = deepSanitize(v, seen);
+      // Firestore field names cannot be empty strings.
+      const safeKey = k.length === 0 ? '_' : k;
+      out[safeKey] = deepSanitize(v, seen, depth + 1);
     }
     return out;
   }
@@ -250,17 +269,43 @@ function deepSanitize(value: unknown, seen: WeakSet<object>): unknown {
 
 function sanitizeForFirestore<T>(value: T): T {
   if (value === null || value === undefined) return value;
-  try {
-    // Fast path: JSON round-trip handles 99% of cases (strips undefined,
-    // class instances, functions, symbols). The replacer converts undefined
-    // to null so partial updates don't leave stale fields.
-    const json = JSON.stringify(value, (_key, val) => (val === undefined ? null : val));
-    return JSON.parse(json) as T;
-  } catch {
-    // Slow path: JSON.stringify threw (BigInt, circular ref, etc.).
-    // Fall back to a recursive sanitizer that preserves data.
-    return deepSanitize(value, new WeakSet()) as T;
+  // Always run the recursive walker — JSON round-trip alone does NOT handle
+  // nested arrays, which Firestore rejects with INVALID_ARGUMENT.
+  return deepSanitize(value, new WeakSet()) as T;
+}
+
+/**
+ * Diagnostic helper: produce a compact type/shape description of a value
+ * so we can identify which path is causing a Firestore INVALID_ARGUMENT
+ * without leaking PII or producing massive logs.
+ */
+function describeStructure(value: unknown, depth: number, maxDepth: number): unknown {
+  if (depth > maxDepth) return '<truncated-depth>';
+  if (value === null) return 'null';
+  if (value === undefined) return 'undefined';
+  const t = typeof value;
+  if (t !== 'object') return t;
+  if (Array.isArray(value)) {
+    if (value.length === 0) return 'array[0]';
+    const sampleTypes = new Set<string>();
+    for (const entry of value.slice(0, 3)) {
+      sampleTypes.add(
+        Array.isArray(entry) ? 'NESTED_ARRAY' : entry === null ? 'null' : typeof entry
+      );
+    }
+    return {
+      __kind: 'array',
+      length: value.length,
+      sample: Array.from(sampleTypes),
+      first: describeStructure(value[0], depth + 1, maxDepth),
+    };
   }
+  const obj = value as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const k of Object.keys(obj).slice(0, 20)) {
+    out[k] = describeStructure(obj[k], depth + 1, maxDepth);
+  }
+  return out;
 }
 
 // ─── Document Shape ─────────────────────────────────────────────────────────
@@ -378,18 +423,29 @@ export class AgentJobRepository {
     // nested objects that cause Firestore INVALID_ARGUMENT errors.
     const safeResult = sanitizeForFirestore(result);
 
-    await this.db
-      .collection(COLLECTION)
-      .doc(operationId)
-      .update({
-        status: 'completed' satisfies AgentOperationStatus,
-        result: safeResult,
-        progress,
-        yieldState: null,
-        updatedAt: FieldValue.serverTimestamp(),
-        completedAt: FieldValue.serverTimestamp(),
-        expiresAt: ttlFromNow(TERMINAL_JOB_RETENTION_DAYS),
+    try {
+      await this.db
+        .collection(COLLECTION)
+        .doc(operationId)
+        .update({
+          status: 'completed' satisfies AgentOperationStatus,
+          result: safeResult,
+          progress,
+          yieldState: null,
+          updatedAt: FieldValue.serverTimestamp(),
+          completedAt: FieldValue.serverTimestamp(),
+          expiresAt: ttlFromNow(TERMINAL_JOB_RETENTION_DAYS),
+        });
+    } catch (err) {
+      // Diagnostic: dump the structure of the offending payload so we can
+      // pinpoint which field shape is being rejected by Firestore.
+      logger.error('markCompleted Firestore update failed — dumping payload structure', {
+        operationId,
+        error: err instanceof Error ? err.message : String(err),
+        resultStructure: describeStructure(safeResult, 0, 4),
       });
+      throw err;
+    }
   }
 
   /**
