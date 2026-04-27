@@ -143,8 +143,8 @@ type ConversationRouteScope = z.infer<typeof CONVERSATION_ROUTE_SCOPE_SCHEMA>;
 const conversationRouteDecisionSchema = z.object({
   route: z.enum(['chat', 'plan']),
   requiredContextScopes: z.array(CONVERSATION_ROUTE_SCOPE_SCHEMA).default([]),
-  directResponse: z.string().nullable(),
-  planSummary: z.string().nullable(),
+  directResponse: z.string().nullable().default(null),
+  planSummary: z.string().nullable().default(null),
 });
 
 type ConversationRouteDecision = z.infer<typeof conversationRouteDecisionSchema>;
@@ -2773,8 +2773,8 @@ Rules:
 - For bare greetings, acknowledgements, identity questions, and general openers, do NOT request profile or memory context. Use route="chat", requiredContextScopes=[], and provide directResponse.
 - Do NOT request profile context just to make a response warmer or more personalized. Request profile only when the user's question actually depends on knowing their role, sport, position, goals, or account state.
 - If the user can be answered well without retrieved context, prefer directResponse with requiredContextScopes=[].
-- Examples that should stay no-context chat: \"hi\", \"hello\", \"thanks\", \"who are you\", \"what is Agent X\", \"what can you do\".
-- Examples that may need profile context: \"how can you help me\", \"what should I work on\", \"what should I focus on next\", \"what features do I have access to\".`;
+- Examples that should stay no-context chat: "hi", "hello", "thanks", "who are you", "what is Agent X", "what can you do".
+- Examples that may need profile context: "how can you help me", "what should I work on", "what should I focus on next", "what features do I have access to".`;
 
     try {
       const result = await this.llm.prompt(systemPrompt, intent, {
