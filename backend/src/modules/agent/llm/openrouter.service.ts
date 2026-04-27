@@ -106,6 +106,37 @@ function buildHeliconeHeaders(
   };
 }
 
+/**
+ * Recursively strip JSON Schema keywords that OpenAI's structured output mode
+ * does not support. Currently strips `propertyNames`, which Zod emits when
+ * `z.record(z.string(), ...)` is converted via `z.toJSONSchema()`.
+ *
+ * OpenAI structured output whitelist reference:
+ * https://platform.openai.com/docs/guides/structured-outputs/supported-schemas
+ */
+function sanitizeJsonSchemaForOpenAI(schema: unknown): unknown {
+  if (!schema || typeof schema !== 'object' || Array.isArray(schema)) return schema;
+
+  const obj = schema as Record<string, unknown>;
+  const cleaned: Record<string, unknown> = {};
+
+  for (const [key, value] of Object.entries(obj)) {
+    // Drop unsupported keywords
+    if (key === 'propertyNames') continue;
+
+    // Recurse into nested schemas
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      cleaned[key] = sanitizeJsonSchemaForOpenAI(value);
+    } else if (Array.isArray(value)) {
+      cleaned[key] = value.map(sanitizeJsonSchemaForOpenAI);
+    } else {
+      cleaned[key] = value;
+    }
+  }
+
+  return cleaned;
+}
+
 // ─── Service ────────────────────────────────────────────────────────────────
 
 export class OpenRouterService {
@@ -800,7 +831,7 @@ export class OpenRouterService {
         json_schema: {
           name: options.outputSchema.name,
           strict: true,
-          schema: z.toJSONSchema(options.outputSchema.schema),
+          schema: sanitizeJsonSchemaForOpenAI(z.toJSONSchema(options.outputSchema.schema)),
         },
       };
     } else if (requiresJsonOutput) {
