@@ -662,7 +662,7 @@ export class AgentWorker {
             .catch(() => undefined);
         },
         onPersistedEventMetrics: ({ type, durationMs, seq }) => {
-          if (durationMs >= 400) {
+          if (durationMs >= 1500) {
             logger.warn('Stream event persistence latency high', {
               operationId: payload.operationId,
               eventType: type,
