@@ -6,10 +6,33 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { cosineSimilarity } from '../base.skill.js';
+import { BaseSkill, cosineSimilarity } from '../base.skill.js';
 import { SkillRegistry } from '../skill-registry.js';
 import { ScoutingRubricSkill } from '../evaluation/scouting-rubric.skill.js';
+import { VideoAnalysisSkill } from '../evaluation/video-analysis.skill.js';
+import { FilmBreakdownTaxonomySkill } from '../evaluation/film-breakdown-taxonomy.skill.js';
 import { OutreachCopywritingSkill } from '../copywriting/outreach-copywriting.skill.js';
+import { StaticGraphicStyleSkill } from '../brand/static-graphic-style.skill.js';
+import { GlobalKnowledgeSkill } from '../knowledge/global-knowledge.skill.js';
+import { StrategyGameplanFrameworkSkill } from '../strategy/strategy-gameplan-framework.skill.js';
+import { DataNormalizationAndEntityResolutionSkill } from '../data/data-normalization-and-entity-resolution.skill.js';
+import { NilDealEvaluationSkill } from '../strategy/nil-deal-evaluation.skill.js';
+import { SocialMediaGrowthStrategySkill } from '../strategy/social-media-growth-strategy.skill.js';
+import { ReportFormattingAndExportSkill } from '../data/report-formatting-and-export.skill.js';
+import { CollegeVisitPlanningSkill } from '../strategy/college-visit-planning.skill.js';
+import { CoachGamePlanAndAdjustmentsSkill } from '../strategy/coach-game-plan-and-adjustments.skill.js';
+import { OpponentScoutingPacketSkill } from '../evaluation/opponent-scouting-packet.skill.js';
+import { LineupRotationOptimizerSkill } from '../strategy/lineup-rotation-optimizer.skill.js';
+
+class EmptyContextSkill extends BaseSkill {
+  readonly name = 'empty_context';
+  readonly description = 'Test helper skill for empty prompt blocks.';
+  readonly category = 'strategy' as const;
+
+  getPromptContext(): string {
+    return '   ';
+  }
+}
 
 // ─── Cosine Similarity ──────────────────────────────────────────────────────
 
@@ -77,6 +100,76 @@ describe('BaseSkill.matchIntent', () => {
     // embedFn should only be called once (for the skill description), not twice
     expect(embedFn).toHaveBeenCalledOnce();
   });
+
+  it('should expose real-media video analysis guidance', () => {
+    const videoSkill = new VideoAnalysisSkill();
+    const prompt = videoSkill.getPromptContext();
+
+    expect(videoSkill.name).toBe('video_analysis');
+    expect(videoSkill.category).toBe('evaluation');
+    expect(prompt).toContain('extract_live_view_media');
+    expect(prompt).toContain('skipMediaPersistence: true');
+    expect(prompt).toContain('Never loop through playlist clicks');
+  });
+
+  it('should expose film breakdown taxonomy guidance', () => {
+    const skill = new FilmBreakdownTaxonomySkill();
+    const prompt = skill.getPromptContext();
+
+    expect(skill.category).toBe('evaluation');
+    expect(prompt).toContain('Situation');
+    expect(prompt).toContain('Coaching Point');
+    expect(prompt).toContain('Confidence');
+  });
+
+  it('should use generate_graphic language for brand guidance', () => {
+    const skill = new StaticGraphicStyleSkill();
+    const prompt = skill.getPromptContext();
+
+    expect(prompt).toContain('generate_graphic');
+    expect(prompt).not.toContain('generate_image');
+  });
+
+  it('should classify global knowledge as knowledge', () => {
+    const retrievalService = {
+      retrieve: vi.fn().mockResolvedValue([]),
+      buildPromptBlock: vi.fn().mockReturnValue(''),
+    };
+    const skill = new GlobalKnowledgeSkill(retrievalService as never);
+
+    expect(skill.category).toBe('knowledge');
+  });
+
+  it('should expose strategy and data skill categories', () => {
+    expect(new StrategyGameplanFrameworkSkill().category).toBe('strategy');
+    expect(new DataNormalizationAndEntityResolutionSkill().category).toBe('data');
+    expect(new NilDealEvaluationSkill().category).toBe('strategy');
+    expect(new SocialMediaGrowthStrategySkill().category).toBe('strategy');
+    expect(new ReportFormattingAndExportSkill().category).toBe('data');
+    expect(new CollegeVisitPlanningSkill().category).toBe('strategy');
+    expect(new CoachGamePlanAndAdjustmentsSkill().category).toBe('strategy');
+    expect(new OpponentScoutingPacketSkill().category).toBe('evaluation');
+    expect(new LineupRotationOptimizerSkill().category).toBe('strategy');
+  });
+
+  it('should expose NIL deal, growth, report export, and college visit guidance', () => {
+    expect(new NilDealEvaluationSkill().getPromptContext()).toContain('Recommendation');
+    expect(new SocialMediaGrowthStrategySkill().getPromptContext()).toContain('Weekly Content Mix');
+    expect(new ReportFormattingAndExportSkill().getPromptContext()).toContain(
+      'Required Report Structure'
+    );
+    expect(new CollegeVisitPlanningSkill().getPromptContext()).toContain('Visit Prioritization');
+  });
+
+  it('should expose coach planning, opponent packet, and lineup optimization guidance', () => {
+    expect(new CoachGamePlanAndAdjustmentsSkill().getPromptContext()).toContain(
+      'In-Game Adjustment Tree'
+    );
+    expect(new OpponentScoutingPacketSkill().getPromptContext()).toContain('Packet Sections');
+    expect(new LineupRotationOptimizerSkill().getPromptContext()).toContain(
+      'Rotation Design Principles'
+    );
+  });
 });
 
 // ─── SkillRegistry ──────────────────────────────────────────────────────────
@@ -96,6 +189,14 @@ describe('SkillRegistry', () => {
 
     expect(registry.get('scouting_rubric')).toBe(skill);
     expect(registry.listAll()).toContain('scouting_rubric');
+  });
+
+  it('should register the video analysis skill', () => {
+    const skill = new VideoAnalysisSkill();
+    registry.register(skill);
+
+    expect(registry.get('video_analysis')).toBe(skill);
+    expect(registry.listAll()).toContain('video_analysis');
   });
 
   it('should reject duplicate skill names', () => {
@@ -182,6 +283,13 @@ describe('SkillRegistry', () => {
       expect(block).toContain('### Skill: scouting_rubric');
       expect(block).toContain('relevance: 0.85');
       expect(block).toContain('Scout Report Format');
+    });
+
+    it('should omit empty skill prompt contexts', () => {
+      const skill = new EmptyContextSkill();
+      const matched = [{ skill, similarity: 0.9 }];
+
+      expect(registry.buildPromptBlock(matched)).toBe('');
     });
   });
 });

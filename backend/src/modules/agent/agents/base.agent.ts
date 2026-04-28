@@ -39,16 +39,21 @@ import {
   isAgentDelegation,
   AgentDelegationException,
 } from '../exceptions/agent-delegation.exception.js';
+import { isDelegateToCoordinator } from '../exceptions/delegate-to-coordinator.exception.js';
+import { isPlanAndExecute } from '../exceptions/plan-and-execute.exception.js';
 import { AgentEngineError } from '../exceptions/agent-engine.error.js';
 import type { ApprovalGateService } from '../services/approval-gate.service.js';
 import { ASK_USER_CONTEXT_KEY, type AskUserToolContext } from '../tools/system/ask-user.tool.js';
 import { isToolAllowedByPatterns } from './tool-policy.js';
+import { getEffectiveAgentToolPolicy } from './tool-policy.js';
 import {
   sanitizeAgentOutputText,
   sanitizeAgentPayload,
 } from '../utils/platform-identifier-sanitizer.js';
 import { parallelBatch } from '../utils/parallel-batch.js';
 import { getCachedAgentAppConfig, resolveAgentSystemPrompt } from '../config/agent-app-config.js';
+import { getToolLoopDetector } from '../services/tool-loop-detector.service.js';
+import { getPromptBudgetService } from '../services/prompt-budget.service.js';
 import { logger } from '../../../utils/logger.js';
 
 /** Maximum tool-calling iterations before we force the agent to respond. */
@@ -59,6 +64,9 @@ const MAX_ITERATIONS = 20;
  * Prevents context overflow when scrape results are very large.
  */
 const MAX_OBSERVATION_LENGTH = 8_000;
+const MAX_INLINE_IMAGE_BYTES = 8 * 1024 * 1024;
+
+type SessionImageAttachment = NonNullable<AgentSessionContext['attachments']>[number];
 
 // ─── Context Window Budget ────────────────────────────────────────────────────
 
@@ -83,7 +91,7 @@ const CONTEXT_KEEP_LAST_EXCHANGES = 3;
  */
 const CONTEXT_PRUNE_THRESHOLD = CONTEXT_KEEP_FIRST_EXCHANGES + CONTEXT_KEEP_LAST_EXCHANGES + 1;
 
-interface ToolSessionContext {
+export interface ToolSessionContext {
   readonly sessionId?: string;
   readonly threadId?: string;
   readonly operationId?: string;
@@ -121,6 +129,14 @@ export abstract class BaseAgent {
   }
 
   /**
+   * Maximum number of matched skills to inject into the active prompt.
+   * Keeps prompt assembly focused even when an agent is allowed many skills.
+   */
+  getSkillBudget(): number {
+    return 4;
+  }
+
+  /**
    * Maximum number of tools to execute in parallel within a single LLM
    * iteration. Defaults to 1 (sequential) so the user sees one step at a time
    * and the visual stream stays in deterministic order. Override in subclasses
@@ -130,6 +146,96 @@ export abstract class BaseAgent {
    */
   getToolConcurrency(): number {
     return 1;
+  }
+
+  private shouldInlineImageAttachment(attachment: SessionImageAttachment): boolean {
+    if (attachment.storagePath) {
+      return true;
+    }
+
+    try {
+      const url = new URL(attachment.url);
+      return (
+        url.searchParams.has('X-Goog-Algorithm') ||
+        url.hostname === 'storage.googleapis.com' ||
+        url.hostname === 'firebasestorage.googleapis.com'
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  private async inlineImageAttachment(
+    attachment: SessionImageAttachment,
+    signal?: AbortSignal
+  ): Promise<string | null> {
+    if (!this.shouldInlineImageAttachment(attachment)) {
+      return null;
+    }
+
+    try {
+      const response = await fetch(attachment.url, { signal });
+      if (!response.ok) {
+        logger.warn(`[${this.id}] Failed to inline image attachment`, {
+          agentId: this.id,
+          url: attachment.url.slice(0, 160),
+          status: response.status,
+          statusText: response.statusText,
+        });
+        return null;
+      }
+
+      const headerContentType = response.headers.get('content-type');
+      const mimeType = (headerContentType ?? attachment.mimeType).split(';', 1)[0]?.trim();
+      if (!mimeType?.startsWith('image/')) {
+        return null;
+      }
+
+      const headerContentLength = Number(response.headers.get('content-length') ?? '0');
+      if (Number.isFinite(headerContentLength) && headerContentLength > MAX_INLINE_IMAGE_BYTES) {
+        logger.warn(`[${this.id}] Skipping inline image attachment due to size`, {
+          agentId: this.id,
+          url: attachment.url.slice(0, 160),
+          sizeBytes: headerContentLength,
+        });
+        return null;
+      }
+
+      const imageBuffer = Buffer.from(await response.arrayBuffer());
+      if (imageBuffer.byteLength > MAX_INLINE_IMAGE_BYTES) {
+        logger.warn(`[${this.id}] Skipping inline image attachment after download due to size`, {
+          agentId: this.id,
+          url: attachment.url.slice(0, 160),
+          sizeBytes: imageBuffer.byteLength,
+        });
+        return null;
+      }
+
+      return `data:${mimeType};base64,${imageBuffer.toString('base64')}`;
+    } catch (error) {
+      logger.warn(`[${this.id}] Failed to convert image attachment to data URL`, {
+        agentId: this.id,
+        url: attachment.url.slice(0, 160),
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
+  }
+
+  private async resolveImageAttachmentUrls(
+    attachments: readonly SessionImageAttachment[],
+    signal?: AbortSignal
+  ): Promise<readonly string[]> {
+    if (attachments.length === 0) {
+      return [];
+    }
+
+    return Promise.all(
+      attachments.map(async (attachment) => {
+        const inlineDataUrl = await this.inlineImageAttachment(attachment, signal);
+        return inlineDataUrl ?? attachment.url;
+      })
+    );
   }
 
   protected withConfiguredSystemPrompt(
@@ -167,7 +273,7 @@ export abstract class BaseAgent {
     }
 
     const routing = this.getModelRouting();
-    const allowedToolNames = this.getAvailableTools();
+    const allowedToolNames = getEffectiveAgentToolPolicy(this.id);
 
     // Build LLM tool schemas from the registry (filtered to this agent's permissions).
     // System-category tools (e.g. delegate_task) are always included regardless
@@ -197,18 +303,19 @@ export abstract class BaseAgent {
           (text) => llm.embed(text),
           allowedSkillNames
         );
-        if (matched.length > 0) {
+        const selectedSkills = matched.slice(0, this.getSkillBudget());
+        if (selectedSkills.length > 0) {
           // Trigger retrieval for GlobalKnowledgeSkill before building prompt.
           // Pass the already-computed intentEmbedding to skip a redundant embed call.
-          for (const m of matched) {
+          for (const m of selectedSkills) {
             if (m.skill instanceof GlobalKnowledgeSkill) {
               await m.skill.retrieveForIntent(intent, intentEmbedding);
             }
           }
-          skillBlock = skillRegistry.buildPromptBlock(matched);
-          logger.info(`[${this.id}] Injected ${matched.length} skill(s) into prompt`, {
+          skillBlock = skillRegistry.buildPromptBlock(selectedSkills);
+          logger.info(`[${this.id}] Injected ${selectedSkills.length} skill(s) into prompt`, {
             agentId: this.id,
-            skills: matched.map((m) => m.skill.name),
+            skills: selectedSkills.map((m) => m.skill.name),
           });
         }
       } catch (err) {
@@ -256,7 +363,10 @@ export abstract class BaseAgent {
     // Add video references
     if (context.videoAttachments?.length) {
       const videoRefs = context.videoAttachments
-        .map((v) => `[Attached video: ${v.name} — ${v.url}]`)
+        .map((v) => {
+          const idPart = v.cloudflareVideoId ? ` | cloudflareVideoId: ${v.cloudflareVideoId}` : '';
+          return `[Attached video: ${v.name} — ${v.url}${idPart}]`;
+        })
         .join('\n');
       intentText = `${intent}\n\n${videoRefs}`;
     }
@@ -264,6 +374,10 @@ export abstract class BaseAgent {
     // Only map image attachments to vision content
     const imageAttachments = (context.attachments ?? []).filter((a) =>
       a.mimeType.startsWith('image/')
+    );
+    const imageAttachmentUrls = await this.resolveImageAttachmentUrls(
+      imageAttachments,
+      context.signal
     );
 
     // Add non-image, non-video attachment references
@@ -283,9 +397,9 @@ export abstract class BaseAgent {
             role: 'user',
             content: [
               { type: 'text' as const, text: intentText },
-              ...imageAttachments.map((a) => ({
+              ...imageAttachmentUrls.map((url) => ({
                 type: 'image_url' as const,
-                image_url: { url: a.url, detail: 'auto' as const },
+                image_url: { url, detail: 'auto' as const },
               })),
             ],
           }
@@ -386,7 +500,7 @@ export abstract class BaseAgent {
     }
 
     const routing = this.getModelRouting();
-    const allowedToolNames = this.getAvailableTools();
+    const allowedToolNames = getEffectiveAgentToolPolicy(this.id);
     const toolSchemas: LLMToolSchema[] = _toolDefinitions
       .filter(
         (def) => def.category === 'system' || isToolAllowedByPatterns(def.name, allowedToolNames)
@@ -519,6 +633,25 @@ export abstract class BaseAgent {
       // which only has system + user messages — nothing to prune yet).
       // No-op when total tool-calling exchanges is below CONTEXT_PRUNE_THRESHOLD.
       if (iteration > 0) this.pruneMessageHistory(messages);
+
+      // Token-budget governor: enforce a hard ceiling on prompt size with a
+      // deterministic degradation ladder. This is a per-LLM-call guard;
+      // operations are not bounded — long jobs still run to completion.
+      // Throws PromptBudgetExceededError if degradation cannot recover; the
+      // outer ReAct loop lets it propagate so the user sees a clear error.
+      const primaryCfg = getCachedAgentAppConfig().primary;
+      if (primaryCfg) {
+        getPromptBudgetService().applyBudget(
+          messages,
+          {
+            maxPromptTokens: primaryCfg.maxPromptTokens,
+            maxMessageChars: primaryCfg.maxMessageChars,
+            maxToolResultChars: primaryCfg.maxToolResultChars,
+          },
+          this.id,
+          context.operationId
+        );
+      }
 
       logger.info(`[${this.id}] Iteration ${iteration + 1}/${MAX_ITERATIONS}`, {
         agentId: this.id,
@@ -1156,8 +1289,13 @@ export abstract class BaseAgent {
   /**
    * Execute a single tool call and return the observation string
    * for the LLM to consume.
+   *
+   * Marked `protected` so the Primary Agent can override and intercept
+   * Primary-only control-flow exceptions (DelegateToCoordinator, PlanAndExecute)
+   * to dispatch into the existing coordinator/planner pipeline and feed the
+   * result back as the next observation.
    */
-  private async executeTool(
+  protected async executeTool(
     toolCall: LLMToolCall,
     registry: ToolRegistry,
     userId: string,
@@ -1174,7 +1312,8 @@ export abstract class BaseAgent {
 
     // Re-check permissions: ensure the LLM isn't calling a tool outside its allowlist.
     // System-category tools (e.g. delegate_task) bypass the allowlist.
-    const allowedToolNames = sessionContext?.allowedToolNames ?? this.getAvailableTools();
+    const allowedToolNames =
+      sessionContext?.allowedToolNames ?? getEffectiveAgentToolPolicy(this.id);
     const tool = registry.get(toolName);
     const isSystemTool = tool?.category === 'system';
     const bypassPermissions =
@@ -1200,6 +1339,15 @@ export abstract class BaseAgent {
         error: `Invalid JSON arguments for tool "${toolName}".`,
         errorCode: 'AGENT_TOOL_ARGS_INVALID',
       });
+    }
+
+    // Stuck-loop guard: if this tool has already been locked out for this
+    // operation due to repeated identical-args failures, short-circuit
+    // immediately with the lockout message instead of re-executing.
+    const loopDetector = getToolLoopDetector();
+    const lockoutMessage = loopDetector.checkLockout(sessionContext?.operationId, toolName);
+    if (lockoutMessage) {
+      return lockoutMessage;
     }
 
     if (approvalGate) {
@@ -1296,21 +1444,36 @@ export abstract class BaseAgent {
       const sanitizedData =
         result.data !== undefined ? sanitizeAgentPayload(result.data) : undefined;
 
+      // Record outcome with the loop detector. Success resets the counter for
+      // this signature; failure increments and may lock the tool out.
+      const outcome = result.success ? 'success' : 'failure';
+      const { advisory } = loopDetector.record(
+        sessionContext?.operationId,
+        toolName,
+        toolCall.function.arguments,
+        outcome
+      );
+
       if (result.success && result.markdown) {
         return result.markdown;
       }
 
-      return JSON.stringify(
-        result.success
-          ? { success: true, ...(sanitizedData !== undefined ? { data: sanitizedData } : {}) }
-          : {
-              success: false,
-              error: sanitizeAgentOutputText(result.error ?? 'Tool execution failed'),
-            }
-      );
+      const payload = result.success
+        ? { success: true, ...(sanitizedData !== undefined ? { data: sanitizedData } : {}) }
+        : {
+            success: false,
+            error: sanitizeAgentOutputText(result.error ?? 'Tool execution failed'),
+            ...(advisory ? { advisory } : {}),
+          };
+      return JSON.stringify(payload);
     } catch (err) {
       if (isAgentYield(err)) throw err; // Let yields propagate
       if (this.isAbortError(err)) throw err;
+      // Primary-only control-flow signals — propagate so PrimaryAgent.executeTool
+      // override can dispatch into the coordinator/planner pipeline and inject
+      // the result as the next ReAct observation.
+      if (isDelegateToCoordinator(err)) throw err;
+      if (isPlanAndExecute(err)) throw err;
       if (isAgentDelegation(err)) {
         // Enrich the delegation payload with the actual agent ID before propagating
         throw new AgentDelegationException({
@@ -1318,11 +1481,19 @@ export abstract class BaseAgent {
           sourceAgent: this.id,
         });
       }
+      // Treat thrown tool errors as failures for stuck-loop tracking.
+      const { advisory } = loopDetector.record(
+        sessionContext?.operationId,
+        toolName,
+        toolCall.function.arguments,
+        'failure'
+      );
       return JSON.stringify({
         success: false,
         error: sanitizeAgentOutputText(
           err instanceof Error ? err.message : 'Tool execution failed'
         ),
+        ...(advisory ? { advisory } : {}),
       });
     }
   }
@@ -1415,12 +1586,15 @@ export abstract class BaseAgent {
       // Live Browser
       open_live_view: 'Opening virtual browser',
       read_live_view: 'Scanning virtual browser',
+      extract_live_view_media: 'Extracting media stream',
+      extract_live_view_playlist: 'Extracting playlist clips',
       navigate_live_view: 'Navigating webpage',
 
       // Comms
       scan_timeline_posts: 'Scanning recent posts',
       write_timeline_post: 'Drafting new post',
       send_email: 'Sending email',
+      batch_send_email: 'Sending email campaign',
       dynamic_export: 'Generating data export',
     };
 

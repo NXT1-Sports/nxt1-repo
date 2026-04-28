@@ -11,7 +11,7 @@ import type { OpenRouterService } from '../llm/openrouter.service.js';
 import type { BaseAgent } from '../agents/base.agent.js';
 import type { SkillRegistry } from '../skills/skill-registry.js';
 import type { ToolRegistry } from '../tools/tool-registry.js';
-import { isToolAllowedByPatterns } from '../agents/tool-policy.js';
+import { getEffectiveAgentToolPolicy, isToolAllowedByPatterns } from '../agents/tool-policy.js';
 
 interface AgentPlannerCapabilityCoordinatorSnapshot {
   readonly agentId: Exclude<AgentIdentifier, 'router'>;
@@ -95,7 +95,7 @@ export class AgentRouterPlanningService {
     const coordinators = await Promise.all(
       COORDINATOR_AGENT_IDS.map(async (agentId) => {
         const registryAllowedTools = this.toolRegistry.getDefinitions(agentId, toolAccessContext);
-        const policyAllowedToolNames = agents.get(agentId)?.getAvailableTools() ?? [];
+        const policyAllowedToolNames = getEffectiveAgentToolPolicy(agentId);
         const allowedTools = registryAllowedTools.filter(
           (tool) =>
             tool.category === 'system' || isToolAllowedByPatterns(tool.name, policyAllowedToolNames)

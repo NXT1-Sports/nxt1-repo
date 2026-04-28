@@ -28,6 +28,7 @@ import type { Firestore } from 'firebase-admin/firestore';
 import { db as defaultDb } from '../../utils/firebase.js';
 import { stagingDb } from '../../utils/firebase-staging.js';
 import { logger } from '../../utils/logger.js';
+import { renderRichContentAsEmailHtml } from './rich-content-formatting.js';
 import {
   ConversationModel,
   type IConversation,
@@ -697,21 +698,8 @@ export async function syncAllUserEmails(
   return results;
 }
 
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
 function normalizeEmailHtml(body: string): string {
-  if (/<[a-z][\s\S]*>/i.test(body)) {
-    return body;
-  }
-
-  return `<div>${escapeHtml(body).replace(/\n/g, '<br/>')}</div>`;
+  return renderRichContentAsEmailHtml(body);
 }
 
 function buildTrackingBaseUrl(): string {

@@ -143,6 +143,20 @@ function sanitizeJsonSchemaForOpenAI(schema: unknown): unknown {
     }
   }
 
+  if (
+    cleaned['type'] === 'object' &&
+    cleaned['properties'] &&
+    typeof cleaned['properties'] === 'object' &&
+    !Array.isArray(cleaned['properties'])
+  ) {
+    const propertyKeys = Object.keys(cleaned['properties'] as Record<string, unknown>);
+    cleaned['required'] = propertyKeys;
+
+    if (!('additionalProperties' in cleaned)) {
+      cleaned['additionalProperties'] = false;
+    }
+  }
+
   return cleaned;
 }
 
@@ -848,11 +862,7 @@ export class OpenRouterService {
         type: 'json_schema',
         json_schema: {
           name: options.outputSchema.name,
-          // strict: false — schemas containing z.record() produce
-          // `additionalProperties: {}` which strict mode rejects.
-          // Non-strict mode still enforces the schema shape but permits
-          // open-ended objects.
-          strict: options.outputSchema.strict ?? false,
+          strict: options.outputSchema.strict ?? true,
           schema: sanitizeJsonSchemaForOpenAI(z.toJSONSchema(options.outputSchema.schema)),
         },
       };

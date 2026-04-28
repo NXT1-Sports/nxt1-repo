@@ -13,12 +13,13 @@ import type { Firestore } from 'firebase-admin/firestore';
 import { db as defaultDb } from '../../../../../utils/firebase.js';
 import { getAnalyticsLoggerService } from '../../../../../services/core/analytics-logger.service.js';
 import { logger } from '../../../../../utils/logger.js';
+import {
+  type EmailProvider,
+  MAX_BODY_LENGTH,
+  MAX_SUBJECT_LENGTH,
+  resolveConnectedEmailProvider,
+} from './email-tool.utils.js';
 import { z } from 'zod';
-
-type EmailProvider = 'gmail' | 'microsoft';
-
-const MAX_SUBJECT_LENGTH = 500;
-const MAX_BODY_LENGTH = 50_000;
 
 const SendEmailInputSchema = z.object({
   userId: z.string().trim().min(1),
@@ -32,13 +33,13 @@ export class SendEmailTool extends BaseTool {
   readonly description =
     "Sends an email via the user's connected email account (Gmail or Microsoft Outlook). " +
     'The provider is auto-detected from the user profile. ' +
-    'Use this to send recruiting outreach emails, follow-ups, or any email on behalf of the user.';
+    'Use this for one-off approved messages. Use batch_send_email when sending the same template to multiple recipients.';
   readonly parameters = SendEmailInputSchema;
-  override readonly allowedAgents = ['recruiting_coordinator'] as const;
+  override readonly allowedAgents = ['*'] as const;
   readonly isMutation = true;
   readonly category = 'communication' as const;
 
-  readonly entityGroup = 'user_tools' as const;
+  readonly entityGroup = 'system_tools' as const;
   private readonly db: Firestore;
 
   constructor(db?: Firestore) {
@@ -69,24 +70,7 @@ export class SendEmailTool extends BaseTool {
     });
     let provider: EmailProvider;
     try {
-      const userDoc = await this.db.collection('Users').doc(userId).get();
-      const userData = userDoc.data();
-      const connectedEmails: Array<{ provider: string; isActive: boolean }> =
-        userData?.['connectedEmails'] ?? [];
-
-      const active = connectedEmails.find(
-        (ce) => ce.isActive && (ce.provider === 'gmail' || ce.provider === 'microsoft')
-      );
-
-      if (!active) {
-        return {
-          success: false,
-          error:
-            'No connected email account found. The user needs to connect their Gmail or Outlook account in Settings → Email before sending emails.',
-        };
-      }
-
-      provider = active.provider as EmailProvider;
+      provider = await resolveConnectedEmailProvider(userId, this.db);
     } catch (lookupErr) {
       logger.error('Failed to look up user email provider', {
         error: lookupErr instanceof Error ? lookupErr.message : String(lookupErr),
@@ -129,7 +113,7 @@ export class SendEmailTool extends BaseTool {
         actorUserId: context?.userId ?? userId,
         sessionId: context?.sessionId ?? null,
         threadId: context?.threadId ?? null,
-        tags: [provider, 'recruiting-email'],
+        tags: [provider, 'agent-email'],
         payload: {
           provider,
           toEmail,

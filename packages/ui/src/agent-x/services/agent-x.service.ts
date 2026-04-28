@@ -75,6 +75,15 @@ import type { ConnectedAppSource } from '../components/modals/agent-x-attachment
 
 /** sessionStorage key for in-flight operation drop-recovery. */
 const AGENT_X_PENDING_OP_KEY = 'nxt1_pending_agent_op';
+const AGENT_X_WEEKLY_TASKS_GOAL_ID = 'recurring';
+const AGENT_X_WEEKLY_TASKS_GOAL_LABEL = 'Weekly Tasks';
+
+function isWeeklyTasksGoalPill(pill: { id: string; label: string }): boolean {
+  return (
+    pill.id === AGENT_X_WEEKLY_TASKS_GOAL_ID ||
+    pill.label.trim().toLowerCase() === AGENT_X_WEEKLY_TASKS_GOAL_LABEL.toLowerCase()
+  );
+}
 
 /**
  * Agent X state management service.
@@ -336,7 +345,14 @@ export class AgentXService {
       seen.add(goalId);
       pills.push({ id: goalId, label: task.goal?.label ?? goalId });
     }
-    return pills;
+
+    const [allPill, ...goalPills] = pills;
+    const orderedGoalPills = [
+      ...goalPills.filter((pill) => !isWeeklyTasksGoalPill(pill)),
+      ...goalPills.filter((pill) => isWeeklyTasksGoalPill(pill)),
+    ];
+
+    return [allPill, ...orderedGoalPills];
   });
 
   /** Show pills only when there are 2+ unique categories. */
@@ -1040,7 +1056,7 @@ export class AgentXService {
   }
 
   /**
-   * Set or update user goals (max 2), then optionally regenerate playbook.
+   * Set or update user goals (max 3), then optionally regenerate playbook.
    */
   async setGoals(goals: AgentDashboardGoal[]): Promise<boolean> {
     this.logger.info('Setting Agent X goals', { count: goals.length });

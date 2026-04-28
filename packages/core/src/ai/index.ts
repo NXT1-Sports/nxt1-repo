@@ -24,6 +24,8 @@ export type {
   AgentXMode,
   AgentXModeConfig,
   AgentXChatRequest,
+  AgentXSelectedAction,
+  AgentXSelectedActionSurface,
   AgentXChatResponse,
   AgentXUserContext,
   AgentXErrorCode,
@@ -310,6 +312,15 @@ export {
   AGENT_MODEL_PRICING,
   OPERATION_STATUS_LABELS_EXTENDED,
 } from './agent.constants';
+
+// Agent X identity (single source of truth for system prompts)
+export type { AgentIdentitySnapshot } from './agent-identity';
+export {
+  AGENT_X_IDENTITY,
+  buildSystemPrompt,
+  getModeAddendum,
+  hashIdentitySnapshot,
+} from './agent-identity';
 
 // Welcome graphic prompt builders
 export type {

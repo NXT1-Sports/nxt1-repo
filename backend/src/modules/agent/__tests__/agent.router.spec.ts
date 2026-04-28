@@ -89,17 +89,77 @@ function createMockToolRegistry(): ToolRegistry {
  * The plan JSON is configurable.
  */
 function createMockLLM(planJson: object): OpenRouterService {
+  const normalizedPlan =
+    typeof planJson === 'object' && planJson !== null && 'tasks' in planJson
+      ? (planJson as {
+          summary?: string;
+          estimatedSteps?: number;
+          directResponse?: string;
+          tasks?: unknown[];
+          clarificationQuestion?: string | null;
+          clarificationContext?: string | null;
+        })
+      : { tasks: [] };
+
+  const classifierResponse = normalizedPlan.directResponse
+    ? {
+        route: 'chat' as const,
+        reasoning: 'Simple conversational response.',
+        requiredContextScopes: [],
+        directResponse: normalizedPlan.directResponse,
+        planSummary: null,
+      }
+    : {
+        route: 'action' as const,
+        reasoning: 'Coordinator execution required.',
+        requiredContextScopes: [],
+        directResponse: null,
+        planSummary: normalizedPlan.summary ?? null,
+      };
+
+  const strictPlannerResponse =
+    Array.isArray(normalizedPlan.tasks) && normalizedPlan.tasks.length > 0
+      ? {
+          resultType: 'execution' as const,
+          summary: normalizedPlan.summary ?? 'Created execution plan.',
+          estimatedSteps: normalizedPlan.estimatedSteps ?? normalizedPlan.tasks.length,
+          tasks: normalizedPlan.tasks,
+          clarificationQuestion: null,
+          clarificationContext: null,
+        }
+      : {
+          resultType: 'clarification' as const,
+          summary: normalizedPlan.summary ?? 'Need clarification before planning.',
+          estimatedSteps: 0,
+          tasks: [],
+          clarificationQuestion:
+            normalizedPlan.clarificationQuestion ?? 'Can you clarify what you want me to do?',
+          clarificationContext: normalizedPlan.clarificationContext ?? null,
+        };
+
   return {
-    prompt: vi.fn().mockResolvedValue({
-      content: JSON.stringify(planJson),
-      parsedOutput: planJson,
-      toolCalls: [],
-      model: 'anthropic/claude-haiku-4-5',
-      usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
-      latencyMs: 200,
-      costUsd: 0.0001,
-      finishReason: 'stop',
-    }),
+    prompt: vi
+      .fn()
+      .mockResolvedValueOnce({
+        content: JSON.stringify(classifierResponse),
+        parsedOutput: classifierResponse,
+        toolCalls: [],
+        model: 'anthropic/claude-haiku-4-5',
+        usage: { inputTokens: 40, outputTokens: 20, totalTokens: 60 },
+        latencyMs: 120,
+        costUsd: 0.00005,
+        finishReason: 'stop',
+      })
+      .mockResolvedValue({
+        content: JSON.stringify(strictPlannerResponse),
+        parsedOutput: strictPlannerResponse,
+        toolCalls: [],
+        model: 'anthropic/claude-sonnet-4-5',
+        usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
+        latencyMs: 200,
+        costUsd: 0.0001,
+        finishReason: 'stop',
+      }),
     complete: vi.fn(),
     embed: vi.fn().mockResolvedValue([0.1, 0.2, 0.3]),
   } as unknown as OpenRouterService;
@@ -138,76 +198,6 @@ describe('AgentRouter', () => {
     vi.clearAllMocks();
     toolRegistry = createMockToolRegistry();
     contextBuilder = createMockContextBuilder();
-  });
-
-  // ─── classify() ─────────────────────────────────────────────────────────
-
-  describe('classify()', () => {
-    it('should return the agent ID for a single-task plan', async () => {
-      llm = createMockLLM({
-        summary: 'Single task',
-        tasks: [
-          {
-            id: '1',
-            assignedAgent: 'performance_coordinator',
-            description: 'Analyze tape',
-            dependsOn: [],
-          },
-        ],
-      });
-
-      const router = new AgentRouter(llm, toolRegistry, contextBuilder);
-      const agentId = await router.classify('Grade my tape', 'user-123');
-
-      expect(agentId).toBe('performance_coordinator');
-    });
-
-    it('should return "router" for multi-task plans', async () => {
-      llm = createMockLLM({
-        tasks: [
-          {
-            id: '1',
-            assignedAgent: 'performance_coordinator',
-            description: 'Analyze tape',
-            dependsOn: [],
-          },
-          {
-            id: '2',
-            assignedAgent: 'recruiting_coordinator',
-            description: 'Email coaches',
-            dependsOn: ['1'],
-          },
-        ],
-      });
-
-      const router = new AgentRouter(llm, toolRegistry, contextBuilder);
-      const agentId = await router.classify('Grade tape and email coaches', 'user-123');
-
-      expect(agentId).toBe('router');
-    });
-
-    it('should return "router" when plan has no tasks', async () => {
-      llm = createMockLLM({ tasks: [] });
-
-      const router = new AgentRouter(llm, toolRegistry, contextBuilder);
-      const agentId = await router.classify('ambiguous request', 'user-123');
-
-      expect(agentId).toBe('router');
-    });
-
-    it('should build user context before classifying', async () => {
-      llm = createMockLLM({
-        tasks: [
-          { id: '1', assignedAgent: 'strategy_coordinator', description: 'test', dependsOn: [] },
-        ],
-      });
-
-      const router = new AgentRouter(llm, toolRegistry, contextBuilder);
-      await router.classify('hello', 'user-123');
-
-      expect(contextBuilder.buildContext).toHaveBeenCalledWith('user-123');
-      expect(contextBuilder.compressToPrompt).toHaveBeenCalled();
-    });
   });
 
   // ─── run() ──────────────────────────────────────────────────────────────
@@ -508,6 +498,7 @@ describe('AgentRouter', () => {
           })
           .mockResolvedValueOnce({
             parsedOutput: {
+              resultType: 'execution',
               summary: 'Send recruiting emails.',
               estimatedSteps: 1,
               tasks: [
@@ -518,8 +509,11 @@ describe('AgentRouter', () => {
                   dependsOn: [],
                 },
               ],
+              clarificationQuestion: null,
+              clarificationContext: null,
             },
             content: JSON.stringify({
+              resultType: 'execution',
               summary: 'Send recruiting emails.',
               estimatedSteps: 1,
               tasks: [
@@ -530,6 +524,8 @@ describe('AgentRouter', () => {
                   dependsOn: [],
                 },
               ],
+              clarificationQuestion: null,
+              clarificationContext: null,
             }),
             model: 'anthropic/claude-sonnet-4-5',
             usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
@@ -571,7 +567,7 @@ describe('AgentRouter', () => {
       expect(contextBuilder.buildPromptContext).not.toHaveBeenCalled();
       expect(llm.prompt).toHaveBeenCalledTimes(2);
       expect((llm.prompt as ReturnType<typeof vi.fn>).mock.calls[1]?.[2]).toMatchObject({
-        outputSchema: { name: 'planner_execution_plan' },
+        outputSchema: { name: 'planner_action_execution_plan' },
       });
       expect(streamEvents.some((event) => event.type === 'delta')).toBe(true);
     });
@@ -601,6 +597,7 @@ describe('AgentRouter', () => {
           })
           .mockResolvedValueOnce({
             parsedOutput: {
+              resultType: 'execution',
               summary: 'Send recruiting emails.',
               estimatedSteps: 1,
               tasks: [
@@ -611,8 +608,11 @@ describe('AgentRouter', () => {
                   dependsOn: [],
                 },
               ],
+              clarificationQuestion: null,
+              clarificationContext: null,
             },
             content: JSON.stringify({
+              resultType: 'execution',
               summary: 'Send recruiting emails.',
               estimatedSteps: 1,
               tasks: [
@@ -623,6 +623,8 @@ describe('AgentRouter', () => {
                   dependsOn: [],
                 },
               ],
+              clarificationQuestion: null,
+              clarificationContext: null,
             }),
             model: 'anthropic/claude-sonnet-4-5',
             usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
@@ -1067,7 +1069,7 @@ describe('AgentRouter', () => {
 
       const result = await router.run(payload);
 
-      expect(result.summary).toBe('Created execution plan with 0 task(s).');
+      expect(result.summary).toBe('Can you clarify what you want me to do?');
       expect(result.suggestions).toEqual([]);
     });
 
@@ -1101,8 +1103,10 @@ describe('AgentRouter', () => {
         updates.some(
           (update) =>
             (update.agentId === 'router' || update.step?.agentId === 'router') &&
-            (update.metadata?.['executionMode'] === 'chief_of_staff_direct' ||
-              update.step?.metadata?.['executionMode'] === 'chief_of_staff_direct')
+            (update.metadata?.['executionMode'] === 'conversation' ||
+              update.step?.metadata?.['executionMode'] === 'conversation') &&
+            (update.metadata?.['source'] === 'triage_direct' ||
+              update.step?.metadata?.['source'] === 'triage_direct')
         )
       ).toBe(true);
       expect(
@@ -1180,16 +1184,18 @@ describe('AgentRouter', () => {
     it('should perform one constrained replan when first plan is infeasible', async () => {
       llm = {
         prompt: vi.fn().mockImplementation(async (_system, _input, config) => {
-          if ((config?.maxTokens ?? 0) <= 512) {
-            const classificationResult = {
-              isConversational: false,
+          if (config?.outputSchema?.name === 'classifier_route_decision') {
+            const routeDecision = {
+              route: 'action',
               reasoning: 'Coordinator execution required',
-              estimatedComplexity: 'moderate',
+              requiredContextScopes: [],
+              directResponse: null,
+              planSummary: 'Do the task with replanning if needed',
             };
 
             return {
-              content: JSON.stringify(classificationResult),
-              parsedOutput: classificationResult,
+              content: JSON.stringify(routeDecision),
+              parsedOutput: routeDecision,
               toolCalls: [],
               model: 'deepseek/deepseek-v3.2',
               usage: { inputTokens: 50, outputTokens: 20, totalTokens: 70 },
@@ -1199,10 +1205,15 @@ describe('AgentRouter', () => {
             };
           }
 
+          const planningCallCount = (llm.prompt as ReturnType<typeof vi.fn>).mock.calls.filter(
+            (call) => call[2]?.outputSchema?.name === 'planner_action_execution_plan'
+          ).length;
           const plan =
-            (llm.prompt as ReturnType<typeof vi.fn>).mock.calls.length <= 2
+            planningCallCount === 1
               ? {
+                  resultType: 'execution',
                   summary: 'Initial infeasible plan.',
+                  estimatedSteps: 1,
                   tasks: [
                     {
                       id: '1',
@@ -1211,9 +1222,13 @@ describe('AgentRouter', () => {
                       dependsOn: [],
                     },
                   ],
+                  clarificationQuestion: null,
+                  clarificationContext: null,
                 }
               : {
+                  resultType: 'execution',
                   summary: 'Replanned feasible plan.',
+                  estimatedSteps: 1,
                   tasks: [
                     {
                       id: '1',
@@ -1222,6 +1237,8 @@ describe('AgentRouter', () => {
                       dependsOn: [],
                     },
                   ],
+                  clarificationQuestion: null,
+                  clarificationContext: null,
                 };
 
           return {
@@ -1271,16 +1288,18 @@ describe('AgentRouter', () => {
 
       llm = {
         prompt: vi.fn().mockImplementation(async (_system, _input, config) => {
-          if ((config?.maxTokens ?? 0) <= 512) {
-            const classificationResult = {
-              isConversational: false,
+          if (config?.outputSchema?.name === 'classifier_route_decision') {
+            const routeDecision = {
+              route: 'action',
               reasoning: 'Coordinator execution required',
-              estimatedComplexity: 'moderate',
+              requiredContextScopes: [],
+              directResponse: null,
+              planSummary: 'Find coaches and run recruiting outreach',
             };
 
             return {
-              content: JSON.stringify(classificationResult),
-              parsedOutput: classificationResult,
+              content: JSON.stringify(routeDecision),
+              parsedOutput: routeDecision,
               toolCalls: [],
               model: 'deepseek/deepseek-v3.2',
               usage: { inputTokens: 50, outputTokens: 20, totalTokens: 70 },
@@ -1294,7 +1313,9 @@ describe('AgentRouter', () => {
           const plan =
             planningCalls === 1
               ? {
+                  resultType: 'execution',
                   summary: 'Initial capability-mismatched plan.',
+                  estimatedSteps: 1,
                   tasks: [
                     {
                       id: '1',
@@ -1303,9 +1324,13 @@ describe('AgentRouter', () => {
                       dependsOn: [],
                     },
                   ],
+                  clarificationQuestion: null,
+                  clarificationContext: null,
                 }
               : {
+                  resultType: 'execution',
                   summary: 'Replanned but still mismatched.',
+                  estimatedSteps: 1,
                   tasks: [
                     {
                       id: '2',
@@ -1314,6 +1339,8 @@ describe('AgentRouter', () => {
                       dependsOn: [],
                     },
                   ],
+                  clarificationQuestion: null,
+                  clarificationContext: null,
                 };
 
           return {
@@ -1337,31 +1364,34 @@ describe('AgentRouter', () => {
 
       (
         router as unknown as {
-          buildCapabilitySnapshot: (
-            intent: string,
-            toolAccessContext: unknown
-          ) => Promise<{
-            schemaVersion: number;
-            hash: string;
-            coordinators: Array<{
-              agentId: string;
-              allowedToolNames: string[];
-              allowedEntityGroups: string[];
-              matchedToolNames: string[];
-              staticSkillHints: string[];
-              matchedSkillHints: string[];
-              confidence: {
-                matchedToolCount: number;
-                allowedToolCount: number;
-                toolCoverageRatio: number;
-                matchedSkillCount: number;
-                staticSkillCount: number;
-                skillCoverageRatio: number;
-              };
+          planningService: {
+            buildCapabilitySnapshot: (
+              intent: string,
+              toolAccessContext: unknown,
+              agents: unknown
+            ) => Promise<{
+              schemaVersion: number;
+              hash: string;
+              coordinators: Array<{
+                agentId: string;
+                allowedToolNames: string[];
+                allowedEntityGroups: string[];
+                matchedToolNames: string[];
+                staticSkillHints: string[];
+                matchedSkillHints: string[];
+                confidence: {
+                  matchedToolCount: number;
+                  allowedToolCount: number;
+                  toolCoverageRatio: number;
+                  matchedSkillCount: number;
+                  staticSkillCount: number;
+                  skillCoverageRatio: number;
+                };
+              }>;
             }>;
-          }>;
+          };
         }
-      ).buildCapabilitySnapshot = vi.fn().mockResolvedValue({
+      ).planningService.buildCapabilitySnapshot = vi.fn().mockResolvedValue({
         schemaVersion: 1,
         hash: 'snapshot-hash',
         coordinators: [
@@ -2141,9 +2171,34 @@ describe('AgentRouter', () => {
       const plannerCallCount = { value: 0 };
 
       llm = {
-        prompt: vi.fn().mockImplementation(async () => {
+        prompt: vi.fn().mockImplementation(async (_system, _input, config) => {
+          plannerCallCount.value++;
+
+          if (config?.outputSchema?.name === 'classifier_route_decision') {
+            const routeDecision = {
+              route: 'action',
+              reasoning: 'Coordinator execution required',
+              requiredContextScopes: [],
+              directResponse: null,
+              planSummary: 'Send recruiting emails to D2 coaches',
+            };
+
+            return {
+              content: JSON.stringify(routeDecision),
+              parsedOutput: routeDecision,
+              toolCalls: [],
+              model: 'anthropic/claude-haiku-4-5',
+              usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
+              latencyMs: 200,
+              costUsd: 0.0001,
+              finishReason: 'stop',
+            };
+          }
+
           const plan = {
+            resultType: 'execution',
             summary: 'Recruiting task.',
+            estimatedSteps: 1,
             tasks: [
               {
                 id: '1',
@@ -2152,9 +2207,10 @@ describe('AgentRouter', () => {
                 dependsOn: [],
               },
             ],
+            clarificationQuestion: null,
+            clarificationContext: null,
           };
-          plannerCallCount.value++;
-          // Only called during re-dispatch (Planner planning phase)
+
           return {
             content: JSON.stringify(plan),
             parsedOutput: plan,
@@ -2211,19 +2267,22 @@ describe('AgentRouter', () => {
       const plannerCallCount = { value: 0 };
 
       llm = {
-        prompt: vi.fn().mockImplementation(async () => {
+        prompt: vi.fn().mockImplementation(async (_system, _input, config) => {
           plannerCallCount.value++;
 
-          if (plannerCallCount.value === 1 || plannerCallCount.value === 3) {
-            const classificationResult = {
-              isConversational: false,
+          if (config?.outputSchema?.name === 'classifier_route_decision') {
+            const routeDecision = {
+              route: 'action',
               reasoning: 'Coordinator execution required',
-              estimatedComplexity: 'moderate',
+              requiredContextScopes: [],
+              directResponse: null,
+              planSummary:
+                'Send email to nxt1@nxt1sports.com asking them to check out the platform',
             };
 
             return {
-              content: JSON.stringify(classificationResult),
-              parsedOutput: classificationResult,
+              content: JSON.stringify(routeDecision),
+              parsedOutput: routeDecision,
               toolCalls: [],
               model: 'deepseek/deepseek-v3.2',
               usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
@@ -2235,7 +2294,9 @@ describe('AgentRouter', () => {
 
           if (plannerCallCount.value === 2) {
             const initialPlan = {
+              resultType: 'execution',
               summary: 'Route to admin.',
+              estimatedSteps: 1,
               tasks: [
                 {
                   id: '1',
@@ -2245,6 +2306,8 @@ describe('AgentRouter', () => {
                   dependsOn: [],
                 },
               ],
+              clarificationQuestion: null,
+              clarificationContext: null,
             };
 
             return {
@@ -2260,7 +2323,9 @@ describe('AgentRouter', () => {
           }
 
           const reroutedPlan = {
+            resultType: 'execution',
             summary: 'Route to recruiting.',
+            estimatedSteps: 1,
             tasks: [
               {
                 id: '1',
@@ -2269,6 +2334,8 @@ describe('AgentRouter', () => {
                 dependsOn: [],
               },
             ],
+            clarificationQuestion: null,
+            clarificationContext: null,
           };
 
           return {
@@ -2318,7 +2385,7 @@ describe('AgentRouter', () => {
       expect(result.summary).toContain('Email sent successfully.');
       expect(adminAgent.execute).toHaveBeenCalledTimes(1);
       expect(recruitingAgent.execute).toHaveBeenCalledTimes(1);
-      expect(plannerCallCount.value).toBe(4);
+      expect(plannerCallCount.value).toBe(3);
       expect(
         updates.some((u) => u.step?.message?.includes('rerouted to recruiting_coordinator'))
       ).toBe(true);

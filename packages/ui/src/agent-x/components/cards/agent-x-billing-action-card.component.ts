@@ -7,9 +7,8 @@
  * when an operation cannot proceed due to insufficient credits (B2C),
  * a missing payment method (B2B), or a budget limit breach.
  *
- * Adapts automatically to billing entity context:
- * - **B2C (Individual)**: "Top Up Wallet" → opens Buy Credits bottom sheet.
- * - **B2B (Org/Team)**: "Manage Billing" → opens Stripe Customer Portal.
+ * The primary CTA routes the user to the Usage page so billing changes happen
+ * in the canonical billing surface.
  *
  * ⭐ SHARED BETWEEN WEB AND MOBILE ⭐
  */
@@ -32,10 +31,10 @@ import { APP_EVENTS } from '@nxt1/core/analytics';
 import { TEST_IDS } from '@nxt1/core/testing';
 import { NxtLoggingService } from '../../../services/logging';
 import { ANALYTICS_ADAPTER } from '../../../services/analytics';
+import { AuthNavigationService } from '../../../services/auth-navigation';
 import { NxtBreadcrumbService } from '../../../services/breadcrumb';
 import { HapticsService } from '../../../services/haptics';
 import { UsageService } from '../../../usage/usage.service';
-import { UsageBottomSheetService } from '../../../usage/usage-bottom-sheet.service';
 
 /** Emitted when the user triggers a billing action from the card. */
 export interface BillingActionResolvedEvent {
@@ -321,11 +320,11 @@ export class AgentXBillingActionCardComponent {
   private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
   private readonly breadcrumb = inject(NxtBreadcrumbService);
   private readonly haptics = inject(HapticsService);
+  private readonly navigation = inject(AuthNavigationService);
 
   // ── Dependencies ──
 
   private readonly usageService = inject(UsageService);
-  private readonly usageBottomSheet = inject(UsageBottomSheetService);
 
   // ── Inputs / Outputs ──
 
@@ -374,11 +373,9 @@ export class AgentXBillingActionCardComponent {
   /** Whether the user is on a personal (B2C) billing entity. */
   protected readonly isPersonal = computed<boolean>(() => this.usageService.isPersonal());
 
-  /** Primary CTA label — adapts to B2C vs B2B context. */
+  /** Primary CTA label. */
   protected readonly primaryLabel = computed<string>(() => {
-    const reason = this.payload().reason;
-    if (reason === 'payment_method_required') return 'Add Payment Method';
-    return this.isPersonal() ? 'Top Up Wallet' : 'Manage Billing';
+    return 'Open Usage';
   });
 
   // ── Lifecycle ──
@@ -399,7 +396,7 @@ export class AgentXBillingActionCardComponent {
 
   // ── Actions ──
 
-  /** Handle the primary CTA click (top-up wallet or open billing portal). */
+  /** Handle the primary CTA click. */
   protected async onPrimaryAction(): Promise<void> {
     const reason = this.payload().reason;
     await this.haptics.impact('light');
@@ -409,44 +406,17 @@ export class AgentXBillingActionCardComponent {
     });
     this.analytics?.trackEvent(APP_EVENTS.AGENT_X_BILLING_CARD_CTA_CLICKED, {
       reason,
-      action: this.isPersonal() ? 'top_up_wallet' : 'manage_billing',
+      action: 'open_usage',
     });
     this.breadcrumb.trackUserAction('agent-x-billing-card:cta-clicked', { reason });
 
     try {
-      if (this.isPersonal()) {
-        const { amountCents, autoTopup } = await this.usageBottomSheet.showBuyCreditsWithAutoTopup({
-          autoTopupEnabled: this.usageService.autoTopUpEnabled(),
-          autoTopupThresholdCents: this.usageService.autoTopUpThresholdCents(),
-          autoTopupAmountCents: this.usageService.autoTopUpAmountCents(),
-          allowIap: this.usageService.isPersonalBillingMode(),
-        });
-
-        if (amountCents !== null) {
-          await this.usageService.buyCredits(amountCents);
-          this.logger.info('Credits purchased from billing card', { amountCents });
-          this.analytics?.trackEvent(APP_EVENTS.AGENT_X_BILLING_CARD_PURCHASE_COMPLETED, {
-            reason,
-            amountCents,
-          });
-        }
-
-        if (autoTopup !== null) {
-          await this.usageService.configureAutoTopUp(autoTopup);
-        }
-
-        if (amountCents !== null || autoTopup !== null) {
-          await this.haptics.notification('success');
-          this.actionResolved.emit({ reason, completed: true });
-          return;
-        }
-
-        this.actionResolved.emit({ reason, completed: false });
-      } else {
-        // B2B: Open Stripe Customer Portal
-        await this.usageService.openBillingPortal();
-        this.actionResolved.emit({ reason, completed: true });
-      }
+      const navigated = await this.navigation.navigateForward('/usage', { haptic: false });
+      this.logger.info('Billing card navigated to usage page', {
+        reason,
+        navigated,
+      });
+      this.actionResolved.emit({ reason, completed: navigated });
     } catch (err) {
       this.logger.error('Billing card action failed', err, { reason });
       await this.haptics.notification('error');

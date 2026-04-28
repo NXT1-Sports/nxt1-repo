@@ -189,7 +189,7 @@ export interface AgentOnboardingState {
   readonly isLoading: boolean;
   /** Selected program data (coach flow) */
   readonly programData: SelectedProgramData | null;
-  /** Selected goals (max 2) */
+  /** Selected goals (max 3) */
   readonly goals: readonly AgentGoal[];
   /** Added connections */
   readonly connections: readonly AgentConnection[];

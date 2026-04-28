@@ -99,6 +99,51 @@ export class ApprovalGateService {
       };
     }
 
+    if (toolName === 'batch_send_email') {
+      const rawRecipients = Array.isArray(toolInput['recipients']) ? toolInput['recipients'] : [];
+      const recipients = rawRecipients
+        .map((recipient) => {
+          if (typeof recipient === 'string') {
+            return {
+              toEmail: recipient,
+              variables: {},
+            };
+          }
+
+          if (!recipient || typeof recipient !== 'object' || Array.isArray(recipient)) {
+            return null;
+          }
+
+          const record = recipient as Record<string, unknown>;
+          const variables =
+            record['variables'] &&
+            typeof record['variables'] === 'object' &&
+            !Array.isArray(record['variables'])
+              ? (record['variables'] as Record<string, unknown>)
+              : {};
+
+          return {
+            toEmail: record['toEmail'] ?? record['to'],
+            variables,
+          };
+        })
+        .filter(
+          (recipient): recipient is { toEmail: unknown; variables: Record<string, unknown> } =>
+            recipient !== null
+        );
+
+      return {
+        userId: toolInput['userId'],
+        recipients,
+        subjectTemplate: toolInput['subjectTemplate'] ?? toolInput['subject'],
+        bodyHtmlTemplate:
+          toolInput['bodyHtmlTemplate'] ??
+          toolInput['bodyHtml'] ??
+          toolInput['body'] ??
+          toolInput['message'],
+      };
+    }
+
     return toolInput;
   }
 

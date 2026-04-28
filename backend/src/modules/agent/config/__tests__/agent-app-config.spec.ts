@@ -7,7 +7,10 @@ import {
   isToolDisabled,
   parseAgentAppConfig,
   resetCachedAgentAppConfig,
+  resolveConfiguredCoordinatorActionForRole,
   resolveAgentSystemPrompt,
+  resolveClassifierSystemPrompt,
+  resolveConversationSystemPrompt,
   resolvePlannerSystemPrompt,
   resolveModelFallbackChain,
   resolveModelForTier,
@@ -130,6 +133,8 @@ describe('agent-app-config', () => {
   it('parses planner and agent prompt overrides and interpolates template placeholders', () => {
     const config = parseAgentAppConfig({
       prompts: {
+        classifierSystemPrompt: 'Classify on {{today}}.',
+        conversationSystemPrompt: 'Talk naturally on {{today}}.',
         plannerSystemPrompt: 'Plan for {{today}}.',
         agentSystemPrompts: {
           router: 'Chief of Staff briefing for {{today}}.',
@@ -142,6 +147,12 @@ describe('agent-app-config', () => {
 
     expect(resolvePlannerSystemPrompt('planner fallback', { today: 'Tuesday' })).toBe(
       'Plan for Tuesday.'
+    );
+    expect(resolveClassifierSystemPrompt('classifier fallback', { today: 'Tuesday' })).toBe(
+      'Classify on Tuesday.'
+    );
+    expect(resolveConversationSystemPrompt('conversation fallback', { today: 'Tuesday' })).toBe(
+      'Talk naturally on Tuesday.'
     );
     // router reads from agentSystemPrompts.router (not plannerSystemPrompt)
     expect(resolveAgentSystemPrompt('router', 'fallback', { today: 'Tuesday' })).toBe(
@@ -171,6 +182,7 @@ describe('agent-app-config', () => {
 
     expect(isToolDisabled('query_nxt1_platform_data')).toBe(true);
     expect(isToolDisabled('send_email')).toBe(true);
+    expect(isToolDisabled('batch_send_email')).toBe(true);
     expect(isToolDisabled('generate_graphic')).toBe(true);
     expect(isToolDisabled('search_web')).toBe(false);
   });
@@ -290,7 +302,27 @@ describe('agent-app-config', () => {
 
     expect(strategy?.commands.length).toBeGreaterThan(0);
     expect(strategy?.availableForRoles).toEqual(['athlete', 'coach', 'director']);
-    expect(admin?.availableForRoles).toEqual(['coach', 'director']);
+    expect(admin?.availableForRoles).toEqual(['athlete', 'coach', 'director']);
+  });
+
+  it('expands default dashboard coordinator packs to six commands and four scheduled actions per role', () => {
+    const config = parseAgentAppConfig({});
+    const athleteAdmin = resolveConfiguredCoordinatorsForRole('athlete', config).find(
+      (item) => item.id === 'admin_coordinator'
+    );
+    const coachBrand = resolveConfiguredCoordinatorsForRole('coach', config).find(
+      (item) => item.id === 'brand_coordinator'
+    );
+    const directorPerformance = resolveConfiguredCoordinatorsForRole('director', config).find(
+      (item) => item.id === 'performance_coordinator'
+    );
+
+    expect(athleteAdmin?.commands).toHaveLength(6);
+    expect(athleteAdmin?.scheduledActions).toHaveLength(4);
+    expect(coachBrand?.commands).toHaveLength(6);
+    expect(coachBrand?.scheduledActions).toHaveLength(4);
+    expect(directorPerformance?.commands).toHaveLength(6);
+    expect(directorPerformance?.scheduledActions).toHaveLength(4);
   });
 
   it('applies role-specific coordinator UI overrides during dashboard resolution', () => {
@@ -330,6 +362,131 @@ describe('agent-app-config', () => {
     expect(athleteCoordinator?.commands[0]?.id).toBe('recruiting-athlete');
     expect(coachCoordinator?.description).toBe('Coach recruiting view');
     expect(coachCoordinator?.commands[0]?.id).toBe('recruiting-coach');
+  });
+
+  it('strips hidden execution prompts from dashboard coordinator payloads', () => {
+    const config = parseAgentAppConfig({
+      coordinators: [
+        {
+          id: 'recruiting_coordinator',
+          name: 'Recruiting Coordinator',
+          description: 'Base recruiting description',
+          icon: 'mail',
+          capabilities: ['coach_outreach'],
+          availableForRoles: ['athlete'],
+          commands: [
+            {
+              id: 'recruiting-athlete',
+              label: 'My Outreach',
+              icon: 'mail',
+              promptText: 'Please handle my recruiting outreach with a detailed action plan.',
+              executionPrompt: 'Hidden execution prompt',
+            },
+          ],
+          scheduledActions: [],
+        },
+      ],
+    });
+
+    const coordinator = resolveConfiguredCoordinatorsForRole('athlete', config).find(
+      (item) => item.id === 'recruiting_coordinator'
+    );
+
+    expect(coordinator?.commands[0]).toEqual({
+      id: 'recruiting-athlete',
+      label: 'My Outreach',
+      icon: 'mail',
+      promptText: 'Please handle my recruiting outreach with a detailed action plan.',
+    });
+    expect('executionPrompt' in (coordinator?.commands[0] ?? {})).toBe(false);
+  });
+
+  it('resolves role-specific coordinator action prompts for backend execution', () => {
+    const config = parseAgentAppConfig({
+      coordinators: [
+        {
+          id: 'recruiting_coordinator',
+          name: 'Recruiting Coordinator',
+          description: 'Base recruiting description',
+          icon: 'mail',
+          capabilities: ['coach_outreach'],
+          availableForRoles: ['athlete', 'coach'],
+          commands: [
+            {
+              id: 'recruiting-base',
+              label: 'Base Outreach',
+              icon: 'mail',
+              executionPrompt: 'Base hidden prompt',
+            },
+          ],
+          scheduledActions: [],
+          roleUiOverrides: {
+            athlete: {
+              description: 'Athlete recruiting view',
+              commands: [
+                {
+                  id: 'recruiting-athlete',
+                  label: 'My Outreach',
+                  icon: 'mail',
+                  executionPrompt: 'Athlete hidden prompt',
+                },
+              ],
+            },
+          },
+        },
+      ],
+    });
+
+    const athleteAction = resolveConfiguredCoordinatorActionForRole(
+      'athlete',
+      'recruiting_coordinator',
+      'recruiting-athlete',
+      'command',
+      undefined,
+      config
+    );
+    const coachAction = resolveConfiguredCoordinatorActionForRole(
+      'coach',
+      'recruiting_coordinator',
+      'recruiting-base',
+      'command',
+      undefined,
+      config
+    );
+
+    expect(athleteAction?.executionPrompt).toBe('Athlete hidden prompt');
+    expect(coachAction?.executionPrompt).toBe('Base hidden prompt');
+  });
+
+  it('builds a detailed fallback execution prompt when an action label is sent but the action id misses', () => {
+    const config = parseAgentAppConfig({
+      coordinators: [
+        {
+          id: 'strategy_coordinator',
+          name: 'Strategy Coordinator',
+          description: 'Build game plans and execution strategy.',
+          icon: 'compass',
+          capabilities: [],
+          availableForRoles: ['athlete'],
+          commands: [{ id: 'strategy-game-plan', label: 'Game Plan', icon: 'compass' }],
+          scheduledActions: [],
+        },
+      ],
+    });
+
+    const action = resolveConfiguredCoordinatorActionForRole(
+      'athlete',
+      'strategy_coordinator',
+      'strategy-plan-v2',
+      'command',
+      'Game Plan',
+      config
+    );
+
+    expect(action?.label).toBe('Game Plan');
+    expect(action?.executionPrompt).toContain('Selected action: Game Plan.');
+    expect(action?.executionPrompt).toContain('Execution requirements:');
+    expect(action?.executionPrompt).toContain('Produce a concrete deliverable');
   });
 
   it('reads AppConfig/agentConfig once and reuses the cached config within the TTL', async () => {

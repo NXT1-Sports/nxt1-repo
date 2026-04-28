@@ -1430,7 +1430,7 @@
       "id": "strategy_coordinator",
       "name": "Strategy Coordinator",
       "icon": "compass",
-      "description": "Drives strategic planning, goal prioritization, and weekly gameplanning for athletes, coaches, and programs. Use ONLY for requests requiring an actual strategic plan, goal breakdown, or weekly priority list. Do NOT use for greetings, identity questions, platform explanations, or general conversation — the Chief of Staff handles those directly.",
+      "description": "Drives game planning, playbook design, opponent prep, and weekly execution strategy for athletes, coaches, and programs. Use ONLY for requests requiring an actual strategic plan, goal breakdown, game plan, or weekly priority list. Do NOT use for greetings, identity questions, platform explanations, or general conversation — the Chief of Staff handles those directly.",
       "capabilities": [
         "strategic_planning",
         "goal_prioritization",
@@ -1468,7 +1468,7 @@
       ],
       "roleUiOverrides": {
         "athlete": {
-          "description": "Turn your recruiting, performance, and brand goals into a focused weekly athlete plan.",
+          "description": "Build personal game plans, film-study priorities, and weekly execution plans for training, competition, and game-time decisions.",
           "commands": [
             {
               "id": "strategy-priority",
@@ -1498,7 +1498,7 @@
           ]
         },
         "coach": {
-          "description": "Prioritize staff execution across recruiting, player development, and team operations.",
+          "description": "Create team game plans, playbook priorities, opponent prep, and weekly execution strategy for game time.",
           "commands": [
             {
               "id": "strategy-priority",
@@ -1528,25 +1528,25 @@
           ]
         },
         "director": {
-          "description": "Coordinate executive priorities across staffing, budget, recruiting, and program growth.",
+          "description": "Set program-wide game-planning priorities, playbook standards, opponent-prep workflows, and weekly execution frameworks across teams and staffs.",
           "commands": [
             {
               "id": "strategy-priority",
               "label": "Program Priority Plan",
               "icon": "compass",
-              "subLabel": "Set department-level priorities"
+              "subLabel": "Set the clearest game-planning priorities across the program"
             },
             {
               "id": "strategy-goals",
               "label": "Break Down Program Goals",
               "icon": "list",
-              "subLabel": "Turn leadership goals into workstreams"
+              "subLabel": "Turn playbook priorities into accountable workstreams"
             },
             {
               "id": "strategy-qa",
               "label": "Ask Agent X",
               "icon": "chatbubble",
-              "subLabel": "Get executive strategy guidance"
+              "subLabel": "Model game-time options, risks, and pivots"
             }
           ],
           "scheduledActions": [

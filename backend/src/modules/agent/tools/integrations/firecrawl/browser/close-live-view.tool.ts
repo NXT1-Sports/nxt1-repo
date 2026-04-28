@@ -7,7 +7,7 @@
  * the live view panel.
  */
 
-import { BaseTool, type ToolResult } from '../../../base.tool.js';
+import { BaseTool, type ToolExecutionContext, type ToolResult } from '../../../base.tool.js';
 import type { LiveViewSessionService } from './live-view-session.service.js';
 import { logger } from '../../../../../../utils/logger.js';
 import { z } from 'zod';
@@ -23,7 +23,6 @@ export class CloseLiveViewTool extends BaseTool {
 
   readonly parameters = z.object({
     sessionId: z.string().trim().min(1).optional(),
-    userId: z.string().trim().min(1),
   });
 
   readonly isMutation = true;
@@ -39,8 +38,11 @@ export class CloseLiveViewTool extends BaseTool {
     this.sessionService = sessionService;
   }
 
-  async execute(input: Record<string, unknown>): Promise<ToolResult> {
-    const userId = this.str(input, 'userId');
+  async execute(
+    input: Record<string, unknown>,
+    context?: ToolExecutionContext
+  ): Promise<ToolResult> {
+    const userId = context?.userId ?? this.str(input, 'userId');
     const sessionId = this.str(input, 'sessionId');
 
     if (!userId) return this.paramError('userId');

@@ -13,9 +13,10 @@ import { appGuard } from '../../middleware/auth/auth.middleware.js';
 import { uploadRateLimit } from '../../middleware/rate-limit/rate-limit.middleware.js';
 import { validateBody } from '../../middleware/validation/validation.middleware.js';
 import { SetGoalsDto, CompleteGoalDto } from '../../dtos/agent-x.dto.js';
-import { Timestamp } from 'firebase-admin/firestore';
+import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import type {
   AgentDashboardGoal,
+  ShellActionChip,
   ShellWeeklyPlaybookItem,
   ShellBriefingInsight,
   OperationLogEntry,
@@ -38,6 +39,7 @@ import {
 import {
   jobRepository,
   chatService,
+  queueService,
   agentUpload,
   getAuthUser,
   getGenerationService,
@@ -46,6 +48,39 @@ import {
 } from './shared.js';
 
 const router = Router();
+const RECURRING_TASKS_COLLECTION = 'RecurringTasks' as const;
+
+function readRecurringTaskString(data: Record<string, unknown>, key: string): string | undefined {
+  const value = data[key];
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function resolveRecurringTaskSourceId(data: Record<string, unknown>): string | undefined {
+  return (
+    readRecurringTaskString(data, 'sourceId') ??
+    readRecurringTaskString(data, 'threadId') ??
+    readRecurringTaskString(data, 'sourceThreadId')
+  );
+}
+
+function buildRecurringTaskPayload(userId: string, actionSummary: string, sourceId?: string) {
+  const timestamp = Date.now();
+  return {
+    operationId: `recurring-${userId}-${timestamp}`,
+    userId,
+    intent: actionSummary,
+    sessionId: `scheduled-${userId}`,
+    origin: 'system_cron' as const,
+    ...(sourceId
+      ? {
+          context: {
+            sourceId,
+            threadId: sourceId,
+          },
+        }
+      : {}),
+  };
+}
 
 // ─── GET /history ─────────────────────────────────────────────────────────
 
@@ -93,7 +128,7 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
     const limitParam = req.query['limit'];
     const rawLimit = typeof limitParam === 'string' ? Number(limitParam) : NaN;
     const limit =
-      Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(Math.floor(rawLimit), 100) : 50;
+      Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(Math.floor(rawLimit), 150) : 150;
 
     const { db } = req.firebase!;
 
@@ -158,6 +193,21 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
     const representedThreadIds = new Set<string>();
 
     for (const job of jobs) {
+      const operationId = (job['operationId'] as string) ?? '';
+      const jobContext = (job as typeof job & { context?: unknown }).context;
+      const jobMode =
+        jobContext && typeof jobContext === 'object' && 'mode' in jobContext
+          ? typeof (jobContext as { mode?: unknown }).mode === 'string'
+            ? (jobContext as { mode: string }).mode
+            : undefined
+          : undefined;
+
+      // Option 2 UX: hide background playbook-generation jobs from session history.
+      // These jobs do not create a chat thread and open as empty chats when tapped.
+      if (operationId.startsWith('playbook-') || jobMode === 'playbook') {
+        continue;
+      }
+
       const intent = (job['intent'] as string) ?? '';
       if (!intent) continue;
 
@@ -209,6 +259,83 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
         metadata: {
           agent: (result as Record<string, unknown> | null)?.['agent'] ?? null,
         },
+      });
+    }
+
+    try {
+      const recurringTasksSnapshot = await db
+        .collection(RECURRING_TASKS_COLLECTION)
+        .where('userId', '==', user.uid)
+        .orderBy('createdAt', 'desc')
+        .limit(limit)
+        .get();
+
+      if (!recurringTasksSnapshot.empty) {
+        const repeatables = queueService ? await queueService.getAllRepeatableJobs() : [];
+        const repeatableMap = new Map(
+          repeatables.map((job) => [
+            job.key,
+            {
+              nextRun: job.next,
+              timezone: job.tz,
+            },
+          ])
+        );
+
+        for (const doc of recurringTasksSnapshot.docs) {
+          const data = doc.data();
+          const repeatable = repeatableMap.get(doc.id);
+          const explicitTitle = readRecurringTaskString(data, 'title');
+          const actionSummary =
+            typeof data['actionSummary'] === 'string' && data['actionSummary'].trim().length > 0
+              ? data['actionSummary'].trim()
+              : 'Scheduled task';
+          const cronExpression =
+            typeof data['cronExpression'] === 'string' ? data['cronExpression'] : '';
+          const timezone =
+            typeof data['timezone'] === 'string' && data['timezone'].trim().length > 0
+              ? data['timezone'].trim()
+              : (repeatable?.timezone ?? 'UTC');
+          const sourceId = resolveRecurringTaskSourceId(data);
+          const resolvedTitle = sourceId ? (threadTitleById.get(sourceId)?.trim() ?? '') : '';
+          const createdAt = data['createdAt'] as Timestamp | undefined;
+          const nextRunIso =
+            typeof repeatable?.nextRun === 'number'
+              ? new Date(repeatable.nextRun).toISOString()
+              : null;
+
+          entries.push({
+            id: `schedule:${doc.id}`,
+            title: (explicitTitle || resolvedTitle || actionSummary).slice(0, 120),
+            summary: nextRunIso
+              ? `Next run ${new Date(nextRunIso).toLocaleString()} (${timezone})`
+              : cronExpression
+                ? `Schedule ${cronExpression} (${timezone})`
+                : `Scheduled task (${timezone})`,
+            icon: 'calendar',
+            status: 'complete',
+            category: 'system',
+            timestamp: createdAt
+              ? new Date(createdAt.toMillis()).toISOString()
+              : new Date().toISOString(),
+            threadId: sourceId,
+            origin: 'system_cron',
+            isScheduled: true,
+            metadata: {
+              source: 'recurring_task',
+              recurringTaskKey: doc.id,
+              cronExpression,
+              timezone,
+              nextRun: nextRunIso,
+              ...(sourceId ? { sourceId, threadId: sourceId } : {}),
+            },
+          });
+        }
+      }
+    } catch (recurringErr) {
+      logger.warn('Failed to augment operations log with recurring tasks', {
+        userId: user.uid,
+        error: recurringErr instanceof Error ? recurringErr.message : String(recurringErr),
       });
     }
 
@@ -271,6 +398,201 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
   }
 });
 
+router.patch(
+  '/operations-log/scheduled/:taskKey',
+  appGuard,
+  async (req: Request, res: Response) => {
+    try {
+      if (!queueService) {
+        res.status(503).json({ success: false, error: 'Agent queue not initialized' });
+        return;
+      }
+
+      const user = getAuthUser(req);
+      if (!user?.uid) {
+        res.status(401).json({ success: false, error: 'Unauthorized' });
+        return;
+      }
+
+      const taskKey = (req.params['taskKey'] as string | undefined)?.trim();
+      if (!taskKey) {
+        res.status(400).json({ success: false, error: 'Recurring task key is required' });
+        return;
+      }
+
+      const { title } = req.body as { title?: string };
+      const nextTitle = typeof title === 'string' ? title.trim() : '';
+      if (!nextTitle) {
+        res.status(400).json({ success: false, error: 'Title is required' });
+        return;
+      }
+
+      if (nextTitle.length > 200) {
+        res.status(400).json({ success: false, error: 'Title must be 200 characters or less' });
+        return;
+      }
+
+      const { db } = req.firebase!;
+      const docRef = db.collection(RECURRING_TASKS_COLLECTION).doc(taskKey);
+      const snapshot = await docRef.get();
+      const data = snapshot.data() as Record<string, unknown> | undefined;
+
+      if (!snapshot.exists || data?.['userId'] !== user.uid) {
+        res.status(404).json({ success: false, error: 'Recurring task not found' });
+        return;
+      }
+
+      const cronExpression = readRecurringTaskString(data, 'cronExpression');
+      if (!cronExpression) {
+        res.status(409).json({ success: false, error: 'Recurring task schedule is missing' });
+        return;
+      }
+
+      const timezone = readRecurringTaskString(data, 'timezone') ?? 'UTC';
+      const jobName = readRecurringTaskString(data, 'jobName') ?? `recv:${user.uid}:${Date.now()}`;
+      const sourceId = resolveRecurringTaskSourceId(data);
+      const previousTitle = readRecurringTaskString(data, 'actionSummary') ?? 'Scheduled task';
+
+      const previousPayload = buildRecurringTaskPayload(user.uid, previousTitle, sourceId);
+      const nextPayload = buildRecurringTaskPayload(user.uid, nextTitle, sourceId);
+
+      const removed = await queueService.removeRecurringJob(taskKey);
+      if (!removed) {
+        logger.warn('Recurring task rename could not find BullMQ repeatable before re-register', {
+          userId: user.uid,
+          taskKey,
+        });
+      }
+
+      let nextKey = taskKey;
+      try {
+        nextKey = await queueService.enqueueRecurring(
+          jobName,
+          cronExpression,
+          timezone,
+          nextPayload,
+          'production'
+        );
+      } catch (enqueueErr) {
+        try {
+          await queueService.enqueueRecurring(
+            jobName,
+            cronExpression,
+            timezone,
+            previousPayload,
+            'production'
+          );
+        } catch (rollbackErr) {
+          logger.error('Failed to roll back recurring task rename after enqueue failure', {
+            userId: user.uid,
+            taskKey,
+            error: rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr),
+          });
+        }
+
+        throw enqueueErr;
+      }
+
+      const nextDocData = {
+        ...data,
+        userId: user.uid,
+        actionSummary: nextTitle,
+        title: nextTitle,
+        cronExpression,
+        timezone,
+        jobName,
+        ...(sourceId ? { sourceId } : {}),
+        updatedAt: FieldValue.serverTimestamp(),
+      };
+
+      if (nextKey === taskKey) {
+        await docRef.set(nextDocData, { merge: true });
+      } else {
+        const batch = db.batch();
+        batch.set(db.collection(RECURRING_TASKS_COLLECTION).doc(nextKey), nextDocData, {
+          merge: true,
+        });
+        batch.delete(docRef);
+        await batch.commit();
+      }
+
+      logger.info('Recurring task renamed', {
+        userId: user.uid,
+        taskKey,
+        nextKey,
+        title: nextTitle,
+      });
+
+      res.json({
+        success: true,
+        data: {
+          key: nextKey,
+          title: nextTitle,
+        },
+      });
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      logger.error('Failed to rename recurring task', { error: error.message, stack: error.stack });
+      res.status(500).json({ success: false, error: 'Failed to rename recurring task' });
+    }
+  }
+);
+
+router.post(
+  '/operations-log/scheduled/:taskKey/archive',
+  appGuard,
+  async (req: Request, res: Response) => {
+    try {
+      if (!queueService) {
+        res.status(503).json({ success: false, error: 'Agent queue not initialized' });
+        return;
+      }
+
+      const user = getAuthUser(req);
+      if (!user?.uid) {
+        res.status(401).json({ success: false, error: 'Unauthorized' });
+        return;
+      }
+
+      const taskKey = (req.params['taskKey'] as string | undefined)?.trim();
+      if (!taskKey) {
+        res.status(400).json({ success: false, error: 'Recurring task key is required' });
+        return;
+      }
+
+      const { db } = req.firebase!;
+      const docRef = db.collection(RECURRING_TASKS_COLLECTION).doc(taskKey);
+      const snapshot = await docRef.get();
+      const data = snapshot.data() as Record<string, unknown> | undefined;
+
+      if (!snapshot.exists || data?.['userId'] !== user.uid) {
+        res.status(404).json({ success: false, error: 'Recurring task not found' });
+        return;
+      }
+
+      const removed = await queueService.removeRecurringJob(taskKey);
+      if (!removed) {
+        logger.warn('Recurring task archive could not find BullMQ repeatable; deleting metadata', {
+          userId: user.uid,
+          taskKey,
+        });
+      }
+
+      await docRef.delete();
+
+      logger.info('Recurring task archived', { userId: user.uid, taskKey });
+      res.json({ success: true });
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      logger.error('Failed to archive recurring task', {
+        error: error.message,
+        stack: error.stack,
+      });
+      res.status(500).json({ success: false, error: 'Failed to archive recurring task' });
+    }
+  }
+);
+
 // ─── GET /dashboard ───────────────────────────────────────────────────────
 
 router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
@@ -289,7 +611,67 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
 
     const appConfig = await getAgentAppConfig(db);
     const dynamicCoordinators = resolveConfiguredCoordinatorsForRole(role, appConfig);
-    const coordinators = dynamicCoordinators;
+    const suggestedActionsDoc = await db
+      .collection('Users')
+      .doc(user.uid)
+      .collection('agent_suggested_actions')
+      .orderBy('generatedAt', 'desc')
+      .limit(1)
+      .get();
+
+    let suggestedActionsPayload: Record<string, unknown> | null = suggestedActionsDoc.empty
+      ? null
+      : (suggestedActionsDoc.docs[0].data() as Record<string, unknown>);
+
+    if (!suggestedActionsPayload) {
+      try {
+        logger.info('Generating first-load suggested actions during dashboard request', {
+          userId: user.uid,
+          role,
+        });
+
+        const generatedSuggestedActions =
+          await getGenerationService().generateWeeklySuggestedActions(user.uid, true, db);
+
+        if (generatedSuggestedActions) {
+          suggestedActionsPayload = {
+            coordinators: generatedSuggestedActions.coordinators,
+            generatedAt: generatedSuggestedActions.generatedAt,
+          };
+        }
+      } catch (suggestedActionsErr) {
+        logger.warn('Failed to generate first-load suggested actions during dashboard request', {
+          userId: user.uid,
+          error:
+            suggestedActionsErr instanceof Error
+              ? suggestedActionsErr.message
+              : String(suggestedActionsErr),
+        });
+      }
+    }
+
+    const suggestedActionsByCoordinator = new Map<string, readonly ShellActionChip[]>();
+    if (suggestedActionsPayload) {
+      const generatedCoordinators = Array.isArray(suggestedActionsPayload['coordinators'])
+        ? (suggestedActionsPayload['coordinators'] as Array<Record<string, unknown>>)
+        : [];
+
+      for (const item of generatedCoordinators) {
+        const coordinatorId = String(item['coordinatorId'] ?? '').trim();
+        const actions = Array.isArray(item['actions'])
+          ? (item['actions'] as ShellActionChip[])
+          : [];
+
+        if (coordinatorId && actions.length > 0) {
+          suggestedActionsByCoordinator.set(coordinatorId, actions);
+        }
+      }
+    }
+
+    const coordinators = dynamicCoordinators.map((coordinator) => ({
+      ...coordinator,
+      suggestedActions: suggestedActionsByCoordinator.get(coordinator.id) ?? [],
+    }));
 
     const briefingDoc = await db
       .collection('Users')

@@ -23,14 +23,18 @@ vi.mock('../../../../../../../utils/logger.js', () => ({
 import { NavigateLiveViewTool } from '../navigate-live-view.tool.js';
 import { InteractWithLiveViewTool } from '../interact-with-live-view.tool.js';
 import { ReadLiveViewTool } from '../read-live-view.tool.js';
+import { ExtractLiveViewMediaTool } from '../extract-live-view-media.tool.js';
+import { ExtractLiveViewPlaylistTool } from '../extract-live-view-playlist.tool.js';
 import { CloseLiveViewTool } from '../close-live-view.tool.js';
 import type { LiveViewSessionService } from '../live-view-session.service.js';
+import type { ToolExecutionContext } from '../../../../base.tool.js';
 
 // ─── Fixtures ───────────────────────────────────────────────────────────────
 
 const TEST_USER_ID = 'user-test-123';
 const TEST_SESSION_ID = 'session-abc-456';
 const TEST_URL = 'https://www.hudl.com/login';
+const TEST_CONTEXT = { userId: TEST_USER_ID } satisfies ToolExecutionContext;
 
 function createMockService(overrides?: Partial<LiveViewSessionService>): LiveViewSessionService {
   return {
@@ -39,6 +43,74 @@ function createMockService(overrides?: Partial<LiveViewSessionService>): LiveVie
       url: TEST_URL,
       title: 'Hudl Login',
       content: 'Welcome to Hudl. Sign in to continue.',
+    }),
+    extractMedia: vi.fn().mockResolvedValue({
+      url: TEST_URL,
+      title: 'Hudl Film',
+      streams: ['https://stream.example.com/master.m3u8'],
+      currentSrc: 'blob:https://www.hudl.com/123',
+      blobSrc: 'blob:https://www.hudl.com/123',
+      auth: {
+        userAgent: 'Mozilla/5.0 Test Browser',
+        referer: TEST_URL,
+        origin: 'https://www.hudl.com',
+        cookieHeader: 'session=abc123; access=xyz456',
+        cookies: [
+          {
+            name: 'session',
+            value: 'abc123',
+            domain: '.hudl.com',
+            path: '/',
+            httpOnly: true,
+            secure: true,
+            sameSite: 'None',
+          },
+        ],
+      },
+    }),
+    extractPlaylist: vi.fn().mockResolvedValue({
+      url: TEST_URL,
+      title: 'Hudl Playlist',
+      playlistTitle: 'Top 10 Clips',
+      items: [
+        {
+          index: 1,
+          itemId: 'clip-1',
+          title: 'Clip 1',
+          url: 'https://www.hudl.com/video/clip-1',
+          durationText: '00:12',
+          thumbnailUrl: 'https://images.example.com/clip-1.jpg',
+          textSnippet: '1st quarter touchdown',
+          isCurrent: true,
+        },
+        {
+          index: 2,
+          itemId: 'clip-2',
+          title: 'Clip 2',
+          url: 'https://www.hudl.com/video/clip-2',
+          durationText: '00:08',
+          thumbnailUrl: 'https://images.example.com/clip-2.jpg',
+          textSnippet: 'red zone catch',
+          isCurrent: false,
+        },
+      ],
+      auth: {
+        userAgent: 'Mozilla/5.0 Test Browser',
+        referer: TEST_URL,
+        origin: 'https://www.hudl.com',
+        cookieHeader: 'session=abc123; access=xyz456',
+        cookies: [
+          {
+            name: 'session',
+            value: 'abc123',
+            domain: '.hudl.com',
+            path: '/',
+            httpOnly: true,
+            secure: true,
+            sameSite: 'None',
+          },
+        ],
+      },
     }),
     executeAction: vi.fn().mockResolvedValue({ success: true, message: 'Action completed' }),
     executePrompt: vi
@@ -74,20 +146,17 @@ describe('NavigateLiveViewTool', () => {
       expect(tool.isMutation).toBe(false);
     });
 
-    it('should have analytics category', () => {
-      expect(tool.category).toBe('analytics');
+    it('should have system category', () => {
+      expect(tool.category).toBe('system');
     });
 
-    it('should be allowed for all 5 coordinators', () => {
-      expect(tool.allowedAgents).toContain('data_coordinator');
-      expect(tool.allowedAgents).toContain('performance_coordinator');
-      expect(tool.allowedAgents).toContain('recruiting_coordinator');
-      expect(tool.allowedAgents).toContain('strategy_coordinator');
-      expect(tool.allowedAgents).toContain('brand_coordinator');
+    it('should be allowed for all agents via wildcard', () => {
+      expect(tool.allowedAgents).toEqual(['*']);
     });
 
-    it('should require url and userId', () => {
-      expect(tool.parameters.required).toEqual(['url', 'userId']);
+    it('should require only url in the tool schema', () => {
+      expect(tool.parameters.safeParse({}).success).toBe(false);
+      expect(tool.parameters.safeParse({ url: TEST_URL }).success).toBe(true);
     });
   });
 
@@ -102,6 +171,12 @@ describe('NavigateLiveViewTool', () => {
       const result = await tool.execute({ url: TEST_URL });
       expect(result.success).toBe(false);
       expect(result.error).toContain('userId');
+    });
+
+    it('should accept userId from execution context', async () => {
+      const result = await tool.execute({ url: TEST_URL }, TEST_CONTEXT);
+      expect(result.success).toBe(true);
+      expect(service.navigate).toHaveBeenCalledWith(TEST_SESSION_ID, TEST_USER_ID, TEST_URL);
     });
   });
 
@@ -187,8 +262,8 @@ describe('ReadLiveViewTool', () => {
       expect(tool.isMutation).toBe(false);
     });
 
-    it('should require only userId', () => {
-      expect(tool.parameters.required).toEqual(['userId']);
+    it('should not require userId in the tool schema', () => {
+      expect(tool.parameters.safeParse({}).success).toBe(true);
     });
   });
 
@@ -197,6 +272,12 @@ describe('ReadLiveViewTool', () => {
       const result = await tool.execute({ sessionId: TEST_SESSION_ID });
       expect(result.success).toBe(false);
       expect(result.error).toContain('userId');
+    });
+
+    it('should accept userId from execution context', async () => {
+      const result = await tool.execute({}, TEST_CONTEXT);
+      expect(result.success).toBe(true);
+      expect(service.extractContent).toHaveBeenCalledWith(TEST_SESSION_ID, TEST_USER_ID);
     });
   });
 
@@ -232,6 +313,149 @@ describe('ReadLiveViewTool', () => {
   });
 });
 
+// ─── ExtractLiveViewMediaTool ─────────────────────────────────────────────
+
+describe('ExtractLiveViewMediaTool', () => {
+  let tool: ExtractLiveViewMediaTool;
+  let service: LiveViewSessionService;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    service = createMockService();
+    tool = new ExtractLiveViewMediaTool(service);
+  });
+
+  it('should have correct name', () => {
+    expect(tool.name).toBe('extract_live_view_media');
+  });
+
+  it('should reject missing userId', async () => {
+    const result = await tool.execute({});
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('userId');
+  });
+
+  it('should accept userId from execution context', async () => {
+    const result = await tool.execute({}, TEST_CONTEXT);
+
+    expect(result.success).toBe(true);
+    expect(service.extractMedia).toHaveBeenCalledWith(TEST_SESSION_ID, TEST_USER_ID);
+  });
+
+  it('should call extractMedia with the resolved session', async () => {
+    const result = await tool.execute({ userId: TEST_USER_ID });
+
+    expect(result.success).toBe(true);
+    expect(service.resolveSessionId).toHaveBeenCalledWith(null, TEST_USER_ID);
+    expect(service.extractMedia).toHaveBeenCalledWith(TEST_SESSION_ID, TEST_USER_ID);
+    expect((result.data as Record<string, unknown>)['primaryStream']).toBe(
+      'https://stream.example.com/master.m3u8'
+    );
+    expect((result.data as Record<string, unknown>)['auth']).toEqual({
+      cookieHeader: 'session=abc123; access=xyz456',
+      cookieCount: 1,
+      cookies: [
+        {
+          name: 'session',
+          value: 'abc123',
+          domain: '.hudl.com',
+          path: '/',
+          httpOnly: true,
+          secure: true,
+          sameSite: 'None',
+        },
+      ],
+      userAgent: 'Mozilla/5.0 Test Browser',
+      referer: TEST_URL,
+      origin: 'https://www.hudl.com',
+      recommendedHeaders: {
+        Cookie: 'session=abc123; access=xyz456',
+        'User-Agent': 'Mozilla/5.0 Test Browser',
+        Referer: TEST_URL,
+        Origin: 'https://www.hudl.com',
+      },
+    });
+  });
+
+  it('should surface extraction failures', async () => {
+    service = createMockService({
+      extractMedia: vi.fn().mockRejectedValue(new Error('No network media streams were detected')),
+    } as unknown as Partial<LiveViewSessionService>);
+    tool = new ExtractLiveViewMediaTool(service);
+
+    const result = await tool.execute({ userId: TEST_USER_ID });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBe('No network media streams were detected');
+  });
+});
+
+describe('ExtractLiveViewPlaylistTool', () => {
+  let tool: ExtractLiveViewPlaylistTool;
+  let service: LiveViewSessionService;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    service = createMockService();
+    tool = new ExtractLiveViewPlaylistTool(service);
+  });
+
+  it('should have correct name', () => {
+    expect(tool.name).toBe('extract_live_view_playlist');
+  });
+
+  it('should reject missing userId', async () => {
+    const result = await tool.execute({});
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('userId');
+  });
+
+  it('should extract playlist items with the resolved session', async () => {
+    const result = await tool.execute({ maxItems: 10, userId: TEST_USER_ID });
+
+    expect(result.success).toBe(true);
+    expect(service.resolveSessionId).toHaveBeenCalledWith(null, TEST_USER_ID);
+    expect(service.extractPlaylist).toHaveBeenCalledWith(TEST_SESSION_ID, TEST_USER_ID, 10);
+    const data = result.data as Record<string, unknown>;
+    expect(data['playlistTitle']).toBe('Top 10 Clips');
+    expect(data['itemCount']).toBe(2);
+    expect(data['apifyHints']).toEqual({
+      sourceUrls: ['https://www.hudl.com/video/clip-1', 'https://www.hudl.com/video/clip-2'],
+      headers: {
+        Cookie: 'session=abc123; access=xyz456',
+        'User-Agent': 'Mozilla/5.0 Test Browser',
+        Referer: TEST_URL,
+        Origin: 'https://www.hudl.com',
+      },
+      cookies: [
+        {
+          name: 'session',
+          value: 'abc123',
+          domain: '.hudl.com',
+          path: '/',
+          httpOnly: true,
+          secure: true,
+          sameSite: 'None',
+        },
+      ],
+    });
+  });
+
+  it('should surface playlist extraction failures', async () => {
+    service = createMockService({
+      extractPlaylist: vi
+        .fn()
+        .mockRejectedValue(new Error('No playlist clips or linked video items were detected')),
+    } as unknown as Partial<LiveViewSessionService>);
+    tool = new ExtractLiveViewPlaylistTool(service);
+
+    const result = await tool.execute({ userId: TEST_USER_ID });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBe('No playlist clips or linked video items were detected');
+  });
+});
+
 // ─── InteractWithLiveViewTool ───────────────────────────────────────────────
 
 describe('InteractWithLiveViewTool', () => {
@@ -253,8 +477,9 @@ describe('InteractWithLiveViewTool', () => {
       expect(tool.isMutation).toBe(true);
     });
 
-    it('should require prompt and userId', () => {
-      expect(tool.parameters.required).toEqual(['prompt', 'userId']);
+    it('should require only prompt in the tool schema', () => {
+      expect(tool.parameters.safeParse({}).success).toBe(false);
+      expect(tool.parameters.safeParse({ prompt: 'Click the Login button' }).success).toBe(true);
     });
   });
 
@@ -269,6 +494,16 @@ describe('InteractWithLiveViewTool', () => {
       const result = await tool.execute({ prompt: 'Click the Login button' });
       expect(result.success).toBe(false);
       expect(result.error).toContain('userId');
+    });
+
+    it('should accept userId from execution context', async () => {
+      const result = await tool.execute({ prompt: 'Click the Login button' }, TEST_CONTEXT);
+      expect(result.success).toBe(true);
+      expect(service.executePrompt).toHaveBeenCalledWith(
+        TEST_SESSION_ID,
+        TEST_USER_ID,
+        'Click the Login button'
+      );
     });
   });
 
@@ -395,8 +630,8 @@ describe('CloseLiveViewTool', () => {
       expect(tool.isMutation).toBe(true);
     });
 
-    it('should require only userId', () => {
-      expect(tool.parameters.required).toEqual(['userId']);
+    it('should not require userId in the tool schema', () => {
+      expect(tool.parameters.safeParse({}).success).toBe(true);
     });
   });
 
@@ -405,6 +640,12 @@ describe('CloseLiveViewTool', () => {
       const result = await tool.execute({});
       expect(result.success).toBe(false);
       expect(result.error).toContain('userId');
+    });
+
+    it('should accept userId from execution context', async () => {
+      const result = await tool.execute({ sessionId: TEST_SESSION_ID }, TEST_CONTEXT);
+      expect(result.success).toBe(true);
+      expect(service.closeSession).toHaveBeenCalledWith(TEST_SESSION_ID, TEST_USER_ID);
     });
   });
 

@@ -46,6 +46,7 @@ import { LiveViewSessionService } from '../live-view-session.service.js';
 const TEST_USER_ID = 'user-abc-123';
 const TEST_SESSION_ID = 'fc-scrape-xyz';
 const TEST_INTERACTIVE_URL = 'https://connect.firecrawl.dev/session/abc123';
+const TEST_LIVE_VIEW_URL = 'https://liveview.firecrawl.dev/session/abc123';
 
 function createSuccessfulScrapeResult(
   metadataOverrides?: Partial<{ scrapeId: string; title: string; url: string }>
@@ -65,6 +66,7 @@ function createSuccessfulInteractResult(overrides?: Partial<Record<string, unkno
   return {
     success: true,
     interactiveLiveViewUrl: TEST_INTERACTIVE_URL,
+    liveViewUrl: TEST_LIVE_VIEW_URL,
     stdout: '',
     exitCode: 0,
     ...overrides,
@@ -112,6 +114,7 @@ describe('LiveViewSessionService', () => {
       expect(result.session).toBeDefined();
       expect(result.session.sessionId).toBe(TEST_SESSION_ID);
       expect(result.session.interactiveUrl).toBe(TEST_INTERACTIVE_URL);
+      expect(result.session.liveViewUrl).toBe(TEST_LIVE_VIEW_URL);
       expect(result.session.requestedUrl).toBe('https://www.example.com/page');
       expect(result.session.destinationTier).toBe('arbitrary');
       expect(result.session.authStatus).toBe('ephemeral');
@@ -415,6 +418,147 @@ describe('LiveViewSessionService', () => {
       expect(mockInteract).toHaveBeenCalledTimes(2);
       const lastCall = mockInteract.mock.calls[1];
       expect(lastCall[1].code).toContain('page.reload');
+    });
+  });
+
+  // ────────────────────────────────────────────────────────────────────────
+  // extractMedia
+  // ────────────────────────────────────────────────────────────────────────
+
+  describe('extractMedia', () => {
+    it('should parse stream URLs from performance resources', async () => {
+      await service.startSession(TEST_USER_ID, { url: 'https://www.hudl.com/profile/12345' });
+
+      mockInteract.mockResolvedValueOnce({
+        success: true,
+        stdout: JSON.stringify({
+          url: 'https://www.hudl.com/video/abc',
+          title: 'Hudl Video',
+          streams: ['https://stream.example.com/master.m3u8'],
+          currentSrc: 'blob:https://www.hudl.com/123',
+          blobSrc: 'blob:https://www.hudl.com/123',
+        }),
+        exitCode: 0,
+      });
+
+      const result = await service.extractMedia(TEST_SESSION_ID, TEST_USER_ID);
+
+      expect(result.streams).toEqual(['https://stream.example.com/master.m3u8']);
+      expect(result.currentSrc).toBe('blob:https://www.hudl.com/123');
+      expect(mockInteract).toHaveBeenLastCalledWith(
+        TEST_SESSION_ID,
+        expect.objectContaining({
+          code: expect.stringContaining('(async () => {'),
+        })
+      );
+      expect(mockInteract).toHaveBeenLastCalledWith(
+        TEST_SESSION_ID,
+        expect.objectContaining({
+          code: expect.stringContaining("getEntriesByType('resource')"),
+        })
+      );
+    });
+
+    it('should throw when no stream URLs or direct video source exist', async () => {
+      await service.startSession(TEST_USER_ID, { url: 'https://www.hudl.com/profile/12345' });
+
+      mockInteract.mockResolvedValueOnce({
+        success: true,
+        stdout: JSON.stringify({
+          url: 'https://www.hudl.com/video/abc',
+          title: 'Hudl Video',
+          streams: [],
+          currentSrc: null,
+          blobSrc: null,
+        }),
+        exitCode: 0,
+      });
+
+      await expect(service.extractMedia(TEST_SESSION_ID, TEST_USER_ID)).rejects.toThrow(
+        'No network media streams were detected'
+      );
+    });
+  });
+
+  describe('extractPlaylist', () => {
+    it('should parse playlist items from the active page', async () => {
+      await service.startSession(TEST_USER_ID, { url: 'https://www.hudl.com/profile/12345' });
+
+      mockInteract.mockResolvedValueOnce({
+        success: true,
+        stdout: JSON.stringify({
+          url: 'https://www.hudl.com/video/playlist/abc',
+          title: 'Hudl Playlist',
+          playlistTitle: 'Top 10 Clips',
+          items: [
+            {
+              index: 1,
+              itemId: 'clip-1',
+              title: 'Clip 1',
+              url: 'https://www.hudl.com/video/clip-1',
+              durationText: '00:12',
+              thumbnailUrl: 'https://images.example.com/clip-1.jpg',
+              textSnippet: 'Touchdown catch',
+              isCurrent: true,
+            },
+            {
+              index: 2,
+              itemId: 'clip-2',
+              title: 'Clip 2',
+              url: 'https://www.hudl.com/video/clip-2',
+              durationText: '00:08',
+              thumbnailUrl: 'https://images.example.com/clip-2.jpg',
+              textSnippet: 'Third down conversion',
+              isCurrent: false,
+            },
+          ],
+        }),
+        exitCode: 0,
+      });
+
+      const result = await service.extractPlaylist(TEST_SESSION_ID, TEST_USER_ID, 10);
+
+      expect(result.playlistTitle).toBe('Top 10 Clips');
+      expect(result.items).toHaveLength(2);
+      expect(result.items[0]).toEqual(
+        expect.objectContaining({
+          title: 'Clip 1',
+          url: 'https://www.hudl.com/video/clip-1',
+          isCurrent: true,
+        })
+      );
+      expect(mockInteract).toHaveBeenLastCalledWith(
+        TEST_SESSION_ID,
+        expect.objectContaining({
+          code: expect.stringContaining('(async () => {'),
+        })
+      );
+      expect(mockInteract).toHaveBeenLastCalledWith(
+        TEST_SESSION_ID,
+        expect.objectContaining({
+          code: expect.stringContaining('playlistTitle'),
+        })
+      );
+      expect(mockInteract.mock.calls.at(-1)?.[1]?.code).not.toContain('match?.[1]');
+    });
+
+    it('should throw when no playlist items are detected', async () => {
+      await service.startSession(TEST_USER_ID, { url: 'https://www.hudl.com/profile/12345' });
+
+      mockInteract.mockResolvedValueOnce({
+        success: true,
+        stdout: JSON.stringify({
+          url: 'https://www.hudl.com/video/playlist/abc',
+          title: 'Hudl Playlist',
+          playlistTitle: 'Top 10 Clips',
+          items: [],
+        }),
+        exitCode: 0,
+      });
+
+      await expect(service.extractPlaylist(TEST_SESSION_ID, TEST_USER_ID, 10)).rejects.toThrow(
+        'No playlist clips or linked video items were detected'
+      );
     });
   });
 

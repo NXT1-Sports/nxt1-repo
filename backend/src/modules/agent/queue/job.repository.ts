@@ -362,7 +362,7 @@ export class AgentJobRepository {
         operationId: payload.operationId,
         userId: payload.userId,
         idempotencyKey: (payload.context?.['idempotencyKey'] as string) ?? null,
-        intent: payload.intent,
+        intent: payload.displayIntent ?? payload.intent,
         origin: payload.origin,
         status: 'queued' satisfies AgentOperationStatus,
         progress: null,
@@ -588,6 +588,41 @@ export class AgentJobRepository {
     const doc = await this.db.collection(COLLECTION).doc(operationId).get();
 
     return doc.exists ? (doc.data() as AgentJobDocument) : null;
+  }
+
+  /**
+   * Find any in-flight operations for the given thread. Used by the
+   * concurrency-policy guard when a user sends a new message while a prior
+   * op is still running, awaiting approval, or awaiting input. Excludes
+   * terminal states (completed, failed, cancelled).
+   *
+   * Sorted oldest-first so callers see the chronological progression.
+   *
+   * Requires a Firestore composite index on (threadId asc, status asc).
+   */
+  async findActiveByThread(threadId: string): Promise<AgentJobDocument[]> {
+    if (!threadId) return [];
+    const ACTIVE: readonly AgentOperationStatus[] = [
+      'queued',
+      'thinking',
+      'acting',
+      'paused',
+      'awaiting_approval',
+      'awaiting_input',
+      'streaming_result',
+    ];
+    const snapshot = await this.db
+      .collection(COLLECTION)
+      .where('threadId', '==', threadId)
+      .where('status', 'in', ACTIVE as AgentOperationStatus[])
+      .get();
+    return snapshot.docs
+      .map((d) => d.data() as AgentJobDocument)
+      .sort((a, b) => {
+        const aMs = a.createdAt?.toMillis?.() ?? 0;
+        const bMs = b.createdAt?.toMillis?.() ?? 0;
+        return aMs - bMs;
+      });
   }
 
   /**

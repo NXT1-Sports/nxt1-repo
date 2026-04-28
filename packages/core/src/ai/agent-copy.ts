@@ -33,6 +33,25 @@ export function resolveAgentApprovalCopy(input: {
         notificationBody: actionSummary,
       };
     }
+    case 'batch_send_email': {
+      const recipients = Array.isArray(toolInput['recipients']) ? toolInput['recipients'] : [];
+      const recipientCount = recipients.length;
+      const subject =
+        typeof toolInput['subjectTemplate'] === 'string'
+          ? toolInput['subjectTemplate']
+          : 'No subject';
+      const actionSummary =
+        recipientCount > 0
+          ? `Send ${recipientCount} emails with subject "${subject}".`
+          : `Send a batch email campaign with subject "${subject}".`;
+
+      return {
+        reasonCode: 'send_email',
+        actionSummary,
+        notificationTitle: 'Review Email Campaign',
+        notificationBody: actionSummary,
+      };
+    }
     case 'update_profile': {
       const actionSummary = 'Update the user profile with new information.';
       return {

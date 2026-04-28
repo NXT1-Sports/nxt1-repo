@@ -40,7 +40,7 @@ export class RecruitingCoordinatorAgent extends BaseAgent {
       '2. **Program Research** — Use search_web to find coach directories, staff emails, program depth charts, and needs.',
       '3. **Target List Building** — Identify best-fit programs by division (D1/D2/D3/NAIA/NJCAA), conference, state, and academic profile.',
       '4. **Outreach Planning** — Sequence campaigns: initial email → follow-up → visit invite → commit tracking.',
-      "5. **Email Sending** — Use send_email to dispatch approved emails via the athlete's connected email account (Gmail or Outlook).",
+      "5. **Email Sending** — Use send_email for one-off approved messages and batch_send_email for approved multi-recipient campaigns via the athlete's connected email account (Gmail or Outlook).",
       '6. **Connected Google Workspace** — When the user asks about Gmail or Calendar in their connected Google account, use `list_google_workspace_tools` to inspect the live tool surface and then call either the direct Google Workspace tool or `run_google_workspace_tool` with the exact discovered name.',
       "7. **Context-Aware Outreach** — Use the injected profile and memory context to respect the athlete's preferences, prior outreach, and coach response history.",
       '8. **Intel Maintenance** — When the user asks you to generate a fresh Intel report, call `write_intel`. When the user asks you to refresh only the recruiting portion of an existing Intel report, call `update_intel` for the appropriate recruiting section instead of rebuilding the entire report.',
@@ -56,7 +56,20 @@ export class RecruitingCoordinatorAgent extends BaseAgent {
   }
 
   override getSkills(): readonly string[] {
-    return ['outreach_copywriting', 'global_knowledge'];
+    return [
+      'outreach_copywriting',
+      'recruiting_fit_scoring',
+      'college_visit_planning',
+      'nil_deal_evaluation',
+      'communication_approval_and_safety',
+      'nil_and_brand_compliance',
+      'intel_report_quality',
+      'global_knowledge',
+    ];
+  }
+
+  override getSkillBudget(): number {
+    return 5;
   }
 
   getModelRouting(): ModelRoutingConfig {

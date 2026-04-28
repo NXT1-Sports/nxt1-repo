@@ -18,13 +18,21 @@ import type {
   AgentJobPayload,
   AgentJobOrigin,
   AgentYieldState,
+  AgentXAttachment,
   AgentXOperationLifecycleStatus,
+  AgentXSelectedAction,
 } from '@nxt1/core';
 import { STREAM_TERMINAL_EVENTS } from '../../modules/agent/queue/pubsub.service.js';
 import { logger } from '../../utils/logger.js';
 import { resolveBillingTarget, checkBudgetFromContext } from '../../modules/billing/index.js';
 import crypto from 'node:crypto';
 import { FieldValue, Timestamp, type Firestore } from 'firebase-admin/firestore';
+
+import {
+  getAgentAppConfig,
+  getCachedAgentAppConfig,
+  resolveConfiguredCoordinatorActionForRole,
+} from '../../modules/agent/config/agent-app-config.js';
 
 import {
   queueService,
@@ -106,6 +114,31 @@ interface ResumeMessageShape extends Record<string, unknown> {
   readonly tool_calls?: readonly unknown[];
 }
 
+function normalizeSelectedActionForPayload(
+  selectedAction: AgentXSelectedAction | undefined
+): AgentXSelectedAction | undefined {
+  if (!selectedAction) {
+    return undefined;
+  }
+
+  const coordinatorId = String(selectedAction.coordinatorId ?? '').trim();
+  const actionId = String(selectedAction.actionId ?? '').trim();
+  const surface =
+    selectedAction.surface === 'scheduled'
+      ? 'scheduled'
+      : selectedAction.surface === 'suggested'
+        ? 'suggested'
+        : 'command';
+  const label = typeof selectedAction.label === 'string' ? selectedAction.label.trim() : '';
+
+  return {
+    coordinatorId,
+    actionId,
+    surface,
+    ...(label.length > 0 ? { label } : {}),
+  };
+}
+
 function normalizeYieldMessages(
   messages: readonly Record<string, unknown>[]
 ): ResumeMessageShape[] {
@@ -133,6 +166,64 @@ function normalizeYieldMessages(
     });
   }
   return results;
+}
+
+async function resolveSelectedActionIntent(params: {
+  readonly db: Firestore;
+  readonly userId: string;
+  readonly fallbackIntent: string;
+  readonly selectedAction?: AgentXSelectedAction;
+}): Promise<string> {
+  if (!params.selectedAction) {
+    return params.fallbackIntent;
+  }
+
+  if (params.selectedAction.surface === 'suggested') {
+    return params.fallbackIntent;
+  }
+
+  try {
+    const userDoc = await params.db.collection('Users').doc(params.userId).get();
+    const userRole = String(userDoc.data()?.['role'] ?? 'athlete');
+    const appConfig = await getAgentAppConfig(params.db);
+    const configuredAction = resolveConfiguredCoordinatorActionForRole(
+      userRole,
+      params.selectedAction.coordinatorId,
+      params.selectedAction.actionId,
+      params.selectedAction.surface,
+      params.selectedAction.label,
+      appConfig
+    );
+
+    return configuredAction?.executionPrompt ?? params.fallbackIntent;
+  } catch (error) {
+    logger.warn('Failed to resolve selected quick action intent; falling back to visible prompt', {
+      userId: params.userId,
+      coordinatorId: params.selectedAction.coordinatorId,
+      actionId: params.selectedAction.actionId,
+      surface: params.selectedAction.surface,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return params.fallbackIntent;
+  }
+}
+
+function stampAgentXLastActiveAt(db: Firestore, userId: string): void {
+  void db
+    .collection('Users')
+    .doc(userId)
+    .set(
+      {
+        agentXLastActiveAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    )
+    .catch((error: unknown) => {
+      logger.warn('Failed to stamp agentXLastActiveAt', {
+        userId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
 }
 
 function stripToolResultForCallId(
@@ -182,6 +273,44 @@ function stripToolResultForCallId(
   }
 
   return sanitized;
+}
+
+function resolveResumeToolCallId(
+  messages: readonly ResumeMessageShape[],
+  fallbackToolCallId: string | undefined
+): string {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    const directToolCallId =
+      typeof message.tool_call_id === 'string' ? message.tool_call_id.trim() : '';
+
+    if (directToolCallId) {
+      return directToolCallId;
+    }
+
+    if (!Array.isArray(message.tool_calls)) {
+      continue;
+    }
+
+    for (let toolIndex = message.tool_calls.length - 1; toolIndex >= 0; toolIndex -= 1) {
+      const toolCall = message.tool_calls[toolIndex];
+      if (!toolCall || typeof toolCall !== 'object') {
+        continue;
+      }
+
+      const resolvedToolCallId =
+        typeof (toolCall as Record<string, unknown>)['id'] === 'string'
+          ? String((toolCall as Record<string, unknown>)['id']).trim()
+          : '';
+
+      if (resolvedToolCallId) {
+        return resolvedToolCallId;
+      }
+    }
+  }
+
+  const trimmedFallback = typeof fallbackToolCallId === 'string' ? fallbackToolCallId.trim() : '';
+  return trimmedFallback || 'ask_user_response';
 }
 
 function isPauseResumeToolCallId(toolCallId: string | undefined): boolean {
@@ -265,6 +394,96 @@ function writeSseHeaders(res: Response): void {
   res.socket?.setNoDelay(true);
 }
 
+function streamBillingGateToSse(params: {
+  res: Response;
+  threadId?: string;
+  code: 'WALLET_EMPTY' | 'NO_PAYMENT_METHOD' | 'BUDGET_EXCEEDED';
+  description: string;
+}): void {
+  const { res, threadId, code, description } = params;
+  writeSseHeaders(res);
+
+  let seq = 0;
+  const buildEnvelope = (): {
+    schemaVersion: number;
+    eventId: string;
+    seq: number;
+    emittedAt: string;
+  } => ({
+    schemaVersion: AGENT_STREAM_EVENT_SCHEMA_VERSION,
+    eventId: crypto.randomUUID(),
+    seq: ++seq,
+    emittedAt: new Date().toISOString(),
+  });
+
+  const billingState =
+    code === 'NO_PAYMENT_METHOD'
+      ? {
+          title: 'Add a Payment Method',
+          content: `${description} Add a payment method to continue this request.`,
+          payload: {
+            reason: 'payment_method_required',
+            description,
+          },
+        }
+      : code === 'BUDGET_EXCEEDED'
+        ? {
+            title: 'Budget Limit Reached',
+            content: `${description} Update your billing limits to continue this request.`,
+            payload: {
+              reason: 'limit_reached',
+              description,
+            },
+          }
+        : {
+            title: 'Add Funds to Continue',
+            content: `${description} Add funds to continue this request.`,
+            payload: {
+              reason: 'insufficient_funds',
+              description,
+            },
+          };
+
+  if (threadId) {
+    res.write(
+      `event: thread\ndata: ${JSON.stringify({
+        ...buildEnvelope(),
+        threadId,
+      })}\n\n`
+    );
+    forceProxyFlush(res);
+  }
+
+  res.write(
+    `event: delta\ndata: ${JSON.stringify({
+      ...buildEnvelope(),
+      content: billingState.content,
+    })}\n\n`
+  );
+  forceProxyFlush(res);
+
+  res.write(
+    `event: card\ndata: ${JSON.stringify({
+      ...buildEnvelope(),
+      agentId: 'router',
+      type: 'billing-action',
+      title: billingState.title,
+      payload: billingState.payload,
+    })}\n\n`
+  );
+  forceProxyFlush(res);
+
+  res.write(
+    `event: done\ndata: ${JSON.stringify({
+      ...buildEnvelope(),
+      ...(threadId ? { threadId } : {}),
+      status: 'complete',
+    })}\n\n`
+  );
+  forceProxyFlush(res);
+  res.end();
+}
+
 async function enqueueWithOutbox(
   db: Firestore,
   payload: AgentJobPayload,
@@ -323,6 +542,93 @@ async function enqueueWithOutbox(
     );
     throw err;
   }
+}
+
+/**
+ * Phase 0.6 — Per-thread concurrency policy.
+ *
+ * When a user sends a new message on a thread that still has an in-flight
+ * operation (running, awaiting approval, awaiting input, paused, queued),
+ * we must decide whether to supersede the prior op or attach the new one
+ * as a child. Without this guard, two parallel agents can race on the same
+ * thread, double-charge tokens, and emit interleaved SSE streams.
+ *
+ * Policy (controlled by `concurrency.threadSupersedeOnYield` flag):
+ *   • If a prior op is in a *yielded* state (awaiting_approval / awaiting_input /
+ *     paused) → cancel it. The user has chosen to ignore the prompt and move on.
+ *   • If a prior op is *actively running* (queued / thinking / acting /
+ *     streaming_result) → also cancel it. New user input takes priority over
+ *     stale work; the alternative (queueing) creates head-of-line blocking
+ *     and unpredictable UX.
+ *
+ * Returns the list of cancelled operationIds so the caller can emit
+ * client-visible cancellation events.
+ */
+async function enforceThreadConcurrencyPolicy(
+  db: Firestore,
+  threadId: string,
+  newOperationId: string
+): Promise<string[]> {
+  if (!threadId || !jobRepository || !queueService) return [];
+
+  const cfg = getCachedAgentAppConfig();
+  if (!cfg.concurrency.threadSupersedeOnYield) return [];
+
+  let active: Awaited<ReturnType<typeof jobRepository.findActiveByThread>>;
+  try {
+    active = await jobRepository.withDb(db).findActiveByThread(threadId);
+  } catch (err) {
+    logger.warn('Concurrency-policy: failed to query active ops for thread', {
+      threadId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return [];
+  }
+
+  if (active.length === 0) return [];
+
+  const cancelled: string[] = [];
+  for (const op of active) {
+    if (!op.operationId || op.operationId === newOperationId) continue;
+    try {
+      // Cancel BullMQ side first so the worker aborts mid-flight.
+      await queueService.cancel(op.operationId).catch((err) => {
+        logger.warn('Concurrency-policy: queue cancel failed (non-fatal)', {
+          operationId: op.operationId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+      // Then mark Firestore as cancelled so resume guards see the new state.
+      await jobRepository.withDb(db).markCancelled(op.operationId);
+      cancelled.push(op.operationId);
+
+      // Notify any active SSE client subscribed to the cancelled op.
+      void pubsubService
+        ?.publish(op.operationId, 'cancelled', {
+          operationId: op.operationId,
+          threadId,
+          reason: 'superseded',
+          supersededBy: newOperationId,
+          timestamp: new Date().toISOString(),
+        })
+        .catch(() => undefined);
+
+      logger.info('Concurrency-policy: superseded prior thread operation', {
+        threadId,
+        cancelledOperationId: op.operationId,
+        priorStatus: op.status,
+        newOperationId,
+      });
+    } catch (err) {
+      logger.error('Concurrency-policy: failed to supersede prior op', {
+        threadId,
+        operationId: op.operationId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  return cancelled;
 }
 
 async function reconcileAgentOutbox(
@@ -398,6 +704,19 @@ function emitReplayEvent(res: Response, rawEvt: unknown): void {
     ...(typeof evt['seq'] === 'number' ? { seq: evt['seq'] } : {}),
     ...payload,
   });
+  const emitToolResultSupplementalFrames = (): void => {
+    const toolResult = evt['toolResult'];
+    if (!toolResult || typeof toolResult !== 'object') return;
+
+    const record = toolResult as Record<string, unknown>;
+    if (record['autoOpenPanel'] && typeof record['autoOpenPanel'] === 'object') {
+      res.write(
+        `event: panel\ndata: ${JSON.stringify(
+          withEnvelope(record['autoOpenPanel'] as Record<string, unknown>)
+        )}\n\n`
+      );
+    }
+  };
 
   const buildStepEnvelope = (
     status: 'active' | 'success' | 'error'
@@ -445,6 +764,7 @@ function emitReplayEvent(res: Response, rawEvt: unknown): void {
       const payload = buildStepEnvelope(evt['toolSuccess'] === false ? 'error' : 'success');
       if (!payload) break;
       res.write(`event: step\ndata: ${JSON.stringify(payload)}\n\n`);
+      emitToolResultSupplementalFrames();
       break;
     }
     case 'tool_call':
@@ -1570,7 +1890,7 @@ router.post('/resume-job/:operationId', appGuard, async (req: Request, res: Resp
     }
 
     const threadId = jobDoc.threadId;
-    if (threadId && chatService && trimmedUserResponse.length > 0) {
+    if (resumeFromPausedState && threadId && chatService && trimmedUserResponse.length > 0) {
       try {
         await chatService.addMessage({
           threadId,
@@ -1588,11 +1908,11 @@ router.post('/resume-job/:operationId', appGuard, async (req: Request, res: Resp
       }
     }
 
-    const pendingToolCallId = yieldState.pendingToolCall?.toolCallId ?? 'ask_user_response';
-    const normalizedMessages = stripToolResultForCallId(
-      normalizeYieldMessages(yieldState.messages),
-      pendingToolCallId
-    );
+    const resumeSourceMessages = normalizeYieldMessages(yieldState.messages);
+    const pendingToolCallId = resumeFromPausedState
+      ? (yieldState.pendingToolCall?.toolCallId ?? 'ask_user_response')
+      : resolveResumeToolCallId(resumeSourceMessages, yieldState.pendingToolCall?.toolCallId);
+    const normalizedMessages = stripToolResultForCallId(resumeSourceMessages, pendingToolCallId);
 
     const sanitizedMessages = resumeFromPausedState
       ? stripPauseResumeToolResults(normalizedMessages)
@@ -1790,10 +2110,42 @@ router.post('/approvals/:id/resolve', appGuard, async (req: Request, res: Respon
       return;
     }
 
+    // Phase 0.6 — If the underlying op was superseded/cancelled (user sent
+    // a newer message on the same thread), don't resume a stale approval.
+    if (
+      jobDoc.status === 'cancelled' ||
+      jobDoc.status === 'failed' ||
+      jobDoc.status === 'completed'
+    ) {
+      logger.info('Approval resolved for terminal op — skipping resume', {
+        approvalId,
+        operationId,
+        priorStatus: jobDoc.status,
+        decision,
+      });
+      res.json({
+        success: true,
+        data: { decision, resumed: false, reason: 'operation_already_terminal' },
+      });
+      return;
+    }
+
+    const threadId = jobDoc.threadId;
     const yieldState = jobDoc.yieldState as AgentYieldState | undefined;
 
     if (decision === 'rejected') {
       await jobRepository.withDb(db).markCancelled(operationId);
+      if (threadId && chatService) {
+        try {
+          await chatService.clearThreadPausedYieldState(threadId);
+        } catch (err) {
+          logger.warn('Failed to clear thread paused yield state on approval rejection', {
+            threadId,
+            operationId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
       res.json({ success: true, data: { decision, resumed: false } });
       return;
     }
@@ -1805,8 +2157,6 @@ router.post('/approvals/:id/resolve', appGuard, async (req: Request, res: Respon
       res.json({ success: true, data: { decision, resumed: false } });
       return;
     }
-
-    const threadId = jobDoc.threadId;
     const normalizedApprovalMessages = stripToolResultForCallId(
       normalizeYieldMessages(yieldState.messages),
       yieldState.pendingToolCall.toolCallId
@@ -1841,6 +2191,18 @@ router.post('/approvals/:id/resolve', appGuard, async (req: Request, res: Respon
       summary: `Approved — continuing as ${resumedPayload.operationId}`,
       data: { resumedAs: resumedPayload.operationId, approvalId },
     });
+
+    if (threadId && chatService) {
+      try {
+        await chatService.clearThreadPausedYieldState(threadId);
+      } catch (err) {
+        logger.warn('Failed to clear thread paused yield state on approval resolution', {
+          threadId,
+          operationId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
 
     const environment = req.isStaging ? 'staging' : 'production';
     const enqueueResult = await enqueueWithOutbox(db, resumedPayload, environment);
@@ -1900,13 +2262,22 @@ router.post(
         return;
       }
 
-      const { intent, userContext, threadId } = req.body as AgentEnqueueRequestDto;
+      const { intent, userContext, threadId, selectedAction } = req.body as AgentEnqueueRequestDto;
+      const normalizedSelectedAction = normalizeSelectedActionForPayload(selectedAction);
       const db = req.firebase?.db;
       if (!db) {
         res.status(500).json({ success: false, error: 'Firestore unavailable' });
         return;
       }
       const environment = req.isStaging ? 'staging' : 'production';
+      const trimmedIntent = intent.trim();
+      const resolvedIntent = await resolveSelectedActionIntent({
+        db,
+        userId: user.uid,
+        fallbackIntent: trimmedIntent,
+        selectedAction: normalizedSelectedAction,
+      });
+      stampAgentXLastActiveAt(db, user.uid);
 
       // Opportunistic healing for previously failed/pending outbox entries.
       void reconcileAgentOutbox(db, environment).catch((err: unknown) => {
@@ -1974,15 +2345,22 @@ router.post(
       const payload: AgentJobPayload = {
         operationId,
         userId: user.uid,
-        intent: intent.trim(),
+        intent: resolvedIntent,
+        displayIntent: trimmedIntent,
         sessionId,
         origin: 'user' as AgentJobOrigin,
         context: {
           ...(userContext ?? {}),
           ...(idempotencyKey ? { idempotencyKey } : {}),
           ...(resolvedThreadId ? { threadId: resolvedThreadId } : {}),
+          ...(normalizedSelectedAction ? { selectedAction: normalizedSelectedAction } : {}),
         },
       };
+
+      // Phase 0.6 — Per-thread concurrency policy: cancel prior in-flight op.
+      if (resolvedThreadId) {
+        await enforceThreadConcurrencyPolicy(db, resolvedThreadId, operationId);
+      }
 
       await jobRepository.withDb(db).create(payload);
 
@@ -2102,8 +2480,9 @@ router.post(
         });
       });
 
-      const { message, mode, threadId, attachments, resumeOperationId, afterSeq } =
+      const { message, mode, threadId, attachments, resumeOperationId, afterSeq, selectedAction } =
         req.body as AgentChatRequestDto;
+      const normalizedSelectedAction = normalizeSelectedActionForPayload(selectedAction);
       const idempotencyKey = parseIdempotencyKey(req);
 
       if ((req.get(IDEMPOTENCY_KEY_HEADER) || req.get('idempotency-key')) && !idempotencyKey) {
@@ -2148,7 +2527,7 @@ router.post(
 
       // New request path: create thread/message, create+enqueue job, then stream from persistence + live pubsub.
       const allAttachments = attachments ?? [];
-      const fileAttachments = allAttachments
+      const fileAttachments: AgentXAttachment[] = allAttachments
         .filter(
           (a: { mimeType: string }) =>
             a.mimeType.startsWith('image/') ||
@@ -2163,19 +2542,20 @@ router.post(
         .map((a) => ({
           id: a.id,
           url: a.url,
+          ...(a.storagePath ? { storagePath: a.storagePath } : {}),
           name: a.name,
           mimeType: a.mimeType,
-          type: a.type,
+          type: a.type as AgentXAttachment['type'],
           sizeBytes: a.sizeBytes,
         }));
-      const videoAttachments = allAttachments
+      const videoAttachments: AgentXAttachment[] = allAttachments
         .filter((a: { mimeType: string }) => a.mimeType.startsWith('video/'))
         .map((a) => ({
           id: a.id,
           url: a.url,
           name: a.name,
           mimeType: a.mimeType,
-          type: a.type,
+          type: a.type as AgentXAttachment['type'],
           sizeBytes: a.sizeBytes,
           ...(a.cloudflareVideoId ? { cloudflareVideoId: a.cloudflareVideoId } : {}),
         }));
@@ -2209,6 +2589,9 @@ router.post(
               role: 'user',
               content: enrichedMessageText,
               origin: 'user',
+              ...(fileAttachments.length > 0 || videoAttachments.length > 0
+                ? { attachments: [...fileAttachments, ...videoAttachments] }
+                : {}),
             });
           }
         } catch (chatErr) {
@@ -2225,19 +2608,44 @@ router.post(
       if (!chatBudgetCheck.allowed) {
         const isWalletUser =
           chatCtx.billingEntity === 'individual' && chatCtx.paymentProvider === 'iap';
+        const billingCode = isWalletUser ? 'WALLET_EMPTY' : 'BUDGET_EXCEEDED';
+        const billingReason =
+          chatBudgetCheck.reason ?? 'Billing is required to continue this request.';
+        const acceptsEventStream =
+          req.accepts(['text/event-stream', 'json']) === 'text/event-stream';
+
+        if (acceptsEventStream) {
+          streamBillingGateToSse({
+            res,
+            threadId: effectiveThreadId ?? undefined,
+            code: billingCode,
+            description: billingReason,
+          });
+          return;
+        }
+
         res.status(402).json({
           success: false,
-          error: chatBudgetCheck.reason,
-          code: isWalletUser ? 'WALLET_EMPTY' : 'BUDGET_EXCEEDED',
+          error: billingReason,
+          code: billingCode,
         });
         return;
       }
 
       const operationId = `chat-${crypto.randomUUID()}`;
+      const trimmedMessage = message.trim();
+      const resolvedIntent = await resolveSelectedActionIntent({
+        db,
+        userId: user.uid,
+        fallbackIntent: trimmedMessage,
+        selectedAction: normalizedSelectedAction,
+      });
+      stampAgentXLastActiveAt(db, user.uid);
       const payload: AgentJobPayload = {
         operationId,
         userId: user.uid,
-        intent: message.trim(),
+        intent: resolvedIntent,
+        displayIntent: trimmedMessage,
         sessionId: crypto.randomUUID(),
         origin: 'user' as AgentJobOrigin,
         context: {
@@ -2246,8 +2654,15 @@ router.post(
           ...(mode ? { mode } : {}),
           ...(fileAttachments.length > 0 ? { attachments: fileAttachments } : {}),
           ...(videoAttachments.length > 0 ? { videoAttachments } : {}),
+          ...(normalizedSelectedAction ? { selectedAction: normalizedSelectedAction } : {}),
         },
       };
+
+      // Phase 0.6 — Cancel any prior in-flight op on this thread before
+      // enqueueing the new one. Prevents double-charging and interleaved streams.
+      if (effectiveThreadId) {
+        await enforceThreadConcurrencyPolicy(db, effectiveThreadId, operationId);
+      }
 
       await jobRepository.withDb(db).create(payload);
       await enqueueWithOutbox(db, payload, environment);

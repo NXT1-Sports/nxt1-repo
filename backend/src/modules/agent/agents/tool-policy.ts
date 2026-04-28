@@ -28,6 +28,8 @@ function composeToolPatterns(
 }
 
 const GLOBAL_SYSTEM_TOOL_POLICY: readonly ToolPattern[] = composeToolPatterns([
+  'send_email',
+  'batch_send_email',
   'delegate_task',
   'track_analytics_event',
   'search_memory',
@@ -41,6 +43,8 @@ const GLOBAL_SYSTEM_TOOL_POLICY: readonly ToolPattern[] = composeToolPatterns([
   'navigate_live_view',
   'interact_with_live_view',
   'read_live_view',
+  'extract_live_view_media',
+  'extract_live_view_playlist',
   'close_live_view',
   'schedule_recurring_task',
   'list_google_workspace_tools',
@@ -119,6 +123,12 @@ const AGENT_TOOL_POLICY: Readonly<Record<CoordinatorAgentId, readonly ToolPatter
     'write_combine_metrics',
     'analyze_video',
     'get_video_details',
+    'search_apify_actors',
+    'get_apify_actor_details',
+    'call_apify_actor',
+    'get_apify_actor_output',
+    'import_video',
+    'enable_download',
   ]),
 
   recruiting_coordinator: composeToolPatterns([
@@ -152,7 +162,12 @@ const AGENT_TOOL_POLICY: Readonly<Record<CoordinatorAgentId, readonly ToolPatter
     'get_analytics_summary',
     'list_recurring_tasks',
     'cancel_recurring_task',
+    'analyze_video',
     'get_video_details',
+    'search_apify_actors',
+    'get_apify_actor_details',
+    'call_apify_actor',
+    'get_apify_actor_output',
     'clip_video',
     'generate_thumbnail',
     'generate_captions',
@@ -202,6 +217,11 @@ export function isToolAllowedByPatterns(
 export function getAgentToolPolicy(agentId: AgentIdentifier): readonly ToolPattern[] {
   if (agentId === 'router') return [];
   return AGENT_TOOL_POLICY[agentId];
+}
+
+export function getEffectiveAgentToolPolicy(agentId: AgentIdentifier): readonly ToolPattern[] {
+  if (agentId === 'router') return [];
+  return composeToolPatterns(GLOBAL_SYSTEM_TOOL_POLICY, AGENT_TOOL_POLICY[agentId]);
 }
 
 export function getAllAgentToolPolicies(): Readonly<

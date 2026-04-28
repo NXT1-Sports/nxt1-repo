@@ -317,11 +317,19 @@ export class LiveViewSessionService {
       sessionId: session.sessionId,
       tier: session.destinationTier,
     });
-    this.analytics?.trackEvent(APP_EVENTS.LIVE_VIEW_AUTO_OPENED, {
-      session_id: session.sessionId,
-      destination_tier: session.destinationTier,
-      platform_key: session.platformKey ?? 'none',
-    });
+
+    try {
+      this.analytics?.trackEvent(APP_EVENTS.LIVE_VIEW_AUTO_OPENED, {
+        session_id: session.sessionId,
+        destination_tier: session.destinationTier,
+        platform_key: session.platformKey ?? 'none',
+      });
+    } catch (err) {
+      this.logger.warn('Failed to track live view auto-open analytics', {
+        sessionId: session.sessionId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
   }
 
   // ─── Internal ─────────────────────────────────────────────────────────

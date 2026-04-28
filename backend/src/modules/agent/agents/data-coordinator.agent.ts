@@ -347,6 +347,18 @@ export class DataCoordinatorAgent extends BaseAgent {
     return getAgentToolPolicy(this.id);
   }
 
+  override getSkills(): readonly string[] {
+    return [
+      'data_normalization_and_entity_resolution',
+      'report_formatting_and_export',
+      'global_knowledge',
+    ];
+  }
+
+  override getSkillBudget(): number {
+    return 3;
+  }
+
   getModelRouting(): ModelRoutingConfig {
     // Uses the "data_heavy" tier — Qwen 3.6 Plus (1M context) handles
     // massive season stats, game logs, and bulk scraping with large contexts.

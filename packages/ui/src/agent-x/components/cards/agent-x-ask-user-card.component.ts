@@ -125,17 +125,26 @@ export interface AskUserReplyEvent {
           </div>
         </div>
       } @else {
-        <div class="ask-card__answered-badge">
-          <svg viewBox="0 0 16 16" fill="none" class="ask-card__check-icon">
-            <path
-              d="M3 8L6.5 11.5L13 5"
-              stroke="currentColor"
-              stroke-width="1.5"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            />
-          </svg>
-          <span>Answered</span>
+        <div class="ask-card__answered">
+          <div class="ask-card__answered-badge">
+            <svg viewBox="0 0 16 16" fill="none" class="ask-card__check-icon">
+              <path
+                d="M3 8L6.5 11.5L13 5"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+            <span>Answered</span>
+          </div>
+
+          @if (submittedAnswer()) {
+            <div class="ask-card__answer">
+              <span class="ask-card__answer-label">Your response</span>
+              <p class="ask-card__answer-text">{{ submittedAnswer() }}</p>
+            </div>
+          }
         </div>
       }
     </div>
@@ -366,9 +375,44 @@ export interface AskUserReplyEvent {
         display: flex;
         align-items: center;
         gap: 6px;
-        padding: 8px 12px;
+        padding: 8px 12px 0;
         font-size: 0.8125rem;
         color: var(--nxt1-color-success, #22c55e);
+      }
+
+      .ask-card__answered {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        padding-bottom: 12px;
+      }
+
+      .ask-card__answer {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        margin: 0 12px;
+        padding: 10px 12px;
+        border-radius: 10px;
+        background: var(--ask-input-surface);
+        border: 1px solid var(--ask-input-border);
+      }
+
+      .ask-card__answer-label {
+        font-size: 0.75rem;
+        font-weight: 700;
+        letter-spacing: 0.01em;
+        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.65));
+        text-transform: uppercase;
+      }
+
+      .ask-card__answer-text {
+        margin: 0;
+        font-size: 0.875rem;
+        line-height: 1.55;
+        color: var(--nxt1-color-text-primary, #ffffff);
+        white-space: pre-wrap;
+        word-break: break-word;
       }
 
       .ask-card__check-icon {
@@ -401,6 +445,9 @@ export class AgentXAskUserCardComponent {
 
   /** True once the user has submitted — locks the card. */
   protected readonly answered = signal(false);
+
+  /** Snapshot of the submitted reply shown inline once the card is answered. */
+  protected readonly submittedAnswer = signal('');
 
   protected readonly canAdvance = computed(() => this.draft().trim().length > 0);
 
@@ -485,6 +532,7 @@ export class AgentXAskUserCardComponent {
     const answer = this.buildSubmission();
     if (!answer) return;
 
+    this.submittedAnswer.set(answer);
     this.answered.set(true);
     this.replySubmitted.emit({
       answer,

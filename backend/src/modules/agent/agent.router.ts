@@ -27,7 +27,6 @@ import type {
   AgentIdentifier,
   AgentRouterStage,
   AgentTask,
-  AgentExecutionPlan,
   OperationOutcomeCode,
   AgentSessionContext,
   AgentSessionMessage,
@@ -45,15 +44,13 @@ import { SemanticCacheService } from './memory/semantic-cache.service.js';
 import { SessionMemoryService } from './memory/session.service.js';
 import { ApprovalGateService } from './services/approval-gate.service.js';
 import { getAgentRunConfig, DEFAULT_AGENT_RUN_CONFIG } from './config/agent-app-config.js';
-import {
-  AgentRouterConversationService,
-  type ConversationRouteOutcome,
-} from './orchestrator/agent-router-conversation.service.js';
 import { AgentRouterContextService } from './orchestrator/agent-router-context.service.js';
 import { AgentRouterExecutionService } from './orchestrator/agent-router-execution.service.js';
 import { AgentRouterFinalizationService } from './orchestrator/agent-router-finalization.service.js';
 import { AgentRouterPolicyService } from './orchestrator/agent-router-policy.service.js';
 import { AgentRouterPlanningService } from './orchestrator/agent-router-planning.service.js';
+import type { AgentRouterPrimaryService } from './orchestrator/agent-router-primary.service.js';
+import { PrimaryAgent } from './agents/primary.agent.js';
 import {
   AgentRouterPlanningOrchestratorService,
   type AgentRouterPlanningOutcome,
@@ -76,7 +73,7 @@ import { logger } from '../../utils/logger.js';
 export class AgentRouter {
   private readonly planner: PlannerAgent;
   private readonly agents = new Map<AgentIdentifier, BaseAgent>();
-  private readonly conversationService: AgentRouterConversationService;
+  private readonly planningService: AgentRouterPlanningService;
   private readonly policyService: AgentRouterPolicyService;
   private readonly requestBootstrapService: AgentRouterRequestBootstrapService;
   private readonly routerContextService: AgentRouterContextService;
@@ -85,6 +82,11 @@ export class AgentRouter {
   private readonly planningOrchestratorService: AgentRouterPlanningOrchestratorService;
   private readonly resumeService: AgentRouterResumeService;
   private readonly telemetryService: AgentRouterTelemetryService;
+  private primaryAgent?: PrimaryAgent;
+  private primaryService?: AgentRouterPrimaryService;
+  private readonly llm: OpenRouterService;
+  private readonly toolRegistry: ToolRegistry;
+  private readonly skillRegistry?: SkillRegistry;
 
   constructor(
     llm: OpenRouterService,
@@ -93,10 +95,13 @@ export class AgentRouter {
     skillRegistry?: SkillRegistry,
     private readonly sessionMemory?: SessionMemoryService
   ) {
+    this.llm = llm;
+    this.toolRegistry = toolRegistry;
+    this.skillRegistry = skillRegistry;
     this.planner = new PlannerAgent(llm);
     const semanticCache = new SemanticCacheService(llm);
     this.routerContextService = new AgentRouterContextService(contextBuilder, sessionMemory);
-    const planningService = new AgentRouterPlanningService(llm, toolRegistry, skillRegistry);
+    this.planningService = new AgentRouterPlanningService(llm, toolRegistry, skillRegistry);
     this.telemetryService = new AgentRouterTelemetryService();
     this.policyService = new AgentRouterPolicyService(this.planner);
     this.requestBootstrapService = new AgentRouterRequestBootstrapService(
@@ -120,8 +125,10 @@ export class AgentRouter {
       skillRegistry
     );
     this.planningOrchestratorService = new AgentRouterPlanningOrchestratorService(
-      this.planner,
-      planningService,
+      {
+        execute: (...args) => this.planner.execute(...args),
+      } as PlannerAgent,
+      this.planningService,
       this.telemetryService,
       this.routerContextService
     );
@@ -135,12 +142,6 @@ export class AgentRouter {
       skillRegistry,
       sessionMemory
     );
-    this.conversationService = new AgentRouterConversationService(
-      llm,
-      contextBuilder,
-      this.routerContextService,
-      this.telemetryService
-    );
   }
 
   /** Register a sub-agent so the router can delegate tasks to it. */
@@ -149,21 +150,34 @@ export class AgentRouter {
   }
 
   /**
-   * Classify the user's intent and return the best sub-agent identifier.
-   * Uses the PlannerAgent to decompose — if it's a single task, returns
-   * that task's agent. If multi-task, returns 'router' (meaning: run the full plan).
+   * Wire the Primary Agent + dispatcher service. When configured, the
+   * router unconditionally routes conversational requests through
+   * {@link runPrimary} (the 2026 single-agent ReAct loop). Bootstrap calls
+   * this once after constructing the router.
    */
-  async classify(intent: string, userId: string): Promise<AgentIdentifier> {
-    const userContext = await this.contextBuilder.buildContext(userId);
-    const context = this.buildSessionContext(userId);
-    const enrichedIntent = this.enrichIntentWithContext(intent, userContext, undefined, undefined);
+  setPrimary(primary: PrimaryAgent, service: AgentRouterPrimaryService): void {
+    this.primaryAgent = primary;
+    this.primaryService = service;
+  }
 
-    const result = await this.planner.execute(enrichedIntent, context, []);
-    const plan = result.data?.['plan'] as AgentExecutionPlan | undefined;
+  /** Internal: expose the registered agents map to the primary dispatcher. */
+  getRegisteredAgents(): ReadonlyMap<AgentIdentifier, BaseAgent> {
+    return this.agents;
+  }
 
-    if (!plan || plan.tasks.length === 0) return 'router';
-    if (plan.tasks.length === 1) return plan.tasks[0].assignedAgent;
-    return 'router';
+  /** Internal: expose orchestrator services to the primary dispatcher factory. */
+  getOrchestratorBundle(): {
+    executionService: AgentRouterExecutionService;
+    contextService: AgentRouterContextService;
+    policyService: AgentRouterPolicyService;
+    planner: PlannerAgent;
+  } {
+    return {
+      executionService: this.executionService,
+      contextService: this.routerContextService,
+      policyService: this.policyService,
+      planner: this.planner,
+    };
   }
 
   /**
@@ -184,6 +198,14 @@ export class AgentRouter {
     const { operationId, userId, intent } = payload;
     const approvalGate = firestore ? new ApprovalGateService(firestore) : undefined;
     const operationStartMs = Date.now();
+
+    logger.info('[AgentRouter] run() entry', {
+      operationId,
+      userId,
+      intentPreview: intent.slice(0, 80),
+      hasPrimaryAgent: Boolean(this.primaryAgent),
+      hasPrimaryService: Boolean(this.primaryService),
+    });
 
     const rawContextObj =
       typeof payload.context === 'object' && payload.context !== null ? payload.context : {};
@@ -416,6 +438,8 @@ export class AgentRouter {
       ? ((contextObj as Record<string, unknown>)['attachments'] as readonly {
           url: string;
           mimeType: string;
+          storagePath?: string;
+          name?: string;
         }[])
       : undefined;
     const videoAttachments = Array.isArray(
@@ -473,28 +497,15 @@ export class AgentRouter {
       }
     }
 
-    let skipPlannerClassification = false;
-
-    if (!payload.agent) {
-      const conversationalOutcome = await this.tryConversationalRoute({
-        payload,
-        context,
-        threadId,
-        firestore,
-        onUpdate,
-        onStreamEvent,
-        environment,
-        signal,
-      });
-
-      if (conversationalOutcome.kind === 'handled') {
-        return conversationalOutcome.result;
-      }
-
-      if (conversationalOutcome.kind === 'escalate_to_planning') {
-        skipPlannerClassification = true;
-      }
-    }
+    // ── PRIMARY AGENT (default conversational path) ──────────────────────
+    // The Primary owns the full conversational surface (greetings, casual
+    // Q&A, tool-driven work) via its single ReAct loop. It dispatches to
+    // coordinators (delegate_to_coordinator) and DAG planning
+    // (plan_and_execute) via tool calls.
+    // The legacy classifier→conversation→planner triage was removed in the
+    // 2026 enterprise migration; if `payload.agent` is unset and the
+    // Primary is wired, it always handles the request.
+    const skipPlannerClassification = false;
 
     // ── Step 1: Build context ─────────────────────────────────────────────
     const contextPhaseStartMs = Date.now();
@@ -591,6 +602,31 @@ export class AgentRouter {
       undefined,
       activeThreadsSummary
     );
+
+    // ── PRIMARY AGENT FAST-PATH ──────────────────────────────────────────
+    // The Primary Agent runs unconditionally for any request without a
+    // pre-targeted `payload.agent`. The legacy classifier→conversation→
+    // planner triage was removed in the 2026 enterprise migration.
+    const primaryGateOk = Boolean(this.primaryAgent) && Boolean(this.primaryService);
+    logger.info('[AgentRouter] Primary fast-path gate', {
+      operationId,
+      hasPrimaryAgent: Boolean(this.primaryAgent),
+      hasPrimaryService: Boolean(this.primaryService),
+      gateOk: primaryGateOk,
+    });
+    if (primaryGateOk) {
+      return await this.runPrimary({
+        operationId,
+        userId,
+        intent,
+        enrichedIntent,
+        context,
+        approvalGate,
+        onUpdate,
+        onStreamEvent,
+        signal,
+      });
+    }
 
     const directAgentResult = await this.requestBootstrapService.runDirectAgentPath({
       job: payload,
@@ -732,19 +768,6 @@ export class AgentRouter {
     );
   }
 
-  private async tryConversationalRoute(payload: {
-    readonly payload: AgentJobPayload;
-    readonly context: AgentSessionContext;
-    readonly threadId?: string;
-    readonly firestore?: FirebaseFirestore.Firestore;
-    readonly onUpdate?: (update: AgentJobUpdate) => void;
-    readonly onStreamEvent?: OnStreamEvent;
-    readonly environment: 'staging' | 'production';
-    readonly signal?: AbortSignal;
-  }): Promise<ConversationRouteOutcome> {
-    return this.conversationService.tryConversationalRoute(payload);
-  }
-
   /**
    * Build the intent string for a sub-task, injecting:
    * 1. The original enriched context (user profile, linked account URLs, job metadata).
@@ -762,6 +785,82 @@ export class AgentRouter {
     return this.routerContextService.buildTaskIntent(task, upstreamResults, enrichedContext);
   }
 
+  /**
+   * Primary Agent execution. Runs a single streaming ReAct loop with
+   * native tool calling. The Primary handles dispatch to coordinators
+   * and multi-step planning via tool calls (`delegate_to_coordinator`,
+   * `plan_and_execute`).
+   *
+   * Requires {@link setPrimary} to have been called by bootstrap.
+   */
+  private async runPrimary(opts: {
+    operationId: string;
+    userId: string;
+    intent: string;
+    enrichedIntent: string;
+    context: AgentSessionContext;
+    approvalGate?: ApprovalGateService;
+    onUpdate?: (update: AgentJobUpdate) => void;
+    onStreamEvent?: OnStreamEvent;
+    signal?: AbortSignal;
+  }): Promise<AgentOperationResult> {
+    const primary = this.primaryAgent;
+    if (!primary) {
+      throw new Error('runPrimary called without primary agent wired');
+    }
+
+    primary.beginRun({
+      operationId: opts.operationId,
+      userId: opts.userId,
+      sessionContext: opts.context,
+      enrichedIntent: opts.enrichedIntent,
+      ...(opts.approvalGate ? { approvalGate: opts.approvalGate } : {}),
+      ...(opts.onStreamEvent ? { onStreamEvent: opts.onStreamEvent } : {}),
+      ...(opts.signal ? { signal: opts.signal } : {}),
+    });
+
+    try {
+      this.emitUpdate(
+        opts.onUpdate,
+        opts.operationId,
+        'thinking',
+        'Primary Agent reasoning…',
+        undefined,
+        {
+          agentId: 'router',
+          stage: 'agent_thinking',
+        }
+      );
+
+      // Build the Primary's tool surface from the registry. The static
+      // helper filters registry definitions to the curated fast-path list
+      // declared on PrimaryAgent. Passing an empty array here would cause
+      // BaseAgent.execute to expose ZERO tools to the LLM (it filters the
+      // passed array; it does not fetch from the registry).
+      const toolDefinitions = PrimaryAgent.buildPrimaryToolDefinitions(this.toolRegistry);
+      logger.info('[AgentRouter] Primary tool surface', {
+        operationId: opts.operationId,
+        toolCount: toolDefinitions.length,
+        toolNames: toolDefinitions.map((d) => d.name),
+      });
+
+      const result = await primary.execute(
+        opts.enrichedIntent,
+        opts.context,
+        toolDefinitions,
+        this.llm,
+        this.toolRegistry,
+        this.skillRegistry,
+        opts.onStreamEvent,
+        opts.approvalGate
+      );
+
+      return result;
+    } finally {
+      primary.endRun(opts.operationId);
+    }
+  }
+
   /** Build a minimal session context. */
   private buildSessionContext(
     userId: string,
@@ -771,7 +870,12 @@ export class AgentRouter {
     environment?: 'staging' | 'production',
     signal?: AbortSignal,
     mode?: string,
-    attachments?: readonly { readonly url: string; readonly mimeType: string }[],
+    attachments?: readonly {
+      readonly url: string;
+      readonly mimeType: string;
+      readonly storagePath?: string;
+      readonly name?: string;
+    }[],
     videoAttachments?: readonly {
       readonly url: string;
       readonly mimeType: string;

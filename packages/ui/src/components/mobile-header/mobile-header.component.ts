@@ -156,6 +156,35 @@ import { DEFAULT_MOBILE_HEADER_CONFIG } from './mobile-header.types';
             </button>
           }
 
+          <!-- Usage Button (Agent X mobile web) -->
+          @if (config().showUsage) {
+            <button
+              type="button"
+              class="mobile-header__action-btn"
+              aria-label="Usage and billing"
+              (click)="onUsageClick($event)"
+            >
+              <nxt1-icon name="card" [size]="22" />
+            </button>
+          }
+
+          <!-- Activity Button (Agent X mobile web) -->
+          @if (config().showActivity) {
+            <button
+              type="button"
+              class="mobile-header__action-btn"
+              aria-label="Activity"
+              (click)="onActivityClick($event)"
+            >
+              <span class="mobile-header__icon-wrapper">
+                <nxt1-icon name="bell" [size]="22" />
+                @if ((config().activityUnreadCount ?? 0) > 0) {
+                  <span class="mobile-header__unread-dot" aria-hidden="true"></span>
+                }
+              </span>
+            </button>
+          }
+
           <!-- Edit Button (pencil — own profile only) -->
           @if (config().showEdit) {
             <button
@@ -512,6 +541,25 @@ import { DEFAULT_MOBILE_HEADER_CONFIG } from './mobile-header.types';
         animation: nxt1-badge-pop 300ms cubic-bezier(0.175, 0.885, 0.32, 1.275);
       }
 
+      .mobile-header__icon-wrapper {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .mobile-header__unread-dot {
+        position: absolute;
+        top: -2px;
+        right: -2px;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--mobile-header-badge-bg);
+        border: 2px solid var(--mobile-header-bg);
+        animation: nxt1-badge-pop 300ms cubic-bezier(0.175, 0.885, 0.32, 1.275);
+      }
+
       /* ============================================
          BADGE ANIMATION (shared keyframe)
          ============================================ */
@@ -600,6 +648,12 @@ export class NxtMobileHeaderComponent implements OnDestroy {
 
   /** Emitted when budget button is clicked (billing page, org users) */
   readonly budgetClick = output<Event>();
+
+  /** Emitted when the Agent X activity button is clicked */
+  readonly activityClick = output<Event>();
+
+  /** Emitted when the Agent X usage button is clicked */
+  readonly usageClick = output<Event>();
 
   /** Emitted when user avatar is clicked */
   readonly userClick = output<Event>();
@@ -701,6 +755,16 @@ export class NxtMobileHeaderComponent implements OnDestroy {
   onBudgetClick(event: Event): void {
     this.haptics.impact('light');
     this.budgetClick.emit(event);
+  }
+
+  onActivityClick(event: Event): void {
+    this.haptics.impact('light');
+    this.activityClick.emit(event);
+  }
+
+  onUsageClick(event: Event): void {
+    this.haptics.impact('light');
+    this.usageClick.emit(event);
   }
 
   onUserClick(event: Event): void {

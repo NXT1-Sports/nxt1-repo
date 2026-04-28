@@ -277,7 +277,7 @@ export function createAgentXApi(http: HttpAdapter, baseUrl: string) {
     },
 
     /**
-     * Set or update the user's Agent X goals (max 2).
+     * Set or update the user's Agent X goals (max 3).
      */
     async setGoals(goals: readonly AgentDashboardGoal[]): Promise<boolean> {
       try {

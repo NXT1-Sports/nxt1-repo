@@ -344,7 +344,12 @@ export interface AgentSessionContext {
    * File attachments forwarded from the chat client (images, PDFs, etc.).
    * When present, base.agent.ts builds a multipart LLM user message instead of plain text.
    */
-  readonly attachments?: readonly { readonly url: string; readonly mimeType: string }[];
+  readonly attachments?: readonly {
+    readonly url: string;
+    readonly mimeType: string;
+    readonly storagePath?: string;
+    readonly name?: string;
+  }[];
   /**
    * Video attachments forwarded from the chat client (mp4, mov, etc.).
    * Videos cannot be passed as vision content — base.agent.ts injects their URLs
@@ -355,6 +360,7 @@ export interface AgentSessionContext {
     readonly url: string;
     readonly mimeType: string;
     readonly name: string;
+    readonly cloudflareVideoId?: string;
   }[];
   /**
    * Abort signal propagated from the SSE connection.
@@ -661,6 +667,8 @@ export interface AgentJobPayload {
   readonly operationId: string;
   readonly userId: string;
   readonly intent: string;
+  /** User-facing label preserved for history, titles, and ops logs. */
+  readonly displayIntent?: string;
   readonly sessionId: string;
   /** Where this job came from — user prompt, cron, database event, etc. */
   readonly origin: AgentJobOrigin;

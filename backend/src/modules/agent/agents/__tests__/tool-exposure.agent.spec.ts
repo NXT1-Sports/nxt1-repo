@@ -6,7 +6,7 @@ import { BrandCoordinatorAgent } from '../brand-coordinator.agent.js';
 import { PerformanceCoordinatorAgent } from '../performance-coordinator.agent.js';
 import { RecruitingCoordinatorAgent } from '../recruiting-coordinator.agent.js';
 import { StrategyCoordinatorAgent } from '../strategy-coordinator.agent.js';
-import { isToolAllowedByPatterns } from '../tool-policy.js';
+import { getEffectiveAgentToolPolicy, isToolAllowedByPatterns } from '../tool-policy.js';
 
 function createMockContext(): AgentSessionContext {
   const now = new Date().toISOString();
@@ -54,6 +54,7 @@ describe('Agent tool exposure regressions', () => {
       expect(tools).not.toContain('navigate_live_view');
       expect(tools).not.toContain('interact_with_live_view');
       expect(tools).not.toContain('read_live_view');
+      expect(tools).not.toContain('extract_live_view_media');
       expect(tools).not.toContain('close_live_view');
     }
 
@@ -77,6 +78,7 @@ describe('Agent tool exposure regressions', () => {
       expect(tools).not.toContain('navigate_live_view');
       expect(tools).not.toContain('interact_with_live_view');
       expect(tools).not.toContain('read_live_view');
+      expect(tools).not.toContain('extract_live_view_media');
       expect(tools).not.toContain('close_live_view');
     }
   });
@@ -128,6 +130,9 @@ describe('Agent tool exposure regressions', () => {
     expect(agent.getAvailableTools()).not.toContain('write_intel');
     expect(agent.getAvailableTools()).toContain('analyze_video');
     expect(agent.getAvailableTools()).toContain('get_video_details');
+    expect(agent.getAvailableTools()).toContain('call_apify_actor');
+    expect(agent.getAvailableTools()).toContain('import_video');
+    expect(agent.getAvailableTools()).toContain('enable_download');
   });
 
   it('exposes college database and workspace tooling to recruiting coordinator', () => {
@@ -145,10 +150,41 @@ describe('Agent tool exposure regressions', () => {
 
     expect(agent.getAvailableTools().length).toBeGreaterThan(0);
     expect(agent.getAvailableTools()).toContain('get_analytics_summary');
+    expect(agent.getAvailableTools()).toContain('analyze_video');
     expect(agent.getAvailableTools()).not.toContain('write_intel');
     expect(agent.getAvailableTools()).not.toContain('firecrawl_agent_research');
     expect(agent.getAvailableTools()).not.toContain('schedule_recurring_task');
     expect(agent.getAvailableTools()).toContain('list_recurring_tasks');
     expect(agent.getAvailableTools()).toContain('cancel_recurring_task');
+    expect(agent.getAvailableTools()).toContain('call_apify_actor');
+    expect(agent.getAvailableTools()).toContain('get_apify_actor_details');
+    expect(agent.getAvailableTools()).toContain('import_video');
+    expect(agent.getAvailableTools()).toContain('enable_download');
+  });
+
+  it('teaches strategy coordinator to use real film analysis for video requests', () => {
+    const agent = new StrategyCoordinatorAgent();
+    const prompt = agent.getSystemPrompt(context);
+
+    expect(prompt).toContain('use real video analysis');
+    expect(prompt).toContain('call `analyze_video`');
+    expect(prompt).toContain('call `extract_live_view_media`');
+    expect(prompt).toContain('skipMediaPersistence: true');
+    expect(prompt).toContain('Batch up to 5 final playable video URLs');
+  });
+
+  it('exposes live-view extraction tools in the effective runtime policy for film coordinators', () => {
+    const performanceTools = getEffectiveAgentToolPolicy('performance_coordinator');
+    const strategyTools = getEffectiveAgentToolPolicy('strategy_coordinator');
+
+    expect(performanceTools).toContain('open_live_view');
+    expect(performanceTools).toContain('extract_live_view_media');
+    expect(performanceTools).toContain('extract_live_view_playlist');
+    expect(performanceTools).toContain('analyze_video');
+
+    expect(strategyTools).toContain('open_live_view');
+    expect(strategyTools).toContain('extract_live_view_media');
+    expect(strategyTools).toContain('extract_live_view_playlist');
+    expect(strategyTools).toContain('analyze_video');
   });
 });

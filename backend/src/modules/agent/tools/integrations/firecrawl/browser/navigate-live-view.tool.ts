@@ -6,7 +6,7 @@
  * This controls the SAME browser the user sees in their command center iframe.
  */
 
-import { BaseTool, type ToolResult } from '../../../base.tool.js';
+import { BaseTool, type ToolExecutionContext, type ToolResult } from '../../../base.tool.js';
 import type { LiveViewSessionService } from './live-view-session.service.js';
 import { logger } from '../../../../../../utils/logger.js';
 import { z } from 'zod';
@@ -24,7 +24,6 @@ export class NavigateLiveViewTool extends BaseTool {
   readonly parameters = z.object({
     sessionId: z.string().trim().min(1).optional(),
     url: z.string().trim().min(1),
-    userId: z.string().trim().min(1),
   });
 
   readonly isMutation = false;
@@ -40,9 +39,12 @@ export class NavigateLiveViewTool extends BaseTool {
     this.sessionService = sessionService;
   }
 
-  async execute(input: Record<string, unknown>): Promise<ToolResult> {
+  async execute(
+    input: Record<string, unknown>,
+    context?: ToolExecutionContext
+  ): Promise<ToolResult> {
     const url = this.str(input, 'url');
-    const userId = this.str(input, 'userId');
+    const userId = context?.userId ?? this.str(input, 'userId');
 
     if (!url) return this.paramError('url');
     if (!userId) return this.paramError('userId');

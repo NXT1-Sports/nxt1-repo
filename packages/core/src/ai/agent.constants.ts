@@ -89,7 +89,7 @@ export const AGENT_DESCRIPTORS: Record<AgentIdentifier, AgentDescriptor> = {
     name: 'Strategy Coordinator',
     icon: 'compass',
     description:
-      'Drives strategic planning, goal prioritization, and weekly gameplanning for athletes, coaches, and programs. Use ONLY for requests requiring an actual strategic plan, goal breakdown, or weekly priority list. Do NOT use for greetings, identity questions, platform explanations, or general conversation — the Chief of Staff handles those directly.',
+      'Drives game planning, playbook design, opponent prep, and weekly execution strategy for athletes, coaches, and programs. Use ONLY for requests requiring an actual strategic plan, goal breakdown, game plan, or weekly priority list. Do NOT use for greetings, identity questions, platform explanations, or general conversation — the Chief of Staff handles those directly.',
     capabilities: [
       'strategic_planning',
       'goal_prioritization',
@@ -419,6 +419,13 @@ import type { AgentApprovalPolicy, AgentUsageLimits } from './agent.types';
 export const AGENT_APPROVAL_POLICIES: readonly AgentApprovalPolicy[] = [
   {
     toolName: 'send_email',
+    requiresApproval: true,
+    autoApproveOnExpiry: false,
+    expiryMs: 86_400_000, // 24 hours
+    riskLevel: 'high',
+  },
+  {
+    toolName: 'batch_send_email',
     requiresApproval: true,
     autoApproveOnExpiry: false,
     expiryMs: 86_400_000, // 24 hours

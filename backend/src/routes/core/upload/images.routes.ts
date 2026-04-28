@@ -19,8 +19,44 @@ import {
   waitForExtensionThumbnails,
   buildThumbnailUrls,
 } from './shared.js';
+import { RosterEntryService } from '../../../services/team/roster-entry.service.js';
 
 const router: RouterType = Router();
+
+const TEAM_MEDIA_MANAGER_ROLES = new Set([
+  'admin',
+  'head-coach',
+  'coach',
+  'administrative',
+  'director',
+  'program-director',
+]);
+
+async function canManageTeamMedia(
+  db: FirebaseFirestore.Firestore,
+  teamId: string,
+  userId: string,
+  teamData: Record<string, unknown>
+): Promise<boolean> {
+  const rosterService = new RosterEntryService(db);
+  const entry = await rosterService.getActiveOrPendingRosterEntry(userId, teamId);
+  const entryRole = typeof entry?.role === 'string' ? entry.role.toLowerCase() : '';
+
+  if (TEAM_MEDIA_MANAGER_ROLES.has(entryRole)) {
+    return true;
+  }
+
+  const adminIds = Array.isArray(teamData['adminIds'])
+    ? teamData['adminIds'].filter((value): value is string => typeof value === 'string')
+    : [];
+
+  return (
+    teamData['ownerId'] === userId ||
+    teamData['coachId'] === userId ||
+    teamData['createdBy'] === userId ||
+    adminIds.includes(userId)
+  );
+}
 
 // ============================================
 // POST /profile-photo
@@ -92,6 +128,70 @@ router.post(
     });
 
     res.json({ success: true, data: result });
+  })
+);
+
+router.post(
+  '/team-logo',
+  upload.single('file'),
+  asyncHandler(async (req: Request, res: Response) => {
+    const userId = req.user!.uid;
+    const file = req.file;
+    const teamId = typeof req.body?.teamId === 'string' ? req.body.teamId.trim() : '';
+
+    if (!file) {
+      throw fieldError('file', 'File is required', 'required');
+    }
+
+    if (!teamId) {
+      throw fieldError('teamId', 'Team ID is required for team-logo uploads', 'required');
+    }
+
+    const category: FileCategory = 'team-logo';
+    const rules = FILE_UPLOAD_RULES[category];
+    const maxSize = 'maxSize' in rules ? (rules as { maxSize: number }).maxSize : null;
+
+    if (maxSize !== null && file.size > maxSize) {
+      throw fieldError('file', `File must be smaller than ${formatFileSize(maxSize)}`, 'maxSize');
+    }
+
+    const db = req.firebase?.db;
+    if (!db) {
+      throw fieldError('teamId', 'Database unavailable', 'server_error');
+    }
+
+    const teamDoc = await db.collection('Teams').doc(teamId).get();
+    if (!teamDoc.exists) {
+      throw forbiddenError('team');
+    }
+
+    const teamData = teamDoc.data() ?? {};
+    const isAuthorized = await canManageTeamMedia(db, teamId, userId, teamData);
+    if (!isAuthorized) {
+      throw forbiddenError('team');
+    }
+
+    const bucket = req.firebase?.storage?.bucket() || getStorage().bucket();
+    const storagePath = buildTeamLogoPath(teamId, file.originalname);
+    const url = await uploadToStorage(file.buffer, storagePath, file.mimetype, bucket);
+
+    logger.info('Team logo upload complete', {
+      userId,
+      teamId,
+      storagePath,
+      mimeType: file.mimetype,
+      size: formatFileSize(file.size),
+    });
+
+    res.json({
+      success: true,
+      data: {
+        url,
+        storagePath,
+        size: file.size,
+        mimeType: file.mimetype,
+      },
+    });
   })
 );
 
@@ -339,10 +439,7 @@ router.post(
       }
 
       const teamData = teamDoc.data() ?? {};
-      const isAuthorized =
-        teamData['ownerId'] === userId ||
-        teamData['coachId'] === userId ||
-        teamData['createdBy'] === userId;
+      const isAuthorized = await canManageTeamMedia(db, teamId, userId, teamData);
 
       if (!isAuthorized) {
         throw forbiddenError('team');

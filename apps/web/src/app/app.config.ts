@@ -94,6 +94,7 @@ import {
 import { ACTIVITY_API_BASE_URL, ACTIVITY_API_ADAPTER } from '@nxt1/ui/activity';
 import { INVITE_API_BASE_URL } from '@nxt1/ui/invite';
 import { USAGE_API_BASE_URL, STRIPE_PUBLISHABLE_KEY } from '@nxt1/ui/usage';
+import { BROWSER_TRACKING_BASE_URL } from '@nxt1/ui/services/browser';
 
 // Help Center API adapter — wired at root so the shared HelpCenterService
 // (providedIn: 'root') can resolve the token when it's first injected.
@@ -398,6 +399,10 @@ export const appConfig: ApplicationConfig = {
 
     // Agent X API base URL
     { provide: AGENT_X_API_BASE_URL, useFactory: () => environment.apiURL },
+
+    // Browser tracking base URL — markdown/download links should route through the backend,
+    // not the current Angular origin.
+    { provide: BROWSER_TRACKING_BASE_URL, useFactory: () => environment.apiURL },
 
     // Agent X SSE auth token factory — provides a Firebase ID token for the
     // raw fetch() SSE connection (bypasses the Angular authInterceptor).

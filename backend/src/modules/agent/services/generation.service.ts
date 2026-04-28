@@ -11,7 +11,13 @@
  */
 
 import { getFirestore, FieldValue, Timestamp, type Firestore } from 'firebase-admin/firestore';
-import type { AgentDashboardGoal, ShellWeeklyPlaybookItem, ShellBriefingInsight } from '@nxt1/core';
+import type {
+  AgentDashboardGoal,
+  AgentIdentifier,
+  ShellActionChip,
+  ShellBriefingInsight,
+  ShellWeeklyPlaybookItem,
+} from '@nxt1/core';
 import { logger } from '../../../utils/logger.js';
 import {
   getRecurringHabitsPrompt,
@@ -25,9 +31,18 @@ import { OpenRouterService } from '../llm/openrouter.service.js';
 import type { LLMCompletionOptions, LLMMessage } from '../llm/llm.types.js';
 import { resolveStructuredOutput } from '../llm/structured-output.js';
 import { z } from 'zod';
-import { getAgentAppConfig } from '../config/agent-app-config.js';
+import {
+  getAgentAppConfig,
+  resolveConfiguredCoordinatorsForRole,
+} from '../config/agent-app-config.js';
 import { AgentEngineError } from '../exceptions/agent-engine.error.js';
 import { dispatchAgentPush } from './agent-push-adapter.service.js';
+import { getAgentToolPolicy } from '../agents/tool-policy.js';
+import {
+  getPlaybookTargetGoalItemCount,
+  getPlaybookTargetItemCount,
+  normalizeGeneratedPlaybookItems,
+} from './playbook-shape.util.js';
 
 // ─── Shared Helpers ─────────────────────────────────────────────────────────
 
@@ -75,6 +90,23 @@ const briefingResponseSchema = z.object({
 const playbookNudgeResponseSchema = z.object({
   title: z.string().optional(),
   body: z.string().optional(),
+});
+
+const suggestedActionItemSchema = z.object({
+  actionId: z.string().optional(),
+  label: z.string().optional(),
+  subLabel: z.string().optional(),
+  icon: z.string().optional(),
+  promptText: z.string().optional(),
+});
+
+const suggestedActionCoordinatorSchema = z.object({
+  coordinatorId: z.string().optional(),
+  actions: z.array(suggestedActionItemSchema).optional(),
+});
+
+const suggestedActionsResponseSchema = z.object({
+  coordinators: z.array(suggestedActionCoordinatorSchema).optional(),
 });
 
 /** Extract human-readable delta sync parts from a sync report document. */
@@ -133,6 +165,43 @@ export interface BriefingGenerationResult {
   previewText: string;
   insights: ShellBriefingInsight[];
   generatedAt: string;
+}
+
+interface SuggestedActionsGenerationResult {
+  coordinators: ReadonlyArray<{
+    coordinatorId: string;
+    actions: readonly ShellActionChip[];
+  }>;
+  generatedAt: string;
+}
+
+function getSundayWeekKey(now: Date = new Date()): string {
+  const weekStart = new Date(now);
+  weekStart.setHours(0, 0, 0, 0);
+  weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+  return weekStart.toISOString().slice(0, 10);
+}
+
+function trimToNull(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function buildSuggestedActionPromptText(params: {
+  readonly coordinatorLabel: string;
+  readonly coordinatorDescription: string;
+  readonly actionLabel: string;
+  readonly actionDescription?: string;
+}): string {
+  const detail = trimToNull(params.actionDescription) ?? params.coordinatorDescription;
+  return [
+    `Please handle ${params.actionLabel} with the ${params.coordinatorLabel}.`,
+    detail,
+    'Give me the clearest deliverable, priorities, and next steps to act on immediately.',
+  ]
+    .filter(Boolean)
+    .join(' ');
 }
 
 // ─── Generation Service ─────────────────────────────────────────────────────
@@ -215,7 +284,7 @@ export class AgentGenerationService {
   }
 
   private buildPlanningMemoryQuery(
-    mode: 'playbook' | 'briefing',
+    mode: 'playbook' | 'briefing' | 'suggested-actions',
     role: string,
     primarySport: string | null,
     goals: readonly AgentDashboardGoal[]
@@ -226,7 +295,11 @@ export class AgentGenerationService {
       .join(' | ');
 
     return [
-      mode === 'playbook' ? 'weekly playbook planning' : 'daily briefing planning',
+      mode === 'playbook'
+        ? 'weekly playbook planning'
+        : mode === 'briefing'
+          ? 'daily briefing planning'
+          : 'weekly suggested actions planning',
       `role: ${role}`,
       primarySport ? `sport: ${primarySport}` : '',
       goalText ? `goals: ${goalText}` : 'goals: none set',
@@ -399,6 +472,346 @@ export class AgentGenerationService {
     }
   }
 
+  private async saveGeneratedSuggestedActions(
+    uid: string,
+    db: Firestore,
+    payload: {
+      readonly generatedAt: string;
+      readonly role: string;
+      readonly weekKey: string;
+      readonly coordinators: ReadonlyArray<{
+        coordinatorId: string;
+        actions: readonly ShellActionChip[];
+      }>;
+      readonly source: 'llm' | 'fallback';
+    }
+  ): Promise<void> {
+    const suggestedActionsRef = db
+      .collection('Users')
+      .doc(uid)
+      .collection('agent_suggested_actions');
+    await suggestedActionsRef.doc(payload.weekKey).set({
+      generatedAt: payload.generatedAt,
+      role: payload.role,
+      weekKey: payload.weekKey,
+      source: payload.source,
+      coordinators: payload.coordinators,
+    });
+
+    try {
+      const allDocs = await suggestedActionsRef.orderBy('generatedAt', 'desc').get();
+      const toDelete = allDocs.docs.slice(8);
+      await Promise.all(toDelete.map((doc) => doc.ref.delete()));
+    } catch (pruneErr) {
+      logger.warn('Failed to prune old suggested action documents', {
+        userId: uid,
+        error: pruneErr instanceof Error ? pruneErr.message : String(pruneErr),
+      });
+    }
+  }
+
+  async generateWeeklySuggestedActions(
+    uid: string,
+    force = false,
+    dbOverride?: Firestore
+  ): Promise<SuggestedActionsGenerationResult | null> {
+    const db = this.resolveDb(dbOverride);
+    const userDoc = await db.collection('Users').doc(uid).get();
+    const userData = userDoc.data() ?? {};
+    const role = String(userData['role'] ?? 'athlete');
+
+    if (!['athlete', 'coach', 'director'].includes(role)) {
+      logger.info('Skipping weekly suggested actions generation — unsupported role', {
+        userId: uid,
+        role,
+      });
+      return null;
+    }
+
+    if (!force) {
+      const lastActiveAt = userData['agentXLastActiveAt'] as Timestamp | undefined;
+      if (!lastActiveAt) {
+        logger.info('Skipping weekly suggested actions generation — no recent Agent X activity', {
+          userId: uid,
+        });
+        return null;
+      }
+
+      const activityAgeHours = (Date.now() - lastActiveAt.toMillis()) / (1000 * 60 * 60);
+      if (activityAgeHours > 24 * 7) {
+        logger.info('Skipping weekly suggested actions generation — activity is stale', {
+          userId: uid,
+          activityAgeHours: Math.round(activityAgeHours),
+        });
+        return null;
+      }
+
+      const lastGeneratedAt = userData['agentSuggestedActionsGeneratedAt'] as Timestamp | undefined;
+      if (lastGeneratedAt) {
+        const hoursSinceLast = (Date.now() - lastGeneratedAt.toMillis()) / (1000 * 60 * 60);
+        if (hoursSinceLast < 144) {
+          logger.info('Skipping weekly suggested actions generation — already generated recently', {
+            userId: uid,
+            hoursSinceLast: Math.round(hoursSinceLast),
+          });
+          return null;
+        }
+      }
+    }
+
+    await db
+      .collection('Users')
+      .doc(uid)
+      .set({ agentSuggestedActionsGeneratedAt: FieldValue.serverTimestamp() }, { merge: true })
+      .catch(() => {
+        /* non-critical */
+      });
+
+    const agentGoals = (userData['agentGoals'] ?? []) as AgentDashboardGoal[];
+    const primarySport = resolvePrimarySport(userData);
+    const planningScaffolding = this.buildPlanningScaffolding(primarySport, userData);
+    const appConfig = await getAgentAppConfig(db);
+    const coordinators = resolveConfiguredCoordinatorsForRole(role, appConfig);
+
+    if (coordinators.length === 0) {
+      logger.info('Skipping weekly suggested actions generation — no coordinators resolved', {
+        userId: uid,
+        role,
+      });
+      return null;
+    }
+
+    const [promptContextText, latestPlaybookText, latestBriefingText] = await Promise.all([
+      this.buildPromptContextText(
+        uid,
+        this.buildPlanningMemoryQuery('suggested-actions', role, primarySport, agentGoals),
+        db
+      ),
+      (async (): Promise<string> => {
+        try {
+          const latestPlaybook = await db
+            .collection('Users')
+            .doc(uid)
+            .collection('agent_playbooks')
+            .orderBy('generatedAt', 'desc')
+            .limit(1)
+            .get();
+
+          if (latestPlaybook.empty) return '';
+          const items = (latestPlaybook.docs[0].data()['items'] ?? []) as ShellWeeklyPlaybookItem[];
+          if (items.length === 0) return '';
+          return `Recent weekly playbook tasks:\n${items
+            .slice(0, 5)
+            .map((item) => `- ${item.title}: ${item.summary}`)
+            .join('\n')}`;
+        } catch {
+          return '';
+        }
+      })(),
+      (async (): Promise<string> => {
+        try {
+          const latestBriefing = await db
+            .collection('Users')
+            .doc(uid)
+            .collection('agent_briefings')
+            .orderBy('generatedAt', 'desc')
+            .limit(1)
+            .get();
+
+          if (latestBriefing.empty) return '';
+          const previewText = trimToNull(latestBriefing.docs[0].data()['previewText']);
+          return previewText ? `Latest daily briefing focus: ${previewText}` : '';
+        } catch {
+          return '';
+        }
+      })(),
+    ]);
+
+    const coordinatorPrompt = coordinators
+      .map((coordinator) => {
+        const tools = getAgentToolPolicy(coordinator.id as AgentIdentifier);
+        const quickPrompts = coordinator.commands
+          .map((action) => `${action.label}${action.subLabel ? ` — ${action.subLabel}` : ''}`)
+          .join(' | ');
+        const scheduled = (coordinator.scheduledActions ?? [])
+          .map((action) => `${action.label}${action.subLabel ? ` — ${action.subLabel}` : ''}`)
+          .join(' | ');
+
+        return [
+          `Coordinator: ${coordinator.label} (${coordinator.id})`,
+          `Description: ${coordinator.description}`,
+          `Available tools: ${tools.length > 0 ? tools.join(', ') : 'No special tools'}`,
+          `Existing quick prompts: ${quickPrompts || 'None'}`,
+          `Existing scheduled actions: ${scheduled || 'None'}`,
+        ].join('\n');
+      })
+      .join('\n\n');
+
+    const goalsText =
+      agentGoals.length > 0
+        ? agentGoals.map((goal) => `- ${goal.text}`).join('\n')
+        : '- No goals set yet';
+
+    const prompt = [
+      'You are Agent X creating weekly personalized suggested actions for coordinator panels.',
+      'Generate custom actions for the next 7 days only.',
+      "Every action must feel personalized to the user's real context, goals, recent activity, role, and season.",
+      'Do not output generic placeholder ideas.',
+      '',
+      'USER CONTEXT',
+      promptContextText,
+      planningScaffolding,
+      latestPlaybookText,
+      latestBriefingText,
+      '',
+      'ACTIVE GOALS',
+      goalsText,
+      '',
+      'COORDINATORS',
+      coordinatorPrompt,
+      '',
+      'OUTPUT RULES',
+      `Return a JSON object with a "coordinators" array containing EXACTLY ${coordinators.length} entries, one per coordinator listed above.`,
+      'For each coordinator entry:',
+      '- Set "coordinatorId" to the exact coordinator id from the prompt.',
+      '- Return EXACTLY 3 actions in "actions".',
+      '- Each action must include:',
+      '  - "actionId": a unique slug-like id',
+      '  - "label": a concise title under 42 characters',
+      '  - "subLabel": one-sentence explanation under 90 characters',
+      '  - "icon": a relevant icon name',
+      '  - "promptText": a full ready-to-run request written as if the user is asking Agent X directly',
+      "- The promptText must align with the coordinator's available tools and never claim work is already complete.",
+      '- Avoid simply copying the static quick prompt labels unless the user context clearly demands it.',
+      'Return only JSON. No markdown fences.',
+    ]
+      .filter(Boolean)
+      .join('\n');
+
+    let source: 'llm' | 'fallback' = 'fallback';
+    let parsedResult: z.infer<typeof suggestedActionsResponseSchema> | null = null;
+
+    try {
+      const { parsed } = await this.generateStructuredPayload(
+        [
+          {
+            role: 'system',
+            content:
+              'You are Agent X. Return only valid JSON. Build weekly suggested actions that are deeply personalized, tool-aware, and immediately actionable.',
+          },
+          { role: 'user', content: prompt },
+        ],
+        {
+          tier: 'extraction',
+          maxTokens: 2400,
+          temperature: 0.4,
+          outputSchema: {
+            name: 'agent_weekly_suggested_actions',
+            schema: suggestedActionsResponseSchema,
+          },
+        },
+        suggestedActionsResponseSchema,
+        'Suggested actions',
+        db
+      );
+      parsedResult = parsed;
+      source = 'llm';
+    } catch (error) {
+      logger.warn('Weekly suggested action generation fell back to config-backed prompts', {
+        userId: uid,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+
+    const parsedByCoordinator = new Map<
+      string,
+      readonly z.infer<typeof suggestedActionItemSchema>[]
+    >();
+    for (const entry of parsedResult?.coordinators ?? []) {
+      const coordinatorId = trimToNull(entry.coordinatorId);
+      if (!coordinatorId) continue;
+      parsedByCoordinator.set(coordinatorId, entry.actions ?? []);
+    }
+
+    const normalizedCoordinators = coordinators.map((coordinator) => {
+      const parsedActions = parsedByCoordinator.get(coordinator.id) ?? [];
+      const actionPool = [...coordinator.commands, ...(coordinator.scheduledActions ?? [])];
+      const selectedActions: ShellActionChip[] = [];
+      const seenLabels = new Set<string>();
+
+      for (let index = 0; index < parsedActions.length && selectedActions.length < 3; index += 1) {
+        const item = parsedActions[index];
+        const label = trimToNull(item.label);
+        const promptText = trimToNull(item.promptText);
+        if (!label || !promptText) continue;
+
+        const normalizedLabel = label.toLowerCase();
+        if (seenLabels.has(normalizedLabel)) continue;
+        seenLabels.add(normalizedLabel);
+
+        selectedActions.push({
+          id:
+            trimToNull(item.actionId) ??
+            `${coordinator.id}-suggested-${selectedActions.length + 1}`,
+          label,
+          subLabel: trimToNull(item.subLabel) ?? undefined,
+          icon: trimToNull(item.icon) ?? coordinator.icon,
+          promptText,
+        });
+      }
+
+      for (const fallbackAction of actionPool) {
+        if (selectedActions.length >= 3) break;
+        const normalizedLabel = fallbackAction.label.trim().toLowerCase();
+        if (seenLabels.has(normalizedLabel)) continue;
+        seenLabels.add(normalizedLabel);
+
+        selectedActions.push({
+          id: `${coordinator.id}-suggested-${selectedActions.length + 1}`,
+          label: fallbackAction.label,
+          subLabel: fallbackAction.subLabel,
+          icon: fallbackAction.icon,
+          promptText:
+            fallbackAction.promptText ??
+            buildSuggestedActionPromptText({
+              coordinatorLabel: coordinator.label,
+              coordinatorDescription: coordinator.description,
+              actionLabel: fallbackAction.label,
+              actionDescription: fallbackAction.subLabel,
+            }),
+        });
+      }
+
+      return {
+        coordinatorId: coordinator.id,
+        actions: selectedActions.slice(0, 3),
+      };
+    });
+
+    const generatedAt = new Date().toISOString();
+    const weekKey = getSundayWeekKey();
+
+    await this.saveGeneratedSuggestedActions(uid, db, {
+      generatedAt,
+      role,
+      weekKey,
+      coordinators: normalizedCoordinators,
+      source,
+    });
+
+    logger.info('Weekly suggested actions generated', {
+      userId: uid,
+      role,
+      coordinatorCount: normalizedCoordinators.length,
+      source,
+    });
+
+    return {
+      coordinators: normalizedCoordinators,
+      generatedAt,
+    };
+  }
+
   /**
    * Generate a personalized weekly playbook for a user.
    * Reads user profile + goals from Firestore, calls OpenRouter LLM,
@@ -541,6 +954,8 @@ export class AgentGenerationService {
     const coordinatorsList = agentConfig.coordinators
       .map((c) => `- id: "${c.id}", label: "${c.name}", icon: "${c.icon ?? 'sparkles'}"`)
       .join('\n');
+    const totalPlaybookItems = getPlaybookTargetItemCount(agentGoals.length);
+    const totalGoalItems = getPlaybookTargetGoalItemCount(agentGoals.length);
 
     const prompt = [
       `You are Agent X, the AI-powered sports assistant for the NXT1 platform — The Ultimate AI Sports Coordinators. You are not just a recruiting tool; you are an intelligent sports operations agent that helps athletes develop, coaches strategize, parents navigate, directors manage, and scouts evaluate.`,
@@ -566,15 +981,16 @@ export class AgentGenerationService {
       `Return a JSON object (no markdown fences) with three keys:`,
       `- "notificationTitle": A short, exciting push notification title (max 60 chars) the user will receive when their playbook is ready. Personalize it — reference their primary goal or sport. Example: "Your Film Study plan is ready" or "Your recruiting push starts now".`,
       `- "notificationBody": A preview body for the notification (max 100 chars). Tease the top 1-2 tasks by name separated by " · ". Example: "Film review session · Send 3 coach emails".`,
-      `- "items": a JSON array of EXACTLY 5 playbook items split into TWO categories:`,
+      `- "items": a JSON array of EXACTLY ${totalPlaybookItems} playbook items split into TWO categories:`,
       ``,
       `CATEGORY 1 — RECURRING HABITS (exactly 2 items):`,
       `  These are routine maintenance tasks from the habits menu above.`,
       `  Set "goal" to: { "id": "recurring", "label": "Weekly Tasks" }`,
       `  Set "weekLabel" to "Weekly".`,
       ``,
-      `CATEGORY 2 — GOAL EXECUTION (exactly 3 items):`,
+      `CATEGORY 2 — GOAL EXECUTION (exactly ${totalGoalItems} items):`,
       `  These are unique, high-impact strategic tasks tied to the user's specific goals.`,
+      `  For EACH active user goal listed above, return EXACTLY 2 items tied to that goal.`,
       `  Set "goal" to: { "id": "<real goal id>", "label": "<goal text (max 30 chars)>" }`,
       `  Set "weekLabel" to a specific day ("Mon", "Tue", "Wed", "Thu", "Fri").`,
       ``,
@@ -590,7 +1006,7 @@ export class AgentGenerationService {
       `- "goal": object with "id" and "label" as described above`,
       `- "coordinator": object with "id", "label", and "icon" from the available coordinators list above`,
       ``,
-      `IMPORTANT: Return the 2 recurring items FIRST, then the 3 goal items (ordered most time-sensitive first). The "why" field is critical — hook the user emotionally. Never produce generic advice — always ground it in their reality using their profile data. Never write "details" as if work is already completed (avoid phrases like "has prepared", "already created", "already generated").`,
+      `IMPORTANT: Return the 2 recurring items FIRST. Then return goal-execution items grouped by the active goal order shown above, with EXACTLY 2 items for each goal. Within each goal pair, order the most time-sensitive item first. The "why" field is critical — hook the user emotionally. Never produce generic advice — always ground it in their reality using their profile data. Never write "details" as if work is already completed (avoid phrases like "has prepared", "already created", "already generated").`,
       ``,
       `Return ONLY the JSON object, no markdown fences, no explanation.`,
     ]
@@ -635,28 +1051,7 @@ export class AgentGenerationService {
       );
       llmRawContent = rawContent;
       parsedPlaybookResult = parsed;
-      playbookItems = parsed.items.map((item) => ({
-        id: item.id ?? `wp-${crypto.randomUUID().slice(0, 8)}`,
-        weekLabel: item.weekLabel ?? '',
-        title: item.title ?? '',
-        summary: item.summary ?? '',
-        why: item.why ?? '',
-        details: item.details ?? '',
-        actionLabel: item.actionLabel ?? 'Take Action',
-        status: 'pending' as const,
-        goal:
-          item.goal?.id && item.goal.label
-            ? { id: item.goal.id, label: item.goal.label }
-            : undefined,
-        coordinator:
-          item.coordinator?.id && item.coordinator.label
-            ? {
-                id: item.coordinator.id,
-                label: item.coordinator.label,
-                icon: item.coordinator.icon ?? 'sparkles',
-              }
-            : undefined,
-      }));
+      playbookItems = normalizeGeneratedPlaybookItems(parsed.items, agentGoals) ?? [];
     } catch (error) {
       logger.warn('OpenRouter not available for playbook generation', {
         userId: uid,
@@ -665,9 +1060,10 @@ export class AgentGenerationService {
     }
 
     if (playbookItems.length === 0) {
-      logger.warn('Playbook generation returned no AI items; refusing template fallback', {
+      logger.warn('Playbook generation returned invalid item counts; refusing template fallback', {
         userId: uid,
         goalCount: agentGoals.length,
+        targetItemCount: totalPlaybookItems,
         rawLlmOutput: (llmRawContent ?? '').slice(0, 500),
       });
       throw new AgentEngineError('AGENT_SERVICE_UNAVAILABLE', 'AI playbook generation unavailable');

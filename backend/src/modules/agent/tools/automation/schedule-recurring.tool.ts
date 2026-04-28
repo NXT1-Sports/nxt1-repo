@@ -13,7 +13,7 @@
  */
 
 import { getFirestore, FieldValue, type Firestore } from 'firebase-admin/firestore';
-import { BaseTool, type ToolResult } from '../base.tool.js';
+import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
 import type { AgentToolCategory, AgentJobPayload } from '@nxt1/core';
 import type { AgentQueueService } from '../../queue/queue.service.js';
 import { MIN_RECURRING_INTERVAL_MS, MAX_RECURRING_JOBS_PER_USER } from '../../queue/queue.types.js';
@@ -34,7 +34,6 @@ function isValidIanaTimezone(value: string): boolean {
 }
 
 const ScheduleRecurringTaskInputSchema = z.object({
-  userId: z.string().trim().min(1),
   actionSummary: z.string().trim().min(1),
   cronExpression: z.string().trim().min(1),
   timezone: z
@@ -87,8 +86,8 @@ export class ScheduleRecurringTaskTool extends BaseTool {
   readonly description =
     'Create a recurring scheduled task that Agent X will automatically execute on a cron schedule. ' +
     'Provide a human-readable action summary (what to do each time), a standard cron expression, ' +
-    'an IANA timezone (for example America/Chicago), and the userId. ' +
-    'Optionally include sourceId (the originating thread ID) so recurring runs can hydrate the same context. ' +
+    'and an IANA timezone (for example America/Chicago). ' +
+    'Optionally include sourceId to override the originating thread ID used for recurring context hydration. ' +
     'The minimum allowed interval is 1 hour.';
 
   readonly parameters = ScheduleRecurringTaskInputSchema;
@@ -107,7 +106,10 @@ export class ScheduleRecurringTaskTool extends BaseTool {
     this.db = db ?? getFirestore();
   }
 
-  async execute(input: Record<string, unknown>): Promise<ToolResult> {
+  async execute(
+    input: Record<string, unknown>,
+    context?: ToolExecutionContext
+  ): Promise<ToolResult> {
     const parsed = ScheduleRecurringTaskInputSchema.safeParse(input);
     if (!parsed.success) {
       return {
@@ -116,7 +118,16 @@ export class ScheduleRecurringTaskTool extends BaseTool {
       };
     }
 
-    const { userId, actionSummary, cronExpression, timezone, sourceId } = parsed.data;
+    if (!context?.userId) {
+      return {
+        success: false,
+        error: 'Execution context missing required userId.',
+      };
+    }
+    const userId = context.userId;
+
+    const { actionSummary, cronExpression, timezone, sourceId } = parsed.data;
+    const resolvedSourceId = sourceId?.trim() || context?.threadId?.trim() || undefined;
 
     // ── 1. Validate cron frequency ────────────────────────────────────
     const intervalMs = estimateCronIntervalMs(cronExpression);
@@ -150,11 +161,11 @@ export class ScheduleRecurringTaskTool extends BaseTool {
       intent: actionSummary,
       sessionId: `scheduled-${userId}`,
       origin: 'system_cron',
-      ...(sourceId
+      ...(resolvedSourceId
         ? {
             context: {
-              sourceId,
-              threadId: sourceId,
+              sourceId: resolvedSourceId,
+              threadId: resolvedSourceId,
             },
           }
         : {}),
@@ -180,7 +191,7 @@ export class ScheduleRecurringTaskTool extends BaseTool {
           actionSummary,
           cronExpression,
           timezone,
-          ...(sourceId ? { sourceId } : {}),
+          ...(resolvedSourceId ? { sourceId: resolvedSourceId } : {}),
           jobName,
           createdAt: FieldValue.serverTimestamp(),
           environment: 'production',
@@ -191,7 +202,7 @@ export class ScheduleRecurringTaskTool extends BaseTool {
         key,
         cronExpression,
         timezone,
-        ...(sourceId ? { sourceId } : {}),
+        ...(resolvedSourceId ? { sourceId: resolvedSourceId } : {}),
         actionSummary,
       });
 
@@ -202,7 +213,7 @@ export class ScheduleRecurringTaskTool extends BaseTool {
           actionSummary,
           cronExpression,
           timezone,
-          ...(sourceId ? { sourceId } : {}),
+          ...(resolvedSourceId ? { sourceId: resolvedSourceId } : {}),
           message:
             `Recurring task scheduled successfully. Action "${actionSummary}" will run on schedule: ` +
             `${cronExpression} (${timezone}).`,
@@ -214,7 +225,7 @@ export class ScheduleRecurringTaskTool extends BaseTool {
         userId,
         cronExpression,
         timezone,
-        ...(sourceId ? { sourceId } : {}),
+        ...(resolvedSourceId ? { sourceId: resolvedSourceId } : {}),
         error: message,
       });
       return { success: false, error: message };

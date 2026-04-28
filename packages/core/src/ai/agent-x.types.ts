@@ -173,6 +173,8 @@ export interface LiveViewSession {
   readonly sessionId: string;
   /** Interactive VNC/iframe URL returned by Firecrawl. */
   readonly interactiveUrl: string;
+  /** Top-level live-view URL returned by Firecrawl for opening the same session in a browser tab. */
+  readonly liveViewUrl?: string;
   /** The destination the user or agent originally requested. */
   readonly requestedUrl: string;
   /** Resolved canonical URL the browser was actually navigated to. */
@@ -200,6 +202,8 @@ export interface LiveViewSession {
 export interface AutoOpenPanelInstruction {
   readonly type: 'live-view' | 'live-view-launcher' | 'image' | 'video' | 'doc';
   readonly url: string;
+  /** Optional top-level URL to open in a separate browser tab while `url` remains the embedded iframe source. */
+  readonly externalUrl?: string;
   readonly title?: string;
   /**
    * When `type === 'live-view'`, carries the full session contract
@@ -313,6 +317,20 @@ export interface AgentXChatRequest {
   readonly resumeOperationId?: string;
   /** Replay dedup: skip persisted events up to and including this seq number. */
   readonly afterSeq?: number;
+  /** Optional structured quick-action selection resolved by the backend. */
+  readonly selectedAction?: AgentXSelectedAction;
+}
+
+/** Which coordinator action surface originated the request. */
+export type AgentXSelectedActionSurface = 'command' | 'scheduled' | 'suggested';
+
+/** Structured quick-action metadata sent alongside the visible chip label. */
+export interface AgentXSelectedAction {
+  readonly coordinatorId: string;
+  readonly actionId: string;
+  readonly surface: AgentXSelectedActionSurface;
+  /** Visible chip label for UX, analytics, and operation history. */
+  readonly label?: string;
 }
 
 /**
@@ -1023,6 +1041,8 @@ export interface ShellActionChip {
   readonly id: string;
   readonly label: string;
   readonly subLabel?: string;
+  /** Exact visible prompt text the UI should send when this chip is tapped. */
+  readonly promptText?: string;
   readonly icon: string;
 }
 
@@ -1036,6 +1056,8 @@ export interface ShellCommandCategory {
   readonly commands: readonly ShellActionChip[];
   /** Repeatable tasks the user can schedule (daily, weekly, etc.). */
   readonly scheduledActions?: readonly ShellActionChip[];
+  /** Weekly personalized actions generated from the user's current context. */
+  readonly suggestedActions?: readonly ShellActionChip[];
 }
 
 /** Daily briefing insight from Agent X. */
@@ -1167,7 +1189,7 @@ export interface AgentDashboardPlaybook {
   readonly canRegenerate: boolean;
 }
 
-/** Request to set/update user goals (max 2). */
+/** Request to set/update user goals (max 3). */
 export interface AgentSetGoalsRequest {
   readonly goals: readonly AgentDashboardGoal[];
 }

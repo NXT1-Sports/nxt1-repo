@@ -23,6 +23,7 @@ const WILDCARD_PATTERNS_MANUALLY_VALIDATED = new Set<string>([
   'navigate_live_view',
   'interact_with_live_view',
   'read_live_view',
+  'extract_live_view_media',
   'close_live_view',
 ]);
 
@@ -110,7 +111,7 @@ function resolveToolNameForClass(className: string, sourceFiles: readonly string
 
     const inlineNameMatch = source.match(
       new RegExp(
-        `class\\s+${className}\\b[\\s\\S]*?readonly\\s+name(?:\\s*:\\s*string)?\\s*=\\s*['\"]([^'\"]+)['\"]`
+        `class\\s+${className}\\b[\\s\\S]*?readonly\\s+name(?:\\s*:\\s*string)?\\s*=\\s*['"]([^'"]+)['"]`
       )
     );
     if (inlineNameMatch) {

@@ -39,11 +39,12 @@ export class PerformanceCoordinatorAgent extends BaseAgent {
       '1. **Agent X Intel Reports** — Use `write_intel` to generate a full Agent X Intel report for an athlete or team, and use `update_intel` when a report already exists and only specific sections need to be refreshed. This is your PRIMARY write action for any request to "write intel", "generate intel", "build an Intel report", "create an Agent X Intel report", or "update intel". Call `write_intel` with entityType ("athlete" or "team") and the entityId. Call `update_intel` with entityType, entityId, and the affected sectionId.',
       '2. **Scout Reports** — Generate structured evaluations across Physical / Technical / Mental / Potential dimensions with 1–100 scores.',
       '3. **Stat Analysis** — Interpret seasonal stats, game logs, and combine metrics to identify trends and strengths.',
-      "4. **Film Analysis** — Analyze Hudl or YouTube highlight URLs using scrape_webpage to extract key clips and technical observations. If a platform requires sign-in, use open_live_view instead to open an authenticated browser session in the user's command center.",
-      '5. **Prospect Comparison** — Compare athletes head-to-head using side-by-side stat tables.',
-      "6. **Progression Curves** — Track an athlete's development over seasons and project their ceiling.",
-      '7. **Web Research** — Use search_web to find recent performance rankings, all-state lists, and scouting databases.',
-      '8. **Context-Aware Evaluation** — Use the injected profile and memory context to account for prior evaluations, goals, and progression over time.',
+      '4. **Film Analysis** — For public direct video URLs or YouTube links, use `analyze_video`. For signed-in film platforms like Hudl that are already open in live view, use `extract_live_view_media` for the current active clip and `extract_live_view_playlist` when the user wants multiple clips, a playlist, or the first N plays. If the extractor returns a direct `.mp4`, analyze that. If it returns protected clip URLs or HLS/DASH streams, use the returned auth cookies/headers with an Apify downloader actor, set `skipMediaPersistence: true`, import the resulting MP4 into Cloudflare with `import_video`, then call `enable_download` and analyze the downloadable MP4 URL. If the page is not open yet, start with `open_live_view`.',
+      '5. **Batch Film Workflow** — When the user asks for multiple clips or several plays, prefer `extract_live_view_playlist` over manual browser stepping. Process the independent clip downloads in parallel and batch up to 5 final playable video URLs into one `analyze_video` call when the prompt is the same.',
+      '6. **Prospect Comparison** — Compare athletes head-to-head using side-by-side stat tables.',
+      "7. **Progression Curves** — Track an athlete's development over seasons and project their ceiling.",
+      '8. **Web Research** — Use search_web to find recent performance rankings, all-state lists, and scouting databases.',
+      '9. **Context-Aware Evaluation** — Use the injected profile and memory context to account for prior evaluations, goals, and progression over time.',
       '',
       '## Intel Generation Rule',
       'When a user asks you to write, generate, or create intel — ALWAYS call the `write_intel` tool immediately with their entityType and entityId. Do NOT describe what you would do. Do NOT ask for confirmation. Just call the tool.',
@@ -60,7 +61,19 @@ export class PerformanceCoordinatorAgent extends BaseAgent {
   }
 
   override getSkills(): readonly string[] {
-    return ['scouting_rubric', 'global_knowledge'];
+    return [
+      'scouting_rubric',
+      'video_analysis',
+      'film_breakdown_taxonomy',
+      'opponent_scouting_packet',
+      'coach_game_plan_and_adjustments',
+      'intel_report_quality',
+      'global_knowledge',
+    ];
+  }
+
+  override getSkillBudget(): number {
+    return 5;
   }
 
   getModelRouting(): ModelRoutingConfig {

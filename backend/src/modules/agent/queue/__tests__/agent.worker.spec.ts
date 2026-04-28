@@ -9,6 +9,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { AgentJobPayload, AgentJobOrigin, AgentOperationResult } from '@nxt1/core';
+import { AgentYieldException } from '../../exceptions/agent-yield.exception.js';
 
 // ─── Capture the processor callback ────────────────────────────────────────
 
@@ -134,6 +135,7 @@ describe('AgentWorker', () => {
 
   const mockJobRepo = {
     updateProgress: vi.fn().mockResolvedValue(undefined),
+    markYielded: vi.fn().mockResolvedValue(undefined),
     markCompleted: vi.fn().mockResolvedValue(undefined),
     markFailed: vi.fn().mockResolvedValue(undefined),
     create: vi.fn().mockResolvedValue(undefined),
@@ -150,6 +152,7 @@ describe('AgentWorker', () => {
 
   const mockChatService = {
     addMessage: vi.fn().mockResolvedValue({ id: 'msg-worker-1' }),
+    updateThreadPausedYieldState: vi.fn().mockResolvedValue(true),
     generateOperationTitle: vi.fn().mockResolvedValue('Built Your Coach Outreach Plan'),
     applyGeneratedThreadTitle: vi.fn().mockResolvedValue('Built Your Coach Outreach Plan'),
     generateThreadTitle: vi.fn().mockResolvedValue('MaxPreps Sync Complete'),
@@ -226,7 +229,7 @@ describe('AgentWorker', () => {
     expect(typeof result['durationMs']).toBe('number');
   });
 
-  it('should generate and persist a dedicated operation title', async () => {
+  it('should persist the assistant response without regenerating thread titles', async () => {
     const payload = makePayload({
       context: { threadId: 'thread-123' },
       intent: 'Analyze my linked maxpreps account for Belleville football',
@@ -242,24 +245,42 @@ describe('AgentWorker', () => {
         content: 'Drafted 5 recruiting emails',
       })
     );
-    expect(mockChatService.generateOperationTitle).toHaveBeenCalledWith(
-      payload.intent,
-      'Drafted 5 recruiting emails',
-      mockLlmService
-    );
-    expect(mockJobRepo.markCompleted).toHaveBeenCalledWith(
-      'op-worker-test',
+    expect(mockJobRepo.markCompleted).toHaveBeenCalledWith('op-worker-test', expect.any(Object));
+    expect(mockChatService.generateOperationTitle).not.toHaveBeenCalled();
+    expect(mockChatService.applyGeneratedThreadTitle).not.toHaveBeenCalled();
+    expect(mockChatService.generateThreadTitle).not.toHaveBeenCalled();
+  });
+
+  it('should append scheduled runs to the original thread before router execution', async () => {
+    const payload = makePayload({
+      origin: 'system_cron' as AgentJobOrigin,
+      context: { threadId: 'thread-recurring-123' },
+      intent: 'Send my weekly recruiting analytics recap',
+      displayIntent: 'Weekly recruiting analytics recap',
+    });
+    const job = {
+      ...makeMockJob(payload),
+      name: 'recv:user-abc:1234567890',
+      repeatJobKey: 'repeat:recv:user-abc:1234567890',
+    };
+
+    await capturedProcessor!(job);
+
+    expect(mockChatService.addMessage).toHaveBeenCalledWith(
       expect.objectContaining({
-        title: 'Built Your Coach Outreach Plan',
+        threadId: 'thread-recurring-123',
+        userId: payload.userId,
+        role: 'user',
+        content: 'Weekly recruiting analytics recap',
+        origin: 'system_cron',
+        operationId: payload.operationId,
       })
     );
-    expect(mockChatService.applyGeneratedThreadTitle).toHaveBeenCalledWith(
-      'thread-123',
-      payload.userId,
-      payload.intent,
-      'Built Your Coach Outreach Plan'
-    );
-    expect(mockChatService.generateThreadTitle).not.toHaveBeenCalled();
+
+    const firstChatWriteOrder = mockChatService.addMessage.mock.invocationCallOrder[0];
+    const routerRunOrder = mockRouter.run.mock.invocationCallOrder[0];
+
+    expect(firstChatWriteOrder).toBeLessThan(routerRunOrder);
   });
 
   it('should persist streamed parts and tool steps for thread reload hydration', async () => {
@@ -332,6 +353,41 @@ describe('AgentWorker', () => {
             ],
           },
         ],
+      })
+    );
+  });
+
+  it('persists approval yields onto the thread so refresh can recover approvalId', async () => {
+    const payload = makePayload({
+      context: { threadId: 'thread-approval-1' },
+    });
+    const job = makeMockJob(payload);
+
+    mockRouter.run.mockRejectedValueOnce(
+      new AgentYieldException({
+        reason: 'needs_approval',
+        promptToUser: 'Review this email before sending.',
+        agentId: 'recruiting_coordinator',
+        messages: [{ role: 'user', content: 'Send the email' }],
+        pendingToolCall: {
+          toolName: 'send_email',
+          toolInput: {
+            toEmail: 'coach@example.com',
+            subject: 'Checking in',
+          },
+          toolCallId: 'tool-approval-1',
+        },
+        approvalId: 'approval-123',
+      })
+    );
+
+    await capturedProcessor!(job);
+
+    expect(mockChatService.updateThreadPausedYieldState).toHaveBeenCalledWith(
+      'thread-approval-1',
+      expect.objectContaining({
+        reason: 'needs_approval',
+        approvalId: 'approval-123',
       })
     );
   });
@@ -608,6 +664,56 @@ describe('AgentWorker', () => {
     if (nonDeltaSeqs.length > 0) {
       expect(nonDeltaSeqs).toEqual([...nonDeltaSeqs].sort((a, b) => a - b));
     }
+  });
+
+  it('should publish panel events and preserve autoOpenPanel on done', async () => {
+    const payload = makePayload();
+    const job = makeMockJob(payload);
+
+    mockRouter.run.mockImplementationOnce(async (_p, _onUpdate, _db, onStreamEvent) => {
+      onStreamEvent({
+        type: 'tool_result',
+        toolName: 'open_live_view',
+        toolSuccess: true,
+        stepId: 'step-live-view',
+        stageType: 'tool',
+        message: 'Opening virtual browser',
+        toolResult: {
+          autoOpenPanel: {
+            type: 'live-view',
+            url: 'https://connect.firecrawl.dev/session/live-123',
+            title: 'acumbbcamps.com',
+          },
+        },
+      });
+
+      return {
+        ...mockRouterResult,
+        summary: 'Live view opened',
+      };
+    });
+
+    await capturedProcessor!(job);
+
+    expect(mockPubSub.publish).toHaveBeenCalledWith(
+      payload.operationId,
+      'panel',
+      expect.objectContaining({
+        type: 'live-view',
+        url: 'https://connect.firecrawl.dev/session/live-123',
+      })
+    );
+
+    expect(mockPubSub.publish).toHaveBeenCalledWith(
+      payload.operationId,
+      'done',
+      expect.objectContaining({
+        autoOpenPanel: expect.objectContaining({
+          type: 'live-view',
+          url: 'https://connect.firecrawl.dev/session/live-123',
+        }),
+      })
+    );
   });
 
   // ── Lifecycle ─────────────────────────────────────────────────────────
