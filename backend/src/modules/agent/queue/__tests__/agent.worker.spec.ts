@@ -148,6 +148,7 @@ describe('AgentWorker', () => {
   const mockPubSub = {
     publish: vi.fn().mockResolvedValue(undefined),
     subscribe: vi.fn().mockResolvedValue(() => undefined),
+    subscribeControl: vi.fn().mockResolvedValue(async () => undefined),
   };
 
   const mockChatService = {
@@ -266,6 +267,13 @@ describe('AgentWorker', () => {
 
     await capturedProcessor!(job);
 
+    expect(mockJobRepo.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operationId: 'op-worker-test',
+        origin: 'system_cron',
+      })
+    );
+
     expect(mockChatService.addMessage).toHaveBeenCalledWith(
       expect.objectContaining({
         threadId: 'thread-recurring-123',
@@ -273,7 +281,7 @@ describe('AgentWorker', () => {
         role: 'user',
         content: 'Weekly recruiting analytics recap',
         origin: 'system_cron',
-        operationId: payload.operationId,
+        operationId: 'op-worker-test',
       })
     );
 
@@ -281,6 +289,38 @@ describe('AgentWorker', () => {
     const routerRunOrder = mockRouter.run.mock.invocationCallOrder[0];
 
     expect(firstChatWriteOrder).toBeLessThan(routerRunOrder);
+  });
+
+  it('should use the BullMQ run id as the operation id for scheduled executions', async () => {
+    const payload = makePayload({
+      origin: 'system_cron' as AgentJobOrigin,
+      operationId: 'recurring-user-abc-1700000000000',
+      context: { threadId: 'thread-recurring-123' },
+    });
+    const job = {
+      ...makeMockJob(payload),
+      id: 'repeat:key:1777381200000',
+      name: 'recv:user-abc:1234567890',
+      repeatJobKey: 'repeat:key',
+    };
+
+    await capturedProcessor!(job);
+
+    expect(mockJobRepo.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operationId: 'repeat:key:1777381200000',
+      })
+    );
+    expect(mockRouter.run).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operationId: 'repeat:key:1777381200000',
+      }),
+      expect.any(Function),
+      mockFirestore,
+      expect.any(Function),
+      'staging',
+      expect.anything()
+    );
   });
 
   it('should persist streamed parts and tool steps for thread reload hydration', async () => {
@@ -493,7 +533,20 @@ describe('AgentWorker', () => {
       'staging'
     );
 
-    expect(mockJobRepo.create).toHaveBeenCalledTimes(1);
+    expect(mockJobRepo.create).toHaveBeenCalledTimes(2);
+    expect(mockJobRepo.create).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ operationId: payload.operationId })
+    );
+    expect(mockJobRepo.create).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        context: expect.objectContaining({
+          resumedFrom: payload.operationId,
+          timeoutContinuationCount: 1,
+        }),
+      })
+    );
     expect(mockJobRepo.markCompleted).toHaveBeenCalledWith(
       payload.operationId,
       expect.objectContaining({
@@ -544,7 +597,7 @@ describe('AgentWorker', () => {
     });
     const job = makeMockJob(payload);
 
-    mockJobRepo.getById.mockResolvedValueOnce({
+    mockJobRepo.getById.mockResolvedValueOnce(null).mockResolvedValueOnce({
       operationId: payload.operationId,
       status: 'paused',
       yieldState: {

@@ -186,6 +186,23 @@ export class AgentWorker {
     return { scheduleId, runId };
   }
 
+  private async ensureJobDocumentExists(
+    repo: AgentJobRepository,
+    payload: AgentJobPayload
+  ): Promise<void> {
+    const existing = await repo.getById(payload.operationId);
+    if (existing) {
+      return;
+    }
+
+    await repo.create(payload);
+    logger.info('Bootstrapped missing AgentJobs document in worker', {
+      operationId: payload.operationId,
+      userId: payload.userId,
+      origin: payload.origin,
+    });
+  }
+
   private async shouldSuppressTerminalCompletionForPause(
     repo: AgentJobRepository,
     operationId: string
@@ -543,16 +560,23 @@ export class AgentWorker {
       );
     }
 
-    const { payload } = job.data;
+    const basePayload = job.data.payload;
     const payloadContext =
-      typeof payload.context === 'object' && payload.context !== null ? payload.context : {};
+      typeof basePayload.context === 'object' && basePayload.context !== null
+        ? basePayload.context
+        : {};
     const payloadThreadId =
       typeof (payloadContext as Record<string, unknown>)['threadId'] === 'string'
         ? ((payloadContext as Record<string, unknown>)['threadId'] as string)
         : undefined;
-    const scheduledRunContext = this.getScheduledRunContext(job, payload);
+    const scheduledRunContext = this.getScheduledRunContext(job, basePayload);
+    const payload = scheduledRunContext
+      ? { ...basePayload, operationId: scheduledRunContext.runId }
+      : basePayload;
     const startMs = Date.now();
     const repo = this.getJobRepo(job);
+
+    await this.ensureJobDocumentExists(repo, payload);
 
     if (payload.origin === 'system_cron' && payloadThreadId && this.chatService) {
       try {
@@ -1896,7 +1920,9 @@ export class AgentWorker {
         const duration = job.returnvalue?.durationMs ?? 0;
         const operationId =
           job.data.kind === 'agent'
-            ? job.data.payload.operationId
+            ? job.data.payload.origin === 'system_cron'
+              ? (job.id?.toString() ?? job.data.payload.operationId)
+              : job.data.payload.operationId
             : job.data.kind === 'thread_summarization'
               ? `summarize_${job.data.threadId}`
               : job.data.operationId;
@@ -1912,7 +1938,9 @@ export class AgentWorker {
     this.worker.on('failed', (job, err) => {
       const operationId =
         job?.data.kind === 'agent'
-          ? job.data.payload.operationId
+          ? job.data.payload.origin === 'system_cron'
+            ? (job.id?.toString() ?? job.data.payload.operationId)
+            : job.data.payload.operationId
           : job?.data.kind === 'thread_summarization'
             ? `summarize_${job.data.threadId}`
             : job?.data.kind === 'playbook_generation'
