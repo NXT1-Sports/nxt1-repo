@@ -13,7 +13,13 @@
       "@nxt1/design-tokens": [
         "../../packages/design-tokens/dist/js/tokens.mjs"
       ],
-      "@nxt1/design-tokens/*": ["../../packages/design-tokens/*"]
+      "@nxt1/design-tokens/*": ["../../packages/design-tokens/*"],
+      "@capgo/capacitor-updater": [
+        "../../node_modules/@capgo/capacitor-updater/dist/esm/index.d.ts"
+      ],
+      "@capgo/native-purchases": [
+        "../../node_modules/@capgo/native-purchases/dist/esm/index.d.ts"
+      ]
     },
     "outDir": "./dist/out-tsc",
     "forceConsistentCasingInFileNames": true,

@@ -52,10 +52,14 @@
     "deploy:mcp:google-workspace": "bash ./scripts/deploy-google-workspace-mcp.sh",
     "backfill:agent-message-interactions": "tsx scripts/backfill-agent-message-interactions.ts",
     "backfill:agent-message-interactions:commit": "tsx scripts/backfill-agent-message-interactions.ts --commit",
-    "backfill:agent-message-interactions:prod": "NODE_ENV=production tsx scripts/backfill-agent-message-interactions.ts --commit"
+    "backfill:agent-message-interactions:prod": "NODE_ENV=production tsx scripts/backfill-agent-message-interactions.ts --commit",
+    "deploy:mobile-bundle": "tsx --tsconfig tsconfig.scripts.json --import dotenv/config scripts/deploy-mobile-bundle.ts",
+    "deploy:mobile-bundle:staging": "NODE_ENV=staging tsx --tsconfig tsconfig.scripts.json --import dotenv/config scripts/deploy-mobile-bundle.ts --channel staging",
+    "deploy:mobile-bundle:prod": "NODE_ENV=production tsx --tsconfig tsconfig.scripts.json --import dotenv/config scripts/deploy-mobile-bundle.ts --channel production"
   },
   "dependencies": {
     "@apple/app-store-server-library": "^3.0.0",
+    "@aws-sdk/client-s3": "^3.1038.0",
     "@google-cloud/firestore": "^8.0.0",
     "@google-cloud/pubsub": "^5.2.3",
     "@imbsq/runway-mcp": "^1.0.0",

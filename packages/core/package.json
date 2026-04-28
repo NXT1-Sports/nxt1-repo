@@ -27,6 +27,11 @@
       "import": "./dist/api/index.js",
       "require": "./dist/api/index.cjs"
     },
+    "./live-update": {
+      "types": "./dist/live-update/index.d.ts",
+      "import": "./dist/live-update/index.js",
+      "require": "./dist/live-update/index.cjs"
+    },
     "./helpers": {
       "types": "./dist/helpers/index.d.ts",
       "import": "./dist/helpers/index.js",

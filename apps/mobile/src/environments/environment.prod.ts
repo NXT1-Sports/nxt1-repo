@@ -38,7 +38,7 @@
 
 export const environment = {
   production: true,
-  appVersion: '1.0.0',
+  appVersion: '1.0.3',
 
   // Production API
   apiUrl: 'https://api.nxt1sports.com/api/v1',

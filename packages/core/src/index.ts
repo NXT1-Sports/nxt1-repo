@@ -1315,3 +1315,9 @@ export * from './analytics/analytics.types';
 // ============================================
 
 export * from './intel';
+
+// ============================================
+// LIVE UPDATE (Self-Hosted OTA Bundle Updates)
+// ============================================
+
+export * from './live-update';
