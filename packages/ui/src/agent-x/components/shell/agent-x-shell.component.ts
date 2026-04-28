@@ -1291,7 +1291,6 @@ function sortCoordinatorCategories(
 
       .floating-coordinator-pill[data-coordinator='coord-recruiting'] {
         --coordinator-pill-accent: #ccff00;
-        --coordinator-pill-text: #12170a;
       }
 
       .floating-coordinator-pill[data-coordinator='coord-media'] {
