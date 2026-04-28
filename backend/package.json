@@ -50,6 +50,7 @@
     "seed:knowledge": "tsx ../scripts/seed-knowledge/index.ts",
     "deploy:mcp:stateful": "bash ./scripts/deploy-stateful-mcp.sh",
     "deploy:mcp:google-workspace": "bash ./scripts/deploy-google-workspace-mcp.sh",
+    "deploy:mcp:microsoft-365": "bash ./scripts/deploy-microsoft-365-mcp.sh",
     "backfill:agent-message-interactions": "tsx scripts/backfill-agent-message-interactions.ts",
     "backfill:agent-message-interactions:commit": "tsx scripts/backfill-agent-message-interactions.ts --commit",
     "backfill:agent-message-interactions:prod": "NODE_ENV=production tsx scripts/backfill-agent-message-interactions.ts --commit"

@@ -39,6 +39,8 @@ import {
   isAgentDelegation,
   AgentDelegationException,
 } from '../exceptions/agent-delegation.exception.js';
+import { isDelegateToCoordinator } from '../exceptions/delegate-to-coordinator.exception.js';
+import { isPlanAndExecute } from '../exceptions/plan-and-execute.exception.js';
 import { AgentEngineError } from '../exceptions/agent-engine.error.js';
 import type { ApprovalGateService } from '../services/approval-gate.service.js';
 import { ASK_USER_CONTEXT_KEY, type AskUserToolContext } from '../tools/system/ask-user.tool.js';
@@ -50,6 +52,8 @@ import {
 } from '../utils/platform-identifier-sanitizer.js';
 import { parallelBatch } from '../utils/parallel-batch.js';
 import { getCachedAgentAppConfig, resolveAgentSystemPrompt } from '../config/agent-app-config.js';
+import { getToolLoopDetector } from '../services/tool-loop-detector.service.js';
+import { getPromptBudgetService } from '../services/prompt-budget.service.js';
 import { logger } from '../../../utils/logger.js';
 
 /** Maximum tool-calling iterations before we force the agent to respond. */
@@ -87,7 +91,7 @@ const CONTEXT_KEEP_LAST_EXCHANGES = 3;
  */
 const CONTEXT_PRUNE_THRESHOLD = CONTEXT_KEEP_FIRST_EXCHANGES + CONTEXT_KEEP_LAST_EXCHANGES + 1;
 
-interface ToolSessionContext {
+export interface ToolSessionContext {
   readonly sessionId?: string;
   readonly threadId?: string;
   readonly operationId?: string;
@@ -122,6 +126,14 @@ export abstract class BaseAgent {
    */
   getSkills(): readonly string[] {
     return [];
+  }
+
+  /**
+   * Maximum number of matched skills to inject into the active prompt.
+   * Keeps prompt assembly focused even when an agent is allowed many skills.
+   */
+  getSkillBudget(): number {
+    return 4;
   }
 
   /**
@@ -291,18 +303,19 @@ export abstract class BaseAgent {
           (text) => llm.embed(text),
           allowedSkillNames
         );
-        if (matched.length > 0) {
+        const selectedSkills = matched.slice(0, this.getSkillBudget());
+        if (selectedSkills.length > 0) {
           // Trigger retrieval for GlobalKnowledgeSkill before building prompt.
           // Pass the already-computed intentEmbedding to skip a redundant embed call.
-          for (const m of matched) {
+          for (const m of selectedSkills) {
             if (m.skill instanceof GlobalKnowledgeSkill) {
               await m.skill.retrieveForIntent(intent, intentEmbedding);
             }
           }
-          skillBlock = skillRegistry.buildPromptBlock(matched);
-          logger.info(`[${this.id}] Injected ${matched.length} skill(s) into prompt`, {
+          skillBlock = skillRegistry.buildPromptBlock(selectedSkills);
+          logger.info(`[${this.id}] Injected ${selectedSkills.length} skill(s) into prompt`, {
             agentId: this.id,
-            skills: matched.map((m) => m.skill.name),
+            skills: selectedSkills.map((m) => m.skill.name),
           });
         }
       } catch (err) {
@@ -620,6 +633,25 @@ export abstract class BaseAgent {
       // which only has system + user messages — nothing to prune yet).
       // No-op when total tool-calling exchanges is below CONTEXT_PRUNE_THRESHOLD.
       if (iteration > 0) this.pruneMessageHistory(messages);
+
+      // Token-budget governor: enforce a hard ceiling on prompt size with a
+      // deterministic degradation ladder. This is a per-LLM-call guard;
+      // operations are not bounded — long jobs still run to completion.
+      // Throws PromptBudgetExceededError if degradation cannot recover; the
+      // outer ReAct loop lets it propagate so the user sees a clear error.
+      const primaryCfg = getCachedAgentAppConfig().primary;
+      if (primaryCfg) {
+        getPromptBudgetService().applyBudget(
+          messages,
+          {
+            maxPromptTokens: primaryCfg.maxPromptTokens,
+            maxMessageChars: primaryCfg.maxMessageChars,
+            maxToolResultChars: primaryCfg.maxToolResultChars,
+          },
+          this.id,
+          context.operationId
+        );
+      }
 
       logger.info(`[${this.id}] Iteration ${iteration + 1}/${MAX_ITERATIONS}`, {
         agentId: this.id,
@@ -1257,8 +1289,13 @@ export abstract class BaseAgent {
   /**
    * Execute a single tool call and return the observation string
    * for the LLM to consume.
+   *
+   * Marked `protected` so the Primary Agent can override and intercept
+   * Primary-only control-flow exceptions (DelegateToCoordinator, PlanAndExecute)
+   * to dispatch into the existing coordinator/planner pipeline and feed the
+   * result back as the next observation.
    */
-  private async executeTool(
+  protected async executeTool(
     toolCall: LLMToolCall,
     registry: ToolRegistry,
     userId: string,
@@ -1302,6 +1339,15 @@ export abstract class BaseAgent {
         error: `Invalid JSON arguments for tool "${toolName}".`,
         errorCode: 'AGENT_TOOL_ARGS_INVALID',
       });
+    }
+
+    // Stuck-loop guard: if this tool has already been locked out for this
+    // operation due to repeated identical-args failures, short-circuit
+    // immediately with the lockout message instead of re-executing.
+    const loopDetector = getToolLoopDetector();
+    const lockoutMessage = loopDetector.checkLockout(sessionContext?.operationId, toolName);
+    if (lockoutMessage) {
+      return lockoutMessage;
     }
 
     if (approvalGate) {
@@ -1398,21 +1444,36 @@ export abstract class BaseAgent {
       const sanitizedData =
         result.data !== undefined ? sanitizeAgentPayload(result.data) : undefined;
 
+      // Record outcome with the loop detector. Success resets the counter for
+      // this signature; failure increments and may lock the tool out.
+      const outcome = result.success ? 'success' : 'failure';
+      const { advisory } = loopDetector.record(
+        sessionContext?.operationId,
+        toolName,
+        toolCall.function.arguments,
+        outcome
+      );
+
       if (result.success && result.markdown) {
         return result.markdown;
       }
 
-      return JSON.stringify(
-        result.success
-          ? { success: true, ...(sanitizedData !== undefined ? { data: sanitizedData } : {}) }
-          : {
-              success: false,
-              error: sanitizeAgentOutputText(result.error ?? 'Tool execution failed'),
-            }
-      );
+      const payload = result.success
+        ? { success: true, ...(sanitizedData !== undefined ? { data: sanitizedData } : {}) }
+        : {
+            success: false,
+            error: sanitizeAgentOutputText(result.error ?? 'Tool execution failed'),
+            ...(advisory ? { advisory } : {}),
+          };
+      return JSON.stringify(payload);
     } catch (err) {
       if (isAgentYield(err)) throw err; // Let yields propagate
       if (this.isAbortError(err)) throw err;
+      // Primary-only control-flow signals — propagate so PrimaryAgent.executeTool
+      // override can dispatch into the coordinator/planner pipeline and inject
+      // the result as the next ReAct observation.
+      if (isDelegateToCoordinator(err)) throw err;
+      if (isPlanAndExecute(err)) throw err;
       if (isAgentDelegation(err)) {
         // Enrich the delegation payload with the actual agent ID before propagating
         throw new AgentDelegationException({
@@ -1420,11 +1481,19 @@ export abstract class BaseAgent {
           sourceAgent: this.id,
         });
       }
+      // Treat thrown tool errors as failures for stuck-loop tracking.
+      const { advisory } = loopDetector.record(
+        sessionContext?.operationId,
+        toolName,
+        toolCall.function.arguments,
+        'failure'
+      );
       return JSON.stringify({
         success: false,
         error: sanitizeAgentOutputText(
           err instanceof Error ? err.message : 'Tool execution failed'
         ),
+        ...(advisory ? { advisory } : {}),
       });
     }
   }
@@ -1525,6 +1594,7 @@ export abstract class BaseAgent {
       scan_timeline_posts: 'Scanning recent posts',
       write_timeline_post: 'Drafting new post',
       send_email: 'Sending email',
+      batch_send_email: 'Sending email campaign',
       dynamic_export: 'Generating data export',
     };
 

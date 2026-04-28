@@ -30,6 +30,7 @@ import { FieldValue, Timestamp, type Firestore } from 'firebase-admin/firestore'
 
 import {
   getAgentAppConfig,
+  getCachedAgentAppConfig,
   resolveConfiguredCoordinatorActionForRole,
 } from '../../modules/agent/config/agent-app-config.js';
 
@@ -541,6 +542,93 @@ async function enqueueWithOutbox(
     );
     throw err;
   }
+}
+
+/**
+ * Phase 0.6 — Per-thread concurrency policy.
+ *
+ * When a user sends a new message on a thread that still has an in-flight
+ * operation (running, awaiting approval, awaiting input, paused, queued),
+ * we must decide whether to supersede the prior op or attach the new one
+ * as a child. Without this guard, two parallel agents can race on the same
+ * thread, double-charge tokens, and emit interleaved SSE streams.
+ *
+ * Policy (controlled by `concurrency.threadSupersedeOnYield` flag):
+ *   • If a prior op is in a *yielded* state (awaiting_approval / awaiting_input /
+ *     paused) → cancel it. The user has chosen to ignore the prompt and move on.
+ *   • If a prior op is *actively running* (queued / thinking / acting /
+ *     streaming_result) → also cancel it. New user input takes priority over
+ *     stale work; the alternative (queueing) creates head-of-line blocking
+ *     and unpredictable UX.
+ *
+ * Returns the list of cancelled operationIds so the caller can emit
+ * client-visible cancellation events.
+ */
+async function enforceThreadConcurrencyPolicy(
+  db: Firestore,
+  threadId: string,
+  newOperationId: string
+): Promise<string[]> {
+  if (!threadId || !jobRepository || !queueService) return [];
+
+  const cfg = getCachedAgentAppConfig();
+  if (!cfg.concurrency.threadSupersedeOnYield) return [];
+
+  let active: Awaited<ReturnType<typeof jobRepository.findActiveByThread>>;
+  try {
+    active = await jobRepository.withDb(db).findActiveByThread(threadId);
+  } catch (err) {
+    logger.warn('Concurrency-policy: failed to query active ops for thread', {
+      threadId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return [];
+  }
+
+  if (active.length === 0) return [];
+
+  const cancelled: string[] = [];
+  for (const op of active) {
+    if (!op.operationId || op.operationId === newOperationId) continue;
+    try {
+      // Cancel BullMQ side first so the worker aborts mid-flight.
+      await queueService.cancel(op.operationId).catch((err) => {
+        logger.warn('Concurrency-policy: queue cancel failed (non-fatal)', {
+          operationId: op.operationId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+      // Then mark Firestore as cancelled so resume guards see the new state.
+      await jobRepository.withDb(db).markCancelled(op.operationId);
+      cancelled.push(op.operationId);
+
+      // Notify any active SSE client subscribed to the cancelled op.
+      void pubsubService
+        ?.publish(op.operationId, 'cancelled', {
+          operationId: op.operationId,
+          threadId,
+          reason: 'superseded',
+          supersededBy: newOperationId,
+          timestamp: new Date().toISOString(),
+        })
+        .catch(() => undefined);
+
+      logger.info('Concurrency-policy: superseded prior thread operation', {
+        threadId,
+        cancelledOperationId: op.operationId,
+        priorStatus: op.status,
+        newOperationId,
+      });
+    } catch (err) {
+      logger.error('Concurrency-policy: failed to supersede prior op', {
+        threadId,
+        operationId: op.operationId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  return cancelled;
 }
 
 async function reconcileAgentOutbox(
@@ -2022,6 +2110,26 @@ router.post('/approvals/:id/resolve', appGuard, async (req: Request, res: Respon
       return;
     }
 
+    // Phase 0.6 — If the underlying op was superseded/cancelled (user sent
+    // a newer message on the same thread), don't resume a stale approval.
+    if (
+      jobDoc.status === 'cancelled' ||
+      jobDoc.status === 'failed' ||
+      jobDoc.status === 'completed'
+    ) {
+      logger.info('Approval resolved for terminal op — skipping resume', {
+        approvalId,
+        operationId,
+        priorStatus: jobDoc.status,
+        decision,
+      });
+      res.json({
+        success: true,
+        data: { decision, resumed: false, reason: 'operation_already_terminal' },
+      });
+      return;
+    }
+
     const threadId = jobDoc.threadId;
     const yieldState = jobDoc.yieldState as AgentYieldState | undefined;
 
@@ -2248,6 +2356,11 @@ router.post(
           ...(normalizedSelectedAction ? { selectedAction: normalizedSelectedAction } : {}),
         },
       };
+
+      // Phase 0.6 — Per-thread concurrency policy: cancel prior in-flight op.
+      if (resolvedThreadId) {
+        await enforceThreadConcurrencyPolicy(db, resolvedThreadId, operationId);
+      }
 
       await jobRepository.withDb(db).create(payload);
 
@@ -2544,6 +2657,12 @@ router.post(
           ...(normalizedSelectedAction ? { selectedAction: normalizedSelectedAction } : {}),
         },
       };
+
+      // Phase 0.6 — Cancel any prior in-flight op on this thread before
+      // enqueueing the new one. Prevents double-charging and interleaved streams.
+      if (effectiveThreadId) {
+        await enforceThreadConcurrencyPolicy(db, effectiveThreadId, operationId);
+      }
 
       await jobRepository.withDb(db).create(payload);
       await enqueueWithOutbox(db, payload, environment);

@@ -50,6 +50,9 @@ export class StrategyCoordinatorAgent extends BaseAgent {
       "9. **Google Workspace** — You have live access to the user's connected Google account when it is connected. The Google Workspace tool surface is discovered at runtime from the MCP server, so do NOT claim Calendar, Gmail, Drive, Docs, Sheets, or Slides are unavailable just because a legacy tool name changed.",
       '   Use the live Google Workspace tools directly when they are available to you. If you need the current exact tool names or parameter schemas, call `list_google_workspace_tools`. If you need to invoke a tool that is not exposed as a direct function in your current tool list, call `run_google_workspace_tool` with the exact name returned by `list_google_workspace_tools`.',
       '   When a user asks about their Gmail, Calendar, Drive, Docs, Sheets, or Slides — use these tools immediately. Do NOT claim they are unavailable.',
+      "10. **Microsoft 365** — You have live access to the user's connected Microsoft account when it is connected. Do NOT claim Outlook, Calendar, OneDrive, Teams, or SharePoint are unavailable.",
+      '   If you need the current exact Microsoft tool names or schemas, call `list_microsoft_365_tools` first. Then call `run_microsoft_365_tool` with the exact discovered tool name and arguments.',
+      '   When a user asks about Outlook email, Microsoft Calendar, OneDrive files, Teams, or SharePoint — use Microsoft 365 tools immediately.',
       '',
       '',
       '## Platform Knowledge',
@@ -109,7 +112,23 @@ export class StrategyCoordinatorAgent extends BaseAgent {
   }
 
   override getSkills(): readonly string[] {
-    return ['video_analysis', 'global_knowledge'];
+    return [
+      'strategy_gameplan_framework',
+      'coach_game_plan_and_adjustments',
+      'lineup_rotation_optimizer',
+      'recruiting_fit_scoring',
+      'college_visit_planning',
+      'nil_deal_evaluation',
+      'film_breakdown_taxonomy',
+      'intel_report_quality',
+      'communication_approval_and_safety',
+      'video_analysis',
+      'global_knowledge',
+    ];
+  }
+
+  override getSkillBudget(): number {
+    return 5;
   }
 
   getModelRouting(): ModelRoutingConfig {

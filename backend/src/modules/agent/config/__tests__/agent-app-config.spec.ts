@@ -182,6 +182,7 @@ describe('agent-app-config', () => {
 
     expect(isToolDisabled('query_nxt1_platform_data')).toBe(true);
     expect(isToolDisabled('send_email')).toBe(true);
+    expect(isToolDisabled('batch_send_email')).toBe(true);
     expect(isToolDisabled('generate_graphic')).toBe(true);
     expect(isToolDisabled('search_web')).toBe(false);
   });

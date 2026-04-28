@@ -9,6 +9,7 @@
  *   apify/             — Apify actor platform (MCP bridge + direct-API tools)
  *   firecrawl/         — Firecrawl web scraping (MCP bridge + tools)
  *   firebase-mcp/      — Firebase read-only MCP bridge + tools
+ *   microsoft-365/     — Microsoft 365 productivity MCP tools
  *   cloudflare-stream/ — Cloudflare Stream video tools
  *   runway/            — Runway ML video/image generation
  *   social/            — Twitter/Instagram scrapers + media service
@@ -44,6 +45,22 @@ export { FirecrawlAgentTool } from './firecrawl/mcp/firecrawl-agent.tool.js';
 export { FirebaseMcpBridgeService } from './firebase-mcp/firebase-mcp-bridge.service.js';
 export { ListNxt1DataViewsTool } from './firebase-mcp/list-user-firebase-views.tool.js';
 export { QueryNxt1DataTool } from './firebase-mcp/query-user-firebase-data.tool.js';
+
+// ── Microsoft 365 MCP — User-scoped productivity actions ─────────────────
+export {
+  Microsoft365McpBridgeService,
+  Microsoft365TokenManagerService,
+  Microsoft365McpSessionService,
+  ListMicrosoft365ToolsTool,
+  RunMicrosoft365ToolTool,
+  type MicrosoftOAuthTokenDocument,
+  type Microsoft365DiscoveredToolDefinition,
+  filterMicrosoft365ToolDefinitions,
+  extractMicrosoft365Payload,
+  extractMicrosoft365ErrorMessage,
+  truncateMicrosoft365Payload,
+  resolveMicrosoft365ToolMetadata,
+} from './microsoft-365/index.js';
 
 // ── Google Workspace MCP — User-scoped productivity actions ───────────────
 export {

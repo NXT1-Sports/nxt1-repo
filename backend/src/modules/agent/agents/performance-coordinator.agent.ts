@@ -61,7 +61,19 @@ export class PerformanceCoordinatorAgent extends BaseAgent {
   }
 
   override getSkills(): readonly string[] {
-    return ['scouting_rubric', 'video_analysis', 'global_knowledge'];
+    return [
+      'scouting_rubric',
+      'video_analysis',
+      'film_breakdown_taxonomy',
+      'opponent_scouting_packet',
+      'coach_game_plan_and_adjustments',
+      'intel_report_quality',
+      'global_knowledge',
+    ];
+  }
+
+  override getSkillBudget(): number {
+    return 5;
   }
 
   getModelRouting(): ModelRoutingConfig {

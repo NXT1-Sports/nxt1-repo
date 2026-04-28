@@ -425,6 +425,13 @@ export const AGENT_APPROVAL_POLICIES: readonly AgentApprovalPolicy[] = [
     riskLevel: 'high',
   },
   {
+    toolName: 'batch_send_email',
+    requiresApproval: true,
+    autoApproveOnExpiry: false,
+    expiryMs: 86_400_000, // 24 hours
+    riskLevel: 'high',
+  },
+  {
     toolName: 'send_sms',
     requiresApproval: true,
     autoApproveOnExpiry: false,

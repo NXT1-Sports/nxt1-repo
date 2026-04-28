@@ -79,9 +79,25 @@ import {
 } from '../tools/analytics/index.js';
 import { SearchMemoryTool, SaveMemoryTool, DeleteMemoryTool } from '../tools/memory/index.js';
 import { GenerateGraphicTool, AnalyzeVideoTool } from '../tools/media/index.js';
-import { AskUserTool, DelegateTaskTool, DynamicExportTool } from '../tools/system/index.js';
+import {
+  AskUserTool,
+  DelegateTaskTool,
+  DelegateToCoordinatorTool,
+  DynamicExportTool,
+  PlanAndExecuteTool,
+  WhoamiCapabilitiesTool,
+} from '../tools/system/index.js';
+import {
+  GetUserProfileTool,
+  GetActiveThreadsTool,
+  GetOtherThreadHistoryTool,
+} from '../tools/context/index.js';
+import { CapabilityRegistry } from '../capabilities/capability-registry.js';
+import { PrimaryAgent } from '../agents/primary.agent.js';
+import { AgentRouterPrimaryService } from '../orchestrator/agent-router-primary.service.js';
 import { WebSearchTool } from '../tools/integrations/web/web-search.tool.js';
 import { SendEmailTool } from '../tools/integrations/email/send-email.tool.js';
+import { BatchSendEmailTool } from '../tools/integrations/email/batch-send-email.tool.js';
 import { ScrapeTwitterTool } from '../tools/integrations/social/scrape-twitter.tool.js';
 import { ScrapeInstagramTool } from '../tools/integrations/social/scrape-instagram.tool.js';
 import { ApifyService } from '../tools/integrations/apify/apify.service.js';
@@ -94,6 +110,9 @@ import {
   GetApifyActorOutputTool,
   FirecrawlMcpBridgeService,
   FirebaseMcpBridgeService,
+  Microsoft365McpSessionService,
+  ListMicrosoft365ToolsTool,
+  RunMicrosoft365ToolTool,
   GoogleWorkspaceMcpSessionService,
   GoogleWorkspaceToolCatalogService,
   DynamicGoogleWorkspaceTool,
@@ -140,11 +159,25 @@ import {
   SkillRegistry,
   ScoutingRubricSkill,
   VideoAnalysisSkill,
+  FilmBreakdownTaxonomySkill,
+  OpponentScoutingPacketSkill,
   OutreachCopywritingSkill,
   ComplianceRulebookSkill,
+  NilAndBrandComplianceSkill,
+  CommunicationApprovalAndSafetySkill,
   StaticGraphicStyleSkill,
   VideoHighlightStyleSkill,
   SocialCaptionStyleSkill,
+  StrategyGameplanFrameworkSkill,
+  RecruitingFitScoringSkill,
+  IntelReportQualitySkill,
+  NilDealEvaluationSkill,
+  SocialMediaGrowthStrategySkill,
+  CollegeVisitPlanningSkill,
+  CoachGamePlanAndAdjustmentsSkill,
+  LineupRotationOptimizerSkill,
+  DataNormalizationAndEntityResolutionSkill,
+  ReportFormattingAndExportSkill,
   GlobalKnowledgeSkill,
 } from '../skills/index.js';
 import {
@@ -281,6 +314,16 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
     });
   }
 
+  let microsoft365McpSessionService: Microsoft365McpSessionService | null = null;
+  try {
+    microsoft365McpSessionService = new Microsoft365McpSessionService();
+    logger.info('Microsoft 365 MCP session service initialized');
+  } catch (error) {
+    logger.warn('Microsoft 365 MCP session service failed to initialize', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+
   // The shared scraper preserves direct HTML extraction and uses the MCP bridge
   // for rendered markdown when available.
   const scraperService = new ScraperService(firecrawlMcpBridge);
@@ -333,6 +376,12 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   // System tools (cross-cutting infrastructure — available to all agents)
   toolRegistry.register(new DelegateTaskTool());
 
+  // Primary-only system tools (gated by allowedAgents=['router']).
+  // The Primary Agent handles all conversational requests and dispatches
+  // sub-tasks via these tools.
+  toolRegistry.register(new DelegateToCoordinatorTool());
+  toolRegistry.register(new PlanAndExecuteTool());
+
   // ── 1a. Vector memory & knowledge tools ──────────────────────────────
   const vectorMemory = new VectorMemoryService(llm);
   toolRegistry.register(new WebSearchTool());
@@ -345,6 +394,7 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   toolRegistry.register(new WriteTimelinePostTool(stagingDb));
   toolRegistry.register(new ScanTimelinePostsTool(stagingDb, llm, vectorMemory));
   toolRegistry.register(new SendEmailTool(stagingDb));
+  toolRegistry.register(new BatchSendEmailTool(stagingDb));
 
   // ── 1b. Twitter/X & Instagram scraping (Apify-hosted actors) ─────────
   try {
@@ -424,6 +474,17 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
     }
   }
 
+  // ── 1d.3. Microsoft 365 MCP tools (user-scoped productivity actions) ────
+  if (microsoft365McpSessionService) {
+    toolRegistry.register(new ListMicrosoft365ToolsTool(microsoft365McpSessionService));
+    toolRegistry.register(new RunMicrosoft365ToolTool(microsoft365McpSessionService));
+
+    logger.info('Microsoft 365 MCP tools registered', {
+      infrastructureTools: 2,
+      toolNames: ['list_microsoft_365_tools', 'run_microsoft_365_tool'],
+    });
+  }
+
   // ── 1e. MCP-bridged Cloudflare Stream tools (ephemeral video processing) ──
   try {
     const cfBridge = new CloudflareMcpBridgeService();
@@ -458,19 +519,49 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
 
   const contextBuilder = new ContextBuilder(vectorMemory);
 
+  // ── 1g. Lazy context tools (Tier B — fetched on-demand by Primary Agent) ──
+  toolRegistry.register(new GetUserProfileTool(contextBuilder));
+  toolRegistry.register(new GetActiveThreadsTool(contextBuilder));
+  toolRegistry.register(new GetOtherThreadHistoryTool(contextBuilder));
+
   // ── 1b. Skill Registry (dynamic domain knowledge injection) ─────────────────
   const skillRegistry = new SkillRegistry();
   skillRegistry.register(new ScoutingRubricSkill());
   skillRegistry.register(new VideoAnalysisSkill());
+  skillRegistry.register(new FilmBreakdownTaxonomySkill());
+  skillRegistry.register(new OpponentScoutingPacketSkill());
   skillRegistry.register(new OutreachCopywritingSkill());
   skillRegistry.register(new ComplianceRulebookSkill());
+  skillRegistry.register(new NilAndBrandComplianceSkill());
+  skillRegistry.register(new CommunicationApprovalAndSafetySkill());
   skillRegistry.register(new StaticGraphicStyleSkill());
   skillRegistry.register(new VideoHighlightStyleSkill());
   skillRegistry.register(new SocialCaptionStyleSkill());
+  skillRegistry.register(new StrategyGameplanFrameworkSkill());
+  skillRegistry.register(new RecruitingFitScoringSkill());
+  skillRegistry.register(new IntelReportQualitySkill());
+  skillRegistry.register(new NilDealEvaluationSkill());
+  skillRegistry.register(new SocialMediaGrowthStrategySkill());
+  skillRegistry.register(new CollegeVisitPlanningSkill());
+  skillRegistry.register(new CoachGamePlanAndAdjustmentsSkill());
+  skillRegistry.register(new LineupRotationOptimizerSkill());
+  skillRegistry.register(new DataNormalizationAndEntityResolutionSkill());
+  skillRegistry.register(new ReportFormattingAndExportSkill());
 
   // Global Knowledge Base — dynamic vector retrieval at runtime
   const knowledgeRetrieval = new KnowledgeRetrievalService(llm);
   skillRegistry.register(new GlobalKnowledgeSkill(knowledgeRetrieval));
+
+  // ── 1h. Capability Registry (auto-generated capability card for Primary Agent) ──
+  const capabilityRegistry = new CapabilityRegistry(toolRegistry, skillRegistry);
+  capabilityRegistry.refresh();
+  toolRegistry.register(new WhoamiCapabilitiesTool(capabilityRegistry));
+  // Refresh the card now that whoami_capabilities itself is in the inventory.
+  capabilityRegistry.refresh();
+  // Start the auto-refresh timer (cadence: cfg.capabilityCard.refreshIntervalMs).
+  // Picks up tool/skill registrations that happen later in bootstrap (e.g.
+  // queue-dependent automation tools registered after AgentRouter is built).
+  capabilityRegistry.startAutoRefresh();
 
   // ── 2. Wire the AgentRouter with all sub-agents ───────────────────
   const sessionMemory = new SessionMemoryService(getCacheService(), contextBuilder);
@@ -481,6 +572,22 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   router.registerAgent(new BrandCoordinatorAgent());
   router.registerAgent(new AdminCoordinatorAgent());
   router.registerAgent(new StrategyCoordinatorAgent());
+
+  // ── 2a. Primary Agent (single front-door agent) ──────────────────────────
+  // The Primary owns the full conversational surface via a single
+  // streaming ReAct loop. It dispatches sub-tasks to specialist
+  // coordinators (delegate_to_coordinator) and multi-step plans
+  // (plan_and_execute) through tool calls.
+  const primaryService = new AgentRouterPrimaryService({
+    ...router.getOrchestratorBundle(),
+    agents: router.getRegisteredAgents(),
+    resolveToolAccessContext: async (uid: string) => {
+      const userCtx = await contextBuilder.buildContext(uid);
+      return router.getOrchestratorBundle().policyService.buildToolAccessContext(userCtx);
+    },
+  });
+  const primaryAgent = new PrimaryAgent(capabilityRegistry, primaryService);
+  router.setPrimary(primaryAgent, primaryService);
 
   // ── 3. Queue infrastructure ──────────────────────────────────────────────────
   const { getFirestore } = await import('firebase-admin/firestore');
@@ -541,6 +648,7 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
     await pubsub.shutdown();
     await queueService.shutdown();
     await googleWorkspaceMcpSessionService?.shutdown();
+    await microsoft365McpSessionService?.shutdown();
     logger.info('Agent X queue engine shut down');
   };
 }

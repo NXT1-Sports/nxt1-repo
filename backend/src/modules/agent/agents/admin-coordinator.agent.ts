@@ -64,7 +64,12 @@ export class AdminCoordinatorAgent extends BaseAgent {
   }
 
   override getSkills(): readonly string[] {
-    return ['compliance_rulebook', 'global_knowledge'];
+    return [
+      'compliance_rulebook',
+      'communication_approval_and_safety',
+      'nil_and_brand_compliance',
+      'global_knowledge',
+    ];
   }
 
   getModelRouting(): ModelRoutingConfig {

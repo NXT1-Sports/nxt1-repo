@@ -39,8 +39,16 @@ export class BrandCoordinatorAgent extends BaseAgent {
       'static_graphic_style',
       'video_highlight_style',
       'social_caption_style',
+      'social_media_growth_strategy',
+      'nil_deal_evaluation',
+      'nil_and_brand_compliance',
+      'communication_approval_and_safety',
       'global_knowledge',
     ];
+  }
+
+  override getSkillBudget(): number {
+    return 5;
   }
 
   getModelRouting(): ModelRoutingConfig {

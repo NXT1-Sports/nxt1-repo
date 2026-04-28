@@ -57,6 +57,22 @@ const FALLBACK_MAX_AGENTIC_TURNS = 6;
 const FALLBACK_MAX_JOB_ATTEMPTS = 2;
 const FALLBACK_RETRY_BACKOFF_MS = 5_000;
 
+/** Primary Agent (single-agent native tool-calling loop) defaults. */
+const FALLBACK_USE_PRIMARY_AGENT = true;
+const FALLBACK_PRIMARY_THREAD_HISTORY_WINDOW = 20;
+const FALLBACK_PRIMARY_THREAD_HISTORY_SUMMARIZE_BEYOND = 20;
+const FALLBACK_PRIMARY_TOOL_CONCURRENCY = 3;
+const FALLBACK_PRIMARY_MODEL_TIER = 'routing';
+const FALLBACK_PRIMARY_MAX_PROMPT_TOKENS = 150_000;
+const FALLBACK_PRIMARY_MAX_MESSAGE_CHARS = 4_000;
+const FALLBACK_PRIMARY_MAX_TOOL_RESULT_CHARS = 8_000;
+const FALLBACK_PRIMARY_TOOL_LOOP_ENABLED = true;
+const FALLBACK_PRIMARY_TOOL_LOOP_WINDOW = 5;
+const FALLBACK_PRIMARY_TOOL_LOOP_THRESHOLD = 3;
+const FALLBACK_THREAD_SUPERSEDE_ON_YIELD = true;
+const FALLBACK_CAPABILITY_REFRESH_MS = 300_000;
+const FALLBACK_CAPABILITY_USE_COMPACT = true;
+
 const FALLBACK_ROLE_PERSONAS = {
   athlete: [
     `Adopt an encouraging, urgent, and mentorship-driven tone.`,
@@ -1615,10 +1631,74 @@ const promptsSchema = z
     classifierSystemPrompt: z.string().trim().min(1).optional(),
     conversationSystemPrompt: z.string().trim().min(1).optional(),
     plannerSystemPrompt: z.string().trim().min(1).optional(),
+    /** Optional override for the Primary Agent's system prompt (default lives in code). */
+    primarySystemPrompt: z.string().trim().min(1).optional(),
     agentSystemPrompts: z.record(z.string(), z.string().trim().min(1)).default({}),
   })
   .default({
     agentSystemPrompts: {},
+  });
+
+const primarySchema = z
+  .object({
+    threadHistoryWindow: z
+      .number()
+      .int()
+      .positive()
+      .default(FALLBACK_PRIMARY_THREAD_HISTORY_WINDOW),
+    threadHistorySummarizeBeyond: z
+      .number()
+      .int()
+      .positive()
+      .default(FALLBACK_PRIMARY_THREAD_HISTORY_SUMMARIZE_BEYOND),
+    toolConcurrency: z.number().int().positive().default(FALLBACK_PRIMARY_TOOL_CONCURRENCY),
+    modelTier: z.string().trim().min(1).default(FALLBACK_PRIMARY_MODEL_TIER),
+    maxPromptTokens: z.number().int().positive().default(FALLBACK_PRIMARY_MAX_PROMPT_TOKENS),
+    maxMessageChars: z.number().int().positive().default(FALLBACK_PRIMARY_MAX_MESSAGE_CHARS),
+    maxToolResultChars: z.number().int().positive().default(FALLBACK_PRIMARY_MAX_TOOL_RESULT_CHARS),
+    toolLoopDetector: z
+      .object({
+        enabled: z.boolean().default(FALLBACK_PRIMARY_TOOL_LOOP_ENABLED),
+        windowSize: z.number().int().positive().default(FALLBACK_PRIMARY_TOOL_LOOP_WINDOW),
+        threshold: z.number().int().positive().default(FALLBACK_PRIMARY_TOOL_LOOP_THRESHOLD),
+      })
+      .default({
+        enabled: FALLBACK_PRIMARY_TOOL_LOOP_ENABLED,
+        windowSize: FALLBACK_PRIMARY_TOOL_LOOP_WINDOW,
+        threshold: FALLBACK_PRIMARY_TOOL_LOOP_THRESHOLD,
+      }),
+  })
+  .default({
+    threadHistoryWindow: FALLBACK_PRIMARY_THREAD_HISTORY_WINDOW,
+    threadHistorySummarizeBeyond: FALLBACK_PRIMARY_THREAD_HISTORY_SUMMARIZE_BEYOND,
+    toolConcurrency: FALLBACK_PRIMARY_TOOL_CONCURRENCY,
+    modelTier: FALLBACK_PRIMARY_MODEL_TIER,
+    maxPromptTokens: FALLBACK_PRIMARY_MAX_PROMPT_TOKENS,
+    maxMessageChars: FALLBACK_PRIMARY_MAX_MESSAGE_CHARS,
+    maxToolResultChars: FALLBACK_PRIMARY_MAX_TOOL_RESULT_CHARS,
+    toolLoopDetector: {
+      enabled: FALLBACK_PRIMARY_TOOL_LOOP_ENABLED,
+      windowSize: FALLBACK_PRIMARY_TOOL_LOOP_WINDOW,
+      threshold: FALLBACK_PRIMARY_TOOL_LOOP_THRESHOLD,
+    },
+  });
+
+const concurrencySchema = z
+  .object({
+    threadSupersedeOnYield: z.boolean().default(FALLBACK_THREAD_SUPERSEDE_ON_YIELD),
+  })
+  .default({
+    threadSupersedeOnYield: FALLBACK_THREAD_SUPERSEDE_ON_YIELD,
+  });
+
+const capabilityCardSchema = z
+  .object({
+    refreshIntervalMs: z.number().int().positive().default(FALLBACK_CAPABILITY_REFRESH_MS),
+    useCompactInPrompt: z.boolean().default(FALLBACK_CAPABILITY_USE_COMPACT),
+  })
+  .default({
+    refreshIntervalMs: FALLBACK_CAPABILITY_REFRESH_MS,
+    useCompactInPrompt: FALLBACK_CAPABILITY_USE_COMPACT,
   });
 
 const featureFlagsSchema = z
@@ -1628,6 +1708,13 @@ const featureFlagsSchema = z
     disableEmailSending: z.boolean().default(false),
     strictZodToolSchemas: z.boolean().default(false),
     strictEntityToolGovernance: z.boolean().default(false),
+    /**
+     * @deprecated Always-on as of the 2026 enterprise migration. The Primary
+     * Agent is the only conversational path; this flag is no longer read by
+     * the router. Field is retained in the schema for back-compat with
+     * existing Firestore documents and may be removed in a future release.
+     */
+    useprimaryAgent: z.boolean().default(FALLBACK_USE_PRIMARY_AGENT),
   })
   .default({
     disabledTools: [],
@@ -1635,6 +1722,7 @@ const featureFlagsSchema = z
     disableEmailSending: false,
     strictZodToolSchemas: false,
     strictEntityToolGovernance: false,
+    useprimaryAgent: FALLBACK_USE_PRIMARY_AGENT,
   });
 
 const coordinatorsSchema = z.array(coordinatorDescriptorSchema).default([]);
@@ -1649,6 +1737,9 @@ export const agentAppConfigSchema = z
     prompts: promptsSchema.optional(),
     featureFlags: featureFlagsSchema.optional(),
     coordinators: coordinatorsSchema.optional(),
+    primary: primarySchema.optional(),
+    concurrency: concurrencySchema.optional(),
+    capabilityCard: capabilityCardSchema.optional(),
   })
   .transform((data) => {
     return {
@@ -1660,6 +1751,9 @@ export const agentAppConfigSchema = z
       prompts: promptsSchema.parse(data.prompts ?? {}),
       featureFlags: featureFlagsSchema.parse(data.featureFlags ?? {}),
       coordinators: coordinatorsSchema.parse(data.coordinators ?? []),
+      primary: primarySchema.parse(data.primary ?? {}),
+      concurrency: concurrencySchema.parse(data.concurrency ?? {}),
+      capabilityCard: capabilityCardSchema.parse(data.capabilityCard ?? {}),
     };
   });
 
@@ -1698,6 +1792,9 @@ export interface AgentAppConfig {
   readonly prompts: AgentPromptConfig;
   readonly featureFlags: AgentFeatureFlagsConfig;
   readonly coordinators: readonly ConfiguredCoordinatorDescriptor[];
+  readonly primary: AgentPrimaryConfig;
+  readonly concurrency: AgentConcurrencyConfig;
+  readonly capabilityCard: AgentCapabilityCardConfig;
 }
 
 export interface ConfiguredCoordinatorDescriptor extends AgentDescriptor {
@@ -1793,6 +1890,7 @@ export interface AgentPromptConfig {
   readonly classifierSystemPrompt?: string;
   readonly conversationSystemPrompt?: string;
   readonly plannerSystemPrompt?: string;
+  readonly primarySystemPrompt?: string;
   readonly agentSystemPrompts: Readonly<Partial<Record<AgentIdentifier, string>>>;
 }
 
@@ -1802,6 +1900,42 @@ export interface AgentFeatureFlagsConfig {
   readonly disableEmailSending: boolean;
   readonly strictZodToolSchemas: boolean;
   readonly strictEntityToolGovernance: boolean;
+  /** When true, every chat is routed through the Primary Agent (single-agent native tool-calling loop). */
+  readonly useprimaryAgent: boolean;
+}
+
+export interface AgentPrimaryConfig {
+  /** Tier A working-memory verbatim window of recent thread turns. */
+  readonly threadHistoryWindow: number;
+  /** Turns older than this are folded into a single `[Earlier in this thread]` summary. */
+  readonly threadHistorySummarizeBeyond: number;
+  /** Max parallel tool calls in a single Primary turn (e.g., lazy-context fetches). */
+  readonly toolConcurrency: number;
+  /** Default model tier for the Primary Agent. */
+  readonly modelTier: string;
+  /** Per-LLM-turn prompt ceiling (tokens) before degradation kicks in. */
+  readonly maxPromptTokens: number;
+  /** Per-message verbatim cap when injecting Tier A history. */
+  readonly maxMessageChars: number;
+  /** Tool-result observation truncation cap. */
+  readonly maxToolResultChars: number;
+  readonly toolLoopDetector: {
+    readonly enabled: boolean;
+    readonly windowSize: number;
+    readonly threshold: number;
+  };
+}
+
+export interface AgentConcurrencyConfig {
+  /** New message in same thread cancels prior op when awaiting approval/input; queues otherwise. */
+  readonly threadSupersedeOnYield: boolean;
+}
+
+export interface AgentCapabilityCardConfig {
+  /** How often the capability card snapshot is refreshed in process. */
+  readonly refreshIntervalMs: number;
+  /** Whether the system prompt uses the compact card (recommended). */
+  readonly useCompactInPrompt: boolean;
 }
 
 const DEFAULT_COORDINATOR_DESCRIPTORS = coordinatorIds.map((id) => {
@@ -2143,8 +2277,30 @@ export const DEFAULT_AGENT_APP_CONFIG: AgentAppConfig = {
     disableEmailSending: false,
     strictZodToolSchemas: false,
     strictEntityToolGovernance: false,
+    useprimaryAgent: FALLBACK_USE_PRIMARY_AGENT,
   },
   coordinators: DEFAULT_COORDINATOR_DESCRIPTORS,
+  primary: {
+    threadHistoryWindow: FALLBACK_PRIMARY_THREAD_HISTORY_WINDOW,
+    threadHistorySummarizeBeyond: FALLBACK_PRIMARY_THREAD_HISTORY_SUMMARIZE_BEYOND,
+    toolConcurrency: FALLBACK_PRIMARY_TOOL_CONCURRENCY,
+    modelTier: FALLBACK_PRIMARY_MODEL_TIER,
+    maxPromptTokens: FALLBACK_PRIMARY_MAX_PROMPT_TOKENS,
+    maxMessageChars: FALLBACK_PRIMARY_MAX_MESSAGE_CHARS,
+    maxToolResultChars: FALLBACK_PRIMARY_MAX_TOOL_RESULT_CHARS,
+    toolLoopDetector: {
+      enabled: FALLBACK_PRIMARY_TOOL_LOOP_ENABLED,
+      windowSize: FALLBACK_PRIMARY_TOOL_LOOP_WINDOW,
+      threshold: FALLBACK_PRIMARY_TOOL_LOOP_THRESHOLD,
+    },
+  },
+  concurrency: {
+    threadSupersedeOnYield: FALLBACK_THREAD_SUPERSEDE_ON_YIELD,
+  },
+  capabilityCard: {
+    refreshIntervalMs: FALLBACK_CAPABILITY_REFRESH_MS,
+    useCompactInPrompt: FALLBACK_CAPABILITY_USE_COMPACT,
+  },
 };
 
 let cachedAgentAppConfig: AgentAppConfig = DEFAULT_AGENT_APP_CONFIG;
@@ -2235,6 +2391,7 @@ export function parseAgentAppConfig(
       classifierSystemPrompt: prompts.classifierSystemPrompt?.trim() || undefined,
       conversationSystemPrompt: prompts.conversationSystemPrompt?.trim() || undefined,
       plannerSystemPrompt: prompts.plannerSystemPrompt?.trim() || undefined,
+      primarySystemPrompt: prompts.primarySystemPrompt?.trim() || undefined,
       agentSystemPrompts: Object.freeze(
         Object.fromEntries(
           Object.entries(prompts.agentSystemPrompts)
@@ -2262,6 +2419,7 @@ export function parseAgentAppConfig(
       disableEmailSending: featureFlags.disableEmailSending,
       strictZodToolSchemas: featureFlags.strictZodToolSchemas,
       strictEntityToolGovernance: featureFlags.strictEntityToolGovernance,
+      useprimaryAgent: featureFlags.useprimaryAgent ?? FALLBACK_USE_PRIMARY_AGENT,
     },
     coordinators: coordinatorIds.map((id): ConfiguredCoordinatorDescriptor => {
       const configured = configuredCoordinatorMap.get(id);
@@ -2289,6 +2447,9 @@ export function parseAgentAppConfig(
           }
         : fallback;
     }),
+    primary: parsed.data.primary,
+    concurrency: parsed.data.concurrency,
+    capabilityCard: parsed.data.capabilityCard,
   };
 }
 
@@ -2385,6 +2546,21 @@ export function resolveConversationSystemPrompt(
   return interpolatePromptTemplate(configuredPrompt ?? fallbackPrompt, templateValues);
 }
 
+/**
+ * Resolves the Primary Agent system prompt. Default lives in code
+ * (`AGENT_X_IDENTITY` from @nxt1/core/ai) and is composed with capability
+ * card / user summary / mode addendum at runtime. This resolver only
+ * applies an optional Firestore override for emergency tuning.
+ */
+export function resolvePrimarySystemPrompt(
+  fallbackPrompt: string,
+  templateValues?: Readonly<Record<string, string | undefined>>,
+  config: AgentAppConfig = getCachedAgentAppConfig()
+): string {
+  const configuredPrompt = config.prompts.primarySystemPrompt;
+  return interpolatePromptTemplate(configuredPrompt ?? fallbackPrompt, templateValues);
+}
+
 export function resolveAgentSystemPrompt(
   agentId: AgentIdentifier,
   fallbackPrompt: string,
@@ -2416,7 +2592,10 @@ export function isToolDisabled(
     return true;
   }
 
-  if (config.featureFlags.disableEmailSending && normalizedToolName === 'send_email') {
+  if (
+    config.featureFlags.disableEmailSending &&
+    (normalizedToolName === 'send_email' || normalizedToolName === 'batch_send_email')
+  ) {
     return true;
   }
 

@@ -9,8 +9,6 @@ export { BrandCoordinatorAgent } from './brand-coordinator.agent.js';
 export { DataCoordinatorAgent } from './data-coordinator.agent.js';
 export { PerformanceCoordinatorAgent } from './performance-coordinator.agent.js';
 export { RecruitingCoordinatorAgent } from './recruiting-coordinator.agent.js';
-export { ClassifierAgent } from './classifier.agent.js';
-export { ConversationAgent } from './conversation.agent.js';
 export { PlannerAgent } from './planner.agent.js';
 export { StrategyCoordinatorAgent } from './strategy-coordinator.agent.js';
 export {

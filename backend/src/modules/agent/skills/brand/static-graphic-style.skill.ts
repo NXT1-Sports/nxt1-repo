@@ -46,11 +46,11 @@ export class StaticGraphicStyleSkill extends BaseSkill {
 - Personalize with user's name, sport, and position
 - Athletes: energetic, motivational welcome card
 - Teams: official program announcement card
-- Call generate_image with storagePath "agent-graphics/welcome" and userId
+- Call generate_graphic with structured parameters, real team colors when available, and userId
 
 ### Rules
 - Keep text on graphics short and impactful — no paragraphs
 - NEVER fabricate or hallucinate image URLs — only use URLs from tool results
-- ALWAYS call generate_image to create visuals — never describe what you "would" create`;
+- ALWAYS call generate_graphic to create visuals — never describe what you "would" create`;
   }
 }

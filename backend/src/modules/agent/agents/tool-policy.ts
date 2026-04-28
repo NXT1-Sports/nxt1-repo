@@ -28,6 +28,8 @@ function composeToolPatterns(
 }
 
 const GLOBAL_SYSTEM_TOOL_POLICY: readonly ToolPattern[] = composeToolPatterns([
+  'send_email',
+  'batch_send_email',
   'delegate_task',
   'track_analytics_event',
   'search_memory',

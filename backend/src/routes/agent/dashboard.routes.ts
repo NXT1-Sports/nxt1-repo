@@ -128,7 +128,7 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
     const limitParam = req.query['limit'];
     const rawLimit = typeof limitParam === 'string' ? Number(limitParam) : NaN;
     const limit =
-      Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(Math.floor(rawLimit), 100) : 50;
+      Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(Math.floor(rawLimit), 150) : 150;
 
     const { db } = req.firebase!;
 
@@ -193,6 +193,21 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
     const representedThreadIds = new Set<string>();
 
     for (const job of jobs) {
+      const operationId = (job['operationId'] as string) ?? '';
+      const jobContext = (job as typeof job & { context?: unknown }).context;
+      const jobMode =
+        jobContext && typeof jobContext === 'object' && 'mode' in jobContext
+          ? typeof (jobContext as { mode?: unknown }).mode === 'string'
+            ? (jobContext as { mode: string }).mode
+            : undefined
+          : undefined;
+
+      // Option 2 UX: hide background playbook-generation jobs from session history.
+      // These jobs do not create a chat thread and open as empty chats when tapped.
+      if (operationId.startsWith('playbook-') || jobMode === 'playbook') {
+        continue;
+      }
+
       const intent = (job['intent'] as string) ?? '';
       if (!intent) continue;
 
