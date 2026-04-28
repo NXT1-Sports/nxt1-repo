@@ -739,6 +739,37 @@ export class AgentWorker {
     const jobAbortController = new AbortController();
     this.queueService?.registerController(payload.operationId, jobAbortController);
 
+    // Cross-instance control listener: pause/cancel HTTP requests may hit a
+    // different backend instance than the one running this worker. The HTTP
+    // handler broadcasts a control message via Redis pub/sub which we receive
+    // here and translate into a local AbortController.abort() so the active
+    // LLM stream halts immediately on this instance.
+    let unsubscribeControl: (() => Promise<void>) | null = null;
+    try {
+      unsubscribeControl = await this.pubsub.subscribeControl(payload.operationId, (msg) => {
+        if (jobAbortController.signal.aborted) return;
+        logger.info('[worker] Received cross-instance control message', {
+          operationId: payload.operationId,
+          action: msg.action,
+          issuedBy: msg.issuedBy,
+        });
+        try {
+          jobAbortController.abort();
+        } catch (abortErr) {
+          logger.warn('[worker] Local abort from control message failed', {
+            operationId: payload.operationId,
+            action: msg.action,
+            error: abortErr instanceof Error ? abortErr.message : String(abortErr),
+          });
+        }
+      });
+    } catch (subErr) {
+      logger.warn('[worker] Failed to subscribe to control channel', {
+        operationId: payload.operationId,
+        error: subErr instanceof Error ? subErr.message : String(subErr),
+      });
+    }
+
     try {
       const userFirestore = this.getUserFirestore(job);
       const routerPromise = this.router.run(
@@ -1150,6 +1181,16 @@ export class AgentWorker {
       // Always unregister the AbortController — the LLM router is no longer
       // running at this point regardless of success, failure, or yield.
       this.queueService?.unregisterController(payload.operationId);
+      // Release the Redis control-channel subscription so we don't leak
+      // subscribers across jobs.
+      if (unsubscribeControl) {
+        await unsubscribeControl().catch((err) => {
+          logger.warn('[worker] Failed to unsubscribe from control channel', {
+            operationId: payload.operationId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
+      }
     }
 
     const resultData =

@@ -33,6 +33,19 @@ import { getRuntimeEnvironment } from '../../../config/runtime-environment.js';
 export const AGENT_STREAM_CHANNEL_PREFIX =
   getRuntimeEnvironment() === 'production' ? 'agent:stream:prod:' : 'agent:stream:stg:';
 
+/**
+ * Redis PubSub channel prefix for cross-instance lifecycle control messages
+ * (pause / cancel). Separated from stream events so SSE proxies don't see
+ * control traffic.
+ *
+ * The control channel is the ONLY way for a pause/cancel HTTP request that
+ * lands on instance A to reach a worker running on instance B. Without this,
+ * the in-memory `activeControllers` map on instance A is empty for that
+ * operation and `controller.abort()` is a no-op.
+ */
+export const AGENT_CONTROL_CHANNEL_PREFIX =
+  getRuntimeEnvironment() === 'production' ? 'agent:control:prod:' : 'agent:control:stg:';
+
 /** Reserved event type indicating the stream is complete (worker finished). */
 export const STREAM_TERMINAL_EVENTS = new Set(['done', 'error']);
 
@@ -55,6 +68,25 @@ export type PubSubMessageHandler = (message: PubSubStreamMessage) => void;
 /** Cleanup function returned by subscribe — call to unsubscribe. */
 export type PubSubUnsubscribe = () => Promise<void>;
 
+/**
+ * Cross-instance lifecycle control actions broadcast over Redis.
+ * Workers listen on the control channel for the operations they own.
+ */
+export type AgentControlAction = 'pause' | 'cancel';
+
+/** Payload for control messages — minimal so any worker instance can act. */
+export interface AgentControlMessage {
+  readonly action: AgentControlAction;
+  readonly operationId: string;
+  /** ISO timestamp the control message was issued (for diagnostics). */
+  readonly issuedAt: string;
+  /** Optional user that issued the control (for audit logs). */
+  readonly issuedBy?: string;
+}
+
+/** Callback invoked when a control message arrives for a subscribed operation. */
+export type AgentControlHandler = (message: AgentControlMessage) => void;
+
 // ─── Service ────────────────────────────────────────────────────────────────
 
 export class AgentPubSubService {
@@ -66,6 +98,9 @@ export class AgentPubSubService {
 
   /** Active subscriptions: channelId → Set of handlers. */
   private readonly handlers = new Map<string, Set<PubSubMessageHandler>>();
+
+  /** Active control-channel subscriptions: channelId → Set of control handlers. */
+  private readonly controlHandlers = new Map<string, Set<AgentControlHandler>>();
 
   /** Whether the message listener has been attached to the subscriber client. */
   private listenerAttached = false;
@@ -120,6 +155,33 @@ export class AgentPubSubService {
     const sub = this.getSubscriber();
 
     sub.on('message', (channel: string, rawMessage: string) => {
+      // Control-channel messages take priority — fan out to control handlers
+      // and skip the stream-handler routing entirely.
+      const controlSet = this.controlHandlers.get(channel);
+      if (controlSet && controlSet.size > 0) {
+        let parsedControl: AgentControlMessage;
+        try {
+          parsedControl = JSON.parse(rawMessage) as AgentControlMessage;
+        } catch {
+          logger.warn('[pubsub] Failed to parse control message', {
+            channel,
+            raw: rawMessage.slice(0, 200),
+          });
+          return;
+        }
+        for (const handler of controlSet) {
+          try {
+            handler(parsedControl);
+          } catch (err) {
+            logger.warn('[pubsub] Control handler threw', {
+              channel,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+        }
+        return;
+      }
+
       const handlerSet = this.handlers.get(channel);
       if (!handlerSet || handlerSet.size === 0) return;
 
@@ -213,6 +275,68 @@ export class AgentPubSubService {
     };
   }
 
+  // ─── Control channel (cross-instance pause/cancel) ──────────────────────
+
+  /** Build the control channel name for a given operation. */
+  static controlChannelFor(operationId: string): string {
+    return `${AGENT_CONTROL_CHANNEL_PREFIX}${operationId}`;
+  }
+
+  /**
+   * Publish a control action (pause/cancel) for an operation.
+   *
+   * The worker that owns the operation \u2014 regardless of which instance it runs
+   * on \u2014 receives this message and aborts its local AbortController. This
+   * solves the multi-instance gap where an HTTP pause request lands on
+   * instance A but the worker runs on instance B.
+   */
+  async publishControl(message: AgentControlMessage): Promise<void> {
+    const channel = AgentPubSubService.controlChannelFor(message.operationId);
+    try {
+      await this.getPublisher().publish(channel, JSON.stringify(message));
+    } catch (err) {
+      logger.warn('[pubsub] Control publish failed', {
+        channel,
+        action: message.action,
+        operationId: message.operationId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  /**
+   * Subscribe a worker to its operation's control channel. Returns an
+   * unsubscribe function that MUST be invoked when the job ends so we don't
+   * leak Redis subscriptions.
+   */
+  async subscribeControl(
+    operationId: string,
+    handler: AgentControlHandler
+  ): Promise<PubSubUnsubscribe> {
+    const channel = AgentPubSubService.controlChannelFor(operationId);
+    this.ensureListener();
+
+    let handlerSet = this.controlHandlers.get(channel);
+    if (!handlerSet) {
+      handlerSet = new Set();
+      this.controlHandlers.set(channel, handlerSet);
+      await this.getSubscriber().subscribe(channel);
+    }
+    handlerSet.add(handler);
+
+    return async () => {
+      const set = this.controlHandlers.get(channel);
+      if (!set) return;
+      set.delete(handler);
+      if (set.size === 0) {
+        this.controlHandlers.delete(channel);
+        await this.getSubscriber()
+          .unsubscribe(channel)
+          .catch(() => undefined);
+      }
+    };
+  }
+
   /**
    * Return the number of active Redis subscribers for a job stream channel.
    * Used to avoid sending duplicate push notifications while the user is
@@ -256,6 +380,7 @@ export class AgentPubSubService {
    */
   async shutdown(): Promise<void> {
     this.handlers.clear();
+    this.controlHandlers.clear();
     if (this.subscriber) {
       await this.subscriber.quit().catch(() => undefined);
       this.subscriber = null;

@@ -1215,6 +1215,27 @@ router.post('/pause/:id', appGuard, async (req: Request, res: Response) => {
     activeAbortControllers.delete(operationId);
   }
 
+  // Cross-instance pause propagation: the worker may be running on a
+  // different backend instance than the one handling this HTTP request, so
+  // the in-process activeAbortControllers map above will be empty for that
+  // operation. Broadcast a control message via Redis pub/sub so the owning
+  // worker (wherever it lives) can abort its local AbortController.
+  if (pubsubService) {
+    try {
+      await pubsubService.publishControl({
+        action: 'pause',
+        operationId,
+        issuedAt: new Date().toISOString(),
+        issuedBy: user.uid,
+      });
+    } catch (err) {
+      logger.warn('Failed to broadcast pause control message', {
+        operationId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
   let queueCancelled = false;
   if (queueService) {
     try {
@@ -1326,6 +1347,25 @@ router.post('/cancel/:id', appGuard, async (req: Request, res: Response) => {
   if (entry) {
     entry.controller.abort();
     activeAbortControllers.delete(operationId);
+  }
+
+  // Cross-instance cancel propagation (mirrors pause). Required when the
+  // worker runs on a different backend instance than the one handling the
+  // HTTP request — see comment in pause endpoint above.
+  if (pubsubService) {
+    try {
+      await pubsubService.publishControl({
+        action: 'cancel',
+        operationId,
+        issuedAt: new Date().toISOString(),
+        issuedBy: user.uid,
+      });
+    } catch (err) {
+      logger.warn('Failed to broadcast cancel control message', {
+        operationId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
   }
 
   let queueCancelled = false;
