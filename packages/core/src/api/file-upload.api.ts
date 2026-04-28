@@ -69,6 +69,8 @@ export interface FileUploadRequest {
   userId: string;
   /** File category */
   category: FileCategory;
+  /** Optional team document ID for team-scoped uploads */
+  teamId?: string;
   /** Optional: Custom path within user's storage */
   customPath?: string;
   /** Optional: Additional metadata */
@@ -426,6 +428,50 @@ export function createFileUploadApi(http: FileUploadHttpAdapter, baseUrl: string
 
       if (!response.success || !response.data) {
         throw new Error(response.error ?? 'Failed to upload profile photo');
+      }
+
+      return response.data;
+    },
+
+    /**
+     * Upload team logo through the backend using multipart/form-data.
+     * This avoids browser-to-storage CORS requirements in web development.
+     */
+    async uploadTeamLogo(
+      userId: string,
+      teamId: string,
+      file: Blob | string,
+      fileName: string,
+      mimeType: string,
+      onProgress?: UploadProgressCallback
+    ): Promise<FileUploadResult> {
+      if (!teamId.trim()) {
+        throw new Error('teamId is required');
+      }
+
+      const metadata: FileUploadRequest & FileUploadMetadata = {
+        userId,
+        teamId,
+        category: 'team-logo',
+        fileName,
+        mimeType,
+        size: typeof file === 'string' ? file.length : file.size,
+      };
+
+      const validationError = validateFileForUpload(metadata);
+      if (validationError) {
+        throw new Error(validationError.message);
+      }
+
+      const response = await http.uploadFile<ApiResponse<FileUploadResult>>(
+        `${endpoint}/team-logo`,
+        file,
+        metadata,
+        onProgress
+      );
+
+      if (!response.success || !response.data) {
+        throw new Error(response.error ?? 'Failed to upload team logo');
       }
 
       return response.data;

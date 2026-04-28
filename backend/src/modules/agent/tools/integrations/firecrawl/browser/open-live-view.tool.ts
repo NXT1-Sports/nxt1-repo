@@ -25,7 +25,7 @@
  */
 
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
-import { BaseTool, type ToolResult } from '../../../base.tool.js';
+import { BaseTool, type ToolExecutionContext, type ToolResult } from '../../../base.tool.js';
 import type { LiveViewSessionService, StartLiveViewRequest } from './live-view-session.service.js';
 import { logger } from '../../../../../../utils/logger.js';
 import { z } from 'zod';
@@ -56,7 +56,6 @@ export class OpenLiveViewTool extends BaseTool {
   readonly parameters = z.object({
     url: z.string().trim().min(1),
     platformKey: z.string().trim().min(1).optional(),
-    userId: z.string().trim().min(1),
   });
 
   readonly isMutation = false;
@@ -74,9 +73,12 @@ export class OpenLiveViewTool extends BaseTool {
     this.db = db ?? getFirestore();
   }
 
-  async execute(input: Record<string, unknown>): Promise<ToolResult> {
+  async execute(
+    input: Record<string, unknown>,
+    context?: ToolExecutionContext
+  ): Promise<ToolResult> {
     const url = this.str(input, 'url');
-    const userId = this.str(input, 'userId');
+    const userId = context?.userId ?? this.str(input, 'userId');
     const platformKey = input['platformKey'] as string | undefined;
 
     if (!url) return this.paramError('url');
@@ -107,6 +109,7 @@ export class OpenLiveViewTool extends BaseTool {
               autoOpenPanel: {
                 type: 'live-view',
                 url: existingSession.interactiveUrl,
+                externalUrl: existingSession.interactiveUrl,
                 title: new URL(navResult.resolvedUrl).hostname.replace(/^www\./, ''),
               },
               sessionId: existingSession.sessionId,
@@ -161,6 +164,7 @@ export class OpenLiveViewTool extends BaseTool {
           autoOpenPanel: {
             type: 'live-view',
             url: session.interactiveUrl,
+            externalUrl: session.interactiveUrl,
             title: session.domainLabel,
             session,
           },

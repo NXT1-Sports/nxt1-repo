@@ -43,6 +43,7 @@ import { AgentEngineError } from '../exceptions/agent-engine.error.js';
 import type { ApprovalGateService } from '../services/approval-gate.service.js';
 import { ASK_USER_CONTEXT_KEY, type AskUserToolContext } from '../tools/system/ask-user.tool.js';
 import { isToolAllowedByPatterns } from './tool-policy.js';
+import { getEffectiveAgentToolPolicy } from './tool-policy.js';
 import {
   sanitizeAgentOutputText,
   sanitizeAgentPayload,
@@ -59,6 +60,9 @@ const MAX_ITERATIONS = 20;
  * Prevents context overflow when scrape results are very large.
  */
 const MAX_OBSERVATION_LENGTH = 8_000;
+const MAX_INLINE_IMAGE_BYTES = 8 * 1024 * 1024;
+
+type SessionImageAttachment = NonNullable<AgentSessionContext['attachments']>[number];
 
 // ─── Context Window Budget ────────────────────────────────────────────────────
 
@@ -132,6 +136,96 @@ export abstract class BaseAgent {
     return 1;
   }
 
+  private shouldInlineImageAttachment(attachment: SessionImageAttachment): boolean {
+    if (attachment.storagePath) {
+      return true;
+    }
+
+    try {
+      const url = new URL(attachment.url);
+      return (
+        url.searchParams.has('X-Goog-Algorithm') ||
+        url.hostname === 'storage.googleapis.com' ||
+        url.hostname === 'firebasestorage.googleapis.com'
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  private async inlineImageAttachment(
+    attachment: SessionImageAttachment,
+    signal?: AbortSignal
+  ): Promise<string | null> {
+    if (!this.shouldInlineImageAttachment(attachment)) {
+      return null;
+    }
+
+    try {
+      const response = await fetch(attachment.url, { signal });
+      if (!response.ok) {
+        logger.warn(`[${this.id}] Failed to inline image attachment`, {
+          agentId: this.id,
+          url: attachment.url.slice(0, 160),
+          status: response.status,
+          statusText: response.statusText,
+        });
+        return null;
+      }
+
+      const headerContentType = response.headers.get('content-type');
+      const mimeType = (headerContentType ?? attachment.mimeType).split(';', 1)[0]?.trim();
+      if (!mimeType?.startsWith('image/')) {
+        return null;
+      }
+
+      const headerContentLength = Number(response.headers.get('content-length') ?? '0');
+      if (Number.isFinite(headerContentLength) && headerContentLength > MAX_INLINE_IMAGE_BYTES) {
+        logger.warn(`[${this.id}] Skipping inline image attachment due to size`, {
+          agentId: this.id,
+          url: attachment.url.slice(0, 160),
+          sizeBytes: headerContentLength,
+        });
+        return null;
+      }
+
+      const imageBuffer = Buffer.from(await response.arrayBuffer());
+      if (imageBuffer.byteLength > MAX_INLINE_IMAGE_BYTES) {
+        logger.warn(`[${this.id}] Skipping inline image attachment after download due to size`, {
+          agentId: this.id,
+          url: attachment.url.slice(0, 160),
+          sizeBytes: imageBuffer.byteLength,
+        });
+        return null;
+      }
+
+      return `data:${mimeType};base64,${imageBuffer.toString('base64')}`;
+    } catch (error) {
+      logger.warn(`[${this.id}] Failed to convert image attachment to data URL`, {
+        agentId: this.id,
+        url: attachment.url.slice(0, 160),
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
+  }
+
+  private async resolveImageAttachmentUrls(
+    attachments: readonly SessionImageAttachment[],
+    signal?: AbortSignal
+  ): Promise<readonly string[]> {
+    if (attachments.length === 0) {
+      return [];
+    }
+
+    return Promise.all(
+      attachments.map(async (attachment) => {
+        const inlineDataUrl = await this.inlineImageAttachment(attachment, signal);
+        return inlineDataUrl ?? attachment.url;
+      })
+    );
+  }
+
   protected withConfiguredSystemPrompt(
     basePrompt: string,
     templateValues?: Readonly<Record<string, string | undefined>>
@@ -167,7 +261,7 @@ export abstract class BaseAgent {
     }
 
     const routing = this.getModelRouting();
-    const allowedToolNames = this.getAvailableTools();
+    const allowedToolNames = getEffectiveAgentToolPolicy(this.id);
 
     // Build LLM tool schemas from the registry (filtered to this agent's permissions).
     // System-category tools (e.g. delegate_task) are always included regardless
@@ -256,7 +350,10 @@ export abstract class BaseAgent {
     // Add video references
     if (context.videoAttachments?.length) {
       const videoRefs = context.videoAttachments
-        .map((v) => `[Attached video: ${v.name} — ${v.url}]`)
+        .map((v) => {
+          const idPart = v.cloudflareVideoId ? ` | cloudflareVideoId: ${v.cloudflareVideoId}` : '';
+          return `[Attached video: ${v.name} — ${v.url}${idPart}]`;
+        })
         .join('\n');
       intentText = `${intent}\n\n${videoRefs}`;
     }
@@ -264,6 +361,10 @@ export abstract class BaseAgent {
     // Only map image attachments to vision content
     const imageAttachments = (context.attachments ?? []).filter((a) =>
       a.mimeType.startsWith('image/')
+    );
+    const imageAttachmentUrls = await this.resolveImageAttachmentUrls(
+      imageAttachments,
+      context.signal
     );
 
     // Add non-image, non-video attachment references
@@ -283,9 +384,9 @@ export abstract class BaseAgent {
             role: 'user',
             content: [
               { type: 'text' as const, text: intentText },
-              ...imageAttachments.map((a) => ({
+              ...imageAttachmentUrls.map((url) => ({
                 type: 'image_url' as const,
-                image_url: { url: a.url, detail: 'auto' as const },
+                image_url: { url, detail: 'auto' as const },
               })),
             ],
           }
@@ -386,7 +487,7 @@ export abstract class BaseAgent {
     }
 
     const routing = this.getModelRouting();
-    const allowedToolNames = this.getAvailableTools();
+    const allowedToolNames = getEffectiveAgentToolPolicy(this.id);
     const toolSchemas: LLMToolSchema[] = _toolDefinitions
       .filter(
         (def) => def.category === 'system' || isToolAllowedByPatterns(def.name, allowedToolNames)
@@ -1174,7 +1275,8 @@ export abstract class BaseAgent {
 
     // Re-check permissions: ensure the LLM isn't calling a tool outside its allowlist.
     // System-category tools (e.g. delegate_task) bypass the allowlist.
-    const allowedToolNames = sessionContext?.allowedToolNames ?? this.getAvailableTools();
+    const allowedToolNames =
+      sessionContext?.allowedToolNames ?? getEffectiveAgentToolPolicy(this.id);
     const tool = registry.get(toolName);
     const isSystemTool = tool?.category === 'system';
     const bypassPermissions =
@@ -1415,6 +1517,8 @@ export abstract class BaseAgent {
       // Live Browser
       open_live_view: 'Opening virtual browser',
       read_live_view: 'Scanning virtual browser',
+      extract_live_view_media: 'Extracting media stream',
+      extract_live_view_playlist: 'Extracting playlist clips',
       navigate_live_view: 'Navigating webpage',
 
       // Comms

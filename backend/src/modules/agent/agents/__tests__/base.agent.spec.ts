@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AgentIdentifier, AgentSessionContext, ModelRoutingConfig } from '@nxt1/core';
 import { z } from 'zod';
 import { BaseAgent } from '../base.agent.js';
@@ -80,6 +80,10 @@ function createMockContext(): AgentSessionContext {
     lastActiveAt: now,
   };
 }
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 describe('BaseAgent identifier scrubbing', () => {
   it('sanitizes final summaries in non-streaming mode', async () => {
@@ -306,6 +310,7 @@ describe('BaseAgent identifier scrubbing', () => {
           url: 'https://video.example/clip.mp4',
           mimeType: 'video/mp4',
           name: 'clip.mp4',
+          cloudflareVideoId: 'cf-video-123',
         },
       ],
     };
@@ -330,10 +335,71 @@ describe('BaseAgent identifier scrubbing', () => {
 
     expect(imageParts).toHaveLength(1);
     expect(JSON.stringify(imageParts[0])).toContain('https://storage.example/image.jpg');
-    expect(textBody).toContain('[Attached video: clip.mp4 — https://video.example/clip.mp4]');
+    expect(textBody).toContain(
+      '[Attached video: clip.mp4 — https://video.example/clip.mp4 | cloudflareVideoId: cf-video-123]'
+    );
     expect(textBody).toContain(
       '[Attached document: application/pdf — https://storage.example/report.pdf]'
     );
     expect(llmOptions?.tier).toBe('vision_analysis');
+  });
+
+  it('inlines signed storage image attachments as data URLs before calling the vision model', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        headers: new Headers({
+          'content-type': 'image/png',
+          'content-length': '4',
+        }),
+        arrayBuffer: vi.fn().mockResolvedValue(new Uint8Array([1, 2, 3, 4]).buffer),
+      })
+    );
+
+    const agent = new FakeAgent();
+    const registry = new ToolRegistry();
+    const llm = {
+      complete: vi.fn().mockResolvedValue({
+        content: 'Processed image.',
+        toolCalls: [],
+        model: 'test-model',
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+        latencyMs: 1,
+        costUsd: 0,
+        finishReason: 'stop',
+      }),
+    };
+
+    await agent.execute(
+      'Analyze this image',
+      {
+        ...createMockContext(),
+        attachments: [
+          {
+            url: 'https://storage.googleapis.com/bucket/path/image.png?X-Goog-Algorithm=GOOG4-RSA-SHA256',
+            mimeType: 'image/png',
+            storagePath: 'Users/user-123/uploads/unbound/image.png',
+          },
+        ],
+      },
+      [],
+      llm as never,
+      registry
+    );
+
+    const completeMessages = vi.mocked(llm.complete).mock.calls[0]?.[0] as Array<{
+      role: string;
+      content: unknown;
+    }>;
+    const userMessage = completeMessages.find((message) => message.role === 'user');
+    const contentParts = userMessage?.content as Array<Record<string, unknown>>;
+    const imagePart = contentParts.find((part) => part['type'] === 'image_url');
+    const imagePayload = imagePart?.['image_url'] as { url?: string } | undefined;
+
+    expect(vi.mocked(global.fetch)).toHaveBeenCalledTimes(1);
+    expect(imagePayload?.url).toBe('data:image/png;base64,AQIDBA==');
   });
 });

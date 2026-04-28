@@ -19,7 +19,7 @@
  *       ↓
  *   Tool uploads Buffer to Firebase Storage (thread-scoped)
  *       ↓
- *   Returns signed URL as AgentXAttachment-compatible result
+ *   Returns durable Firebase download URL as AgentXAttachment-compatible result
  *
  * For massive datasets that exceed LLM output limits, the tool also accepts
  * a `query` object. When present, the tool bypasses the LLM-provided rows
@@ -27,7 +27,7 @@
  */
 
 import { getStorage } from 'firebase-admin/storage';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
 import { ExportService, type ExportColumn, type ExportRow } from '../../services/export.service.js';
 import { AgentEngineError } from '../../exceptions/agent-engine.error.js';
@@ -187,6 +187,7 @@ export class DynamicExportTool extends BaseTool {
         );
       }
       const storagePath = `Users/${userId}/threads/${threadId}/exports/${timestamp}-${hash}.${extension}`;
+      const downloadToken = randomUUID();
 
       const bucket = getStorage().bucket();
       const file = bucket.file(storagePath);
@@ -196,17 +197,29 @@ export class DynamicExportTool extends BaseTool {
         metadata: {
           cacheControl: 'public, max-age=31536000, immutable',
           contentDisposition: `attachment; filename="${safeName}.${extension}"`,
+          metadata: {
+            firebaseStorageDownloadTokens: downloadToken,
+          },
         },
       });
 
-      // Make publicly accessible and build direct URL
+      // Verify the object exists before returning a download URL.
       emitStage?.('persisting_result', {
         icon: 'document',
         format,
         phase: 'create_download_link',
       });
-      await file.makePublic();
-      const downloadUrl = `https://storage.googleapis.com/${bucket.name}/${storagePath}`;
+      const [exists] = await file.exists();
+      if (!exists) {
+        throw new AgentEngineError(
+          'AGENT_PIPELINE_FAILED',
+          'Export upload verification failed — file was not found in storage'
+        );
+      }
+
+      const downloadUrl =
+        `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/` +
+        `${encodeURIComponent(storagePath)}?alt=media&token=${downloadToken}`;
 
       return {
         success: true,

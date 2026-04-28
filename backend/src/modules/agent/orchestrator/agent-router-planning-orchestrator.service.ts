@@ -216,12 +216,21 @@ export class AgentRouterPlanningOrchestratorService {
     let plan = planResult.data?.['plan'] as AgentExecutionPlan | undefined;
 
     if (!plan || plan.tasks.length === 0) {
+      const clarificationQuestion =
+        typeof planResult.data?.['clarificationQuestion'] === 'string'
+          ? (planResult.data['clarificationQuestion'] as string)
+          : null;
+      const clarificationContext =
+        typeof planResult.data?.['clarificationContext'] === 'string'
+          ? (planResult.data['clarificationContext'] as string)
+          : null;
       const directResponse =
         typeof planResult.data?.['directResponse'] === 'string'
           ? (planResult.data['directResponse'] as string)
           : null;
 
       const responseText =
+        clarificationQuestion ??
         directResponse ??
         planResult.summary ??
         "I'm here and ready to help. What would you like to work on?";
@@ -291,7 +300,21 @@ export class AgentRouterPlanningOrchestratorService {
       });
 
       this.context.appendAssistantMessage(userId, threadId, safeResponseText);
-      return { kind: 'completed', result: { summary: safeResponseText, suggestions: [] } };
+      return {
+        kind: 'completed',
+        result: {
+          summary: safeResponseText,
+          ...(clarificationQuestion
+            ? {
+                data: {
+                  clarificationQuestion: safeResponseText,
+                  ...(clarificationContext ? { clarificationContext } : {}),
+                },
+              }
+            : {}),
+          suggestions: [],
+        },
+      };
     }
 
     this.telemetry.emitUpdate(

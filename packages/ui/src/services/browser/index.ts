@@ -4,6 +4,7 @@
  */
 
 export {
+  BROWSER_TRACKING_BASE_URL,
   NxtBrowserService,
   type BrowserState,
   type BrowserOpenResult,

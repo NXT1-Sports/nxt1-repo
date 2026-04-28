@@ -65,6 +65,10 @@ import {
   AgentXOperationChatComponent,
   type OperationQuickAction,
 } from '../chat/agent-x-operation-chat.component';
+import {
+  buildCoordinatorActionPrompt,
+  resolveCoordinatorChipId,
+} from '../chat/agent-x-operation-chat.utils';
 import { AgentXDashboardSkeletonComponent } from '../shared/agent-x-dashboard-skeleton.component';
 import { HapticsService } from '../../../services/haptics/haptics.service';
 import { NxtToastService } from '../../../services/toast/toast.service';
@@ -122,6 +126,7 @@ export interface ActionChip {
   readonly id: string;
   readonly label: string;
   readonly subLabel?: string;
+  readonly promptText?: string;
   readonly icon: string;
 }
 
@@ -133,6 +138,7 @@ export interface CommandCategory {
   readonly description: string;
   readonly commands: readonly ActionChip[];
   readonly scheduledActions?: readonly ActionChip[];
+  readonly suggestedActions?: readonly ActionChip[];
 }
 
 /** Daily briefing insight from Agent X. Kept as shared contract for consumers. */
@@ -581,7 +587,7 @@ function sortCoordinatorCategories(
                 type="button"
                 role="listitem"
                 class="floating-coordinator-pill"
-                [attr.data-coordinator]="cat.id"
+                [attr.data-coordinator]="resolveCoordinatorChipId(cat.id)"
                 (click)="onCategoryTap(cat)"
               >
                 {{ cat.label }}
@@ -1855,6 +1861,7 @@ function sortCoordinatorCategories(
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AgentXShellComponent implements OnInit, OnDestroy {
+  protected readonly resolveCoordinatorChipId = resolveCoordinatorChipId;
   protected readonly agentX = inject(AgentXService);
   protected readonly controlPanelState = inject(AgentXControlPanelStateService);
   private readonly haptics = inject(HapticsService);
@@ -2180,12 +2187,63 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
       label: cmd.label,
       icon: cmd.icon,
       description: cmd.subLabel,
+      promptText:
+        cmd.promptText ??
+        buildCoordinatorActionPrompt({
+          coordinatorLabel: cat.label,
+          coordinatorDescription: cat.description,
+          actionLabel: cmd.label,
+          actionDescription: cmd.subLabel,
+          surface: 'command',
+        }),
+      selectedAction: {
+        coordinatorId: cat.id,
+        actionId: cmd.id,
+        surface: 'command',
+        label: cmd.label,
+      },
+    }));
+    const suggestedActions: OperationQuickAction[] = (cat.suggestedActions ?? []).map((cmd) => ({
+      id: cmd.id,
+      label: cmd.label,
+      icon: cmd.icon,
+      description: cmd.subLabel,
+      promptText:
+        cmd.promptText ??
+        buildCoordinatorActionPrompt({
+          coordinatorLabel: cat.label,
+          coordinatorDescription: cat.description,
+          actionLabel: cmd.label,
+          actionDescription: cmd.subLabel,
+          surface: 'command',
+        }),
+      selectedAction: {
+        coordinatorId: cat.id,
+        actionId: cmd.id,
+        surface: 'suggested',
+        label: cmd.label,
+      },
     }));
     const scheduledActions: OperationQuickAction[] = (cat.scheduledActions ?? []).map((cmd) => ({
       id: cmd.id,
       label: cmd.label,
       icon: cmd.icon,
       description: cmd.subLabel,
+      promptText:
+        cmd.promptText ??
+        buildCoordinatorActionPrompt({
+          coordinatorLabel: cat.label,
+          coordinatorDescription: cat.description,
+          actionLabel: cmd.label,
+          actionDescription: cmd.subLabel,
+          surface: 'scheduled',
+        }),
+      selectedAction: {
+        coordinatorId: cat.id,
+        actionId: cmd.id,
+        surface: 'scheduled',
+        label: cmd.label,
+      },
     }));
     await this.openOperationChat(
       cat.id,
@@ -2199,7 +2257,8 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
       null,
       'processing',
       null,
-      scheduledActions
+      scheduledActions,
+      suggestedActions
     );
   }
 
@@ -2238,7 +2297,8 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
       | 'awaiting_input'
       | 'awaiting_approval' = 'processing',
     errorMessage: string | null = null,
-    scheduledActions: OperationQuickAction[] = []
+    scheduledActions: OperationQuickAction[] = [],
+    suggestedActions: OperationQuickAction[] = []
   ): Promise<void> {
     // Capture and transfer any pending attachments from the main input strip
     const servicePendingFiles = this.agentX.pendingFiles();
@@ -2262,6 +2322,7 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
         contextType,
         connectedSources: this.getAttachmentConnectedSources(),
         quickActions,
+        suggestedActions,
         contextDescription,
         threadId,
         initialMessage,

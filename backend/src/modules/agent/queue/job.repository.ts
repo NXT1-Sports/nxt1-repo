@@ -362,7 +362,7 @@ export class AgentJobRepository {
         operationId: payload.operationId,
         userId: payload.userId,
         idempotencyKey: (payload.context?.['idempotencyKey'] as string) ?? null,
-        intent: payload.intent,
+        intent: payload.displayIntent ?? payload.intent,
         origin: payload.origin,
         status: 'queued' satisfies AgentOperationStatus,
         progress: null,

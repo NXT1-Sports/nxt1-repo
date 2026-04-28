@@ -417,6 +417,8 @@ const USER_MENU_ITEMS: TopNavUserMenuItem[] = [];
         (filterClick)="onMobileExploreFilterClick()"
         (helpClick)="onMobileUsageHelpClick()"
         (budgetClick)="onMobileUsageBudgetClick()"
+        (activityClick)="onMobileAgentXActivityClick()"
+        (usageClick)="onMobileAgentXUsageClick()"
         (userClick)="onMobileUserClick()"
       />
 
@@ -1058,6 +1060,11 @@ export class WebShellComponent {
     return this._currentRoute().startsWith('/usage');
   });
 
+  /** Whether the current route is the Agent X page */
+  private readonly _isOnAgentXPage = computed(() => {
+    return this._currentRoute().startsWith('/agent-x');
+  });
+
   /**
    * Derives the display title for the mobile header from the current route.
    * Shown in the header center when the user is authenticated (logo is hidden).
@@ -1098,6 +1105,7 @@ export class WebShellComponent {
     const isOwnProfilePage = this._currentRoute() === '/profile';
     const onActivityPage = this._isOnActivityPage();
     const onTeamPage = this._isOnTeamPage();
+    const onAgentXPage = this._isOnAgentXPage();
 
     return createMobileHeaderConfig({
       showBack: this._showMobileBack(),
@@ -1105,9 +1113,9 @@ export class WebShellComponent {
       // Logged-out: show brand logo. Logged-in: show page title instead.
       showLogo: !isLoggedIn,
       title: isLoggedIn ? this._mobilePageTitle() : undefined,
-      // Hide search & bell on profile/team/activity pages — top nav shows relevant actions instead
-      showSearch: !onProfilePage && !onTeamPage && !onActivityPage,
-      showNotifications: !onProfilePage && !onTeamPage && !onActivityPage,
+      // Hide search & bell on profile/team/activity/agent-x pages — top nav shows relevant actions instead
+      showSearch: !onProfilePage && !onTeamPage && !onActivityPage && !onAgentXPage,
+      showNotifications: !onProfilePage && !onTeamPage && !onActivityPage && !onAgentXPage,
       notificationCount: this.badgeCount.totalUnread(),
       showSignIn, // Hidden until auth resolves, then show only if not logged in
       showMore: onProfilePage || onTeamPage,
@@ -1119,6 +1127,9 @@ export class WebShellComponent {
       // Help icon only on /usage for mobile web; desktop uses the header portal.
       showHelp: isLoggedIn && this._isOnUsagePage(),
       showBudget: false,
+      showActivity: isLoggedIn && onAgentXPage,
+      showUsage: isLoggedIn && onAgentXPage,
+      activityUnreadCount: this.activityService.totalUnread(),
       // Avatar already lives in the mobile footer tab bar — hide it here
       showAvatar: !isLoggedIn,
       sticky: true,
@@ -1425,6 +1436,14 @@ export class WebShellComponent {
       panelClass: 'agent-x-control-panel-modal',
     });
     await ref.closed;
+  }
+
+  onMobileAgentXActivityClick(): void {
+    void this.router.navigate(['/activity']);
+  }
+
+  onMobileAgentXUsageClick(): void {
+    void this.router.navigate(['/usage']);
   }
 
   // ============================================

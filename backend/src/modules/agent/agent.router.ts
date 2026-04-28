@@ -40,6 +40,7 @@ import type { ContextBuilder } from './memory/context-builder.js';
 import type { BaseAgent } from './agents/base.agent.js';
 import type { SkillRegistry } from './skills/skill-registry.js';
 import type { OnStreamEvent } from './queue/event-writer.js';
+import { ClassifierAgent } from './agents/classifier.agent.js';
 import { PlannerAgent } from './agents/planner.agent.js';
 import { SemanticCacheService } from './memory/semantic-cache.service.js';
 import { SessionMemoryService } from './memory/session.service.js';
@@ -74,8 +75,10 @@ import { logger } from '../../utils/logger.js';
 // ─── Router ─────────────────────────────────────────────────────────────────
 
 export class AgentRouter {
+  private readonly classifier: ClassifierAgent;
   private readonly planner: PlannerAgent;
   private readonly agents = new Map<AgentIdentifier, BaseAgent>();
+  private readonly planningService: AgentRouterPlanningService;
   private readonly conversationService: AgentRouterConversationService;
   private readonly policyService: AgentRouterPolicyService;
   private readonly requestBootstrapService: AgentRouterRequestBootstrapService;
@@ -93,10 +96,11 @@ export class AgentRouter {
     skillRegistry?: SkillRegistry,
     private readonly sessionMemory?: SessionMemoryService
   ) {
+    this.classifier = new ClassifierAgent(llm);
     this.planner = new PlannerAgent(llm);
     const semanticCache = new SemanticCacheService(llm);
     this.routerContextService = new AgentRouterContextService(contextBuilder, sessionMemory);
-    const planningService = new AgentRouterPlanningService(llm, toolRegistry, skillRegistry);
+    this.planningService = new AgentRouterPlanningService(llm, toolRegistry, skillRegistry);
     this.telemetryService = new AgentRouterTelemetryService();
     this.policyService = new AgentRouterPolicyService(this.planner);
     this.requestBootstrapService = new AgentRouterRequestBootstrapService(
@@ -120,8 +124,10 @@ export class AgentRouter {
       skillRegistry
     );
     this.planningOrchestratorService = new AgentRouterPlanningOrchestratorService(
-      this.planner,
-      planningService,
+      {
+        execute: (...args) => this.planner.execute(...args),
+      } as PlannerAgent,
+      this.planningService,
       this.telemetryService,
       this.routerContextService
     );
@@ -158,7 +164,18 @@ export class AgentRouter {
     const context = this.buildSessionContext(userId);
     const enrichedIntent = this.enrichIntentWithContext(intent, userContext, undefined, undefined);
 
-    const result = await this.planner.execute(enrichedIntent, context, []);
+    const routeDecision = await this.classifier.classify(enrichedIntent, context);
+    if (routeDecision?.route === 'chat') {
+      return 'router';
+    }
+
+    const result = await this.planner.execute(
+      enrichedIntent,
+      context,
+      [],
+      undefined,
+      routeDecision ? { skipClassification: true } : undefined
+    );
     const plan = result.data?.['plan'] as AgentExecutionPlan | undefined;
 
     if (!plan || plan.tasks.length === 0) return 'router';
@@ -416,6 +433,8 @@ export class AgentRouter {
       ? ((contextObj as Record<string, unknown>)['attachments'] as readonly {
           url: string;
           mimeType: string;
+          storagePath?: string;
+          name?: string;
         }[])
       : undefined;
     const videoAttachments = Array.isArray(
@@ -771,7 +790,12 @@ export class AgentRouter {
     environment?: 'staging' | 'production',
     signal?: AbortSignal,
     mode?: string,
-    attachments?: readonly { readonly url: string; readonly mimeType: string }[],
+    attachments?: readonly {
+      readonly url: string;
+      readonly mimeType: string;
+      readonly storagePath?: string;
+      readonly name?: string;
+    }[],
     videoAttachments?: readonly {
       readonly url: string;
       readonly mimeType: string;

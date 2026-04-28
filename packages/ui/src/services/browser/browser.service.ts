@@ -42,7 +42,15 @@
  * ```
  */
 
-import { Injectable, inject, PLATFORM_ID, signal, computed, NgZone } from '@angular/core';
+import {
+  Injectable,
+  inject,
+  PLATFORM_ID,
+  signal,
+  computed,
+  NgZone,
+  InjectionToken,
+} from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
 
 import {
@@ -116,6 +124,14 @@ const DEFAULT_CONFIG: BrowserServiceConfig = {
   enableBreadcrumbs: true,
 };
 
+export const BROWSER_TRACKING_BASE_URL = new InjectionToken<string | null>(
+  'BROWSER_TRACKING_BASE_URL',
+  {
+    providedIn: 'root',
+    factory: () => null,
+  }
+);
+
 // ============================================
 // SERVICE
 // ============================================
@@ -133,6 +149,7 @@ export class NxtBrowserService {
   private readonly haptics = inject(HapticsService);
   private readonly logger = inject(NxtLoggingService).child('NxtBrowserService');
   private readonly breadcrumbs = inject(NxtBreadcrumbService);
+  private readonly trackingBaseUrl = inject(BROWSER_TRACKING_BASE_URL, { optional: true });
 
   private readonly isBrowser = isPlatformBrowser(this.platformId);
 
@@ -264,7 +281,21 @@ export class NxtBrowserService {
    * tracking base URL is explicitly provided by the host app.
    */
   private buildTrackedUrl(options: OpenLinkOptions): string {
-    if (!this.isBrowser || this.isNativePlatform) {
+    if (!this.isBrowser) {
+      return options.url;
+    }
+
+    const configuredTrackingBaseUrl = this.trackingBaseUrl?.trim();
+    if (configuredTrackingBaseUrl) {
+      return buildTrackedLinkUrl(configuredTrackingBaseUrl, options.url, {
+        source: options.source,
+        surface: options.surface,
+        subjectType: options.subjectType,
+        subjectId: options.subjectId,
+      });
+    }
+
+    if (this.isNativePlatform) {
       return options.url;
     }
 

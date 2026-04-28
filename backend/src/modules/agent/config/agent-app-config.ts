@@ -28,6 +28,7 @@
 import {
   AGENT_DESCRIPTORS,
   COORDINATOR_AGENT_IDS,
+  type AgentXSelectedActionSurface,
   normalizeRole,
   type AgentDescriptor,
   type AgentIdentifier,
@@ -104,10 +105,13 @@ const coordinatorIds = COORDINATOR_AGENT_IDS;
 
 type CoordinatorIdentifier = (typeof coordinatorIds)[number];
 type DashboardRole = 'athlete' | 'coach' | 'director';
+type ConfiguredCoordinatorActionChip = ShellActionChip & {
+  readonly executionPrompt?: string;
+};
 type CoordinatorRoleUiOverride = {
   readonly description?: string;
-  readonly commands?: readonly ShellActionChip[];
-  readonly scheduledActions?: readonly ShellActionChip[];
+  readonly commands?: readonly ConfiguredCoordinatorActionChip[];
+  readonly scheduledActions?: readonly ConfiguredCoordinatorActionChip[];
 };
 
 const DASHBOARD_ATHLETE_ROLES = ['athlete'] as const;
@@ -118,7 +122,9 @@ const actionChipSchema = z.object({
   id: z.string().trim().min(1),
   label: z.string().trim().min(1),
   subLabel: z.string().trim().min(1).optional(),
+  promptText: z.string().trim().min(1).optional(),
   icon: z.string().trim().min(1),
+  executionPrompt: z.string().trim().min(1).optional(),
 });
 
 const coordinatorRoleUiOverrideSchema = z.object({
@@ -127,25 +133,217 @@ const coordinatorRoleUiOverrideSchema = z.object({
   scheduledActions: z.array(actionChipSchema).optional(),
 });
 
-function command(id: string, label: string, icon: string, subLabel?: string): ShellActionChip {
+function command(
+  id: string,
+  label: string,
+  icon: string,
+  subLabel?: string,
+  executionPrompt?: string
+): ConfiguredCoordinatorActionChip {
   return {
     id,
     label,
     icon,
     ...(subLabel ? { subLabel } : {}),
+    ...(executionPrompt ? { executionPrompt } : {}),
   };
+}
+
+function toSentence(value: string | undefined): string {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return '';
+  }
+
+  return /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
+}
+
+function buildFallbackVisiblePromptText(params: {
+  readonly coordinatorName: string;
+  readonly coordinatorDescription: string;
+  readonly action: Pick<ConfiguredCoordinatorActionChip, 'label' | 'subLabel'>;
+  readonly surface: AgentXSelectedActionSurface;
+}): string {
+  const opening =
+    params.surface === 'scheduled'
+      ? `Please handle ${params.action.label} with the ${params.coordinatorName} and frame it as a recurring workflow for me.`
+      : `Please handle ${params.action.label} with the ${params.coordinatorName}.`;
+  const detail =
+    toSentence(params.action.subLabel) || toSentence(params.coordinatorDescription) || undefined;
+  const closing =
+    params.surface === 'scheduled'
+      ? 'Give me the execution plan, timing, checkpoints, and follow-up actions I should run with.'
+      : 'Give me the clearest deliverable, priorities, and next steps to act on immediately.';
+
+  return [opening, detail, closing]
+    .filter((part): part is string => !!part && part.length > 0)
+    .join(' ');
+}
+
+function ensureActionPromptText(
+  action: ConfiguredCoordinatorActionChip,
+  params: {
+    readonly coordinatorName: string;
+    readonly coordinatorDescription: string;
+    readonly surface: AgentXSelectedActionSurface;
+  }
+): ConfiguredCoordinatorActionChip {
+  const promptText = action.promptText?.trim();
+  if (promptText && promptText.length > 0) {
+    return {
+      ...action,
+      promptText,
+    };
+  }
+
+  return {
+    ...action,
+    promptText: buildFallbackVisiblePromptText({
+      coordinatorName: params.coordinatorName,
+      coordinatorDescription: params.coordinatorDescription,
+      action,
+      surface: params.surface,
+    }),
+  };
+}
+
+function applyCoordinatorPromptTextConfig(
+  baseConfig: Readonly<
+    Record<
+      CoordinatorIdentifier,
+      {
+        readonly description: string;
+        readonly availableForRoles: readonly DashboardRole[];
+        readonly commands: readonly ConfiguredCoordinatorActionChip[];
+        readonly scheduledActions: readonly ConfiguredCoordinatorActionChip[];
+        readonly roleUiOverrides: Readonly<
+          Partial<Record<DashboardRole, CoordinatorRoleUiOverride>>
+        >;
+      }
+    >
+  >
+): Readonly<
+  Record<
+    CoordinatorIdentifier,
+    {
+      readonly description: string;
+      readonly availableForRoles: readonly DashboardRole[];
+      readonly commands: readonly ConfiguredCoordinatorActionChip[];
+      readonly scheduledActions: readonly ConfiguredCoordinatorActionChip[];
+      readonly roleUiOverrides: Readonly<Partial<Record<DashboardRole, CoordinatorRoleUiOverride>>>;
+    }
+  >
+> {
+  const nextConfig = {} as Record<
+    CoordinatorIdentifier,
+    (typeof baseConfig)[CoordinatorIdentifier]
+  >;
+
+  for (const coordinatorId of coordinatorIds) {
+    const coordinator = baseConfig[coordinatorId];
+
+    const roleUiOverrides = {} as Partial<Record<DashboardRole, CoordinatorRoleUiOverride>>;
+    for (const role of DASHBOARD_ALL_ROLES) {
+      const override = coordinator.roleUiOverrides[role];
+      if (!override) {
+        continue;
+      }
+
+      const roleDescription = override.description ?? coordinator.description;
+      roleUiOverrides[role] = {
+        ...override,
+        ...(override.commands
+          ? {
+              commands: Object.freeze(
+                override.commands.map((action) =>
+                  ensureActionPromptText(action, {
+                    coordinatorName: coordinatorIdToDescriptorName(coordinatorId),
+                    coordinatorDescription: roleDescription,
+                    surface: 'command',
+                  })
+                )
+              ),
+            }
+          : {}),
+        ...(override.scheduledActions
+          ? {
+              scheduledActions: Object.freeze(
+                override.scheduledActions.map((action) =>
+                  ensureActionPromptText(action, {
+                    coordinatorName: coordinatorIdToDescriptorName(coordinatorId),
+                    coordinatorDescription: roleDescription,
+                    surface: 'scheduled',
+                  })
+                )
+              ),
+            }
+          : {}),
+      };
+    }
+
+    nextConfig[coordinatorId] = {
+      ...coordinator,
+      commands: Object.freeze(
+        coordinator.commands.map((action) =>
+          ensureActionPromptText(action, {
+            coordinatorName: coordinatorIdToDescriptorName(coordinatorId),
+            coordinatorDescription: coordinator.description,
+            surface: 'command',
+          })
+        )
+      ),
+      scheduledActions: Object.freeze(
+        coordinator.scheduledActions.map((action) =>
+          ensureActionPromptText(action, {
+            coordinatorName: coordinatorIdToDescriptorName(coordinatorId),
+            coordinatorDescription: coordinator.description,
+            surface: 'scheduled',
+          })
+        )
+      ),
+      roleUiOverrides: normalizeRoleUiOverrides(roleUiOverrides),
+    };
+  }
+
+  return Object.freeze(nextConfig);
+}
+
+function coordinatorIdToDescriptorName(coordinatorId: CoordinatorIdentifier): string {
+  return (
+    AGENT_DESCRIPTORS[coordinatorId as AgentIdentifier]?.name ??
+    humanizeCoordinatorActionId(coordinatorId)
+  );
 }
 
 function roleOverride(
   description: string,
-  commands: readonly ShellActionChip[],
-  scheduledActions: readonly ShellActionChip[] = []
+  commands: readonly ConfiguredCoordinatorActionChip[],
+  scheduledActions: readonly ConfiguredCoordinatorActionChip[] = []
 ): CoordinatorRoleUiOverride {
   return {
     description,
     commands,
     scheduledActions,
   };
+}
+
+function normalizeCoordinatorActionLookupKey(value: string | undefined): string {
+  return (
+    value
+      ?.trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ')
+      ?.trim() ?? ''
+  );
+}
+
+function humanizeCoordinatorActionId(actionId: string): string {
+  const normalized = normalizeCoordinatorActionLookupKey(actionId);
+  if (!normalized) {
+    return 'Coordinator Action';
+  }
+
+  return normalized.replace(/\b\w/g, (token) => token.toUpperCase());
 }
 
 function normalizeDashboardRole(role: string): DashboardRole | undefined {
@@ -197,476 +395,1170 @@ function normalizeRoleUiOverrides(
   >;
 }
 
+type CoordinatorUiEnhancement = {
+  readonly availableForRoles?: readonly DashboardRole[];
+  readonly roleUiOverrides?: Readonly<Partial<Record<DashboardRole, CoordinatorRoleUiOverride>>>;
+};
+
+function mergeConfiguredActionChips(
+  base: readonly ConfiguredCoordinatorActionChip[],
+  additions?: readonly ConfiguredCoordinatorActionChip[]
+): readonly ConfiguredCoordinatorActionChip[] {
+  if (!additions?.length) {
+    return Object.freeze([...base]);
+  }
+
+  const merged = new Map(base.map((action) => [action.id, action] as const));
+  for (const action of additions) {
+    merged.set(action.id, action);
+  }
+
+  return Object.freeze(Array.from(merged.values()));
+}
+
+function buildRoleOverrideFromBase(
+  base: {
+    readonly description: string;
+    readonly commands: readonly ConfiguredCoordinatorActionChip[];
+    readonly scheduledActions: readonly ConfiguredCoordinatorActionChip[];
+  },
+  existing: CoordinatorRoleUiOverride | undefined,
+  addition: CoordinatorRoleUiOverride | undefined
+): CoordinatorRoleUiOverride {
+  return {
+    description: addition?.description ?? existing?.description ?? base.description,
+    commands: mergeConfiguredActionChips(existing?.commands ?? base.commands, addition?.commands),
+    scheduledActions: mergeConfiguredActionChips(
+      existing?.scheduledActions ?? base.scheduledActions,
+      addition?.scheduledActions
+    ),
+  };
+}
+
+function applyEliteCoordinatorUiConfig(
+  baseConfig: Readonly<
+    Record<
+      CoordinatorIdentifier,
+      {
+        readonly description: string;
+        readonly availableForRoles: readonly DashboardRole[];
+        readonly commands: readonly ConfiguredCoordinatorActionChip[];
+        readonly scheduledActions: readonly ConfiguredCoordinatorActionChip[];
+        readonly roleUiOverrides: Readonly<
+          Partial<Record<DashboardRole, CoordinatorRoleUiOverride>>
+        >;
+      }
+    >
+  >
+): Readonly<
+  Record<
+    CoordinatorIdentifier,
+    {
+      readonly description: string;
+      readonly availableForRoles: readonly DashboardRole[];
+      readonly commands: readonly ConfiguredCoordinatorActionChip[];
+      readonly scheduledActions: readonly ConfiguredCoordinatorActionChip[];
+      readonly roleUiOverrides: Readonly<Partial<Record<DashboardRole, CoordinatorRoleUiOverride>>>;
+    }
+  >
+> {
+  const nextConfig = {} as Record<
+    CoordinatorIdentifier,
+    (typeof baseConfig)[CoordinatorIdentifier]
+  >;
+
+  for (const coordinatorId of coordinatorIds) {
+    const coordinator = baseConfig[coordinatorId];
+    const enhancement = ELITE_COORDINATOR_ROLE_ENHANCEMENTS[coordinatorId];
+
+    if (!enhancement) {
+      nextConfig[coordinatorId] = coordinator;
+      continue;
+    }
+
+    const mergedRoleUiOverrides = {} as Partial<Record<DashboardRole, CoordinatorRoleUiOverride>>;
+    for (const role of DASHBOARD_ALL_ROLES) {
+      const existingOverride = coordinator.roleUiOverrides[role];
+      const nextOverride = enhancement.roleUiOverrides?.[role];
+      if (!existingOverride && !nextOverride) {
+        continue;
+      }
+
+      mergedRoleUiOverrides[role] = buildRoleOverrideFromBase(
+        {
+          description: coordinator.description,
+          commands: coordinator.commands,
+          scheduledActions: coordinator.scheduledActions,
+        },
+        existingOverride,
+        nextOverride
+      );
+    }
+
+    nextConfig[coordinatorId] = {
+      ...coordinator,
+      availableForRoles: Object.freeze([
+        ...(enhancement.availableForRoles ?? coordinator.availableForRoles),
+      ]),
+      roleUiOverrides: normalizeRoleUiOverrides(mergedRoleUiOverrides),
+    };
+  }
+
+  return Object.freeze(nextConfig);
+}
+
+const ELITE_COORDINATOR_ROLE_ENHANCEMENTS: Readonly<
+  Partial<Record<CoordinatorIdentifier, CoordinatorUiEnhancement>>
+> = {
+  admin_coordinator: {
+    availableForRoles: DASHBOARD_ALL_ROLES,
+    roleUiOverrides: {
+      athlete: {
+        description:
+          'Own your eligibility, paperwork, visit readiness, and recruiting deadlines with athlete-specific admin support.',
+        commands: [
+          command(
+            'admin-compliance',
+            'Eligibility Checklist',
+            'shieldCheck',
+            'Track NCAA, academic, and roster requirements'
+          ),
+          command(
+            'admin-eligibility',
+            'Academic Readiness Review',
+            'clipboard',
+            'Spot transcript and core-course gaps'
+          ),
+          command(
+            'admin-schedule',
+            'Recruiting Timeline Plan',
+            'calendar',
+            'Map visits, outreach, and deadlines'
+          ),
+          command('admin-docs', 'Document Packet Review', 'clipboard', 'Audit forms and uploads'),
+          command('admin-deadlines', 'Deadline Radar', 'calendar', 'Surface the next admin dates'),
+          command(
+            'admin-visit',
+            'Visit Prep Checklist',
+            'list',
+            'Prepare camp and visit paperwork'
+          ),
+        ],
+        scheduledActions: [
+          command('admin-weekly-compliance', 'Weekly Eligibility Check-In', 'shieldCheck'),
+          command('admin-grade-watch', 'Academic Progress Watch', 'clipboard'),
+          command('admin-deadline-digest', 'Weekly Deadline Digest', 'calendar'),
+          command('admin-doc-refresh', 'Monthly Document Refresh', 'sync'),
+        ],
+      },
+      coach: {
+        commands: [
+          command(
+            'admin-docs',
+            'Roster Document Audit',
+            'clipboard',
+            'Review waivers and roster files'
+          ),
+          command(
+            'admin-deadlines',
+            'Deadline Radar',
+            'calendar',
+            'Surface staff-critical admin dates'
+          ),
+          command(
+            'admin-visit',
+            'Visit Logistics Checklist',
+            'list',
+            'Prepare visit approvals and ops'
+          ),
+        ],
+        scheduledActions: [
+          command('admin-grade-watch', 'Weekly Eligibility Watchlist', 'clipboard'),
+          command('admin-deadline-digest', 'Staff Deadline Digest', 'calendar'),
+          command('admin-doc-refresh', 'Monthly Roster Docs Refresh', 'sync'),
+        ],
+      },
+      director: {
+        commands: [
+          command(
+            'admin-docs',
+            'Governance Packet Audit',
+            'clipboard',
+            'Review audits, waivers, and policy docs'
+          ),
+          command(
+            'admin-deadlines',
+            'Executive Deadline Radar',
+            'calendar',
+            'Track program-critical dates'
+          ),
+          command(
+            'admin-visit',
+            'Event Approval Checklist',
+            'list',
+            'Coordinate compliance for events and visits'
+          ),
+        ],
+        scheduledActions: [
+          command('admin-grade-watch', 'Weekly Risk Watchlist', 'clipboard'),
+          command('admin-deadline-digest', 'Executive Deadline Digest', 'calendar'),
+          command('admin-doc-refresh', 'Monthly Governance Refresh', 'sync'),
+        ],
+      },
+    },
+  },
+  brand_coordinator: {
+    roleUiOverrides: {
+      athlete: {
+        commands: [
+          command('brand-bio', 'Rewrite My Bio', 'sparkles', 'Refresh your athlete positioning'),
+          command('brand-media-kit', 'Build Media Kit', 'rocket', 'Package your story and stats'),
+          command(
+            'brand-series',
+            'Content Series Plan',
+            'list',
+            'Map a repeatable personal brand series'
+          ),
+        ],
+        scheduledActions: [
+          command('brand-social-audit', 'Weekly Social Audit', 'analytics'),
+          command('brand-asset-refresh', 'Highlight Refresh Reminder', 'videocam'),
+          command('brand-campaign-review', 'Monthly Campaign Review', 'calendar'),
+        ],
+      },
+      coach: {
+        commands: [
+          command(
+            'brand-bio',
+            'Refresh Team Bio',
+            'sparkles',
+            'Sharpen your team or coach positioning'
+          ),
+          command(
+            'brand-media-kit',
+            'Build Recruiting Media Kit',
+            'rocket',
+            'Package culture, staff, and facilities'
+          ),
+          command(
+            'brand-series',
+            'Recruiting Storyline Plan',
+            'list',
+            'Create a recurring content series for recruits'
+          ),
+        ],
+        scheduledActions: [
+          command('brand-social-audit', 'Weekly Program Social Audit', 'analytics'),
+          command('brand-asset-refresh', 'Media Day Asset Refresh', 'videocam'),
+          command('brand-campaign-review', 'Monthly Recruiting Campaign Review', 'calendar'),
+        ],
+      },
+      director: {
+        commands: [
+          command(
+            'brand-bio',
+            'Executive Messaging Refresh',
+            'sparkles',
+            'Update department voice and positioning'
+          ),
+          command(
+            'brand-media-kit',
+            'Build Department Media Kit',
+            'rocket',
+            'Package facilities, culture, and outcomes'
+          ),
+          command(
+            'brand-series',
+            'Season Narrative Plan',
+            'list',
+            'Plan institution-level storytelling arcs'
+          ),
+        ],
+        scheduledActions: [
+          command('brand-social-audit', 'Weekly Brand Health Audit', 'analytics'),
+          command('brand-asset-refresh', 'Executive Asset Refresh', 'videocam'),
+          command('brand-campaign-review', 'Monthly Department Campaign Review', 'calendar'),
+        ],
+      },
+    },
+  },
+  data_coordinator: {
+    roleUiOverrides: {
+      athlete: {
+        commands: [
+          command(
+            'data-dashboard',
+            'Profile Data Snapshot',
+            'analytics',
+            'Summarize your current profile completeness'
+          ),
+          command(
+            'data-benchmark',
+            'Stat Benchmark Check',
+            'pulse',
+            'Compare your latest numbers to targets'
+          ),
+          command(
+            'data-source-audit',
+            'Source Audit',
+            'sync',
+            'Verify every connected data source is current'
+          ),
+        ],
+        scheduledActions: [
+          command('data-integrity-scan', 'Weekly Integrity Scan', 'analytics'),
+          command('data-profile-refresh', 'Profile Refresh Reminder', 'sync'),
+          command('data-stat-qa', 'Monthly Stat QA', 'clipboard'),
+        ],
+      },
+      coach: {
+        commands: [
+          command(
+            'data-dashboard',
+            'Roster Data Snapshot',
+            'analytics',
+            'Summarize roster completeness and gaps'
+          ),
+          command(
+            'data-benchmark',
+            'Team Benchmark Check',
+            'pulse',
+            'Compare team metrics to targets'
+          ),
+          command(
+            'data-source-audit',
+            'Platform Source Audit',
+            'sync',
+            'Verify every roster data feed is current'
+          ),
+        ],
+        scheduledActions: [
+          command('data-integrity-scan', 'Weekly Roster Integrity Scan', 'analytics'),
+          command('data-profile-refresh', 'Roster Refresh Reminder', 'sync'),
+          command('data-stat-qa', 'Monthly Team Stat QA', 'clipboard'),
+        ],
+      },
+      director: {
+        commands: [
+          command(
+            'data-dashboard',
+            'Program Data Snapshot',
+            'analytics',
+            'Summarize department reporting readiness'
+          ),
+          command(
+            'data-benchmark',
+            'Department Benchmark Check',
+            'pulse',
+            'Compare program metrics to targets'
+          ),
+          command(
+            'data-source-audit',
+            'Systems Audit',
+            'sync',
+            'Verify reporting systems and source health'
+          ),
+        ],
+        scheduledActions: [
+          command('data-integrity-scan', 'Weekly Program Integrity Scan', 'analytics'),
+          command('data-profile-refresh', 'Department Refresh Reminder', 'sync'),
+          command('data-stat-qa', 'Monthly Reporting QA', 'clipboard'),
+        ],
+      },
+    },
+  },
+  strategy_coordinator: {
+    roleUiOverrides: {
+      athlete: {
+        commands: [
+          command(
+            'strategy-decision-brief',
+            'Decision Brief',
+            'list',
+            'Clarify the next big athlete decision'
+          ),
+          command(
+            'strategy-risk-map',
+            'Risk Map',
+            'compass',
+            'Expose blockers to your current plan'
+          ),
+          command(
+            'strategy-30-day-plan',
+            '30-Day Action Plan',
+            'rocket',
+            'Map the next month of execution'
+          ),
+        ],
+        scheduledActions: [
+          command('strategy-monday-plan', 'Monday Priority Reset', 'calendar'),
+          command('strategy-midweek-adjust', 'Midweek Adjustment Brief', 'analytics'),
+          command('strategy-weekend-review', 'Weekend Progress Review', 'clipboard'),
+        ],
+      },
+      coach: {
+        commands: [
+          command(
+            'strategy-decision-brief',
+            'Staff Decision Brief',
+            'list',
+            'Clarify the next key team decision'
+          ),
+          command(
+            'strategy-risk-map',
+            'Program Risk Map',
+            'compass',
+            'Expose blockers across staff execution'
+          ),
+          command(
+            'strategy-30-day-plan',
+            '30-Day Staff Plan',
+            'rocket',
+            'Map the next month of priorities'
+          ),
+        ],
+        scheduledActions: [
+          command('strategy-monday-plan', 'Monday Staff Priority Reset', 'calendar'),
+          command('strategy-midweek-adjust', 'Midweek Staff Adjustment Brief', 'analytics'),
+          command('strategy-weekend-review', 'Weekend Staff Review', 'clipboard'),
+        ],
+      },
+      director: {
+        commands: [
+          command(
+            'strategy-decision-brief',
+            'Executive Decision Brief',
+            'list',
+            'Clarify the next leadership decision'
+          ),
+          command(
+            'strategy-risk-map',
+            'Program Risk Map',
+            'compass',
+            'Expose blockers across the department'
+          ),
+          command(
+            'strategy-30-day-plan',
+            '30-Day Executive Plan',
+            'rocket',
+            'Map the next month of institutional priorities'
+          ),
+        ],
+        scheduledActions: [
+          command('strategy-monday-plan', 'Monday Executive Reset', 'calendar'),
+          command('strategy-midweek-adjust', 'Midweek Executive Brief', 'analytics'),
+          command('strategy-weekend-review', 'Weekend Leadership Review', 'clipboard'),
+        ],
+      },
+    },
+  },
+  recruiting_coordinator: {
+    roleUiOverrides: {
+      athlete: {
+        commands: [
+          command(
+            'recruiting-visit-plan',
+            'Visit Prep Plan',
+            'calendar',
+            'Prepare conversations, logistics, and goals'
+          ),
+          command(
+            'recruiting-relationship-map',
+            'Coach Relationship Map',
+            'mail',
+            'Track who to contact and when'
+          ),
+          command(
+            'recruiting-board-audit',
+            'Target Board Audit',
+            'search',
+            'Stress-test your school list and priorities'
+          ),
+        ],
+        scheduledActions: [
+          command('recruiting-relationship-checkin', 'Weekly Relationship Check-In', 'mail'),
+          command('recruiting-followup-reminders', 'Follow-Up Reminder Queue', 'send'),
+          command('recruiting-board-refresh', 'Monthly Target Board Refresh', 'calendar'),
+        ],
+      },
+      coach: {
+        commands: [
+          command(
+            'recruiting-visit-plan',
+            'Official Visit Plan',
+            'calendar',
+            'Prepare visit flow, touchpoints, and logistics'
+          ),
+          command(
+            'recruiting-relationship-map',
+            'Recruiter Relationship Map',
+            'mail',
+            'Track decision-makers and key relationships'
+          ),
+          command(
+            'recruiting-board-audit',
+            'Board Audit',
+            'search',
+            'Pressure-test your recruiting board and gaps'
+          ),
+        ],
+        scheduledActions: [
+          command('recruiting-relationship-checkin', 'Weekly Recruiter Check-In', 'mail'),
+          command('recruiting-followup-reminders', 'Follow-Up Reminder Queue', 'send'),
+          command('recruiting-board-refresh', 'Monthly Board Refresh', 'calendar'),
+        ],
+      },
+      director: {
+        commands: [
+          command(
+            'recruiting-visit-plan',
+            'Executive Visit Plan',
+            'calendar',
+            'Coordinate premium visit experiences and approvals'
+          ),
+          command(
+            'recruiting-relationship-map',
+            'Stakeholder Relationship Map',
+            'mail',
+            'Track high-value relationships across the pipeline'
+          ),
+          command(
+            'recruiting-board-audit',
+            'Pipeline Audit',
+            'search',
+            'Pressure-test the board against program priorities'
+          ),
+        ],
+        scheduledActions: [
+          command('recruiting-relationship-checkin', 'Weekly Pipeline Check-In', 'mail'),
+          command('recruiting-followup-reminders', 'Executive Follow-Up Queue', 'send'),
+          command('recruiting-board-refresh', 'Monthly Pipeline Refresh', 'calendar'),
+        ],
+      },
+    },
+  },
+  performance_coordinator: {
+    roleUiOverrides: {
+      athlete: {
+        commands: [
+          command(
+            'performance-development-plan',
+            'Development Plan',
+            'list',
+            'Turn insights into a clear improvement plan'
+          ),
+          command(
+            'performance-workload-review',
+            'Workload Review',
+            'analytics',
+            'Assess training balance and fatigue risk'
+          ),
+          command(
+            'performance-readiness-scan',
+            'Readiness Scan',
+            'pulse',
+            'Summarize what you are ready for next'
+          ),
+        ],
+        scheduledActions: [
+          command('performance-film-review', 'Weekly Film Review', 'videocam'),
+          command('performance-benchmark-refresh', 'Benchmark Refresh', 'analytics'),
+          command('performance-readiness-check', 'Weekly Readiness Check', 'pulse'),
+        ],
+      },
+      coach: {
+        commands: [
+          command(
+            'performance-development-plan',
+            'Player Development Plan',
+            'list',
+            'Turn performance signals into staff action'
+          ),
+          command(
+            'performance-workload-review',
+            'Roster Workload Review',
+            'analytics',
+            'Assess fatigue risk and training balance'
+          ),
+          command(
+            'performance-readiness-scan',
+            'Readiness Scan',
+            'pulse',
+            'Summarize roster readiness for the week'
+          ),
+        ],
+        scheduledActions: [
+          command('performance-film-review', 'Weekly Team Film Review', 'videocam'),
+          command('performance-benchmark-refresh', 'Roster Benchmark Refresh', 'analytics'),
+          command('performance-readiness-check', 'Weekly Roster Readiness Check', 'pulse'),
+        ],
+      },
+      director: {
+        commands: [
+          command(
+            'performance-development-plan',
+            'Program Development Plan',
+            'list',
+            'Turn insights into department-wide priorities'
+          ),
+          command(
+            'performance-workload-review',
+            'Department Workload Review',
+            'analytics',
+            'Assess readiness and fatigue across units'
+          ),
+          command(
+            'performance-readiness-scan',
+            'Program Readiness Scan',
+            'pulse',
+            'Summarize readiness for key competition windows'
+          ),
+        ],
+        scheduledActions: [
+          command('performance-film-review', 'Weekly Program Film Review', 'videocam'),
+          command('performance-benchmark-refresh', 'Program Benchmark Refresh', 'analytics'),
+          command('performance-readiness-check', 'Weekly Program Readiness Check', 'pulse'),
+        ],
+      },
+    },
+  },
+};
+
 export const DEFAULT_COORDINATOR_UI_CONFIG: Readonly<
   Record<
     CoordinatorIdentifier,
     {
+      readonly description: string;
       readonly availableForRoles: readonly DashboardRole[];
       readonly commands: readonly ShellActionChip[];
       readonly scheduledActions: readonly ShellActionChip[];
       readonly roleUiOverrides: Readonly<Partial<Record<DashboardRole, CoordinatorRoleUiOverride>>>;
     }
   >
-> = {
-  admin_coordinator: {
-    availableForRoles: DASHBOARD_TEAM_ROLES,
-    commands: [
-      command('admin-compliance', 'Compliance Check', 'shieldCheck', 'NCAA and policy checks'),
-      command('admin-eligibility', 'Eligibility Review', 'clipboard', 'Verify eligibility status'),
-      command('admin-schedule', 'Scheduling Plan', 'calendar', 'Build practice and visit timing'),
-    ],
-    scheduledActions: [
-      command('admin-weekly-compliance', 'Weekly Compliance Audit', 'shieldCheck'),
-    ],
-    roleUiOverrides: {
-      coach: roleOverride(
-        'Coordinate compliance, eligibility, and calendar operations for your roster.',
-        [
-          command(
-            'admin-compliance',
-            'Roster Compliance Check',
-            'shieldCheck',
-            'Review roster rules and gaps'
-          ),
-          command(
-            'admin-eligibility',
-            'Eligibility Review',
-            'clipboard',
-            'Flag athlete status issues'
-          ),
-          command(
-            'admin-schedule',
-            'Practice Scheduling Plan',
-            'calendar',
-            'Sequence practice and visit timing'
-          ),
-        ],
-        [command('admin-weekly-compliance', 'Weekly Team Compliance Audit', 'shieldCheck')]
-      ),
-      director: roleOverride(
-        'Run program-level governance, eligibility oversight, and operational planning.',
-        [
-          command(
-            'admin-compliance',
-            'Program Compliance Audit',
-            'shieldCheck',
-            'Audit policy and NCAA exposure'
-          ),
-          command(
-            'admin-eligibility',
-            'Eligibility Risk Review',
-            'clipboard',
-            'Check institution-wide readiness'
-          ),
-          command(
-            'admin-schedule',
-            'Department Scheduling Plan',
-            'calendar',
-            'Coordinate staff and key dates'
-          ),
-        ],
-        [command('admin-weekly-compliance', 'Weekly Program Compliance Audit', 'shieldCheck')]
-      ),
+> = applyCoordinatorPromptTextConfig(
+  applyEliteCoordinatorUiConfig({
+    admin_coordinator: {
+      description:
+        'Manage compliance, eligibility, scheduling, and operational readiness for athletes, staff, and programs.',
+      availableForRoles: DASHBOARD_TEAM_ROLES,
+      commands: [
+        command('admin-compliance', 'Compliance Check', 'shieldCheck', 'NCAA and policy checks'),
+        command(
+          'admin-eligibility',
+          'Eligibility Review',
+          'clipboard',
+          'Verify eligibility status'
+        ),
+        command('admin-schedule', 'Scheduling Plan', 'calendar', 'Build practice and visit timing'),
+      ],
+      scheduledActions: [
+        command('admin-weekly-compliance', 'Weekly Compliance Audit', 'shieldCheck'),
+      ],
+      roleUiOverrides: {
+        coach: roleOverride(
+          'Coordinate compliance, eligibility, and calendar operations for your roster.',
+          [
+            command(
+              'admin-compliance',
+              'Roster Compliance Check',
+              'shieldCheck',
+              'Review roster rules and gaps'
+            ),
+            command(
+              'admin-eligibility',
+              'Eligibility Review',
+              'clipboard',
+              'Flag athlete status issues'
+            ),
+            command(
+              'admin-schedule',
+              'Practice Scheduling Plan',
+              'calendar',
+              'Sequence practice and visit timing'
+            ),
+          ],
+          [command('admin-weekly-compliance', 'Weekly Team Compliance Audit', 'shieldCheck')]
+        ),
+        director: roleOverride(
+          'Run program-level governance, eligibility oversight, and operational planning.',
+          [
+            command(
+              'admin-compliance',
+              'Program Compliance Audit',
+              'shieldCheck',
+              'Audit policy and NCAA exposure'
+            ),
+            command(
+              'admin-eligibility',
+              'Eligibility Risk Review',
+              'clipboard',
+              'Check institution-wide readiness'
+            ),
+            command(
+              'admin-schedule',
+              'Department Scheduling Plan',
+              'calendar',
+              'Coordinate staff and key dates'
+            ),
+          ],
+          [command('admin-weekly-compliance', 'Weekly Program Compliance Audit', 'shieldCheck')]
+        ),
+      },
     },
-  },
-  brand_coordinator: {
-    availableForRoles: DASHBOARD_ALL_ROLES,
-    commands: [
-      command('brand-post', 'Create Brand Post', 'sparkles', 'Generate social-ready creative'),
-      command(
-        'brand-highlight',
-        'Build Highlight Concept',
-        'videocam',
-        'Storyboard your next reel'
-      ),
-      command('brand-campaign', 'Launch Campaign Plan', 'rocket', 'Plan content by timeline'),
-    ],
-    scheduledActions: [command('brand-weekly-content', 'Weekly Content Plan', 'calendar')],
-    roleUiOverrides: {
-      athlete: roleOverride(
-        'Build your athlete brand with content ideas, highlight packaging, and weekly posting guidance.',
-        [
-          command(
-            'brand-post',
-            'Create Athlete Post',
-            'sparkles',
-            'Generate social-ready athlete content'
-          ),
-          command(
-            'brand-highlight',
-            'Build Highlight Concept',
-            'videocam',
-            'Storyboard your next reel'
-          ),
-          command(
-            'brand-campaign',
-            'Personal Brand Campaign',
-            'rocket',
-            'Plan your weekly content arc'
-          ),
-        ],
-        [command('brand-weekly-content', 'Weekly Athlete Content Plan', 'calendar')]
-      ),
-      coach: roleOverride(
-        'Shape your team or staff brand with recruiting content, facility storytelling, and program voice.',
-        [
-          command('brand-post', 'Create Team Post', 'sparkles', 'Generate team-facing creative'),
-          command(
-            'brand-highlight',
-            'Build Program Highlight Concept',
-            'videocam',
-            'Showcase your culture and results'
-          ),
-          command(
-            'brand-campaign',
-            'Program Campaign Plan',
-            'rocket',
-            'Sequence content across your calendar'
-          ),
-        ],
-        [command('brand-weekly-content', 'Weekly Program Content Plan', 'calendar')]
-      ),
-      director: roleOverride(
-        'Coordinate brand, storytelling, and executive communications for the full program.',
-        [
-          command(
-            'brand-post',
-            'Create Department Post',
-            'sparkles',
-            'Generate executive-level creative'
-          ),
-          command(
-            'brand-highlight',
-            'Build Facilities Showcase',
-            'videocam',
-            'Package a premium program story'
-          ),
-          command(
-            'brand-campaign',
-            'Department Campaign Plan',
-            'rocket',
-            'Align brand work to major dates'
-          ),
-        ],
-        [command('brand-weekly-content', 'Weekly Department Content Plan', 'calendar')]
-      ),
+    brand_coordinator: {
+      description:
+        'Create brand content, highlights, and campaign-ready creative for athletes, teams, and departments.',
+      availableForRoles: DASHBOARD_ALL_ROLES,
+      commands: [
+        command('brand-post', 'Create Brand Post', 'sparkles', 'Generate social-ready creative'),
+        command(
+          'brand-highlight',
+          'Build Highlight Concept',
+          'videocam',
+          'Storyboard your next reel'
+        ),
+        command('brand-campaign', 'Launch Campaign Plan', 'rocket', 'Plan content by timeline'),
+      ],
+      scheduledActions: [command('brand-weekly-content', 'Weekly Content Plan', 'calendar')],
+      roleUiOverrides: {
+        athlete: roleOverride(
+          'Build your athlete brand with content ideas, highlight packaging, and weekly posting guidance.',
+          [
+            command(
+              'brand-post',
+              'Create Athlete Post',
+              'sparkles',
+              'Generate social-ready athlete content'
+            ),
+            command(
+              'brand-highlight',
+              'Build Highlight Concept',
+              'videocam',
+              'Storyboard your next reel'
+            ),
+            command(
+              'brand-campaign',
+              'Personal Brand Campaign',
+              'rocket',
+              'Plan your weekly content arc'
+            ),
+          ],
+          [command('brand-weekly-content', 'Weekly Athlete Content Plan', 'calendar')]
+        ),
+        coach: roleOverride(
+          'Shape your team or staff brand with recruiting content, facility storytelling, and program voice.',
+          [
+            command('brand-post', 'Create Team Post', 'sparkles', 'Generate team-facing creative'),
+            command(
+              'brand-highlight',
+              'Build Program Highlight Concept',
+              'videocam',
+              'Showcase your culture and results'
+            ),
+            command(
+              'brand-campaign',
+              'Program Campaign Plan',
+              'rocket',
+              'Sequence content across your calendar'
+            ),
+          ],
+          [command('brand-weekly-content', 'Weekly Program Content Plan', 'calendar')]
+        ),
+        director: roleOverride(
+          'Coordinate brand, storytelling, and executive communications for the full program.',
+          [
+            command(
+              'brand-post',
+              'Create Department Post',
+              'sparkles',
+              'Generate executive-level creative'
+            ),
+            command(
+              'brand-highlight',
+              'Build Facilities Showcase',
+              'videocam',
+              'Package a premium program story'
+            ),
+            command(
+              'brand-campaign',
+              'Department Campaign Plan',
+              'rocket',
+              'Align brand work to major dates'
+            ),
+          ],
+          [command('brand-weekly-content', 'Weekly Department Content Plan', 'calendar')]
+        ),
+      },
     },
-  },
-  data_coordinator: {
-    availableForRoles: DASHBOARD_ALL_ROLES,
-    commands: [
-      command('data-sync', 'Sync External Profiles', 'sync', 'Refresh Hudl/MaxPreps style sources'),
-      command('data-import', 'Import Stats', 'analytics', 'Parse and normalize stat data'),
-      command('data-clean', 'Clean Data Gaps', 'server', 'Resolve missing fields quickly'),
-    ],
-    scheduledActions: [command('data-weekly-sync', 'Weekly Data Sync', 'sync')],
-    roleUiOverrides: {
-      athlete: roleOverride(
-        'Keep your profile, stats, and recruiting data accurate across every connected source.',
-        [
-          command('data-sync', 'Sync Athlete Profiles', 'sync', 'Refresh linked athlete sources'),
-          command(
-            'data-import',
-            'Import Athlete Stats',
-            'analytics',
-            'Normalize your latest stat line'
-          ),
-          command(
-            'data-clean',
-            'Clean Profile Gaps',
-            'server',
-            'Fix missing profile details quickly'
-          ),
-        ],
-        [command('data-weekly-sync', 'Weekly Athlete Data Sync', 'sync')]
-      ),
-      coach: roleOverride(
-        'Audit roster data, connected sources, and stat integrity so staff decisions stay current.',
-        [
-          command(
-            'data-sync',
-            'Sync Team Data Sources',
-            'sync',
-            'Refresh roster-connected platforms'
-          ),
-          command('data-import', 'Import Team Stats', 'analytics', 'Normalize team stat feeds'),
-          command('data-clean', 'Resolve Roster Data Gaps', 'server', 'Fix missing roster fields'),
-        ],
-        [command('data-weekly-sync', 'Weekly Team Data Sync', 'sync')]
-      ),
-      director: roleOverride(
-        'Maintain decision-ready program data across staff, rosters, and reporting systems.',
-        [
-          command(
-            'data-sync',
-            'Sync Program Data Sources',
-            'sync',
-            'Refresh department-wide sources'
-          ),
-          command(
-            'data-import',
-            'Import Department Metrics',
-            'analytics',
-            'Normalize reporting inputs'
-          ),
-          command(
-            'data-clean',
-            'Clean Program Data Gaps',
-            'server',
-            'Resolve missing reporting fields'
-          ),
-        ],
-        [command('data-weekly-sync', 'Weekly Program Data Sync', 'sync')]
-      ),
+    data_coordinator: {
+      description:
+        'Sync, import, and clean profile, roster, and reporting data so every decision runs on current information.',
+      availableForRoles: DASHBOARD_ALL_ROLES,
+      commands: [
+        command(
+          'data-sync',
+          'Sync External Profiles',
+          'sync',
+          'Refresh Hudl/MaxPreps style sources'
+        ),
+        command('data-import', 'Import Stats', 'analytics', 'Parse and normalize stat data'),
+        command('data-clean', 'Clean Data Gaps', 'server', 'Resolve missing fields quickly'),
+      ],
+      scheduledActions: [command('data-weekly-sync', 'Weekly Data Sync', 'sync')],
+      roleUiOverrides: {
+        athlete: roleOverride(
+          'Keep your profile, stats, and recruiting data accurate across every connected source.',
+          [
+            command('data-sync', 'Sync Athlete Profiles', 'sync', 'Refresh linked athlete sources'),
+            command(
+              'data-import',
+              'Import Athlete Stats',
+              'analytics',
+              'Normalize your latest stat line'
+            ),
+            command(
+              'data-clean',
+              'Clean Profile Gaps',
+              'server',
+              'Fix missing profile details quickly'
+            ),
+          ],
+          [command('data-weekly-sync', 'Weekly Athlete Data Sync', 'sync')]
+        ),
+        coach: roleOverride(
+          'Audit roster data, connected sources, and stat integrity so staff decisions stay current.',
+          [
+            command(
+              'data-sync',
+              'Sync Team Data Sources',
+              'sync',
+              'Refresh roster-connected platforms'
+            ),
+            command('data-import', 'Import Team Stats', 'analytics', 'Normalize team stat feeds'),
+            command(
+              'data-clean',
+              'Resolve Roster Data Gaps',
+              'server',
+              'Fix missing roster fields'
+            ),
+          ],
+          [command('data-weekly-sync', 'Weekly Team Data Sync', 'sync')]
+        ),
+        director: roleOverride(
+          'Maintain decision-ready program data across staff, rosters, and reporting systems.',
+          [
+            command(
+              'data-sync',
+              'Sync Program Data Sources',
+              'sync',
+              'Refresh department-wide sources'
+            ),
+            command(
+              'data-import',
+              'Import Department Metrics',
+              'analytics',
+              'Normalize reporting inputs'
+            ),
+            command(
+              'data-clean',
+              'Clean Program Data Gaps',
+              'server',
+              'Resolve missing reporting fields'
+            ),
+          ],
+          [command('data-weekly-sync', 'Weekly Program Data Sync', 'sync')]
+        ),
+      },
     },
-  },
-  strategy_coordinator: {
-    availableForRoles: DASHBOARD_ALL_ROLES,
-    commands: [
-      command('strategy-priority', 'Priority Plan', 'compass', "Set this week's top moves"),
-      command('strategy-goals', 'Goal Breakdown', 'list', 'Turn goals into executable steps'),
-      command('strategy-qa', 'Ask Agent X', 'chatbubble', 'Get strategic guidance'),
-    ],
-    scheduledActions: [command('strategy-weekly-brief', 'Weekly Strategy Brief', 'calendar')],
-    roleUiOverrides: {
-      athlete: roleOverride(
-        'Turn your recruiting, performance, and brand goals into a focused weekly athlete plan.',
-        [
-          command(
-            'strategy-priority',
-            'Athlete Priority Plan',
-            'compass',
-            "Set this week's top athlete moves"
-          ),
-          command(
-            'strategy-goals',
-            'Break Down My Goals',
-            'list',
-            'Turn your goals into daily steps'
-          ),
-          command(
-            'strategy-qa',
-            'Ask Agent X',
-            'chatbubble',
-            'Get athlete-specific strategy guidance'
-          ),
-        ],
-        [command('strategy-weekly-brief', 'Weekly Athlete Strategy Brief', 'calendar')]
-      ),
-      coach: roleOverride(
-        'Prioritize staff execution across recruiting, player development, and team operations.',
-        [
-          command(
-            'strategy-priority',
-            'Team Priority Plan',
-            'compass',
-            "Set this week's team priorities"
-          ),
-          command(
-            'strategy-goals',
-            'Break Down Staff Goals',
-            'list',
-            'Convert goals into staff actions'
-          ),
-          command('strategy-qa', 'Ask Agent X', 'chatbubble', 'Get coach-level strategic guidance'),
-        ],
-        [command('strategy-weekly-brief', 'Weekly Team Strategy Brief', 'calendar')]
-      ),
-      director: roleOverride(
-        'Coordinate executive priorities across staffing, budget, recruiting, and program growth.',
-        [
-          command(
-            'strategy-priority',
-            'Program Priority Plan',
-            'compass',
-            'Set department-level priorities'
-          ),
-          command(
-            'strategy-goals',
-            'Break Down Program Goals',
-            'list',
-            'Turn leadership goals into workstreams'
-          ),
-          command('strategy-qa', 'Ask Agent X', 'chatbubble', 'Get executive strategy guidance'),
-        ],
-        [command('strategy-weekly-brief', 'Weekly Program Strategy Brief', 'calendar')]
-      ),
+    strategy_coordinator: {
+      description:
+        'Build game plans, playbook priorities, opponent responses, and weekly execution frameworks for athletes, staffs, and programs.',
+      availableForRoles: DASHBOARD_ALL_ROLES,
+      commands: [
+        command(
+          'strategy-priority',
+          'Game Plan',
+          'compass',
+          'Build the clearest plan for the next phase'
+        ),
+        command(
+          'strategy-goals',
+          'Strategy Breakdown',
+          'list',
+          'Turn a goal into a step-by-step plan'
+        ),
+        command(
+          'strategy-qa',
+          'Scenario Planner',
+          'chatbubble',
+          'Work through options, risks, and counters'
+        ),
+      ],
+      scheduledActions: [command('strategy-weekly-brief', 'Weekly Game Plan Brief', 'calendar')],
+      roleUiOverrides: {
+        athlete: roleOverride(
+          'Build personal game plans, film-study priorities, and weekly execution plans for training, competition, and game-time decisions.',
+          [
+            command(
+              'strategy-priority',
+              'Athlete Game Plan',
+              'compass',
+              'Map the next set of athlete priorities'
+            ),
+            command(
+              'strategy-goals',
+              'Break Down My Strategy',
+              'list',
+              'Turn a target into daily execution steps'
+            ),
+            command(
+              'strategy-qa',
+              'Scenario Planner',
+              'chatbubble',
+              'Work through choices, counters, and risks'
+            ),
+          ],
+          [command('strategy-weekly-brief', 'Weekly Athlete Game Plan', 'calendar')]
+        ),
+        coach: roleOverride(
+          'Create team game plans, playbook priorities, opponent prep, and weekly execution strategy for game time.',
+          [
+            command(
+              'strategy-priority',
+              'Team Game Plan',
+              'compass',
+              'Set the clearest plan for the next competition window'
+            ),
+            command(
+              'strategy-goals',
+              'Strategy Breakdown',
+              'list',
+              'Turn a team objective into coordinated staff action'
+            ),
+            command(
+              'strategy-qa',
+              'Scenario Planner',
+              'chatbubble',
+              'Model counters, contingencies, and adjustments'
+            ),
+          ],
+          [command('strategy-weekly-brief', 'Weekly Team Game Plan', 'calendar')]
+        ),
+        director: roleOverride(
+          'Set program-wide game-planning priorities, playbook standards, opponent-prep workflows, and weekly execution frameworks across teams and staffs.',
+          [
+            command(
+              'strategy-priority',
+              'Program Game Plan',
+              'compass',
+              'Set the clearest game-planning priorities across the program'
+            ),
+            command(
+              'strategy-goals',
+              'Strategy Breakdown',
+              'list',
+              'Turn playbook priorities into accountable workstreams'
+            ),
+            command(
+              'strategy-qa',
+              'Scenario Planner',
+              'chatbubble',
+              'Model game-time options, risks, and pivots'
+            ),
+          ],
+          [command('strategy-weekly-brief', 'Weekly Program Game Plan', 'calendar')]
+        ),
+      },
     },
-  },
-  recruiting_coordinator: {
-    availableForRoles: DASHBOARD_ALL_ROLES,
-    commands: [
-      command('recruiting-targets', 'Build Target List', 'search', 'Match schools by fit'),
-      command('recruiting-email', 'Draft Coach Outreach', 'mail', 'Generate personalized email'),
-      command('recruiting-followup', 'Follow-Up Sequence', 'send', 'Plan next outreach steps'),
-    ],
-    scheduledActions: [command('recruiting-weekly-outreach', 'Weekly Outreach', 'mail')],
-    roleUiOverrides: {
-      athlete: roleOverride(
-        'Map your school targets, outreach, and follow-up plan around your athlete profile.',
-        [
-          command(
-            'recruiting-targets',
-            'Build My Target List',
-            'search',
-            'Match schools to your fit'
-          ),
-          command(
-            'recruiting-email',
-            'Draft Coach Outreach',
-            'mail',
-            'Generate athlete-specific emails'
-          ),
-          command(
-            'recruiting-followup',
-            'Follow-Up Sequence',
-            'send',
-            'Plan your next recruiting touches'
-          ),
-        ],
-        [command('recruiting-weekly-outreach', 'Weekly Athlete Outreach', 'mail')]
-      ),
-      coach: roleOverride(
-        'Coordinate prospect evaluation, outreach timing, and staff follow-up across your board.',
-        [
-          command(
-            'recruiting-targets',
-            'Build Prospect Target List',
-            'search',
-            'Match prospects by fit'
-          ),
-          command(
-            'recruiting-email',
-            'Draft Recruit Outreach',
-            'mail',
-            'Generate personalized outreach'
-          ),
-          command(
-            'recruiting-followup',
-            'Staff Follow-Up Sequence',
-            'send',
-            'Plan next recruiting actions'
-          ),
-        ],
-        [command('recruiting-weekly-outreach', 'Weekly Recruiting Outreach', 'mail')]
-      ),
-      director: roleOverride(
-        'Manage recruiting pipeline strategy, outreach cadence, and institutional fit at scale.',
-        [
-          command(
-            'recruiting-targets',
-            'Build Program Target List',
-            'search',
-            'Align targets to program strategy'
-          ),
-          command(
-            'recruiting-email',
-            'Draft Executive Outreach',
-            'mail',
-            'Generate high-level recruiting comms'
-          ),
-          command(
-            'recruiting-followup',
-            'Pipeline Follow-Up Sequence',
-            'send',
-            'Sequence department outreach'
-          ),
-        ],
-        [command('recruiting-weekly-outreach', 'Weekly Program Outreach', 'mail')]
-      ),
+    recruiting_coordinator: {
+      description:
+        'Run outreach, target lists, recruiting follow-up, and pipeline planning across athlete and program workflows.',
+      availableForRoles: DASHBOARD_ALL_ROLES,
+      commands: [
+        command('recruiting-targets', 'Build Target List', 'search', 'Match schools by fit'),
+        command('recruiting-email', 'Draft Coach Outreach', 'mail', 'Generate personalized email'),
+        command('recruiting-followup', 'Follow-Up Sequence', 'send', 'Plan next outreach steps'),
+      ],
+      scheduledActions: [command('recruiting-weekly-outreach', 'Weekly Outreach', 'mail')],
+      roleUiOverrides: {
+        athlete: roleOverride(
+          'Map your school targets, outreach, and follow-up plan around your athlete profile.',
+          [
+            command(
+              'recruiting-targets',
+              'Build My Target List',
+              'search',
+              'Match schools to your fit'
+            ),
+            command(
+              'recruiting-email',
+              'Draft Coach Outreach',
+              'mail',
+              'Generate athlete-specific emails'
+            ),
+            command(
+              'recruiting-followup',
+              'Follow-Up Sequence',
+              'send',
+              'Plan your next recruiting touches'
+            ),
+          ],
+          [command('recruiting-weekly-outreach', 'Weekly Athlete Outreach', 'mail')]
+        ),
+        coach: roleOverride(
+          'Coordinate prospect evaluation, outreach timing, and staff follow-up across your board.',
+          [
+            command(
+              'recruiting-targets',
+              'Build Prospect Target List',
+              'search',
+              'Match prospects by fit'
+            ),
+            command(
+              'recruiting-email',
+              'Draft Recruit Outreach',
+              'mail',
+              'Generate personalized outreach'
+            ),
+            command(
+              'recruiting-followup',
+              'Staff Follow-Up Sequence',
+              'send',
+              'Plan next recruiting actions'
+            ),
+          ],
+          [command('recruiting-weekly-outreach', 'Weekly Recruiting Outreach', 'mail')]
+        ),
+        director: roleOverride(
+          'Manage recruiting pipeline strategy, outreach cadence, and institutional fit at scale.',
+          [
+            command(
+              'recruiting-targets',
+              'Build Program Target List',
+              'search',
+              'Align targets to program strategy'
+            ),
+            command(
+              'recruiting-email',
+              'Draft Executive Outreach',
+              'mail',
+              'Generate high-level recruiting comms'
+            ),
+            command(
+              'recruiting-followup',
+              'Pipeline Follow-Up Sequence',
+              'send',
+              'Sequence department outreach'
+            ),
+          ],
+          [command('recruiting-weekly-outreach', 'Weekly Program Outreach', 'mail')]
+        ),
+      },
     },
-  },
-  performance_coordinator: {
-    availableForRoles: DASHBOARD_ALL_ROLES,
-    commands: [
-      command('performance-intel', 'Generate Intel Report', 'pulse', 'Write athlete/team intel'),
-      command('performance-film', 'Film Breakdown', 'videocam', 'Analyze clips for insights'),
-      command(
-        'performance-compare',
-        'Prospect Comparison',
-        'gitCompare',
-        'Stack players by metrics'
-      ),
-    ],
-    scheduledActions: [
-      command('performance-weekly-review', 'Weekly Performance Review', 'analytics'),
-    ],
-    roleUiOverrides: {
-      athlete: roleOverride(
-        'Review your film, performance signals, and development priorities in one place.',
-        [
-          command(
-            'performance-intel',
-            'Generate Athlete Intel Report',
-            'pulse',
-            'Summarize your development signals'
-          ),
-          command(
-            'performance-film',
-            'Athlete Film Breakdown',
-            'videocam',
-            'Analyze your clips for next steps'
-          ),
-          command(
-            'performance-compare',
-            'Prospect Comparison',
-            'gitCompare',
-            'Compare yourself against peers'
-          ),
-        ],
-        [command('performance-weekly-review', 'Weekly Athlete Performance Review', 'analytics')]
-      ),
-      coach: roleOverride(
-        'Turn film, training, and roster metrics into decisions for your team and player development.',
-        [
-          command(
-            'performance-intel',
-            'Generate Team Intel Report',
-            'pulse',
-            'Summarize roster performance signals'
-          ),
-          command(
-            'performance-film',
-            'Team Film Breakdown',
-            'videocam',
-            'Analyze clips for staff takeaways'
-          ),
-          command(
-            'performance-compare',
-            'Player Comparison',
-            'gitCompare',
-            'Stack athletes by metrics'
-          ),
-        ],
-        [command('performance-weekly-review', 'Weekly Team Performance Review', 'analytics')]
-      ),
-      director: roleOverride(
-        'Monitor department performance trends, film insights, and development readiness across the program.',
-        [
-          command(
-            'performance-intel',
-            'Generate Program Intel Report',
-            'pulse',
-            'Summarize program-wide signals'
-          ),
-          command(
-            'performance-film',
-            'Program Film Review',
-            'videocam',
-            'Analyze clips for executive insights'
-          ),
-          command(
-            'performance-compare',
-            'Program Comparison',
-            'gitCompare',
-            'Compare units by metrics'
-          ),
-        ],
-        [command('performance-weekly-review', 'Weekly Program Performance Review', 'analytics')]
-      ),
+    performance_coordinator: {
+      description:
+        'Own scouting reports, film breakdowns, analysis, and performance intelligence so every decision is grounded in evidence.',
+      availableForRoles: DASHBOARD_ALL_ROLES,
+      commands: [
+        command(
+          'performance-intel',
+          'Scouting & Intel Report',
+          'pulse',
+          'Generate a scouting-driven performance report'
+        ),
+        command(
+          'performance-film',
+          'Film & Analysis Review',
+          'videocam',
+          'Break down clips, tendencies, and takeaways'
+        ),
+        command(
+          'performance-compare',
+          'Player Comparison',
+          'gitCompare',
+          'Compare prospects, matchups, and metrics'
+        ),
+      ],
+      scheduledActions: [
+        command('performance-weekly-review', 'Weekly Scouting Review', 'analytics'),
+      ],
+      roleUiOverrides: {
+        athlete: roleOverride(
+          'Review self-scouting, film analysis, and performance priorities in one place.',
+          [
+            command(
+              'performance-intel',
+              'Self-Scouting Report',
+              'pulse',
+              'Summarize performance signals and scout feedback'
+            ),
+            command(
+              'performance-film',
+              'Film Analysis Review',
+              'videocam',
+              'Break down your clips for actionable next steps'
+            ),
+            command(
+              'performance-compare',
+              'Benchmark Comparison',
+              'gitCompare',
+              'Compare yourself against peers and standards'
+            ),
+          ],
+          [command('performance-weekly-review', 'Weekly Athlete Scouting Review', 'analytics')]
+        ),
+        coach: roleOverride(
+          'Turn scouting, film study, and roster metrics into sharper coaching and development decisions.',
+          [
+            command(
+              'performance-intel',
+              'Scouting Report',
+              'pulse',
+              'Summarize roster scouting and performance signals'
+            ),
+            command(
+              'performance-film',
+              'Opponent Film Review',
+              'videocam',
+              'Break down tendencies, matchups, and adjustments'
+            ),
+            command(
+              'performance-compare',
+              'Player Comparison',
+              'gitCompare',
+              'Stack athletes, matchups, and roles by metrics'
+            ),
+          ],
+          [command('performance-weekly-review', 'Weekly Team Scouting Review', 'analytics')]
+        ),
+        director: roleOverride(
+          'Monitor scouting trends, film insights, and readiness across the full program.',
+          [
+            command(
+              'performance-intel',
+              'Program Scouting Report',
+              'pulse',
+              'Summarize scouting and performance signals program-wide'
+            ),
+            command(
+              'performance-film',
+              'Film Intelligence Review',
+              'videocam',
+              'Review film trends, tendencies, and risk signals'
+            ),
+            command(
+              'performance-compare',
+              'Unit Comparison',
+              'gitCompare',
+              'Compare units, groups, and benchmarks by metrics'
+            ),
+          ],
+          [command('performance-weekly-review', 'Weekly Program Scouting Review', 'analytics')]
+        ),
+      },
     },
-  },
-};
+  })
+);
 
 const coordinatorDescriptorSchema = z.object({
   id: z.enum(coordinatorIds),
@@ -720,6 +1612,8 @@ const modelRoutingSchema = z
 
 const promptsSchema = z
   .object({
+    classifierSystemPrompt: z.string().trim().min(1).optional(),
+    conversationSystemPrompt: z.string().trim().min(1).optional(),
     plannerSystemPrompt: z.string().trim().min(1).optional(),
     agentSystemPrompts: z.record(z.string(), z.string().trim().min(1)).default({}),
   })
@@ -808,9 +1702,86 @@ export interface AgentAppConfig {
 
 export interface ConfiguredCoordinatorDescriptor extends AgentDescriptor {
   readonly availableForRoles: readonly string[];
-  readonly commands: readonly ShellActionChip[];
-  readonly scheduledActions: readonly ShellActionChip[];
+  readonly commands: readonly ConfiguredCoordinatorActionChip[];
+  readonly scheduledActions: readonly ConfiguredCoordinatorActionChip[];
   readonly roleUiOverrides: Readonly<Partial<Record<DashboardRole, CoordinatorRoleUiOverride>>>;
+}
+
+export interface ResolvedCoordinatorAction extends ShellActionChip {
+  readonly executionPrompt: string;
+}
+
+function toShellActionChip(action: ConfiguredCoordinatorActionChip): ShellActionChip {
+  return {
+    id: action.id,
+    label: action.label,
+    icon: action.icon,
+    ...(action.subLabel ? { subLabel: action.subLabel } : {}),
+    ...(action.promptText ? { promptText: action.promptText } : {}),
+  };
+}
+
+function buildFallbackExecutionPrompt(params: {
+  readonly coordinatorName: string;
+  readonly coordinatorDescription: string;
+  readonly action: ConfiguredCoordinatorActionChip;
+  readonly surface: AgentXSelectedActionSurface;
+  readonly role: DashboardRole;
+}): string {
+  const surfaceInstruction =
+    params.surface === 'scheduled'
+      ? 'Treat this as a repeatable scheduled workflow. Build a concrete cadence, execution checklist, timing recommendations, and follow-up checkpoints.'
+      : 'Treat this as an immediate coordinator request. Execute the task directly and return the strongest practical deliverable you can produce now.';
+
+  return [
+    `You are ${params.coordinatorName} operating for the ${params.role} dashboard experience.`,
+    `Coordinator mandate: ${params.coordinatorDescription}`,
+    `Selected action: ${params.action.label}.`,
+    params.action.subLabel ? `Action context: ${params.action.subLabel}.` : null,
+    surfaceInstruction,
+    'Execution requirements:',
+    '1. Infer the highest-probability user outcome behind this coordinator action and complete that work proactively.',
+    '2. Produce a concrete deliverable in a polished, professional format instead of generic commentary.',
+    '3. Use structure when it helps: sections, bullet lists, timelines, scenario plans, or decision frameworks.',
+    '4. Ask follow-up questions only when information is truly blocking the deliverable.',
+    '5. Tailor the response to the user role, sports workflow, and likely operational context.',
+    '6. End with the clearest next action or decision the user should take.',
+  ]
+    .filter((part): part is string => typeof part === 'string' && part.trim().length > 0)
+    .join('\n');
+}
+
+function getCoordinatorActionsForRole(
+  coordinator: ConfiguredCoordinatorDescriptor,
+  role: DashboardRole
+): {
+  readonly description: string;
+  readonly commands: readonly ConfiguredCoordinatorActionChip[];
+  readonly scheduledActions: readonly ConfiguredCoordinatorActionChip[];
+} {
+  const roleUiOverride = coordinator.roleUiOverrides[role];
+
+  return {
+    description: roleUiOverride?.description ?? coordinator.description,
+    commands: Object.freeze(
+      (roleUiOverride?.commands ?? coordinator.commands).map((action) =>
+        ensureActionPromptText(action, {
+          coordinatorName: coordinator.name,
+          coordinatorDescription: roleUiOverride?.description ?? coordinator.description,
+          surface: 'command',
+        })
+      )
+    ),
+    scheduledActions: Object.freeze(
+      (roleUiOverride?.scheduledActions ?? coordinator.scheduledActions).map((action) =>
+        ensureActionPromptText(action, {
+          coordinatorName: coordinator.name,
+          coordinatorDescription: roleUiOverride?.description ?? coordinator.description,
+          surface: 'scheduled',
+        })
+      )
+    ),
+  };
 }
 
 export interface AgentModelRoutingConfig {
@@ -819,6 +1790,8 @@ export interface AgentModelRoutingConfig {
 }
 
 export interface AgentPromptConfig {
+  readonly classifierSystemPrompt?: string;
+  readonly conversationSystemPrompt?: string;
   readonly plannerSystemPrompt?: string;
   readonly agentSystemPrompts: Readonly<Partial<Record<AgentIdentifier, string>>>;
 }
@@ -1259,6 +2232,8 @@ export function parseAgentAppConfig(
       fallbackChains: mergedFallbackChains,
     },
     prompts: {
+      classifierSystemPrompt: prompts.classifierSystemPrompt?.trim() || undefined,
+      conversationSystemPrompt: prompts.conversationSystemPrompt?.trim() || undefined,
       plannerSystemPrompt: prompts.plannerSystemPrompt?.trim() || undefined,
       agentSystemPrompts: Object.freeze(
         Object.fromEntries(
@@ -1392,6 +2367,24 @@ export function resolvePlannerSystemPrompt(
   return interpolatePromptTemplate(configuredPrompt ?? fallbackPrompt, templateValues);
 }
 
+export function resolveClassifierSystemPrompt(
+  fallbackPrompt: string,
+  templateValues?: Readonly<Record<string, string | undefined>>,
+  config: AgentAppConfig = getCachedAgentAppConfig()
+): string {
+  const configuredPrompt = config.prompts.classifierSystemPrompt;
+  return interpolatePromptTemplate(configuredPrompt ?? fallbackPrompt, templateValues);
+}
+
+export function resolveConversationSystemPrompt(
+  fallbackPrompt: string,
+  templateValues?: Readonly<Record<string, string | undefined>>,
+  config: AgentAppConfig = getCachedAgentAppConfig()
+): string {
+  const configuredPrompt = config.prompts.conversationSystemPrompt;
+  return interpolatePromptTemplate(configuredPrompt ?? fallbackPrompt, templateValues);
+}
+
 export function resolveAgentSystemPrompt(
   agentId: AgentIdentifier,
   fallbackPrompt: string,
@@ -1463,17 +2456,80 @@ export function resolveConfiguredCoordinatorsForRole(
       return coordinator.availableForRoles.includes(normalizedRole);
     })
     .map((coordinator) => {
-      const roleUiOverride = coordinator.roleUiOverrides[normalizedRole];
+      const roleUi = getCoordinatorActionsForRole(coordinator, normalizedRole);
 
       return {
         id: coordinator.id,
         label: coordinator.name,
         icon: coordinator.icon ?? 'sparkles',
-        description: roleUiOverride?.description ?? coordinator.description,
-        commands: roleUiOverride?.commands ?? coordinator.commands,
-        scheduledActions: roleUiOverride?.scheduledActions ?? coordinator.scheduledActions,
+        description: roleUi.description,
+        commands: roleUi.commands.map(toShellActionChip),
+        scheduledActions: roleUi.scheduledActions.map(toShellActionChip),
       };
     });
+}
+
+export function resolveConfiguredCoordinatorActionForRole(
+  role: string,
+  coordinatorId: string,
+  actionId: string,
+  surface: AgentXSelectedActionSurface,
+  actionLabel?: string,
+  config: AgentAppConfig = getCachedAgentAppConfig()
+): ResolvedCoordinatorAction | null {
+  const normalizedRole = normalizeDashboardRole(role) ?? 'athlete';
+  const coordinator = config.coordinators.find((item) => item.id === coordinatorId);
+  if (!coordinator) {
+    return null;
+  }
+
+  const availableRoles = normalizeAvailableRoles(coordinator.availableForRoles);
+  if (availableRoles.length > 0 && !availableRoles.includes(normalizedRole)) {
+    return null;
+  }
+
+  const roleUi = getCoordinatorActionsForRole(coordinator, normalizedRole);
+  const actions = surface === 'scheduled' ? roleUi.scheduledActions : roleUi.commands;
+  const normalizedActionId = normalizeCoordinatorActionLookupKey(actionId);
+  const normalizedActionLabel = normalizeCoordinatorActionLookupKey(actionLabel);
+  const action = actions.find((item) => {
+    const itemId = normalizeCoordinatorActionLookupKey(item.id);
+    const itemLabel = normalizeCoordinatorActionLookupKey(item.label);
+
+    return (
+      item.id === actionId ||
+      (normalizedActionId.length > 0 && itemId === normalizedActionId) ||
+      (normalizedActionLabel.length > 0 && itemLabel === normalizedActionLabel)
+    );
+  });
+  if (!action) {
+    const fallbackLabel = actionLabel?.trim() || humanizeCoordinatorActionId(actionId);
+    const fallbackAction = command(actionId, fallbackLabel, coordinator.icon ?? 'sparkles');
+
+    return {
+      ...toShellActionChip(fallbackAction),
+      executionPrompt: buildFallbackExecutionPrompt({
+        coordinatorName: coordinator.name,
+        coordinatorDescription: roleUi.description,
+        action: fallbackAction,
+        surface,
+        role: normalizedRole,
+      }),
+    };
+  }
+
+  return {
+    ...toShellActionChip(action),
+    executionPrompt:
+      action.executionPrompt ??
+      buildFallbackExecutionPrompt({
+        coordinatorName: coordinator.name,
+        coordinatorDescription: roleUi.description,
+        action,
+        surface,
+        role: normalizedRole,
+      }),
+  };
 }
 
 // ─── Reader ──────────────────────────────────────────────────────────────────

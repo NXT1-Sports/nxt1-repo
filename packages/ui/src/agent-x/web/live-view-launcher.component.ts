@@ -19,6 +19,7 @@ import { HapticsService } from '../../services/haptics/haptics.service';
 import { ANALYTICS_ADAPTER } from '../../services/analytics';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import { TEST_IDS } from '@nxt1/core/testing';
+import { resolveLiveViewLauncherPlatform } from './live-view-launcher.utils';
 
 /**
  * Quick-launch platform card shown in the launcher grid.
@@ -26,6 +27,7 @@ import { TEST_IDS } from '@nxt1/core/testing';
 export interface LauncherPlatform {
   readonly key: string;
   readonly label: string;
+  readonly platformKey: string;
   readonly url: string;
   readonly icon: string;
   readonly faviconUrl?: string;
@@ -60,65 +62,86 @@ interface LiveViewStory {
   readonly benefits: readonly LiveViewStoryBenefit[];
 }
 
+interface LauncherPlatformConfig {
+  readonly key: string;
+  readonly label: string;
+  readonly fallbackUrl: string;
+  readonly icon: string;
+  readonly faviconUrl?: string;
+}
+
 /** Default platforms shown in the launcher grid. */
-const LAUNCHER_PLATFORMS: readonly LauncherPlatform[] = [
+const LAUNCHER_PLATFORM_CONFIG: readonly LauncherPlatformConfig[] = [
   {
     key: 'hudl',
     label: 'Hudl',
-    url: 'https://www.hudl.com',
+    fallbackUrl: 'https://www.hudl.com',
     icon: 'link',
     faviconUrl: 'https://www.google.com/s2/favicons?domain=hudl.com&sz=64',
   },
   {
     key: 'maxpreps',
     label: 'MaxPreps',
-    url: 'https://www.maxpreps.com',
+    fallbackUrl: 'https://www.maxpreps.com',
     icon: 'link',
     faviconUrl: 'https://www.google.com/s2/favicons?domain=maxpreps.com&sz=64',
   },
   {
     key: 'twitter',
     label: 'X / Twitter',
-    url: 'https://x.com',
+    fallbackUrl: 'https://x.com',
     icon: 'twitter',
     faviconUrl: 'https://www.google.com/s2/favicons?domain=x.com&sz=64',
   },
   {
     key: '247sports',
     label: '247Sports',
-    url: 'https://247sports.com',
+    fallbackUrl: 'https://247sports.com',
     icon: 'link',
     faviconUrl: 'https://www.google.com/s2/favicons?domain=247sports.com&sz=64',
   },
   {
     key: 'rivals',
     label: 'Rivals',
-    url: 'https://www.rivals.com',
+    fallbackUrl: 'https://www.rivals.com',
     icon: 'link',
     faviconUrl: 'https://www.google.com/s2/favicons?domain=rivals.com&sz=64',
   },
   {
     key: 'on3',
     label: 'On3',
-    url: 'https://www.on3.com',
+    fallbackUrl: 'https://www.on3.com',
     icon: 'link',
     faviconUrl: 'https://www.google.com/s2/favicons?domain=on3.com&sz=64',
   },
   {
     key: 'instagram',
     label: 'Instagram',
-    url: 'https://www.instagram.com',
+    fallbackUrl: 'https://www.instagram.com',
     icon: 'instagram',
     faviconUrl: 'https://www.google.com/s2/favicons?domain=instagram.com&sz=64',
   },
   {
     key: 'ncsa',
     label: 'NCSA',
-    url: 'https://www.ncsasports.org',
+    fallbackUrl: 'https://www.ncsasports.org',
     icon: 'link',
     faviconUrl: 'https://www.google.com/s2/favicons?domain=ncsasports.org&sz=64',
   },
 ];
+
+const LAUNCHER_PLATFORMS: readonly LauncherPlatform[] = LAUNCHER_PLATFORM_CONFIG.map((platform) => {
+  const resolvedPlatform = resolveLiveViewLauncherPlatform(platform.key, platform.fallbackUrl);
+
+  return {
+    key: platform.key,
+    label: platform.label,
+    platformKey: resolvedPlatform.platformKey,
+    url: resolvedPlatform.url,
+    icon: platform.icon,
+    ...(platform.faviconUrl ? { faviconUrl: platform.faviconUrl } : {}),
+  };
+});
 
 const LiveViewStoryBenefitSchema = z.object({
   title: z.string().min(1),
@@ -685,7 +708,7 @@ export class LiveViewLauncherComponent {
 
     this.launch.emit({
       url: platform.url,
-      platformKey: platform.key,
+      platformKey: platform.platformKey,
       source: 'account',
     });
   }

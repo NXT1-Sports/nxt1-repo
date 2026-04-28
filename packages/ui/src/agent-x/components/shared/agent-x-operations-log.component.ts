@@ -77,6 +77,17 @@ interface StatusFilter {
   readonly label: string;
 }
 
+interface MenuPosition {
+  readonly top: number;
+  readonly left: number;
+}
+
+interface MenuAnchor {
+  readonly entryId: string;
+  readonly top: number;
+  readonly left: number;
+}
+
 // ============================================
 // CONSTANTS
 // ============================================
@@ -92,6 +103,12 @@ const STATUS_FILTERS: readonly StatusFilter[] = [
   { id: 'cancelled', label: 'Cancelled' },
   { id: 'scheduled', label: 'Scheduled' },
 ] as const;
+
+const MENU_VIEWPORT_MARGIN_PX = 8;
+const MENU_VERTICAL_OFFSET_PX = 6;
+const MENU_ESTIMATED_WIDTH_PX = 208;
+const MENU_ESTIMATED_HEIGHT_PX = 220;
+const MONGO_OBJECT_ID_RE = /^[a-f0-9]{24}$/i;
 
 // ============================================
 // COMPONENT
@@ -152,7 +169,11 @@ export const OPERATIONS_LOG_TEST_IDS = {
     }
 
     <!-- ═══ OPERATIONS LIST ═══ -->
-    <div class="log-scroll" [attr.data-testid]="testIds.SCROLL_CONTAINER">
+    <div
+      class="log-scroll"
+      [attr.data-testid]="testIds.SCROLL_CONTAINER"
+      (scroll)="onScrollContainerScroll()"
+    >
       @if (loading()) {
         <!-- Skeleton Loading -->
         @for (i of [1, 2, 3, 4, 5]; track i) {
@@ -194,192 +215,104 @@ export const OPERATIONS_LOG_TEST_IDS = {
             class="log-day-group log-day-group--scheduled"
             [attr.data-testid]="testIds.DAY_GROUP"
           >
-            <div class="log-day-label">Scheduled Tasks</div>
-            @for (entry of scheduledEntries(); track entry.id) {
-              <div
-                class="log-entry"
-                [attr.data-testid]="testIds.ENTRY"
-                [class.log-entry--menu-open]="isMenuOpen(entry)"
-                [class.log-entry--unread]="isUnread(entry)"
-                [class.log-entry--error]="entry.status === 'error'"
-                [class.log-entry--cancelled]="entry.status === 'cancelled'"
-                [class.log-entry--active]="entry.status === 'in-progress'"
-                [class.log-entry--awaiting]="
-                  entry.status === 'paused' ||
-                  entry.status === 'awaiting_input' ||
-                  entry.status === 'awaiting_approval'
-                "
-              >
-                <button type="button" class="log-entry-main" (click)="onEntryTap(entry)">
-                  <!-- Status indicator (hidden for completed entries) -->
-                  @if (entry.status !== 'complete') {
-                    <span
-                      class="log-entry-status"
-                      [class.log-entry-status--error]="entry.status === 'error'"
-                      [class.log-entry-status--cancelled]="entry.status === 'cancelled'"
-                      [class.log-entry-status--active]="entry.status === 'in-progress'"
-                      [class.log-entry-status--awaiting]="
-                        entry.status === 'paused' ||
-                        entry.status === 'awaiting_input' ||
-                        entry.status === 'awaiting_approval'
-                      "
-                    >
-                      @switch (entry.status) {
-                        @case ('error') {
-                          <nxt1-icon name="alertCircle" [size]="14" />
+            <div class="log-day-label" [class.log-day-label--static]="!stickyDayLabels()">
+              Scheduled Tasks
+            </div>
+            <div class="log-scheduled-row" role="list" aria-label="Scheduled sessions">
+              @for (entry of scheduledEntries(); track entry.id) {
+                <div
+                  class="log-entry log-entry--scheduled-card"
+                  role="listitem"
+                  [attr.data-testid]="testIds.ENTRY"
+                  [class.log-entry--menu-open]="isMenuOpen(entry)"
+                  [class.log-entry--unread]="isUnread(entry)"
+                  [class.log-entry--error]="entry.status === 'error'"
+                  [class.log-entry--cancelled]="entry.status === 'cancelled'"
+                  [class.log-entry--active]="entry.status === 'in-progress'"
+                  [class.log-entry--awaiting]="
+                    entry.status === 'paused' ||
+                    entry.status === 'awaiting_input' ||
+                    entry.status === 'awaiting_approval'
+                  "
+                >
+                  <button type="button" class="log-entry-main" (click)="onEntryTap(entry)">
+                    @if (entry.status !== 'complete') {
+                      <span
+                        class="log-entry-status"
+                        [class.log-entry-status--error]="entry.status === 'error'"
+                        [class.log-entry-status--cancelled]="entry.status === 'cancelled'"
+                        [class.log-entry-status--active]="entry.status === 'in-progress'"
+                        [class.log-entry-status--awaiting]="
+                          entry.status === 'paused' ||
+                          entry.status === 'awaiting_input' ||
+                          entry.status === 'awaiting_approval'
+                        "
+                      >
+                        @switch (entry.status) {
+                          @case ('error') {
+                            <nxt1-icon name="alertCircle" [size]="14" />
+                          }
+                          @case ('cancelled') {
+                            <nxt1-icon name="close" [size]="14" />
+                          }
+                          @case ('in-progress') {
+                            <span class="log-entry-spinner">
+                              <nxt1-icon name="refresh" [size]="14" />
+                            </span>
+                          }
+                          @case ('paused') {
+                            <nxt1-icon name="time" [size]="14" />
+                          }
+                          @case ('awaiting_input') {
+                            <nxt1-icon name="handLeft" [size]="14" />
+                          }
+                          @case ('awaiting_approval') {
+                            <nxt1-icon name="shieldCheck" [size]="14" />
+                          }
                         }
-                        @case ('cancelled') {
-                          <nxt1-icon name="close" [size]="14" />
-                        }
-                        @case ('in-progress') {
-                          <span class="log-entry-spinner">
-                            <nxt1-icon name="refresh" [size]="14" />
+                      </span>
+                    }
+
+                    <div class="log-entry-content">
+                      <h4 class="log-entry-title">{{ entry.title }}</h4>
+                      <div class="log-entry-meta">
+                        <span class="log-entry-time">{{ formatTime(entry.timestamp) }}</span>
+                        @if (entry.duration) {
+                          <span class="log-entry-duration">
+                            <nxt1-icon name="time" [size]="10" />
+                            {{ entry.duration }}
                           </span>
                         }
-                        @case ('paused') {
-                          <nxt1-icon name="time" [size]="14" />
-                        }
-                        @case ('awaiting_input') {
-                          <nxt1-icon name="handLeft" [size]="14" />
-                        }
-                        @case ('awaiting_approval') {
-                          <nxt1-icon name="shieldCheck" [size]="14" />
-                        }
-                      }
-                    </span>
-                  }
-
-                  <!-- Content -->
-                  <div class="log-entry-content">
-                    <h4 class="log-entry-title">{{ entry.title }}</h4>
-                    <div class="log-entry-meta">
-                      <span class="log-entry-time">{{ formatTime(entry.timestamp) }}</span>
-                      @if (entry.duration) {
-                        <span class="log-entry-duration">
-                          <nxt1-icon name="time" [size]="10" />
-                          {{ entry.duration }}
-                        </span>
-                      }
-                      @if (entry.isScheduled) {
-                        <span class="log-entry-scheduled">
-                          <nxt1-icon name="calendar" [size]="10" />
-                          Scheduled
-                        </span>
-                      }
+                      </div>
                     </div>
-                  </div>
-                </button>
-
-                <div class="log-entry-actions">
-                  <button
-                    type="button"
-                    class="log-entry-menu-trigger"
-                    [attr.data-testid]="testIds.ENTRY_MENU_BUTTON"
-                    [attr.aria-expanded]="isMenuOpen(entry)"
-                    aria-haspopup="menu"
-                    aria-label="Open session actions"
-                    [disabled]="isMutationBusy(entry)"
-                    (click)="onEntryMenuToggle(entry, $event)"
-                  >
-                    <nxt1-icon name="moreHorizontal" [size]="18" />
                   </button>
 
-                  @if (isMenuOpen(entry)) {
-                    <div
-                      class="log-entry-menu"
-                      [attr.data-testid]="testIds.ENTRY_MENU"
-                      role="menu"
-                      aria-label="Session actions"
+                  <div class="log-entry-actions">
+                    <button
+                      type="button"
+                      class="log-entry-menu-trigger"
+                      [attr.data-menu-anchor-id]="entry.id"
+                      [attr.data-testid]="testIds.ENTRY_MENU_BUTTON"
+                      [attr.aria-expanded]="isMenuOpen(entry)"
+                      aria-haspopup="menu"
+                      aria-label="Open session actions"
+                      [disabled]="isMutationBusy(entry)"
+                      (click)="onEntryMenuToggle(entry, $event)"
                     >
-                      @if (isRenaming(entry)) {
-                        <div class="log-entry-menu-rename" (click)="$event.stopPropagation()">
-                          <label class="log-entry-menu-label" for="rename-{{ entry.id }}">
-                            Rename session
-                          </label>
-                          <input
-                            id="rename-{{ entry.id }}"
-                            type="text"
-                            class="log-entry-menu-input"
-                            [attr.data-testid]="testIds.ENTRY_RENAME_INPUT"
-                            [value]="renameDraft()"
-                            maxlength="200"
-                            (click)="$event.stopPropagation()"
-                            (input)="onRenameInput($any($event.target).value)"
-                            (keydown.enter)="onRenameConfirm(entry, $event)"
-                            (keydown.escape)="onRenameCancel($event)"
-                          />
-                          <div class="log-entry-menu-row">
-                            <button
-                              type="button"
-                              class="log-entry-menu-item"
-                              (click)="onRenameCancel($event)"
-                            >
-                              Cancel
-                            </button>
-                            <button
-                              type="button"
-                              class="log-entry-menu-item log-entry-menu-item--primary"
-                              [disabled]="isMutationBusy(entry)"
-                              (click)="onRenameConfirm(entry, $event)"
-                            >
-                              Save
-                            </button>
-                          </div>
-                        </div>
-                      } @else if (isDeleteConfirming(entry)) {
-                        <div class="log-entry-menu-confirm" (click)="$event.stopPropagation()">
-                          <p class="log-entry-menu-confirm-text">Archive this session?</p>
-                          <div class="log-entry-menu-row">
-                            <button
-                              type="button"
-                              class="log-entry-menu-item"
-                              (click)="onDeleteCancel($event)"
-                            >
-                              Keep
-                            </button>
-                            <button
-                              type="button"
-                              class="log-entry-menu-item log-entry-menu-item--danger"
-                              [disabled]="isMutationBusy(entry)"
-                              (click)="onDeleteConfirm(entry, $event)"
-                            >
-                              Archive
-                            </button>
-                          </div>
-                        </div>
-                      } @else {
-                        <button
-                          type="button"
-                          class="log-entry-menu-item"
-                          role="menuitem"
-                          [disabled]="!canManageEntry(entry)"
-                          (click)="onRenameStart(entry, $event)"
-                        >
-                          <nxt1-icon name="pencil" [size]="16" />
-                          Rename
-                        </button>
-                        <button
-                          type="button"
-                          class="log-entry-menu-item log-entry-menu-item--danger"
-                          role="menuitem"
-                          [disabled]="!canManageEntry(entry)"
-                          (click)="onDeleteArm(entry, $event)"
-                        >
-                          <nxt1-icon name="trash" [size]="16" />
-                          Archive
-                        </button>
-                      }
-                    </div>
-                  }
+                      <nxt1-icon name="moreHorizontal" [size]="18" />
+                    </button>
+                  </div>
                 </div>
-              </div>
-            }
+              }
+            </div>
           </div>
         }
 
         @for (group of filteredGroups(); track group.date) {
           <div class="log-day-group" [attr.data-testid]="testIds.DAY_GROUP">
-            <div class="log-day-label">{{ group.label }}</div>
+            <div class="log-day-label" [class.log-day-label--static]="!stickyDayLabels()">
+              {{ group.label }}
+            </div>
             @for (entry of group.entries; track entry.id) {
               <div
                 class="log-entry"
@@ -459,6 +392,7 @@ export const OPERATIONS_LOG_TEST_IDS = {
                   <button
                     type="button"
                     class="log-entry-menu-trigger"
+                    [attr.data-menu-anchor-id]="entry.id"
                     [attr.data-testid]="testIds.ENTRY_MENU_BUTTON"
                     [attr.aria-expanded]="isMenuOpen(entry)"
                     aria-haspopup="menu"
@@ -468,94 +402,6 @@ export const OPERATIONS_LOG_TEST_IDS = {
                   >
                     <nxt1-icon name="moreHorizontal" [size]="18" />
                   </button>
-
-                  @if (isMenuOpen(entry)) {
-                    <div
-                      class="log-entry-menu"
-                      [attr.data-testid]="testIds.ENTRY_MENU"
-                      role="menu"
-                      aria-label="Session actions"
-                    >
-                      @if (isRenaming(entry)) {
-                        <div class="log-entry-menu-rename" (click)="$event.stopPropagation()">
-                          <label class="log-entry-menu-label" for="rename-{{ entry.id }}">
-                            Rename session
-                          </label>
-                          <input
-                            id="rename-{{ entry.id }}"
-                            type="text"
-                            class="log-entry-menu-input"
-                            [attr.data-testid]="testIds.ENTRY_RENAME_INPUT"
-                            [value]="renameDraft()"
-                            maxlength="200"
-                            (click)="$event.stopPropagation()"
-                            (input)="onRenameInput($any($event.target).value)"
-                            (keydown.enter)="onRenameConfirm(entry, $event)"
-                            (keydown.escape)="onRenameCancel($event)"
-                          />
-                          <div class="log-entry-menu-row">
-                            <button
-                              type="button"
-                              class="log-entry-menu-item"
-                              (click)="onRenameCancel($event)"
-                            >
-                              Cancel
-                            </button>
-                            <button
-                              type="button"
-                              class="log-entry-menu-item log-entry-menu-item--primary"
-                              [disabled]="isMutationBusy(entry)"
-                              (click)="onRenameConfirm(entry, $event)"
-                            >
-                              Save
-                            </button>
-                          </div>
-                        </div>
-                      } @else if (isDeleteConfirming(entry)) {
-                        <div class="log-entry-menu-confirm" (click)="$event.stopPropagation()">
-                          <p class="log-entry-menu-confirm-text">Archive this session?</p>
-                          <div class="log-entry-menu-row">
-                            <button
-                              type="button"
-                              class="log-entry-menu-item"
-                              (click)="onDeleteCancel($event)"
-                            >
-                              Keep
-                            </button>
-                            <button
-                              type="button"
-                              class="log-entry-menu-item log-entry-menu-item--danger"
-                              [disabled]="isMutationBusy(entry)"
-                              (click)="onDeleteConfirm(entry, $event)"
-                            >
-                              Archive
-                            </button>
-                          </div>
-                        </div>
-                      } @else {
-                        <button
-                          type="button"
-                          class="log-entry-menu-item"
-                          role="menuitem"
-                          [disabled]="!canManageEntry(entry)"
-                          (click)="onRenameStart(entry, $event)"
-                        >
-                          <nxt1-icon name="pencil" [size]="16" />
-                          Rename
-                        </button>
-                        <button
-                          type="button"
-                          class="log-entry-menu-item log-entry-menu-item--danger"
-                          role="menuitem"
-                          [disabled]="!canManageEntry(entry)"
-                          (click)="onDeleteArm(entry, $event)"
-                        >
-                          <nxt1-icon name="trash" [size]="16" />
-                          Archive
-                        </button>
-                      }
-                    </div>
-                  }
                 </div>
               </div>
             }
@@ -563,6 +409,89 @@ export const OPERATIONS_LOG_TEST_IDS = {
         }
       }
     </div>
+
+    @if (openMenuEntry(); as menuEntry) {
+      <div class="log-entry-menu-backdrop" (click)="onMenuBackdropTap()"></div>
+      <div
+        class="log-entry-menu log-entry-menu--overlay"
+        [attr.data-testid]="testIds.ENTRY_MENU"
+        role="menu"
+        aria-label="Session actions"
+        [style.top.px]="menuPosition().top"
+        [style.left.px]="menuPosition().left"
+      >
+        @if (isRenaming(menuEntry)) {
+          <div class="log-entry-menu-rename" (click)="$event.stopPropagation()">
+            <label class="log-entry-menu-label" for="rename-{{ menuEntry.id }}">
+              Rename session
+            </label>
+            <input
+              id="rename-{{ menuEntry.id }}"
+              type="text"
+              class="log-entry-menu-input"
+              [attr.data-testid]="testIds.ENTRY_RENAME_INPUT"
+              [value]="renameDraft()"
+              maxlength="200"
+              (click)="$event.stopPropagation()"
+              (input)="onRenameInput($any($event.target).value)"
+              (keydown.enter)="onRenameConfirm(menuEntry, $event)"
+              (keydown.escape)="onRenameCancel($event)"
+            />
+            <div class="log-entry-menu-row">
+              <button type="button" class="log-entry-menu-item" (click)="onRenameCancel($event)">
+                Cancel
+              </button>
+              <button
+                type="button"
+                class="log-entry-menu-item log-entry-menu-item--primary"
+                [disabled]="isMutationBusy(menuEntry)"
+                (click)="onRenameConfirm(menuEntry, $event)"
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        } @else if (isDeleteConfirming(menuEntry)) {
+          <div class="log-entry-menu-confirm" (click)="$event.stopPropagation()">
+            <p class="log-entry-menu-confirm-text">Archive this session?</p>
+            <div class="log-entry-menu-row">
+              <button type="button" class="log-entry-menu-item" (click)="onDeleteCancel($event)">
+                Keep
+              </button>
+              <button
+                type="button"
+                class="log-entry-menu-item log-entry-menu-item--danger"
+                [disabled]="isMutationBusy(menuEntry)"
+                (click)="onDeleteConfirm(menuEntry, $event)"
+              >
+                Archive
+              </button>
+            </div>
+          </div>
+        } @else {
+          <button
+            type="button"
+            class="log-entry-menu-item"
+            role="menuitem"
+            [disabled]="!canManageEntry(menuEntry)"
+            (click)="onRenameStart(menuEntry, $event)"
+          >
+            <nxt1-icon name="pencil" [size]="16" />
+            Rename
+          </button>
+          <button
+            type="button"
+            class="log-entry-menu-item log-entry-menu-item--danger"
+            role="menuitem"
+            [disabled]="!canManageEntry(menuEntry)"
+            (click)="onDeleteArm(menuEntry, $event)"
+          >
+            <nxt1-icon name="trash" [size]="16" />
+            Archive
+          </button>
+        }
+      </div>
+    }
   `,
   styles: [
     `
@@ -574,6 +503,7 @@ export const OPERATIONS_LOG_TEST_IDS = {
       :host {
         display: flex;
         flex-direction: column;
+        position: relative;
         height: 100%;
         overflow: hidden;
         font-family: var(--nxt1-font-family, var(--ion-font-family, system-ui));
@@ -733,6 +663,20 @@ export const OPERATIONS_LOG_TEST_IDS = {
         margin-bottom: var(--nxt1-spacing-4, 16px);
       }
 
+      .log-scheduled-row {
+        display: flex;
+        gap: var(--nxt1-spacing-3, 12px);
+        overflow-x: auto;
+        overflow-y: visible;
+        padding: 0 0 var(--nxt1-spacing-2, 8px);
+        scroll-snap-type: x proximity;
+        -webkit-overflow-scrolling: touch;
+      }
+
+      .log-scheduled-row::-webkit-scrollbar {
+        display: none;
+      }
+
       .log-day-label {
         font-size: 11px;
         font-weight: 700;
@@ -744,6 +688,10 @@ export const OPERATIONS_LOG_TEST_IDS = {
         top: 0;
         background: var(--log-bg);
         z-index: 1;
+      }
+
+      .log-day-label--static {
+        position: static;
       }
 
       /* ═══ LOG ENTRY ═══ */
@@ -774,6 +722,18 @@ export const OPERATIONS_LOG_TEST_IDS = {
 
       .log-entry:last-child {
         margin-bottom: 0;
+      }
+
+      .log-entry--scheduled-card {
+        flex: 0 0 248px;
+        margin-bottom: 0;
+        border-color: rgba(168, 130, 255, 0.45);
+        border-style: dashed;
+        scroll-snap-align: start;
+      }
+
+      .log-entry--scheduled-card:active {
+        border-color: #a882ff;
       }
 
       .log-entry:active {
@@ -849,6 +809,23 @@ export const OPERATIONS_LOG_TEST_IDS = {
         background: var(--nxt1-color-surface-100);
         box-shadow: var(--nxt1-navigation-dropdown);
         overflow: hidden;
+      }
+
+      .log-entry-menu--overlay {
+        position: absolute;
+        top: 0;
+        right: auto;
+        z-index: 1200;
+        max-width: min(20rem, calc(100% - 16px));
+        max-height: calc(100% - 16px);
+        overflow: auto;
+      }
+
+      .log-entry-menu-backdrop {
+        position: absolute;
+        inset: 0;
+        z-index: 1199;
+        background: transparent;
       }
 
       .log-entry-menu-item {
@@ -946,6 +923,10 @@ export const OPERATIONS_LOG_TEST_IDS = {
         min-width: 0;
       }
 
+      .log-entry-content--scheduled {
+        width: 100%;
+      }
+
       .log-entry-title {
         font-size: 13px;
         font-weight: 600;
@@ -956,6 +937,16 @@ export const OPERATIONS_LOG_TEST_IDS = {
         overflow: hidden;
         text-overflow: ellipsis;
         min-width: 0;
+      }
+
+      .log-entry-title--scheduled {
+        margin-bottom: 6px;
+        font-size: 14px;
+        font-weight: 700;
+        white-space: normal;
+        display: -webkit-box;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
       }
 
       .log-entry-status {
@@ -996,6 +987,11 @@ export const OPERATIONS_LOG_TEST_IDS = {
         gap: var(--nxt1-spacing-3, 12px);
       }
 
+      .log-entry-meta--scheduled {
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
       .log-entry-time {
         font-size: 11px;
         font-weight: 500;
@@ -1025,6 +1021,12 @@ export const OPERATIONS_LOG_TEST_IDS = {
         text-transform: uppercase;
       }
 
+      .log-entry-scheduled--card {
+        color: #d8c5ff;
+        background: color-mix(in srgb, #a882ff 18%, transparent);
+        border: 1px solid color-mix(in srgb, #a882ff 30%, transparent);
+      }
+
       /* ═══ ENTRY STATUS BORDERS ═══ */
 
       /* In-progress: Glowing neon-green pulsing border */
@@ -1032,6 +1034,10 @@ export const OPERATIONS_LOG_TEST_IDS = {
         border-color: color-mix(in srgb, var(--log-primary) 50%, transparent);
         background: color-mix(in srgb, var(--log-primary) 4%, var(--log-surface));
         animation: log-glow-pulse 2s ease-in-out infinite;
+      }
+
+      .log-entry--scheduled-card.log-entry--active {
+        border-color: color-mix(in srgb, var(--log-primary) 65%, #a882ff 35%);
       }
 
       /* Error: Solid red border */
@@ -1251,6 +1257,9 @@ export class AgentXOperationsLogComponent {
   /** When true, hides the header/filters without delegating tap handling (sidebar use-case). */
   readonly hideHeader = input(false);
 
+  /** When false, day labels scroll away with the list instead of pinning to the top. */
+  readonly stickyDayLabels = input(true);
+
   /** Test IDs for template binding. */
   protected readonly testIds = OPERATIONS_LOG_TEST_IDS;
 
@@ -1263,6 +1272,8 @@ export class AgentXOperationsLogComponent {
   private readonly _activeFilter = signal<OperationLogStatus | 'all' | 'scheduled'>('all');
   private readonly _error = signal<string | null>(null);
   private readonly _menuOpenEntryId = signal<string | null>(null);
+  private readonly _menuPosition = signal<MenuPosition>({ top: 0, left: 0 });
+  private readonly _menuAnchor = signal<MenuAnchor | null>(null);
   private readonly _renamingEntryId = signal<string | null>(null);
   private readonly _deleteConfirmEntryId = signal<string | null>(null);
   private readonly _renameDraft = signal('');
@@ -1292,6 +1303,7 @@ export class AgentXOperationsLogComponent {
   protected readonly activeFilter = computed(() => this._activeFilter());
   protected readonly error = computed(() => this._error());
   protected readonly renameDraft = computed(() => this._renameDraft());
+  protected readonly menuPosition = computed(() => this._menuPosition());
   protected readonly statusFilters = STATUS_FILTERS;
 
   // ============================================
@@ -1373,6 +1385,12 @@ export class AgentXOperationsLogComponent {
       date: dateKey,
       entries,
     }));
+  });
+
+  protected readonly openMenuEntry = computed(() => {
+    const openEntryId = this._menuOpenEntryId();
+    if (!openEntryId) return null;
+    return this._operations().find((entry) => entry.id === openEntryId) ?? null;
   });
 
   // ============================================
@@ -1614,7 +1632,7 @@ export class AgentXOperationsLogComponent {
   }
 
   protected canManageEntry(entry: OperationLogEntry): boolean {
-    return typeof entry.threadId === 'string' && entry.threadId.length > 0;
+    return this.getRecurringTaskKey(entry) !== null || this.getManageableThreadId(entry) !== null;
   }
 
   protected isMenuOpen(entry: OperationLogEntry): boolean {
@@ -1644,6 +1662,7 @@ export class AgentXOperationsLogComponent {
     }
 
     this._menuOpenEntryId.set(entry.id);
+    this.updateMenuPosition(entry, event.currentTarget);
     this._renamingEntryId.set(null);
     this._deleteConfirmEntryId.set(null);
     this._renameDraft.set(entry.title ?? '');
@@ -1653,7 +1672,10 @@ export class AgentXOperationsLogComponent {
   protected onDocumentClick(event: Event): void {
     if (!this._menuOpenEntryId()) return;
     const target = event.target;
-    if (target instanceof Element && target.closest('.log-entry-actions')) {
+    if (
+      target instanceof Element &&
+      target.closest('.log-entry-actions, .log-entry-menu, .log-entry-menu-backdrop')
+    ) {
       return;
     }
     if (!this.elementRef.nativeElement.isConnected) return;
@@ -1665,6 +1687,23 @@ export class AgentXOperationsLogComponent {
     if (this._menuOpenEntryId()) {
       this.resetMenuState();
     }
+  }
+
+  @HostListener('window:resize')
+  protected onWindowResize(): void {
+    if (this._menuOpenEntryId()) {
+      this.repositionOpenMenu();
+    }
+  }
+
+  protected onScrollContainerScroll(): void {
+    if (this._menuOpenEntryId()) {
+      this.repositionOpenMenu();
+    }
+  }
+
+  protected onMenuBackdropTap(): void {
+    this.resetMenuState();
   }
 
   protected onRenameInput(value: string): void {
@@ -1689,12 +1728,6 @@ export class AgentXOperationsLogComponent {
     event.stopPropagation();
     event.preventDefault();
 
-    const threadId = entry.threadId;
-    if (!threadId) {
-      this.toast.error('This session cannot be renamed yet');
-      return;
-    }
-
     const nextTitle = this._renameDraft().trim();
     if (!nextTitle) {
       this.toast.warning('Title cannot be empty');
@@ -1708,6 +1741,80 @@ export class AgentXOperationsLogComponent {
 
     if (nextTitle === entry.title) {
       this._renamingEntryId.set(null);
+      return;
+    }
+
+    const recurringTaskKey = this.getRecurringTaskKey(entry);
+    if (entry.isScheduled === true && recurringTaskKey) {
+      const previousTitle = entry.title;
+      this.markMutationBusy(entry.id, true);
+      this._operations.update((ops) =>
+        ops.map((op) =>
+          this.isSameRecurringTask(op, recurringTaskKey) ? { ...op, title: nextTitle } : op
+        )
+      );
+
+      try {
+        const url = `${this.baseUrl}/agent-x/operations-log/scheduled/${encodeURIComponent(recurringTaskKey)}`;
+        const response = await firstValueFrom(
+          this.http.patch<{ success: boolean; error?: string; data?: { key?: string } }>(url, {
+            title: nextTitle,
+          })
+        );
+
+        if (!response.success) {
+          throw new Error(response.error ?? 'Failed to rename scheduled task');
+        }
+
+        const nextTaskKey = response.data?.key?.trim() || recurringTaskKey;
+        this._operations.update((ops) =>
+          ops.map((op) => {
+            if (!this.isSameRecurringTask(op, recurringTaskKey)) {
+              return op;
+            }
+
+            const metadata = op.metadata ?? {};
+            return {
+              ...op,
+              title: nextTitle,
+              metadata: {
+                ...metadata,
+                recurringTaskKey: nextTaskKey,
+              },
+            };
+          })
+        );
+
+        this.logger.info('Scheduled task renamed from operations log', {
+          recurringTaskKey: nextTaskKey,
+        });
+        this.breadcrumb.trackStateChange('operations-log: recurring task renamed', {
+          recurringTaskKey: nextTaskKey,
+        });
+        this.toast.success('Scheduled task renamed');
+        this.resetMenuState();
+        return;
+      } catch (err) {
+        this._operations.update((ops) =>
+          ops.map((op) =>
+            this.isSameRecurringTask(op, recurringTaskKey) ? { ...op, title: previousTitle } : op
+          )
+        );
+        const message = err instanceof Error ? err.message : 'Failed to rename scheduled task';
+        this.logger.error('Failed to rename scheduled task', {
+          recurringTaskKey,
+          error: message,
+        });
+        this.toast.error(message);
+        return;
+      } finally {
+        this.markMutationBusy(entry.id, false);
+      }
+    }
+
+    const threadId = this.getManageableThreadId(entry);
+    if (!threadId) {
+      this.toast.error('This session cannot be renamed yet');
       return;
     }
 
@@ -1769,7 +1876,46 @@ export class AgentXOperationsLogComponent {
     event.stopPropagation();
     event.preventDefault();
 
-    const threadId = entry.threadId;
+    const recurringTaskKey = this.getRecurringTaskKey(entry);
+    if (entry.isScheduled === true && recurringTaskKey) {
+      const previous = this._operations();
+      this.markMutationBusy(entry.id, true);
+      this._operations.update((ops) =>
+        ops.filter((op) => !this.isSameRecurringTask(op, recurringTaskKey))
+      );
+
+      try {
+        const url = `${this.baseUrl}/agent-x/operations-log/scheduled/${encodeURIComponent(recurringTaskKey)}/archive`;
+        const response = await firstValueFrom(
+          this.http.post<{ success: boolean; error?: string }>(url, {})
+        );
+
+        if (!response.success) {
+          throw new Error(response.error ?? 'Failed to archive scheduled task');
+        }
+
+        this.logger.info('Scheduled task archived from operations log', { recurringTaskKey });
+        this.breadcrumb.trackStateChange('operations-log: recurring task archived', {
+          recurringTaskKey,
+        });
+        this.toast.success('Scheduled task archived');
+        this.resetMenuState();
+        return;
+      } catch (err) {
+        this._operations.set(previous);
+        const message = err instanceof Error ? err.message : 'Failed to archive scheduled task';
+        this.logger.error('Failed to archive scheduled task', {
+          recurringTaskKey,
+          error: message,
+        });
+        this.toast.error(message);
+        return;
+      } finally {
+        this.markMutationBusy(entry.id, false);
+      }
+    }
+
+    const threadId = this.getManageableThreadId(entry);
     if (!threadId) {
       this.toast.error('This session cannot be archived yet');
       return;
@@ -1822,9 +1968,99 @@ export class AgentXOperationsLogComponent {
 
   private resetMenuState(): void {
     this._menuOpenEntryId.set(null);
+    this._menuPosition.set({ top: 0, left: 0 });
+    this._menuAnchor.set(null);
     this._renamingEntryId.set(null);
     this._deleteConfirmEntryId.set(null);
     this._renameDraft.set('');
+  }
+
+  private repositionOpenMenu(): void {
+    const anchor = this._menuAnchor();
+    if (!anchor) {
+      return;
+    }
+
+    const hostElement = this.elementRef.nativeElement as HTMLElement;
+    const target = hostElement.querySelector(
+      `[data-menu-anchor-id="${this.escapeAttributeValue(anchor.entryId)}"]`
+    ) as HTMLElement | null;
+    if (!target) {
+      this.resetMenuState();
+      return;
+    }
+
+    this.updateMenuPosition({ id: anchor.entryId } as OperationLogEntry, target);
+  }
+
+  private updateMenuPosition(entry: OperationLogEntry, target: EventTarget | null): void {
+    if (!(target instanceof HTMLElement)) {
+      return;
+    }
+
+    const rect = target.getBoundingClientRect();
+    const hostRect = this.elementRef.nativeElement.getBoundingClientRect();
+    const hostWidth = hostRect.width;
+    const hostHeight = hostRect.height;
+    const maxLeft = Math.max(
+      MENU_VIEWPORT_MARGIN_PX,
+      hostWidth - MENU_ESTIMATED_WIDTH_PX - MENU_VIEWPORT_MARGIN_PX
+    );
+    const left = Math.min(
+      Math.max(rect.right - hostRect.left - MENU_ESTIMATED_WIDTH_PX, MENU_VIEWPORT_MARGIN_PX),
+      maxLeft
+    );
+    const maxTop = Math.max(
+      MENU_VIEWPORT_MARGIN_PX,
+      hostHeight - MENU_ESTIMATED_HEIGHT_PX - MENU_VIEWPORT_MARGIN_PX
+    );
+    const top = Math.min(
+      Math.max(rect.bottom - hostRect.top + MENU_VERTICAL_OFFSET_PX, MENU_VIEWPORT_MARGIN_PX),
+      maxTop
+    );
+
+    this._menuPosition.set({ top, left });
+    this._menuAnchor.set({ entryId: entry.id, top, left });
+  }
+
+  private getManageableThreadId(entry: OperationLogEntry): string | null {
+    const candidates: unknown[] = [entry.threadId];
+    const metadata = entry.metadata as Record<string, unknown> | undefined;
+    if (metadata) {
+      candidates.push(metadata['sourceId'], metadata['threadId'], metadata['sourceThreadId']);
+    }
+
+    for (const candidate of candidates) {
+      if (typeof candidate !== 'string') {
+        continue;
+      }
+
+      const trimmed = candidate.trim();
+      if (MONGO_OBJECT_ID_RE.test(trimmed)) {
+        return trimmed;
+      }
+    }
+
+    return null;
+  }
+
+  private getRecurringTaskKey(entry: OperationLogEntry): string | null {
+    const metadata = entry.metadata as Record<string, unknown> | undefined;
+    const recurringTaskKey = metadata?.['recurringTaskKey'];
+    return typeof recurringTaskKey === 'string' && recurringTaskKey.trim().length > 0
+      ? recurringTaskKey.trim()
+      : null;
+  }
+
+  private isSameRecurringTask(entry: OperationLogEntry, recurringTaskKey: string): boolean {
+    return (
+      entry.id === `schedule:${recurringTaskKey}` ||
+      this.getRecurringTaskKey(entry) === recurringTaskKey
+    );
+  }
+
+  private escapeAttributeValue(value: string): string {
+    return value.replace(/(["\\])/g, '\\$1');
   }
 
   /** Get count for a specific filter. */

@@ -8,6 +8,7 @@ export {
   onProfileView,
   onCoachReply,
   runDailyBriefings,
+  runWeeklySuggestedActions,
   runWeeklyPlaybooks,
   runWeeklyRecaps,
   runStaleProfileCheck,

@@ -15,6 +15,13 @@ export interface BuildTrackedLinkUrlOptions {
   readonly subjectId?: string;
 }
 
+function resolveTrackingApiPrefix(baseUrl: URL): string {
+  const pathname = baseUrl.pathname.replace(/\/+$/, '');
+  const matchedPrefix = pathname.match(/\/api\/v1(?:\/staging)?$/i);
+
+  return matchedPrefix?.[0] ?? '/api/v1';
+}
+
 // ============================================
 // URL VALIDATION
 // ============================================
@@ -75,7 +82,9 @@ export function buildTrackedLinkUrl(
   if (!sanitizedBaseUrl) return sanitizedDestination;
 
   try {
-    const trackingUrl = new URL('/api/v1/analytics/track/click', `${sanitizedBaseUrl}/`);
+    const parsedBaseUrl = new URL(sanitizedBaseUrl);
+    const trackingApiPrefix = resolveTrackingApiPrefix(parsedBaseUrl);
+    const trackingUrl = new URL(`${trackingApiPrefix}/analytics/track/click`, parsedBaseUrl.origin);
     trackingUrl.searchParams.set('destination', sanitizedDestination);
 
     if (options.surface) {

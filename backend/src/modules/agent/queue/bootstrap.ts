@@ -38,6 +38,8 @@ import {
   NavigateLiveViewTool,
   InteractWithLiveViewTool,
   ReadLiveViewTool,
+  ExtractLiveViewMediaTool,
+  ExtractLiveViewPlaylistTool,
   CloseLiveViewTool,
   LiveViewSessionService,
   ScraperService,
@@ -137,6 +139,7 @@ import { logger } from '../../../utils/logger.js';
 import {
   SkillRegistry,
   ScoutingRubricSkill,
+  VideoAnalysisSkill,
   OutreachCopywritingSkill,
   ComplianceRulebookSkill,
   StaticGraphicStyleSkill,
@@ -290,8 +293,12 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
     toolRegistry.register(new NavigateLiveViewTool(liveViewService));
     toolRegistry.register(new InteractWithLiveViewTool(liveViewService));
     toolRegistry.register(new ReadLiveViewTool(liveViewService));
+    toolRegistry.register(new ExtractLiveViewMediaTool(liveViewService));
+    toolRegistry.register(new ExtractLiveViewPlaylistTool(liveViewService));
     toolRegistry.register(new CloseLiveViewTool(liveViewService));
-    logger.info('Live view tools registered (open, navigate, interact, read, close)');
+    logger.info(
+      'Live view tools registered (open, navigate, interact, read, extract media, extract playlist, close)'
+    );
   } catch {
     logger.warn('LiveViewSessionService init failed — open_live_view tool disabled');
   }
@@ -454,6 +461,7 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   // ── 1b. Skill Registry (dynamic domain knowledge injection) ─────────────────
   const skillRegistry = new SkillRegistry();
   skillRegistry.register(new ScoutingRubricSkill());
+  skillRegistry.register(new VideoAnalysisSkill());
   skillRegistry.register(new OutreachCopywritingSkill());
   skillRegistry.register(new ComplianceRulebookSkill());
   skillRegistry.register(new StaticGraphicStyleSkill());

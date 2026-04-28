@@ -101,11 +101,17 @@ export class AgentRouterContextService {
     environment?: 'staging' | 'production',
     signal?: AbortSignal,
     mode?: string,
-    attachments?: readonly { readonly url: string; readonly mimeType: string }[],
+    attachments?: readonly {
+      readonly url: string;
+      readonly mimeType: string;
+      readonly storagePath?: string;
+      readonly name?: string;
+    }[],
     videoAttachments?: readonly {
       readonly url: string;
       readonly mimeType: string;
       readonly name: string;
+      readonly cloudflareVideoId?: string;
     }[],
     conversationHistory?: readonly AgentSessionMessage[]
   ): AgentSessionContext {

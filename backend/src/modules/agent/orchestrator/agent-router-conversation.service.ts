@@ -1,5 +1,4 @@
 import { createHash } from 'node:crypto';
-import { z } from 'zod';
 import type {
   AgentJobPayload,
   AgentJobUpdate,
@@ -13,26 +12,13 @@ import type { ContextBuilder } from '../memory/context-builder.js';
 import type { OnStreamEvent } from '../queue/event-writer.js';
 import type { AgentRouterContextService } from './agent-router-context.service.js';
 import type { AgentRouterTelemetryService } from './agent-router-telemetry.service.js';
+import {
+  ClassifierAgent,
+  type ConversationRouteScope,
+  type ClassifierDecision,
+} from '../agents/classifier.agent.js';
+import { ConversationAgent } from '../agents/conversation.agent.js';
 import { sanitizeAgentOutputText } from '../utils/platform-identifier-sanitizer.js';
-
-const CONVERSATION_ROUTE_SCOPE_SCHEMA = z.enum([
-  'profile',
-  'thread_history',
-  'active_threads',
-  'memories',
-  'recent_sync',
-]);
-
-type ConversationRouteScope = z.infer<typeof CONVERSATION_ROUTE_SCOPE_SCHEMA>;
-
-const conversationRouteDecisionSchema = z.object({
-  route: z.enum(['chat', 'plan']),
-  requiredContextScopes: z.array(CONVERSATION_ROUTE_SCOPE_SCHEMA).default([]),
-  directResponse: z.string().nullable(),
-  planSummary: z.string().nullable(),
-});
-
-type ConversationRouteDecision = z.infer<typeof conversationRouteDecisionSchema>;
 
 export type ConversationRouteOutcome =
   | {
@@ -56,6 +42,8 @@ const CONVERSATIONAL_CACHE_TTL_MS = 5 * 60_000;
 const CONVERSATIONAL_CACHE_MAX_ENTRIES = 512;
 
 export class AgentRouterConversationService {
+  private readonly classifierAgent: ClassifierAgent;
+  private readonly conversationAgent: ConversationAgent;
   private readonly conversationalResponseCache = new Map<
     string,
     {
@@ -65,7 +53,7 @@ export class AgentRouterConversationService {
   >();
 
   constructor(
-    private readonly llm: OpenRouterService,
+    llm: OpenRouterService,
     private readonly contextBuilder: ContextBuilder,
     private readonly routerContext: Pick<AgentRouterContextService, 'appendAssistantMessage'>,
     private readonly telemetry: Pick<
@@ -76,7 +64,10 @@ export class AgentRouterConversationService {
       | 'emitUpdate'
       | 'recordPhaseLatency'
     >
-  ) {}
+  ) {
+    this.classifierAgent = new ClassifierAgent(llm);
+    this.conversationAgent = new ConversationAgent(llm);
+  }
 
   async tryConversationalRoute(payload: {
     readonly payload: AgentJobPayload;
@@ -99,6 +90,10 @@ export class AgentRouterConversationService {
     } = payload;
     const { operationId, userId, intent } = jobPayload;
     const conversationalPhaseStartMs = Date.now();
+
+    if ((context.attachments?.length ?? 0) > 0 || (context.videoAttachments?.length ?? 0) > 0) {
+      return { kind: 'fallthrough' };
+    }
 
     const cacheKey = this.buildConversationalCacheKey(context, intent);
     const cached = this.conversationalResponseCache.get(cacheKey);
@@ -159,7 +154,7 @@ export class AgentRouterConversationService {
       return { kind: 'fallthrough' };
     }
 
-    if (routeDecision.route === 'plan') {
+    if (routeDecision.route === 'action') {
       const planSummary =
         routeDecision.planSummary?.trim() || 'handle this request with specialist execution';
       const planningPrelude = sanitizeAgentOutputText(
@@ -182,7 +177,7 @@ export class AgentRouterConversationService {
         metadata: {
           eventType: 'progress_subphase',
           phase: 'conversation_triage',
-          route: 'plan',
+          route: 'action',
         },
       });
       this.recordConversationalRouteLatency(
@@ -271,81 +266,19 @@ export class AgentRouterConversationService {
   private async getConversationRouteDecision(
     intent: string,
     context: AgentSessionContext
-  ): Promise<ConversationRouteDecision | null> {
+  ): Promise<ClassifierDecision | null> {
     const deterministicDecision = this.getDeterministicConversationRouteDecision(intent, context);
     if (deterministicDecision) {
       return deterministicDecision;
     }
 
-    const systemPrompt = `You are Agent X's conversation triage layer. Decide whether the user should receive a direct conversational response now or whether this request requires specialist planning.
-
-Respond with JSON only.
-
-Rules:
-- route="chat" when the user is asking a question, wants guidance, wants platform help, wants a conversational explanation, or needs context-aware advice.
-- route="plan" only when the user wants Agent X to perform specialist work or execute an operation such as outreach, film analysis, graphics/content generation, reporting, list building, posting, or multi-step coordination.
-- requiredContextScopes should include only the minimum scopes needed for a high-quality conversational answer.
-- Available scopes: profile, thread_history, active_threads, memories, recent_sync.
-- directResponse should only be present when route="chat" and no additional context is needed.
-- planSummary should only be present when route="plan" and should be a short plain-English description of the requested work.
-- For bare greetings, acknowledgements, identity questions, and general openers, do NOT request profile or memory context. Use route="chat", requiredContextScopes=[], and provide directResponse.
-- Do NOT request profile context just to make a response warmer or more personalized. Request profile only when the user's question actually depends on knowing their role, sport, position, goals, or account state.
-- If the user can be answered well without retrieved context, prefer directResponse with requiredContextScopes=[].
-- Examples that should stay no-context chat: "hi", "hello", "thanks", "who are you", "what is Agent X", "what can you do".
-- Examples that may need profile context: "how can you help me", "what should I work on", "what should I focus on next", "what features do I have access to".`;
-
-    try {
-      const result = await this.llm.prompt(systemPrompt, intent, {
-        tier: 'chat',
-        maxTokens: 300,
-        temperature: 0.2,
-        timeoutMs: 6_000,
-        outputSchema: {
-          name: 'conversation_route_decision',
-          schema: conversationRouteDecisionSchema,
-        },
-        ...(context.operationId && {
-          telemetryContext: {
-            operationId: context.operationId,
-            userId: context.userId,
-            agentId: 'router',
-          },
-        }),
-      });
-
-      const parsed = conversationRouteDecisionSchema.safeParse(result.parsedOutput);
-      if (parsed.success) {
-        return parsed.data;
-      }
-
-      if (this.looksLikePlannerPayload(result.parsedOutput)) {
-        return {
-          route: 'plan',
-          requiredContextScopes: [],
-          directResponse: null,
-          planSummary:
-            this.extractPlannerSummary(result.parsedOutput) ??
-            'handle this request with specialist execution',
-        };
-      }
-
-      if (this.looksLikeIntentClassificationPayload(result.parsedOutput)) {
-        const fallback = this.extractIntentClassificationFallback(result.parsedOutput);
-        if (fallback) {
-          return fallback;
-        }
-      }
-
-      return null;
-    } catch {
-      return null;
-    }
+    return this.classifierAgent.classify(intent, context);
   }
 
   private getDeterministicConversationRouteDecision(
     intent: string,
     context: AgentSessionContext
-  ): ConversationRouteDecision | null {
+  ): ClassifierDecision | null {
     if (!this.isSelfKnowledgeIntent(intent)) {
       return null;
     }
@@ -360,6 +293,7 @@ Rules:
 
     return {
       route: 'chat',
+      reasoning: 'Self-knowledge prompt requires conversational context aggregation.',
       requiredContextScopes,
       directResponse: null,
       planSummary: null,
@@ -385,51 +319,6 @@ Rules:
     ];
 
     return selfKnowledgePhrases.some((phrase) => normalizedIntent.includes(phrase));
-  }
-
-  private looksLikePlannerPayload(value: unknown): boolean {
-    if (!value || typeof value !== 'object') return false;
-    const candidate = value as Record<string, unknown>;
-    const tasks = candidate['tasks'];
-    return Array.isArray(tasks) && tasks.length > 0;
-  }
-
-  private extractPlannerSummary(value: unknown): string | null {
-    if (!value || typeof value !== 'object') return null;
-    const candidate = value as Record<string, unknown>;
-    const summary = candidate['summary'];
-    return typeof summary === 'string' && summary.trim().length > 0 ? summary.trim() : null;
-  }
-
-  private looksLikeIntentClassificationPayload(value: unknown): boolean {
-    if (!value || typeof value !== 'object') return false;
-    const candidate = value as Record<string, unknown>;
-    return typeof candidate['isConversational'] === 'boolean';
-  }
-
-  private extractIntentClassificationFallback(value: unknown): ConversationRouteDecision | null {
-    if (!value || typeof value !== 'object') return null;
-    const candidate = value as Record<string, unknown>;
-    const isConversational = candidate['isConversational'];
-    if (typeof isConversational !== 'boolean') return null;
-
-    if (isConversational) {
-      const directResponse =
-        typeof candidate['directResponse'] === 'string' ? candidate['directResponse'] : null;
-      return {
-        route: 'chat',
-        requiredContextScopes: [],
-        directResponse,
-        planSummary: null,
-      };
-    }
-
-    return {
-      route: 'plan',
-      requiredContextScopes: [],
-      directResponse: null,
-      planSummary: null,
-    };
   }
 
   private async resolveConversationContextScopes(
@@ -522,27 +411,7 @@ Rules:
     scopedContextText: string,
     context: AgentSessionContext
   ): Promise<string> {
-    const systemPrompt = `You are Agent X, NXT1's AI sports assistant. Answer the user conversationally using provided context when it is relevant. Stay concise, grounded, and practical. Do not create plans, tool calls, or coordinator tasks unless explicitly instructed; the routing layer already chose conversational handling for this message. Never invent profile details that are not in the provided context.`;
-
-    const userMessage = scopedContextText
-      ? `${scopedContextText}\n\n[User Message]\n${intent}`
-      : intent;
-
-    const result = await this.llm.prompt(systemPrompt, userMessage, {
-      tier: 'chat',
-      maxTokens: 512,
-      temperature: 0.4,
-      timeoutMs: 8_000,
-      ...(context.operationId && {
-        telemetryContext: {
-          operationId: context.operationId,
-          userId: context.userId,
-          agentId: 'router',
-        },
-      }),
-    });
-
-    return sanitizeAgentOutputText(result.content || "I'm here and ready to help.");
+    return this.conversationAgent.respond(intent, scopedContextText, context);
   }
 
   private async emitConversationalResponse(payload: {

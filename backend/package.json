@@ -10,9 +10,9 @@
   },
   "main": "dist/index.js",
   "scripts": {
-    "start": "node --import dotenv/config dist/index.js",
-    "start:staging": "NODE_ENV=staging node --import dotenv/config dist/index.js",
-    "start:prod": "NODE_ENV=production node --import dotenv/config dist/index.js",
+    "start": "node -r dotenv/config dist/index.js",
+    "start:staging": "NODE_ENV=staging node -r dotenv/config dist/index.js",
+    "start:prod": "NODE_ENV=production node -r dotenv/config dist/index.js",
     "dev": "nodemon --watch src --ext ts,js,json --exec \"npm run build && npm start\"",
     "dev:staging": "NODE_ENV=staging nodemon --watch src --ext ts,js,json --exec \"npm run build && npm run start:staging\"",
     "dev:prod": "NODE_ENV=production nodemon --watch src --ext ts,js,json --exec \"npm run build && npm run start:prod\"",

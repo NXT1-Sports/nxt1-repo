@@ -9,6 +9,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { cosineSimilarity } from '../base.skill.js';
 import { SkillRegistry } from '../skill-registry.js';
 import { ScoutingRubricSkill } from '../evaluation/scouting-rubric.skill.js';
+import { VideoAnalysisSkill } from '../evaluation/video-analysis.skill.js';
 import { OutreachCopywritingSkill } from '../copywriting/outreach-copywriting.skill.js';
 
 // ─── Cosine Similarity ──────────────────────────────────────────────────────
@@ -77,6 +78,17 @@ describe('BaseSkill.matchIntent', () => {
     // embedFn should only be called once (for the skill description), not twice
     expect(embedFn).toHaveBeenCalledOnce();
   });
+
+  it('should expose real-media video analysis guidance', () => {
+    const videoSkill = new VideoAnalysisSkill();
+    const prompt = videoSkill.getPromptContext();
+
+    expect(videoSkill.name).toBe('video_analysis');
+    expect(videoSkill.category).toBe('evaluation');
+    expect(prompt).toContain('extract_live_view_media');
+    expect(prompt).toContain('skipMediaPersistence: true');
+    expect(prompt).toContain('Never loop through playlist clicks');
+  });
 });
 
 // ─── SkillRegistry ──────────────────────────────────────────────────────────
@@ -96,6 +108,14 @@ describe('SkillRegistry', () => {
 
     expect(registry.get('scouting_rubric')).toBe(skill);
     expect(registry.listAll()).toContain('scouting_rubric');
+  });
+
+  it('should register the video analysis skill', () => {
+    const skill = new VideoAnalysisSkill();
+    registry.register(skill);
+
+    expect(registry.get('video_analysis')).toBe(skill);
+    expect(registry.listAll()).toContain('video_analysis');
   });
 
   it('should reject duplicate skill names', () => {

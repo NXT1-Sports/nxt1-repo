@@ -130,6 +130,24 @@ export class ChatAttachmentDto {
   cloudflareVideoId?: string;
 }
 
+export class SelectedActionDto {
+  @IsString()
+  @IsNotEmpty()
+  coordinatorId!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  actionId!: string;
+
+  @IsString()
+  @IsIn(['command', 'scheduled', 'suggested'])
+  surface!: 'command' | 'scheduled' | 'suggested';
+
+  @IsString()
+  @IsOptional()
+  label?: string;
+}
+
 export class AgentChatRequestDto {
   @ValidateIf((o) => !o.resumeOperationId)
   @IsString()
@@ -174,6 +192,11 @@ export class AgentChatRequestDto {
   @IsOptional()
   @Min(0)
   afterSeq?: number;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => SelectedActionDto)
+  selectedAction?: SelectedActionDto;
 }
 
 export class AgentEnqueueRequestDto {
@@ -190,6 +213,11 @@ export class AgentEnqueueRequestDto {
   @IsOptional()
   @Matches(/^[a-f0-9]{24}$/i, { message: 'threadId must be a valid 24-character hex string' })
   threadId?: string;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => SelectedActionDto)
+  selectedAction?: SelectedActionDto;
 }
 
 export class AgentChatDto {

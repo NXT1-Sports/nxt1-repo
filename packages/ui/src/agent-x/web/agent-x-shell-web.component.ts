@@ -68,8 +68,13 @@ import {
   AgentXOperationChatComponent,
   type OperationQuickAction,
 } from '../components/chat/agent-x-operation-chat.component';
+import {
+  buildCoordinatorActionPrompt,
+  resolveCoordinatorActionId,
+  resolveCoordinatorChipId,
+} from '../components/chat/agent-x-operation-chat.utils';
 import type { DraftSubmittedEvent } from '../components/cards/agent-x-draft-card.component';
-import { AgentXPromptInputComponent } from '../components/inputs/agent-x-prompt-input.component';
+import { AgentXInputBarComponent } from '../components/inputs/agent-x-input-bar.component';
 import {
   AgentXControlPanelStateService,
   type AgentXControlPanelKind,
@@ -150,6 +155,7 @@ interface AgentXDesktopSession {
   readonly contextType: 'operation' | 'command';
   readonly contextDescription?: string;
   readonly quickActions?: readonly OperationQuickAction[];
+  readonly suggestedActions?: readonly OperationQuickAction[];
   readonly scheduledActions?: readonly OperationQuickAction[];
   readonly initialMessage?: string;
   readonly threadId?: string;
@@ -208,7 +214,7 @@ function sortCoordinatorCategories(
     AgentXDashboardSkeletonComponent,
     AgentXOperationsLogComponent,
     AgentXOperationChatComponent,
-    AgentXPromptInputComponent,
+    AgentXInputBarComponent,
     LiveViewLauncherComponent,
   ],
   template: `
@@ -460,7 +466,11 @@ function sortCoordinatorCategories(
             </div>
             <div class="agent-column-scroll agent-rail-scroll">
               <section class="sessions-section" aria-label="Session history">
-                <nxt1-agent-x-operations-log [embedded]="true" (entryTap)="onLogEntryTap($event)" />
+                <nxt1-agent-x-operations-log
+                  [embedded]="true"
+                  [stickyDayLabels]="false"
+                  (entryTap)="onLogEntryTap($event)"
+                />
               </section>
             </div>
           </aside>
@@ -504,13 +514,14 @@ function sortCoordinatorCategories(
             @for (session of activeDesktopSessions(); track session.mountKey) {
               <nxt1-agent-x-operation-chat
                 [embedded]="true"
-                [delegateCoordinatorQuickActions]="true"
+                [delegateCoordinatorQuickActions]="session.contextId === 'agent-x-chat'"
                 [contextId]="session.contextId"
                 [contextTitle]="session.contextTitle"
                 [contextIcon]="session.contextIcon"
                 [contextType]="session.contextType"
                 [contextDescription]="session.contextDescription ?? ''"
                 [quickActions]="session.quickActions ?? []"
+                [suggestedActions]="session.suggestedActions ?? []"
                 [scheduledActions]="session.scheduledActions ?? []"
                 [initialMessage]="session.initialMessage ?? ''"
                 [threadId]="session.threadId ?? ''"
@@ -547,7 +558,7 @@ function sortCoordinatorCategories(
             <div class="inline-goals">
               <button
                 type="button"
-                class="inline-goals__manage-btn"
+                class="inline-goals__manage-btn inline-goals__manage-btn--goals"
                 (click)="openControlPanel('goals')"
               >
                 <nxt1-icon name="settings" [size]="14"></nxt1-icon>
@@ -820,32 +831,34 @@ function sortCoordinatorCategories(
                     >
                       <nxt1-icon name="link" [size]="16"></nxt1-icon>
                     </button>
-                    <!-- Open in New Tab -->
-                    <a
-                      [href]="panel.url"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      class="rail-close-btn"
-                      style="text-decoration: none;"
-                      aria-label="Open in new tab"
-                      title="Open in new tab"
-                      [attr.data-testid]="lvTestIds.OPEN_EXTERNAL_LINK"
-                    >
-                      <svg
-                        width="15"
-                        height="15"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
+                    @if (panel.type !== 'live-view') {
+                      <!-- Open in New Tab -->
+                      <a
+                        [href]="panel.url"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        class="rail-close-btn"
+                        style="text-decoration: none;"
+                        aria-label="Open in new tab"
+                        title="Open in new tab"
+                        [attr.data-testid]="lvTestIds.OPEN_EXTERNAL_LINK"
                       >
-                        <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
-                        <polyline points="15 3 21 3 21 9"></polyline>
-                        <line x1="10" y1="14" x2="21" y2="3"></line>
-                      </svg>
-                    </a>
+                        <svg
+                          width="15"
+                          height="15"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        >
+                          <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+                          <polyline points="15 3 21 3 21 9"></polyline>
+                          <line x1="10" y1="14" x2="21" y2="3"></line>
+                        </svg>
+                      </a>
+                    }
                     <!-- Refresh (Live View Only) -->
                     @if (panel.type === 'live-view') {
                       <button
@@ -1037,14 +1050,12 @@ function sortCoordinatorCategories(
             </button>
 
             <h2 class="m-greeting">{{ greeting() }}</h2>
-            <!-- m-briefing-summary hidden for now — re-enable when ready
             <p class="m-briefing-summary">{{ briefingPreview() }}</p>
-            -->
 
             <div class="inline-goals">
               <button
                 type="button"
-                class="inline-goals__manage-btn"
+                class="inline-goals__manage-btn inline-goals__manage-btn--goals"
                 (click)="openControlPanel('goals')"
               >
                 <nxt1-icon name="settings" [size]="14"></nxt1-icon>
@@ -1055,7 +1066,7 @@ function sortCoordinatorCategories(
               </button>
               <button
                 type="button"
-                class="inline-goals__manage-btn"
+                class="inline-goals__manage-btn inline-goals__manage-btn--connected"
                 (click)="openConnectedAccounts()"
               >
                 <svg
@@ -1264,46 +1275,47 @@ function sortCoordinatorCategories(
         </div>
       }
 
-      <!-- ═══ FLOATING COORDINATOR CHIPS ═══ -->
-      <section class="m-floating-coordinators" aria-label="Coordinators">
-        @if (commandCategories().length > 0) {
-          <div class="m-coordinators-scroll" role="list">
-            @for (cat of commandCategories(); track cat.id) {
-              <button
-                type="button"
-                role="listitem"
-                class="m-coordinator-pill"
-                [attr.data-coordinator]="cat.id"
-                (click)="onMobileCategoryTap(cat)"
-              >
-                {{ cat.label }}
-              </button>
-            }
-          </div>
-        } @else {
-          <div class="m-coordinators-empty" role="status" aria-live="polite">
-            No coordinators are configured for this role.
-          </div>
-        }
-      </section>
+      <div class="m-mobile-footer-stack" role="group" aria-label="Agent input">
+        <!-- ═══ FLOATING COORDINATOR CHIPS ═══ -->
+        <section class="m-floating-coordinators" aria-label="Coordinators">
+          @if (commandCategories().length > 0) {
+            <div class="m-coordinators-scroll" role="list">
+              @for (cat of commandCategories(); track cat.id) {
+                <button
+                  type="button"
+                  role="listitem"
+                  class="m-coordinator-pill"
+                  [attr.data-coordinator]="resolveCoordinatorChipId(cat.id)"
+                  (click)="onMobileCategoryTap(cat)"
+                >
+                  {{ cat.label }}
+                </button>
+              }
+            </div>
+          } @else {
+            <div class="m-coordinators-empty" role="status" aria-live="polite">
+              No coordinators are configured for this role.
+            </div>
+          }
+        </section>
 
-      <!-- ═══ INPUT BAR ═══ -->
-      <nxt1-agent-x-prompt-input
-        [hasMessages]="false"
-        [selectedTask]="agentX.selectedTask()"
-        [isLoading]="agentX.isLoading()"
-        [canSend]="agentX.canSend()"
-        [userMessage]="agentX.getUserMessage()"
-        [placeholder]="'Message A Coordinator'"
-        [pendingFiles]="agentX.pendingFiles()"
-        [uploading]="agentX.uploading()"
-        (messageChange)="agentX.setUserMessage($event)"
-        (send)="onMobileSendMessage()"
-        (removeTask)="agentX.clearTask()"
-        (toggleTasks)="onToggleTasks()"
-        (filesAdded)="agentX.addFiles($event)"
-        (fileRemoved)="agentX.removeFile($event)"
-      />
+        <!-- ═══ INPUT BAR ═══ -->
+        <nxt1-agent-x-input-bar
+          [userMessage]="agentX.userMessage()"
+          [isLoading]="agentX.isLoading()"
+          [uploading]="agentX.uploading()"
+          [canSend]="agentX.canSend()"
+          [pendingFiles]="agentX.pendingFiles()"
+          [pendingSources]="[]"
+          [selectedTask]="agentX.selectedTask()?.title ?? null"
+          placeholder="Message A Coordinator"
+          (messageChange)="agentX.setUserMessage($event)"
+          (send)="onMobileSendMessage()"
+          (removeTask)="agentX.clearTask()"
+          (toggleAttachments)="onToggleTasks()"
+          (removeFile)="agentX.removeFile($event)"
+        />
+      </div>
     </main>
   `,
   styles: [
@@ -1322,6 +1334,7 @@ function sortCoordinatorCategories(
         --agent-text-primary: var(--nxt1-color-text-primary, #1a1a1a);
         --agent-text-secondary: var(--nxt1-color-text-secondary, rgba(0, 0, 0, 0.7));
         --agent-text-muted: var(--nxt1-color-text-tertiary, rgba(0, 0, 0, 0.5));
+        --agent-text-on-primary: var(--nxt1-color-text-onPrimary, #0a0a0a);
         --agent-primary: var(--nxt1-color-primary, #ccff00);
         --agent-primary-glow: var(--nxt1-color-alpha-primary10, rgba(204, 255, 0, 0.1));
         --agent-glass-bg: var(--nxt1-glass-bg, rgba(255, 255, 255, 0.8));
@@ -1570,8 +1583,22 @@ function sortCoordinatorCategories(
         margin-bottom: var(--nxt1-spacing-3, 12px);
       }
 
+      :host ::ng-deep .sessions-section .log-scheduled-row {
+        display: flex;
+        flex-direction: column;
+        gap: var(--nxt1-spacing-2, 8px);
+        overflow: visible;
+        padding-bottom: 0;
+      }
+
       :host ::ng-deep .sessions-section .log-entry {
         border-radius: var(--nxt1-radius-xl, 16px);
+      }
+
+      :host ::ng-deep .sessions-section .log-entry--scheduled-card {
+        flex: 1 1 auto;
+        width: 100%;
+        min-width: 0;
       }
 
       .agent-chat-column {
@@ -1753,7 +1780,7 @@ function sortCoordinatorCategories(
         padding: 0 5px;
         border-radius: 9px;
         background: var(--agent-primary, #ccff00);
-        color: var(--nxt1-color-bg-primary, #0a0a0a);
+        color: #000;
         font-size: 10px;
         font-weight: 700;
         line-height: 1;
@@ -2088,18 +2115,41 @@ function sortCoordinatorCategories(
         display: flex;
         align-items: center;
         gap: var(--nxt1-spacing-2, 8px);
-        flex: 1;
+        flex: 1 1 0;
+        min-width: 0;
+        white-space: nowrap;
         background: none;
         border: 1px solid var(--agent-border);
         border-radius: 10px;
         padding: 8px 12px;
-        font-size: 13px;
+        font-size: clamp(12px, 3.2vw, 13px);
         font-weight: 600;
         color: var(--agent-text-secondary);
         cursor: pointer;
         transition:
           border-color 0.15s,
           color 0.15s;
+      }
+
+      .inline-goals__manage-btn > nxt1-icon,
+      .inline-goals__manage-btn > svg {
+        flex-shrink: 0;
+      }
+
+      .inline-goals__manage-btn > span:not(.inline-goals__manage-count) {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        line-height: 1.2;
+      }
+
+      .inline-goals__manage-btn--connected {
+        flex: 1.12 1 0;
+      }
+
+      .inline-goals__manage-btn--goals {
+        flex: 1.04 1 0;
       }
 
       .inline-goals__manage-btn:hover {
@@ -2952,6 +3002,30 @@ function sortCoordinatorCategories(
         padding-top: var(--nxt1-spacing-5, 20px);
       }
 
+      .m-briefing .inline-goals {
+        display: flex;
+        align-items: stretch;
+        gap: var(--nxt1-spacing-2-5, 10px);
+        padding: 0;
+        margin: var(--nxt1-spacing-4, 16px) 0 0;
+        border-bottom: none;
+      }
+
+      .m-briefing .inline-goals__manage-btn {
+        justify-content: flex-start;
+        padding: 10px 10px;
+      }
+
+      .m-briefing .inline-goals__manage-btn--connected {
+        padding-inline: 10px;
+      }
+
+      .m-briefing .inline-goals__manage-btn--goals {
+        justify-content: center;
+        gap: 10px;
+        padding-inline: 14px;
+      }
+
       .m-greeting {
         font-size: 22px;
         font-weight: 700;
@@ -3185,6 +3259,13 @@ function sortCoordinatorCategories(
         padding: 10px 12px;
       }
 
+      @media (max-width: 360px) {
+        .inline-goals__manage-btn {
+          padding-inline: 10px;
+          font-size: 12px;
+        }
+      }
+
       .m-action-plan .inline-goals__manage-btn:active {
         color: var(--agent-text-primary);
         background: var(--agent-surface-hover);
@@ -3221,19 +3302,34 @@ function sortCoordinatorCategories(
         margin-bottom: 16px;
       }
 
-      .m-floating-coordinators {
-        position: fixed;
-        left: var(--nxt1-footer-left, 16px);
-        right: var(--nxt1-footer-right, 16px);
+      .m-mobile-footer-stack {
+        display: none;
+      }
 
-        bottom: calc(
-          var(--nxt1-footer-bottom, 20px) + var(--nxt1-pill-height, 44px) + 16px + 52px + 0px +
-            var(--keyboard-offset, 0px)
-        );
-        z-index: calc(var(--nxt1-z-index-fixed, 999) - 1);
-        pointer-events: none;
+      .m-floating-coordinators {
+        position: relative;
         padding: 0;
-        transition: bottom 0.28s cubic-bezier(0.32, 0.72, 0, 1);
+        pointer-events: none;
+      }
+
+      @media (max-width: 768px) {
+        .m-mobile-footer-stack {
+          position: fixed;
+          left: var(--nxt1-footer-left, 16px);
+          right: var(--nxt1-footer-right, 16px);
+          bottom: calc(16px + env(safe-area-inset-bottom, 0px) + var(--keyboard-offset, 0px));
+          z-index: var(--nxt1-z-index-fixed, 999);
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+          pointer-events: none;
+          transition: bottom 0.28s cubic-bezier(0.32, 0.72, 0, 1);
+        }
+
+        .m-mobile-footer-stack > nxt1-agent-x-input-bar {
+          display: block;
+          pointer-events: auto;
+        }
       }
 
       .m-coordinators-scroll {
@@ -3251,18 +3347,27 @@ function sortCoordinatorCategories(
         display: none;
       }
 
+      .m-coordinators-empty {
+        pointer-events: auto;
+      }
+
       .m-coordinator-pill {
         --coordinator-pill-accent: var(--agent-primary);
-        --coordinator-pill-text: var(--nxt1-color-text-primary, #f5f7fa);
+        --coordinator-pill-text: var(--agent-text-primary);
+        --coordinator-pill-shadow: color-mix(
+          in srgb,
+          var(--coordinator-pill-accent) 22%,
+          transparent
+        );
         --coordinator-pill-surface: color-mix(
           in srgb,
-          var(--coordinator-pill-accent) 16%,
-          var(--nxt1-color-background-primary, #0f1217)
+          var(--coordinator-pill-accent) 18%,
+          var(--agent-glass-bg)
         );
         --coordinator-pill-border: color-mix(
           in srgb,
-          var(--coordinator-pill-accent) 52%,
-          var(--nxt1-color-background-primary, #0f1217)
+          var(--coordinator-pill-accent) 54%,
+          var(--agent-border)
         );
         flex-shrink: 0;
         display: inline-flex;
@@ -3277,9 +3382,11 @@ function sortCoordinatorCategories(
         line-height: 1;
         white-space: nowrap;
         box-shadow:
-          0 0 0 1px color-mix(in srgb, var(--coordinator-pill-accent) 24%, #000),
-          inset 0 1px 0 color-mix(in srgb, var(--coordinator-pill-accent) 12%, #fff);
+          0 10px 24px var(--coordinator-pill-shadow),
+          inset 0 1px 0 color-mix(in srgb, var(--coordinator-pill-accent) 10%, white);
         border-color: var(--coordinator-pill-border);
+        backdrop-filter: var(--nxt1-glass-backdrop, saturate(180%) blur(20px));
+        -webkit-backdrop-filter: var(--nxt1-glass-backdrop, saturate(180%) blur(20px));
         transition:
           border-color 0.15s ease,
           background 0.15s ease,
@@ -3293,14 +3400,10 @@ function sortCoordinatorCategories(
 
       .m-coordinator-pill:active {
         border-color: color-mix(in srgb, var(--coordinator-pill-accent) 72%, white);
-        background: color-mix(
-          in srgb,
-          var(--coordinator-pill-accent) 22%,
-          var(--nxt1-color-background-primary, #0f1217)
-        );
+        background: color-mix(in srgb, var(--coordinator-pill-accent) 28%, var(--agent-glass-bg));
         box-shadow:
-          0 0 0 1px color-mix(in srgb, var(--coordinator-pill-accent) 28%, #000),
-          inset 0 1px 0 color-mix(in srgb, var(--coordinator-pill-accent) 14%, #fff);
+          0 12px 28px color-mix(in srgb, var(--coordinator-pill-accent) 26%, transparent),
+          inset 0 1px 0 color-mix(in srgb, var(--coordinator-pill-accent) 14%, white);
         transform: scale(0.98);
       }
 
@@ -3345,7 +3448,6 @@ function sortCoordinatorCategories(
 
       .m-coordinator-pill[data-coordinator='coord-recruiting'] {
         --coordinator-pill-accent: #ccff00;
-        --coordinator-pill-text: #12170a;
       }
 
       .m-coordinator-pill[data-coordinator='coord-media'] {
@@ -3400,6 +3502,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   private static readonly DESKTOP_ACTION_PLAN_MIN_WIDTH = 260;
   private static readonly DESKTOP_EXPANDED_PANEL_MIN_WIDTH = 400;
 
+  protected readonly resolveCoordinatorChipId = resolveCoordinatorChipId;
   protected readonly agentX = inject(AgentXService);
   protected readonly controlPanelState = inject(AgentXControlPanelStateService);
   private readonly logger = inject(NxtLoggingService).child('AgentXShellWeb');
@@ -3602,6 +3705,12 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       label: coord.label,
       icon: coord.icon || 'sparkles',
       description: coord.description,
+      selectedAction: {
+        coordinatorId: coord.id,
+        actionId: coord.id,
+        surface: 'command',
+        label: coord.label,
+      },
     }))
   );
 
@@ -3984,31 +4093,53 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
         return;
       }
 
-      try {
-        // If the backend included a full session contract, adopt it
-        if (panel.type === 'live-view' && panel.session) {
-          this.liveView.adoptSession(panel.session);
-          this.logger.info('Live view session adopted, opening expanded panel', {
-            sessionId: panel.session.sessionId,
-            url: panel.session.interactiveUrl,
+      if (panel.type === 'live-view') {
+        const liveViewUrl = panel.session?.interactiveUrl ?? panel.url;
+        const liveViewTitle = panel.title ?? panel.session?.domainLabel;
+        const liveViewSessionId = panel.session?.sessionId;
+
+        if (!liveViewUrl) {
+          this.logger.error('Live view auto-open instruction missing URL', undefined, {
+            hasSession: !!panel.session,
           });
-          this.openExpandedSidePanel({
-            type: panel.type,
-            url: panel.session.interactiveUrl,
-            title: panel.title ?? panel.session.domainLabel,
-            sessionId: panel.session.sessionId,
-          });
-        } else {
-          this.logger.info('Opening expanded side panel', {
-            type: panel.type,
-            url: panel.url,
-          });
-          this.openExpandedSidePanel({
-            type: panel.type,
-            url: panel.url,
-            title: panel.title,
-          });
+          return;
         }
+
+        if (panel.session) {
+          try {
+            this.liveView.adoptSession(panel.session);
+          } catch (err) {
+            this.logger.error('Failed to adopt live view session before opening panel', err, {
+              url: liveViewUrl,
+            });
+          }
+        }
+
+        this.logger.info('Opening live view expanded panel', {
+          sessionId: liveViewSessionId,
+          url: liveViewUrl,
+          hasSession: !!panel.session,
+        });
+
+        this.openExpandedSidePanel({
+          type: panel.type,
+          url: liveViewUrl,
+          title: liveViewTitle,
+          sessionId: liveViewSessionId,
+        });
+        return;
+      }
+
+      try {
+        this.logger.info('Opening expanded side panel', {
+          type: panel.type,
+          url: panel.url,
+        });
+        this.openExpandedSidePanel({
+          type: panel.type,
+          url: panel.url,
+          title: panel.title,
+        });
       } catch (err) {
         this.logger.error('Failed to open auto-open panel', err, {
           type: panel.type,
@@ -4130,6 +4261,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
         firebaseProviders: user?.firebaseProviders ?? [],
       }) as LinkSourcesFormData | null,
       scope: role === 'coach' || role === 'director' ? 'team' : 'athlete',
+      preferWebOverlayOnBrowser: true,
     });
 
     if (result.linkSources) {
@@ -4281,9 +4413,9 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   }
 
   protected onEmbeddedCoordinatorQuickAction(action: OperationQuickAction): void {
-    const coordinatorId = action.id.startsWith('coord-coord-')
-      ? action.id.slice('coord-'.length)
-      : action.id;
+    const coordinatorId = resolveCoordinatorActionId(action);
+    if (!coordinatorId) return;
+
     const coord = this.commandCategories().find((item) => item.id === coordinatorId);
     if (!coord) return;
 
@@ -4685,6 +4817,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       contextIcon: coord.icon || 'sparkles',
       contextType: 'command',
       contextDescription: coord.description,
+      suggestedActions: this.buildCoordinatorSuggestedActions(coord),
       quickActions: this.buildCoordinatorQuickActions(coord),
       scheduledActions: this.buildCoordinatorScheduledActions(coord),
     });
@@ -4696,6 +4829,45 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       label: cmd.label,
       icon: cmd.icon,
       description: cmd.subLabel,
+      promptText:
+        cmd.promptText ??
+        buildCoordinatorActionPrompt({
+          coordinatorLabel: coord.label,
+          coordinatorDescription: coord.description,
+          actionLabel: cmd.label,
+          actionDescription: cmd.subLabel,
+          surface: 'command',
+        }),
+      selectedAction: {
+        coordinatorId: coord.id,
+        actionId: cmd.id,
+        surface: 'command',
+        label: cmd.label,
+      },
+    }));
+  }
+
+  private buildCoordinatorSuggestedActions(coord: CommandCategory): OperationQuickAction[] {
+    return (coord.suggestedActions ?? []).map((cmd) => ({
+      id: cmd.id,
+      label: cmd.label,
+      icon: cmd.icon,
+      description: cmd.subLabel,
+      promptText:
+        cmd.promptText ??
+        buildCoordinatorActionPrompt({
+          coordinatorLabel: coord.label,
+          coordinatorDescription: coord.description,
+          actionLabel: cmd.label,
+          actionDescription: cmd.subLabel,
+          surface: 'command',
+        }),
+      selectedAction: {
+        coordinatorId: coord.id,
+        actionId: cmd.id,
+        surface: 'suggested',
+        label: cmd.label,
+      },
     }));
   }
 
@@ -4705,6 +4877,21 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       label: cmd.label,
       icon: cmd.icon,
       description: cmd.subLabel,
+      promptText:
+        cmd.promptText ??
+        buildCoordinatorActionPrompt({
+          coordinatorLabel: coord.label,
+          coordinatorDescription: coord.description,
+          actionLabel: cmd.label,
+          actionDescription: cmd.subLabel,
+          surface: 'scheduled',
+        }),
+      selectedAction: {
+        coordinatorId: coord.id,
+        actionId: cmd.id,
+        surface: 'scheduled',
+        label: cmd.label,
+      },
     }));
   }
 

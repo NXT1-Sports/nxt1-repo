@@ -11,7 +11,7 @@
  * center iframe.
  */
 
-import { BaseTool, type ToolResult } from '../../../base.tool.js';
+import { BaseTool, type ToolExecutionContext, type ToolResult } from '../../../base.tool.js';
 import type { LiveViewSessionService } from './live-view-session.service.js';
 import { logger } from '../../../../../../utils/logger.js';
 import { z } from 'zod';
@@ -26,6 +26,9 @@ export class InteractWithLiveViewTool extends BaseTool {
     "Firecrawl's AI automatically finds elements and interacts with them — no CSS selectors needed. " +
     'The user watches the actions happen in real time in their side panel. ' +
     'Use this whenever the user wants actions performed in the page that is already open in live view. ' +
+    'This tool is for navigation and page manipulation only: clicking tabs, signing in, opening menus, expanding playlists, scrolling, or moving between pages. ' +
+    'Do NOT use this tool to watch video, evaluate plays, infer what happened in motion, grade technique from playback, or simulate film study by clicking through frames or playlist items. ' +
+    'If the user wants actual film analysis, use this tool only to reach the correct page state, then use `extract_live_view_media` and the downstream video pipeline on real media URLs. ' +
     "The sessionId is optional — if omitted, the tool automatically finds the user's active session. " +
     'Approval-sensitive actions are evaluated centrally by the agent approval gate before this tool executes. ' +
     'For legacy callers outside the approval-aware runtime, destructive actions still require confirmed: true as a safety fallback.';
@@ -33,7 +36,6 @@ export class InteractWithLiveViewTool extends BaseTool {
   readonly parameters = z.object({
     sessionId: z.string().trim().min(1).optional(),
     prompt: z.string().trim().min(1),
-    userId: z.string().trim().min(1),
     confirmed: z.boolean().optional(),
   });
 
@@ -54,8 +56,11 @@ export class InteractWithLiveViewTool extends BaseTool {
     this.sessionService = sessionService;
   }
 
-  async execute(input: Record<string, unknown>): Promise<ToolResult> {
-    const userId = this.str(input, 'userId');
+  async execute(
+    input: Record<string, unknown>,
+    context?: ToolExecutionContext
+  ): Promise<ToolResult> {
+    const userId = context?.userId ?? this.str(input, 'userId');
     const prompt = this.str(input, 'prompt');
     const confirmed = input['confirmed'] === true;
 

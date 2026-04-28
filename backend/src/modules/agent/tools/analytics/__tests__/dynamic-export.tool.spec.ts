@@ -11,14 +11,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 // ── Mocks (must precede tool import) ─────────────────────────────────────────
 
 const mockSave = vi.fn().mockResolvedValue(undefined);
-const mockMakePublic = vi.fn().mockResolvedValue(undefined);
-const mockFile = vi.fn().mockReturnValue({ save: mockSave, makePublic: mockMakePublic });
+const mockExists = vi.fn().mockResolvedValue([true]);
+const mockFile = vi.fn().mockReturnValue({ save: mockSave, exists: mockExists });
 const mockBucket = vi.fn().mockReturnValue({ file: mockFile, name: 'test-bucket' });
 vi.mock('firebase-admin/storage', () => ({
   getStorage: () => ({ bucket: mockBucket }),
 }));
 
-import { DynamicExportTool } from '../dynamic-export.tool.js';
+import { DynamicExportTool } from '../../system/dynamic-export.tool.js';
 import type { ToolExecutionContext } from '../../base.tool.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -79,7 +79,7 @@ describe('DynamicExportTool', () => {
   describe('metadata', () => {
     it('should have correct name and category', () => {
       expect(tool.name).toBe('dynamic_export');
-      expect(tool.category).toBe('data');
+      expect(tool.category).toBe('system');
       expect(tool.isMutation).toBe(true);
     });
   });
@@ -146,7 +146,10 @@ describe('DynamicExportTool', () => {
       expect(data['format']).toBe('csv');
       expect(data['rowCount']).toBe(2);
       expect(data['columnCount']).toBe(3);
-      expect(data['downloadUrl']).toContain('https://storage.googleapis.com/test-bucket/');
+      expect(data['downloadUrl']).toContain(
+        'https://firebasestorage.googleapis.com/v0/b/test-bucket/o/'
+      );
+      expect(data['downloadUrl']).toContain('?alt=media&token=');
       expect(typeof data['sizeBytes']).toBe('number');
       expect(data['sizeBytes'] as number).toBeGreaterThan(0);
 
@@ -163,6 +166,7 @@ describe('DynamicExportTool', () => {
       expect(mockSave).toHaveBeenCalledOnce();
       const [, opts] = mockSave.mock.calls[0];
       expect(opts.contentType).toBe('text/csv');
+      expect(opts.metadata.metadata.firebaseStorageDownloadTokens).toMatch(/^[0-9a-f-]{36}$/i);
     });
   });
 

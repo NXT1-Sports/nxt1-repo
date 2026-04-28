@@ -18,6 +18,43 @@ import { getStorage } from 'firebase-admin/storage';
 
 const router = Router();
 
+function resolveAttachmentTypeFromMimeType(mimeType: string): AgentXAttachment['type'] {
+  if (mimeType.startsWith('image/')) return 'image';
+  if (mimeType.startsWith('video/')) return 'video';
+  if (mimeType === 'application/pdf') return 'pdf';
+  if (
+    mimeType === 'text/csv' ||
+    mimeType === 'text/plain' ||
+    mimeType === 'application/vnd.ms-excel' ||
+    mimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  ) {
+    return 'csv';
+  }
+  return 'doc';
+}
+
+function extractLegacyMessageAttachments(message: AgentMessage): readonly AgentXAttachment[] {
+  const matches = [
+    ...message.content.matchAll(
+      /\[Attached (?:file|video): (.+?) \((.+?)\) — (https?:\/\/[^\]]+)\]/g
+    ),
+  ];
+
+  return matches.map((match, index) => {
+    const name = match[1] ?? `attachment-${index + 1}`;
+    const mimeType = match[2] ?? 'application/octet-stream';
+    const url = match[3] ?? '';
+    return {
+      id: `${message.id}-legacy-${index + 1}`,
+      url,
+      name,
+      mimeType,
+      type: resolveAttachmentTypeFromMimeType(mimeType),
+      sizeBytes: 0,
+    };
+  });
+}
+
 function extractStoragePathFromUrl(url: string, bucketName: string): string | null {
   try {
     const parsed = new URL(url);
@@ -31,15 +68,12 @@ function extractStoragePathFromUrl(url: string, bucketName: string): string | nu
   }
 }
 
-async function refreshAttachmentUrl(
-  attachment: AgentXAttachment,
+async function refreshStorageUrl(
+  media: Pick<AgentXAttachment, 'url'> & Partial<Pick<AgentXAttachment, 'storagePath'>>,
   bucketName: string
-): Promise<AgentXAttachment> {
-  if (attachment.type === 'video') return attachment;
-
-  const storagePath =
-    attachment.storagePath ?? extractStoragePathFromUrl(attachment.url, bucketName);
-  if (!storagePath) return attachment;
+): Promise<Pick<AgentXAttachment, 'url'> & Partial<Pick<AgentXAttachment, 'storagePath'>>> {
+  const storagePath = media.storagePath ?? extractStoragePathFromUrl(media.url, bucketName);
+  if (!storagePath) return media;
 
   try {
     const expiresAt = Date.now() + 24 * 60 * 60 * 1000;
@@ -51,7 +85,7 @@ async function refreshAttachmentUrl(
     });
 
     return {
-      ...attachment,
+      ...media,
       url: signedUrl,
       storagePath,
     };
@@ -61,26 +95,90 @@ async function refreshAttachmentUrl(
       error: err instanceof Error ? err.message : String(err),
     });
     return {
-      ...attachment,
+      ...media,
       ...(storagePath ? { storagePath } : {}),
     };
   }
 }
 
-async function refreshMessageAttachments(message: AgentMessage): Promise<AgentMessage> {
-  const attachments = message.attachments;
-  if (!attachments || attachments.length === 0) return message;
+async function refreshAttachmentUrl(
+  attachment: AgentXAttachment,
+  bucketName: string
+): Promise<AgentXAttachment> {
+  if (attachment.type === 'video') return attachment;
 
-  const bucketName = getStorage().bucket().name;
-  const refreshedAttachments = await Promise.all(
-    attachments.map((attachment) =>
-      refreshAttachmentUrl(attachment as AgentXAttachment, bucketName)
-    )
+  const refreshedMedia = await refreshStorageUrl(
+    {
+      url: attachment.url,
+      ...(attachment.storagePath ? { storagePath: attachment.storagePath } : {}),
+    },
+    bucketName
   );
 
   return {
+    ...attachment,
+    url: refreshedMedia.url,
+    ...(refreshedMedia.storagePath ? { storagePath: refreshedMedia.storagePath } : {}),
+  };
+}
+
+async function refreshMessageResultDataMedia(
+  resultData: AgentMessage['resultData'],
+  bucketName: string
+): Promise<AgentMessage['resultData']> {
+  if (!resultData) return resultData;
+
+  let refreshedResultData: Record<string, unknown> | null = null;
+
+  const refreshField = async (field: 'imageUrl' | 'videoUrl'): Promise<void> => {
+    const value = resultData[field];
+    if (typeof value !== 'string' || value.trim().length === 0) return;
+
+    const refreshed = await refreshStorageUrl(
+      {
+        url: value,
+      },
+      bucketName
+    );
+
+    if (refreshed.url !== value) {
+      refreshedResultData ??= { ...resultData };
+      refreshedResultData[field] = refreshed.url;
+    }
+  };
+
+  await refreshField('imageUrl');
+  await refreshField('videoUrl');
+
+  return refreshedResultData ?? resultData;
+}
+
+async function refreshMessageAttachments(message: AgentMessage): Promise<AgentMessage> {
+  const bucketName = getStorage().bucket().name;
+  const attachments =
+    message.attachments && message.attachments.length > 0
+      ? message.attachments
+      : extractLegacyMessageAttachments(message);
+  const refreshedAttachments =
+    attachments && attachments.length > 0
+      ? await Promise.all(
+          attachments.map((attachment) =>
+            refreshAttachmentUrl(attachment as AgentXAttachment, bucketName)
+          )
+        )
+      : attachments;
+  const refreshedResultData = await refreshMessageResultDataMedia(message.resultData, bucketName);
+
+  if (refreshedAttachments === attachments && refreshedResultData === message.resultData) {
+    return message;
+  }
+
+  return {
     ...message,
-    attachments: refreshedAttachments,
+    ...(refreshedAttachments && refreshedAttachments.length > 0
+      ? { attachments: refreshedAttachments }
+      : {}),
+    ...(refreshedResultData ? { resultData: refreshedResultData } : {}),
   };
 }
 

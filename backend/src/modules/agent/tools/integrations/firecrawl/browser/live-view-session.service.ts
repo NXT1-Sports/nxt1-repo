@@ -58,6 +58,7 @@ interface ActiveSession {
   readonly sessionId: string;
   readonly userId: string;
   readonly interactiveUrl: string;
+  readonly liveViewUrl?: string;
   readonly createdAt: Date;
   readonly expiresAt: Date;
 }
@@ -80,6 +81,53 @@ export interface LiveViewPromptResult {
   readonly success: boolean;
   /** Natural language response from Firecrawl's AI describing what it did. */
   readonly output: string;
+}
+
+export interface LiveViewRequestCookie {
+  readonly name: string;
+  readonly value: string;
+  readonly domain: string;
+  readonly path: string;
+  readonly expires?: number;
+  readonly httpOnly: boolean;
+  readonly secure: boolean;
+  readonly sameSite?: string;
+}
+
+export interface LiveViewRequestAuthContext {
+  readonly userAgent: string | null;
+  readonly referer: string | null;
+  readonly origin: string | null;
+  readonly cookieHeader: string | null;
+  readonly cookies: readonly LiveViewRequestCookie[];
+}
+
+export interface LiveViewMediaExtractionResult {
+  readonly url: string;
+  readonly title: string;
+  readonly streams: readonly string[];
+  readonly currentSrc: string | null;
+  readonly blobSrc: string | null;
+  readonly auth: LiveViewRequestAuthContext;
+}
+
+export interface LiveViewPlaylistItem {
+  readonly index: number;
+  readonly itemId: string | null;
+  readonly title: string;
+  readonly url: string | null;
+  readonly durationText: string | null;
+  readonly thumbnailUrl: string | null;
+  readonly textSnippet: string | null;
+  readonly isCurrent: boolean;
+}
+
+export interface LiveViewPlaylistExtractionResult {
+  readonly url: string;
+  readonly title: string;
+  readonly playlistTitle: string | null;
+  readonly items: readonly LiveViewPlaylistItem[];
+  readonly auth: LiveViewRequestAuthContext;
 }
 
 // ─── Constants ──────────────────────────────────────────────────────────────
@@ -146,6 +194,25 @@ export class LiveViewSessionService {
     }
 
     return (result.stdout ?? result.result ?? '').trim();
+  }
+
+  private buildCookieHeader(cookies: readonly LiveViewRequestCookie[]): string | null {
+    if (cookies.length === 0) return null;
+
+    return cookies
+      .map((cookie) => `${cookie.name}=${cookie.value}`)
+      .filter((value) => value.trim().length > 0)
+      .join('; ');
+  }
+
+  private resolveOrigin(url: string | undefined): string | null {
+    if (!url) return null;
+
+    try {
+      return new URL(url).origin;
+    } catch {
+      return null;
+    }
   }
 
   /**
@@ -349,18 +416,20 @@ export class LiveViewSessionService {
     // stopInteraction didn't fully release), retry the entire scrape+interact
     // flow with saveChanges: false so the user isn't blocked.
     let interactiveUrl: string | undefined;
+    let liveViewUrl: string | undefined;
     try {
       const initResult: ScrapeExecuteResponse = await this.client.interact(sessionId, {
         code: "return 'desktop-session-initialized';",
       });
       interactiveUrl = initResult.interactiveLiveViewUrl ?? '';
+      liveViewUrl = initResult.liveViewUrl ?? '';
 
       // Log the exact URL and its origin so we can verify the frontend whitelist
       logger.info('[LiveViewSession] interact() returned interactiveLiveViewUrl', {
         sessionId,
         interactiveUrl,
         origin: interactiveUrl ? new URL(interactiveUrl).origin : 'N/A',
-        liveViewUrl: initResult.liveViewUrl ?? 'N/A',
+        liveViewUrl: liveViewUrl || 'N/A',
       });
     } catch (initErr) {
       const initErrMsg = initErr instanceof Error ? initErr.message : String(initErr);
@@ -402,11 +471,13 @@ export class LiveViewSessionService {
             code: "return 'desktop-session-initialized';",
           });
           interactiveUrl = fallbackInit.interactiveLiveViewUrl ?? '';
+          liveViewUrl = fallbackInit.liveViewUrl ?? '';
 
           logger.info('[LiveViewSession] Fallback interact() returned interactiveLiveViewUrl', {
             sessionId,
             interactiveUrl,
             origin: interactiveUrl ? new URL(interactiveUrl).origin : 'N/A',
+            liveViewUrl: liveViewUrl || 'N/A',
           });
         } catch (fallbackErr) {
           logger.error('[LiveViewSession] Fallback interact also failed', {
@@ -474,6 +545,7 @@ export class LiveViewSessionService {
       sessionId,
       userId,
       interactiveUrl,
+      ...(liveViewUrl ? { liveViewUrl } : {}),
       createdAt: now,
       expiresAt,
     });
@@ -487,6 +559,7 @@ export class LiveViewSessionService {
     const session: LiveViewSession = {
       sessionId,
       interactiveUrl,
+      ...(liveViewUrl ? { liveViewUrl } : {}),
       requestedUrl: request.url,
       resolvedUrl: destination.resolvedUrl,
       destinationTier: destination.tier,
@@ -686,6 +759,685 @@ export class LiveViewSessionService {
     }
 
     return { url, title, content: content.slice(0, 30_000) };
+  }
+
+  /**
+   * Extract real media URLs from the current live-view session using the
+   * browser's own Performance API rather than DOM blob URLs.
+   */
+  async extractMedia(sessionId: string, userId: string): Promise<LiveViewMediaExtractionResult> {
+    this.assertOwnership(sessionId, userId);
+
+    logger.info('[LiveViewSession] Extracting media', { sessionId });
+
+    const extractionCode = `
+  (async () => {
+  const browserResult = await page.evaluate(async () => {
+  const MEDIA_PATTERN = /\\.(m3u8|mp4|ts|mpd)(?:$|[?#])/i;
+
+  function normalizeUrl(value) {
+    return typeof value === 'string' ? value.trim() : '';
+  }
+
+  function dedupe(values) {
+    return [...new Set(values.filter(Boolean))];
+  }
+
+  function collectResourceUrls() {
+    return dedupe(
+      performance
+        .getEntriesByType('resource')
+        .map((entry) => normalizeUrl(entry && 'name' in entry ? entry.name : ''))
+        .filter((value) => MEDIA_PATTERN.test(value))
+    );
+  }
+
+  async function tryStartPlayback(video) {
+    if (!video) return;
+    try {
+      video.muted = true;
+      const playResult = video.play?.();
+      if (playResult && typeof playResult.then === 'function') {
+        await playResult.catch(() => undefined);
+      }
+    } catch {}
+  }
+
+  function clickPlaybackCandidates() {
+    const selectors = [
+      'video',
+      '[aria-label*="play" i]',
+      '[title*="play" i]',
+      '.play-button',
+      '.vjs-big-play-button',
+      '.jw-icon-playback',
+      '[data-testid*="play" i]',
+      '[class*="play" i]',
+    ];
+
+    for (const selector of selectors) {
+      const elements = Array.from(document.querySelectorAll(selector));
+      for (const element of elements.slice(0, 5)) {
+        if (element instanceof HTMLElement) {
+          try {
+            element.click();
+          } catch {}
+        }
+      }
+    }
+  }
+
+  const video = document.querySelector('video');
+  await tryStartPlayback(video);
+  clickPlaybackCandidates();
+
+  const deadline = Date.now() + 20_000;
+  let streams = collectResourceUrls();
+
+  while (streams.length === 0 && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    streams = collectResourceUrls();
+  }
+
+  const currentSrc = normalizeUrl(video?.currentSrc);
+  const blobSrc = currentSrc.startsWith('blob:') ? currentSrc : null;
+
+  return {
+    url: location.href,
+    title: document.title,
+    streams,
+    currentSrc: currentSrc || null,
+    blobSrc,
+  };
+});
+
+const cookies = await page.context().cookies();
+const userAgent = await page.evaluate(() => navigator.userAgent);
+
+return JSON.stringify({
+  ...browserResult,
+  userAgent,
+  cookies: cookies.map((cookie) => ({
+    name: cookie.name,
+    value: cookie.value,
+    domain: cookie.domain,
+    path: cookie.path,
+    expires: Number.isFinite(cookie.expires) ? cookie.expires : undefined,
+    httpOnly: Boolean(cookie.httpOnly),
+    secure: Boolean(cookie.secure),
+    sameSite: cookie.sameSite ?? undefined,
+  })),
+});
+})()`;
+
+    const rawResult = await this.executeBrowserCommand(sessionId, extractionCode);
+
+    let parsed: {
+      url?: string;
+      title?: string;
+      streams?: unknown;
+      currentSrc?: string | null;
+      blobSrc?: string | null;
+      userAgent?: string | null;
+      cookies?: unknown;
+    };
+    try {
+      parsed = JSON.parse(rawResult) as {
+        url?: string;
+        title?: string;
+        streams?: unknown;
+        currentSrc?: string | null;
+        blobSrc?: string | null;
+      };
+    } catch {
+      throw new AgentEngineError(
+        'LIVE_VIEW_REQUEST_FAILED',
+        'Live view media extraction returned invalid JSON.',
+        { metadata: { sessionId } }
+      );
+    }
+
+    const streams = Array.isArray(parsed.streams)
+      ? [...new Set(parsed.streams.filter((value): value is string => typeof value === 'string'))]
+      : [];
+
+    const cookies = Array.isArray(parsed.cookies)
+      ? parsed.cookies
+          .filter(
+            (
+              value
+            ): value is {
+              name: string;
+              value: string;
+              domain: string;
+              path: string;
+              expires?: number;
+              httpOnly?: boolean;
+              secure?: boolean;
+              sameSite?: string;
+            } =>
+              !!value &&
+              typeof value === 'object' &&
+              typeof (value as Record<string, unknown>)['name'] === 'string' &&
+              typeof (value as Record<string, unknown>)['value'] === 'string' &&
+              typeof (value as Record<string, unknown>)['domain'] === 'string' &&
+              typeof (value as Record<string, unknown>)['path'] === 'string'
+          )
+          .map((cookie) => ({
+            name: cookie.name,
+            value: cookie.value,
+            domain: cookie.domain,
+            path: cookie.path,
+            ...(typeof cookie.expires === 'number' ? { expires: cookie.expires } : {}),
+            httpOnly: cookie.httpOnly === true,
+            secure: cookie.secure === true,
+            ...(typeof cookie.sameSite === 'string' ? { sameSite: cookie.sameSite } : {}),
+          }))
+      : [];
+
+    const referer = parsed.url ?? null;
+    const origin = this.resolveOrigin(parsed.url);
+    const cookieHeader = this.buildCookieHeader(cookies);
+
+    if (streams.length === 0 && !parsed.currentSrc) {
+      throw new AgentEngineError(
+        'LIVE_VIEW_REQUEST_FAILED',
+        'No network media streams were detected in the active live view. Start playback in the visible player and try again.',
+        { metadata: { sessionId, url: parsed.url } }
+      );
+    }
+
+    logger.info('[LiveViewSession] Media extracted', {
+      sessionId,
+      url: parsed.url,
+      streamCount: streams.length,
+      hasCurrentSrc: !!parsed.currentSrc,
+      hasBlobSrc: !!parsed.blobSrc,
+      cookieCount: cookies.length,
+    });
+
+    return {
+      url: parsed.url ?? '',
+      title: parsed.title ?? '',
+      streams,
+      currentSrc: parsed.currentSrc ?? null,
+      blobSrc: parsed.blobSrc ?? null,
+      auth: {
+        userAgent: typeof parsed.userAgent === 'string' ? parsed.userAgent : null,
+        referer,
+        origin,
+        cookieHeader,
+        cookies,
+      },
+    };
+  }
+
+  /**
+   * Extract playlist entries and clip URLs from the current live-view page.
+   * This is used for batch film workflows so the agent does not have to open
+   * each clip manually before dispatching download and analysis jobs.
+   */
+  async extractPlaylist(
+    sessionId: string,
+    userId: string,
+    maxItems: number = 25
+  ): Promise<LiveViewPlaylistExtractionResult> {
+    this.assertOwnership(sessionId, userId);
+
+    const boundedMaxItems = Math.min(Math.max(Math.trunc(maxItems) || 25, 1), 100);
+
+    logger.info('[LiveViewSession] Extracting playlist', {
+      sessionId,
+      maxItems: boundedMaxItems,
+    });
+
+    const extractionCode = `
+  (async () => {
+  const browserResult = await page.evaluate(async (limit) => {
+  const ITEM_ID_KEYS = ['clipId', 'videoId', 'itemId', 'playlistId', 'id', 'contentId'];
+  const URL_HINT_PATTERN = /(clip|clips|video|videos|playlist|playlists|highlight|film)/i;
+  const TEXT_HINT_PATTERN = /(clip|play|video|highlight|film)/i;
+  const DURATION_PATTERN = /\\b\\d{1,2}:\\d{2}(?::\\d{2})?\\b/;
+  const PLAYLIST_HINT_PATTERN = /(playlist|queue|filmstrip|rail|clips|highlights|videos)/i;
+
+  function normalizeText(value) {
+    return typeof value === 'string' ? value.replace(/\\s+/g, ' ').trim() : '';
+  }
+
+  function toAbsoluteUrl(value) {
+    if (typeof value !== 'string') return null;
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    try {
+      return new URL(trimmed, window.location.href).toString();
+    } catch {
+      return null;
+    }
+  }
+
+  function collectTextParts(element) {
+    const values = [
+      element.getAttribute('aria-label'),
+      element.getAttribute('title'),
+      element.getAttribute('data-title'),
+      element.getAttribute('data-name'),
+      element.getAttribute('data-testid'),
+    ];
+
+    const selectors = ['[aria-label]', '[title]', '[data-title]', '[data-name]', 'img[alt]', 'time'];
+    for (const selector of selectors) {
+      for (const node of Array.from(element.querySelectorAll(selector)).slice(0, 8)) {
+        values.push(
+          node.getAttribute('aria-label') ||
+            node.getAttribute('title') ||
+            node.getAttribute('data-title') ||
+            node.getAttribute('data-name') ||
+            node.getAttribute('alt') ||
+            node.textContent
+        );
+      }
+    }
+
+    values.push(element.textContent);
+
+    return [...new Set(values.map(normalizeText).filter(Boolean))];
+  }
+
+  function pickTitle(parts) {
+    const filtered = parts.filter((value) => value.length >= 3 && value.length <= 180);
+    const nonDuration = filtered.filter((value) => !DURATION_PATTERN.test(value));
+    const preferred = nonDuration.find((value) => value.split(' ').length >= 2) || nonDuration[0];
+    return preferred || filtered[0] || '';
+  }
+
+  function pickDuration(parts) {
+    for (const value of parts) {
+      const match = value.match(DURATION_PATTERN);
+      if (match) return match[0];
+    }
+    return null;
+  }
+
+  function pickThumbnail(element) {
+    const image = element.querySelector('img, source, video');
+    if (image instanceof HTMLImageElement) {
+      return toAbsoluteUrl(image.currentSrc || image.src);
+    }
+    if (image instanceof HTMLSourceElement) {
+      return toAbsoluteUrl(image.src);
+    }
+    if (image instanceof HTMLVideoElement) {
+      return toAbsoluteUrl(image.poster || image.currentSrc || image.src);
+    }
+
+    const styled = Array.from(element.querySelectorAll('*')).find((node) => {
+      if (!(node instanceof HTMLElement)) return false;
+      const background = window.getComputedStyle(node).backgroundImage;
+      return typeof background === 'string' && background.includes('url(');
+    });
+    if (styled instanceof HTMLElement) {
+      const background = window.getComputedStyle(styled).backgroundImage;
+      const match = background.match(/url\\(["']?(.*?)["']?\\)/);
+      return toAbsoluteUrl(match && match[1] ? match[1] : '');
+    }
+
+    return null;
+  }
+
+  function elementHintsMatch(element) {
+    const attrs = [
+      element.getAttribute('class'),
+      element.getAttribute('id'),
+      element.getAttribute('data-testid'),
+      element.getAttribute('aria-label'),
+      element.getAttribute('role'),
+    ]
+      .map(normalizeText)
+      .filter(Boolean)
+      .join(' ');
+    return PLAYLIST_HINT_PATTERN.test(attrs);
+  }
+
+  function isInsidePlaylistRegion(element) {
+    let current = element;
+    let depth = 0;
+    while (current && depth < 6) {
+      if (elementHintsMatch(current)) return true;
+      current = current.parentElement;
+      depth += 1;
+    }
+    return false;
+  }
+
+  function pickUrl(element) {
+    const directCandidates = [
+      element.getAttribute('href'),
+      element.getAttribute('data-url'),
+      element.getAttribute('data-href'),
+      element.getAttribute('data-video-url'),
+      element.getAttribute('data-clip-url'),
+    ];
+
+    const anchor = element instanceof HTMLAnchorElement ? element : element.closest('a[href]');
+    if (anchor instanceof HTMLAnchorElement) {
+      directCandidates.unshift(anchor.getAttribute('href'));
+    }
+
+    const nestedAnchor = element.querySelector('a[href]');
+    if (nestedAnchor instanceof HTMLAnchorElement) {
+      directCandidates.push(nestedAnchor.getAttribute('href'));
+    }
+
+    for (const candidate of directCandidates) {
+      const absolute = toAbsoluteUrl(candidate || '');
+      if (absolute) return absolute;
+    }
+
+    return null;
+  }
+
+  function pickItemId(element, url) {
+    for (const key of ITEM_ID_KEYS) {
+      const dataValue = element.dataset?.[key];
+      if (normalizeText(dataValue)) return normalizeText(dataValue);
+    }
+
+    const attrCandidates = ['data-clip-id', 'data-video-id', 'data-item-id', 'data-id'];
+    for (const attr of attrCandidates) {
+      const attrValue = element.getAttribute(attr);
+      if (normalizeText(attrValue)) return normalizeText(attrValue);
+    }
+
+    if (url) {
+      try {
+        const parsedUrl = new URL(url, window.location.href);
+        const pathSegments = parsedUrl.pathname.split('/').filter(Boolean);
+        for (let index = 0; index < pathSegments.length - 1; index += 1) {
+          const segment = (pathSegments[index] || '').toLowerCase();
+          if (segment === 'clip' || segment === 'clips' || segment === 'video' || segment === 'videos') {
+            const nextSegment = normalizeText(pathSegments[index + 1]);
+            if (nextSegment) return nextSegment;
+          }
+        }
+      } catch {}
+    }
+
+    return null;
+  }
+
+  function isCurrent(element, url) {
+    if (element.getAttribute('aria-current') === 'true') return true;
+    const classes = normalizeText(element.getAttribute('class')).toLowerCase();
+    if (/(active|selected|current)/.test(classes)) return true;
+    return Boolean(url && url === window.location.href);
+  }
+
+  function buildCandidate(element) {
+    const textParts = collectTextParts(element);
+    const title = pickTitle(textParts);
+    const durationText = pickDuration(textParts);
+    const url = pickUrl(element);
+    const thumbnailUrl = pickThumbnail(element);
+    const textSnippet = textParts.find((value) => value !== title && value !== durationText) || null;
+    const playlistRegion = isInsidePlaylistRegion(element);
+    const linkHint = Boolean(url && URL_HINT_PATTERN.test(url));
+    const textHint = Boolean(title && TEXT_HINT_PATTERN.test(title));
+
+    let score = 0;
+    if (playlistRegion) score += 2;
+    if (url) score += 2;
+    if (title) score += 1;
+    if (durationText) score += 1;
+    if (thumbnailUrl) score += 1;
+    if (linkHint || textHint) score += 1;
+
+    return {
+      score,
+      item: {
+        itemId: pickItemId(element, url),
+        title: title || textSnippet || 'Untitled clip',
+        url,
+        durationText,
+        thumbnailUrl,
+        textSnippet,
+        isCurrent: isCurrent(element, url),
+      },
+    };
+  }
+
+  const containerSelectors = [
+    '[aria-label*="playlist" i]',
+    '[aria-label*="clips" i]',
+    '[aria-label*="videos" i]',
+    '[data-testid*="playlist" i]',
+    '[data-testid*="clip" i]',
+    '[data-testid*="video" i]',
+    '[role="list"]',
+    '[role="grid"]',
+    '[class*="playlist"]',
+    '[class*="filmstrip"]',
+    '[class*="queue"]',
+    '[class*="rail"]',
+  ];
+
+  const containers = [];
+  for (const selector of containerSelectors) {
+    for (const element of Array.from(document.querySelectorAll(selector))) {
+      if (element instanceof HTMLElement && !containers.includes(element)) {
+        containers.push(element);
+      }
+    }
+  }
+
+  const rawCandidates = [];
+  const elementSelector = 'a[href], button, [role="link"], [role="button"], li, article, [role="listitem"], [data-testid], [class]';
+
+  for (const container of containers) {
+    for (const element of Array.from(container.querySelectorAll(elementSelector)).slice(0, 200)) {
+      if (element instanceof HTMLElement) rawCandidates.push(element);
+    }
+  }
+
+  if (rawCandidates.length === 0) {
+    for (const element of Array.from(document.querySelectorAll('a[href], button, [role="link"], [role="button"]')).slice(0, 250)) {
+      if (element instanceof HTMLElement) rawCandidates.push(element);
+    }
+  }
+
+  const seen = new Set();
+  const items = [];
+
+  for (const element of rawCandidates) {
+    const candidate = buildCandidate(element);
+    if (candidate.score < 4) continue;
+    if (!candidate.item.url && !candidate.item.itemId) continue;
+
+    const key = candidate.item.url || candidate.item.itemId || candidate.item.title;
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    items.push(candidate.item);
+  }
+
+  const ranked = items
+    .sort((left, right) => {
+      if (left.isCurrent !== right.isCurrent) return left.isCurrent ? -1 : 1;
+      if (Boolean(left.url) !== Boolean(right.url)) return left.url ? -1 : 1;
+      return left.title.localeCompare(right.title);
+    })
+    .slice(0, limit)
+    .map((item, index) => ({
+      index: index + 1,
+      ...item,
+    }));
+
+  const playlistTitleCandidates = [
+    ...containers.flatMap((container) => [
+      container.getAttribute('aria-label'),
+      container.getAttribute('title'),
+      container.previousElementSibling?.textContent,
+      container.parentElement?.querySelector('h1, h2, h3')?.textContent,
+    ]),
+    document.querySelector('h1')?.textContent,
+    document.querySelector('h2')?.textContent,
+  ]
+    .map(normalizeText)
+    .filter(Boolean);
+
+  return {
+    url: window.location.href,
+    title: document.title,
+    playlistTitle: playlistTitleCandidates[0] || null,
+    items: ranked,
+  };
+}, ${boundedMaxItems});
+
+const cookies = await page.context().cookies();
+const userAgent = await page.evaluate(() => navigator.userAgent);
+
+return JSON.stringify({
+  ...browserResult,
+  userAgent,
+  cookies: cookies.map((cookie) => ({
+    name: cookie.name,
+    value: cookie.value,
+    domain: cookie.domain,
+    path: cookie.path,
+    expires: Number.isFinite(cookie.expires) ? cookie.expires : undefined,
+    httpOnly: Boolean(cookie.httpOnly),
+    secure: Boolean(cookie.secure),
+    sameSite: cookie.sameSite ?? undefined,
+  })),
+});
+})()`;
+
+    const rawResult = await this.executeBrowserCommand(sessionId, extractionCode);
+
+    let parsed: {
+      url?: string;
+      title?: string;
+      playlistTitle?: string | null;
+      items?: unknown;
+      userAgent?: string | null;
+      cookies?: unknown;
+    };
+    try {
+      parsed = JSON.parse(rawResult) as {
+        url?: string;
+        title?: string;
+        playlistTitle?: string | null;
+        items?: unknown;
+        userAgent?: string | null;
+        cookies?: unknown;
+      };
+    } catch {
+      throw new AgentEngineError(
+        'LIVE_VIEW_REQUEST_FAILED',
+        'Live view playlist extraction returned invalid JSON.',
+        { metadata: { sessionId } }
+      );
+    }
+
+    const items = Array.isArray(parsed.items)
+      ? parsed.items
+          .filter(
+            (
+              value
+            ): value is {
+              index: number;
+              itemId?: string | null;
+              title?: string;
+              url?: string | null;
+              durationText?: string | null;
+              thumbnailUrl?: string | null;
+              textSnippet?: string | null;
+              isCurrent?: boolean;
+            } =>
+              !!value &&
+              typeof value === 'object' &&
+              typeof (value as Record<string, unknown>)['index'] === 'number' &&
+              typeof (value as Record<string, unknown>)['title'] === 'string'
+          )
+          .map((item) => ({
+            index: item.index,
+            itemId: typeof item.itemId === 'string' ? item.itemId : null,
+            title: item.title?.trim() || 'Untitled clip',
+            url: typeof item.url === 'string' ? item.url : null,
+            durationText: typeof item.durationText === 'string' ? item.durationText : null,
+            thumbnailUrl: typeof item.thumbnailUrl === 'string' ? item.thumbnailUrl : null,
+            textSnippet: typeof item.textSnippet === 'string' ? item.textSnippet : null,
+            isCurrent: item.isCurrent === true,
+          }))
+      : [];
+
+    const cookies = Array.isArray(parsed.cookies)
+      ? parsed.cookies
+          .filter(
+            (
+              value
+            ): value is {
+              name: string;
+              value: string;
+              domain: string;
+              path: string;
+              expires?: number;
+              httpOnly?: boolean;
+              secure?: boolean;
+              sameSite?: string;
+            } =>
+              !!value &&
+              typeof value === 'object' &&
+              typeof (value as Record<string, unknown>)['name'] === 'string' &&
+              typeof (value as Record<string, unknown>)['value'] === 'string' &&
+              typeof (value as Record<string, unknown>)['domain'] === 'string' &&
+              typeof (value as Record<string, unknown>)['path'] === 'string'
+          )
+          .map((cookie) => ({
+            name: cookie.name,
+            value: cookie.value,
+            domain: cookie.domain,
+            path: cookie.path,
+            ...(typeof cookie.expires === 'number' ? { expires: cookie.expires } : {}),
+            httpOnly: cookie.httpOnly === true,
+            secure: cookie.secure === true,
+            ...(typeof cookie.sameSite === 'string' ? { sameSite: cookie.sameSite } : {}),
+          }))
+      : [];
+
+    if (items.length === 0) {
+      throw new AgentEngineError(
+        'LIVE_VIEW_REQUEST_FAILED',
+        'No playlist clips or linked video items were detected in the active live view.',
+        { metadata: { sessionId, url: parsed.url } }
+      );
+    }
+
+    const referer = parsed.url ?? null;
+    const origin = this.resolveOrigin(parsed.url);
+    const cookieHeader = this.buildCookieHeader(cookies);
+
+    logger.info('[LiveViewSession] Playlist extracted', {
+      sessionId,
+      url: parsed.url,
+      itemCount: items.length,
+      cookieCount: cookies.length,
+    });
+
+    return {
+      url: parsed.url ?? '',
+      title: parsed.title ?? '',
+      playlistTitle:
+        typeof parsed.playlistTitle === 'string' && parsed.playlistTitle.trim().length > 0
+          ? parsed.playlistTitle.trim()
+          : null,
+      items,
+      auth: {
+        userAgent: typeof parsed.userAgent === 'string' ? parsed.userAgent : null,
+        referer,
+        origin,
+        cookieHeader,
+        cookies,
+      },
+    };
   }
 
   /**

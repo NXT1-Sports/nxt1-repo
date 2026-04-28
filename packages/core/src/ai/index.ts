@@ -24,6 +24,8 @@ export type {
   AgentXMode,
   AgentXModeConfig,
   AgentXChatRequest,
+  AgentXSelectedAction,
+  AgentXSelectedActionSurface,
   AgentXChatResponse,
   AgentXUserContext,
   AgentXErrorCode,

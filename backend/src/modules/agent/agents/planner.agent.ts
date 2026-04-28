@@ -68,6 +68,22 @@ const plannerResponseSchema = z.object({
   ),
 });
 
+const strictPlannerTaskSchema = z.object({
+  id: z.string(),
+  assignedAgent: z.string(),
+  description: z.string(),
+  dependsOn: z.array(z.string()),
+});
+
+const strictPlannerResponseSchema = z.object({
+  resultType: z.enum(['execution', 'clarification']),
+  summary: z.string(),
+  estimatedSteps: z.number(),
+  clarificationQuestion: z.string().nullable(),
+  clarificationContext: z.string().nullable(),
+  tasks: z.array(strictPlannerTaskSchema),
+});
+
 const normalizedPlannerResponseSchema = z
   .object({
     summary: z.string().optional(),
@@ -158,6 +174,15 @@ interface PlannerExecutionOptions {
   readonly capabilitySnapshot?: PlannerCapabilitySnapshot;
   readonly capabilitySnapshotResolver?: () => Promise<PlannerCapabilitySnapshot | undefined>;
   readonly skipClassification?: boolean;
+}
+
+interface StrictPlannerResponse {
+  readonly resultType: 'execution' | 'clarification';
+  readonly summary: string;
+  readonly estimatedSteps: number;
+  readonly clarificationQuestion: string | null;
+  readonly clarificationContext: string | null;
+  readonly tasks: readonly PlannerLLMTask[];
 }
 
 function isPlannerExecutionOptions(
@@ -283,6 +308,54 @@ Respond with ONLY a JSON object matching this schema — no markdown, no explana
   ]
 }
 Omit "directResponse" entirely when tasks is non-empty.`;
+
+    return resolvePlannerSystemPrompt(prompt);
+  }
+
+  private getStrictPlanningPrompt(_context: AgentSessionContext): string {
+    const agentCatalogue = this.getCoordinatorDescriptors()
+      .map(
+        (a) =>
+          `- **${a.name}** (id: "${a.id}"): ${a.description}\n  Capabilities: ${a.capabilities.join(', ')}`
+      )
+      .join('\n');
+
+    const prompt = `You are the action planner for Agent X. The request has already been classified as an ACTION.
+
+Your job is to do exactly one of these:
+1. Return an execution plan with one or more coordinator tasks.
+2. Return a structured clarification request when a required parameter is missing.
+
+## Available Coordinators
+${agentCatalogue}
+
+## Rules
+1. Never answer conversationally and never refuse the action.
+2. Use resultType="execution" when enough information exists to proceed.
+3. Use resultType="clarification" only when a missing required parameter blocks execution.
+4. If resultType="execution", tasks must contain at least one task and clarificationQuestion must be null.
+5. If resultType="clarification", tasks must be [] and clarificationQuestion must be a specific question the user can answer.
+6. Imperative requests such as open, launch, navigate, watch, send, create, generate, run, log in, or analyze should default to execution unless a concrete missing parameter prevents safe execution.
+7. Do not invent missing recipients, destinations, or assets just to avoid clarification.
+8. Assign each task to exactly one coordinator by id.
+
+## Output Format (STRICT JSON)
+Respond with ONLY a JSON object:
+{
+  "resultType": "execution" | "clarification",
+  "summary": "short summary",
+  "estimatedSteps": 1,
+  "clarificationQuestion": null,
+  "clarificationContext": null,
+  "tasks": [
+    {
+      "id": "1",
+      "assignedAgent": "strategy_coordinator",
+      "description": "Open live view and navigate to Hudl.",
+      "dependsOn": []
+    }
+  ]
+}`;
 
     return resolvePlannerSystemPrompt(prompt);
   }
@@ -607,6 +680,10 @@ Classify it. If conversational, also provide a direct answer. If planning-requir
       ? toolRegistryOrOptions
       : options;
 
+    if (plannerOptions?.skipClassification) {
+      return this.executeStrictPlanning(intent, context, activeLlm, plannerOptions);
+    }
+
     // ── Step 1: Classify intent to determine tier ──────────────────────────
     let classification: {
       isConversational: boolean;
@@ -771,6 +848,86 @@ Classify it. If conversational, also provide a direct answer. If planning-requir
     };
   }
 
+  private async executeStrictPlanning(
+    intent: string,
+    context: AgentSessionContext,
+    llm: OpenRouterService,
+    plannerOptions?: PlannerExecutionOptions
+  ): Promise<AgentOperationResult> {
+    const capabilitySnapshot =
+      plannerOptions?.capabilitySnapshot ??
+      (plannerOptions?.capabilitySnapshotResolver
+        ? await plannerOptions.capabilitySnapshotResolver()
+        : undefined);
+
+    const plannerIntent = capabilitySnapshot
+      ? `${intent}\n\n${this.buildCapabilitySnapshotPrompt(capabilitySnapshot)}`
+      : intent;
+
+    const routing = this.getModelRouting();
+    const result = await llm.prompt(this.getStrictPlanningPrompt(context), plannerIntent, {
+      tier: routing.tier,
+      maxTokens: routing.maxTokens,
+      temperature: routing.temperature,
+      outputSchema: {
+        name: 'planner_action_execution_plan',
+        schema: strictPlannerResponseSchema,
+      },
+      ...(context.operationId && {
+        telemetryContext: {
+          operationId: context.operationId,
+          userId: context.userId,
+          agentId: this.id,
+        },
+      }),
+    });
+
+    const parsed = this.resolveStrictPlanningResponse(result);
+    const now = new Date().toISOString();
+    const tasks: AgentTask[] = parsed.tasks.map((task) => ({
+      id: task.id,
+      assignedAgent: task.assignedAgent,
+      description: task.description,
+      status: 'pending' as AgentTaskStatus,
+      dependsOn: task.dependsOn,
+      createdAt: now,
+    }));
+
+    const plan: AgentExecutionPlan = {
+      operationId: context.sessionId,
+      tasks,
+      createdAt: now,
+    };
+
+    if (parsed.resultType === 'execution') {
+      this.validateDependencyGraph(plan.tasks);
+    }
+
+    return {
+      summary: sanitizeAgentOutputText(parsed.summary),
+      data: {
+        plan,
+        estimatedSteps: parsed.estimatedSteps,
+        ...(parsed.clarificationQuestion
+          ? {
+              clarificationQuestion: sanitizeAgentOutputText(parsed.clarificationQuestion),
+              clarificationContext: parsed.clarificationContext
+                ? sanitizeAgentOutputText(parsed.clarificationContext)
+                : undefined,
+            }
+          : {}),
+        metadata: {
+          tier: 'routing',
+          executionMode: 'strict_action_planner',
+          resultType: parsed.resultType,
+          classificationReasoning:
+            'Upstream classifier routed this request to strict action planning.',
+        },
+      },
+      suggestions: [],
+    };
+  }
+
   // ─── LLM Response Parser ───────────────────────────────────────────────
 
   /**
@@ -810,6 +967,78 @@ Classify it. If conversational, also provide a direct answer. If planning-requir
 
     return {
       ...validated.data,
+      tasks: normalizedTasks.map((task) => ({
+        ...task,
+        assignedAgent: task.assignedAgent as AgentIdentifier,
+      })),
+    };
+  }
+
+  private resolveStrictPlanningResponse(result: AgentPlannerLlmResult): StrictPlannerResponse {
+    const validated = strictPlannerResponseSchema.safeParse(result.parsedOutput);
+    if (!validated.success) {
+      const firstIssue = validated.error.issues[0];
+      const path = firstIssue?.path.length ? firstIssue.path.join('.') : 'response';
+      throw new AgentEngineError(
+        'PLANNER_SCHEMA_INVALID',
+        `Planner LLM response failed schema validation at ${path}: ${firstIssue?.message ?? 'Invalid output.'}`
+      );
+    }
+
+    const invalidAssignedAgents: string[] = [];
+    const normalizedTasks = validated.data.tasks.map((task) => {
+      const assignedAgent = normalizePlannerAssignedAgent(task.assignedAgent);
+      if (!assignedAgent) {
+        invalidAssignedAgents.push(task.assignedAgent);
+      }
+
+      return {
+        id: task.id,
+        assignedAgent,
+        description: task.description,
+        dependsOn: task.dependsOn,
+      };
+    });
+
+    if (invalidAssignedAgents.length > 0) {
+      throw new AgentEngineError(
+        'PLANNER_SCHEMA_INVALID',
+        `Planner assigned non-routable agents: ${invalidAssignedAgents.join(', ')}. ` +
+          `Allowed coordinators: ${COORDINATOR_AGENT_IDS.join(', ')}.`
+      );
+    }
+
+    if (validated.data.resultType === 'execution' && normalizedTasks.length === 0) {
+      throw new AgentEngineError(
+        'PLANNER_SCHEMA_INVALID',
+        'Strict action planner returned execution without any tasks.'
+      );
+    }
+
+    if (
+      validated.data.resultType === 'clarification' &&
+      (!validated.data.clarificationQuestion ||
+        validated.data.clarificationQuestion.trim().length === 0)
+    ) {
+      throw new AgentEngineError(
+        'PLANNER_SCHEMA_INVALID',
+        'Strict action planner returned clarification without a question.'
+      );
+    }
+
+    if (validated.data.resultType === 'clarification' && normalizedTasks.length > 0) {
+      throw new AgentEngineError(
+        'PLANNER_SCHEMA_INVALID',
+        'Strict action planner cannot return tasks alongside a clarification.'
+      );
+    }
+
+    return {
+      resultType: validated.data.resultType,
+      summary: validated.data.summary,
+      estimatedSteps: validated.data.estimatedSteps,
+      clarificationQuestion: validated.data.clarificationQuestion,
+      clarificationContext: validated.data.clarificationContext,
       tasks: normalizedTasks.map((task) => ({
         ...task,
         assignedAgent: task.assignedAgent as AgentIdentifier,

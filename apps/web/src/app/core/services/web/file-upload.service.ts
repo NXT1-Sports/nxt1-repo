@@ -318,39 +318,58 @@ export class FileUploadService {
   async uploadTeamLogo(userId: string, teamId: string, file: File): Promise<string | null> {
     this.logger.info('Starting team logo upload', { userId, teamId, fileName: file.name });
 
+    this._state.set({
+      status: 'validating',
+      progress: 0,
+      error: null,
+      result: null,
+    });
+
+    const validationError = this.validateFile(file, 'team-logo');
+    if (validationError) {
+      this._state.set({
+        status: 'error',
+        progress: 0,
+        error: validationError,
+        result: null,
+      });
+      this.toast.error(validationError);
+      return null;
+    }
+
+    this._state.update((state) => ({ ...state, status: 'uploading', progress: 0 }));
+
+    const onProgress: UploadProgressCallback = (progress) => {
+      this._state.update((state) => ({ ...state, progress }));
+    };
+
     try {
-      const signed = await this.api.getSignedUploadUrl(
+      const result = await this.api.uploadTeamLogo(
         userId,
-        'team-logo',
+        teamId,
+        file,
         file.name,
         file.type,
-        teamId
+        onProgress
       );
 
-      const putResponse = await fetch(signed.uploadUrl, {
-        method: 'PUT',
-        body: file,
-        headers: { 'Content-Type': file.type },
+      this._state.set({
+        status: 'success',
+        progress: 100,
+        error: null,
+        result,
       });
 
-      if (!putResponse.ok) {
-        this.logger.error('Team logo PUT to signed URL failed', {
-          status: putResponse.status,
-          teamId,
-        });
-        this.toast.error('Failed to upload team logo. Please try again.');
-        return null;
-      }
-
-      // Build the public Firebase Storage download URL
-      const bucket = environment.firebase.storageBucket;
-      const encodedPath = encodeURIComponent(signed.storagePath);
-      const publicUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodedPath}?alt=media`;
-
-      this.logger.info('Team logo uploaded', { teamId, storagePath: signed.storagePath });
-      return publicUrl;
+      this.logger.info('Team logo uploaded', { teamId, storagePath: result.storagePath });
+      return result.url;
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Team logo upload failed';
+      this._state.set({
+        status: 'error',
+        progress: 0,
+        error: message,
+        result: null,
+      });
       this.logger.error('Team logo upload error', err);
       this.toast.error(message);
       return null;

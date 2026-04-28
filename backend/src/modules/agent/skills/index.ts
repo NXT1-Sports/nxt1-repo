@@ -13,6 +13,7 @@ export { SkillRegistry, type MatchedSkill } from './skill-registry.js';
 
 // Evaluation
 export { ScoutingRubricSkill } from './evaluation/scouting-rubric.skill.js';
+export { VideoAnalysisSkill } from './evaluation/video-analysis.skill.js';
 
 // Copywriting
 export { OutreachCopywritingSkill } from './copywriting/outreach-copywriting.skill.js';

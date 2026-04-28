@@ -35,18 +35,22 @@ vi.mock('../../../../../../../utils/logger.js', () => ({
 import { OpenLiveViewTool } from '../open-live-view.tool.js';
 import type { LiveViewSessionService, StartLiveViewResult } from '../live-view-session.service.js';
 import type { LiveViewSession } from '@nxt1/core';
+import type { ToolExecutionContext } from '../../../../base.tool.js';
 
 // ─── Fixtures ───────────────────────────────────────────────────────────────
 
 const TEST_USER_ID = 'user-test-123';
 const TEST_SESSION_ID = 'session-abc-456';
 const TEST_INTERACTIVE_URL = 'https://connect.firecrawl.dev/session/abc';
+const TEST_LIVE_VIEW_URL = 'https://liveview.firecrawl.dev/session/abc';
 const TEST_URL = 'https://www.hudl.com/profile/12345';
+const TEST_CONTEXT = { userId: TEST_USER_ID } satisfies ToolExecutionContext;
 
 function createMockSession(overrides?: Partial<LiveViewSession>): LiveViewSession {
   return {
     sessionId: TEST_SESSION_ID,
     interactiveUrl: TEST_INTERACTIVE_URL,
+    liveViewUrl: TEST_LIVE_VIEW_URL,
     requestedUrl: TEST_URL,
     resolvedUrl: TEST_URL,
     destinationTier: 'platform',
@@ -112,20 +116,17 @@ describe('OpenLiveViewTool', () => {
       expect(tool.isMutation).toBe(false);
     });
 
-    it('should have analytics category', () => {
-      expect(tool.category).toBe('analytics');
+    it('should have system category', () => {
+      expect(tool.category).toBe('system');
     });
 
-    it('should be allowed for all relevant coordinators', () => {
-      expect(tool.allowedAgents).toContain('data_coordinator');
-      expect(tool.allowedAgents).toContain('performance_coordinator');
-      expect(tool.allowedAgents).toContain('recruiting_coordinator');
-      expect(tool.allowedAgents).toContain('strategy_coordinator');
-      expect(tool.allowedAgents).toContain('brand_coordinator');
+    it('should be allowed for all agents via wildcard', () => {
+      expect(tool.allowedAgents).toEqual(['*']);
     });
 
-    it('should require url and userId parameters', () => {
-      expect(tool.parameters.required).toEqual(['url', 'userId']);
+    it('should require only url in the tool schema', () => {
+      expect(tool.parameters.safeParse({}).success).toBe(false);
+      expect(tool.parameters.safeParse({ url: TEST_URL }).success).toBe(true);
     });
   });
 
@@ -144,6 +145,17 @@ describe('OpenLiveViewTool', () => {
       const result = await tool.execute({ url: TEST_URL });
       expect(result.success).toBe(false);
       expect(result.error).toContain('userId');
+    });
+
+    it('should accept userId from execution context', async () => {
+      const result = await tool.execute({ url: TEST_URL }, TEST_CONTEXT);
+
+      expect(result.success).toBe(true);
+      expect(mockService.startSession).toHaveBeenCalledWith(
+        TEST_USER_ID,
+        { url: TEST_URL },
+        expect.any(Object)
+      );
     });
 
     it('should reject empty url', async () => {
@@ -202,6 +214,7 @@ describe('OpenLiveViewTool', () => {
       const panel = data['autoOpenPanel'] as Record<string, unknown>;
       expect(panel['type']).toBe('live-view');
       expect(panel['url']).toBe(TEST_INTERACTIVE_URL);
+      expect(panel['externalUrl']).toBe(TEST_INTERACTIVE_URL);
       expect(panel['title']).toBe('Hudl');
       expect(panel['session']).toBeDefined();
     });
@@ -349,6 +362,7 @@ describe('OpenLiveViewTool', () => {
       sessionId: TEST_SESSION_ID,
       userId: TEST_USER_ID,
       interactiveUrl: TEST_INTERACTIVE_URL,
+      liveViewUrl: TEST_LIVE_VIEW_URL,
       createdAt: new Date('2026-04-06T00:00:00Z'),
       expiresAt: new Date('2026-04-06T00:10:00Z'),
     };
@@ -387,6 +401,7 @@ describe('OpenLiveViewTool', () => {
       const panel = data['autoOpenPanel'] as Record<string, unknown>;
       expect(panel['type']).toBe('live-view');
       expect(panel['url']).toBe(TEST_INTERACTIVE_URL);
+      expect(panel['externalUrl']).toBe(TEST_INTERACTIVE_URL);
     });
 
     it('should NOT skip Firestore fetch when no active session', async () => {

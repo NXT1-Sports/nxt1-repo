@@ -554,6 +554,25 @@ export class AgentWorker {
     const startMs = Date.now();
     const repo = this.getJobRepo(job);
 
+    if (payload.origin === 'system_cron' && payloadThreadId && this.chatService) {
+      try {
+        await this.chatService.addMessage({
+          threadId: payloadThreadId,
+          userId: payload.userId,
+          role: 'user',
+          content: payload.displayIntent?.trim() || payload.intent,
+          origin: 'system_cron',
+          operationId: payload.operationId,
+        });
+      } catch (err) {
+        logger.warn('Failed to persist scheduled run intent to MongoDB thread', {
+          operationId: payload.operationId,
+          threadId: payloadThreadId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
     // Hoist billing db so it's available across the full job lifecycle
     const billingDb = await this.getActivityFirestore(job);
     const feature = typeof payload.agent === 'string' ? payload.agent : 'agent';
@@ -638,6 +657,8 @@ export class AgentWorker {
     // ── Debounced Event Writer: streams granular events to Firestore subcollection ──
     // The frontend subscribes to `AgentJobs/{operationId}/events` via onSnapshot
     // to render a live "watch it work" chat experience.
+    let pendingAutoOpenPanel: Record<string, unknown> | null = null;
+
     const eventWriter = new DebouncedEventWriter(
       repo,
       payload.operationId,
@@ -680,8 +701,35 @@ export class AgentWorker {
           // Skip deltas here (already published via onLiveEvent for real-time)
           if (event.type === 'delta') return;
 
-          const sseEvent = this.streamEventToSSE(event, payload.operationId, payloadThreadId);
+          let sseEvent = this.streamEventToSSE(event, payload.operationId, payloadThreadId);
           if (!sseEvent) return;
+
+          if (
+            event.type === 'tool_result' &&
+            event.toolSuccess !== false &&
+            event.toolResult &&
+            typeof event.toolResult === 'object' &&
+            event.toolResult['autoOpenPanel'] &&
+            typeof event.toolResult['autoOpenPanel'] === 'object'
+          ) {
+            pendingAutoOpenPanel = event.toolResult['autoOpenPanel'] as Record<string, unknown>;
+          }
+
+          if (
+            sseEvent.event === 'done' &&
+            pendingAutoOpenPanel &&
+            sseEvent.data &&
+            typeof sseEvent.data === 'object'
+          ) {
+            sseEvent = {
+              ...sseEvent,
+              data: {
+                ...(sseEvent.data as Record<string, unknown>),
+                autoOpenPanel: pendingAutoOpenPanel,
+              },
+            };
+          }
+
           const publishStartedAt = Date.now();
           this.pubsub
             .publish(payload.operationId, sseEvent.event, sseEvent.data)
@@ -696,6 +744,23 @@ export class AgentWorker {
               }
             })
             .catch(() => undefined);
+
+          if (
+            event.type === 'tool_result' &&
+            event.toolSuccess !== false &&
+            event.toolResult &&
+            typeof event.toolResult === 'object' &&
+            event.toolResult['autoOpenPanel'] &&
+            typeof event.toolResult['autoOpenPanel'] === 'object'
+          ) {
+            this.pubsub
+              .publish(
+                payload.operationId,
+                'panel',
+                event.toolResult['autoOpenPanel'] as Record<string, unknown>
+              )
+              .catch(() => undefined);
+          }
         },
       }
     );
@@ -1007,6 +1072,7 @@ export class AgentWorker {
 
         if (threadId && this.chatService) {
           try {
+            await this.chatService.updateThreadPausedYieldState?.(threadId, yieldState);
             await this.chatService.addMessage({
               threadId,
               userId: payload.userId,

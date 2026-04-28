@@ -35,7 +35,9 @@ export class AgentRouterPolicyService {
     const rerouteResult = await this.planner.execute(
       `${forwardingIntent}${routingHint}`,
       context,
-      []
+      [],
+      undefined,
+      { skipClassification: true }
     );
     const reroutedPlan = rerouteResult.data?.['plan'] as AgentExecutionPlan | undefined;
 

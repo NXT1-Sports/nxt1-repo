@@ -11,7 +11,7 @@
  * 4. Returns the model's analysis as structured text.
  *
  * Supported video sources:
- * - Direct MP4/MOV/WebM/MPEG URLs (CDN links, Hudl CDN, etc.)
+ * - Direct MP4/MOV/WebM/MPEG/HLS/DASH URLs (CDN links, Hudl CDN, manifests, etc.)
  * - YouTube URLs (youtube.com/watch, youtu.be) — Gemini processes natively
  * - Pages containing embedded videos (Hudl profiles, MaxPreps, etc.)
  *
@@ -29,8 +29,8 @@ import { z } from 'zod';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
-/** File extensions that indicate a direct video URL (no scraping needed). */
-const VIDEO_EXTENSIONS = /\.(mp4|mov|webm|mpeg|m4v)(\?|$)/i;
+/** File extensions that indicate a direct video URL or stream manifest. */
+const VIDEO_EXTENSIONS = /\.(mp4|mov|webm|mpeg|m4v|m3u8|mpd)(\?|$)/i;
 
 /** URL patterns that are natively supported by Gemini without extraction. */
 const YOUTUBE_PATTERN =
@@ -48,7 +48,7 @@ export class AnalyzeVideoTool extends BaseTool {
   readonly name = 'analyze_video';
   readonly description =
     'Analyzes video content from a URL using AI vision. ' +
-    'Accepts direct video URLs (MP4, MOV, WebM), YouTube links, or page URLs containing embedded videos. ' +
+    'Accepts direct video URLs (MP4, MOV, WebM, M3U8, MPD), YouTube links, or page URLs containing embedded videos. ' +
     'For page URLs (e.g. Hudl profiles, team pages), automatically extracts the video URLs first. ' +
     'Use for: game film analysis, defensive/offensive scheme breakdowns, player evaluation from highlights, ' +
     'technique assessment, play-by-play analysis, scouting reports from video, and any video-based coaching insights. ' +

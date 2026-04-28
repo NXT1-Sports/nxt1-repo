@@ -60,13 +60,18 @@ describe('schedule-recurring.tool', () => {
 
     const tool = new ScheduleRecurringTaskTool(queueService as never, db);
 
-    const result = await tool.execute({
-      userId: 'user-1',
-      actionSummary: 'Send intro email',
-      cronExpression: '0 8 * * 2',
-      timezone: 'America/Chicago',
-      sourceId: 'thread-123',
-    });
+    const result = await tool.execute(
+      {
+        userId: 'user-1',
+        actionSummary: 'Send intro email',
+        cronExpression: '0 8 * * 2',
+        timezone: 'America/Chicago',
+        sourceId: 'thread-123',
+      },
+      {
+        userId: 'user-1',
+      }
+    );
 
     expect(result.success).toBe(true);
     expect(queueService.enqueueRecurring).toHaveBeenCalledTimes(1);
@@ -99,7 +104,7 @@ describe('schedule-recurring.tool', () => {
     );
   });
 
-  it('does not inject sourceId into run context when sourceId is omitted', async () => {
+  it('falls back to execution thread context when sourceId is omitted', async () => {
     const queueService = {
       enqueueRecurring: vi.fn().mockResolvedValue('repeat:key:456'),
     };
@@ -118,12 +123,68 @@ describe('schedule-recurring.tool', () => {
 
     const tool = new ScheduleRecurringTaskTool(queueService as never, db);
 
-    const result = await tool.execute({
-      userId: 'user-1',
-      actionSummary: 'Weekly recap',
-      cronExpression: '0 10 * * 1',
-      timezone: 'America/Chicago',
-    });
+    const result = await tool.execute(
+      {
+        userId: 'user-1',
+        actionSummary: 'Weekly recap',
+        cronExpression: '0 10 * * 1',
+        timezone: 'America/Chicago',
+      },
+      {
+        userId: 'user-1',
+        threadId: '663f7c99f9b6aa3f9f77c4ad',
+      }
+    );
+
+    expect(result.success).toBe(true);
+    expect(queueService.enqueueRecurring).toHaveBeenCalledWith(
+      expect.stringMatching(/^recv:user-1:/),
+      '0 10 * * 1',
+      'America/Chicago',
+      expect.objectContaining({
+        context: {
+          sourceId: '663f7c99f9b6aa3f9f77c4ad',
+          threadId: '663f7c99f9b6aa3f9f77c4ad',
+        },
+      }),
+      'production'
+    );
+
+    expect(set).toHaveBeenCalledWith(
+      expect.objectContaining({ sourceId: '663f7c99f9b6aa3f9f77c4ad' })
+    );
+  });
+
+  it('does not inject sourceId when neither input nor execution context provides a thread', async () => {
+    const queueService = {
+      enqueueRecurring: vi.fn().mockResolvedValue('repeat:key:789'),
+    };
+
+    const set = vi.fn().mockResolvedValue(undefined);
+    const doc = vi.fn(() => ({ set }));
+    const countGet = vi.fn().mockResolvedValue({ data: () => ({ count: 0 }) });
+    const db = {
+      collection: vi.fn(() => ({
+        where: vi.fn(() => ({
+          count: vi.fn(() => ({ get: countGet })),
+        })),
+        doc,
+      })),
+    } as unknown as Firestore;
+
+    const tool = new ScheduleRecurringTaskTool(queueService as never, db);
+
+    const result = await tool.execute(
+      {
+        userId: 'user-1',
+        actionSummary: 'Weekly recap',
+        cronExpression: '0 10 * * 1',
+        timezone: 'America/Chicago',
+      },
+      {
+        userId: 'user-1',
+      }
+    );
 
     expect(result.success).toBe(true);
     expect(queueService.enqueueRecurring).toHaveBeenCalledWith(

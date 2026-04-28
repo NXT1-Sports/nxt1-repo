@@ -45,6 +45,22 @@ router.post('/cron/weekly-playbooks', cronGuard, async (_req: Request, res: Resp
   }
 });
 
+// ─── POST /cron/suggested-actions ────────────────────────────────────────
+// Cloud Scheduler: every Sunday at 9:00 AM  (cron: 0 9 * * 0)
+
+router.post('/cron/suggested-actions', cronGuard, async (_req: Request, res: Response) => {
+  try {
+    const { runWeeklySuggestedActions } =
+      await import('../../modules/agent/triggers/trigger.listeners.js');
+    await runWeeklySuggestedActions();
+    res.json({ success: true, message: 'Weekly suggested actions completed' });
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('CRON suggested-actions failed', { error: error.message, stack: error.stack });
+    res.status(500).json({ success: false, error: 'Suggested actions failed' });
+  }
+});
+
 // ─── POST /cron/playbook-nudge ────────────────────────────────────────────
 // Cloud Scheduler: Wednesday + Saturday at 6:00 PM  (cron: 0 18 * * 3,6)
 // Sends a personalized mid-week progress check-in push for active playbooks.

@@ -222,12 +222,31 @@ export class AgentRouterExecutionService {
             let toolDefs = this.toolRegistry.getDefinitions(agent.id, toolAccessContext);
             try {
               const intentEmbedding = await this.llm.embed(taskIntent);
-              toolDefs = await this.toolRegistry.match(
+              const matchedToolDefs = await this.toolRegistry.match(
                 intentEmbedding,
                 (text) => this.llm.embed(text),
                 agent.id,
                 toolAccessContext
               );
+
+              const matchedNonSystemToolCount = matchedToolDefs.filter(
+                (tool) => tool.category !== 'system'
+              ).length;
+
+              if (matchedToolDefs.length > 0 && matchedNonSystemToolCount > 0) {
+                toolDefs = matchedToolDefs;
+              } else {
+                logger.warn(
+                  '[AgentRouter] Semantic tool narrowing was too sparse — using full allowed tool set',
+                  {
+                    operationId,
+                    taskId: task.id,
+                    agentId: agent.id,
+                    matchedToolNames: matchedToolDefs.map((tool) => tool.name),
+                    fallbackToolCount: toolDefs.length,
+                  }
+                );
+              }
             } catch {
               // Embedding unavailable — fall back to all permitted tools
             }
