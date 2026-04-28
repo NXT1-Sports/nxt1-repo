@@ -1220,6 +1220,7 @@ router.post('/pause/:id', appGuard, async (req: Request, res: Response) => {
   // the in-process activeAbortControllers map above will be empty for that
   // operation. Broadcast a control message via Redis pub/sub so the owning
   // worker (wherever it lives) can abort its local AbortController.
+  let controlBroadcast = false;
   if (pubsubService) {
     try {
       await pubsubService.publishControl({
@@ -1228,6 +1229,7 @@ router.post('/pause/:id', appGuard, async (req: Request, res: Response) => {
         issuedAt: new Date().toISOString(),
         issuedBy: user.uid,
       });
+      controlBroadcast = true;
     } catch (err) {
       logger.warn('Failed to broadcast pause control message', {
         operationId,
@@ -1241,9 +1243,12 @@ router.post('/pause/:id', appGuard, async (req: Request, res: Response) => {
     try {
       queueCancelled = await queueService.cancel(operationId);
     } catch (err) {
+      // Expected when the worker holds the BullMQ lock on a different
+      // instance — the control broadcast above handles the actual abort.
       logger.warn('Queue pause call failed', {
         operationId,
         error: err instanceof Error ? err.message : String(err),
+        controlBroadcast,
       });
     }
   }
@@ -1302,12 +1307,14 @@ router.post('/pause/:id', appGuard, async (req: Request, res: Response) => {
     operationId,
     userId: user.uid,
     queueCancelled,
+    controlBroadcast,
   });
 
   res.json({
     success: true,
     paused: true,
     queueCancelled,
+    controlBroadcast,
     status: 'paused',
     operationId,
     threadId: persistedJob.threadId ?? null,
@@ -1352,6 +1359,7 @@ router.post('/cancel/:id', appGuard, async (req: Request, res: Response) => {
   // Cross-instance cancel propagation (mirrors pause). Required when the
   // worker runs on a different backend instance than the one handling the
   // HTTP request — see comment in pause endpoint above.
+  let controlBroadcast = false;
   if (pubsubService) {
     try {
       await pubsubService.publishControl({
@@ -1360,6 +1368,7 @@ router.post('/cancel/:id', appGuard, async (req: Request, res: Response) => {
         issuedAt: new Date().toISOString(),
         issuedBy: user.uid,
       });
+      controlBroadcast = true;
     } catch (err) {
       logger.warn('Failed to broadcast cancel control message', {
         operationId,
@@ -1373,9 +1382,12 @@ router.post('/cancel/:id', appGuard, async (req: Request, res: Response) => {
     try {
       queueCancelled = await queueService.cancel(operationId);
     } catch (err) {
+      // Expected when worker holds BullMQ lock on a different instance —
+      // the control broadcast above handles the actual abort.
       logger.warn('Queue cancellation call failed', {
         operationId,
         error: err instanceof Error ? err.message : String(err),
+        controlBroadcast,
       });
     }
   }
@@ -1469,9 +1481,10 @@ router.post('/cancel/:id', appGuard, async (req: Request, res: Response) => {
     operationId,
     userId: user.uid,
     queueCancelled,
+    controlBroadcast,
   });
 
-  res.json({ success: true, cancelled: true, queueCancelled });
+  res.json({ success: true, cancelled: true, queueCancelled, controlBroadcast });
 });
 
 // ─── POST /resume-job/:operationId — Resume a yielded agent job ───────────
