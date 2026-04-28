@@ -7,7 +7,7 @@
  * duplicate network calls. Single refresh + single profile load + auth sync.
  */
 
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 
 /**
  * Mock ProfileService behavior to track state transitions and fetch count.
@@ -245,7 +245,7 @@ describe('auth-flow single-fetch refresh (Phase 2 hardening)', () => {
 
     it('should complete single refresh within reasonable time', async () => {
       const start = Date.now();
-      const result = await simulateRefreshUserProfilePhase2(profileService, 'uid123');
+      await simulateRefreshUserProfilePhase2(profileService, 'uid123');
       const elapsed = Date.now() - start;
 
       // Should be fast (single call, not waiting for second)

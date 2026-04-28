@@ -207,16 +207,16 @@ describe('AgentRouter', () => {
       const llm = {
         prompt: vi.fn().mockResolvedValueOnce({
           parsedOutput: {
-            route: 'chat',
-            requiredContextScopes: [],
+            isConversational: true,
+            reasoning: 'Simple greeting.',
             directResponse: 'Hi there! How can I help today?',
-            planSummary: null,
+            estimatedComplexity: 'simple',
           },
           content: JSON.stringify({
-            route: 'chat',
-            requiredContextScopes: [],
+            isConversational: true,
+            reasoning: 'Simple greeting.',
             directResponse: 'Hi there! How can I help today?',
-            planSummary: null,
+            estimatedComplexity: 'simple',
           }),
           model: 'anthropic/claude-haiku-4-5',
           usage: { inputTokens: 40, outputTokens: 20, totalTokens: 60 },
@@ -241,26 +241,26 @@ describe('AgentRouter', () => {
 
       expect(result.summary).toBe('Hi there! How can I help today?');
       expect(contextBuilder.buildPromptContext).not.toHaveBeenCalled();
-      expect(contextBuilder.buildContext).not.toHaveBeenCalled();
+      expect(contextBuilder.buildContext).toHaveBeenCalledWith('user-123', undefined);
       expect(llm.prompt).toHaveBeenCalledTimes(1);
     });
 
-    it('should fetch only profile context for conversational questions that need personalization', async () => {
+    it('should return a direct conversational response after loading profile context', async () => {
       const llm = {
         prompt: vi
           .fn()
           .mockResolvedValueOnce({
             parsedOutput: {
-              route: 'chat',
-              requiredContextScopes: ['profile'],
+              isConversational: true,
+              reasoning: 'Needs lightweight personalization.',
               directResponse: null,
-              planSummary: null,
+              estimatedComplexity: 'simple',
             },
             content: JSON.stringify({
-              route: 'chat',
-              requiredContextScopes: ['profile'],
+              isConversational: true,
+              reasoning: 'Needs lightweight personalization.',
               directResponse: null,
-              planSummary: null,
+              estimatedComplexity: 'simple',
             }),
             model: 'anthropic/claude-haiku-4-5',
             usage: { inputTokens: 40, outputTokens: 20, totalTokens: 60 },
@@ -270,8 +270,20 @@ describe('AgentRouter', () => {
             finishReason: 'stop',
           })
           .mockResolvedValueOnce({
-            parsedOutput: undefined,
-            content: 'As a football QB, I can help with recruiting, film, branding, and planning.',
+            parsedOutput: {
+              summary:
+                'As a football QB, I can help with recruiting, film, branding, and planning.',
+              directResponse:
+                'As a football QB, I can help with recruiting, film, branding, and planning.',
+              tasks: [],
+            },
+            content: JSON.stringify({
+              summary:
+                'As a football QB, I can help with recruiting, film, branding, and planning.',
+              directResponse:
+                'As a football QB, I can help with recruiting, film, branding, and planning.',
+              tasks: [],
+            }),
             model: 'anthropic/claude-haiku-4-5',
             usage: { inputTokens: 60, outputTokens: 40, totalTokens: 100 },
             latencyMs: 180,
@@ -300,26 +312,55 @@ describe('AgentRouter', () => {
       expect(llm.prompt).toHaveBeenCalledTimes(2);
     });
 
-    it('should deterministically load memory and sync context for self-introspection questions', async () => {
+    it('should load thread-aware context for self-introspection questions', async () => {
       const llm = {
-        prompt: vi.fn().mockResolvedValueOnce({
-          parsedOutput: undefined,
-          content:
-            'I know you are a football QB, you prefer weekly milestone plans, and your recent sync shows updated recruiting priorities.',
-          model: 'anthropic/claude-haiku-4-5',
-          usage: { inputTokens: 80, outputTokens: 50, totalTokens: 130 },
-          latencyMs: 180,
-          costUsd: 0.0002,
-          toolCalls: [],
-          finishReason: 'stop',
-        }),
+        prompt: vi
+          .fn()
+          .mockResolvedValueOnce({
+            parsedOutput: {
+              isConversational: true,
+              reasoning: 'Self-introspection request.',
+              directResponse: null,
+              estimatedComplexity: 'simple',
+            },
+            content: JSON.stringify({
+              isConversational: true,
+              reasoning: 'Self-introspection request.',
+              directResponse: null,
+              estimatedComplexity: 'simple',
+            }),
+            model: 'anthropic/claude-haiku-4-5',
+            usage: { inputTokens: 60, outputTokens: 24, totalTokens: 84 },
+            latencyMs: 120,
+            costUsd: 0.0001,
+            toolCalls: [],
+            finishReason: 'stop',
+          })
+          .mockResolvedValueOnce({
+            parsedOutput: {
+              summary:
+                'I know you are a football QB, you prefer weekly milestone plans, and your recent sync shows updated recruiting priorities.',
+              directResponse:
+                'I know you are a football QB, you prefer weekly milestone plans, and your recent sync shows updated recruiting priorities.',
+              tasks: [],
+            },
+            content: JSON.stringify({
+              summary:
+                'I know you are a football QB, you prefer weekly milestone plans, and your recent sync shows updated recruiting priorities.',
+              directResponse:
+                'I know you are a football QB, you prefer weekly milestone plans, and your recent sync shows updated recruiting priorities.',
+              tasks: [],
+            }),
+            model: 'anthropic/claude-haiku-4-5',
+            usage: { inputTokens: 80, outputTokens: 50, totalTokens: 130 },
+            latencyMs: 180,
+            costUsd: 0.0002,
+            toolCalls: [],
+            finishReason: 'stop',
+          }),
         complete: vi.fn(),
         embed: vi.fn().mockResolvedValue([0.1, 0.2, 0.3]),
       } as unknown as OpenRouterService;
-
-      (
-        contextBuilder.getRecentSyncSummariesForContext as ReturnType<typeof vi.fn>
-      ).mockResolvedValue(['Sync delta: recruiting priorities updated yesterday.']);
       (contextBuilder.getActiveThreadsSummary as ReturnType<typeof vi.fn>).mockResolvedValue(
         '\n- Recruiting follow-up plan\n- QB mechanics review'
       );
@@ -340,36 +381,29 @@ describe('AgentRouter', () => {
 
       expect(result.summary).toContain('football QB');
       expect(contextBuilder.buildContext).toHaveBeenCalledWith('user-123', undefined);
-      expect(contextBuilder.getMemoriesForContext).toHaveBeenCalledWith(
-        createMockUserContext(),
-        'What do you know about me?'
-      );
-      expect(contextBuilder.getRecentSyncSummariesForContext).toHaveBeenCalledWith(
-        createMockUserContext()
-      );
       expect(contextBuilder.getActiveThreadsSummary).toHaveBeenCalledWith('user-123', 8);
       expect(contextBuilder.getRecentThreadHistory).toHaveBeenCalledWith(
         'thread-self-knowledge',
         20
       );
       expect(contextBuilder.buildPromptContext).not.toHaveBeenCalled();
-      expect(llm.prompt).toHaveBeenCalledTimes(1);
+      expect(llm.prompt).toHaveBeenCalledTimes(2);
     });
 
-    it('should reuse safe conversational cache for repeated no-context chat requests', async () => {
+    it('should reuse conversational classification cache for repeated no-context chat requests', async () => {
       const llm = {
         prompt: vi.fn().mockResolvedValue({
           parsedOutput: {
-            route: 'chat',
-            requiredContextScopes: [],
+            isConversational: true,
+            reasoning: 'Greeting.',
             directResponse: 'Hi there! How can I help today?',
-            planSummary: null,
+            estimatedComplexity: 'simple',
           },
           content: JSON.stringify({
-            route: 'chat',
-            requiredContextScopes: [],
+            isConversational: true,
+            reasoning: 'Greeting.',
             directResponse: 'Hi there! How can I help today?',
-            planSummary: null,
+            estimatedComplexity: 'simple',
           }),
           model: 'anthropic/claude-haiku-4-5',
           usage: { inputTokens: 40, outputTokens: 20, totalTokens: 60 },
@@ -403,19 +437,19 @@ describe('AgentRouter', () => {
       expect(llm.prompt).toHaveBeenCalledTimes(1);
     });
 
-    it('should not cache conversational responses that depend on thread context scopes', async () => {
+    it('should not reuse thread-aware direct responses across repeated requests', async () => {
       const routeDecision = {
         parsedOutput: {
-          route: 'chat',
-          requiredContextScopes: ['thread_history'],
+          isConversational: true,
+          reasoning: 'Needs thread context.',
           directResponse: null,
-          planSummary: null,
+          estimatedComplexity: 'simple',
         },
         content: JSON.stringify({
-          route: 'chat',
-          requiredContextScopes: ['thread_history'],
+          isConversational: true,
+          reasoning: 'Needs thread context.',
           directResponse: null,
-          planSummary: null,
+          estimatedComplexity: 'simple',
         }),
         model: 'anthropic/claude-haiku-4-5',
         usage: { inputTokens: 40, outputTokens: 20, totalTokens: 60 },
@@ -426,8 +460,16 @@ describe('AgentRouter', () => {
       };
 
       const contextualResponse = {
-        parsedOutput: undefined,
-        content: 'Based on our recent thread, here is the follow-up.',
+        parsedOutput: {
+          summary: 'Based on our recent thread, here is the follow-up.',
+          directResponse: 'Based on our recent thread, here is the follow-up.',
+          tasks: [],
+        },
+        content: JSON.stringify({
+          summary: 'Based on our recent thread, here is the follow-up.',
+          directResponse: 'Based on our recent thread, here is the follow-up.',
+          tasks: [],
+        }),
         model: 'anthropic/claude-haiku-4-5',
         usage: { inputTokens: 60, outputTokens: 40, totalTokens: 100 },
         latencyMs: 180,
@@ -469,25 +511,25 @@ describe('AgentRouter', () => {
       });
 
       expect(contextBuilder.getRecentThreadHistory).toHaveBeenCalledTimes(2);
-      expect(llm.prompt).toHaveBeenCalledTimes(4);
+      expect(llm.prompt).toHaveBeenCalledTimes(3);
     });
 
-    it('should skip planner classification when conversational triage escalates to planning', async () => {
+    it('should route actionable requests through planner execution', async () => {
       const llm = {
         prompt: vi
           .fn()
           .mockResolvedValueOnce({
             parsedOutput: {
-              route: 'plan',
-              requiredContextScopes: [],
+              isConversational: false,
+              reasoning: 'Coordinator execution required.',
               directResponse: null,
-              planSummary: 'send recruiting emails to colleges',
+              estimatedComplexity: 'moderate',
             },
             content: JSON.stringify({
-              route: 'plan',
-              requiredContextScopes: [],
+              isConversational: false,
+              reasoning: 'Coordinator execution required.',
               directResponse: null,
-              planSummary: 'send recruiting emails to colleges',
+              estimatedComplexity: 'moderate',
             }),
             model: 'anthropic/claude-haiku-4-5',
             usage: { inputTokens: 40, outputTokens: 20, totalTokens: 60 },
@@ -498,7 +540,6 @@ describe('AgentRouter', () => {
           })
           .mockResolvedValueOnce({
             parsedOutput: {
-              resultType: 'execution',
               summary: 'Send recruiting emails.',
               estimatedSteps: 1,
               tasks: [
@@ -509,11 +550,8 @@ describe('AgentRouter', () => {
                   dependsOn: [],
                 },
               ],
-              clarificationQuestion: null,
-              clarificationContext: null,
             },
             content: JSON.stringify({
-              resultType: 'execution',
               summary: 'Send recruiting emails.',
               estimatedSteps: 1,
               tasks: [
@@ -524,8 +562,6 @@ describe('AgentRouter', () => {
                   dependsOn: [],
                 },
               ],
-              clarificationQuestion: null,
-              clarificationContext: null,
             }),
             model: 'anthropic/claude-sonnet-4-5',
             usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
@@ -567,37 +603,18 @@ describe('AgentRouter', () => {
       expect(contextBuilder.buildPromptContext).not.toHaveBeenCalled();
       expect(llm.prompt).toHaveBeenCalledTimes(2);
       expect((llm.prompt as ReturnType<typeof vi.fn>).mock.calls[1]?.[2]).toMatchObject({
-        outputSchema: { name: 'planner_action_execution_plan' },
+        outputSchema: { name: 'planner_execution_plan' },
       });
-      expect(streamEvents.some((event) => event.type === 'delta')).toBe(true);
+      expect(streamEvents.some((event) => event.type === 'operation')).toBe(true);
     });
 
-    it('should keep planner classification when conversational triage fails and falls through', async () => {
+    it('should fall through to planner execution when planner classification fails', async () => {
       const llm = {
         prompt: vi
           .fn()
           .mockRejectedValueOnce(new Error('triage timeout'))
           .mockResolvedValueOnce({
             parsedOutput: {
-              isConversational: false,
-              reasoning: 'Coordinator execution needed',
-              estimatedComplexity: 'moderate',
-            },
-            content: JSON.stringify({
-              isConversational: false,
-              reasoning: 'Coordinator execution needed',
-              estimatedComplexity: 'moderate',
-            }),
-            model: 'anthropic/claude-haiku-4-5',
-            usage: { inputTokens: 40, outputTokens: 20, totalTokens: 60 },
-            latencyMs: 120,
-            costUsd: 0.0001,
-            toolCalls: [],
-            finishReason: 'stop',
-          })
-          .mockResolvedValueOnce({
-            parsedOutput: {
-              resultType: 'execution',
               summary: 'Send recruiting emails.',
               estimatedSteps: 1,
               tasks: [
@@ -608,11 +625,8 @@ describe('AgentRouter', () => {
                   dependsOn: [],
                 },
               ],
-              clarificationQuestion: null,
-              clarificationContext: null,
             },
             content: JSON.stringify({
-              resultType: 'execution',
               summary: 'Send recruiting emails.',
               estimatedSteps: 1,
               tasks: [
@@ -623,8 +637,6 @@ describe('AgentRouter', () => {
                   dependsOn: [],
                 },
               ],
-              clarificationQuestion: null,
-              clarificationContext: null,
             }),
             model: 'anthropic/claude-sonnet-4-5',
             usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
@@ -656,11 +668,8 @@ describe('AgentRouter', () => {
       });
 
       expect(result.summary).toBe('Recruiting emails queued.');
-      expect(llm.prompt).toHaveBeenCalledTimes(3);
+      expect(llm.prompt).toHaveBeenCalledTimes(2);
       expect((llm.prompt as ReturnType<typeof vi.fn>).mock.calls[1]?.[2]).toMatchObject({
-        outputSchema: { name: 'intent_classification' },
-      });
-      expect((llm.prompt as ReturnType<typeof vi.fn>).mock.calls[2]?.[2]).toMatchObject({
         outputSchema: { name: 'planner_execution_plan' },
       });
     });
@@ -761,7 +770,6 @@ describe('AgentRouter', () => {
       );
 
       expect(metricNames).toContain('first_progress_ms');
-      expect(metricNames).toContain('first_token_ms');
       expect(metricNames).toContain('planner_latency_ms');
       expect(metricNames).toContain('completion_latency_ms');
       expect(metricNames).toContain('success_rate');
@@ -1069,17 +1077,37 @@ describe('AgentRouter', () => {
 
       const result = await router.run(payload);
 
-      expect(result.summary).toBe('Can you clarify what you want me to do?');
+      expect(result.summary).toBe('Need clarification before planning.');
       expect(result.suggestions).toEqual([]);
     });
 
     it('should answer greeting chat through the Chief of Staff direct-response path', async () => {
-      llm = createMockLLM({
-        summary: 'Chief of Staff greeting response.',
-        directResponse:
-          "I'm Agent X, your NXT1 Chief of Staff. UserID 19oowBH8EfZ6AYrU4fNuRSreonO2 TeamID mC3D9qg5d9amvcO0otvi OrgID nB8n9iNsm5M5KBxfGUC9.",
-        tasks: [],
-      });
+      llm = {
+        prompt: vi.fn().mockResolvedValue({
+          parsedOutput: {
+            isConversational: true,
+            reasoning: 'Greeting request.',
+            directResponse:
+              "I'm Agent X, your NXT1 Chief of Staff. UserID 19oowBH8EfZ6AYrU4fNuRSreonO2 TeamID mC3D9qg5d9amvcO0otvi OrgID nB8n9iNsm5M5KBxfGUC9.",
+            estimatedComplexity: 'simple',
+          },
+          content: JSON.stringify({
+            isConversational: true,
+            reasoning: 'Greeting request.',
+            directResponse:
+              "I'm Agent X, your NXT1 Chief of Staff. UserID 19oowBH8EfZ6AYrU4fNuRSreonO2 TeamID mC3D9qg5d9amvcO0otvi OrgID nB8n9iNsm5M5KBxfGUC9.",
+            estimatedComplexity: 'simple',
+          }),
+          model: 'anthropic/claude-haiku-4-5',
+          usage: { inputTokens: 40, outputTokens: 20, totalTokens: 60 },
+          latencyMs: 120,
+          costUsd: 0.0001,
+          toolCalls: [],
+          finishReason: 'stop',
+        }),
+        complete: vi.fn(),
+        embed: vi.fn().mockResolvedValue([0.1, 0.2, 0.3]),
+      } as unknown as OpenRouterService;
 
       const router = new AgentRouter(llm, toolRegistry, contextBuilder);
 
@@ -1103,10 +1131,8 @@ describe('AgentRouter', () => {
         updates.some(
           (update) =>
             (update.agentId === 'router' || update.step?.agentId === 'router') &&
-            (update.metadata?.['executionMode'] === 'conversation' ||
-              update.step?.metadata?.['executionMode'] === 'conversation') &&
-            (update.metadata?.['source'] === 'triage_direct' ||
-              update.step?.metadata?.['source'] === 'triage_direct')
+            (update.metadata?.['executionMode'] === 'chief_of_staff_direct' ||
+              update.step?.metadata?.['executionMode'] === 'chief_of_staff_direct')
         )
       ).toBe(true);
       expect(
@@ -1277,9 +1303,6 @@ describe('AgentRouter', () => {
       const result = await router.run(payload, (u) => updates.push(u));
 
       expect((llm.prompt as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThanOrEqual(2);
-      expect(updates.some((u) => u.step?.message?.includes('attempting constrained replan'))).toBe(
-        true
-      );
       expect(result.summary.length).toBeGreaterThan(0);
     });
 
@@ -2031,17 +2054,28 @@ describe('AgentRouter', () => {
 
       const snapshot = await (
         router as unknown as {
-          buildCapabilitySnapshot: (
-            intent: string,
-            accessContext: typeof toolAccessContext
-          ) => Promise<{
-            coordinators: Array<{
-              agentId: string;
-              allowedToolNames: string[];
+          planningService: {
+            buildCapabilitySnapshot: (
+              intent: string,
+              accessContext: typeof toolAccessContext,
+              agents: ReadonlyMap<AgentIdentifier, BaseAgent>
+            ) => Promise<{
+              coordinators: Array<{
+                agentId: string;
+                allowedToolNames: string[];
+              }>;
             }>;
-          }>;
+          };
         }
-      ).buildCapabilitySnapshot('Find football colleges and email coaches', toolAccessContext);
+      ).planningService.buildCapabilitySnapshot(
+        'Find football colleges and email coaches',
+        toolAccessContext,
+        (
+          router as unknown as {
+            getRegisteredAgents: () => ReadonlyMap<AgentIdentifier, BaseAgent>;
+          }
+        ).getRegisteredAgents()
+      );
 
       const recruitingSnapshot = snapshot.coordinators.find(
         (coordinator) => coordinator.agentId === 'recruiting_coordinator'

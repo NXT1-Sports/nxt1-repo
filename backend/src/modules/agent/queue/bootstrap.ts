@@ -247,7 +247,7 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
     if (process.env['NODE_ENV'] === 'production') {
       logger.error(
         `⚠️  Redis is unreachable at ${redisUrl}. ` +
-          'Ensure the REDIS_URL secret is set in Firebase App Hosting (backend/apphosting.yaml) ' +
+          'Ensure the REDIS_URL secret is set in the backend runtime environment ' +
           'and the service account has roles/secretmanager.secretAccessor. ' +
           'Agent X features are unavailable until Redis is configured.'
       );

@@ -7,7 +7,7 @@
  * when profile is idle/null but user is authenticated. Prevents loops via guard flag.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 
 /**
  * Mock AuthFlowService state and refresh behavior.

@@ -9,7 +9,9 @@ function summarize(prompt: string) {
     hasAlwaysRespondDirectly: /ALWAYS respond directly/i.test(prompt),
     hasDirectResponseSection: /Direct Response/i.test(prompt),
     hasExternalAppsRefusalPattern: /can'?t directly open|external applications/i.test(prompt),
-    directResponseSnippet: (prompt.match(/Direct Response[\s\S]{0,450}/i)?.[0] ?? '').replace(/\s+/g, ' ').trim(),
+    directResponseSnippet: (prompt.match(/Direct Response[\s\S]{0,450}/i)?.[0] ?? '')
+      .replace(/\s+/g, ' ')
+      .trim(),
   };
 }
 

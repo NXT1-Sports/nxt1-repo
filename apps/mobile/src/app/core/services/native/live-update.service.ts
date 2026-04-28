@@ -139,7 +139,7 @@ export class LiveUpdateService {
    * Pure check (no apply). Useful for surfacing "Update available" UI without
    * triggering the download immediately.
    */
-  async checkForUpdate(updater?: LiveUpdaterPlugin | null): Promise<LiveUpdateCheckResult> {
+  async checkForUpdate(_updater?: LiveUpdaterPlugin | null): Promise<LiveUpdateCheckResult> {
     if (!Capacitor.isNativePlatform()) {
       return { status: 'skipped', reason: 'not-native' };
     }

@@ -23,8 +23,11 @@ the NXT1 monorepo platform.
 - **Impact**: 3-8 second cold starts for the API server (MongoDB, Redis,
   Firebase Admin init). Causes poor UX, failed health checks during scale-up,
   and payment/webhook timeout risks.
-- **The Fix**: Set `minInstances: 1` in `backend/apphosting.yaml` to keep one
-  warm instance alive. _(Note: This was applied)._
+- **The Fix**: Keep at least one warm backend instance in the backend runtime
+  target (for example Cloud Run). The earlier backend App Hosting workaround was
+  removed because Firebase App Hosting in this repo is reserved for `apps/web`.
+  _(Note: the warm-instance fix is still valid, but it belongs on the backend
+  runtime service, not App Hosting)._
 
 **3. Helmet CSP Disabled (Security Risk)**
 

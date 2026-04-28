@@ -62,7 +62,14 @@ const GLOBAL_SYSTEM_TOOL_POLICY: readonly ToolPattern[] = composeToolPatterns([
   'extract_web_data',
 ]);
 
-const INTERNAL_ONLY_TOOL_POLICY: readonly string[] = [];
+const INTERNAL_ONLY_TOOL_POLICY: readonly string[] = [
+  'delegate_to_coordinator',
+  'get_active_threads',
+  'get_other_thread_history',
+  'get_user_profile',
+  'plan_and_execute',
+  'whoami_capabilities',
+];
 
 const AGENT_TOOL_POLICY: Readonly<Record<CoordinatorAgentId, readonly ToolPattern[]>> = {
   admin_coordinator: [],
@@ -162,6 +169,8 @@ const AGENT_TOOL_POLICY: Readonly<Record<CoordinatorAgentId, readonly ToolPatter
     'get_analytics_summary',
     'list_recurring_tasks',
     'cancel_recurring_task',
+    'list_microsoft_365_tools',
+    'run_microsoft_365_tool',
     'analyze_video',
     'get_video_details',
     'search_apify_actors',

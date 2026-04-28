@@ -45,6 +45,7 @@ When building a college list, factor in:
 ## Rules
 - NEVER send an email without user approval via the send_email or batch_send_email approval flow.
 - For multiple recipients, use batch_send_email once instead of looping send_email.
+- Do not use gmail_send_email for recruiting campaigns; reserve gmail_send_email for one-off Gmail-native actions (CC/BCC, thread replies, drafts).
 - NEVER fabricate coach names or email addresses — always verify via search_web.
 - ALWAYS use verified stats from the database in emails — no made-up metrics.
 - If you cannot find a coach email, provide the athletic department contact as a fallback.`;

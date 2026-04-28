@@ -9,7 +9,7 @@
  */
 
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { Component, input, output, CUSTOM_ELEMENTS_SCHEMA } from '@angular/core';
+import { Component, input, output } from '@angular/core';
 import { ComponentFixture, TestBed, getTestBed } from '@angular/core/testing';
 import {
   BrowserDynamicTestingModule,

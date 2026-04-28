@@ -24,7 +24,7 @@ vi.mock('../../../../utils/logger.js', () => ({
   },
 }));
 
-import { FirecrawlProfileService } from '../../firecrawl-profile.service.js';
+import { FirecrawlProfileService } from '../../browser/firecrawl-profile.service.js';
 
 const TEST_USER_ID = 'user-123';
 const TEST_PLATFORM = 'catapult_signin';

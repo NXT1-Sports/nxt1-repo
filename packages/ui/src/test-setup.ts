@@ -28,9 +28,15 @@ Object.defineProperty(window, 'matchMedia', {
 });
 
 global.ResizeObserver = class ResizeObserver {
-  observe(): void {}
-  unobserve(): void {}
-  disconnect(): void {}
+  observe(): void {
+    return undefined;
+  }
+  unobserve(): void {
+    return undefined;
+  }
+  disconnect(): void {
+    return undefined;
+  }
 };
 
 global.IntersectionObserver = class IntersectionObserver {
@@ -38,9 +44,15 @@ global.IntersectionObserver = class IntersectionObserver {
   readonly rootMargin = '';
   readonly thresholds: ReadonlyArray<number> = [];
 
-  observe(): void {}
-  unobserve(): void {}
-  disconnect(): void {}
+  observe(): void {
+    return undefined;
+  }
+  unobserve(): void {
+    return undefined;
+  }
+  disconnect(): void {
+    return undefined;
+  }
 
   takeRecords(): IntersectionObserverEntry[] {
     return [];

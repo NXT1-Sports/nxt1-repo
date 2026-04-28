@@ -13,7 +13,7 @@
  */
 
 import { ComponentFixture, TestBed, fakeAsync, tick } from '@angular/core/testing';
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AgentXMessageUndoComponent } from '../agent-x-message-undo.component';
 import { AGENT_X_MESSAGE_UNDO_TEST_IDS } from '@nxt1/core/testing';
 

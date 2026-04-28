@@ -534,7 +534,7 @@ Classify it. If conversational, also provide a direct answer. If planning-requir
       );
 
       return classificationResult;
-    } catch (_err) {
+    } catch {
       this.emitClassificationProgress(
         onStreamEvent,
         context,
@@ -700,7 +700,7 @@ Classify it. If conversational, also provide a direct answer. If planning-requir
     } else {
       try {
         classification = await this.classifyIntentTier(intent, context, activeLlm, onStreamEvent);
-      } catch (_err) {
+      } catch {
         // If classification fails entirely, fall back to routing tier (safe default)
         classification = {
           isConversational: false,

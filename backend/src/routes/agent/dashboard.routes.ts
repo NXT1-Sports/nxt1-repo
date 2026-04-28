@@ -13,7 +13,6 @@ import { appGuard } from '../../middleware/auth/auth.middleware.js';
 import { uploadRateLimit } from '../../middleware/rate-limit/rate-limit.middleware.js';
 import { validateBody } from '../../middleware/validation/validation.middleware.js';
 import { SetGoalsDto, CompleteGoalDto } from '../../dtos/agent-x.dto.js';
-import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import type {
   AgentDashboardGoal,
   ShellActionChip,
@@ -23,7 +22,7 @@ import type {
   CompletedGoalRecord,
 } from '@nxt1/core';
 import { logger } from '../../utils/logger.js';
-import { getStorage } from 'firebase-admin/storage';
+import firebaseAdmin from '../../utils/firebase.js';
 import {
   getAgentAppConfig,
   resolveConfiguredCoordinatorsForRole,
@@ -46,6 +45,31 @@ import {
   isLegacyFallbackPlaybook,
   contextBuilder,
 } from './shared.js';
+
+type AuthenticatedRequest = Request & {
+  user?: {
+    uid?: string;
+  };
+};
+
+type ErrorWithCode = Error & {
+  code?: string;
+};
+
+type TimestampLike = {
+  toMillis(): number;
+};
+
+type RepeatableJobDescriptor = {
+  key: string;
+  next?: number | null;
+  tz?: string;
+};
+
+type FirestoreDocLike = {
+  id: string;
+  data(): Record<string, unknown>;
+};
 
 const router = Router();
 const RECURRING_TASKS_COLLECTION = 'RecurringTasks' as const;
@@ -233,8 +257,8 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
         job['yieldState']
       );
       const category = inferCategory(intent);
-      const createdAt = job['createdAt'] as Timestamp | undefined;
-      const completedAt = job['completedAt'] as Timestamp | undefined | null;
+      const createdAt = job['createdAt'] as TimestampLike | undefined;
+      const completedAt = job['completedAt'] as TimestampLike | undefined | null;
       const result = job['result'] as { summary?: string } | null | undefined;
       const jobOrigin = validateJobOrigin(job['origin']);
       const isScheduled = isScheduledOrigin(jobOrigin);
@@ -271,9 +295,11 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
         .get();
 
       if (!recurringTasksSnapshot.empty) {
-        const repeatables = queueService ? await queueService.getAllRepeatableJobs() : [];
+        const repeatables: RepeatableJobDescriptor[] = queueService
+          ? ((await queueService.getAllRepeatableJobs()) as RepeatableJobDescriptor[])
+          : [];
         const repeatableMap = new Map(
-          repeatables.map((job) => [
+          repeatables.map((job: RepeatableJobDescriptor) => [
             job.key,
             {
               nextRun: job.next,
@@ -282,7 +308,7 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
           ])
         );
 
-        for (const doc of recurringTasksSnapshot.docs) {
+        for (const doc of recurringTasksSnapshot.docs as FirestoreDocLike[]) {
           const data = doc.data();
           const repeatable = repeatableMap.get(doc.id);
           const explicitTitle = readRecurringTaskString(data, 'title');
@@ -298,7 +324,7 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
               : (repeatable?.timezone ?? 'UTC');
           const sourceId = resolveRecurringTaskSourceId(data);
           const resolvedTitle = sourceId ? (threadTitleById.get(sourceId)?.trim() ?? '') : '';
-          const createdAt = data['createdAt'] as Timestamp | undefined;
+          const createdAt = data['createdAt'] as TimestampLike | undefined;
           const nextRunIso =
             typeof repeatable?.nextRun === 'number'
               ? new Date(repeatable.nextRun).toISOString()
@@ -502,7 +528,7 @@ router.patch(
         timezone,
         jobName,
         ...(sourceId ? { sourceId } : {}),
-        updatedAt: FieldValue.serverTimestamp(),
+        updatedAt: firebaseAdmin.firestore.FieldValue.serverTimestamp(),
       };
 
       if (nextKey === taskKey) {
@@ -707,7 +733,7 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
     let playbookItems: ShellWeeklyPlaybookItem[] = [];
     let playbookGeneratedAt: string | null = null;
 
-    const latestRealPlaybook = playbookDoc.docs.find((doc) => {
+    const latestRealPlaybook = playbookDoc.docs.find((doc: FirestoreDocLike) => {
       const items = (doc.data()['items'] ?? []) as ShellWeeklyPlaybookItem[];
       return !isLegacyFallbackPlaybook(items);
     });
@@ -970,7 +996,7 @@ router.get('/goal-history', appGuard, async (req: Request, res: Response) => {
       .limit(50)
       .get();
 
-    const history = snapshot.docs.map((doc) => {
+    const history = snapshot.docs.map((doc: FirestoreDocLike) => {
       const data = doc.data();
       return {
         ...data,
@@ -1014,7 +1040,7 @@ router.post(
       }
 
       const threadId = (req.body?.threadId as string | undefined) ?? null;
-      const bucket = getStorage().bucket();
+      const bucket = req.firebase.storage.bucket();
       const timestamp = Date.now();
       const sanitizedName = file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_');
 
@@ -1061,13 +1087,14 @@ router.post(
       });
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
-      const errorCode = (error as any).code;
+      const errorCode = (error as ErrorWithCode).code;
+      const requestUser = (req as AuthenticatedRequest).user;
 
       // Normalize multer errors to structured 400s
       if (errorCode === 'LIMIT_FILE_SIZE') {
         logger.warn('File upload size limit exceeded', {
           error: error.message,
-          userId: (req as any).user?.uid,
+          userId: requestUser?.uid,
         });
         res.status(400).json({
           success: false,
@@ -1080,7 +1107,7 @@ router.post(
       if (errorCode === 'LIMIT_UNEXPECTED_FILE') {
         logger.warn('Unexpected file in upload', {
           error: error.message,
-          userId: (req as any).user?.uid,
+          userId: requestUser?.uid,
         });
         res.status(400).json({
           success: false,

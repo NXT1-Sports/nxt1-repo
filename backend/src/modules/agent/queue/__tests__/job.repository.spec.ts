@@ -14,6 +14,34 @@ interface MockQuerySnapshot {
   }>;
 }
 
+interface MockQueryRef {
+  readonly __kind: 'query';
+  readonly operationId: string;
+  readonly direction: 'asc' | 'desc';
+  readonly limitCount?: number;
+  orderBy(field: string, nextDirection: 'asc' | 'desc'): MockQueryRef;
+  limit(nextLimit: number): MockQueryRef;
+  get(): Promise<MockQuerySnapshot>;
+}
+
+interface MockEventDocRef {
+  readonly __kind: 'event-doc';
+  readonly operationId: string;
+  readonly id: string;
+  set(payload: Record<string, unknown>): Promise<void>;
+}
+
+interface MockJobDocRef {
+  readonly __kind: 'job-doc';
+  readonly operationId: string;
+}
+
+interface MockTransaction {
+  get(target: MockJobDocRef | MockQueryRef): Promise<MockDocSnapshot | MockQuerySnapshot>;
+  set(ref: MockEventDocRef, payload: Record<string, unknown>): void;
+  update(ref: MockJobDocRef, payload: Record<string, unknown>): void;
+}
+
 function createMockFirestore() {
   const jobs = new Map<string, Record<string, unknown>>();
   const events = new Map<string, Array<Record<string, unknown>>>();
@@ -37,7 +65,7 @@ function createMockFirestore() {
     operationId: string,
     direction: 'asc' | 'desc' = 'asc',
     limitCount?: number
-  ) => ({
+  ): MockQueryRef => ({
     __kind: 'query' as const,
     operationId,
     direction,
@@ -64,13 +92,18 @@ function createMockFirestore() {
   const makeEventCollection = (operationId: string) => ({
     __kind: 'collection' as const,
     operationId,
-    doc() {
-      const id = `evt-${autoId++}`;
+    doc(explicitId?: string) {
+      const id = explicitId ?? `evt-${autoId++}`;
       return {
         __kind: 'event-doc' as const,
         operationId,
         id,
-      };
+        async set(payload: Record<string, unknown>) {
+          const list = makeEventDocs(operationId);
+          list.push({ ...payload, id });
+          events.set(operationId, list);
+        },
+      } satisfies MockEventDocRef;
     },
     async add(payload: Record<string, unknown>) {
       const list = makeEventDocs(operationId);
@@ -83,7 +116,14 @@ function createMockFirestore() {
     },
   });
 
-  const makeJobDocRef = (operationId: string) => ({
+  const makeJobDocRef = (
+    operationId: string
+  ): MockJobDocRef & {
+    collection(name: string): ReturnType<typeof makeEventCollection>;
+    get(): Promise<MockDocSnapshot>;
+    set(payload: Record<string, unknown>, options?: { merge?: boolean }): Promise<void>;
+    update(payload: Record<string, unknown>): Promise<void>;
+  } => ({
     __kind: 'job-doc' as const,
     operationId,
     collection(name: string) {
@@ -118,10 +158,9 @@ function createMockFirestore() {
       };
     },
     batch() {
-      const operations: Array<{ ref: { operationId: string }; payload: Record<string, unknown> }> =
-        [];
+      const operations: Array<{ ref: MockEventDocRef; payload: Record<string, unknown> }> = [];
       return {
-        set(ref: { operationId: string }, payload: Record<string, unknown>) {
+        set(ref: MockEventDocRef, payload: Record<string, unknown>) {
           operations.push({ ref, payload });
         },
         async commit() {
@@ -133,10 +172,12 @@ function createMockFirestore() {
         },
       };
     },
-    async runTransaction<T>(handler: (txn: any) => Promise<T>): Promise<T> {
+    async runTransaction<T>(handler: (txn: MockTransaction) => Promise<T>): Promise<T> {
       const run = txChain.then(async () => {
-        const txn = {
-          async get(target: any): Promise<MockDocSnapshot | MockQuerySnapshot> {
+        const txn: MockTransaction = {
+          async get(
+            target: MockJobDocRef | MockQueryRef
+          ): Promise<MockDocSnapshot | MockQuerySnapshot> {
             if (target?.__kind === 'job-doc') {
               return makeDocSnapshot(jobs.get(target.operationId));
             }
@@ -145,13 +186,13 @@ function createMockFirestore() {
             }
             throw new Error('Unsupported transaction target');
           },
-          set(ref: any, payload: Record<string, unknown>) {
+          set(ref: MockEventDocRef, payload: Record<string, unknown>) {
             if (ref?.__kind !== 'event-doc') throw new Error('Unsupported transaction set target');
             const list = makeEventDocs(ref.operationId);
             list.push({ ...payload, id: ref.id });
             events.set(ref.operationId, list);
           },
-          update(ref: any, payload: Record<string, unknown>) {
+          update(ref: MockJobDocRef, payload: Record<string, unknown>) {
             if (ref?.__kind !== 'job-doc') {
               throw new Error('Unsupported transaction update target');
             }

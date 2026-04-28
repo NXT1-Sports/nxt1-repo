@@ -17,7 +17,20 @@ import { SearchCollegesTool } from '../search-colleges.tool.js';
 const mockAggregate = vi.fn<(...args: any[]) => any>();
 
 vi.mock('../../../../../models/core/college.model.js', () => ({
-  CollegeModel: { aggregate: (...args: unknown[]) => mockAggregate(...args) },
+  CollegeModel: {
+    aggregate: (...args: unknown[]) => mockAggregate(...args),
+    modelName: 'College',
+    collection: {
+      name: 'colleges',
+      namespace: 'test.colleges',
+      conn: {
+        name: 'test-connection',
+        db: {
+          databaseName: 'test-db',
+        },
+      },
+    },
+  },
 }));
 
 // ─── Mock firebase-admin/firestore ──────────────────────────────────────────
@@ -100,6 +113,13 @@ function getRegexFromCondition(cond: unknown): string {
   }
   // Legacy direct $regexMatch
   return c?.$regexMatch?.regex ?? '';
+}
+
+function getSportVariantsFromCondition(cond: unknown): string[] {
+  const typed = cond as {
+    $in?: [unknown, string[]];
+  };
+  return typed?.$in?.[1] ?? [];
 }
 
 // ─── DTO Factory ────────────────────────────────────────────────────────────
@@ -257,7 +277,7 @@ describe('SearchCollegesTool', () => {
 
     it('should filter by name using $text search', async () => {
       await tool.execute({ sport: 'Baseball', name: 'Ohio State' });
-      expect(getPreMatch()['$text']).toEqual({ $search: 'Ohio State' });
+      expect(getPreMatch()['name']).toEqual({ $regex: 'Ohio State', $options: 'i' });
     });
 
     it('should filter by HBCU flag', async () => {
@@ -380,13 +400,13 @@ describe('SearchCollegesTool', () => {
     it('should add case-insensitive sport name condition as first $and entry', async () => {
       await tool.execute({ sport: 'Football' });
       const conds = getSportConditions();
-      expect(conds[0]).toEqual({ $eq: [{ $toLower: '$$si.k' }, 'football'] });
+      expect(conds[0]).toEqual({ $in: [{ $toLower: '$$si.k' }, ['football']] });
     });
 
     it('should be case-insensitive: "FOOTBALL" lowercased to "football"', async () => {
       await tool.execute({ sport: 'FOOTBALL' });
       const conds = getSportConditions();
-      expect(conds[0]).toEqual({ $eq: [{ $toLower: '$$si.k' }, 'football'] });
+      expect(conds[0]).toEqual({ $in: [{ $toLower: '$$si.k' }, ['football']] });
     });
 
     it('should add division condition as second $and entry when provided', async () => {
@@ -831,45 +851,57 @@ describe('SearchCollegesTool', () => {
     it('should normalize "Women\'s Basketball" to "Basketball Womens"', async () => {
       await tool.execute({ sport: "Women's Basketball" });
       const conds = getSportConditions();
-      expect(conds[0]).toEqual({ $eq: [{ $toLower: '$$si.k' }, 'basketball womens'] });
+      expect(getSportVariantsFromCondition(conds[0])).toEqual(
+        expect.arrayContaining(["women's basketball", 'basketball womens'])
+      );
     });
 
     it('should normalize "Mens Soccer" to "Soccer Mens"', async () => {
       await tool.execute({ sport: 'Mens Soccer' });
       const conds = getSportConditions();
-      expect(conds[0]).toEqual({ $eq: [{ $toLower: '$$si.k' }, 'soccer mens'] });
+      expect(getSportVariantsFromCondition(conds[0])).toEqual(
+        expect.arrayContaining(['soccer mens', "men's soccer"])
+      );
     });
 
     it('should normalize "Womens Basketball" to "Basketball Womens"', async () => {
       await tool.execute({ sport: 'Womens Basketball' });
       const conds = getSportConditions();
-      expect(conds[0]).toEqual({ $eq: [{ $toLower: '$$si.k' }, 'basketball womens'] });
+      expect(getSportVariantsFromCondition(conds[0])).toEqual(
+        expect.arrayContaining(['basketball womens', "women's basketball"])
+      );
     });
 
     it('should normalize "Track and Field Mens" to "Track & Field Mens"', async () => {
       await tool.execute({ sport: 'Track and Field Mens' });
       const conds = getSportConditions();
-      expect(conds[0]).toEqual({ $eq: [{ $toLower: '$$si.k' }, 'track & field mens'] });
+      expect(getSportVariantsFromCondition(conds[0])).toEqual(
+        expect.arrayContaining(['track & field mens', "men's track & field"])
+      );
     });
 
     it('should resolve "Women\'s Swimming" to "Swimming & Diving Womens"', async () => {
       await tool.execute({ sport: "Women's Swimming" });
       const conds = getSportConditions();
-      expect(conds[0]).toEqual({
-        $eq: [{ $toLower: '$$si.k' }, 'swimming & diving womens'],
-      });
+      expect(getSportVariantsFromCondition(conds[0])).toEqual(
+        expect.arrayContaining(['swimming & diving womens', "women's swimming & diving"])
+      );
     });
 
     it('should resolve "Bowling" to "Bowling Womens" (single-gender default)', async () => {
       await tool.execute({ sport: 'Bowling' });
       const conds = getSportConditions();
-      expect(conds[0]).toEqual({ $eq: [{ $toLower: '$$si.k' }, 'bowling womens'] });
+      expect(getSportVariantsFromCondition(conds[0])).toEqual(
+        expect.arrayContaining(['bowling womens', "women's bowling"])
+      );
     });
 
     it('should resolve exact DB keys case-insensitively', async () => {
       await tool.execute({ sport: 'basketball mens' });
       const conds = getSportConditions();
-      expect(conds[0]).toEqual({ $eq: [{ $toLower: '$$si.k' }, 'basketball mens'] });
+      expect(getSportVariantsFromCondition(conds[0])).toEqual(
+        expect.arrayContaining(['basketball mens', "men's basketball"])
+      );
     });
   });
 

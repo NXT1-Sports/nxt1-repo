@@ -107,7 +107,7 @@ export class WebVitalsService {
    *   - nav_type     : navigate | reload | back_forward | prerender
    */
   private reportMetric(metric: MetricEntry): void {
-    const { name, value, rating, delta, id, navigationType } = metric;
+    const { name, value, rating, delta, navigationType } = metric;
 
     // Round to 3 decimal places for clean logging
     const rounded = Math.round(value * 1000) / 1000;

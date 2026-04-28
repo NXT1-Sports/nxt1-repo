@@ -102,7 +102,7 @@ export class GmailSendEmailTool extends GoogleWorkspaceBaseTool {
   readonly mcpToolName = 'gmail_send_email' as const;
   readonly description =
     "Compose and send an email directly through the user's connected Gmail account. " +
-    'Supports multiple recipients, CC, and BCC.';
+    'Supports multiple recipients, CC, and BCC. For recruiting campaigns or personalized outreach to many recipients, prefer batch_send_email.';
   readonly isMutation = true;
   readonly category = 'communication' as const;
 

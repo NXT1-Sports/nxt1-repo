@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { getAllAgentToolPolicies, isToolAllowedByPatterns } from '../tool-policy.js';
+import { getEffectiveAgentToolPolicy, isToolAllowedByPatterns } from '../tool-policy.js';
 
 type WorkflowDefinition = {
   readonly name: string;
-  readonly coordinator: keyof ReturnType<typeof getAllAgentToolPolicies>;
+  readonly coordinator: Parameters<typeof getEffectiveAgentToolPolicy>[0];
   readonly requiredTools: readonly string[];
   readonly optionalAnyOf?: readonly string[];
 };
@@ -17,8 +17,6 @@ function getMissingTools(
 
 describe('Agent workflow integration coverage', () => {
   it('keeps critical recruiting, brand, performance, and data workflows fully tool-addressable', () => {
-    const policies = getAllAgentToolPolicies();
-
     const workflowDefinitions: readonly WorkflowDefinition[] = [
       {
         name: 'Recruiting: college search to coach outreach',
@@ -64,7 +62,7 @@ describe('Agent workflow integration coverage', () => {
     const failures: string[] = [];
 
     for (const workflow of workflowDefinitions) {
-      const availableTools = policies[workflow.coordinator];
+      const availableTools = getEffectiveAgentToolPolicy(workflow.coordinator);
       const missingRequired = getMissingTools(availableTools, workflow.requiredTools);
 
       if (missingRequired.length > 0) {

@@ -86,6 +86,7 @@ const createAuthFlowMock = () => ({
     role: 'athlete',
     connectedSources: [],
   }),
+  refreshUserProfile: vi.fn().mockResolvedValue(undefined),
 });
 
 const createProfileServiceMock = () => ({
@@ -371,7 +372,7 @@ describe('AddSportService', () => {
 
     it('should save sport successfully', async () => {
       service.onContinue(); // triggers save on last step
-      // Allow async save to complete
+      // Allow the full async save path to complete, including refresh and navigation side effects.
       await vi.waitFor(() => {
         expect(profileServiceMock.addSport).toHaveBeenCalledWith('user-123', {
           sport: 'Basketball',
@@ -381,19 +382,22 @@ describe('AddSportService', () => {
           },
           connectedSources: [],
         });
+        expect(profileServiceMock.invalidateCache).toHaveBeenCalledWith('user-123');
+        expect(authFlowMock.refreshUserProfile).toHaveBeenCalled();
+        expect(toastMock.success).toHaveBeenCalledWith('Basketball added to your profile!');
+        expect(analyticsMock.trackEvent).toHaveBeenCalledWith(APP_EVENTS.PROFILE_SPORT_ADDED, {
+          sport: 'Basketball',
+          role: 'athlete',
+        });
+        expect(analyticsMock.trackEvent).toHaveBeenCalledWith(
+          APP_EVENTS.ADD_SPORT_WIZARD_COMPLETED,
+          {
+            sport: 'Basketball',
+            connectedSourcesCount: 0,
+          }
+        );
+        expect(routerMock.navigate).toHaveBeenCalledWith(['/']);
       });
-
-      expect(profileServiceMock.invalidateCache).toHaveBeenCalledWith('user-123');
-      expect(toastMock.success).toHaveBeenCalledWith('Basketball added to your profile!');
-      expect(analyticsMock.trackEvent).toHaveBeenCalledWith(APP_EVENTS.PROFILE_SPORT_ADDED, {
-        sport: 'Basketball',
-        role: 'athlete',
-      });
-      expect(analyticsMock.trackEvent).toHaveBeenCalledWith(APP_EVENTS.ADD_SPORT_WIZARD_COMPLETED, {
-        sport: 'Basketball',
-        connectedSourcesCount: 0,
-      });
-      expect(routerMock.navigate).toHaveBeenCalledWith(['/']);
     });
 
     it('should show error and not navigate on addSport failure', async () => {
@@ -450,6 +454,7 @@ describe('AddSportService', () => {
           },
           connectedSources: [
             {
+              faviconUrl: 'https://icons.duckduckgo.com/ip3/hudl.com.ico',
               platform: 'hudl',
               profileUrl: 'https://hudl.com/profile/1',
               scopeType: undefined,

@@ -17,7 +17,20 @@ import { SearchCollegeCoachesTool } from '../search-college-coaches.tool.js';
 const mockAggregate = vi.fn<(...args: any[]) => any>();
 
 vi.mock('../../../../../models/core/college.model.js', () => ({
-  CollegeModel: { aggregate: (...args: unknown[]) => mockAggregate(...args) },
+  CollegeModel: {
+    aggregate: (...args: unknown[]) => mockAggregate(...args),
+    modelName: 'College',
+    collection: {
+      name: 'colleges',
+      namespace: 'nxt1.colleges',
+      conn: {
+        name: 'mock-connection',
+        db: {
+          databaseName: 'nxt1',
+        },
+      },
+    },
+  },
 }));
 
 // ─── Mock ContactModel ──────────────────────────────────────────────────────
@@ -168,10 +181,10 @@ describe('SearchCollegeCoachesTool', () => {
   // ── College Match Filter ──────────────────────────────────────────────
 
   describe('college match filter construction', () => {
-    it('should use $text search for college names >= 3 chars', async () => {
+    it('should use case-insensitive regex for college names', async () => {
       await tool.execute({ collegeName: 'Ohio State' });
       const match = getMatch();
-      expect(match['$text']).toEqual({ $search: 'Ohio State' });
+      expect(match['name']).toEqual({ $regex: 'Ohio State', $options: 'i' });
     });
 
     it('should use $regex for short college names < 3 chars', async () => {

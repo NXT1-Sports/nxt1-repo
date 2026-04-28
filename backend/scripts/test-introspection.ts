@@ -13,47 +13,63 @@ async function run() {
   const toolRegistry = new ToolRegistry();
   const contextBuilder = new ContextBuilder();
   const router = new AgentRouter(llm, toolRegistry, contextBuilder);
-  
+
   // Stub Firestore Context lookup so it doesn't fail on Auth
-  contextBuilder.buildContext = async () => ({
-    userId: 'user-000',
-    displayName: 'John Keller',
-    role: 'athlete',
-    sport: 'football',
-    position: 'QB',
-    targetColleges: ['Ohio State', 'Texas', 'Michigan'],
-    graduationYear: 2026,
-  } as any);
+  contextBuilder.buildContext = async () =>
+    ({
+      userId: 'user-000',
+      displayName: 'John Keller',
+      role: 'athlete',
+      sport: 'football',
+      position: 'QB',
+      targetColleges: ['Ohio State', 'Texas', 'Michigan'],
+      graduationYear: 2026,
+    }) as any;
 
   contextBuilder.getMemoriesForContext = async () => ({
-    user: [{ id: 'm1', userId: 'user-000', target: 'user', content: 'Very competitive, wants D1', category: 'goals', createdAt: new Date().toISOString() }],
+    user: [
+      {
+        id: 'm1',
+        userId: 'user-000',
+        target: 'user',
+        content: 'Very competitive, wants D1',
+        category: 'goals',
+        createdAt: new Date().toISOString(),
+      },
+    ],
     team: [],
-    organization: []
+    organization: [],
   });
 
   contextBuilder.getRecentSyncSummariesForContext = async () => [
-    "Updated highlight reel and watched Ohio State game tape.",
-    "Chatted about improving arm strength."
+    'Updated highlight reel and watched Ohio State game tape.',
+    'Chatted about improving arm strength.',
   ];
 
-  contextBuilder.getActiveThreadsSummary = async () => "1. Recruiting Strategy 2. Workout Schedule";
-  contextBuilder.getRecentThreadHistory = async () => "User: hello\nAgent: Hi John, how can I help?";
+  contextBuilder.getActiveThreadsSummary = async () => '1. Recruiting Strategy 2. Workout Schedule';
+  contextBuilder.getRecentThreadHistory = async () =>
+    'User: hello\nAgent: Hi John, how can I help?';
 
   console.log('Running Query ... "What do you know about me?"');
-  const result = await router.run({
-    operationId: 'test-introspect-' + Date.now(),
-    userId: 'user-000',
-    intent: 'What do you know about me?',
-    origin: 'user',
-    priority: 'normal',
-    createdAt: new Date().toISOString()
-  }, (update) => {
-    console.log('[Update =>]', update.status, update.message);
-  }, undefined, (event) => {
-    if (event.type === 'delta') {
-      process.stdout.write(event.text);
+  const result = await router.run(
+    {
+      operationId: 'test-introspect-' + Date.now(),
+      userId: 'user-000',
+      intent: 'What do you know about me?',
+      origin: 'user',
+      priority: 'normal',
+      createdAt: new Date().toISOString(),
+    },
+    (update) => {
+      console.log('[Update =>]', update.status, update.message);
+    },
+    undefined,
+    (event) => {
+      if (event.type === 'delta') {
+        process.stdout.write(event.text);
+      }
     }
-  });
+  );
 
   console.log('\n\n--- Final Result ---');
   console.log(result.summary);

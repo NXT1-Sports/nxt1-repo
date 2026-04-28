@@ -182,14 +182,12 @@ export class AppComponent implements OnInit {
    * Setup router event listeners for analytics, scroll restoration, etc.
    */
   private setupRouterEvents(): void {
-    this.router.events
-      .pipe(filter((event) => event instanceof NavigationEnd))
-      .subscribe((event) => {
-        if (this.platform.isBrowser()) {
-          // Scroll to top on navigation
-          window.scrollTo(0, 0);
-        }
-      });
+    this.router.events.pipe(filter((event) => event instanceof NavigationEnd)).subscribe(() => {
+      if (this.platform.isBrowser()) {
+        // Scroll to top on navigation
+        window.scrollTo(0, 0);
+      }
+    });
   }
 
   private resolveUserTeamBrandSeed(user: AuthUser | null): {

@@ -261,11 +261,11 @@ describe('BaseAgent identifier scrubbing', () => {
       expect.arrayContaining([
         expect.objectContaining({
           stepId: 'call_ohio_state',
-          message: 'Search College Coaches: Ohio State',
+          message: 'Searching coaching staff: Ohio State',
         }),
         expect.objectContaining({
           stepId: 'call_michigan',
-          message: 'Search College Coaches: Michigan',
+          message: 'Searching coaching staff: Michigan',
         }),
       ])
     );
@@ -274,11 +274,11 @@ describe('BaseAgent identifier scrubbing', () => {
       expect.arrayContaining([
         expect.objectContaining({
           stepId: 'call_ohio_state',
-          message: 'Search College Coaches: Ohio State',
+          message: 'Searching coaching staff: Ohio State',
         }),
         expect.objectContaining({
           stepId: 'call_michigan',
-          message: 'Search College Coaches: Michigan',
+          message: 'Searching coaching staff: Michigan',
         }),
       ])
     );

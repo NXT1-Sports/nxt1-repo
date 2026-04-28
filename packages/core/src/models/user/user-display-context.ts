@@ -14,7 +14,7 @@
 
 import { isTeamRole } from '../../constants/user.constants';
 import { formatSportDisplayName, getPositionAbbreviation } from '../../constants/sport.constants';
-import { resolveCanonicalTeamRoute } from '../../helpers/formatters';
+import { buildTeamSlug, resolveCanonicalTeamRoute } from '../../helpers/formatters';
 import type { SidenavSportProfile } from '../platform/navigation.model';
 
 interface UserDisplayTeamAffiliation {
@@ -270,7 +270,7 @@ function buildTeamContext(user: UserDisplayInput, personalName: string): UserDis
 
   const activeTeam: UserDisplayTeamAffiliation | undefined =
     activeSportTeam ??
-    (rawTopLevelTeamCode
+    (activeSport && rawTopLevelTeamCode
       ? {
           name: rawTopLevelTeamCode.teamName,
           logoUrl: rawTopLevelTeamCode.logoUrl ?? null,
@@ -284,8 +284,17 @@ function buildTeamContext(user: UserDisplayInput, personalName: string): UserDis
       : undefined);
 
   // Account for varied payloads where team name could be `name` or `teamName`
-  const teamName = activeTeam?.name?.trim() || (activeTeam as any)?.teamName?.trim();
-  const hasCanonicalTeamReference = !!(activeTeam?.teamCode?.trim() || activeTeam?.code?.trim());
+  const teamWithLegacyName = activeTeam as
+    | (UserDisplayTeamAffiliation & { teamName?: string | null })
+    | undefined;
+  const teamName = activeTeam?.name?.trim() || teamWithLegacyName?.teamName?.trim();
+  const routeIdentifier =
+    activeTeam?.teamId?.trim() ||
+    activeTeam?.id?.trim() ||
+    activeTeam?.teamCode?.trim() ||
+    activeTeam?.code?.trim() ||
+    undefined;
+  const hasCanonicalTeamReference = !!routeIdentifier;
   const hasTeamAssociation = !!(teamName || hasCanonicalTeamReference);
   const resolvedTeamRoute = resolveCanonicalTeamRoute({
     slug: activeTeam?.slug?.trim(),
@@ -295,6 +304,15 @@ function buildTeamContext(user: UserDisplayInput, personalName: string): UserDis
     teamCode: activeTeam?.teamCode?.trim() || activeTeam?.code?.trim(),
     unicode: activeTeam?.unicode?.trim(),
   });
+  const routeSlug =
+    activeTeam?.slug?.trim() ||
+    resolvedTeamRoute?.slug ||
+    (teamName ? buildTeamSlug(teamName) : '');
+  const profileRoute = hasTeamAssociation
+    ? routeIdentifier
+      ? `/team/${routeSlug || 'team'}/${encodeURIComponent(routeIdentifier)}`
+      : '/team'
+    : '/team';
   const sport =
     activeSport?.sport?.trim() || rawTopLevelTeamCode?.sport?.trim() || user.primarySport?.trim();
   const logoUrl = activeTeam?.logoUrl ?? activeTeam?.logo ?? null;
@@ -384,10 +402,7 @@ function buildTeamContext(user: UserDisplayInput, personalName: string): UserDis
     actionLabel: 'Add Team',
     canAddProfile: canUserAddProfile(user),
     sportProfiles,
-    profileRoute:
-      (hasCanonicalTeamReference || !!teamName) && resolvedTeamRoute?.path
-        ? resolvedTeamRoute.path
-        : '/profile',
+    profileRoute,
   };
 }
 

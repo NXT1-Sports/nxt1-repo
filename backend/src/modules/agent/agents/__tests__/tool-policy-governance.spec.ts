@@ -48,7 +48,7 @@ function resolveToolNameForClass(className: string, sourceFiles: readonly string
 
     const inlineNameMatch = source.match(
       new RegExp(
-        `class\\s+${className}\\b[\\s\\S]*?readonly\\s+name(?:\\s*:\\s*string)?\\s*=\\s*['\"]([^'\"]+)['\"]`
+        `class\\s+${className}\\b[\\s\\S]*?readonly\\s+name(?:\\s*:\\s*string)?\\s*=\\s*['"]([^'"]+)['"]`
       )
     );
     if (inlineNameMatch?.[1]) {
@@ -56,7 +56,7 @@ function resolveToolNameForClass(className: string, sourceFiles: readonly string
     }
 
     const constructorLiteralMatch = source.match(
-      new RegExp(`class\\s+${className}\\b[\\s\\S]*?this\\.name\\s*=\\s*['\"]([^'\"]+)['\"]`)
+      new RegExp(`class\\s+${className}\\b[\\s\\S]*?this\\.name\\s*=\\s*['"]([^'"]+)['"]`)
     );
     if (constructorLiteralMatch?.[1]) {
       return constructorLiteralMatch[1];

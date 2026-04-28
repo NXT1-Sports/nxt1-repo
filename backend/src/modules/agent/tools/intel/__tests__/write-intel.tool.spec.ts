@@ -44,9 +44,8 @@ describe('WriteIntelTool', () => {
   it('exposes expected metadata', () => {
     expect(tool.name).toBe('write_intel');
     expect(tool.isMutation).toBe(true);
-    expect(tool.category).toBe('database');
-    expect(tool.allowedAgents).toContain('performance_coordinator');
-    expect(tool.allowedAgents).toContain('strategy_coordinator');
+    expect(tool.category).toBe('system');
+    expect(tool.allowedAgents).toContain('*');
   });
 
   it('requires entityType and entityId', async () => {
