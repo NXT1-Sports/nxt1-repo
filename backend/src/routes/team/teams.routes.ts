@@ -162,6 +162,10 @@ const TEAM_INTEL_MANAGER_ROLES = new Set([
   'program-director',
 ]);
 
+export function canManageTeamMembershipForRole(role: unknown): boolean {
+  return TEAM_INTEL_MANAGER_ROLES.has(normalizeTeamIntelRole(role));
+}
+
 function normalizeTeamIntelRole(value: unknown): string {
   if (typeof value !== 'string') return '';
   return value
@@ -1469,22 +1473,14 @@ async function assertMembershipEditorPermission(
 ): Promise<void> {
   const rosterService = new RosterEntryService(db);
   const entry = await rosterService.getActiveOrPendingRosterEntry(requesterId, teamId);
-  const entryRole = entry?.role ?? '';
-  const isEntryAdmin = ['admin', 'head-coach', 'coach', 'administrative'].includes(
-    entryRole.toLowerCase()
-  );
-  if (isEntryAdmin) return;
+  if (canManageTeamMembershipForRole(entry?.role)) return;
 
   // V1 fallback: check team.members[]
   const { team } = await teamCodeService.getTeamCodeById(db, teamId, false);
   const legacyMember = team.members?.find(
     (m: { id: string; role: string }) => m.id === requesterId
   );
-  const legacyRole = legacyMember?.role ?? '';
-  const isLegacyAdmin = ['admin', 'head-coach', 'coach', 'administrative'].includes(
-    legacyRole.toLowerCase()
-  );
-  if (isLegacyAdmin) return;
+  if (canManageTeamMembershipForRole(legacyMember?.role)) return;
 
   throw forbiddenError('permission');
 }

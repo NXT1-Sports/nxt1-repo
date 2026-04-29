@@ -105,7 +105,7 @@ type FilterTab = 'all' | 'roster' | 'staff' | 'pending';
       } @else if (filteredItems().length === 0) {
         <div class="nxt1-mm__state-block">
           <div class="nxt1-mm__state-icon">
-            <nxt1-icon name="people" [size]="22" />
+            <nxt1-icon name="users" [size]="22" />
           </div>
           <p class="nxt1-mm__state-msg">No {{ labelForTab(activeTab()) | lowercase }} members.</p>
         </div>
@@ -160,7 +160,7 @@ type FilterTab = 'all' | 'roster' | 'staff' | 'pending';
                     (click)="toggleEdit(member)"
                     aria-label="Edit member"
                   >
-                    <nxt1-icon name="createOutline" [size]="16" />
+                    <nxt1-icon name="pencil" [size]="16" />
                   </button>
                   <button
                     type="button"
@@ -168,7 +168,7 @@ type FilterTab = 'all' | 'roster' | 'staff' | 'pending';
                     (click)="remove(member.entryId)"
                     aria-label="Remove member"
                   >
-                    <nxt1-icon name="trashOutline" [size]="16" />
+                    <nxt1-icon name="trash" [size]="16" />
                   </button>
                 </div>
               </div>
@@ -246,7 +246,7 @@ type FilterTab = 'all' | 'roster' | 'staff' | 'pending';
         height: 36px;
         border: none;
         border-radius: var(--nxt1-radius-full, 9999px);
-        background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.06));
+        background: var(--nxt1-color-surface-200);
         color: var(--nxt1-color-text-secondary);
         cursor: pointer;
         -webkit-tap-highlight-color: transparent;
@@ -257,7 +257,7 @@ type FilterTab = 'all' | 'roster' | 'staff' | 'pending';
       }
 
       .nxt1-mm__icon-btn:hover {
-        background: var(--nxt1-color-surface-300, rgba(255, 255, 255, 0.1));
+        background: var(--nxt1-color-surface-300);
         color: var(--nxt1-color-text-primary);
       }
 
@@ -272,7 +272,7 @@ type FilterTab = 'all' | 'roster' | 'staff' | 'pending';
       .nxt1-mm__segments {
         display: flex;
         gap: var(--nxt1-spacing-2);
-        padding: var(--nxt1-spacing-3) var(--nxt1-spacing-5);
+        padding: var(--nxt1-spacing-3) var(--nxt1-spacing-4);
         border-bottom: 1px solid var(--nxt1-color-border-subtle);
         overflow-x: auto;
         scrollbar-width: none;
@@ -286,8 +286,11 @@ type FilterTab = 'all' | 'roster' | 'staff' | 'pending';
       .nxt1-mm__seg-pill {
         display: inline-flex;
         align-items: center;
+        justify-content: center;
         gap: var(--nxt1-spacing-1-5);
-        padding: var(--nxt1-spacing-1-5) var(--nxt1-spacing-3);
+        min-height: 34px;
+        min-width: 92px;
+        padding: var(--nxt1-spacing-2) var(--nxt1-spacing-3);
         border: 1px solid var(--nxt1-color-border-subtle);
         border-radius: var(--nxt1-radius-full, 9999px);
         background: transparent;
@@ -297,7 +300,7 @@ type FilterTab = 'all' | 'roster' | 'staff' | 'pending';
         font-weight: var(--nxt1-fontWeight-medium);
         cursor: pointer;
         white-space: nowrap;
-        flex-shrink: 0;
+        flex: 1 1 0;
         -webkit-tap-highlight-color: transparent;
         transition:
           background 0.15s ease,
@@ -319,14 +322,14 @@ type FilterTab = 'all' | 'roster' | 'staff' | 'pending';
         height: 18px;
         padding: 0 4px;
         border-radius: var(--nxt1-radius-full, 9999px);
-        background: var(--nxt1-color-surface-300, rgba(255, 255, 255, 0.12));
+        background: var(--nxt1-color-surface-300);
         font-size: var(--nxt1-fontSize-2xs);
         font-weight: var(--nxt1-fontWeight-bold);
         line-height: 1;
       }
 
       .nxt1-mm__seg-pill--active .nxt1-mm__seg-badge {
-        background: rgba(0, 0, 0, 0.18);
+        background: var(--nxt1-color-surface-500);
       }
 
       /* ═══════════════════════════════════════════
@@ -404,8 +407,8 @@ type FilterTab = 'all' | 'roster' | 'staff' | 'pending';
         align-items: center;
         padding: 1px 6px;
         border-radius: var(--nxt1-radius-full, 9999px);
-        background: rgba(245, 166, 35, 0.12);
-        color: #f5a623;
+        background: var(--nxt1-color-warningBg);
+        color: var(--nxt1-color-warning);
         font-size: var(--nxt1-fontSize-2xs);
         font-weight: var(--nxt1-fontWeight-bold);
         letter-spacing: 0.02em;
@@ -416,7 +419,7 @@ type FilterTab = 'all' | 'roster' | 'staff' | 'pending';
       .nxt1-mm__row-actions {
         display: flex;
         align-items: center;
-        gap: var(--nxt1-spacing-1);
+        gap: var(--nxt1-spacing-1-5);
         flex-shrink: 0;
       }
 
@@ -424,10 +427,10 @@ type FilterTab = 'all' | 'roster' | 'staff' | 'pending';
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        width: 32px;
-        height: 32px;
-        border: 1px solid var(--nxt1-color-border-subtle);
-        border-radius: var(--nxt1-radius-md);
+        width: 34px;
+        height: 34px;
+        border: 1px solid transparent;
+        border-radius: var(--nxt1-radius-full, 9999px);
         background: transparent;
         color: var(--nxt1-color-text-secondary);
         cursor: pointer;
@@ -439,36 +442,36 @@ type FilterTab = 'all' | 'roster' | 'staff' | 'pending';
       }
 
       .nxt1-mm__action-btn:hover {
-        background: var(--nxt1-color-surface-200);
+        background: var(--nxt1-color-surface-300);
         color: var(--nxt1-color-text-primary);
         border-color: var(--nxt1-color-border-default);
       }
 
       .nxt1-mm__action-btn--active {
-        background: var(--nxt1-color-surface-200);
+        background: var(--nxt1-color-surface-300);
         color: var(--nxt1-color-text-primary);
         border-color: var(--nxt1-color-border-strong);
       }
 
       .nxt1-mm__action-btn--approve {
-        color: #34c759;
-        border-color: rgba(52, 199, 89, 0.3);
+        color: var(--nxt1-color-success);
+        border-color: var(--nxt1-color-success);
       }
 
       .nxt1-mm__action-btn--approve:hover {
-        background: rgba(52, 199, 89, 0.1);
-        color: #34c759;
-        border-color: #34c759;
+        background: var(--nxt1-color-successBg);
+        color: var(--nxt1-color-success);
+        border-color: var(--nxt1-color-success);
       }
 
       .nxt1-mm__action-btn--danger {
-        color: var(--nxt1-color-state-error);
+        color: var(--nxt1-color-error);
         border-color: transparent;
       }
 
       .nxt1-mm__action-btn--danger:hover {
-        background: rgba(255, 59, 48, 0.1);
-        border-color: var(--nxt1-color-state-error);
+        background: var(--nxt1-color-errorBg);
+        border-color: var(--nxt1-color-error);
       }
 
       /* ═══════════════════════════════════════════
@@ -502,7 +505,7 @@ type FilterTab = 'all' | 'roster' | 'staff' | 'pending';
         width: 100%;
         padding: var(--nxt1-spacing-2-5) var(--nxt1-spacing-3);
         border: 1px solid var(--nxt1-color-border-default);
-        border-radius: var(--nxt1-radius-md);
+        border-radius: var(--nxt1-radius-lg);
         background: var(--nxt1-color-surface-100);
         color: var(--nxt1-color-text-primary);
         font-family: var(--nxt1-fontFamily-brand);
@@ -523,13 +526,13 @@ type FilterTab = 'all' | 'roster' | 'staff' | 'pending';
 
       .nxt1-mm__edit-actions {
         display: flex;
-        gap: var(--nxt1-spacing-2);
+        gap: var(--nxt1-spacing-2-5);
       }
 
       .nxt1-mm__btn {
         flex: 1;
         padding: var(--nxt1-spacing-2-5) var(--nxt1-spacing-4);
-        border-radius: var(--nxt1-radius-md);
+        border-radius: var(--nxt1-radius-full, 9999px);
         font-family: var(--nxt1-fontFamily-brand);
         font-size: var(--nxt1-fontSize-sm);
         font-weight: var(--nxt1-fontWeight-medium);

@@ -63,7 +63,6 @@ export class AgentRouterPlanningOrchestratorService {
     readonly onUpdate?: (update: AgentJobUpdate) => void;
     readonly onStreamEvent?: OnStreamEvent;
     readonly rawOnStreamEvent?: OnStreamEvent;
-    readonly skipPlannerClassification: boolean;
     readonly signal?: AbortSignal;
   }): Promise<AgentRouterPlanningOutcome> {
     const {
@@ -77,7 +76,6 @@ export class AgentRouterPlanningOrchestratorService {
       onUpdate,
       onStreamEvent,
       rawOnStreamEvent,
-      skipPlannerClassification,
       signal,
     } = payload;
 
@@ -143,16 +141,11 @@ export class AgentRouterPlanningOrchestratorService {
       return capabilitySnapshotPromise;
     };
 
-    if (skipPlannerClassification) {
-      void resolveCapabilitySnapshotForPlanning();
-    }
-
     try {
       this.throwIfAborted(signal);
       planResult = await this.planner.execute(enrichedIntent, context, [], undefined, {
         capabilitySnapshot: capabilitySnapshotForPlanning,
         capabilitySnapshotResolver: resolveCapabilitySnapshotForPlanning,
-        skipClassification: skipPlannerClassification,
       });
       this.throwIfAborted(signal);
     } catch (err) {

@@ -25,6 +25,7 @@ import { NxtIconComponent } from '../components/icon/icon.component';
 import { NxtFormFieldComponent } from '../components/form-field';
 import {
   CREDIT_PACKAGES_USD,
+  MIN_CUSTOM_CREDIT_PURCHASE_CENTS,
   THRESHOLD_PRESETS_CENTS,
   TOPUP_AMOUNT_PRESETS_CENTS,
   normalizeUsdInput,
@@ -647,6 +648,7 @@ export class BuyCreditsAutoTopupSheetComponent implements OnInit {
   protected readonly packages = CREDIT_PACKAGES_USD;
   protected readonly thresholdPresets = THRESHOLD_PRESETS_CENTS;
   protected readonly amountPresets = TOPUP_AMOUNT_PRESETS_CENTS;
+  protected readonly minimumCustomAmountLabel = formatPrice(MIN_CUSTOM_CREDIT_PURCHASE_CENTS);
 
   protected readonly activeTab = signal<BuyCreditsTab>('buy');
   protected readonly selectedPackageUsd = signal<CreditPackageUsd | null>(null);
@@ -663,7 +665,9 @@ export class BuyCreditsAutoTopupSheetComponent implements OnInit {
 
     const cents = parseUsdToCents(value);
     if (cents === null) return 'Enter a valid dollar amount with up to two decimals.';
-    if (cents < 100) return 'Enter at least $1.00.';
+    if (cents < MIN_CUSTOM_CREDIT_PURCHASE_CENTS) {
+      return `Enter at least ${this.minimumCustomAmountLabel}.`;
+    }
 
     return null;
   });
@@ -672,7 +676,13 @@ export class BuyCreditsAutoTopupSheetComponent implements OnInit {
     if (selectedPackageUsd !== null) return selectedPackageUsd * 100;
 
     const cents = this.customAmountCents();
-    if (cents === null || cents < 100 || this.customAmountError() !== null) return null;
+    if (
+      cents === null ||
+      cents < MIN_CUSTOM_CREDIT_PURCHASE_CENTS ||
+      this.customAmountError() !== null
+    ) {
+      return null;
+    }
 
     return cents;
   });
@@ -685,7 +695,7 @@ export class BuyCreditsAutoTopupSheetComponent implements OnInit {
       return `${formatPrice(this.selectedBuyAmountCents() ?? 0)} purchase · ${this.selectedBuyAmountCents() ?? 0} credits`;
     }
 
-    return 'Minimum custom purchase is $1.00.';
+    return `Minimum custom purchase is ${this.minimumCustomAmountLabel}.`;
   });
   protected readonly isAutoTopupDirty = computed(
     () =>

@@ -445,6 +445,19 @@ export class AgentChatService {
     attachments?: readonly AgentXAttachment[];
     resultData?: Record<string, unknown>;
     toolCalls?: readonly AgentToolCallRecord[];
+    /**
+     * Phase A (thread-as-truth): wire-format LLM tool_calls preserved
+     * verbatim from OpenRouter. Persisted alongside `toolCalls` so
+     * `ThreadMessageReplayService` can reconstruct a structurally-valid
+     * `LLMMessage[]` on the next turn without reverse-engineering the
+     * analytics-friendly shape.
+     */
+    toolCallsWire?: readonly import('../llm/llm.types.js').LLMToolCall[];
+    /**
+     * Phase A (thread-as-truth): for `role:'tool'` rows, the id of the
+     * assistant.tool_calls entry this row resolves.
+     */
+    toolCallId?: string;
     steps?: readonly import('@nxt1/core').AgentXToolStep[];
     parts?: readonly import('@nxt1/core').AgentXMessagePart[];
     tokenUsage?: AgentMessageTokenUsage;
@@ -463,6 +476,8 @@ export class AgentChatService {
       attachments: params.attachments,
       resultData: params.resultData,
       toolCalls: params.toolCalls,
+      toolCallsWire: params.toolCallsWire,
+      toolCallId: params.toolCallId,
       steps: params.steps,
       parts: params.parts,
       tokenUsage: params.tokenUsage,
@@ -837,6 +852,8 @@ export class AgentChatService {
       attachments: doc.attachments,
       resultData: doc.resultData,
       toolCalls: doc.toolCalls,
+      toolCallsWire: doc.toolCallsWire,
+      toolCallId: doc.toolCallId,
       steps: doc.steps,
       parts: doc.parts,
       tokenUsage: doc.tokenUsage,

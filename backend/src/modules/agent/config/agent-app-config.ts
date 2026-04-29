@@ -58,7 +58,7 @@ const FALLBACK_MAX_JOB_ATTEMPTS = 2;
 const FALLBACK_RETRY_BACKOFF_MS = 5_000;
 
 /** Primary Agent (single-agent native tool-calling loop) defaults. */
-const FALLBACK_USE_PRIMARY_AGENT = true;
+const FALLBACK_THREAD_AS_TRUTH = true;
 const FALLBACK_PRIMARY_THREAD_HISTORY_WINDOW = 20;
 const FALLBACK_PRIMARY_THREAD_HISTORY_SUMMARIZE_BEYOND = 20;
 const FALLBACK_PRIMARY_TOOL_CONCURRENCY = 3;
@@ -1709,12 +1709,14 @@ const featureFlagsSchema = z
     strictZodToolSchemas: z.boolean().default(false),
     strictEntityToolGovernance: z.boolean().default(false),
     /**
-     * @deprecated Always-on as of the 2026 enterprise migration. The Primary
-     * Agent is the only conversational path; this flag is no longer read by
-     * the router. Field is retained in the schema for back-compat with
-     * existing Firestore documents and may be removed in a future release.
+     * Phase F (thread-as-truth): rollout gate for the canonical
+     * MongoDB-replay history path. When true (default), every turn
+     * rehydrates `LLMMessage[]` from `AgentMessage` rows via
+     * `ThreadMessageReplayService`. When false, the legacy
+     * `getRecentThreadHistory` flat-string path is used as a kill
+     * switch — retain through one full rollout window then remove.
      */
-    useprimaryAgent: z.boolean().default(FALLBACK_USE_PRIMARY_AGENT),
+    threadAsTruth: z.boolean().default(FALLBACK_THREAD_AS_TRUTH),
   })
   .default({
     disabledTools: [],
@@ -1722,7 +1724,7 @@ const featureFlagsSchema = z
     disableEmailSending: false,
     strictZodToolSchemas: false,
     strictEntityToolGovernance: false,
-    useprimaryAgent: FALLBACK_USE_PRIMARY_AGENT,
+    threadAsTruth: FALLBACK_THREAD_AS_TRUTH,
   });
 
 const coordinatorsSchema = z.array(coordinatorDescriptorSchema).default([]);
@@ -1900,8 +1902,8 @@ export interface AgentFeatureFlagsConfig {
   readonly disableEmailSending: boolean;
   readonly strictZodToolSchemas: boolean;
   readonly strictEntityToolGovernance: boolean;
-  /** When true, every chat is routed through the Primary Agent (single-agent native tool-calling loop). */
-  readonly useprimaryAgent: boolean;
+  /** Phase F: when true, thread replay from MongoDB is the source of truth (default true). */
+  readonly threadAsTruth: boolean;
 }
 
 export interface AgentPrimaryConfig {
@@ -2277,7 +2279,7 @@ export const DEFAULT_AGENT_APP_CONFIG: AgentAppConfig = {
     disableEmailSending: false,
     strictZodToolSchemas: false,
     strictEntityToolGovernance: false,
-    useprimaryAgent: FALLBACK_USE_PRIMARY_AGENT,
+    threadAsTruth: FALLBACK_THREAD_AS_TRUTH,
   },
   coordinators: DEFAULT_COORDINATOR_DESCRIPTORS,
   primary: {
@@ -2419,7 +2421,7 @@ export function parseAgentAppConfig(
       disableEmailSending: featureFlags.disableEmailSending,
       strictZodToolSchemas: featureFlags.strictZodToolSchemas,
       strictEntityToolGovernance: featureFlags.strictEntityToolGovernance,
-      useprimaryAgent: featureFlags.useprimaryAgent ?? FALLBACK_USE_PRIMARY_AGENT,
+      threadAsTruth: featureFlags.threadAsTruth ?? FALLBACK_THREAD_AS_TRUTH,
     },
     coordinators: coordinatorIds.map((id): ConfiguredCoordinatorDescriptor => {
       const configured = configuredCoordinatorMap.get(id);
@@ -2525,24 +2527,6 @@ export function resolvePlannerSystemPrompt(
   config: AgentAppConfig = getCachedAgentAppConfig()
 ): string {
   const configuredPrompt = config.prompts.plannerSystemPrompt;
-  return interpolatePromptTemplate(configuredPrompt ?? fallbackPrompt, templateValues);
-}
-
-export function resolveClassifierSystemPrompt(
-  fallbackPrompt: string,
-  templateValues?: Readonly<Record<string, string | undefined>>,
-  config: AgentAppConfig = getCachedAgentAppConfig()
-): string {
-  const configuredPrompt = config.prompts.classifierSystemPrompt;
-  return interpolatePromptTemplate(configuredPrompt ?? fallbackPrompt, templateValues);
-}
-
-export function resolveConversationSystemPrompt(
-  fallbackPrompt: string,
-  templateValues?: Readonly<Record<string, string | undefined>>,
-  config: AgentAppConfig = getCachedAgentAppConfig()
-): string {
-  const configuredPrompt = config.prompts.conversationSystemPrompt;
   return interpolatePromptTemplate(configuredPrompt ?? fallbackPrompt, templateValues);
 }
 
@@ -2764,6 +2748,8 @@ export async function getAgentAppConfig(
       setCachedAgentAppConfig(config);
       logger.debug('[AgentConfig] Loaded AppConfig/agentConfig', {
         source: snap.exists ? 'firestore' : 'defaults',
+        extractionModel: config.modelRouting.catalogue['extraction'],
+        routingModel: config.modelRouting.catalogue['routing'],
       });
       return config;
     } catch (error) {

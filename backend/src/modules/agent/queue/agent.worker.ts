@@ -35,6 +35,7 @@ import type {
   AgentJobUpdate,
   AgentOperationResult,
   AgentYieldState,
+  AgentXRichCard,
 } from '@nxt1/core';
 import { AgentEngineError } from '../exceptions/agent-engine.error.js';
 import { resolveAgentApprovalCopy, resolveAgentSuccessNotificationCopy } from '@nxt1/core';
@@ -56,6 +57,7 @@ import type { StreamEvent } from './event-writer.js';
 import { PersistedAssistantStreamBuilder } from './persisted-stream-message.js';
 import { AgentPubSubService } from './pubsub.service.js';
 import type { AgentChatService } from '../services/agent-chat.service.js';
+import { getThreadMessageWriter } from '../memory/thread-message-writer.service.js';
 import type { OpenRouterService } from '../llm/openrouter.service.js';
 import { isAgentYield } from '../exceptions/agent-yield.exception.js';
 import { getAgentEngineErrorCode } from '../exceptions/agent-engine.error.js';
@@ -89,6 +91,7 @@ function isAgentIdentifier(value: unknown): value is AgentIdentifier {
 }
 
 const MAX_TIMEOUT_AUTO_CONTINUATIONS = 6;
+const PARENT_OPERATION_POLL_MS = 1_000;
 
 function isJobTimeoutError(err: unknown): err is Error {
   if (!(err instanceof Error)) return false;
@@ -107,6 +110,131 @@ function isPauseYieldState(yieldState: AgentYieldState | null | undefined): bool
 
 function isAbortError(err: unknown): err is Error {
   return err instanceof Error && err.name === 'AbortError';
+}
+
+function createAbortError(message: string): Error {
+  const err = new Error(message);
+  err.name = 'AbortError';
+  return err;
+}
+
+/**
+ * Build an inline rich card for an agent yield (approval or input request).
+ *
+ * Maps:
+ *   • `needs_approval` for `send_email` / `batch_send_email` →
+ *     `draft` card (renders an editable email preview with Approve/Reject).
+ *   • `needs_approval` for any other tool → `confirmation` card with
+ *     Approve/Reject action buttons.
+ *   • `needs_input` (ask_user / pause_resume) → `ask_user` card with a
+ *     reply text input.
+ *
+ * Returns `null` when no meaningful card can be built (defensive — falls
+ * back to the plain assistant text bubble).
+ */
+function buildInlineYieldCard(params: {
+  yieldPayload: {
+    reason: string;
+    promptToUser: string;
+    agentId: AgentIdentifier;
+    pendingToolCall?: {
+      readonly toolName: string;
+      readonly toolInput: Record<string, unknown>;
+      readonly toolCallId: string;
+    };
+    approvalId?: string;
+  };
+  operationId: string;
+  threadId?: string;
+}): AgentXRichCard | null {
+  const { yieldPayload, operationId, threadId } = params;
+  const { reason, promptToUser, agentId, pendingToolCall, approvalId } = yieldPayload;
+
+  // ── Approval cards ────────────────────────────────────────────────────
+  if (reason === 'needs_approval' && pendingToolCall && approvalId) {
+    const { toolName, toolInput } = pendingToolCall;
+
+    // Email-shaped tools render as an editable Draft card.
+    if (toolName === 'send_email') {
+      const subject = typeof toolInput['subject'] === 'string' ? toolInput['subject'] : '';
+      const body =
+        (typeof toolInput['bodyHtml'] === 'string' && toolInput['bodyHtml']) ||
+        (typeof toolInput['body'] === 'string' ? toolInput['body'] : '') ||
+        (typeof toolInput['bodyText'] === 'string' ? toolInput['bodyText'] : '') ||
+        '';
+      const toEmail = typeof toolInput['toEmail'] === 'string' ? toolInput['toEmail'] : '';
+      return {
+        type: 'draft',
+        agentId,
+        title: 'Email Draft — Awaiting Approval',
+        payload: {
+          content: body,
+          subject,
+          recipientsCount: 1,
+          toEmail,
+          approvalId,
+          operationId,
+        },
+      };
+    }
+
+    if (toolName === 'batch_send_email') {
+      const subject =
+        (typeof toolInput['subjectTemplate'] === 'string' && toolInput['subjectTemplate']) ||
+        (typeof toolInput['subject'] === 'string' ? toolInput['subject'] : '') ||
+        '';
+      const body =
+        (typeof toolInput['bodyHtmlTemplate'] === 'string' && toolInput['bodyHtmlTemplate']) ||
+        (typeof toolInput['bodyHtml'] === 'string' && toolInput['bodyHtml']) ||
+        (typeof toolInput['body'] === 'string' ? toolInput['body'] : '') ||
+        '';
+      const recipients = Array.isArray(toolInput['recipients']) ? toolInput['recipients'] : [];
+      return {
+        type: 'draft',
+        agentId,
+        title: `Email Draft — ${recipients.length} recipient${recipients.length === 1 ? '' : 's'} (Awaiting Approval)`,
+        payload: {
+          content: body,
+          subject,
+          recipientsCount: recipients.length,
+          approvalId,
+          operationId,
+        },
+      };
+    }
+
+    // Generic approval-required tool → Confirmation card with action buttons.
+    return {
+      type: 'confirmation',
+      agentId,
+      title: 'Approval Required',
+      payload: {
+        message: promptToUser,
+        actions: [
+          { id: 'reject', label: 'Reject', variant: 'secondary' },
+          { id: 'approve', label: 'Approve', variant: 'primary' },
+        ],
+        approvalId,
+        operationId,
+      },
+    };
+  }
+
+  // ── Ask-user / paused cards ────────────────────────────────────────────
+  if (reason === 'needs_input') {
+    return {
+      type: 'ask_user',
+      agentId,
+      title: 'Agent X has a question',
+      payload: {
+        question: promptToUser,
+        ...(threadId ? { threadId } : {}),
+        operationId,
+      },
+    };
+  }
+
+  return null;
 }
 
 // ─── Worker ─────────────────────────────────────────────────────────────────
@@ -144,6 +272,13 @@ export class AgentWorker {
     });
 
     this.attachEventListeners();
+
+    // Phase B (thread-as-truth): bootstrap the writer singleton so
+    // BaseAgent.runLoop can persist assistant.tool_calls + tool result
+    // rows the moment they're produced. The writer delegates to the
+    // same chatService passed to the worker, so a single MongoDB
+    // session is shared.
+    getThreadMessageWriter(this.chatService);
   }
 
   // ─── Repository Selector ────────────────────────────────────────────────
@@ -200,6 +335,80 @@ export class AgentWorker {
       operationId: payload.operationId,
       userId: payload.userId,
       origin: payload.origin,
+    });
+  }
+
+  private async waitForParentOperationCompletion(
+    repo: AgentJobRepository,
+    payload: AgentJobPayload,
+    signal?: AbortSignal
+  ): Promise<void> {
+    const contextObj =
+      typeof payload.context === 'object' && payload.context !== null ? payload.context : {};
+    const parentOperationId =
+      typeof (contextObj as Record<string, unknown>)['parentOperationId'] === 'string'
+        ? String((contextObj as Record<string, unknown>)['parentOperationId']).trim()
+        : '';
+
+    if (!parentOperationId || parentOperationId === payload.operationId) {
+      return;
+    }
+
+    logger.info('Child operation waiting for parent operation to terminate', {
+      operationId: payload.operationId,
+      parentOperationId,
+    });
+
+    const waitOnce = async (): Promise<void> => {
+      if (signal?.aborted) {
+        throw createAbortError('Queued child operation aborted before parent completion');
+      }
+
+      const [parentJob, currentJob] = await Promise.all([
+        repo.getById(parentOperationId),
+        repo.getById(payload.operationId),
+      ]);
+
+      if (currentJob?.status === 'cancelled' || currentJob?.status === 'failed') {
+        throw createAbortError('Queued child operation cancelled before execution');
+      }
+
+      if (
+        !parentJob ||
+        parentJob.status === 'completed' ||
+        parentJob.status === 'failed' ||
+        parentJob.status === 'cancelled'
+      ) {
+        return;
+      }
+
+      await new Promise<void>((resolve, reject) => {
+        const timeoutId = setTimeout(() => {
+          cleanup();
+          resolve();
+        }, PARENT_OPERATION_POLL_MS);
+
+        const onAbort = () => {
+          clearTimeout(timeoutId);
+          cleanup();
+          reject(createAbortError('Queued child operation aborted while waiting on parent'));
+        };
+
+        const cleanup = () => {
+          signal?.removeEventListener('abort', onAbort);
+        };
+
+        signal?.addEventListener('abort', onAbort, { once: true });
+      });
+
+      await waitOnce();
+    };
+
+    await waitOnce();
+
+    logger.info('Child operation unblocked after parent termination', {
+      operationId: payload.operationId,
+      parentOperationId,
     });
   }
 
@@ -578,6 +787,44 @@ export class AgentWorker {
 
     await this.ensureJobDocumentExists(repo, payload);
 
+    // Create a job-scoped AbortController before any execution gating so the
+    // cancel endpoint can also abort queued child operations while they wait
+    // behind a parentOperationId.
+    const jobAbortController = new AbortController();
+    this.queueService?.registerController(payload.operationId, jobAbortController);
+
+    // Cross-instance control listener: pause/cancel HTTP requests may hit a
+    // different backend instance than the one running this worker. The HTTP
+    // handler broadcasts a control message via Redis pub/sub which we receive
+    // here and translate into a local AbortController.abort().
+    let unsubscribeControl: (() => Promise<void>) | null = null;
+    try {
+      unsubscribeControl = await this.pubsub.subscribeControl(payload.operationId, (msg) => {
+        if (jobAbortController.signal.aborted) return;
+        logger.info('[worker] Received cross-instance control message', {
+          operationId: payload.operationId,
+          action: msg.action,
+          issuedBy: msg.issuedBy,
+        });
+        try {
+          jobAbortController.abort();
+        } catch (abortErr) {
+          logger.warn('[worker] Local abort from control message failed', {
+            operationId: payload.operationId,
+            action: msg.action,
+            error: abortErr instanceof Error ? abortErr.message : String(abortErr),
+          });
+        }
+      });
+    } catch (subErr) {
+      logger.warn('[worker] Failed to subscribe to control channel', {
+        operationId: payload.operationId,
+        error: subErr instanceof Error ? subErr.message : String(subErr),
+      });
+    }
+
+    await this.waitForParentOperationCompletion(repo, payload, jobAbortController.signal);
+
     if (payload.origin === 'system_cron' && payloadThreadId && this.chatService) {
       try {
         await this.chatService.addMessage({
@@ -639,6 +886,7 @@ export class AgentWorker {
     let totalSteps = 1; // Updated once the plan is created
     const invokedTools: string[] = [];
     const successfulTools: string[] = [];
+    let primaryFirstDeltaLogged = false;
 
     // Build the onUpdate callback that feeds progress into BullMQ and Firestore
     const onUpdate = async (update: AgentJobUpdate): Promise<void> => {
@@ -697,6 +945,18 @@ export class AgentWorker {
         onLiveEvent: (event) => {
           // Only handle deltas here; other events go through onPersistedEvent
           if (event.type !== 'delta') return;
+
+          if (!primaryFirstDeltaLogged && event.agentId === 'router') {
+            primaryFirstDeltaLogged = true;
+            const preview = typeof event.text === 'string' ? event.text.slice(0, 120) : '';
+            logger.info('[PrimaryChat] first_delta_sent', {
+              operationId: payload.operationId,
+              userId: payload.userId,
+              threadId: payloadThreadId,
+              emittedAt: new Date().toISOString(),
+              preview,
+            });
+          }
 
           const sseEvent = this.streamEventToSSE(event, payload.operationId, payloadThreadId);
           if (!sseEvent) return;
@@ -822,42 +1082,6 @@ export class AgentWorker {
 
     // Execute the full agent pipeline (with overall timeout)
     let result: AgentOperationResult;
-
-    // Create a job-scoped AbortController so the cancel endpoint can halt the
-    // LLM router mid-execution. Registered in queueService; cleaned up in finally.
-    const jobAbortController = new AbortController();
-    this.queueService?.registerController(payload.operationId, jobAbortController);
-
-    // Cross-instance control listener: pause/cancel HTTP requests may hit a
-    // different backend instance than the one running this worker. The HTTP
-    // handler broadcasts a control message via Redis pub/sub which we receive
-    // here and translate into a local AbortController.abort() so the active
-    // LLM stream halts immediately on this instance.
-    let unsubscribeControl: (() => Promise<void>) | null = null;
-    try {
-      unsubscribeControl = await this.pubsub.subscribeControl(payload.operationId, (msg) => {
-        if (jobAbortController.signal.aborted) return;
-        logger.info('[worker] Received cross-instance control message', {
-          operationId: payload.operationId,
-          action: msg.action,
-          issuedBy: msg.issuedBy,
-        });
-        try {
-          jobAbortController.abort();
-        } catch (abortErr) {
-          logger.warn('[worker] Local abort from control message failed', {
-            operationId: payload.operationId,
-            action: msg.action,
-            error: abortErr instanceof Error ? abortErr.message : String(abortErr),
-          });
-        }
-      });
-    } catch (subErr) {
-      logger.warn('[worker] Failed to subscribe to control channel', {
-        operationId: payload.operationId,
-        error: subErr instanceof Error ? subErr.message : String(subErr),
-      });
-    }
 
     try {
       const userFirestore = this.getUserFirestore(job);
@@ -1083,6 +1307,32 @@ export class AgentWorker {
           typeof (contextObj as Record<string, unknown>)['threadId'] === 'string'
             ? ((contextObj as Record<string, unknown>)['threadId'] as string)
             : undefined;
+
+        // Emit a rich inline card (`confirmation` / `draft` / `ask_user`) so
+        // the chat UI renders interactive Approve/Reject buttons or a reply
+        // input rather than just a plain assistant text bubble. The card
+        // builders are inlined here to avoid a routes/ → modules/ layering
+        // inversion (the routes/agent/shared.ts versions are deprecated and
+        // will be removed once any external callers are migrated).
+        try {
+          const inlineCard = buildInlineYieldCard({
+            yieldPayload,
+            operationId: payload.operationId,
+            threadId,
+          });
+          if (inlineCard) {
+            eventWriter.emit({
+              type: 'card',
+              cardData: inlineCard,
+            });
+          }
+        } catch (cardErr) {
+          logger.warn('Failed to build inline yield card', {
+            operationId: payload.operationId,
+            reason: yieldPayload.reason,
+            error: cardErr instanceof Error ? cardErr.message : String(cardErr),
+          });
+        }
 
         eventWriter.emit({
           type: 'operation',
@@ -1691,6 +1941,17 @@ export class AgentWorker {
           operationId: payload.operationId,
           messageId: persistedAssistantMessageId,
         });
+
+        if ((agentId ?? finalAgentId) === 'router') {
+          logger.info('[PrimaryChat] assistant_message_persisted', {
+            operationId: payload.operationId,
+            userId: payload.userId,
+            threadId,
+            messageId: persistedAssistantMessageId,
+            persistedAt: new Date().toISOString(),
+            summaryPreview: persistedAssistantContentForDone.slice(0, 160),
+          });
+        }
 
         // Thread title is managed at enqueue time via generateTitleFromPromptOnly
         // in the route handler (chat.routes.ts). No LLM call is needed here.

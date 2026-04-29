@@ -39,6 +39,7 @@ import { formatPrice } from '@nxt1/core';
 import { TEST_IDS } from '@nxt1/core/testing';
 import {
   CREDIT_PACKAGES_USD,
+  MIN_CUSTOM_CREDIT_PURCHASE_CENTS,
   THRESHOLD_PRESETS_CENTS,
   TOPUP_AMOUNT_PRESETS_CENTS,
   normalizeUsdInput,
@@ -153,7 +154,7 @@ import {
           <div class="bc-custom-amount">
             <div class="bc-custom-amount-header">
               <span class="bc-setting-label">Custom amount</span>
-              <span class="bc-custom-amount-hint">Enter your own wallet top-up</span>
+              <span class="bc-custom-amount-hint"> Minimum {{ minimumCustomAmountLabel }} </span>
             </div>
 
             <label
@@ -184,7 +185,9 @@ import {
                 {{ selectedBuyAmountCents() ?? 0 }} credits
               </p>
             } @else {
-              <p class="bc-custom-amount-feedback">Minimum custom purchase is $1.00.</p>
+              <p class="bc-custom-amount-feedback">
+                Minimum custom purchase is {{ minimumCustomAmountLabel }}.
+              </p>
             }
           </div>
 
@@ -773,6 +776,7 @@ export class BuyCreditsAutoTopupModalComponent implements OnInit {
   protected readonly packages = CREDIT_PACKAGES_USD;
   protected readonly thresholdPresets = THRESHOLD_PRESETS_CENTS;
   protected readonly amountPresets = TOPUP_AMOUNT_PRESETS_CENTS;
+  protected readonly minimumCustomAmountLabel = formatPrice(MIN_CUSTOM_CREDIT_PURCHASE_CENTS);
 
   // ----------------------------------------
   // UI state
@@ -790,7 +794,9 @@ export class BuyCreditsAutoTopupModalComponent implements OnInit {
 
     const cents = parseUsdToCents(value);
     if (cents === null) return 'Enter a valid dollar amount with up to two decimals.';
-    if (cents < 100) return 'Enter at least $1.00.';
+    if (cents < MIN_CUSTOM_CREDIT_PURCHASE_CENTS) {
+      return `Enter at least ${this.minimumCustomAmountLabel}.`;
+    }
 
     return null;
   });
@@ -799,7 +805,13 @@ export class BuyCreditsAutoTopupModalComponent implements OnInit {
     if (selectedPackageUsd !== null) return selectedPackageUsd * 100;
 
     const cents = this.customAmountCents();
-    if (cents === null || cents < 100 || this.customAmountError() !== null) return null;
+    if (
+      cents === null ||
+      cents < MIN_CUSTOM_CREDIT_PURCHASE_CENTS ||
+      this.customAmountError() !== null
+    ) {
+      return null;
+    }
 
     return cents;
   });

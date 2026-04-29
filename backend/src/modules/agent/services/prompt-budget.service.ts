@@ -94,6 +94,50 @@ export class PromptBudgetService {
       return { degradationsApplied, tokensBefore, tokensAfter: tokensBefore };
     }
 
+    // Step 1a (Phase O — thread-as-truth): drop oldest mid-thread tool
+    // result rows that are *very* large (>2000 chars) but stale. With
+    // canonical replay, every persisted tool observation is in the
+    // prompt every turn — old recruiting-style search results (lists of
+    // 20 coaches, full email drafts) accumulate fast. Drop them BEFORE
+    // truncating fresh observations so the most recent tool results
+    // stay full-fidelity. Preserves the assistant.tool_calls turn that
+    // owns each dropped row by clearing its tool_calls entry too,
+    // keeping the messages array structurally valid.
+    const STALE_TOOL_CHAR_THRESHOLD = 2000;
+    // Don't touch the last 6 messages — keep recent ReAct turn intact.
+    const STALE_HORIZON = Math.max(2, messages.length - 6);
+    const droppedToolCallIds = new Set<string>();
+    for (let i = 2; i < STALE_HORIZON; i++) {
+      const msg = messages[i];
+      if (!msg) continue;
+      if (msg.role === 'tool' && typeof msg.content === 'string') {
+        if (msg.content.length > STALE_TOOL_CHAR_THRESHOLD) {
+          if (msg.tool_call_id) droppedToolCallIds.add(msg.tool_call_id);
+          messages[i] = {
+            role: 'tool',
+            content: '[earlier tool result dropped by budget governor]',
+            tool_call_id: msg.tool_call_id,
+          } as LLMMessage;
+          if (!degradationsApplied.includes('drop_stale_tool_results')) {
+            degradationsApplied.push('drop_stale_tool_results');
+          }
+        }
+      }
+    }
+    if (degradationsApplied.includes('drop_stale_tool_results')) {
+      const after = this.estimateTokens(messages);
+      logger.info('[PromptBudget] step 1a: dropped stale tool results', {
+        agentId,
+        operationId,
+        droppedCount: droppedToolCallIds.size,
+        tokensBefore,
+        tokensAfter: after,
+      });
+      if (after <= cfg.maxPromptTokens) {
+        return this.report(degradationsApplied, tokensBefore, messages, agentId, operationId);
+      }
+    }
+
     // Step 1 — Truncate oversized tool observations to 25%.
     let truncatedAny = false;
     for (let i = 0; i < messages.length; i++) {

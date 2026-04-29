@@ -64,6 +64,7 @@ const PRIMARY_FAST_PATH_TOOLS: readonly string[] = [
   'get_other_thread_history',
   'get_recent_sync_summaries',
   'search_memory',
+  'search_memories',
   // Self-knowledge & orchestration
   'whoami_capabilities',
   'delegate_to_coordinator',
@@ -212,24 +213,28 @@ export class PrimaryAgent extends BaseAgent {
       );
     } catch (err) {
       if (isDelegateToCoordinator(err)) {
-        return await this.handleCoordinatorDispatch(
+        const result = await this.handleCoordinatorDispatch(
           err,
+          toolCall,
           userId,
           sessionContext?.operationId,
           approvalGate,
           onStreamEvent,
           signal
         );
+        return result;
       }
       if (isPlanAndExecute(err)) {
-        return await this.handlePlanDispatch(
+        const result = await this.handlePlanDispatch(
           err,
+          toolCall,
           userId,
           sessionContext?.operationId,
           approvalGate,
           onStreamEvent,
           signal
         );
+        return result;
       }
       throw err;
     }
@@ -239,6 +244,7 @@ export class PrimaryAgent extends BaseAgent {
 
   private async handleCoordinatorDispatch(
     err: DelegateToCoordinatorException,
+    toolCall: LLMToolCall,
     userId: string,
     operationId: string | undefined,
     approvalGate: ApprovalGateService | undefined,
@@ -258,6 +264,22 @@ export class PrimaryAgent extends BaseAgent {
         error: 'Coordinator dispatch unavailable: missing per-run state.',
       });
     }
+    // Mark the parent tool step complete as soon as the handoff is accepted.
+    // The delegated coordinator then streams its own work as follow-on steps.
+    onStreamEvent?.({
+      type: 'tool_result',
+      agentId: this.id,
+      stepId: toolCall.id,
+      toolName: toolCall.function.name,
+      stageType: 'tool',
+      toolSuccess: true,
+      toolResult: {
+        delegated: true,
+        coordinatorId: err.payload.coordinatorId,
+      },
+      icon: this.resolveToolStepIcon(toolCall.function.name),
+      message: this.resolveToolInvocationLabel(toolCall.function.name, toolCall.function.arguments),
+    });
     const result = await this.dispatcher.runCoordinator(
       err.payload.coordinatorId,
       err.payload.goal,
@@ -268,6 +290,7 @@ export class PrimaryAgent extends BaseAgent {
 
   private async handlePlanDispatch(
     err: PlanAndExecuteException,
+    toolCall: LLMToolCall,
     userId: string,
     operationId: string | undefined,
     approvalGate: ApprovalGateService | undefined,
@@ -287,6 +310,20 @@ export class PrimaryAgent extends BaseAgent {
         error: 'Plan dispatch unavailable: missing per-run state.',
       });
     }
+    // The planning handoff itself is complete once orchestration starts.
+    onStreamEvent?.({
+      type: 'tool_result',
+      agentId: this.id,
+      stepId: toolCall.id,
+      toolName: toolCall.function.name,
+      stageType: 'tool',
+      toolSuccess: true,
+      toolResult: {
+        planned: true,
+      },
+      icon: this.resolveToolStepIcon(toolCall.function.name),
+      message: this.resolveToolInvocationLabel(toolCall.function.name, toolCall.function.arguments),
+    });
     const result = await this.dispatcher.runPlan(err.payload.goal, ctx);
     return result.observation;
   }

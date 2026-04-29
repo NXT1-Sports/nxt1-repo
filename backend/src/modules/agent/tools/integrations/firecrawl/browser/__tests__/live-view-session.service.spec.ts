@@ -459,6 +459,29 @@ describe('LiveViewSessionService', () => {
       );
     });
 
+    it('should parse media JSON wrapped in markdown fences', async () => {
+      await service.startSession(TEST_USER_ID, { url: 'https://www.hudl.com/profile/12345' });
+
+      mockInteract.mockResolvedValueOnce({
+        success: true,
+        stdout: `Here is the extracted payload:\n\n\`\`\`json\n${JSON.stringify({
+          url: 'https://www.hudl.com/video/abc',
+          title: 'Hudl Video',
+          streams: ['https://stream.example.com/master.m3u8'],
+          currentSrc: 'blob:https://www.hudl.com/123',
+          blobSrc: 'blob:https://www.hudl.com/123',
+          userAgent: 'Mozilla/5.0 Test Browser',
+          cookies: [],
+        })}\n\`\`\``,
+        exitCode: 0,
+      });
+
+      const result = await service.extractMedia(TEST_SESSION_ID, TEST_USER_ID);
+
+      expect(result.streams).toEqual(['https://stream.example.com/master.m3u8']);
+      expect(result.title).toBe('Hudl Video');
+    });
+
     it('should throw when no stream URLs or direct video source exist', async () => {
       await service.startSession(TEST_USER_ID, { url: 'https://www.hudl.com/profile/12345' });
 
@@ -540,6 +563,40 @@ describe('LiveViewSessionService', () => {
         })
       );
       expect(mockInteract.mock.calls.at(-1)?.[1]?.code).not.toContain('match?.[1]');
+    });
+
+    it('should parse playlist JSON with leading prose', async () => {
+      await service.startSession(TEST_USER_ID, { url: 'https://www.hudl.com/profile/12345' });
+
+      mockInteract.mockResolvedValueOnce({
+        success: true,
+        stdout: `Playlist scan complete. Returning JSON payload next.\n${JSON.stringify({
+          url: 'https://www.hudl.com/video/playlist/abc',
+          title: 'Hudl Playlist',
+          playlistTitle: 'Top 10 Clips',
+          items: [
+            {
+              index: 1,
+              itemId: 'clip-1',
+              title: 'Clip 1',
+              url: 'https://www.hudl.com/video/clip-1',
+              durationText: '00:12',
+              thumbnailUrl: 'https://images.example.com/clip-1.jpg',
+              textSnippet: 'Touchdown catch',
+              isCurrent: true,
+            },
+          ],
+          userAgent: 'Mozilla/5.0 Test Browser',
+          cookies: [],
+        })}`,
+        exitCode: 0,
+      });
+
+      const result = await service.extractPlaylist(TEST_SESSION_ID, TEST_USER_ID, 10);
+
+      expect(result.playlistTitle).toBe('Top 10 Clips');
+      expect(result.items).toHaveLength(1);
+      expect(result.items[0]?.title).toBe('Clip 1');
     });
 
     it('should throw when no playlist items are detected', async () => {

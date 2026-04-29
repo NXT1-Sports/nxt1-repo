@@ -13,29 +13,28 @@ import type { ZodType } from 'zod';
 // ─── Model Catalogue ────────────────────────────────────────────────────────
 
 /**
- * Maps our abstract model tiers to concrete OpenRouter model slugs.
- * This is the ONLY place model IDs are defined — change here to swap models globally.
+ * Production model catalog: optimized for peak accuracy, deep logic, and human-like nuance.
  */
-export const MODEL_CATALOGUE: Record<ModelTier, string> = {
+export const PROD_MODEL_CATALOGUE: Record<ModelTier, string> = {
   // ── Text Tiers ──────────────────────────────────────────────────────────
-  routing: 'anthropic/claude-sonnet-4-5',
-  extraction: 'anthropic/claude-haiku-4-5',
-  data_heavy: 'qwen/qwen3.6-plus',
-  evaluator: 'minimax/minimax-m2.7',
-  compliance: 'openai/gpt-4o',
-  copywriting: 'anthropic/claude-sonnet-4-5',
-  prompt_engineering: 'anthropic/claude-sonnet-4-5',
-  chat: 'anthropic/claude-haiku-4-5',
-  task_automation: 'anthropic/claude-sonnet-4-5',
+  routing: 'openai/o1',
+  extraction: 'anthropic/claude-opus-4.7',
+  data_heavy: 'openai/o3-deep-research',
+  evaluator: 'anthropic/claude-opus-4.7',
+  compliance: 'openai/o1',
+  copywriting: '~anthropic/claude-opus-latest',
+  prompt_engineering: 'openai/o1',
+  chat: 'anthropic/claude-haiku-4.5',
+  task_automation: 'openai/gpt-5.5-pro',
 
   // ── Media Tiers ─────────────────────────────────────────────────────────
-  image_generation: 'google/gemini-3-pro-image-preview',
+  image_generation: 'openai/gpt-5.4-image-2',
   video_generation: 'google/gemini-3-pro-image-preview', // placeholder until video models available
-  vision_analysis: 'openai/gpt-4o',
+  vision_analysis: 'openai/gpt-5.5-pro',
   video_analysis: 'google/gemini-2.5-flash',
-  audio_analysis: 'openai/gpt-4o',
-  voice_generation: 'openai/gpt-4o-mini', // placeholder until TTS models available
-  music_generation: 'openai/gpt-4o-mini', // placeholder until music models available
+  audio_analysis: 'openai/gpt-5.5',
+  voice_generation: 'openai/gpt-audio-mini',
+  music_generation: 'google/lyria-3-pro-preview',
 
   // ── Utility Tiers ──────────────────────────────────────────────────────
   embedding: 'openai/text-embedding-3-small',
@@ -43,38 +42,116 @@ export const MODEL_CATALOGUE: Record<ModelTier, string> = {
 } as const;
 
 /**
- * Ordered fallback chains per tier. When the primary model (index 0) fails
- * with a non-transient error (e.g. 400 context-too-large, model unavailable),
- * the service retries with the next model in the chain.
- *
- * Index 0 is always the MODEL_CATALOGUE primary. Subsequent entries are
- * progressively cheaper / smaller models that are more likely to succeed.
+ * Development model catalog: optimized for testing iteration speed, low cost, and large contexts.
  */
-export const MODEL_FALLBACK_CHAIN: Record<ModelTier, readonly string[]> = {
+export const DEV_MODEL_CATALOGUE: Record<ModelTier, string> = {
   // ── Text Tiers ──────────────────────────────────────────────────────────
-  routing: ['anthropic/claude-sonnet-4', 'openai/gpt-4o', 'anthropic/claude-haiku-4-5'],
-  extraction: ['anthropic/claude-haiku-4-5', 'openai/gpt-4o-mini', 'qwen/qwen3.6-plus'],
-  data_heavy: ['qwen/qwen3.6-plus', 'anthropic/claude-haiku-4-5', 'openai/gpt-4o-mini'],
-  evaluator: ['minimax/minimax-m2.7', 'anthropic/claude-sonnet-4', 'openai/gpt-4o'],
-  compliance: ['openai/gpt-4o', 'anthropic/claude-sonnet-4', 'anthropic/claude-haiku-4-5'],
-  copywriting: ['anthropic/claude-sonnet-4', 'openai/gpt-4o', 'qwen/qwen3.6-plus'],
-  prompt_engineering: ['anthropic/claude-sonnet-4', 'openai/gpt-4o', 'anthropic/claude-haiku-4-5'],
-  chat: ['anthropic/claude-haiku-4-5', 'openai/gpt-4o-mini', 'deepseek/deepseek-v3.2'],
-  task_automation: ['anthropic/claude-sonnet-4', 'openai/gpt-4o', 'anthropic/claude-haiku-4-5'],
+  routing: 'meta-llama/llama-3.3-70b-instruct',
+  extraction: 'openai/gpt-4o-mini',
+  data_heavy: 'anthropic/claude-opus-4.6-fast',
+  evaluator: 'meta-llama/llama-3.3-70b-instruct',
+  compliance: 'openai/gpt-4o-mini',
+  copywriting: 'mistralai/mixtral-8x22b-instruct',
+  prompt_engineering: 'openai/gpt-4o-mini',
+  chat: 'openai/gpt-4o-mini',
+  task_automation: 'anthropic/claude-opus-4.6-fast',
 
   // ── Media Tiers ─────────────────────────────────────────────────────────
-  image_generation: ['google/gemini-3-pro-image-preview'],
+  image_generation: 'openai/gpt-5.4-image-2', // Using same for now, handle cost via payload parameters
+  video_generation: 'google/gemini-3-pro-image-preview',
+  vision_analysis: 'openai/gpt-4o',
+  video_analysis: 'google/gemini-2.5-flash',
+  audio_analysis: 'openai/gpt-4o',
+  voice_generation: 'openai/gpt-audio-mini',
+  music_generation: 'google/lyria-3-pro-preview',
+
+  // ── Utility Tiers ──────────────────────────────────────────────────────
+  embedding: 'openai/text-embedding-3-small',
+  moderation: 'meta-llama/llama-guard-3-8b',
+} as const;
+
+/**
+ * Maps our abstract model tiers to concrete OpenRouter model slugs.
+ * Resolves to PROD or DEV versions based on NODE_ENV.
+ * Can be overridden in dev with USE_PROD_MODELS_IN_DEV="true".
+ */
+export const MODEL_CATALOGUE: Record<ModelTier, string> =
+  process.env['NODE_ENV'] === 'production' || process.env['USE_PROD_MODELS_IN_DEV'] === 'true'
+    ? PROD_MODEL_CATALOGUE
+    : DEV_MODEL_CATALOGUE;
+
+export const PROD_FALLBACK_CHAIN: Record<ModelTier, readonly string[]> = {
+  // ── Text Tiers ──────────────────────────────────────────────────────────
+  routing: ['openai/o1', 'anthropic/claude-opus-4.7', 'openai/gpt-5.5'],
+  extraction: ['anthropic/claude-opus-4.7', 'openai/o1', 'openai/gpt-4o-mini'],
+  data_heavy: ['openai/o3-deep-research', 'openai/gpt-5.5-pro', 'anthropic/claude-opus-4.6'],
+  evaluator: ['anthropic/claude-opus-4.7', 'openai/o1', 'anthropic/claude-sonnet-4'],
+  compliance: ['openai/o1', 'anthropic/claude-opus-4.7', 'openai/gpt-4o'],
+  copywriting: ['~anthropic/claude-opus-latest', 'openai/gpt-5.5-pro', 'anthropic/claude-opus-4.5'],
+  prompt_engineering: ['openai/o1', 'anthropic/claude-opus-4.7', 'openai/gpt-4o'],
+  chat: ['anthropic/claude-haiku-4.5', 'anthropic/claude-sonnet-4.5', 'openai/gpt-5.5'],
+  task_automation: ['openai/gpt-5.5-pro', 'anthropic/claude-opus-4.7', 'openai/o1'],
+
+  // ── Media Tiers ─────────────────────────────────────────────────────────
+  image_generation: ['openai/gpt-5.4-image-2', 'google/gemini-3-pro-image-preview'],
   video_generation: ['google/gemini-3-pro-image-preview'],
-  vision_analysis: ['openai/gpt-4o', 'anthropic/claude-sonnet-4'],
+  vision_analysis: ['openai/gpt-5.5-pro', 'openai/gpt-4o'],
   video_analysis: ['google/gemini-2.5-flash', 'google/gemini-2.5-pro'],
-  audio_analysis: ['openai/gpt-4o', 'anthropic/claude-sonnet-4'],
-  voice_generation: ['openai/gpt-4o-mini'],
-  music_generation: ['openai/gpt-4o-mini'],
+  audio_analysis: ['openai/gpt-5.5', 'openai/gpt-4o'],
+  voice_generation: ['openai/gpt-audio-mini', 'openai/gpt-4o-mini-tts-2025-12-15'],
+  music_generation: ['google/lyria-3-pro-preview', 'google/lyria-3-clip-preview'],
 
   // ── Utility Tiers ──────────────────────────────────────────────────────
   embedding: ['openai/text-embedding-3-small'],
   moderation: ['meta-llama/llama-guard-3-8b', 'openai/gpt-4o-mini'],
 } as const;
+
+export const DEV_FALLBACK_CHAIN: Record<ModelTier, readonly string[]> = {
+  // ── Text Tiers ──────────────────────────────────────────────────────────
+  routing: ['meta-llama/llama-3.3-70b-instruct', 'openai/gpt-4o-mini', 'openai/gpt-4o'],
+  extraction: ['openai/gpt-4o-mini', 'meta-llama/llama-3.3-70b-instruct', 'openai/gpt-4o'],
+  data_heavy: [
+    'anthropic/claude-opus-4.6-fast',
+    'openai/gpt-4o-mini',
+    'meta-llama/llama-3.3-70b-instruct',
+  ],
+  evaluator: ['meta-llama/llama-3.3-70b-instruct', 'openai/gpt-4o-mini', 'openai/gpt-4o'],
+  compliance: ['openai/gpt-4o-mini', 'meta-llama/llama-3.3-70b-instruct', 'openai/gpt-4o'],
+  copywriting: [
+    'mistralai/mixtral-8x22b-instruct',
+    'openai/gpt-4o-mini',
+    'meta-llama/llama-3.3-70b-instruct',
+  ],
+  prompt_engineering: ['openai/gpt-4o-mini', 'meta-llama/llama-3.3-70b-instruct', 'openai/gpt-4o'],
+  chat: ['openai/gpt-4o-mini', 'meta-llama/llama-3.3-70b-instruct', 'openai/gpt-4o'],
+  task_automation: [
+    'anthropic/claude-opus-4.6-fast',
+    'openai/gpt-4o-mini',
+    'meta-llama/llama-3.3-70b-instruct',
+  ],
+
+  // ── Media Tiers ─────────────────────────────────────────────────────────
+  image_generation: ['openai/gpt-5.4-image-2'],
+  video_generation: ['google/gemini-3-pro-image-preview'],
+  vision_analysis: ['openai/gpt-4o', 'anthropic/claude-sonnet-4'],
+  video_analysis: ['google/gemini-2.5-flash', 'google/gemini-2.5-pro'],
+  audio_analysis: ['openai/gpt-4o', 'anthropic/claude-sonnet-4'],
+  voice_generation: ['openai/gpt-audio-mini', 'openai/gpt-4o-mini-tts-2025-12-15'],
+  music_generation: ['google/lyria-3-pro-preview', 'google/lyria-3-clip-preview'],
+
+  // ── Utility Tiers ──────────────────────────────────────────────────────
+  embedding: ['openai/text-embedding-3-small'],
+  moderation: ['meta-llama/llama-guard-3-8b', 'openai/gpt-4o-mini'],
+} as const;
+
+/**
+ * Ordered fallback chains per tier. Resolves based on NODE_ENV.
+ * Can be overridden in dev with USE_PROD_MODELS_IN_DEV="true".
+ */
+export const MODEL_FALLBACK_CHAIN: Record<ModelTier, readonly string[]> =
+  process.env['NODE_ENV'] === 'production' || process.env['USE_PROD_MODELS_IN_DEV'] === 'true'
+    ? PROD_FALLBACK_CHAIN
+    : DEV_FALLBACK_CHAIN;
 
 /**
  * Maps billing-facing tier names to their corresponding MODEL_CATALOGUE key.

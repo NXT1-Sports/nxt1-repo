@@ -370,12 +370,30 @@ export interface AgentSessionContext {
   readonly signal?: AbortSignal;
 }
 
-/** A single message within a session (lighter than the full AgentXMessage). */
+/**
+ * A single message within a session (lighter than the full AgentXMessage).
+ *
+ * Phase C (thread-as-truth): widened to mirror the OpenRouter/Anthropic
+ * wire shape so persisted threads can rehydrate as a structurally-valid
+ * `LLMMessage[]` without lossy translation. `toolCalls` carries the
+ * assistant's wire-format tool requests; `toolCallId` ties tool-result
+ * rows back to the originating call.
+ */
 export interface AgentSessionMessage {
   readonly role: 'user' | 'assistant' | 'system' | 'tool';
   readonly content: string;
   readonly timestamp: string;
+  /** For `role:'tool'` rows \u2014 the assistant.tool_calls[].id this resolves. */
   readonly toolCallId?: string;
+  /**
+   * For `role:'assistant'` rows \u2014 wire-format tool calls emitted by the
+   * model. Persisted so replay can reconstruct an LLM-valid history.
+   */
+  readonly toolCalls?: readonly {
+    readonly id: string;
+    readonly type: 'function';
+    readonly function: { readonly name: string; readonly arguments: string };
+  }[];
 }
 
 // ─── Guardrails ─────────────────────────────────────────────────────────────

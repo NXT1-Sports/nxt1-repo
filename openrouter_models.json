@@ -1,0 +1,182 @@
+[
+  {
+    "id": "openai/o1-pro",
+    "name": "OpenAI: o1-pro",
+    "context_length": 200000,
+    "prompt_price": "0.00015"
+  },
+  {
+    "id": "openai/gpt-4",
+    "name": "OpenAI: GPT-4",
+    "context_length": 8191,
+    "prompt_price": "0.00003"
+  },
+  {
+    "id": "openai/gpt-4-0314",
+    "name": "OpenAI: GPT-4 (older v0314)",
+    "context_length": 8191,
+    "prompt_price": "0.00003"
+  },
+  {
+    "id": "openai/gpt-5.4-pro",
+    "name": "OpenAI: GPT-5.4 Pro",
+    "context_length": 1050000,
+    "prompt_price": "0.00003"
+  },
+  {
+    "id": "anthropic/claude-opus-4.6-fast",
+    "name": "Anthropic: Claude Opus 4.6 (Fast)",
+    "context_length": 1000000,
+    "prompt_price": "0.00003"
+  },
+  {
+    "id": "openai/gpt-5.5-pro",
+    "name": "OpenAI: GPT-5.5 Pro",
+    "context_length": 1050000,
+    "prompt_price": "0.00003"
+  },
+  {
+    "id": "openai/gpt-5.2-pro",
+    "name": "OpenAI: GPT-5.2 Pro",
+    "context_length": 400000,
+    "prompt_price": "0.000021"
+  },
+  {
+    "id": "openai/o3-pro",
+    "name": "OpenAI: o3 Pro",
+    "context_length": 200000,
+    "prompt_price": "0.00002"
+  },
+  {
+    "id": "openai/o1",
+    "name": "OpenAI: o1",
+    "context_length": 200000,
+    "prompt_price": "0.000015"
+  },
+  {
+    "id": "anthropic/claude-opus-4",
+    "name": "Anthropic: Claude Opus 4",
+    "context_length": 200000,
+    "prompt_price": "0.000015"
+  },
+  {
+    "id": "anthropic/claude-opus-4.1",
+    "name": "Anthropic: Claude Opus 4.1",
+    "context_length": 200000,
+    "prompt_price": "0.000015"
+  },
+  {
+    "id": "openai/gpt-5-pro",
+    "name": "OpenAI: GPT-5 Pro",
+    "context_length": 400000,
+    "prompt_price": "0.000015"
+  },
+  {
+    "id": "openai/gpt-4-1106-preview",
+    "name": "OpenAI: GPT-4 Turbo (older v1106)",
+    "context_length": 128000,
+    "prompt_price": "0.00001"
+  },
+  {
+    "id": "openai/gpt-4-turbo-preview",
+    "name": "OpenAI: GPT-4 Turbo Preview",
+    "context_length": 128000,
+    "prompt_price": "0.00001"
+  },
+  {
+    "id": "openai/gpt-4-turbo",
+    "name": "OpenAI: GPT-4 Turbo",
+    "context_length": 128000,
+    "prompt_price": "0.00001"
+  },
+  {
+    "id": "openai/o3-deep-research",
+    "name": "OpenAI: o3 Deep Research",
+    "context_length": 200000,
+    "prompt_price": "0.00001"
+  },
+  {
+    "id": "openai/gpt-5-image",
+    "name": "OpenAI: GPT-5 Image",
+    "context_length": 400000,
+    "prompt_price": "0.00001"
+  },
+  {
+    "id": "openai/gpt-5.4-image-2",
+    "name": "OpenAI: GPT-5.4 Image 2",
+    "context_length": 272000,
+    "prompt_price": "0.000008"
+  },
+  {
+    "id": "openai/gpt-4o-2024-05-13",
+    "name": "OpenAI: GPT-4o (2024-05-13)",
+    "context_length": 128000,
+    "prompt_price": "0.000005"
+  },
+  {
+    "id": "anthropic/claude-opus-4.5",
+    "name": "Anthropic: Claude Opus 4.5",
+    "context_length": 200000,
+    "prompt_price": "0.000005"
+  },
+  {
+    "id": "anthropic/claude-opus-4.6",
+    "name": "Anthropic: Claude Opus 4.6",
+    "context_length": 1000000,
+    "prompt_price": "0.000005"
+  },
+  {
+    "id": "anthropic/claude-opus-4.7",
+    "name": "Anthropic: Claude Opus 4.7",
+    "context_length": 1000000,
+    "prompt_price": "0.000005"
+  },
+  {
+    "id": "~anthropic/claude-opus-latest",
+    "name": "Anthropic: Claude Opus Latest",
+    "context_length": 1000000,
+    "prompt_price": "0.000005"
+  },
+  {
+    "id": "openai/gpt-5.5",
+    "name": "OpenAI: GPT-5.5",
+    "context_length": 1050000,
+    "prompt_price": "0.000005"
+  },
+  {
+    "id": "~openai/gpt-latest",
+    "name": "OpenAI GPT Latest",
+    "context_length": 1050000,
+    "prompt_price": "0.000005"
+  },
+  {
+    "id": "aion-labs/aion-1.0",
+    "name": "AionLabs: Aion-1.0",
+    "context_length": 131072,
+    "prompt_price": "0.000004"
+  },
+  {
+    "id": "alpindale/goliath-120b",
+    "name": "Goliath 120B",
+    "context_length": 6144,
+    "prompt_price": "0.00000375"
+  },
+  {
+    "id": "openai/gpt-3.5-turbo-16k",
+    "name": "OpenAI: GPT-3.5 Turbo 16k",
+    "context_length": 16385,
+    "prompt_price": "0.000003"
+  },
+  {
+    "id": "anthracite-org/magnum-v4-72b",
+    "name": "Magnum v4 72B",
+    "context_length": 16384,
+    "prompt_price": "0.000003"
+  },
+  {
+    "id": "sao10k/l3.1-70b-hanami-x1",
+    "name": "Sao10K: Llama 3.1 70B Hanami x1",
+    "context_length": 16000,
+    "prompt_price": "0.000003"
+  }
+]

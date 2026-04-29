@@ -29,5 +29,7 @@
     "node_modules/@nxt1/mobile": true,
     "node_modules/@nxt1/functions": true,
     "node_modules/@nxt1/backend": true
-  }
+  },
+  "chat.memory.enabled": true,
+  "github.copilot.chat.memory.enabled": true
 }

@@ -18,6 +18,8 @@ import {
 import { CACHE_KEYS as USER_CACHE_KEYS } from '../../../../../services/profile/users.service.js';
 import { invalidateProfileCaches } from '../../../../../routes/profile/shared.js';
 import { ContextBuilder } from '../../../memory/context-builder.js';
+import { SyncDiffService, type PreviousProfileState } from '../../../sync/index.js';
+import { onDailySyncComplete } from '../../../triggers/trigger.listeners.js';
 import { getAnalyticsLoggerService } from '../../../../../services/core/analytics-logger.service.js';
 import { logger } from '../../../../../utils/logger.js';
 import { resolveCreatedAt } from '../doc-date-utils.js';
@@ -135,6 +137,16 @@ export class WriteRankingsTool extends BaseTool {
       return { success: false, error: 'Not authorized to write ranking data for this sport.' };
     }
     const rankingsCol = this.db.collection(RANKINGS_COLLECTION);
+    const previousRankingsSnap = await rankingsCol
+      .where('userId', '==', userId)
+      .where('sportId', '==', sportId)
+      .where('source', '==', source)
+      .get();
+    const previousState: PreviousProfileState = {
+      metrics: this.buildRankingMetricEntries(
+        previousRankingsSnap.docs.map((doc) => doc.data() as Record<string, unknown>)
+      ),
+    };
 
     let written = 0;
     let skipped = 0;
@@ -265,9 +277,45 @@ export class WriteRankingsTool extends BaseTool {
         // Best-effort
       }
 
-      // Rankings are stored as historical snapshots but intentionally excluded
-      // from the sync-delta memory trigger path until they have a dedicated
-      // ranking-aware diff model.
+      if (written > 0) {
+        try {
+          const diffService = new SyncDiffService();
+          const extractedProfile = {
+            platform: source,
+            profileUrl: sourceUrl ?? '',
+            metrics: this.buildRankingMetricEntries(
+              rankings.map((ranking) => ranking as Record<string, unknown>)
+            ),
+          };
+          const delta = diffService.diff(
+            userId,
+            sportId,
+            source,
+            previousState,
+            extractedProfile as unknown as import('../../integrations/firecrawl/scraping/distillers/distiller.types.js').DistilledProfile
+          );
+
+          if (!delta.isEmpty) {
+            logger.info('[WriteRankings] Delta detected, firing sync trigger', {
+              userId,
+              sport: sportId,
+              totalChanges: delta.summary.totalChanges,
+            });
+            onDailySyncComplete(delta).catch((err) => {
+              logger.warn('[WriteRankings] Trigger dispatch failed', {
+                userId,
+                error: err instanceof Error ? err.message : String(err),
+              });
+            });
+          }
+        } catch (err) {
+          logger.warn('[WriteRankings] Delta computation failed', {
+            userId,
+            sport: sportId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
 
       if (written > 0) {
         void getAnalyticsLoggerService()
@@ -331,5 +379,45 @@ export class WriteRankingsTool extends BaseTool {
     if (!value) return null;
     const timestamp = Date.parse(value);
     return Number.isNaN(timestamp) ? null : new Date(timestamp).toISOString();
+  }
+
+  private buildRankingMetricEntries(rows: readonly Record<string, unknown>[]): Array<{
+    field: string;
+    label: string;
+    value: string | number;
+    category: string;
+  }> {
+    const metrics: Array<{
+      field: string;
+      label: string;
+      value: string | number;
+      category: string;
+    }> = [];
+
+    for (const row of rows) {
+      const name = this.str(row, 'name') ?? 'ranking';
+      const rankedAt = this.parseIsoDate(this.str(row, 'rankedAt') ?? this.str(row, 'date'));
+      const rankedKey = rankedAt ? rankedAt.slice(0, 10) : 'latest';
+      const providerSlug = this.slug(name);
+
+      const pushMetric = (key: string, label: string, raw: unknown): void => {
+        if (typeof raw !== 'number' && typeof raw !== 'string') return;
+        metrics.push({
+          field: `ranking_${providerSlug}_${rankedKey}_${key}`,
+          label: `${name} ${label}`,
+          value: raw,
+          category: 'rankings',
+        });
+      };
+
+      pushMetric('national_rank', 'national rank', row['nationalRank']);
+      pushMetric('state_rank', 'state rank', row['stateRank']);
+      pushMetric('position_rank', 'position rank', row['positionRank']);
+      pushMetric('stars', 'stars', row['stars']);
+      pushMetric('score', 'score', row['score']);
+      pushMetric('class_of', 'class year', row['classOf']);
+    }
+
+    return metrics;
   }
 }

@@ -394,6 +394,7 @@ describe('Agent X Routes', () => {
     };
     const queueService = {
       enqueue: vi.fn().mockResolvedValue('job-123'),
+      cancel: vi.fn().mockResolvedValue(true),
       isHealthy: vi.fn().mockResolvedValue(true),
     };
 
@@ -444,6 +445,124 @@ describe('Agent X Routes', () => {
     expect(payload.agent).toBeUndefined();
   });
 
+  it('should cancel the latest yielded thread operation from /chat and enqueue a fresh run', async () => {
+    const threadId = '64f10b2a6f1c2e0c1d3e8a99';
+    const yieldedJob = {
+      operationId: 'op-awaiting-input',
+      threadId,
+      userId: 'test-user',
+      status: 'awaiting_input',
+      intent: 'Send 20 recruiting emails to Texas D2 coaches',
+      yieldState: {
+        reason: 'needs_input',
+        agentId: 'recruiting_coordinator',
+        promptToUser: 'Approve this recruiting email?',
+        messages: [
+          { role: 'user', content: 'Send 20 recruiting emails to Texas D2 coaches' },
+          {
+            role: 'assistant',
+            content: null,
+            tool_calls: [
+              {
+                id: 'ask-1',
+                type: 'function',
+                function: { name: 'ask_user', arguments: '{"question":"Approve this email?"}' },
+              },
+            ],
+          },
+        ],
+        pendingToolCall: {
+          toolName: 'ask_user',
+          toolInput: { question: 'Approve this email?' },
+          toolCallId: 'ask-1',
+        },
+        yieldedAt: '2026-04-28T00:00:00.000Z',
+        expiresAt: '2026-04-29T00:00:00.000Z',
+      },
+    };
+
+    const jobRepository = createMockJobRepository(yieldedJob);
+    jobRepository.findActiveByThread.mockResolvedValue([yieldedJob]);
+    jobRepository.getById.mockResolvedValue({
+      operationId: 'resumed-op',
+      threadId,
+      userId: 'test-user',
+      status: 'awaiting_input',
+    });
+    jobRepository.getJobEvents.mockResolvedValue([
+      {
+        seq: 1,
+        type: 'done',
+        message: 'Awaiting input',
+        status: 'awaiting_input',
+      },
+    ]);
+
+    const chatService = {
+      addMessage: vi.fn(),
+      getThread: vi.fn().mockResolvedValue({ id: threadId, userId: 'test-user' }),
+      clearThreadPausedYieldState: vi.fn().mockResolvedValue(true),
+    };
+    const queueService = {
+      enqueue: vi.fn().mockResolvedValue('job-123'),
+      cancel: vi.fn().mockResolvedValue(true),
+      isHealthy: vi.fn().mockResolvedValue(true),
+    };
+
+    setAgentDependencies({
+      queueService: queueService as never,
+      jobRepository: jobRepository as never,
+      chatService: chatService as never,
+      contextBuilder: {
+        buildContext: vi.fn().mockResolvedValue({}),
+        compressToPrompt: vi.fn().mockReturnValue(''),
+        getRecentThreadHistory: vi.fn().mockResolvedValue(''),
+      } as never,
+      llmService: {
+        completeStream: vi.fn(),
+        embed: vi.fn(),
+      } as never,
+      agentRouter: {
+        run: vi.fn().mockResolvedValue({ summary: '', data: {} }),
+      } as never,
+    });
+
+    const response = await request(app)
+      .post('/api/v1/agent-x/chat')
+      .set('Authorization', 'Bearer test-token')
+      .set('Accept', 'application/json')
+      .send({
+        message: 'I approve email',
+        threadId,
+        mode: 'recruiting',
+      });
+
+    expect(response.status).toBe(200);
+    expect(jobRepository.findActiveByThread).toHaveBeenCalledWith(threadId);
+    expect(queueService.cancel).toHaveBeenCalledWith('op-awaiting-input');
+    expect(jobRepository.markCancelled).toHaveBeenCalledWith('op-awaiting-input');
+    expect(jobRepository.create).toHaveBeenCalledTimes(1);
+    expect(queueService.enqueue).toHaveBeenCalledTimes(1);
+    expect(chatService.addMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadId,
+        role: 'user',
+        content: 'I approve email',
+      })
+    );
+
+    const payload = vi.mocked(jobRepository.create).mock.calls[0]?.[0] as {
+      intent: string;
+      context?: {
+        parentOperationId?: string;
+      };
+    };
+
+    expect(payload.intent).toBe('I approve email');
+    expect(payload.context?.parentOperationId).toBeUndefined();
+    expect(chatService.clearThreadPausedYieldState).toHaveBeenCalledWith(threadId);
+  });
+
   it('should stream a billing-action card when chat is blocked by the billing gate', async () => {
     const now = new Date();
     const periodKey = now.toISOString().slice(0, 7);
@@ -486,8 +605,17 @@ describe('Agent X Routes', () => {
     });
 
     const jobRepository = createMockJobRepository();
+    let addMessageCallCount = 0;
     const chatService = {
-      addMessage: vi.fn(),
+      addMessage: vi.fn().mockImplementation(async (payload: { role: string }) => {
+        addMessageCallCount += 1;
+        return {
+          id:
+            payload.role === 'assistant'
+              ? 'billing-assistant-message-1'
+              : `user-message-${addMessageCallCount}`,
+        };
+      }),
       createThread: vi.fn().mockResolvedValue({ id: 'thread-123' }),
       getThread: vi.fn().mockResolvedValue(null),
       generateTitleFromPromptOnly: vi.fn().mockResolvedValue(null),
@@ -539,6 +667,7 @@ describe('Agent X Routes', () => {
       },
     });
     expect(events[3]?.data).toMatchObject({ status: 'complete', threadId: 'thread-123' });
+    expect(events[3]?.data).toMatchObject({ messageId: 'billing-assistant-message-1' });
 
     expect(jobRepository.create).not.toHaveBeenCalled();
     expect(queueService.enqueue).not.toHaveBeenCalled();
@@ -547,6 +676,25 @@ describe('Agent X Routes', () => {
         threadId: 'thread-123',
         role: 'user',
         content: 'Build my recruiting plan',
+      })
+    );
+    expect(chatService.addMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadId: 'thread-123',
+        role: 'assistant',
+        origin: 'agent',
+        agentId: 'router',
+        content: expect.stringContaining('Add funds to continue this request.'),
+        parts: expect.arrayContaining([
+          expect.objectContaining({
+            type: 'card',
+            card: expect.objectContaining({
+              type: 'billing-action',
+              agentId: 'router',
+              title: 'Add Funds to Continue',
+            }),
+          }),
+        ]),
       })
     );
   });
@@ -986,19 +1134,12 @@ describe('Agent X Routes', () => {
       return [
         {
           seq: 1,
-          type: 'operation',
-          operationId,
-          threadId: 'thread-terminal-race-1',
-          status: 'running',
-          timestamp: '2026-04-25T00:00:00.000Z',
-        },
-        {
-          seq: 2,
           type: 'done',
           operationId,
           threadId: 'thread-terminal-race-1',
           status: 'complete',
           success: true,
+          message: 'Replay terminal',
         },
       ];
     });
@@ -1864,15 +2005,78 @@ describe('Agent X Routes', () => {
 
     const response = await request(app)
       .post('/api/v1/agent-x/cancel/op-foreign')
-      .set('Authorization', 'Bearer test-token')
-      .send({});
+      .set('Authorization', 'Bearer test-token');
 
     expect(response.status).toBe(404);
     expect(response.body.success).toBe(false);
     expect(foreignAbortController.signal.aborted).toBe(false);
   });
 
-  it('should persist paused yield lifecycle when pausing an operation', async () => {
+  it('should queue a new /enqueue operation behind the latest running thread operation', async () => {
+    const threadId = '64f10b2a6f1c2e0c1d3e8a11';
+    const runningJob = {
+      operationId: 'op-running',
+      threadId,
+      userId: 'test-user',
+      status: 'acting',
+      intent: 'Build my recruiting board',
+    };
+
+    const jobRepository = createMockJobRepository(runningJob);
+    jobRepository.findActiveByThread.mockResolvedValue([runningJob]);
+    const chatService = {
+      addMessage: vi.fn(),
+      getThread: vi.fn().mockResolvedValue({ id: threadId, userId: 'test-user' }),
+    };
+    const queueService = {
+      enqueue: vi.fn().mockResolvedValue('job-456'),
+      cancel: vi.fn().mockResolvedValue(false),
+      isHealthy: vi.fn().mockResolvedValue(true),
+    };
+
+    setAgentDependencies({
+      queueService: queueService as never,
+      jobRepository: jobRepository as never,
+      chatService: chatService as never,
+      contextBuilder: {
+        buildContext: vi.fn().mockResolvedValue({}),
+        compressToPrompt: vi.fn().mockReturnValue(''),
+        getRecentThreadHistory: vi.fn().mockResolvedValue(''),
+      } as never,
+      llmService: {
+        completeStream: vi.fn(),
+        embed: vi.fn(),
+      } as never,
+      agentRouter: {
+        run: vi.fn().mockResolvedValue({ summary: '', data: {} }),
+      } as never,
+    });
+
+    const response = await request(app)
+      .post('/api/v1/agent-x/enqueue')
+      .set('Authorization', 'Bearer test-token')
+      .set('Accept', 'application/json')
+      .send({
+        intent: 'Also add Ohio D3 coaches',
+        threadId,
+      });
+
+    expect(response.status).toBe(202);
+    expect(queueService.cancel).not.toHaveBeenCalled();
+    expect(jobRepository.markCancelled).not.toHaveBeenCalled();
+
+    const payload = vi.mocked(jobRepository.create).mock.calls[0]?.[0] as {
+      context?: {
+        parentOperationId?: string;
+        threadId?: string;
+      };
+    };
+
+    expect(payload.context?.threadId).toBe(threadId);
+    expect(payload.context?.parentOperationId).toBe('op-running');
+  });
+
+  it('should pause an active operation and persist a resumable pause yield state', async () => {
     const operationId = 'f9e26a8e-f935-4fcb-95af-6e21d33fca21';
     const pauseAbortController = new AbortController();
     const jobRepository = createMockJobRepository({
@@ -1885,7 +2089,6 @@ describe('Agent X Routes', () => {
         message: 'Working',
         agentId: 'strategy_coordinator',
         percent: 35,
-        currentStep: 1,
         totalSteps: 3,
       },
     });
@@ -1894,11 +2097,11 @@ describe('Agent X Routes', () => {
     setAgentDependencies({
       queueService: {
         enqueue: vi.fn().mockResolvedValue('job-123'),
-        cancel: vi.fn().mockResolvedValue(true),
       } as never,
       jobRepository: jobRepository as never,
       chatService: {
         addMessage: vi.fn(),
+        updateThreadPausedYieldState: vi.fn().mockResolvedValue(true),
       } as never,
       contextBuilder: {
         buildContext: vi.fn(),
@@ -2404,6 +2607,7 @@ function createMockJobRepository(jobDoc?: Record<string, unknown>) {
   const repository = {
     withDb: vi.fn(),
     getById: vi.fn().mockResolvedValue(jobDoc ?? null),
+    findActiveByThread: vi.fn().mockResolvedValue(jobDoc ? [jobDoc] : []),
     getByIdempotencyKey: vi.fn().mockResolvedValue(null),
     getJobEvents: vi.fn().mockResolvedValue([]),
     allocateEventSeqRange: vi.fn().mockResolvedValue(0),

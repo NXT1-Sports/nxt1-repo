@@ -2069,6 +2069,11 @@ export const ALIAS_ICONS = {
   'star-outline': UI_ICONS.star,
 
   // ---- Actions ----
+  // Legacy edit/delete aliases (camelCase + kebab-case) to prevent fallback placeholder boxes.
+  createOutline: UI_ICONS.pencil,
+  'create-outline': UI_ICONS.pencil,
+  trashOutline: UI_ICONS.trash,
+  'trash-outline': UI_ICONS.trash,
   'bug-outline': UI_ICONS.alertCircle,
   'refresh-outline': UI_ICONS.refresh,
   'download-outline': UI_ICONS.download,

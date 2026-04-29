@@ -1426,13 +1426,16 @@ export class OpenRouterService {
    * Generate a text embedding via the OpenRouter embeddings endpoint.
    * Used by VectorMemoryService for MongoDB Atlas Vector Search.
    *
-   * Routes through OpenRouter (openai/text-embedding-3-small).
+   * Routes through OpenRouter using the configured `embedding` model tier.
    * We only use OPENROUTER_API_KEY for all model requests.
    *
    * @param text - The text to embed (truncated to 8,192 tokens by the model).
    * @returns A 1536-dimensional embedding vector (text-embedding-3-small).
    */
   async embed(text: string): Promise<readonly number[]> {
+    await this.ensureAgentConfigLoaded();
+    const model = resolveModelForTier('embedding');
+
     // Always use OpenRouter directly for embeddings.
     // The Helicone OpenRouter proxy (openrouter.helicone.ai) only proxies
     // /api/v1/chat/completions — forwarding /api/v1/embeddings through it
@@ -1446,7 +1449,7 @@ export class OpenRouterService {
         'X-Title': this.siteName,
       },
       body: JSON.stringify({
-        model: 'openai/text-embedding-3-small',
+        model,
         encoding_format: 'float',
         // Character-based truncation: at ~4 chars/token this fits within the
         // model's 8,192-token context window for typical ASCII/Latin text.

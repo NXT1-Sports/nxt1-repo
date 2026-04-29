@@ -9,8 +9,6 @@ import {
   resetCachedAgentAppConfig,
   resolveConfiguredCoordinatorActionForRole,
   resolveAgentSystemPrompt,
-  resolveClassifierSystemPrompt,
-  resolveConversationSystemPrompt,
   resolvePlannerSystemPrompt,
   resolveModelFallbackChain,
   resolveModelForTier,
@@ -133,8 +131,6 @@ describe('agent-app-config', () => {
   it('parses planner and agent prompt overrides and interpolates template placeholders', () => {
     const config = parseAgentAppConfig({
       prompts: {
-        classifierSystemPrompt: 'Classify on {{today}}.',
-        conversationSystemPrompt: 'Talk naturally on {{today}}.',
         plannerSystemPrompt: 'Plan for {{today}}.',
         agentSystemPrompts: {
           router: 'Chief of Staff briefing for {{today}}.',
@@ -147,12 +143,6 @@ describe('agent-app-config', () => {
 
     expect(resolvePlannerSystemPrompt('planner fallback', { today: 'Tuesday' })).toBe(
       'Plan for Tuesday.'
-    );
-    expect(resolveClassifierSystemPrompt('classifier fallback', { today: 'Tuesday' })).toBe(
-      'Classify on Tuesday.'
-    );
-    expect(resolveConversationSystemPrompt('conversation fallback', { today: 'Tuesday' })).toBe(
-      'Talk naturally on Tuesday.'
     );
     // router reads from agentSystemPrompts.router (not plannerSystemPrompt)
     expect(resolveAgentSystemPrompt('router', 'fallback', { today: 'Tuesday' })).toBe(
