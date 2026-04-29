@@ -39,6 +39,90 @@ export interface SseStreamRef {
   pendingAutoOpenPanel: Record<string, unknown> | null;
 }
 
+type SseMediaPayload = {
+  type: 'image' | 'video';
+  url: string;
+  mimeType?: string;
+};
+
+function isHttpUrl(value: string): boolean {
+  return /^https?:\/\//i.test(value);
+}
+
+function inferMediaType(url: string, mimeType?: string): 'image' | 'video' | null {
+  const lowerMime = (mimeType ?? '').toLowerCase();
+  if (lowerMime.startsWith('image/')) return 'image';
+  if (lowerMime.startsWith('video/')) return 'video';
+
+  const lowerUrl = url.toLowerCase();
+  if (/\.(png|jpe?g|gif|webp|avif|bmp|svg)(?:\?|#|$)/i.test(lowerUrl)) return 'image';
+  if (/\.(mp4|mov|m4v|webm|avi|mkv|m3u8)(?:\?|#|$)/i.test(lowerUrl)) return 'video';
+  if (/videodelivery\.net\//i.test(lowerUrl)) return 'video';
+  return null;
+}
+
+function maybePushMedia(
+  seen: Set<string>,
+  output: SseMediaPayload[],
+  urlValue: unknown,
+  mimeTypeValue?: unknown,
+  forcedType?: 'image' | 'video'
+): void {
+  if (typeof urlValue !== 'string') return;
+  const url = urlValue.trim();
+  if (!url || !isHttpUrl(url)) return;
+  const mimeType = typeof mimeTypeValue === 'string' ? mimeTypeValue : undefined;
+  const type = forcedType ?? inferMediaType(url, mimeType);
+  if (!type) return;
+  const dedupeKey = `${type}|${url}`;
+  if (seen.has(dedupeKey)) return;
+  seen.add(dedupeKey);
+  output.push({ type, url, ...(mimeType ? { mimeType } : {}) });
+}
+
+function extractMediaPayloads(toolResult: Record<string, unknown>): readonly SseMediaPayload[] {
+  const seen = new Set<string>();
+  const media: SseMediaPayload[] = [];
+
+  maybePushMedia(seen, media, toolResult['imageUrl'], toolResult['mimeType'], 'image');
+  maybePushMedia(seen, media, toolResult['videoUrl'], toolResult['mimeType'], 'video');
+  maybePushMedia(seen, media, toolResult['url'], toolResult['mimeType']);
+  maybePushMedia(seen, media, toolResult['publicUrl'], toolResult['mimeType']);
+  maybePushMedia(seen, media, toolResult['downloadUrl'], toolResult['mimeType']);
+
+  const imageUrls = toolResult['imageUrls'];
+  if (Array.isArray(imageUrls)) {
+    for (const url of imageUrls) maybePushMedia(seen, media, url, toolResult['mimeType'], 'image');
+  }
+
+  const videoUrls = toolResult['videoUrls'];
+  if (Array.isArray(videoUrls)) {
+    for (const url of videoUrls) maybePushMedia(seen, media, url, toolResult['mimeType'], 'video');
+  }
+
+  const files = toolResult['files'];
+  if (Array.isArray(files)) {
+    for (const file of files) {
+      if (!file || typeof file !== 'object') continue;
+      const record = file as Record<string, unknown>;
+      maybePushMedia(seen, media, record['url'], record['mimeType'], undefined);
+      maybePushMedia(seen, media, record['downloadUrl'], record['mimeType'], undefined);
+    }
+  }
+
+  const markdownOrText = [toolResult['markdown'], toolResult['text'], toolResult['content']]
+    .filter((value): value is string => typeof value === 'string')
+    .join('\n');
+  if (markdownOrText) {
+    const matches = markdownOrText.match(/https?:\/\/[^\s)\]"']+/gi) ?? [];
+    for (const match of matches) {
+      maybePushMedia(seen, media, match, undefined, undefined);
+    }
+  }
+
+  return media;
+}
+
 function toStepPayload(
   event: StreamEvent,
   status: 'active' | 'success' | 'error'
@@ -171,31 +255,11 @@ export function buildSseStreamCallback(res: Response, streamRef: SseStreamRef): 
             }
           }
 
-          // Emit media events (image / video URLs)
-          if (typeof event.toolResult['imageUrl'] === 'string') {
+          // Emit media events (image / video URLs) from common tool-result shapes.
+          const mediaPayloads = extractMediaPayloads(event.toolResult);
+          for (const media of mediaPayloads) {
             try {
-              res.write(
-                `event: media\ndata: ${JSON.stringify({
-                  type: 'image',
-                  url: event.toolResult['imageUrl'],
-                  mimeType: event.toolResult['mimeType'] ?? 'image/png',
-                })}\n\n`
-              );
-              forceProxyFlush(res);
-            } catch {
-              // Client disconnected
-            }
-          }
-
-          if (typeof event.toolResult['videoUrl'] === 'string') {
-            try {
-              res.write(
-                `event: media\ndata: ${JSON.stringify({
-                  type: 'video',
-                  url: event.toolResult['videoUrl'],
-                  mimeType: event.toolResult['mimeType'] ?? 'video/mp4',
-                })}\n\n`
-              );
+              res.write(`event: media\ndata: ${JSON.stringify(media)}\n\n`);
               forceProxyFlush(res);
             } catch {
               // Client disconnected

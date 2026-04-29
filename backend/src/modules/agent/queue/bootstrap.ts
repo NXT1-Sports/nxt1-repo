@@ -128,6 +128,7 @@ import {
   ListNxt1DataViewsTool,
   QueryNxt1DataTool,
   CloudflareMcpBridgeService,
+  CreateSupportTicketTool,
   ImportVideoTool,
   ClipVideoTool,
   GenerateThumbnailTool,
@@ -396,6 +397,7 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   toolRegistry.register(new ScanTimelinePostsTool(stagingDb, llm, vectorMemory));
   toolRegistry.register(new SendEmailTool(stagingDb));
   toolRegistry.register(new BatchSendEmailTool(stagingDb));
+  toolRegistry.register(new CreateSupportTicketTool());
 
   // ── 1b. Twitter/X & Instagram scraping (Apify-hosted actors) ─────────
   try {

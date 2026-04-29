@@ -7,8 +7,12 @@ import {
   APP_CONFIG_COLLECTION,
 } from '../src/modules/agent/config/agent-app-config.js';
 import { PlannerAgent } from '../src/modules/agent/agents/planner.agent.js';
-import { ClassifierAgent } from '../src/modules/agent/agents/classifier.agent.js';
-import { ConversationAgent } from '../src/modules/agent/agents/conversation.agent.js';
+import { AdminCoordinatorAgent } from '../src/modules/agent/agents/admin-coordinator.agent.js';
+import { BrandCoordinatorAgent } from '../src/modules/agent/agents/brand-coordinator.agent.js';
+import { DataCoordinatorAgent } from '../src/modules/agent/agents/data-coordinator.agent.js';
+import { PerformanceCoordinatorAgent } from '../src/modules/agent/agents/performance-coordinator.agent.js';
+import { RecruitingCoordinatorAgent } from '../src/modules/agent/agents/recruiting-coordinator.agent.js';
+import { StrategyCoordinatorAgent } from '../src/modules/agent/agents/strategy-coordinator.agent.js';
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const backendRoot = resolve(scriptDir, '..');
@@ -17,6 +21,7 @@ loadDotenv({ path: resolve(backendRoot, '.env.local'), override: true });
 
 const args = process.argv.slice(2);
 const commit = args.includes('--commit');
+const stagingOnly = args.includes('--staging-only');
 const promptContext = {} as Parameters<PlannerAgent['getSystemPrompt']>[0];
 const EXPECTED_PROJECT_IDS = {
   production: 'nxt-1-v2',
@@ -63,10 +68,24 @@ function getOrInitFirestore(environment: 'production' | 'staging') {
 }
 
 function buildPromptTemplates() {
+  const today = new Date().toLocaleDateString('en-US', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  });
   return {
     plannerSystemPrompt: new PlannerAgent({} as never).getSystemPrompt(promptContext),
-    classifierSystemPrompt: new ClassifierAgent({} as never).getSystemPrompt(),
-    conversationSystemPrompt: new ConversationAgent({} as never).getSystemPrompt(),
+    agentSystemPrompts: {
+      admin_coordinator: new AdminCoordinatorAgent()
+        .getSystemPrompt(promptContext)
+        .replace(today, '{{today}}'),
+      brand_coordinator: new BrandCoordinatorAgent().getSystemPrompt(promptContext),
+      data_coordinator: new DataCoordinatorAgent().getSystemPrompt(promptContext),
+      performance_coordinator: new PerformanceCoordinatorAgent().getSystemPrompt(promptContext),
+      recruiting_coordinator: new RecruitingCoordinatorAgent().getSystemPrompt(promptContext),
+      strategy_coordinator: new StrategyCoordinatorAgent().getSystemPrompt(promptContext),
+    },
   } as const;
 }
 
@@ -116,46 +135,55 @@ function summarizeDiff(currentPrompt: string, nextPrompt: string): string {
 
 async function main(): Promise<void> {
   const prompts = buildPromptTemplates();
-  const db = getOrInitFirestore('production');
-  const stagingDb = getOrInitFirestore('staging');
-  const targets = [
-    {
-      name: 'production' as const,
-      projectId: assertExpectedProjectTarget('production'),
+
+  const environments: Array<'production' | 'staging'> = stagingOnly
+    ? ['staging']
+    : ['production', 'staging'];
+
+  const targets = environments.map((env) => {
+    const db = getOrInitFirestore(env);
+    return {
+      name: env,
+      projectId: assertExpectedProjectTarget(env),
       ref: db.collection(APP_CONFIG_COLLECTION).doc(AGENT_CONFIG_DOC_ID),
-    },
-    {
-      name: 'staging' as const,
-      projectId: assertExpectedProjectTarget('staging'),
-      ref: stagingDb.collection(APP_CONFIG_COLLECTION).doc(AGENT_CONFIG_DOC_ID),
-    },
-  ];
+    };
+  });
 
   for (const target of targets) {
     const snap = await target.ref.get();
-    const currentPrompts =
-      ((snap.data() ?? {}) as { prompts?: Record<string, string> }).prompts ?? {};
+    const data = (snap.data() ?? {}) as Record<string, unknown>;
+    const currentPrompts = (data['prompts'] as Record<string, unknown>) ?? {};
+    const currentAgentPrompts =
+      (currentPrompts['agentSystemPrompts'] as Record<string, string>) ?? {};
+
     const promptDiffs = {
       plannerSystemPrompt: summarizeDiff(
         String(currentPrompts['plannerSystemPrompt'] ?? ''),
         prompts.plannerSystemPrompt
       ),
-      classifierSystemPrompt: summarizeDiff(
-        String(currentPrompts['classifierSystemPrompt'] ?? ''),
-        prompts.classifierSystemPrompt
-      ),
-      conversationSystemPrompt: summarizeDiff(
-        String(currentPrompts['conversationSystemPrompt'] ?? ''),
-        prompts.conversationSystemPrompt
+      ...Object.fromEntries(
+        Object.entries(prompts.agentSystemPrompts).map(([k, v]) => [
+          k,
+          summarizeDiff(String(currentAgentPrompts[k] ?? ''), v),
+        ])
       ),
     };
 
-    console.log(`[${target.name}] Project ${target.projectId}`);
-    console.log(
-      `[${target.name}] planner=${promptDiffs.plannerSystemPrompt}, classifier=${promptDiffs.classifierSystemPrompt}, conversation=${promptDiffs.conversationSystemPrompt}`
+    const legacyFields = ['classifierSystemPrompt', 'conversationSystemPrompt'].filter(
+      (f) => f in currentPrompts
     );
 
-    const hasChanges = Object.values(promptDiffs).some((value) => value !== 'unchanged');
+    console.log(`[${target.name}] Project ${target.projectId}`);
+    for (const [k, v] of Object.entries(promptDiffs)) {
+      console.log(`  ${k}: ${v}`);
+    }
+    if (legacyFields.length > 0) {
+      console.log(`  legacy fields to remove: ${legacyFields.join(', ')}`);
+    }
+
+    const hasChanges =
+      Object.values(promptDiffs).some((v) => v !== 'unchanged') || legacyFields.length > 0;
+
     if (!hasChanges) {
       console.log(`[${target.name}] Prompt templates already up to date.`);
       continue;
@@ -166,14 +194,19 @@ async function main(): Promise<void> {
       continue;
     }
 
-    await target.ref.set(
-      {
-        updatedAt: new Date().toISOString(),
-        prompts,
-      },
-      { merge: true }
-    );
+    // Build update payload using dot-notation field paths for precise control
+    const updatePayload: Record<string, unknown> = {
+      updatedAt: new Date().toISOString(),
+      'prompts.plannerSystemPrompt': prompts.plannerSystemPrompt,
+    };
+    for (const [k, v] of Object.entries(prompts.agentSystemPrompts)) {
+      updatePayload[`prompts.agentSystemPrompts.${k}`] = v;
+    }
+    for (const field of legacyFields) {
+      updatePayload[`prompts.${field}`] = admin.firestore.FieldValue.delete();
+    }
 
+    await target.ref.update(updatePayload);
     console.log(`[${target.name}] AppConfig/agentConfig prompts updated.`);
   }
 }

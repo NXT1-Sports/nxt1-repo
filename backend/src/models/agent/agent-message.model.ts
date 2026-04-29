@@ -183,6 +183,27 @@ AgentMessageSchema.index({ userId: 1, createdAt: -1 });
 // Sparse index on operationId (most messages won't have one)
 AgentMessageSchema.index({ operationId: 1 }, { sparse: true });
 
+// idempotencyKey: added via .add() (not in Schema<AgentMessage> constructor)
+// because the @nxt1/core dist type may lag behind the source during
+// Turborepo cached builds. The field is functionally identical — .add()
+// accepts an untyped SchemaDefinition object and does NOT validate against
+// the generic type parameter.
+AgentMessageSchema.add({
+  /**
+   * Optional caller-supplied idempotency key. When present, a unique
+   * sparse index prevents duplicate rows from worker retries or
+   * concurrent writes for the same logical message (e.g. the worker's
+   * final assistant persist on BullMQ retry). Callers use a stable
+   * composite key such as `${operationId}:final-assistant`.
+   */
+  idempotencyKey: { type: String, sparse: true },
+});
+
+// Prevents duplicate persists on worker retry or concurrent calls.
+// Callers opt in by supplying a stable idempotencyKey; messages without
+// one are unaffected (sparse index ignores null/undefined).
+AgentMessageSchema.index({ idempotencyKey: 1 }, { unique: true, sparse: true });
+
 // Active vs soft-deleted message lookups.
 AgentMessageSchema.index({ threadId: 1, deletedAt: 1, createdAt: 1 });
 

@@ -26,6 +26,7 @@ import type { AgentXPlannerItem } from '@nxt1/core/ai';
             <div
               class="execution-plan-dock__item"
               [class.execution-plan-dock__item--done]="item.done"
+              [class.execution-plan-dock__item--active]="item.active && !item.done"
             >
               <span class="execution-plan-dock__item-check" aria-hidden="true">
                 @if (item.done) {
@@ -44,6 +45,16 @@ import type { AgentXPlannerItem } from '@nxt1/core/ai';
                       stroke-width="2"
                       stroke-linecap="round"
                       stroke-linejoin="round"
+                    />
+                  </svg>
+                } @else if (item.active) {
+                  <svg class="execution-plan-dock__item-spinner" viewBox="0 0 16 16" fill="none">
+                    <circle cx="8" cy="8" r="6.5" stroke="var(--op-border)" stroke-width="1.2" />
+                    <path
+                      d="M8 1.5A6.5 6.5 0 0 1 14.5 8"
+                      stroke="var(--nxt1-color-primary, #ccff00)"
+                      stroke-width="1.8"
+                      stroke-linecap="round"
                     />
                   </svg>
                 } @else {
@@ -152,6 +163,11 @@ import type { AgentXPlannerItem } from '@nxt1/core/ai';
         color: var(--op-text-muted);
       }
 
+      .execution-plan-dock__item--active .execution-plan-dock__item-label {
+        color: var(--op-text);
+        font-weight: 500;
+      }
+
       .execution-plan-dock__item-check {
         width: 16px;
         height: 16px;
@@ -163,6 +179,17 @@ import type { AgentXPlannerItem } from '@nxt1/core/ai';
       .execution-plan-dock__item-check svg {
         width: 16px;
         height: 16px;
+      }
+
+      .execution-plan-dock__item-spinner {
+        animation: nxt1-plan-spin 0.9s linear infinite;
+        transform-origin: center;
+      }
+
+      @keyframes nxt1-plan-spin {
+        to {
+          transform: rotate(360deg);
+        }
       }
 
       .execution-plan-dock__item-label {

@@ -7,6 +7,7 @@ import { PerformanceCoordinatorAgent } from '../performance-coordinator.agent.js
 import { RecruitingCoordinatorAgent } from '../recruiting-coordinator.agent.js';
 import { StrategyCoordinatorAgent } from '../strategy-coordinator.agent.js';
 import { getEffectiveAgentToolPolicy, isToolAllowedByPatterns } from '../tool-policy.js';
+import { COORDINATOR_AGENT_IDS } from '@nxt1/core';
 
 function createMockContext(): AgentSessionContext {
   const now = new Date().toISOString();
@@ -145,6 +146,21 @@ describe('Agent tool exposure regressions', () => {
     expect(isToolAllowedByPatterns('query_gmail_emails', tools)).toBe(true);
   });
 
+  it('teaches recruiting coordinator to use database-first research before web fallback', () => {
+    const agent = new RecruitingCoordinatorAgent();
+    const prompt = agent.getSystemPrompt(context);
+
+    expect(prompt).toContain('## Database-First Research Policy (CRITICAL)');
+    expect(prompt).toContain('search_colleges');
+    expect(prompt).toContain('search_college_coaches');
+    expect(prompt).toContain(
+      'Only if required fields are missing or clearly outdated, use `search_web`'
+    );
+    expect(prompt).toContain(
+      'Never start with web search when NXT1 database tools can answer the request'
+    );
+  });
+
   it('keeps strategy coordinator explicit and non-empty', () => {
     const agent = new StrategyCoordinatorAgent();
 
@@ -186,5 +202,32 @@ describe('Agent tool exposure regressions', () => {
     expect(strategyTools).toContain('extract_live_view_media');
     expect(strategyTools).toContain('extract_live_view_playlist');
     expect(strategyTools).toContain('analyze_video');
+  });
+
+  it('exposes Microsoft 365 system wrappers in effective policy for all coordinators', () => {
+    for (const agentId of COORDINATOR_AGENT_IDS) {
+      const tools = getEffectiveAgentToolPolicy(agentId);
+      expect(tools).toContain('list_microsoft_365_tools');
+      expect(tools).toContain('run_microsoft_365_tool');
+    }
+  });
+
+  it('allows direct Google Workspace tool families for the router policy', () => {
+    const routerTools = getEffectiveAgentToolPolicy('router');
+
+    expect(isToolAllowedByPatterns('query_gmail_emails', routerTools)).toBe(true);
+    expect(isToolAllowedByPatterns('gmail_send_email', routerTools)).toBe(true);
+    expect(isToolAllowedByPatterns('calendar_get_events', routerTools)).toBe(true);
+    expect(isToolAllowedByPatterns('drive_search_files', routerTools)).toBe(true);
+    expect(isToolAllowedByPatterns('docs_create_document', routerTools)).toBe(true);
+    expect(isToolAllowedByPatterns('sheets_create_spreadsheet', routerTools)).toBe(true);
+    expect(isToolAllowedByPatterns('create_presentation_from_markdown', routerTools)).toBe(true);
+  });
+
+  it('supports wildcard matching beyond simple prefix-only patterns', () => {
+    expect(isToolAllowedByPatterns('run_google_workspace_tool', ['*google_workspace*'])).toBe(true);
+    expect(isToolAllowedByPatterns('calendar_get_events', ['*get_*'])).toBe(true);
+    expect(isToolAllowedByPatterns('drive_upload_file', ['*upload*'])).toBe(true);
+    expect(isToolAllowedByPatterns('analyze_video', ['*upload*'])).toBe(false);
   });
 });

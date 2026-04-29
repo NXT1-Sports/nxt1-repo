@@ -727,7 +727,9 @@ export interface AgentTask {
   readonly id: string;
   /** The specific sub-agent assigned to this task. */
   readonly assignedAgent: AgentIdentifier;
-  /** Plain text description of what needs to be done. */
+  /** Short verb-led label shown in the UI planner card (≤8 words). Falls back to description when absent. */
+  readonly displayLabel?: string;
+  /** Full execution intent passed to the coordinator agent. */
   readonly description: string;
   readonly status: AgentTaskStatus;
   /** IDs of tasks that must complete before this one starts. */

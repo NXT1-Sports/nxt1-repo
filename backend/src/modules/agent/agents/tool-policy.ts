@@ -6,6 +6,7 @@ type ToolPattern = string;
 
 export interface ToolGovernancePolicy {
   readonly globalSystem: readonly ToolPattern[];
+  readonly router: readonly ToolPattern[];
   readonly coordinatorSpecialized: Readonly<Record<CoordinatorAgentId, readonly ToolPattern[]>>;
   readonly internalOnly: readonly string[];
 }
@@ -30,6 +31,7 @@ function composeToolPatterns(
 const GLOBAL_SYSTEM_TOOL_POLICY: readonly ToolPattern[] = composeToolPatterns([
   'send_email',
   'batch_send_email',
+  'create_support_ticket',
   'delegate_task',
   'track_analytics_event',
   'search_memory',
@@ -50,6 +52,8 @@ const GLOBAL_SYSTEM_TOOL_POLICY: readonly ToolPattern[] = composeToolPatterns([
   'schedule_recurring_task',
   'list_google_workspace_tools',
   'run_google_workspace_tool',
+  'list_microsoft_365_tools',
+  'run_microsoft_365_tool',
   'search_nxt1_platform',
   'query_nxt1_platform_data',
   'list_nxt1_data_views',
@@ -62,6 +66,74 @@ const GLOBAL_SYSTEM_TOOL_POLICY: readonly ToolPattern[] = composeToolPatterns([
   'map_website',
   'extract_web_data',
 ]);
+
+/**
+ * Explicit tool policy for the Primary Agent (wire id: 'router').
+ * This is the single source of truth for what the Primary is allowed to expose
+ * to the model and execute at runtime. It mirrors PRIMARY_FAST_PATH_TOOLS in
+ * primary.agent.ts — that constant now derives directly from this policy.
+ *
+ * System-category tools (delegate_to_coordinator, plan_and_execute,
+ * whoami_capabilities, delegate_task) bypass policy checks in BaseAgent and
+ * are always available regardless of this list.
+ */
+const ROUTER_TOOL_POLICY: readonly ToolPattern[] = [
+  // Lazy context (Tier B)
+  'get_user_profile',
+  'get_active_threads',
+  'get_other_thread_history',
+  'get_recent_sync_summaries',
+  'search_memory',
+  'search_memories',
+  // Read-only data lookup — Primary calls these directly for factual questions
+  // to avoid hallucination. Delegating a simple lookup to a coordinator adds
+  // latency without value.
+  'search_nxt1_platform',
+  'query_nxt1_platform_data',
+  'list_nxt1_data_views',
+  'query_nxt1_data',
+  'search_web',
+  'firecrawl_search_web',
+  'scrape_webpage',
+  'map_website',
+  'extract_web_data',
+  'open_live_view',
+  'read_live_view',
+  'extract_live_view_media',
+  'extract_live_view_playlist',
+  'close_live_view',
+  'get_college_logos',
+  'get_conference_logos',
+  'get_analytics_summary',
+  'scan_timeline_posts',
+  'list_google_workspace_tools',
+  'run_google_workspace_tool',
+  // Direct Google Workspace families (loosened to prevent false-negative
+  // blocks when the model emits concrete tool names instead of wrappers).
+  'gmail_*',
+  'query_gmail_*',
+  'create_gmail_*',
+  'calendar_get_*',
+  'create_calendar_*',
+  'delete_calendar_*',
+  'drive_*',
+  'docs_*',
+  'sheets_*',
+  'get_presentation',
+  'get_slides',
+  'create_presentation',
+  'create_slide',
+  'add_text_to_slide',
+  'add_formatted_text_to_slide',
+  'add_bulleted_list_to_slide',
+  'add_table_to_slide',
+  'add_slide_notes',
+  'duplicate_slide',
+  'delete_slide',
+  'create_presentation_from_markdown',
+  'list_microsoft_365_tools',
+  'run_microsoft_365_tool',
+];
 
 const INTERNAL_ONLY_TOOL_POLICY: readonly string[] = [
   'delegate_to_coordinator',
@@ -210,11 +282,15 @@ const AGENT_TOOL_POLICY: Readonly<Record<CoordinatorAgentId, readonly ToolPatter
 };
 
 function matchesPattern(toolName: string, pattern: ToolPattern): boolean {
-  if (pattern.endsWith('*')) {
-    const prefix = pattern.slice(0, -1);
-    return toolName.startsWith(prefix);
+  if (!pattern.includes('*')) {
+    return toolName === pattern;
   }
-  return toolName === pattern;
+
+  // Support glob-style wildcard matching anywhere in the pattern, not just
+  // trailing prefix wildcards. This keeps existing prefix behavior intact but
+  // also handles future naming variants without policy churn.
+  const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*');
+  return new RegExp(`^${escaped}$`).test(toolName);
 }
 
 export function isToolAllowedByPatterns(
@@ -225,13 +301,18 @@ export function isToolAllowedByPatterns(
 }
 
 export function getAgentToolPolicy(agentId: AgentIdentifier): readonly ToolPattern[] {
-  if (agentId === 'router') return [];
+  if (agentId === 'router') return ROUTER_TOOL_POLICY;
   return AGENT_TOOL_POLICY[agentId];
 }
 
 export function getEffectiveAgentToolPolicy(agentId: AgentIdentifier): readonly ToolPattern[] {
-  if (agentId === 'router') return [];
+  if (agentId === 'router') return ROUTER_TOOL_POLICY;
   return composeToolPatterns(GLOBAL_SYSTEM_TOOL_POLICY, AGENT_TOOL_POLICY[agentId]);
+}
+
+/** Returns the explicit tool policy for the Primary Agent (wire id: 'router'). */
+export function getRouterToolPolicy(): readonly ToolPattern[] {
+  return ROUTER_TOOL_POLICY;
 }
 
 export function getAllAgentToolPolicies(): Readonly<
@@ -251,6 +332,7 @@ export function getInternalOnlyToolPolicy(): readonly string[] {
 export function getToolGovernancePolicy(): ToolGovernancePolicy {
   return {
     globalSystem: GLOBAL_SYSTEM_TOOL_POLICY,
+    router: ROUTER_TOOL_POLICY,
     coordinatorSpecialized: AGENT_TOOL_POLICY,
     internalOnly: INTERNAL_ONLY_TOOL_POLICY,
   };

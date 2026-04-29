@@ -598,10 +598,17 @@ router.post(
 
       const removed = await queueService.removeRecurringJob(taskKey);
       if (!removed) {
-        logger.warn('Recurring task archive could not find BullMQ repeatable; deleting metadata', {
+        logger.warn('Recurring task archive aborted because BullMQ repeatable key was not found', {
           userId: user.uid,
           taskKey,
         });
+
+        res.status(409).json({
+          success: false,
+          error:
+            'Recurring task scheduler entry not found. Archive aborted to avoid metadata drift.',
+        });
+        return;
       }
 
       await docRef.delete();

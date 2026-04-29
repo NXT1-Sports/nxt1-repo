@@ -46,24 +46,24 @@ export const PROD_MODEL_CATALOGUE: Record<ModelTier, string> = {
  */
 export const DEV_MODEL_CATALOGUE: Record<ModelTier, string> = {
   // ── Text Tiers ──────────────────────────────────────────────────────────
-  routing: 'meta-llama/llama-3.3-70b-instruct',
-  extraction: 'openai/gpt-4o-mini',
-  data_heavy: 'anthropic/claude-opus-4.6-fast',
-  evaluator: 'meta-llama/llama-3.3-70b-instruct',
-  compliance: 'openai/gpt-4o-mini',
-  copywriting: 'mistralai/mixtral-8x22b-instruct',
-  prompt_engineering: 'openai/gpt-4o-mini',
-  chat: 'openai/gpt-4o-mini',
-  task_automation: 'anthropic/claude-opus-4.6-fast',
+  routing: 'anthropic/claude-sonnet-4-5',
+  extraction: 'anthropic/claude-haiku-4-5',
+  data_heavy: 'qwen/qwen3.6-plus',
+  evaluator: 'minimax/minimax-m2.7',
+  compliance: 'openai/gpt-4o',
+  copywriting: 'anthropic/claude-sonnet-4-5',
+  prompt_engineering: 'anthropic/claude-sonnet-4-5',
+  chat: 'anthropic/claude-haiku-4-5',
+  task_automation: 'anthropic/claude-sonnet-4-5',
 
   // ── Media Tiers ─────────────────────────────────────────────────────────
-  image_generation: 'openai/gpt-5.4-image-2', // Using same for now, handle cost via payload parameters
+  image_generation: 'google/gemini-3-pro-image-preview',
   video_generation: 'google/gemini-3-pro-image-preview',
   vision_analysis: 'openai/gpt-4o',
   video_analysis: 'google/gemini-2.5-flash',
   audio_analysis: 'openai/gpt-4o',
-  voice_generation: 'openai/gpt-audio-mini',
-  music_generation: 'google/lyria-3-pro-preview',
+  voice_generation: 'openai/gpt-4o-mini',
+  music_generation: 'openai/gpt-4o-mini',
 
   // ── Utility Tiers ──────────────────────────────────────────────────────
   embedding: 'openai/text-embedding-3-small',
@@ -108,36 +108,24 @@ export const PROD_FALLBACK_CHAIN: Record<ModelTier, readonly string[]> = {
 
 export const DEV_FALLBACK_CHAIN: Record<ModelTier, readonly string[]> = {
   // ── Text Tiers ──────────────────────────────────────────────────────────
-  routing: ['meta-llama/llama-3.3-70b-instruct', 'openai/gpt-4o-mini', 'openai/gpt-4o'],
-  extraction: ['openai/gpt-4o-mini', 'meta-llama/llama-3.3-70b-instruct', 'openai/gpt-4o'],
-  data_heavy: [
-    'anthropic/claude-opus-4.6-fast',
-    'openai/gpt-4o-mini',
-    'meta-llama/llama-3.3-70b-instruct',
-  ],
-  evaluator: ['meta-llama/llama-3.3-70b-instruct', 'openai/gpt-4o-mini', 'openai/gpt-4o'],
-  compliance: ['openai/gpt-4o-mini', 'meta-llama/llama-3.3-70b-instruct', 'openai/gpt-4o'],
-  copywriting: [
-    'mistralai/mixtral-8x22b-instruct',
-    'openai/gpt-4o-mini',
-    'meta-llama/llama-3.3-70b-instruct',
-  ],
-  prompt_engineering: ['openai/gpt-4o-mini', 'meta-llama/llama-3.3-70b-instruct', 'openai/gpt-4o'],
-  chat: ['openai/gpt-4o-mini', 'meta-llama/llama-3.3-70b-instruct', 'openai/gpt-4o'],
-  task_automation: [
-    'anthropic/claude-opus-4.6-fast',
-    'openai/gpt-4o-mini',
-    'meta-llama/llama-3.3-70b-instruct',
-  ],
+  routing: ['anthropic/claude-sonnet-4', 'openai/gpt-4o', 'anthropic/claude-haiku-4-5'],
+  extraction: ['anthropic/claude-haiku-4-5', 'openai/gpt-4o-mini', 'qwen/qwen3.6-plus'],
+  data_heavy: ['qwen/qwen3.6-plus', 'anthropic/claude-haiku-4-5', 'openai/gpt-4o-mini'],
+  evaluator: ['minimax/minimax-m2.7', 'anthropic/claude-sonnet-4', 'openai/gpt-4o'],
+  compliance: ['openai/gpt-4o', 'anthropic/claude-sonnet-4', 'anthropic/claude-haiku-4-5'],
+  copywriting: ['anthropic/claude-sonnet-4', 'openai/gpt-4o', 'qwen/qwen3.6-plus'],
+  prompt_engineering: ['anthropic/claude-sonnet-4', 'openai/gpt-4o', 'anthropic/claude-haiku-4-5'],
+  chat: ['anthropic/claude-haiku-4-5', 'openai/gpt-4o-mini', 'deepseek/deepseek-v3.2'],
+  task_automation: ['anthropic/claude-sonnet-4', 'openai/gpt-4o', 'anthropic/claude-haiku-4-5'],
 
   // ── Media Tiers ─────────────────────────────────────────────────────────
-  image_generation: ['openai/gpt-5.4-image-2'],
+  image_generation: ['google/gemini-3-pro-image-preview'],
   video_generation: ['google/gemini-3-pro-image-preview'],
   vision_analysis: ['openai/gpt-4o', 'anthropic/claude-sonnet-4'],
   video_analysis: ['google/gemini-2.5-flash', 'google/gemini-2.5-pro'],
   audio_analysis: ['openai/gpt-4o', 'anthropic/claude-sonnet-4'],
-  voice_generation: ['openai/gpt-audio-mini', 'openai/gpt-4o-mini-tts-2025-12-15'],
-  music_generation: ['google/lyria-3-pro-preview', 'google/lyria-3-clip-preview'],
+  voice_generation: ['openai/gpt-4o-mini'],
+  music_generation: ['openai/gpt-4o-mini'],
 
   // ── Utility Tiers ──────────────────────────────────────────────────────
   embedding: ['openai/text-embedding-3-small'],

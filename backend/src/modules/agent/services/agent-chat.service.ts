@@ -461,11 +461,18 @@ export class AgentChatService {
     steps?: readonly import('@nxt1/core').AgentXToolStep[];
     parts?: readonly import('@nxt1/core').AgentXMessagePart[];
     tokenUsage?: AgentMessageTokenUsage;
+    /**
+     * Optional caller-supplied idempotency key. When set, a unique sparse
+     * index on the `AgentMessage` collection guarantees exactly-once
+     * persistence across BullMQ retries. If the key was already used, the
+     * existing document is returned and thread metadata is NOT re-incremented.
+     * Use a stable composite key such as `${operationId}:final-assistant`.
+     */
+    idempotencyKey?: string;
   }): Promise<AgentMessage> {
     const now = new Date().toISOString();
 
-    // Create the message document
-    const doc = await AgentMessageModel.create({
+    const docFields = {
       threadId: params.threadId,
       userId: params.userId,
       role: params.role,
@@ -482,7 +489,40 @@ export class AgentChatService {
       parts: params.parts,
       tokenUsage: params.tokenUsage,
       createdAt: now,
-    });
+    };
+
+    // Create the message document. When an idempotencyKey is supplied we do
+    // an optimistic insert and catch the E11000 duplicate-key error so that
+    // BullMQ job retries and concurrent writes never produce extra rows.
+    // Use findOne's return type (NonNullable variant) so TypeScript resolves
+    // the single-document overload rather than the array rest-param overload.
+    let doc: NonNullable<Awaited<ReturnType<typeof AgentMessageModel.findOne>>>;
+    if (params.idempotencyKey) {
+      try {
+        doc = await AgentMessageModel.create(
+          // Cast through unknown — the @nxt1/core dist type may lag behind
+          // source during Turbo cached builds. The idempotencyKey field is
+          // valid at runtime once AgentMessageSchema.add() registers it.
+          { ...docFields, idempotencyKey: params.idempotencyKey } as unknown as typeof docFields
+        );
+      } catch (err: unknown) {
+        if ((err as { code?: number }).code === 11000) {
+          // Duplicate key — return the already-persisted message as-is.
+          const existing = await AgentMessageModel.findOne({
+            idempotencyKey: params.idempotencyKey,
+          }).exec();
+          if (!existing) throw err; // Should never happen; re-throw to surface the issue.
+          logger.info('[AgentChatService] Idempotent duplicate — returning existing message', {
+            idempotencyKey: params.idempotencyKey,
+            existingId: existing.id,
+          });
+          return this.toMessage(existing);
+        }
+        throw err;
+      }
+    } else {
+      doc = await AgentMessageModel.create(docFields);
+    }
 
     // Update thread metadata (last message time, count, last agent)
     // Must use $set + $inc explicitly — MongoDB rejects mixing bare fields with atomic operators

@@ -435,6 +435,8 @@ export interface AgentXPlannerItem {
   readonly label: string;
   /** Whether the step is complete. */
   readonly done: boolean;
+  /** True while this specific task is actively executing. At most one item is active at a time. */
+  readonly active?: boolean;
 }
 
 /**

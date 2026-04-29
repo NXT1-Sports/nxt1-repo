@@ -61,6 +61,10 @@ type IntelSyncPlan =
 
 const INTEL_SYNC_DISABLED_TOOLS = new Set(['write_intel', 'update_intel']);
 
+export interface MatchedToolDefinition extends AgentToolDefinition {
+  readonly semanticScore: number;
+}
+
 const TOOL_ENTITY_GROUP_OVERRIDES: Readonly<Record<string, AgentToolEntityGroup>> = {
   // Team-scoped writes
   write_team_stats: 'team_tools',
@@ -373,6 +377,24 @@ export class ToolRegistry {
     accessContext?: AgentToolAccessContext,
     threshold: number = ToolRegistry.DEFAULT_TOOL_THRESHOLD
   ): Promise<readonly AgentToolDefinition[]> {
+    const matched = await this.matchWithScores(
+      intentVector,
+      embedFn,
+      agentId,
+      accessContext,
+      threshold
+    );
+
+    return matched.map(({ semanticScore: _semanticScore, ...definition }) => definition);
+  }
+
+  async matchWithScores(
+    intentVector: readonly number[],
+    embedFn: (text: string) => Promise<readonly number[]>,
+    agentId?: AgentIdentifier,
+    accessContext?: AgentToolAccessContext,
+    threshold: number = ToolRegistry.DEFAULT_TOOL_THRESHOLD
+  ): Promise<readonly MatchedToolDefinition[]> {
     // Filter first by permissions
     const allowedTools = Array.from(this.tools.values()).filter(
       (tool) =>
@@ -406,7 +428,7 @@ export class ToolRegistry {
     // Sort descending by relevance
     scoredTools.sort((a, b) => b.score - a.score);
 
-    return scoredTools.map(({ tool }) => ({
+    return scoredTools.map(({ tool, score }) => ({
       name: tool.name,
       description: tool.description,
       parameters: this.resolveParameters(tool),
@@ -414,6 +436,7 @@ export class ToolRegistry {
       isMutation: tool.isMutation,
       category: tool.category,
       entityGroup: this.resolveEntityGroup(tool),
+      semanticScore: score,
     }));
   }
 

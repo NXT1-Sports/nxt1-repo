@@ -24,7 +24,11 @@ import type {
 } from '@nxt1/core';
 import { STREAM_TERMINAL_EVENTS } from '../../modules/agent/queue/pubsub.service.js';
 import { logger } from '../../utils/logger.js';
-import { resolveBillingTarget, checkBudgetFromContext } from '../../modules/billing/index.js';
+import {
+  resolveBillingTarget,
+  checkBudgetFromContext,
+  expireStaleHolds,
+} from '../../modules/billing/index.js';
 import crypto from 'node:crypto';
 import { FieldValue, Timestamp, type Firestore } from 'firebase-admin/firestore';
 
@@ -1188,6 +1192,11 @@ async function streamOperationToSse(params: {
   let lastSeq = afterSeq;
   let streamTerminalSeen = false;
   let replayComplete = false;
+  // Tracks total delta characters emitted via the Firestore replay so the
+  // live-buffer drain can skip live deltas that were already sent. Live
+  // deltas carry no seq number and therefore bypass the seq-based dedup;
+  // the char watermark is the only reliable guard against double-printing.
+  let replayDeltaCharsEmitted = 0;
   const liveBuffer: Array<{ event: string; data: unknown }> = [];
 
   const processLiveEvent = (msg: { event: string; data: unknown }): void => {
@@ -1209,6 +1218,23 @@ async function streamOperationToSse(params: {
     if (isTerminal && streamTerminalSeen) {
       streamObservability.terminalDuplicateDroppedTotal += 1;
       return;
+    }
+
+    // Drop live delta events that were already covered by the Firestore
+    // replay. Live deltas have no seq so the seq-based guard above cannot
+    // filter them. We consume the replayDeltaCharsEmitted watermark so the
+    // same text is never written to the SSE stream twice.
+    if (msg.event === 'delta' && seq === null && replayDeltaCharsEmitted > 0) {
+      const deltaText = (msg.data as Record<string, unknown>)?.['text'];
+      if (typeof deltaText === 'string' && deltaText.length > 0) {
+        if (replayDeltaCharsEmitted >= deltaText.length) {
+          replayDeltaCharsEmitted -= deltaText.length;
+          streamObservability.liveDroppedBySeqTotal += 1;
+          return;
+        }
+        // Partial overlap (edge case) — zero the watermark and let through.
+        replayDeltaCharsEmitted = 0;
+      }
     }
 
     try {
@@ -1272,6 +1298,12 @@ async function streamOperationToSse(params: {
     emitReplayEvent(res, evt);
     streamObservability.replayCountTotal += 1;
     if (seq > lastSeq) lastSeq = seq;
+    // Accumulate delta chars so the live-buffer drain can skip events
+    // whose text was already delivered via the Firestore replay path.
+    // evt.text is typed as string | undefined on JobEvent — no cast needed.
+    if (String(evt.type ?? '') === 'delta') {
+      if (typeof evt.text === 'string') replayDeltaCharsEmitted += evt.text.length;
+    }
     if (STREAM_TERMINAL_EVENTS.has(String(evt.type ?? ''))) {
       streamTerminalSeen = true;
       streamObservability.streamCompletedTotal += 1;
@@ -2674,13 +2706,46 @@ router.post(
         }
       }
 
-      const chatTarget = await resolveBillingTarget(db, user.uid);
-      const chatCtx = chatTarget.context;
-      const chatBudgetCheck = checkBudgetFromContext(chatCtx);
-      if (!chatBudgetCheck.allowed) {
-        const isWalletUser =
-          chatCtx.billingEntity === 'individual' && chatCtx.paymentProvider === 'iap';
-        const billingCode = isWalletUser ? 'WALLET_EMPTY' : 'BUDGET_EXCEEDED';
+      let chatTarget = await resolveBillingTarget(db, user.uid);
+      let chatCtx = chatTarget.context;
+      let chatBudgetCheck = checkBudgetFromContext(chatCtx);
+
+      const isWalletContext =
+        chatCtx.billingEntity === 'individual' || chatCtx.billingEntity === 'organization';
+
+      if (!chatBudgetCheck.allowed && isWalletContext && (chatCtx.pendingHoldsCents ?? 0) > 0) {
+        try {
+          const expiredCount = await expireStaleHolds(db);
+          if (expiredCount > 0) {
+            chatTarget = await resolveBillingTarget(db, user.uid);
+            chatCtx = chatTarget.context;
+            chatBudgetCheck = checkBudgetFromContext(chatCtx);
+          }
+        } catch (err) {
+          logger.warn('Failed to expire stale wallet holds before chat budget gate check', {
+            userId: user.uid,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+
+      const bypassHoldGateWithPositiveWallet =
+        !chatBudgetCheck.allowed && isWalletContext && (chatCtx.walletBalanceCents ?? 0) > 0;
+
+      if (bypassHoldGateWithPositiveWallet) {
+        logger.info(
+          'Bypassing hold-gated chat billing deny while wallet balance is still positive',
+          {
+            userId: user.uid,
+            billingEntity: chatCtx.billingEntity,
+            walletBalanceCents: chatCtx.walletBalanceCents ?? 0,
+            pendingHoldsCents: chatCtx.pendingHoldsCents ?? 0,
+          }
+        );
+      }
+
+      if (!chatBudgetCheck.allowed && !bypassHoldGateWithPositiveWallet) {
+        const billingCode = isWalletContext ? 'WALLET_EMPTY' : 'BUDGET_EXCEEDED';
         const billingReason =
           chatBudgetCheck.reason ?? 'Billing is required to continue this request.';
         const billingState = buildBillingGateState(billingCode, billingReason);

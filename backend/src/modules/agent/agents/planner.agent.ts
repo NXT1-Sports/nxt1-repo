@@ -53,6 +53,7 @@ import { sanitizeAgentOutputText } from '../utils/platform-identifier-sanitizer.
 const strictPlannerTaskSchema = z.object({
   id: z.string(),
   assignedAgent: z.string(),
+  displayLabel: z.string().max(60).optional(),
   description: z.string(),
   dependsOn: z.array(z.string()),
 });
@@ -205,11 +206,15 @@ Respond with ONLY a JSON object:
     {
       "id": "1",
       "assignedAgent": "strategy_coordinator",
+      "displayLabel": "Navigate to Hudl",
       "description": "Open live view and navigate to Hudl.",
       "dependsOn": []
     }
   ]
-}`;
+}
+
+displayLabel: short verb-first label shown in the UI (≤8 words, e.g. “Find transfer portal targets”).
+description: full execution intent for the coordinator — as detailed as needed.`;
 
     return resolvePlannerSystemPrompt(prompt);
   }
@@ -316,6 +321,7 @@ Respond with ONLY a JSON object:
     const tasks: AgentTask[] = parsed.tasks.map((task) => ({
       id: task.id,
       assignedAgent: task.assignedAgent,
+      displayLabel: task.displayLabel,
       description: task.description,
       status: 'pending' as AgentTaskStatus,
       dependsOn: task.dependsOn,
@@ -378,6 +384,7 @@ Respond with ONLY a JSON object:
       return {
         id: task.id,
         assignedAgent,
+        displayLabel: task.displayLabel,
         description: task.description,
         dependsOn: task.dependsOn,
       };
@@ -510,6 +517,7 @@ Respond with ONLY a JSON object:
 interface PlannerLLMTask {
   readonly id: string;
   readonly assignedAgent: AgentIdentifier;
+  readonly displayLabel?: string;
   readonly description: string;
   readonly dependsOn: readonly string[];
 }

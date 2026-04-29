@@ -601,7 +601,7 @@ export class AgentRouterPlanningOrchestratorService {
       },
     });
 
-    if (onStreamEvent && plan.tasks.length > 0) {
+    if (onStreamEvent && plan.tasks.length >= 3) {
       onStreamEvent({
         type: 'card',
         cardData: {
@@ -611,8 +611,9 @@ export class AgentRouterPlanningOrchestratorService {
           payload: {
             items: plan.tasks.map((task) => ({
               id: task.id,
-              label: task.description,
+              label: task.displayLabel ?? task.description,
               done: false,
+              active: false,
             })),
           },
         },

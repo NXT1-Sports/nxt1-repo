@@ -1,0 +1,760 @@
+{
+  "diffCount": 52,
+  "diffs": [
+    {
+      "path": "featureFlags.strictEntityToolGovernance",
+      "live": {
+        "type": "boolean",
+        "value": false
+      },
+      "expected": {
+        "type": "boolean",
+        "value": true
+      }
+    },
+    {
+      "path": "featureFlags.strictZodToolSchemas",
+      "live": {
+        "type": "boolean",
+        "value": false
+      },
+      "expected": {
+        "type": "boolean",
+        "value": true
+      }
+    },
+    {
+      "path": "featureFlags.threadAsTruth",
+      "live": {
+        "type": "undefined"
+      },
+      "expected": {
+        "type": "boolean",
+        "value": true
+      }
+    },
+    {
+      "path": "modelRouting.catalogue.chat",
+      "live": {
+        "type": "string",
+        "length": 26,
+        "sha256": "b4c00151065cd0758b36b2602b9f219971b65e81dd464ac79ecb159f30df2ddc",
+        "preview": "anthropic/claude-haiku-4-5"
+      },
+      "expected": {
+        "type": "string",
+        "length": 18,
+        "sha256": "94d9f0da97276443ab83dd315d000eef5751916f8d4849c468859bd51b21d79f",
+        "preview": "openai/gpt-4o-mini"
+      }
+    },
+    {
+      "path": "modelRouting.catalogue.compliance",
+      "live": {
+        "type": "string",
+        "length": 13,
+        "sha256": "abb375db7ecf41748da9080299c03f2ebce0504001958ae8a5f11d977c6583ea",
+        "preview": "openai/gpt-4o"
+      },
+      "expected": {
+        "type": "string",
+        "length": 18,
+        "sha256": "94d9f0da97276443ab83dd315d000eef5751916f8d4849c468859bd51b21d79f",
+        "preview": "openai/gpt-4o-mini"
+      }
+    },
+    {
+      "path": "modelRouting.catalogue.copywriting",
+      "live": {
+        "type": "string",
+        "length": 27,
+        "sha256": "a2c3875497ad15941e95e9c02253b1e9a57f647fe4cadfaf825cddff17d1c9a7",
+        "preview": "anthropic/claude-sonnet-4-5"
+      },
+      "expected": {
+        "type": "string",
+        "length": 32,
+        "sha256": "5ceadc7a1836bd42e7fb12fcadde676c25081e5c2a4864b60958fa0368f36b58",
+        "preview": "mistralai/mixtral-8x22b-instruct"
+      }
+    },
+    {
+      "path": "modelRouting.catalogue.data_heavy",
+      "live": {
+        "type": "string",
+        "length": 17,
+        "sha256": "ddc90a1ba6e0b59791c94f717c4627877c3d573b9442673564dfcd20371bc68d",
+        "preview": "qwen/qwen3.6-plus"
+      },
+      "expected": {
+        "type": "string",
+        "length": 30,
+        "sha256": "4afdd87d98f7bb7a8149afb81167f6dc61fa9e7a6c99c5d5ea4aa4d8d2833279",
+        "preview": "anthropic/claude-opus-4.6-fast"
+      }
+    },
+    {
+      "path": "modelRouting.catalogue.evaluator",
+      "live": {
+        "type": "string",
+        "length": 20,
+        "sha256": "a4e34f74d49fbb774e51d18c4b9848b052d60ffb1d99d8fb88dc04fb3e3c5850",
+        "preview": "minimax/minimax-m2.7"
+      },
+      "expected": {
+        "type": "string",
+        "length": 33,
+        "sha256": "69ee4bcbaa0992c9e04f51477779ceb51ea59ca4b38e374e938cf127c19fafdf",
+        "preview": "meta-llama/llama-3.3-70b-instruct"
+      }
+    },
+    {
+      "path": "modelRouting.catalogue.extraction",
+      "live": {
+        "type": "string",
+        "length": 26,
+        "sha256": "b4c00151065cd0758b36b2602b9f219971b65e81dd464ac79ecb159f30df2ddc",
+        "preview": "anthropic/claude-haiku-4-5"
+      },
+      "expected": {
+        "type": "string",
+        "length": 18,
+        "sha256": "94d9f0da97276443ab83dd315d000eef5751916f8d4849c468859bd51b21d79f",
+        "preview": "openai/gpt-4o-mini"
+      }
+    },
+    {
+      "path": "modelRouting.catalogue.image_generation",
+      "live": {
+        "type": "string",
+        "length": 33,
+        "sha256": "89991908da710b669678c566d7a0ef320833338f497d647329f98ee907e2bc19",
+        "preview": "google/gemini-3-pro-image-preview"
+      },
+      "expected": {
+        "type": "string",
+        "length": 22,
+        "sha256": "c61ce0b06963e3d9598f9cf8b839987de31beaef85173f14b8723f210b0a379b",
+        "preview": "openai/gpt-5.4-image-2"
+      }
+    },
+    {
+      "path": "modelRouting.catalogue.music_generation",
+      "live": {
+        "type": "string",
+        "length": 18,
+        "sha256": "94d9f0da97276443ab83dd315d000eef5751916f8d4849c468859bd51b21d79f",
+        "preview": "openai/gpt-4o-mini"
+      },
+      "expected": {
+        "type": "string",
+        "length": 26,
+        "sha256": "d1194e06591b7d3da33c8754d8d041e5722aee16ab7411ef0d60606a0f6c2b02",
+        "preview": "google/lyria-3-pro-preview"
+      }
+    },
+    {
+      "path": "modelRouting.catalogue.prompt_engineering",
+      "live": {
+        "type": "string",
+        "length": 27,
+        "sha256": "a2c3875497ad15941e95e9c02253b1e9a57f647fe4cadfaf825cddff17d1c9a7",
+        "preview": "anthropic/claude-sonnet-4-5"
+      },
+      "expected": {
+        "type": "string",
+        "length": 18,
+        "sha256": "94d9f0da97276443ab83dd315d000eef5751916f8d4849c468859bd51b21d79f",
+        "preview": "openai/gpt-4o-mini"
+      }
+    },
+    {
+      "path": "modelRouting.catalogue.routing",
+      "live": {
+        "type": "string",
+        "length": 27,
+        "sha256": "a2c3875497ad15941e95e9c02253b1e9a57f647fe4cadfaf825cddff17d1c9a7",
+        "preview": "anthropic/claude-sonnet-4-5"
+      },
+      "expected": {
+        "type": "string",
+        "length": 33,
+        "sha256": "69ee4bcbaa0992c9e04f51477779ceb51ea59ca4b38e374e938cf127c19fafdf",
+        "preview": "meta-llama/llama-3.3-70b-instruct"
+      }
+    },
+    {
+      "path": "modelRouting.catalogue.task_automation",
+      "live": {
+        "type": "string",
+        "length": 27,
+        "sha256": "a2c3875497ad15941e95e9c02253b1e9a57f647fe4cadfaf825cddff17d1c9a7",
+        "preview": "anthropic/claude-sonnet-4-5"
+      },
+      "expected": {
+        "type": "string",
+        "length": 30,
+        "sha256": "4afdd87d98f7bb7a8149afb81167f6dc61fa9e7a6c99c5d5ea4aa4d8d2833279",
+        "preview": "anthropic/claude-opus-4.6-fast"
+      }
+    },
+    {
+      "path": "modelRouting.catalogue.voice_generation",
+      "live": {
+        "type": "string",
+        "length": 18,
+        "sha256": "94d9f0da97276443ab83dd315d000eef5751916f8d4849c468859bd51b21d79f",
+        "preview": "openai/gpt-4o-mini"
+      },
+      "expected": {
+        "type": "string",
+        "length": 21,
+        "sha256": "1e068336123a77f786e3c55dddb7d3aef056143c114e1eec67bb4b105a18e85b",
+        "preview": "openai/gpt-audio-mini"
+      }
+    },
+    {
+      "path": "modelRouting.fallbackChains.chat[0]",
+      "live": {
+        "type": "string",
+        "length": 26,
+        "sha256": "b4c00151065cd0758b36b2602b9f219971b65e81dd464ac79ecb159f30df2ddc",
+        "preview": "anthropic/claude-haiku-4-5"
+      },
+      "expected": {
+        "type": "string",
+        "length": 18,
+        "sha256": "94d9f0da97276443ab83dd315d000eef5751916f8d4849c468859bd51b21d79f",
+        "preview": "openai/gpt-4o-mini"
+      }
+    },
+    {
+      "path": "modelRouting.fallbackChains.chat[1]",
+      "live": {
+        "type": "string",
+        "length": 18,
+        "sha256": "94d9f0da97276443ab83dd315d000eef5751916f8d4849c468859bd51b21d79f",
+        "preview": "openai/gpt-4o-mini"
+      },
+      "expected": {
+        "type": "string",
+        "length": 33,
+        "sha256": "69ee4bcbaa0992c9e04f51477779ceb51ea59ca4b38e374e938cf127c19fafdf",
+        "preview": "meta-llama/llama-3.3-70b-instruct"
+      }
+    },
+    {
+      "path": "modelRouting.fallbackChains.chat[2]",
+      "live": {
+        "type": "string",
+        "length": 22,
+        "sha256": "6c5884768b2bcd2749bfe3e706fe232e368fc2c60d64ec2b1ac3f250800c5757",
+        "preview": "deepseek/deepseek-v3.2"
+      },
+      "expected": {
+        "type": "string",
+        "length": 13,
+        "sha256": "abb375db7ecf41748da9080299c03f2ebce0504001958ae8a5f11d977c6583ea",
+        "preview": "openai/gpt-4o"
+      }
+    },
+    {
+      "path": "modelRouting.fallbackChains.compliance[0]",
+      "live": {
+        "type": "string",
+        "length": 13,
+        "sha256": "abb375db7ecf41748da9080299c03f2ebce0504001958ae8a5f11d977c6583ea",
+        "preview": "openai/gpt-4o"
+      },
+      "expected": {
+        "type": "string",
+        "length": 18,
+        "sha256": "94d9f0da97276443ab83dd315d000eef5751916f8d4849c468859bd51b21d79f",
+        "preview": "openai/gpt-4o-mini"
+      }
+    },
+    {
+      "path": "modelRouting.fallbackChains.compliance[1]",
+      "live": {
+        "type": "string",
+        "length": 25,
+        "sha256": "0d39d592ec7da47b25fa99acc51229151f430e13e0d5c883f21a26349eca2dfa",
+        "preview": "anthropic/claude-sonnet-4"
+      },
+      "expected": {
+        "type": "string",
+        "length": 33,
+        "sha256": "69ee4bcbaa0992c9e04f51477779ceb51ea59ca4b38e374e938cf127c19fafdf",
+        "preview": "meta-llama/llama-3.3-70b-instruct"
+      }
+    },
+    {
+      "path": "modelRouting.fallbackChains.compliance[2]",
+      "live": {
+        "type": "string",
+        "length": 26,
+        "sha256": "b4c00151065cd0758b36b2602b9f219971b65e81dd464ac79ecb159f30df2ddc",
+        "preview": "anthropic/claude-haiku-4-5"
+      },
+      "expected": {
+        "type": "string",
+        "length": 13,
+        "sha256": "abb375db7ecf41748da9080299c03f2ebce0504001958ae8a5f11d977c6583ea",
+        "preview": "openai/gpt-4o"
+      }
+    },
+    {
+      "path": "modelRouting.fallbackChains.copywriting[0]",
+      "live": {
+        "type": "string",
+        "length": 25,
+        "sha256": "0d39d592ec7da47b25fa99acc51229151f430e13e0d5c883f21a26349eca2dfa",
+        "preview": "anthropic/claude-sonnet-4"
+      },
+      "expected": {
+        "type": "string",
+        "length": 32,
+        "sha256": "5ceadc7a1836bd42e7fb12fcadde676c25081e5c2a4864b60958fa0368f36b58",
+        "preview": "mistralai/mixtral-8x22b-instruct"
+      }
+    },
+    {
+      "path": "modelRouting.fallbackChains.copywriting[1]",
+      "live": {
+        "type": "string",
+        "length": 13,
+        "sha256": "abb375db7ecf41748da9080299c03f2ebce0504001958ae8a5f11d977c6583ea",
+        "preview": "openai/gpt-4o"
+      },
+      "expected": {
+        "type": "string",
+        "length": 18,
+        "sha256": "94d9f0da97276443ab83dd315d000eef5751916f8d4849c468859bd51b21d79f",
+        "preview": "openai/gpt-4o-mini"
+      }
+    },
+    {
+      "path": "modelRouting.fallbackChains.copywriting[2]",
+      "live": {
+        "type": "string",
+        "length": 17,
+        "sha256": "ddc90a1ba6e0b59791c94f717c4627877c3d573b9442673564dfcd20371bc68d",
+        "preview": "qwen/qwen3.6-plus"
+      },
+      "expected": {
+        "type": "string",
+        "length": 33,
+        "sha256": "69ee4bcbaa0992c9e04f51477779ceb51ea59ca4b38e374e938cf127c19fafdf",
+        "preview": "meta-llama/llama-3.3-70b-instruct"
+      }
+    },
+    {
+      "path": "modelRouting.fallbackChains.data_heavy[0]",
+      "live": {
+        "type": "string",
+        "length": 17,
+        "sha256": "ddc90a1ba6e0b59791c94f717c4627877c3d573b9442673564dfcd20371bc68d",
+        "preview": "qwen/qwen3.6-plus"
+      },
+      "expected": {
+        "type": "string",
+        "length": 30,
+        "sha256": "4afdd87d98f7bb7a8149afb81167f6dc61fa9e7a6c99c5d5ea4aa4d8d2833279",
+        "preview": "anthropic/claude-opus-4.6-fast"
+      }
+    },
+    {
+      "path": "modelRouting.fallbackChains.data_heavy[1]",
+      "live": {
+        "type": "string",
+        "length": 26,
+        "sha256": "b4c00151065cd0758b36b2602b9f219971b65e81dd464ac79ecb159f30df2ddc",
+        "preview": "anthropic/claude-haiku-4-5"
+      },
+      "expected": {
+        "type": "string",
+        "length": 18,
+        "sha256": "94d9f0da97276443ab83dd315d000eef5751916f8d4849c468859bd51b21d79f",
+        "preview": "openai/gpt-4o-mini"
+      }
+    },
+    {
+      "path": "modelRouting.fallbackChains.data_heavy[2]",
+      "live": {
+        "type": "string",
+        "length": 18,
+        "sha256": "94d9f0da97276443ab83dd315d000eef5751916f8d4849c468859bd51b21d79f",
+        "preview": "openai/gpt-4o-mini"
+      },
+      "expected": {
+        "type": "string",
+        "length": 33,
+        "sha256": "69ee4bcbaa0992c9e04f51477779ceb51ea59ca4b38e374e938cf127c19fafdf",
+        "preview": "meta-llama/llama-3.3-70b-instruct"
+      }
+    },
+    {
+      "path": "modelRouting.fallbackChains.evaluator[0]",
+      "live": {
+        "type": "string",
+        "length": 20,
+        "sha256": "a4e34f74d49fbb774e51d18c4b9848b052d60ffb1d99d8fb88dc04fb3e3c5850",
+        "preview": "minimax/minimax-m2.7"
+      },
+      "expected": {
+        "type": "string",
+        "length": 33,
+        "sha256": "69ee4bcbaa0992c9e04f51477779ceb51ea59ca4b38e374e938cf127c19fafdf",
+        "preview": "meta-llama/llama-3.3-70b-instruct"
+      }
+    },
+    {
+      "path": "modelRouting.fallbackChains.evaluator[1]",
+      "live": {
+        "type": "string",
+        "length": 25,
+        "sha256": "0d39d592ec7da47b25fa99acc51229151f430e13e0d5c883f21a26349eca2dfa",
+        "preview": "anthropic/claude-sonnet-4"
+      },
+      "expected": {
+        "type": "string",
+        "length": 18,
+        "sha256": "94d9f0da97276443ab83dd315d000eef5751916f8d4849c468859bd51b21d79f",
+        "preview": "openai/gpt-4o-mini"
+      }
+    },
+    {
+      "path": "modelRouting.fallbackChains.extraction[0]",
+      "live": {
+        "type": "string",
+        "length": 26,
+        "sha256": "b4c00151065cd0758b36b2602b9f219971b65e81dd464ac79ecb159f30df2ddc",
+        "preview": "anthropic/claude-haiku-4-5"
+      },
+      "expected": {
+        "type": "string",
+        "length": 18,
+        "sha256": "94d9f0da97276443ab83dd315d000eef5751916f8d4849c468859bd51b21d79f",
+        "preview": "openai/gpt-4o-mini"
+      }
+    },
+    {
+      "path": "modelRouting.fallbackChains.extraction[1]",
+      "live": {
+        "type": "string",
+        "length": 18,
+        "sha256": "94d9f0da97276443ab83dd315d000eef5751916f8d4849c468859bd51b21d79f",
+        "preview": "openai/gpt-4o-mini"
+      },
+      "expected": {
+        "type": "string",
+        "length": 33,
+        "sha256": "69ee4bcbaa0992c9e04f51477779ceb51ea59ca4b38e374e938cf127c19fafdf",
+        "preview": "meta-llama/llama-3.3-70b-instruct"
+      }
+    },
+    {
+      "path": "modelRouting.fallbackChains.extraction[2]",
+      "live": {
+        "type": "string",
+        "length": 17,
+        "sha256": "ddc90a1ba6e0b59791c94f717c4627877c3d573b9442673564dfcd20371bc68d",
+        "preview": "qwen/qwen3.6-plus"
+      },
+      "expected": {
+        "type": "string",
+        "length": 13,
+        "sha256": "abb375db7ecf41748da9080299c03f2ebce0504001958ae8a5f11d977c6583ea",
+        "preview": "openai/gpt-4o"
+      }
+    },
+    {
+      "path": "modelRouting.fallbackChains.image_generation[0]",
+      "live": {
+        "type": "string",
+        "length": 33,
+        "sha256": "89991908da710b669678c566d7a0ef320833338f497d647329f98ee907e2bc19",
+        "preview": "google/gemini-3-pro-image-preview"
+      },
+      "expected": {
+        "type": "string",
+        "length": 22,
+        "sha256": "c61ce0b06963e3d9598f9cf8b839987de31beaef85173f14b8723f210b0a379b",
+        "preview": "openai/gpt-5.4-image-2"
+      }
+    },
+    {
+      "path": "modelRouting.fallbackChains.music_generation[0]",
+      "live": {
+        "type": "string",
+        "length": 18,
+        "sha256": "94d9f0da97276443ab83dd315d000eef5751916f8d4849c468859bd51b21d79f",
+        "preview": "openai/gpt-4o-mini"
+      },
+      "expected": {
+        "type": "string",
+        "length": 26,
+        "sha256": "d1194e06591b7d3da33c8754d8d041e5722aee16ab7411ef0d60606a0f6c2b02",
+        "preview": "google/lyria-3-pro-preview"
+      }
+    },
+    {
+      "path": "modelRouting.fallbackChains.music_generation[1]",
+      "live": {
+        "type": "undefined"
+      },
+      "expected": {
+        "type": "string",
+        "length": 27,
+        "sha256": "3c51f8f48d09c1e0f996545e2d56f6a3365faf6b2b8e54f3aca80e880f670128",
+        "preview": "google/lyria-3-clip-preview"
+      }
+    },
+    {
+      "path": "modelRouting.fallbackChains.prompt_engineering[0]",
+      "live": {
+        "type": "string",
+        "length": 25,
+        "sha256": "0d39d592ec7da47b25fa99acc51229151f430e13e0d5c883f21a26349eca2dfa",
+        "preview": "anthropic/claude-sonnet-4"
+      },
+      "expected": {
+        "type": "string",
+        "length": 18,
+        "sha256": "94d9f0da97276443ab83dd315d000eef5751916f8d4849c468859bd51b21d79f",
+        "preview": "openai/gpt-4o-mini"
+      }
+    },
+    {
+      "path": "modelRouting.fallbackChains.prompt_engineering[1]",
+      "live": {
+        "type": "string",
+        "length": 13,
+        "sha256": "abb375db7ecf41748da9080299c03f2ebce0504001958ae8a5f11d977c6583ea",
+        "preview": "openai/gpt-4o"
+      },
+      "expected": {
+        "type": "string",
+        "length": 33,
+        "sha256": "69ee4bcbaa0992c9e04f51477779ceb51ea59ca4b38e374e938cf127c19fafdf",
+        "preview": "meta-llama/llama-3.3-70b-instruct"
+      }
+    },
+    {
+      "path": "modelRouting.fallbackChains.prompt_engineering[2]",
+      "live": {
+        "type": "string",
+        "length": 26,
+        "sha256": "b4c00151065cd0758b36b2602b9f219971b65e81dd464ac79ecb159f30df2ddc",
+        "preview": "anthropic/claude-haiku-4-5"
+      },
+      "expected": {
+        "type": "string",
+        "length": 13,
+        "sha256": "abb375db7ecf41748da9080299c03f2ebce0504001958ae8a5f11d977c6583ea",
+        "preview": "openai/gpt-4o"
+      }
+    },
+    {
+      "path": "modelRouting.fallbackChains.routing[0]",
+      "live": {
+        "type": "string",
+        "length": 25,
+        "sha256": "0d39d592ec7da47b25fa99acc51229151f430e13e0d5c883f21a26349eca2dfa",
+        "preview": "anthropic/claude-sonnet-4"
+      },
+      "expected": {
+        "type": "string",
+        "length": 33,
+        "sha256": "69ee4bcbaa0992c9e04f51477779ceb51ea59ca4b38e374e938cf127c19fafdf",
+        "preview": "meta-llama/llama-3.3-70b-instruct"
+      }
+    },
+    {
+      "path": "modelRouting.fallbackChains.routing[1]",
+      "live": {
+        "type": "string",
+        "length": 13,
+        "sha256": "abb375db7ecf41748da9080299c03f2ebce0504001958ae8a5f11d977c6583ea",
+        "preview": "openai/gpt-4o"
+      },
+      "expected": {
+        "type": "string",
+        "length": 18,
+        "sha256": "94d9f0da97276443ab83dd315d000eef5751916f8d4849c468859bd51b21d79f",
+        "preview": "openai/gpt-4o-mini"
+      }
+    },
+    {
+      "path": "modelRouting.fallbackChains.routing[2]",
+      "live": {
+        "type": "string",
+        "length": 26,
+        "sha256": "b4c00151065cd0758b36b2602b9f219971b65e81dd464ac79ecb159f30df2ddc",
+        "preview": "anthropic/claude-haiku-4-5"
+      },
+      "expected": {
+        "type": "string",
+        "length": 13,
+        "sha256": "abb375db7ecf41748da9080299c03f2ebce0504001958ae8a5f11d977c6583ea",
+        "preview": "openai/gpt-4o"
+      }
+    },
+    {
+      "path": "modelRouting.fallbackChains.task_automation[0]",
+      "live": {
+        "type": "string",
+        "length": 25,
+        "sha256": "0d39d592ec7da47b25fa99acc51229151f430e13e0d5c883f21a26349eca2dfa",
+        "preview": "anthropic/claude-sonnet-4"
+      },
+      "expected": {
+        "type": "string",
+        "length": 30,
+        "sha256": "4afdd87d98f7bb7a8149afb81167f6dc61fa9e7a6c99c5d5ea4aa4d8d2833279",
+        "preview": "anthropic/claude-opus-4.6-fast"
+      }
+    },
+    {
+      "path": "modelRouting.fallbackChains.task_automation[1]",
+      "live": {
+        "type": "string",
+        "length": 13,
+        "sha256": "abb375db7ecf41748da9080299c03f2ebce0504001958ae8a5f11d977c6583ea",
+        "preview": "openai/gpt-4o"
+      },
+      "expected": {
+        "type": "string",
+        "length": 18,
+        "sha256": "94d9f0da97276443ab83dd315d000eef5751916f8d4849c468859bd51b21d79f",
+        "preview": "openai/gpt-4o-mini"
+      }
+    },
+    {
+      "path": "modelRouting.fallbackChains.task_automation[2]",
+      "live": {
+        "type": "string",
+        "length": 26,
+        "sha256": "b4c00151065cd0758b36b2602b9f219971b65e81dd464ac79ecb159f30df2ddc",
+        "preview": "anthropic/claude-haiku-4-5"
+      },
+      "expected": {
+        "type": "string",
+        "length": 33,
+        "sha256": "69ee4bcbaa0992c9e04f51477779ceb51ea59ca4b38e374e938cf127c19fafdf",
+        "preview": "meta-llama/llama-3.3-70b-instruct"
+      }
+    },
+    {
+      "path": "modelRouting.fallbackChains.voice_generation[0]",
+      "live": {
+        "type": "string",
+        "length": 18,
+        "sha256": "94d9f0da97276443ab83dd315d000eef5751916f8d4849c468859bd51b21d79f",
+        "preview": "openai/gpt-4o-mini"
+      },
+      "expected": {
+        "type": "string",
+        "length": 21,
+        "sha256": "1e068336123a77f786e3c55dddb7d3aef056143c114e1eec67bb4b105a18e85b",
+        "preview": "openai/gpt-audio-mini"
+      }
+    },
+    {
+      "path": "modelRouting.fallbackChains.voice_generation[1]",
+      "live": {
+        "type": "undefined"
+      },
+      "expected": {
+        "type": "string",
+        "length": 33,
+        "sha256": "33a489a687fa2de2353ff40204c0c386265d9474c522a9757a8fa18de6409f8b",
+        "preview": "openai/gpt-4o-mini-tts-2025-12-15"
+      }
+    },
+    {
+      "path": "prompts.agentSystemPrompts.performance_coordinator",
+      "live": {
+        "type": "string",
+        "length": 3249,
+        "sha256": "a5b01be24bdee0dd5b6a8994a1d4bc071d4e6efddc37952920bb768e0bea11ec",
+        "preview": "You are the Performance Coordinator for NXT1 Agent X — an elite AI sports analyst.\nUser profile context (sport, position, role, stats) is provided in the task description.\n\n## Your..."
+      },
+      "expected": {
+        "type": "string",
+        "length": 3757,
+        "sha256": "a2d039dc816939dc86e0f4099bd69604f06579987c3b60c79846c86b84f897f7",
+        "preview": "You are the Performance Coordinator for NXT1 Agent X — an elite AI sports analyst.\nUser profile context (sport, position, role, stats) is provided in the task description.\n\n## Your..."
+      }
+    },
+    {
+      "path": "prompts.agentSystemPrompts.recruiting_coordinator",
+      "live": {
+        "type": "string",
+        "length": 2173,
+        "sha256": "0fa99c3983bb11256720f7d62a0f0bb65798196cc5452c0884d070bfa75c538a",
+        "preview": "You are the Recruiting Coordinator for NXT1 Agent X — the most effective AI recruiting engine in high school sports.\nUser profile context (name, sport, position, class year, stats)..."
+      },
+      "expected": {
+        "type": "string",
+        "length": 3906,
+        "sha256": "b371163a1dc6b6e4f2a00ad9b0584a753251e8122c9706061fabe9477f517cb5",
+        "preview": "You are the Recruiting Coordinator for NXT1 Agent X — the most effective AI recruiting engine in high school sports.\nUser profile context (name, sport, position, class year, stats)..."
+      }
+    },
+    {
+      "path": "prompts.agentSystemPrompts.strategy_coordinator",
+      "live": {
+        "type": "string",
+        "length": 9558,
+        "sha256": "8e23f44032ef617bf6adb24c382ab692976fbc29680c25d21d695de22d3c5339",
+        "preview": "You are the Strategy Coordinator for Agent X — the strategic planning brain inside NXT1 Sports.\nYou are invoked only when the Chief of Staff has routed a strategic planning task to..."
+      },
+      "expected": {
+        "type": "string",
+        "length": 10169,
+        "sha256": "072d25a6dd40cbd0cee8a3735a44efc86f381a7a42bf9d9c16b9889602f6e919",
+        "preview": "You are the Strategy Coordinator for Agent X — the strategic planning brain inside NXT1 Sports.\nYou are invoked only when the Chief of Staff has routed a strategic planning task to..."
+      }
+    },
+    {
+      "path": "prompts.classifierSystemPrompt",
+      "live": {
+        "type": "string",
+        "length": 1265,
+        "sha256": "ebd5f98fd9ce952dbe6e18177f86c5d4e2659e59a6e71c7fa591ad48c0dff30d",
+        "preview": "You are Agent X's intent classifier. Your only job is to decide whether the user needs a conversational reply now or an action workflow.\n\nReturn JSON only.\n\nRules:\n- route=\"chat\" w..."
+      },
+      "expected": {
+        "type": "undefined"
+      }
+    },
+    {
+      "path": "prompts.conversationSystemPrompt",
+      "live": {
+        "type": "string",
+        "length": 413,
+        "sha256": "6b408e52b418173b64c30635080c8b6ed17bb13ad8a5a922d95fc51b582e18f6",
+        "preview": "You are Agent X, NXT1's conversational interface. Answer naturally, concisely, and practically using the supplied context when it is relevant.\n\nRules:\n- The routing layer already d..."
+      },
+      "expected": {
+        "type": "undefined"
+      }
+    },
+    {
+      "path": "prompts.plannerSystemPrompt",
+      "live": {
+        "type": "string",
+        "length": 4790,
+        "sha256": "4e93b5ea8021d247f2dc21d6a86ac708824015668d4441a69ac02a9c355d9893",
+        "preview": "You are the Chief of Staff for Agent X, the AI engine of NXT1 Sports.\n\nYour job is to decompose the user's request into a structured execution plan (a To-Do list),\nOR to respond di..."
+      },
+      "expected": {
+        "type": "string",
+        "length": 4298,
+        "sha256": "e09aaa830fa0b4640a70c0ec541a417620598964279ab26a4eaa264f99bcd451",
+        "preview": "You are the action planner for Agent X. The request has already been classified as an ACTION.\n\nYour job is to do exactly one of these:\n1. Return an execution plan with one or more ..."
+      }
+    }
+  ]
+}

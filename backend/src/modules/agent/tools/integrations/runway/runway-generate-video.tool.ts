@@ -12,6 +12,7 @@ import type {
   RunwayGenerateVideoOptions,
   RunwayTextToVideoOptions,
 } from './runway-mcp-bridge.service.js';
+import { extractRunwayTaskDetails } from './runway-task-result.util.js';
 import { z } from 'zod';
 
 const IMAGE_TO_VIDEO_MODELS = ['gen4_turbo', 'gen4.5', 'veo3.1'] as const;
@@ -122,11 +123,23 @@ export class RunwayGenerateVideoTool extends BaseTool {
         })) as Record<string, unknown>;
       }
 
+      const taskDetails = extractRunwayTaskDetails(result);
+      if (!taskDetails.taskId) {
+        return {
+          success: false,
+          error: 'Runway accepted the video generation request but did not return a task ID.',
+          data: {
+            status: taskDetails.status,
+            debugKeys: taskDetails.debugKeys,
+          },
+        };
+      }
+
       return {
         success: true,
         data: {
-          taskId: result['id'] ?? result['uuid'],
-          status: (result['status'] as string) ?? 'PENDING',
+          taskId: taskDetails.taskId,
+          status: taskDetails.status,
           message:
             'Video generation task submitted. Use runway_check_task with the taskId to poll for completion.',
         },

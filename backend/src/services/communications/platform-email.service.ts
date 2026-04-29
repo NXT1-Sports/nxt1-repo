@@ -20,6 +20,9 @@ import nodemailer from 'nodemailer';
 import type { Transporter } from 'nodemailer';
 import { logger } from '../../utils/logger.js';
 
+const PLATFORM_FROM_EMAIL = process.env['PLATFORM_FROM_EMAIL']?.trim() || 'nxt1@nxt1sports.com';
+const PLATFORM_FROM_NAME = process.env['PLATFORM_FROM_NAME']?.trim() || 'NXT1';
+
 // ─── Transport singleton ──────────────────────────────────────────────────
 
 let _transport: Transporter | null = null;
@@ -68,7 +71,7 @@ export async function sendPlatformEmail(
     return;
   }
 
-  const from = `Agent X <${process.env['GMAIL_USER']}>`;
+  const from = `${PLATFORM_FROM_NAME} <${PLATFORM_FROM_EMAIL}>`;
 
   try {
     await transport.sendMail({
@@ -76,7 +79,7 @@ export async function sendPlatformEmail(
       to,
       subject,
       html,
-      replyTo: replyTo ?? process.env['GMAIL_USER'],
+      replyTo: replyTo ?? PLATFORM_FROM_EMAIL,
     });
 
     logger.info('[PlatformEmail] Email sent', { to, subject });

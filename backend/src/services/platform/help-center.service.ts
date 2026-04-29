@@ -18,6 +18,8 @@ import {
   HELP_CACHE_KEYS,
   HELP_CACHE_TTL,
   HELP_PAGINATION_DEFAULTS,
+  HELP_SUPPORT_CONFIG,
+  validateSupportTicket,
 } from '@nxt1/core';
 import type {
   HelpCategoryId,
@@ -30,10 +32,14 @@ import type {
   HelpSearchResult,
   HelpSearchFilter,
   HelpPagination,
+  SupportTicket,
+  SupportTicketRequest,
 } from '@nxt1/core';
 import { getHelpArticleModel } from '../../models/help-center/help-article.model.js';
 import { getHelpFaqModel } from '../../models/help-center/help-faq.model.js';
 import { getArticleFeedbackModel } from '../../models/help-center/article-feedback.model.js';
+import { getSupportTicketModel } from '../../models/help-center/support-ticket.model.js';
+import { sendPlatformEmail } from '../communications/platform-email.service.js';
 
 // ============================================
 // CACHE CONFIG
@@ -74,6 +80,59 @@ function toFaq(doc: unknown): FaqItem {
 // Role filtering removed — all content is open and public.
 function userTypeFilter(_userType?: string): Record<string, unknown> {
   return {};
+}
+
+function formatSupportEmailHtml(ticket: SupportTicket): string {
+  const attachmentsHtml = (ticket.attachments ?? [])
+    .map((url) => `<li><a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a></li>`)
+    .join('');
+
+  return [
+    '<h2>New NXT1 Support Ticket</h2>',
+    `<p><strong>Ticket:</strong> ${ticket.ticketNumber}</p>`,
+    `<p><strong>Status:</strong> ${ticket.status}</p>`,
+    `<p><strong>Priority:</strong> ${ticket.priority}</p>`,
+    `<p><strong>Category:</strong> ${ticket.category}</p>`,
+    `<p><strong>From:</strong> ${ticket.name} (${ticket.email})</p>`,
+    `<p><strong>Subject:</strong> ${ticket.subject}</p>`,
+    `<p><strong>Submitted:</strong> ${ticket.createdAt}</p>`,
+    `<p><strong>Description:</strong></p>`,
+    `<pre style="white-space:pre-wrap;font-family:inherit">${ticket.description}</pre>`,
+    attachmentsHtml ? `<p><strong>Attachments:</strong></p><ul>${attachmentsHtml}</ul>` : '',
+  ].join('');
+}
+
+function formatSupportAckHtml(ticket: SupportTicket): string {
+  return [
+    `<p>Hi ${ticket.name},</p>`,
+    '<p>We received your support request and created a ticket for our team.</p>',
+    '<ul>',
+    `<li><strong>Ticket Number:</strong> ${ticket.ticketNumber}</li>`,
+    `<li><strong>Subject:</strong> ${ticket.subject}</li>`,
+    `<li><strong>Priority:</strong> ${ticket.priority}</li>`,
+    `<li><strong>Estimated Response Time:</strong> ${ticket.estimatedResponseTime ?? '1-2 business days'}</li>`,
+    '</ul>',
+    '<p>You can reply to this email with any additional context.</p>',
+    '<p>Team NXT1 Support</p>',
+  ].join('');
+}
+
+function buildTicketNumber(now: Date): string {
+  const year = now.getUTCFullYear();
+  const month = String(now.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(now.getUTCDate()).padStart(2, '0');
+  const rand = Math.random().toString(36).slice(2, 8).toUpperCase();
+  return `NXT-${year}${month}${day}-${rand}`;
+}
+
+export class SupportTicketValidationError extends Error {
+  readonly details: readonly string[];
+
+  constructor(details: readonly string[]) {
+    super(details.join(', '));
+    this.name = 'SupportTicketValidationError';
+    this.details = details;
+  }
 }
 
 // ============================================
@@ -410,4 +469,109 @@ export async function getFaqs(categoryId?: HelpCategoryId, userType?: string): P
 
   await cache.set(cacheKey, faqs, { ttl: ttlSeconds(HELP_CACHE_TTL.FAQS) });
   return faqs;
+}
+
+/**
+ * Create a support ticket and notify support inbox.
+ */
+export async function submitSupportTicket(
+  input: SupportTicketRequest & { readonly userId?: string }
+): Promise<SupportTicket> {
+  const SupportTicketModel = getSupportTicketModel();
+  const now = new Date();
+  const createdAt = now.toISOString();
+
+  const normalized: SupportTicketRequest = {
+    email: input.email.trim().toLowerCase(),
+    name: input.name.trim(),
+    subject: input.subject.trim(),
+    category: input.category,
+    priority: input.priority,
+    description: input.description.trim(),
+    attachments: (input.attachments ?? []).map((url) => url.trim()),
+    relatedArticleId: input.relatedArticleId?.trim() || undefined,
+    deviceInfo: input.deviceInfo?.trim() || undefined,
+  };
+
+  const validation = validateSupportTicket(normalized);
+  if (!validation.isValid) {
+    throw new SupportTicketValidationError(validation.errors.map((error) => error.message));
+  }
+
+  const priority = normalized.priority ?? 'medium';
+  const estimatedResponseTime = HELP_SUPPORT_CONFIG.responseTimeEstimates[priority];
+  const ticketNumber = buildTicketNumber(now);
+
+  const createdDoc = await SupportTicketModel.create({
+    ticketNumber,
+    status: 'open',
+    email: normalized.email,
+    name: normalized.name,
+    subject: normalized.subject,
+    category: normalized.category,
+    priority,
+    description: normalized.description,
+    attachments: normalized.attachments ?? [],
+    estimatedResponseTime,
+    createdAt,
+    updatedAt: createdAt,
+    userId: input.userId,
+    relatedArticleId: normalized.relatedArticleId,
+    deviceInfo: normalized.deviceInfo,
+  });
+
+  const ticket: SupportTicket = {
+    id: String(createdDoc._id),
+    ticketNumber,
+    status: 'open',
+    email: normalized.email,
+    name: normalized.name,
+    subject: normalized.subject,
+    category: normalized.category,
+    priority,
+    description: normalized.description,
+    attachments: normalized.attachments,
+    createdAt,
+    updatedAt: createdAt,
+    estimatedResponseTime,
+  };
+
+  const supportEmail = process.env['SUPPORT_EMAIL']?.trim() || 'support@nxt1sports.com';
+
+  try {
+    await sendPlatformEmail(
+      supportEmail,
+      `[Support Ticket ${ticket.ticketNumber}] ${ticket.subject}`,
+      formatSupportEmailHtml(ticket),
+      ticket.email
+    );
+  } catch (error) {
+    logger.error('[HelpCenter] Failed to dispatch support ticket email to support inbox', {
+      ticketNumber: ticket.ticketNumber,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+
+  try {
+    await sendPlatformEmail(
+      ticket.email,
+      `We received your request (${ticket.ticketNumber})`,
+      formatSupportAckHtml(ticket),
+      supportEmail
+    );
+  } catch (error) {
+    logger.warn('[HelpCenter] Failed to dispatch support acknowledgment email', {
+      ticketNumber: ticket.ticketNumber,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+
+  logger.info('[HelpCenter] ✅ Support ticket created', {
+    ticketNumber: ticket.ticketNumber,
+    category: ticket.category,
+    priority: ticket.priority,
+    userId: input.userId,
+  });
+
+  return ticket;
 }

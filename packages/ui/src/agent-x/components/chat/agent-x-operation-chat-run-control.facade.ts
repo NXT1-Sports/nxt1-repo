@@ -31,6 +31,12 @@ type OperationChatStatus =
   | 'awaiting_input'
   | 'awaiting_approval';
 
+interface SendOptions {
+  readonly text?: string;
+  readonly selectedAction?: AgentXSelectedAction | null;
+  readonly preserveDraft?: boolean;
+}
+
 export interface AgentXOperationChatRunControlFacadeHost {
   readonly contextId: () => string;
   readonly contextTitle: () => string;
@@ -205,18 +211,21 @@ export class AgentXOperationChatRunControlFacade {
     }
   }
 
-  async send(): Promise<void> {
+  async send(options?: SendOptions): Promise<void> {
     const host = this.requireHost();
-    const text = host.inputValue().trim();
+    const composerValue = host.inputValue();
+    const text = (options?.text ?? composerValue).trim();
     const files = this.attachmentsFacade.pendingFiles();
-    const selectedAction = host.getPendingSelectedAction();
+    const selectedAction = options?.selectedAction ?? host.getPendingSelectedAction();
 
     if ((!text && files.length === 0) || host.loading()) {
       return;
     }
 
     host.loading.set(true);
-    host.inputValue.set('');
+    if (!options?.preserveDraft) {
+      host.inputValue.set('');
+    }
     host.setPendingSelectedAction(null);
 
     if (!host.hasUserSent()) {
@@ -384,9 +393,11 @@ export class AgentXOperationChatRunControlFacade {
     this.messageFacade.messages.update((previous) =>
       previous.filter((message) => message.id !== errorMessage.id)
     );
-    host.inputValue.set(lastUserMessage.content);
-    host.setPendingSelectedAction(lastUserMessage.selectedAction ?? null);
-    await this.send();
+    await this.send({
+      text: lastUserMessage.content,
+      selectedAction: lastUserMessage.selectedAction ?? null,
+      preserveDraft: true,
+    });
   }
 
   private transitionInFlightMessages(label: 'Paused' | 'Cancelled'): void {

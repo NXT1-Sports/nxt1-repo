@@ -1518,7 +1518,12 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       for (let partIndex = parts.length - 1; partIndex >= 0; partIndex -= 1) {
         const part = parts[partIndex];
         if (part?.type === 'card' && part.card.type === 'planner') {
-          return part.card;
+          const p = part.card.payload;
+          // Only show card when plan has ≥3 tasks — single/dual-task plans run silently
+          if ('items' in p && Array.isArray(p.items) && p.items.length >= 3) {
+            return part.card;
+          }
+          return null;
         }
       }
 
@@ -1526,7 +1531,11 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       for (let cardIndex = cards.length - 1; cardIndex >= 0; cardIndex -= 1) {
         const card = cards[cardIndex];
         if (card?.type === 'planner') {
-          return card;
+          const p = card.payload;
+          if ('items' in p && Array.isArray(p.items) && p.items.length >= 3) {
+            return card;
+          }
+          return null;
         }
       }
     }
@@ -1941,10 +1950,11 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       return;
     }
 
-    this._pendingSelectedAction.set(action.selectedAction ?? null);
-    this.inputValue.set(action.promptText?.trim() || action.label);
-
-    await this.runControlFacade.send();
+    await this.runControlFacade.send({
+      text: action.promptText?.trim() || action.label,
+      selectedAction: action.selectedAction ?? null,
+      preserveDraft: true,
+    });
   }
 
   /** Returns true when a message contains a data-table rich card (cards or parts). */

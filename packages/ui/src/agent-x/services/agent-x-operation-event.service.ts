@@ -40,6 +40,7 @@ import type {
   AgentXToolStep,
   AgentXToolStepStatus,
   AgentXStreamCardEvent,
+  AgentXStreamMediaEvent,
   AgentXStreamProgressEvent,
 } from '@nxt1/core/ai';
 import type { OperationLogStatus } from '@nxt1/core';
@@ -143,6 +144,8 @@ export interface OperationEventCallbacks {
   onStep: (step: AgentXToolStep) => void;
   /** Called when a rich card (planner, data-table, etc.) should be rendered. */
   onCard?: (card: AgentXStreamCardEvent) => void;
+  /** Called when a tool result includes inline-renderable media URLs. */
+  onMedia?: (media: AgentXStreamMediaEvent) => void;
   /** Called when progress commentary/metrics events arrive. */
   onProgress?: (event: AgentXStreamProgressEvent) => void;
   /** Called when the entire job finishes (success or failure). */
@@ -205,6 +208,82 @@ export class AgentXOperationEventService {
    */
   private readonly _operationStatusUpdated$ = new Subject<OperationStatusUpdatedEvent>();
   readonly operationStatusUpdated$ = this._operationStatusUpdated$.asObservable();
+
+  private isHttpUrl(value: string): boolean {
+    return /^https?:\/\//i.test(value);
+  }
+
+  private inferMediaType(url: string, mimeType?: string): 'image' | 'video' | null {
+    const lowerMime = (mimeType ?? '').toLowerCase();
+    if (lowerMime.startsWith('image/')) return 'image';
+    if (lowerMime.startsWith('video/')) return 'video';
+
+    const lowerUrl = url.toLowerCase();
+    if (/\.(png|jpe?g|gif|webp|avif|bmp|svg)(?:\?|#|$)/i.test(lowerUrl)) return 'image';
+    if (/\.(mp4|mov|m4v|webm|avi|mkv|m3u8)(?:\?|#|$)/i.test(lowerUrl)) return 'video';
+    if (/videodelivery\.net\//i.test(lowerUrl)) return 'video';
+    return null;
+  }
+
+  private extractMediaEventsFromToolResult(
+    toolResult: Record<string, unknown>
+  ): readonly AgentXStreamMediaEvent[] {
+    const seen = new Set<string>();
+    const media: AgentXStreamMediaEvent[] = [];
+
+    const pushCandidate = (
+      urlValue: unknown,
+      mimeTypeValue?: unknown,
+      forcedType?: 'image' | 'video'
+    ) => {
+      if (typeof urlValue !== 'string') return;
+      const url = urlValue.trim();
+      if (!url || !this.isHttpUrl(url)) return;
+      const mimeType = typeof mimeTypeValue === 'string' ? mimeTypeValue : undefined;
+      const type = forcedType ?? this.inferMediaType(url, mimeType);
+      if (!type) return;
+      const key = `${type}|${url}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      media.push({ type, url, ...(mimeType ? { mimeType } : {}) });
+    };
+
+    pushCandidate(toolResult['imageUrl'], toolResult['mimeType'], 'image');
+    pushCandidate(toolResult['videoUrl'], toolResult['mimeType'], 'video');
+    pushCandidate(toolResult['url'], toolResult['mimeType']);
+    pushCandidate(toolResult['publicUrl'], toolResult['mimeType']);
+    pushCandidate(toolResult['downloadUrl'], toolResult['mimeType']);
+
+    const imageUrls = toolResult['imageUrls'];
+    if (Array.isArray(imageUrls)) {
+      for (const url of imageUrls) pushCandidate(url, toolResult['mimeType'], 'image');
+    }
+
+    const videoUrls = toolResult['videoUrls'];
+    if (Array.isArray(videoUrls)) {
+      for (const url of videoUrls) pushCandidate(url, toolResult['mimeType'], 'video');
+    }
+
+    const files = toolResult['files'];
+    if (Array.isArray(files)) {
+      for (const file of files) {
+        if (!file || typeof file !== 'object') continue;
+        const record = file as Record<string, unknown>;
+        pushCandidate(record['url'], record['mimeType']);
+        pushCandidate(record['downloadUrl'], record['mimeType']);
+      }
+    }
+
+    const markdownOrText = [toolResult['markdown'], toolResult['text'], toolResult['content']]
+      .filter((value): value is string => typeof value === 'string')
+      .join('\n');
+    if (markdownOrText) {
+      const matches = markdownOrText.match(/https?:\/\/[^\s)\]"']+/gi) ?? [];
+      for (const url of matches) pushCandidate(url);
+    }
+
+    return media;
+  }
 
   /**
    * Emit a title-updated event so listeners (operations log, shell) can
@@ -718,6 +797,12 @@ export class AgentXOperationEventService {
             event.toolResult ? this.summarizeToolResult(event.toolResult) : undefined
           )
         );
+        if (event.toolResult && callbacks.onMedia) {
+          const mediaEvents = this.extractMediaEventsFromToolResult(event.toolResult);
+          for (const media of mediaEvents) {
+            callbacks.onMedia(media);
+          }
+        }
         break;
       }
 

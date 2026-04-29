@@ -87,6 +87,30 @@ class LegacySchemaTool extends BaseTool {
   }
 }
 
+class ScoredTool extends BaseTool {
+  constructor(
+    readonly name: string,
+    private readonly fixedScore: number,
+    readonly isMutation: boolean
+  ) {
+    super();
+  }
+
+  readonly description = 'Score-controlled tool for semantic matching tests.';
+  readonly parameters = z.object({});
+  readonly allowedAgents = ['*'] as const;
+  readonly category = 'analytics' as const;
+  readonly entityGroup = 'platform_tools' as const;
+
+  async matchIntent(): Promise<number> {
+    return this.fixedScore;
+  }
+
+  async execute(): Promise<ToolResult> {
+    return { success: true, data: { ok: true } };
+  }
+}
+
 // ─── Tests ──────────────────────────────────────────────────────────────────
 
 describe('ToolRegistry', () => {
@@ -243,6 +267,29 @@ describe('ToolRegistry', () => {
       expect(result.success).toBe(false);
       expect(result.error).toBe('Tool is currently disabled: stub_tool');
       expect(stub.executeFn).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('matchWithScores', () => {
+    it('returns semantic scores for matched tools in descending order', async () => {
+      registry.register(new ScoredTool('tool_high', 0.92, false));
+      registry.register(new ScoredTool('tool_mid', 0.51, false));
+      registry.register(new ScoredTool('tool_low', 0.12, false));
+
+      const matched = await registry.matchWithScores(
+        [0.1, 0.2],
+        async () => [0.1, 0.2],
+        undefined,
+        undefined,
+        0.2
+      );
+
+      const matchedToolNames = matched.map((tool) => tool.name);
+      expect(matchedToolNames).toContain('tool_high');
+      expect(matchedToolNames).toContain('tool_mid');
+      expect(matchedToolNames).not.toContain('tool_low');
+      expect(matched.find((tool) => tool.name === 'tool_high')?.semanticScore).toBeCloseTo(0.92, 5);
+      expect(matched.find((tool) => tool.name === 'tool_mid')?.semanticScore).toBeCloseTo(0.51, 5);
     });
   });
 });
