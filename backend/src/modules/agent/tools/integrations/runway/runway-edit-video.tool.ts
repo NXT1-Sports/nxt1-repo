@@ -12,6 +12,7 @@ import type {
   RunwayMcpBridgeService,
   RunwayEditVideoOptions,
 } from './runway-mcp-bridge.service.js';
+import { extractRunwayTaskDetails } from './runway-task-result.util.js';
 import { z } from 'zod';
 
 export class RunwayEditVideoTool extends BaseTool {
@@ -81,11 +82,23 @@ export class RunwayEditVideoTool extends BaseTool {
         watermark,
       })) as Record<string, unknown>;
 
+      const taskDetails = extractRunwayTaskDetails(result);
+      if (!taskDetails.taskId) {
+        return {
+          success: false,
+          error: 'Runway accepted the video edit request but did not return a task ID.',
+          data: {
+            status: taskDetails.status,
+            debugKeys: taskDetails.debugKeys,
+          },
+        };
+      }
+
       return {
         success: true,
         data: {
-          taskId: result['id'] ?? result['uuid'],
-          status: (result['status'] as string) ?? 'PENDING',
+          taskId: taskDetails.taskId,
+          status: taskDetails.status,
           message:
             'Video edit task submitted. Use runway_check_task with the taskId to poll for completion.',
         },

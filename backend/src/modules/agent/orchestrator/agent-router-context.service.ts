@@ -88,7 +88,8 @@ export class AgentRouterContextService {
       }
     }
 
-    parts.push(`[Current Task]\n${task.description}`);
+    parts.push('[Agent Handoff]');
+    parts.push(`Objective: ${task.description}`);
 
     return parts.join('\n\n');
   }

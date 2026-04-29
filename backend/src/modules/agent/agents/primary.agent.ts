@@ -28,6 +28,7 @@ import {
   AGENT_X_IDENTITY,
   buildSystemPrompt,
   type AgentIdentifier,
+  type AgentOperationResult,
   type AgentSessionContext,
   type AgentToolDefinition,
   type ModelRoutingConfig,
@@ -46,44 +47,48 @@ import {
   isPlanAndExecute,
 } from '../exceptions/plan-and-execute.exception.js';
 import type { LLMToolCall, LLMMessage } from '../llm/llm.types.js';
+import type { OpenRouterService } from '../llm/openrouter.service.js';
 import type { ToolRegistry } from '../tools/tool-registry.js';
 import type { ApprovalGateService } from '../services/approval-gate.service.js';
 import type { OnStreamEvent } from '../queue/event-writer.js';
 import type { AskUserToolContext } from '../tools/system/ask-user.tool.js';
+import type { SkillRegistry } from '../skills/skill-registry.js';
 import { getCachedAgentAppConfig } from '../config/agent-app-config.js';
+import { getRouterToolPolicy } from './tool-policy.js';
 
 /**
- * Curated fast-path tool set for the Primary. These are read-only or low-risk
- * one-shot tools the Primary can call directly without going through a
- * coordinator. Mutation-heavy tools always route through coordinators.
+ * System-only tools the Primary has in addition to the shared router policy.
+ * These are never in the policy (they bypass policy checks via category =
+ * 'system' in BaseAgent) but are listed here so buildPrimaryToolDefinitions
+ * can include them by name when filtering the registry.
  */
-const PRIMARY_FAST_PATH_TOOLS: readonly string[] = [
-  // Lazy context (Tier B)
-  'get_user_profile',
-  'get_active_threads',
-  'get_other_thread_history',
-  'get_recent_sync_summaries',
-  'search_memory',
-  'search_memories',
-  // Self-knowledge & orchestration
+const PRIMARY_SYSTEM_TOOLS: readonly string[] = [
   'whoami_capabilities',
   'delegate_to_coordinator',
   'plan_and_execute',
-  // Direct one-shot fast-path (read-only or trivial)
-  'open_live_view',
-  // Read-only data lookup — Primary calls these DIRECTLY for factual
-  // questions to avoid hallucination. Delegating a simple lookup to a
-  // coordinator just adds latency without value.
-  'search_nxt1_platform',
-  'query_nxt1_platform_data',
-  'search_web',
-  'firecrawl_search_web',
-  'scrape_webpage',
-  'get_college_logos',
-  'get_conference_logos',
-  'get_analytics_summary',
-  'scan_timeline_posts',
 ];
+
+const PRIMARY_REASONING_CONTRACT = [
+  '## Primary Reasoning Contract (2026)',
+  '1) Decide request class first: simple_routing | ambiguous | numeric_or_aggregation | safety_or_mutation.',
+  '2) For simple_routing: route immediately, no clarification overhead.',
+  '3) For ambiguous or safety_or_mutation: ask concise clarification questions before acting.',
+  '4) For numeric_or_aggregation: prefer deterministic tool-backed computation before answering.',
+  '5) Never hallucinate counts/totals; if data is missing, ask for the minimum missing detail.',
+  '6) When delegating, provide a single objective sentence as the handoff payload.',
+].join('\n');
+
+interface PrimaryToolSelectionTrace {
+  readonly toolName: string;
+  readonly reasonPath: 'direct_lookup' | 'delegation' | 'planning' | 'system';
+  readonly score: null;
+  readonly timestamp: string;
+}
+
+interface PrimaryToolExposureTrace {
+  readonly exposedTools: readonly string[];
+  readonly selectedTools: readonly PrimaryToolSelectionTrace[];
+}
 
 interface PrimaryAgentSessionState {
   readonly operationId: string;
@@ -110,6 +115,7 @@ export class PrimaryAgent extends BaseAgent {
    * router after the run terminates.
    */
   private readonly sessionStates = new Map<string, PrimaryAgentSessionState>();
+  private readonly toolExposureTraceByOperation = new Map<string, PrimaryToolExposureTrace>();
 
   constructor(
     private readonly capabilities: CapabilityRegistry,
@@ -122,10 +128,15 @@ export class PrimaryAgent extends BaseAgent {
 
   beginRun(state: PrimaryAgentSessionState): void {
     this.sessionStates.set(state.operationId, state);
+    this.toolExposureTraceByOperation.set(state.operationId, {
+      exposedTools: [...getRouterToolPolicy(), ...PRIMARY_SYSTEM_TOOLS],
+      selectedTools: [],
+    });
   }
 
   endRun(operationId: string): void {
     this.sessionStates.delete(operationId);
+    this.toolExposureTraceByOperation.delete(operationId);
     // Release per-operation loop-detector state to prevent leaks.
     getToolLoopDetector().release(operationId);
   }
@@ -144,7 +155,7 @@ export class PrimaryAgent extends BaseAgent {
   }
 
   getAvailableTools(): readonly string[] {
-    return PRIMARY_FAST_PATH_TOOLS;
+    return [...getRouterToolPolicy(), ...PRIMARY_SYSTEM_TOOLS];
   }
 
   override getSkills(): readonly string[] {
@@ -177,7 +188,55 @@ export class PrimaryAgent extends BaseAgent {
       ...(modeAddendum ? { modeAddendum } : {}),
     });
 
-    return this.applyConfiguredPrimaryPrompt(prompt);
+    return this.applyConfiguredPrimaryPrompt(`${prompt}\n\n${PRIMARY_REASONING_CONTRACT}`);
+  }
+
+  override async execute(
+    intent: string,
+    context: AgentSessionContext,
+    toolDefinitions: readonly AgentToolDefinition[],
+    llm?: OpenRouterService,
+    toolRegistry?: ToolRegistry,
+    skillRegistry?: SkillRegistry,
+    onStreamEvent?: OnStreamEvent,
+    approvalGate?: ApprovalGateService
+  ): Promise<AgentOperationResult> {
+    const result = await super.execute(
+      intent,
+      context,
+      toolDefinitions,
+      llm,
+      toolRegistry,
+      skillRegistry,
+      onStreamEvent,
+      approvalGate
+    );
+
+    const operationId = context.operationId;
+    if (!operationId) return result;
+
+    const trace = this.toolExposureTraceByOperation.get(operationId);
+    if (!trace) return result;
+
+    const currentData = result.data ?? {};
+    const currentDebug =
+      currentData['debug'] && typeof currentData['debug'] === 'object'
+        ? (currentData['debug'] as Record<string, unknown>)
+        : {};
+
+    return {
+      ...result,
+      data: {
+        ...currentData,
+        debug: {
+          ...currentDebug,
+          toolExposureTrace: {
+            exposedTools: trace.exposedTools,
+            selectedTools: trace.selectedTools,
+          },
+        },
+      },
+    };
   }
 
   // ─── Tool execution interception ────────────────────────────────────────
@@ -199,6 +258,7 @@ export class PrimaryAgent extends BaseAgent {
     approvalGate?: ApprovalGateService,
     onStreamEvent?: OnStreamEvent
   ): Promise<string> {
+    this.recordToolSelectionTrace(sessionContext?.operationId, toolCall.function.name);
     try {
       return await super.executeTool(
         toolCall,
@@ -349,6 +409,36 @@ export class PrimaryAgent extends BaseAgent {
     };
   }
 
+  private recordToolSelectionTrace(operationId: string | undefined, toolName: string): void {
+    if (!operationId) return;
+    const trace = this.toolExposureTraceByOperation.get(operationId);
+    if (!trace) return;
+
+    const reasonPath: PrimaryToolSelectionTrace['reasonPath'] =
+      toolName === 'delegate_to_coordinator'
+        ? 'delegation'
+        : toolName === 'plan_and_execute'
+          ? 'planning'
+          : toolName === 'whoami_capabilities'
+            ? 'system'
+            : 'direct_lookup';
+
+    const selectedTools = [
+      ...trace.selectedTools,
+      {
+        toolName,
+        reasonPath,
+        score: null,
+        timestamp: new Date().toISOString(),
+      },
+    ];
+
+    this.toolExposureTraceByOperation.set(operationId, {
+      exposedTools: trace.exposedTools,
+      selectedTools,
+    });
+  }
+
   // ─── Helpers ────────────────────────────────────────────────────────────
 
   private buildUserSummary(context: AgentSessionContext): string {
@@ -381,7 +471,7 @@ export class PrimaryAgent extends BaseAgent {
    * stable curated allowlist that downstream policy enforcement honors.
    */
   static curatedFastPathTools(): readonly string[] {
-    return PRIMARY_FAST_PATH_TOOLS;
+    return [...getRouterToolPolicy(), ...PRIMARY_SYSTEM_TOOLS];
   }
 
   /**
@@ -391,8 +481,9 @@ export class PrimaryAgent extends BaseAgent {
    * list manually.
    */
   static buildPrimaryToolDefinitions(registry: ToolRegistry): readonly AgentToolDefinition[] {
+    const allowed = new Set([...getRouterToolPolicy(), ...PRIMARY_SYSTEM_TOOLS]);
     return registry
       .getDefinitions('router')
-      .filter((def) => PRIMARY_FAST_PATH_TOOLS.includes(def.name));
+      .filter((def) => def.category === 'system' || allowed.has(def.name));
   }
 }

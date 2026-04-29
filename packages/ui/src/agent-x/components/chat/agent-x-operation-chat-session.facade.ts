@@ -1,6 +1,11 @@
 import { Injectable, inject, signal, type WritableSignal } from '@angular/core';
 import type { AgentYieldState } from '@nxt1/core';
-import type { AgentXMessagePart, AgentXRichCard, AgentXToolStep } from '@nxt1/core/ai';
+import type {
+  AgentXMessagePart,
+  AgentXRichCard,
+  AgentXStreamMediaEvent,
+  AgentXToolStep,
+} from '@nxt1/core/ai';
 import { AgentXStreamRegistryService } from '../../services/agent-x-stream-registry.service';
 import {
   AgentXOperationEventService,
@@ -56,7 +61,11 @@ export interface AgentXOperationChatSessionFacadeHost {
   setStreamTurnWatermark(watermark: StreamTurnWatermark | null): void;
   hasUserSent(): boolean;
   markUserMessageSent(): void;
-  send(): Promise<void>;
+  send(options?: {
+    text?: string;
+    selectedAction?: { action: string; toolName: string; label?: string } | null;
+    preserveDraft?: boolean;
+  }): Promise<void>;
   attachToResumedOperation(params: {
     operationId: string;
     threadId?: string;
@@ -80,6 +89,54 @@ export class AgentXOperationChatSessionFacade {
   readonly initialMessageSent = signal(false);
 
   private host: AgentXOperationChatSessionFacadeHost | null = null;
+
+  private normalizeMessageContent(value: string | undefined): string {
+    return (value ?? '').replace(/\s+/g, ' ').trim();
+  }
+
+  private stepSignature(steps: readonly AgentXToolStep[] | undefined): string {
+    if (!steps || steps.length === 0) return '';
+    return steps.map((step) => `${step.id}|${step.label}|${step.status}`).join('||');
+  }
+
+  private cardSignature(cards: readonly AgentXRichCard[] | undefined): string {
+    if (!cards || cards.length === 0) return '';
+    return cards.map((card) => JSON.stringify(card)).join('||');
+  }
+
+  private dedupeConsecutiveAssistantMessages(
+    messages: readonly OperationMessage[]
+  ): OperationMessage[] {
+    const deduped: OperationMessage[] = [];
+
+    for (const message of messages) {
+      const previous = deduped[deduped.length - 1];
+      if (!previous) {
+        deduped.push(message);
+        continue;
+      }
+
+      if (message.role !== 'assistant' || previous.role !== 'assistant') {
+        deduped.push(message);
+        continue;
+      }
+
+      const sameOperation = (message.operationId ?? '') === (previous.operationId ?? '');
+      const sameContent =
+        this.normalizeMessageContent(message.content) ===
+        this.normalizeMessageContent(previous.content);
+      const sameSteps = this.stepSignature(message.steps) === this.stepSignature(previous.steps);
+      const sameCards = this.cardSignature(message.cards) === this.cardSignature(previous.cards);
+
+      if (sameOperation && sameContent && sameSteps && sameCards) {
+        continue;
+      }
+
+      deduped.push(message);
+    }
+
+    return deduped;
+  }
 
   configure(host: AgentXOperationChatSessionFacadeHost): void {
     this.host = host;
@@ -125,8 +182,12 @@ export class AgentXOperationChatSessionFacade {
     if (host.initialMessage().trim() && !this.initialMessageSent()) {
       this.initialMessageSent.set(true);
       setTimeout(() => {
-        host.inputValue.set(host.initialMessage().trim());
-        void host.send();
+        const initialMessage = host.initialMessage().trim();
+        if (!initialMessage) return;
+        if (host.inputValue().trim().length > 0) {
+          return;
+        }
+        void host.send({ text: initialMessage, preserveDraft: true });
       }, 150);
     }
   }
@@ -268,6 +329,21 @@ export class AgentXOperationChatSessionFacade {
               })
             );
           },
+          onMedia: (media) => {
+            this.messageFacade.flushPendingTypingDelta();
+            const mediaPart: AgentXMessagePart =
+              media.type === 'video'
+                ? { type: 'video', url: media.url }
+                : { type: 'image', url: media.url };
+
+            this.messageFacade.messages.update((messages) =>
+              messages.map((message) =>
+                message.id === 'typing'
+                  ? { ...message, parts: [...(message.parts ?? []), mediaPart] }
+                  : message
+              )
+            );
+          },
           onProgress: (event) => {
             const message = typeof event.message === 'string' ? event.message.trim() : '';
             if (!message) return;
@@ -390,6 +466,20 @@ export class AgentXOperationChatSessionFacade {
                   : part
             ) ?? [];
 
+          const derivedMediaParts = this.extractMediaPartsFromPersistedMessage({
+            content: message.content,
+            resultData: message.resultData,
+          });
+          const mergedParts = this.mergeMediaParts(persistedParts, derivedMediaParts);
+
+          // Derive the `cards` array from card-type parts so render methods
+          // that read `message.cards` directly (messageCardsForBubble,
+          // executionPlanCard, etc.) work correctly on reload — not just
+          // during the live stream where cards are pushed to both arrays.
+          const persistedCards: AgentXRichCard[] = mergedParts
+            .filter((part): part is { type: 'card'; card: AgentXRichCard } => part.type === 'card')
+            .map((part) => part.card);
+
           return {
             id: message.id ?? host.uid(),
             // Phase J (thread-as-truth): preserve role fidelity. The
@@ -402,7 +492,8 @@ export class AgentXOperationChatSessionFacade {
             content: message.content.replace(/\n\n\[Attached (?:file|video): .+/gs, '').trim(),
             timestamp: message.createdAt ? new Date(message.createdAt) : new Date(),
             ...(persistedSteps.length > 0 ? { steps: persistedSteps } : {}),
-            ...(persistedParts.length > 0 ? { parts: persistedParts } : {}),
+            ...(mergedParts.length > 0 ? { parts: mergedParts } : {}),
+            ...(persistedCards.length > 0 ? { cards: persistedCards } : {}),
             ...(typeof message.resultData?.['imageUrl'] === 'string'
               ? { imageUrl: message.resultData['imageUrl'] as string }
               : {}),
@@ -425,7 +516,8 @@ export class AgentXOperationChatSessionFacade {
           };
         });
 
-      this.messageFacade.messages.set(mapped);
+      const dedupedMapped = this.dedupeConsecutiveAssistantMessages(mapped);
+      this.messageFacade.messages.set(dedupedMapped);
 
       const latestMessageOperationId = [...items]
         .reverse()
@@ -449,7 +541,7 @@ export class AgentXOperationChatSessionFacade {
         );
       }
 
-      const hadUser = mapped.some((message) => message.role === 'user');
+      const hadUser = dedupedMapped.some((message) => message.role === 'user');
       if (hadUser && !host.hasUserSent()) {
         host.markUserMessageSent();
       }
@@ -457,7 +549,7 @@ export class AgentXOperationChatSessionFacade {
       this.logger.info('Operation thread loaded', {
         threadId,
         contextId: host.contextId(),
-        messageCount: mapped.length,
+        messageCount: dedupedMapped.length,
       });
 
       const hasAssistantReply = mapped.some(
@@ -630,19 +722,39 @@ export class AgentXOperationChatSessionFacade {
         }
 
         if (fresh.content || fresh.steps.length || fresh.cards.length) {
-          this.messageFacade.messages.update((messages) => [
-            ...messages,
-            {
-              id: 'typing',
-              role: 'assistant',
-              content: fresh.content,
-              timestamp: new Date(),
-              isTyping: !fresh.content,
-              steps: fresh.steps.length > 0 ? [...fresh.steps] : undefined,
-              cards: fresh.cards.length > 0 ? [...fresh.cards] : undefined,
-              parts: fresh.parts.length > 0 ? [...fresh.parts] : undefined,
-            },
-          ]);
+          this.messageFacade.messages.update((messages) => {
+            // Guard: if a finalized (non-typing) assistant message already has
+            // this exact content, the operation completed before we arrived
+            // here. Adding a second bubble would show the answer twice.
+            if (
+              fresh.content?.trim() &&
+              messages.some(
+                (m) =>
+                  m.role === 'assistant' &&
+                  !m.isTyping &&
+                  m.content?.trim() === fresh.content.trim()
+              )
+            ) {
+              return messages;
+            }
+
+            // Guard: never add a second typing bubble.
+            if (messages.some((m) => m.id === 'typing')) return messages;
+
+            return [
+              ...messages,
+              {
+                id: 'typing',
+                role: 'assistant',
+                content: fresh.content,
+                timestamp: new Date(),
+                isTyping: !fresh.content,
+                steps: fresh.steps.length > 0 ? [...fresh.steps] : undefined,
+                cards: fresh.cards.length > 0 ? [...fresh.cards] : undefined,
+                parts: fresh.parts.length > 0 ? [...fresh.parts] : undefined,
+              },
+            ];
+          });
         }
         host.loading.set(true);
       });
@@ -693,7 +805,19 @@ export class AgentXOperationChatSessionFacade {
               (message) =>
                 !message.isTyping && message.role === 'assistant' && message.content?.trim()
             );
-          if (!alreadyHasAssistant && stored.content) {
+          if (
+            !alreadyHasAssistant &&
+            stored.content &&
+            !this.messageFacade
+              .messages()
+              .some(
+                (message) =>
+                  message.role === 'assistant' &&
+                  !message.isTyping &&
+                  this.normalizeMessageContent(message.content) ===
+                    this.normalizeMessageContent(stored.content)
+              )
+          ) {
             this.messageFacade.messages.update((messages) => [
               ...messages,
               {
@@ -841,6 +965,114 @@ export class AgentXOperationChatSessionFacade {
       timestamp: new Date(),
       error: true,
     });
+  }
+
+  private isHttpUrl(value: string): boolean {
+    return /^https?:\/\//i.test(value);
+  }
+
+  private inferMediaType(url: string, mimeType?: string): 'image' | 'video' | null {
+    const lowerMime = (mimeType ?? '').toLowerCase();
+    if (lowerMime.startsWith('image/')) return 'image';
+    if (lowerMime.startsWith('video/')) return 'video';
+
+    const lowerUrl = url.toLowerCase();
+    if (/\.(png|jpe?g|gif|webp|avif|bmp|svg)(?:\?|#|$)/i.test(lowerUrl)) return 'image';
+    if (/\.(mp4|mov|m4v|webm|avi|mkv|m3u8)(?:\?|#|$)/i.test(lowerUrl)) return 'video';
+    if (/videodelivery\.net\//i.test(lowerUrl)) return 'video';
+    return null;
+  }
+
+  private extractMediaUrlsFromText(content: string): readonly AgentXStreamMediaEvent[] {
+    if (!content.trim()) return [];
+    const seen = new Set<string>();
+    const media: AgentXStreamMediaEvent[] = [];
+    const matches = content.match(/https?:\/\/[^\s)\]"']+/gi) ?? [];
+    for (const rawUrl of matches) {
+      const url = rawUrl.trim();
+      if (!url || !this.isHttpUrl(url)) continue;
+      const type = this.inferMediaType(url);
+      if (!type) continue;
+      const key = `${type}|${url}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      media.push({ type, url });
+    }
+    return media;
+  }
+
+  private extractMediaPartsFromPersistedMessage(message: {
+    content: string;
+    resultData?: Record<string, unknown> | null;
+  }): AgentXMessagePart[] {
+    const mediaEvents: AgentXStreamMediaEvent[] = [];
+    const seen = new Set<string>();
+
+    const push = (urlValue: unknown, mimeTypeValue?: unknown, forcedType?: 'image' | 'video') => {
+      if (typeof urlValue !== 'string') return;
+      const url = urlValue.trim();
+      if (!url || !this.isHttpUrl(url)) return;
+      const mimeType = typeof mimeTypeValue === 'string' ? mimeTypeValue : undefined;
+      const type = forcedType ?? this.inferMediaType(url, mimeType);
+      if (!type) return;
+      const key = `${type}|${url}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      mediaEvents.push({ type, url, ...(mimeType ? { mimeType } : {}) });
+    };
+
+    const resultData = message.resultData;
+    if (resultData && typeof resultData === 'object') {
+      push(resultData['imageUrl'], resultData['mimeType'], 'image');
+      push(resultData['videoUrl'], resultData['mimeType'], 'video');
+      push(resultData['url'], resultData['mimeType']);
+      push(resultData['publicUrl'], resultData['mimeType']);
+      push(resultData['downloadUrl'], resultData['mimeType']);
+
+      const imageUrls = resultData['imageUrls'];
+      if (Array.isArray(imageUrls)) {
+        for (const url of imageUrls) push(url, resultData['mimeType'], 'image');
+      }
+
+      const videoUrls = resultData['videoUrls'];
+      if (Array.isArray(videoUrls)) {
+        for (const url of videoUrls) push(url, resultData['mimeType'], 'video');
+      }
+    }
+
+    const textMedias = this.extractMediaUrlsFromText(message.content);
+    for (const media of textMedias) {
+      push(media.url, media.mimeType, media.type);
+    }
+
+    return mediaEvents.map((media) =>
+      media.type === 'video'
+        ? ({ type: 'video', url: media.url } as const)
+        : ({ type: 'image', url: media.url } as const)
+    );
+  }
+
+  private mergeMediaParts(
+    parts: readonly AgentXMessagePart[],
+    mediaParts: readonly AgentXMessagePart[]
+  ): AgentXMessagePart[] {
+    if (mediaParts.length === 0) return [...parts];
+    const merged = [...parts];
+    const existing = new Set(
+      parts
+        .filter((part) => part.type === 'image' || part.type === 'video')
+        .map((part) => `${part.type}|${part.url}`)
+    );
+
+    for (const mediaPart of mediaParts) {
+      if (mediaPart.type !== 'image' && mediaPart.type !== 'video') continue;
+      const key = `${mediaPart.type}|${mediaPart.url}`;
+      if (existing.has(key)) continue;
+      existing.add(key);
+      merged.push(mediaPart);
+    }
+
+    return merged;
   }
 
   private requireHost(): AgentXOperationChatSessionFacadeHost {

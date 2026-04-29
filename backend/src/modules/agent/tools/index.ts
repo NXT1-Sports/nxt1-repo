@@ -37,3 +37,4 @@ export * from './assets/index.js';
 export * from './intel/index.js';
 export * from './memory/index.js';
 export * from './platform/index.js';
+export * from './support/index.js';

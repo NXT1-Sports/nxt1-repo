@@ -88,6 +88,49 @@ class FakeDelegateTaskTool extends BaseTool {
   }
 }
 
+class FakeRunMicrosoftTool extends BaseTool {
+  readonly name = 'run_microsoft_365_tool';
+  readonly description = 'Executes a Microsoft 365 MCP tool.';
+  readonly parameters = z.object({
+    toolName: z.string(),
+    arguments: z.record(z.unknown()).optional(),
+  });
+  readonly isMutation = false;
+  readonly category = 'automation' as const;
+  readonly entityGroup = 'integration_tools' as const;
+  override readonly allowedAgents = ['strategy_coordinator'] as const;
+
+  async execute(input: Record<string, unknown>): Promise<ToolResult> {
+    return {
+      success: true,
+      data: {
+        toolName: input['toolName'],
+      },
+    };
+  }
+}
+
+class FakeMicrosoftAgent extends BaseAgent {
+  readonly id: AgentIdentifier = 'strategy_coordinator';
+  readonly name = 'Fake Microsoft Agent';
+
+  getSystemPrompt(): string {
+    return 'You are a test agent for Microsoft tools.';
+  }
+
+  getAvailableTools(): readonly string[] {
+    return ['run_microsoft_365_tool'];
+  }
+
+  getModelRouting(): ModelRoutingConfig {
+    return {
+      tier: 'chat',
+      maxTokens: 200,
+      temperature: 0.2,
+    };
+  }
+}
+
 function createMockContext(): AgentSessionContext {
   const now = new Date().toISOString();
   return {
@@ -359,6 +402,74 @@ describe('BaseAgent identifier scrubbing', () => {
     );
   });
 
+  it('humanizes Microsoft MCP progress labels for non-developer phrasing', async () => {
+    const agent = new FakeMicrosoftAgent();
+    const registry = new ToolRegistry();
+    registry.register(new FakeRunMicrosoftTool());
+
+    const events: Array<Record<string, unknown>> = [];
+    let callCount = 0;
+    const llm = {
+      completeStream: vi.fn().mockImplementation(async () => {
+        callCount += 1;
+
+        if (callCount === 1) {
+          return {
+            content: 'I will check your Microsoft calendar.',
+            toolCalls: [
+              {
+                id: 'call_ms_calendar',
+                type: 'function',
+                function: {
+                  name: 'run_microsoft_365_tool',
+                  arguments: JSON.stringify({
+                    toolName: 'list-calendar-events',
+                    arguments: { top: 5 },
+                  }),
+                },
+              },
+            ],
+            model: 'test-model',
+            usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+            latencyMs: 1,
+            costUsd: 0,
+            finishReason: 'tool_calls',
+          };
+        }
+
+        return {
+          content: 'Done checking your calendar.',
+          toolCalls: [],
+          model: 'test-model',
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+          latencyMs: 1,
+          costUsd: 0,
+          finishReason: 'stop',
+        };
+      }),
+    };
+
+    await agent.execute(
+      'Check my calendar',
+      createMockContext(),
+      [],
+      llm as never,
+      registry,
+      undefined,
+      (event) => events.push(event as unknown as Record<string, unknown>)
+    );
+
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'step_active',
+          stepId: 'call_ms_calendar',
+          message: 'Using Microsoft 365: calendar events',
+        }),
+      ])
+    );
+  });
+
   it('maps only image attachments to image_url content and appends document refs as text', async () => {
     const agent = new FakeAgent();
     const registry = new ToolRegistry();
@@ -419,6 +530,72 @@ describe('BaseAgent identifier scrubbing', () => {
     expect(llmOptions?.tier).toBe('vision_analysis');
   });
 
+  it('extracts CSV attachment content and appends parsed preview to user intent text', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        headers: new Headers({
+          'content-type': 'text/csv',
+          'content-length': '72',
+        }),
+        arrayBuffer: vi
+          .fn()
+          .mockResolvedValue(
+            new TextEncoder().encode('name,points,assists\nJordan,24,6\nAvery,18,9').buffer
+          ),
+      })
+    );
+
+    const agent = new FakeAgent();
+    const registry = new ToolRegistry();
+    const llm = {
+      complete: vi.fn().mockResolvedValue({
+        content: 'Parsed CSV.',
+        toolCalls: [],
+        model: 'test-model',
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+        latencyMs: 1,
+        costUsd: 0,
+        finishReason: 'stop',
+      }),
+    };
+
+    await agent.execute(
+      'Analyze attached stat sheet',
+      {
+        ...createMockContext(),
+        attachments: [
+          {
+            url: 'https://storage.googleapis.com/bucket/path/stats.csv?X-Goog-Algorithm=GOOG4-RSA-SHA256',
+            mimeType: 'text/csv',
+            name: 'stats.csv',
+            storagePath: 'Users/user-123/uploads/unbound/stats.csv',
+          },
+        ],
+      },
+      [],
+      llm as never,
+      registry
+    );
+
+    const completeMessages = vi.mocked(llm.complete).mock.calls[0]?.[0] as Array<{
+      role: string;
+      content: unknown;
+    }>;
+    const userMessage = completeMessages.find((message) => message.role === 'user');
+    const content = userMessage?.content;
+    const textBody = typeof content === 'string' ? content : JSON.stringify(content);
+
+    expect(vi.mocked(global.fetch)).toHaveBeenCalledTimes(1);
+    expect(textBody).toContain('[Attached document: text/csv');
+    expect(textBody).toContain('[Extracted Attachment Content]');
+    expect(textBody).toContain('| name | points | assists |');
+    expect(textBody).toContain('| Jordan | 24 | 6 |');
+  });
+
   it('inlines signed storage image attachments as data URLs before calling the vision model', async () => {
     vi.stubGlobal(
       'fetch',
@@ -476,5 +653,86 @@ describe('BaseAgent identifier scrubbing', () => {
 
     expect(vi.mocked(global.fetch)).toHaveBeenCalledTimes(1);
     expect(imagePayload?.url).toBe('data:image/png;base64,AQIDBA==');
+  });
+
+  it('injects deterministic compute-first prompt guidance for numeric intents', async () => {
+    const agent = new FakeAgent();
+    const registry = new ToolRegistry();
+    const llm = {
+      complete: vi.fn().mockResolvedValue({
+        content: 'You have 12 offers.',
+        toolCalls: [],
+        model: 'test-model',
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+        latencyMs: 1,
+        costUsd: 0,
+        finishReason: 'stop',
+      }),
+    };
+
+    await agent.execute(
+      'How many offers do I have?',
+      createMockContext(),
+      [],
+      llm as never,
+      registry
+    );
+
+    const messages = vi.mocked(llm.complete).mock.calls[0]?.[0] as Array<{
+      role: string;
+      content: unknown;
+    }>;
+    const systemMessage = messages.find((message) => message.role === 'system');
+    const systemContent = String(systemMessage?.content ?? '');
+
+    expect(systemContent).toContain('Deterministic Compute-First Rule');
+    expect(systemContent).toContain('Never estimate or infer totals/counts');
+  });
+
+  it('attaches evidenceTrace metadata for numeric tool-backed responses', async () => {
+    const agent = new FakeAgent();
+    const registry = new ToolRegistry();
+    registry.register(new FakeReadTool());
+
+    const llm = {
+      complete: vi
+        .fn()
+        .mockResolvedValueOnce({
+          content: 'Let me verify that.',
+          toolCalls: [
+            {
+              id: 'call_stats',
+              type: 'function',
+              function: { name: 'fake_read_tool', arguments: '{}' },
+            },
+          ],
+          model: 'test-model',
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+          latencyMs: 1,
+          costUsd: 0,
+          finishReason: 'tool_calls',
+        })
+        .mockResolvedValueOnce({
+          content: 'You have 12 offers.',
+          toolCalls: [],
+          model: 'test-model',
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+          latencyMs: 1,
+          costUsd: 0,
+          finishReason: 'stop',
+        }),
+    };
+
+    const result = await agent.execute(
+      'How many offers do I have?',
+      createMockContext(),
+      [],
+      llm as never,
+      registry
+    );
+
+    const evidenceTrace = (result.data?.['evidenceTrace'] ?? []) as Array<Record<string, unknown>>;
+    expect(evidenceTrace.length).toBeGreaterThan(0);
+    expect(evidenceTrace[0]?.['toolName']).toBe('fake_read_tool');
   });
 });

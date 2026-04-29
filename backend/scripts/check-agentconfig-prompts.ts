@@ -1,4 +1,6 @@
 import { config as loadDotenv } from 'dotenv';
+import { db } from '../src/utils/firebase.js';
+import { stagingDb } from '../src/utils/firebase-staging.js';
 
 loadDotenv({ path: '.env' });
 loadDotenv({ path: '.env.local', override: true });
@@ -15,28 +17,46 @@ function summarize(prompt: string) {
   };
 }
 
-async function main(): Promise<void> {
-  const [{ db }, { stagingDb }] = await Promise.all([
-    import('../src/utils/firebase.js'),
-    import('../src/utils/firebase-staging.js'),
-  ]);
+function summarizeConfig(config: Record<string, unknown>) {
+  const prompts = (config.prompts as Record<string, unknown> | undefined) ?? {};
+  const agentSystemPrompts =
+    (prompts.agentSystemPrompts as Record<string, unknown> | undefined) ?? {};
 
+  const plannerPrompt = String(prompts.plannerSystemPrompt ?? '');
+  const primaryPrompt = String(prompts.primarySystemPrompt ?? '');
+  const routerPrompt = String(agentSystemPrompts.router ?? '');
+
+  return {
+    promptKeys: Object.keys(prompts),
+    planner: summarize(plannerPrompt),
+    primary: {
+      length: primaryPrompt.length,
+      enabled: primaryPrompt.trim().length > 0,
+    },
+    router: {
+      length: routerPrompt.length,
+      enabled: routerPrompt.trim().length > 0,
+    },
+    coordinatorPromptCount: Object.keys(agentSystemPrompts).length,
+    coordinatorIds: Object.keys(agentSystemPrompts),
+  };
+}
+
+async function main(): Promise<void> {
   const [prodSnap, stageSnap] = await Promise.all([
     db.collection('AppConfig').doc('agentConfig').get(),
     stagingDb.collection('AppConfig').doc('agentConfig').get(),
   ]);
 
-  const prod = prodSnap.data() ?? {};
-  const stage = stageSnap.data() ?? {};
-  const prodPrompt = String((prod as any)?.prompts?.plannerSystemPrompt ?? '');
-  const stagePrompt = String((stage as any)?.prompts?.plannerSystemPrompt ?? '');
+  const prod = (prodSnap.data() ?? {}) as Record<string, unknown>;
+  const stage = (stageSnap.data() ?? {}) as Record<string, unknown>;
 
   console.log(
     JSON.stringify(
       {
         nodeEnv: process.env.NODE_ENV ?? null,
-        production: summarize(prodPrompt),
-        staging: summarize(stagePrompt),
+        production: summarizeConfig(prod),
+        staging: summarizeConfig(stage),
       },
       null,
       2

@@ -177,6 +177,12 @@ export interface AgentMessage {
   readonly createdAt: string;
   /** Backend-only: MongoDB TTL expiration date. */
   readonly expiresAt?: Date;
+  /**
+   * Backend-only: optional caller-supplied idempotency key. When present, a
+   * unique sparse MongoDB index guarantees exactly-once persistence across
+   * BullMQ retries. Not surfaced in the UI.
+   */
+  readonly idempotencyKey?: string;
 }
 
 /** Token usage metadata for a single message. */

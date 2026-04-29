@@ -6,3 +6,4 @@
 export { HelpArticleModel, type HelpArticleDocument } from './help-article.model.js';
 export { HelpFaqModel, type HelpFaqDocument } from './help-faq.model.js';
 export { ArticleFeedbackModel, type ArticleFeedbackDocument } from './article-feedback.model.js';
+export { SupportTicketModel, type SupportTicketDocument } from './support-ticket.model.js';

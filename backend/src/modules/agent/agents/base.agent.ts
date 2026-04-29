@@ -9,11 +9,11 @@
  *
  * Sub-agents override:
  * - `getSystemPrompt()` — The agent's persona and domain instructions.
- * - `getAvailableTools()` — Array of tool names this agent is allowed to use.
+ * - `getAvailableTools()` — Legacy/debug surface. Runtime tool permissions
+ *   are enforced by `tool-policy.ts` via `getEffectiveAgentToolPolicy()`.
  * - `getModelRouting()` — Default model tier for this agent's tasks.
  *
- * The ReAct loop is capped by the runtime-configured maxAgenticTurns value to
- * prevent runaway execution.
+ * The ReAct loop is capped at MAX_ITERATIONS to prevent runaway execution.
  */
 
 import type {
@@ -45,6 +45,8 @@ import { isPlanAndExecute } from '../exceptions/plan-and-execute.exception.js';
 import { AgentEngineError } from '../exceptions/agent-engine.error.js';
 import type { ApprovalGateService } from '../services/approval-gate.service.js';
 import { ASK_USER_CONTEXT_KEY, type AskUserToolContext } from '../tools/system/ask-user.tool.js';
+import { parse as parseCsv } from 'csv-parse/sync';
+import pdfParse from 'pdf-parse';
 import { isToolAllowedByPatterns } from './tool-policy.js';
 import { getEffectiveAgentToolPolicy } from './tool-policy.js';
 import {
@@ -58,12 +60,33 @@ import { getPromptBudgetService } from '../services/prompt-budget.service.js';
 import { getThreadMessageWriter } from '../memory/thread-message-writer.service.js';
 import { logger } from '../../../utils/logger.js';
 
+/** Maximum tool-calling iterations before we force the agent to respond. */
+const MAX_ITERATIONS = 20;
+
 /**
  * Maximum characters for a single tool observation fed back to the LLM.
  * Prevents context overflow when scrape results are very large.
  */
 const MAX_OBSERVATION_LENGTH = 8_000;
 const MAX_INLINE_IMAGE_BYTES = 8 * 1024 * 1024;
+const MAX_INLINE_DOCUMENT_BYTES = 8 * 1024 * 1024;
+const MAX_ATTACHMENT_TEXT_CHARS = 18_000;
+const MAX_ATTACHMENT_PREVIEW_ROWS = 60;
+const MAX_ATTACHMENT_PREVIEW_COLUMNS = 20;
+const COMPUTE_KEYWORDS = [
+  'how many',
+  'count',
+  'total',
+  'average',
+  'sum',
+  'ratio',
+  'percent',
+  'percentage',
+  'analytics',
+  'stats',
+  'stat',
+  'numbers',
+];
 
 type SessionImageAttachment = NonNullable<AgentSessionContext['attachments']>[number];
 
@@ -111,7 +134,10 @@ export abstract class BaseAgent {
   /** The persona / system prompt for this sub-agent. */
   abstract getSystemPrompt(context: AgentSessionContext): string;
 
-  /** Tool names this agent is allowed to invoke. */
+  /**
+   * Legacy/debug surface of tool names this agent can describe in prompts.
+   * Runtime permission checks are enforced by `getEffectiveAgentToolPolicy()`.
+   */
   abstract getAvailableTools(): readonly string[];
 
   /** Default model routing for this agent. */
@@ -145,6 +171,205 @@ export abstract class BaseAgent {
    */
   getToolConcurrency(): number {
     return 1;
+  }
+
+  private shouldInlineDocumentAttachment(attachment: SessionImageAttachment): boolean {
+    if (attachment.storagePath) {
+      return true;
+    }
+
+    try {
+      const url = new URL(attachment.url);
+      return (
+        url.searchParams.has('X-Goog-Algorithm') ||
+        url.hostname === 'storage.googleapis.com' ||
+        url.hostname === 'firebasestorage.googleapis.com'
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  private async fetchDocumentAttachmentBuffer(
+    attachment: SessionImageAttachment,
+    signal?: AbortSignal
+  ): Promise<Buffer | null> {
+    if (!this.shouldInlineDocumentAttachment(attachment)) {
+      return null;
+    }
+
+    try {
+      const response = await fetch(attachment.url, { signal });
+      if (!response.ok) {
+        logger.warn(`[${this.id}] Failed to download document attachment`, {
+          agentId: this.id,
+          url: attachment.url.slice(0, 160),
+          status: response.status,
+          statusText: response.statusText,
+        });
+        return null;
+      }
+
+      const headerContentLength = Number(response.headers.get('content-length') ?? '0');
+      if (Number.isFinite(headerContentLength) && headerContentLength > MAX_INLINE_DOCUMENT_BYTES) {
+        logger.warn(`[${this.id}] Skipping document attachment due to size`, {
+          agentId: this.id,
+          url: attachment.url.slice(0, 160),
+          sizeBytes: headerContentLength,
+        });
+        return null;
+      }
+
+      const bodyBuffer = Buffer.from(await response.arrayBuffer());
+      if (bodyBuffer.byteLength > MAX_INLINE_DOCUMENT_BYTES) {
+        logger.warn(`[${this.id}] Skipping document attachment after download due to size`, {
+          agentId: this.id,
+          url: attachment.url.slice(0, 160),
+          sizeBytes: bodyBuffer.byteLength,
+        });
+        return null;
+      }
+
+      return bodyBuffer;
+    } catch (error) {
+      logger.warn(`[${this.id}] Failed to fetch document attachment`, {
+        agentId: this.id,
+        url: attachment.url.slice(0, 160),
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
+  }
+
+  private trimAttachmentText(text: string): string {
+    const normalized = text.replace(/\r\n/g, '\n').replace(/\u0000/g, '').trim();
+    if (normalized.length <= MAX_ATTACHMENT_TEXT_CHARS) {
+      return normalized;
+    }
+    return `${normalized.slice(0, MAX_ATTACHMENT_TEXT_CHARS)}\n... [truncated]`;
+  }
+
+  private renderCsvPreview(csvText: string): string {
+    const parsedRows = parseCsv(csvText, {
+      skip_empty_lines: true,
+      relax_column_count: true,
+      trim: true,
+    }) as string[][];
+
+    if (!Array.isArray(parsedRows) || parsedRows.length === 0) {
+      return '';
+    }
+
+    const limitedRows = parsedRows.slice(0, MAX_ATTACHMENT_PREVIEW_ROWS);
+    const maxColumns = Math.min(
+      MAX_ATTACHMENT_PREVIEW_COLUMNS,
+      Math.max(...limitedRows.map((row) => row.length), 0)
+    );
+
+    if (maxColumns === 0) {
+      return '';
+    }
+
+    const toCells = (row: readonly string[]): string[] => {
+      const next = row.slice(0, maxColumns).map((cell) => {
+        const value = String(cell ?? '').replace(/\|/g, '\\|').replace(/\n/g, ' ');
+        return value.length > 120 ? `${value.slice(0, 120)}...` : value;
+      });
+      while (next.length < maxColumns) next.push('');
+      return next;
+    };
+
+    const header = toCells(limitedRows[0] ?? []);
+    const body = limitedRows.slice(1).map((row) => toCells(row));
+
+    const lines = [
+      `| ${header.join(' | ')} |`,
+      `| ${header.map(() => '---').join(' | ')} |`,
+      ...body.map((row) => `| ${row.join(' | ')} |`),
+    ];
+
+    const preview = lines.join('\n');
+    return this.trimAttachmentText(preview);
+  }
+
+  private async buildDocumentAttachmentContext(
+    attachment: SessionImageAttachment,
+    signal?: AbortSignal
+  ): Promise<string | null> {
+    const mimeType = attachment.mimeType.toLowerCase();
+
+    if (
+      mimeType !== 'application/pdf' &&
+      mimeType !== 'text/csv' &&
+      mimeType !== 'text/plain' &&
+      mimeType !== 'application/vnd.ms-excel'
+    ) {
+      return null;
+    }
+
+    const attachmentBuffer = await this.fetchDocumentAttachmentBuffer(attachment, signal);
+    if (!attachmentBuffer) {
+      return null;
+    }
+
+    const attachmentName = attachment.name?.trim() || 'unnamed-file';
+
+    if (mimeType === 'application/pdf') {
+      try {
+        const parsed = await pdfParse(attachmentBuffer);
+        const extracted = this.trimAttachmentText(parsed.text ?? '');
+        if (!extracted) return null;
+        return `[Attachment Extract: ${attachmentName} (${mimeType})]\n${extracted}`;
+      } catch (error) {
+        logger.warn(`[${this.id}] Failed to parse PDF attachment`, {
+          agentId: this.id,
+          fileName: attachmentName,
+          mimeType,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return null;
+      }
+    }
+
+    const rawText = attachmentBuffer.toString('utf-8');
+    if (!rawText.trim()) {
+      return null;
+    }
+
+    if (mimeType === 'text/csv' || mimeType === 'application/vnd.ms-excel') {
+      try {
+        const preview = this.renderCsvPreview(rawText);
+        if (!preview) return null;
+        return `[Attachment Extract: ${attachmentName} (${mimeType})]\n${preview}`;
+      } catch (error) {
+        logger.warn(`[${this.id}] Failed to parse CSV attachment`, {
+          agentId: this.id,
+          fileName: attachmentName,
+          mimeType,
+          error: error instanceof Error ? error.message : String(error),
+        });
+
+        const fallback = this.trimAttachmentText(rawText);
+        return fallback ? `[Attachment Extract: ${attachmentName} (${mimeType})]\n${fallback}` : null;
+      }
+    }
+
+    const trimmed = this.trimAttachmentText(rawText);
+    return trimmed ? `[Attachment Extract: ${attachmentName} (${mimeType})]\n${trimmed}` : null;
+  }
+
+  private async resolveDocumentAttachmentContexts(
+    attachments: readonly SessionImageAttachment[],
+    signal?: AbortSignal
+  ): Promise<readonly string[]> {
+    if (attachments.length === 0) {
+      return [];
+    }
+
+    const contexts = await Promise.all(
+      attachments.map((attachment) => this.buildDocumentAttachmentContext(attachment, signal))
+    );
+    return contexts.filter((context): context is string => Boolean(context));
   }
 
   private shouldInlineImageAttachment(attachment: SessionImageAttachment): boolean {
@@ -251,8 +476,7 @@ export abstract class BaseAgent {
    *   1. Build system prompt + inject tool schemas.
    *   2. Call LLM with conversation history.
    *   3. If LLM requests tool calls → execute them → feed observations back.
-   *   4. Repeat until LLM responds with text (no more tool calls) or the
-   *      configured maxAgenticTurns limit.
+   *   4. Repeat until LLM responds with text (no more tool calls) or MAX_ITERATIONS.
    *   5. Return the final text as the operation result.
    */
   async execute(
@@ -348,6 +572,16 @@ export abstract class BaseAgent {
     }
 
     if (skillBlock) systemContent += `\n${skillBlock}`;
+
+    const requiresComputeFirst = this.isComputeIntent(intent);
+    if (requiresComputeFirst) {
+      systemContent +=
+        '\n\n## Deterministic Compute-First Rule\n' +
+        '- This request is numeric/aggregation oriented. Use tools first, then respond.\n' +
+        '- Never estimate or infer totals/counts without tool-backed evidence.\n' +
+        '- If tool data is incomplete, ask a concise clarification question.';
+    }
+
     systemContent += delegationRule;
     systemContent +=
       '\n- NEVER reveal raw NXT1 platform identifiers such as user IDs, team IDs, organization IDs, post IDs, unicode values, team codes, routes, cursors, or internal document IDs. Refer to people and entities by name only.';
@@ -384,11 +618,22 @@ export abstract class BaseAgent {
     const nonImageAttachments = (context.attachments ?? []).filter(
       (a) => !a.mimeType.startsWith('image/')
     );
+
+    const extractedDocumentContexts = await this.resolveDocumentAttachmentContexts(
+      nonImageAttachments,
+      context.signal
+    );
+
     if (nonImageAttachments.length > 0) {
       const docRefs = nonImageAttachments
         .map((a) => `[Attached document: ${a.mimeType} — ${a.url}]`)
         .join('\n');
       intentText = `${intentText}\n\n${docRefs}`;
+    }
+
+    if (extractedDocumentContexts.length > 0) {
+      const extractedSection = extractedDocumentContexts.join('\n\n');
+      intentText = `${intentText}\n\n[Extracted Attachment Content]\n${extractedSection}`;
     }
 
     const userMessage: LLMMessage =
@@ -471,7 +716,8 @@ export abstract class BaseAgent {
       effectiveAllowedEntityGroups,
       effectiveRouting,
       onStreamEvent,
-      approvalGate
+      approvalGate,
+      requiresComputeFirst
     );
   }
 
@@ -559,15 +805,35 @@ export abstract class BaseAgent {
         // but possible on tool-loop-detector / approval-gate paths), the
         // resume payload supplies it so the merge stays whole.
         if (yieldState.pendingAssistantMessage) {
-          // Avoid duplicating if replay already has it (most common path).
+          // Avoid duplicating if the replay already contains this assistant
+          // turn. The legacy check only compared tool_calls JSON, which
+          // fails when content differs or when the same tool_call_id set
+          // appears on a different turn. We now check three conditions.
+          const pending = yieldState.pendingAssistantMessage;
+
+          // Check 1: the last replayed message is an exact content + tool_calls match.
           const last = messages[messages.length - 1];
-          const same =
-            last &&
-            last.role === 'assistant' &&
-            JSON.stringify(last.tool_calls ?? []) ===
-              JSON.stringify(yieldState.pendingAssistantMessage.tool_calls ?? []);
-          if (!same) {
-            messages.push(yieldState.pendingAssistantMessage);
+          const lastIsExactMatch =
+            last?.role === 'assistant' &&
+            (last.content ?? '') === (pending.content ?? '') &&
+            JSON.stringify(last.tool_calls ?? []) === JSON.stringify(pending.tool_calls ?? []);
+
+          // Check 2: any existing assistant turn already covers all pending
+          // tool_call ids — meaning the writer persisted the turn before the
+          // yield state was serialised (the common fast-path).
+          const pendingToolIds = new Set(
+            (pending.tool_calls ?? []).map((tc: LLMToolCall) => tc.id).filter(Boolean)
+          );
+          const anyAssistantCoversIds =
+            pendingToolIds.size > 0 &&
+            messages.some(
+              (m) =>
+                m.role === 'assistant' &&
+                (m.tool_calls ?? []).some((tc: LLMToolCall) => pendingToolIds.has(tc.id))
+            );
+
+          if (!lastIsExactMatch && !anyAssistantCoversIds) {
+            messages.push(pending);
           }
         }
         if (messages.length === 0) {
@@ -684,6 +950,8 @@ export abstract class BaseAgent {
       }
     }
 
+    const requiresComputeFirst = this.isComputeIntent(this.extractLatestUserText(messages));
+
     return this.runLoop(
       messages,
       context,
@@ -700,7 +968,8 @@ export abstract class BaseAgent {
       ),
       routing,
       onStreamEvent,
-      approvalGate
+      approvalGate,
+      requiresComputeFirst
     );
   }
 
@@ -714,13 +983,19 @@ export abstract class BaseAgent {
     allowedEntityGroups: readonly AgentToolEntityGroup[],
     routing: ModelRoutingConfig,
     onStreamEvent?: OnStreamEvent,
-    approvalGate?: ApprovalGateService
+    approvalGate?: ApprovalGateService,
+    requiresComputeFirst: boolean = false
   ): Promise<AgentOperationResult> {
     // ── ReAct Loop ────────────────────────────────────────────────────────
+    const toolExecutionMeta = new Map<
+      string,
+      {
+        readonly completedAt: string;
+        readonly durationMs: number;
+      }
+    >();
 
-    const maxIterations = getCachedAgentAppConfig().operationalLimits.maxAgenticTurns;
-
-    for (let iteration = 0; iteration < maxIterations; iteration++) {
+    for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
       this.throwIfAborted(context.signal);
 
       // Prune the context window before every LLM call (except the first iteration
@@ -747,7 +1022,7 @@ export abstract class BaseAgent {
         );
       }
 
-      logger.info(`[${this.id}] Iteration ${iteration + 1}/${maxIterations}`, {
+      logger.info(`[${this.id}] Iteration ${iteration + 1}/${MAX_ITERATIONS}`, {
         agentId: this.id,
         iteration: iteration + 1,
       });
@@ -829,7 +1104,7 @@ export abstract class BaseAgent {
         }
 
         // Build persistent tool call records from the conversation history
-        const toolCallRecords = this.extractToolCallRecords(messages);
+        const toolCallRecords = this.extractToolCallRecords(messages, toolExecutionMeta);
 
         // Synthesize a summary from tool observations when the LLM returns empty content
         let summary = sanitizeAgentOutputText(result.content ?? '');
@@ -854,12 +1129,15 @@ export abstract class BaseAgent {
         // rows ARE written above so the next-turn replay sees the full
         // ReAct trajectory.
 
+        const evidenceTrace = this.buildEvidenceTrace(summary, toolCallRecords, requiresComputeFirst);
+
         return {
           summary,
           data: sanitizeAgentPayload({
             model: result.model,
             usage: result.usage,
             toolCallRecords,
+            ...(evidenceTrace.length > 0 ? { evidenceTrace } : {}),
             ...extractedToolData,
           }),
           suggestions: [],
@@ -956,6 +1234,7 @@ export abstract class BaseAgent {
       const toolBatchResults = await parallelBatch(
         result.toolCalls,
         async (toolCall) => {
+          const startedAtMs = Date.now();
           if (!runConcurrent) {
             this.throwIfAborted(context.signal);
             logger.info(`[${this.id}] Executing tool: ${toolCall.function.name}`, {
@@ -976,7 +1255,7 @@ export abstract class BaseAgent {
               ),
             });
           }
-          return this.executeTool(
+          const observation = await this.executeTool(
             toolCall,
             toolRegistry,
             context.userId,
@@ -987,6 +1266,13 @@ export abstract class BaseAgent {
             approvalGate,
             onStreamEvent
           );
+
+          const completedAtMs = Date.now();
+          return {
+            observation,
+            durationMs: Math.max(0, completedAtMs - startedAtMs),
+            completedAt: new Date(completedAtMs).toISOString(),
+          };
         },
         { concurrency: toolConcurrency }
       );
@@ -1046,7 +1332,11 @@ export abstract class BaseAgent {
           continue;
         }
 
-        const observation = this.truncateObservation(br.value);
+        const observation = this.truncateObservation(br.value.observation);
+        toolExecutionMeta.set(toolCall.id, {
+          completedAt: br.value.completedAt,
+          durationMs: br.value.durationMs,
+        });
         // Log tool result summary (structured — avoids logging signed URLs)
         try {
           const parsed = JSON.parse(observation) as Record<string, unknown>;
@@ -1136,7 +1426,7 @@ export abstract class BaseAgent {
     }
 
     logger.warn(
-      `[${this.id}] Max iterations (${maxIterations}) reached — returning partial result`,
+      `[${this.id}] Max iterations (${MAX_ITERATIONS}) reached — returning partial result`,
       {
         agentId: this.id,
         userId: context.userId,
@@ -1160,7 +1450,13 @@ export abstract class BaseAgent {
         }
       }
     }
-    const toolCallRecords = this.extractToolCallRecords(messages);
+    const toolCallRecords = this.extractToolCallRecords(messages, toolExecutionMeta);
+    const evidenceTrace = this.buildEvidenceTrace(
+      'The agent reached its maximum iteration limit.',
+      toolCallRecords,
+      requiresComputeFirst
+    );
+
     return {
       summary: sanitizeAgentOutputText(
         'The agent reached its maximum iteration limit. ' +
@@ -1169,10 +1465,51 @@ export abstract class BaseAgent {
       data: sanitizeAgentPayload({
         maxIterationsReached: true,
         toolCallRecords,
+        ...(evidenceTrace.length > 0 ? { evidenceTrace } : {}),
         ...extractedToolData,
       }),
       suggestions: ['Try breaking the request into smaller tasks.'],
     };
+  }
+
+  private isComputeIntent(intent: string): boolean {
+    const normalized = intent.toLowerCase();
+    return COMPUTE_KEYWORDS.some((keyword) => normalized.includes(keyword));
+  }
+
+  private extractLatestUserText(messages: readonly LLMMessage[]): string {
+    for (let idx = messages.length - 1; idx >= 0; idx -= 1) {
+      const msg = messages[idx];
+      if (msg.role !== 'user') continue;
+      if (typeof msg.content === 'string') return msg.content;
+      if (Array.isArray(msg.content)) {
+        const textPart = msg.content.find((part) => part.type === 'text');
+        if (textPart && typeof textPart.text === 'string') return textPart.text;
+      }
+    }
+    return '';
+  }
+
+  private buildEvidenceTrace(
+    summary: string,
+    toolCallRecords: readonly AgentToolCallRecord[],
+    requiresComputeFirst: boolean
+  ): readonly Record<string, unknown>[] {
+    const factualSummary = /\d/.test(summary) || /percent|ratio|average|total|count/i.test(summary);
+    if (!requiresComputeFirst && !factualSummary) {
+      return [];
+    }
+
+    const successfulRecords = toolCallRecords.filter((record) => record.status === 'success');
+    return successfulRecords.slice(0, 3).map((record) => ({
+      claim: factualSummary ? summary.slice(0, 180) : 'Tool-backed factual response',
+      toolName: record.toolName,
+      confidence: 'high',
+      sourceData:
+        record.output && typeof record.output === 'object'
+          ? JSON.stringify(record.output).slice(0, 220)
+          : undefined,
+    }));
   }
 
   private truncateObservation(observation: string): string {
@@ -1371,7 +1708,16 @@ export abstract class BaseAgent {
    * `role: 'tool'` observation. This data is persisted to MongoDB so
    * the frontend can reconstruct historical tool steps.
    */
-  private extractToolCallRecords(messages: readonly LLMMessage[]): AgentToolCallRecord[] {
+  private extractToolCallRecords(
+    messages: readonly LLMMessage[],
+    executionMeta?: ReadonlyMap<
+      string,
+      {
+        readonly completedAt: string;
+        readonly durationMs: number;
+      }
+    >
+  ): AgentToolCallRecord[] {
     const records: AgentToolCallRecord[] = [];
 
     // Build a map from tool_call_id → observation content
@@ -1415,12 +1761,15 @@ export abstract class BaseAgent {
             : undefined;
         }
 
+        const meta = executionMeta?.get(tc.id);
+
         records.push({
           toolName: tc.function.name,
           input: sanitizeAgentPayload(input),
           output,
+          ...(typeof meta?.durationMs === 'number' ? { durationMs: meta.durationMs } : {}),
           status,
-          timestamp: new Date().toISOString(),
+          timestamp: meta?.completedAt ?? new Date().toISOString(),
         });
       }
     }
@@ -1709,19 +2058,36 @@ export abstract class BaseAgent {
 
       // Memory
       search_memory: 'Recalling memory',
+      search_memories: 'Reviewing saved notes',
       save_memory: 'Saving to memory',
       delete_memory: 'Updating memory records',
+      ask_user: 'Requesting your input',
 
       // Database & Platform
       query_nxt1_data: 'Querying platform database',
+      list_nxt1_data_views: 'Reviewing available data views',
       query_nxt1_platform_data: 'Querying platform database',
+      get_user_profile: 'Reviewing athlete profile',
+      get_recent_sync_summaries: 'Reviewing recent sync history',
+      get_active_threads: 'Reviewing active conversations',
+      get_other_thread_history: 'Reviewing related conversation history',
       search_colleges: 'Searching college database',
       search_college_coaches: 'Searching coaching staff',
       search_nxt1_platform: 'Searching platform registry',
+      get_college_logos: 'Collecting college logos',
+      get_conference_logos: 'Collecting conference logos',
       write_season_stats: 'Updating athletic stats',
       write_team_stats: 'Updating team statistics',
       write_roster_entries: 'Updating team roster',
       write_schedule: 'Updating season schedule',
+      write_calendar_events: 'Updating calendar events',
+      write_core_identity: 'Updating core athlete profile',
+      write_combine_metrics: 'Updating combine metrics',
+      write_rankings: 'Updating rankings data',
+      write_recruiting_activity: 'Updating recruiting activity',
+      write_connected_source: 'Linking connected source data',
+      write_team_news: 'Publishing team news',
+      write_team_post: 'Publishing team update',
       write_awards: 'Adding career awards',
 
       // Media & Video
@@ -1730,8 +2096,17 @@ export abstract class BaseAgent {
       analyze_video: 'Analyzing game film',
       runway_upscale_video: 'Enhancing video quality',
       clip_video: 'Clipping video highlight',
+      runway_edit_video: 'Editing video',
+      runway_check_task: 'Checking video job status',
       import_video: 'Importing media',
+      create_signed_url: 'Preparing secure upload link',
+      delete_video: 'Removing video asset',
+      generate_thumbnail: 'Generating thumbnail',
+      write_athlete_videos: 'Updating video library',
       generate_captions: 'Transcribing audio/video',
+      get_video_details: 'Reviewing video details',
+      enable_download: 'Enabling downloads',
+      manage_watermark: 'Updating watermark settings',
 
       // Workspace & Documents
       docs_create_document: 'Drafting document',
@@ -1741,11 +2116,30 @@ export abstract class BaseAgent {
       query_gmail_emails: 'Checking inbox',
       create_calendar_event: 'Scheduling event',
       calendar_get_events: 'Checking calendar',
+      create_support_ticket: 'Creating support ticket',
+      list_google_workspace_tools: 'Checking Google Workspace tools',
+      run_google_workspace_tool: 'Using Google Workspace',
+      list_microsoft_365_tools: 'Checking Microsoft 365 tools',
+      run_microsoft_365_tool: 'Using Microsoft 365',
 
       // Automation
       enqueue_heavy_task: 'Queueing background operation',
       schedule_recurring_task: 'Scheduling automation',
+      list_recurring_tasks: 'Reviewing scheduled automations',
+      cancel_recurring_task: 'Cancelling scheduled automation',
       call_apify_actor: 'Running cloud automation',
+      search_apify_actors: 'Finding automation templates',
+      get_apify_actor_details: 'Reviewing automation details',
+      get_apify_actor_output: 'Reviewing automation results',
+      plan_and_execute: 'Building execution plan',
+      delegate_to_coordinator: 'Routing to specialist coordinator',
+      discover_analytics_templates: 'Reviewing analytics templates',
+      register_analytics_template: 'Saving analytics template',
+      read_distilled_section: 'Reviewing distilled insights',
+      dispatch_extraction: 'Launching data extraction',
+      track_analytics_event: 'Recording analytics event',
+      get_analytics_summary: 'Reviewing analytics summary',
+      whoami_capabilities: 'Checking current capabilities',
       delegate_task: 'Delegating to specialized agent',
 
       // Live Browser
@@ -1754,6 +2148,8 @@ export abstract class BaseAgent {
       extract_live_view_media: 'Extracting media stream',
       extract_live_view_playlist: 'Extracting playlist clips',
       navigate_live_view: 'Navigating webpage',
+      interact_with_live_view: 'Interacting with webpage',
+      close_live_view: 'Closing virtual browser',
 
       // Comms
       scan_timeline_posts: 'Scanning recent posts',
@@ -1804,6 +2200,12 @@ export abstract class BaseAgent {
 
     if (!input) return null;
 
+    const rawToolName = input['toolName'];
+    if (typeof rawToolName === 'string' && rawToolName.trim().length > 0) {
+      const humanizedToolName = this.resolveMcpToolDisplayName(rawToolName);
+      if (humanizedToolName) return humanizedToolName;
+    }
+
     const priorityKeys = [
       'programName',
       'schoolName',
@@ -1832,6 +2234,29 @@ export abstract class BaseAgent {
     }
 
     return null;
+  }
+
+  private resolveMcpToolDisplayName(toolName: string): string | null {
+    const normalized = toolName.trim();
+    if (!normalized) return null;
+
+    const KNOWN_MCP_TOOLS: Record<string, string> = {
+      'list-emails': 'mail list',
+      'read-email': 'email details',
+      'search-emails': 'mail search',
+      'send-email': 'email send',
+      'draft-email': 'email draft',
+      'list-calendar-events': 'calendar events',
+      'create-calendar-event': 'new calendar event',
+      'list-files': 'file list',
+      'search-files': 'file search',
+      'get-file': 'file details',
+    };
+
+    const known = KNOWN_MCP_TOOLS[normalized.toLowerCase()];
+    if (known) return known;
+
+    return normalized.replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
   }
 
   private isMeaningfulInvocationKey(key: string): boolean {

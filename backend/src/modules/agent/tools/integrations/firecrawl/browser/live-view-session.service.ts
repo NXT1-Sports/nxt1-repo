@@ -63,6 +63,13 @@ interface ActiveSession {
   readonly expiresAt: Date;
 }
 
+interface LiveViewProbeResult {
+  readonly url: string;
+  readonly title: string;
+  readonly interactiveSnapshot: string;
+  readonly fullSnapshot: string;
+}
+
 /** Action that can be executed in a live-view browser session. */
 export interface LiveViewAction {
   readonly type: 'click' | 'type' | 'scroll' | 'wait';
@@ -134,6 +141,8 @@ export interface LiveViewPlaylistExtractionResult {
 
 /** Live-view sessions last 10 minutes (longer than sign-in flows). */
 const LIVE_VIEW_TTL_SECONDS = 600;
+const MIN_PROMPT_OUTPUT_CHARS_FOR_CONFIDENCE = 140;
+const MAX_PROBE_SECTION_CHARS = 20_000;
 
 /**
  * NOTE: We intentionally do NOT pass a `timeout` parameter to Firecrawl's
@@ -182,6 +191,18 @@ export class LiveViewSessionService {
       code,
     });
 
+    const stdoutLength = typeof result.stdout === 'string' ? result.stdout.length : 0;
+    const resultType = Array.isArray(result.result) ? 'array' : typeof result.result;
+    logger.info('[LiveViewSession] Browser command response', {
+      sessionId,
+      success: result.success,
+      exitCode: result.exitCode ?? null,
+      killed: result.killed === true,
+      stdoutLength,
+      resultType,
+      ...(typeof result.result === 'string' ? { resultLength: result.result.length } : {}),
+    });
+
     const hiddenError = result.error?.trim();
     if (!result.success || result.killed || (result.exitCode ?? 0) !== 0 || hiddenError) {
       throw new AgentEngineError(
@@ -194,6 +215,97 @@ export class LiveViewSessionService {
     }
 
     return (result.stdout ?? result.result ?? '').trim();
+  }
+
+  /**
+   * Execute a natural language prompt in the browser using Firecrawl's AI mode.
+   * This is more reliable than code-based extraction for complex tasks like
+   * extracting media URLs, as the AI can reason about the page and handle
+   * edge cases intelligently.
+   */
+  private async executeBrowserPrompt(sessionId: string, prompt: string): Promise<string> {
+    const result: ScrapeExecuteResponse = await this.client.interact(sessionId, {
+      prompt,
+    });
+
+    logger.info('[LiveViewSession] Browser prompt response', {
+      sessionId,
+      success: result.success,
+      exitCode: result.exitCode ?? null,
+      killed: result.killed === true,
+      ...(typeof result.stdout === 'string' ? { stdoutLength: result.stdout.length } : {}),
+      ...(typeof result.result === 'string' ? { resultLength: result.result.length } : {}),
+    });
+
+    const hiddenError = result.error?.trim();
+    if (!result.success || result.killed || (result.exitCode ?? 0) !== 0 || hiddenError) {
+      throw new AgentEngineError(
+        'LIVE_VIEW_REQUEST_FAILED',
+        hiddenError || result.stderr || 'Browser prompt execution failed',
+        {
+          metadata: { sessionId },
+        }
+      );
+    }
+
+    return (result.stdout ?? result.result ?? '').trim();
+  }
+
+  /**
+   * Extract URLs matching media patterns from natural language text.
+   * Handles both direct URLs and markdown-formatted links.
+   */
+  private extractUrlsFromText(text: string, patterns: RegExp[] = []): string[] {
+    if (!text) return [];
+
+    // Default patterns for common media types
+    const defaultPatterns = [
+      /https?:\/\/[^\s<>"{}|\\^`\[\]]*\.(?:m3u8|mp4|ts|webm|mkv|mov|mpd|aac|wav|mp3)(?:[?#][^\s<>"{}|\\^`\[\]]*)?/gi,
+    ];
+
+    const allPatterns = patterns.length > 0 ? [...patterns, ...defaultPatterns] : defaultPatterns;
+
+    const urls = new Set<string>();
+
+    // Extract URLs directly
+    for (const pattern of allPatterns) {
+      let match;
+      while ((match = pattern.exec(text)) !== null) {
+        const url = match[0].trim();
+        if (url && url.length > 10) {
+          urls.add(url);
+        }
+      }
+    }
+
+    // Extract from markdown links: [text](url)
+    const markdownPattern = /\[([^\]]*)\]\((https?:\/\/[^)]+)\)/gi;
+    let mdMatch;
+    while ((mdMatch = markdownPattern.exec(text)) !== null) {
+      const url = mdMatch[2].trim();
+      if (url && (url.includes('.m3u8') || url.includes('.mp4') || url.includes('.ts'))) {
+        urls.add(url);
+      }
+    }
+
+    // Extract from plain "URL: " or "Stream: " patterns
+    const labelPattern = /(?:url|stream|link|src):\s*([^\s\n]+\.(?:m3u8|mp4|ts|mpd)(?:[?#][^\s\n]*)?)/gi;
+    let labelMatch;
+    while ((labelMatch = labelPattern.exec(text)) !== null) {
+      const url = labelMatch[1].trim();
+      if (url) {
+        urls.add(url);
+      }
+    }
+
+    return Array.from(urls).filter((url) => {
+      try {
+        new URL(url);
+        return true;
+      } catch {
+        return false;
+      }
+    });
   }
 
   private buildCookieHeader(cookies: readonly LiveViewRequestCookie[]): string | null {
@@ -239,7 +351,7 @@ export class LiveViewSessionService {
 
     let lastError: unknown;
 
-    for (const candidate of [...new Set(candidates)].filter((value) => value.length > 0)) {
+    for (const candidate of Array.from(new Set(candidates)).filter((value) => value.length > 0)) {
       try {
         return JSON.parse(candidate) as T;
       } catch (err) {
@@ -270,6 +382,50 @@ export class LiveViewSessionService {
     throw new AgentEngineError('LIVE_VIEW_REQUEST_FAILED', failureMessage, {
       metadata: { sessionId },
     });
+  }
+
+  private parseProbeOutput(stdout: string): LiveViewProbeResult {
+    const lines = stdout.split('\n');
+    const urlLine = lines.find((line) => line.startsWith('URL:'));
+    const titleLine = lines.find((line) => line.startsWith('TITLE:'));
+    const interactiveStart = lines.indexOf('---INTERACTIVE---');
+    const fullStart = lines.indexOf('---FULL---');
+
+    const interactiveLines =
+      interactiveStart >= 0
+        ? lines.slice(interactiveStart + 1, fullStart >= 0 ? fullStart : undefined)
+        : [];
+    const fullLines = fullStart >= 0 ? lines.slice(fullStart + 1) : [];
+
+    return {
+      url: urlLine ? urlLine.slice('URL:'.length).trim() : '',
+      title: titleLine ? titleLine.slice('TITLE:'.length).trim() : '',
+      interactiveSnapshot: interactiveLines.join('\n').trim().slice(0, MAX_PROBE_SECTION_CHARS),
+      fullSnapshot: fullLines.join('\n').trim().slice(0, MAX_PROBE_SECTION_CHARS),
+    };
+  }
+
+  private async collectInteractiveProbe(sessionId: string): Promise<LiveViewProbeResult | null> {
+    const bashCommand =
+      'agent-browser wait --load networkidle || true; ' +
+      'echo "URL:$(agent-browser get url)" && ' +
+      'echo "TITLE:$(agent-browser get title)" && ' +
+      'echo "---INTERACTIVE---" && ' +
+      'agent-browser snapshot -i || true && ' +
+      'echo "---FULL---" && ' +
+      'agent-browser snapshot || true';
+
+    const result: ScrapeExecuteResponse = await this.client.interact(sessionId, {
+      code: bashCommand,
+      language: 'bash' as Parameters<typeof this.client.interact>[1]['language'],
+    });
+
+    if (!result.success) return null;
+
+    const stdout = (result.stdout ?? '').trim();
+    if (!stdout) return null;
+
+    return this.parseProbeOutput(stdout);
   }
 
   /**
@@ -729,40 +885,27 @@ export class LiveViewSessionService {
 
     logger.info('[LiveViewSession] Extracting content', { sessionId });
 
-    // Primary: single bash call — agent-browser CLI (2 credits/min, no Playwright code from us).
-    // The echo prefixes let us parse URL and TITLE reliably from stdout regardless of
-    // page title content. The snapshot command dumps the full accessibility tree.
-    const BASH_CMD =
-      'echo "URL:$(agent-browser get url)" && ' +
-      'echo "TITLE:$(agent-browser get title)" && ' +
-      'echo "---CONTENT---" && ' +
-      'agent-browser snapshot';
-
     try {
-      const bashResult: ScrapeExecuteResponse = await this.client.interact(sessionId, {
-        code: BASH_CMD,
-        language: 'bash' as Parameters<typeof this.client.interact>[1]['language'],
-      });
+      const probe = await this.collectInteractiveProbe(sessionId);
+      if (probe) {
+        const sections: string[] = [];
+        if (probe.interactiveSnapshot) {
+          sections.push(`Interactive elements:\n${probe.interactiveSnapshot}`);
+        }
+        if (probe.fullSnapshot) {
+          sections.push(`Full accessibility snapshot:\n${probe.fullSnapshot}`);
+        }
 
-      const stdout = bashResult.stdout?.trim() ?? '';
-      if (bashResult.success && stdout) {
-        const lines = stdout.split('\n');
-        const urlLine = lines.find((l) => l.startsWith('URL:'));
-        const titleLine = lines.find((l) => l.startsWith('TITLE:'));
-        const contentStart = lines.indexOf('---CONTENT---');
-        const contentLines = contentStart >= 0 ? lines.slice(contentStart + 1) : [];
-
-        const url = urlLine ? urlLine.slice('URL:'.length).trim() : '';
-        const title = titleLine ? titleLine.slice('TITLE:'.length).trim() : '';
-        const content = contentLines.join('\n').trim();
-
-        if (url && content) {
+        const content = sections.join('\n\n').trim();
+        if (probe.url && content) {
           logger.info('[LiveViewSession] Bash extraction succeeded', {
             sessionId,
-            url,
+            url: probe.url,
             contentLength: content.length,
+            interactiveLength: probe.interactiveSnapshot.length,
+            fullLength: probe.fullSnapshot.length,
           });
-          return { url, title, content: content.slice(0, 30_000) };
+          return { url: probe.url, title: probe.title, content: content.slice(0, 30_000) };
         }
       }
 
@@ -770,8 +913,7 @@ export class LiveViewSessionService {
         '[LiveViewSession] Bash extraction returned empty output, falling back to AI prompt',
         {
           sessionId,
-          exitCode: bashResult.exitCode,
-          stderr: bashResult.stderr?.slice(0, 200),
+          reason: 'interactive probe was empty',
         }
       );
     } catch (err) {
@@ -825,193 +967,168 @@ export class LiveViewSessionService {
   async extractMedia(sessionId: string, userId: string): Promise<LiveViewMediaExtractionResult> {
     this.assertOwnership(sessionId, userId);
 
-    logger.info('[LiveViewSession] Extracting media', { sessionId });
+    logger.info('[LiveViewSession] Extracting media via AI prompt', { sessionId });
 
-    const extractionCode = `
-  (async () => {
-  const browserResult = await page.evaluate(async () => {
-  const MEDIA_PATTERN = /\\.(m3u8|mp4|ts|mpd)(?:$|[?#])/i;
+    /**
+     * Use Firecrawl's AI-driven prompt mode for reliable extraction.
+     * This is more robust than blindly polling the Performance API because:
+     * - AI can reason about the page structure
+     * - Handles edge cases (consent dialogs, lazy loading, etc.)
+     * - Returns actual URLs instead of blob references
+     * - No arbitrary 20-second timeout
+     * - Explains what it found if extraction fails
+     */
+    const extractionPrompt = `
+You are analyzing a web page with video/media content. Your task is to extract the actual streaming URLs.
 
-  function normalizeUrl(value) {
-    return typeof value === 'string' ? value.trim() : '';
-  }
+INSTRUCTIONS:
+1. Ensure any video players on the page are started/activated (click play if needed, wait for content to load)
+2. Check the browser's Network tab (via Performance API) for actual stream URLs
+3. Look for patterns like .m3u8, .mp4, .ts, .webm, or manifest URLs
+4. Check <video> tags for <source src="..."> or direct currentSrc
+5. Report ALL media URLs you find
 
-  function dedupe(values) {
-    return [...new Set(values.filter(Boolean))];
-  }
+IMPORTANT: Return ONLY the actual stream/manifest URLs (not blob: references or player UI URLs).
 
-  function collectResourceUrls() {
-    return dedupe(
-      performance
-        .getEntriesByType('resource')
-        .map((entry) => normalizeUrl(entry && 'name' in entry ? entry.name : ''))
-        .filter((value) => MEDIA_PATTERN.test(value))
-    );
-  }
+RESPONSE FORMAT:
+For each media URL found, include it as a clickable link or plain URL:
+- Direct URLs: https://example.com/stream.m3u8
+- Or formatted as: [Stream URL](https://example.com/stream.m3u8)
 
-  async function tryStartPlayback(video) {
-    if (!video) return;
+Also include any supplementary info that helps understand the media structure:
+- Player type detected (e.g., HLS, DASH, progressive download)
+- Whether video is currently playing
+- Any auth headers or cookies needed
+
+If no media URLs found, explain what you checked and why.
+`;
+
     try {
-      video.muted = true;
-      const playResult = video.play?.();
-      if (playResult && typeof playResult.then === 'function') {
-        await playResult.catch(() => undefined);
+      const rawResult = await this.executeBrowserPrompt(sessionId, extractionPrompt);
+
+      logger.info('[LiveViewSession] AI extraction response', {
+        sessionId,
+        responseLength: rawResult.length,
+      });
+
+      // Extract actual media URLs from the AI response
+      const streams = this.extractUrlsFromText(rawResult);
+
+      if (streams.length === 0) {
+        throw new AgentEngineError(
+          'LIVE_VIEW_REQUEST_FAILED',
+          `No media URLs detected. AI analysis: ${rawResult.substring(0, 500)}`,
+          { metadata: { sessionId } }
+        );
       }
-    } catch {}
-  }
 
-  function clickPlaybackCandidates() {
-    const selectors = [
-      'video',
-      '[aria-label*="play" i]',
-      '[title*="play" i]',
-      '.play-button',
-      '.vjs-big-play-button',
-      '.jw-icon-playback',
-      '[data-testid*="play" i]',
-      '[class*="play" i]',
-    ];
+      // Try to collect page metadata and cookies via simple code execution
+      let metadata: {
+        url?: string;
+        title?: string;
+        userAgent?: string | null;
+        cookies?: unknown;
+      } = {};
 
-    for (const selector of selectors) {
-      const elements = Array.from(document.querySelectorAll(selector));
-      for (const element of elements.slice(0, 5)) {
-        if (element instanceof HTMLElement) {
-          try {
-            element.click();
-          } catch {}
-        }
-      }
-    }
-  }
-
-  const video = document.querySelector('video');
-  await tryStartPlayback(video);
-  clickPlaybackCandidates();
-
-  const deadline = Date.now() + 20_000;
-  let streams = collectResourceUrls();
-
-  while (streams.length === 0 && Date.now() < deadline) {
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    streams = collectResourceUrls();
-  }
-
-  const currentSrc = normalizeUrl(video?.currentSrc);
-  const blobSrc = currentSrc.startsWith('blob:') ? currentSrc : null;
-
-  return {
-    url: location.href,
-    title: document.title,
-    streams,
-    currentSrc: currentSrc || null,
-    blobSrc,
-  };
-});
-
+      try {
+        const metadataCode = `
+const metadata = {
+  url: location.href,
+  title: document.title,
+  userAgent: navigator.userAgent,
+};
 const cookies = await page.context().cookies();
-const userAgent = await page.evaluate(() => navigator.userAgent);
+JSON.stringify({ ...metadata, cookies });
+`;
+        const metadataRaw = await this.executeBrowserCommand(sessionId, metadataCode);
+        metadata = this.parseBrowserJson<typeof metadata>(
+          metadataRaw,
+          sessionId,
+          'Could not extract page metadata'
+        );
+      } catch (err) {
+        // Metadata collection is optional; continue with what we have
+        logger.warn('[LiveViewSession] Could not extract page metadata', {
+          sessionId,
+          error: err instanceof Error ? err.message : 'unknown',
+        });
+      }
 
-return JSON.stringify({
-  ...browserResult,
-  userAgent,
-  cookies: cookies.map((cookie) => ({
-    name: cookie.name,
-    value: cookie.value,
-    domain: cookie.domain,
-    path: cookie.path,
-    expires: Number.isFinite(cookie.expires) ? cookie.expires : undefined,
-    httpOnly: Boolean(cookie.httpOnly),
-    secure: Boolean(cookie.secure),
-    sameSite: cookie.sameSite ?? undefined,
-  })),
-});
-})()`;
+      const cookies = Array.isArray(metadata.cookies)
+        ? metadata.cookies
+            .filter(
+              (
+                value
+              ): value is {
+                name: string;
+                value: string;
+                domain: string;
+                path: string;
+                expires?: number;
+                httpOnly?: boolean;
+                secure?: boolean;
+                sameSite?: string;
+              } =>
+                !!value &&
+                typeof value === 'object' &&
+                typeof (value as Record<string, unknown>)['name'] === 'string' &&
+                typeof (value as Record<string, unknown>)['value'] === 'string' &&
+                typeof (value as Record<string, unknown>)['domain'] === 'string' &&
+                typeof (value as Record<string, unknown>)['path'] === 'string'
+            )
+            .map((cookie) => ({
+              name: cookie.name,
+              value: cookie.value,
+              domain: cookie.domain,
+              path: cookie.path,
+              ...(typeof cookie.expires === 'number' ? { expires: cookie.expires } : {}),
+              httpOnly: cookie.httpOnly === true,
+              secure: cookie.secure === true,
+              ...(typeof cookie.sameSite === 'string' ? { sameSite: cookie.sameSite } : {}),
+            }))
+        : [];
 
-    const rawResult = await this.executeBrowserCommand(sessionId, extractionCode);
+      const referer = (metadata.url as string) ?? null;
+      const origin = this.resolveOrigin(metadata.url as string);
+      const cookieHeader = this.buildCookieHeader(cookies);
 
-    const parsed = this.parseBrowserJson<{
-      url?: string;
-      title?: string;
-      streams?: unknown;
-      currentSrc?: string | null;
-      blobSrc?: string | null;
-      userAgent?: string | null;
-      cookies?: unknown;
-    }>(rawResult, sessionId, 'Live view media extraction returned invalid JSON.');
+      logger.info('[LiveViewSession] Media extracted via AI', {
+        sessionId,
+        url: metadata.url,
+        title: metadata.title,
+        streamCount: streams.length,
+        cookieCount: cookies.length,
+      });
 
-    const streams = Array.isArray(parsed.streams)
-      ? [...new Set(parsed.streams.filter((value): value is string => typeof value === 'string'))]
-      : [];
+      return {
+        url: (metadata.url as string) ?? '',
+        title: (metadata.title as string) ?? '',
+        streams,
+        currentSrc: null, // Not used in prompt mode
+        blobSrc: null, // Not used in prompt mode
+        auth: {
+          userAgent:
+            typeof metadata.userAgent === 'string' ? metadata.userAgent : null,
+          referer,
+          origin,
+          cookieHeader,
+          cookies,
+        },
+      };
+    } catch (error) {
+      // If AI-prompt fails, provide helpful error
+      if (error instanceof AgentEngineError) {
+        throw error;
+      }
 
-    const cookies = Array.isArray(parsed.cookies)
-      ? parsed.cookies
-          .filter(
-            (
-              value
-            ): value is {
-              name: string;
-              value: string;
-              domain: string;
-              path: string;
-              expires?: number;
-              httpOnly?: boolean;
-              secure?: boolean;
-              sameSite?: string;
-            } =>
-              !!value &&
-              typeof value === 'object' &&
-              typeof (value as Record<string, unknown>)['name'] === 'string' &&
-              typeof (value as Record<string, unknown>)['value'] === 'string' &&
-              typeof (value as Record<string, unknown>)['domain'] === 'string' &&
-              typeof (value as Record<string, unknown>)['path'] === 'string'
-          )
-          .map((cookie) => ({
-            name: cookie.name,
-            value: cookie.value,
-            domain: cookie.domain,
-            path: cookie.path,
-            ...(typeof cookie.expires === 'number' ? { expires: cookie.expires } : {}),
-            httpOnly: cookie.httpOnly === true,
-            secure: cookie.secure === true,
-            ...(typeof cookie.sameSite === 'string' ? { sameSite: cookie.sameSite } : {}),
-          }))
-      : [];
-
-    const referer = parsed.url ?? null;
-    const origin = this.resolveOrigin(parsed.url);
-    const cookieHeader = this.buildCookieHeader(cookies);
-
-    if (streams.length === 0 && !parsed.currentSrc) {
       throw new AgentEngineError(
         'LIVE_VIEW_REQUEST_FAILED',
-        'No network media streams were detected in the active live view. Start playback in the visible player and try again.',
-        { metadata: { sessionId, url: parsed.url } }
+        error instanceof Error
+          ? error.message
+          : 'Failed to extract media URLs. Ensure a video player is visible and playing.',
+        { metadata: { sessionId } }
       );
     }
-
-    logger.info('[LiveViewSession] Media extracted', {
-      sessionId,
-      url: parsed.url,
-      streamCount: streams.length,
-      hasCurrentSrc: !!parsed.currentSrc,
-      hasBlobSrc: !!parsed.blobSrc,
-      cookieCount: cookies.length,
-    });
-
-    return {
-      url: parsed.url ?? '',
-      title: parsed.title ?? '',
-      streams,
-      currentSrc: parsed.currentSrc ?? null,
-      blobSrc: parsed.blobSrc ?? null,
-      auth: {
-        userAgent: typeof parsed.userAgent === 'string' ? parsed.userAgent : null,
-        referer,
-        origin,
-        cookieHeader,
-        cookies,
-      },
-    };
   }
 
   /**
@@ -1028,444 +1145,242 @@ return JSON.stringify({
 
     const boundedMaxItems = Math.min(Math.max(Math.trunc(maxItems) || 25, 1), 100);
 
-    logger.info('[LiveViewSession] Extracting playlist', {
+    logger.info('[LiveViewSession] Extracting playlist via AI', {
       sessionId,
       maxItems: boundedMaxItems,
     });
 
-    const extractionCode = `
-  (async () => {
-  const browserResult = await page.evaluate(async (limit) => {
-  const ITEM_ID_KEYS = ['clipId', 'videoId', 'itemId', 'playlistId', 'id', 'contentId'];
-  const URL_HINT_PATTERN = /(clip|clips|video|videos|playlist|playlists|highlight|film)/i;
-  const TEXT_HINT_PATTERN = /(clip|play|video|highlight|film)/i;
-  const DURATION_PATTERN = /\\b\\d{1,2}:\\d{2}(?::\\d{2})?\\b/;
-  const PLAYLIST_HINT_PATTERN = /(playlist|queue|filmstrip|rail|clips|highlights|videos)/i;
+    /**
+     * Use AI to extract playlist items. This is more reliable than complex
+     * DOM traversal because AI can understand the semantic structure of
+     * the page, handle variations in layouts, and identify clips intelligently.
+     */
+    const playlistPrompt = `
+You are analyzing a page with a playlist or collection of video/media clips.
 
-  function normalizeText(value) {
-    return typeof value === 'string' ? value.replace(/\\s+/g, ' ').trim() : '';
-  }
+Your task: Extract information about ALL the clips/videos visible on this page.
 
-  function toAbsoluteUrl(value) {
-    if (typeof value !== 'string') return null;
-    const trimmed = value.trim();
-    if (!trimmed) return null;
+For each clip/video, gather:
+1. Title or name of the clip
+2. Direct URL to the clip (if clickable/navigable)
+3. Duration (if visible)
+4. Thumbnail image URL (if available)
+5. Any identifiable ID or metadata attribute
+
+IMPORTANT: 
+- Include up to ${boundedMaxItems} items
+- Extract ACTUAL clip/video URLs, not just player frame URLs
+- If clips are in a carousel or lazy-loaded, try to capture what's visible
+- Return as a structured list with clear labels for each field
+
+Response format:
+For each clip, provide:
+- Title: [clip title]
+- URL: [URL to clip or navigation link]
+- Duration: [HH:MM:SS or similar, if visible]
+- Thumbnail: [image URL if available]
+---
+
+If it's a single-clip page (not a playlist), say so explicitly.
+`;
+
     try {
-      return new URL(trimmed, window.location.href).toString();
-    } catch {
-      return null;
-    }
-  }
+      const rawResult = await this.executeBrowserPrompt(sessionId, playlistPrompt);
 
-  function collectTextParts(element) {
-    const values = [
-      element.getAttribute('aria-label'),
-      element.getAttribute('title'),
-      element.getAttribute('data-title'),
-      element.getAttribute('data-name'),
-      element.getAttribute('data-testid'),
-    ];
+      logger.info('[LiveViewSession] AI playlist response', {
+        sessionId,
+        responseLength: rawResult.length,
+      });
 
-    const selectors = ['[aria-label]', '[title]', '[data-title]', '[data-name]', 'img[alt]', 'time'];
-    for (const selector of selectors) {
-      for (const node of Array.from(element.querySelectorAll(selector)).slice(0, 8)) {
-        values.push(
-          node.getAttribute('aria-label') ||
-            node.getAttribute('title') ||
-            node.getAttribute('data-title') ||
-            node.getAttribute('data-name') ||
-            node.getAttribute('alt') ||
-            node.textContent
+      // Parse the AI response to extract items
+      const items = this.parsePlaylistFromResponse(rawResult);
+
+      if (items.length === 0) {
+        throw new AgentEngineError(
+          'LIVE_VIEW_REQUEST_FAILED',
+          `No playlist clips detected. AI analysis: ${rawResult.substring(0, 500)}`,
+          { metadata: { sessionId } }
         );
       }
-    }
 
-    values.push(element.textContent);
+      // Try to collect page metadata and cookies via simple code execution
+      let metadata: {
+        url?: string;
+        title?: string;
+        playlistTitle?: string | null;
+        userAgent?: string | null;
+        cookies?: unknown;
+      } = {};
 
-    return [...new Set(values.map(normalizeText).filter(Boolean))];
-  }
-
-  function pickTitle(parts) {
-    const filtered = parts.filter((value) => value.length >= 3 && value.length <= 180);
-    const nonDuration = filtered.filter((value) => !DURATION_PATTERN.test(value));
-    const preferred = nonDuration.find((value) => value.split(' ').length >= 2) || nonDuration[0];
-    return preferred || filtered[0] || '';
-  }
-
-  function pickDuration(parts) {
-    for (const value of parts) {
-      const match = value.match(DURATION_PATTERN);
-      if (match) return match[0];
-    }
-    return null;
-  }
-
-  function pickThumbnail(element) {
-    const image = element.querySelector('img, source, video');
-    if (image instanceof HTMLImageElement) {
-      return toAbsoluteUrl(image.currentSrc || image.src);
-    }
-    if (image instanceof HTMLSourceElement) {
-      return toAbsoluteUrl(image.src);
-    }
-    if (image instanceof HTMLVideoElement) {
-      return toAbsoluteUrl(image.poster || image.currentSrc || image.src);
-    }
-
-    const styled = Array.from(element.querySelectorAll('*')).find((node) => {
-      if (!(node instanceof HTMLElement)) return false;
-      const background = window.getComputedStyle(node).backgroundImage;
-      return typeof background === 'string' && background.includes('url(');
-    });
-    if (styled instanceof HTMLElement) {
-      const background = window.getComputedStyle(styled).backgroundImage;
-      const match = background.match(/url\\(["']?(.*?)["']?\\)/);
-      return toAbsoluteUrl(match && match[1] ? match[1] : '');
-    }
-
-    return null;
-  }
-
-  function elementHintsMatch(element) {
-    const attrs = [
-      element.getAttribute('class'),
-      element.getAttribute('id'),
-      element.getAttribute('data-testid'),
-      element.getAttribute('aria-label'),
-      element.getAttribute('role'),
-    ]
-      .map(normalizeText)
-      .filter(Boolean)
-      .join(' ');
-    return PLAYLIST_HINT_PATTERN.test(attrs);
-  }
-
-  function isInsidePlaylistRegion(element) {
-    let current = element;
-    let depth = 0;
-    while (current && depth < 6) {
-      if (elementHintsMatch(current)) return true;
-      current = current.parentElement;
-      depth += 1;
-    }
-    return false;
-  }
-
-  function pickUrl(element) {
-    const directCandidates = [
-      element.getAttribute('href'),
-      element.getAttribute('data-url'),
-      element.getAttribute('data-href'),
-      element.getAttribute('data-video-url'),
-      element.getAttribute('data-clip-url'),
-    ];
-
-    const anchor = element instanceof HTMLAnchorElement ? element : element.closest('a[href]');
-    if (anchor instanceof HTMLAnchorElement) {
-      directCandidates.unshift(anchor.getAttribute('href'));
-    }
-
-    const nestedAnchor = element.querySelector('a[href]');
-    if (nestedAnchor instanceof HTMLAnchorElement) {
-      directCandidates.push(nestedAnchor.getAttribute('href'));
-    }
-
-    for (const candidate of directCandidates) {
-      const absolute = toAbsoluteUrl(candidate || '');
-      if (absolute) return absolute;
-    }
-
-    return null;
-  }
-
-  function pickItemId(element, url) {
-    for (const key of ITEM_ID_KEYS) {
-      const dataValue = element.dataset?.[key];
-      if (normalizeText(dataValue)) return normalizeText(dataValue);
-    }
-
-    const attrCandidates = ['data-clip-id', 'data-video-id', 'data-item-id', 'data-id'];
-    for (const attr of attrCandidates) {
-      const attrValue = element.getAttribute(attr);
-      if (normalizeText(attrValue)) return normalizeText(attrValue);
-    }
-
-    if (url) {
       try {
-        const parsedUrl = new URL(url, window.location.href);
-        const pathSegments = parsedUrl.pathname.split('/').filter(Boolean);
-        for (let index = 0; index < pathSegments.length - 1; index += 1) {
-          const segment = (pathSegments[index] || '').toLowerCase();
-          if (segment === 'clip' || segment === 'clips' || segment === 'video' || segment === 'videos') {
-            const nextSegment = normalizeText(pathSegments[index + 1]);
-            if (nextSegment) return nextSegment;
-          }
-        }
-      } catch {}
-    }
-
-    return null;
-  }
-
-  function isCurrent(element, url) {
-    if (element.getAttribute('aria-current') === 'true') return true;
-    const classes = normalizeText(element.getAttribute('class')).toLowerCase();
-    if (/(active|selected|current)/.test(classes)) return true;
-    return Boolean(url && url === window.location.href);
-  }
-
-  function buildCandidate(element) {
-    const textParts = collectTextParts(element);
-    const title = pickTitle(textParts);
-    const durationText = pickDuration(textParts);
-    const url = pickUrl(element);
-    const thumbnailUrl = pickThumbnail(element);
-    const textSnippet = textParts.find((value) => value !== title && value !== durationText) || null;
-    const playlistRegion = isInsidePlaylistRegion(element);
-    const linkHint = Boolean(url && URL_HINT_PATTERN.test(url));
-    const textHint = Boolean(title && TEXT_HINT_PATTERN.test(title));
-
-    let score = 0;
-    if (playlistRegion) score += 2;
-    if (url) score += 2;
-    if (title) score += 1;
-    if (durationText) score += 1;
-    if (thumbnailUrl) score += 1;
-    if (linkHint || textHint) score += 1;
-
-    return {
-      score,
-      item: {
-        itemId: pickItemId(element, url),
-        title: title || textSnippet || 'Untitled clip',
-        url,
-        durationText,
-        thumbnailUrl,
-        textSnippet,
-        isCurrent: isCurrent(element, url),
-      },
-    };
-  }
-
-  const containerSelectors = [
-    '[aria-label*="playlist" i]',
-    '[aria-label*="clips" i]',
-    '[aria-label*="videos" i]',
-    '[data-testid*="playlist" i]',
-    '[data-testid*="clip" i]',
-    '[data-testid*="video" i]',
-    '[role="list"]',
-    '[role="grid"]',
-    '[class*="playlist"]',
-    '[class*="filmstrip"]',
-    '[class*="queue"]',
-    '[class*="rail"]',
-  ];
-
-  const containers = [];
-  for (const selector of containerSelectors) {
-    for (const element of Array.from(document.querySelectorAll(selector))) {
-      if (element instanceof HTMLElement && !containers.includes(element)) {
-        containers.push(element);
-      }
-    }
-  }
-
-  const rawCandidates = [];
-  const elementSelector = 'a[href], button, [role="link"], [role="button"], li, article, [role="listitem"], [data-testid], [class]';
-
-  for (const container of containers) {
-    for (const element of Array.from(container.querySelectorAll(elementSelector)).slice(0, 200)) {
-      if (element instanceof HTMLElement) rawCandidates.push(element);
-    }
-  }
-
-  if (rawCandidates.length === 0) {
-    for (const element of Array.from(document.querySelectorAll('a[href], button, [role="link"], [role="button"]')).slice(0, 250)) {
-      if (element instanceof HTMLElement) rawCandidates.push(element);
-    }
-  }
-
-  const seen = new Set();
-  const items = [];
-
-  for (const element of rawCandidates) {
-    const candidate = buildCandidate(element);
-    if (candidate.score < 4) continue;
-    if (!candidate.item.url && !candidate.item.itemId) continue;
-
-    const key = candidate.item.url || candidate.item.itemId || candidate.item.title;
-    if (!key || seen.has(key)) continue;
-    seen.add(key);
-    items.push(candidate.item);
-  }
-
-  const ranked = items
-    .sort((left, right) => {
-      if (left.isCurrent !== right.isCurrent) return left.isCurrent ? -1 : 1;
-      if (Boolean(left.url) !== Boolean(right.url)) return left.url ? -1 : 1;
-      return left.title.localeCompare(right.title);
-    })
-    .slice(0, limit)
-    .map((item, index) => ({
-      index: index + 1,
-      ...item,
-    }));
-
-  const playlistTitleCandidates = [
-    ...containers.flatMap((container) => [
-      container.getAttribute('aria-label'),
-      container.getAttribute('title'),
-      container.previousElementSibling?.textContent,
-      container.parentElement?.querySelector('h1, h2, h3')?.textContent,
-    ]),
-    document.querySelector('h1')?.textContent,
-    document.querySelector('h2')?.textContent,
-  ]
-    .map(normalizeText)
-    .filter(Boolean);
-
-  return {
-    url: window.location.href,
-    title: document.title,
-    playlistTitle: playlistTitleCandidates[0] || null,
-    items: ranked,
-  };
-}, ${boundedMaxItems});
-
+        const metadataCode = `
+const metadata = {
+  url: location.href,
+  title: document.title,
+  playlistTitle: document.querySelector('[data-playlist-title], .playlist-title, .queue-title')?.textContent || null,
+  userAgent: navigator.userAgent,
+};
 const cookies = await page.context().cookies();
-const userAgent = await page.evaluate(() => navigator.userAgent);
+JSON.stringify({ ...metadata, cookies });
+`;
+        const metadataRaw = await this.executeBrowserCommand(sessionId, metadataCode);
+        metadata = this.parseBrowserJson<typeof metadata>(
+          metadataRaw,
+          sessionId,
+          'Could not extract playlist metadata'
+        );
+      } catch (err) {
+        logger.warn('[LiveViewSession] Could not extract playlist metadata', {
+          sessionId,
+          error: err instanceof Error ? err.message : 'unknown',
+        });
+      }
 
-return JSON.stringify({
-  ...browserResult,
-  userAgent,
-  cookies: cookies.map((cookie) => ({
-    name: cookie.name,
-    value: cookie.value,
-    domain: cookie.domain,
-    path: cookie.path,
-    expires: Number.isFinite(cookie.expires) ? cookie.expires : undefined,
-    httpOnly: Boolean(cookie.httpOnly),
-    secure: Boolean(cookie.secure),
-    sameSite: cookie.sameSite ?? undefined,
-  })),
-});
-})()`;
+      const cookies = Array.isArray(metadata.cookies)
+        ? metadata.cookies
+            .filter(
+              (
+                value
+              ): value is {
+                name: string;
+                value: string;
+                domain: string;
+                path: string;
+                expires?: number;
+                httpOnly?: boolean;
+                secure?: boolean;
+                sameSite?: string;
+              } =>
+                !!value &&
+                typeof value === 'object' &&
+                typeof (value as Record<string, unknown>)['name'] === 'string' &&
+                typeof (value as Record<string, unknown>)['value'] === 'string' &&
+                typeof (value as Record<string, unknown>)['domain'] === 'string' &&
+                typeof (value as Record<string, unknown>)['path'] === 'string'
+            )
+            .map((cookie) => ({
+              name: cookie.name,
+              value: cookie.value,
+              domain: cookie.domain,
+              path: cookie.path,
+              ...(typeof cookie.expires === 'number' ? { expires: cookie.expires } : {}),
+              httpOnly: cookie.httpOnly === true,
+              secure: cookie.secure === true,
+              ...(typeof cookie.sameSite === 'string' ? { sameSite: cookie.sameSite } : {}),
+            }))
+        : [];
 
-    const rawResult = await this.executeBrowserCommand(sessionId, extractionCode);
+      const referer = (metadata.url as string) ?? null;
+      const origin = this.resolveOrigin(metadata.url as string);
+      const cookieHeader = this.buildCookieHeader(cookies);
 
-    const parsed = this.parseBrowserJson<{
-      url?: string;
-      title?: string;
-      playlistTitle?: string | null;
-      items?: unknown;
-      userAgent?: string | null;
-      cookies?: unknown;
-    }>(rawResult, sessionId, 'Live view playlist extraction returned invalid JSON.');
+      logger.info('[LiveViewSession] Playlist extracted via AI', {
+        sessionId,
+        url: metadata.url,
+        title: metadata.title,
+        itemCount: items.length,
+        cookieCount: cookies.length,
+      });
 
-    const items = Array.isArray(parsed.items)
-      ? parsed.items
-          .filter(
-            (
-              value
-            ): value is {
-              index: number;
-              itemId?: string | null;
-              title?: string;
-              url?: string | null;
-              durationText?: string | null;
-              thumbnailUrl?: string | null;
-              textSnippet?: string | null;
-              isCurrent?: boolean;
-            } =>
-              !!value &&
-              typeof value === 'object' &&
-              typeof (value as Record<string, unknown>)['index'] === 'number' &&
-              typeof (value as Record<string, unknown>)['title'] === 'string'
-          )
-          .map((item) => ({
-            index: item.index,
-            itemId: typeof item.itemId === 'string' ? item.itemId : null,
-            title: item.title?.trim() || 'Untitled clip',
-            url: typeof item.url === 'string' ? item.url : null,
-            durationText: typeof item.durationText === 'string' ? item.durationText : null,
-            thumbnailUrl: typeof item.thumbnailUrl === 'string' ? item.thumbnailUrl : null,
-            textSnippet: typeof item.textSnippet === 'string' ? item.textSnippet : null,
-            isCurrent: item.isCurrent === true,
-          }))
-      : [];
+      return {
+        url: (metadata.url as string) ?? '',
+        title: (metadata.title as string) ?? '',
+        playlistTitle:
+          typeof metadata.playlistTitle === 'string' && metadata.playlistTitle.trim().length > 0
+            ? metadata.playlistTitle.trim()
+            : null,
+        items,
+        auth: {
+          userAgent:
+            typeof metadata.userAgent === 'string' ? metadata.userAgent : null,
+          referer,
+          origin,
+          cookieHeader,
+          cookies,
+        },
+      };
+    } catch (error) {
+      if (error instanceof AgentEngineError) {
+        throw error;
+      }
 
-    const cookies = Array.isArray(parsed.cookies)
-      ? parsed.cookies
-          .filter(
-            (
-              value
-            ): value is {
-              name: string;
-              value: string;
-              domain: string;
-              path: string;
-              expires?: number;
-              httpOnly?: boolean;
-              secure?: boolean;
-              sameSite?: string;
-            } =>
-              !!value &&
-              typeof value === 'object' &&
-              typeof (value as Record<string, unknown>)['name'] === 'string' &&
-              typeof (value as Record<string, unknown>)['value'] === 'string' &&
-              typeof (value as Record<string, unknown>)['domain'] === 'string' &&
-              typeof (value as Record<string, unknown>)['path'] === 'string'
-          )
-          .map((cookie) => ({
-            name: cookie.name,
-            value: cookie.value,
-            domain: cookie.domain,
-            path: cookie.path,
-            ...(typeof cookie.expires === 'number' ? { expires: cookie.expires } : {}),
-            httpOnly: cookie.httpOnly === true,
-            secure: cookie.secure === true,
-            ...(typeof cookie.sameSite === 'string' ? { sameSite: cookie.sameSite } : {}),
-          }))
-      : [];
-
-    if (items.length === 0) {
       throw new AgentEngineError(
         'LIVE_VIEW_REQUEST_FAILED',
-        'No playlist clips or linked video items were detected in the active live view.',
-        { metadata: { sessionId, url: parsed.url } }
+        error instanceof Error
+          ? error.message
+          : 'Failed to extract playlist items. Ensure a playlist or clip collection is visible.',
+        { metadata: { sessionId } }
       );
     }
-
-    const referer = parsed.url ?? null;
-    const origin = this.resolveOrigin(parsed.url);
-    const cookieHeader = this.buildCookieHeader(cookies);
-
-    logger.info('[LiveViewSession] Playlist extracted', {
-      sessionId,
-      url: parsed.url,
-      itemCount: items.length,
-      cookieCount: cookies.length,
-    });
-
-    return {
-      url: parsed.url ?? '',
-      title: parsed.title ?? '',
-      playlistTitle:
-        typeof parsed.playlistTitle === 'string' && parsed.playlistTitle.trim().length > 0
-          ? parsed.playlistTitle.trim()
-          : null,
-      items,
-      auth: {
-        userAgent: typeof parsed.userAgent === 'string' ? parsed.userAgent : null,
-        referer,
-        origin,
-        cookieHeader,
-        cookies,
-      },
-    };
   }
 
+  /**
+   * Parse AI-generated playlist response to extract structured clip items.
+   * Handles various response formats (labeled lists, markdown, etc.)
+   */
+  private parsePlaylistFromResponse(
+    response: string
+  ): Array<{
+    index: number;
+    itemId: string | null;
+    title: string;
+    url: string | null;
+    durationText: string | null;
+    thumbnailUrl: string | null;
+    textSnippet: string | null;
+    isCurrent: boolean;
+  }> {
+    const items: Array<{
+      index: number;
+      itemId: string | null;
+      title: string;
+      url: string | null;
+      durationText: string | null;
+      thumbnailUrl: string | null;
+      textSnippet: string | null;
+      isCurrent: boolean;
+    }> = [];
+
+    // Split response by common delimiters (---, ===, numbered items, etc.)
+    const itemBlocks = response
+      .split(/(?:---|===|##\s+Item|\d+\.|Clip\s+\d+)/i)
+      .filter((block) => block.trim().length > 10);
+
+    for (let i = 0; i < itemBlocks.length && items.length < 100; i++) {
+      const block = itemBlocks[i];
+
+      // Extract title
+      const titleMatch = block.match(/title\s*[:=]\s*\[?([^\]\n]+)\]?/i);
+      const title = titleMatch ? titleMatch[1].trim() : '';
+
+      // Extract URL
+      const urlMatch = block.match(/url\s*[:=]\s*(https?:\/\/[^\s\n\]]+)/i);
+      const url = urlMatch ? urlMatch[1].trim() : null;
+
+      // Extract duration
+      const durationMatch = block.match(/duration\s*[:=]\s*(\d{1,2}:\d{2}(?::\d{2})?|\d+\s*(?:sec|min|ms))/i);
+      const durationText = durationMatch ? durationMatch[1].trim() : null;
+
+      // Extract thumbnail URL
+      const thumbnailMatch = block.match(/thumbnail\s*[:=]\s*(https?:\/\/[^\s\n\]]+)/i);
+      const thumbnailUrl = thumbnailMatch ? thumbnailMatch[1].trim() : null;
+
+      if (title || url) {
+        items.push({
+          index: items.length + 1,
+          itemId: null,
+          title: title || 'Untitled clip',
+          url,
+          durationText,
+          thumbnailUrl,
+          textSnippet: block.substring(0, 100),
+          isCurrent: false,
+        });
+      }
+    }
+
+    return items;
+  }
   /**
    * Execute a browser action (click, type, scroll, etc.) in an active session.
    * Runs Playwright code directly on the session's page.
@@ -1479,22 +1394,42 @@ return JSON.stringify({
 
     logger.info('[LiveViewSession] Executing action', { sessionId, action: action.type });
 
-    let code: string;
+    let prompt: string;
+
     switch (action.type) {
-      case 'click':
-        code = `await page.click(${this.quoteJsString(action.selector ?? '')});`;
+      case 'click': {
+        const target = action.selector
+          ? `matching selector "${action.selector}"`
+          : 'visible on this page';
+        prompt = `Click on the interactive element ${target}. If you cannot find it, describe what you attempted.`;
         break;
-      case 'type':
-        code = `await page.fill(${this.quoteJsString(action.selector ?? '')}, ${this.quoteJsString(action.text ?? '')});`;
+      }
+
+      case 'type': {
+        const target = action.selector
+          ? `matching selector "${action.selector}"`
+          : 'currently focused';
+        const text = action.text ?? '';
+        prompt = `Type the text "${text}" into the input field ${target}. Confirm when complete.`;
         break;
-      case 'scroll':
-        code = action.selector
-          ? `await page.locator(${this.quoteJsString(action.selector)}).scrollIntoViewIfNeeded();`
-          : `await page.mouse.wheel(0, ${action.amount ?? 500});`;
+      }
+
+      case 'scroll': {
+        if (action.selector) {
+          prompt = `Scroll the element matching selector "${action.selector}" into view. Wait for any content to load.`;
+        } else {
+          const amount = Math.max(action.amount ?? 500, 100);
+          prompt = `Scroll down the page by approximately ${amount} pixels. Wait for content to load if needed.`;
+        }
         break;
-      case 'wait':
-        code = `await page.waitForTimeout(${Math.min(action.ms ?? 1000, 5000)});`;
+      }
+
+      case 'wait': {
+        const ms = Math.min(action.ms ?? 1000, 5000);
+        prompt = `Wait ${ms} milliseconds for the page to update or content to load. Then describe the current state.`;
         break;
+      }
+
       default:
         return {
           success: false,
@@ -1502,9 +1437,24 @@ return JSON.stringify({
         };
     }
 
-    await this.executeBrowserCommand(sessionId, code);
+    try {
+      const result = await this.executeBrowserPrompt(sessionId, prompt);
 
-    return { success: true, message: `Action "${action.type}" completed` };
+      logger.info('[LiveViewSession] Action completed via AI', {
+        sessionId,
+        actionType: action.type,
+        resultLength: result.length,
+      });
+
+      return { success: true, message: result };
+    } catch (error) {
+      logger.error('[LiveViewSession] Action failed', {
+        sessionId,
+        actionType: action.type,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
   }
 
   /**
@@ -1543,6 +1493,35 @@ return JSON.stringify({
     }
 
     const output = (result.output ?? result.stdout ?? result.result ?? '').trim();
+
+    if (output.length > 0 && output.length < MIN_PROMPT_OUTPUT_CHARS_FOR_CONFIDENCE) {
+      try {
+        const probe = await this.collectInteractiveProbe(sessionId);
+        if (probe && (probe.interactiveSnapshot || probe.fullSnapshot)) {
+          const sections = [
+            probe.interactiveSnapshot
+              ? `Interactive snapshot:\n${probe.interactiveSnapshot}`
+              : '',
+            probe.fullSnapshot ? `Full snapshot:\n${probe.fullSnapshot}` : '',
+          ].filter((section) => section.length > 0);
+
+          if (sections.length > 0) {
+            const enrichedOutput = `${output}\n\nPage grounding details:\n${sections.join('\n\n')}`;
+            logger.info('[LiveViewSession] Prompt output enriched with deterministic probe', {
+              sessionId,
+              outputLength: output.length,
+              enrichedLength: enrichedOutput.length,
+            });
+            return { success: true, output: enrichedOutput.slice(0, 30_000) };
+          }
+        }
+      } catch (err) {
+        logger.warn('[LiveViewSession] Prompt probe enrichment failed', {
+          sessionId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
 
     logger.info('[LiveViewSession] Prompt completed', {
       sessionId,

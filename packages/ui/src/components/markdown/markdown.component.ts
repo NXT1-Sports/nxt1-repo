@@ -298,7 +298,9 @@ const markedInstance = new Marked({
         line-height: 1.6;
         font-family: var(--nxt1-fontFamily-mono, 'SF Mono', 'Fira Code', monospace);
         color: var(--nxt1-color-text-primary, #ffffff);
-        white-space: pre;
+        white-space: pre-wrap;
+        word-break: break-word;
+        overflow-wrap: break-word;
         tab-size: 2;
       }
 

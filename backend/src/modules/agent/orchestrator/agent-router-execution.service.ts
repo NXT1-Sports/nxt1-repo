@@ -5,6 +5,7 @@ import type {
   AgentSessionContext,
   AgentTask,
   AgentTaskStatus,
+  AgentToolDefinition,
   AgentToolAccessContext,
 } from '@nxt1/core';
 import { COORDINATOR_AGENT_IDS } from '@nxt1/core';
@@ -17,16 +18,17 @@ import type { OnStreamEvent } from '../queue/event-writer.js';
 import type { ApprovalGateService } from '../services/approval-gate.service.js';
 import type { SkillRegistry } from '../skills/skill-registry.js';
 import type { ToolRegistry } from '../tools/tool-registry.js';
-import { parallelBatch } from '../utils/parallel-batch.js';
 import { logger } from '../../../utils/logger.js';
 import type { AgentRouterTelemetryService } from './agent-router-telemetry.service.js';
+import { isToolAllowedByPatterns, getRouterToolPolicy } from '../agents/tool-policy.js';
 
 export type AgentExecutionMutableTask = Omit<
   AgentTask,
-  'status' | 'assignedAgent' | 'description'
+  'status' | 'assignedAgent' | 'description' | 'displayLabel'
 > & {
   status: AgentTaskStatus;
   assignedAgent: Exclude<AgentIdentifier, 'router'>;
+  displayLabel?: string;
   description: string;
   _lastError?: string;
 };
@@ -43,11 +45,42 @@ type TelemetryDeps = Pick<
 >;
 
 const routableCoordinatorSet = new Set<string>(COORDINATOR_AGENT_IDS);
+const SEMANTIC_MATCH_THRESHOLD = 0.35;
+const SAFETY_BUFFER_THRESHOLD = 0.2;
+const ROUTER_POLICY_PATTERNS = getRouterToolPolicy();
+const TOOL_COMPANION_MAP: Readonly<Record<string, readonly string[]>> = {
+  runway_generate_video: ['runway_check_task'],
+  runway_edit_video: ['runway_check_task'],
+  runway_upscale_video: ['runway_check_task'],
+};
 
 function isRoutableCoordinatorAgent(
   agentId: string
 ): agentId is Exclude<AgentIdentifier, 'router'> {
   return routableCoordinatorSet.has(agentId);
+}
+
+function addCompanionTools(
+  selected: readonly AgentToolDefinition[],
+  allowed: readonly AgentToolDefinition[]
+): readonly AgentToolDefinition[] {
+  const finalTools = new Map(selected.map((tool) => [tool.name, tool]));
+
+  for (const tool of selected) {
+    const companions = TOOL_COMPANION_MAP[tool.name] ?? [];
+    for (const companionName of companions) {
+      if (finalTools.has(companionName)) {
+        continue;
+      }
+
+      const companion = allowed.find((candidate) => candidate.name === companionName);
+      if (companion) {
+        finalTools.set(companion.name, companion);
+      }
+    }
+  }
+
+  return [...finalTools.values()];
 }
 
 export class AgentRouterExecutionService {
@@ -113,6 +146,7 @@ export class AgentRouterExecutionService {
     const taskResults = new Map<string, AgentOperationResult>();
     const mutableTasks = plan.tasks.map((task) => ({
       ...task,
+      displayLabel: task.displayLabel,
       _lastError: undefined as string | undefined,
     })) as AgentExecutionMutableTask[];
 
@@ -137,21 +171,24 @@ export class AgentRouterExecutionService {
         break;
       }
 
-      for (const task of ready) {
-        task.status = 'in_progress' as AgentTaskStatus;
-        this.telemetry.emitUpdate(
-          onUpdate,
-          operationId,
-          'acting',
-          `Running task ${task.id}: ${task.description}`,
-          { eventType: 'task_started', taskId: task.id },
-          {
-            agentId: task.assignedAgent,
-            stage: 'agent_thinking',
-            metadata: { taskId: task.id },
-          }
-        );
-      }
+      // Serial execution: run exactly one task per loop iteration so the UI
+      // shows one active step at a time. Parallelism within a task (the
+      // coordinator's own tool execution) is unaffected by this change.
+      const activeTask = ready[0]!;
+      activeTask.status = 'in_progress' as AgentTaskStatus;
+      this.telemetry.emitUpdate(
+        onUpdate,
+        operationId,
+        'acting',
+        `Running task ${activeTask.id}: ${activeTask.description}`,
+        { eventType: 'task_started', taskId: activeTask.id },
+        {
+          agentId: activeTask.assignedAgent,
+          stage: 'agent_thinking',
+          metadata: { taskId: activeTask.id },
+        }
+      );
+      this.emitActivePlannerCard(onStreamEvent, mutableTasks, activeTask.id);
 
       const completedAtBatchStart = Object.fromEntries(
         [...taskResults.entries()].map(([key, value]) => [key, value])
@@ -222,22 +259,56 @@ export class AgentRouterExecutionService {
             let toolDefs = this.toolRegistry.getDefinitions(agent.id, toolAccessContext);
             try {
               const intentEmbedding = await this.llm.embed(taskIntent);
-              const matchedToolDefs = await this.toolRegistry.match(
+              const matchedToolDefs = await this.toolRegistry.matchWithScores(
                 intentEmbedding,
                 (text) => this.llm.embed(text),
                 agent.id,
                 toolAccessContext
               );
 
-              const matchedNonSystemToolCount = matchedToolDefs.filter(
+              const semanticMatched = matchedToolDefs.filter(
+                (tool) => tool.semanticScore >= SEMANTIC_MATCH_THRESHOLD
+              );
+
+              const safetyBuffer = matchedToolDefs.filter((tool) => {
+                if (tool.semanticScore < SAFETY_BUFFER_THRESHOLD) return false;
+                if (tool.category === 'system') return true;
+                if (!tool.isMutation) return true;
+                return isToolAllowedByPatterns(tool.name, ROUTER_POLICY_PATTERNS);
+              });
+
+              const finalTools = new Map<string, (typeof matchedToolDefs)[number]>();
+              for (const tool of semanticMatched) finalTools.set(tool.name, tool);
+              for (const tool of safetyBuffer) finalTools.set(tool.name, tool);
+
+              const selectedScored = [...finalTools.values()];
+              const selected = addCompanionTools(selectedScored, toolDefs);
+              const matchedNonSystemToolCount = selected.filter(
                 (tool) => tool.category !== 'system'
               ).length;
 
-              if (matchedToolDefs.length > 0 && matchedNonSystemToolCount > 0) {
-                toolDefs = matchedToolDefs;
+              if (selected.length > 0 && matchedNonSystemToolCount > 0) {
+                toolDefs = selected.map((definition) => ({ ...definition }));
+
+                logger.info('[AgentRouter] Hybrid tool narrowing selected tools', {
+                  operationId,
+                  taskId: task.id,
+                  agentId: agent.id,
+                  selectedTools: selectedScored.map((tool) => ({
+                    name: tool.name,
+                    score: Number(tool.semanticScore.toFixed(3)),
+                    reason:
+                      tool.semanticScore >= SEMANTIC_MATCH_THRESHOLD
+                        ? 'semantic_match'
+                        : 'safety_buffer',
+                  })),
+                  companionTools: selected
+                    .map((tool) => tool.name)
+                    .filter((toolName) => !selectedScored.some((tool) => tool.name === toolName)),
+                });
               } else {
                 logger.warn(
-                  '[AgentRouter] Semantic tool narrowing was too sparse — using full allowed tool set',
+                  '[AgentRouter] Hybrid tool narrowing was too sparse — using full allowed tool set',
                   {
                     operationId,
                     taskId: task.id,
@@ -407,18 +478,9 @@ export class AgentRouterExecutionService {
         }
       };
 
-      const frontierResults = await parallelBatch(ready, runTask, { concurrency: 5 });
-
+      // Run the single active task — AbortError and AgentYieldException propagate naturally.
+      await runTask(activeTask);
       this.throwIfAborted(signal);
-
-      for (const frontierResult of frontierResults) {
-        if (frontierResult.status === 'rejected' && this.isAbortError(frontierResult.reason)) {
-          throw frontierResult.reason;
-        }
-        if (frontierResult.status === 'rejected' && isAgentYield(frontierResult.reason)) {
-          throw frontierResult.reason;
-        }
-      }
     }
 
     const executionDurationMs = Date.now() - executionPhaseStartMs;
@@ -490,11 +552,16 @@ export class AgentRouterExecutionService {
     }
   }
 
+  /**
+   * Emits the planner card after a task completes. All items show their final
+   * done/pending state; none are marked active.
+   * Only emitted when the plan has ≥3 tasks — single/dual-task plans run silently.
+   */
   private emitPlannerCard(
     onStreamEvent: OnStreamEvent | undefined,
     mutableTasks: readonly AgentExecutionMutableTask[]
   ): void {
-    if (!onStreamEvent) return;
+    if (!onStreamEvent || mutableTasks.length < 3) return;
 
     onStreamEvent({
       type: 'card',
@@ -505,8 +572,39 @@ export class AgentRouterExecutionService {
         payload: {
           items: mutableTasks.map((task) => ({
             id: task.id,
-            label: task.description,
+            label: task.displayLabel ?? task.description,
             done: task.status === ('completed' as AgentTaskStatus),
+            active: false,
+          })),
+        },
+      },
+    });
+  }
+
+  /**
+   * Emits the planner card when a task starts executing, marking exactly one
+   * item as active so the UI can show an in-progress spinner.
+   * Only emitted when the plan has ≥3 tasks.
+   */
+  private emitActivePlannerCard(
+    onStreamEvent: OnStreamEvent | undefined,
+    mutableTasks: readonly AgentExecutionMutableTask[],
+    activeTaskId: string
+  ): void {
+    if (!onStreamEvent || mutableTasks.length < 3) return;
+
+    onStreamEvent({
+      type: 'card',
+      cardData: {
+        agentId: 'router',
+        type: 'planner',
+        title: 'Execution Plan',
+        payload: {
+          items: mutableTasks.map((task) => ({
+            id: task.id,
+            label: task.displayLabel ?? task.description,
+            done: task.status === ('completed' as AgentTaskStatus),
+            active: task.id === activeTaskId,
           })),
         },
       },

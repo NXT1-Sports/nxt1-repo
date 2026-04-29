@@ -1443,12 +1443,20 @@ export class AgentXOperationsLogComponent {
         this._operations.update((ops) => {
           const idx = ops.findIndex((op) => op.threadId === evt.threadId);
           if (idx >= 0) {
-            if (ops[idx]?.status === evt.status) {
+            const prior = ops[idx];
+            if (!prior) return ops;
+
+            if (prior.status === evt.status) {
               return ops;
             }
             // Update existing entry's status in place
             return ops.map((op) =>
-              op.threadId === evt.threadId ? { ...op, status: evt.status } : op
+              op.threadId === evt.threadId
+                ? {
+                    ...op,
+                    status: evt.status,
+                  }
+                : op
             );
           }
           // New operation — insert at the top of the list

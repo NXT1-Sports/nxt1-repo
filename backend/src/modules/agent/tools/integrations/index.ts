@@ -188,3 +188,6 @@ export { WebSearchTool } from './web/web-search.tool.js';
 
 // ── Email — Multi-provider sending ───────────────────────────────────────
 export { SendEmailTool } from './email/send-email.tool.js';
+
+// ── Support — Ticketing and escalation ───────────────────────────────────
+export { CreateSupportTicketTool } from '../support/create-support-ticket.tool.js';

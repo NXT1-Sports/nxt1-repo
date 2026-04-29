@@ -9,6 +9,7 @@
 
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../../base.tool.js';
 import type { RunwayMcpBridgeService } from './runway-mcp-bridge.service.js';
+import { extractRunwayTaskDetails } from './runway-task-result.util.js';
 import { z } from 'zod';
 
 export class RunwayUpscaleVideoTool extends BaseTool {
@@ -54,11 +55,23 @@ export class RunwayUpscaleVideoTool extends BaseTool {
         model,
       })) as Record<string, unknown>;
 
+      const taskDetails = extractRunwayTaskDetails(result);
+      if (!taskDetails.taskId) {
+        return {
+          success: false,
+          error: 'Runway accepted the video upscale request but did not return a task ID.',
+          data: {
+            status: taskDetails.status,
+            debugKeys: taskDetails.debugKeys,
+          },
+        };
+      }
+
       return {
         success: true,
         data: {
-          taskId: result['id'] ?? result['uuid'],
-          status: (result['status'] as string) ?? 'PENDING',
+          taskId: taskDetails.taskId,
+          status: taskDetails.status,
           message:
             'Video upscale task submitted. Use runway_check_task with the taskId to poll for completion.',
         },

@@ -124,6 +124,23 @@ function extractPayload(result: McpToolCallResult): unknown {
   }
 }
 
+function summarizePayload(payload: unknown): {
+  readonly payloadType: string;
+  readonly keys: readonly string[];
+} {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    return {
+      payloadType: Array.isArray(payload) ? 'array' : typeof payload,
+      keys: [],
+    };
+  }
+
+  return {
+    payloadType: 'object',
+    keys: Object.keys(payload as Record<string, unknown>).sort(),
+  };
+}
+
 // ── Bridge Service ───────────────────────────────────────────────────────────
 
 export class RunwayMcpBridgeService extends BaseMcpClientService {
@@ -197,7 +214,10 @@ export class RunwayMcpBridgeService extends BaseMcpClientService {
       );
     }
 
-    return extractPayload(result);
+    const payload = extractPayload(result);
+    const summary = summarizePayload(payload);
+    logger.info('[RunwayMCP] runway_generateVideo payload summary', summary);
+    return payload;
   }
 
   /**
@@ -235,7 +255,10 @@ export class RunwayMcpBridgeService extends BaseMcpClientService {
       );
     }
 
-    return extractPayload(result);
+    const payload = extractPayload(result);
+    const summary = summarizePayload(payload);
+    logger.info('[RunwayMCP] runway_textToVideo payload summary', summary);
+    return payload;
   }
 
   /**
@@ -272,7 +295,10 @@ export class RunwayMcpBridgeService extends BaseMcpClientService {
       );
     }
 
-    return extractPayload(result);
+    const payload = extractPayload(result);
+    const summary = summarizePayload(payload);
+    logger.info('[RunwayMCP] runway_editVideo payload summary', summary);
+    return payload;
   }
 
   /**
@@ -313,7 +339,10 @@ export class RunwayMcpBridgeService extends BaseMcpClientService {
       );
     }
 
-    return extractPayload(result);
+    const payload = extractPayload(result);
+    const summary = summarizePayload(payload);
+    logger.info('[RunwayMCP] runway_upscaleVideo payload summary', summary);
+    return payload;
   }
 
   /**

@@ -718,6 +718,39 @@ describe('AgentWorker', () => {
     expect(mockQueueService.unregisterController).toHaveBeenCalledWith(payload.operationId);
   });
 
+  it('force-fails stale parent operations so queued children do not wait forever', async () => {
+    const payload = makePayload({
+      operationId: 'op-child-stale-1',
+      context: { parentOperationId: 'op-parent-stale-1' },
+    });
+    const job = makeMockJob(payload);
+
+    const staleIso = new Date(Date.now() - (2 * 60 * 60 * 1000 + 6 * 60 * 1000)).toISOString();
+
+    mockJobRepo.getById.mockImplementation(async (operationId: string) => {
+      if (operationId === 'op-parent-stale-1') {
+        return {
+          operationId,
+          status: 'acting',
+          createdAt: staleIso,
+          updatedAt: staleIso,
+        };
+      }
+      if (operationId === payload.operationId) {
+        return { operationId, status: 'queued' };
+      }
+      return null;
+    });
+
+    await capturedProcessor!(job);
+
+    expect(mockJobRepo.markFailed).toHaveBeenCalledWith(
+      'op-parent-stale-1',
+      'Parent operation became stale while a child operation was blocked waiting for completion.'
+    );
+    expect(mockRouter.run).toHaveBeenCalledTimes(1);
+  });
+
   it('should publish deltas immediately (live) and non-deltas after persisted seq', async () => {
     const payload = makePayload();
     const job = makeMockJob(payload);

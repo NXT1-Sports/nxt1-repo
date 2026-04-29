@@ -92,6 +92,36 @@ function isAgentIdentifier(value: unknown): value is AgentIdentifier {
 
 const MAX_TIMEOUT_AUTO_CONTINUATIONS = 6;
 const PARENT_OPERATION_POLL_MS = 1_000;
+const PARENT_OPERATION_MAX_WAIT_MS = JOB_TIMEOUT_MS + 5 * 60_000;
+const PARENT_OPERATION_STALE_HEARTBEAT_MS = JOB_TIMEOUT_MS + 5 * 60_000;
+
+function toMillis(value: unknown): number | null {
+  if (!value) return null;
+
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === 'string') {
+    const parsed = Date.parse(value);
+    return Number.isNaN(parsed) ? null : parsed;
+  }
+
+  if (value instanceof Date) {
+    const ms = value.getTime();
+    return Number.isFinite(ms) ? ms : null;
+  }
+
+  if (typeof value === 'object' && value !== null) {
+    const maybeTimestamp = value as { toMillis?: () => number };
+    if (typeof maybeTimestamp.toMillis === 'function') {
+      const ms = maybeTimestamp.toMillis();
+      return Number.isFinite(ms) ? ms : null;
+    }
+  }
+
+  return null;
+}
 
 function isJobTimeoutError(err: unknown): err is Error {
   if (!(err instanceof Error)) return false;
@@ -359,6 +389,8 @@ export class AgentWorker {
       parentOperationId,
     });
 
+    const waitStartedAtMs = Date.now();
+
     const waitOnce = async (): Promise<void> => {
       if (signal?.aborted) {
         throw createAbortError('Queued child operation aborted before parent completion');
@@ -379,6 +411,40 @@ export class AgentWorker {
         parentJob.status === 'failed' ||
         parentJob.status === 'cancelled'
       ) {
+        return;
+      }
+
+      const nowMs = Date.now();
+      const parentUpdatedAtMs = toMillis(parentJob.updatedAt) ?? toMillis(parentJob.createdAt);
+      const elapsedWaitMs = nowMs - waitStartedAtMs;
+      const staleHeartbeatMs = parentUpdatedAtMs === null ? 0 : nowMs - parentUpdatedAtMs;
+      const exceededMaxWait = elapsedWaitMs >= PARENT_OPERATION_MAX_WAIT_MS;
+      const staleByHeartbeat =
+        parentUpdatedAtMs !== null && staleHeartbeatMs >= PARENT_OPERATION_STALE_HEARTBEAT_MS;
+
+      if (exceededMaxWait || staleByHeartbeat) {
+        const parentFailureReason =
+          'Parent operation became stale while a child operation was blocked waiting for completion.';
+
+        logger.error('Detected stale parent operation; forcing terminal failure to unblock child', {
+          operationId: payload.operationId,
+          parentOperationId,
+          parentStatus: parentJob.status,
+          elapsedWaitMs,
+          parentUpdatedAtMs,
+          staleHeartbeatMs,
+        });
+
+        try {
+          await repo.markFailed(parentOperationId, parentFailureReason);
+        } catch (err) {
+          logger.warn('Failed to mark stale parent operation as failed; unblocking child anyway', {
+            operationId: payload.operationId,
+            parentOperationId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+
         return;
       }
 
@@ -1924,6 +1990,11 @@ export class AgentWorker {
           agentId,
           operationId: payload.operationId,
           toolCalls,
+          // Idempotency key prevents duplicate rows when BullMQ retries the
+          // job after a transient failure. The key is stable per operation so
+          // a second attempt finds the existing row and returns it without
+          // creating a new one or double-incrementing thread messageCount.
+          idempotencyKey: `${payload.operationId}:final-assistant`,
           ...(persistedStreamSnapshot.steps.length > 0
             ? { steps: persistedStreamSnapshot.steps }
             : {}),

@@ -197,8 +197,39 @@ function reconcileToolPairs(messages: LLMMessage[]): LLMMessage[] {
 }
 
 /**
+ * Remove consecutive text-only assistant messages with identical content.
+ *
+ * This guards against the race where `ThreadMessageWriter` writes the final
+ * LLM text turn mid-loop AND the worker's final persist step writes the same
+ * content again with enriched metadata (steps, parts, toolCalls). Both rows
+ * are valid from the LLM-replay perspective but would cause the UI to display
+ * the answer twice when the thread is reloaded.
+ *
+ * Only consecutive pure-text assistant messages are collapsed \u2014 tool-calling
+ * turns and user messages are never touched.
+ */
+function deduplicateConsecutiveAssistantMessages(messages: LLMMessage[]): LLMMessage[] {
+  const out: LLMMessage[] = [];
+  for (const m of messages) {
+    if (m.role === 'assistant' && !m.tool_calls?.length && out.length > 0) {
+      const prev = out[out.length - 1];
+      if (
+        prev.role === 'assistant' &&
+        !prev.tool_calls?.length &&
+        (prev.content ?? '') === (m.content ?? '')
+      ) {
+        // Duplicate text-only assistant turn \u2014 skip the second occurrence.
+        continue;
+      }
+    }
+    out.push(m);
+  }
+  return out;
+}
+
+/**
  * Trim from the head until total approximate tokens fit `maxTokens`.
- * Always keeps the final assistant↔tool pair contiguous \u2014 we never split
+ * Always keeps the final assistant↔tool pair contiguous — we never split
  * an assistant.tool_calls from its resolving tool rows even if the budget
  * would otherwise force it.
  */
@@ -276,13 +307,15 @@ export class ThreadMessageReplayService {
     }
 
     const reconciled = reconcileToolPairs(projected);
-    const trimmed = trimToBudget(reconciled, maxTokens);
+    const deduped = deduplicateConsecutiveAssistantMessages(reconciled);
+    const trimmed = trimToBudget(deduped, maxTokens);
 
     logger.debug('[ThreadMessageReplay] Loaded', {
       threadId,
       rawCount: rawDocs.length,
       projectedCount: projected.length,
       reconciledCount: reconciled.length,
+      dedupedCount: deduped.length,
       finalCount: trimmed.length,
     });
 

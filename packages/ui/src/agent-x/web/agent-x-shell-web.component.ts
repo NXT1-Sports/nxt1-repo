@@ -167,7 +167,6 @@ interface AgentXDesktopSession {
     | 'awaiting_input'
     | 'awaiting_approval'
     | null;
-  readonly errorMessage?: string | null;
   readonly yieldState?: AgentYieldState;
   /** When set, the mounted op-chat immediately connects to this resumed stream. */
   readonly resumeOperationId?: string;
@@ -528,7 +527,6 @@ function sortCoordinatorCategories(
                 [resumeOperationId]="session.resumeOperationId ?? ''"
                 [yieldState]="session.yieldState ?? null"
                 [operationStatus]="session.operationStatus ?? null"
-                [errorMessage]="session.errorMessage ?? null"
                 [user]="user()"
                 (userMessageSent)="onUserMessageSent()"
                 (responseComplete)="onResponseComplete()"
