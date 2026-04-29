@@ -12,7 +12,8 @@
  * - `getAvailableTools()` — Array of tool names this agent is allowed to use.
  * - `getModelRouting()` — Default model tier for this agent's tasks.
  *
- * The ReAct loop is capped at MAX_ITERATIONS to prevent runaway execution.
+ * The ReAct loop is capped by the runtime-configured maxAgenticTurns value to
+ * prevent runaway execution.
  */
 
 import type {
@@ -56,9 +57,6 @@ import { getToolLoopDetector } from '../services/tool-loop-detector.service.js';
 import { getPromptBudgetService } from '../services/prompt-budget.service.js';
 import { getThreadMessageWriter } from '../memory/thread-message-writer.service.js';
 import { logger } from '../../../utils/logger.js';
-
-/** Maximum tool-calling iterations before we force the agent to respond. */
-const MAX_ITERATIONS = 20;
 
 /**
  * Maximum characters for a single tool observation fed back to the LLM.
@@ -253,7 +251,8 @@ export abstract class BaseAgent {
    *   1. Build system prompt + inject tool schemas.
    *   2. Call LLM with conversation history.
    *   3. If LLM requests tool calls → execute them → feed observations back.
-   *   4. Repeat until LLM responds with text (no more tool calls) or MAX_ITERATIONS.
+   *   4. Repeat until LLM responds with text (no more tool calls) or the
+   *      configured maxAgenticTurns limit.
    *   5. Return the final text as the operation result.
    */
   async execute(
@@ -719,7 +718,9 @@ export abstract class BaseAgent {
   ): Promise<AgentOperationResult> {
     // ── ReAct Loop ────────────────────────────────────────────────────────
 
-    for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
+    const maxIterations = getCachedAgentAppConfig().operationalLimits.maxAgenticTurns;
+
+    for (let iteration = 0; iteration < maxIterations; iteration++) {
       this.throwIfAborted(context.signal);
 
       // Prune the context window before every LLM call (except the first iteration
@@ -746,7 +747,7 @@ export abstract class BaseAgent {
         );
       }
 
-      logger.info(`[${this.id}] Iteration ${iteration + 1}/${MAX_ITERATIONS}`, {
+      logger.info(`[${this.id}] Iteration ${iteration + 1}/${maxIterations}`, {
         agentId: this.id,
         iteration: iteration + 1,
       });
@@ -1135,7 +1136,7 @@ export abstract class BaseAgent {
     }
 
     logger.warn(
-      `[${this.id}] Max iterations (${MAX_ITERATIONS}) reached — returning partial result`,
+      `[${this.id}] Max iterations (${maxIterations}) reached — returning partial result`,
       {
         agentId: this.id,
         userId: context.userId,
