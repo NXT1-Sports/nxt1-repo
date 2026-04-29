@@ -18,6 +18,8 @@ import { CACHE_KEYS as USER_CACHE_KEYS } from '../../../../../services/profile/u
 import { invalidateProfileCaches } from '../../../../../routes/profile/shared.js';
 import { logger } from '../../../../../utils/logger.js';
 import { resolveCreatedAt, seasonToDate, yearToDate } from '../doc-date-utils.js';
+import { SyncDiffService, type PreviousProfileState } from '../../../sync/index.js';
+import { onDailySyncComplete } from '../../../triggers/trigger.listeners.js';
 import { z } from 'zod';
 
 export const AWARDS_COLLECTION = 'Awards';
@@ -128,6 +130,23 @@ export class WriteAwardsTool extends BaseTool {
     }
 
     const awardsCol = this.db.collection(AWARDS_COLLECTION);
+    const previousAwardsSnap = await awardsCol
+      .where('userId', '==', userId)
+      .where('sport', '==', sportId)
+      .get();
+    const previousState: PreviousProfileState = {
+      awards: previousAwardsSnap.docs.map((doc) => {
+        const data = doc.data();
+        return {
+          title: data['title'],
+          season: data['season'] ?? data['year'] ?? null,
+          category: data['category'],
+          sport: data['sport'],
+          issuer: data['issuer'],
+        };
+      }),
+    };
+
     let written = 0;
     let skipped = 0;
 
@@ -228,6 +247,60 @@ export class WriteAwardsTool extends BaseTool {
       ]);
     } catch {
       // Non-fatal — cache invalidation failure should not fail the tool
+    }
+
+    if (written > 0) {
+      try {
+        const diffService = new SyncDiffService();
+        const extractedProfile = {
+          platform: source,
+          profileUrl: sourceUrl ?? '',
+          awards: awards
+            .map((entry) => {
+              const award = entry as Record<string, unknown>;
+              const title = this.str(award, 'title');
+              if (!title) return null;
+              const season = this.str(award, 'season') ?? this.str(award, 'year') ?? undefined;
+              return {
+                title,
+                ...(season ? { season } : {}),
+                ...(this.str(award, 'category') ? { category: this.str(award, 'category') } : {}),
+                ...(this.str(award, 'sport')
+                  ? { sport: this.str(award, 'sport')?.toLowerCase() }
+                  : {}),
+                ...(this.str(award, 'issuer') ? { issuer: this.str(award, 'issuer') } : {}),
+              };
+            })
+            .filter((entry): entry is NonNullable<typeof entry> => entry !== null),
+        };
+        const delta = diffService.diff(
+          userId,
+          sportId,
+          source,
+          previousState,
+          extractedProfile as unknown as import('../../integrations/firecrawl/scraping/distillers/distiller.types.js').DistilledProfile
+        );
+
+        if (!delta.isEmpty) {
+          logger.info('[WriteAwardsTool] Delta detected, firing sync trigger', {
+            userId,
+            sport: sportId,
+            totalChanges: delta.summary.totalChanges,
+          });
+          onDailySyncComplete(delta).catch((err) => {
+            logger.warn('[WriteAwardsTool] Trigger dispatch failed', {
+              userId,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          });
+        }
+      } catch (err) {
+        logger.warn('[WriteAwardsTool] Delta computation failed', {
+          userId,
+          sport: sportId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
     }
 
     return {

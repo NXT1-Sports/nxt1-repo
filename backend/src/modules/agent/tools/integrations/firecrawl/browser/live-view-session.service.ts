@@ -215,6 +215,63 @@ export class LiveViewSessionService {
     }
   }
 
+  private parseBrowserJson<T>(raw: string, sessionId: string, failureMessage: string): T {
+    const candidates: string[] = [];
+    const trimmed = raw.trim();
+    if (trimmed) {
+      candidates.push(trimmed);
+    }
+
+    const fencedMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
+    if (fencedMatch?.[1]) {
+      candidates.push(fencedMatch[1].trim());
+    }
+
+    const objectMatch = raw.match(/(\{[\s\S]*\})/);
+    if (objectMatch?.[1]) {
+      candidates.push(objectMatch[1].trim());
+    }
+
+    const arrayMatch = raw.match(/(\[[\s\S]*\])/);
+    if (arrayMatch?.[1]) {
+      candidates.push(arrayMatch[1].trim());
+    }
+
+    let lastError: unknown;
+
+    for (const candidate of [...new Set(candidates)].filter((value) => value.length > 0)) {
+      try {
+        return JSON.parse(candidate) as T;
+      } catch (err) {
+        lastError = err;
+
+        const repaired = candidate
+          .replace(/^\uFEFF/, '')
+          .replace(/[\u201C\u201D]/g, '"')
+          .replace(/[\u2018\u2019]/g, "'")
+          .replace(/,\s*([}\]])/g, '$1');
+
+        if (repaired !== candidate) {
+          try {
+            return JSON.parse(repaired) as T;
+          } catch (repairErr) {
+            lastError = repairErr;
+          }
+        }
+      }
+    }
+
+    logger.error('[LiveViewSession] Failed to parse browser JSON', {
+      sessionId,
+      error: lastError instanceof Error ? lastError.message : String(lastError ?? 'Unknown error'),
+      rawPreview: raw.slice(0, 350),
+    });
+
+    throw new AgentEngineError('LIVE_VIEW_REQUEST_FAILED', failureMessage, {
+      metadata: { sessionId },
+    });
+  }
+
   /**
    * Fully destroy a Firecrawl scrape-based session.
    *
@@ -872,7 +929,7 @@ return JSON.stringify({
 
     const rawResult = await this.executeBrowserCommand(sessionId, extractionCode);
 
-    let parsed: {
+    const parsed = this.parseBrowserJson<{
       url?: string;
       title?: string;
       streams?: unknown;
@@ -880,22 +937,7 @@ return JSON.stringify({
       blobSrc?: string | null;
       userAgent?: string | null;
       cookies?: unknown;
-    };
-    try {
-      parsed = JSON.parse(rawResult) as {
-        url?: string;
-        title?: string;
-        streams?: unknown;
-        currentSrc?: string | null;
-        blobSrc?: string | null;
-      };
-    } catch {
-      throw new AgentEngineError(
-        'LIVE_VIEW_REQUEST_FAILED',
-        'Live view media extraction returned invalid JSON.',
-        { metadata: { sessionId } }
-      );
-    }
+    }>(rawResult, sessionId, 'Live view media extraction returned invalid JSON.');
 
     const streams = Array.isArray(parsed.streams)
       ? [...new Set(parsed.streams.filter((value): value is string => typeof value === 'string'))]
@@ -1312,30 +1354,14 @@ return JSON.stringify({
 
     const rawResult = await this.executeBrowserCommand(sessionId, extractionCode);
 
-    let parsed: {
+    const parsed = this.parseBrowserJson<{
       url?: string;
       title?: string;
       playlistTitle?: string | null;
       items?: unknown;
       userAgent?: string | null;
       cookies?: unknown;
-    };
-    try {
-      parsed = JSON.parse(rawResult) as {
-        url?: string;
-        title?: string;
-        playlistTitle?: string | null;
-        items?: unknown;
-        userAgent?: string | null;
-        cookies?: unknown;
-      };
-    } catch {
-      throw new AgentEngineError(
-        'LIVE_VIEW_REQUEST_FAILED',
-        'Live view playlist extraction returned invalid JSON.',
-        { metadata: { sessionId } }
-      );
-    }
+    }>(rawResult, sessionId, 'Live view playlist extraction returned invalid JSON.');
 
     const items = Array.isArray(parsed.items)
       ? parsed.items

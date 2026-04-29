@@ -61,7 +61,7 @@ export interface AgentXAttachment {
 /**
  * Role of a message sender in the chat.
  */
-export type ChatRole = 'user' | 'assistant' | 'system';
+export type ChatRole = 'user' | 'assistant' | 'system' | 'tool';
 
 // ============================================
 // MESSAGE PARTS — Copilot-style interleaved rendering

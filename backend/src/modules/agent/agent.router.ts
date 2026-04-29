@@ -58,6 +58,7 @@ import {
 import { AgentRouterRequestBootstrapService } from './orchestrator/agent-router-request-bootstrap.service.js';
 import { AgentRouterResumeService } from './orchestrator/agent-router-resume.service.js';
 import { AgentRouterTelemetryService } from './orchestrator/agent-router-telemetry.service.js';
+import { getThreadMessageReplayService } from './memory/thread-message-replay.service.js';
 import { logger } from '../../utils/logger.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
@@ -105,13 +106,8 @@ export class AgentRouter {
     this.telemetryService = new AgentRouterTelemetryService();
     this.policyService = new AgentRouterPolicyService(this.planner);
     this.requestBootstrapService = new AgentRouterRequestBootstrapService(
-      llm,
-      toolRegistry,
       semanticCache,
-      this.routerContextService,
-      this.telemetryService,
-      this.policyService,
-      skillRegistry
+      this.telemetryService
     );
     this.finalizationService = new AgentRouterFinalizationService(
       semanticCache,
@@ -215,7 +211,6 @@ export class AgentRouter {
       ? await getAgentRunConfig(firestore)
       : DEFAULT_AGENT_RUN_CONFIG;
     const taskMaxRetries = agentRunConfig.taskMaxRetries;
-    const maxDelegationDepth = agentRunConfig.maxDelegationDepth;
     const maxAgenticTurns = agentRunConfig.maxAgenticTurns;
 
     const priorTurnCount =
@@ -468,6 +463,44 @@ export class AgentRouter {
       }
     }
 
+    // Phase C (thread-as-truth): on every turn, the canonical conversation
+    // is rehydrated from MongoDB — not from Redis session memory or a
+    // truncated thread-history string. This is the single source of truth
+    // pattern used by OpenAI Assistants v2, Anthropic Messages, and VS
+    // Code Copilot. The replay service returns a structurally-valid
+    // `LLMMessage[]` (system/user/assistant/tool with tool_calls +
+    // tool_call_id pairing intact) ready to feed straight into
+    // OpenRouter.
+    let canonicalHistory: readonly AgentSessionMessage[] | undefined =
+      sessionContext?.conversationHistory;
+    if (threadId) {
+      try {
+        const replayed = await getThreadMessageReplayService().loadAsLLMMessages(threadId, {
+          maxTokens: 50_000,
+        });
+        // Map LLMMessage[] → AgentSessionMessage[]. The widened
+        // AgentSessionMessage shape carries `toolCallId` and
+        // `toolCalls` so BaseAgent can rebuild the exact wire-format
+        // history.
+        canonicalHistory = replayed.map((m) => ({
+          role: m.role,
+          content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content ?? ''),
+          timestamp: new Date().toISOString(),
+          ...(m.role === 'tool' && m.tool_call_id ? { toolCallId: m.tool_call_id } : {}),
+          ...(m.role === 'assistant' && m.tool_calls ? { toolCalls: m.tool_calls } : {}),
+        }));
+        logger.info('[AgentRouter] Replayed canonical thread history', {
+          threadId,
+          messageCount: canonicalHistory.length,
+        });
+      } catch (err) {
+        logger.warn('[AgentRouter] Thread replay failed — falling back to session memory', {
+          threadId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
     const context = this.buildSessionContext(
       userId,
       sessionContext?.sessionId ?? payload.sessionId,
@@ -478,7 +511,7 @@ export class AgentRouter {
       mode,
       attachments,
       videoAttachments,
-      sessionContext?.conversationHistory
+      canonicalHistory
     );
 
     if (this.sessionMemory && threadId) {
@@ -498,14 +531,9 @@ export class AgentRouter {
     }
 
     // ── PRIMARY AGENT (default conversational path) ──────────────────────
-    // The Primary owns the full conversational surface (greetings, casual
-    // Q&A, tool-driven work) via its single ReAct loop. It dispatches to
-    // coordinators (delegate_to_coordinator) and DAG planning
-    // (plan_and_execute) via tool calls.
-    // The legacy classifier→conversation→planner triage was removed in the
-    // 2026 enterprise migration; if `payload.agent` is unset and the
-    // Primary is wired, it always handles the request.
-    const skipPlannerClassification = false;
+    // The Primary owns the full top-level conversational surface. Any request
+    // that reaches the router should enter Primary or the planner; there is no
+    // direct coordinator-routing fallback branch anymore.
 
     // ── Step 1: Build context ─────────────────────────────────────────────
     const contextPhaseStartMs = Date.now();
@@ -573,19 +601,12 @@ export class AgentRouter {
     });
     const toolAccessContext = this.policyService.buildToolAccessContext(userContext);
 
-    // Inject thread history for conversation continuity (belt-and-suspenders
-    // during rollout — can be removed once Redis session memory is stable)
-    let threadHistoryStr = '';
-    if (threadId) {
-      try {
-        threadHistoryStr = await this.contextBuilder.getRecentThreadHistory(threadId, 20);
-      } catch {
-        // Thread history is non-critical — continue without it
-      }
-    }
-
-    // Inject cross-thread awareness so the agent can answer questions like
-    // "what were our recent chats about?" even in a brand-new thread.
+    // Phase C (thread-as-truth): the canonical conversation now lives in
+    // `context.conversationHistory` as a full LLMMessage[]. The legacy
+    // 500-char `threadHistoryStr` injection was a lossy duplicate —
+    // removed. We still surface a tiny cross-thread summary so the
+    // agent can answer "what were our recent chats about?" in a
+    // brand-new thread.
     let activeThreadsSummary = '';
     try {
       activeThreadsSummary = await this.contextBuilder.getActiveThreadsSummary(userId, 8);
@@ -597,7 +618,7 @@ export class AgentRouter {
       intent,
       userContext,
       payload.context,
-      threadHistoryStr,
+      undefined,
       undefined,
       undefined,
       activeThreadsSummary
@@ -628,27 +649,6 @@ export class AgentRouter {
       });
     }
 
-    const directAgentResult = await this.requestBootstrapService.runDirectAgentPath({
-      job: payload,
-      operationId,
-      userId,
-      threadId,
-      contextObj,
-      context,
-      enrichedIntent,
-      toolAccessContext,
-      approvalGate,
-      maxDelegationDepth,
-      agents: this.agents,
-      onUpdate,
-      onStreamEvent,
-      rerunWithDelegatedPayload: (delegatedPayload) =>
-        this.run(delegatedPayload, rawOnUpdate, firestore, rawOnStreamEvent, environment, signal),
-    });
-    if (directAgentResult) {
-      return directAgentResult;
-    }
-
     const scopedIntent = this.requestBootstrapService.buildScopedCacheKey(intent, userContext);
     const cachedResult = await this.requestBootstrapService.trySemanticCache({
       operationId,
@@ -675,7 +675,6 @@ export class AgentRouter {
         onUpdate,
         onStreamEvent,
         rawOnStreamEvent,
-        skipPlannerClassification,
         signal,
       }
     );

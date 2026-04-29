@@ -17,6 +17,12 @@ import {
   APP_CONFIG_COLLECTION,
   DEFAULT_AGENT_APP_CONFIG,
 } from '../src/modules/agent/config/agent-app-config.js';
+import {
+  DEV_MODEL_CATALOGUE,
+  DEV_FALLBACK_CHAIN,
+  PROD_MODEL_CATALOGUE,
+  PROD_FALLBACK_CHAIN,
+} from '../src/modules/agent/llm/llm.types.js';
 import { PlannerAgent } from '../src/modules/agent/agents/planner.agent.js';
 import { AdminCoordinatorAgent } from '../src/modules/agent/agents/admin-coordinator.agent.js';
 import { BrandCoordinatorAgent } from '../src/modules/agent/agents/brand-coordinator.agent.js';
@@ -146,12 +152,21 @@ function buildPayload() {
       : {}),
   };
 
+  // Staging is seeded with DEV models (cheap, fast) — prod gets PROD models.
+  // The code-level MODEL_CATALOGUE is the Firestore fallback; seeding the right
+  // catalogue here ensures Firestore always reflects the intended environment.
+  const modelCatalogue = environment === 'staging' ? DEV_MODEL_CATALOGUE : PROD_MODEL_CATALOGUE;
+  const modelFallbackChain = environment === 'staging' ? DEV_FALLBACK_CHAIN : PROD_FALLBACK_CHAIN;
+
   return {
     schemaVersion: 1,
     updatedAt: new Date().toISOString(),
     operationalLimits: DEFAULT_AGENT_APP_CONFIG.operationalLimits,
     domainKnowledge: DEFAULT_AGENT_APP_CONFIG.domainKnowledge,
-    modelRouting: DEFAULT_AGENT_APP_CONFIG.modelRouting,
+    modelRouting: {
+      catalogue: modelCatalogue,
+      fallbackChains: modelFallbackChain,
+    },
     prompts: buildPromptTemplates(),
     featureFlags,
     coordinators: DEFAULT_AGENT_APP_CONFIG.coordinators,

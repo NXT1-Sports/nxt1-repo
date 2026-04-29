@@ -22,6 +22,8 @@ import { ContextBuilder } from '../../../memory/context-builder.js';
 import { getAnalyticsLoggerService } from '../../../../../services/core/analytics-logger.service.js';
 import { logger } from '../../../../../utils/logger.js';
 import { resolveCreatedAt } from '../doc-date-utils.js';
+import { SyncDiffService, type PreviousProfileState } from '../../../sync/index.js';
+import { onDailySyncComplete } from '../../../triggers/trigger.listeners.js';
 import { z } from 'zod';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
@@ -118,6 +120,23 @@ export class WriteCombineMetricsTool extends BaseTool {
       }
       const now = new Date().toISOString();
       const metricsCol = this.db.collection(PLAYER_METRICS_COLLECTION);
+
+      const previousMetricsSnap = await metricsCol
+        .where('userId', '==', userId)
+        .where('sportId', '==', sportId)
+        .get();
+      const previousState: PreviousProfileState = {
+        metrics: previousMetricsSnap.docs.map((doc) => {
+          const data = doc.data();
+          return {
+            field: data['field'],
+            label: data['label'],
+            value: data['value'],
+            unit: data['unit'],
+            category: data['category'],
+          };
+        }),
+      };
 
       context?.emitStage?.('submitting_job', {
         icon: 'database',
@@ -249,8 +268,63 @@ export class WriteCombineMetricsTool extends BaseTool {
         });
       }
 
-      // Metrics writes are intentionally excluded from the deterministic sync-delta
-      // trigger flow until they have a dedicated first-class diff model.
+      if (written > 0) {
+        try {
+          const diffService = new SyncDiffService();
+          const extractedProfile = {
+            platform: source,
+            profileUrl: sourceUrl ?? '',
+            metrics: metrics
+              .map((metric) => {
+                const field = this.str(metric as Record<string, unknown>, 'field');
+                const label = this.str(metric as Record<string, unknown>, 'label');
+                const value = (metric as Record<string, unknown>)['value'];
+                if (!field || !label || (typeof value !== 'number' && typeof value !== 'string')) {
+                  return null;
+                }
+                return {
+                  field: field.trim().toLowerCase(),
+                  label,
+                  value,
+                  ...(this.str(metric as Record<string, unknown>, 'unit')
+                    ? { unit: this.str(metric as Record<string, unknown>, 'unit') }
+                    : {}),
+                  ...(this.str(metric as Record<string, unknown>, 'category')
+                    ? { category: this.str(metric as Record<string, unknown>, 'category') }
+                    : {}),
+                };
+              })
+              .filter((entry): entry is NonNullable<typeof entry> => entry !== null),
+          };
+          const delta = diffService.diff(
+            userId,
+            sportId,
+            source,
+            previousState,
+            extractedProfile as unknown as import('../../integrations/firecrawl/scraping/distillers/distiller.types.js').DistilledProfile
+          );
+
+          if (!delta.isEmpty) {
+            logger.info('[WriteCombineMetrics] Delta detected, firing sync trigger', {
+              userId,
+              sport: sportId,
+              totalChanges: delta.summary.totalChanges,
+            });
+            onDailySyncComplete(delta).catch((err) => {
+              logger.warn('[WriteCombineMetrics] Trigger dispatch failed', {
+                userId,
+                error: err instanceof Error ? err.message : String(err),
+              });
+            });
+          }
+        } catch (err) {
+          logger.warn('[WriteCombineMetrics] Delta computation failed', {
+            userId,
+            sport: sportId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
 
       return {
         success: true,

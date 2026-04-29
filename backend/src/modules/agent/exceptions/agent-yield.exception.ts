@@ -18,15 +18,43 @@
 import type { AgentYieldReason, AgentIdentifier } from '@nxt1/core';
 import type { LLMMessage } from '../llm/llm.types.js';
 
+/**
+ * Phase N (yield-state versioning): stamp every payload with a schema
+ * version so future LLMMessage shape changes don't orphan paused
+ * threads. Resume service inspects this and applies adapter shims for
+ * older versions.
+ */
+export const AGENT_YIELD_PAYLOAD_VERSION = 1 as const;
+
 export interface AgentYieldPayload {
+  /**
+   * Phase N: schema version of this payload. Defaults to undefined for
+   * v0 records written before this field existed; resume service treats
+   * `undefined | 1` as the current shape.
+   */
+  readonly version?: number;
   /** Why the agent is yielding. */
   readonly reason: AgentYieldReason;
   /** The question / action summary shown to the user. */
   readonly promptToUser: string;
   /** Which sub-agent was executing when the yield happened. */
   readonly agentId: AgentIdentifier;
-  /** The full LLM message array at the point of suspension. */
+  /**
+   * The full LLM message array at the point of suspension.
+   *
+   * Phase L: this is now a *defensive snapshot*. The canonical source of
+   * truth on resume is `ThreadMessageReplayService.loadAsLLMMessages`.
+   * `messages` is retained only so legacy paused threads (pre-rollout)
+   * still resume correctly.
+   */
   readonly messages: readonly LLMMessage[];
+  /**
+   * Phase L: the in-flight assistant turn that triggered the yield but
+   * was *not* yet persisted by ThreadMessageWriter (because the
+   * approval gate intercepted before tool execution). Resume appends
+   * this to the replayed history.
+   */
+  readonly pendingAssistantMessage?: LLMMessage;
   /** The tool call that triggered the yield (for approval-based yields). */
   readonly pendingToolCall?: {
     readonly toolName: string;

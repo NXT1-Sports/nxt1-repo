@@ -764,10 +764,10 @@ export class ContextBuilder {
         .reverse() // chronological order
         .map((m) => ({
           role: m.role as 'user' | 'assistant',
-          content:
-            m.content.length > ContextBuilder.THREAD_HISTORY_MAX_CHARS
-              ? m.content.slice(0, ContextBuilder.THREAD_HISTORY_MAX_CHARS) + '...'
-              : m.content,
+          // Phase F: no longer truncate to 500 chars \u2014 the prompt budget
+          // governor (PromptBudgetService) is the single trim authority.
+          // Pre-truncation here corrupts replay fidelity for Redis seeds.
+          content: m.content,
           timestamp:
             typeof m.createdAt === 'string' ? m.createdAt : new Date(m.createdAt).toISOString(),
         }));

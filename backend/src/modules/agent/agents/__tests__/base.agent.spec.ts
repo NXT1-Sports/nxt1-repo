@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { BaseAgent } from '../base.agent.js';
 import { ToolRegistry } from '../../tools/tool-registry.js';
 import { BaseTool, type ToolExecutionContext, type ToolResult } from '../../tools/base.tool.js';
+import { AgentDelegationException } from '../../exceptions/agent-delegation.exception.js';
 
 class FakeReadTool extends BaseTool {
   readonly name = 'fake_read_tool';
@@ -67,6 +68,23 @@ class FakeSearchCollegeCoachesTool extends BaseTool {
         schoolName: input['schoolName'],
       },
     };
+  }
+}
+
+class FakeDelegateTaskTool extends BaseTool {
+  readonly name = 'delegate_task';
+  readonly description = 'Delegates to another agent.';
+  readonly parameters = z.object({ forwarding_intent: z.string() });
+  readonly isMutation = false;
+  readonly category = 'system' as const;
+  readonly entityGroup = 'system_tools' as const;
+  override readonly allowedAgents = ['strategy_coordinator'] as const;
+
+  async execute(input: Record<string, unknown>): Promise<ToolResult> {
+    throw new AgentDelegationException({
+      forwardingIntent: String(input['forwarding_intent'] ?? 'delegate'),
+      sourceAgent: 'delegate_task_tool',
+    });
   }
 }
 
@@ -279,6 +297,63 @@ describe('BaseAgent identifier scrubbing', () => {
         expect.objectContaining({
           stepId: 'call_michigan',
           message: 'Searching coaching staff: Michigan',
+        }),
+      ])
+    );
+  });
+
+  it('emits a terminal tool_result before rethrowing delegation control flow', async () => {
+    const agent = new FakeAgent();
+    const registry = new ToolRegistry();
+    registry.register(new FakeDelegateTaskTool());
+
+    const events: Array<Record<string, unknown>> = [];
+    const llm = {
+      completeStream: vi.fn().mockResolvedValue({
+        content: 'I need to transfer this request.',
+        toolCalls: [
+          {
+            id: 'call_delegate',
+            type: 'function',
+            function: {
+              name: 'delegate_task',
+              arguments: JSON.stringify({ forwarding_intent: 'Find the right specialist' }),
+            },
+          },
+        ],
+        model: 'test-model',
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+        latencyMs: 1,
+        costUsd: 0,
+        finishReason: 'tool_calls',
+      }),
+    };
+
+    await expect(
+      agent.execute(
+        'Find the right specialist',
+        createMockContext(),
+        [],
+        llm as never,
+        registry,
+        undefined,
+        (event) => events.push(event as unknown as Record<string, unknown>)
+      )
+    ).rejects.toBeInstanceOf(AgentDelegationException);
+
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'step_active',
+          stepId: 'call_delegate',
+          toolName: 'delegate_task',
+        }),
+        expect.objectContaining({
+          type: 'tool_result',
+          stepId: 'call_delegate',
+          toolName: 'delegate_task',
+          toolSuccess: true,
+          toolResult: { delegated: true },
         }),
       ])
     );

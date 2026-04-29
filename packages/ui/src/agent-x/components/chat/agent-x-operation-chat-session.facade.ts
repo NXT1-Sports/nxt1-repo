@@ -348,69 +348,82 @@ export class AgentXOperationChatSessionFacade {
         return;
       }
 
-      const mapped: OperationMessage[] = items.map((message) => {
-        const persistedSteps: AgentXToolStep[] = (message.steps ?? []).filter(
-          (step): step is AgentXToolStep =>
-            typeof step.label === 'string' &&
-            step.label.trim().length > 0 &&
-            step.stageType === 'tool'
-        );
+      const mapped: OperationMessage[] = items
+        // Phase J (thread-as-truth): tool/system rows are persisted
+        // for backend replay only — they must not render as chat
+        // bubbles. Filter them out at the boundary.
+        .filter(
+          (message): message is typeof message & { role: 'user' | 'assistant' } =>
+            message.role === 'user' || message.role === 'assistant'
+        )
+        .map((message) => {
+          const persistedSteps: AgentXToolStep[] = (message.steps ?? []).filter(
+            (step): step is AgentXToolStep =>
+              typeof step.label === 'string' &&
+              step.label.trim().length > 0 &&
+              step.stageType === 'tool'
+          );
 
-        const persistedParts =
-          message.parts?.map((part) =>
-            part.type === 'tool-steps'
-              ? {
-                  type: 'tool-steps' as const,
-                  steps: part.steps.filter(
-                    (step): step is AgentXToolStep =>
-                      typeof step.label === 'string' &&
-                      step.label.trim().length > 0 &&
-                      step.stageType === 'tool'
-                  ),
-                }
-              : part.type === 'card'
+          const persistedParts =
+            message.parts?.map((part) =>
+              part.type === 'tool-steps'
                 ? {
-                    type: 'card' as const,
-                    card: {
-                      ...part.card,
-                      agentId:
-                        typeof (part.card as { agentId?: unknown }).agentId === 'string'
-                          ? (part.card as { agentId: AgentXRichCard['agentId'] }).agentId
-                          : 'router',
-                    },
+                    type: 'tool-steps' as const,
+                    steps: part.steps.filter(
+                      (step): step is AgentXToolStep =>
+                        typeof step.label === 'string' &&
+                        step.label.trim().length > 0 &&
+                        step.stageType === 'tool'
+                    ),
                   }
-                : part
-          ) ?? [];
+                : part.type === 'card'
+                  ? {
+                      type: 'card' as const,
+                      card: {
+                        ...part.card,
+                        agentId:
+                          typeof (part.card as { agentId?: unknown }).agentId === 'string'
+                            ? (part.card as { agentId: AgentXRichCard['agentId'] }).agentId
+                            : 'router',
+                      },
+                    }
+                  : part
+            ) ?? [];
 
-        return {
-          id: message.id ?? host.uid(),
-          role: message.role === 'user' ? 'user' : 'assistant',
-          operationId: typeof message.operationId === 'string' ? message.operationId : undefined,
-          content: message.content.replace(/\n\n\[Attached (?:file|video): .+/gs, '').trim(),
-          timestamp: message.createdAt ? new Date(message.createdAt) : new Date(),
-          ...(persistedSteps.length > 0 ? { steps: persistedSteps } : {}),
-          ...(persistedParts.length > 0 ? { parts: persistedParts } : {}),
-          ...(typeof message.resultData?.['imageUrl'] === 'string'
-            ? { imageUrl: message.resultData['imageUrl'] as string }
-            : {}),
-          ...(typeof message.resultData?.['videoUrl'] === 'string'
-            ? { videoUrl: message.resultData['videoUrl'] as string }
-            : {}),
-          ...((message.attachments?.length ?? 0) > 0
-            ? {
-                attachments: (message.attachments ?? []).map((attachment) => ({
-                  url: attachment.url,
-                  name: attachment.name,
-                  type: (attachment.type === 'image'
-                    ? 'image'
-                    : attachment.type === 'video'
-                      ? 'video'
-                      : 'doc') as 'image' | 'video' | 'doc',
-                })),
-              }
-            : {}),
-        };
-      });
+          return {
+            id: message.id ?? host.uid(),
+            // Phase J (thread-as-truth): preserve role fidelity. The
+            // chat session computed signal filters tool/system rows so
+            // they don't render as visible bubbles — but they are kept
+            // in the persisted feed so debugging/replay tooling can
+            // surface them.
+            role: message.role,
+            operationId: typeof message.operationId === 'string' ? message.operationId : undefined,
+            content: message.content.replace(/\n\n\[Attached (?:file|video): .+/gs, '').trim(),
+            timestamp: message.createdAt ? new Date(message.createdAt) : new Date(),
+            ...(persistedSteps.length > 0 ? { steps: persistedSteps } : {}),
+            ...(persistedParts.length > 0 ? { parts: persistedParts } : {}),
+            ...(typeof message.resultData?.['imageUrl'] === 'string'
+              ? { imageUrl: message.resultData['imageUrl'] as string }
+              : {}),
+            ...(typeof message.resultData?.['videoUrl'] === 'string'
+              ? { videoUrl: message.resultData['videoUrl'] as string }
+              : {}),
+            ...((message.attachments?.length ?? 0) > 0
+              ? {
+                  attachments: (message.attachments ?? []).map((attachment) => ({
+                    url: attachment.url,
+                    name: attachment.name,
+                    type: (attachment.type === 'image'
+                      ? 'image'
+                      : attachment.type === 'video'
+                        ? 'video'
+                        : 'doc') as 'image' | 'video' | 'doc',
+                  })),
+                }
+              : {}),
+          };
+        });
 
       this.messageFacade.messages.set(mapped);
 

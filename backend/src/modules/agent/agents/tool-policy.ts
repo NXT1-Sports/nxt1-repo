@@ -33,6 +33,7 @@ const GLOBAL_SYSTEM_TOOL_POLICY: readonly ToolPattern[] = composeToolPatterns([
   'delegate_task',
   'track_analytics_event',
   'search_memory',
+  'search_memories',
   'get_recent_sync_summaries',
   'delete_memory',
   'dynamic_export',

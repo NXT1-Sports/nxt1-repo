@@ -121,6 +121,9 @@ export class AgentXOperationChatMessageFacade {
       Boolean(streamedMessage?.parts?.length) ||
       Boolean(streamedMessage?.cards?.length) ||
       Boolean(streamedMessage?.steps?.length);
+    const hasVisibleRichCard =
+      Boolean(streamedMessage?.cards?.length) ||
+      Boolean(streamedMessage?.parts?.some((part) => part.type === 'card'));
 
     const persistedMessageId =
       typeof params.messageId === 'string' && this.isPersistedMessageId(params.messageId)
@@ -146,6 +149,38 @@ export class AgentXOperationChatMessageFacade {
         messages.map((message) =>
           message.id === params.streamingId
             ? { ...message, id: localFailureId, isTyping: false }
+            : message
+        )
+      );
+      return;
+    }
+
+    if (hasVisibleRichCard) {
+      const localSuccessId = this.uid();
+      this.logger.warn(
+        'Keeping local rich-card assistant message without persisted DB message ID',
+        {
+          source: params.source,
+          contextId: host.contextId(),
+          contextType: host.contextType(),
+          streamingId: params.streamingId,
+          threadId:
+            (typeof params.threadId === 'string' && params.threadId.trim().length > 0
+              ? params.threadId.trim()
+              : null) ??
+            host.resolvedThreadId() ??
+            (host.threadId().trim() || null),
+        }
+      );
+
+      this.messages.update((messages) =>
+        messages.map((message) =>
+          message.id === params.streamingId
+            ? {
+                ...message,
+                id: localSuccessId,
+                isTyping: false,
+              }
             : message
         )
       );

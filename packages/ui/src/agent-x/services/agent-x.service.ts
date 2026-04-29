@@ -75,6 +75,7 @@ import type { ConnectedAppSource } from '../components/modals/agent-x-attachment
 
 /** sessionStorage key for in-flight operation drop-recovery. */
 const AGENT_X_PENDING_OP_KEY = 'nxt1_pending_agent_op';
+const AGENT_X_PENDING_PLAYBOOK_OP_KEY = 'nxt1_pending_playbook_op';
 const AGENT_X_WEEKLY_TASKS_GOAL_ID = 'recurring';
 const AGENT_X_WEEKLY_TASKS_GOAL_LABEL = 'Weekly Tasks';
 
@@ -206,6 +207,7 @@ export class AgentXService {
   private readonly _goalHistory = signal<CompletedGoalRecord[]>([]);
   private readonly _goalHistoryLoading = signal(false);
   private readonly _goalHistoryError = signal<string | null>(null);
+  private _playbookResumePollingInFlight = false;
 
   // ============================================
   // PUBLIC READONLY COMPUTED SIGNALS
@@ -648,7 +650,11 @@ export class AgentXService {
         return;
       }
 
-      const messages = persistedMessages.map((message) => this.mapPersistedMessageToUi(message));
+      const messages = persistedMessages
+        // Phase J (thread-as-truth): tool/system rows are persisted for
+        // backend replay only — they must not render as chat bubbles.
+        .filter((m) => m.role === 'user' || m.role === 'assistant')
+        .map((message) => this.mapPersistedMessageToUi(message));
 
       this._messages.set(messages);
       this._currentThreadId.set(threadId);
@@ -965,7 +971,11 @@ export class AgentXService {
 
     return {
       id: message.id || this.generateId(),
-      role: message.role === 'user' ? ('user' as const) : ('assistant' as const),
+      // Phase J (thread-as-truth): preserve role fidelity. Persisted
+      // tool/system rows surface as their true role and are filtered
+      // out of the chat-bubble feed by the consuming component's
+      // computed signal (see `agent-x-fab-chat-panel`).
+      role: message.role,
       content: displayContent,
       timestamp: message.createdAt ? new Date(message.createdAt) : new Date(),
       ...(imageUrl ? { imageUrl } : {}),
@@ -1052,6 +1062,8 @@ export class AgentXService {
       this._dashboardError.set(message);
     } finally {
       this._dashboardLoading.set(false);
+      // If a playbook job was queued before refresh/navigation, resume polling.
+      void this.resumePendingPlaybookGenerationFromStorage();
     }
   }
 
@@ -1254,28 +1266,20 @@ export class AgentXService {
 
       const operationId = enqueueResponse.data.operationId;
       this.logger.info('Playbook generation queued', { operationId, force });
+      this.persistPendingPlaybookOperation(operationId);
 
       const pollResult = await this.pollPlaybookGenerationStatus(operationId);
       if (!pollResult.success) {
-        this.toast.error(pollResult.error ?? 'Playbook generation failed');
+        // Keep the pending marker on timeout so refresh can resume background polling.
+        if (!pollResult.timedOut) {
+          this.clearPendingPlaybookOperation();
+          this.toast.error(pollResult.error ?? 'Playbook generation failed');
+        }
         return;
       }
 
-      if (pollResult.playbook) {
-        // Append new items to existing ones rather than replacing.
-        // Completed/snoozed items from prior batches are preserved so
-        // the progress bar shows cumulative weekly progress (e.g. 5 of 10).
-        const existing = this._weeklyPlaybook();
-        const newItems = pollResult.playbook.items as ShellWeeklyPlaybookItem[];
-        const existingIds = new Set(existing.map((i) => i.id));
-        const uniqueNew = newItems.filter((i) => !existingIds.has(i.id));
-        this._weeklyPlaybook.set([...existing, ...uniqueNew]);
-        this.resetCategoryFilter();
-        this._playbookGeneratedAt.set(pollResult.playbook.generatedAt);
-      } else {
-        // Fallback: refresh dashboard if worker completion payload is unavailable.
-        await this.loadDashboard();
-      }
+      this.clearPendingPlaybookOperation();
+      await this.applyPlaybookPollResult(pollResult.playbook, force);
 
       this._canRegenerate.set(true);
       this.toast.success('Weekly playbook generated!');
@@ -1295,6 +1299,7 @@ export class AgentXService {
     success: boolean;
     playbook: AgentDashboardPlaybook | null;
     error?: string;
+    timedOut?: boolean;
   }> {
     type PlaybookStatusPayload = {
       operationId: string;
@@ -1326,6 +1331,7 @@ export class AgentXService {
           success: false,
           playbook: null,
           error: response.error ?? 'Failed to fetch playbook generation status',
+          timedOut: false,
         };
       }
 
@@ -1342,6 +1348,7 @@ export class AgentXService {
           success: false,
           playbook: null,
           error: response.data.error ?? 'Playbook generation failed',
+          timedOut: false,
         };
       }
 
@@ -1354,7 +1361,112 @@ export class AgentXService {
       success: false,
       playbook: null,
       error: 'Playbook generation timed out. Please refresh in a moment.',
+      timedOut: true,
     };
+  }
+
+  private async applyPlaybookPollResult(
+    playbook: AgentDashboardPlaybook | null,
+    forceRegenerate = false
+  ): Promise<void> {
+    if (playbook) {
+      const newItems = playbook.items as ShellWeeklyPlaybookItem[];
+
+      // Forced regenerations should immediately reflect the server-generated
+      // playbook, even when IDs are reused. This fixes the stale UI case where
+      // nothing changed until a full app refresh.
+      if (forceRegenerate) {
+        this._weeklyPlaybook.set([...newItems]);
+      } else {
+        // Non-forced generation keeps previous completed/snoozed items while
+        // appending any truly new IDs.
+        const existing = this._weeklyPlaybook();
+        const existingIds = new Set(existing.map((i) => i.id));
+        const uniqueNew = newItems.filter((i) => !existingIds.has(i.id));
+        this._weeklyPlaybook.set([...existing, ...uniqueNew]);
+      }
+
+      this.resetCategoryFilter();
+      this._playbookGeneratedAt.set(playbook.generatedAt);
+      return;
+    }
+
+    // Fallback: refresh dashboard if worker completion payload is unavailable.
+    await this.loadDashboard();
+  }
+
+  private persistPendingPlaybookOperation(operationId: string): void {
+    if (!isPlatformBrowser(this.platformId)) return;
+    try {
+      sessionStorage.setItem(
+        AGENT_X_PENDING_PLAYBOOK_OP_KEY,
+        JSON.stringify({ operationId, savedAt: Date.now() })
+      );
+    } catch {
+      // Non-blocking best-effort persistence.
+    }
+  }
+
+  private readPendingPlaybookOperation(): string | null {
+    if (!isPlatformBrowser(this.platformId)) return null;
+    try {
+      const raw = sessionStorage.getItem(AGENT_X_PENDING_PLAYBOOK_OP_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as { operationId?: unknown };
+      return typeof parsed.operationId === 'string' ? parsed.operationId : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private clearPendingPlaybookOperation(): void {
+    if (!isPlatformBrowser(this.platformId)) return;
+    try {
+      sessionStorage.removeItem(AGENT_X_PENDING_PLAYBOOK_OP_KEY);
+    } catch {
+      // Non-blocking best-effort cleanup.
+    }
+  }
+
+  private async resumePendingPlaybookGenerationFromStorage(): Promise<void> {
+    if (!isPlatformBrowser(this.platformId)) return;
+    if (this._playbookGenerating()) return;
+    if (this._playbookResumePollingInFlight) return;
+
+    const operationId = this.readPendingPlaybookOperation();
+    if (!operationId) return;
+
+    this._playbookResumePollingInFlight = true;
+    this._playbookGenerating.set(true);
+    this.logger.info('Resuming pending playbook generation polling', { operationId });
+
+    try {
+      const pollResult = await this.pollPlaybookGenerationStatus(operationId);
+
+      if (!pollResult.success) {
+        if (!pollResult.timedOut) {
+          this.clearPendingPlaybookOperation();
+          this.logger.warn('Pending playbook operation ended unsuccessfully', {
+            operationId,
+            error: pollResult.error,
+          });
+        }
+        return;
+      }
+
+      this.clearPendingPlaybookOperation();
+      await this.applyPlaybookPollResult(pollResult.playbook, true);
+      this._canRegenerate.set(true);
+      this.toast.success('Weekly playbook generated in background');
+    } catch (err) {
+      this.logger.warn('Failed to resume pending playbook polling', {
+        operationId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      this._playbookGenerating.set(false);
+      this._playbookResumePollingInFlight = false;
+    }
   }
 
   /**

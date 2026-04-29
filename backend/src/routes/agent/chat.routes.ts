@@ -64,7 +64,6 @@ const LIVE_BUFFER_MAX_EVENTS = 500;
 const PAUSE_YIELD_TTL_MS = 24 * 60 * 60 * 1000;
 const PAUSE_RESUME_TOOL_NAME = 'resume_paused_operation';
 const AGENT_STREAM_EVENT_SCHEMA_VERSION = 2;
-
 const activeUserStreams = new Map<string, Set<string>>();
 
 interface ActiveOperationStreamLease {
@@ -394,13 +393,63 @@ function writeSseHeaders(res: Response): void {
   res.socket?.setNoDelay(true);
 }
 
+function buildBillingGateState(
+  code: 'WALLET_EMPTY' | 'NO_PAYMENT_METHOD' | 'BUDGET_EXCEEDED',
+  description: string
+): {
+  title: string;
+  content: string;
+  payload: {
+    reason: 'payment_method_required' | 'limit_reached' | 'insufficient_funds';
+    description: string;
+  };
+} {
+  if (code === 'NO_PAYMENT_METHOD') {
+    return {
+      title: 'Add a Payment Method',
+      content: `${description} Add a payment method to continue this request.`,
+      payload: {
+        reason: 'payment_method_required',
+        description,
+      },
+    };
+  }
+
+  if (code === 'BUDGET_EXCEEDED') {
+    return {
+      title: 'Budget Limit Reached',
+      content: `${description} Update your billing limits to continue this request.`,
+      payload: {
+        reason: 'limit_reached',
+        description,
+      },
+    };
+  }
+
+  return {
+    title: 'Add Funds to Continue',
+    content: `${description} Add funds to continue this request.`,
+    payload: {
+      reason: 'insufficient_funds',
+      description,
+    },
+  };
+}
+
 function streamBillingGateToSse(params: {
   res: Response;
   threadId?: string;
-  code: 'WALLET_EMPTY' | 'NO_PAYMENT_METHOD' | 'BUDGET_EXCEEDED';
-  description: string;
+  billingState: {
+    title: string;
+    content: string;
+    payload: {
+      reason: 'payment_method_required' | 'limit_reached' | 'insufficient_funds';
+      description: string;
+    };
+  };
+  messageId?: string;
 }): void {
-  const { res, threadId, code, description } = params;
+  const { res, threadId, billingState, messageId } = params;
   writeSseHeaders(res);
 
   let seq = 0;
@@ -415,34 +464,6 @@ function streamBillingGateToSse(params: {
     seq: ++seq,
     emittedAt: new Date().toISOString(),
   });
-
-  const billingState =
-    code === 'NO_PAYMENT_METHOD'
-      ? {
-          title: 'Add a Payment Method',
-          content: `${description} Add a payment method to continue this request.`,
-          payload: {
-            reason: 'payment_method_required',
-            description,
-          },
-        }
-      : code === 'BUDGET_EXCEEDED'
-        ? {
-            title: 'Budget Limit Reached',
-            content: `${description} Update your billing limits to continue this request.`,
-            payload: {
-              reason: 'limit_reached',
-              description,
-            },
-          }
-        : {
-            title: 'Add Funds to Continue',
-            content: `${description} Add funds to continue this request.`,
-            payload: {
-              reason: 'insufficient_funds',
-              description,
-            },
-          };
 
   if (threadId) {
     res.write(
@@ -477,6 +498,7 @@ function streamBillingGateToSse(params: {
     `event: done\ndata: ${JSON.stringify({
       ...buildEnvelope(),
       ...(threadId ? { threadId } : {}),
+      ...(messageId ? { messageId } : {}),
       status: 'complete',
     })}\n\n`
   );
@@ -553,26 +575,30 @@ async function enqueueWithOutbox(
  * as a child. Without this guard, two parallel agents can race on the same
  * thread, double-charge tokens, and emit interleaved SSE streams.
  *
- * Policy (controlled by `concurrency.threadSupersedeOnYield` flag):
+ * Policy:
  *   • If a prior op is in a *yielded* state (awaiting_approval / awaiting_input /
- *     paused) → cancel it. The user has chosen to ignore the prompt and move on.
+ *     paused) and `concurrency.threadSupersedeOnYield=true` → cancel it.
  *   • If a prior op is *actively running* (queued / thinking / acting /
- *     streaming_result) → also cancel it. New user input takes priority over
- *     stale work; the alternative (queueing) creates head-of-line blocking
- *     and unpredictable UX.
+ *     streaming_result) → do not cancel it. Queue the new op behind the
+ *     latest active op by returning its operationId as `parentOperationId`.
  *
- * Returns the list of cancelled operationIds so the caller can emit
- * client-visible cancellation events.
+ * This matches the Primary Agent rollout plan: new user input supersedes stale
+ * yielded work, but preserves in-flight execution order for running work.
  */
 async function enforceThreadConcurrencyPolicy(
   db: Firestore,
   threadId: string,
   newOperationId: string
-): Promise<string[]> {
-  if (!threadId || !jobRepository || !queueService) return [];
+): Promise<{
+  cancelledOperationIds: string[];
+  parentOperationId?: string;
+}> {
+  if (!threadId || !jobRepository || !queueService) {
+    return { cancelledOperationIds: [] };
+  }
 
   const cfg = getCachedAgentAppConfig();
-  if (!cfg.concurrency.threadSupersedeOnYield) return [];
+  const supersedeOnYield = cfg.concurrency.threadSupersedeOnYield;
 
   let active: Awaited<ReturnType<typeof jobRepository.findActiveByThread>>;
   try {
@@ -582,16 +608,23 @@ async function enforceThreadConcurrencyPolicy(
       threadId,
       error: err instanceof Error ? err.message : String(err),
     });
-    return [];
+    return { cancelledOperationIds: [] };
   }
 
-  if (active.length === 0) return [];
+  if (active.length === 0) return { cancelledOperationIds: [] };
 
   const cancelled: string[] = [];
+  const yieldedStatuses = new Set(['paused', 'awaiting_input', 'awaiting_approval']);
+  const runningStatuses = new Set(['queued', 'thinking', 'acting', 'streaming_result']);
+
   for (const op of active) {
     if (!op.operationId || op.operationId === newOperationId) continue;
+    if (!yieldedStatuses.has(op.status)) continue;
+    if (!supersedeOnYield) continue;
+
     try {
-      // Cancel BullMQ side first so the worker aborts mid-flight.
+      // Cancel BullMQ side first so the worker aborts mid-flight or the queued
+      // yielded continuation is removed before we mark Firestore terminal.
       await queueService.cancel(op.operationId).catch((err) => {
         logger.warn('Concurrency-policy: queue cancel failed (non-fatal)', {
           operationId: op.operationId,
@@ -601,6 +634,18 @@ async function enforceThreadConcurrencyPolicy(
       // Then mark Firestore as cancelled so resume guards see the new state.
       await jobRepository.withDb(db).markCancelled(op.operationId);
       cancelled.push(op.operationId);
+
+      if (op.threadId && chatService) {
+        try {
+          await chatService.clearThreadPausedYieldState(op.threadId);
+        } catch (err) {
+          logger.warn('Concurrency-policy: failed to clear paused yield state', {
+            threadId: op.threadId,
+            operationId: op.operationId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
 
       // Notify any active SSE client subscribed to the cancelled op.
       void pubsubService
@@ -628,7 +673,20 @@ async function enforceThreadConcurrencyPolicy(
     }
   }
 
-  return cancelled;
+  const blockingOperation = active
+    .filter(
+      (op) =>
+        op.operationId &&
+        op.operationId !== newOperationId &&
+        ((runningStatuses.has(op.status) && !cancelled.includes(op.operationId)) ||
+          (!supersedeOnYield && yieldedStatuses.has(op.status)))
+    )
+    .at(-1);
+
+  return {
+    cancelledOperationIds: cancelled,
+    ...(blockingOperation?.operationId ? { parentOperationId: blockingOperation.operationId } : {}),
+  };
 }
 
 async function reconcileAgentOutbox(
@@ -2342,6 +2400,10 @@ router.post(
 
       const operationId = crypto.randomUUID();
       const sessionId = crypto.randomUUID();
+      const concurrencyDecision = resolvedThreadId
+        ? await enforceThreadConcurrencyPolicy(db, resolvedThreadId, operationId)
+        : { cancelledOperationIds: [] as string[], parentOperationId: undefined };
+
       const payload: AgentJobPayload = {
         operationId,
         userId: user.uid,
@@ -2353,14 +2415,12 @@ router.post(
           ...(userContext ?? {}),
           ...(idempotencyKey ? { idempotencyKey } : {}),
           ...(resolvedThreadId ? { threadId: resolvedThreadId } : {}),
+          ...(concurrencyDecision.parentOperationId
+            ? { parentOperationId: concurrencyDecision.parentOperationId }
+            : {}),
           ...(normalizedSelectedAction ? { selectedAction: normalizedSelectedAction } : {}),
         },
       };
-
-      // Phase 0.6 — Per-thread concurrency policy: cancel prior in-flight op.
-      if (resolvedThreadId) {
-        await enforceThreadConcurrencyPolicy(db, resolvedThreadId, operationId);
-      }
 
       await jobRepository.withDb(db).create(payload);
 
@@ -2579,6 +2639,18 @@ router.post(
         enrichedMessageText = `${enrichedMessageText}\n\n${fileRefs}`;
       }
 
+      if (!effectiveOperationId && threadId && chatService) {
+        try {
+          effectiveThreadId = await resolveThread(chatService, user.uid, threadId, message);
+        } catch (chatErr) {
+          logger.warn('Failed to resolve existing chat thread before resume check', {
+            error: chatErr instanceof Error ? chatErr.message : String(chatErr),
+            userId: user.uid,
+            threadId,
+          });
+        }
+      }
+
       if (chatService) {
         try {
           effectiveThreadId = await resolveThread(chatService, user.uid, threadId, message);
@@ -2611,15 +2683,50 @@ router.post(
         const billingCode = isWalletUser ? 'WALLET_EMPTY' : 'BUDGET_EXCEEDED';
         const billingReason =
           chatBudgetCheck.reason ?? 'Billing is required to continue this request.';
+        const billingState = buildBillingGateState(billingCode, billingReason);
         const acceptsEventStream =
           req.accepts(['text/event-stream', 'json']) === 'text/event-stream';
 
         if (acceptsEventStream) {
+          let persistedBillingMessageId: string | null = null;
+          if (chatService && effectiveThreadId) {
+            try {
+              const persistedBillingMessage = await chatService.addMessage({
+                threadId: effectiveThreadId,
+                userId: user.uid,
+                role: 'assistant',
+                content: billingState.content,
+                origin: 'agent_chain' as const,
+                agentId: 'router',
+                parts: [
+                  {
+                    type: 'card',
+                    card: {
+                      type: 'billing-action',
+                      agentId: 'router',
+                      title: billingState.title,
+                      payload: billingState.payload,
+                    },
+                  },
+                ],
+              });
+
+              persistedBillingMessageId =
+                typeof persistedBillingMessage.id === 'string' ? persistedBillingMessage.id : null;
+            } catch (chatErr) {
+              logger.warn('Failed to persist billing gate assistant message to MongoDB', {
+                error: chatErr instanceof Error ? chatErr.message : String(chatErr),
+                userId: user.uid,
+                threadId: effectiveThreadId,
+              });
+            }
+          }
+
           streamBillingGateToSse({
             res,
             threadId: effectiveThreadId ?? undefined,
-            code: billingCode,
-            description: billingReason,
+            billingState,
+            ...(persistedBillingMessageId ? { messageId: persistedBillingMessageId } : {}),
           });
           return;
         }
@@ -2641,6 +2748,10 @@ router.post(
         selectedAction: normalizedSelectedAction,
       });
       stampAgentXLastActiveAt(db, user.uid);
+      const concurrencyDecision = effectiveThreadId
+        ? await enforceThreadConcurrencyPolicy(db, effectiveThreadId, operationId)
+        : { cancelledOperationIds: [] as string[], parentOperationId: undefined };
+
       const payload: AgentJobPayload = {
         operationId,
         userId: user.uid,
@@ -2652,17 +2763,14 @@ router.post(
           ...(idempotencyKey ? { idempotencyKey } : {}),
           ...(effectiveThreadId ? { threadId: effectiveThreadId } : {}),
           ...(mode ? { mode } : {}),
+          ...(concurrencyDecision.parentOperationId
+            ? { parentOperationId: concurrencyDecision.parentOperationId }
+            : {}),
           ...(fileAttachments.length > 0 ? { attachments: fileAttachments } : {}),
           ...(videoAttachments.length > 0 ? { videoAttachments } : {}),
           ...(normalizedSelectedAction ? { selectedAction: normalizedSelectedAction } : {}),
         },
       };
-
-      // Phase 0.6 — Cancel any prior in-flight op on this thread before
-      // enqueueing the new one. Prevents double-charging and interleaved streams.
-      if (effectiveThreadId) {
-        await enforceThreadConcurrencyPolicy(db, effectiveThreadId, operationId);
-      }
 
       await jobRepository.withDb(db).create(payload);
       await enqueueWithOutbox(db, payload, environment);

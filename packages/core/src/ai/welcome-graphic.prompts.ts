@@ -40,50 +40,22 @@ export function buildAthleteWelcomePrompt(ctx: AthleteWelcomePromptContext): str
   const positionLabel = ctx.position ? ` — ${ctx.position}` : '';
 
   return [
-    'Create a professional, high-energy sports welcome graphic with the following specifications:',
-    '',
-    '## Layout',
-    '- Dimensions: square (1:1 aspect ratio), suitable for social media',
-    '- Modern sports media aesthetic with bold typography',
-    '- Clean composition with a dynamic gradient background',
-    '',
-    '## Color Palette',
-    ...(ctx.teamColors?.length
-      ? [
-          `- Team colors: ${ctx.teamColors.join(', ')}`,
-          '- Use the team colors for the gradient background, text highlights, and decorative elements',
-        ]
-      : [
-          '- Use bold, energetic colors that match the sport',
-          '- Ensure high contrast for readability',
-        ]),
+    'Create a welcome graphic for a new athlete joining the platform.',
     '',
     '## Content',
-    `- Large bold text: "WELCOME" across the top`,
-    `- Name: "${ctx.firstName.toUpperCase()}"`,
-    `- Sport badge: "${sportLabel.toUpperCase()}${positionLabel.toUpperCase()}"`,
-    '- Small NXT1 branding text in the bottom corner: "NXT1 • The Future of Sports Intelligence"',
-    ...(ctx.subjectImageUrl
-      ? [`- MUST include this exact image URL as the subject photo: ${ctx.subjectImageUrl}`]
-      : []),
+    `- Headline: "WELCOME"`,
+    `- Athlete Name: "${ctx.firstName.toUpperCase()}"`,
+    `- Sport/Role: "${sportLabel.toUpperCase()}${positionLabel.toUpperCase()}"`,
+    ...(ctx.subjectImageUrl ? [`- Athlete Photo: ${ctx.subjectImageUrl}`] : []),
+    ...(ctx.teamColors?.length
+      ? [`- Brand Colors: ${ctx.teamColors.join(', ')}`]
+      : ctx.subjectImageUrl
+        ? ['- Brand Colors: Derive the color palette from the athlete photo provided above.']
+        : []),
     '',
-    '## Style',
-    `- Genre: ${sportLabel} sports media card`,
-    '- Mood: exciting, welcoming, professional, premium',
-    '- Elements: geometric shapes, light rays, energy lines',
-    '- Typography: bold sans-serif, all-caps for name',
-    ...(ctx.subjectImageUrl
-      ? []
-      : ['- No stock photos or clip art — abstract/geometric design only']),
-    '',
-    '## Important',
-    ...(ctx.subjectImageUrl
-      ? [
-          '- Seamlessly composite the subject photo into the graphic with the design elements around them',
-        ]
-      : ['- This is a GENERATED GRAPHIC, not a photo composite']),
-    '- Make it look like an official sports network welcome card',
-    '- Ensure text is readable against the background',
+    '## Rules',
+    '- Do NOT draw, generate, or invent any logos, watermarks, or corner branding.',
+    '- Be as creative as you want with the design, style, and composition.',
   ].join('\n');
 }
 
@@ -94,46 +66,21 @@ export function buildTeamWelcomePrompt(ctx: TeamWelcomePromptContext): string {
   const sportLabel = ctx.sport ?? 'sports';
 
   return [
-    'Create a professional team welcome graphic with the following specifications:',
-    '',
-    '## Layout',
-    '- Dimensions: square (1:1 aspect ratio), suitable for social media',
-    '- Official sports organization aesthetic with bold branding',
-    '- Clean, premium composition with a dynamic gradient background',
-    '',
-    '## Color Palette',
-    ...(ctx.teamColors?.length
-      ? [
-          `- Team colors: ${ctx.teamColors.join(', ')}`,
-          '- Use the team colors for the gradient, typography accents, and borders',
-        ]
-      : [
-          '- Use bold, authoritative colors that match the sport',
-          '- Ensure high contrast for readability',
-        ]),
+    'Create a welcome graphic for a new team joining the platform.',
     '',
     '## Content',
-    `- Large bold text: "WELCOME"`,
-    `- Team name: "${ctx.teamName.toUpperCase()}"`,
-    `- Sport label: "${sportLabel.toUpperCase()}"`,
-    '- Tagline: "YOUR TEAM IS NOW ON NXT1"',
-    '- Small NXT1 branding in the bottom corner: "NXT1 • The Future of Sports Intelligence"',
-    ...(ctx.logoUrl
-      ? [`- MUST include this exact logo URL as the subjectImageUrl: ${ctx.logoUrl}`]
-      : []),
+    `- Headline: "WELCOME"`,
+    `- Team Name: "${ctx.teamName.toUpperCase()}"`,
+    `- Sport: "${sportLabel.toUpperCase()}"`,
+    ...(ctx.logoUrl ? [`- Team Logo: ${ctx.logoUrl}`] : []),
+    ...(ctx.teamColors?.length
+      ? [`- Brand Colors: ${ctx.teamColors.join(', ')}`]
+      : ctx.logoUrl
+        ? ['- Brand Colors: Derive the color palette from the team logo provided above.']
+        : []),
     '',
-    '## Style',
-    `- Genre: ${sportLabel} team announcement card`,
-    '- Mood: official, powerful, prestigious, premium',
-    '- Elements: shield/crest motifs, bold borders, geometric patterns',
-    '- Typography: bold sans-serif, all-caps, strong hierarchy',
-    ...(ctx.logoUrl ? [] : ['- No stock photos — abstract/geometric design only']),
-    '',
-    '## Important',
-    ...(ctx.logoUrl
-      ? ['- Seamlessly composite the team logo into the generated graphic']
-      : ['- This is a GENERATED GRAPHIC, not a photo composite']),
-    '- Make it look like an official program announcement',
-    '- Ensure all text is clearly readable',
+    '## Rules',
+    '- Do NOT draw, generate, or invent any logos, watermarks, or corner branding.',
+    '- Be as creative as you want with the design, style, and composition.',
   ].join('\n');
 }

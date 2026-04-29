@@ -151,6 +151,11 @@ describe('AgentWorker', () => {
     subscribeControl: vi.fn().mockResolvedValue(async () => undefined),
   };
 
+  const mockQueueService = {
+    registerController: vi.fn(),
+    unregisterController: vi.fn(),
+  };
+
   const mockChatService = {
     addMessage: vi.fn().mockResolvedValue({ id: 'msg-worker-1' }),
     updateThreadPausedYieldState: vi.fn().mockResolvedValue(true),
@@ -178,7 +183,8 @@ describe('AgentWorker', () => {
       mockFirestore,
       mockLlmService as never,
       'redis://localhost:6379',
-      mockEnqueueContinuation
+      mockEnqueueContinuation,
+      mockQueueService as never
     );
   });
 
@@ -648,6 +654,68 @@ describe('AgentWorker', () => {
 
     const finalProgress = job.updateProgress.mock.calls.at(-1)?.[0];
     expect(finalProgress.status).toBe('paused');
+  });
+
+  it('aborts queued child operations while waiting on parent completion', async () => {
+    const payload = makePayload({
+      operationId: 'op-child-1',
+      context: { parentOperationId: 'op-parent-1' },
+    });
+    const job = makeMockJob(payload);
+
+    mockPubSub.subscribeControl.mockImplementationOnce(async (_operationId, onControl) => {
+      onControl({ action: 'cancel', issuedBy: 'user' });
+      return async () => undefined;
+    });
+
+    mockJobRepo.getById.mockImplementation(async (operationId: string) => {
+      if (operationId === payload.operationId) {
+        return { operationId, status: 'queued' };
+      }
+      if (operationId === 'op-parent-1') {
+        return { operationId, status: 'running' };
+      }
+      return null;
+    });
+
+    await expect(capturedProcessor!(job)).rejects.toMatchObject({
+      name: 'AbortError',
+      message: 'Queued child operation aborted before parent completion',
+    });
+
+    expect(mockQueueService.registerController).toHaveBeenCalledWith(
+      payload.operationId,
+      expect.any(AbortController)
+    );
+    expect(mockPubSub.subscribeControl).toHaveBeenCalledWith(
+      payload.operationId,
+      expect.any(Function)
+    );
+    expect(mockRouter.run).not.toHaveBeenCalled();
+  });
+
+  it('checks parent operation status before running queued child operations', async () => {
+    const payload = makePayload({
+      operationId: 'op-child-2',
+      context: { parentOperationId: 'op-parent-2' },
+    });
+    const job = makeMockJob(payload);
+
+    mockJobRepo.getById.mockImplementation(async (operationId: string) => {
+      if (operationId === 'op-parent-2') {
+        return { operationId, status: 'completed' };
+      }
+      if (operationId === payload.operationId) {
+        return { operationId, status: 'queued' };
+      }
+      return null;
+    });
+
+    await capturedProcessor!(job);
+
+    expect(mockJobRepo.getById).toHaveBeenCalledWith('op-parent-2');
+    expect(mockRouter.run).toHaveBeenCalledTimes(1);
+    expect(mockQueueService.unregisterController).toHaveBeenCalledWith(payload.operationId);
   });
 
   it('should publish deltas immediately (live) and non-deltas after persisted seq', async () => {

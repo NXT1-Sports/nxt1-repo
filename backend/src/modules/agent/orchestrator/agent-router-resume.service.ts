@@ -156,6 +156,37 @@ export class AgentRouterResumeService {
     );
     const approvalGate = firestore ? new ApprovalGateService(firestore) : undefined;
 
+    if (firestore) {
+      try {
+        const persistedJob = await firestore.collection('AgentJobs').doc(operationId).get();
+        const persistedStatus = persistedJob.exists ? persistedJob.get('status') : undefined;
+        if (persistedStatus === 'cancelled') {
+          this.telemetry.emitUpdate(
+            onUpdate,
+            operationId,
+            'failed',
+            'Resume cancelled before execution began.',
+            undefined,
+            {
+              agentId: yieldState.agentId,
+              stage: 'resuming_user_input',
+              outcomeCode: 'cancelled',
+            }
+          );
+          return {
+            summary: 'Resume cancelled before execution began.',
+            data: {
+              cancelled: true,
+              operationStatus: 'cancelled',
+            },
+            suggestions: ['Send a new message to start a fresh operation.'],
+          };
+        }
+      } catch {
+        // Non-critical — continue with resume if the guard read fails.
+      }
+    }
+
     try {
       const toolAccessContext = this.buildToolAccessContext(userContext);
       let toolDefs = this.toolRegistry.getDefinitions(agent.id, toolAccessContext);

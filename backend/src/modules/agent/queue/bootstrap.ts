@@ -91,6 +91,7 @@ import {
   GetUserProfileTool,
   GetActiveThreadsTool,
   GetOtherThreadHistoryTool,
+  SearchMemoriesTool,
 } from '../tools/context/index.js';
 import { CapabilityRegistry } from '../capabilities/capability-registry.js';
 import { PrimaryAgent } from '../agents/primary.agent.js';
@@ -523,6 +524,7 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   toolRegistry.register(new GetUserProfileTool(contextBuilder));
   toolRegistry.register(new GetActiveThreadsTool(contextBuilder));
   toolRegistry.register(new GetOtherThreadHistoryTool(contextBuilder));
+  toolRegistry.register(new SearchMemoriesTool(vectorMemory));
 
   // ── 1b. Skill Registry (dynamic domain knowledge injection) ─────────────────
   const skillRegistry = new SkillRegistry();

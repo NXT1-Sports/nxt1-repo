@@ -77,6 +77,8 @@ function createMockFirestore(userData: Record<string, unknown>) {
   };
 
   const rankingSet = vi.fn().mockResolvedValue(undefined);
+  const where = vi.fn().mockReturnThis();
+  const get = vi.fn().mockResolvedValue({ docs: [] });
 
   const db = {
     collection: vi.fn().mockImplementation((name: string) => {
@@ -88,13 +90,17 @@ function createMockFirestore(userData: Record<string, unknown>) {
           set: rankingSet,
           get: vi.fn().mockResolvedValue({ data: () => undefined }),
         };
-        return { doc: vi.fn().mockReturnValue(docRef) };
+        return {
+          doc: vi.fn().mockReturnValue(docRef),
+          where,
+          get,
+        };
       }
       throw new Error(`Unexpected collection ${name}`);
     }),
   };
 
-  return { db, userRef, rankingSet };
+  return { db, userRef, rankingSet, where, get };
 }
 
 describe('WriteRankingsTool', () => {
@@ -162,7 +168,7 @@ describe('WriteRankingsTool', () => {
 
     expect(mockInvalidateProfileCaches).toHaveBeenCalledWith('user-123', 'jordan-miles');
     expect(mockContextInvalidate).toHaveBeenCalledWith('user-123');
-    expect(mockOnDailySyncComplete).not.toHaveBeenCalled();
+    expect(mockOnDailySyncComplete).toHaveBeenCalledTimes(1);
   });
 
   it('skips entries without ranking signals', async () => {

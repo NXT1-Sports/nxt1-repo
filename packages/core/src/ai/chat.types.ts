@@ -128,6 +128,22 @@ export interface AgentMessage {
   /** Tool calls made during this message's generation. */
   readonly toolCalls?: readonly AgentToolCallRecord[];
   /**
+   * Phase A (thread-as-truth): wire-format LLM tool_calls preserved
+   * verbatim. Used by `ThreadMessageReplayService` to reconstruct an
+   * OpenRouter-valid `LLMMessage[]` on the next turn. Optional — only
+   * present on `role:'assistant'` messages that emitted tool calls.
+   */
+  readonly toolCallsWire?: readonly {
+    readonly id: string;
+    readonly type: 'function';
+    readonly function: { readonly name: string; readonly arguments: string };
+  }[];
+  /**
+   * Phase A (thread-as-truth): for `role:'tool'` messages, the id of the
+   * assistant.tool_calls entry this row resolves.
+   */
+  readonly toolCallId?: string;
+  /**
    * Persisted tool execution steps captured from the live stream.
    * Used to rehydrate the exact execution log on reload without falling back
    * to lossy tool-call reconstruction.

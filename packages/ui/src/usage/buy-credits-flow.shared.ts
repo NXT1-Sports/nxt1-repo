@@ -20,6 +20,9 @@ export type BuyCreditsAutoTopupResult =
 /** Credit package dollar amounts. */
 export const CREDIT_PACKAGES_USD = [5, 10, 25, 50, 100, 250, 500] as const;
 
+/** Backend-enforced minimum custom wallet top-up amount (in cents). */
+export const MIN_CUSTOM_CREDIT_PURCHASE_CENTS = 500;
+
 /** Preset threshold values at which auto top-up fires (in cents). */
 export const THRESHOLD_PRESETS_CENTS = [200, 500, 1_000, 2_500] as const;
 

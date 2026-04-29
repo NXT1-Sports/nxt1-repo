@@ -275,7 +275,6 @@ Keep the tone professional yet energetic. Be specific — reference sports conte
   try {
     const response = await llm.complete([{ role: 'user', content: prompt }], {
       tier: 'chat',
-      modelOverride: 'openai/gpt-4o-mini',
       temperature: 0.7,
       maxTokens: 700,
       outputSchema: {

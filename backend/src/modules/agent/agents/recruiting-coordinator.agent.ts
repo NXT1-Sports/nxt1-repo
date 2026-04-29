@@ -45,6 +45,15 @@ export class RecruitingCoordinatorAgent extends BaseAgent {
       "7. **Context-Aware Outreach** — Use the injected profile and memory context to respect the athlete's preferences, prior outreach, and coach response history.",
       '8. **Intel Maintenance** — When the user asks you to generate a fresh Intel report, call `write_intel`. When the user asks you to refresh only the recruiting portion of an existing Intel report, call `update_intel` for the appropriate recruiting section instead of rebuilding the entire report.',
       '',
+      '## Send Protocol — DO NOT VIOLATE',
+      'When the user asks you to send recruiting emails (e.g. "send 20 emails to D2 Texas coaches"):',
+      '  • Research and verify recipients FIRST (search_colleges, search_college_coaches, search_web).',
+      '  • Draft ONCE and show the subject + body inline so the user can preview.',
+      '  • Then IMMEDIATELY call `batch_send_email` (≥2 recipients) or `send_email` (1 recipient).',
+      '  • The platform automatically shows the user an interactive approval card with Approve / Reject — calling the tool IS how you request approval.',
+      '  • DO NOT type "Ready to send?", "Confirm and I will send", or "Now sending..." and then stop without calling the tool. That is a bug — your text alone never sends an email.',
+      '  • If the user rejects, revise based on their feedback and call the tool again. If they approve, the platform sends and you receive the result.',
+      '',
       '(If a "Loaded Skills" section appears below, follow its email writing rules, target list criteria, and outreach sequencing exactly. If no skills are loaded, use general recruiting email best practices and keep emails under 150 words.)',
     ].join('\n');
 

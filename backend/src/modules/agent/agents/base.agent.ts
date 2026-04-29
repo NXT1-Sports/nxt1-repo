@@ -54,6 +54,7 @@ import { parallelBatch } from '../utils/parallel-batch.js';
 import { getCachedAgentAppConfig, resolveAgentSystemPrompt } from '../config/agent-app-config.js';
 import { getToolLoopDetector } from '../services/tool-loop-detector.service.js';
 import { getPromptBudgetService } from '../services/prompt-budget.service.js';
+import { getThreadMessageWriter } from '../memory/thread-message-writer.service.js';
 import { logger } from '../../../utils/logger.js';
 
 /** Maximum tool-calling iterations before we force the agent to respond. */
@@ -417,14 +418,26 @@ export abstract class BaseAgent {
           }
         : routing;
 
-    // Inject prior conversation turns so the agent has cross-message continuity.
-    // history contains ONLY user + assistant turns from previous messages in this
-    // thread (tool observations are never persisted to session memory).
-    // The current userMessage is appended AFTER history — never duplicated.
-    const historyMessages: LLMMessage[] = (context.conversationHistory ?? []).map((m) => ({
-      role: m.role as 'user' | 'assistant',
-      content: m.content,
-    }));
+    // Phase C (thread-as-truth): the canonical conversation lives on
+    // `AgentMessage` rows and is rehydrated by `ThreadMessageReplayService`
+    // before the agent is invoked. By the time we reach this point,
+    // `context.conversationHistory` is the full LLMMessage[] (user +
+    // assistant + tool, with tool_calls + tool_call_id intact). We
+    // pass it through verbatim — no role coercion, no content drop.
+    const historyMessages: LLMMessage[] = (context.conversationHistory ?? []).map((m) => {
+      const base = {
+        role: m.role,
+        content: m.content,
+      } as LLMMessage;
+      // Preserve wire-format tool plumbing when the persisted row carried it.
+      if (m.role === 'assistant' && m.toolCalls && m.toolCalls.length > 0) {
+        return { ...base, tool_calls: m.toolCalls } as LLMMessage;
+      }
+      if (m.role === 'tool' && m.toolCallId) {
+        return { ...base, tool_call_id: m.toolCallId } as LLMMessage;
+      }
+      return base;
+    });
 
     const messages: LLMMessage[] = [
       { role: 'system', content: systemContent },
@@ -466,11 +479,21 @@ export abstract class BaseAgent {
   /**
    * Continue execution from a previously yielded message array.
    * Used when the user approves a pending tool or answers an ask_user question.
+   *
+   * Phase L (thread-as-truth): the canonical history is replayed from
+   * MongoDB via `ThreadMessageReplayService`. `yieldState.messages` is
+   * retained as a fallback for legacy paused threads written before the
+   * thread-as-truth rollout. `yieldState.pendingAssistantMessage` (the
+   * in-flight assistant turn that triggered the yield but was never
+   * persisted because the approval gate intercepted) is appended on top
+   * of the replay.
    */
   async resumeExecution(
     yieldState: {
+      readonly version?: number;
       readonly reason: 'needs_input' | 'needs_approval';
       readonly messages: readonly Record<string, unknown>[];
+      readonly pendingAssistantMessage?: LLMMessage;
       readonly pendingToolCall?: {
         readonly toolName: string;
         readonly toolInput: Record<string, unknown>;
@@ -514,7 +537,55 @@ export abstract class BaseAgent {
         },
       }));
 
-    const messages = yieldState.messages.map((msg) => ({ ...msg })) as unknown as LLMMessage[];
+    // Phase L (thread-as-truth): replay the canonical history from
+    // MongoDB. This guarantees the resume sees every persisted
+    // assistant.tool_calls + tool result row, including the
+    // assistant turn that triggered the yield (it was persisted by the
+    // writer immediately before the approval gate threw). The legacy
+    // `yieldState.messages` snapshot is used only as a fallback when
+    // the replay is empty (e.g. v0 paused threads from before rollout
+    // or when threadId is not available).
+    let messages: LLMMessage[];
+    if (context.threadId) {
+      try {
+        const { getThreadMessageReplayService } =
+          await import('../memory/thread-message-replay.service.js');
+        const replayed = await getThreadMessageReplayService().loadAsLLMMessages(context.threadId, {
+          maxTokens: 50_000,
+        });
+        messages = [...replayed] as LLMMessage[];
+        // The pendingAssistantMessage is the in-flight assistant turn
+        // that was emitted just before the yield. The writer normally
+        // persists it, but if the yield arrived BEFORE persistence (rare
+        // but possible on tool-loop-detector / approval-gate paths), the
+        // resume payload supplies it so the merge stays whole.
+        if (yieldState.pendingAssistantMessage) {
+          // Avoid duplicating if replay already has it (most common path).
+          const last = messages[messages.length - 1];
+          const same =
+            last &&
+            last.role === 'assistant' &&
+            JSON.stringify(last.tool_calls ?? []) ===
+              JSON.stringify(yieldState.pendingAssistantMessage.tool_calls ?? []);
+          if (!same) {
+            messages.push(yieldState.pendingAssistantMessage);
+          }
+        }
+        if (messages.length === 0) {
+          // Empty replay \u2014 fall back to the snapshot for legacy threads.
+          messages = yieldState.messages.map((msg) => ({ ...msg })) as unknown as LLMMessage[];
+        }
+      } catch (err) {
+        logger.warn(`[${this.id}] Resume replay failed \u2014 falling back to yield snapshot`, {
+          agentId: this.id,
+          threadId: context.threadId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        messages = yieldState.messages.map((msg) => ({ ...msg })) as unknown as LLMMessage[];
+      }
+    } else {
+      messages = yieldState.messages.map((msg) => ({ ...msg })) as unknown as LLMMessage[];
+    }
     const sessionContext: ToolSessionContext = {
       sessionId: context.sessionId,
       threadId: context.threadId,
@@ -590,6 +661,28 @@ export abstract class BaseAgent {
         content: observation,
         tool_call_id: pendingToolCall.id,
       });
+
+      // Phase B/L: persist the resumed tool result so the next turn's
+      // replay includes it (otherwise the model would see its own
+      // tool_call without a resolution and refuse to proceed).
+      {
+        const writer = getThreadMessageWriter();
+        if (writer && context.threadId) {
+          await writer.append(
+            {
+              role: 'tool',
+              content: observation,
+              tool_call_id: pendingToolCall.id,
+            },
+            {
+              threadId: context.threadId,
+              userId: context.userId,
+              agentId: this.id,
+              ...(context.operationId ? { operationId: context.operationId } : {}),
+            }
+          );
+        }
+      }
     }
 
     return this.runLoop(
@@ -752,6 +845,14 @@ export abstract class BaseAgent {
           onStreamEvent({ type: 'delta', text: summary, agentId: this.id });
         }
 
+        // Phase B (thread-as-truth): the FINAL assistant message is
+        // persisted by the worker post-loop (see agent.worker.ts \u2014 it
+        // attaches rich UI metadata: steps, parts, resultData,
+        // tokenUsage). We do NOT write it here to avoid a duplicate row.
+        // Intermediate assistant-with-tool-calls turns and tool result
+        // rows ARE written above so the next-turn replay sees the full
+        // ReAct trajectory.
+
         return {
           summary,
           data: sanitizeAgentPayload({
@@ -765,14 +866,32 @@ export abstract class BaseAgent {
       }
 
       // Append the assistant message with its tool calls to the conversation
-      messages.push({
+      const assistantMsgWithToolCalls: LLMMessage = {
         role: 'assistant',
         content:
           typeof result.content === 'string'
             ? sanitizeAgentOutputText(result.content)
             : result.content,
         tool_calls: result.toolCalls,
-      });
+      };
+      messages.push(assistantMsgWithToolCalls);
+
+      // Phase B (thread-as-truth): persist this assistant turn IMMEDIATELY,
+      // including wire-format tool_calls. If the tool execution below
+      // throws a yield (approval gate, ask_user) before we can write the
+      // resolving tool rows, the resume path uses
+      // `pendingAssistantMessage` to merge this same row back in. If
+      // execution proceeds normally, the tool rows below will pair with
+      // these tool_calls via toolCallId.
+      const threadWriter = getThreadMessageWriter();
+      if (threadWriter && context.threadId) {
+        await threadWriter.append(assistantMsgWithToolCalls, {
+          threadId: context.threadId,
+          userId: context.userId,
+          agentId: this.id,
+          ...(context.operationId ? { operationId: context.operationId } : {}),
+        });
+      }
 
       logger.info(`[${this.id}] Tool calls requested`, {
         agentId: this.id,
@@ -887,12 +1006,42 @@ export abstract class BaseAgent {
           if ((isAgentYield(err) || isAgentDelegation(err)) && !pendingThrow) {
             pendingThrow = err;
           }
+          if (isAgentDelegation(err) && onStreamEvent) {
+            onStreamEvent({
+              type: 'tool_result',
+              agentId: this.id,
+              stepId: toolCall.id,
+              toolName: toolCall.function.name,
+              stageType: 'tool',
+              toolSuccess: true,
+              toolResult: { delegated: true },
+              icon: this.resolveToolStepIcon(toolCall.function.name),
+              message: this.resolveToolInvocationLabel(
+                toolCall.function.name,
+                toolCall.function.arguments
+              ),
+            });
+          }
           // Always push a placeholder so every tool_call has a corresponding tool message.
-          messages.push({
+          const placeholderToolMsg: LLMMessage = {
             role: 'tool',
             content: JSON.stringify({ success: false, error: 'Tool execution was interrupted.' }),
             tool_call_id: toolCall.id,
-          });
+          };
+          messages.push(placeholderToolMsg);
+          // Phase B: persist the placeholder so replay reconstructs a
+          // valid assistant↔tool pair even after an interruption.
+          {
+            const writer = getThreadMessageWriter();
+            if (writer && context.threadId) {
+              await writer.append(placeholderToolMsg, {
+                threadId: context.threadId,
+                userId: context.userId,
+                agentId: this.id,
+                ...(context.operationId ? { operationId: context.operationId } : {}),
+              });
+            }
+          }
           continue;
         }
 
@@ -957,11 +1106,26 @@ export abstract class BaseAgent {
           });
         }
 
-        messages.push({
+        const toolResultMsg: LLMMessage = {
           role: 'tool',
           content: observation,
           tool_call_id: toolCall.id,
-        });
+        };
+        messages.push(toolResultMsg);
+        // Phase B (thread-as-truth): persist the tool observation so
+        // the next turn's replay reconstructs the exact assistant↔tool
+        // pairing that OpenRouter requires.
+        {
+          const writer = getThreadMessageWriter();
+          if (writer && context.threadId) {
+            await writer.append(toolResultMsg, {
+              threadId: context.threadId,
+              userId: context.userId,
+              agentId: this.id,
+              ...(context.operationId ? { operationId: context.operationId } : {}),
+            });
+          }
+        }
       }
 
       // 5. Rethrow yield/delegation only after all tool messages are committed.
@@ -1509,7 +1673,7 @@ export abstract class BaseAgent {
     throw abortError;
   }
 
-  private resolveToolStepIcon(toolName: string, stage?: ToolStage): AgentXToolStepIcon {
+  protected resolveToolStepIcon(toolName: string, stage?: ToolStage): AgentXToolStepIcon {
     const normalized = `${toolName} ${stage ?? ''}`.toLowerCase();
 
     if (/(delete|remove|cancel)/.test(normalized)) return 'delete';
@@ -1610,7 +1774,7 @@ export abstract class BaseAgent {
       .join(' ');
   }
 
-  private resolveToolInvocationLabel(
+  protected resolveToolInvocationLabel(
     toolName: string,
     inputOrArgs?: Record<string, unknown> | string
   ): string {

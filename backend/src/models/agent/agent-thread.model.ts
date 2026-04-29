@@ -56,6 +56,18 @@ interface AgentThreadDocument extends AgentThread {
   memorySummarized?: boolean;
   mediaCleaned?: boolean;
   latestPausedYieldState?: AgentYieldState;
+  /**
+   * Phase K (coordinator encapsulation): when set, this thread is a
+   * coordinator-owned child thread spawned by `delegate_to_coordinator`.
+   * The parent thread's UI hides child threads from the sidebar; debug
+   * views can surface them via parentThreadId.
+   */
+  parentThreadId?: string;
+  /**
+   * Phase K: opaque ID linking this child thread back to the
+   * `delegate_to_coordinator` tool_call.id in the parent thread.
+   */
+  delegationId?: string;
 }
 
 const AGENT_THREAD_MODEL_NAME = 'AgentThread';
@@ -95,6 +107,16 @@ const AgentThreadSchema = new Schema<AgentThreadDocument>(
      * Allows frontend to restore UI state without Firestore event replay.
      */
     latestPausedYieldState: { type: Schema.Types.Mixed, default: null },
+    /**
+     * Phase K: parent thread ID when this row is a coordinator child thread.
+     * Sparse — only set on coordinator-owned threads.
+     */
+    parentThreadId: { type: String, sparse: true, index: true },
+    /**
+     * Phase K: delegation ID linking back to the parent thread's
+     * `delegate_to_coordinator` tool_call.id. Sparse.
+     */
+    delegationId: { type: String, sparse: true },
   },
   { versionKey: false }
 );
@@ -115,6 +137,9 @@ AgentThreadSchema.index({ memorySummarized: 1, lastMessageAt: 1 });
 
 // Cron: find threads about to expire whose media hasn't been cleaned
 AgentThreadSchema.index({ mediaCleaned: 1, expiresAt: 1 });
+
+// Phase K: list child threads for a parent (debug / cleanup queries)
+AgentThreadSchema.index({ parentThreadId: 1, lastMessageAt: -1 }, { sparse: true });
 
 // ─── Model ──────────────────────────────────────────────────────────────────
 

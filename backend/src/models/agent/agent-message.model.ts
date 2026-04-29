@@ -124,12 +124,31 @@ const AgentMessageSchema = new Schema<AgentMessage>(
     threadId: { type: String, required: true, index: true },
     userId: { type: String, required: true, index: true },
     role: { type: String, required: true, enum: MESSAGE_ROLES },
-    content: { type: String, required: true },
+    /**
+     * Text content of the message. NOT required — assistant messages that
+     * contain only tool_calls (no text) legitimately have empty content.
+     * Mongoose rejects empty strings with `required: true`, so we use a
+     * default of '' to allow pure tool-call turns to persist correctly.
+     */
+    content: { type: String, default: '' },
     origin: { type: String, required: true, enum: JOB_ORIGINS },
     agentId: { type: String, enum: AGENT_IDS },
     operationId: { type: String },
     resultData: { type: Schema.Types.Mixed },
     toolCalls: { type: [ToolCallRecordSchema] },
+    /**
+     * Phase A (thread-as-truth): LLM wire-format tool_calls preserved
+     * verbatim from OpenRouter so replay can reconstruct a structurally
+     * valid LLMMessage[]. Stored alongside `toolCalls` (analytics-friendly
+     * shape). Each entry: `{ id, type:'function', function:{name, arguments} }`.
+     */
+    toolCallsWire: { type: [Schema.Types.Mixed] },
+    /**
+     * Phase A (thread-as-truth): for role:'tool' messages, the id of the
+     * assistant.tool_calls entry this row resolves. Sparse index — only
+     * tool rows have it.
+     */
+    toolCallId: { type: String, sparse: true, index: true },
     steps: { type: [Schema.Types.Mixed] },
     parts: { type: [Schema.Types.Mixed] },
     attachments: { type: [Schema.Types.Mixed] },

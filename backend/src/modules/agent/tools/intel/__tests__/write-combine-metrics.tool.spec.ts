@@ -78,13 +78,23 @@ describe('WriteCombineMetricsTool', () => {
     });
   });
 
-  it('writes metrics but does not emit sync delta triggers', async () => {
+  it('writes metrics and emits sync delta triggers', async () => {
     const set = vi.fn().mockResolvedValue(undefined);
     const db = {
       collection: vi.fn().mockImplementation((name: string) => {
         if (name === 'PlayerMetrics') {
           const docRef = { set, get: vi.fn().mockResolvedValue({ data: () => undefined }) };
-          return { doc: vi.fn().mockReturnValue(docRef) };
+          const whereSource = {
+            where: vi.fn().mockReturnThis(),
+            get: vi.fn().mockResolvedValue({
+              docs: [],
+            }),
+          };
+          return {
+            doc: vi.fn().mockReturnValue(docRef),
+            where: whereSource.where,
+            get: whereSource.get,
+          };
         }
         throw new Error(`Unexpected collection ${name}`);
       }),
@@ -111,6 +121,6 @@ describe('WriteCombineMetricsTool', () => {
 
     expect(result.success).toBe(true);
     expect(set).toHaveBeenCalledTimes(1);
-    expect(mockOnDailySyncComplete).not.toHaveBeenCalled();
+    expect(mockOnDailySyncComplete).toHaveBeenCalledTimes(1);
   });
 });

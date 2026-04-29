@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { canGenerateTeamIntelForUser } from '../team/teams.routes.js';
+import {
+  canGenerateTeamIntelForUser,
+  canManageTeamMembershipForRole,
+} from '../team/teams.routes.js';
 
 describe('canGenerateTeamIntelForUser', () => {
   it('allows administrative, coach, and director team managers to generate Intel', () => {
@@ -39,5 +42,20 @@ describe('canGenerateTeamIntelForUser', () => {
         roster: [{ userId: 'athlete-1', role: 'athlete' }],
       })
     ).toBe(false);
+  });
+});
+
+describe('canManageTeamMembershipForRole', () => {
+  it('allows manager roles used by team editors', () => {
+    expect(canManageTeamMembershipForRole('director')).toBe(true);
+    expect(canManageTeamMembershipForRole('assistant-coach')).toBe(true);
+    expect(canManageTeamMembershipForRole('program_director')).toBe(true);
+    expect(canManageTeamMembershipForRole(' Administrative ')).toBe(true);
+  });
+
+  it('rejects non-manager roles', () => {
+    expect(canManageTeamMembershipForRole('athlete')).toBe(false);
+    expect(canManageTeamMembershipForRole('parent')).toBe(false);
+    expect(canManageTeamMembershipForRole(undefined)).toBe(false);
   });
 });
