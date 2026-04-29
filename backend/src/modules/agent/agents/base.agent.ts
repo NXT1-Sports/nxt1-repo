@@ -242,7 +242,7 @@ export abstract class BaseAgent {
   }
 
   private trimAttachmentText(text: string): string {
-    const normalized = text.replace(/\r\n/g, '\n').replace(/\u0000/g, '').trim();
+    const normalized = text.replace(/\r\n/g, '\n').split('\u0000').join('').trim();
     if (normalized.length <= MAX_ATTACHMENT_TEXT_CHARS) {
       return normalized;
     }
@@ -272,7 +272,9 @@ export abstract class BaseAgent {
 
     const toCells = (row: readonly string[]): string[] => {
       const next = row.slice(0, maxColumns).map((cell) => {
-        const value = String(cell ?? '').replace(/\|/g, '\\|').replace(/\n/g, ' ');
+        const value = String(cell ?? '')
+          .replace(/\|/g, '\\|')
+          .replace(/\n/g, ' ');
         return value.length > 120 ? `${value.slice(0, 120)}...` : value;
       });
       while (next.length < maxColumns) next.push('');
@@ -350,7 +352,9 @@ export abstract class BaseAgent {
         });
 
         const fallback = this.trimAttachmentText(rawText);
-        return fallback ? `[Attachment Extract: ${attachmentName} (${mimeType})]\n${fallback}` : null;
+        return fallback
+          ? `[Attachment Extract: ${attachmentName} (${mimeType})]\n${fallback}`
+          : null;
       }
     }
 
@@ -562,8 +566,12 @@ export abstract class BaseAgent {
 
     let systemContent = this.getSystemPrompt(context);
     const appConfig = getCachedAgentAppConfig();
-    const configuredPrompt = appConfig.prompts.agentSystemPrompts[this.id];
+    // 'router' (PrimaryAgent) has its own dedicated override path via
+    // prompts.primarySystemPrompt — skip the coordinator override map for it.
+    const configuredPrompt =
+      this.id !== 'router' ? appConfig.prompts.agentSystemPrompts[this.id] : undefined;
     if (configuredPrompt) {
+      systemContent = configuredPrompt;
       logger.info(`[${this.id}] Applying configured system prompt override`, {
         agentId: this.id,
         configSchemaVersion: appConfig.schemaVersion,
@@ -1129,7 +1137,11 @@ export abstract class BaseAgent {
         // rows ARE written above so the next-turn replay sees the full
         // ReAct trajectory.
 
-        const evidenceTrace = this.buildEvidenceTrace(summary, toolCallRecords, requiresComputeFirst);
+        const evidenceTrace = this.buildEvidenceTrace(
+          summary,
+          toolCallRecords,
+          requiresComputeFirst
+        );
 
         return {
           summary,
