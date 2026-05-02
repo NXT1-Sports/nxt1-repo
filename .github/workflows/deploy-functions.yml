@@ -122,6 +122,9 @@ jobs:
         working-directory: apps/functions
         run: npm run build
 
+      - name: Debug — print SA email from secret
+        run: echo '${{ secrets.FIREBASE_SERVICE_ACCOUNT_STAGING }}' | base64 -d | python3 -c "import sys,json; d=json.load(sys.stdin); print('SA email:', d['client_email'])"
+
       - name: Deploy to Firebase (Staging)
         uses: w9jds/firebase-action@v13.29.1
         with:
