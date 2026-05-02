@@ -1,0 +1,86 @@
+# =============================================================================
+# NXT1 Backend — Auto Deploy via SSH
+# =============================================================================
+# Trigger: push to main → deploy production
+#
+# ── Cách thêm SSH_PRIVATE_KEY vào GitHub Secrets ──────────────────────────
+#   1. Trên máy local, chạy:
+#        cat ~/.ssh/nxt1-server | pbcopy   (macOS)
+#        cat ~/.ssh/nxt1-server            (copy thủ công)
+#   2. Vào GitHub repo → Settings → Secrets and variables → Actions
+#   3. Nhấn "New repository secret":
+#        Name:  SSH_PRIVATE_KEY
+#        Value: paste nội dung file key (bắt đầu bằng -----BEGIN...)
+#
+# ── Các Secrets cần thêm ──────────────────────────────────────────────────
+#   SSH_PRIVATE_KEY  — Nội dung file nxt1-server (cả -----BEGIN và -----END)
+#   SUDO_PASS        — Password sudo của ngocsonxx98 (hiện tại là: 123)
+# =============================================================================
+
+name: Deploy Backend
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'backend/**'
+      - 'packages/core/**'
+      - 'packages/cache/**'
+      - 'package.json'
+      - 'package-lock.json'
+
+  # Trigger thủ công từ GitHub UI
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-backend-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  SSH_HOST: 34.72.3.113
+  SSH_USER: ngocsonxx98
+  REPO_PATH: /home/vyacheslav_rud1996/nxt1-repo
+
+jobs:
+  deploy:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Setup SSH key
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Add server to known hosts
+        run: ssh-keyscan ${{ env.SSH_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Deploy via SSH
+        # Dùng sudo -S để pass password không cần interactive prompt
+        # Chạy đúng thứ tự: sudo su → cd repo → git pull → npm i → build → pm2 reload
+        run: |
+          ssh ${{ env.SSH_USER }}@${{ env.SSH_HOST }} << 'ENDSSH'
+            echo "${{ secrets.SUDO_PASS }}" | sudo -S bash -c "
+              set -e
+              cd ${{ env.REPO_PATH }}
+              echo '📥 git pull...'
+              git pull
+              echo '📦 npm install...'
+              npm i
+              echo '🔨 npm run build...'
+              npm run build
+              echo '🔄 pm2 reload...'
+              pm2 reload 1 --update-env
+              echo '✅ Deploy done!'
+              pm2 list
+            "
+          ENDSSH
+
+      - name: Notify success
+        if: success()
+        run: echo "✅ Deploy succeeded! Commit ${{ github.sha }}"
+
+      - name: Notify failure
+        if: failure()
+        run: echo "❌ Deploy FAILED! See logs at ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
