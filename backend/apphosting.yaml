@@ -1,0 +1,49 @@
+# Firebase App Hosting Configuration - Backend Express API
+# App Hosting Backend ID: nxt1-repo-backend
+# @see https://firebase.google.com/docs/app-hosting/configure
+#
+# rootDirectory in Firebase console is set to: backend/
+# All paths in scripts are relative to the backend/ directory.
+# "cd .." goes up to the monorepo root to install all workspace dependencies.
+
+runtimeConfig:
+  nodeVersion: 22
+
+scripts:
+  # Install all monorepo workspace deps (packages/core, packages/cache, etc.)
+  # then use Turborepo to build @nxt1/backend and its deps in the right order.
+  buildCommand: >-
+    cd .. &&
+    npm ci --include=dev &&
+    npx turbo run build --filter=@nxt1/backend
+  runCommand: node dist/index.js
+
+runConfig:
+  # Backend handles AI workloads — needs more CPU/RAM than the SSR frontend
+  cpu: 2
+  memoryMiB: 2048
+  concurrency: 80
+  minInstances: 1
+  maxInstances: 20
+
+  # Give the backend enough time to connect to MongoDB + Redis on cold start
+  startupProbe:
+    httpGet:
+      path: /health
+      port: 8080
+    initialDelaySeconds: 20
+    timeoutSeconds: 10
+    periodSeconds: 15
+    failureThreshold: 6
+
+env:
+  - variable: NODE_VERSION
+    value: '22'
+  # App Hosting injects env vars at runtime — dotenv is a no-op in production
+  - variable: NODE_ENV
+    value: 'staging'
+  # Allow devDependencies during build (needed for TypeScript compiler + shx)
+  - variable: NPM_CONFIG_PRODUCTION
+    value: 'false'
+  - variable: NPM_CONFIG_INCLUDE
+    value: 'dev'
