@@ -70,6 +70,8 @@ jobs:
             echo "${{ secrets.SUDO_PASS }}" | sudo -S bash -c "
               set -e
               cd ${{ env.REPO_PATH }}
+              echo 'git stash...'
+              git stash
               echo 'git pull...'
               git pull
               echo 'npm install...'
