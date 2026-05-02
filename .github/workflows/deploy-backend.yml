@@ -70,14 +70,30 @@ jobs:
             echo "${{ secrets.SUDO_PASS }}" | sudo -S bash -c "
               set -e
               cd ${{ env.REPO_PATH }}
+
               echo 'git stash...'
               git stash
+
               echo 'git pull...'
               git pull
+
+              # Ensure Node.js 22 is available (install via nvm if needed)
+              export NVM_DIR=\"/root/.nvm\"
+              if [ ! -s \"\$NVM_DIR/nvm.sh\" ]; then
+                echo 'Installing nvm...'
+                curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
+              fi
+              source \"\$NVM_DIR/nvm.sh\"
+              nvm install 22
+              nvm use 22
+              echo \"Node: \$(node -v), npm: \$(npm -v)\"
+
               echo 'npm install...'
               npm i
+
               echo 'npm run build...'
               npm run build
+
               echo 'pm2 reload...'
               pm2 reload 1 --update-env
               echo 'Deploy done!'
