@@ -195,10 +195,22 @@ async function fallbackSequentialGeneration(userId: string): Promise<string> {
  */
 export async function releaseUnicode(unicode: string): Promise<void> {
   const db = admin.firestore();
-  await db.collection('Unicodes').doc(unicode).update({
-    used: false,
-    userId: admin.firestore.FieldValue.delete(),
-    releasedAt: admin.firestore.FieldValue.serverTimestamp(),
-  });
-  logger.info(`Released unicode ${unicode}`);
+  try {
+    await db.collection('Unicodes').doc(unicode).update({
+      used: false,
+      userId: admin.firestore.FieldValue.delete(),
+      releasedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+    logger.info(`Released unicode ${unicode}`);
+  } catch (error) {
+    const code = (error as { code?: number | string }).code;
+    const message = error instanceof Error ? error.message : String(error);
+    // gRPC NOT_FOUND (code 5) — Unicodes doc never created for this user
+    // (e.g. users registered before the Unicodes system). Nothing to release.
+    if (code === 5 || message.includes('NOT_FOUND') || message.includes('No document to update')) {
+      logger.warn(`Unicode doc not found during release, skipping`, { unicode });
+      return;
+    }
+    throw error;
+  }
 }

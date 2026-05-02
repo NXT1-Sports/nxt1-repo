@@ -81,15 +81,22 @@ router.post('/cron/playbook-nudge', cronGuard, async (_req: Request, res: Respon
 // Cloud Scheduler: every Friday at 9:00 AM  (cron: 0 9 * * 5)
 
 router.post('/cron/weekly-recaps', cronGuard, async (_req: Request, res: Response) => {
-  try {
-    const { runWeeklyRecaps } = await import('../../modules/agent/triggers/trigger.listeners.js');
-    await runWeeklyRecaps();
-    res.json({ success: true, message: 'Weekly recaps completed' });
-  } catch (err) {
-    const error = err instanceof Error ? err : new Error(String(err));
-    logger.error('CRON weekly recaps failed', { error: error.message, stack: error.stack });
-    res.status(500).json({ success: false, error: 'Weekly recaps failed' });
-  }
+  // Respond immediately — enqueuing jobs across all eligible users can take
+  // longer than the 30-second global server timeout. The actual recap
+  // generation happens asynchronously via the BullMQ job worker.
+  res.json({ success: true, message: 'Weekly recaps started', status: 'running' });
+
+  // Fire-and-forget background job
+  (async () => {
+    try {
+      const { runWeeklyRecaps } = await import('../../modules/agent/triggers/trigger.listeners.js');
+      await runWeeklyRecaps();
+      logger.info('CRON weekly-recaps completed');
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      logger.error('CRON weekly recaps failed', { error: error.message, stack: error.stack });
+    }
+  })();
 });
 
 // ─── POST /cron/summarize-threads ─────────────────────────────────────────
