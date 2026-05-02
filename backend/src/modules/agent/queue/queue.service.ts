@@ -52,6 +52,14 @@ export class AgentQueueService {
   private readonly redisUrl: string;
   private readonly jobRetryOverrides?: { maxAttempts?: number; retryBackoffMs?: number };
 
+  /**
+   * In-memory AbortController registry keyed by operationId.
+   * Populated by AgentWorker at job-execution start; cleared at job end.
+   * The cancel() method aborts the controller so the router's AbortSignal
+   * fires immediately for in-flight LLM calls.
+   */
+  private readonly activeControllers = new Map<string, AbortController>();
+
   constructor(
     redisUrl?: string,
     jobRetryOverrides?: { maxAttempts?: number; retryBackoffMs?: number }
@@ -131,7 +139,7 @@ export class AgentQueueService {
     delayMs: number = THREAD_SUMMARIZATION_DELAY_MS,
     environment: 'staging' | 'production' = 'production'
   ): Promise<string> {
-    const jobId = `summarize:${threadId}`;
+    const jobId = `summarize_${threadId}`;
     const existingJob = await this.queue.getJob(jobId);
 
     if (existingJob) {
@@ -191,17 +199,37 @@ export class AgentQueueService {
    * so the worker can check and abort gracefully.
    */
   async cancel(jobId: string): Promise<boolean> {
+    // Abort any in-flight LLM router call immediately via the signal.
+    const controller = this.activeControllers.get(jobId);
+    if (controller) {
+      controller.abort();
+      this.activeControllers.delete(jobId);
+    }
+
     const job = await this.queue.getJob(jobId);
-    if (!job) return false;
+    if (!job) return controller !== undefined; // already aborted even if job gone
 
     const state = await job.getState();
     if (state === 'completed' || state === 'failed') return false;
 
-    // For waiting/delayed jobs, just remove them from the queue.
-    // For active jobs, BullMQ doesn't support mid-execution cancellation
-    // natively — the worker checks for cancellation via progress polling.
     await job.remove();
     return true;
+  }
+
+  /**
+   * Register an AbortController for an actively executing job.
+   * Called by AgentWorker immediately before invoking router.run().
+   */
+  registerController(operationId: string, controller: AbortController): void {
+    this.activeControllers.set(operationId, controller);
+  }
+
+  /**
+   * Remove a job's AbortController registration after the job ends.
+   * Called by AgentWorker in its finally block.
+   */
+  unregisterController(operationId: string): void {
+    this.activeControllers.delete(operationId);
   }
 
   /**
@@ -264,6 +292,7 @@ export class AgentQueueService {
    *
    * @param jobName - Unique name for this schedule (e.g. `recv:{userId}:{ts}`).
    * @param cronExpression - Standard 5-field cron pattern.
+   * @param timezone - IANA timezone used to evaluate cron boundaries (e.g. `America/Chicago`).
    * @param payload - The AgentJobPayload executed on each fire.
    * @param environment - Which Firestore DB to use when the job runs.
    * @returns The BullMQ repeatable job key used for future cancellation.
@@ -271,6 +300,7 @@ export class AgentQueueService {
   async enqueueRecurring(
     jobName: string,
     cronExpression: string,
+    timezone: string,
     payload: AgentJobPayload,
     environment: 'staging' | 'production' = 'production'
   ): Promise<string> {
@@ -285,7 +315,7 @@ export class AgentQueueService {
     // per-execution IDs. A fixed jobId causes every subsequent execution to
     // collide with the previous one, resulting in skipped or stalled jobs.
     await this.queue.add(jobName, jobData, {
-      repeat: { pattern: cronExpression },
+      repeat: { pattern: cronExpression, tz: timezone },
     });
 
     // BullMQ derives a deterministic key from queue prefix + name + pattern.

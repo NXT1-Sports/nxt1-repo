@@ -91,6 +91,8 @@ import { AnalyticsService } from '../../core/services/infrastructure/analytics.s
 import { CapacitorHttpAdapter } from '../../core/infrastructure';
 import { environment } from '../../../environments/environment';
 
+const TEAM_INTEL_ENABLED = false;
+
 /**
  * Mobile Profile Feature Component
  *
@@ -123,6 +125,7 @@ import { environment } from '../../../environments/environment';
         <!-- Coach/Director own profile → Team Profile Shell -->
         <nxt1-team-profile-shell-web
           [teamSlug]="teamSlug()"
+          [teamIntelEnabled]="teamIntelEnabled"
           [isTeamAdmin]="true"
           [skipInternalLoad]="true"
           (backClick)="onBackClick()"
@@ -328,6 +331,7 @@ export class ProfileComponent {
 
   /** Resolved unicode from fetched profile — empty string while loading */
   protected readonly resolvedUnicode = signal('');
+  protected readonly teamIntelEnabled = TEAM_INTEL_ENABLED;
 
   /**
    * Raw route param — empty string means own profile (/profile),
@@ -353,7 +357,7 @@ export class ProfileComponent {
   protected readonly footerButtons = computed<ActionFooterButton[]>(() => {
     if (this.showTeamProfile()) {
       if (!this.teamProfile.isTeamAdmin()) return [];
-      if (this.teamProfile.activeTab() === 'intel') {
+      if (this.teamIntelEnabled && this.teamProfile.activeTab() === 'intel') {
         return [
           {
             id: 'team-intel',
@@ -1304,6 +1308,8 @@ export class ProfileComponent {
   }
 
   private async onGenerateTeamIntel(): Promise<void> {
+    if (!this.teamIntelEnabled) return;
+
     const teamId = this.teamProfile.team()?.id ?? '';
     const hasReport = !!this.intel.teamReport();
     await this.bottomSheet.openSheet({

@@ -103,10 +103,15 @@ export class SkillRegistry {
   buildPromptBlock(matched: readonly MatchedSkill[], params?: Record<string, unknown>): string {
     if (matched.length === 0) return '';
 
-    const blocks = matched.map((m) => {
-      const context = m.skill.getPromptContext(params);
-      return `### Skill: ${m.skill.name} (relevance: ${m.similarity.toFixed(2)})\n${context}`;
-    });
+    const blocks = matched
+      .map((m) => {
+        const context = m.skill.getPromptContext(params).trim();
+        if (context.length === 0) return null;
+        return `### Skill: ${m.skill.name} (relevance: ${m.similarity.toFixed(2)})\n${context}`;
+      })
+      .filter((block): block is string => block !== null);
+
+    if (blocks.length === 0) return '';
 
     return ['', '## Loaded Skills (dynamically matched to this task)', ...blocks].join('\n\n');
   }

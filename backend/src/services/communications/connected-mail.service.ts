@@ -17,7 +17,7 @@
  *   in MongoDB to flag conversations with verified college contacts.
  */
 
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import axios from 'axios';
 import {
   OAUTH_TOKEN_SUBCOLLECTION,
@@ -28,6 +28,7 @@ import type { Firestore } from 'firebase-admin/firestore';
 import { db as defaultDb } from '../../utils/firebase.js';
 import { stagingDb } from '../../utils/firebase-staging.js';
 import { logger } from '../../utils/logger.js';
+import { renderRichContentAsEmailHtml } from './rich-content-formatting.js';
 import {
   ConversationModel,
   type IConversation,
@@ -606,7 +607,7 @@ export async function syncUserEmails(
           $set: conversationData,
           $setOnInsert: { createdAt: threadEmails[0].date },
         },
-        { upsert: true, new: true, setDefaultsOnInsert: true }
+        { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true }
       );
 
       // Upsert messages — track newly synced inbound messages for unread count
@@ -697,21 +698,8 @@ export async function syncAllUserEmails(
   return results;
 }
 
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
 function normalizeEmailHtml(body: string): string {
-  if (/<[a-z][\s\S]*>/i.test(body)) {
-    return body;
-  }
-
-  return `<div>${escapeHtml(body).replace(/\n/g, '<br/>')}</div>`;
+  return renderRichContentAsEmailHtml(body);
 }
 
 function buildTrackingBaseUrl(): string {
@@ -719,9 +707,13 @@ function buildTrackingBaseUrl(): string {
   return rawBaseUrl.endsWith('/') ? rawBaseUrl.slice(0, -1) : rawBaseUrl;
 }
 
-function buildTrackedEmailHtml(
+function hashRecipientEmail(email: string): string {
+  return createHash('sha256').update(email.trim().toLowerCase()).digest('hex');
+}
+
+export function buildTrackedEmailHtmlWithRecipientHash(
   body: string,
-  options: { userId: string; to: string; trackingId: string }
+  options: { userId: string; trackingId: string; recipientEmailHash?: string | null }
 ): string {
   const html = normalizeEmailHtml(body);
   const baseUrl = buildTrackingBaseUrl();
@@ -739,7 +731,9 @@ function buildTrackedEmailHtml(
       clickUrl.searchParams.set('subjectType', 'user');
       clickUrl.searchParams.set('surface', 'email');
       clickUrl.searchParams.set('sourceRecordId', options.trackingId);
-      clickUrl.searchParams.set('recipientEmail', options.to);
+      if (options.recipientEmailHash) {
+        clickUrl.searchParams.set('recipientEmailHash', options.recipientEmailHash);
+      }
       return clickUrl.toString();
     } catch {
       return destination;
@@ -760,9 +754,22 @@ function buildTrackedEmailHtml(
   openUrl.searchParams.set('subjectType', 'user');
   openUrl.searchParams.set('surface', 'email');
   openUrl.searchParams.set('sourceRecordId', options.trackingId);
-  openUrl.searchParams.set('recipientEmail', options.to);
+  if (options.recipientEmailHash) {
+    openUrl.searchParams.set('recipientEmailHash', options.recipientEmailHash);
+  }
 
   return `${rewrittenHtml}<img src="${openUrl.toString()}" alt="" width="1" height="1" style="display:none;max-width:1px;max-height:1px;" />`;
+}
+
+export function buildTrackedEmailHtml(
+  body: string,
+  options: { userId: string; to: string; trackingId: string }
+): string {
+  return buildTrackedEmailHtmlWithRecipientHash(body, {
+    userId: options.userId,
+    trackingId: options.trackingId,
+    recipientEmailHash: hashRecipientEmail(options.to),
+  });
 }
 
 // ─── Send Email ─────────────────────────────────────────────────────────────

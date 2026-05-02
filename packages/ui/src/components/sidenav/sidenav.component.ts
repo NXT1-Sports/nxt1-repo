@@ -76,8 +76,8 @@ import { NxtAvatarComponent } from '../avatar';
 import { NxtPlatformService } from '../../services/platform';
 import { HapticsService } from '../../services/haptics';
 import { NxtSidenavService } from './sidenav.service';
-import { AgentXOperationsLogComponent } from '../../agent-x/agent-x-operations-log.component';
-import { AgentXOperationChatComponent } from '../../agent-x/agent-x-operation-chat.component';
+import { AgentXOperationsLogComponent } from '../../agent-x/components/shared/agent-x-operations-log.component';
+import { AgentXOperationChatComponent } from '../../agent-x/components/chat/agent-x-operation-chat.component';
 import { NxtBottomSheetService, SHEET_PRESETS } from '../bottom-sheet';
 import { NxtFloatingActionBarComponent } from '../floating-action-bar';
 import type { FloatingActionBarConfig, FloatingBarFollowItem } from '../floating-action-bar';
@@ -1963,9 +1963,13 @@ export class NxtSidenavComponent {
           ? 'complete'
           : entry.status === 'error'
             ? 'error'
-            : entry.status === 'awaiting_input'
-              ? 'awaiting_input'
-              : null;
+            : entry.status === 'paused'
+              ? 'paused'
+              : entry.status === 'awaiting_input'
+                ? 'awaiting_input'
+                : entry.status === 'awaiting_approval'
+                  ? 'awaiting_approval'
+                  : null;
     const isFirestoreOperationId = (id: string | undefined): boolean => {
       if (!id) return false;
       const bare = id.startsWith('chat-') ? id.slice(5) : id;

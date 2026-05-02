@@ -29,12 +29,15 @@ import { APP_EVENTS } from '@nxt1/core/analytics';
 import {
   AgentXStreamRegistryService,
   type OperationObserver,
-} from '../agent-x/agent-x-stream-registry.service';
-import { AGENT_X_API_BASE_URL, AGENT_X_AUTH_TOKEN_FACTORY } from '../agent-x/agent-x-job.service';
+} from '../agent-x/services/agent-x-stream-registry.service';
+import {
+  AGENT_X_API_BASE_URL,
+  AGENT_X_AUTH_TOKEN_FACTORY,
+} from '../agent-x/services/agent-x-job.service';
 import {
   FIRESTORE_ADAPTER,
   type FirestoreAdapter,
-} from '../agent-x/agent-x-operation-event.service';
+} from '../agent-x/services/agent-x-operation-event.service';
 
 /** Generation status phases for UI messaging */
 export type GenerationPhase =
@@ -265,7 +268,9 @@ export class ProfileGenerationStateService {
           // registered observers receive subsequent step/done/error events.
           this.streamRegistry.linkOperation(operationId, evt.threadId);
           if (this.resumeStream) {
-            this.streamRegistry.register(evt.threadId, this.resumeStream);
+            this.streamRegistry.register(evt.threadId, this.resumeStream, {
+              retentionHint: 'long-running',
+            });
           }
           this.logger.info('SSE resume stream thread resolved', {
             operationId,

@@ -29,11 +29,12 @@
  * ```
  */
 
-import { model, Schema } from 'mongoose';
+import { Schema, type Connection, type Model } from 'mongoose';
 import type { AgentOperationResult, AgentUserContext } from '@nxt1/core';
 import type { OpenRouterService } from '../llm/openrouter.service.js';
 import type { LLMMessage } from '../llm/llm.types.js';
 import { logger } from '../../../utils/logger.js';
+import { getMongoGlobalConnection } from '../../../config/database.config.js';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -86,10 +87,36 @@ const SemanticCacheSchema = new Schema<SemanticCacheDocument>(
 // TTL index — MongoDB auto-deletes documents once expiresAt is in the past
 SemanticCacheSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 
-export const SemanticCacheModel = model<SemanticCacheDocument>(
-  'AgentSemanticCache',
-  SemanticCacheSchema
-);
+const SEMANTIC_CACHE_MODEL_NAME = 'AgentSemanticCache';
+
+export function getSemanticCacheModel(
+  connection: Connection = getMongoGlobalConnection()
+): Model<SemanticCacheDocument> {
+  const existingModel = connection.models[SEMANTIC_CACHE_MODEL_NAME] as
+    | Model<SemanticCacheDocument>
+    | undefined;
+  if (existingModel) return existingModel;
+
+  return connection.model<SemanticCacheDocument>(SEMANTIC_CACHE_MODEL_NAME, SemanticCacheSchema);
+}
+
+export const SemanticCacheModel = new Proxy({} as Model<SemanticCacheDocument>, {
+  get(_target, prop) {
+    const model = getSemanticCacheModel();
+    const value = (model as unknown as Record<PropertyKey, unknown>)[prop];
+    return typeof value === 'function' ? value.bind(model) : value;
+  },
+  has(_target, prop) {
+    const model = getSemanticCacheModel();
+    return prop in model;
+  },
+  getOwnPropertyDescriptor(_target, prop) {
+    const model = getSemanticCacheModel() as unknown as Record<PropertyKey, unknown>;
+    const value = model[prop];
+    if (value === undefined) return undefined;
+    return { configurable: true, enumerable: true, writable: true, value };
+  },
+});
 
 // ─── Service ──────────────────────────────────────────────────────────────────
 
@@ -138,28 +165,28 @@ export class SemanticCacheService {
     }
 
     try {
-      const results = await SemanticCacheModel.aggregate<SemanticCacheDocument & { score: number }>(
-        [
-          {
-            $vectorSearch: {
-              index: CACHE_VECTOR_INDEX_NAME,
-              path: 'embedding',
-              queryVector: Array.from(queryEmbedding),
-              numCandidates: NUM_CANDIDATES,
-              limit: 1,
-            },
+      const results = await getSemanticCacheModel().aggregate<
+        SemanticCacheDocument & { score: number }
+      >([
+        {
+          $vectorSearch: {
+            index: CACHE_VECTOR_INDEX_NAME,
+            path: 'embedding',
+            queryVector: Array.from(queryEmbedding),
+            numCandidates: NUM_CANDIDATES,
+            limit: 1,
           },
-          {
-            $project: {
-              _id: 1,
-              intent: 1,
-              cachedResult: 1,
-              createdAt: 1,
-              score: { $meta: 'vectorSearchScore' },
-            },
+        },
+        {
+          $project: {
+            _id: 1,
+            intent: 1,
+            cachedResult: 1,
+            createdAt: 1,
+            score: { $meta: 'vectorSearchScore' },
           },
-        ]
-      );
+        },
+      ]);
 
       const top = results[0];
       if (!top || top.score < SIMILARITY_THRESHOLD) {
@@ -216,7 +243,7 @@ export class SemanticCacheService {
     try {
       const embedding = await this.llm.embed(intent);
 
-      await SemanticCacheModel.create({
+      await getSemanticCacheModel().create({
         intent,
         embedding: Array.from(embedding),
         cachedResult: JSON.stringify(result),
@@ -263,6 +290,18 @@ export class SemanticCacheService {
       `Role: ${userContext.role}`,
     ];
     if (userContext.sport) profileParts.push(`Sport: ${userContext.sport}`);
+    if (userContext.sports?.length) {
+      const allSports = userContext.sports
+        .map((entry) => {
+          const tags: string[] = [];
+          if (entry.isActive) tags.push('active');
+          if (entry.positions?.length) tags.push(`pos=${entry.positions.join('/')}`);
+          if (entry.teamName) tags.push(`team=${entry.teamName}`);
+          return tags.length > 0 ? `${entry.sport} (${tags.join(', ')})` : entry.sport;
+        })
+        .join(' | ');
+      profileParts.push(`All Sports: ${allSports}`);
+    }
     if (userContext.position) profileParts.push(`Position: ${userContext.position}`);
     if (userContext.school) profileParts.push(`School: ${userContext.school}`);
     if (userContext.graduationYear) profileParts.push(`Class of ${userContext.graduationYear}`);
@@ -348,7 +387,7 @@ export class SemanticCacheService {
    * Manually invalidate all cached entries (e.g. after a compliance rule update).
    */
   async flush(): Promise<void> {
-    const result = await SemanticCacheModel.deleteMany({});
+    const result = await getSemanticCacheModel().deleteMany({});
     logger.info('[SemanticCache] Flushed all entries', { count: result.deletedCount });
   }
 }

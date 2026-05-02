@@ -10,6 +10,8 @@ import {
   ANALYTICS_SUMMARY_TIMEFRAMES,
   getAnalyticsEventTypesForDomain,
   isAnalyticsEventTypeForDomain,
+  type AnalyticsSummaryRecord,
+  type AnalyticsTemplateBreakdownRecord,
   type AnalyticsDomain,
   type AnalyticsSubjectType,
   type AnalyticsSummaryTimeframe,
@@ -39,6 +41,15 @@ const trackEventSchema = z
     metadata: z.record(z.string(), z.unknown()).optional().default({}),
   })
   .superRefine((value, ctx) => {
+    const hasTemplateMetadata =
+      value.domain === 'custom' &&
+      (typeof value.metadata['templateId'] === 'string' ||
+        typeof value.metadata['templateKey'] === 'string');
+
+    if (value.domain === 'custom' && hasTemplateMetadata) {
+      return;
+    }
+
     if (!isAnalyticsEventTypeForDomain(value.domain, value.eventType)) {
       ctx.addIssue({
         code: 'custom',
@@ -48,15 +59,39 @@ const trackEventSchema = z
     }
   });
 
-const summaryQuerySchema = z.object({
-  subjectId: z.string().trim().min(1),
-  subjectType: z.enum(ANALYTICS_SUBJECT_TYPES).default('user'),
-  domain: z.enum(ANALYTICS_DOMAINS),
-  timeframe: z.enum(ANALYTICS_SUMMARY_TIMEFRAMES).default('30d'),
-});
+const summaryQuerySchema = z
+  .object({
+    subjectId: z.string().trim().min(1),
+    subjectType: z.enum(ANALYTICS_SUBJECT_TYPES).default('user'),
+    domain: z.enum(ANALYTICS_DOMAINS),
+    timeframe: z.enum(ANALYTICS_SUMMARY_TIMEFRAMES).default('30d'),
+    templateKey: z.string().trim().min(1).optional(),
+    templateBaseDomain: z
+      .enum(['recruiting', 'nil', 'performance', 'engagement', 'communication'])
+      .optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (value.domain !== 'custom' && (value.templateKey || value.templateBaseDomain)) {
+      ctx.addIssue({
+        code: 'custom',
+        message:
+          'templateKey and templateBaseDomain filters are only valid for custom analytics summaries.',
+        path: ['domain'],
+      });
+    }
+  });
 
 export type TrackAnalyticsInput = z.infer<typeof trackEventSchema>;
 export type AnalyticsSummaryQuery = z.infer<typeof summaryQuerySchema>;
+
+const ANONYMOUS_USER_EVENT_ALLOWLIST = new Set(['email_opened', 'link_clicked', 'profile_viewed']);
+
+function isAnonymousUserEventAllowed(input: TrackAnalyticsInput): boolean {
+  if (input.source !== 'user') return false;
+  if (input.subjectType !== 'user') return false;
+  if (input.actorUserId && input.actorUserId.trim().length > 0) return false;
+  return ANONYMOUS_USER_EVENT_ALLOWLIST.has(input.eventType);
+}
 
 function timeframeToMs(timeframe: AnalyticsSummaryTimeframe): number | null {
   switch (timeframe) {
@@ -82,6 +117,29 @@ function getPeriodStart(timeframe: AnalyticsSummaryTimeframe, now: Date): Date |
 export class AnalyticsLoggerService {
   async track(input: TrackAnalyticsInput) {
     const parsed = trackEventSchema.parse(input);
+
+    // analyticsEvents is a strict user-centric store:
+    // - No internal system domain/source writes
+    // - Anonymous events are only allowed for creator-visibility events
+    if (parsed.domain === 'system') {
+      throw new Error(
+        'domain=system is not allowed in analyticsEvents. Use operational telemetry store.'
+      );
+    }
+
+    if (parsed.source === 'system') {
+      throw new Error(
+        'source=system is not allowed in analyticsEvents. Use source=user/agent only.'
+      );
+    }
+
+    const hasActor = typeof parsed.actorUserId === 'string' && parsed.actorUserId.trim().length > 0;
+    if (!hasActor && !isAnonymousUserEventAllowed(parsed)) {
+      throw new Error(
+        `Anonymous analytics events are blocked for eventType='${parsed.eventType}'.`
+      );
+    }
+
     const environment = getRuntimeEnvironment();
     const occurredAt = parsed.occurredAt ?? new Date();
     const numericValue = typeof parsed.value === 'number' ? parsed.value : null;
@@ -140,8 +198,12 @@ export class AnalyticsLoggerService {
     }
   }
 
-  async getSummary(query: AnalyticsSummaryQuery) {
+  async getSummary(query: AnalyticsSummaryQuery): Promise<AnalyticsSummaryRecord> {
     const parsed = summaryQuerySchema.parse(query);
+
+    if (parsed.domain === 'custom') {
+      return this.getCustomSummary(parsed);
+    }
 
     const environment = getRuntimeEnvironment();
 
@@ -176,7 +238,120 @@ export class AnalyticsLoggerService {
       lastAggregatedAt: rollup?.lastAggregatedAt
         ? new Date(rollup.lastAggregatedAt).toISOString()
         : null,
-    } as const;
+    };
+  }
+
+  private async getCustomSummary(query: AnalyticsSummaryQuery): Promise<AnalyticsSummaryRecord> {
+    const environment = getRuntimeEnvironment();
+    const now = new Date();
+    const periodStart = getPeriodStart(query.timeframe, now);
+    const match: Record<string, unknown> = {
+      environment,
+      subjectId: query.subjectId,
+      subjectType: query.subjectType,
+      domain: 'custom',
+    };
+
+    if (periodStart) {
+      match['occurredAt'] = { $gte: periodStart };
+    }
+
+    if (query.templateKey) {
+      match['metadata.templateKey'] = query.templateKey;
+    }
+
+    if (query.templateBaseDomain) {
+      match['metadata.templateBaseDomain'] = query.templateBaseDomain;
+    }
+
+    const rows = await AnalyticsEventModel.aggregate<{
+      _id: { templateKey: string; templateBaseDomain: string; eventType: string };
+      count: number;
+      numericValueTotal: number;
+      lastEventAt: Date | null;
+    }>([
+      { $match: match },
+      {
+        $group: {
+          _id: {
+            templateKey: { $ifNull: ['$metadata.templateKey', 'unregistered'] },
+            templateBaseDomain: { $ifNull: ['$metadata.templateBaseDomain', 'unknown'] },
+            eventType: '$eventType',
+          },
+          count: { $sum: 1 },
+          numericValueTotal: { $sum: { $ifNull: ['$numericValue', 0] } },
+          lastEventAt: { $max: '$occurredAt' },
+        },
+      },
+    ]);
+
+    const countsByEventType: Record<string, number> = {};
+    const countsByTemplateKey: Record<string, number> = {};
+    const countsByTemplateBaseDomain: Record<string, number> = {};
+    const templateBreakdownMap = new Map<string, AnalyticsTemplateBreakdownRecord>();
+    let totalCount = 0;
+    let numericValueTotal = 0;
+    let lastEventAt: Date | null = null;
+
+    for (const row of rows) {
+      const templateKey = row._id.templateKey;
+      const templateBaseDomain = row._id
+        .templateBaseDomain as AnalyticsTemplateBreakdownRecord['templateBaseDomain'];
+      const breakdownKey = `${templateKey}::${templateBaseDomain}`;
+
+      countsByEventType[row._id.eventType] =
+        (countsByEventType[row._id.eventType] ?? 0) + row.count;
+      countsByTemplateKey[templateKey] = (countsByTemplateKey[templateKey] ?? 0) + row.count;
+      countsByTemplateBaseDomain[templateBaseDomain] =
+        (countsByTemplateBaseDomain[templateBaseDomain] ?? 0) + row.count;
+      totalCount += row.count;
+      numericValueTotal += row.numericValueTotal ?? 0;
+
+      const existing = templateBreakdownMap.get(breakdownKey);
+      const nextLastEventAt =
+        !existing ||
+        (row.lastEventAt &&
+          existing.lastEventAt &&
+          new Date(existing.lastEventAt) < row.lastEventAt)
+          ? row.lastEventAt
+          : existing?.lastEventAt
+            ? new Date(existing.lastEventAt)
+            : row.lastEventAt;
+
+      templateBreakdownMap.set(breakdownKey, {
+        templateKey,
+        templateBaseDomain,
+        totalCount: (existing?.totalCount ?? 0) + row.count,
+        numericValueTotal: (existing?.numericValueTotal ?? 0) + (row.numericValueTotal ?? 0),
+        countsByEventType: {
+          ...(existing?.countsByEventType ?? {}),
+          [row._id.eventType]:
+            ((existing?.countsByEventType ?? {})[row._id.eventType] ?? 0) + row.count,
+        },
+        lastEventAt: nextLastEventAt ? nextLastEventAt.toISOString() : null,
+      });
+
+      if (row.lastEventAt && (!lastEventAt || row.lastEventAt > lastEventAt)) {
+        lastEventAt = row.lastEventAt;
+      }
+    }
+
+    return {
+      subjectId: query.subjectId,
+      subjectType: query.subjectType,
+      domain: 'custom',
+      timeframe: query.timeframe,
+      totalCount,
+      numericValueTotal,
+      countsByEventType,
+      countsByTemplateKey,
+      countsByTemplateBaseDomain,
+      templateBreakdown: [...templateBreakdownMap.values()].sort(
+        (a, b) => b.totalCount - a.totalCount
+      ),
+      lastEventAt: lastEventAt ? lastEventAt.toISOString() : null,
+      lastAggregatedAt: now.toISOString(),
+    };
   }
 
   async rebuildRollupsForSubject(

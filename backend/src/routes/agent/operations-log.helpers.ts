@@ -8,6 +8,15 @@
 
 import type { AgentJobOrigin, OperationLogStatus, OperationLogCategory } from '@nxt1/core';
 
+const PAUSE_RESUME_TOOL_NAME = 'resume_paused_operation';
+
+function isPauseYieldState(yieldState: unknown): boolean {
+  if (!yieldState || typeof yieldState !== 'object') return false;
+  const pendingToolCall = (yieldState as { pendingToolCall?: unknown }).pendingToolCall;
+  if (!pendingToolCall || typeof pendingToolCall !== 'object') return false;
+  return (pendingToolCall as { toolName?: unknown }).toolName === PAUSE_RESUME_TOOL_NAME;
+}
+
 // ─── Job Origin Validation ──────────────────────────────────────────────────
 
 /**
@@ -67,6 +76,9 @@ export function isScheduledOrigin(origin: AgentJobOrigin): boolean {
  * - `'completed'` → `'complete'`
  * - `'failed'` → `'error'`
  * - `'cancelled'` → `'cancelled'`
+ * - `'paused'` → `'paused'`
+ * - `'awaiting_approval'` → `'awaiting_approval'`
+ * - `'awaiting_input'` + pause yield marker → `'paused'`
  * - `'pending'`, `'queued'`, `'processing'`, `'thinking'`, `'acting'` → `'in-progress'`
  *
  * Any other unrecognised status is treated as `'in-progress'` so the UI shows
@@ -79,7 +91,8 @@ export function isScheduledOrigin(origin: AgentJobOrigin): boolean {
  */
 export function mapJobStatus(
   status: string,
-  onUnknown?: (raw: string) => void
+  onUnknown?: (raw: string) => void,
+  yieldState?: unknown
 ): OperationLogStatus {
   switch (status) {
     case 'completed':
@@ -88,6 +101,12 @@ export function mapJobStatus(
       return 'error';
     case 'cancelled':
       return 'cancelled';
+    case 'paused':
+      return 'paused';
+    case 'awaiting_approval':
+      return 'awaiting_approval';
+    case 'awaiting_input':
+      return isPauseYieldState(yieldState) ? 'paused' : 'awaiting_input';
     case 'pending':
     case 'queued':
     case 'processing':

@@ -314,7 +314,7 @@ export class ManageTeamApiClient {
         height: m.height,
         weight: m.weight,
         profileImgs: m.profileImg ? [m.profileImg] : undefined,
-        profileId: m.profileCode,
+        profileId: m.unicode ?? m.profileCode,
         isVerified: m.isVerified,
         status: 'active' as const,
         joinedAt: m.joinedAt,

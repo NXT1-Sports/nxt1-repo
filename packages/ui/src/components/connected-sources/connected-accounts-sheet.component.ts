@@ -47,8 +47,7 @@ import { CONNECTED_ACCOUNTS_OAUTH_HANDLER } from './connected-accounts-modal.ser
       <button
         sheetHeaderAction
         type="button"
-        class="nxt1-sheet-resync"
-        [class.nxt1-sheet-resync--active]="hasChanges()"
+        class="nxt1-sheet-resync nxt1-sheet-resync--active"
         [attr.data-testid]="testIds.RESYNC_BUTTON"
         (click)="requestResync()"
       >

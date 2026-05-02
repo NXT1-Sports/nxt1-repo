@@ -386,6 +386,7 @@ export const TRACE_NAMES = {
   // Connected accounts / Firecrawl traces
   FIRECRAWL_SESSION_START: 'firecrawl_session_start',
   FIRECRAWL_SESSION_COMPLETE: 'firecrawl_session_complete',
+  FIRECRAWL_AGENT_RESEARCH: 'firecrawl_agent_research',
 
   // Live view session traces
   LIVE_VIEW_SESSION_START: 'live_view_session_start',
@@ -409,6 +410,11 @@ export const TRACE_NAMES = {
   AGENT_X_OPERATION_RETRY: 'agent_x_operation_retry',
   AGENT_X_GOAL_COMPLETE: 'agent_x_goal_complete',
   AGENT_X_GOAL_HISTORY_LOAD: 'agent_x_goal_history_load',
+
+  // Phase I: thread-as-truth observability
+  AGENT_THREAD_REPLAY_LOAD: 'agent_thread_replay_load',
+  AGENT_THREAD_MESSAGE_APPEND: 'agent_thread_message_append',
+  AGENT_BUDGET_TOOL_TRIM: 'agent_budget_tool_trim',
 } as const;
 
 export type TraceName = (typeof TRACE_NAMES)[keyof typeof TRACE_NAMES];

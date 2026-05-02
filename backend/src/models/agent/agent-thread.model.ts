@@ -13,8 +13,14 @@
  * - { expiresAt: 1 } (TTL)          → Auto-delete old threads after retention period
  */
 
-import { model, Schema, Model } from 'mongoose';
-import type { AgentThread, AgentThreadCategory, AgentIdentifier } from '@nxt1/core';
+import { Schema, Model, type Connection } from 'mongoose';
+import type {
+  AgentThread,
+  AgentThreadCategory,
+  AgentIdentifier,
+  AgentYieldState,
+} from '@nxt1/core';
+import { getMongoEnvironmentConnection } from '../../config/database.config.js';
 
 // ─── Category & Agent enums (for Mongoose validation) ───────────────────────
 
@@ -44,11 +50,27 @@ const AGENT_IDS: readonly AgentIdentifier[] = [
 /**
  * Extended thread document with backend-only fields not exposed in the core type.
  * `memorySummarized` is used by the event-driven MemorySummarizationService and its cron safety net.
+ * `latestPausedYieldState` stores the active pause state so it survives session lifecycle.
  */
 interface AgentThreadDocument extends AgentThread {
   memorySummarized?: boolean;
   mediaCleaned?: boolean;
+  latestPausedYieldState?: AgentYieldState;
+  /**
+   * Phase K (coordinator encapsulation): when set, this thread is a
+   * coordinator-owned child thread spawned by `delegate_to_coordinator`.
+   * The parent thread's UI hides child threads from the sidebar; debug
+   * views can surface them via parentThreadId.
+   */
+  parentThreadId?: string;
+  /**
+   * Phase K: opaque ID linking this child thread back to the
+   * `delegate_to_coordinator` tool_call.id in the parent thread.
+   */
+  delegationId?: string;
 }
+
+const AGENT_THREAD_MODEL_NAME = 'AgentThread';
 
 const AgentThreadSchema = new Schema<AgentThreadDocument>(
   {
@@ -78,6 +100,23 @@ const AgentThreadSchema = new Schema<AgentThreadDocument>(
      * Prevents re-processing on subsequent cron runs.
      */
     mediaCleaned: { type: Boolean, default: false },
+    /**
+     * Stores the active pause yield state for a paused operation on this thread.
+     * Persisted when operation is paused so Resume card survives session re-entry.
+     * Cleared when operation resumes or is cancelled.
+     * Allows frontend to restore UI state without Firestore event replay.
+     */
+    latestPausedYieldState: { type: Schema.Types.Mixed, default: null },
+    /**
+     * Phase K: parent thread ID when this row is a coordinator child thread.
+     * Sparse — only set on coordinator-owned threads.
+     */
+    parentThreadId: { type: String, sparse: true, index: true },
+    /**
+     * Phase K: delegation ID linking back to the parent thread's
+     * `delegate_to_coordinator` tool_call.id. Sparse.
+     */
+    delegationId: { type: String, sparse: true },
   },
   { versionKey: false }
 );
@@ -99,9 +138,36 @@ AgentThreadSchema.index({ memorySummarized: 1, lastMessageAt: 1 });
 // Cron: find threads about to expire whose media hasn't been cleaned
 AgentThreadSchema.index({ mediaCleaned: 1, expiresAt: 1 });
 
+// Phase K: list child threads for a parent (debug / cleanup queries)
+AgentThreadSchema.index({ parentThreadId: 1, lastMessageAt: -1 }, { sparse: true });
+
 // ─── Model ──────────────────────────────────────────────────────────────────
 
-export const AgentThreadModel: Model<AgentThreadDocument> = model<AgentThreadDocument>(
-  'AgentThread',
-  AgentThreadSchema
-);
+export function getAgentThreadModel(
+  connection: Connection = getMongoEnvironmentConnection()
+): Model<AgentThreadDocument> {
+  const existingModel = connection.models[AGENT_THREAD_MODEL_NAME] as
+    | Model<AgentThreadDocument>
+    | undefined;
+  if (existingModel) return existingModel;
+
+  return connection.model<AgentThreadDocument>(AGENT_THREAD_MODEL_NAME, AgentThreadSchema);
+}
+
+export const AgentThreadModel = new Proxy({} as Model<AgentThreadDocument>, {
+  get(_target, prop) {
+    const model = getAgentThreadModel();
+    const value = (model as unknown as Record<PropertyKey, unknown>)[prop];
+    return typeof value === 'function' ? value.bind(model) : value;
+  },
+  has(_target, prop) {
+    const model = getAgentThreadModel();
+    return prop in model;
+  },
+  getOwnPropertyDescriptor(_target, prop) {
+    const model = getAgentThreadModel() as unknown as Record<PropertyKey, unknown>;
+    const value = model[prop];
+    if (value === undefined) return undefined;
+    return { configurable: true, enumerable: true, writable: true, value };
+  },
+});

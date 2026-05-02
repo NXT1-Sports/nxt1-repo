@@ -639,7 +639,7 @@ export const AGENT_X_MAX_ATTACHMENTS = 5;
 /** Maximum single file size in bytes (20 MB) for non-video files. */
 export const AGENT_X_MAX_FILE_SIZE = 20 * 1024 * 1024;
 
-/** Maximum single video file size in bytes (500 MB) — videos upload via Cloudflare Stream TUS. */
+/** Maximum single video file size in bytes (500 MB) — videos upload directly to Firebase Storage. */
 export const AGENT_X_MAX_VIDEO_FILE_SIZE = 500 * 1024 * 1024;
 
 /**
@@ -668,12 +668,22 @@ export function resolveAttachmentType(mimeType: string): AgentXAttachmentType {
 export const AGENT_X_ENDPOINTS = {
   /** Chat completion endpoint */
   CHAT: '/agent-x/chat',
+  /** Bind a completed background upload to a persisted user message. */
+  MESSAGE_ATTACHMENT_SYNC: '/agent-x/messages/attachments/sync',
   /** Resume a yielded job with user input */
   RESUME_JOB: '/agent-x/resume-job',
   /** Upload file attachment for chat (images, docs, PDFs — non-video) */
   UPLOAD: '/agent-x/upload',
-  /** Provision a Cloudflare Stream TUS direct upload URL for video files */
+  /** Provision a Cloudflare Stream TUS direct upload URL for video files (highlight posts only) */
   CLOUDFLARE_DIRECT_URL: '/upload/cloudflare/direct-url',
+  /** Provision a Firebase Storage signed upload URL for Agent X chat video attachments */
+  VIDEO_UPLOAD_PROVISION: '/agent-x/upload/video',
+  /** Proxy video upload through backend when direct GCS upload is blocked (e.g., local CORS) */
+  VIDEO_UPLOAD_PROXY: '/agent-x/upload/video/proxy',
+  /** Upload a file to the temporary scratch folder (worker output, staged uploads, scraped assets) */
+  UPLOAD_TMP: '/agent-x/upload/tmp',
+  /** Promote a file from the tmp folder to permanent media storage (copy + delete original) */
+  UPLOAD_PROMOTE: '/agent-x/upload/promote',
   /** Get quick tasks endpoint */
   TASKS: '/agent-x/tasks',
   /** Get conversation history */
@@ -696,6 +706,8 @@ export const AGENT_X_ENDPOINTS = {
   OPERATIONS_LOG: '/agent-x/operations-log',
   /** Get messages for a specific thread */
   THREAD_MESSAGES: '/agent-x/threads',
+  /** Message-level actions base path */
+  MESSAGES: '/agent-x/messages',
   /** System health probe (unauthenticated, cached) */
   HEALTH: '/agent-x/health',
   /** Start a live-view browser session */
@@ -712,6 +724,11 @@ export const AGENT_X_ENDPOINTS = {
   GOAL_COMPLETE: '/agent-x/goals',
   /** Paginated history of completed goals */
   GOAL_HISTORY: '/agent-x/goal-history',
+  /**
+   * Resolve pending attachment stubs after upload completes.
+   * `POST /agent-x/chat/pending-attachments/:operationId`
+   */
+  PENDING_ATTACHMENTS_RESOLVE: '/agent-x/chat/pending-attachments',
 } as const;
 
 /**

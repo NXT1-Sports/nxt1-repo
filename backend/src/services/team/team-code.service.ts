@@ -49,6 +49,18 @@ const CACHE_KEYS = {
 const TEAM_CACHE_TTL = CACHE_TTL.PROFILES; // 300s
 const ALL_TEAMS_CACHE_TTL = 600; // 10 minutes for all teams
 
+const TEAM_SETTINGS_EDITOR_ROLES = new Set([
+  'admin',
+  'administrative',
+  'assistant-coach',
+  'coach',
+  'director',
+  'head-coach',
+  'owner',
+  'program-director',
+  'staff',
+]);
+
 function mapRoleToRosterUserRole(role: ROLE): UserRole {
   switch (role) {
     case ROLE.coach:
@@ -195,6 +207,36 @@ async function generateUniqueTeamSlug(db: Firestore, teamName: string): Promise<
  */
 function canManageTeam(member: TeamMember | undefined): boolean {
   return member?.role === ROLE.admin;
+}
+
+function normalizeTeamEditorRole(role: unknown): string {
+  if (typeof role !== 'string') return '';
+
+  return role
+    .trim()
+    .toLowerCase()
+    .replace(/[_\s]+/g, '-');
+}
+
+function canEditTeamSettingsRole(role: unknown): boolean {
+  return TEAM_SETTINGS_EDITOR_ROLES.has(normalizeTeamEditorRole(role));
+}
+
+async function canEditTeamSettings(
+  db: Firestore,
+  teamId: string,
+  team: TeamCode,
+  userId: string
+): Promise<boolean> {
+  const rosterService = new RosterEntryService(db);
+  const rosterEntry = await rosterService.getActiveOrPendingRosterEntry(userId, teamId);
+
+  if (canEditTeamSettingsRole(rosterEntry?.role)) {
+    return true;
+  }
+
+  const legacyMember = team.members?.find((member) => member.id === userId);
+  return canEditTeamSettingsRole(legacyMember?.role);
 }
 
 /**
@@ -460,8 +502,7 @@ export async function updateTeamCode(
   const { team } = await getTeamCodeById(db, teamId, false);
 
   // Check permissions
-  const member = team.members?.find((m: TeamMember) => m.id === userId);
-  if (!canManageTeam(member)) {
+  if (!(await canEditTeamSettings(db, teamId, team, userId))) {
     throw forbiddenError('admin');
   }
 

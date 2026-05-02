@@ -426,4 +426,13 @@ export interface DispatchNotificationInput {
 
   /** Skip writing an activity feed doc (push-only, e.g. ephemeral alerts) */
   readonly skipActivity?: boolean;
+
+  /**
+   * Optional deterministic deduplication key.
+   *
+   * When provided, NotificationService will use this as the Firestore document
+   * ID for the push queue write, guaranteeing at-most-once enqueue semantics for
+   * repeated calls with the same logical event.
+   */
+  readonly idempotencyKey?: string;
 }

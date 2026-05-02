@@ -6,8 +6,9 @@
  * Maps to HelpArticle type from @nxt1/core.
  */
 
-import { model, Schema, type Model } from 'mongoose';
+import { Schema, type Model, type Connection } from 'mongoose';
 import type { HelpArticle, HelpContentType } from '@nxt1/core';
+import { getMongoGlobalConnection } from '../../config/database.config.js';
 
 /**
  * Stored article document (writable version of HelpArticle + isPublished flag)
@@ -45,6 +46,8 @@ const SeoSchema = new Schema(
   },
   { _id: false, versionKey: false }
 );
+
+const HELP_ARTICLE_MODEL_NAME = 'HelpArticle';
 
 const HelpArticleSchema = new Schema<HelpArticleDocument>(
   {
@@ -101,7 +104,31 @@ HelpArticleSchema.index(
 // Compound index for category listing
 HelpArticleSchema.index({ category: 1, isPublished: 1, publishedAt: -1 });
 
-export const HelpArticleModel: Model<HelpArticleDocument> = model<HelpArticleDocument>(
-  'HelpArticle',
-  HelpArticleSchema
-);
+export function getHelpArticleModel(
+  connection: Connection = getMongoGlobalConnection()
+): Model<HelpArticleDocument> {
+  const existingModel = connection.models[HELP_ARTICLE_MODEL_NAME] as
+    | Model<HelpArticleDocument>
+    | undefined;
+  if (existingModel) return existingModel;
+
+  return connection.model<HelpArticleDocument>(HELP_ARTICLE_MODEL_NAME, HelpArticleSchema);
+}
+
+export const HelpArticleModel = new Proxy({} as Model<HelpArticleDocument>, {
+  get(_target, prop) {
+    const model = getHelpArticleModel();
+    const value = (model as unknown as Record<PropertyKey, unknown>)[prop];
+    return typeof value === 'function' ? value.bind(model) : value;
+  },
+  has(_target, prop) {
+    const model = getHelpArticleModel();
+    return prop in model;
+  },
+  getOwnPropertyDescriptor(_target, prop) {
+    const model = getHelpArticleModel() as unknown as Record<PropertyKey, unknown>;
+    const value = model[prop];
+    if (value === undefined) return undefined;
+    return { configurable: true, enumerable: true, writable: true, value };
+  },
+});

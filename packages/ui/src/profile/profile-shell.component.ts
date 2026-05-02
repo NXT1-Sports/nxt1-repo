@@ -280,6 +280,7 @@ export interface ProfileShellUser {
                     [emptyTitle]="emptyState().title"
                     [emptyMessage]="emptyState().message"
                     [emptyCta]="null"
+                    [userUnicode]="profileUnicode() || profile.user()?.profileCode || ''"
                     (postClick)="onPostClick($event)"
                     (shareClick)="onSharePost($event)"
                     (menuClick)="onPostMenu($event)"
@@ -938,15 +939,61 @@ export class ProfileShellComponent implements OnInit {
   }
 
   protected async onCreatePostWithAgent(): Promise<void> {
+    const user = this.profile.user();
+    if (!user) return;
+
+    const userName = user.displayName?.trim() ?? user.firstName?.trim() ?? 'Athlete';
+    const activeTab = this.activeSideTab();
+
+    // Build tab-specific context
+    let tabContext: string;
+    let sourceCollection: string;
+    switch (activeTab) {
+      case 'stats':
+        tabContext = 'my statistics, performance data, or game stats';
+        sourceCollection = 'season stats';
+        break;
+      case 'schedule':
+        tabContext = 'my upcoming games or schedule';
+        sourceCollection = 'schedule';
+        break;
+      case 'recruiting':
+        tabContext = 'recruiting updates or college recruitment news';
+        sourceCollection = 'recruiting activity';
+        break;
+      case 'news':
+        tabContext = 'news articles or personal announcements';
+        sourceCollection = 'news';
+        break;
+      case 'media':
+        tabContext = 'photos or highlight videos';
+        sourceCollection = 'media';
+        break;
+      case 'pinned':
+        tabContext = 'important pinned announcement';
+        sourceCollection = 'news';
+        break;
+      default:
+        tabContext = 'update';
+        sourceCollection = 'profile updates';
+    }
+
     const hasReport = !!this.intel.athleteReport();
+    const baseMessage =
+      `This is an ATHLETE profile update request for ${userName}. ` +
+      `Active tab: ${activeTab}. ` +
+      `Focus area: ${tabContext}. ` +
+      `Write or update the ${sourceCollection} source collection first, ` +
+      `then create a timeline post only when a public announcement is needed.`;
     const message = hasReport
-      ? 'I want to create a post for my timeline. After creating the post, automatically review it and update any relevant sections of my Agent X Intel report with new stats, achievements, or information from the post.'
-      : 'I want to create a post for my timeline.';
+      ? `${baseMessage} After saving the source data, review and update any relevant sections of my Agent X Intel report with new stats, achievements, or profile updates.`
+      : baseMessage;
+
     await this.bottomSheet.openSheet({
       component: AgentXOperationChatComponent,
       componentProps: {
         contextId: 'profile-timeline-post',
-        contextTitle: 'Create a Post',
+        contextTitle: 'Create / Sync Update',
         contextIcon: 'create-outline',
         contextType: 'command',
         initialMessage: message,

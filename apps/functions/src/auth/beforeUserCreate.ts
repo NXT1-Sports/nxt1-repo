@@ -53,18 +53,11 @@ import { DISPOSABLE_EMAIL_DOMAINS, USER_SCHEMA_VERSION } from '../constants';
 const OAUTH_TOKEN_SUBCOLLECTION = 'oauthTokens' as const;
 const GOOGLE_OAUTH_TOKEN_DOC_ID = 'google' as const;
 // Keep this in sync with packages/core/src/auth/google-oauth.constants.ts.
-// Broader legacy markers are retained here so old-but-valid grants still trigger
-// token persistence during account creation.
 const GOOGLE_OAUTH_SCOPES = [
-  'https://mail.google.com/',
-  'https://www.googleapis.com/auth/gmail.modify',
-  'https://www.googleapis.com/auth/gmail.send',
   'https://www.googleapis.com/auth/gmail.readonly',
-  'https://www.googleapis.com/auth/calendar.readonly',
-  'https://www.googleapis.com/auth/calendar',
+  'https://www.googleapis.com/auth/gmail.send',
   'https://www.googleapis.com/auth/drive.file',
-  'https://www.googleapis.com/auth/drive.readonly',
-  'https://www.googleapis.com/auth/drive',
+  'https://www.googleapis.com/auth/calendar.readonly',
   'https://www.googleapis.com/auth/calendar.events',
   'https://www.googleapis.com/auth/documents',
   'https://www.googleapis.com/auth/spreadsheets',

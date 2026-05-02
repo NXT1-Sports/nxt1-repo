@@ -31,6 +31,7 @@ import {
   OnInit,
   afterNextRender,
 } from '@angular/core';
+import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute } from '@angular/router';
 import { mapToConnectedSources } from '@nxt1/core';
 import { AgentXShellWebComponent } from '@nxt1/ui/agent-x/web';
@@ -153,6 +154,11 @@ export class AgentXComponent implements OnInit {
   private readonly injector = inject(Injector);
   private readonly editProfileApi = inject(EditProfileApiService);
   private readonly connectedAccountsResync = inject(ConnectedAccountsResyncService);
+  private readonly queryParamMap = toSignal(this.route.queryParamMap, {
+    initialValue: this.route.snapshot.queryParamMap,
+  });
+  private readonly queuedThreadId = signal<string | null>(null);
+  private readonly queuedStartupPrompt = signal<string | null>(null);
 
   /**
    * Auth-init overlay: prevents the marketing landing page from flashing
@@ -177,6 +183,52 @@ export class AgentXComponent implements OnInit {
         );
       }
     });
+
+    effect(
+      () => {
+        const threadId = this.queryParamMap().get('thread')?.trim() ?? '';
+        const queuedThreadId = this.queuedThreadId();
+
+        if (!threadId) {
+          if (queuedThreadId !== null) {
+            this.queuedThreadId.set(null);
+          }
+          return;
+        }
+
+        if (!this.authFlow.isAuthenticated() || queuedThreadId === threadId) {
+          return;
+        }
+
+        this.logger.info('Queuing thread from query param', { threadId });
+        this.agentX.queuePendingThread({ threadId, title: 'Agent X' });
+        this.queuedThreadId.set(threadId);
+      },
+      { injector: this.injector }
+    );
+
+    effect(
+      () => {
+        const startupPrompt = this.queryParamMap().get('q')?.trim() ?? '';
+        const queuedStartupPrompt = this.queuedStartupPrompt();
+
+        if (!startupPrompt) {
+          if (queuedStartupPrompt !== null) {
+            this.queuedStartupPrompt.set(null);
+          }
+          return;
+        }
+
+        if (!this.authFlow.isAuthenticated() || queuedStartupPrompt === startupPrompt) {
+          return;
+        }
+
+        this.logger.info('Queuing startup prompt from query param');
+        this.agentX.queueStartupMessage(startupPrompt);
+        this.queuedStartupPrompt.set(startupPrompt);
+      },
+      { injector: this.injector }
+    );
   }
 
   /** Auth state — hard-gates shell visibility */
@@ -192,15 +244,6 @@ export class AgentXComponent implements OnInit {
       keywords: ['ai', 'agent x', 'command center', 'recruiting', 'highlights', 'graphics', 'nxt1'],
       noIndex: isAuthenticated, // Index for logged-out (SEO landing), noindex for logged-in
     });
-
-    if (isAuthenticated) {
-      // Load thread from deep link query param (?thread=<id>) — opens in bottom sheet
-      const threadId = this.route.snapshot.queryParamMap.get('thread');
-      if (threadId) {
-        this.logger.info('Queuing thread from query param', { threadId });
-        this.agentX.queuePendingThread({ threadId, title: 'Agent X' });
-      }
-    }
   }
 
   /**

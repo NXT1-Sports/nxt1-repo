@@ -1,4 +1,5 @@
 import type { ToolExecutionContext } from '../../base.tool.js';
+import axios from 'axios';
 import { logger } from '../../../../../utils/logger.js';
 import { GoogleWorkspaceMcpBridgeService } from './google-workspace-mcp-bridge.service.js';
 import { GoogleWorkspaceTokenManagerService } from './google-workspace-token-manager.service.js';
@@ -9,16 +10,25 @@ import {
   isGoogleWorkspaceAllowedToolName,
 } from './shared.js';
 import { AgentEngineError } from '../../../exceptions/agent-engine.error.js';
+import { resolveGoogleWorkspaceMcpUrl } from './google-workspace-env.js';
+import {
+  renderRichContentAsDocumentText,
+  renderRichContentAsEmailHtml,
+} from '../../../../../services/communications/rich-content-formatting.js';
+import {
+  buildGoogleDocsRichFormattingPlan,
+  shouldUseGoogleDocsRichFormatting,
+} from './google-docs-rich-formatting.js';
 
 const GOOGLE_WORKSPACE_TOOL_TIMEOUT_MS = 90_000;
 const GOOGLE_WORKSPACE_SESSION_IDLE_TTL_MS = 2 * 60 * 1_000;
 const GOOGLE_WORKSPACE_MAX_SESSIONS = 100;
-const GOOGLE_WORKSPACE_MCP_DEFAULT_URL = 'http://127.0.0.1:8000/mcp';
 
 interface GoogleWorkspaceSessionEntry {
   readonly bridge: GoogleWorkspaceMcpBridgeService;
   readonly userId: string;
-  readonly googleEmail: string;
+  googleEmail: string;
+  accessToken: string;
   readonly environment: ToolExecutionContext['environment'];
   lastUsedAtMs: number;
 }
@@ -28,19 +38,13 @@ function isAuthenticationError(error: unknown): boolean {
   return /401|403|unauthorized|forbidden|invalid token|bearer/i.test(message.toLowerCase());
 }
 
-function normalizeGoogleWorkspaceMcpUrl(rawUrl: string): string {
-  const trimmed = rawUrl.trim();
-  return trimmed.endsWith('/') ? trimmed.slice(0, -1) : trimmed;
-}
-
 export class GoogleWorkspaceMcpSessionService {
   private readonly sessions = new Map<string, GoogleWorkspaceSessionEntry>();
   private readonly endpointUrl: string;
 
   constructor(
     private readonly tokenManager: GoogleWorkspaceTokenManagerService = new GoogleWorkspaceTokenManagerService(),
-    endpointUrl = process.env['GOOGLE_WORKSPACE_MCP_URL'] ??
-      (process.env['NODE_ENV'] === 'production' ? '' : GOOGLE_WORKSPACE_MCP_DEFAULT_URL)
+    endpointUrl = resolveGoogleWorkspaceMcpUrl()
   ) {
     if (!endpointUrl) {
       throw new AgentEngineError(
@@ -48,14 +52,13 @@ export class GoogleWorkspaceMcpSessionService {
         'GOOGLE_WORKSPACE_MCP_URL is required in production before Google Workspace MCP tools can be enabled.'
       );
     }
-    const normalized = normalizeGoogleWorkspaceMcpUrl(endpointUrl);
-    if (!normalized.startsWith('http://') && !normalized.startsWith('https://')) {
+    if (!endpointUrl.startsWith('http://') && !endpointUrl.startsWith('https://')) {
       throw new AgentEngineError(
         'GOOGLE_WORKSPACE_CONFIG_INVALID',
         'GOOGLE_WORKSPACE_MCP_URL must be an absolute http(s) URL.'
       );
     }
-    this.endpointUrl = normalized;
+    this.endpointUrl = endpointUrl;
   }
 
   async listAllowedTools(
@@ -100,7 +103,18 @@ export class GoogleWorkspaceMcpSessionService {
     }
 
     const session = await this.getSession(context);
-    const enrichedArgs = this.injectGoogleEmail(args, session.googleEmail);
+    if (this.isRichDocsTextMutation(toolName, args)) {
+      try {
+        const data = await this.executeRichDocsTextMutation(toolName, args, session);
+        session.lastUsedAtMs = Date.now();
+        return data;
+      } finally {
+        await this.releaseEphemeralSession(session);
+      }
+    }
+
+    const preparedArgs = this.prepareToolArguments(toolName, args);
+    const enrichedArgs = this.injectGoogleEmail(preparedArgs, session.googleEmail);
     try {
       const result = await session.bridge.executeTool(toolName, enrichedArgs, {
         timeoutMs: GOOGLE_WORKSPACE_TOOL_TIMEOUT_MS,
@@ -126,7 +140,7 @@ export class GoogleWorkspaceMcpSessionService {
         });
         await this.destroySession(session.cacheKey);
         const retrySession = await this.getSession(context, false);
-        const retryEnrichedArgs = this.injectGoogleEmail(args, retrySession.googleEmail);
+        const retryEnrichedArgs = this.injectGoogleEmail(preparedArgs, retrySession.googleEmail);
         try {
           const retryResult = await retrySession.bridge.executeTool(toolName, retryEnrichedArgs, {
             timeoutMs: GOOGLE_WORKSPACE_TOOL_TIMEOUT_MS,
@@ -179,6 +193,9 @@ export class GoogleWorkspaceMcpSessionService {
         // the backend has a valid refresh token. Always re-run the token
         // manager on reuse so the bucket file stays fresh.
         await this.tokenManager.getValidAccessToken(context);
+        const refreshed = await this.tokenManager.getValidAccessToken(context);
+        existing.accessToken = refreshed.accessToken;
+        existing.googleEmail = refreshed.email;
         existing.lastUsedAtMs = Date.now();
         return { ...existing, cacheKey };
       }
@@ -194,6 +211,7 @@ export class GoogleWorkspaceMcpSessionService {
       bridge: new GoogleWorkspaceMcpBridgeService(this.endpointUrl, accessToken),
       userId: context.userId,
       googleEmail: email,
+      accessToken,
       environment: context.environment,
       lastUsedAtMs: Date.now(),
     };
@@ -270,5 +288,136 @@ export class GoogleWorkspaceMcpSessionService {
   ): Record<string, unknown> {
     if (!googleEmail || 'user_google_email' in args) return args;
     return { user_google_email: googleEmail, ...args };
+  }
+
+  private prepareToolArguments(
+    toolName: string,
+    args: Record<string, unknown>
+  ): Record<string, unknown> {
+    if (toolName === 'gmail_send_email' || toolName === 'create_gmail_draft') {
+      if (typeof args['body'] !== 'string') return args;
+      return { ...args, body: renderRichContentAsEmailHtml(args['body']) };
+    }
+
+    if (toolName === 'gmail_reply_to_email') {
+      if (typeof args['reply_body'] !== 'string') return args;
+      return { ...args, reply_body: renderRichContentAsEmailHtml(args['reply_body']) };
+    }
+
+    if (
+      toolName === 'docs_append_text' ||
+      toolName === 'docs_prepend_text' ||
+      toolName === 'docs_insert_text'
+    ) {
+      if (typeof args['text'] !== 'string') return args;
+      return { ...args, text: renderRichContentAsDocumentText(args['text']) };
+    }
+
+    return args;
+  }
+
+  private isRichDocsTextMutation(toolName: string, args: Record<string, unknown>): boolean {
+    if (
+      toolName !== 'docs_append_text' &&
+      toolName !== 'docs_prepend_text' &&
+      toolName !== 'docs_insert_text'
+    ) {
+      return false;
+    }
+
+    return typeof args['text'] === 'string' && shouldUseGoogleDocsRichFormatting(args['text']);
+  }
+
+  private async executeRichDocsTextMutation(
+    toolName: string,
+    args: Record<string, unknown>,
+    session: GoogleWorkspaceSessionEntry & { readonly cacheKey: string | null }
+  ): Promise<unknown> {
+    const documentId = typeof args['document_id'] === 'string' ? args['document_id'].trim() : '';
+    const text = typeof args['text'] === 'string' ? args['text'] : '';
+    if (!documentId || !text) {
+      throw new AgentEngineError(
+        'GOOGLE_WORKSPACE_REQUEST_FAILED',
+        'Google Docs rich formatting requires a document_id and text.'
+      );
+    }
+
+    const documentState = await this.getGoogleDocumentState(documentId, session.accessToken);
+    const insertionIndex =
+      toolName === 'docs_prepend_text'
+        ? 1
+        : toolName === 'docs_insert_text' && typeof args['index'] === 'number'
+          ? args['index']
+          : documentState.endIndex;
+
+    const plan = buildGoogleDocsRichFormattingPlan(text, insertionIndex, {
+      preferDocumentHeaderStyles: toolName === 'docs_append_text' && documentState.isEmpty,
+    });
+
+    if (!plan) {
+      const fallbackText = renderRichContentAsDocumentText(text);
+      const fallbackArgs = this.injectGoogleEmail(
+        { ...args, text: fallbackText },
+        session.googleEmail
+      );
+      const result = await session.bridge.executeTool(toolName, fallbackArgs, {
+        timeoutMs: GOOGLE_WORKSPACE_TOOL_TIMEOUT_MS,
+      });
+      if (result.isError) {
+        throw new AgentEngineError(
+          'GOOGLE_WORKSPACE_REQUEST_FAILED',
+          extractGoogleWorkspaceErrorMessage(result),
+          {
+            metadata: { toolName, documentId, richFormattingFallback: true },
+          }
+        );
+      }
+      return extractGoogleWorkspacePayload(result);
+    }
+
+    await axios.post(
+      `https://docs.googleapis.com/v1/documents/${encodeURIComponent(documentId)}:batchUpdate`,
+      { requests: plan.requests },
+      {
+        headers: {
+          Authorization: `Bearer ${session.accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        timeout: GOOGLE_WORKSPACE_TOOL_TIMEOUT_MS,
+      }
+    );
+
+    return {
+      documentId,
+      operation: toolName,
+      insertedTextLength: plan.insertText.length,
+      styledBlockCount: plan.styledBlockCount,
+      formattingApplied: true,
+    };
+  }
+
+  private async getGoogleDocumentState(
+    documentId: string,
+    accessToken: string
+  ): Promise<{ endIndex: number; isEmpty: boolean }> {
+    const response = await axios.get(
+      `https://docs.googleapis.com/v1/documents/${encodeURIComponent(documentId)}`,
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+        params: {
+          fields: 'body/content/endIndex',
+        },
+        timeout: GOOGLE_WORKSPACE_TOOL_TIMEOUT_MS,
+      }
+    );
+
+    const content = Array.isArray(response.data?.body?.content)
+      ? (response.data.body.content as Array<{ endIndex?: unknown; startIndex?: unknown }>)
+      : [];
+    const lastEndIndex = content.length > 0 ? content[content.length - 1]?.endIndex : null;
+    const endIndex = typeof lastEndIndex === 'number' && lastEndIndex > 1 ? lastEndIndex - 1 : 1;
+    return { endIndex, isEmpty: endIndex <= 1 };
   }
 }

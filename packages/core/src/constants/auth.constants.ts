@@ -75,9 +75,9 @@ export const AUTH_ROUTES = {
  */
 export const AUTH_REDIRECTS = {
   /** Default redirect after auth (existing users with completed onboarding) */
-  DEFAULT: '/agent',
+  DEFAULT: '/agent-x',
   /** Agent X landing after onboarding congratulations */
-  AGENT: '/agent',
+  AGENT: '/agent-x',
   /** Onboarding flow (new users or incomplete onboarding) */
   ONBOARDING: '/auth/onboarding',
 } as const;

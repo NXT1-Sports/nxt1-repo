@@ -62,6 +62,7 @@
     "@capacitor/splash-screen": "^8.0.0",
     "@capacitor/status-bar": "^8.0.0",
     "@capawesome/capacitor-badge": "^8.0.1",
+    "@capgo/capacitor-updater": "^8.45.10",
     "@capgo/native-purchases": "^8.3.0",
     "@ionic/angular": "^8.6.0",
     "@nxt1/core": "*",

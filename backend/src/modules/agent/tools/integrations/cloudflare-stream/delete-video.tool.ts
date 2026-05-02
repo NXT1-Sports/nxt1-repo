@@ -17,7 +17,7 @@ export class DeleteVideoTool extends BaseTool {
   readonly description =
     'Permanently delete a video from Cloudflare Stream. ' +
     'Use this when a user explicitly asks to delete a video, or after the processed ' +
-    'artifact has been saved back to Firebase Storage (ephemeral cleanup). ' +
+    'artifact has been saved to its final destination (ephemeral cleanup). ' +
     'The videoId is the Cloudflare video UID (cloudflareVideoId from the upload).';
 
   readonly parameters = z.object({

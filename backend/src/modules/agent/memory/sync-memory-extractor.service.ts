@@ -69,7 +69,14 @@ const extractedMemoryFactSchema = z.object({
   target: z.enum(['user', 'team', 'organization']),
 });
 
-const extractedMemoryFactsSchema = z.array(z.unknown());
+const extractedMemoryFactsPayloadSchema = z.object({
+  facts: z.array(extractedMemoryFactSchema),
+});
+
+const extractedMemoryFactsResultSchema = z.union([
+  extractedMemoryFactsPayloadSchema,
+  z.array(extractedMemoryFactSchema),
+]);
 
 const SYNC_MEMORY_SYSTEM_PROMPT = `You convert structured sports sync changes into long-term AI memory facts for NXT1.
 
@@ -90,12 +97,18 @@ Use targets like this:
 - team: roster/team schedule/conference/team-level milestones
 - organization: school/program-wide identity, milestones, schedule, branding
 
-Return ONLY a JSON array of objects with:
-- content: string
-- category: one of preference, goal, recruiting_context, performance_data, profile_update
-- target: one of user, team, organization
+Return ONLY a JSON object with this shape:
+{
+  "facts": [
+    {
+      "content": "...",
+      "category": "preference|goal|recruiting_context|performance_data|profile_update",
+      "target": "user|team|organization"
+    }
+  ]
+}
 
-If nothing is worth storing, return [].`;
+If nothing is worth storing, return: {"facts": []}.`;
 
 export class SyncMemoryExtractorService {
   constructor(
@@ -428,7 +441,7 @@ export class SyncMemoryExtractorService {
         maxTokens: 1800,
         outputSchema: {
           name: 'sync_memory_facts',
-          schema: z.array(extractedMemoryFactSchema),
+          schema: extractedMemoryFactsPayloadSchema,
         },
         telemetryContext: {
           operationId: `sync-memory-${delta.userId}-${delta.syncedAt}`,
@@ -439,11 +452,13 @@ export class SyncMemoryExtractorService {
       }
     );
 
-    let parsedFacts: z.infer<typeof extractedMemoryFactsSchema>;
+    let parsedFacts:
+      | z.infer<typeof extractedMemoryFactsPayloadSchema>
+      | z.infer<typeof extractedMemoryFactSchema>[];
     try {
       parsedFacts = resolveStructuredOutput(
         completion,
-        extractedMemoryFactsSchema,
+        extractedMemoryFactsResultSchema,
         'Sync memory extraction'
       );
     } catch {
@@ -454,7 +469,9 @@ export class SyncMemoryExtractorService {
       return [];
     }
 
-    const extractedFacts: Array<ExtractedMemoryFact | null> = parsedFacts.map((item) => {
+    const facts = Array.isArray(parsedFacts) ? parsedFacts : parsedFacts.facts;
+
+    const extractedFacts: Array<ExtractedMemoryFact | null> = facts.map((item) => {
       const fact = extractedMemoryFactSchema.safeParse(item);
       if (!fact.success) {
         return null;

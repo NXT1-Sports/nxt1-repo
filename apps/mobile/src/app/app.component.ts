@@ -24,6 +24,7 @@ import {
   FcmRegistrationService,
   NativeBadgeService,
   IapService,
+  LiveUpdateService,
 } from './core/services';
 import { BiometricService, AuthFlowService } from './core/services/auth';
 import { AUTH_ROUTES, AUTH_REDIRECTS } from '@nxt1/core/constants';
@@ -61,6 +62,7 @@ export class AppComponent {
   private readonly iap = inject(IapService);
   private readonly usageBottomSheet = inject(UsageBottomSheetService);
   private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
+  private readonly liveUpdate = inject(LiveUpdateService);
 
   /** Track if we've performed initial navigation */
   private hasPerformedInitialNavigation = false;
@@ -126,7 +128,7 @@ export class AppComponent {
       currentUrl !== '/' &&
       currentUrl !== '/auth' &&
       currentUrl !== '/home' &&
-      currentUrl !== '/agent'
+      currentUrl !== '/agent-x'
     ) {
       this.logger.debug('On specific route, respecting current navigation');
       return;
@@ -225,6 +227,12 @@ export class AppComponent {
         connectionType: this.network.connectionType(),
         biometricAvailable: this.biometric.isAvailable(),
         biometricType: this.biometric.biometryType(),
+      });
+
+      // Self-hosted OTA bundle update check (Firebase Storage + Firestore).
+      // Runs in the background; failures are silent and won't block startup.
+      this.liveUpdate.initialize().catch((err) => {
+        this.logger.warn('Live update initialization failed', { err: String(err) });
       });
     } catch (error) {
       this.logger.error('Initialization error', error);

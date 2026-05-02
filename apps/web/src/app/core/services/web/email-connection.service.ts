@@ -18,7 +18,7 @@
  */
 
 import { Injectable, inject } from '@angular/core';
-import { getAuth, GoogleAuthProvider, signInWithPopup } from '@angular/fire/auth';
+import { Auth, GoogleAuthProvider, signInWithPopup } from '@angular/fire/auth';
 import { NxtLoggingService, NxtToastService } from '@nxt1/ui';
 import type { ILogger } from '@nxt1/core/logging';
 import {
@@ -46,6 +46,7 @@ export class WebEmailConnectionService {
   private readonly logger: ILogger = inject(NxtLoggingService).child('WebEmailConnectionService');
   private readonly toast = inject(NxtToastService);
   private readonly authService = inject(AUTH_SERVICE) as IAuthService;
+  private readonly auth = inject(Auth);
 
   /** Lock to prevent concurrent connection attempts */
   private isMicrosoftConnecting = false;
@@ -289,8 +290,7 @@ export class WebEmailConnectionService {
     try {
       this.logger.info('Starting Google OAuth connect flow (backend-redirect popup)');
 
-      const auth = getAuth();
-      const idToken = await auth.currentUser?.getIdToken();
+      const idToken = await this.auth.currentUser?.getIdToken();
       if (!idToken) {
         throw new Error('Failed to get authentication token. Please sign in again.');
       }
@@ -353,8 +353,7 @@ export class WebEmailConnectionService {
       this.logger.info('Starting Gmail connection flow');
 
       // Get Firebase ID token for backend authentication
-      const auth = getAuth();
-      const idToken = await auth.currentUser?.getIdToken();
+      const idToken = await this.auth.currentUser?.getIdToken();
 
       if (!idToken) {
         throw new Error('Failed to get authentication token. Please sign in again.');
@@ -370,7 +369,7 @@ export class WebEmailConnectionService {
       });
 
       // Sign in with popup - shows Google account picker
-      const result = await signInWithPopup(auth, provider);
+      const result = await signInWithPopup(this.auth, provider);
       const credential = GoogleAuthProvider.credentialFromResult(result);
 
       if (!credential?.accessToken) {
@@ -425,8 +424,7 @@ export class WebEmailConnectionService {
     try {
       this.logger.info('Starting Microsoft connection flow (backend-redirect popup)');
 
-      const auth = getAuth();
-      const idToken = await auth.currentUser?.getIdToken();
+      const idToken = await this.auth.currentUser?.getIdToken();
       if (!idToken) {
         throw new Error('Failed to get authentication token. Please sign in again.');
       }
@@ -493,8 +491,7 @@ export class WebEmailConnectionService {
       }
 
       // Get Firebase ID token for backend authentication
-      const auth = getAuth();
-      const idToken = await auth.currentUser?.getIdToken();
+      const idToken = await this.auth.currentUser?.getIdToken();
 
       if (!idToken) {
         throw new Error('Failed to get authentication token. Please sign in again.');

@@ -14,7 +14,7 @@
 
 import { isTeamRole } from '../../constants/user.constants';
 import { formatSportDisplayName, getPositionAbbreviation } from '../../constants/sport.constants';
-import { resolveCanonicalTeamRoute } from '../../helpers/formatters';
+import { buildTeamSlug, resolveCanonicalTeamRoute } from '../../helpers/formatters';
 import type { SidenavSportProfile } from '../platform/navigation.model';
 
 interface UserDisplayTeamAffiliation {
@@ -260,10 +260,41 @@ function getResolvedActiveSport(
 function buildTeamContext(user: UserDisplayInput, personalName: string): UserDisplayContext {
   const activeSportIndex = getResolvedActiveSportIndex(user);
   const activeSport = getResolvedActiveSport(user);
-  const activeTeam = activeSport?.team;
+  const activeSportTeam = activeSport?.team;
+
+  // Fall back to top-level teamCode when the active sport's team affiliation is not
+  // yet populated — this happens for newly registered coaches/directors whose
+  // sports[].team hasn't synced from the backend yet but user.teamCode is already set.
+  const rawTopLevelTeamCode =
+    user.teamCode && typeof user.teamCode === 'object' ? user.teamCode : null;
+
+  const activeTeam: UserDisplayTeamAffiliation | undefined =
+    activeSportTeam ??
+    (activeSport && rawTopLevelTeamCode
+      ? {
+          name: rawTopLevelTeamCode.teamName,
+          logoUrl: rawTopLevelTeamCode.logoUrl ?? null,
+          logo: (rawTopLevelTeamCode as { teamLogoImg?: string | null }).teamLogoImg ?? null,
+          teamId: rawTopLevelTeamCode.teamId,
+          teamCode: rawTopLevelTeamCode.teamCode,
+          code: rawTopLevelTeamCode.code,
+          slug: rawTopLevelTeamCode.slug,
+          unicode: rawTopLevelTeamCode.unicode,
+        }
+      : undefined);
+
   // Account for varied payloads where team name could be `name` or `teamName`
-  const teamName = activeTeam?.name?.trim() || (activeTeam as any)?.teamName?.trim();
-  const hasCanonicalTeamReference = !!(activeTeam?.teamCode?.trim() || activeTeam?.code?.trim());
+  const teamWithLegacyName = activeTeam as
+    | (UserDisplayTeamAffiliation & { teamName?: string | null })
+    | undefined;
+  const teamName = activeTeam?.name?.trim() || teamWithLegacyName?.teamName?.trim();
+  const routeIdentifier =
+    activeTeam?.teamId?.trim() ||
+    activeTeam?.id?.trim() ||
+    activeTeam?.teamCode?.trim() ||
+    activeTeam?.code?.trim() ||
+    undefined;
+  const hasCanonicalTeamReference = !!routeIdentifier;
   const hasTeamAssociation = !!(teamName || hasCanonicalTeamReference);
   const resolvedTeamRoute = resolveCanonicalTeamRoute({
     slug: activeTeam?.slug?.trim(),
@@ -273,8 +304,23 @@ function buildTeamContext(user: UserDisplayInput, personalName: string): UserDis
     teamCode: activeTeam?.teamCode?.trim() || activeTeam?.code?.trim(),
     unicode: activeTeam?.unicode?.trim(),
   });
-  const sport = activeSport?.sport?.trim() || user.primarySport?.trim();
-  const logoUrl = activeTeam?.logoUrl ?? activeTeam?.logo ?? null;
+  const routeSlug =
+    activeTeam?.slug?.trim() ||
+    resolvedTeamRoute?.slug ||
+    (teamName ? buildTeamSlug(teamName) : '');
+  const profileRoute = hasTeamAssociation
+    ? routeIdentifier
+      ? `/team/${routeSlug || 'team'}/${encodeURIComponent(routeIdentifier)}`
+      : '/team'
+    : '/team';
+  const sport =
+    activeSport?.sport?.trim() || rawTopLevelTeamCode?.sport?.trim() || user.primarySport?.trim();
+  const logoUrl =
+    activeTeam?.logoUrl ??
+    activeTeam?.logo ??
+    rawTopLevelTeamCode?.logoUrl ??
+    rawTopLevelTeamCode?.teamLogoImg ??
+    null;
 
   // Name: ALWAYS the team name for team roles. If no team name set, show explicit fallback.
   const name = teamName || personalName;
@@ -327,6 +373,9 @@ function buildTeamContext(user: UserDisplayInput, personalName: string): UserDis
           const additionalLogoUrl = (s.team as Record<string, unknown> | undefined)?.['logoUrl'] as
             | string
             | undefined;
+          const additionalLegacyLogo = (s.team as Record<string, unknown> | undefined)?.['logo'] as
+            | string
+            | undefined;
           return {
             id: `team-sport-${i}`,
             originalIndex: i,
@@ -337,7 +386,7 @@ function buildTeamContext(user: UserDisplayInput, personalName: string): UserDis
             isActive: i === activeSportIndex,
             profileImg: additionalIsPersonalFallback
               ? undefined
-              : additionalLogoUrl || profileImg || undefined,
+              : additionalLogoUrl || additionalLegacyLogo || profileImg || undefined,
           };
         }) ?? [])
     : [];
@@ -361,10 +410,7 @@ function buildTeamContext(user: UserDisplayInput, personalName: string): UserDis
     actionLabel: 'Add Team',
     canAddProfile: canUserAddProfile(user),
     sportProfiles,
-    profileRoute:
-      (hasCanonicalTeamReference || !!teamName) && resolvedTeamRoute?.path
-        ? resolvedTeamRoute.path
-        : '/profile',
+    profileRoute,
   };
 }
 

@@ -53,27 +53,35 @@ import { NxtIconComponent } from '../../components/icon';
 import { NxtStateViewComponent } from '../../components/state-view';
 import { NxtHeaderPortalService } from '../../services/header-portal/header-portal.service';
 import { NxtOverlayService } from '../../components/overlay';
-import { ConnectedAccountsModalService } from '../../components/connected-sources';
+import {
+  ConnectedAccountsModalService,
+  FirecrawlSignInService,
+} from '../../components/connected-sources';
 import type { ConnectedAccountsResyncSource } from '../../components/connected-sources';
-import { AgentXService } from '../agent-x.service';
-import { LiveViewSessionService } from '../live-view-session.service';
-import { AgentXDashboardSkeletonComponent } from '../agent-x-dashboard-skeleton.component';
+import { AgentXService } from '../services/agent-x.service';
+import { LiveViewSessionService } from '../services/live-view-session.service';
+import { AgentXDashboardSkeletonComponent } from '../components/shared/agent-x-dashboard-skeleton.component';
 import {
   LiveViewLauncherComponent,
   type LiveViewLaunchEvent,
 } from './live-view-launcher.component';
-import { AgentXControlPanelComponent } from '../agent-x-control-panel.component';
-import { AgentXOperationsLogComponent } from '../agent-x-operations-log.component';
+import { AgentXControlPanelComponent } from '../components/shell/agent-x-control-panel.component';
+import { AgentXOperationsLogComponent } from '../components/shared/agent-x-operations-log.component';
 import {
   AgentXOperationChatComponent,
   type OperationQuickAction,
-} from '../agent-x-operation-chat.component';
-import type { DraftSubmittedEvent } from '../agent-x-draft-card.component';
-import { AgentXPromptInputComponent } from '../agent-x-prompt-input.component';
+} from '../components/chat/agent-x-operation-chat.component';
+import {
+  buildCoordinatorActionPrompt,
+  resolveCoordinatorActionId,
+  resolveCoordinatorChipId,
+} from '../components/chat/agent-x-operation-chat.utils';
+import type { DraftSubmittedEvent } from '../components/cards/agent-x-draft-card.component';
+import { AgentXInputBarComponent } from '../components/inputs/agent-x-input-bar.component';
 import {
   AgentXControlPanelStateService,
   type AgentXControlPanelKind,
-} from '../agent-x-control-panel-state.service';
+} from '../services/agent-x-control-panel-state.service';
 import { NxtToastService } from '../../services/toast/toast.service';
 import { HapticsService } from '../../services/haptics/haptics.service';
 import { NxtLoggingService } from '../../services/logging/logging.service';
@@ -82,8 +90,8 @@ import { NxtPlatformService } from '../../services/platform/platform.service';
 import {
   AgentXOperationEventService,
   type ThreadTitleUpdatedEvent,
-} from '../agent-x-operation-event.service';
-import type { CommandCategory } from '../agent-x-shell.component';
+} from '../services/agent-x-operation-event.service';
+import type { CommandCategory } from '../components/shell/agent-x-shell.component';
 import {
   type ShellWeeklyPlaybookItem,
   type OperationLogEntry,
@@ -94,6 +102,8 @@ import { buildLinkSourcesFormData, buildTrackedLinkUrl, type OnboardingUserType 
 import type { LinkSourcesFormData } from '@nxt1/core/api';
 import { TEST_IDS } from '@nxt1/core/testing';
 import { NxtBrowserService } from '../../services/browser';
+import { getPlatformFaviconUrl, PLATFORM_FAVICON_DOMAINS } from '@nxt1/core/platforms';
+import type { ConnectedAppSource } from '../components/modals/agent-x-attachments-sheet.component';
 
 /**
  * Content descriptor for the expanded side panel.
@@ -148,11 +158,18 @@ interface AgentXDesktopSession {
   readonly contextType: 'operation' | 'command';
   readonly contextDescription?: string;
   readonly quickActions?: readonly OperationQuickAction[];
+  readonly suggestedActions?: readonly OperationQuickAction[];
   readonly scheduledActions?: readonly OperationQuickAction[];
   readonly initialMessage?: string;
   readonly threadId?: string;
-  readonly operationStatus?: 'processing' | 'complete' | 'error' | 'awaiting_input' | null;
-  readonly errorMessage?: string | null;
+  readonly operationStatus?:
+    | 'processing'
+    | 'complete'
+    | 'error'
+    | 'paused'
+    | 'awaiting_input'
+    | 'awaiting_approval'
+    | null;
   readonly yieldState?: AgentYieldState;
   /** When set, the mounted op-chat immediately connects to this resumed stream. */
   readonly resumeOperationId?: string;
@@ -166,57 +183,12 @@ interface AgentXDesktopResizeState {
   readonly startWidth: number;
 }
 
-const FALLBACK_COORDINATOR_CATEGORIES: readonly CommandCategory[] = [
-  {
-    id: 'coord-admin',
-    label: 'Admin Coordinator',
-    icon: 'settings',
-    description: 'Manage scheduling, operations, and organizational tasks.',
-    commands: [],
-  },
-  {
-    id: 'coord-brand',
-    label: 'Brand Coordinator',
-    icon: 'image',
-    description: 'Build graphics, content ideas, and brand assets.',
-    commands: [],
-  },
-  {
-    id: 'coord-strategy',
-    label: 'Strategy Coordinator',
-    icon: 'rocket',
-    description: 'Plan next steps and high-level execution strategy.',
-    commands: [],
-  },
-  {
-    id: 'coord-recruiting',
-    label: 'Recruiting Coordinator',
-    icon: 'search',
-    description: 'Plan outreach, targeting, and recruiting tasks.',
-    commands: [],
-  },
-  {
-    id: 'coord-performance',
-    label: 'Performance Coordinator',
-    icon: 'analytics',
-    description: 'Review performance, film notes, and evaluations.',
-    commands: [],
-  },
-  {
-    id: 'coord-data',
-    label: 'Data Coordinator',
-    icon: 'barChart',
-    description: 'Track metrics, trends, and decision-ready data.',
-    commands: [],
-  },
-] as const;
-
 const COORDINATOR_ORDER: readonly string[] = [
-  'admin coordinator',
+  'performance coordinator',
   'brand coordinator',
   'strategy coordinator',
   'recruiting coordinator',
-  'performance coordinator',
+  'admin coordinator',
   'data coordinator',
 ] as const;
 
@@ -244,7 +216,7 @@ function sortCoordinatorCategories(
     AgentXDashboardSkeletonComponent,
     AgentXOperationsLogComponent,
     AgentXOperationChatComponent,
-    AgentXPromptInputComponent,
+    AgentXInputBarComponent,
     LiveViewLauncherComponent,
   ],
   template: `
@@ -496,7 +468,11 @@ function sortCoordinatorCategories(
             </div>
             <div class="agent-column-scroll agent-rail-scroll">
               <section class="sessions-section" aria-label="Session history">
-                <nxt1-agent-x-operations-log [embedded]="true" (entryTap)="onLogEntryTap($event)" />
+                <nxt1-agent-x-operations-log
+                  [embedded]="true"
+                  [stickyDayLabels]="false"
+                  (entryTap)="onLogEntryTap($event)"
+                />
               </section>
             </div>
           </aside>
@@ -540,24 +516,26 @@ function sortCoordinatorCategories(
             @for (session of activeDesktopSessions(); track session.mountKey) {
               <nxt1-agent-x-operation-chat
                 [embedded]="true"
-                [delegateCoordinatorQuickActions]="true"
+                [delegateCoordinatorQuickActions]="session.contextId === 'agent-x-chat'"
                 [contextId]="session.contextId"
                 [contextTitle]="session.contextTitle"
                 [contextIcon]="session.contextIcon"
                 [contextType]="session.contextType"
                 [contextDescription]="session.contextDescription ?? ''"
                 [quickActions]="session.quickActions ?? []"
+                [suggestedActions]="session.suggestedActions ?? []"
                 [scheduledActions]="session.scheduledActions ?? []"
                 [initialMessage]="session.initialMessage ?? ''"
                 [threadId]="session.threadId ?? ''"
                 [resumeOperationId]="session.resumeOperationId ?? ''"
                 [yieldState]="session.yieldState ?? null"
                 [operationStatus]="session.operationStatus ?? null"
-                [errorMessage]="session.errorMessage ?? null"
+                [user]="user()"
                 (userMessageSent)="onUserMessageSent()"
                 (responseComplete)="onResponseComplete()"
                 (draftSubmitted)="onDraftSubmitted($event)"
                 (coordinatorQuickActionSelected)="onEmbeddedCoordinatorQuickAction($event)"
+                (connectedAccountsSave)="connectedAccountsSave.emit($event)"
               />
             }
           </div>
@@ -581,7 +559,7 @@ function sortCoordinatorCategories(
             <div class="inline-goals">
               <button
                 type="button"
-                class="inline-goals__manage-btn"
+                class="inline-goals__manage-btn inline-goals__manage-btn--goals"
                 (click)="openControlPanel('goals')"
               >
                 <nxt1-icon name="settings" [size]="14"></nxt1-icon>
@@ -854,32 +832,34 @@ function sortCoordinatorCategories(
                     >
                       <nxt1-icon name="link" [size]="16"></nxt1-icon>
                     </button>
-                    <!-- Open in New Tab -->
-                    <a
-                      [href]="panel.url"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      class="rail-close-btn"
-                      style="text-decoration: none;"
-                      aria-label="Open in new tab"
-                      title="Open in new tab"
-                      [attr.data-testid]="lvTestIds.OPEN_EXTERNAL_LINK"
-                    >
-                      <svg
-                        width="15"
-                        height="15"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
+                    @if (panel.type !== 'live-view') {
+                      <!-- Open in New Tab -->
+                      <a
+                        [href]="panel.url"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        class="rail-close-btn"
+                        style="text-decoration: none;"
+                        aria-label="Open in new tab"
+                        title="Open in new tab"
+                        [attr.data-testid]="lvTestIds.OPEN_EXTERNAL_LINK"
                       >
-                        <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
-                        <polyline points="15 3 21 3 21 9"></polyline>
-                        <line x1="10" y1="14" x2="21" y2="3"></line>
-                      </svg>
-                    </a>
+                        <svg
+                          width="15"
+                          height="15"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        >
+                          <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+                          <polyline points="15 3 21 3 21 9"></polyline>
+                          <line x1="10" y1="14" x2="21" y2="3"></line>
+                        </svg>
+                      </a>
+                    }
                     <!-- Refresh (Live View Only) -->
                     @if (panel.type === 'live-view') {
                       <button
@@ -1071,14 +1051,12 @@ function sortCoordinatorCategories(
             </button>
 
             <h2 class="m-greeting">{{ greeting() }}</h2>
-            <!-- m-briefing-summary hidden for now — re-enable when ready
             <p class="m-briefing-summary">{{ briefingPreview() }}</p>
-            -->
 
             <div class="inline-goals">
               <button
                 type="button"
-                class="inline-goals__manage-btn"
+                class="inline-goals__manage-btn inline-goals__manage-btn--goals"
                 (click)="openControlPanel('goals')"
               >
                 <nxt1-icon name="settings" [size]="14"></nxt1-icon>
@@ -1089,7 +1067,7 @@ function sortCoordinatorCategories(
               </button>
               <button
                 type="button"
-                class="inline-goals__manage-btn"
+                class="inline-goals__manage-btn inline-goals__manage-btn--connected"
                 (click)="openConnectedAccounts()"
               >
                 <svg
@@ -1298,40 +1276,47 @@ function sortCoordinatorCategories(
         </div>
       }
 
-      <!-- ═══ FLOATING COORDINATOR CHIPS ═══ -->
-      <section class="m-floating-coordinators" aria-label="Coordinators">
-        <div class="m-coordinators-scroll" role="list">
-          @for (cat of commandCategories(); track cat.id) {
-            <button
-              type="button"
-              role="listitem"
-              class="m-coordinator-pill"
-              [attr.data-coordinator]="cat.id"
-              (click)="onMobileCategoryTap(cat)"
-            >
-              {{ cat.label }}
-            </button>
+      <div class="m-mobile-footer-stack" role="group" aria-label="Agent input">
+        <!-- ═══ FLOATING COORDINATOR CHIPS ═══ -->
+        <section class="m-floating-coordinators" aria-label="Coordinators">
+          @if (commandCategories().length > 0) {
+            <div class="m-coordinators-scroll" role="list">
+              @for (cat of commandCategories(); track cat.id) {
+                <button
+                  type="button"
+                  role="listitem"
+                  class="m-coordinator-pill"
+                  [attr.data-coordinator]="resolveCoordinatorChipId(cat.id)"
+                  (click)="onMobileCategoryTap(cat)"
+                >
+                  {{ cat.label }}
+                </button>
+              }
+            </div>
+          } @else {
+            <div class="m-coordinators-empty" role="status" aria-live="polite">
+              No coordinators are configured for this role.
+            </div>
           }
-        </div>
-      </section>
+        </section>
 
-      <!-- ═══ INPUT BAR ═══ -->
-      <nxt1-agent-x-prompt-input
-        [hasMessages]="false"
-        [selectedTask]="agentX.selectedTask()"
-        [isLoading]="agentX.isLoading()"
-        [canSend]="agentX.canSend()"
-        [userMessage]="agentX.getUserMessage()"
-        [placeholder]="'Message A Coordinator'"
-        [pendingFiles]="agentX.pendingFiles()"
-        [uploading]="agentX.uploading()"
-        (messageChange)="agentX.setUserMessage($event)"
-        (send)="onMobileSendMessage()"
-        (removeTask)="agentX.clearTask()"
-        (toggleTasks)="onToggleTasks()"
-        (filesAdded)="agentX.addFiles($event)"
-        (fileRemoved)="agentX.removeFile($event)"
-      />
+        <!-- ═══ INPUT BAR ═══ -->
+        <nxt1-agent-x-input-bar
+          [userMessage]="agentX.userMessage()"
+          [isLoading]="agentX.isLoading()"
+          [uploading]="agentX.uploading()"
+          [canSend]="agentX.canSend()"
+          [pendingFiles]="agentX.pendingFiles()"
+          [pendingSources]="[]"
+          [selectedTask]="agentX.selectedTask()?.title ?? null"
+          placeholder="Message A Coordinator"
+          (messageChange)="agentX.setUserMessage($event)"
+          (send)="onMobileSendMessage()"
+          (removeTask)="agentX.clearTask()"
+          (toggleAttachments)="onToggleTasks()"
+          (removeFile)="agentX.removeFile($event)"
+        />
+      </div>
     </main>
   `,
   styles: [
@@ -1350,6 +1335,7 @@ function sortCoordinatorCategories(
         --agent-text-primary: var(--nxt1-color-text-primary, #1a1a1a);
         --agent-text-secondary: var(--nxt1-color-text-secondary, rgba(0, 0, 0, 0.7));
         --agent-text-muted: var(--nxt1-color-text-tertiary, rgba(0, 0, 0, 0.5));
+        --agent-text-on-primary: var(--nxt1-color-text-onPrimary, #0a0a0a);
         --agent-primary: var(--nxt1-color-primary, #ccff00);
         --agent-primary-glow: var(--nxt1-color-alpha-primary10, rgba(204, 255, 0, 0.1));
         --agent-glass-bg: var(--nxt1-glass-bg, rgba(255, 255, 255, 0.8));
@@ -1598,8 +1584,22 @@ function sortCoordinatorCategories(
         margin-bottom: var(--nxt1-spacing-3, 12px);
       }
 
+      :host ::ng-deep .sessions-section .log-scheduled-row {
+        display: flex;
+        flex-direction: column;
+        gap: var(--nxt1-spacing-2, 8px);
+        overflow: visible;
+        padding-bottom: 0;
+      }
+
       :host ::ng-deep .sessions-section .log-entry {
         border-radius: var(--nxt1-radius-xl, 16px);
+      }
+
+      :host ::ng-deep .sessions-section .log-entry--scheduled-card {
+        flex: 1 1 auto;
+        width: 100%;
+        min-width: 0;
       }
 
       .agent-chat-column {
@@ -1619,6 +1619,9 @@ function sortCoordinatorCategories(
         flex: 1;
         min-height: 0;
         overflow: hidden;
+        width: min(100%, var(--agent-chat-max-width, 1040px));
+        margin-left: auto;
+        margin-right: auto;
       }
 
       .chat-briefing {
@@ -1778,7 +1781,7 @@ function sortCoordinatorCategories(
         padding: 0 5px;
         border-radius: 9px;
         background: var(--agent-primary, #ccff00);
-        color: var(--nxt1-color-bg-primary, #0a0a0a);
+        color: #000;
         font-size: 10px;
         font-weight: 700;
         line-height: 1;
@@ -2113,18 +2116,41 @@ function sortCoordinatorCategories(
         display: flex;
         align-items: center;
         gap: var(--nxt1-spacing-2, 8px);
-        flex: 1;
+        flex: 1 1 0;
+        min-width: 0;
+        white-space: nowrap;
         background: none;
         border: 1px solid var(--agent-border);
         border-radius: 10px;
         padding: 8px 12px;
-        font-size: 13px;
+        font-size: clamp(12px, 3.2vw, 13px);
         font-weight: 600;
         color: var(--agent-text-secondary);
         cursor: pointer;
         transition:
           border-color 0.15s,
           color 0.15s;
+      }
+
+      .inline-goals__manage-btn > nxt1-icon,
+      .inline-goals__manage-btn > svg {
+        flex-shrink: 0;
+      }
+
+      .inline-goals__manage-btn > span:not(.inline-goals__manage-count) {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        line-height: 1.2;
+      }
+
+      .inline-goals__manage-btn--connected {
+        flex: 1.12 1 0;
+      }
+
+      .inline-goals__manage-btn--goals {
+        flex: 1.04 1 0;
       }
 
       .inline-goals__manage-btn:hover {
@@ -2977,6 +3003,30 @@ function sortCoordinatorCategories(
         padding-top: var(--nxt1-spacing-5, 20px);
       }
 
+      .m-briefing .inline-goals {
+        display: flex;
+        align-items: stretch;
+        gap: var(--nxt1-spacing-2-5, 10px);
+        padding: 0;
+        margin: var(--nxt1-spacing-4, 16px) 0 0;
+        border-bottom: none;
+      }
+
+      .m-briefing .inline-goals__manage-btn {
+        justify-content: flex-start;
+        padding: 10px 10px;
+      }
+
+      .m-briefing .inline-goals__manage-btn--connected {
+        padding-inline: 10px;
+      }
+
+      .m-briefing .inline-goals__manage-btn--goals {
+        justify-content: center;
+        gap: 10px;
+        padding-inline: 14px;
+      }
+
       .m-greeting {
         font-size: 22px;
         font-weight: 700;
@@ -3210,6 +3260,13 @@ function sortCoordinatorCategories(
         padding: 10px 12px;
       }
 
+      @media (max-width: 360px) {
+        .inline-goals__manage-btn {
+          padding-inline: 10px;
+          font-size: 12px;
+        }
+      }
+
       .m-action-plan .inline-goals__manage-btn:active {
         color: var(--agent-text-primary);
         background: var(--agent-surface-hover);
@@ -3246,19 +3303,34 @@ function sortCoordinatorCategories(
         margin-bottom: 16px;
       }
 
-      .m-floating-coordinators {
-        position: fixed;
-        left: var(--nxt1-footer-left, 16px);
-        right: var(--nxt1-footer-right, 16px);
+      .m-mobile-footer-stack {
+        display: none;
+      }
 
-        bottom: calc(
-          var(--nxt1-footer-bottom, 20px) + var(--nxt1-pill-height, 44px) + 16px + 52px + 0px +
-            var(--keyboard-offset, 0px)
-        );
-        z-index: calc(var(--nxt1-z-index-fixed, 999) - 1);
-        pointer-events: none;
+      .m-floating-coordinators {
+        position: relative;
         padding: 0;
-        transition: bottom 0.28s cubic-bezier(0.32, 0.72, 0, 1);
+        pointer-events: none;
+      }
+
+      @media (max-width: 768px) {
+        .m-mobile-footer-stack {
+          position: fixed;
+          left: var(--nxt1-footer-left, 16px);
+          right: var(--nxt1-footer-right, 16px);
+          bottom: calc(16px + env(safe-area-inset-bottom, 0px) + var(--keyboard-offset, 0px));
+          z-index: var(--nxt1-z-index-fixed, 999);
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+          pointer-events: none;
+          transition: bottom 0.28s cubic-bezier(0.32, 0.72, 0, 1);
+        }
+
+        .m-mobile-footer-stack > nxt1-agent-x-input-bar {
+          display: block;
+          pointer-events: auto;
+        }
       }
 
       .m-coordinators-scroll {
@@ -3276,18 +3348,27 @@ function sortCoordinatorCategories(
         display: none;
       }
 
+      .m-coordinators-empty {
+        pointer-events: auto;
+      }
+
       .m-coordinator-pill {
         --coordinator-pill-accent: var(--agent-primary);
-        --coordinator-pill-text: var(--nxt1-color-text-primary, #f5f7fa);
+        --coordinator-pill-text: var(--agent-text-primary);
+        --coordinator-pill-shadow: color-mix(
+          in srgb,
+          var(--coordinator-pill-accent) 22%,
+          transparent
+        );
         --coordinator-pill-surface: color-mix(
           in srgb,
-          var(--coordinator-pill-accent) 16%,
-          var(--nxt1-color-background-primary, #0f1217)
+          var(--coordinator-pill-accent) 18%,
+          var(--agent-glass-bg)
         );
         --coordinator-pill-border: color-mix(
           in srgb,
-          var(--coordinator-pill-accent) 52%,
-          var(--nxt1-color-background-primary, #0f1217)
+          var(--coordinator-pill-accent) 54%,
+          var(--agent-border)
         );
         flex-shrink: 0;
         display: inline-flex;
@@ -3302,9 +3383,11 @@ function sortCoordinatorCategories(
         line-height: 1;
         white-space: nowrap;
         box-shadow:
-          0 0 0 1px color-mix(in srgb, var(--coordinator-pill-accent) 24%, #000),
-          inset 0 1px 0 color-mix(in srgb, var(--coordinator-pill-accent) 12%, #fff);
+          0 10px 24px var(--coordinator-pill-shadow),
+          inset 0 1px 0 color-mix(in srgb, var(--coordinator-pill-accent) 10%, white);
         border-color: var(--coordinator-pill-border);
+        backdrop-filter: var(--nxt1-glass-backdrop, saturate(180%) blur(20px));
+        -webkit-backdrop-filter: var(--nxt1-glass-backdrop, saturate(180%) blur(20px));
         transition:
           border-color 0.15s ease,
           background 0.15s ease,
@@ -3318,15 +3401,30 @@ function sortCoordinatorCategories(
 
       .m-coordinator-pill:active {
         border-color: color-mix(in srgb, var(--coordinator-pill-accent) 72%, white);
-        background: color-mix(
-          in srgb,
-          var(--coordinator-pill-accent) 22%,
-          var(--nxt1-color-background-primary, #0f1217)
-        );
+        background: color-mix(in srgb, var(--coordinator-pill-accent) 28%, var(--agent-glass-bg));
         box-shadow:
-          0 0 0 1px color-mix(in srgb, var(--coordinator-pill-accent) 28%, #000),
-          inset 0 1px 0 color-mix(in srgb, var(--coordinator-pill-accent) 14%, #fff);
+          0 12px 28px color-mix(in srgb, var(--coordinator-pill-accent) 26%, transparent),
+          inset 0 1px 0 color-mix(in srgb, var(--coordinator-pill-accent) 14%, white);
         transform: scale(0.98);
+      }
+
+      .m-coordinators-empty {
+        pointer-events: auto;
+        border: 1px solid var(--agent-border);
+        border-radius: var(--nxt1-radius-full, 9999px);
+        background: color-mix(in srgb, var(--agent-surface) 90%, transparent);
+        color: var(--agent-text-secondary);
+        font-size: 12px;
+        font-weight: 500;
+        line-height: 1;
+        padding: 12px 14px;
+        white-space: nowrap;
+        overflow-x: auto;
+        scrollbar-width: none;
+      }
+
+      .m-coordinators-empty::-webkit-scrollbar {
+        display: none;
       }
 
       .m-coordinator-pill[data-coordinator='coord-admin'] {
@@ -3351,7 +3449,6 @@ function sortCoordinatorCategories(
 
       .m-coordinator-pill[data-coordinator='coord-recruiting'] {
         --coordinator-pill-accent: #ccff00;
-        --coordinator-pill-text: #12170a;
       }
 
       .m-coordinator-pill[data-coordinator='coord-media'] {
@@ -3406,6 +3503,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   private static readonly DESKTOP_ACTION_PLAN_MIN_WIDTH = 260;
   private static readonly DESKTOP_EXPANDED_PANEL_MIN_WIDTH = 400;
 
+  protected readonly resolveCoordinatorChipId = resolveCoordinatorChipId;
   protected readonly agentX = inject(AgentXService);
   protected readonly controlPanelState = inject(AgentXControlPanelStateService);
   private readonly logger = inject(NxtLoggingService).child('AgentXShellWeb');
@@ -3413,6 +3511,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   private readonly browser = inject(NxtBrowserService);
   private readonly overlay = inject(NxtOverlayService);
   private readonly connectedAccountsModal = inject(ConnectedAccountsModalService);
+  private readonly firecrawlSignIn = inject(FirecrawlSignInService);
   private readonly headerPortal = inject(NxtHeaderPortalService);
   private readonly sanitizer = inject(DomSanitizer);
 
@@ -3426,6 +3525,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   private readonly operationEventService = inject(AgentXOperationEventService);
   private readonly destroyRef = inject(DestroyRef);
   protected readonly platform = inject(NxtPlatformService);
+  private readonly firecrawlSignedInPlatforms = signal<readonly string[]>([]);
   private desktopSessionCounter = 0;
 
   // ============================================
@@ -3608,6 +3708,12 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       label: coord.label,
       icon: coord.icon || 'sparkles',
       description: coord.description,
+      selectedAction: {
+        coordinatorId: coord.id,
+        actionId: coord.id,
+        surface: 'command',
+        label: coord.label,
+      },
     }))
   );
 
@@ -3913,11 +4019,9 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     return items.length > 0 && items.every((t) => t.status === 'snoozed');
   });
 
-  /** Coordinator cards with a fallback list so mobile web pills always render. */
+  /** Coordinator cards are rendered strictly from backend dashboard config. */
   protected readonly commandCategories = computed(() => {
-    const categories = this.agentX.coordinators();
-    const source = categories.length > 0 ? categories : FALLBACK_COORDINATOR_CATEGORIES;
-    return sortCoordinatorCategories(source);
+    return sortCoordinatorCategories(this.agentX.coordinators());
   });
 
   constructor() {
@@ -3927,6 +4031,26 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       this.resetDesktopPanelWidths();
       this.agentX.startTitleAnimation();
       this.agentX.loadDashboard();
+
+      const startupMessage = this.agentX.consumeStartupMessage();
+      if (startupMessage) {
+        this.launchChatFromStartupMessage(startupMessage);
+      }
+    });
+
+    // React to startup messages queued while the shell is already mounted
+    // (e.g. "Add Update" on /team or /profiles navigates here with a pre-filled prompt).
+    // afterNextRender only fires on initial mount; this effect handles re-navigation.
+    effect(() => {
+      const pending = this.agentX.pendingStartupMessage();
+      if (!pending) return;
+
+      untracked(() => {
+        const msg = this.agentX.consumeStartupMessage();
+        if (msg) {
+          this.launchChatFromStartupMessage(msg);
+        }
+      });
     });
 
     effect(() => {
@@ -3934,6 +4058,20 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       this.showActionPlanModal();
       this.expandedSidePanel();
       untracked(() => this.clampDesktopPanelWidths());
+    });
+
+    // Keep AgentXService in sync with the shell's filtered connected sources so
+    // operation-chat can always read them regardless of how it was opened.
+    effect(() => {
+      this.agentX.setAttachmentConnectedSources(this.getAttachmentConnectedSources());
+    });
+    effect(() => {
+      if (!this.user()) {
+        this.firecrawlSignedInPlatforms.set([]);
+        return;
+      }
+
+      void this.refreshFirecrawlSignedInAccounts();
     });
 
     // React to pending thread requests (push notifications, deep links, activity taps)
@@ -3949,23 +4087,6 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
         contextIcon: pending.icon ?? 'bolt',
         contextType: 'operation',
         threadId: pending.threadId,
-      });
-    });
-
-    // React to startup messages queued by external surfaces (e.g. profile timeline CTA).
-    // Fires after resetToDefaultDesktopSession() because effects run post-construction.
-    effect(() => {
-      const message = this.agentX.pendingStartupMessage();
-      if (!message) return;
-
-      this.agentX.clearStartupMessage();
-      this.setDesktopSession({
-        contextId: 'agent-x-chat',
-        contextTitle: 'Agent X',
-        contextIcon: 'bolt',
-        contextType: 'command',
-        initialMessage: message,
-        quickActions: this.commandQuickActions(),
       });
     });
 
@@ -3986,31 +4107,53 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
         return;
       }
 
-      try {
-        // If the backend included a full session contract, adopt it
-        if (panel.type === 'live-view' && panel.session) {
-          this.liveView.adoptSession(panel.session);
-          this.logger.info('Live view session adopted, opening expanded panel', {
-            sessionId: panel.session.sessionId,
-            url: panel.session.interactiveUrl,
+      if (panel.type === 'live-view') {
+        const liveViewUrl = panel.session?.interactiveUrl ?? panel.url;
+        const liveViewTitle = panel.title ?? panel.session?.domainLabel;
+        const liveViewSessionId = panel.session?.sessionId;
+
+        if (!liveViewUrl) {
+          this.logger.error('Live view auto-open instruction missing URL', undefined, {
+            hasSession: !!panel.session,
           });
-          this.openExpandedSidePanel({
-            type: panel.type,
-            url: panel.session.interactiveUrl,
-            title: panel.title ?? panel.session.domainLabel,
-            sessionId: panel.session.sessionId,
-          });
-        } else {
-          this.logger.info('Opening expanded side panel', {
-            type: panel.type,
-            url: panel.url,
-          });
-          this.openExpandedSidePanel({
-            type: panel.type,
-            url: panel.url,
-            title: panel.title,
-          });
+          return;
         }
+
+        if (panel.session) {
+          try {
+            this.liveView.adoptSession(panel.session);
+          } catch (err) {
+            this.logger.error('Failed to adopt live view session before opening panel', err, {
+              url: liveViewUrl,
+            });
+          }
+        }
+
+        this.logger.info('Opening live view expanded panel', {
+          sessionId: liveViewSessionId,
+          url: liveViewUrl,
+          hasSession: !!panel.session,
+        });
+
+        this.openExpandedSidePanel({
+          type: panel.type,
+          url: liveViewUrl,
+          title: liveViewTitle,
+          sessionId: liveViewSessionId,
+        });
+        return;
+      }
+
+      try {
+        this.logger.info('Opening expanded side panel', {
+          type: panel.type,
+          url: panel.url,
+        });
+        this.openExpandedSidePanel({
+          type: panel.type,
+          url: panel.url,
+          title: panel.title,
+        });
       } catch (err) {
         this.logger.error('Failed to open auto-open panel', err, {
           type: panel.type,
@@ -4132,6 +4275,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
         firebaseProviders: user?.firebaseProviders ?? [],
       }) as LinkSourcesFormData | null,
       scope: role === 'coach' || role === 'director' ? 'team' : 'athlete',
+      preferWebOverlayOnBrowser: true,
     });
 
     if (result.linkSources) {
@@ -4242,9 +4386,13 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
           ? 'complete'
           : entry.status === 'error'
             ? 'error'
-            : entry.status === 'awaiting_input'
-              ? 'awaiting_input'
-              : null;
+            : entry.status === 'paused'
+              ? 'paused'
+              : entry.status === 'awaiting_input'
+                ? 'awaiting_input'
+                : entry.status === 'awaiting_approval'
+                  ? 'awaiting_approval'
+                  : null;
 
     const isFirestoreOperationId = (id: string | undefined): boolean => {
       if (!id) return false;
@@ -4279,9 +4427,9 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   }
 
   protected onEmbeddedCoordinatorQuickAction(action: OperationQuickAction): void {
-    const coordinatorId = action.id.startsWith('coord-coord-')
-      ? action.id.slice('coord-'.length)
-      : action.id;
+    const coordinatorId = resolveCoordinatorActionId(action);
+    if (!coordinatorId) return;
+
     const coord = this.commandCategories().find((item) => item.id === coordinatorId);
     if (!coord) return;
 
@@ -4327,6 +4475,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   protected async onSendMessage(): Promise<void> {
     const message = this.agentX.getUserMessage().trim();
     if (!message) return;
+    await this.refreshFirecrawlSignedInAccounts();
 
     // Clear the shell input immediately
     this.agentX.setUserMessage('');
@@ -4342,12 +4491,12 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     });
   }
 
-  protected async onToggleTasks(): Promise<void> {
+  public async onToggleTasks(): Promise<void> {
     await this.openActionPlanModal();
   }
 
   /** Toggles the Sessions rail column (desktop). */
-  protected async toggleSessionsRail(): Promise<void> {
+  public async toggleSessionsRail(): Promise<void> {
     await this.haptics.impact('light');
     this.showSessionsRail.update((value) => {
       if (value) return false;
@@ -4357,7 +4506,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   }
 
   /** Toggles the Action Plan right-column panel (desktop). */
-  protected async toggleActionPlanPanel(): Promise<void> {
+  public async toggleActionPlanPanel(): Promise<void> {
     await this.haptics.impact('light');
     this.showActionPlanModal.update((value) => {
       if (value) return false;
@@ -4376,7 +4525,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   }
 
   /** Closes the Action Plan panel. */
-  protected closeActionPlanModal(): void {
+  public closeActionPlanModal(): void {
     this.showActionPlanModal.set(false);
   }
 
@@ -4393,7 +4542,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   }
 
   /** Copies the expanded panel URL to clipboard */
-  protected async copyExpandedPanelUrl(url: string): Promise<void> {
+  public async copyExpandedPanelUrl(url: string): Promise<void> {
     await this.haptics.impact('light');
     try {
       await navigator.clipboard.writeText(this.buildTrackedPanelUrl(url));
@@ -4404,7 +4553,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   }
 
   /** Refreshes the currently active live view via the session API (falls back to iframe remount) */
-  protected async refreshExpandedPanel(): Promise<void> {
+  public async refreshExpandedPanel(): Promise<void> {
     await this.haptics.impact('light');
     const current = this.expandedSidePanel();
     if (!current) return;
@@ -4430,7 +4579,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   }
 
   /** Toggles native browser fullscreen mode for the expanded panel (for HDMI/Big Screens) */
-  protected async toggleExpandedPanelFullscreen(): Promise<void> {
+  public async toggleExpandedPanelFullscreen(): Promise<void> {
     await this.haptics.impact('light');
     try {
       if (!document.fullscreenElement) {
@@ -4510,7 +4659,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   }
 
   /** Closes the expanded side panel, tears down any active session, and restores the Action Plan. */
-  closeExpandedSidePanel(): void {
+  public closeExpandedSidePanel(): void {
     const panel = this.expandedSidePanel();
     this.expandedSidePanel.set(null);
     this.expandedPanelIframeLoading.set(false);
@@ -4522,7 +4671,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   }
 
   /** Toggle the live-view launcher panel (or close it if already open). */
-  protected async toggleDevLiveView(): Promise<void> {
+  public async toggleDevLiveView(): Promise<void> {
     await this.haptics.impact('light');
 
     if (this.expandedSidePanel()) {
@@ -4539,7 +4688,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   }
 
   /** Called when the launcher component emits a destination (account card or custom URL). */
-  protected async onLiveViewLaunch(event: LiveViewLaunchEvent): Promise<void> {
+  public async onLiveViewLaunch(event: LiveViewLaunchEvent): Promise<void> {
     this.logger.info('Live view launch requested', {
       url: event.url,
       source: event.source,
@@ -4567,7 +4716,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   }
 
   /** Called when the iframe inside the expanded panel finishes loading. */
-  protected onExpandedIframeLoad(): void {
+  public onExpandedIframeLoad(): void {
     this.expandedPanelIframeLoading.set(false);
   }
 
@@ -4579,7 +4728,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
    * Handle coordinator pill tap on mobile — opens a fresh Agent X chat
    * in a full-screen overlay scoped to that coordinator.
    */
-  protected async onMobileCategoryTap(cat: CommandCategory): Promise<void> {
+  public async onMobileCategoryTap(cat: CommandCategory): Promise<void> {
     await this.haptics.impact('light');
 
     const ref = this.overlay.open<AgentXOperationChatComponent>({
@@ -4608,7 +4757,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
    * Handle send from mobile input bar — opens a full-screen Agent X chat
    * overlay pre-populated with the user's message and any pending files.
    */
-  protected async onMobileSendMessage(): Promise<void> {
+  public async onMobileSendMessage(): Promise<void> {
     const message = this.agentX.getUserMessage().trim();
     const servicePendingFiles = this.agentX.pendingFiles();
 
@@ -4617,6 +4766,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
 
     // Capture pending files and convert to operation-chat PendingFile shape
     const initialFiles = servicePendingFiles.map((f) => ({
+      id: crypto.randomUUID(),
       file: f.file,
       previewUrl: f.previewUrl,
       isImage: f.type === 'image',
@@ -4626,6 +4776,8 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     this.agentX.setUserMessage('');
     this.agentX.clearTask();
     this.agentX.takePendingFiles();
+
+    await this.refreshFirecrawlSignedInAccounts();
 
     const ref = this.overlay.open<AgentXOperationChatComponent>({
       component: AgentXOperationChatComponent,
@@ -4637,7 +4789,9 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
         contextType: 'command',
         initialMessage: message,
         initialFiles,
+        connectedSources: this.getAttachmentConnectedSources(),
         quickActions: this.commandQuickActions(),
+        user: this.user(),
       },
       size: 'full',
       backdropDismiss: true,
@@ -4648,7 +4802,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     await ref.closed;
   }
 
-  protected async onActivityLogClick(): Promise<void> {
+  public async onActivityLogClick(): Promise<void> {
     await this.haptics.impact('light');
 
     const ref = this.overlay.open<AgentXOperationsLogComponent>({
@@ -4661,6 +4815,29 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     });
 
     await ref.closed;
+  }
+
+  /**
+   * Opens the chat view directly with a pre-built message, bypassing the
+   * greeting/briefing screen. Used when navigating to /agent-x from an
+   * external "Add Update" / "Create Post" button on another page.
+   *
+   * The session facade's initializeAfterView() auto-submits initialMessage via
+   * runControlFacade.send({ text, preserveDraft: true }) once the op-chat mounts.
+   */
+  private launchChatFromStartupMessage(message: string): void {
+    if (!message.trim()) return;
+    // setDesktopSession resets desktopChatActive → false for agent-x-chat context.
+    // Override it immediately so the briefing greeting never flashes.
+    this.setDesktopSession({
+      contextId: 'agent-x-chat',
+      contextTitle: 'Agent X',
+      contextIcon: 'bolt',
+      contextType: 'command',
+      initialMessage: message,
+      quickActions: this.commandQuickActions(),
+    });
+    this.desktopChatActive.set(true);
   }
 
   private resetToDefaultDesktopSession(): void {
@@ -4681,6 +4858,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       contextIcon: coord.icon || 'sparkles',
       contextType: 'command',
       contextDescription: coord.description,
+      suggestedActions: this.buildCoordinatorSuggestedActions(coord),
       quickActions: this.buildCoordinatorQuickActions(coord),
       scheduledActions: this.buildCoordinatorScheduledActions(coord),
     });
@@ -4692,6 +4870,45 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       label: cmd.label,
       icon: cmd.icon,
       description: cmd.subLabel,
+      promptText:
+        cmd.promptText ??
+        buildCoordinatorActionPrompt({
+          coordinatorLabel: coord.label,
+          coordinatorDescription: coord.description,
+          actionLabel: cmd.label,
+          actionDescription: cmd.subLabel,
+          surface: 'command',
+        }),
+      selectedAction: {
+        coordinatorId: coord.id,
+        actionId: cmd.id,
+        surface: 'command',
+        label: cmd.label,
+      },
+    }));
+  }
+
+  private buildCoordinatorSuggestedActions(coord: CommandCategory): OperationQuickAction[] {
+    return (coord.suggestedActions ?? []).map((cmd) => ({
+      id: cmd.id,
+      label: cmd.label,
+      icon: cmd.icon,
+      description: cmd.subLabel,
+      promptText:
+        cmd.promptText ??
+        buildCoordinatorActionPrompt({
+          coordinatorLabel: coord.label,
+          coordinatorDescription: coord.description,
+          actionLabel: cmd.label,
+          actionDescription: cmd.subLabel,
+          surface: 'command',
+        }),
+      selectedAction: {
+        coordinatorId: coord.id,
+        actionId: cmd.id,
+        surface: 'suggested',
+        label: cmd.label,
+      },
     }));
   }
 
@@ -4701,6 +4918,21 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       label: cmd.label,
       icon: cmd.icon,
       description: cmd.subLabel,
+      promptText:
+        cmd.promptText ??
+        buildCoordinatorActionPrompt({
+          coordinatorLabel: coord.label,
+          coordinatorDescription: coord.description,
+          actionLabel: cmd.label,
+          actionDescription: cmd.subLabel,
+          surface: 'scheduled',
+        }),
+      selectedAction: {
+        coordinatorId: coord.id,
+        actionId: cmd.id,
+        surface: 'scheduled',
+        label: cmd.label,
+      },
     }));
   }
 
@@ -4715,5 +4947,148 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       ...session,
       mountKey: this.desktopSessionCounter,
     });
+  }
+
+  /**
+   * Get all connected sources available for selection in the attachments sheet.
+   * Includes persisted connected sources and reconstructed connected links/sign-ins.
+   */
+  private getAttachmentConnectedSources(): readonly ConnectedAppSource[] {
+    const user = this.user();
+    const linkedSources = user?.connectedSources ?? [];
+    const linkSources =
+      buildLinkSourcesFormData({
+        connectedSources: user?.connectedSources ?? [],
+        connectedEmails: user?.connectedEmails ?? [],
+        firebaseProviders: user?.firebaseProviders ?? [],
+      })?.links ?? [];
+
+    const withFavicons = linkedSources.map((source) => {
+      const favicon =
+        (source as { faviconUrl?: string }).faviconUrl ??
+        getPlatformFaviconUrl(source.platform.toLowerCase()) ??
+        undefined;
+      return { ...source, faviconUrl: favicon } as ConnectedAppSource;
+    });
+
+    const attachmentSourcesMap = new Map<string, ConnectedAppSource>();
+
+    for (const source of withFavicons) {
+      attachmentSourcesMap.set(this.getAttachmentSourceKey(source), source);
+    }
+
+    for (const link of linkSources) {
+      if (!link.connected) {
+        continue;
+      }
+
+      const inferredSource: ConnectedAppSource = {
+        platform: link.platform,
+        profileUrl: this.resolveAttachmentProfileUrl(
+          link.platform,
+          typeof link.url === 'string' && link.url.trim().length > 0 ? link.url : link.username
+        ),
+        faviconUrl: getPlatformFaviconUrl(link.platform.toLowerCase()) ?? undefined,
+        scopeType: link.scopeType,
+        scopeId: link.scopeId,
+      };
+
+      const inferredSourceKey = this.getAttachmentSourceKey(inferredSource);
+      if (!attachmentSourcesMap.has(inferredSourceKey)) {
+        attachmentSourcesMap.set(inferredSourceKey, inferredSource);
+      }
+    }
+
+    const connectedAccounts =
+      (user as { connectedAccounts?: Record<string, unknown> } | null)?.connectedAccounts ?? {};
+    if (connectedAccounts && typeof connectedAccounts === 'object') {
+      for (const [platform, accountRaw] of Object.entries(connectedAccounts)) {
+        const account =
+          accountRaw && typeof accountRaw === 'object'
+            ? (accountRaw as Record<string, unknown>)
+            : null;
+        if (!account) {
+          continue;
+        }
+
+        const type = typeof account['type'] === 'string' ? account['type'] : '';
+        const status = typeof account['status'] === 'string' ? account['status'] : '';
+        if (
+          type !== 'firecrawl_profile' ||
+          !['active', 'connected', 'unverified'].includes(status)
+        ) {
+          continue;
+        }
+
+        const inferredSource: ConnectedAppSource = {
+          platform,
+          profileUrl: this.resolveAttachmentProfileUrl(platform),
+          faviconUrl: getPlatformFaviconUrl(platform.toLowerCase()) ?? undefined,
+          scopeType: 'global',
+        };
+
+        const inferredSourceKey = this.getAttachmentSourceKey(inferredSource);
+        if (!attachmentSourcesMap.has(inferredSourceKey)) {
+          attachmentSourcesMap.set(inferredSourceKey, inferredSource);
+        }
+      }
+    }
+
+    for (const platform of this.firecrawlSignedInPlatforms()) {
+      const normalizedPlatform = platform.toLowerCase();
+      const inferredSource: ConnectedAppSource = {
+        platform: normalizedPlatform,
+        profileUrl: this.resolveAttachmentProfileUrl(normalizedPlatform),
+        faviconUrl: getPlatformFaviconUrl(normalizedPlatform) ?? undefined,
+        scopeType: 'global',
+      };
+
+      const inferredSourceKey = this.getAttachmentSourceKey(inferredSource);
+      if (!attachmentSourcesMap.has(inferredSourceKey)) {
+        attachmentSourcesMap.set(inferredSourceKey, inferredSource);
+      }
+    }
+
+    return Array.from(attachmentSourcesMap.values());
+  }
+
+  private async refreshFirecrawlSignedInAccounts(): Promise<void> {
+    try {
+      const accounts = await this.firecrawlSignIn.fetchSignedInAccounts();
+      this.firecrawlSignedInPlatforms.set(Object.keys(accounts));
+    } catch (error) {
+      this.logger.warn('Failed to refresh Firecrawl signed-in accounts for attachment sources', {
+        error,
+      });
+      this.firecrawlSignedInPlatforms.set([]);
+    }
+  }
+
+  private getAttachmentSourceKey(source: {
+    platform: string;
+    scopeType?: 'global' | 'sport' | 'team';
+    scopeId?: string;
+  }): string {
+    return `${source.platform.toLowerCase()}|${source.scopeType ?? 'global'}|${
+      this.normalizeScopeKey(source.scopeId) || 'global'
+    }`;
+  }
+
+  private resolveAttachmentProfileUrl(platform: string, url?: string): string {
+    const trimmedUrl = (url ?? '').trim();
+    if (trimmedUrl.length > 0) {
+      return /^https?:\/\//i.test(trimmedUrl) ? trimmedUrl : `https://${trimmedUrl}`;
+    }
+
+    const platformDomain = (PLATFORM_FAVICON_DOMAINS as Record<string, string>)[
+      platform.toLowerCase()
+    ];
+
+    return platformDomain ? `https://${platformDomain}` : `https://${platform.toLowerCase()}.com`;
+  }
+
+  /** Normalize source/sport keys so scopeId like "baseball" matches selected sport "Baseball". */
+  private normalizeScopeKey(value: string | undefined): string {
+    return (value ?? '').trim().toLowerCase();
   }
 }

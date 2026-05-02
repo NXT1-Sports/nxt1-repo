@@ -38,6 +38,24 @@ class StubTool extends BaseTool {
   }
 }
 
+class MarkdownUrlTool extends BaseTool {
+  readonly name = 'markdown_url_tool';
+  readonly description = 'Returns markdown with raw URLs.';
+  readonly parameters = z.object({});
+  readonly allowedAgents = ['*'] as const;
+  readonly isMutation = false;
+  readonly category = 'analytics' as const;
+  readonly entityGroup = 'platform_tools' as const;
+
+  async execute(): Promise<ToolResult> {
+    return {
+      success: true,
+      markdown:
+        'Watch film at https://hudl.com/video/abc123 and [https://www.maxpreps.com/athlete/abc](https://www.maxpreps.com/athlete/abc).',
+    };
+  }
+}
+
 class ZodTool extends BaseTool {
   readonly name = 'zod_tool';
   readonly description = 'A stub tool with Zod parameters.';
@@ -84,6 +102,30 @@ class LegacySchemaTool extends BaseTool {
 
   async execute(): Promise<ToolResult> {
     return { success: true };
+  }
+}
+
+class ScoredTool extends BaseTool {
+  constructor(
+    readonly name: string,
+    private readonly fixedScore: number,
+    readonly isMutation: boolean
+  ) {
+    super();
+  }
+
+  readonly description = 'Score-controlled tool for semantic matching tests.';
+  readonly parameters = z.object({});
+  readonly allowedAgents = ['*'] as const;
+  readonly category = 'analytics' as const;
+  readonly entityGroup = 'platform_tools' as const;
+
+  async matchIntent(): Promise<number> {
+    return this.fixedScore;
+  }
+
+  async execute(): Promise<ToolResult> {
+    return { success: true, data: { ok: true } };
   }
 }
 
@@ -243,6 +285,40 @@ describe('ToolRegistry', () => {
       expect(result.success).toBe(false);
       expect(result.error).toBe('Tool is currently disabled: stub_tool');
       expect(stub.executeFn).not.toHaveBeenCalled();
+    });
+
+    it('should compactize raw URLs in shared markdown output', async () => {
+      registry.register(new MarkdownUrlTool());
+
+      const result = await registry.execute('markdown_url_tool', {}, { userId: 'u1' });
+
+      expect(result.success).toBe(true);
+      expect(result.markdown).toContain('[Hudl](https://hudl.com/video/abc123)');
+      expect(result.markdown).toContain('[MaxPreps](https://www.maxpreps.com/athlete/abc)');
+      expect(result.markdown).not.toContain('Watch film at https://hudl.com/video/abc123');
+    });
+  });
+
+  describe('matchWithScores', () => {
+    it('returns semantic scores for matched tools in descending order', async () => {
+      registry.register(new ScoredTool('tool_high', 0.92, false));
+      registry.register(new ScoredTool('tool_mid', 0.51, false));
+      registry.register(new ScoredTool('tool_low', 0.12, false));
+
+      const matched = await registry.matchWithScores(
+        [0.1, 0.2],
+        async () => [0.1, 0.2],
+        undefined,
+        undefined,
+        0.2
+      );
+
+      const matchedToolNames = matched.map((tool) => tool.name);
+      expect(matchedToolNames).toContain('tool_high');
+      expect(matchedToolNames).toContain('tool_mid');
+      expect(matchedToolNames).not.toContain('tool_low');
+      expect(matched.find((tool) => tool.name === 'tool_high')?.semanticScore).toBeCloseTo(0.92, 5);
+      expect(matched.find((tool) => tool.name === 'tool_mid')?.semanticScore).toBeCloseTo(0.51, 5);
     });
   });
 });

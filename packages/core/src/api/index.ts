@@ -59,6 +59,7 @@ export {
 export {
   createProfileApi,
   type ProfileApi,
+  type AddSportResponse,
   type ApiResponse,
   type PaginatedResponse,
   type AddSportRequest,

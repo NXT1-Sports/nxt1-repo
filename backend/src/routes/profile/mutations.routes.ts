@@ -16,11 +16,12 @@ import { UpdateProfileDto, UploadProfileImageDto } from '../../dtos/profile.dto.
 import { provisionOnboardingPrograms } from '../../services/platform/onboarding-program-provisioning.service.js';
 import { assertCanMutateOwnSports } from '../../services/profile/profile-sport-governance.service.js';
 import { createRosterEntryService } from '../../services/team/roster-entry.service.js';
+import { enqueueLinkedAccountScrape } from '../../modules/agent/services/agent-scrape.service.js';
 import * as teamCodeService from '../../services/team/team-code.service.js';
 import { mergeConnectedSources } from '@nxt1/core/profile';
 import { asyncHandler, sendError } from '@nxt1/core/errors/express';
 import { validationError, notFoundError, forbiddenError } from '@nxt1/core/errors';
-import type { ConnectedSource, SportProfile } from '@nxt1/core';
+import type { ConnectedSource, SportProfile, UserRole } from '@nxt1/core';
 import type { UpdateSportProfileRequest } from '@nxt1/core';
 import type { TeamSelectionFormData } from '@nxt1/core/api';
 import { RosterEntryStatus } from '@nxt1/core/models';
@@ -64,6 +65,51 @@ function normalizeIncomingConnectedSources(value: unknown): ConnectedSource[] {
         typeof entry.scopeId === 'string' && entry.scopeId.trim() ? entry.scopeId : undefined,
     }))
     .filter((entry) => entry.platform.length > 0 && entry.profileUrl.length > 0);
+}
+
+async function enqueueAddSportScrape(options: {
+  readonly db: FirebaseFirestore.Firestore;
+  readonly userId: string;
+  readonly role: UserRole;
+  readonly sport: string;
+  readonly linkedAccounts: readonly ConnectedSource[];
+  readonly teamId?: string;
+  readonly organizationId?: string;
+  readonly environment: 'staging' | 'production';
+}): Promise<{ readonly scrapeJobId?: string; readonly scrapeThreadId?: string }> {
+  if (options.linkedAccounts.length === 0) {
+    return {};
+  }
+
+  try {
+    const scrapeResult = await enqueueLinkedAccountScrape(
+      options.db,
+      {
+        userId: options.userId,
+        role: options.role,
+        sport: options.sport,
+        linkedAccounts: options.linkedAccounts.map((source) => ({
+          platform: source.platform,
+          profileUrl: source.profileUrl,
+        })),
+        teamId: options.teamId,
+        organizationId: options.organizationId,
+      },
+      options.environment
+    );
+
+    return {
+      ...(scrapeResult?.operationId ? { scrapeJobId: scrapeResult.operationId } : {}),
+      ...(scrapeResult?.threadId ? { scrapeThreadId: scrapeResult.threadId } : {}),
+    };
+  } catch (err) {
+    logger.error('[Profile] Failed to enqueue linked account scrape for added sport', {
+      userId: options.userId,
+      sport: options.sport,
+      error: err,
+    });
+    return {};
+  }
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -427,6 +473,7 @@ router.post(
       (currentData['sports'] as SportProfile[] | undefined) ?? [];
     const incomingConnectedSources = normalizeIncomingConnectedSources(sport.connectedSources);
     const newSport: SportProfile = { ...sport, order: existingSports.length } as SportProfile;
+    const agentEnv = req.isStaging ? 'staging' : 'production';
 
     const userRole = currentData['role'] as string | undefined;
     const isTeamRoleUser = userRole === 'coach' || userRole === 'director';
@@ -557,11 +604,23 @@ router.post(
         const currentUnicode = currentData['unicode'] as string | null | undefined;
         await invalidateProfileCaches(userId, currentUnicode);
 
+        const scrapeMeta = await enqueueAddSportScrape({
+          db,
+          userId,
+          role: ((currentData['role'] as string | undefined) ?? 'athlete') as UserRole,
+          sport: newSport.sport as string,
+          linkedAccounts: incomingConnectedSources,
+          teamId: provisionedTeamIds[0] ?? provisionedTeam?.teamId,
+          organizationId: provisionedTeam?.organizationId,
+          environment: agentEnv,
+        });
+
         res.status(201).json({
           success: true,
           data: {
             sport: newSport.sport,
             teamId: provisionedTeamIds[0] ?? provisionedTeam?.teamId,
+            ...scrapeMeta,
           },
         });
         return;
@@ -785,7 +844,21 @@ router.post(
         const currentUnicode = currentData['unicode'] as string | null | undefined;
         await invalidateProfileCaches(userId, currentUnicode);
 
-        res.status(201).json({ success: true, data: { sport: newSport.sport, teamId: team.id } });
+        const scrapeMeta = await enqueueAddSportScrape({
+          db,
+          userId,
+          role: ((currentData['role'] as string | undefined) ?? 'athlete') as UserRole,
+          sport: newSport.sport as string,
+          linkedAccounts: incomingConnectedSources,
+          teamId: team.id,
+          organizationId: inheritedOrgId || undefined,
+          environment: agentEnv,
+        });
+
+        res.status(201).json({
+          success: true,
+          data: { sport: newSport.sport, teamId: team.id, ...scrapeMeta },
+        });
         return;
       } catch (err) {
         logger.error('[Profile] Atomic team creation failed for added sport', {
@@ -830,8 +903,26 @@ router.post(
     const currentUnicode = currentData['unicode'] as string | null | undefined;
     await invalidateProfileCaches(userId, currentUnicode);
 
+    const scrapeMeta = await enqueueAddSportScrape({
+      db,
+      userId,
+      role: ((currentData['role'] as string | undefined) ?? 'athlete') as UserRole,
+      sport: newSport.sport as string,
+      linkedAccounts: incomingConnectedSources,
+      teamId: newSport.team?.teamId,
+      organizationId: newSport.team?.organizationId,
+      environment: agentEnv,
+    });
+
     logger.info('[Profile] Sport added', { userId, sport: newSport.sport });
-    res.status(201).json({ success: true, data: newSport });
+    res.status(201).json({
+      success: true,
+      data: {
+        sport: newSport.sport,
+        ...(newSport.team?.teamId ? { teamId: newSport.team.teamId } : {}),
+        ...scrapeMeta,
+      },
+    });
   })
 );
 

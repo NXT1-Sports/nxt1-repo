@@ -6,13 +6,13 @@ import { HttpClient } from '@angular/common/http';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { of } from 'rxjs';
 
-import type { AgentMessage } from '@nxt1/core';
-import { AgentXService } from '../../../../../../../packages/ui/src/agent-x/agent-x.service';
+import type { AgentMessage, ShellWeeklyPlaybookItem } from '@nxt1/core';
+import { AgentXService } from '../../../../../../../packages/ui/src/agent-x/services/agent-x.service';
 import {
   AGENT_X_API_BASE_URL,
   AGENT_X_AUTH_TOKEN_FACTORY,
-} from '../../../../../../../packages/ui/src/agent-x/agent-x-job.service';
-import { AgentXOperationEventService } from '../../../../../../../packages/ui/src/agent-x/agent-x-operation-event.service';
+} from '../../../../../../../packages/ui/src/agent-x/services/agent-x-job.service';
+import { AgentXOperationEventService } from '../../../../../../../packages/ui/src/agent-x/services/agent-x-operation-event.service';
 import { LiveViewSessionService } from '../../../../../../../packages/ui/src/agent-x/live-view-session.service';
 import { HapticsService } from '../../../../../../../packages/ui/src/services/haptics';
 import { NxtToastService } from '../../../../../../../packages/ui/src/services/toast';
@@ -47,9 +47,26 @@ function createPersistedMessage(id: string, content: string, createdAt: string):
   };
 }
 
+function createPlaybookItem(
+  id: string,
+  goal: ShellWeeklyPlaybookItem['goal']
+): ShellWeeklyPlaybookItem {
+  return {
+    id,
+    weekLabel: 'This Week',
+    title: `Task ${id}`,
+    summary: 'Summary',
+    why: 'Why this matters',
+    details: 'Details',
+    actionLabel: 'Review',
+    status: 'pending',
+    goal,
+  };
+}
+
 function createService() {
   const httpMock = {
-    get: vi.fn(),
+    get: vi.fn().mockReturnValue(of({ success: true, data: [] })),
     post: vi.fn(),
     put: vi.fn(),
     patch: vi.fn(),
@@ -147,11 +164,14 @@ describe('AgentXService', () => {
 
     httpMock.get.mockReturnValueOnce(of(newestPage)).mockReturnValueOnce(of(olderPage));
 
-    const messages = await service.getPersistedThreadMessages('thread-123');
+    const { messages } = await service.getPersistedThreadMessages('thread-123');
+    const historyCalls = httpMock.get.mock.calls.filter((call) =>
+      String(call[0]).includes('/threads/thread-123/messages')
+    );
 
     expect(messages.map((message) => message.id)).toEqual(['m-1', 'm-2', 'm-3', 'm-4']);
-    expect(httpMock.get).toHaveBeenCalledTimes(2);
-    expect(httpMock.get.mock.calls[1][0]).toContain('before=2026-04-13T10%3A03%3A00.000Z');
+    expect(historyCalls).toHaveLength(2);
+    expect(String(historyCalls[1]?.[0] ?? '')).toContain('before=2026-04-13T10%3A03%3A00.000Z');
   });
 
   it('loads a reopened thread with the full persisted history', async () => {
@@ -187,6 +207,65 @@ describe('AgentXService', () => {
       'Second',
       'Third',
       'Fourth',
+    ]);
+  });
+
+  it('hydrates persisted attachments when loading thread history', async () => {
+    const persistedWithAttachment: AgentMessage = {
+      ...createPersistedMessage('m-attach-1', 'Review this report', '2026-04-13T10:05:00.000Z'),
+      attachments: [
+        {
+          id: 'att-1',
+          url: 'https://storage.example/report.pdf',
+          name: 'report.pdf',
+          mimeType: 'application/pdf',
+          type: 'pdf',
+          sizeBytes: 2048,
+        },
+      ],
+    };
+
+    httpMock.get.mockReturnValueOnce(
+      of({
+        success: true,
+        data: {
+          items: [persistedWithAttachment],
+          hasMore: false,
+        },
+      })
+    );
+
+    await service.loadThread('thread-123');
+
+    const [message] = service.messages();
+    expect(message?.attachments).toEqual([
+      {
+        id: 'att-1',
+        url: 'https://storage.example/report.pdf',
+        name: 'report.pdf',
+        mimeType: 'application/pdf',
+        type: 'pdf',
+        sizeBytes: 2048,
+      },
+    ]);
+  });
+
+  it('keeps Weekly Tasks as the last action plan pill', () => {
+    const playbookState = service as unknown as {
+      _weeklyPlaybook: { set: (items: ShellWeeklyPlaybookItem[]) => void };
+    };
+
+    playbookState._weeklyPlaybook.set([
+      createPlaybookItem('weekly-1', { id: 'recurring', label: 'Weekly Tasks' }),
+      createPlaybookItem('goal-1', { id: 'recruiting', label: 'Get athletes recruited' }),
+      createPlaybookItem('goal-2', { id: 'review', label: 'Review film' }),
+    ]);
+
+    expect(service.categoryPills().map((pill) => pill.label)).toEqual([
+      'All',
+      'Get athletes recruited',
+      'Review film',
+      'Weekly Tasks',
     ]);
   });
 });

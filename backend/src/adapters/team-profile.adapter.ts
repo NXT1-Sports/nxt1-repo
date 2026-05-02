@@ -67,6 +67,8 @@ type UserDataRecord = UserData & {
  */
 interface OrgOverlay {
   name?: string;
+  type?: string;
+  level?: string | null;
   logoUrl?: string | null;
   primaryColor?: string | null;
   secondaryColor?: string | null;
@@ -208,16 +210,24 @@ function mapTeamCodeToTeam(
   org?: OrgOverlay
 ): TeamProfileTeam {
   const teamId = teamCode.id ?? teamCode.teamCode;
+  const hasOrgOverlay = Boolean(org);
 
-  // Priority: teamCode fields → OrgOverlay fallback
-  const city = teamCode.city ?? org?.city ?? '';
-  const state = teamCode.state ?? org?.state ?? '';
+  // Organization-owned display fields must resolve from the organization record
+  // when a team is linked to an organization.
+  const city = hasOrgOverlay ? (org?.city ?? '') : (teamCode.city ?? '');
+  const state = hasOrgOverlay ? (org?.state ?? '') : (teamCode.state ?? '');
   const location = [city, state].filter(Boolean).join(', ');
   const logoUrl = teamCode.logoUrl ?? teamCode.teamLogoImg ?? org?.logoUrl ?? undefined;
-  // Org colors are canonical — org takes precedence over team doc (mirrors profile-hydration behaviour)
-  const primaryColor = org?.primaryColor ?? teamCode.primaryColor ?? undefined;
-  const secondaryColor = org?.secondaryColor ?? teamCode.secondaryColor ?? undefined;
-  const mascot = teamCode.mascot ?? org?.mascot ?? undefined;
+  const primaryColor = hasOrgOverlay
+    ? (org?.primaryColor ?? undefined)
+    : (teamCode.primaryColor ?? undefined);
+  const secondaryColor = hasOrgOverlay
+    ? (org?.secondaryColor ?? undefined)
+    : (teamCode.secondaryColor ?? undefined);
+  const mascot = hasOrgOverlay ? (org?.mascot ?? undefined) : (teamCode.mascot ?? undefined);
+  const teamTypeSource = hasOrgOverlay
+    ? org?.level?.trim() || org?.type || 'high-school'
+    : (teamCode.teamType ?? 'high-school');
 
   const teamName = teamCode.teamName ?? '';
   buildTeamDisplayName(org?.name, teamName); // computed for future use
@@ -268,7 +278,7 @@ function mapTeamCodeToTeam(
     teamCode: teamCode.teamCode ?? undefined,
     unicode: teamCode.unicode,
     teamName,
-    teamType: (teamCode.teamType as TeamProfileTeam['teamType']) ?? 'high-school',
+    teamType: teamTypeSource as TeamProfileTeam['teamType'],
     sport: teamCode.sport ?? teamCode.sportName ?? '',
     city,
     state,
@@ -627,14 +637,20 @@ export async function mapTeamCodeToProfile(
         }
 
         const orgData = orgSnap.data() as Record<string, unknown>;
+        const orgLocation = (orgData['location'] as Record<string, unknown> | undefined) ?? {};
         org = {
           name: orgData['name'] as string | undefined,
+          type: orgData['type'] as string | undefined,
+          level: orgData['level'] as string | null | undefined,
           logoUrl: orgData['logoUrl'] as string | null | undefined,
           primaryColor: orgData['primaryColor'] as string | null | undefined,
           secondaryColor: orgData['secondaryColor'] as string | null | undefined,
           mascot: orgData['mascot'] as string | null | undefined,
-          city: orgData['city'] as string | undefined,
-          state: orgData['state'] as string | undefined,
+          city:
+            (orgLocation['city'] as string | undefined) ?? (orgData['city'] as string | undefined),
+          state:
+            (orgLocation['state'] as string | undefined) ??
+            (orgData['state'] as string | undefined),
         };
         break;
       }

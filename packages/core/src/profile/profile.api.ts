@@ -49,6 +49,13 @@ export interface PaginatedResponse<T> {
   };
 }
 
+export interface AddSportResponse {
+  readonly sport: string;
+  readonly teamId?: string;
+  readonly scrapeJobId?: string;
+  readonly scrapeThreadId?: string;
+}
+
 // ============================================
 // REQUEST/RESPONSE TYPES
 // ============================================
@@ -195,8 +202,11 @@ export function createProfileApi(http: HttpAdapter, baseUrl: string) {
     /**
      * Add new sport to profile
      */
-    async addSport(userId: string, sport: AddSportRequest): Promise<ApiResponse<SportProfile>> {
-      return http.post<ApiResponse<SportProfile>>(`${baseUrl}/auth/profile/${userId}/sport`, sport);
+    async addSport(userId: string, sport: AddSportRequest): Promise<ApiResponse<AddSportResponse>> {
+      return http.post<ApiResponse<AddSportResponse>>(
+        `${baseUrl}/auth/profile/${userId}/sport`,
+        sport
+      );
     },
 
     /**

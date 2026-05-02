@@ -226,6 +226,56 @@ describe('File Upload API', () => {
       expect(progressUpdates).toEqual([25, 50, 75, 100]);
     });
 
+    it('should upload team logo successfully', async () => {
+      const mockResult = {
+        url: 'https://storage.example.com/Teams/team123/logo/logo.png',
+        storagePath: 'Teams/team123/logo/logo.png',
+        size: 2048,
+        mimeType: 'image/png',
+      };
+
+      vi.mocked(mockHttp.uploadFile).mockResolvedValue({
+        success: true,
+        data: mockResult,
+      } as ApiResponse<typeof mockResult>);
+
+      const result = await api.uploadTeamLogo(
+        'user123',
+        'team123',
+        new Blob(['test'], { type: 'image/png' }),
+        'logo.png',
+        'image/png'
+      );
+
+      expect(result).toEqual(mockResult);
+      expect(mockHttp.uploadFile).toHaveBeenCalledWith(
+        'https://api.test.com/v1/upload/team-logo',
+        expect.any(Blob),
+        expect.objectContaining({
+          userId: 'user123',
+          teamId: 'team123',
+          category: 'team-logo',
+          fileName: 'logo.png',
+          mimeType: 'image/png',
+        }),
+        undefined
+      );
+    });
+
+    it('should reject team logo uploads without a team id', async () => {
+      await expect(
+        api.uploadTeamLogo(
+          'user123',
+          '   ',
+          new Blob(['test'], { type: 'image/png' }),
+          'logo.png',
+          'image/png'
+        )
+      ).rejects.toThrow('teamId is required');
+
+      expect(mockHttp.uploadFile).not.toHaveBeenCalled();
+    });
+
     it('should throw error for invalid file', async () => {
       // File too large (exceeds 5MB for profile photos)
       await expect(

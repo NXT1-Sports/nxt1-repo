@@ -38,7 +38,7 @@ import type {
   KnowledgeIngestionRequest,
   KnowledgeIngestionResult,
 } from '@nxt1/core';
-import { GlobalKnowledgeModel } from './global-knowledge.model.js';
+import { getGlobalKnowledgeModel } from './global-knowledge.model.js';
 import type { OpenRouterService } from '../llm/openrouter.service.js';
 import { logger } from '../../../utils/logger.js';
 import { AgentEngineError } from '../exceptions/agent-engine.error.js';
@@ -75,6 +75,7 @@ export class KnowledgeIngestionService {
    *   6. Delete stale chunks from previous versions
    */
   async ingest(request: KnowledgeIngestionRequest): Promise<KnowledgeIngestionResult> {
+    const GlobalKnowledgeModel = getGlobalKnowledgeModel();
     const {
       content,
       category,
@@ -195,6 +196,7 @@ export class KnowledgeIngestionService {
    * Delete all chunks for a specific source reference.
    */
   async deleteBySourceRef(sourceRef: string): Promise<number> {
+    const GlobalKnowledgeModel = getGlobalKnowledgeModel();
     const result = await GlobalKnowledgeModel.deleteMany({ sourceRef });
     logger.info('[KnowledgeIngestion] Deleted by sourceRef', {
       sourceRef,
@@ -207,6 +209,7 @@ export class KnowledgeIngestionService {
    * Delete all chunks in a specific category.
    */
   async deleteByCategory(category: KnowledgeCategory): Promise<number> {
+    const GlobalKnowledgeModel = getGlobalKnowledgeModel();
     const result = await GlobalKnowledgeModel.deleteMany({ category });
     logger.info('[KnowledgeIngestion] Deleted by category', {
       category,
@@ -229,6 +232,7 @@ export class KnowledgeIngestionService {
       createdAt: string;
     }[]
   > {
+    const GlobalKnowledgeModel = getGlobalKnowledgeModel();
     const docs = await GlobalKnowledgeModel.aggregate<{
       title: string;
       sourceRef: string | undefined;

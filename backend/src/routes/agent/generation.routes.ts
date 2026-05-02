@@ -18,10 +18,12 @@ import {
   executeBillingDeduction,
   resolveBillingTarget,
   checkBudgetFromContext,
+  estimateChargeAmountSync,
 } from '../../modules/billing/index.js';
 import { getAuthUser, getGenerationService, jobRepository, queueService } from './shared.js';
 
 const router = Router();
+const GENERATION_BILLING_GATE_ESTIMATED_COST_USD = 0.1;
 
 // ─── POST /playbook/generate ──────────────────────────────────────────────
 
@@ -35,16 +37,20 @@ router.post('/playbook/generate', appGuard, aiRateLimit, async (req: Request, re
     }
 
     if (req.firebase?.db) {
+      const { chargeAmountCents: estimatedGateCostCents } = estimateChargeAmountSync(
+        GENERATION_BILLING_GATE_ESTIMATED_COST_USD
+      );
       const playbookTarget = await resolveBillingTarget(req.firebase.db, user.uid);
       const playbookCtx = playbookTarget.context;
-      const playbookBudgetCheck = checkBudgetFromContext(playbookCtx);
+      const playbookBudgetCheck = checkBudgetFromContext(playbookCtx, estimatedGateCostCents);
       if (!playbookBudgetCheck.allowed) {
-        const isWalletUser =
-          playbookCtx.billingEntity === 'individual' && playbookCtx.paymentProvider === 'iap';
+        const isWalletContext =
+          playbookCtx.billingEntity === 'individual' ||
+          playbookCtx.billingEntity === 'organization';
         res.status(402).json({
           success: false,
           error: playbookBudgetCheck.reason,
-          code: isWalletUser ? 'WALLET_EMPTY' : 'BUDGET_EXCEEDED',
+          code: isWalletContext ? 'WALLET_EMPTY' : 'BUDGET_EXCEEDED',
         });
         return;
       }
@@ -357,16 +363,20 @@ router.post(
       const { force = false } = req.body as { force?: boolean };
 
       if (req.firebase?.db) {
+        const { chargeAmountCents: estimatedGateCostCents } = estimateChargeAmountSync(
+          GENERATION_BILLING_GATE_ESTIMATED_COST_USD
+        );
         const briefingTarget = await resolveBillingTarget(req.firebase.db, user.uid);
         const briefingCtx = briefingTarget.context;
-        const briefingBudgetCheck = checkBudgetFromContext(briefingCtx);
+        const briefingBudgetCheck = checkBudgetFromContext(briefingCtx, estimatedGateCostCents);
         if (!briefingBudgetCheck.allowed) {
-          const isWalletUser =
-            briefingCtx.billingEntity === 'individual' && briefingCtx.paymentProvider === 'iap';
+          const isWalletContext =
+            briefingCtx.billingEntity === 'individual' ||
+            briefingCtx.billingEntity === 'organization';
           res.status(402).json({
             success: false,
             error: briefingBudgetCheck.reason,
-            code: isWalletUser ? 'WALLET_EMPTY' : 'BUDGET_EXCEEDED',
+            code: isWalletContext ? 'WALLET_EMPTY' : 'BUDGET_EXCEEDED',
           });
           return;
         }

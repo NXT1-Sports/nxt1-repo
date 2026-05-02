@@ -150,3 +150,22 @@ export function getPlatformFaviconUrl(platformId: string): string | null {
   const domain = (PLATFORM_FAVICON_DOMAINS as Record<string, string>)[platformId];
   return domain ? `https://icons.duckduckgo.com/ip3/${domain}.ico` : null;
 }
+
+/**
+ * Resolve favicon URL from an arbitrary URL using the shared platform domain map.
+ * Returns null when the URL host does not map to a known platform domain.
+ */
+export function getPlatformFaviconUrlFromUrl(url: string): string | null {
+  try {
+    const hostname = new URL(url).hostname.toLowerCase().replace(/^www\./, '');
+    for (const domain of Object.values(PLATFORM_FAVICON_DOMAINS)) {
+      const normalizedDomain = domain.toLowerCase().replace(/^www\./, '');
+      if (hostname === normalizedDomain || hostname.endsWith(`.${normalizedDomain}`)) {
+        return `https://icons.duckduckgo.com/ip3/${normalizedDomain}.ico`;
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}

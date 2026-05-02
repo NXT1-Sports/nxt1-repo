@@ -12,6 +12,15 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ToolExecutionContext } from '../../../base.tool.js';
+import { createHash } from 'node:crypto';
+
+const safeTrackMock = vi.fn().mockResolvedValue(undefined);
+
+vi.mock('../../../../../../services/core/analytics-logger.service.js', () => ({
+  getAnalyticsLoggerService: () => ({
+    safeTrack: safeTrackMock,
+  }),
+}));
 
 // Gmail
 import {
@@ -165,6 +174,7 @@ describe('First-class Google Workspace tools', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockSession = createMockSessionService();
+    safeTrackMock.mockClear();
   });
 
   it('registers exactly 42 first-class tools', () => {
@@ -235,6 +245,117 @@ describe('First-class Google Workspace tools', () => {
 
     expect(result.success).toBe(false);
     expect(result.error).toBe('Token expired');
+  });
+
+  it('injects hash-only email tracking into gmail_send_email body before MCP dispatch', async () => {
+    process.env['BACKEND_URL'] = 'https://api.nxt1sports.com';
+
+    const tool = new GmailSendEmailTool(mockSession as never);
+    const ctx = createTestContext();
+
+    await tool.execute(
+      {
+        to: ['coach@example.com'],
+        cc: ['assistant@example.com'],
+        subject: 'Test Outreach',
+        body: '<p>View profile: https://example.com/profile</p>',
+      },
+      ctx
+    );
+
+    const expectedHash = createHash('sha256')
+      .update('assistant@example.com,coach@example.com')
+      .digest('hex');
+
+    expect(mockSession.executeAllowedTool).toHaveBeenCalledWith(
+      'gmail_send_email',
+      expect.objectContaining({
+        body: expect.stringContaining('recipientEmailHash='),
+      }),
+      ctx
+    );
+
+    const calledBody = String(mockSession.executeAllowedTool.mock.calls[0]?.[1]?.['body'] ?? '');
+    expect(calledBody).toContain('/api/v1/analytics/track/open?');
+    expect(calledBody).toContain('/api/v1/analytics/track/click?');
+    expect(calledBody).toContain(`recipientEmailHash=${expectedHash}`);
+    expect(calledBody).not.toContain('recipientEmail=');
+    expect(safeTrackMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        domain: 'communication',
+        eventType: 'email_sent',
+        source: 'agent',
+        metadata: expect.objectContaining({
+          toolName: 'gmail_send_email',
+          mcpToolName: 'gmail_send_email',
+          recipientEmailHash: expectedHash,
+        }),
+      })
+    );
+  });
+
+  it('injects hash-only email tracking into create_gmail_draft body before MCP dispatch', async () => {
+    process.env['BACKEND_URL'] = 'https://api.nxt1sports.com';
+
+    const tool = new CreateGmailDraftTool(mockSession as never);
+    const ctx = createTestContext();
+
+    await tool.execute(
+      {
+        to: 'coach@example.com',
+        cc: 'assistant@example.com',
+        subject: 'Draft Outreach',
+        body: '<p>Check this link: https://example.com/recruit</p>',
+      },
+      ctx
+    );
+
+    const expectedHash = createHash('sha256')
+      .update('assistant@example.com,coach@example.com')
+      .digest('hex');
+
+    const calledBody = String(mockSession.executeAllowedTool.mock.calls[0]?.[1]?.['body'] ?? '');
+    expect(mockSession.executeAllowedTool).toHaveBeenCalledWith(
+      'create_gmail_draft',
+      expect.objectContaining({
+        body: expect.stringContaining('recipientEmailHash='),
+      }),
+      ctx
+    );
+    expect(calledBody).toContain('/api/v1/analytics/track/open?');
+    expect(calledBody).toContain('/api/v1/analytics/track/click?');
+    expect(calledBody).toContain(`recipientEmailHash=${expectedHash}`);
+    expect(calledBody).not.toContain('recipientEmail=');
+  });
+
+  it('injects tracking into gmail_reply_to_email reply_body before MCP dispatch', async () => {
+    process.env['BACKEND_URL'] = 'https://api.nxt1sports.com';
+
+    const tool = new GmailReplyToEmailTool(mockSession as never);
+    const ctx = createTestContext();
+
+    await tool.execute(
+      {
+        email_id: 'msg_123',
+        reply_body: '<p>Thanks! See https://example.com/follow-up</p>',
+        send: true,
+      },
+      ctx
+    );
+
+    const calledReplyBody = String(
+      mockSession.executeAllowedTool.mock.calls[0]?.[1]?.['reply_body'] ?? ''
+    );
+
+    expect(mockSession.executeAllowedTool).toHaveBeenCalledWith(
+      'gmail_reply_to_email',
+      expect.objectContaining({
+        reply_body: expect.stringContaining('/api/v1/analytics/track/open?'),
+      }),
+      ctx
+    );
+    expect(calledReplyBody).toContain('/api/v1/analytics/track/click?');
+    expect(calledReplyBody).not.toContain('recipientEmail=');
   });
 
   it('emits a typed stage for read tools', async () => {

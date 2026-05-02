@@ -2,8 +2,10 @@
  * @fileoverview Sync Delta Event Service
  * @module @nxt1/backend/services/sync-delta-event
  *
- * Persists recent deterministic sync diffs into MongoDB with TTL retention
- * and mirrors a lightweight completion event into the analytics event stream.
+ * Persists recent deterministic sync diffs into MongoDB with TTL retention.
+ *
+ * This service is operational telemetry only and intentionally does NOT write
+ * into user-facing analyticsEvents.
  */
 
 import type { SyncDeltaReport } from '@nxt1/core';
@@ -12,7 +14,6 @@ import {
   type SyncDeltaEventDocument,
 } from '../../models/core/sync-delta-event.model.js';
 import { getRuntimeEnvironment } from '../../config/runtime-environment.js';
-import { getAnalyticsLoggerService } from './analytics-logger.service.js';
 import { logger } from '../../utils/logger.js';
 
 const DEFAULT_RECENT_LIMIT = 4;
@@ -45,28 +46,6 @@ export class SyncDeltaEventService {
     };
 
     const created = await SyncDeltaEventModel.create(document);
-
-    void getAnalyticsLoggerService().safeTrack({
-      subjectId: delta.userId,
-      subjectType: 'user',
-      domain: 'system',
-      eventType: 'sync_completed',
-      occurredAt: syncedAt,
-      source: 'system',
-      value: delta.summary.totalChanges,
-      tags: this.buildTags(delta),
-      payload: {
-        sport: delta.sport,
-        source: delta.source,
-        promptSummary,
-        summary: delta.summary,
-      },
-      metadata: {
-        environment,
-        teamId: delta.teamId ?? null,
-        organizationId: delta.organizationId ?? null,
-      },
-    });
 
     return {
       eventId: String(created._id),
@@ -179,19 +158,6 @@ export class SyncDeltaEventService {
     }
 
     return highlights;
-  }
-
-  private buildTags(delta: SyncDeltaReport): string[] {
-    return ['sync', this.normalizeTag(delta.sport), this.normalizeTag(delta.source)].filter(
-      (tag): tag is string => tag.length > 0
-    );
-  }
-
-  private normalizeTag(value: string): string {
-    return value
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-');
   }
 
   private toInlineValue(value: unknown): string {

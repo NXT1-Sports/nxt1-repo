@@ -304,6 +304,15 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    // ── AppUpdates (OTA / Live Update Manifests) ─────────────────────────
+    // Doc id format: `{platform}_{channel}` (e.g. `ios_production`).
+    // Mobile clients read on every cold start to check for new web bundles.
+    // Writes happen exclusively from the backend deploy script via Admin SDK.
+    match /AppUpdates/{manifestId} {
+      allow read:  if isAuthenticated();
+      allow write: if false;
+    }
+
     // ============================================
     // SCHEDULE COLLECTION
     // ============================================

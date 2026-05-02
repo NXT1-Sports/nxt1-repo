@@ -49,7 +49,7 @@ export class GlobalKnowledgeSkill extends BaseSkill {
     'NCAA NAIA NJCAA rules eligibility recruiting calendars compliance regulations ' +
     'transfer portal NIL guidelines sport-specific training nutrition mental performance ' +
     'platform guides help center articles recruiting strategy athlete development.';
-  readonly category: SkillCategory = 'compliance';
+  readonly category: SkillCategory = 'knowledge';
 
   private readonly retrievalService: KnowledgeRetrievalService;
 

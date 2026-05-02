@@ -11,6 +11,7 @@ export type {
   ChatRole,
   AgentXAttachmentType,
   AgentXAttachment,
+  AgentXAttachmentStub,
   AgentXMessage,
   AgentXMessagePart,
   AgentXMessageMetadata,
@@ -24,6 +25,8 @@ export type {
   AgentXMode,
   AgentXModeConfig,
   AgentXChatRequest,
+  AgentXSelectedAction,
+  AgentXSelectedActionSurface,
   AgentXChatResponse,
   AgentXUserContext,
   AgentXErrorCode,
@@ -62,11 +65,17 @@ export type {
   AgentXStreamThreadEvent,
   AgentXStreamTitleUpdatedEvent,
   AgentXStreamDeltaEvent,
+  AgentXStreamThinkingEvent,
   AgentXStreamDoneEvent,
   AgentXStreamErrorEvent,
   AgentXStreamStepEvent,
   AgentXStreamCardEvent,
   AgentXStreamMediaEvent,
+  AgentXStreamOperationEvent,
+  AgentXStreamProgressEvent,
+  AgentXStreamReplacedEvent,
+  AgentXStreamWaitingForAttachmentsEvent,
+  AgentXOperationLifecycleStatus,
   AgentXStreamCallbacks,
   // Tool step & rich card types
   AgentXToolStepStatus,
@@ -80,6 +89,15 @@ export type {
   AgentXDataTablePayload,
   AgentXConfirmationAction,
   AgentXConfirmationPayload,
+  AgentXConfirmationVariant,
+  AgentXConfirmationEmailData,
+  AgentXConfirmationTimelinePostData,
+  AgentXGenericApprovalCategory,
+  AgentXGenericApprovalData,
+  SeasonStatsPreview,
+  CoreIdentityPreview,
+  RosterPreview,
+  ApprovalRichPreview,
   AgentXAskUserPayload,
   AgentXCitation,
   AgentXCitationsPayload,
@@ -111,6 +129,8 @@ export {
   AGENT_X_MAX_VIDEO_FILE_SIZE,
   resolveAttachmentType,
 } from './agent-x.constants';
+
+export { AGENT_X_RUNTIME_CONFIG } from './agent-x-runtime.constants';
 
 // Content types (mode-specific)
 export type {
@@ -146,9 +166,27 @@ export {
   resolveAgentYieldCopy,
   resolveAgentSuccessNotificationCopy,
   resolveAgentFailureNotificationCopy,
+  resolveApprovalSuccessText,
   type AgentApprovalCopy,
   type AgentNotificationCopy,
 } from './agent-copy';
+
+export {
+  AGENT_PUSH_INTENT_KINDS,
+  type AgentPushIntentKind,
+  type AgentPushIntent,
+  type AgentTaskCompletedIntent,
+  type AgentTaskFailedIntent,
+  type AgentNeedsInputIntent,
+  type AgentNeedsApprovalIntent,
+  type AgentPlaybookReadyIntent,
+  type AgentBriefingReadyIntent,
+  type AgentWeeklyRecapReadyIntent,
+  type AgentPlaybookNudgeIntent,
+  type AgentScheduledExecutionCompletedIntent,
+  type AgentScheduledExecutionFailedIntent,
+  type AgentApprovalExpiringSoonIntent,
+} from './agent-push-intents.types';
 
 // Agent Onboarding Types
 export type {
@@ -188,12 +226,19 @@ export type {
   AgentThread,
   AgentThreadCategory,
   AgentMessageRole,
+  AgentMessageSemanticPhase,
+  AgentMessageActionType,
+  AgentMessageFeedback,
+  AgentMessageActionRecord,
+  AgentMessageEditRecord,
   AgentMessage,
   AgentMessageTokenUsage,
   AgentThreadQuery,
   AgentMessageQuery,
   PaginatedResult,
 } from './chat.types';
+
+export { SEMANTIC_PHASE_PRIORITY } from './chat.types';
 
 // ─── Agentic Engine (Orchestration, Tools, Memory, Guardrails) ──────────────
 
@@ -209,6 +254,7 @@ export type {
   AgentOperationStep,
   AgentOperation,
   AgentOperationResult,
+  AgentArtifactHandoff,
   AgentIdentifier,
   AgentDescriptor,
   AgentToolDefinition,
@@ -255,6 +301,7 @@ export type {
   AgentApprovalRequest,
   AgentApprovalStatus,
   AgentApprovalPolicy,
+  AgentSessionTrustGrant,
   AgentNotificationOutcomeCode,
   AgentYieldReason,
   AgentYieldState,
@@ -282,10 +329,20 @@ export {
   AGENT_TRIGGER_RULES,
   DEFAULT_TRIGGER_PREFERENCES,
   AGENT_APPROVAL_POLICIES,
+  AGENT_APPROVAL_TOOL_GROUPS,
   AGENT_USAGE_LIMITS,
   AGENT_MODEL_PRICING,
   OPERATION_STATUS_LABELS_EXTENDED,
 } from './agent.constants';
+
+// Agent X identity (single source of truth for system prompts)
+export type { AgentIdentitySnapshot } from './agent-identity';
+export {
+  AGENT_X_IDENTITY,
+  buildSystemPrompt,
+  getModeAddendum,
+  hashIdentitySnapshot,
+} from './agent-identity';
 
 // Welcome graphic prompt builders
 export type {
@@ -294,3 +351,11 @@ export type {
 } from './welcome-graphic.prompts';
 
 export { buildAthleteWelcomePrompt, buildTeamWelcomePrompt } from './welcome-graphic.prompts';
+
+// Approval preview formatters
+export {
+  formatSeasonStatsPreview,
+  formatCoreIdentityPreview,
+  formatRosterPreview,
+  formatApprovalRichPreview,
+} from './agent-approval-formatters';

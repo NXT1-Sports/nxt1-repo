@@ -5,7 +5,12 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
-import app, { __getMockFirestoreDocument, __resetMockFirestore } from '../../test-app.js';
+import app, {
+  __getMockFirestoreDocument,
+  __resetMockFirestore,
+  __seedMockFirestoreDocument,
+} from '../../test-app.js';
+import { RosterEntryService } from '../../services/team/roster-entry.service.js';
 
 // All upload routes require appGuard — send a Bearer token so the mock
 // verifyIdToken in test-app.ts is reached instead of an early 401.
@@ -34,6 +39,43 @@ describe('Upload Routes', () => {
 
       // Should return 400 (no file) or 500 (Firebase context missing)
       expect([400, 500]).toContain(response.status);
+    });
+
+    it('POST /api/v1/upload/team-logo should upload a team logo through the backend', async () => {
+      __seedMockFirestoreDocument('Teams/team-logo-123', {
+        name: 'Logo Team',
+      });
+
+      vi.spyOn(RosterEntryService.prototype, 'getActiveOrPendingRosterEntry').mockResolvedValue({
+        id: 'entry-logo-123',
+        userId: 'test-user',
+        teamId: 'team-logo-123',
+        role: 'coach',
+        status: 'active',
+      } as never);
+
+      const response = await request(app)
+        .post('/api/v1/upload/team-logo')
+        .set('Authorization', AUTH_HEADER)
+        .field('teamId', 'team-logo-123')
+        .field('category', 'team-logo')
+        .attach('file', Buffer.from('fake-png-bytes'), {
+          filename: 'logo.png',
+          contentType: 'image/png',
+        });
+
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({
+        success: true,
+        data: {
+          url: expect.stringContaining(
+            'https://storage.googleapis.com/test-bucket/Teams/team-logo-123/logo/'
+          ),
+          storagePath: expect.stringContaining('Teams/team-logo-123/logo/'),
+          size: expect.any(Number),
+          mimeType: 'image/png',
+        },
+      });
     });
 
     it('POST /api/v1/upload/highlight-video should handle video upload', async () => {
@@ -425,6 +467,93 @@ describe('Upload Routes', () => {
         thumbnailUrl:
           'https://customer-123.cloudflarestream.com/video-123/thumbnails/thumbnail.jpg',
       });
+    });
+
+    it('POST /api/v1/upload/signed-url should allow team logo uploads for active coach roster entries', async () => {
+      __seedMockFirestoreDocument('Teams/team-123', {
+        name: 'Test Team',
+      });
+
+      vi.spyOn(RosterEntryService.prototype, 'getActiveOrPendingRosterEntry').mockResolvedValue({
+        id: 'entry-123',
+        userId: 'test-user',
+        teamId: 'team-123',
+        role: 'coach',
+        status: 'active',
+      } as never);
+
+      const response = await request(app)
+        .post('/api/v1/upload/signed-url')
+        .set('Authorization', AUTH_HEADER)
+        .send({
+          category: 'team-logo',
+          fileName: 'logo.png',
+          mimeType: 'image/png',
+          teamId: 'team-123',
+        });
+
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({
+        success: true,
+        data: {
+          uploadUrl: 'https://example.com/test-file',
+          storagePath: expect.stringContaining('Teams/team-123/logo/'),
+          expiresAt: expect.any(Number),
+          extensionEnabled: false,
+          thumbnailPaths: null,
+        },
+      });
+    });
+
+    it('POST /api/v1/upload/signed-url should allow team logo uploads for director roster entries', async () => {
+      __seedMockFirestoreDocument('Teams/team-789', {
+        name: 'Director Managed Team',
+      });
+
+      vi.spyOn(RosterEntryService.prototype, 'getActiveOrPendingRosterEntry').mockResolvedValue({
+        id: 'entry-789',
+        userId: 'test-user',
+        teamId: 'team-789',
+        role: 'director',
+        status: 'active',
+      } as never);
+
+      const response = await request(app)
+        .post('/api/v1/upload/signed-url')
+        .set('Authorization', AUTH_HEADER)
+        .send({
+          category: 'team-logo',
+          fileName: 'logo.png',
+          mimeType: 'image/png',
+          teamId: 'team-789',
+        });
+
+      expect(response.status).toBe(200);
+      expect(response.body.success).toBe(true);
+      expect(response.body.data.storagePath).toContain('Teams/team-789/logo/');
+    });
+
+    it('POST /api/v1/upload/signed-url should reject team logo uploads without team management access', async () => {
+      __seedMockFirestoreDocument('Teams/team-456', {
+        name: 'Unauthorized Team',
+      });
+
+      vi.spyOn(RosterEntryService.prototype, 'getActiveOrPendingRosterEntry').mockResolvedValue(
+        null
+      );
+
+      const response = await request(app)
+        .post('/api/v1/upload/signed-url')
+        .set('Authorization', AUTH_HEADER)
+        .send({
+          category: 'team-logo',
+          fileName: 'logo.png',
+          mimeType: 'image/png',
+          teamId: 'team-456',
+        });
+
+      expect(response.status).toBe(403);
+      expect(response.body.success).toBe(false);
     });
   });
 

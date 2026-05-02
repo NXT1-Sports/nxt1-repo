@@ -5,7 +5,7 @@ import { NxtToastService } from '../../services/toast/toast.service';
 import { NxtLoggingService } from '../../services/logging/logging.service';
 import { NxtBreadcrumbService } from '../../services/breadcrumb/breadcrumb.service';
 import { ANALYTICS_ADAPTER } from '../../services/analytics/analytics-adapter.token';
-import { AgentXJobService, isEnqueueFailure } from '../../agent-x/agent-x-job.service';
+import { AgentXJobService, isEnqueueFailure } from '../../agent-x/services/agent-x-job.service';
 
 export interface ConnectedAccountsResyncSource {
   readonly platform: string;

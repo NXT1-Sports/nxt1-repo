@@ -130,6 +130,7 @@ import { NotificationPopoverComponent } from '../../features/activity/components
 import {
   DEFAULT_SOCIAL_LINKS,
   DEFAULT_SPORTS,
+  type InviteTeam,
   formatSportDisplayName,
   normalizeSportKey,
   buildUserDisplayContext,
@@ -207,7 +208,7 @@ const DESKTOP_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] = [
   {
     id: 'main',
     items: [
-      { id: 'agent', label: 'Agent X', icon: 'agent-x', route: '/agent' },
+      { id: 'agent', label: 'Agent X', icon: 'agent-x', route: '/agent-x' },
       {
         id: 'invite-team',
         label: 'Invite team',
@@ -242,7 +243,7 @@ const DESKTOP_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] = [
 const WEB_LOGGED_OUT_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] = [
   {
     id: 'main',
-    items: [{ id: 'agent', label: 'Agent X', icon: 'agent-x', route: '/agent' }],
+    items: [{ id: 'agent', label: 'Agent X', icon: 'agent-x', route: '/agent-x' }],
   },
   {
     id: 'follow-us',
@@ -417,6 +418,8 @@ const USER_MENU_ITEMS: TopNavUserMenuItem[] = [];
         (filterClick)="onMobileExploreFilterClick()"
         (helpClick)="onMobileUsageHelpClick()"
         (budgetClick)="onMobileUsageBudgetClick()"
+        (activityClick)="onMobileAgentXActivityClick()"
+        (usageClick)="onMobileAgentXUsageClick()"
         (userClick)="onMobileUserClick()"
       />
 
@@ -1025,16 +1028,16 @@ export class WebShellComponent {
   // MOBILE HEADER CONFIGURATION (YouTube-style top bar)
   // ============================================
 
-  /** Only /agent gets a hamburger on mobile — all other top-level pages have no left icon */
-  private readonly _showMobileMenu = computed(() => this._currentRoute().startsWith('/agent'));
+  /** Only /agent-x gets a hamburger on mobile — all other top-level pages have no left icon */
+  private readonly _showMobileMenu = computed(() => this._currentRoute().startsWith('/agent-x'));
 
   /** Whether the current route should show a back arrow.
-   * All authenticated non-agent routes get a back arrow — /agent uses the hamburger. */
+   * All authenticated non-agent routes get a back arrow — /agent-x uses the hamburger. */
   private readonly _showMobileBack = computed(() => {
     const route = this._currentRoute();
     if (!this.isAuthenticated()) return false;
-    // /agent uses the hamburger sidebar — no back arrow
-    if (route.startsWith('/agent')) return false;
+    // /agent-x uses the hamburger sidebar — no back arrow
+    if (route.startsWith('/agent-x')) return false;
     return true;
   });
 
@@ -1058,6 +1061,11 @@ export class WebShellComponent {
     return this._currentRoute().startsWith('/usage');
   });
 
+  /** Whether the current route is the Agent X page */
+  private readonly _isOnAgentXPage = computed(() => {
+    return this._currentRoute().startsWith('/agent-x');
+  });
+
   /**
    * Derives the display title for the mobile header from the current route.
    * Shown in the header center when the user is authenticated (logo is hidden).
@@ -1067,9 +1075,8 @@ export class WebShellComponent {
 
     const MAP: ReadonlyArray<[string, string]> = [
       ['/profile', 'Profile'],
-      ['/agent', 'Agent X'],
+      ['/agent-x', 'Agent X'],
       ['/activity', 'Activity'],
-      ['/messages', 'Messages'],
       ['/settings', 'Settings'],
       ['/usage', 'Billing & Usage'],
       ['/help-center', 'Help Center'],
@@ -1099,6 +1106,7 @@ export class WebShellComponent {
     const isOwnProfilePage = this._currentRoute() === '/profile';
     const onActivityPage = this._isOnActivityPage();
     const onTeamPage = this._isOnTeamPage();
+    const onAgentXPage = this._isOnAgentXPage();
 
     return createMobileHeaderConfig({
       showBack: this._showMobileBack(),
@@ -1106,9 +1114,9 @@ export class WebShellComponent {
       // Logged-out: show brand logo. Logged-in: show page title instead.
       showLogo: !isLoggedIn,
       title: isLoggedIn ? this._mobilePageTitle() : undefined,
-      // Hide search & bell on profile/team/activity pages — top nav shows relevant actions instead
-      showSearch: !onProfilePage && !onTeamPage && !onActivityPage,
-      showNotifications: !onProfilePage && !onTeamPage && !onActivityPage,
+      // Hide search & bell on profile/team/activity/agent-x pages — top nav shows relevant actions instead
+      showSearch: !onProfilePage && !onTeamPage && !onActivityPage && !onAgentXPage,
+      showNotifications: !onProfilePage && !onTeamPage && !onActivityPage && !onAgentXPage,
       notificationCount: this.badgeCount.totalUnread(),
       showSignIn, // Hidden until auth resolves, then show only if not logged in
       showMore: onProfilePage || onTeamPage,
@@ -1120,6 +1128,9 @@ export class WebShellComponent {
       // Help icon only on /usage for mobile web; desktop uses the header portal.
       showHelp: isLoggedIn && this._isOnUsagePage(),
       showBudget: false,
+      showActivity: isLoggedIn && onAgentXPage,
+      showUsage: isLoggedIn && onAgentXPage,
+      activityUnreadCount: this.activityService.totalUnread(),
       // Avatar already lives in the mobile footer tab bar — hide it here
       showAvatar: !isLoggedIn,
       sticky: true,
@@ -1270,6 +1281,56 @@ export class WebShellComponent {
     });
   }
 
+  /** Build invite overlay inputs with robust no-team fallback. */
+  private buildInviteOverlayInputs(): {
+    readonly isModal: true;
+    readonly inviteType: 'team' | 'general';
+    readonly team: InviteTeam | null;
+    readonly user: { role?: string | undefined };
+  } {
+    const authUser = this.authFlow.user() as {
+      role?: string | null;
+      activeSportIndex?: number;
+      sports?: ReadonlyArray<{
+        sport?: string;
+        team?: {
+          teamId?: string;
+          organizationId?: string;
+          id?: string;
+          name?: string;
+          teamName?: string;
+          logoUrl?: string;
+          logo?: string;
+        };
+      }>;
+    } | null;
+
+    const preferredIndex = authUser?.activeSportIndex ?? 0;
+    const currentSport = authUser?.sports?.[preferredIndex] ?? authUser?.sports?.[0];
+    const teamInfo = currentSport?.team;
+    const teamId =
+      teamInfo?.teamId?.trim() || teamInfo?.organizationId?.trim() || teamInfo?.id?.trim();
+    const teamName = teamInfo?.name?.trim() || teamInfo?.teamName?.trim();
+
+    const team: InviteTeam | null =
+      teamId && teamName
+        ? {
+            id: teamId,
+            name: teamName,
+            sport: currentSport?.sport?.trim() ?? '',
+            logoUrl: teamInfo?.logoUrl ?? teamInfo?.logo ?? undefined,
+            memberCount: 0,
+          }
+        : null;
+
+    return {
+      isModal: true,
+      inviteType: team ? 'team' : 'general',
+      team,
+      user: { role: authUser?.role ?? undefined },
+    };
+  }
+
   // ============================================
   // SIDEBAR HANDLERS (Desktop/Tablet)
   // ============================================
@@ -1292,10 +1353,9 @@ export class WebShellComponent {
 
     // Handle invite-team action
     if (item.action === 'invite-team') {
-      const authUser = this.authFlow.user() as { role?: string | null } | null;
       void this.inviteOverlay.open({
         component: InviteShellComponent,
-        inputs: { isModal: true, inviteType: 'team', user: { role: authUser?.role ?? undefined } },
+        inputs: this.buildInviteOverlayInputs(),
         size: 'lg',
         backdropDismiss: true,
       });
@@ -1360,7 +1420,7 @@ export class WebShellComponent {
    * Navigate to explore page on mobile.
    */
   onMobileSearchClick(): void {
-    this.router.navigate(['/agent']);
+    this.router.navigate(['/agent-x']);
   }
 
   /**
@@ -1428,6 +1488,14 @@ export class WebShellComponent {
     await ref.closed;
   }
 
+  onMobileAgentXActivityClick(): void {
+    void this.router.navigate(['/activity']);
+  }
+
+  onMobileAgentXUsageClick(): void {
+    void this.router.navigate(['/usage']);
+  }
+
   // ============================================
   // MOBILE SIDEBAR HANDLERS
   // ============================================
@@ -1446,10 +1514,9 @@ export class WebShellComponent {
 
     // Handle invite-team action
     if (item.action === 'invite-team') {
-      const authUser = this.authFlow.user() as { role?: string | null } | null;
       void this.inviteOverlay.open({
         component: InviteShellComponent,
-        inputs: { isModal: true, inviteType: 'team', user: { role: authUser?.role ?? undefined } },
+        inputs: this.buildInviteOverlayInputs(),
         size: 'lg',
         backdropDismiss: true,
       });
@@ -1522,12 +1589,12 @@ export class WebShellComponent {
   onHeaderSearchSubmit(event: TopNavSearchSubmitEvent): void {
     const query = event.query.trim();
     if (query) {
-      void this.router.navigate(['/agent'], { queryParams: { q: query } });
+      void this.router.navigate(['/agent-x'], { queryParams: { q: query } });
     }
   }
 
   onHeaderSeeAllResults(query: string): void {
-    void this.router.navigate(['/agent'], { queryParams: { q: query } });
+    void this.router.navigate(['/agent-x'], { queryParams: { q: query } });
   }
 
   // eslint-disable-next-line @typescript-eslint/no-empty-function
@@ -1627,11 +1694,11 @@ export class WebShellComponent {
 
   /**
    * Handle logo click with auth-aware destination.
-   * Authenticated users go to /agent, guests go to root landing (/).
+   * Authenticated users go to /agent-x, guests go to root landing (/).
    */
   onLogoClick(): void {
     if (this.authFlow.isAuthenticated()) {
-      this.router.navigate(['/agent']);
+      this.router.navigate(['/agent-x']);
       return;
     }
 

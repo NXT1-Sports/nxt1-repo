@@ -494,35 +494,57 @@ export class InviteShellComponent implements OnInit {
   protected readonly isLinkLoading = computed(() => this.invite.isLoading());
 
   /** Role-aware invite copy shown in UI and used for sharing. */
+  protected readonly hasConcreteTeam = computed(() => {
+    const team = this.team();
+    return Boolean(team?.id?.trim() || team?.name?.trim());
+  });
+
+  /** Effective invite type after enforcing no-team fallback semantics. */
+  protected readonly effectiveInviteType = computed<InviteType>(() => {
+    const requestedType = this.inviteType();
+    if (requestedType === 'team' && !this.hasConcreteTeam()) {
+      return 'general';
+    }
+    return requestedType;
+  });
+
+  /** Role-aware invite copy shown in UI and used for sharing. */
   protected readonly currentCopy = computed(() =>
     buildInviteUiCopy({
-      inviteType: this.inviteType(),
+      inviteType: this.effectiveInviteType(),
       senderRole: this.user()?.role ?? null,
       senderName: this.user()?.displayName ?? null,
       senderPosition: this.user()?.primaryPosition ?? null,
       senderSchool: this.user()?.schoolName ?? null,
       senderSport: this.user()?.primarySport ?? null,
       senderLocation: this.user()?.location ?? null,
-      team: this.team(),
+      team: this.hasConcreteTeam() ? this.team() : null,
       rewardCents: this.invite.inviteLink()?.referralRewardCents ?? null,
     })
   );
 
-  /** Only show the reward card for athletes, parents, and recruiters — not coaches/directors. */
+  /** True when invite is tied to a concrete team/program context. */
+  protected readonly hasTeamContext = computed(() => {
+    if (this.effectiveInviteType() === 'team') return true;
+    return this.hasConcreteTeam();
+  });
+
+  /** Show reward card for all users except coaches/directors in team-context invites. */
   protected readonly showValueCard = computed(() => {
     const role = this.user()?.role;
-    return role !== USER_ROLES.COACH && role !== USER_ROLES.DIRECTOR;
+    const isTeamRole = role === USER_ROLES.COACH || role === USER_ROLES.DIRECTOR;
+    return !isTeamRole || !this.hasTeamContext();
   });
 
   /** Professional explainer shown above the reward card. */
   protected readonly howItWorksText = computed(() => this.currentCopy().howItWorksText);
 
   protected readonly headerTitle = computed(() => {
-    const type = this.inviteType();
+    const type = this.effectiveInviteType();
     if (type === 'team') return 'Invite Team';
 
     const role = this.user()?.role;
-    if (role === USER_ROLES.COACH || role === USER_ROLES.DIRECTOR) {
+    if ((role === USER_ROLES.COACH || role === USER_ROLES.DIRECTOR) && this.hasTeamContext()) {
       return 'Invite Players & Staff';
     }
     return 'Invite';
@@ -545,11 +567,11 @@ export class InviteShellComponent implements OnInit {
   // ============================================
 
   ngOnInit(): void {
-    const type = this.inviteType();
+    const type = this.effectiveInviteType();
     if (type) this.invite.setInviteType(type);
 
     const team = this.team();
-    if (team) this.invite.selectTeam(team);
+    if (team && this.hasConcreteTeam()) this.invite.selectTeam(team);
 
     this.invite.loadInviteLink();
   }
@@ -607,14 +629,14 @@ export class InviteShellComponent implements OnInit {
     const shareText = this.currentCopy().shareText;
     const shareData: ShareData = {
       title: buildInviteShareTitle({
-        inviteType: this.inviteType(),
+        inviteType: this.effectiveInviteType(),
         senderRole: this.user()?.role ?? null,
         senderName: this.user()?.displayName ?? null,
         senderPosition: this.user()?.primaryPosition ?? null,
         senderSchool: this.user()?.schoolName ?? null,
         senderSport: this.user()?.primarySport ?? null,
         senderLocation: this.user()?.location ?? null,
-        team: this.team(),
+        team: this.hasConcreteTeam() ? this.team() : null,
       }),
       text: shareText,
       url,

@@ -43,6 +43,7 @@ import type {
   AgentRetrievedMemories,
   AgentUserContext,
 } from '@nxt1/core';
+import { buildCanonicalProfilePath, buildCanonicalTeamPath } from '@nxt1/core';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getUserById, type UserData } from '../../../services/profile/users.service.js';
 import { getCacheService, CACHE_TTL } from '../../../services/core/cache.service.js';
@@ -119,6 +120,45 @@ function asStringArray(value: unknown): string[] {
   return value
     .map((item) => (typeof item === 'string' ? item.trim() : ''))
     .filter((item) => item.length > 0);
+}
+
+type TeamLinkCandidate = {
+  sport?: string;
+  teamName?: string;
+  slug?: string;
+  teamCode?: string;
+};
+
+function dedupeProfilePathsBySport(
+  links: Array<{ sport: string; path: string }>
+): Array<{ sport: string; path: string }> {
+  const seen = new Set<string>();
+  const unique: Array<{ sport: string; path: string }> = [];
+
+  for (const link of links) {
+    const key = `${link.sport.toLowerCase()}::${link.path}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(link);
+  }
+
+  return unique;
+}
+
+function dedupeTeamPaths(
+  links: Array<{ sport?: string; teamName?: string; teamCode: string; path: string }>
+): Array<{ sport?: string; teamName?: string; teamCode: string; path: string }> {
+  const seen = new Set<string>();
+  const unique: Array<{ sport?: string; teamName?: string; teamCode: string; path: string }> = [];
+
+  for (const link of links) {
+    const key = `${link.teamCode.toLowerCase()}::${link.path}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(link);
+  }
+
+  return unique;
 }
 
 export class ContextBuilder {
@@ -259,6 +299,17 @@ export class ContextBuilder {
     return { profile, memories, recentSyncSummaries };
   }
 
+  async getMemoriesForContext(
+    context: AgentUserContext,
+    query: string
+  ): Promise<AgentRetrievedMemories> {
+    return this.retrieveMemories(context, query);
+  }
+
+  async getRecentSyncSummariesForContext(context: AgentUserContext): Promise<readonly string[]> {
+    return this.retrieveRecentSyncSummaries(context);
+  }
+
   async invalidateContext(userId: string): Promise<void> {
     try {
       const cache = getCacheService();
@@ -276,16 +327,32 @@ export class ContextBuilder {
   ): string {
     const lines: string[] = [];
 
-    const teamPart = context.teamId ? ` | TeamID: ${context.teamId}` : '';
-    const orgPart = context.organizationId ? ` | OrgID: ${context.organizationId}` : '';
-    lines.push(
-      `User: ${context.displayName} | Role: ${context.role} | UserID: ${context.userId}${teamPart}${orgPart}`
-    );
+    // Internal reference IDs — for tool arguments only, NEVER mention or display to the user.
+    lines.push(`[User Profile]`);
+    lines.push(`UserID: ${context.userId}`);
+    if (context.teamId) lines.push(`TeamID: ${context.teamId}`);
+    if (context.organizationId) lines.push(`OrgID: ${context.organizationId}`);
+
+    lines.push(`User: ${context.displayName} | Role: ${context.role}`);
 
     if (context.sport) {
       const pos = context.position ? ` | Pos: ${context.position}` : '';
       const gradYear = context.graduationYear ? ` | Class: ${context.graduationYear}` : '';
       lines.push(`Sport: ${context.sport}${pos}${gradYear}`);
+    }
+
+    if (context.sports?.length) {
+      const sportSummary = context.sports
+        .slice(0, 8)
+        .map((entry) => {
+          const tags: string[] = [];
+          if (entry.isActive) tags.push('active');
+          if (entry.positions?.length) tags.push(`pos: ${entry.positions.join('/')}`);
+          if (entry.teamName) tags.push(`team: ${entry.teamName}`);
+          return tags.length > 0 ? `${entry.sport} (${tags.join(', ')})` : entry.sport;
+        })
+        .join(' | ');
+      lines.push(`All Sports: ${sportSummary}`);
     }
 
     if (context.school) {
@@ -321,6 +388,32 @@ export class ContextBuilder {
       if (accountParts.length) lines.push(`Connected: ${accountParts.join(', ')}`);
     }
 
+    const shouldShowProfileLinks = context.role === 'athlete';
+
+    if (shouldShowProfileLinks && context.profilePath) {
+      lines.push(`Profile URL: ${context.profilePath}`);
+    }
+
+    if (shouldShowProfileLinks && context.profilePathsBySport?.length) {
+      const profileLinks = context.profilePathsBySport
+        .slice(0, 8)
+        .map((link) => `${link.sport}: ${link.path}`)
+        .join(' | ');
+      lines.push(`All Sport Profile URLs: ${profileLinks}`);
+    }
+
+    if (context.teamPath) {
+      lines.push(`Team URL: ${context.teamPath}`);
+    }
+
+    if (context.teamPaths?.length) {
+      const teamLinks = context.teamPaths
+        .slice(0, 8)
+        .map((link) => `${link.teamName ?? link.teamCode}: ${link.path}`)
+        .join(' | ');
+      lines.push(`Team URLs: ${teamLinks}`);
+    }
+
     if (recentSyncSummaries.length) {
       lines.push(`Recent Sync Activity:\n- ${recentSyncSummaries.join('\n- ')}`);
     }
@@ -333,10 +426,10 @@ export class ContextBuilder {
     }
 
     if (context.currentPlaybookSummary) {
-      const { playbookId, total, completed, snoozed } = context.currentPlaybookSummary;
+      const { total, completed, snoozed } = context.currentPlaybookSummary;
       const active = total - completed - snoozed;
       lines.push(
-        `This Week's Playbook: ${completed}/${total} done, ${active} active, ${snoozed} snoozed [ID: ${playbookId}]`
+        `This Week's Playbook: ${completed}/${total} done, ${active} active, ${snoozed} snoozed`
       );
     }
 
@@ -479,8 +572,63 @@ export class ContextBuilder {
       asString(user['primarySport']) ??
       asString(user['sport']) ??
       (roleSports.length > 0 ? roleSports.join(', ') : undefined);
+
+    const shouldExposeAthleteProfileLinks = role === 'athlete';
+    const profileCode = asString(user['unicode']) ?? userId;
+    const profilePath = shouldExposeAthleteProfileLinks
+      ? buildCanonicalProfilePath({
+          athleteName: displayName,
+          sport,
+          unicode: profileCode,
+          id: userId,
+        })
+      : undefined;
+
+    const sportLinks: Array<{ sport: string; path: string }> = [];
+    const allSports = Array.isArray(sports) ? sports : [];
+    if (shouldExposeAthleteProfileLinks) {
+      for (const sportEntry of allSports) {
+        const sportName = asString(sportEntry?.['sport']);
+        if (!sportName) continue;
+
+        sportLinks.push({
+          sport: sportName,
+          path: buildCanonicalProfilePath({
+            athleteName: displayName,
+            sport: sportName,
+            unicode: profileCode,
+            id: userId,
+          }),
+        });
+      }
+
+      if (sport && sportLinks.length === 0 && profilePath) {
+        sportLinks.push({ sport, path: profilePath });
+      }
+    }
+    const profilePathsBySport = dedupeProfilePathsBySport(sportLinks);
     const positions = activeSport?.['positions'] as string[] | undefined;
     const position = positions?.[0];
+
+    const sportsContext: Array<{
+      sport: string;
+      positions: string[];
+      teamName?: string;
+      isActive: boolean;
+    }> = [];
+
+    for (const [index, sportEntry] of allSports.entries()) {
+      const sportName = asString(sportEntry?.['sport']);
+      if (!sportName) continue;
+
+      const team = sportEntry?.['team'] as Record<string, unknown> | undefined;
+      sportsContext.push({
+        sport: sportName,
+        positions: asStringArray(sportEntry?.['positions']),
+        teamName: asString(team?.['name']) ?? asString(team?.['teamName']),
+        isActive: index === activeSportIndex,
+      });
+    }
 
     // ── Physical attributes ───────────────────────────────────────────────
     // Try top-level fields first (legacy), then measurables[], then sport metrics
@@ -539,6 +687,74 @@ export class ContextBuilder {
       (user['highSchool'] as string | undefined) ??
       (athlete?.['highSchool'] as string | undefined);
 
+    const teamLinkCandidates: TeamLinkCandidate[] = [];
+
+    if (activeSportTeam) {
+      teamLinkCandidates.push({
+        sport,
+        teamName: asString(activeSportTeam['name']) ?? asString(activeSportTeam['teamName']),
+        slug: asString(activeSportTeam['slug']) ?? asString(activeSportTeam['unicode']),
+        teamCode: asString(activeSportTeam['teamCode']) ?? asString(activeSportTeam['code']),
+      });
+    }
+
+    for (const sportEntry of allSports) {
+      const team = sportEntry?.['team'] as Record<string, unknown> | undefined;
+      if (!team) continue;
+      teamLinkCandidates.push({
+        sport: asString(sportEntry?.['sport']),
+        teamName: asString(team['name']) ?? asString(team['teamName']),
+        slug: asString(team['slug']) ?? asString(team['unicode']),
+        teamCode: asString(team['teamCode']) ?? asString(team['code']),
+      });
+    }
+
+    const topLevelTeam =
+      typeof user['teamCode'] === 'object' && user['teamCode'] !== null
+        ? (user['teamCode'] as Record<string, unknown>)
+        : undefined;
+    if (topLevelTeam) {
+      teamLinkCandidates.push({
+        sport: asString(topLevelTeam['sport']) ?? sport,
+        teamName: asString(topLevelTeam['teamName']) ?? asString(topLevelTeam['name']),
+        slug: asString(topLevelTeam['slug']) ?? asString(topLevelTeam['unicode']),
+        teamCode: asString(topLevelTeam['teamCode']) ?? asString(topLevelTeam['code']),
+      });
+    }
+
+    if (currentTeamHistory) {
+      teamLinkCandidates.push({
+        teamName: asString(currentTeamHistory['name']) ?? asString(currentTeamHistory['teamName']),
+        slug: asString(currentTeamHistory['slug']) ?? asString(currentTeamHistory['unicode']),
+        teamCode: asString(currentTeamHistory['teamCode']) ?? asString(currentTeamHistory['code']),
+      });
+    }
+
+    const teamPathLinks: Array<{
+      sport?: string;
+      teamName?: string;
+      teamCode: string;
+      path: string;
+    }> = [];
+
+    for (const candidate of teamLinkCandidates) {
+      if (!candidate.teamCode) continue;
+
+      teamPathLinks.push({
+        ...(candidate.sport ? { sport: candidate.sport } : {}),
+        ...(candidate.teamName ? { teamName: candidate.teamName } : {}),
+        teamCode: candidate.teamCode,
+        path: buildCanonicalTeamPath({
+          slug: candidate.slug,
+          teamName: candidate.teamName,
+          teamCode: candidate.teamCode,
+        }),
+      });
+    }
+
+    const teamPaths = dedupeTeamPaths(teamPathLinks);
+    const teamPath = teamPaths[0]?.path;
+
     // ── Coach / director-specific ────────────────────────────────────────
     const coachProgram =
       asString(activeSportTeam?.['name']) ??
@@ -560,9 +776,17 @@ export class ContextBuilder {
       userId,
       role,
       displayName,
+      activeSportIndex,
+
+      // Canonical NXT1 routes
+      ...(profilePath ? { profilePath } : {}),
+      ...(profilePathsBySport.length > 0 ? { profilePathsBySport } : {}),
+      ...(teamPath ? { teamPath } : {}),
+      ...(teamPaths.length > 0 ? { teamPaths } : {}),
 
       // Athletic data
       sport,
+      ...(sportsContext.length > 0 ? { sports: sportsContext } : {}),
       position,
       heightInches,
       weightLbs,
@@ -757,10 +981,10 @@ export class ContextBuilder {
         .reverse() // chronological order
         .map((m) => ({
           role: m.role as 'user' | 'assistant',
-          content:
-            m.content.length > ContextBuilder.THREAD_HISTORY_MAX_CHARS
-              ? m.content.slice(0, ContextBuilder.THREAD_HISTORY_MAX_CHARS) + '...'
-              : m.content,
+          // Phase F: no longer truncate to 500 chars \u2014 the prompt budget
+          // governor (PromptBudgetService) is the single trim authority.
+          // Pre-truncation here corrupts replay fidelity for Redis seeds.
+          content: m.content,
           timestamp:
             typeof m.createdAt === 'string' ? m.createdAt : new Date(m.createdAt).toISOString(),
         }));

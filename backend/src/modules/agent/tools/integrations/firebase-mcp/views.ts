@@ -1120,8 +1120,18 @@ const VIEW_DEFINITIONS: Record<FirebaseViewName, FirebaseViewDefinition> = {
         'createdAt'
       );
 
-      const redactedItems = posts.map((item) =>
-        sanitizeRecord({
+      // Load team docs to resolve teamCode per post (required by delete_team_post / update_team_post)
+      const uniqueTeamIds = [
+        ...new Set(
+          posts.map((p) => p['teamId']).filter((id): id is string => typeof id === 'string')
+        ),
+      ];
+      const teamsById = await loadDocumentsById(db, TEAMS_COLLECTION, uniqueTeamIds);
+
+      const redactedItems = posts.map((item) => {
+        const teamId = typeof item['teamId'] === 'string' ? item['teamId'] : undefined;
+        const teamDoc = teamId ? (teamsById[teamId] ?? {}) : {};
+        return sanitizeRecord({
           ...pickFields(item, [
             'id',
             'userId',
@@ -1140,8 +1150,9 @@ const VIEW_DEFINITIONS: Record<FirebaseViewName, FirebaseViewDefinition> = {
             'updatedAt',
           ]),
           videoUrl: item['videoUrl'] ?? item['mediaUrl'],
-        })
-      );
+          teamCode: typeof teamDoc['teamCode'] === 'string' ? teamDoc['teamCode'] : undefined,
+        });
+      });
 
       return {
         view: 'team_timeline_feed',

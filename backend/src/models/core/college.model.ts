@@ -5,8 +5,9 @@
  * Mongoose schema and model for College collection
  */
 
-import { model, Schema, Model } from 'mongoose';
+import { Schema, type Model, type Connection } from 'mongoose';
 import type { College, CollegeSportInfo } from '@nxt1/core/models';
+import { getMongoGlobalConnection } from '../../config/database.config.js';
 
 // Sport Information sub-schema (used in sportInfo Map below)
 
@@ -65,4 +66,31 @@ CollegeSchema.index({ sport: 1, state: 1 }); // Filter by sport + state
 CollegeSchema.index({ name: 'text' }); // Full-text search on college name
 
 // Create and export model
-export const CollegeModel: Model<College> = model<College>('College', CollegeSchema);
+const COLLEGE_MODEL_NAME = 'College';
+
+export function getCollegeModel(
+  connection: Connection = getMongoGlobalConnection()
+): Model<College> {
+  const existingModel = connection.models[COLLEGE_MODEL_NAME] as Model<College> | undefined;
+  if (existingModel) return existingModel;
+
+  return connection.model<College>(COLLEGE_MODEL_NAME, CollegeSchema);
+}
+
+export const CollegeModel = new Proxy({} as Model<College>, {
+  get(_target, prop) {
+    const model = getCollegeModel();
+    const value = (model as unknown as Record<PropertyKey, unknown>)[prop];
+    return typeof value === 'function' ? value.bind(model) : value;
+  },
+  has(_target, prop) {
+    const model = getCollegeModel();
+    return prop in model;
+  },
+  getOwnPropertyDescriptor(_target, prop) {
+    const model = getCollegeModel() as unknown as Record<PropertyKey, unknown>;
+    const value = model[prop];
+    if (value === undefined) return undefined;
+    return { configurable: true, enumerable: true, writable: true, value };
+  },
+});

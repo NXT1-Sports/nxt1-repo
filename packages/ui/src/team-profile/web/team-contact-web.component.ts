@@ -207,6 +207,54 @@ function deriveConnectedHandle(profileUrl: string, fallback: string, prefix = ''
             </div>
           }
         </div>
+
+        <!-- Location section — full width below the grid -->
+        @if (activeSection() === 'contact' && hasLocationInfo()) {
+          <div class="location-section">
+            <h3 class="contact-section-title">Location</h3>
+            <div class="contact-info-list">
+              @if (teamProfile.team()?.city || teamProfile.team()?.state) {
+                <div class="contact-info-item contact-info-item--static">
+                  <span class="contact-info-icon">
+                    <nxt1-icon name="location" [size]="16" />
+                  </span>
+                  <div class="contact-info-text">
+                    <span class="contact-info-label">City / State</span>
+                    <span class="contact-info-value"
+                      >{{ teamProfile.team()?.city
+                      }}{{ teamProfile.team()?.city && teamProfile.team()?.state ? ', ' : ''
+                      }}{{ teamProfile.team()?.state }}</span
+                    >
+                  </div>
+                </div>
+              }
+              @if (teamProfile.team()?.contact?.address) {
+                <div class="contact-info-item contact-info-item--static">
+                  <span class="contact-info-icon">
+                    <nxt1-icon name="map" [size]="16" />
+                  </span>
+                  <div class="contact-info-text">
+                    <span class="contact-info-label">Address</span>
+                    <span class="contact-info-value">{{
+                      teamProfile.team()!.contact!.address
+                    }}</span>
+                  </div>
+                </div>
+              }
+              @if (teamProfile.team()?.homeVenue) {
+                <div class="contact-info-item contact-info-item--static">
+                  <span class="contact-info-icon">
+                    <nxt1-icon name="stadium" [size]="16" />
+                  </span>
+                  <div class="contact-info-text">
+                    <span class="contact-info-label">Home Venue</span>
+                    <span class="contact-info-value">{{ teamProfile.team()!.homeVenue }}</span>
+                  </div>
+                </div>
+              }
+            </div>
+          </div>
+        }
       }
     </section>
   `,
@@ -460,6 +508,19 @@ function deriveConnectedHandle(profileUrl: string, fallback: string, prefix = ''
         background: rgba(255, 255, 255, 0.04);
       }
 
+      /* ─── LOCATION SECTION ─── */
+      .location-section {
+        margin-top: 20px;
+      }
+      .contact-info-item--static {
+        cursor: default;
+        pointer-events: none;
+      }
+      .contact-info-item--static:hover {
+        border-color: var(--m-border);
+        background: var(--m-surface);
+      }
+
       .sr-only {
         position: absolute;
         width: 1px;
@@ -573,13 +634,18 @@ export class TeamContactWebComponent {
     return !!team?.contact?.email || !!team?.contact?.phone;
   });
 
+  protected readonly hasLocationInfo = computed(() => {
+    const team = this.teamProfile.team();
+    return !!team?.city || !!team?.state || !!team?.contact?.address || !!team?.homeVenue;
+  });
+
   /** Whether the current connect subsection has any content */
   protected readonly hasAnyContactInfo = computed((): boolean => {
     if (this.activeSection() === 'connected') {
       return this.connectedAccountsList().length > 0;
     }
 
-    return this.hasCoreContact() || this.coachContacts().length > 0;
+    return this.hasCoreContact() || this.coachContacts().length > 0 || this.hasLocationInfo();
   });
 
   /** Sorted + formatted social media accounts */

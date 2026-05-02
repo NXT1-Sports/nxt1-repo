@@ -18,7 +18,7 @@
 import { Injectable, inject, signal, computed } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
-import { AGENT_X_API_BASE_URL } from '../../agent-x/agent-x-job.service';
+import { AGENT_X_API_BASE_URL } from '../../agent-x/services/agent-x-job.service';
 import { NxtLoggingService } from '../../services/logging';
 import { NxtBreadcrumbService } from '../../services/breadcrumb/breadcrumb.service';
 import { ANALYTICS_ADAPTER } from '../../services/analytics/analytics-adapter.token';

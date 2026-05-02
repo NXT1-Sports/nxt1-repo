@@ -79,10 +79,10 @@ function truncateOutput(data: unknown): string {
 export class GetApifyActorOutputTool extends BaseTool {
   readonly name = 'get_apify_actor_output';
   readonly description =
-    'Fetch paginated results from a completed Apify actor run dataset. ' +
+    'Fetch paginated results from a completed automation task run dataset. ' +
     'Use this after call_apify_actor when the output was truncated or to retrieve specific pages. ' +
     'Supports offset and limit for pagination (max 200 items per page). ' +
-    'Media URLs in results are automatically re-hosted to permanent Firebase Storage URLs.';
+    'Media URLs in results are automatically re-hosted to permanent CDN-backed URLs.';
 
   readonly parameters = GetApifyActorOutputInputSchema;
 

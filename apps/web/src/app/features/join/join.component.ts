@@ -216,11 +216,11 @@ export class JoinComponent implements OnInit {
     } finally {
       this.isAccepting.set(false);
     }
-    this.router.navigate(['/agent'], { replaceUrl: true });
+    this.router.navigate(['/agent-x'], { replaceUrl: true });
   }
 
   protected declineInvite(): void {
-    this.router.navigate(['/agent'], { replaceUrl: true });
+    this.router.navigate(['/agent-x'], { replaceUrl: true });
   }
 
   async ngOnInit(): Promise<void> {

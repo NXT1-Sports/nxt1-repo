@@ -45,6 +45,7 @@ import {
   type UserV2Document,
   type ConnectedSourceRecord,
 } from './shared.js';
+import { resolveBillingTarget } from '../../modules/billing/index.js';
 
 const router: RouterType = Router();
 
@@ -508,6 +509,20 @@ router.post(
     await invalidateProfileCaches(userId).catch((err) =>
       logger.warn('[POST /profile/onboarding] Cache invalidation failed', { userId, err })
     );
+
+    // Initialize billing target for org admins (coaches/directors) right away.
+    // resolveBillingTarget auto-detects the org via RosterEntries / ownerId and
+    // writes Users.activeBillingTarget so the billing UI immediately shows
+    // organization billing instead of the personal-credits fallback.
+    if (role === 'coach' || role === 'director') {
+      void resolveBillingTarget(db, userId).catch((err) =>
+        logger.warn('[POST /profile/onboarding] Billing target initialization failed', {
+          userId,
+          role,
+          err,
+        })
+      );
+    }
 
     // Fetch updated user for response
     let userData: UserV2Document | undefined;

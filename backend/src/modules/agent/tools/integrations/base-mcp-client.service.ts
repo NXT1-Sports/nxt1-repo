@@ -289,9 +289,10 @@ export abstract class BaseMcpClientService {
         this.shouldRetryAfterFailure(errorKind);
 
       if (shouldRetry) {
-        logger.warn(`[MCP:${this.serverName}] Transport error detected — attempting reconnect`);
-        await this.disconnect();
-        await this.ensureConnected();
+        logger.warn(
+          `[MCP:${this.serverName}] Dependency failure (${errorKind}) — attempting reconnect`
+        );
+        await this.reconnectGracefully();
 
         try {
           const retryResult = (await this.callWithTimeout(
@@ -354,6 +355,33 @@ export abstract class BaseMcpClientService {
       }
 
       throw err;
+    }
+  }
+
+  /**
+   * Reconnect without introducing a shared `client = null` window.
+   *
+   * Why: A hard disconnect followed by connect can create a brief gap where
+   * concurrent callers observe no client and fail with "Client is not connected".
+   * This method marks the connection unhealthy, establishes a replacement
+   * client first, then closes the previous client instance.
+   */
+  private async reconnectGracefully(): Promise<void> {
+    const previousClient = this.client;
+
+    // Force connect() to create a new client even if previous flags were stale.
+    this.connected = false;
+    await this.connect();
+
+    // Close old client only after replacement is active.
+    if (previousClient && previousClient !== this.client) {
+      try {
+        await previousClient.close();
+      } catch (err) {
+        logger.warn(`[MCP:${this.serverName}] Error closing previous client after reconnect`, {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
     }
   }
 
@@ -447,6 +475,13 @@ export abstract class BaseMcpClientService {
     if (!this.connected || !this.client) {
       await this.connect();
     }
+
+    // Defensive invariant check for rare concurrent reconnect/disconnect races.
+    // If flags drift (connected=true but client missing), force one clean reconnect.
+    if (!this.client) {
+      this.connected = false;
+      await this.connect();
+    }
   }
 
   /**
@@ -458,7 +493,16 @@ export abstract class BaseMcpClientService {
     timeoutMs: number,
     externalSignal?: AbortSignal
   ): Promise<unknown> {
-    if (!this.client) {
+    // Acquire a stable client reference for this invocation.
+    // Another concurrent call may temporarily disconnect/reconnect the shared client.
+    let client = this.client;
+    if (!client) {
+      this.connected = false;
+      await this.ensureConnected();
+      client = this.client;
+    }
+
+    if (!client) {
       throw new AgentEngineError(
         'AGENT_SERVICE_UNAVAILABLE',
         `[MCP:${this.serverName}] Client is not connected`,
@@ -488,8 +532,12 @@ export abstract class BaseMcpClientService {
     externalSignal?.addEventListener('abort', onExternalAbort, { once: true });
 
     try {
-      const result = await this.client.callTool({ name: toolName, arguments: args }, undefined, {
+      const result = await client.callTool({ name: toolName, arguments: args }, undefined, {
         signal: timeoutController.signal,
+        // Align the SDK's internal request timer with our per-operation timeout.
+        // Without this, the SDK defaults to 60 s and fires before our AbortSignal
+        // for longer operations (e.g. EXTRACT_TIMEOUT_MS = 90 s).
+        timeout: timeoutMs,
       });
       return result;
     } catch (err) {
@@ -684,9 +732,14 @@ export abstract class BaseMcpClientService {
 
   /**
    * Retry only safe, retryable dependency failures.
+   *
+   * NOTE: `timeout` is intentionally excluded. A timeout means the remote
+   * service is slow/overloaded — reconnecting does not help and doubles the
+   * user-visible wait time. Only broken-transport and server-crash errors
+   * benefit from a reconnect+retry.
    */
   private shouldRetryAfterFailure(errorKind: McpErrorKind): boolean {
-    return ['timeout', 'transport', 'server'].includes(errorKind);
+    return ['transport', 'server'].includes(errorKind);
   }
 
   /**

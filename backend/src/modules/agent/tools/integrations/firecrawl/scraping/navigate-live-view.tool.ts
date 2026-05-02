@@ -1,0 +1,79 @@
+/**
+ * @fileoverview Navigate Live View Tool
+ * @module @nxt1/backend/modules/agent/tools/scraping
+ *
+ * Agent X tool that navigates an active live-view browser session to a new URL.
+ * This controls the SAME browser the user sees in their command center iframe.
+ */
+
+import { BaseTool, type ToolResult } from '../../../base.tool.js';
+import type { LiveViewSessionService } from './live-view-session.service.js';
+import { logger } from '../../../../../../utils/logger.js';
+import { z } from 'zod';
+
+export class NavigateLiveViewTool extends BaseTool {
+  readonly name = 'navigate_live_view';
+
+  readonly description =
+    'Navigates the active live-view browser (the one the user can see in the side panel) to a new URL. ' +
+    'The iframe updates in real time so the user sees the page change. ' +
+    'Use this INSTEAD of closing and re-opening a live view when the user wants to visit a different site. ' +
+    'Use this whenever the target page is already being shown in live view so the visible browser stays in sync. ' +
+    "The sessionId is optional — if omitted, the tool automatically finds the user's active session.";
+
+  readonly parameters = z.object({
+    sessionId: z.string().trim().min(1).optional(),
+    url: z.string().trim().min(1),
+    userId: z.string().trim().min(1),
+  });
+
+  readonly isMutation = false;
+  readonly category = 'system' as const;
+
+  readonly entityGroup = 'platform_tools' as const;
+  override readonly allowedAgents = ['*'] as const;
+
+  private readonly sessionService: LiveViewSessionService;
+
+  constructor(sessionService: LiveViewSessionService) {
+    super();
+    this.sessionService = sessionService;
+  }
+
+  async execute(input: Record<string, unknown>): Promise<ToolResult> {
+    const url = this.str(input, 'url');
+    const userId = this.str(input, 'userId');
+
+    if (!url) return this.paramError('url');
+    if (!userId) return this.paramError('userId');
+
+    try {
+      const sessionId = this.sessionService.resolveSessionId(this.str(input, 'sessionId'), userId);
+
+      const result = await this.sessionService.navigate(sessionId, userId, url);
+
+      logger.info('[NavigateLiveViewTool] Navigation complete', {
+        sessionId,
+        url: result.resolvedUrl,
+        userId,
+      });
+
+      return {
+        success: true,
+        data: {
+          navigatedTo: result.resolvedUrl,
+          sessionId,
+          message: `The live view browser has navigated to ${result.resolvedUrl}. The user can see the updated page in their side panel.`,
+        },
+      };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to navigate live view';
+      logger.error('[NavigateLiveViewTool] Navigation failed', {
+        url,
+        userId,
+        error: message,
+      });
+      return { success: false, error: message };
+    }
+  }
+}

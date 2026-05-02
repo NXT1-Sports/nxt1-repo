@@ -54,7 +54,6 @@ import {
   ACTIVITY_API_BASE_URL,
   ACTIVITY_API_ADAPTER,
   INVITE_API_BASE_URL,
-  MESSAGES_API_BASE_URL,
   USAGE_API_BASE_URL,
   PERFORMANCE_ADAPTER,
   INTEL_API_BASE_URL,
@@ -83,6 +82,7 @@ import { NxtLoggingService, LOGGING_CONFIG } from '@nxt1/ui';
 
 import { SETTINGS_PERSISTENCE_ADAPTER, APP_VERSION } from '@nxt1/ui/settings';
 import { CONNECTED_ACCOUNTS_OAUTH_HANDLER } from '@nxt1/ui/components/connected-sources';
+import { BROWSER_TRACKING_BASE_URL } from '@nxt1/ui/services/browser';
 
 import { routes } from './app.routes';
 import { environment } from '../environments/environment';
@@ -233,6 +233,9 @@ export const appConfig: ApplicationConfig = {
     // Agent X API base URL
     { provide: AGENT_X_API_BASE_URL, useFactory: () => environment.apiUrl },
 
+    // Browser tracking base URL — native link opens can safely route through the backend.
+    { provide: BROWSER_TRACKING_BASE_URL, useFactory: () => environment.apiUrl },
+
     // Team Profile API base URL (team/timeline endpoints)
     { provide: TEAM_PROFILE_API_BASE_URL, useFactory: () => environment.apiUrl },
 
@@ -296,9 +299,6 @@ export const appConfig: ApplicationConfig = {
 
     // Invite API base URL
     { provide: INVITE_API_BASE_URL, useFactory: () => environment.apiUrl },
-
-    // Messages API base URL
-    { provide: MESSAGES_API_BASE_URL, useFactory: () => environment.apiUrl },
 
     // Usage API base URL
     { provide: USAGE_API_BASE_URL, useFactory: () => environment.apiUrl },

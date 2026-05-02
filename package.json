@@ -72,7 +72,7 @@
     "e2e:install": "npm run e2e:install --workspace=@nxt1/web"
   },
   "devDependencies": {
-    "@angular-devkit/build-angular": "^21.2.7",
+    "@angular-devkit/build-angular": "^21.2.8",
     "@angular-eslint/builder": "^21.2.0",
     "@angular/cli": "^21.2.0",
     "@angular/animations": "^21.2.9",
@@ -152,7 +152,9 @@
     "axios": "1.15.0",
     "follow-redirects": "1.16.0",
     "hono": "4.12.14",
-    "@xmldom/xmldom": "0.9.9",
+    "@xmldom/xmldom": "0.9.10",
+    "plist": "^3.1.1",
+    "postcss": "^8.5.12",
     "@tootallnate/once": "3.0.1"
   },
   "lint-staged": {

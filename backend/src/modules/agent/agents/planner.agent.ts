@@ -33,39 +33,39 @@ import type {
   AgentExecutionPlan,
   AgentTask,
   AgentTaskStatus,
-  AgentPlannerOutput,
   ModelRoutingConfig,
   AgentDescriptor,
 } from '@nxt1/core';
 import { COORDINATOR_AGENT_IDS, MODEL_ROUTING_DEFAULTS } from '@nxt1/core';
 import type { OpenRouterService } from '../llm/openrouter.service.js';
+import type { ToolRegistry } from '../tools/tool-registry.js';
+import type { SkillRegistry } from '../skills/skill-registry.js';
+import type { OnStreamEvent } from '../queue/event-writer.js';
+import type { ApprovalGateService } from '../services/approval-gate.service.js';
 import { z } from 'zod';
-import { getConfiguredCoordinatorDescriptors } from '../config/agent-app-config.js';
+import {
+  getConfiguredCoordinatorDescriptors,
+  resolvePlannerSystemPrompt,
+} from '../config/agent-app-config.js';
 import { AgentEngineError } from '../exceptions/agent-engine.error.js';
+import { sanitizeAgentOutputText } from '../utils/platform-identifier-sanitizer.js';
 
-const plannerResponseSchema = z
-  .object({
-    summary: z.string().optional(),
-    estimatedSteps: z.number().optional(),
-    tasks: z.array(
-      z.object({
-        id: z.union([z.string(), z.number()]).optional(),
-        assignedAgent: z.string().optional(),
-        description: z.string().optional(),
-        dependsOn: z.array(z.union([z.string(), z.number()])).optional(),
-      })
-    ),
-  })
-  .transform((data) => ({
-    summary: data.summary,
-    estimatedSteps: data.estimatedSteps,
-    tasks: data.tasks.map((task, idx) => ({
-      id: String(task.id ?? idx + 1),
-      assignedAgent: task.assignedAgent ?? 'strategy_coordinator',
-      description: task.description ?? '',
-      dependsOn: (task.dependsOn ?? []).map(String),
-    })),
-  }));
+const strictPlannerTaskSchema = z.object({
+  id: z.string(),
+  assignedAgent: z.string(),
+  displayLabel: z.string().max(60).optional(),
+  description: z.string(),
+  dependsOn: z.array(z.string()),
+});
+
+const strictPlannerResponseSchema = z.object({
+  resultType: z.enum(['execution', 'clarification']),
+  summary: z.string(),
+  estimatedSteps: z.number(),
+  clarificationQuestion: z.string().nullable(),
+  clarificationContext: z.string().nullable(),
+  tasks: z.array(strictPlannerTaskSchema),
+});
 
 const coordinatorIdSet = new Set<string>(COORDINATOR_AGENT_IDS);
 const plannerAgentAliases: Readonly<Record<string, (typeof COORDINATOR_AGENT_IDS)[number]>> = {
@@ -104,6 +104,50 @@ function normalizePlannerAssignedAgent(agentIdRaw: string): AgentIdentifier | nu
   return aliased ?? null;
 }
 
+interface PlannerCapabilityCoordinatorSnapshot {
+  readonly agentId: Exclude<AgentIdentifier, 'router'>;
+  readonly allowedToolNames: readonly string[];
+  readonly allowedEntityGroups: readonly string[];
+  readonly matchedToolNames: readonly string[];
+  readonly staticSkillHints: readonly string[];
+  readonly matchedSkillHints: readonly string[];
+  readonly confidence: {
+    readonly matchedToolCount: number;
+    readonly allowedToolCount: number;
+    readonly toolCoverageRatio: number;
+    readonly matchedSkillCount: number;
+    readonly staticSkillCount: number;
+    readonly skillCoverageRatio: number;
+  };
+}
+
+export interface PlannerCapabilitySnapshot {
+  readonly schemaVersion: number;
+  readonly hash: string;
+  readonly coordinators: readonly PlannerCapabilityCoordinatorSnapshot[];
+}
+
+interface PlannerExecutionOptions {
+  readonly capabilitySnapshot?: PlannerCapabilitySnapshot;
+  readonly capabilitySnapshotResolver?: () => Promise<PlannerCapabilitySnapshot | undefined>;
+}
+
+interface StrictPlannerResponse {
+  readonly resultType: 'execution' | 'clarification';
+  readonly summary: string;
+  readonly estimatedSteps: number;
+  readonly clarificationQuestion: string | null;
+  readonly clarificationContext: string | null;
+  readonly tasks: readonly PlannerLLMTask[];
+}
+
+function isPlannerExecutionOptions(
+  value: ToolRegistry | PlannerExecutionOptions | undefined
+): value is PlannerExecutionOptions {
+  if (!value || typeof value !== 'object') return false;
+  return 'capabilitySnapshot' in value || 'capabilitySnapshotResolver' in value;
+}
+
 export class PlannerAgent extends BaseAgent {
   readonly id: AgentIdentifier = 'router';
   readonly name = 'Chief of Staff';
@@ -117,11 +161,13 @@ export class PlannerAgent extends BaseAgent {
   }
 
   /**
-   * Builds the system prompt that instructs the LLM to act as a task decomposer.
-   * The prompt includes the full catalogue of available sub-agents so the LLM
-   * knows which specialists it can assign tasks to.
+   * The planner now only exposes the strict action-planning prompt.
    */
-  getSystemPrompt(_context: AgentSessionContext): string {
+  getSystemPrompt(context: AgentSessionContext): string {
+    return this.getStrictPlanningPrompt(context);
+  }
+
+  private getStrictPlanningPrompt(_context: AgentSessionContext): string {
     const agentCatalogue = this.getCoordinatorDescriptors()
       .map(
         (a) =>
@@ -129,45 +175,72 @@ export class PlannerAgent extends BaseAgent {
       )
       .join('\n');
 
-    const prompt = `You are the Chief of Staff for Agent X, the AI engine of NXT1 Sports.
+    const prompt = `You are the action planner for Agent X. The request has already been classified as an ACTION.
 
-Your ONLY job is to decompose the user's request into a structured execution plan (a To-Do list).
-You do NOT execute any actions. You ONLY plan and assign tasks to coordinators.
+Your job is to do exactly one of these:
+1. Return an execution plan with one or more coordinator tasks.
+2. Return a structured clarification request when a required parameter is missing.
 
 ## Available Coordinators
 ${agentCatalogue}
 
 ## Rules
-1. Break the user's intent into the SMALLEST independent tasks possible.
-2. Assign each task to exactly ONE coordinator by its "id".
-3. Set "dependsOn" to an array of task IDs that MUST complete before this task can start.
-   - If a task has no dependencies, use an empty array [].
-   - Tasks with no dependencies CAN run in parallel.
-4. Order tasks logically. Data-producing tasks (analyze, fetch, generate) come before
-   data-consuming tasks (email, share, post).
-5. If a request is simple (single action), return a plan with ONE task. Do not over-decompose.
-6. If the user's request is ambiguous, create the most reasonable plan and note assumptions.
+1. Never answer conversationally and never refuse the action.
+2. Use resultType="execution" when enough information exists to proceed.
+3. Use resultType="clarification" only when a missing required parameter blocks execution.
+4. If resultType="execution", tasks must contain at least one task and clarificationQuestion must be null.
+5. If resultType="clarification", tasks must be [] and clarificationQuestion must be a specific question the user can answer.
+6. Imperative requests such as open, launch, navigate, watch, send, create, generate, run, log in, or analyze should default to execution unless a concrete missing parameter prevents safe execution.
+7. Do not invent missing recipients, destinations, or assets just to avoid clarification.
+8. Assign each task to exactly one coordinator by id.
 
 ## Output Format (STRICT JSON)
-Respond with ONLY a JSON object matching this schema — no markdown, no explanation:
+Respond with ONLY a JSON object:
 {
-  "summary": "One-sentence description of the overall plan",
-  "estimatedSteps": <number>,
+  "resultType": "execution" | "clarification",
+  "summary": "short summary",
+  "estimatedSteps": 1,
+  "clarificationQuestion": null,
+  "clarificationContext": null,
   "tasks": [
     {
       "id": "1",
-      "assignedAgent": "<agent_id>",
-      "description": "What this task does",
+      "assignedAgent": "strategy_coordinator",
+      "displayLabel": "Navigate to Hudl",
+      "description": "Open live view and navigate to Hudl.",
       "dependsOn": []
     }
   ]
-}`;
+}
 
-    return this.withConfiguredSystemPrompt(prompt);
+displayLabel: short verb-first label shown in the UI (≤8 words, e.g. “Find transfer portal targets”).
+description: full execution intent for the coordinator — as detailed as needed.`;
+
+    return resolvePlannerSystemPrompt(prompt);
   }
 
   private getCoordinatorDescriptors(): readonly AgentDescriptor[] {
     return getConfiguredCoordinatorDescriptors().filter((descriptor) => descriptor.id !== 'router');
+  }
+
+  private buildCapabilitySnapshotPrompt(snapshot: PlannerCapabilitySnapshot): string {
+    const compactPayload = snapshot.coordinators.map((coordinator) => ({
+      agentId: coordinator.agentId,
+      allowedToolCount: coordinator.allowedToolNames.length,
+      matchedTools: coordinator.matchedToolNames.slice(0, 8),
+      allowedEntityGroups: coordinator.allowedEntityGroups,
+      staticSkillHints: coordinator.staticSkillHints.slice(0, 6),
+      matchedSkillHints: coordinator.matchedSkillHints.slice(0, 4),
+      confidence: coordinator.confidence,
+    }));
+
+    return [
+      '[Coordinator Capability Snapshot]',
+      `schemaVersion: ${snapshot.schemaVersion}`,
+      `hash: ${snapshot.hash}`,
+      'Use this snapshot as the source of truth for feasible coordinator assignment.',
+      `snapshot: ${JSON.stringify(compactPayload)}`,
+    ].join('\n');
   }
 
   /**
@@ -188,32 +261,51 @@ Respond with ONLY a JSON object matching this schema — no markdown, no explana
   }
 
   /**
-   * Execute the planning phase.
-   *
-   * 1. Call the LLM with the system prompt + user intent.
-   * 2. Parse the JSON response into an AgentExecutionPlan.
-   * 3. Validate task IDs and dependency references.
-   * 4. Return the plan as the operation result.
-   *
-   * The Worker Queue reads .result.data.plan to get the task list.
+   * Execute strict coordinator planning only.
    */
   override async execute(
     intent: string,
     context: AgentSessionContext,
     _tools: readonly AgentToolDefinition[],
-    llm?: OpenRouterService
+    llm?: OpenRouterService,
+    toolRegistryOrOptions?: ToolRegistry | PlannerExecutionOptions,
+    _skillRegistry?: SkillRegistry,
+    _onStreamEvent?: OnStreamEvent,
+    _approvalGate?: ApprovalGateService,
+    options?: PlannerExecutionOptions
   ): Promise<AgentOperationResult> {
     const activeLlm = llm ?? this.defaultLlm;
-    const routing = this.getModelRouting();
+    const plannerOptions = isPlannerExecutionOptions(toolRegistryOrOptions)
+      ? toolRegistryOrOptions
+      : options;
 
-    // ── Phase 1: Call LLM ─────────────────────────────────────────────
-    const result = await activeLlm.prompt(this.getSystemPrompt(context), intent, {
+    return this.executeStrictPlanning(intent, context, activeLlm, plannerOptions);
+  }
+
+  private async executeStrictPlanning(
+    intent: string,
+    context: AgentSessionContext,
+    llm: OpenRouterService,
+    plannerOptions?: PlannerExecutionOptions
+  ): Promise<AgentOperationResult> {
+    const capabilitySnapshot =
+      plannerOptions?.capabilitySnapshot ??
+      (plannerOptions?.capabilitySnapshotResolver
+        ? await plannerOptions.capabilitySnapshotResolver()
+        : undefined);
+
+    const plannerIntent = capabilitySnapshot
+      ? `${intent}\n\n${this.buildCapabilitySnapshotPrompt(capabilitySnapshot)}`
+      : intent;
+
+    const routing = this.getModelRouting();
+    const result = await llm.prompt(this.getStrictPlanningPrompt(context), plannerIntent, {
       tier: routing.tier,
       maxTokens: routing.maxTokens,
       temperature: routing.temperature,
       outputSchema: {
         name: 'planner_execution_plan',
-        schema: plannerResponseSchema,
+        schema: strictPlannerResponseSchema,
       },
       ...(context.operationId && {
         telemetryContext: {
@@ -224,25 +316,15 @@ Respond with ONLY a JSON object matching this schema — no markdown, no explana
       }),
     });
 
-    if (result.parsedOutput === undefined) {
-      throw new AgentEngineError(
-        'PLANNER_EMPTY_PLAN',
-        'Planner LLM returned no structured execution plan.'
-      );
-    }
-
-    // ── Phase 2: Resolve structured response ──────────────────────────────
-    const parsed = this.resolvePlanResponse(result);
-
-    // ── Phase 3: Build the execution plan ─────────────────────────────────
+    const parsed = this.resolveStrictPlanningResponse(result);
     const now = new Date().toISOString();
-
-    const tasks: AgentTask[] = parsed.tasks.map((t) => ({
-      id: t.id,
-      assignedAgent: t.assignedAgent as AgentIdentifier,
-      description: t.description,
+    const tasks: AgentTask[] = parsed.tasks.map((task) => ({
+      id: task.id,
+      assignedAgent: task.assignedAgent,
+      displayLabel: task.displayLabel,
+      description: task.description,
       status: 'pending' as AgentTaskStatus,
-      dependsOn: t.dependsOn,
+      dependsOn: task.dependsOn,
       createdAt: now,
     }));
 
@@ -252,29 +334,37 @@ Respond with ONLY a JSON object matching this schema — no markdown, no explana
       createdAt: now,
     };
 
-    // ── Phase 4: Validate dependency graph ────────────────────────────────
-    this.validateDependencyGraph(plan.tasks);
-
-    const output: AgentPlannerOutput = {
-      plan,
-      summary: parsed.summary ?? `Created execution plan with ${plan.tasks.length} task(s).`,
-      estimatedSteps: parsed.estimatedSteps ?? plan.tasks.length,
-    };
+    if (parsed.resultType === 'execution') {
+      this.validateDependencyGraph(plan.tasks);
+    }
 
     return {
-      summary: output.summary,
-      data: { plan: output.plan, estimatedSteps: output.estimatedSteps },
+      summary: sanitizeAgentOutputText(parsed.summary),
+      data: {
+        plan,
+        estimatedSteps: parsed.estimatedSteps,
+        ...(parsed.clarificationQuestion
+          ? {
+              clarificationQuestion: sanitizeAgentOutputText(parsed.clarificationQuestion),
+              clarificationContext: parsed.clarificationContext
+                ? sanitizeAgentOutputText(parsed.clarificationContext)
+                : undefined,
+            }
+          : {}),
+        metadata: {
+          tier: 'routing',
+          executionMode: 'strict_action_planner',
+          resultType: parsed.resultType,
+          classificationReasoning:
+            'Strict action planning only; legacy tier classification removed.',
+        },
+      },
       suggestions: [],
     };
   }
 
-  // ─── LLM Response Parser ───────────────────────────────────────────────
-
-  /**
-   * Resolve the LLM structured payload into a validated plan structure.
-   */
-  private resolvePlanResponse(result: AgentPlannerLlmResult): PlannerLLMResponse {
-    const validated = plannerResponseSchema.safeParse(result.parsedOutput);
+  private resolveStrictPlanningResponse(result: AgentPlannerLlmResult): StrictPlannerResponse {
+    const validated = strictPlannerResponseSchema.safeParse(result.parsedOutput);
     if (!validated.success) {
       const firstIssue = validated.error.issues[0];
       const path = firstIssue?.path.length ? firstIssue.path.join('.') : 'response';
@@ -292,8 +382,11 @@ Respond with ONLY a JSON object matching this schema — no markdown, no explana
       }
 
       return {
-        ...task,
+        id: task.id,
         assignedAgent,
+        displayLabel: task.displayLabel,
+        description: task.description,
+        dependsOn: task.dependsOn,
       };
     });
 
@@ -305,8 +398,37 @@ Respond with ONLY a JSON object matching this schema — no markdown, no explana
       );
     }
 
+    if (validated.data.resultType === 'execution' && normalizedTasks.length === 0) {
+      throw new AgentEngineError(
+        'PLANNER_SCHEMA_INVALID',
+        'Strict action planner returned execution without any tasks.'
+      );
+    }
+
+    if (
+      validated.data.resultType === 'clarification' &&
+      (!validated.data.clarificationQuestion ||
+        validated.data.clarificationQuestion.trim().length === 0)
+    ) {
+      throw new AgentEngineError(
+        'PLANNER_SCHEMA_INVALID',
+        'Strict action planner returned clarification without a question.'
+      );
+    }
+
+    if (validated.data.resultType === 'clarification' && normalizedTasks.length > 0) {
+      throw new AgentEngineError(
+        'PLANNER_SCHEMA_INVALID',
+        'Strict action planner cannot return tasks alongside a clarification.'
+      );
+    }
+
     return {
-      ...validated.data,
+      resultType: validated.data.resultType,
+      summary: validated.data.summary,
+      estimatedSteps: validated.data.estimatedSteps,
+      clarificationQuestion: validated.data.clarificationQuestion,
+      clarificationContext: validated.data.clarificationContext,
       tasks: normalizedTasks.map((task) => ({
         ...task,
         assignedAgent: task.assignedAgent as AgentIdentifier,
@@ -385,16 +507,17 @@ Respond with ONLY a JSON object matching this schema — no markdown, no explana
 
 // ─── Internal Types ───────────────────────────────────────────────────────
 
-/** Shape returned by the LLM after parsing. */
-interface PlannerLLMResponse {
-  readonly summary?: string;
-  readonly estimatedSteps?: number;
-  readonly tasks: readonly PlannerLLMTask[];
-}
+/**
+ * Shape returned by the LLM after parsing. Documentation-only \u2014 the live
+ * planner uses `AgentPlannerLlmResult` (below) which is the runtime
+ * envelope returned by `OpenRouterService.chatJson`. The `PlannerLLMTask`
+ * type is exported separately for the parser.
+ */
 
 interface PlannerLLMTask {
   readonly id: string;
   readonly assignedAgent: AgentIdentifier;
+  readonly displayLabel?: string;
   readonly description: string;
   readonly dependsOn: readonly string[];
 }

@@ -5,18 +5,10 @@ import {
   type GoogleWorkspaceDiscoveredToolDefinition,
 } from './shared.js';
 import { AgentEngineError } from '../../../exceptions/agent-engine.error.js';
+import { resolveGoogleWorkspaceMcpUrl as resolveGoogleWorkspaceMcpUrlFromEnv } from './google-workspace-env.js';
 
-const GOOGLE_WORKSPACE_MCP_DEFAULT_URL = 'http://127.0.0.1:8000/mcp';
-
-function normalizeGoogleWorkspaceMcpUrl(rawUrl: string): string {
-  const trimmed = rawUrl.trim();
-  return trimmed.endsWith('/') ? trimmed.slice(0, -1) : trimmed;
-}
-
-function resolveGoogleWorkspaceMcpUrl(): string {
-  const endpointUrl =
-    process.env['GOOGLE_WORKSPACE_MCP_URL'] ??
-    (process.env['NODE_ENV'] === 'production' ? '' : GOOGLE_WORKSPACE_MCP_DEFAULT_URL);
+function resolveGoogleWorkspaceCatalogMcpUrl(): string {
+  const endpointUrl = resolveGoogleWorkspaceMcpUrlFromEnv();
 
   if (!endpointUrl) {
     throw new AgentEngineError(
@@ -25,21 +17,20 @@ function resolveGoogleWorkspaceMcpUrl(): string {
     );
   }
 
-  const normalized = normalizeGoogleWorkspaceMcpUrl(endpointUrl);
-  if (!normalized.startsWith('http://') && !normalized.startsWith('https://')) {
+  if (!endpointUrl.startsWith('http://') && !endpointUrl.startsWith('https://')) {
     throw new AgentEngineError(
       'GOOGLE_WORKSPACE_CONFIG_INVALID',
       'GOOGLE_WORKSPACE_MCP_URL must be an absolute http(s) URL.'
     );
   }
 
-  return normalized;
+  return endpointUrl;
 }
 
 export class GoogleWorkspaceToolCatalogService {
   private cache: readonly GoogleWorkspaceDiscoveredToolDefinition[] | null = null;
 
-  constructor(private readonly endpointUrl = resolveGoogleWorkspaceMcpUrl()) {}
+  constructor(private readonly endpointUrl = resolveGoogleWorkspaceCatalogMcpUrl()) {}
 
   async listTools(
     forceRefresh = false

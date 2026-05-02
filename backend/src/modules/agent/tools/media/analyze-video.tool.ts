@@ -11,7 +11,7 @@
  * 4. Returns the model's analysis as structured text.
  *
  * Supported video sources:
- * - Direct MP4/MOV/WebM/MPEG URLs (CDN links, Hudl CDN, etc.)
+ * - Direct MP4/MOV/WebM/MPEG/HLS/DASH URLs (CDN links, Hudl CDN, manifests, etc.)
  * - YouTube URLs (youtube.com/watch, youtu.be) — Gemini processes natively
  * - Pages containing embedded videos (Hudl profiles, MaxPreps, etc.)
  *
@@ -21,16 +21,22 @@
 
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
 import type { OpenRouterService } from '../../llm/openrouter.service.js';
-import type { ScraperService } from '../scraping/scraper.service.js';
+import type { ScraperService } from '../integrations/firecrawl/scraping/scraper.service.js';
+import type { ApifyMcpBridgeService } from '../integrations/apify/apify-mcp-bridge.service.js';
+import type { FfmpegMcpBridgeService } from '../integrations/ffmpeg-mcp/ffmpeg-mcp-bridge.service.js';
 import type { LLMContentPart, LLMMessage } from '../../llm/llm.types.js';
 import { VIDEO_ANALYSIS_TIMEOUT_MS } from '../../llm/llm.types.js';
 import { logger } from '../../../../utils/logger.js';
 import { z } from 'zod';
+import { buildPortableMediaArtifact, type MediaWorkflowArtifact } from './media-workflow.js';
+import { MediaTransportResolverService } from './media-transport-resolver.service.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
-/** File extensions that indicate a direct video URL (no scraping needed). */
-const VIDEO_EXTENSIONS = /\.(mp4|mov|webm|mpeg|m4v)(\?|$)/i;
+/** File extensions that indicate a directly playable video file. */
+const DIRECT_VIDEO_EXTENSIONS = /\.(mp4|mov|webm|mpeg|m4v)(\?|$)/i;
+const HLS_MANIFEST_PATTERN = /\.m3u8(\?|$)/i;
+const DASH_MANIFEST_PATTERN = /\.mpd(\?|$)/i;
 
 /** URL patterns that are natively supported by Gemini without extraction. */
 const YOUTUBE_PATTERN =
@@ -41,6 +47,55 @@ const HUDL_CDN_PATTERN = /^https?:\/\/v[ic]\.hudl\.com\/.*\.mp4/i;
 
 /** Maximum number of video URLs to send in a single analysis request. */
 const MAX_VIDEOS_PER_REQUEST = 5;
+const APIFY_DISCOVERY_LIMIT = 8;
+const APIFY_MAX_CANDIDATES = 4;
+const APIFY_DEFAULT_TIMEOUT_SECS = 180;
+const APIFY_DEFAULT_MEMORY_MB = 256;
+const MOV_EXTENSION_PATTERN = /\.mov(?:$|[?#])/i;
+const GCS_SIGNED_URL_PATTERN = /[?&]X-Goog-Signature=/i;
+const FIREBASE_GCS_HOST_PATTERN =
+  /^https?:\/\/(?:storage\.googleapis\.com|firebasestorage\.googleapis\.com)\//i;
+const OPENROUTER_FETCH_FAILURE_PATTERN =
+  /cannot fetch content from the provided url|invalid_argument/i;
+
+const MediaArtifactSchema = z.object({
+  mediaKind: z.enum(['video', 'image', 'audio', 'document', 'other']),
+  sourceType: z.enum([
+    'public_direct',
+    'protected_direct',
+    'hls_manifest',
+    'dash_manifest',
+    'playlist',
+    'youtube',
+    'staged',
+    'cloudflare',
+    'unknown',
+  ]),
+  transportReadiness: z.enum([
+    'portable',
+    'auth_required',
+    'download_required',
+    'persistence_optional',
+    'persistence_required',
+    'unknown',
+  ]),
+  analysisReady: z.boolean(),
+  recommendedNextAction: z.enum([
+    'analyze_video',
+    'stage_media',
+    'call_apify_actor',
+    'import_video',
+    'enable_download',
+    'review_media',
+  ]),
+  sourceUrl: z.string().nullable(),
+  portableUrl: z.string().nullable(),
+  playableUrls: z.array(z.string()),
+  directMp4Urls: z.array(z.string()),
+  manifestUrls: z.array(z.string()),
+  stagingHeaders: z.record(z.string(), z.string()).optional(),
+  rationale: z.string(),
+});
 
 // ─── Tool ───────────────────────────────────────────────────────────────────
 
@@ -55,17 +110,22 @@ export class AnalyzeVideoTool extends BaseTool {
     'Supports videos up to 2 hours long.';
 
   readonly parameters = z.object({
-    url: z.string().trim().min(1),
+    url: z.string().trim().min(1).optional(),
     prompt: z.string().trim().min(1),
+    artifact: MediaArtifactSchema.optional(),
   });
 
   readonly isMutation = false;
   readonly category = 'media' as const;
 
   readonly entityGroup = 'user_tools' as const;
+  private readonly mediaTransportResolver = new MediaTransportResolverService();
+
   constructor(
     private readonly scraper: ScraperService,
-    private readonly llm: OpenRouterService
+    private readonly llm: OpenRouterService,
+    private readonly apifyBridge?: ApifyMcpBridgeService,
+    private readonly ffmpegBridge?: FfmpegMcpBridgeService
   ) {
     super();
   }
@@ -74,20 +134,20 @@ export class AnalyzeVideoTool extends BaseTool {
     input: Record<string, unknown>,
     context?: ToolExecutionContext
   ): Promise<ToolResult> {
-    const url = input['url'];
-    const prompt = input['prompt'];
+    const parsed = this.parameters.safeParse(input);
+    if (!parsed.success) {
+      return this.zodError(parsed.error);
+    }
+
+    const prompt = parsed.data.prompt;
+    const artifact = parsed.data.artifact as MediaWorkflowArtifact | undefined;
+    const url = parsed.data.url ?? artifact?.portableUrl ?? artifact?.sourceUrl ?? null;
 
     // ── Input validation ───────────────────────────────────────────────
     if (typeof url !== 'string' || url.trim().length === 0) {
       return {
         success: false,
-        error: 'Parameter "url" is required and must be a non-empty string.',
-      };
-    }
-    if (typeof prompt !== 'string' || prompt.trim().length === 0) {
-      return {
-        success: false,
-        error: 'Parameter "prompt" is required and must be a non-empty string.',
+        error: 'Parameter "url" or artifact.sourceUrl is required and must be a non-empty string.',
       };
     }
 
@@ -95,25 +155,27 @@ export class AnalyzeVideoTool extends BaseTool {
     const trimmedPrompt = prompt.trim();
 
     try {
+      const resolvedInput = await this.resolveAnalysisInput(trimmedUrl, artifact, context);
+
       // ── Resolve video URLs ─────────────────────────────────────────
       context?.emitStage?.('fetching_data', {
         icon: 'media',
-        url: trimmedUrl,
+        url: resolvedInput.url,
         phase: 'resolve_video_url',
       });
-      const videoUrls = await this.resolveVideoUrls(trimmedUrl);
+      const videoUrls = await this.resolveVideoUrls(resolvedInput.url);
 
       if (videoUrls.length === 0) {
         return {
           success: false,
           error:
-            `No video content found at "${trimmedUrl}". ` +
+            `No video content found at "${resolvedInput.url}". ` +
             'Ensure the URL points to a page with embedded videos, a direct video file, or a YouTube link.',
         };
       }
 
       logger.info('[AnalyzeVideoTool] Resolved video URLs', {
-        inputUrl: trimmedUrl,
+        inputUrl: resolvedInput.url,
         videoCount: videoUrls.length,
         providers: videoUrls.map((v) => this.classifyUrl(v)),
       });
@@ -121,65 +183,40 @@ export class AnalyzeVideoTool extends BaseTool {
       // ── Build multimodal message ───────────────────────────────────
       context?.emitStage?.('processing_media', {
         icon: 'media',
-        url: trimmedUrl,
+        url: resolvedInput.url,
         videoCount: videoUrls.length,
         phase: 'analyze_video',
       });
-      const contentParts: LLMContentPart[] = [];
-
-      // Add video URL parts (capped to avoid context overflow)
       const videosToAnalyze = videoUrls.slice(0, MAX_VIDEOS_PER_REQUEST);
-      for (const videoUrl of videosToAnalyze) {
-        contentParts.push({ type: 'video_url', video_url: { url: videoUrl } });
-      }
+      const analysis = await this.completeVideoAnalysisWithMovFallback(
+        videosToAnalyze,
+        trimmedPrompt,
+        context
+      );
 
-      // Add the user's analysis prompt
-      contentParts.push({ type: 'text', text: trimmedPrompt });
-
-      const messages: LLMMessage[] = [
-        {
-          role: 'system',
-          content:
-            'You are an elite sports video analyst and coaching assistant. ' +
-            'Analyze the provided video(s) with expert-level detail. ' +
-            'Focus on actionable coaching insights, specific plays/timestamps when possible, ' +
-            'schematic tendencies, player technique evaluation, and strategic recommendations. ' +
-            'Structure your analysis with clear sections and be thorough.',
-        },
-        { role: 'user', content: contentParts },
-      ];
-
-      // ── Call video-capable model via OpenRouter ────────────────────
-      const result = await this.llm.complete(messages, {
-        tier: 'video_analysis',
-        maxTokens: 8192,
-        temperature: 0.3,
-        signal: AbortSignal.timeout(VIDEO_ANALYSIS_TIMEOUT_MS),
-        telemetryContext: context?.userId
-          ? {
-              operationId: context.sessionId ?? '',
-              userId: context.userId,
-              agentId: 'data_coordinator',
-              feature: 'video-analysis',
-            }
-          : undefined,
-      });
-
-      if (!result.content) {
+      if (!analysis.result.content) {
         return {
           success: false,
           error: 'The model returned an empty response for the video analysis.',
         };
       }
 
+      const finalVideoUrls = analysis.analyzedVideoUrls;
+
       return {
         success: true,
         data: {
-          analysis: result.content,
-          videosAnalyzed: videosToAnalyze.length,
-          videoUrls: videosToAnalyze,
-          model: result.model,
-          usage: result.usage,
+          analysis: analysis.result.content,
+          videosAnalyzed: finalVideoUrls.length,
+          videoUrls: finalVideoUrls,
+          sourceVideoUrls: finalVideoUrls,
+          stagedUrls: [],
+          mediaArtifact: buildPortableMediaArtifact({
+            sourceUrl: finalVideoUrls[0] ?? resolvedInput.url,
+            rationale: 'This media source was normalized into a portable analysis input.',
+          }),
+          model: analysis.result.model,
+          usage: analysis.result.usage,
         },
       };
     } catch (err) {
@@ -187,6 +224,648 @@ export class AnalyzeVideoTool extends BaseTool {
       logger.error('[AnalyzeVideoTool] Failed', { error: message, url: trimmedUrl });
       return { success: false, error: message };
     }
+  }
+
+  private async resolveAnalysisInput(
+    url: string,
+    artifact: MediaWorkflowArtifact | undefined,
+    context?: ToolExecutionContext
+  ): Promise<{ readonly url: string; readonly headers?: Readonly<Record<string, string>> }> {
+    if (!artifact) {
+      const resolvedTransportInput = await this.mediaTransportResolver.resolveProcessingUrl({
+        sourceUrl: url,
+        fallbackToFirebaseStaging: true,
+        stageMediaKind: 'video',
+        executionContext: context,
+      });
+
+      if (resolvedTransportInput.source !== 'unchanged') {
+        logger.info('[AnalyzeVideoTool] Resolved media transport before analysis', {
+          source: resolvedTransportInput.source,
+          cloudflareVideoId: resolvedTransportInput.cloudflareVideoId,
+        });
+        return { url: resolvedTransportInput.url };
+      }
+
+      if (HLS_MANIFEST_PATTERN.test(url) || DASH_MANIFEST_PATTERN.test(url)) {
+        const manifestArtifact: MediaWorkflowArtifact = {
+          mediaKind: 'video',
+          sourceType: HLS_MANIFEST_PATTERN.test(url) ? 'hls_manifest' : 'dash_manifest',
+          transportReadiness: 'download_required',
+          analysisReady: false,
+          recommendedNextAction: 'call_apify_actor',
+          sourceUrl: url,
+          portableUrl: null,
+          playableUrls: [url],
+          directMp4Urls: [],
+          manifestUrls: [url],
+          rationale: 'Manifest URLs must be converted into a downloadable MP4 before analysis.',
+        };
+        return { url: await this.acquireMp4WithApify(manifestArtifact, context) };
+      }
+
+      return { url };
+    }
+
+    if (artifact.analysisReady && artifact.portableUrl) {
+      const resolvedPortable = await this.mediaTransportResolver.resolveProcessingUrl({
+        sourceUrl: artifact.portableUrl,
+        fallbackToFirebaseStaging: true,
+        stageMediaKind: 'video',
+        executionContext: context,
+      });
+
+      return {
+        url: resolvedPortable.url,
+        ...(artifact.stagingHeaders ? { headers: artifact.stagingHeaders } : {}),
+      };
+    }
+
+    if (artifact.recommendedNextAction === 'call_apify_actor') {
+      // If the caller already supplied a portable analysis URL (for example a
+      // Firebase/GCS signed URL), trust that explicit input over stale artifact
+      // routing hints from an earlier extraction pass.
+      if (this.isPortableAnalysisUrl(url)) {
+        const resolvedPortableInput = await this.mediaTransportResolver.resolveProcessingUrl({
+          sourceUrl: url,
+          fallbackToFirebaseStaging: true,
+          stageMediaKind: 'video',
+          executionContext: context,
+        });
+        return { url: resolvedPortableInput.url };
+      }
+
+      if (!artifact.sourceUrl) {
+        throw new Error(
+          'This media requires Apify downloader acquisition before analysis, but no source URL is available.'
+        );
+      }
+
+      if (artifact.sourceType === 'cloudflare') {
+        const resolvedForArtifact = await this.mediaTransportResolver.resolveProcessingUrl({
+          sourceUrl: artifact.sourceUrl,
+          fallbackToFirebaseStaging: true,
+          stageMediaKind: 'video',
+          executionContext: context,
+        });
+
+        if (resolvedForArtifact.source !== 'unchanged') {
+          logger.info('[AnalyzeVideoTool] Used transport resolver for artifact input', {
+            source: resolvedForArtifact.source,
+            cloudflareVideoId: resolvedForArtifact.cloudflareVideoId,
+          });
+          return { url: resolvedForArtifact.url };
+        }
+      }
+
+      const apifyMp4Url = await this.acquireMp4WithApify(artifact, context);
+
+      logger.info('[AnalyzeVideoTool] Acquired Apify MP4 before analysis', {
+        sourceUrl: artifact.sourceUrl,
+        apifyMp4Url,
+      });
+
+      return { url: apifyMp4Url };
+    }
+
+    if (artifact.recommendedNextAction === 'stage_media') {
+      throw new Error(
+        'This media is not directly analysis-ready. Use stage_media first, then pass the returned portable URL into analyze_video.'
+      );
+    }
+
+    if (!artifact.analysisReady) {
+      const nextStep = artifact.recommendedNextAction.replace(/_/g, ' ');
+      throw new Error(
+        `This media needs an additional preparation step before it can be analyzed. Try the '${nextStep}' workflow step or use a different video source.`
+      );
+    }
+
+    return { url };
+  }
+
+  private async completeVideoAnalysis(
+    videoUrls: readonly string[],
+    prompt: string,
+    context?: ToolExecutionContext
+  ): Promise<Awaited<ReturnType<OpenRouterService['complete']>>> {
+    const contentParts: LLMContentPart[] = [];
+    for (const videoUrl of videoUrls) {
+      contentParts.push({ type: 'video_url', video_url: { url: videoUrl } });
+    }
+    contentParts.push({ type: 'text', text: prompt });
+
+    const messages: LLMMessage[] = [
+      {
+        role: 'system',
+        content:
+          'You are an elite sports video analyst and coaching assistant. ' +
+          'Analyze the provided video(s) with expert-level detail. ' +
+          'Focus on actionable coaching insights, specific plays/timestamps when possible, ' +
+          'schematic tendencies, player technique evaluation, and strategic recommendations. ' +
+          'Structure your analysis with clear sections and be thorough.',
+      },
+      { role: 'user', content: contentParts },
+    ];
+
+    return this.llm.complete(messages, {
+      tier: 'video_analysis',
+      maxTokens: 8192,
+      temperature: 0.3,
+      signal: AbortSignal.timeout(VIDEO_ANALYSIS_TIMEOUT_MS),
+      telemetryContext: context?.userId
+        ? {
+            operationId: context.sessionId ?? '',
+            userId: context.userId,
+            agentId: 'data_coordinator',
+            feature: 'video-analysis',
+          }
+        : undefined,
+    });
+  }
+
+  private async completeVideoAnalysisWithMovFallback(
+    videoUrls: readonly string[],
+    prompt: string,
+    context?: ToolExecutionContext
+  ): Promise<{
+    readonly result: Awaited<ReturnType<OpenRouterService['complete']>>;
+    readonly analyzedVideoUrls: readonly string[];
+  }> {
+    try {
+      const result = await this.completeVideoAnalysis(videoUrls, prompt, context);
+      return {
+        result,
+        analyzedVideoUrls: [...videoUrls],
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      if (!this.shouldRetryWithMp4Fallback(videoUrls, errorMessage)) {
+        throw error;
+      }
+
+      logger.warn('[AnalyzeVideoTool] Retrying with FFmpeg MP4 conversion fallback', {
+        reason: errorMessage,
+        videoCount: videoUrls.length,
+      });
+
+      context?.emitStage?.('processing_media', {
+        icon: 'processing',
+        phase: 'ffmpeg_convert_for_analysis',
+        videoCount: videoUrls.length,
+      });
+
+      const convertedUrls = await Promise.all(
+        videoUrls.map(async (url, index) => {
+          if (!this.shouldNormalizeViaFfmpeg(url, errorMessage)) {
+            return url;
+          }
+
+          const conversion = await this.ffmpegBridge!.convertVideo(
+            {
+              inputPath: url,
+              outputPath: `analysis-${Date.now()}-${index}.mp4`,
+              videoCodec: 'libx264',
+              audioCodec: 'aac',
+              preset: 'medium',
+              crf: 23,
+            },
+            context
+          );
+
+          const convertedUrl = conversion.outputUrl ?? conversion.output_path;
+          if (!convertedUrl) {
+            throw new Error('FFmpeg conversion completed without an output URL.');
+          }
+
+          logger.info('[AnalyzeVideoTool] MOV converted to MP4 for Gemini compatibility', {
+            originalUrl: url,
+            convertedUrl,
+            fallbackReason: errorMessage,
+          });
+
+          return convertedUrl;
+        })
+      );
+
+      const result = await this.completeVideoAnalysis(convertedUrls, prompt, context);
+      return {
+        result,
+        analyzedVideoUrls: convertedUrls,
+      };
+    }
+  }
+
+  private shouldRetryWithMp4Fallback(videoUrls: readonly string[], errorMessage: string): boolean {
+    if (!this.ffmpegBridge) return false;
+
+    const hasNormalizableVideo = videoUrls.some((url) =>
+      this.shouldNormalizeViaFfmpeg(url, errorMessage)
+    );
+    if (!hasNormalizableVideo) return false;
+
+    // OpenRouter can fail on ingest with empty responses or provider-side
+    // fetch failures. Both are recoverable via FFmpeg normalization fallback.
+    return this.isRecoverableIngestFailure(errorMessage);
+  }
+
+  private shouldNormalizeViaFfmpeg(url: string, errorMessage: string): boolean {
+    if (YOUTUBE_PATTERN.test(url)) return false;
+
+    if (MOV_EXTENSION_PATTERN.test(url)) {
+      return true;
+    }
+
+    const isRecoverableIngestFailure = this.isRecoverableIngestFailure(errorMessage);
+    if (!isRecoverableIngestFailure) {
+      return false;
+    }
+
+    // When Gemini returns empty choices for signed GCS/Firebase URLs, force
+    // normalization even when the URL path has no explicit .mp4 extension.
+    if (FIREBASE_GCS_HOST_PATTERN.test(url) || GCS_SIGNED_URL_PATTERN.test(url)) {
+      return true;
+    }
+
+    // Generic recovery path for explicit direct-video URLs.
+    return DIRECT_VIDEO_EXTENSIONS.test(url);
+  }
+
+  private isRecoverableIngestFailure(errorMessage: string): boolean {
+    return (
+      /no choices|empty response/i.test(errorMessage) ||
+      OPENROUTER_FETCH_FAILURE_PATTERN.test(errorMessage)
+    );
+  }
+
+  private isPortableAnalysisUrl(url: string): boolean {
+    if (YOUTUBE_PATTERN.test(url)) return true;
+    if (FIREBASE_GCS_HOST_PATTERN.test(url)) return true;
+    if (/^https?:\/\/[^/]*firebasestorage\.app\//i.test(url)) return true;
+    return false;
+  }
+
+  private async acquireMp4WithApify(
+    artifact: MediaWorkflowArtifact,
+    context?: ToolExecutionContext
+  ): Promise<string> {
+    if (!this.apifyBridge) {
+      throw new Error('Apify downloader workflow is not configured for analyze_video.');
+    }
+
+    const sourceUrl = artifact.directMp4Urls[0] ?? artifact.sourceUrl;
+    if (!sourceUrl) {
+      throw new Error('Apify downloader workflow requires a source URL.');
+    }
+
+    context?.emitStage?.('submitting_job', {
+      icon: 'processing',
+      phase: 'run_apify_video_downloader',
+      url: sourceUrl,
+    });
+
+    const actorCandidates = await this.resolveApifyCandidates(artifact);
+    for (const candidate of actorCandidates) {
+      const actorInput = this.buildApifyActorInput(candidate.details, artifact, sourceUrl);
+      if (!actorInput) {
+        continue;
+      }
+
+      try {
+        const output = await this.apifyBridge.callActor(
+          candidate.actorId,
+          actorInput,
+          context?.signal
+        );
+        const downloadableMp4 = this.extractDownloadableMp4Url(output);
+        if (!downloadableMp4) {
+          logger.warn('[AnalyzeVideoTool] Apify actor did not return an MP4 URL', {
+            actorId: candidate.actorId,
+            sourceUrl,
+          });
+          continue;
+        }
+
+        logger.info('[AnalyzeVideoTool] Acquired MP4 via Apify actor', {
+          actorId: candidate.actorId,
+          sourceUrl,
+          downloadableMp4,
+        });
+
+        return downloadableMp4;
+      } catch (error) {
+        logger.warn('[AnalyzeVideoTool] Apify actor candidate failed', {
+          actorId: candidate.actorId,
+          sourceUrl,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    throw new Error(`No Apify downloader actor produced a downloadable MP4 URL for ${sourceUrl}.`);
+  }
+
+  private async resolveApifyCandidates(
+    artifact: MediaWorkflowArtifact
+  ): Promise<Array<{ readonly actorId: string; readonly details: unknown }>> {
+    if (!this.apifyBridge) {
+      return [];
+    }
+
+    const actorIdFromEnv = process.env['APIFY_VIDEO_DOWNLOADER_ACTOR_ID']?.trim();
+    if (actorIdFromEnv) {
+      const details = await this.apifyBridge.getActorDetails(actorIdFromEnv);
+      return [{ actorId: actorIdFromEnv, details }];
+    }
+
+    const hostname = this.safeHostname(artifact.sourceUrl);
+    const query = [
+      hostname,
+      artifact.sourceType.includes('manifest') ? 'm3u8 mp4 video downloader headers cookies' : null,
+      artifact.sourceType === 'protected_direct'
+        ? 'authenticated video downloader mp4 cookies headers'
+        : 'video downloader mp4',
+    ]
+      .filter((value): value is string => Boolean(value && value.trim().length > 0))
+      .join(' ');
+
+    const searchResults = await this.apifyBridge.searchActors(query, APIFY_DISCOVERY_LIMIT);
+    const candidates = this.normalizeActorSearchResults(searchResults)
+      .map((candidate) => ({
+        ...candidate,
+        score: this.scoreActorCandidate(candidate, hostname, artifact.sourceType),
+      }))
+      .filter((candidate) => candidate.score > 0)
+      .sort((left, right) => right.score - left.score)
+      .slice(0, APIFY_MAX_CANDIDATES);
+
+    const resolved = await Promise.all(
+      candidates.map(async (candidate) => ({
+        actorId: candidate.actorId,
+        details: await this.apifyBridge!.getActorDetails(candidate.actorId),
+      }))
+    );
+
+    return resolved;
+  }
+
+  private buildApifyActorInput(
+    details: unknown,
+    artifact: MediaWorkflowArtifact,
+    sourceUrl: string
+  ): Record<string, unknown> | null {
+    const schema = this.extractInputSchema(details);
+    const rawProperties = schema?.['properties'];
+    const properties =
+      rawProperties && typeof rawProperties === 'object'
+        ? (rawProperties as Record<string, unknown>)
+        : {};
+    const propertyEntries = Object.entries(properties);
+    if (propertyEntries.length === 0) {
+      return {
+        url: sourceUrl,
+        headers: artifact.stagingHeaders,
+        cookies: artifact.stagingHeaders?.['Cookie'],
+        timeoutSecs: APIFY_DEFAULT_TIMEOUT_SECS,
+        memoryMbytes: APIFY_DEFAULT_MEMORY_MB,
+      };
+    }
+
+    const input: Record<string, unknown> = {
+      timeoutSecs: APIFY_DEFAULT_TIMEOUT_SECS,
+      memoryMbytes: APIFY_DEFAULT_MEMORY_MB,
+    };
+    const cookieHeader = artifact.stagingHeaders?.['Cookie'];
+
+    for (const [propertyName, propertySchema] of propertyEntries) {
+      const lower = propertyName.toLowerCase();
+      const definition =
+        propertySchema && typeof propertySchema === 'object'
+          ? (propertySchema as Record<string, unknown>)
+          : {};
+
+      if (this.isUrlProperty(lower)) {
+        input[propertyName] = this.buildSchemaCompatibleUrlValue(definition, sourceUrl);
+        continue;
+      }
+
+      if (lower === 'headers' || lower === 'requestheaders' || lower === 'customheaders') {
+        if (artifact.stagingHeaders) input[propertyName] = artifact.stagingHeaders;
+        continue;
+      }
+
+      if (lower === 'cookie' || lower === 'cookieheader') {
+        if (cookieHeader) input[propertyName] = cookieHeader;
+        continue;
+      }
+
+      if (lower === 'cookies' && cookieHeader) {
+        input[propertyName] = this.parseCookieHeader(cookieHeader);
+        continue;
+      }
+
+      if (lower === 'referer' && artifact.stagingHeaders?.['Referer']) {
+        input[propertyName] = artifact.stagingHeaders['Referer'];
+        continue;
+      }
+
+      if (lower === 'origin' && artifact.stagingHeaders?.['Origin']) {
+        input[propertyName] = artifact.stagingHeaders['Origin'];
+        continue;
+      }
+
+      if (
+        (lower === 'useragent' || lower === 'user-agent') &&
+        artifact.stagingHeaders?.['User-Agent']
+      ) {
+        input[propertyName] = artifact.stagingHeaders['User-Agent'];
+        continue;
+      }
+
+      if (lower.includes('format')) {
+        input[propertyName] = 'mp4';
+        continue;
+      }
+
+      if (lower.includes('download') || lower.includes('savevideo')) {
+        input[propertyName] = true;
+        continue;
+      }
+
+      if (lower === 'maxitems' || lower === 'limit' || lower === 'maxresults') {
+        input[propertyName] = 1;
+      }
+    }
+
+    return Object.keys(input).some((key) => this.isUrlProperty(key.toLowerCase())) ? input : null;
+  }
+
+  private extractDownloadableMp4Url(output: unknown): string | null {
+    const matches = new Set<string>();
+
+    const walk = (value: unknown): void => {
+      if (typeof value === 'string') {
+        const mp4Matches = value.match(/https?:\/\/[^\s"']+\.mp4(?:\?[^\s"']*)?/gi);
+        if (mp4Matches) {
+          for (const match of mp4Matches) matches.add(match);
+        }
+        return;
+      }
+
+      if (Array.isArray(value)) {
+        for (const item of value) walk(item);
+        return;
+      }
+
+      if (value && typeof value === 'object') {
+        for (const nested of Object.values(value as Record<string, unknown>)) {
+          walk(nested);
+        }
+      }
+    };
+
+    walk(output);
+    return [...matches][0] ?? null;
+  }
+
+  private normalizeActorSearchResults(
+    searchResults: unknown
+  ): Array<{ readonly actorId: string; readonly title: string; readonly description: string }> {
+    const items = Array.isArray(searchResults)
+      ? searchResults
+      : searchResults && typeof searchResults === 'object'
+        ? [
+            ...(((searchResults as Record<string, unknown>)['actors'] as unknown[] | undefined) ??
+              []),
+            ...(((searchResults as Record<string, unknown>)['items'] as unknown[] | undefined) ??
+              []),
+            ...(((searchResults as Record<string, unknown>)['results'] as unknown[] | undefined) ??
+              []),
+          ]
+        : [];
+
+    return items
+      .map((item) => {
+        if (!item || typeof item !== 'object') return null;
+        const record = item as Record<string, unknown>;
+        const actorId = this.firstString(record, ['actorId', 'id', 'name']);
+        if (!actorId) return null;
+        return {
+          actorId,
+          title: this.firstString(record, ['title', 'name']) ?? actorId,
+          description: this.firstString(record, ['description', 'summary']) ?? '',
+        };
+      })
+      .filter(
+        (
+          item
+        ): item is {
+          readonly actorId: string;
+          readonly title: string;
+          readonly description: string;
+        } => item !== null
+      );
+  }
+
+  private scoreActorCandidate(
+    candidate: { readonly actorId: string; readonly title: string; readonly description: string },
+    hostname: string | null,
+    sourceType: MediaWorkflowArtifact['sourceType']
+  ): number {
+    const haystack =
+      `${candidate.actorId} ${candidate.title} ${candidate.description}`.toLowerCase();
+    let score = 0;
+    if (haystack.includes('video')) score += 3;
+    if (haystack.includes('download')) score += 3;
+    if (haystack.includes('mp4')) score += 2;
+    if (haystack.includes('m3u8') || haystack.includes('hls'))
+      score += sourceType === 'hls_manifest' ? 3 : 1;
+    if (haystack.includes('mpd') || haystack.includes('dash'))
+      score += sourceType === 'dash_manifest' ? 3 : 1;
+    if (haystack.includes('cookie') || haystack.includes('header') || haystack.includes('auth'))
+      score += 2;
+    if (hostname && haystack.includes(hostname.toLowerCase())) score += 2;
+    return score;
+  }
+
+  private extractInputSchema(details: unknown): Record<string, unknown> | null {
+    if (!details || typeof details !== 'object') return null;
+    const record = details as Record<string, unknown>;
+    const schema = record['inputSchema'];
+    return schema && typeof schema === 'object' ? (schema as Record<string, unknown>) : null;
+  }
+
+  private buildSchemaCompatibleUrlValue(
+    definition: Record<string, unknown>,
+    sourceUrl: string
+  ): unknown {
+    if (definition['type'] === 'array') {
+      const items = definition['items'];
+      if (
+        items &&
+        typeof items === 'object' &&
+        (items as Record<string, unknown>)['type'] === 'object'
+      ) {
+        return [{ url: sourceUrl }];
+      }
+      return [sourceUrl];
+    }
+
+    return sourceUrl;
+  }
+
+  private isUrlProperty(propertyName: string): boolean {
+    return [
+      'url',
+      'urls',
+      'videourl',
+      'videourls',
+      'sourceurl',
+      'sourceurls',
+      'mediaurl',
+      'mediaurls',
+      'downloadurl',
+      'downloadurls',
+      'starturls',
+      'requesturl',
+    ].includes(propertyName);
+  }
+
+  private parseCookieHeader(
+    cookieHeader: string
+  ): Array<{ readonly name: string; readonly value: string }> {
+    return cookieHeader
+      .split(';')
+      .map((segment) => segment.trim())
+      .filter((segment) => segment.length > 0 && segment.includes('='))
+      .map((segment) => {
+        const separator = segment.indexOf('=');
+        return {
+          name: segment.slice(0, separator).trim(),
+          value: segment.slice(separator + 1).trim(),
+        };
+      });
+  }
+
+  private safeHostname(url: string | null): string | null {
+    if (!url) return null;
+
+    try {
+      return new URL(url).hostname;
+    } catch {
+      return null;
+    }
+  }
+
+  private firstString(record: Record<string, unknown>, fields: readonly string[]): string | null {
+    for (const field of fields) {
+      const value = record[field];
+      if (typeof value === 'string' && value.trim().length > 0) {
+        return value;
+      }
+    }
+
+    return null;
   }
 
   // ─── Private Helpers ──────────────────────────────────────────────────────
@@ -198,7 +877,7 @@ export class AnalyzeVideoTool extends BaseTool {
    */
   private async resolveVideoUrls(url: string): Promise<string[]> {
     // Direct video file
-    if (VIDEO_EXTENSIONS.test(url) || HUDL_CDN_PATTERN.test(url)) {
+    if (DIRECT_VIDEO_EXTENSIONS.test(url) || HUDL_CDN_PATTERN.test(url)) {
       return [url];
     }
 
@@ -224,7 +903,7 @@ export class AnalyzeVideoTool extends BaseTool {
       for (const video of videos) {
         const src = video.src;
         // Direct video file (Hudl CDN mp4, etc.)
-        if (VIDEO_EXTENSIONS.test(src) || HUDL_CDN_PATTERN.test(src)) {
+        if (DIRECT_VIDEO_EXTENSIONS.test(src) || HUDL_CDN_PATTERN.test(src)) {
           usableUrls.push(src);
           continue;
         }
@@ -256,7 +935,9 @@ export class AnalyzeVideoTool extends BaseTool {
   private classifyUrl(url: string): string {
     if (YOUTUBE_PATTERN.test(url)) return 'youtube';
     if (HUDL_CDN_PATTERN.test(url)) return 'hudl-cdn';
-    if (VIDEO_EXTENSIONS.test(url)) return 'direct-video';
+    if (DIRECT_VIDEO_EXTENSIONS.test(url)) return 'direct-video';
+    if (HLS_MANIFEST_PATTERN.test(url)) return 'hls-manifest';
+    if (DASH_MANIFEST_PATTERN.test(url)) return 'dash-manifest';
     return 'other';
   }
 }

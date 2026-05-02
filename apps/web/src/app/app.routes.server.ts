@@ -77,14 +77,6 @@ export const serverRoutes: ServerRoute[] = [
     renderMode: RenderMode.Server,
   },
   {
-    path: 'messages',
-    renderMode: RenderMode.Server,
-  },
-  {
-    path: 'messages/**',
-    renderMode: RenderMode.Server,
-  },
-  {
     path: 'activity',
     renderMode: RenderMode.Server,
   },
@@ -106,14 +98,6 @@ export const serverRoutes: ServerRoute[] = [
   },
   {
     path: 'agent-x/**',
-    renderMode: RenderMode.Server,
-  },
-  {
-    path: 'agent',
-    renderMode: RenderMode.Server,
-  },
-  {
-    path: 'agent/**',
     renderMode: RenderMode.Server,
   },
   {
@@ -161,6 +145,18 @@ export const serverRoutes: ServerRoute[] = [
     path: 'team/**',
     renderMode: RenderMode.Server,
   },
+
+  /**
+   * Post detail routes — Server-rendered for SEO.
+   * Canonical URL: /post/:userUnicode/:postId
+   * SSR renders Open Graph / Twitter Card meta for social link previews.
+   * Browser opens PostDetailOverlayComponent and navigates back on close.
+   */
+  {
+    path: 'post/:userUnicode/:postId',
+    renderMode: RenderMode.Server,
+  },
+
   {
     path: 'team-platform',
     renderMode: RenderMode.Server,

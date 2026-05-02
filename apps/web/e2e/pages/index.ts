@@ -38,6 +38,9 @@ export { LiveViewPage } from './live-view.page';
 // Agent X Goals page (goal completion + history)
 export { AgentXGoalsPage } from './agent-x-goals.page';
 
+// Agent X Operation Chat message interactions (copy, edit, delete/undo, feedback)
+export { AgentXMessageInteractionsPage } from './agent-x-message-interactions.page';
+
 // Add additional page exports here as features are developed:
 // export * from './profile';
 // export * from './onboarding';

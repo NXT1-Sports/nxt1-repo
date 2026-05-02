@@ -28,15 +28,21 @@
  * ```
  */
 
-import { Worker, Job } from 'bullmq';
+import { Worker, Job, UnrecoverableError } from 'bullmq';
 import type {
   AgentIdentifier,
+  AgentJobPayload,
   AgentJobUpdate,
   AgentOperationResult,
   AgentYieldState,
+  AgentXRichCard,
 } from '@nxt1/core';
-import { AgentEngineError } from '../exceptions/agent-engine.error.js';
-import { resolveAgentApprovalCopy } from '@nxt1/core';
+import { AGENT_X_RUNTIME_CONFIG, AGENT_APPROVAL_TOOL_GROUPS } from '@nxt1/core/ai';
+import {
+  resolveAgentApprovalCopy,
+  resolveAgentSuccessNotificationCopy,
+  formatApprovalRichPreview,
+} from '@nxt1/core';
 import type { AgentRouter } from '../agent.router.js';
 import type { AgentQueueJobData, AgentQueueJobResult, AgentJobProgress } from './queue.types.js';
 import {
@@ -55,9 +61,10 @@ import type { StreamEvent } from './event-writer.js';
 import { PersistedAssistantStreamBuilder } from './persisted-stream-message.js';
 import { AgentPubSubService } from './pubsub.service.js';
 import type { AgentChatService } from '../services/agent-chat.service.js';
+import { getThreadMessageWriter } from '../memory/thread-message-writer.service.js';
 import type { OpenRouterService } from '../llm/openrouter.service.js';
 import { isAgentYield } from '../exceptions/agent-yield.exception.js';
-import { getAgentEngineErrorCode } from '../exceptions/agent-engine.error.js';
+import { AgentEngineError, getAgentEngineErrorCode } from '../exceptions/agent-engine.error.js';
 import { notifyYield } from '../services/yield-notifier.service.js';
 import { estimateChargeAmountSync } from '../../billing/pricing.service.js';
 import {
@@ -66,11 +73,16 @@ import {
   releaseWalletHold,
 } from '../../billing/budget.service.js';
 import { executeBillingDeduction } from '../../billing/usage-deduction.service.js';
-import { logAgentTaskCompletion, logAgentTaskFailure } from '../services/agent-activity.service.js';
-import { getAgentAnalyticsGate } from '../services/agent-analytics-gate.js';
+import {
+  logAgentTaskCompletion,
+  logAgentTaskFailure,
+  deriveBodyFromResult,
+} from '../services/agent-activity.service.js';
 import { processRecapForUser } from '../services/weekly-recap-email.service.js';
+import { dispatchAgentPush } from '../services/agent-push-adapter.service.js';
 import { logger } from '../../../utils/logger.js';
 import { AgentGenerationService } from '../services/generation.service.js';
+import crypto from 'node:crypto';
 
 const AGENT_IDENTIFIER_SET = new Set<AgentIdentifier>([
   'router',
@@ -86,6 +98,454 @@ function isAgentIdentifier(value: unknown): value is AgentIdentifier {
   return typeof value === 'string' && AGENT_IDENTIFIER_SET.has(value as AgentIdentifier);
 }
 
+const MAX_TIMEOUT_AUTO_CONTINUATIONS =
+  AGENT_X_RUNTIME_CONFIG.operationQueue.maxTimeoutAutoContinuations;
+const PARENT_OPERATION_POLL_MS = AGENT_X_RUNTIME_CONFIG.operationQueue.parentOperationPollMs;
+const PARENT_OPERATION_MAX_WAIT_MS =
+  JOB_TIMEOUT_MS + AGENT_X_RUNTIME_CONFIG.operationQueue.parentOperationTimeoutBufferMs;
+const PARENT_OPERATION_STALE_HEARTBEAT_MS =
+  JOB_TIMEOUT_MS + AGENT_X_RUNTIME_CONFIG.operationQueue.parentOperationTimeoutBufferMs;
+
+function toMillis(value: unknown): number | null {
+  if (!value) return null;
+
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === 'string') {
+    const parsed = Date.parse(value);
+    return Number.isNaN(parsed) ? null : parsed;
+  }
+
+  if (value instanceof Date) {
+    const ms = value.getTime();
+    return Number.isFinite(ms) ? ms : null;
+  }
+
+  if (typeof value === 'object' && value !== null) {
+    const maybeTimestamp = value as { toMillis?: () => number };
+    if (typeof maybeTimestamp.toMillis === 'function') {
+      const ms = maybeTimestamp.toMillis();
+      return Number.isFinite(ms) ? ms : null;
+    }
+  }
+
+  return null;
+}
+
+function isJobTimeoutError(err: unknown): err is Error {
+  if (!(err instanceof Error)) return false;
+  return err.message.startsWith('Agent job timed out after ');
+}
+
+function normalizeTerminalMessageText(value: string): string {
+  return value.toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+const PAUSE_RESUME_TOOL_NAME = 'resume_paused_operation';
+
+function isPauseYieldState(yieldState: AgentYieldState | null | undefined): boolean {
+  return yieldState?.pendingToolCall?.toolName === PAUSE_RESUME_TOOL_NAME;
+}
+
+function isAbortError(err: unknown): err is Error {
+  return err instanceof Error && err.name === 'AbortError';
+}
+
+function createAbortError(message: string): Error {
+  const err = new Error(message);
+  err.name = 'AbortError';
+  return err;
+}
+
+// ─── Approval card enrichment helpers ────────────────────────────────────────
+
+type GenericApprovalCategory =
+  | 'profileWrite'
+  | 'profileDelete'
+  | 'teamWrite'
+  | 'teamDelete'
+  | 'communication'
+  | 'workspace'
+  | 'automation'
+  | 'destructive'
+  | 'other';
+
+type ApprovalRiskLevel = 'low' | 'medium' | 'high' | 'critical';
+
+const PROFILE_WRITE_TOOLS = new Set<string>(AGENT_APPROVAL_TOOL_GROUPS.profileWrites);
+const PROFILE_DELETE_TOOLS = new Set<string>(AGENT_APPROVAL_TOOL_GROUPS.profileDeletes);
+const TEAM_WRITE_TOOLS = new Set<string>(AGENT_APPROVAL_TOOL_GROUPS.teamWrites);
+const TEAM_DELETE_TOOLS = new Set<string>(AGENT_APPROVAL_TOOL_GROUPS.teamDeletes);
+const WORKSPACE_TOOLS = new Set<string>(AGENT_APPROVAL_TOOL_GROUPS.workspaceActions);
+const AUTOMATION_TOOLS = new Set<string>(AGENT_APPROVAL_TOOL_GROUPS.automationAndExternalActions);
+const DESTRUCTIVE_TOOLS = new Set<string>(AGENT_APPROVAL_TOOL_GROUPS.destructiveStorage);
+const INTEL_WRITE_TOOLS = new Set<string>(AGENT_APPROVAL_TOOL_GROUPS.intelAndSourcesWrites);
+const INTEL_DELETE_TOOLS = new Set<string>(AGENT_APPROVAL_TOOL_GROUPS.intelAndSourcesDeletes);
+
+function classifyApprovalTool(toolName: string): {
+  category: GenericApprovalCategory;
+  riskLevel: ApprovalRiskLevel;
+} {
+  if (
+    PROFILE_DELETE_TOOLS.has(toolName) ||
+    TEAM_DELETE_TOOLS.has(toolName) ||
+    INTEL_DELETE_TOOLS.has(toolName)
+  ) {
+    return {
+      category: toolName.startsWith('delete_team') ? 'teamDelete' : 'profileDelete',
+      riskLevel: 'critical',
+    };
+  }
+  if (DESTRUCTIVE_TOOLS.has(toolName)) {
+    return { category: 'destructive', riskLevel: 'critical' };
+  }
+  if (PROFILE_WRITE_TOOLS.has(toolName) || INTEL_WRITE_TOOLS.has(toolName)) {
+    return { category: 'profileWrite', riskLevel: 'medium' };
+  }
+  if (TEAM_WRITE_TOOLS.has(toolName)) {
+    return { category: 'teamWrite', riskLevel: 'medium' };
+  }
+  if (WORKSPACE_TOOLS.has(toolName)) {
+    return { category: 'workspace', riskLevel: 'high' };
+  }
+  if (AUTOMATION_TOOLS.has(toolName)) {
+    return { category: 'automation', riskLevel: 'high' };
+  }
+  return { category: 'other', riskLevel: 'medium' };
+}
+
+const SENSITIVE_FIELD_PATTERN = /password|token|secret|key|auth|credential|ssn|credit|cvv/i;
+const SKIP_FIELD_PATTERN = /id$|Id$|Url$|url$|html$|Html$/;
+const MAX_PREVIEW_FIELDS = 5;
+const MAX_FIELD_VALUE_LEN = 120;
+
+function humanizeKey(key: string): string {
+  return key
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/[_-]+/g, ' ')
+    .trim()
+    .replace(/^./, (c) => c.toUpperCase());
+}
+
+function formatPreviewValue(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'string') {
+    const cleaned = value
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!cleaned) return null;
+    return cleaned.length > MAX_FIELD_VALUE_LEN
+      ? `${cleaned.slice(0, MAX_FIELD_VALUE_LEN).trim()}…`
+      : cleaned;
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (Array.isArray(value)) {
+    const items = value.filter((v) => typeof v === 'string' || typeof v === 'number').slice(0, 3);
+    return items.length ? items.join(', ') : null;
+  }
+  return null;
+}
+
+function extractDataFields(
+  toolInput: Record<string, unknown>
+): Array<{ key: string; value: string }> {
+  const fields: Array<{ key: string; value: string }> = [];
+  for (const [key, value] of Object.entries(toolInput)) {
+    if (fields.length >= MAX_PREVIEW_FIELDS) break;
+    if (SENSITIVE_FIELD_PATTERN.test(key)) continue;
+    if (SKIP_FIELD_PATTERN.test(key)) continue;
+    const formatted = formatPreviewValue(value);
+    if (!formatted) continue;
+    fields.push({ key: humanizeKey(key), value: formatted });
+  }
+  return fields;
+}
+
+function humanizeToolName(toolName: string): string {
+  return toolName
+    .replace(/^(write|update|delete|create)_/, '')
+    .replace(/_/g, ' ')
+    .trim()
+    .replace(/^./, (c) => c.toUpperCase());
+}
+
+function buildGenericApprovalTitle(toolName: string): string {
+  if (toolName.startsWith('delete_')) return 'Confirm Deletion';
+  if (DESTRUCTIVE_TOOLS.has(toolName)) return 'Confirm Destructive Action';
+  if (WORKSPACE_TOOLS.has(toolName)) return 'Review Workspace Action';
+  if (AUTOMATION_TOOLS.has(toolName)) return 'Review Automation';
+  if (toolName.startsWith('write_') || toolName.startsWith('update_')) return 'Review Data Write';
+  return 'Approval Required';
+}
+
+function extractTimelinePostDraft(
+  toolName: string,
+  toolInput: Record<string, unknown>
+): {
+  title?: string;
+  description: string;
+  postType?: string;
+  isTeamPost: boolean;
+} | null {
+  if (toolName === 'write_timeline_post') {
+    const description =
+      (typeof toolInput['content'] === 'string' && toolInput['content'].trim()) ||
+      (typeof toolInput['description'] === 'string' && toolInput['description'].trim()) ||
+      '';
+    if (!description) return null;
+    const title =
+      typeof toolInput['title'] === 'string' && toolInput['title'].trim()
+        ? toolInput['title'].trim()
+        : undefined;
+    const postType =
+      typeof toolInput['type'] === 'string' && toolInput['type'].trim()
+        ? toolInput['type'].trim()
+        : undefined;
+    return { title, description, postType, isTeamPost: false };
+  }
+
+  if (toolName === 'write_team_post') {
+    const posts = Array.isArray(toolInput['posts']) ? (toolInput['posts'] as Array<unknown>) : [];
+    const firstPost = posts.find((p) => p && typeof p === 'object') as
+      | Record<string, unknown>
+      | undefined;
+    if (!firstPost) return null;
+
+    const description =
+      (typeof firstPost['content'] === 'string' && firstPost['content'].trim()) ||
+      (typeof firstPost['description'] === 'string' && firstPost['description'].trim()) ||
+      '';
+    if (!description) return null;
+
+    const title =
+      typeof firstPost['title'] === 'string' && firstPost['title'].trim()
+        ? firstPost['title'].trim()
+        : undefined;
+    const postType =
+      typeof firstPost['type'] === 'string' && firstPost['type'].trim()
+        ? firstPost['type'].trim()
+        : undefined;
+
+    return { title, description, postType, isTeamPost: true };
+  }
+
+  return null;
+}
+
+/**
+ * Build an inline rich card for an agent yield (approval or input request).
+ *
+ * Maps:
+ *   • `needs_approval` for `send_email` / `batch_send_email` →
+ *     `draft` card (renders an editable email preview with Approve/Reject).
+ *   • `needs_approval` for any other tool → `confirmation` card with
+ *     `generic_approval` variant, rich action summary, risk level, and
+ *     a structured key-value preview of the most relevant tool arguments.
+ *   • `needs_input` (ask_user / pause_resume) → `ask_user` card with a
+ *     reply text input.
+ *
+ * Returns `null` when no meaningful card can be built (defensive — falls
+ * back to the plain assistant text bubble).
+ */
+export function buildInlineYieldCard(params: {
+  yieldPayload: {
+    reason: string;
+    promptToUser: string;
+    agentId: AgentIdentifier;
+    pendingToolCall?: {
+      readonly toolName: string;
+      readonly toolInput: Record<string, unknown>;
+      readonly toolCallId: string;
+    };
+    approvalId?: string;
+  };
+  operationId: string;
+  threadId?: string;
+}): AgentXRichCard | null {
+  const { yieldPayload, operationId, threadId } = params;
+  const { reason, promptToUser, agentId, pendingToolCall, approvalId } = yieldPayload;
+
+  // ── Approval cards ────────────────────────────────────────────────────
+  if (reason === 'needs_approval' && pendingToolCall && approvalId) {
+    const { toolName, toolInput } = pendingToolCall;
+
+    // Email approvals: enrich with email metadata for frontend to render email-variant approval card
+    if (toolName === 'send_email') {
+      const subject = typeof toolInput['subject'] === 'string' ? toolInput['subject'] : '';
+      const body =
+        (typeof toolInput['bodyHtml'] === 'string' && toolInput['bodyHtml']) ||
+        (typeof toolInput['body'] === 'string' ? toolInput['body'] : '') ||
+        '';
+      const toEmail = typeof toolInput['toEmail'] === 'string' ? toolInput['toEmail'] : '';
+      return {
+        type: 'confirmation',
+        agentId,
+        title: 'Review and Approve Email',
+        payload: {
+          message: promptToUser,
+          variant: 'email', // Signal frontend to render email UI
+          emailData: {
+            subject,
+            body,
+            toEmail,
+            recipients: toEmail ? [toEmail] : [],
+            recipientsCount: 1,
+          },
+          actions: [
+            { id: 'reject', label: 'Reject', variant: 'secondary' },
+            { id: 'approve', label: 'Send', variant: 'primary' },
+          ],
+          approvalId,
+          operationId,
+        },
+      };
+    }
+
+    if (toolName === 'batch_send_email') {
+      const subject =
+        (typeof toolInput['subjectTemplate'] === 'string' && toolInput['subjectTemplate']) ||
+        (typeof toolInput['subject'] === 'string' ? toolInput['subject'] : '') ||
+        '';
+      const body =
+        (typeof toolInput['bodyHtmlTemplate'] === 'string' && toolInput['bodyHtmlTemplate']) ||
+        (typeof toolInput['bodyHtml'] === 'string' && toolInput['bodyHtml']) ||
+        (typeof toolInput['body'] === 'string' ? toolInput['body'] : '') ||
+        '';
+      // Preserve full recipient objects {toEmail, variables} so the frontend
+      // can show variable previews and round-trip them intact through approval.
+      const recipients = Array.isArray(toolInput['recipients'])
+        ? (toolInput['recipients'] as Array<unknown>)
+            .map((r) => {
+              if (typeof r === 'string' && r.trim()) {
+                return { toEmail: r.trim(), variables: {} };
+              }
+              if (r && typeof r === 'object') {
+                const obj = r as Record<string, unknown>;
+                const toEmail =
+                  typeof obj['toEmail'] === 'string' && obj['toEmail'].trim()
+                    ? obj['toEmail'].trim()
+                    : typeof obj['email'] === 'string' && obj['email'].trim()
+                      ? obj['email'].trim()
+                      : '';
+                if (!toEmail) return null;
+                return {
+                  toEmail,
+                  variables:
+                    obj['variables'] &&
+                    typeof obj['variables'] === 'object' &&
+                    !Array.isArray(obj['variables'])
+                      ? (obj['variables'] as Record<string, string | number | boolean>)
+                      : {},
+                };
+              }
+              return null;
+            })
+            .filter(Boolean)
+        : [];
+      return {
+        type: 'confirmation',
+        agentId,
+        title: `Review and Approve Emails (${recipients.length} recipient${recipients.length === 1 ? '' : 's'})`,
+        payload: {
+          message: promptToUser,
+          variant: 'email-batch', // Signal frontend to render batch email UI
+          emailData: {
+            subject,
+            body,
+            recipients,
+            recipientsCount: recipients.length,
+          },
+          actions: [
+            { id: 'reject', label: 'Reject', variant: 'secondary' },
+            { id: 'approve', label: 'Send All', variant: 'primary' },
+          ],
+          approvalId,
+          operationId,
+        },
+      };
+    }
+
+    // Timeline/team post approvals: show editable title + description card.
+    if (toolName === 'write_timeline_post' || toolName === 'write_team_post') {
+      const draft = extractTimelinePostDraft(toolName, toolInput);
+      if (draft) {
+        return {
+          type: 'confirmation',
+          agentId,
+          title: draft.isTeamPost ? 'Review Team Post' : 'Review Timeline Post',
+          payload: {
+            message: promptToUser,
+            variant: 'timeline_post',
+            timelinePostData: {
+              ...(draft.title ? { title: draft.title } : {}),
+              description: draft.description,
+              ...(draft.postType ? { postType: draft.postType } : {}),
+              isTeamPost: draft.isTeamPost,
+            },
+            actions: [
+              { id: 'reject', label: 'Reject', variant: 'secondary' },
+              { id: 'approve', label: 'Publish', variant: 'primary' },
+            ],
+            approvalId,
+            operationId,
+          },
+        };
+      }
+    }
+
+    // Generic approval-required tool → rich `generic_approval` confirmation card.
+    const approvialCopy = resolveAgentApprovalCopy({ toolName, toolInput });
+    const { category, riskLevel } = classifyApprovalTool(toolName);
+    const dataFields = extractDataFields(toolInput);
+    const cardTitle = buildGenericApprovalTitle(toolName);
+    const resourceName = humanizeToolName(toolName);
+    const richPreview = formatApprovalRichPreview(toolName, toolInput);
+
+    return {
+      type: 'confirmation',
+      agentId,
+      title: cardTitle,
+      payload: {
+        message: promptToUser,
+        variant: 'generic_approval',
+        genericApprovalData: {
+          category,
+          riskLevel,
+          actionSummary: approvialCopy.actionSummary,
+          resourceName,
+          ...(dataFields.length > 0 ? { dataFields } : {}),
+          ...(richPreview ? { richPreview } : {}),
+        },
+        actions: [
+          { id: 'reject', label: 'Reject', variant: 'secondary' },
+          { id: 'approve', label: 'Approve', variant: 'primary' },
+        ],
+        approvalId,
+        operationId,
+      },
+    };
+  }
+
+  // ── Ask-user / paused cards ────────────────────────────────────────────
+  if (reason === 'needs_input') {
+    return {
+      type: 'ask_user',
+      agentId,
+      title: 'Agent X has a question',
+      payload: {
+        question: promptToUser,
+        ...(threadId ? { threadId } : {}),
+        operationId,
+      },
+    };
+  }
+
+  return null;
+}
+
 // ─── Worker ─────────────────────────────────────────────────────────────────
 
 export class AgentWorker {
@@ -99,7 +559,12 @@ export class AgentWorker {
     private readonly pubsub: AgentPubSubService,
     private readonly stagingFirestore?: FirebaseFirestore.Firestore,
     private readonly llmService?: OpenRouterService,
-    redisUrl?: string
+    redisUrl?: string,
+    private readonly enqueueContinuationJob?: (
+      payload: AgentJobPayload,
+      environment: 'staging' | 'production'
+    ) => Promise<string>,
+    private readonly queueService?: AgentQueueService
   ) {
     const url = redisUrl ?? process.env['REDIS_URL'] ?? 'redis://localhost:6379';
 
@@ -116,6 +581,13 @@ export class AgentWorker {
     });
 
     this.attachEventListeners();
+
+    // Phase B (thread-as-truth): bootstrap the writer singleton so
+    // BaseAgent.runLoop can persist assistant.tool_calls + tool result
+    // rows the moment they're produced. The writer delegates to the
+    // same chatService passed to the worker, so a single MongoDB
+    // session is shared.
+    getThreadMessageWriter(this.chatService);
   }
 
   // ─── Repository Selector ────────────────────────────────────────────────
@@ -143,6 +615,289 @@ export class AgentWorker {
     return getFirestore();
   }
 
+  private getScheduledRunContext(
+    job: Job<AgentQueueJobData, AgentQueueJobResult>,
+    payload: import('@nxt1/core').AgentJobPayload
+  ): { scheduleId: string; runId: string } | null {
+    if (payload.origin !== 'system_cron') {
+      return null;
+    }
+
+    const runId = job.id?.toString() ?? `${payload.operationId}-${job.timestamp}`;
+    const repeatJobKey = (job as unknown as { repeatJobKey?: string }).repeatJobKey;
+    const scheduleId = repeatJobKey && repeatJobKey.trim().length > 0 ? repeatJobKey : job.name;
+
+    return { scheduleId, runId };
+  }
+
+  private async ensureJobDocumentExists(
+    repo: AgentJobRepository,
+    payload: AgentJobPayload
+  ): Promise<void> {
+    const existing = await repo.getById(payload.operationId);
+    if (existing) {
+      return;
+    }
+
+    await repo.create(payload);
+    logger.info('Bootstrapped missing AgentJobs document in worker', {
+      operationId: payload.operationId,
+      userId: payload.userId,
+      origin: payload.origin,
+    });
+  }
+
+  private async waitForParentOperationCompletion(
+    repo: AgentJobRepository,
+    payload: AgentJobPayload,
+    signal?: AbortSignal
+  ): Promise<void> {
+    const contextObj =
+      typeof payload.context === 'object' && payload.context !== null ? payload.context : {};
+    const parentOperationId =
+      typeof (contextObj as Record<string, unknown>)['parentOperationId'] === 'string'
+        ? String((contextObj as Record<string, unknown>)['parentOperationId']).trim()
+        : '';
+
+    if (!parentOperationId || parentOperationId === payload.operationId) {
+      return;
+    }
+
+    logger.info('Child operation waiting for parent operation to terminate', {
+      operationId: payload.operationId,
+      parentOperationId,
+    });
+
+    const waitStartedAtMs = Date.now();
+
+    const waitOnce = async (): Promise<void> => {
+      if (signal?.aborted) {
+        throw createAbortError('Queued child operation aborted before parent completion');
+      }
+
+      const [parentJob, currentJob] = await Promise.all([
+        repo.getById(parentOperationId),
+        repo.getById(payload.operationId),
+      ]);
+
+      if (currentJob?.status === 'cancelled' || currentJob?.status === 'failed') {
+        throw createAbortError('Queued child operation cancelled before execution');
+      }
+
+      if (
+        !parentJob ||
+        parentJob.status === 'completed' ||
+        parentJob.status === 'failed' ||
+        parentJob.status === 'cancelled'
+      ) {
+        return;
+      }
+
+      const nowMs = Date.now();
+      const parentUpdatedAtMs = toMillis(parentJob.updatedAt) ?? toMillis(parentJob.createdAt);
+      const elapsedWaitMs = nowMs - waitStartedAtMs;
+      const staleHeartbeatMs = parentUpdatedAtMs === null ? 0 : nowMs - parentUpdatedAtMs;
+      const exceededMaxWait = elapsedWaitMs >= PARENT_OPERATION_MAX_WAIT_MS;
+      const staleByHeartbeat =
+        parentUpdatedAtMs !== null && staleHeartbeatMs >= PARENT_OPERATION_STALE_HEARTBEAT_MS;
+
+      if (exceededMaxWait || staleByHeartbeat) {
+        const parentFailureReason =
+          'Parent operation became stale while a child operation was blocked waiting for completion.';
+
+        logger.error('Detected stale parent operation; forcing terminal failure to unblock child', {
+          operationId: payload.operationId,
+          parentOperationId,
+          parentStatus: parentJob.status,
+          elapsedWaitMs,
+          parentUpdatedAtMs,
+          staleHeartbeatMs,
+        });
+
+        try {
+          await repo.markFailed(parentOperationId, parentFailureReason);
+        } catch (err) {
+          logger.warn('Failed to mark stale parent operation as failed; unblocking child anyway', {
+            operationId: payload.operationId,
+            parentOperationId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+
+        return;
+      }
+
+      await new Promise<void>((resolve, reject) => {
+        const timeoutId = setTimeout(() => {
+          cleanup();
+          resolve();
+        }, PARENT_OPERATION_POLL_MS);
+
+        const onAbort = () => {
+          clearTimeout(timeoutId);
+          cleanup();
+          reject(createAbortError('Queued child operation aborted while waiting on parent'));
+        };
+
+        const cleanup = () => {
+          signal?.removeEventListener('abort', onAbort);
+        };
+
+        signal?.addEventListener('abort', onAbort, { once: true });
+      });
+
+      await waitOnce();
+    };
+
+    await waitOnce();
+
+    logger.info('Child operation unblocked after parent termination', {
+      operationId: payload.operationId,
+      parentOperationId,
+    });
+  }
+
+  private async shouldSuppressTerminalCompletionForPause(
+    repo: AgentJobRepository,
+    operationId: string
+  ): Promise<{ suppressed: boolean; persistedStatus?: string }> {
+    try {
+      const latest = await repo.getById(operationId);
+      if (!latest) {
+        return { suppressed: false };
+      }
+
+      const persistedStatus = latest.status;
+      const explicitPaused = persistedStatus === 'paused';
+      const inferredPaused =
+        persistedStatus === 'awaiting_input' && isPauseYieldState(latest.yieldState ?? undefined);
+
+      return {
+        suppressed: explicitPaused || inferredPaused,
+        persistedStatus,
+      };
+    } catch (err) {
+      logger.warn('Failed to read latest job state before terminal completion guard', {
+        operationId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return { suppressed: false };
+    }
+  }
+
+  private async continueTimedOutJob(
+    job: Job<AgentQueueJobData, AgentQueueJobResult>,
+    repo: AgentJobRepository,
+    payload: AgentJobPayload,
+    timeoutMessage: string,
+    eventWriter: DebouncedEventWriter,
+    startMs: number,
+    billingDb: FirebaseFirestore.Firestore,
+    iapHoldId: string | null
+  ): Promise<AgentQueueJobResult | null> {
+    if (!this.enqueueContinuationJob) {
+      return null;
+    }
+
+    const contextObj =
+      typeof payload.context === 'object' && payload.context !== null ? payload.context : {};
+    const timeoutContinuationCountRaw = (contextObj as Record<string, unknown>)[
+      'timeoutContinuationCount'
+    ];
+    const timeoutContinuationCount =
+      typeof timeoutContinuationCountRaw === 'number'
+        ? Math.max(0, Math.floor(timeoutContinuationCountRaw))
+        : 0;
+
+    if (timeoutContinuationCount >= MAX_TIMEOUT_AUTO_CONTINUATIONS) {
+      return null;
+    }
+
+    const nextOperationId = crypto.randomUUID();
+    const nextPayload: AgentJobPayload = {
+      ...payload,
+      operationId: nextOperationId,
+      sessionId: crypto.randomUUID(),
+      context: {
+        ...(contextObj as Record<string, unknown>),
+        resumedFrom: payload.operationId,
+        timeoutContinuationCount: timeoutContinuationCount + 1,
+        timeoutContinuedFrom: payload.operationId,
+        timeoutContinuedAt: new Date().toISOString(),
+      },
+    };
+
+    await repo.create(nextPayload);
+    await this.enqueueContinuationJob(nextPayload, job.data.environment);
+
+    const continuationMessage = `Operation slice timed out; automatically continuing as ${nextOperationId}.`;
+
+    await job.updateProgress({
+      status: 'completed',
+      message: continuationMessage,
+      agentId: 'router',
+      outcomeCode: 'success_default',
+      metadata: {
+        continuationReason: 'timeout',
+        continuedAs: nextOperationId,
+      },
+      percent: 100,
+      currentStep: 1,
+      totalSteps: 1,
+      updatedAt: new Date().toISOString(),
+    });
+
+    eventWriter.emit({
+      type: 'done',
+      success: true,
+      message: continuationMessage,
+      agentId: 'router',
+      metadata: {
+        continuationReason: 'timeout',
+        continuedAs: nextOperationId,
+      },
+    });
+    await eventWriter.dispose();
+
+    await repo.markCompleted(payload.operationId, {
+      summary: continuationMessage,
+      data: {
+        resumedAs: nextOperationId,
+        continuationReason: 'timeout',
+        timeoutMessage,
+      },
+    });
+
+    if (iapHoldId) {
+      releaseWalletHold(billingDb, iapHoldId).catch((e: unknown) => {
+        logger.warn('[billing] Failed to release IAP hold on timeout continuation', {
+          holdId: iapHoldId,
+          error: e instanceof Error ? e.message : String(e),
+        });
+      });
+    }
+
+    logger.warn('Agent job auto-continued after timeout window', {
+      operationId: payload.operationId,
+      continuedAs: nextOperationId,
+      timeoutContinuationCount: timeoutContinuationCount + 1,
+      timeoutLimit: MAX_TIMEOUT_AUTO_CONTINUATIONS,
+    });
+
+    return {
+      result: {
+        summary: continuationMessage,
+        data: {
+          continuedAs: nextOperationId,
+          continuationReason: 'timeout',
+          timeoutContinuationCount: timeoutContinuationCount + 1,
+        },
+      },
+      durationMs: Date.now() - startMs,
+      completedAt: new Date().toISOString(),
+    };
+  }
+
   private async processThreadSummarizationJob(
     job: Job<AgentQueueJobData, AgentQueueJobResult>
   ): Promise<AgentQueueJobResult> {
@@ -163,7 +918,7 @@ export class AgentWorker {
 
     const startMs = Date.now();
     await job.updateProgress({
-      status: 'thinking',
+      status: 'acting',
       message: 'Summarizing idle thread memory',
       agentId: 'router',
       stageType: 'router',
@@ -235,7 +990,7 @@ export class AgentWorker {
     const generationService = new AgentGenerationService(this.llmService);
 
     const processingProgress: AgentJobProgress = {
-      status: 'thinking',
+      status: 'acting',
       message: 'Generating your weekly playbook',
       agentId: 'strategy_coordinator',
       stageType: 'router',
@@ -359,15 +1114,80 @@ export class AgentWorker {
       );
     }
 
-    const { payload } = job.data;
+    const basePayload = job.data.payload;
     const payloadContext =
-      typeof payload.context === 'object' && payload.context !== null ? payload.context : {};
+      typeof basePayload.context === 'object' && basePayload.context !== null
+        ? basePayload.context
+        : {};
     const payloadThreadId =
       typeof (payloadContext as Record<string, unknown>)['threadId'] === 'string'
         ? ((payloadContext as Record<string, unknown>)['threadId'] as string)
         : undefined;
+    const scheduledRunContext = this.getScheduledRunContext(job, basePayload);
+    const payload = scheduledRunContext
+      ? { ...basePayload, operationId: scheduledRunContext.runId }
+      : basePayload;
     const startMs = Date.now();
     const repo = this.getJobRepo(job);
+
+    await this.ensureJobDocumentExists(repo, payload);
+
+    // Create a job-scoped AbortController before any execution gating so the
+    // cancel endpoint can also abort queued child operations while they wait
+    // behind a parentOperationId.
+    const jobAbortController = new AbortController();
+    this.queueService?.registerController(payload.operationId, jobAbortController);
+
+    // Cross-instance control listener: pause/cancel HTTP requests may hit a
+    // different backend instance than the one running this worker. The HTTP
+    // handler broadcasts a control message via Redis pub/sub which we receive
+    // here and translate into a local AbortController.abort().
+    let unsubscribeControl: (() => Promise<void>) | null = null;
+    try {
+      unsubscribeControl = await this.pubsub.subscribeControl(payload.operationId, (msg) => {
+        if (jobAbortController.signal.aborted) return;
+        logger.info('[worker] Received cross-instance control message', {
+          operationId: payload.operationId,
+          action: msg.action,
+          issuedBy: msg.issuedBy,
+        });
+        try {
+          jobAbortController.abort();
+        } catch (abortErr) {
+          logger.warn('[worker] Local abort from control message failed', {
+            operationId: payload.operationId,
+            action: msg.action,
+            error: abortErr instanceof Error ? abortErr.message : String(abortErr),
+          });
+        }
+      });
+    } catch (subErr) {
+      logger.warn('[worker] Failed to subscribe to control channel', {
+        operationId: payload.operationId,
+        error: subErr instanceof Error ? subErr.message : String(subErr),
+      });
+    }
+
+    await this.waitForParentOperationCompletion(repo, payload, jobAbortController.signal);
+
+    if (payload.origin === 'system_cron' && payloadThreadId && this.chatService) {
+      try {
+        await this.chatService.addMessage({
+          threadId: payloadThreadId,
+          userId: payload.userId,
+          role: 'user',
+          content: payload.displayIntent?.trim() || payload.intent,
+          origin: 'system_cron',
+          operationId: payload.operationId,
+        });
+      } catch (err) {
+        logger.warn('Failed to persist scheduled run intent to MongoDB thread', {
+          operationId: payload.operationId,
+          threadId: payloadThreadId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
 
     // Hoist billing db so it's available across the full job lifecycle
     const billingDb = await this.getActivityFirestore(job);
@@ -411,6 +1231,7 @@ export class AgentWorker {
     let totalSteps = 1; // Updated once the plan is created
     const invokedTools: string[] = [];
     const successfulTools: string[] = [];
+    let primaryFirstDeltaLogged = false;
 
     // Build the onUpdate callback that feeds progress into BullMQ and Firestore
     const onUpdate = async (update: AgentJobUpdate): Promise<void> => {
@@ -453,7 +1274,135 @@ export class AgentWorker {
     // ── Debounced Event Writer: streams granular events to Firestore subcollection ──
     // The frontend subscribes to `AgentJobs/{operationId}/events` via onSnapshot
     // to render a live "watch it work" chat experience.
-    const eventWriter = new DebouncedEventWriter(repo, payload.operationId, payload.userId);
+    let pendingAutoOpenPanel: Record<string, unknown> | null = null;
+
+    const eventWriter = new DebouncedEventWriter(
+      repo,
+      payload.operationId,
+      payload.userId,
+      undefined,
+      {
+        /**
+         * LIVE EVENT HOOK: Publishes each delta to SSE immediately (token-by-token)
+         * This is the "real-time" path — deltas appear in the client stream instantly,
+         * without waiting for the 300ms Firestore batch. Professional typing feel.
+         */
+        onLiveEvent: (event) => {
+          // Handle deltas and thinking live (token-by-token); all other events go through onPersistedEvent
+          if (event.type !== 'delta' && event.type !== 'thinking') return;
+
+          if (!primaryFirstDeltaLogged && event.agentId === 'router') {
+            primaryFirstDeltaLogged = true;
+            const preview = typeof event.text === 'string' ? event.text.slice(0, 120) : '';
+            logger.info('[PrimaryChat] first_delta_sent', {
+              operationId: payload.operationId,
+              userId: payload.userId,
+              threadId: payloadThreadId,
+              emittedAt: new Date().toISOString(),
+              preview,
+            });
+          }
+
+          const sseEvent = this.streamEventToSSE(event, payload.operationId, payloadThreadId);
+          if (!sseEvent) return;
+
+          // Fire-and-forget publish; no latency tracking needed for live events
+          this.pubsub
+            .publish(payload.operationId, sseEvent.event, sseEvent.data)
+            .catch(() => undefined);
+        },
+        onPersistedEventMetrics: ({ type, durationMs, seq }) => {
+          if (durationMs >= 1500) {
+            logger.warn('Stream event persistence latency high', {
+              operationId: payload.operationId,
+              eventType: type,
+              seq,
+              durationMs,
+            });
+          }
+        },
+        /**
+         * PERSISTED EVENT HOOK: Publishes non-delta events and persistence milestones
+         * Called AFTER Firestore write with final seq number. For terminal events,
+         * state transitions, etc. Deltas already published via onLiveEvent.
+         */
+        onPersistedEvent: (event) => {
+          // Skip deltas and thinking — already published live via onLiveEvent
+          if (event.type === 'delta' || event.type === 'thinking') return;
+
+          let sseEvent = this.streamEventToSSE(event, payload.operationId, payloadThreadId);
+          if (!sseEvent) return;
+
+          if (
+            event.type === 'tool_result' &&
+            event.toolSuccess !== false &&
+            event.toolResult &&
+            typeof event.toolResult === 'object' &&
+            event.toolResult['autoOpenPanel'] &&
+            typeof event.toolResult['autoOpenPanel'] === 'object'
+          ) {
+            pendingAutoOpenPanel = event.toolResult['autoOpenPanel'] as Record<string, unknown>;
+          }
+
+          if (
+            sseEvent.event === 'done' &&
+            pendingAutoOpenPanel &&
+            sseEvent.data &&
+            typeof sseEvent.data === 'object'
+          ) {
+            sseEvent = {
+              ...sseEvent,
+              data: {
+                ...(sseEvent.data as Record<string, unknown>),
+                autoOpenPanel: pendingAutoOpenPanel,
+              },
+            };
+          }
+
+          const publishStartedAt = Date.now();
+          this.pubsub
+            .publish(payload.operationId, sseEvent.event, sseEvent.data)
+            .then(() => {
+              const publishDurationMs = Date.now() - publishStartedAt;
+              if (publishDurationMs >= 300) {
+                logger.warn('Stream event publish latency high', {
+                  operationId: payload.operationId,
+                  eventType: sseEvent.event,
+                  durationMs: publishDurationMs,
+                });
+              }
+            })
+            .catch(() => undefined);
+
+          if (
+            event.type === 'tool_result' &&
+            event.toolSuccess !== false &&
+            event.toolResult &&
+            typeof event.toolResult === 'object' &&
+            event.toolResult['autoOpenPanel'] &&
+            typeof event.toolResult['autoOpenPanel'] === 'object'
+          ) {
+            this.pubsub
+              .publish(
+                payload.operationId,
+                'panel',
+                event.toolResult['autoOpenPanel'] as Record<string, unknown>
+              )
+              .catch(() => undefined);
+          }
+        },
+      }
+    );
+
+    // Emit canonical lifecycle transition as soon as worker execution begins.
+    eventWriter.emit({
+      type: 'operation',
+      operationId: payload.operationId,
+      threadId: payloadThreadId,
+      status: 'running',
+      timestamp: new Date().toISOString(),
+    });
+
     const persistedAssistantStream = new PersistedAssistantStreamBuilder();
 
     // ── Dual-write callback: Firestore (persistence) + Redis PubSub (real-time SSE pipe) ──
@@ -473,17 +1422,12 @@ export class AgentWorker {
       // 1. Firestore (existing — persistence for reconnection/replay)
       eventWriter.emit(event);
 
-      // 2. Redis PubSub (new — real-time SSE pipe to Express)
-      const sseEvent = this.streamEventToSSE(event, payload.operationId, payloadThreadId);
-      if (sseEvent) {
-        this.pubsub
-          .publish(payload.operationId, sseEvent.event, sseEvent.data)
-          .catch(() => undefined);
-      }
+      // 2. Redis PubSub is emitted by the event writer only after persistence.
     };
 
     // Execute the full agent pipeline (with overall timeout)
     let result: AgentOperationResult;
+
     try {
       const userFirestore = this.getUserFirestore(job);
       const routerPromise = this.router.run(
@@ -491,20 +1435,175 @@ export class AgentWorker {
         onUpdate,
         userFirestore,
         onStreamEvent,
-        job.data.environment
+        job.data.environment,
+        jobAbortController.signal
       );
+      const timeoutMinutes = Math.round(JOB_TIMEOUT_MS / 60_000);
       const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error('Agent job timed out after 5 minutes')), JOB_TIMEOUT_MS);
+        setTimeout(
+          () => reject(new Error(`Agent job timed out after ${timeoutMinutes} minutes`)),
+          JOB_TIMEOUT_MS
+        );
       });
       result = await Promise.race([routerPromise, timeoutPromise]);
     } catch (err) {
       // Flush any buffered deltas before handling the error
       await eventWriter.flush().catch(() => undefined);
 
+      let handledError: unknown = err;
+
+      if (isAbortError(err)) {
+        const latest = await repo.getById(payload.operationId).catch(() => null);
+        const persistedStatus = latest?.status;
+        const abortedAsPaused =
+          persistedStatus === 'paused' ||
+          (persistedStatus === 'awaiting_input' && isPauseYieldState(latest?.yieldState));
+        const abortedAsCancelled = persistedStatus === 'cancelled';
+
+        if (abortedAsPaused || abortedAsCancelled) {
+          await eventWriter.dispose();
+
+          const controlledStatus = abortedAsPaused ? 'paused' : 'cancelled';
+          const controlledMessage =
+            controlledStatus === 'paused'
+              ? 'Operation paused by user'
+              : 'Operation cancelled by user';
+
+          await job.updateProgress({
+            status: controlledStatus,
+            message: controlledMessage,
+            agentId: 'router',
+            outcomeCode: controlledStatus === 'paused' ? 'input_required' : 'cancelled',
+            metadata: {
+              reason: abortedAsPaused ? 'paused_by_user' : 'cancelled_by_user',
+              persistedStatus,
+            },
+            percent: Math.min(99, Math.round((stepIndex / Math.max(totalSteps, 1)) * 100)),
+            currentStep: stepIndex,
+            totalSteps,
+            updatedAt: new Date().toISOString(),
+          });
+
+          if (iapHoldId) {
+            releaseWalletHold(billingDb, iapHoldId).catch((e: unknown) => {
+              logger.warn('[billing] Failed to release IAP hold after controlled abort', {
+                holdId: iapHoldId,
+                error: e instanceof Error ? e.message : String(e),
+              });
+            });
+          }
+
+          // Persist whatever partial response the agent streamed so far to MongoDB.
+          // Without this, when the user returns to the session they see the yield
+          // card but all streamed content (tool steps, partial text) is gone.
+          // This applies to both pause and cancel — cancelled jobs also benefit from
+          // having partial context visible in the thread.
+          if (this.chatService) {
+            const contextObj =
+              typeof payload.context === 'object' && payload.context !== null
+                ? payload.context
+                : {};
+            const threadId =
+              typeof (contextObj as Record<string, unknown>)['threadId'] === 'string'
+                ? ((contextObj as Record<string, unknown>)['threadId'] as string)
+                : undefined;
+
+            if (threadId) {
+              const partialSnapshot = persistedAssistantStream.snapshot();
+              const hasContent =
+                partialSnapshot.content.length > 0 ||
+                partialSnapshot.steps.length > 0 ||
+                partialSnapshot.parts.length > 0;
+
+              if (hasContent) {
+                try {
+                  await this.chatService.addMessage({
+                    threadId,
+                    userId: payload.userId,
+                    role: 'assistant',
+                    content: partialSnapshot.content || `[${controlledMessage}]`,
+                    origin: payload.origin,
+                    agentId: 'router',
+                    operationId: payload.operationId,
+                    // Phase-scoped idempotency: prevents double-persist if the
+                    // worker is retried after a partial write on abort/pause.
+                    idempotencyKey: `${payload.operationId}:assistant_partial`,
+                    semanticPhase: 'assistant_partial',
+                    ...(partialSnapshot.steps.length > 0 ? { steps: partialSnapshot.steps } : {}),
+                    ...(partialSnapshot.parts.length > 0 ? { parts: partialSnapshot.parts } : {}),
+                  });
+                  logger.info('Persisted partial agent response on controlled abort', {
+                    operationId: payload.operationId,
+                    threadId,
+                    controlledStatus,
+                    contentLength: partialSnapshot.content.length,
+                    stepCount: partialSnapshot.steps.length,
+                  });
+                } catch (chatErr) {
+                  logger.warn('Failed to persist partial response on controlled abort', {
+                    operationId: payload.operationId,
+                    threadId,
+                    error: chatErr instanceof Error ? chatErr.message : String(chatErr),
+                  });
+                }
+              }
+            }
+          }
+
+          logger.info('Agent job aborted after explicit lifecycle transition', {
+            operationId: payload.operationId,
+            userId: payload.userId,
+            controlledStatus,
+          });
+
+          return {
+            result: {
+              summary:
+                controlledStatus === 'paused'
+                  ? 'Operation paused. Resume whenever you are ready.'
+                  : 'Operation cancelled by user.',
+              data: {
+                aborted: true,
+                controlledStatus,
+                operationStatus: controlledStatus,
+              },
+            },
+            durationMs: Date.now() - startMs,
+            completedAt: new Date().toISOString(),
+          };
+        }
+
+        // Abort without a controlled persisted state should fail once, never retry.
+        handledError = new UnrecoverableError(err.message || 'Operation aborted');
+      }
+
+      if (isJobTimeoutError(handledError)) {
+        try {
+          const continuationResult = await this.continueTimedOutJob(
+            job,
+            repo,
+            payload,
+            handledError.message,
+            eventWriter,
+            startMs,
+            billingDb,
+            iapHoldId
+          );
+          if (continuationResult) {
+            return continuationResult;
+          }
+        } catch (continuationErr) {
+          logger.error('Failed to auto-continue timed out agent job', {
+            operationId: payload.operationId,
+            error:
+              continuationErr instanceof Error ? continuationErr.message : String(continuationErr),
+          });
+        }
+      }
+
       // ── Yield handling: agent needs user input or approval ─────────────
-      if (isAgentYield(err)) {
-        await eventWriter.dispose();
-        const yieldPayload = err.payload;
+      if (isAgentYield(handledError)) {
+        const yieldPayload = handledError.payload;
         const now = new Date();
         const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000); // 24 hours
         const yieldStatus =
@@ -558,8 +1657,45 @@ export class AgentWorker {
             ? ((contextObj as Record<string, unknown>)['threadId'] as string)
             : undefined;
 
+        // Emit a rich inline card (`confirmation` / `draft` / `ask_user`) so
+        // the chat UI renders interactive Approve/Reject buttons or a reply
+        // input rather than just a plain assistant text bubble. The card
+        // builders are inlined here to avoid a routes/ → modules/ layering
+        // inversion (the routes/agent/shared.ts versions are deprecated and
+        // will be removed once any external callers are migrated).
+        try {
+          const inlineCard = buildInlineYieldCard({
+            yieldPayload,
+            operationId: payload.operationId,
+            threadId,
+          });
+          if (inlineCard) {
+            eventWriter.emit({
+              type: 'card',
+              cardData: inlineCard,
+            });
+          }
+        } catch (cardErr) {
+          logger.warn('Failed to build inline yield card', {
+            operationId: payload.operationId,
+            reason: yieldPayload.reason,
+            error: cardErr instanceof Error ? cardErr.message : String(cardErr),
+          });
+        }
+
+        eventWriter.emit({
+          type: 'operation',
+          operationId: payload.operationId,
+          threadId,
+          status: yieldStatus,
+          yieldState,
+          timestamp: new Date().toISOString(),
+        });
+        await eventWriter.dispose();
+
         if (threadId && this.chatService) {
           try {
+            await this.chatService.updateThreadPausedYieldState?.(threadId, yieldState);
             await this.chatService.addMessage({
               threadId,
               userId: payload.userId,
@@ -568,6 +1704,11 @@ export class AgentWorker {
               origin: 'agent_chain',
               agentId: yieldPayload.agentId,
               operationId: payload.operationId,
+              // Phase-scoped idempotency: prevents duplicate yield prompts on
+              // BullMQ retry. Stable per operation — a given job yields at most
+              // once, so the key space is safe.
+              idempotencyKey: `${payload.operationId}:assistant_yield`,
+              semanticPhase: 'assistant_yield',
             });
           } catch (chatErr) {
             logger.warn('Failed to persist yield message to MongoDB', {
@@ -643,8 +1784,8 @@ export class AgentWorker {
         };
       }
 
-      const message = err instanceof Error ? err.message : 'Agent pipeline error';
-      const errorCode = getAgentEngineErrorCode(err) ?? 'AGENT_PIPELINE_FAILED';
+      const message = handledError instanceof Error ? handledError.message : 'Agent pipeline error';
+      const errorCode = getAgentEngineErrorCode(handledError) ?? 'AGENT_PIPELINE_FAILED';
       const failedAgentId = isAgentIdentifier(payload.agent)
         ? payload.agent
         : isAgentIdentifier((payload.context as Record<string, unknown> | undefined)?.['agentId'])
@@ -664,6 +1805,13 @@ export class AgentWorker {
       });
 
       // Write terminal 'done' event with error so frontend's Firestore listener knows to stop
+      eventWriter.emit({
+        type: 'operation',
+        operationId: payload.operationId,
+        threadId: payloadThreadId,
+        status: 'failed',
+        timestamp: new Date().toISOString(),
+      });
       eventWriter.emit({
         type: 'done',
         success: false,
@@ -686,30 +1834,31 @@ export class AgentWorker {
       // Notify the user that their task failed (they shouldn't just see silence)
       try {
         const activityDb = await this.getActivityFirestore(job);
-        await logAgentTaskFailure(activityDb, {
-          userId: payload.userId,
-          job: payload,
-          errorMessage: message,
-        });
+        if (scheduledRunContext) {
+          await dispatchAgentPush(activityDb, {
+            kind: 'agent_scheduled_execution_failed',
+            userId: payload.userId,
+            operationId: payload.operationId,
+            scheduleId: scheduledRunContext.scheduleId,
+            runId: scheduledRunContext.runId,
+            threadId: payloadThreadId,
+            title: 'Scheduled Agent Task Failed',
+            body: message,
+            errorMessage: message,
+          });
+        } else {
+          await logAgentTaskFailure(activityDb, {
+            userId: payload.userId,
+            job: payload,
+            errorMessage: message,
+          });
+        }
       } catch (notifyErr) {
         logger.error('Failed to dispatch failure notification', {
           operationId: payload.operationId,
           error: notifyErr instanceof Error ? notifyErr.message : String(notifyErr),
         });
       }
-
-      // Track job failure in user's analytics record (fire-and-forget)
-      getAgentAnalyticsGate().trackJobFailed({
-        userId: payload.userId,
-        agentId: failedAgentId ?? 'router',
-        operationId: payload.operationId,
-        error: message,
-        durationMs: Date.now() - startMs,
-        threadId:
-          typeof (payload.context as Record<string, unknown> | undefined)?.['threadId'] === 'string'
-            ? ((payload.context as Record<string, unknown>)['threadId'] as string)
-            : undefined,
-      });
 
       // Release any IAP hold — job failed, funds should not stay locked
       if (iapHoldId) {
@@ -721,13 +1870,79 @@ export class AgentWorker {
         });
       }
 
-      throw err;
+      throw handledError;
+    } finally {
+      // Always unregister the AbortController — the LLM router is no longer
+      // running at this point regardless of success, failure, or yield.
+      this.queueService?.unregisterController(payload.operationId);
+      // Release the Redis control-channel subscription so we don't leak
+      // subscribers across jobs.
+      if (unsubscribeControl) {
+        await unsubscribeControl().catch((err) => {
+          logger.warn('[worker] Failed to unsubscribe from control channel', {
+            operationId: payload.operationId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
+      }
     }
 
     const resultData =
       typeof result.data === 'object' && result.data !== null
         ? (result.data as Record<string, unknown>)
         : undefined;
+    const pauseCompletionGuard = await this.shouldSuppressTerminalCompletionForPause(
+      repo,
+      payload.operationId
+    );
+    if (pauseCompletionGuard.suppressed) {
+      await eventWriter.flush().catch(() => undefined);
+      await eventWriter.dispose();
+
+      await job.updateProgress({
+        status: 'paused',
+        message: 'Operation paused by user',
+        agentId: 'router',
+        outcomeCode: 'input_required',
+        metadata: {
+          reason: 'paused_by_user',
+          persistedStatus: pauseCompletionGuard.persistedStatus,
+        },
+        percent: Math.min(99, Math.round((stepIndex / Math.max(totalSteps, 1)) * 100)),
+        currentStep: stepIndex,
+        totalSteps,
+        updatedAt: new Date().toISOString(),
+      });
+
+      if (iapHoldId) {
+        releaseWalletHold(billingDb, iapHoldId).catch((e: unknown) => {
+          logger.warn('[billing] Failed to release IAP hold for paused operation', {
+            holdId: iapHoldId,
+            error: e instanceof Error ? e.message : String(e),
+          });
+        });
+      }
+
+      logger.info('Pause guard suppressed terminal completion and side effects', {
+        operationId: payload.operationId,
+        userId: payload.userId,
+        persistedStatus: pauseCompletionGuard.persistedStatus,
+      });
+
+      return {
+        result: {
+          summary: 'Operation paused. Resume whenever you are ready.',
+          data: {
+            paused: true,
+            suppressedTerminalCompletion: true,
+            persistedStatus: pauseCompletionGuard.persistedStatus,
+          },
+        },
+        durationMs: Date.now() - startMs,
+        completedAt: new Date().toISOString(),
+      };
+    }
+
     const maxIterationsReached = resultData?.['maxIterationsReached'] === true;
     const planFailed = resultData?.['operationStatus'] === 'failed';
     const terminalMessage =
@@ -754,16 +1969,43 @@ export class AgentWorker {
     const terminalOutcomeCode =
       maxIterationsReached || planFailed ? 'task_failed' : 'success_default';
 
-    // ── Flush remaining deltas and write terminal 'done' event ──────────
+    // ── Flush remaining deltas and write terminal events ─────────────────
+    //
+    // Thread titles are now generated at enqueue time via generateTitleFromPromptOnly
+    // in the route handler. No LLM call or blocking needed here — the title_updated
+    // SSE event is published by the route immediately after thread creation.
+    const summary = this.resolveResultSummary(result);
+
+    // Flush any pending data/delta events to subscribers, but DEFER the terminal
+    // `operation` event until AFTER the Firestore write succeeds. This prevents
+    // a race where the frontend receives `complete` over SSE before the
+    // `AgentJobs/{operationId}` document is updated, leaving the UI in an
+    // inconsistent state (SSE says done, Firestore snapshot still shows running).
     await eventWriter.flush().catch(() => undefined);
-    eventWriter.emit({
-      type: 'done',
-      success: !maxIterationsReached && !planFailed,
-      message: terminalMessage,
-      outcomeCode: terminalOutcomeCode,
-      agentId: finalAgentId,
-    });
-    await eventWriter.dispose();
+    const terminalStatus = maxIterationsReached || planFailed ? 'error' : 'complete';
+    const terminalOperationStatus: 'failed' | 'complete' =
+      terminalStatus === 'error' ? 'failed' : 'complete';
+
+    const emitTerminalOperationEvent = async (
+      status: 'failed' | 'complete' = terminalOperationStatus
+    ): Promise<void> => {
+      try {
+        eventWriter.emit({
+          type: 'operation',
+          operationId: payload.operationId,
+          threadId: payloadThreadId,
+          status,
+          timestamp: new Date().toISOString(),
+        });
+        await eventWriter.flush().catch(() => undefined);
+      } catch (emitErr) {
+        logger.warn('Failed to emit terminal operation SSE event', {
+          operationId: payload.operationId,
+          status,
+          error: emitErr instanceof Error ? emitErr.message : String(emitErr),
+        });
+      }
+    };
 
     const terminalProgress: AgentJobProgress = {
       status: maxIterationsReached || planFailed ? 'failed' : 'completed',
@@ -795,6 +2037,33 @@ export class AgentWorker {
           error: err instanceof Error ? err.message : String(err),
         });
       });
+
+      // Emit terminal SSE event AFTER persistence so the frontend's SSE-derived
+      // state cannot get ahead of the Firestore document.
+      await emitTerminalOperationEvent('failed');
+
+      if (scheduledRunContext) {
+        try {
+          const activityDb = await this.getActivityFirestore(job);
+          await dispatchAgentPush(activityDb, {
+            kind: 'agent_scheduled_execution_failed',
+            userId: payload.userId,
+            operationId: payload.operationId,
+            scheduleId: scheduledRunContext.scheduleId,
+            runId: scheduledRunContext.runId,
+            threadId: payloadThreadId,
+            title: 'Scheduled Agent Task Failed',
+            body: terminalMessage,
+            errorMessage: terminalMessage,
+          });
+        } catch (notifyErr) {
+          logger.error('Failed to dispatch scheduled max-iterations failure notification', {
+            operationId: payload.operationId,
+            error: notifyErr instanceof Error ? notifyErr.message : String(notifyErr),
+          });
+        }
+      }
+
       return {
         result,
         durationMs: Date.now() - startMs,
@@ -814,6 +2083,33 @@ export class AgentWorker {
           error: err instanceof Error ? err.message : String(err),
         });
       });
+
+      // Emit terminal SSE event AFTER persistence so the frontend's SSE-derived
+      // state cannot get ahead of the Firestore document.
+      await emitTerminalOperationEvent('failed');
+
+      if (scheduledRunContext) {
+        try {
+          const activityDb = await this.getActivityFirestore(job);
+          await dispatchAgentPush(activityDb, {
+            kind: 'agent_scheduled_execution_failed',
+            userId: payload.userId,
+            operationId: payload.operationId,
+            scheduleId: scheduledRunContext.scheduleId,
+            runId: scheduledRunContext.runId,
+            threadId: payloadThreadId,
+            title: 'Scheduled Agent Task Failed',
+            body: terminalMessage,
+            errorMessage: terminalMessage,
+          });
+        } catch (notifyErr) {
+          logger.error('Failed to dispatch scheduled plan-failure notification', {
+            operationId: payload.operationId,
+            error: notifyErr instanceof Error ? notifyErr.message : String(notifyErr),
+          });
+        }
+      }
+
       return {
         result,
         durationMs: Date.now() - startMs,
@@ -821,31 +2117,45 @@ export class AgentWorker {
       };
     }
 
-    const summary = this.resolveResultSummary(result);
-    let generatedOperationTitle: string | null = null;
+    // `summary` and `generatedOperationTitle` are already computed above in the
+    // terminal-events section. Re-use them here so we avoid a redundant LLM call;
+    // `result.title` was already set if a title was generated in time.
 
-    if (this.llmService) {
-      generatedOperationTitle = await this.chatService.generateOperationTitle(
-        payload.intent,
-        summary,
-        this.llmService
+    // Persist final result to Firestore.
+    // Fail closed: if completion state cannot be persisted, do not continue with
+    // success side-effects while the durable job record is inconsistent.
+    try {
+      await repo.markCompleted(payload.operationId, result);
+    } catch (err: unknown) {
+      const persistError = err instanceof Error ? err.message : String(err);
+      logger.error('Failed to write completion to Firestore', {
+        operationId: payload.operationId,
+        error: persistError,
+      });
+
+      await repo
+        .markFailed(payload.operationId, `Completion persistence failed: ${persistError}`)
+        .catch((markFailedErr: unknown) => {
+          logger.error('Failed to persist fallback failed status after completion write error', {
+            operationId: payload.operationId,
+            error: markFailedErr instanceof Error ? markFailedErr.message : String(markFailedErr),
+          });
+        });
+
+      // Notify clients that the operation failed even though it ran to completion
+      // logically — the durable record is the source of truth.
+      await emitTerminalOperationEvent('failed');
+
+      throw new AgentEngineError(
+        'AGENT_COMPLETION_PERSIST_FAILED',
+        `Failed to persist completion state: ${persistError}`,
+        { metadata: { operationId: payload.operationId } }
       );
-
-      if (generatedOperationTitle) {
-        result = {
-          ...result,
-          title: generatedOperationTitle,
-        };
-      }
     }
 
-    // Persist final result to Firestore
-    await repo.markCompleted(payload.operationId, result).catch((err: unknown) => {
-      logger.warn('Failed to write completion to Firestore', {
-        operationId: payload.operationId,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    });
+    // Firestore write succeeded — now safe to tell SSE subscribers we're done.
+    // Frontend `onSnapshot` and SSE listeners will now agree on the terminal state.
+    await emitTerminalOperationEvent('complete');
 
     // Billing deduction: use centralized pipeline
     void executeBillingDeduction({
@@ -864,22 +2174,67 @@ export class AgentWorker {
     // Skip push when the operation currently has an active live stream subscriber.
     // The user is already watching the completion in real time.
     try {
-      const activeSubscribers =
-        typeof this.pubsub.subscriberCount === 'function'
-          ? await this.pubsub.subscriberCount(payload.operationId)
-          : 0;
-      if (activeSubscribers > 0) {
-        logger.info('Skipping completion push; active live subscribers detected', {
+      const activityDb = await this.getActivityFirestore(job);
+
+      // Fetch the thread title generated at enqueue time so notifications
+      // display a meaningful subject instead of the generic “Agent X Update” fallback.
+      let threadTitle: string | undefined;
+      if (payloadThreadId && this.chatService) {
+        const thread = await this.chatService
+          .getThread(payloadThreadId, payload.userId)
+          .catch(() => null);
+        threadTitle = thread?.title?.trim() || undefined;
+      }
+
+      if (scheduledRunContext) {
+        const schedCopy = resolveAgentSuccessNotificationCopy({
+          threadTitle,
+          title: result.title?.trim() || undefined,
+          summary: deriveBodyFromResult(result) || undefined,
+        });
+        await dispatchAgentPush(activityDb, {
+          kind: 'agent_scheduled_execution_completed',
+          userId: payload.userId,
           operationId: payload.operationId,
-          subscriberCount: activeSubscribers,
+          scheduleId: scheduledRunContext.scheduleId,
+          runId: scheduledRunContext.runId,
+          threadId: payloadThreadId,
+          title: schedCopy.title,
+          body: schedCopy.body,
         });
       } else {
-        const activityDb = await this.getActivityFirestore(job);
-        await logAgentTaskCompletion(activityDb, {
-          userId: payload.userId,
-          job: payload,
-          result,
-        });
+        const latestJobDoc =
+          typeof (repo as { getById?: unknown }).getById === 'function'
+            ? await repo.getById(payload.operationId)
+            : null;
+        const viewerLastSeenAtRaw = (latestJobDoc as Record<string, unknown> | null)?.[
+          'viewerLastSeenAt'
+        ];
+        const viewerLastSeenAtMs =
+          typeof viewerLastSeenAtRaw === 'string' ? Date.parse(viewerLastSeenAtRaw) : Number.NaN;
+        const hasRecentViewerHeartbeat =
+          Number.isFinite(viewerLastSeenAtMs) &&
+          Date.now() - viewerLastSeenAtMs <=
+            AGENT_X_RUNTIME_CONFIG.operationQueue.viewerHeartbeatFreshnessMs;
+
+        const activeSubscribers =
+          typeof this.pubsub.subscriberCount === 'function'
+            ? await this.pubsub.subscriberCount(payload.operationId)
+            : 0;
+        if (activeSubscribers > 0 && hasRecentViewerHeartbeat) {
+          logger.info('Skipping completion push; active engaged viewer detected', {
+            operationId: payload.operationId,
+            subscriberCount: activeSubscribers,
+            viewerLastSeenAt: viewerLastSeenAtRaw,
+          });
+        } else {
+          await logAgentTaskCompletion(activityDb, {
+            userId: payload.userId,
+            job: payload,
+            result,
+            threadTitle,
+          });
+        }
       }
     } catch (notifyErr) {
       logger.error('Failed to dispatch activity/notification', {
@@ -894,6 +2249,10 @@ export class AgentWorker {
       void processRecapForUser(payload.userId, summary, job.id?.toString(), getFirestore());
     }
 
+    const persistedStreamSnapshot = persistedAssistantStream.snapshot();
+    const persistedAssistantContentForDone =
+      persistedStreamSnapshot.content.length > 0 ? persistedStreamSnapshot.content : summary;
+
     // ─── Persist assistant response to MongoDB thread ─────────────────────
     const contextObj =
       typeof payload.context === 'object' && payload.context !== null ? payload.context : {};
@@ -901,18 +2260,10 @@ export class AgentWorker {
       typeof (contextObj as Record<string, unknown>)['threadId'] === 'string'
         ? ((contextObj as Record<string, unknown>)['threadId'] as string)
         : undefined;
+    let persistedAssistantMessageId: string | undefined;
 
-    // Track job completion in user's analytics record (fire-and-forget)
-    getAgentAnalyticsGate().trackJobCompleted({
-      userId: payload.userId,
-      agentId: typeof payload.agent === 'string' ? payload.agent : 'unknown',
-      operationId: payload.operationId,
-      durationMs: Date.now() - startMs,
-      threadId,
-    });
     if (threadId && this.chatService) {
       try {
-        const persistedStreamSnapshot = persistedAssistantStream.snapshot();
         // Extract agentId with runtime type check
         const rawAgent =
           typeof result.data === 'object' && result.data !== null
@@ -932,16 +2283,24 @@ export class AgentWorker {
           ? (rawToolCalls as import('@nxt1/core').AgentToolCallRecord[])
           : undefined;
 
-        await this.chatService.addMessage({
+        const persistedAssistantMessage = await this.chatService.addMessage({
           threadId,
           userId: payload.userId,
           role: 'assistant',
-          content:
-            persistedStreamSnapshot.content.length > 0 ? persistedStreamSnapshot.content : summary,
+          content: persistedAssistantContentForDone,
           origin: payload.origin,
           agentId,
           operationId: payload.operationId,
           toolCalls,
+          // Idempotency key prevents duplicate rows when BullMQ retries the
+          // job after a transient failure. The key is stable per operation so
+          // a second attempt finds the existing row and returns it without
+          // creating a new one or double-incrementing thread messageCount.
+          idempotencyKey: `${payload.operationId}:final-assistant`,
+          // Phase-aware: final row supersedes any assistant_partial row written
+          // on pause/abort. The UI projection removes partial rows when final
+          // exists for the same operationId.
+          semanticPhase: 'assistant_final',
           ...(persistedStreamSnapshot.steps.length > 0
             ? { steps: persistedStreamSnapshot.steps }
             : {}),
@@ -953,35 +2312,29 @@ export class AgentWorker {
               ? (result.data as Record<string, unknown>)
               : undefined,
         });
+        persistedAssistantMessageId = persistedAssistantMessage.id;
         logger.info('Agent response persisted to MongoDB thread', {
           threadId,
           operationId: payload.operationId,
+          messageId: persistedAssistantMessageId,
         });
 
-        const generatedTitle = generatedOperationTitle
-          ? await this.chatService.applyGeneratedThreadTitle(
-              threadId,
-              payload.userId,
-              payload.intent,
-              generatedOperationTitle
-            )
-          : this.llmService
-            ? await this.chatService.generateThreadTitle(
-                threadId,
-                payload.userId,
-                payload.intent,
-                summary,
-                this.llmService
-              )
-            : null;
-
-        if (generatedTitle) {
-          logger.info('Agent thread title auto-generated from worker response', {
-            threadId,
+        if ((agentId ?? finalAgentId) === 'router') {
+          logger.info('[PrimaryChat] assistant_message_persisted', {
             operationId: payload.operationId,
-            title: generatedTitle,
+            userId: payload.userId,
+            threadId,
+            messageId: persistedAssistantMessageId,
+            persistedAt: new Date().toISOString(),
+            summaryPreview: persistedAssistantContentForDone.slice(0, 160),
           });
         }
+
+        // Thread title is managed at enqueue time via generateTitleFromPromptOnly
+        // in the route handler (chat.routes.ts). No LLM call is needed here.
+        // If the upstream title gen failed, the thread title remains the raw
+        // prompt prefix — still readable. applyGeneratedThreadTitle's guard
+        // prevents any accidental overwrite if both paths ran.
       } catch (chatErr) {
         // Chat persistence must never fail the job
         logger.warn('Failed to persist agent response to MongoDB', {
@@ -991,6 +2344,23 @@ export class AgentWorker {
         });
       }
     }
+
+    const shouldSuppressDoneMessage =
+      !maxIterationsReached &&
+      !planFailed &&
+      normalizeTerminalMessageText(terminalMessage) ===
+        normalizeTerminalMessageText(persistedAssistantContentForDone);
+    const doneMessageForEvent = shouldSuppressDoneMessage ? undefined : terminalMessage;
+
+    eventWriter.emit({
+      type: 'done',
+      success: !maxIterationsReached && !planFailed,
+      message: doneMessageForEvent,
+      outcomeCode: terminalOutcomeCode,
+      agentId: finalAgentId,
+      messageId: persistedAssistantMessageId,
+    });
+    await eventWriter.dispose();
 
     return {
       result,
@@ -1028,18 +2398,92 @@ export class AgentWorker {
     operationId: string,
     threadId?: string
   ): { event: string; data: unknown } | null {
+    const seqPayload = typeof event.seq === 'number' ? { seq: event.seq } : {};
     switch (event.type) {
       case 'card':
-        return { event: 'card', data: event.cardData ?? {} };
+        return {
+          event: 'card',
+          data: {
+            ...(event.cardData ?? {}),
+            ...seqPayload,
+          },
+        };
+      case 'title_updated':
+        return {
+          event: 'title_updated',
+          data: {
+            ...seqPayload,
+            operationId,
+            ...(event.threadId ? { threadId: event.threadId } : {}),
+            title: event.title ?? '',
+            timestamp: event.timestamp ?? new Date().toISOString(),
+          },
+        };
+      case 'operation':
+        return {
+          event: 'operation',
+          data: {
+            ...seqPayload,
+            operationId,
+            ...(event.threadId ? { threadId: event.threadId } : {}),
+            status: event.status ?? 'in-progress',
+            ...(event.agentId ? { agentId: event.agentId } : {}),
+            ...(event.stageType ? { stageType: event.stageType } : {}),
+            ...(event.stage ? { stage: event.stage } : {}),
+            ...(event.outcomeCode ? { outcomeCode: event.outcomeCode } : {}),
+            ...(event.metadata ? { metadata: event.metadata } : {}),
+            ...(event.message ? { message: event.message } : {}),
+            ...(event.yieldState ? { yieldState: event.yieldState } : {}),
+            timestamp: event.timestamp ?? new Date().toISOString(),
+          },
+        };
+      case 'progress_stage':
+      case 'progress_subphase':
+      case 'metric':
+        return {
+          event: 'progress',
+          data: {
+            ...seqPayload,
+            operationId,
+            ...(event.threadId ? { threadId: event.threadId } : {}),
+            type: event.type,
+            ...(event.agentId ? { agentId: event.agentId } : {}),
+            ...(event.stageType ? { stageType: event.stageType } : {}),
+            ...(event.stage ? { stage: event.stage } : {}),
+            ...(event.outcomeCode ? { outcomeCode: event.outcomeCode } : {}),
+            ...(event.metadata ? { metadata: event.metadata } : {}),
+            ...(event.message ? { message: event.message } : {}),
+            timestamp: event.timestamp ?? new Date().toISOString(),
+          },
+        };
       case 'delta':
-        return { event: 'delta', data: { content: event.text ?? '' } };
+        return {
+          event: 'delta',
+          data: {
+            ...seqPayload,
+            content: event.text ?? '',
+            emittedAt: new Date().toISOString(),
+          },
+        };
+      case 'thinking':
+        return {
+          event: 'thinking',
+          data: {
+            ...seqPayload,
+            content: event.thinkingText ?? '',
+            emittedAt: new Date().toISOString(),
+          },
+        };
       case 'step_active':
         return {
           event: 'step',
           data: {
-            id: event.agentId ?? 'unknown',
+            ...seqPayload,
+            id: event.stepId ?? event.agentId ?? 'unknown',
             label: event.message ?? '',
             agentId: event.agentId,
+            stageType: event.stageType,
+            stage: event.stage,
             status: 'active',
             icon: event.icon,
           },
@@ -1048,9 +2492,12 @@ export class AgentWorker {
         return {
           event: 'step',
           data: {
-            id: event.agentId ?? 'unknown',
+            ...seqPayload,
+            id: event.stepId ?? event.agentId ?? 'unknown',
             label: event.message ?? '',
             agentId: event.agentId,
+            stageType: event.stageType,
+            stage: event.stage,
             status: 'success',
             icon: event.icon,
           },
@@ -1059,48 +2506,54 @@ export class AgentWorker {
         return {
           event: 'step',
           data: {
-            id: event.agentId ?? 'unknown',
+            ...seqPayload,
+            id: event.stepId ?? event.agentId ?? 'unknown',
             label: event.message ?? '',
             agentId: event.agentId,
+            stageType: event.stageType,
+            stage: event.stage,
             status: 'error',
             icon: event.icon,
           },
         };
       case 'tool_call':
-        return {
-          event: 'step',
-          data: {
-            id: event.toolName ?? 'tool',
-            label: event.message ?? event.toolName ?? 'Running tool',
-            agentId: event.agentId,
-            status: 'active',
-            icon: event.icon,
-          },
-        };
+        // tool_call fires during LLM streaming and has no stepId yet.
+        // step_active always follows immediately with the same stepId and a
+        // richer label, so skip SSE step creation for tool_call to avoid
+        // creating a duplicate active row that would never resolve.
+        return null;
       case 'tool_result':
         return {
           event: 'step',
           data: {
-            id: event.toolName ?? 'tool',
-            label: event.message ?? event.toolName ?? 'Tool complete',
+            ...seqPayload,
+            id: event.stepId ?? event.toolName ?? 'tool',
+            label: event.message ?? '',
             agentId: event.agentId,
+            stageType: event.stageType,
+            stage: event.stage,
             status: event.toolSuccess ? 'success' : 'error',
             icon: event.icon,
           },
         };
-      case 'done':
+      case 'done': {
+        const doneStatus =
+          event.status ?? (event.success === false ? 'error' : event.error ? 'error' : 'complete');
         return {
           event: 'done',
           data: {
+            ...seqPayload,
             operationId,
             ...(threadId ? { threadId } : {}),
-            status: event.success === false ? 'failed' : 'complete',
+            status: doneStatus,
             success: event.success ?? true,
             error: event.error,
             message: event.message,
+            messageId: event.messageId,
             timestamp: new Date().toISOString(),
           },
         };
+      }
       default:
         return null;
     }
@@ -1114,9 +2567,11 @@ export class AgentWorker {
         const duration = job.returnvalue?.durationMs ?? 0;
         const operationId =
           job.data.kind === 'agent'
-            ? job.data.payload.operationId
+            ? job.data.payload.origin === 'system_cron'
+              ? (job.id?.toString() ?? job.data.payload.operationId)
+              : job.data.payload.operationId
             : job.data.kind === 'thread_summarization'
-              ? `summarize:${job.data.threadId}`
+              ? `summarize_${job.data.threadId}`
               : job.data.operationId;
 
         logger.info('Agent queue job completed', {
@@ -1130,9 +2585,11 @@ export class AgentWorker {
     this.worker.on('failed', (job, err) => {
       const operationId =
         job?.data.kind === 'agent'
-          ? job.data.payload.operationId
+          ? job.data.payload.origin === 'system_cron'
+            ? (job.id?.toString() ?? job.data.payload.operationId)
+            : job.data.payload.operationId
           : job?.data.kind === 'thread_summarization'
-            ? `summarize:${job.data.threadId}`
+            ? `summarize_${job.data.threadId}`
             : job?.data.kind === 'playbook_generation'
               ? job.data.operationId
               : undefined;

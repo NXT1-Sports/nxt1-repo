@@ -12,6 +12,7 @@ import {
   buildProfileSeoConfig,
   buildTeamSeoConfig,
   buildVideoSeoConfig,
+  buildPostSeoConfig,
   buildInviteShareTitle,
   buildInviteShareText,
   buildInviteUiCopy,
@@ -37,6 +38,7 @@ import {
   type ShareableProfile,
   type ShareableTeam,
   type ShareableVideo,
+  type ShareablePost,
   type SeoConfig,
 } from './index';
 import { USER_ROLES } from '../constants/user.constants';
@@ -110,6 +112,22 @@ const mockPost = {
   likes: 42,
   imageUrl: 'https://storage.googleapis.com/nxt1/posts/post-123.jpg',
   postText: 'Big win tonight. Proud of the work, proud of the team, and ready for what comes next.',
+};
+
+const mockSeoPost: ShareablePost = {
+  type: 'post',
+  id: 'post-123',
+  slug: 'big-win-friday-night',
+  userUnicode: 'john-smith-99',
+  postType: 'game-update',
+  title: 'Big win Friday night',
+  description:
+    'Big win tonight. Proud of the work, proud of the team, and ready for what comes next.',
+  authorName: 'John Smith',
+  authorAvatar: 'https://storage.googleapis.com/nxt1/profiles/john-smith.jpg',
+  createdAt: '2026-04-10T12:00:00.000Z',
+  likes: 42,
+  imageUrl: 'https://storage.googleapis.com/nxt1/posts/post-123.jpg',
 };
 
 const mockInviteTeam = {
@@ -288,6 +306,10 @@ describe('share copy builders', () => {
         senderName: 'Coach Smith',
         senderSchool: 'Lincoln High School',
         senderSport: 'Football',
+        team: {
+          name: 'Lincoln High Football',
+          sport: 'Football',
+        },
       })
     ).toBe('Join our program on NXT1.\nCoach Smith • Lincoln High School • Football');
   });
@@ -299,8 +321,84 @@ describe('share copy builders', () => {
         senderRole: USER_ROLES.DIRECTOR,
         senderName: 'Alex Director',
         senderSchool: 'Lincoln High School',
+        team: {
+          name: 'Lincoln High Football',
+          sport: 'Football',
+        },
       })
     ).toBe('Add your program to our network on NXT1.\nAlex Director • Lincoln High School');
+  });
+
+  it('should fallback to personal referral copy when coach only has school but no team', () => {
+    expect(
+      buildInviteShareTitle({
+        inviteType: 'general',
+        senderRole: USER_ROLES.COACH,
+        senderSchool: 'Lincoln High School',
+      })
+    ).toBe('Move Different With Me on NXT1');
+
+    expect(
+      buildInviteShareText({
+        inviteType: 'general',
+        senderRole: USER_ROLES.COACH,
+        senderName: 'Coach Smith',
+        senderSchool: 'Lincoln High School',
+      })
+    ).toBe(
+      'Join me & sign up free on NXT1, the sports intelligence platform.\nCoach Smith • Lincoln High School • Football'.replace(
+        ' • Football',
+        ''
+      )
+    );
+  });
+
+  it('should fallback coach invite copy to personal referral when no team context exists', () => {
+    expect(
+      buildInviteShareTitle({
+        inviteType: 'general',
+        senderRole: USER_ROLES.COACH,
+      })
+    ).toBe('Move Different With Me on NXT1');
+
+    expect(
+      buildInviteShareText({
+        inviteType: 'general',
+        senderRole: USER_ROLES.COACH,
+        senderName: 'Coach Smith',
+      })
+    ).toBe('Join me & sign up free on NXT1, the sports intelligence platform.\nCoach Smith');
+
+    expect(
+      buildInviteUiCopy({
+        inviteType: 'general',
+        senderRole: USER_ROLES.COACH,
+        senderName: 'Coach Smith',
+      })
+    ).toEqual({
+      title: 'Earn $5 in Agent X Credits',
+      subtitle: 'You earn $5 in Agent X credits every time someone joins through your invite.',
+      shareText: 'Join me & sign up free on NXT1, the sports intelligence platform.\nCoach Smith',
+      howItWorksText:
+        'Share this QR code or link with friends and teammates. When they join through your invite, they land inside NXT1 and you earn $5 in Agent X credits.',
+    });
+  });
+
+  it('should fallback director invite copy to personal referral when no team context exists', () => {
+    expect(
+      buildInviteShareTitle({
+        inviteType: 'general',
+        senderRole: USER_ROLES.DIRECTOR,
+      })
+    ).toBe('Move Different With Me on NXT1');
+
+    expect(
+      buildInviteShareText({
+        inviteType: 'general',
+        senderRole: USER_ROLES.DIRECTOR,
+        senderName: 'Alex Director',
+      })
+    ).toBe('Join me & sign up free on NXT1, the sports intelligence platform.\nAlex Director');
   });
 });
 
@@ -543,6 +641,70 @@ describe('buildVideoSeoConfig', () => {
 });
 
 // ============================================
+// POST SEO CONFIG TESTS
+// ============================================
+
+describe('buildPostSeoConfig', () => {
+  let config: SeoConfig;
+
+  beforeAll(() => {
+    config = buildPostSeoConfig(mockSeoPost);
+  });
+
+  it('should generate canonical URL with user unicode and post id', () => {
+    expect(config.page.canonicalUrl).toBe('https://nxt1sports.com/post/john-smith-99/post-123');
+  });
+
+  it('should set Open Graph type to article', () => {
+    expect(config.openGraph?.type).toBe('article');
+  });
+
+  it('should set Twitter card to summary_large_image', () => {
+    expect(config.twitter?.card).toBe('summary_large_image');
+  });
+
+  it('should include post keywords', () => {
+    expect(config.page.keywords).toContain('John Smith');
+    expect(config.page.keywords).toContain('game-update');
+    expect(config.page.keywords).toContain('sports post');
+  });
+
+  describe('structured data (SocialMediaPosting)', () => {
+    it('should set @type to SocialMediaPosting', () => {
+      expect(config.structuredData?.['@type']).toBe('SocialMediaPosting');
+    });
+
+    it('should include publish date and author', () => {
+      expect(config.structuredData?.['datePublished']).toBe('2026-04-10T12:00:00.000Z');
+      const author = config.structuredData?.['author'] as Record<string, unknown>;
+      expect(author?.['@type']).toBe('Person');
+      expect(author?.['name']).toBe('John Smith');
+    });
+  });
+
+  describe('edge cases', () => {
+    it('should fallback to /post/:postId when user unicode is missing', () => {
+      const noUnicode = { ...mockSeoPost, userUnicode: undefined };
+      const result = buildPostSeoConfig(noUnicode);
+      expect(result.page.canonicalUrl).toBe('https://nxt1sports.com/post/post-123');
+    });
+
+    it('should use default image when no post image/avatar exists', () => {
+      const noImage = { ...mockSeoPost, imageUrl: undefined, authorAvatar: undefined };
+      const result = buildPostSeoConfig(noImage);
+      expect(result.page.image).toContain('og-image.jpg');
+    });
+
+    it('should respect custom base URL for canonical generation', () => {
+      const result = buildPostSeoConfig(mockSeoPost, 'https://app.nxt1sports.com/');
+      expect(result.page.canonicalUrl).toBe(
+        'https://app.nxt1sports.com/post/john-smith-99/post-123'
+      );
+    });
+  });
+});
+
+// ============================================
 // UTILITY FUNCTION TESTS
 // ============================================
 
@@ -613,9 +775,10 @@ describe('SEO Config Integration', () => {
     const profileConfig = buildProfileSeoConfig(mockProfile);
     const teamConfig = buildTeamSeoConfig(mockTeam);
     const videoConfig = buildVideoSeoConfig(mockVideo);
+    const postConfig = buildPostSeoConfig(mockSeoPost);
 
     // All configs should have required page metadata
-    [profileConfig, teamConfig, videoConfig].forEach((config) => {
+    [profileConfig, teamConfig, videoConfig, postConfig].forEach((config) => {
       expect(config.page.title).toBeTruthy();
       expect(config.page.description).toBeTruthy();
       expect(config.page.canonicalUrl).toMatch(/^https:\/\/nxt1sports\.com/);
@@ -629,9 +792,10 @@ describe('SEO Config Integration', () => {
     const profileUrl = buildProfileSeoConfig(mockProfile).page.canonicalUrl;
     const teamUrl = buildTeamSeoConfig(mockTeam).page.canonicalUrl;
     const videoUrl = buildVideoSeoConfig(mockVideo).page.canonicalUrl;
+    const postUrl = buildPostSeoConfig(mockSeoPost).page.canonicalUrl;
 
-    const urls = new Set([profileUrl, teamUrl, videoUrl]);
-    expect(urls.size).toBe(3);
+    const urls = new Set([profileUrl, teamUrl, videoUrl, postUrl]);
+    expect(urls.size).toBe(4);
   });
 
   it('should not have undefined values in page title', () => {

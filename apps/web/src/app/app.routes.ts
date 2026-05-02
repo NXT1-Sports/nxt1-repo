@@ -79,22 +79,12 @@ export const routes: Routes = [
       {
         path: '',
         pathMatch: 'full',
-        redirectTo: 'agent',
+        redirectTo: 'agent-x',
       },
 
-      // Messages - User Messages & Conversations
-      {
-        path: 'messages',
-        loadChildren: () => import('./features/messages/messages.routes'),
-      },
-
-      // Agent X - AI Assistant (also accessible via /agent for mobile parity)
+      // Agent X - AI Assistant (canonical route)
       {
         path: 'agent-x',
-        loadChildren: () => import('./features/agent-x/agent-x.routes'),
-      },
-      {
-        path: 'agent',
         loadChildren: () => import('./features/agent-x/agent-x.routes'),
       },
 
@@ -244,6 +234,15 @@ export const routes: Routes = [
       {
         path: 'privacy',
         loadChildren: () => import('./legal/privacy/privacy.routes').then((m) => m.PRIVACY_ROUTES),
+      },
+
+      // ── Post Detail Route ──────────────────────────────────────────────────
+      // SSR-rendered route host for deep-linked post URLs.
+      // In-browser: opens PostDetailOverlayComponent, navigates back on close.
+      // SEO: serves Open Graph meta for social link previews.
+      {
+        path: 'post/:userUnicode/:postId',
+        loadChildren: () => import('./features/post/post.routes'),
       },
     ],
   },

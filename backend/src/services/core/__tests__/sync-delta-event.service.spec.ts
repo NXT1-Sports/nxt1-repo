@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockCreate = vi.fn();
 const mockFind = vi.fn();
-const mockSafeTrack = vi.fn();
 
 vi.mock('../../../models/core/sync-delta-event.model.js', () => ({
   SyncDeltaEventModel: {
@@ -11,22 +10,15 @@ vi.mock('../../../models/core/sync-delta-event.model.js', () => ({
   },
 }));
 
-vi.mock('../analytics-logger.service.js', () => ({
-  getAnalyticsLoggerService: () => ({
-    safeTrack: (...args: unknown[]) => mockSafeTrack(...args),
-  }),
-}));
-
 const { SyncDeltaEventService } = await import('../sync-delta-event.service.js');
 
 describe('SyncDeltaEventService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockCreate.mockResolvedValue({ _id: 'sync_evt_1' });
-    mockSafeTrack.mockResolvedValue(undefined);
   });
 
-  it('persists a sync delta event and mirrors it to analytics', async () => {
+  it('persists a sync delta event in the dedicated sync delta store', async () => {
     const service = new SyncDeltaEventService();
 
     const result = await service.record({
@@ -66,14 +58,6 @@ describe('SyncDeltaEventService', () => {
       source: 'maxpreps',
       promptSummary: expect.stringContaining('football sync via maxpreps'),
     });
-    expect(mockSafeTrack).toHaveBeenCalledWith(
-      expect.objectContaining({
-        subjectId: 'user_123',
-        domain: 'system',
-        eventType: 'sync_completed',
-        value: 2,
-      })
-    );
     expect(result.eventId).toBe('sync_evt_1');
   });
 

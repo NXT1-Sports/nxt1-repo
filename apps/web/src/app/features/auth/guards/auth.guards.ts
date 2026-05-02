@@ -33,7 +33,7 @@
  * ```
  */
 
-import { inject, PLATFORM_ID } from '@angular/core';
+import { inject, isDevMode, PLATFORM_ID } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
 import { Router, type CanActivateFn } from '@angular/router';
 import { toObservable } from '@angular/core/rxjs-interop';
@@ -81,6 +81,11 @@ function getAuthState(authService: AuthFlowService): AuthState {
     error: authService.error(),
     signupInProgress: false,
   };
+}
+
+function isEmailVerificationRequired(): boolean {
+  // Development-only bypass to speed local auth testing.
+  return !isDevMode();
 }
 
 // ============================================
@@ -260,7 +265,11 @@ export const onboardingInProgressGuard: CanActivateFn = () => {
 
     // Email not verified - redirect to verify-email page (for email signups)
     // Skip for OAuth users (they're pre-verified)
-    if (state.user.provider === 'email' && state.user.emailVerified === false) {
+    if (
+      isEmailVerificationRequired() &&
+      state.user.provider === 'email' &&
+      state.user.emailVerified === false
+    ) {
       return router.createUrlTree([AUTH_ROUTES.VERIFY_EMAIL]);
     }
 
@@ -309,6 +318,10 @@ export const emailVerificationGuard: CanActivateFn = () => {
     // Not authenticated - redirect to login
     if (!state.user) {
       return router.createUrlTree([AUTH_ROUTES.ROOT]);
+    }
+
+    if (!isEmailVerificationRequired()) {
+      return router.createUrlTree([AUTH_ROUTES.ONBOARDING]);
     }
 
     // OAuth users are pre-verified - skip to onboarding

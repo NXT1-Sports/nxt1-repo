@@ -75,6 +75,8 @@ import { ShareService } from '../../core/services/native/share.service';
 import { TeamProfileApiService } from '../../core/services/api/team-profile-api.service';
 import { environment } from '../../../environments/environment';
 
+const TEAM_INTEL_ENABLED = false;
+
 @Component({
   selector: 'app-team',
   standalone: true,
@@ -137,6 +139,7 @@ import { environment } from '../../../environments/environment';
         [teamSlug]="teamSlug()"
         [teamId]="routeTeamCode()"
         [isTeamAdmin]="isTeamAdmin()"
+        [teamIntelEnabled]="teamIntelEnabled"
         [skipInternalLoad]="true"
         [hideFooterFab]="true"
         (backClick)="onBackClick()"
@@ -277,6 +280,7 @@ import { environment } from '../../../environments/environment';
 export class TeamPage {
   protected readonly agentXLogoPath = AGENT_X_LOGO_PATH;
   protected readonly agentXLogoPolygon = AGENT_X_LOGO_POLYGON;
+  protected readonly teamIntelEnabled = TEAM_INTEL_ENABLED;
 
   // ============================================
   // DEPENDENCIES
@@ -332,7 +336,7 @@ export class TeamPage {
    */
   protected readonly teamFooterButtons = computed<ActionFooterButton[]>(() => {
     if (!this.isTeamAdmin()) return [];
-    if (this.teamProfile.activeTab() === 'intel') {
+    if (this.teamIntelEnabled && this.teamProfile.activeTab() === 'intel') {
       return [
         {
           id: 'team-intel',
@@ -425,7 +429,9 @@ export class TeamPage {
             if (teamId) {
               void this.teamApi.trackPageView(teamId, viewerId);
               // Load intel eagerly so the intel tab renders instantly with no skeleton flash.
-              void this.intel.loadTeamIntel(teamId);
+              if (this.teamIntelEnabled) {
+                void this.intel.loadTeamIntel(teamId);
+              }
             }
           } else {
             this.teamProfile.setError(response.error ?? 'Failed to load team profile');
@@ -483,7 +489,7 @@ export class TeamPage {
         });
 
         const teamId = response.data.team?.id;
-        if (teamId) {
+        if (teamId && this.teamIntelEnabled) {
           await this.intel.loadTeamIntel(teamId, true);
         }
       }
@@ -735,6 +741,8 @@ export class TeamPage {
   }
 
   protected async onGenerateTeamIntel(): Promise<void> {
+    if (!this.teamIntelEnabled) return;
+
     const teamId = this.teamProfile.team()?.id ?? '';
     const hasReport = !!this.intel.teamReport();
     await this.bottomSheet.openSheet({

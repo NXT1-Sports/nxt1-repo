@@ -13,7 +13,7 @@
 import { Router, type Request, type Response } from 'express';
 import { adminGuard } from '../../middleware/auth/auth.middleware.js';
 import { logger } from '../../utils/logger.js';
-import { GlobalKnowledgeModel } from '../../modules/agent/memory/global-knowledge.model.js';
+import { getGlobalKnowledgeModel } from '../../modules/agent/memory/global-knowledge.model.js';
 import { KnowledgeIngestionService } from '../../modules/agent/memory/knowledge-ingestion.service.js';
 import type { KnowledgeIngestionRequest } from '@nxt1/core';
 import { llmService } from './shared.js';
@@ -25,6 +25,7 @@ const router = Router();
 
 router.get('/knowledge/status', adminGuard, async (_req: Request, res: Response) => {
   try {
+    const GlobalKnowledgeModel = getGlobalKnowledgeModel();
     const [totalCount, byCategory, recentDocs] = await Promise.all([
       GlobalKnowledgeModel.countDocuments(),
       GlobalKnowledgeModel.aggregate<{ _id: KnowledgeCategory; chunks: number; docs: number }>([

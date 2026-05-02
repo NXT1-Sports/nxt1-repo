@@ -4,11 +4,15 @@ Node.js/Express API server for the NXT1 Sports Platform. Source of truth for all
 business logic, data aggregation, AI orchestration (Agent X), security
 enforcement, and third-party integrations.
 
+This service is deployed separately from the SSR web app. In this monorepo,
+Firebase App Hosting is reserved for `apps/web`; the backend API should run on
+Cloud Run or another server runtime.
+
 ## Technology Stack
 
 | Layer            | Technology                      | Version |
 | ---------------- | ------------------------------- | ------- |
-| Runtime          | Node.js (ESM)                   | 20 LTS  |
+| Runtime          | Node.js (ESM)                   | 22 LTS  |
 | Framework        | Express                         | 5.x     |
 | Language         | TypeScript (strict)             | —       |
 | Databases        | Firestore + MongoDB/Mongoose    | —       |
@@ -30,7 +34,6 @@ enforcement, and third-party integrations.
 ```
 backend/
 ├── .env                          # Environment variables (not committed)
-├── apphosting.yaml               # Firebase App Hosting config
 ├── package.json
 ├── tsconfig.json
 ├── vitest.config.ts
@@ -235,14 +238,27 @@ over Cloud Storage volumes.
 For Google Workspace MCP, use
 [backend/scripts/deploy-google-workspace-mcp.sh](/Users/johnkeller/My Mac
 (Johns-MacBook-Pro.local)/Main/NXT1/nxt1-monorepo/backend/scripts/deploy-google-workspace-mcp.sh).
-After deployment, set `GOOGLE_WORKSPACE_MCP_URL` in App Hosting / Secret Manager
-to the service `/mcp` URL and add the service `/oauth2callback` URL to the
-Google OAuth client. | `npm run dev:staging` | Dev server with staging config |
-| `npm run dev:prod` | Dev server with production config | | `npm run build` |
-Compile TypeScript to `dist/` | | `npm run build:watch` | Watch mode compilation
-| | `npm run typecheck` | Type-check without emitting | | `npm run lint` | Run
-ESLint | | `npm run lint:fix` | Auto-fix lint issues | | `npm run clean` |
-Remove dist/, node_modules/ |
+After deployment, set `GOOGLE_WORKSPACE_MCP_URL` in the backend runtime
+environment / Secret Manager to the service `/mcp` URL and add the service
+`/oauth2callback` URL to the Google OAuth client. | `npm run dev:staging` | Dev
+server with staging config | | `npm run dev:prod` | Dev server with production
+config | | `npm run build` | Compile TypeScript to `dist/` | |
+`npm run build:watch` | Watch mode compilation | | `npm run typecheck` |
+Type-check without emitting | | `npm run lint` | Run ESLint | |
+`npm run lint:fix` | Auto-fix lint issues | | `npm run clean` | Remove dist/,
+node_modules/ |
+
+For FFmpeg MCP, use [backend/scripts/deploy-ffmpeg-mcp.sh](/Users/johnkeller/My
+Mac
+(Johns-MacBook-Pro.local)/Main/NXT1/nxt1-monorepo/backend/scripts/deploy-ffmpeg-mcp.sh).
+This deploys an authenticated Cloud Run service backed by
+[backend/mcp/ffmpeg-mcp/Dockerfile](/Users/johnkeller/My Mac
+(Johns-MacBook-Pro.local)/Main/NXT1/nxt1-monorepo/backend/mcp/ffmpeg-mcp/Dockerfile)
+and exposes Streamable HTTP on `/mcp`. After deployment, set these backend
+runtime secrets:
+
+- `FFMPEG_MCP_URL=<service-url>/mcp`
+- `FFMPEG_MCP_API_TOKEN=<same bearer token value used by the service>`
 
 ### Testing
 

@@ -212,6 +212,41 @@ describe('createLRUCache', () => {
     expect(() => createLRUCache({ maxSize: 0 })).toThrow();
     expect(() => createLRUCache({ maxSize: -1 })).toThrow();
   });
+
+  it('should invalidate by pattern when namespace is set', async () => {
+    // Regression: invalidate() was comparing patterns against namespaced keys
+    // without applying namespace to the pattern, causing silent no-op invalidation
+    // when a namespace like 'mobile:' was configured.
+    const cache = createLRUCache<string>({ maxSize: 10, ttl: 60000, namespace: 'mobile:' });
+
+    await cache.set('nxt1:api:profile:user1', 'profile-data-user1');
+    await cache.set('nxt1:api:profile:user2', 'profile-data-user2');
+    await cache.set('nxt1:api:feed:latest', 'feed-data');
+
+    // Invalidate profile keys using the NON-namespaced pattern (caller should not know about namespace)
+    const count = await cache.invalidate('nxt1:api:profile:*');
+
+    expect(count).toBe(2);
+    expect(await cache.get('nxt1:api:profile:user1')).toBeNull();
+    expect(await cache.get('nxt1:api:profile:user2')).toBeNull();
+    // Feed entry must survive
+    expect(await cache.get('nxt1:api:feed:latest')).toBe('feed-data');
+  });
+
+  it('should invalidate by pattern without namespace', async () => {
+    const cache = createLRUCache<string>({ maxSize: 10, ttl: 60000 });
+
+    await cache.set('nxt1:api:profile:user1', 'profile-data-user1');
+    await cache.set('nxt1:api:profile:user2', 'profile-data-user2');
+    await cache.set('nxt1:api:feed:latest', 'feed-data');
+
+    const count = await cache.invalidate('nxt1:api:profile:*');
+
+    expect(count).toBe(2);
+    expect(await cache.get('nxt1:api:profile:user1')).toBeNull();
+    expect(await cache.get('nxt1:api:profile:user2')).toBeNull();
+    expect(await cache.get('nxt1:api:feed:latest')).toBe('feed-data');
+  });
 });
 
 // ============================================

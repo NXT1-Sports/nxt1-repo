@@ -17,13 +17,16 @@ describe('google oauth constants', () => {
   });
 
   it('keeps the gmail-only connect flow narrower than the full workspace bundle', () => {
-    expect(GOOGLE_GMAIL_CONNECT_SCOPES).toEqual(['https://www.googleapis.com/auth/gmail.modify']);
+    expect(GOOGLE_GMAIL_CONNECT_SCOPES).toEqual([
+      'https://www.googleapis.com/auth/gmail.readonly',
+      'https://www.googleapis.com/auth/gmail.send',
+    ]);
   });
 
   it('recognizes new canonical workspace grants', () => {
     expect(
       hasGrantedGoogleWorkspaceScopes(
-        'openid https://www.googleapis.com/auth/gmail.modify https://www.googleapis.com/auth/calendar.readonly'
+        'openid https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/calendar.readonly'
       )
     ).toBe(true);
   });

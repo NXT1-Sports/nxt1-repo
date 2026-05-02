@@ -1,6 +1,45 @@
 const REDACTED_TOKEN = '[redacted]';
 const REDACTED_ROUTE = '[redacted-route]';
 
+/**
+ * Replaces backend infrastructure terms that must never appear in user-visible text.
+ * Platform/app names (Hudl, YouTube, Instagram, etc.) are intentionally preserved —
+ * users interact with those directly. Only internal service identifiers are scrubbed.
+ */
+function sanitizeInfrastructureTerms(value: string): string {
+  return (
+    value
+      // Firebase Storage
+      .replace(/\bFirebase\s+Storage\b/gi, 'cloud storage')
+      // Firebase signed URL(s)
+      .replace(/\bFirebase\s+signed\s+URLs?\b/gi, (m) =>
+        /urls?$/i.test(m) ? 'secure media links' : 'secure media link'
+      )
+      // Raw firebasestorage / storage.googleapis.com URLs
+      .replace(
+        /https?:\/\/(?:storage|firebasestorage)\.googleapis\.com\/[^\s"')\]]+/gi,
+        '[media-url]'
+      )
+      // Apify — internal automation service; order matters (longest match first)
+      .replace(/\bApify\s+MP4\s+acquisition\b/gi, 'video format conversion')
+      .replace(/\bApify\s+downloader\b/gi, 'video converter')
+      .replace(/\bApify\s+actor\b/gi, 'automation task')
+      .replace(/\bApify\b/gi, 'video processing')
+      // Auth infrastructure terms
+      .replace(/\bauth-gated\b/gi, 'platform-secured')
+      .replace(/\bauth-backed\b/gi, 'platform-secured')
+      // Streaming protocol specifics
+      .replace(/\bHLS\s+manifests?\b/gi, 'video stream files')
+      .replace(/\bDASH\s+manifests?\b/gi, 'video stream files')
+      .replace(/\.m3u8\b/gi, '')
+      .replace(/\.mpd\b/gi, '')
+      // Generic "signed URL" (a backend transport concept)
+      .replace(/\bsigned\s+URLs?\b/gi, (m) => (/urls?$/i.test(m) ? 'secure links' : 'secure link'))
+      // Collapse any double spaces left behind by replacements
+      .replace(/  +/g, ' ')
+  );
+}
+
 const EXPLICIT_SENSITIVE_KEYS = new Set([
   'id',
   'ids',
@@ -56,11 +95,30 @@ function sanitizeStringInternal(value: string): string {
     .replace(
       /\b(?:uid|unicode|team\s*code|teamcode|cursor|next\s*cursor)\s*[:#]?\s*[A-Za-z0-9_-]+/gi,
       (match) => match.replace(/[:#]?\s*[A-Za-z0-9_-]+$/i, ` ${REDACTED_TOKEN}`)
+    )
+    .replace(
+      /\b(?:userid|teamid|orgid|organizationid|postid|eventid|threadid|sessionid|operationid|approvalid)\s*[:#]?\s*[A-Za-z0-9_-]+/gi,
+      (match) => match.replace(/[:#]?\s*[A-Za-z0-9_-]+$/i, ` ${REDACTED_TOKEN}`)
     );
 }
 
 export function sanitizeAgentOutputText(value: string): string {
-  return sanitizeStringInternal(value);
+  const sanitized = sanitizeStringInternal(value);
+
+  // Strip any remaining [redacted] / [redacted-route] tokens from user-visible text.
+  // These tokens are fine inside JSON payloads (sanitizeAgentPayload) but must never
+  // appear in streamed natural-language responses shown to the user.
+  const redactedClean = sanitized
+    // Remove "LabelID: [redacted]" or "LabelID [redacted]" patterns (e.g. "TeamID: [redacted]")
+    .replace(/\b[A-Za-z]+ID\s*[:#]?\s*\[redacted(?:-route)?\]/gi, '')
+    // Remove any remaining standalone [redacted] or [redacted-route] tokens
+    .replace(/\s*\[redacted(?:-route)?\]\s*/gi, ' ')
+    // Collapse any double spaces left behind
+    .replace(/  +/g, ' ');
+
+  // Final pass: scrub backend infrastructure terms (Firebase, Apify, auth-gated, etc.)
+  // Only applied to user-visible text, not to LLM observation payloads.
+  return sanitizeInfrastructureTerms(redactedClean);
 }
 
 export function sanitizeAgentPayload<T>(value: T): T {
@@ -75,6 +133,8 @@ export function sanitizeAgentPayload<T>(value: T): T {
   if (value && typeof value === 'object') {
     const sanitizedEntries = Object.entries(value as Record<string, unknown>)
       .filter(([key]) => !isSensitiveKey(key))
+      // Strip undefined values — Firestore rejects `undefined` at any nesting level.
+      .filter(([, val]) => val !== undefined)
       .map(([key, entry]) => [key, sanitizeAgentPayload(entry)]);
     return Object.fromEntries(sanitizedEntries) as T;
   }

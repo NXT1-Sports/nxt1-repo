@@ -9,6 +9,7 @@ import {
   NxtToastService,
   NxtLoggingService,
   NxtBreadcrumbService,
+  NxtModalService,
   ANALYTICS_ADAPTER,
   type SettingsActionEvent,
   type SettingsCopyEvent,
@@ -89,6 +90,7 @@ export class AccountInformationComponent implements OnInit {
   private readonly authService = inject(AuthFlowService);
   private readonly navController = inject(NavController);
   private readonly bottomSheet = inject(NxtBottomSheetService);
+  private readonly modal = inject(NxtModalService);
   private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('AccountInformationComponent');
   private readonly breadcrumb = inject(NxtBreadcrumbService);
@@ -224,7 +226,14 @@ export class AccountInformationComponent implements OnInit {
         this.logger.info('Delete account requested from account information');
         this.breadcrumb.trackUserAction('delete-account-requested');
 
-        const result = await this.authService.deleteAccount();
+        await this.modal.showLoading({ message: 'Deleting account…', backdropDismiss: false });
+        let result: { success: boolean; error?: string };
+        try {
+          result = await this.authService.deleteAccount();
+        } finally {
+          await this.modal.hideLoading();
+        }
+
         if (result.success) {
           this.logger.info('Account deleted — redirecting to auth');
           await this.navController.navigateRoot('/auth');

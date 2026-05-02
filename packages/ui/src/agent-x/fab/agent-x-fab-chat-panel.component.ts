@@ -46,10 +46,10 @@ import type { AgentXMessage } from '@nxt1/core/ai';
 import { NxtIconComponent } from '../../components/icon/icon.component';
 import { NxtChatBubbleComponent } from '../../components/chat-bubble';
 import { NxtToastService } from '../../services/toast/toast.service';
-import { AgentXService } from '../agent-x.service';
-import type { ConfirmationActionEvent } from '../agent-x-confirmation-card.component';
-import type { DraftSubmittedEvent } from '../agent-x-draft-card.component';
-import type { AskUserReplyEvent } from '../agent-x-ask-user-card.component';
+import { AgentXService } from '../services/agent-x.service';
+import type { ConfirmationActionEvent } from '../components/cards/agent-x-confirmation-card.component';
+import type { DraftSubmittedEvent } from '../components/cards/agent-x-draft-card.component';
+import type { AskUserReplyEvent } from '../components/cards/agent-x-ask-user-card.component';
 import { AgentXFabService } from './agent-x-fab.service';
 import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/assets';
 

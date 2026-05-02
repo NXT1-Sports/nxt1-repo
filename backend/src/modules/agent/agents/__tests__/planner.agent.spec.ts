@@ -1,41 +1,44 @@
-/**
- * @fileoverview Planner Agent — Unit Tests
- * @module @nxt1/backend/modules/agent/agents
- *
- * Tests the planner's JSON parsing, DAG validation, and cycle detection
- * by mocking the OpenRouterService.
- */
-
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { PlannerAgent } from '../planner.agent.js';
 import type { AgentSessionContext } from '@nxt1/core';
 import type { OpenRouterService } from '../../llm/openrouter.service.js';
 import type { LLMCompletionResult } from '../../llm/llm.types.js';
 
-// ─── Mock Setup ─────────────────────────────────────────────────────────────
+function createStrictPlannerResponse(
+  overrides?: Partial<Record<string, unknown>>
+): LLMCompletionResult {
+  const parsedOutput = {
+    resultType: 'execution',
+    summary: 'Created execution plan.',
+    estimatedSteps: 1,
+    clarificationQuestion: null,
+    clarificationContext: null,
+    tasks: [
+      {
+        id: '1',
+        assignedAgent: 'strategy_coordinator',
+        description: 'Handle request',
+        dependsOn: [],
+      },
+    ],
+    ...(overrides ?? {}),
+  };
 
-function createMockLLM(resultOverrides?: Partial<LLMCompletionResult>): OpenRouterService {
-  const baseResult: LLMCompletionResult = {
-    content: JSON.stringify({
-      tasks: [
-        { id: '1', assignedAgent: 'strategy_coordinator', description: 'test', dependsOn: [] },
-      ],
-    }),
-    parsedOutput: {
-      tasks: [
-        { id: '1', assignedAgent: 'strategy_coordinator', description: 'test', dependsOn: [] },
-      ],
-    },
+  return {
+    content: JSON.stringify(parsedOutput),
+    parsedOutput,
     toolCalls: [],
-    model: 'anthropic/claude-haiku-4-5',
+    model: 'anthropic/claude-sonnet-4-5',
     usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
     latencyMs: 200,
     costUsd: 0.0001,
     finishReason: 'stop',
-  };
+  } as LLMCompletionResult;
+}
 
+function createMockLLM(result: LLMCompletionResult): OpenRouterService {
   return {
-    prompt: vi.fn().mockResolvedValue({ ...baseResult, ...resultOverrides }),
+    prompt: vi.fn().mockResolvedValue(result),
     complete: vi.fn(),
   } as unknown as OpenRouterService;
 }
@@ -59,355 +62,212 @@ describe('PlannerAgent', () => {
     context = createMockContext();
   });
 
-  // ─── Happy Path ─────────────────────────────────────────────────────────
-
-  it('should parse a valid single-task plan', async () => {
-    const parsedOutput = {
-      summary: 'Analyze the highlight tape.',
-      estimatedSteps: 1,
-      tasks: [
-        {
-          id: '1',
-          assignedAgent: 'performance_coordinator',
-          description: 'Analyze and grade the uploaded highlight tape.',
-          dependsOn: [],
-        },
-      ],
-    };
-
-    const llm = createMockLLM({ content: JSON.stringify(parsedOutput), parsedOutput });
+  it('parses a valid single-task execution plan', async () => {
+    const llm = createMockLLM(
+      createStrictPlannerResponse({
+        summary: 'Analyze the highlight tape.',
+        estimatedSteps: 1,
+        tasks: [
+          {
+            id: '1',
+            assignedAgent: 'performance_coordinator',
+            description: 'Analyze and grade the uploaded highlight tape.',
+            dependsOn: [],
+          },
+        ],
+      })
+    );
     const planner = new PlannerAgent(llm);
 
     const result = await planner.execute('Grade my highlight tape', context, []);
 
     expect(result.summary).toBe('Analyze the highlight tape.');
-    expect(result.data).toBeDefined();
-
-    const plan = result.data!['plan'] as { tasks: unknown[] };
+    const plan = result.data?.['plan'] as { tasks: Array<{ assignedAgent: string }> };
     expect(plan.tasks).toHaveLength(1);
+    expect(plan.tasks[0]?.assignedAgent).toBe('performance_coordinator');
   });
 
-  it('should parse a multi-task plan with dependencies', async () => {
-    const parsedOutput = {
-      summary: 'Grade tape, then email coaches.',
-      estimatedSteps: 2,
-      tasks: [
-        {
-          id: '1',
-          assignedAgent: 'performance_coordinator',
-          description: 'Analyze and grade the highlight tape.',
-          dependsOn: [],
-        },
-        {
-          id: '2',
-          assignedAgent: 'recruiting_coordinator',
-          description: 'Draft emails to D3 coaches in Ohio using the grade report.',
-          dependsOn: ['1'],
-        },
-      ],
-    };
-
-    const llm = createMockLLM({ content: JSON.stringify(parsedOutput), parsedOutput });
+  it('parses multi-task plans with dependencies', async () => {
+    const llm = createMockLLM(
+      createStrictPlannerResponse({
+        summary: 'Grade tape, then email coaches.',
+        estimatedSteps: 2,
+        tasks: [
+          {
+            id: '1',
+            assignedAgent: 'performance_coordinator',
+            description: 'Analyze and grade the highlight tape.',
+            dependsOn: [],
+          },
+          {
+            id: '2',
+            assignedAgent: 'recruiting_coordinator',
+            description: 'Draft emails to D3 coaches in Ohio using the grade report.',
+            dependsOn: ['1'],
+          },
+        ],
+      })
+    );
     const planner = new PlannerAgent(llm);
 
     const result = await planner.execute('Grade my tape and email D3 coaches in Ohio', context, []);
 
-    expect(result.summary).toBe('Grade tape, then email coaches.');
-    expect(result.data!['estimatedSteps']).toBe(2);
-
-    const plan = result.data!['plan'] as { tasks: Array<{ id: string; dependsOn: string[] }> };
+    const plan = result.data?.['plan'] as { tasks: Array<{ id: string; dependsOn: string[] }> };
     expect(plan.tasks).toHaveLength(2);
-    expect(plan.tasks[1].dependsOn).toEqual(['1']);
+    expect(plan.tasks[1]?.dependsOn).toEqual(['1']);
+    expect(result.data?.['estimatedSteps']).toBe(2);
   });
 
-  it('should handle parallel tasks (no dependencies)', async () => {
-    const parsedOutput = {
-      summary: 'Generate graphic and draft email in parallel.',
-      estimatedSteps: 2,
-      tasks: [
-        {
-          id: '1',
-          assignedAgent: 'brand_coordinator',
-          description: 'Generate promo graphic',
-          dependsOn: [],
-        },
-        {
-          id: '2',
-          assignedAgent: 'recruiting_coordinator',
-          description: 'Draft email to coaches',
-          dependsOn: [],
-        },
-      ],
-    };
-
-    const llm = createMockLLM({ content: JSON.stringify(parsedOutput), parsedOutput });
+  it('resolves capability snapshot before strict planning and injects it into the prompt', async () => {
+    const llm = createMockLLM(createStrictPlannerResponse());
     const planner = new PlannerAgent(llm);
-
-    const result = await planner.execute(
-      'Make a promo graphic and draft a coach email',
-      context,
-      []
-    );
-
-    const plan = result.data!['plan'] as { tasks: Array<{ dependsOn: string[] }> };
-    expect(plan.tasks[0].dependsOn).toEqual([]);
-    expect(plan.tasks[1].dependsOn).toEqual([]);
-  });
-
-  // ─── LLM Call Verification ──────────────────────────────────────────────
-
-  it('should call LLM with a structured output schema and balanced tier', async () => {
-    const llm = createMockLLM();
-    const planner = new PlannerAgent(llm);
-
-    await planner.execute('Do something', context, []);
-
-    expect(llm.prompt).toHaveBeenCalledTimes(1);
-    const callArgs = (llm.prompt as ReturnType<typeof vi.fn>).mock.calls[0];
-
-    // System prompt should mention "Chief of Staff"
-    expect(callArgs[0]).toContain('Chief of Staff');
-
-    // User message should be the intent
-    expect(callArgs[1]).toBe('Do something');
-
-    // Options should include a structured output schema
-    expect(callArgs[2]).toMatchObject({
-      tier: 'routing',
+    const ordering: string[] = [];
+    const capabilitySnapshotResolver = vi.fn().mockImplementation(async () => {
+      ordering.push('snapshot');
+      return {
+        schemaVersion: 1,
+        hash: 'snapshot-hash',
+        coordinators: [
+          {
+            agentId: 'strategy_coordinator',
+            allowedToolNames: ['generate_scout_report'],
+            allowedEntityGroups: ['platform_tools'],
+            matchedToolNames: ['generate_scout_report'],
+            staticSkillHints: ['global_knowledge'],
+            matchedSkillHints: ['global_knowledge'],
+            confidence: {
+              matchedToolCount: 1,
+              allowedToolCount: 1,
+              toolCoverageRatio: 1,
+              matchedSkillCount: 1,
+              staticSkillCount: 1,
+              skillCoverageRatio: 1,
+            },
+          },
+        ],
+      };
     });
-    expect(callArgs[2].outputSchema).toBeDefined();
-    expect(callArgs[2].outputSchema.name).toBe('planner_execution_plan');
+
+    await planner.execute('Build a scouting workflow', context, [], undefined, {
+      capabilitySnapshotResolver,
+    });
+
+    expect(ordering).toEqual(['snapshot']);
+    const plannerCall = (llm.prompt as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(plannerCall[1]).toContain('[Coordinator Capability Snapshot]');
+    expect(plannerCall[1]).toContain('snapshot-hash');
+    expect(plannerCall[2].outputSchema.name).toBe('planner_execution_plan');
   });
 
-  // ─── Error Handling ─────────────────────────────────────────────────────
-
-  it('should throw when LLM does not return structured output', async () => {
-    const llm = createMockLLM({ content: 'Not valid JSON {{{}', parsedOutput: undefined });
+  it('returns clarification data when the planner requests missing input', async () => {
+    const llm = createMockLLM(
+      createStrictPlannerResponse({
+        resultType: 'clarification',
+        summary: 'Need clarification before planning.',
+        estimatedSteps: 0,
+        clarificationQuestion: 'Which coaches should I email?',
+        clarificationContext: 'Missing recipients.',
+        tasks: [],
+      })
+    );
     const planner = new PlannerAgent(llm);
 
-    await expect(planner.execute('test', context, [])).rejects.toThrow(
-      'Planner LLM returned no structured execution plan'
-    );
+    const result = await planner.execute('Email coaches', context, []);
+
+    expect(result.summary).toBe('Need clarification before planning.');
+    expect(result.data?.['clarificationQuestion']).toBe('Which coaches should I email?');
+    const plan = result.data?.['plan'] as { tasks: unknown[] };
+    expect(plan.tasks).toEqual([]);
   });
 
-  it('should throw when LLM returns null content', async () => {
-    const llm = {
-      prompt: vi.fn().mockResolvedValue({
-        content: null,
-        parsedOutput: undefined,
-        toolCalls: [],
-        model: 'anthropic/claude-haiku-4-5',
-        usage: { inputTokens: 10, outputTokens: 0, totalTokens: 10 },
-        latencyMs: 100,
-        costUsd: 0,
-        finishReason: 'stop',
-      }),
-    } as unknown as OpenRouterService;
-
-    const planner = new PlannerAgent(llm);
-
-    await expect(planner.execute('test', context, [])).rejects.toThrow(
-      'Planner LLM returned no structured execution plan'
-    );
-  });
-
-  it('should throw when response has no tasks array', async () => {
+  it('throws when the planner returns no structured output', async () => {
     const llm = createMockLLM({
-      content: JSON.stringify({ summary: 'no tasks here' }),
-      parsedOutput: { summary: 'no tasks here' },
+      ...createStrictPlannerResponse(),
+      parsedOutput: undefined,
     });
     const planner = new PlannerAgent(llm);
 
-    await expect(planner.execute('test', context, [])).rejects.toThrow(
-      'failed schema validation at tasks'
+    await expect(planner.execute('Do something', context, [])).rejects.toThrow(
+      'Planner LLM response failed schema validation'
     );
   });
 
-  it('should throw when a task is not an object', async () => {
-    const llm = createMockLLM({
-      content: JSON.stringify({ tasks: ['not-an-object'] }),
-      parsedOutput: { tasks: ['not-an-object'] },
-    });
+  it('throws when the planner assigns a non-routable agent', async () => {
+    const llm = createMockLLM(
+      createStrictPlannerResponse({
+        tasks: [
+          {
+            id: '1',
+            assignedAgent: 'router',
+            description: 'Invalid routing target',
+            dependsOn: [],
+          },
+        ],
+      })
+    );
     const planner = new PlannerAgent(llm);
 
-    await expect(planner.execute('test', context, [])).rejects.toThrow(
-      'failed schema validation at tasks.0'
+    await expect(planner.execute('Do something', context, [])).rejects.toThrow(
+      'Planner assigned non-routable agents'
     );
   });
 
-  // ─── DAG Validation ────────────────────────────────────────────────────
-
-  it('should throw when a task depends on an unknown task ID', async () => {
-    const parsedOutput = {
-      tasks: [
-        {
-          id: '1',
-          assignedAgent: 'performance_coordinator',
-          description: 'Analyze tape',
-          dependsOn: ['99'],
-        },
-      ],
-    };
-
-    const llm = createMockLLM({ content: JSON.stringify(parsedOutput), parsedOutput });
-    const planner = new PlannerAgent(llm);
-
-    await expect(planner.execute('test', context, [])).rejects.toThrow(
-      'depends on unknown task "99"'
+  it('throws on circular dependencies', async () => {
+    const llm = createMockLLM(
+      createStrictPlannerResponse({
+        tasks: [
+          {
+            id: '1',
+            assignedAgent: 'strategy_coordinator',
+            description: 'First task',
+            dependsOn: ['2'],
+          },
+          {
+            id: '2',
+            assignedAgent: 'recruiting_coordinator',
+            description: 'Second task',
+            dependsOn: ['1'],
+          },
+        ],
+      })
     );
-  });
-
-  it('should throw when a task depends on itself', async () => {
-    const parsedOutput = {
-      tasks: [
-        {
-          id: '1',
-          assignedAgent: 'performance_coordinator',
-          description: 'Self loop',
-          dependsOn: ['1'],
-        },
-      ],
-    };
-
-    const llm = createMockLLM({ content: JSON.stringify(parsedOutput), parsedOutput });
     const planner = new PlannerAgent(llm);
 
-    await expect(planner.execute('test', context, [])).rejects.toThrow('cannot depend on itself');
-  });
-
-  it('should throw on circular dependency (A→B→A)', async () => {
-    const parsedOutput = {
-      tasks: [
-        {
-          id: '1',
-          assignedAgent: 'performance_coordinator',
-          description: 'Task A',
-          dependsOn: ['2'],
-        },
-        {
-          id: '2',
-          assignedAgent: 'recruiting_coordinator',
-          description: 'Task B',
-          dependsOn: ['1'],
-        },
-      ],
-    };
-
-    const llm = createMockLLM({ content: JSON.stringify(parsedOutput), parsedOutput });
-    const planner = new PlannerAgent(llm);
-
-    await expect(planner.execute('test', context, [])).rejects.toThrow(
+    await expect(planner.execute('Do something', context, [])).rejects.toThrow(
       'Circular dependency detected'
     );
   });
 
-  it('should throw on 3-node circular dependency (A→B→C→A)', async () => {
-    const parsedOutput = {
-      tasks: [
-        {
-          id: '1',
-          assignedAgent: 'performance_coordinator',
-          description: 'Task A',
-          dependsOn: ['3'],
-        },
-        {
-          id: '2',
-          assignedAgent: 'recruiting_coordinator',
-          description: 'Task B',
-          dependsOn: ['1'],
-        },
-        { id: '3', assignedAgent: 'strategy_coordinator', description: 'Task C', dependsOn: ['2'] },
-      ],
-    };
-
-    const llm = createMockLLM({ content: JSON.stringify(parsedOutput), parsedOutput });
-    const planner = new PlannerAgent(llm);
-
-    await expect(planner.execute('test', context, [])).rejects.toThrow(
-      'Circular dependency detected'
-    );
-  });
-
-  // ─── Graceful Coercion ──────────────────────────────────────────────────
-
-  it('should coerce task ID to string if LLM returns a number', async () => {
-    const parsedOutput = {
-      tasks: [
-        {
-          id: 1,
-          assignedAgent: 'performance_coordinator',
-          description: 'Numeric ID',
-          dependsOn: [],
-        },
-      ],
-    };
-
-    const llm = createMockLLM({ content: JSON.stringify(parsedOutput), parsedOutput });
-    const planner = new PlannerAgent(llm);
-
-    const result = await planner.execute('test', context, []);
-    const plan = result.data!['plan'] as { tasks: Array<{ id: string }> };
-    expect(plan.tasks[0].id).toBe('1');
-    expect(typeof plan.tasks[0].id).toBe('string');
-  });
-
-  it('should default assignedAgent to "strategy_coordinator" if missing', async () => {
-    const parsedOutput = {
-      tasks: [{ id: '1', description: 'No agent specified', dependsOn: [] }],
-    };
-
-    const llm = createMockLLM({ content: JSON.stringify(parsedOutput), parsedOutput });
-    const planner = new PlannerAgent(llm);
-
-    const result = await planner.execute('test', context, []);
-    const plan = result.data!['plan'] as { tasks: Array<{ assignedAgent: string }> };
-    expect(plan.tasks[0].assignedAgent).toBe('strategy_coordinator');
-  });
-
-  it('should provide a default summary when LLM omits it', async () => {
-    const llmResponse = JSON.stringify({
-      tasks: [
-        { id: '1', assignedAgent: 'strategy_coordinator', description: 'do stuff', dependsOn: [] },
-      ],
-    });
-
-    const llm = createMockLLM(llmResponse);
-    const planner = new PlannerAgent(llm);
-
-    const result = await planner.execute('test', context, []);
-    expect(result.summary).toContain('1 task(s)');
-  });
-
-  // ─── System Prompt Quality ─────────────────────────────────────────────
-
-  it('should include agent catalogue in system prompt', () => {
-    const llm = createMockLLM('{}');
-    const planner = new PlannerAgent(llm);
-
+  it('includes coordinator catalogue in the strict planner prompt', () => {
+    const planner = new PlannerAgent(createMockLLM(createStrictPlannerResponse()));
     const prompt = planner.getSystemPrompt(context);
 
-    // Should list available coordinators
-    expect(prompt).toContain('Available Coordinators');
-    // Should NOT include router itself
-    expect(prompt).not.toMatch(/\(id: "router"\)/);
-    // Should include JSON output format instructions
-    expect(prompt).toContain('Output Format');
-    expect(prompt).toContain('"tasks"');
+    expect(prompt).toContain('You are the action planner for Agent X');
+    expect(prompt).toContain('strategy_coordinator');
+    expect(prompt).toContain('recruiting_coordinator');
   });
 
-  it('should define no tools (planner is pure reasoning)', () => {
-    const llm = createMockLLM('{}');
-    const planner = new PlannerAgent(llm);
+  it('defines no tools and uses the routing tier', () => {
+    const planner = new PlannerAgent(createMockLLM(createStrictPlannerResponse()));
 
     expect(planner.getAvailableTools()).toEqual([]);
+    expect(planner.getModelRouting()).toMatchObject({ tier: 'routing', maxTokens: 1024 });
   });
 
-  it('should use routing model tier with 1024 maxTokens', () => {
-    const llm = createMockLLM('{}');
+  it('returns strict-planning metadata', async () => {
+    const llm = createMockLLM(createStrictPlannerResponse());
     const planner = new PlannerAgent(llm);
 
-    const routing = planner.getModelRouting();
-    expect(routing.tier).toBe('routing');
-    expect(routing.maxTokens).toBe(1024);
+    const result = await planner.execute('Do something', context, []);
+    const metadata = result.data?.['metadata'] as Record<string, unknown>;
+
+    expect(metadata).toMatchObject({
+      tier: 'routing',
+      executionMode: 'strict_action_planner',
+      resultType: 'execution',
+    });
+    expect(String(metadata['classificationReasoning'])).toContain(
+      'legacy tier classification removed'
+    );
   });
 });

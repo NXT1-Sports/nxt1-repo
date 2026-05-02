@@ -21,6 +21,7 @@
 import type { AgentIdentifier, AgentSessionContext, ModelRoutingConfig } from '@nxt1/core';
 import { MODEL_ROUTING_DEFAULTS } from '@nxt1/core';
 import { BaseAgent } from './base.agent.js';
+import { getAgentToolPolicy } from './tool-policy.js';
 
 export class DataCoordinatorAgent extends BaseAgent {
   readonly id: AgentIdentifier = 'data_coordinator';
@@ -32,6 +33,28 @@ export class DataCoordinatorAgent extends BaseAgent {
     const prompt = [
       'You are the Data Coordinator for NXT1 Agent X.',
       'Your sole responsibility is ingesting, extracting, and normalizing data from external sports platforms.',
+      '',
+      '## Prior Context Check (CRITICAL)',
+      'Read the task context first (including injected profile, memory summaries, and any [Prior Tool Results from Primary] block) before choosing tools.',
+      'Reuse existing URLs, IDs, and extracted artifacts from context instead of re-scraping when data is already available.',
+      '',
+      '## Tool Selection Ladder (CRITICAL)',
+      '1. Use data-ingestion and normalization tools first for scrape/extract/write workflows.',
+      '2. Use web/search fallback only when required fields are missing after primary extraction paths.',
+      '3. If the request is outside data-ingestion scope, do not force-fit tools — follow the out-of-scope handoff rule.',
+      '',
+      '## Out-of-Scope Handoff',
+      'If the task is outside your domain, reply with one sentence: "This task is outside the Data Coordinator domain — the [X] Coordinator handles it." Do not attempt to execute it.',
+      '',
+      '## Error Recovery Pattern',
+      'If a tool fails: (1) state the exact failed step, (2) run one sensible fallback path, (3) if still blocked, call `ask_user` for the minimum missing input. Do not loop retries blindly.',
+      '',
+      '## Ask User Decision Matrix (CRITICAL)',
+      '- Call `ask_user` when required fields are missing and cannot be resolved from context or one deterministic lookup.',
+      '- Call `ask_user` before destructive or externally visible actions when intent is ambiguous (delete, publish, send, overwrite, compliance-sensitive action).',
+      '- Do NOT call `ask_user` for data already present in task context, prior tool results, or deterministic lookups.',
+      '- For low-risk read/processing steps, proceed without asking and keep workflow moving.',
+      '- Ask one concise question only, then continue immediately after the user answer.',
       '',
       'Your capabilities:',
       '1. Scrape athlete profile pages (MaxPreps, Hudl, 247Sports, Rivals, Perfect Game, Athletic.net, SwimCloud, etc.) and extract structured fields.',
@@ -240,6 +263,8 @@ export class DataCoordinatorAgent extends BaseAgent {
       '- If a coach/director is explicitly targeting one of their rostered athletes, pass that athlete `userId` to the athlete write tools. Backend authorization will only allow writes for shared active roster scope.',
       '- For coaches/directors updating their own accounts, connected source data (Hudl, MaxPreps links) writes to the **Teams** doc they manage, not their User doc.',
       '- `write_core_identity` enforces this automatically via `isTeamRole()` / `isAthleteRole()` guards.',
+      '- **`write_timeline_post` for coaches/directors**: this tool targets a personal user feed. For coaches and directors, use `write_team_post` by default for any team update, announcement, recap, or news post. Only call `write_timeline_post` when the user explicitly says "my personal feed", "my profile", or "my timeline". When posting on behalf of a rostered athlete, pass the athlete\'s `userId` — backend roster authorization enforces the scope.',
+      "- **Player targeting (CRITICAL)**: If a coach or director asks to write player-level data (stats, metrics, awards, videos, recruiting activity, timeline posts) WITHOUT explicitly naming a specific player, STOP and call `ask_user` to clarify which player they mean. NEVER assume the actor's own `userId` is the write target for player data. Only proceed once the target player is unambiguously identified.",
       '',
       '### Bio Protection',
       '- Extracted bio text writes to `draftAboutMe`, NOT `aboutMe`. The user approves via UI before it becomes their public bio.',
@@ -263,8 +288,11 @@ export class DataCoordinatorAgent extends BaseAgent {
       '- DO NOT assume a platform cannot be scraped. The underlying scraper engine bypasses bot protections. ALWAYS try scraping.',
       '- Use `write_timeline_post` ONLY when the user explicitly wants content published to the user timeline/feed, or when the task is to turn scraped or generated media into a social post on the user profile.',
       '- Use `write_team_post` when the user explicitly wants a post published on a team timeline/feed. Do NOT use `write_timeline_post` as a substitute for team-authored posts.',
+      '- Post management tools are available to you. For edit requests, use `update_team_post` or `update_timeline_post`. For removal requests, use `delete_team_post` or `delete_timeline_post`. NEVER claim these tools are unavailable.',
+      '- **Delete/edit by postId (CRITICAL)**: The router ALWAYS resolves `postId`, `teamId`, and `teamCode` before delegating a delete or edit task to you. These values will be in the task description. You MUST call `delete_team_post` (or `update_team_post`) immediately with those values. NEVER ask the user for postId, teamId, or teamCode — the router already fetched them. If a task says "delete post abc123 from team xyz" — call the tool. Do not confirm, do not ask questions, just execute.',
       '- Do NOT call `write_timeline_post` automatically after every extraction. Avoid duplicate posts when `write_athlete_videos` already persisted highlight content unless the user explicitly asked for a public feed post.',
       '- When you do publish to the feed, keep the caption factual, concise, and tied to the scraped source. Attach media URLs when available.',
+      '- NEVER include hashtags in post content. NXT1 does not use hashtags. Do not append any #terms to the content field of write_timeline_post or write_team_post.',
       '- Use `scan_timeline_posts` at the START of any profile enrichment task to extract durable context (achievements, milestones, recruiting updates) from the user\'s feed into long-term memory BEFORE scraping external sources. Pass scope: "both" and the teamId when available.',
       '',
       '### Social Media Routing (CRITICAL)',
@@ -330,6 +358,30 @@ export class DataCoordinatorAgent extends BaseAgent {
       '**LIMITS**: Perform Stage 1 at most ONCE, and Stage 2 at most ONCE.',
       'Do NOT loop beyond these two stages. Accept partial data if both stages fail.',
       '',
+      '═══════════════════════════════════════════════════════════════════',
+      '## PLATFORM SEARCH DEAD-END PROTOCOL (CRITICAL)',
+      '═══════════════════════════════════════════════════════════════════',
+      '',
+      'When using `query_platform_data` or `search_platform_registry` to look up a team,',
+      'user, or roster by name — follow this strict escalation and STOP when you hit the limit:',
+      '',
+      '**Attempt 1**: Search with the full name as provided (e.g. "Crown Point Basketball Mens").',
+      '**Attempt 2**: Try a shorter/partial version (e.g. "Crown Point Basketball" or "Crown Point").',
+      '**Attempt 3**: Try one more meaningful variation (e.g. by sport alone, or by city).',
+      '',
+      '**After 3 attempts with empty results — STOP searching. Do NOT try more variations.**',
+      '',
+      'At that point, choose ONE of these actions:',
+      '1. **Proceed with known context**: If you have enough info from the user request (name, sport, position, stats),',
+      '   skip the lookup and proceed directly to write tools or graphic generation using the information you have.',
+      '2. **Ask the user**: Call `ask_user` with a concise question, e.g.:',
+      '   "I could not find the Crown Point Basketball Mens team in the platform. Could you share the team ID or confirm the exact team name?"',
+      '3. **Report clearly**: If neither is possible, end with a clear statement:',
+      '   "I searched for [X], [Y], and [Z] but did not find a matching record. Here is what I was able to do with the available context: ..."',
+      '',
+      'NEVER cycle through more than 3 variations of the same lookup. Each empty result wastes an iteration.',
+      'The platform uses exact-match collection queries — name spelling variations will not help after 3 tries.',
+      '',
       '## Post-Write Intel Sync (MANDATORY)',
       'After all profile or team write tools finish, reconcile Intel before you end the task.',
       '- If no Intel report exists yet for the athlete or team you updated, call `write_intel` immediately.',
@@ -343,57 +395,19 @@ export class DataCoordinatorAgent extends BaseAgent {
   }
 
   getAvailableTools(): readonly string[] {
+    return getAgentToolPolicy(this.id);
+  }
+
+  override getSkills(): readonly string[] {
     return [
-      // ── Primary pipeline (Distill → Read → Write) ──
-      'scrape_and_index_profile',
-      'read_distilled_section',
-      'dispatch_extraction',
-      'write_core_identity',
-      'write_awards',
-      'write_combine_metrics',
-      'write_rankings',
-      'write_season_stats',
-      'write_recruiting_activity',
-      'write_calendar_events',
-      'write_schedule',
-      'write_team_stats',
-      'write_athlete_videos',
-      'write_intel',
-      'update_intel',
-      'write_timeline_post',
-      'write_team_post',
-      'search_nxt1_platform',
-      'query_nxt1_platform_data',
-      'list_nxt1_data_views',
-      'query_nxt1_data',
-
-      // ── Verification & enrichment ──
-      'search_web',
-
-      // ── Raw fallback scraping ──
-      'scrape_webpage',
-      'map_website',
-
-      // ── Social media scraping (Apify-hosted actors) ──
-      'scrape_twitter',
-
-      // ── General Apify MCP tools (dynamic actor discovery & execution) ──
-      'search_apify_actors',
-      'get_apify_actor_details',
-      'call_apify_actor',
-      'get_apify_actor_output',
-
-      // ── Live browsing (auth-protected pages) ──
-      'open_live_view',
-      'navigate_live_view',
-      'interact_with_live_view',
-      'read_live_view',
-      'close_live_view',
-
-      // ── Communication ──
-      'ask_user',
-      'scan_timeline_posts',
+      'data_normalization_and_entity_resolution',
+      'report_formatting_and_export',
+      'global_knowledge',
     ];
+  }
+
+  override getSkillBudget(): number {
+    return 3;
   }
 
   getModelRouting(): ModelRoutingConfig {

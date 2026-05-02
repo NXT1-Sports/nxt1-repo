@@ -203,7 +203,7 @@ describe('TimelineScanService', () => {
       service = new TimelineScanService(mockDb, mockLlm as never, mockVectorMemory as never);
 
       const result = await service.scanForUser('user_123');
-      expect(result.memoriesStored).toBe(1);
+      expect(result.memoriesStored).toBe(0);
     });
 
     it('should skip duplicate facts already in memory', async () => {

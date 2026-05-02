@@ -308,7 +308,18 @@ export {
   type AnalyticsSummaryTimeframe,
   type AnalyticsEventRecord,
   type AnalyticsRollupRecord,
+  type AnalyticsTemplateBreakdownRecord,
+  type AnalyticsSummaryRecord,
 } from './platform/analytics-event.model';
+
+// Agent analytics custom template registry (for agent-created categories)
+export {
+  type AnalyticsCustomEventTemplate,
+  type AnalyticsTemplateStatus,
+  type RegisterAnalyticsTemplateRequest,
+  type DiscoverAnalyticsTemplatesQuery,
+  type DiscoveredAnalyticsTemplate,
+} from './platform/analytics-template.model';
 
 // Notification model (push, email, SMS, in-app)
 export {

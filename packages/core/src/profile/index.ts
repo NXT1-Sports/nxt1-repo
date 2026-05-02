@@ -152,6 +152,7 @@ export {
   createProfileApi,
   type ProfileApi,
   // Types
+  type AddSportResponse,
   type ApiResponse,
   type PaginatedResponse,
   type UpdateProfileRequest,

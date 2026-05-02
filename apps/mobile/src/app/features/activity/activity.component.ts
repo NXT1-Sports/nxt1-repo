@@ -139,11 +139,11 @@ export class ActivityComponent {
       deepLink: item.deepLink,
     });
 
-    // Normalize deep link: web uses /agent-x, mobile uses /agent
-    const normalizedLink = item.deepLink.replace(/^\/agent-x(?=[/?]|$)/, '/agent');
+    // Normalize deep link: canonical route is /agent-x.
+    const normalizedLink = item.deepLink.replace(/^\/agent(?=[/?]|$)/, '/agent-x');
 
     const threadId = this.resolveAgentThreadId(item, normalizedLink);
-    if (item.type === 'agent_task' && threadId) {
+    if (this.shouldOpenAgentThread(item, normalizedLink, threadId)) {
       this.logger.info('Opening agent task from activity in bottom sheet', {
         id: item.id,
         threadId,
@@ -193,7 +193,7 @@ export class ActivityComponent {
       return metadata.threadId.trim();
     }
 
-    if (!normalizedLink.startsWith('/agent')) {
+    if (!normalizedLink.startsWith('/agent-x')) {
       return null;
     }
 
@@ -207,5 +207,19 @@ export class ActivityComponent {
       });
       return null;
     }
+  }
+
+  private shouldOpenAgentThread(
+    item: ActivityItem,
+    deepLink: string,
+    threadId: string | null
+  ): threadId is string {
+    if (!threadId) return false;
+
+    if (item.type === 'agent_task') return true;
+    if (deepLink.startsWith('/agent-x')) return true;
+
+    const metadata = item.metadata as AgentTaskActivityMetadata | undefined;
+    return Boolean(metadata?.operationId?.trim() || metadata?.sessionId?.trim());
   }
 }

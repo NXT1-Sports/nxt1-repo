@@ -185,11 +185,55 @@ router.post('/chat', appGuard, (_req: Request, res: Response) => {
 });
 
 /**
- * Submit support ticket (future)
+ * Submit support ticket
  * POST /api/v1/help-center/support
  */
-router.post('/support', appGuard, (_req: Request, res: Response) => {
-  res.status(501).json({ success: false, error: 'Support tickets not yet implemented' });
+router.post('/support', appGuard, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const body = req.body as {
+      email?: string;
+      name?: string;
+      subject?: string;
+      category?: 'account' | 'billing' | 'technical' | 'feature-request' | 'bug-report' | 'other';
+      priority?: 'low' | 'medium' | 'high' | 'urgent';
+      description?: string;
+      attachments?: string[];
+      relatedArticleId?: string;
+      deviceInfo?: string;
+    };
+
+    const ticket = await helpCenterService.submitSupportTicket({
+      userId: req.user?.uid,
+      email: (body.email ?? req.user?.email ?? '').trim(),
+      name: (body.name ?? req.user?.displayName ?? 'NXT1 User').trim(),
+      subject: (body.subject ?? '').trim(),
+      category: (body.category ?? 'other') as
+        | 'account'
+        | 'billing'
+        | 'technical'
+        | 'feature-request'
+        | 'bug-report'
+        | 'other',
+      priority: body.priority,
+      description: (body.description ?? '').trim(),
+      attachments: body.attachments,
+      relatedArticleId: body.relatedArticleId,
+      deviceInfo: body.deviceInfo,
+    });
+
+    res.json({ success: true, data: ticket });
+  } catch (err) {
+    if (err instanceof helpCenterService.SupportTicketValidationError) {
+      res.status(400).json({ success: false, error: err.message });
+      return;
+    }
+
+    logger.error('[HelpCenter] POST /support failed', {
+      userId: req.user?.uid,
+      error: String(err),
+    });
+    res.status(500).json({ success: false, error: 'Failed to submit support ticket' });
+  }
 });
 
 export default router;

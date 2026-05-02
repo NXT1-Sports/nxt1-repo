@@ -225,10 +225,12 @@ export function createMemoryCache<T>(options: MemoryCacheOptions = {}): MemoryCa
     },
 
     async invalidate(pattern: string): Promise<number> {
+      // Apply namespace so pattern matches stored keys (which include namespace prefix)
+      const namespacedPattern = getKey(pattern);
       const keysToDelete: string[] = [];
 
       entries.forEach((_, key) => {
-        if (matchPattern(key, pattern)) {
+        if (matchPattern(key, namespacedPattern)) {
           keysToDelete.push(key);
         }
       });

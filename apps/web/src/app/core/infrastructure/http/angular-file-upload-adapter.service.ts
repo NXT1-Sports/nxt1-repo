@@ -248,6 +248,10 @@ export class AngularFileUploadAdapter implements FileUploadHttpAdapter {
     formData.append('mimeType', metadata.mimeType);
     formData.append('size', String(metadata.size));
 
+    if (metadata.teamId) {
+      formData.append('teamId', metadata.teamId);
+    }
+
     if (metadata.customPath) {
       formData.append('customPath', metadata.customPath);
     }

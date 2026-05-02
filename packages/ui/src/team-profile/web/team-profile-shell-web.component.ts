@@ -64,9 +64,10 @@ import { NxtStateViewComponent } from '../../components/state-view';
 import { NxtToastService } from '../../services/toast/toast.service';
 import { NxtLoggingService } from '../../services/logging/logging.service';
 import { NxtHeaderPortalService } from '../../services/header-portal';
+import { NxtModalService } from '../../services/modal';
 import { NxtBottomSheetService, SHEET_PRESETS } from '../../components/bottom-sheet';
 import type { BottomSheetAction } from '../../components/bottom-sheet/bottom-sheet.types';
-import { AgentXService } from '../../agent-x/agent-x.service';
+import { AgentXService } from '../../agent-x/services/agent-x.service';
 import { AgentXOperationChatComponent } from '../../agent-x';
 import { NxtPlatformService } from '../../services/platform/platform.service';
 import { Router } from '@angular/router';
@@ -367,7 +368,7 @@ const TEAM_TIMELINE_EMPTY_STATE_BY_SECTION: Readonly<
                         [isEmpty]="teamProfile.timeline().length === 0"
                         [hasMore]="teamProfile.timelineHasMore()"
                         [isOwnProfile]="isTeamAdmin()"
-                        [showMenu]="false"
+                        [showMenu]="isTeamAdmin()"
                         [showFilters]="false"
                         [filter]="timelineSidebarFilter()"
                         [emptyIcon]="teamTimelineEmptyState().icon"
@@ -375,6 +376,8 @@ const TEAM_TIMELINE_EMPTY_STATE_BY_SECTION: Readonly<
                         [emptyMessage]="teamTimelineEmptyState().message"
                         [emptyCta]="null"
                         (postClick)="onTimelinePostClick($event)"
+                        (pinClick)="onPostPin($event)"
+                        (deleteClick)="onPostDelete($event)"
                         (loadMore)="onLoadMore()"
                       />
                     }
@@ -449,6 +452,18 @@ const TEAM_TIMELINE_EMPTY_STATE_BY_SECTION: Readonly<
                         }
                       </div>
                     </div>
+                  </div>
+                }
+
+                <!-- ═══ Conference & Division metadata pills ═══ -->
+                @if (teamRightPanelMeta().length > 0) {
+                  <div class="right-panel-meta">
+                    @for (item of teamRightPanelMeta(); track item.label) {
+                      <div class="right-panel-meta__item">
+                        <span class="right-panel-meta__label">{{ item.label }}</span>
+                        <span class="right-panel-meta__value">{{ item.value }}</span>
+                      </div>
+                    }
                   </div>
                 }
               </div>
@@ -948,6 +963,39 @@ const TEAM_TIMELINE_EMPTY_STATE_BY_SECTION: Readonly<
         color: var(--m-text-2);
       }
 
+      /* ═══ RIGHT PANEL METADATA (Conference + Division) ═══ */
+      .right-panel-meta {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+        margin-top: 8px;
+        width: 100%;
+      }
+      .right-panel-meta__item {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 3px;
+        padding: 10px 14px;
+        border-radius: 10px;
+        background: var(--m-surface);
+        border: 1px solid var(--m-border);
+        min-width: 0;
+      }
+      .right-panel-meta__label {
+        font-size: 0.65rem;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--m-text-3);
+      }
+      .right-panel-meta__value {
+        font-size: 0.875rem;
+        font-weight: 600;
+        color: var(--m-text);
+        line-height: 1.2;
+      }
+
       /* ═══ RESPONSIVE ═══ */
       @media (max-width: 1024px) {
         .madden-split-left {
@@ -966,7 +1014,7 @@ const TEAM_TIMELINE_EMPTY_STATE_BY_SECTION: Readonly<
       @media (max-width: 768px) {
         .madden-top-tabs {
           padding-left: 8px;
-          margin-top: 4px;
+          margin-top: 0;
         }
         /* Hide desktop inline action bar on mobile viewports — FAB handles it */
         .desktop-intel-action-bar {
@@ -1037,7 +1085,7 @@ const TEAM_TIMELINE_EMPTY_STATE_BY_SECTION: Readonly<
           max-height: none;
           overflow-y: visible;
           overflow-x: hidden;
-          padding: 0 12px 120px;
+          padding: 12px 12px 120px;
           align-items: stretch;
           scrollbar-gutter: auto;
           box-sizing: border-box;
@@ -1051,7 +1099,7 @@ const TEAM_TIMELINE_EMPTY_STATE_BY_SECTION: Readonly<
         .madden-side-nav-column ::ng-deep .section-nav {
           gap: 4px;
           padding-inline: 2px;
-          padding-bottom: 10px;
+          padding-bottom: 16px;
           border-bottom: none;
         }
         .madden-side-nav-column ::ng-deep .nav-item {
@@ -1149,6 +1197,7 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
   protected readonly teamProfile = inject(TeamProfileService);
   private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('TeamProfileShellWeb');
+  private readonly modal = inject(NxtModalService);
   private readonly bottomSheet = inject(NxtBottomSheetService);
   private readonly intel = inject(IntelService);
   private readonly agentX = inject(AgentXService);
@@ -1179,6 +1228,9 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
 
   /** Whether the current user is an admin of this team */
   readonly isTeamAdmin = input(false);
+
+  /** Feature flag: controls Team Intel tab visibility and behavior. */
+  readonly teamIntelEnabled = input(true);
 
   /**
    * When true, skip the internal ngOnInit data fetch.
@@ -1318,6 +1370,12 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
     const seen = new Set<string>();
     const images: string[] = [];
 
+    const logoUrl = team.logoUrl?.trim();
+    if (logoUrl) {
+      seen.add(logoUrl);
+      images.push(logoUrl);
+    }
+
     for (const image of team.galleryImages ?? []) {
       const normalized = image?.trim();
       if (!normalized || seen.has(normalized)) continue;
@@ -1331,6 +1389,26 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
   protected readonly teamCarouselSubtitle = computed(
     () => this.headerSubtitle() || this.portalTeamSubtitle()
   );
+
+  /** Right-panel metadata items: Conference and Division, shown below the team image on desktop. */
+  protected readonly teamRightPanelMeta = computed(() => {
+    const team = this.teamProfile.team();
+    if (!team) return [];
+
+    const items: { label: string; value: string }[] = [];
+
+    const conference = team.conference?.trim();
+    if (conference) {
+      items.push({ label: 'Conference', value: conference });
+    }
+
+    const division = team.division?.trim();
+    if (division) {
+      items.push({ label: 'Division', value: division });
+    }
+
+    return items;
+  });
 
   /** Portal: top nav header title */
   protected readonly portalTeamName = computed(() => {
@@ -1415,18 +1493,21 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
   /** Tab options for the top bar scroller */
   protected readonly tabOptions = computed((): OptionScrollerItem[] => {
     const badges = this.teamProfile.tabBadges();
+    const allowIntel = this.teamIntelEnabled();
 
-    return TEAM_PROFILE_TABS.map((tab: TeamProfileTab) => ({
-      id: tab.id,
-      label: tab.label,
-      badge: badges[tab.id as keyof typeof badges] || undefined,
-    }));
+    return TEAM_PROFILE_TABS.filter((tab) => allowIntel || tab.id !== 'intel').map(
+      (tab: TeamProfileTab) => ({
+        id: tab.id,
+        label: tab.label,
+        badge: badges[tab.id as keyof typeof badges] || undefined,
+      })
+    );
   });
 
   /** Empty state for current tab */
   protected readonly emptyState = computed(() => {
     const tab = this.teamProfile.activeTab();
-    return TEAM_PROFILE_EMPTY_STATES[tab] || TEAM_PROFILE_EMPTY_STATES['intel'];
+    return TEAM_PROFILE_EMPTY_STATES[tab] || TEAM_PROFILE_EMPTY_STATES['timeline'];
   });
 
   protected readonly useFullWidthIntelLayout = computed(
@@ -1504,7 +1585,6 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
               ).length || undefined,
         },
         { id: 'stats', label: 'Stats' },
-        { id: 'games', label: 'Games' },
         { id: 'schedule', label: 'Schedule' },
         { id: 'recruiting', label: 'Recruiting' },
         { id: 'news', label: 'News' },
@@ -1533,7 +1613,7 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
       ],
     };
 
-    return sections[tab] ?? sections['intel'];
+    return sections[tab] ?? sections['timeline'];
   });
 
   protected readonly showSideNav = computed(() => this.sideTabItems().length > 0);
@@ -1556,11 +1636,17 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
   constructor() {
     effect(() => {
       const activeTab = this.teamProfile.activeTab();
-      const teamId = this.teamProfile.team()?.id;
-      const teamCode =
-        this.teamProfile.team()?.teamCode ?? this.teamProfile.team()?.slug ?? this.teamSlug();
+      const allowIntel = this.teamIntelEnabled();
 
-      if (activeTab === 'intel' && teamId) {
+      if (!allowIntel && activeTab === 'intel') {
+        this.teamProfile.setActiveTab('timeline');
+        return;
+      }
+
+      const teamId = this.teamProfile.team()?.id;
+      const teamCode = this.teamProfile.team()?.teamCode?.trim() ?? '';
+
+      if (allowIntel && activeTab === 'intel' && teamId) {
         void this.intel.loadTeamIntel(teamId);
       }
 
@@ -1615,10 +1701,14 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
   }
 
   private syncTimelineFilter(sectionId: string): void {
-    const teamCode =
-      this.teamProfile.team()?.teamCode ?? this.teamProfile.team()?.slug ?? this.teamSlug();
+    const teamCode = this.teamProfile.team()?.teamCode?.trim() ?? '';
     if (!teamCode) return;
     const filter = this.mapTimelineSectionToFilter(sectionId);
+
+    if (this.teamProfile.timeline().length === 0 && !this.teamProfile.timelineLoading()) {
+      void this.teamProfile.loadTimeline(teamCode, filter);
+      return;
+    }
 
     if (this.teamProfile.activeTimelineFilter() !== filter) {
       void this.teamProfile.setTimelineFilter(teamCode, filter);
@@ -1749,8 +1839,73 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
 
   protected onTimelinePostClick(post: ProfilePost): void {
     const teamPost = this.teamProfile.allPosts().find((item) => item.id === post.id);
+    if (teamPost) {
+      this.onPostClick({
+        ...teamPost,
+        type: this.toTeamPostType(post.type, teamPost.type),
+        title: teamPost.title ?? post.title,
+        body: teamPost.body ?? post.body,
+        thumbnailUrl: teamPost.thumbnailUrl ?? post.thumbnailUrl,
+        mediaUrl: teamPost.mediaUrl ?? post.mediaUrl,
+        externalLink: teamPost.externalLink ?? post.externalLink,
+        viewCount: teamPost.viewCount ?? post.viewCount,
+        duration: teamPost.duration ?? post.duration,
+      });
+      return;
+    }
+
+    this.onPostClick({
+      id: post.id,
+      type: this.toTeamPostType(post.type),
+      title: post.title,
+      body: post.body,
+      thumbnailUrl: post.thumbnailUrl,
+      mediaUrl: post.mediaUrl,
+      externalLink: post.externalLink,
+      shareCount: post.shareCount,
+      viewCount: post.viewCount,
+      duration: post.duration,
+      isPinned: post.isPinned,
+      createdAt: post.createdAt,
+    });
+  }
+
+  private toTeamPostType(
+    profileType: ProfilePost['type'],
+    preferred?: TeamProfilePost['type']
+  ): TeamProfilePost['type'] {
+    if (preferred) return preferred;
+    switch (profileType) {
+      case 'video':
+      case 'image':
+      case 'text':
+      case 'news':
+        return profileType;
+      default:
+        return 'announcement';
+    }
+  }
+
+  protected async onPostPin(post: ProfilePost): Promise<void> {
+    const teamPost = this.teamProfile.allPosts().find((p) => p.id === post.id);
     if (!teamPost) return;
-    this.onPostClick(teamPost);
+    await this.teamProfile.pinPost(teamPost);
+  }
+
+  protected async onPostDelete(post: ProfilePost): Promise<void> {
+    const confirmed = await this.modal.confirm({
+      title: 'Delete this update?',
+      message: 'This action cannot be undone.',
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+      destructive: true,
+    });
+
+    if (!confirmed) return;
+
+    const teamPost = this.teamProfile.allPosts().find((p) => p.id === post.id);
+    if (!teamPost) return;
+    await this.teamProfile.deletePost(teamPost);
   }
 
   protected onLoadMore(): void {
@@ -1765,17 +1920,62 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
   }
 
   private async onCreatePostWithAgent(): Promise<void> {
+    const team = this.teamProfile.team();
+    if (!team) return;
+
+    const teamName = team.teamName?.trim() ?? 'Team';
+    const activeTab = this.activeSideTab();
+
+    // Build tab-specific context
+    let tabContext: string;
+    let sourceCollection: string;
+    switch (activeTab) {
+      case 'stats':
+        tabContext = 'team statistics and performance data';
+        sourceCollection = 'team stats';
+        break;
+      case 'schedule':
+        tabContext = 'upcoming games, schedule changes, or game results';
+        sourceCollection = 'schedule';
+        break;
+      case 'recruiting':
+        tabContext = 'recruiting updates, scholarships, or player recruitment';
+        sourceCollection = 'recruiting activity';
+        break;
+      case 'news':
+        tabContext = 'news articles or program announcements';
+        sourceCollection = 'news';
+        break;
+      case 'media':
+        tabContext = 'photos or highlight videos';
+        sourceCollection = 'media';
+        break;
+      case 'pinned':
+        tabContext = 'important pinned announcement';
+        sourceCollection = 'news';
+        break;
+      default:
+        tabContext = 'update';
+        sourceCollection = 'team updates';
+    }
+
     const hasReport = !!this.intel.teamReport();
+    const baseMessage =
+      `This is a TEAM profile update request for ${teamName}. ` +
+      `Active tab: ${activeTab}. ` +
+      `Focus area: ${tabContext}. ` +
+      `Write or update the ${sourceCollection} source collection first, ` +
+      `then create a timeline post only when a public announcement is needed.`;
     const message = hasReport
-      ? 'I want to create a post for our team timeline. After creating the post, automatically review it and update any relevant sections of our Agent X Intel report with new stats, results, recruiting activity, or program updates from the post.'
-      : 'I want to create a post for our team timeline.';
+      ? `${baseMessage} After saving the source data, review and update any relevant sections of our Agent X Intel report with new stats, results, recruiting activity, or program updates.`
+      : baseMessage;
 
     if (this.platform.isMobile()) {
       await this.bottomSheet.openSheet({
         component: AgentXOperationChatComponent,
         componentProps: {
           contextId: 'team-timeline-post',
-          contextTitle: 'Create a Post',
+          contextTitle: 'Create / Sync Update',
           contextIcon: 'create-outline',
           contextType: 'command',
           initialMessage: message,
@@ -1788,7 +1988,7 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
       });
     } else {
       this.agentX.queueStartupMessage(message);
-      void this.router.navigate(['/agent']);
+      void this.router.navigate(['/agent-x']);
     }
   }
 
@@ -1824,7 +2024,7 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
       }
     } else {
       this.agentX.queueStartupMessage(initialMessage);
-      void this.router.navigate(['/agent']);
+      void this.router.navigate(['/agent-x']);
     }
   }
 
@@ -1854,7 +2054,7 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
       }
     } else {
       this.agentX.queueStartupMessage(message);
-      void this.router.navigate(['/agent']);
+      void this.router.navigate(['/agent-x']);
     }
   }
 

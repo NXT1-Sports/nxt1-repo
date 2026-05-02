@@ -10,6 +10,7 @@ export {
   type AgentActivityInput,
   type AgentFailureInput,
 } from './agent-activity.service.js';
+export { dispatchAgentPush, toDispatchInput } from './agent-push-adapter.service.js';
 export { AgentChatService } from './agent-chat.service.js';
 export {
   enqueueLinkedAccountScrape,
@@ -35,6 +36,7 @@ export {
   type CsvExportOptions,
   type PdfExportOptions,
 } from './export.service.js';
+export * from './analytics/index.js';
 export {
   buildEliteContext,
   getSeasonInfo,

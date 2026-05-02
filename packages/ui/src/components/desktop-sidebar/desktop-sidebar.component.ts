@@ -1264,8 +1264,11 @@ export class NxtDesktopSidebarComponent {
       .subscribe((event) => {
         this._currentRoute.set(event.urlAfterRedirects);
         this.restoreNavScrollPosition();
-        // Auto-collapse on /agent (Agent X fills the full workspace)
-        if (event.urlAfterRedirects === '/agent' || event.urlAfterRedirects.startsWith('/agent?')) {
+        // Auto-collapse on /agent-x (Agent X fills the full workspace)
+        if (
+          event.urlAfterRedirects === '/agent-x' ||
+          event.urlAfterRedirects.startsWith('/agent-x?')
+        ) {
           this._isCollapsed.set(true);
         }
       });
@@ -1275,9 +1278,9 @@ export class NxtDesktopSidebarComponent {
       this.loadCollapsedState();
       this.initializeNavScrollPersistence();
       this.restoreNavScrollPosition();
-      // Force collapse on initial load if already on /agent
+      // Force collapse on initial load if already on Agent X
       const url = this.router.url;
-      if (url === '/agent' || url.startsWith('/agent?')) {
+      if (url === '/agent-x' || url.startsWith('/agent-x?')) {
         this._isCollapsed.set(true);
       }
     });

@@ -20,13 +20,30 @@ import { logger } from '../../../../../utils/logger.js';
 import { AgentEngineError } from '../../../exceptions/agent-engine.error.js';
 
 // ── Timeouts (ms) ────────────────────────────────────────────────────────────
-const VIDEO_GENERATE_TIMEOUT_MS = 120_000;
-const IMAGE_GENERATE_TIMEOUT_MS = 90_000;
-const TASK_STATUS_TIMEOUT_MS = 30_000;
-const UPSCALE_TIMEOUT_MS = 120_000;
-const EDIT_TIMEOUT_MS = 120_000;
-const ORG_TIMEOUT_MS = 15_000;
-const CANCEL_TIMEOUT_MS = 15_000;
+function resolveTimeoutMs(envKey: string, fallbackMs: number): number {
+  const raw = process.env[envKey];
+  if (!raw) return fallbackMs;
+
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    logger.warn('[RunwayMCP] Invalid timeout override, using fallback', {
+      envKey,
+      value: raw,
+      fallbackMs,
+    });
+    return fallbackMs;
+  }
+
+  return parsed;
+}
+
+const VIDEO_GENERATE_TIMEOUT_MS = resolveTimeoutMs('RUNWAY_VIDEO_GENERATE_TIMEOUT_MS', 600_000);
+const IMAGE_GENERATE_TIMEOUT_MS = resolveTimeoutMs('RUNWAY_IMAGE_GENERATE_TIMEOUT_MS', 180_000);
+const TASK_STATUS_TIMEOUT_MS = resolveTimeoutMs('RUNWAY_TASK_STATUS_TIMEOUT_MS', 60_000);
+const UPSCALE_TIMEOUT_MS = resolveTimeoutMs('RUNWAY_UPSCALE_TIMEOUT_MS', 600_000);
+const EDIT_TIMEOUT_MS = resolveTimeoutMs('RUNWAY_EDIT_TIMEOUT_MS', 600_000);
+const ORG_TIMEOUT_MS = resolveTimeoutMs('RUNWAY_ORG_TIMEOUT_MS', 30_000);
+const CANCEL_TIMEOUT_MS = resolveTimeoutMs('RUNWAY_CANCEL_TIMEOUT_MS', 30_000);
 
 // ── Child‑process environment overrides ──────────────────────────────────────
 const RUNWAY_CHILD_ENV: Record<string, string> = {
@@ -124,6 +141,23 @@ function extractPayload(result: McpToolCallResult): unknown {
   }
 }
 
+function summarizePayload(payload: unknown): {
+  readonly payloadType: string;
+  readonly keys: readonly string[];
+} {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    return {
+      payloadType: Array.isArray(payload) ? 'array' : typeof payload,
+      keys: [],
+    };
+  }
+
+  return {
+    payloadType: 'object',
+    keys: Object.keys(payload as Record<string, unknown>).sort(),
+  };
+}
+
 // ── Bridge Service ───────────────────────────────────────────────────────────
 
 export class RunwayMcpBridgeService extends BaseMcpClientService {
@@ -197,7 +231,10 @@ export class RunwayMcpBridgeService extends BaseMcpClientService {
       );
     }
 
-    return extractPayload(result);
+    const payload = extractPayload(result);
+    const summary = summarizePayload(payload);
+    logger.info('[RunwayMCP] runway_generateVideo payload summary', summary);
+    return payload;
   }
 
   /**
@@ -235,7 +272,10 @@ export class RunwayMcpBridgeService extends BaseMcpClientService {
       );
     }
 
-    return extractPayload(result);
+    const payload = extractPayload(result);
+    const summary = summarizePayload(payload);
+    logger.info('[RunwayMCP] runway_textToVideo payload summary', summary);
+    return payload;
   }
 
   /**
@@ -272,7 +312,10 @@ export class RunwayMcpBridgeService extends BaseMcpClientService {
       );
     }
 
-    return extractPayload(result);
+    const payload = extractPayload(result);
+    const summary = summarizePayload(payload);
+    logger.info('[RunwayMCP] runway_editVideo payload summary', summary);
+    return payload;
   }
 
   /**
@@ -281,7 +324,7 @@ export class RunwayMcpBridgeService extends BaseMcpClientService {
    */
   async editVideo(options: RunwayEditVideoOptions): Promise<unknown> {
     const args: Record<string, unknown> = {
-      video: options.video,
+      videoUri: options.video,
     };
     if (options.promptText) args['promptText'] = options.promptText;
     if (options.promptImage) args['promptImage'] = options.promptImage;
@@ -313,7 +356,10 @@ export class RunwayMcpBridgeService extends BaseMcpClientService {
       );
     }
 
-    return extractPayload(result);
+    const payload = extractPayload(result);
+    const summary = summarizePayload(payload);
+    logger.info('[RunwayMCP] runway_editVideo payload summary', summary);
+    return payload;
   }
 
   /**
@@ -322,7 +368,7 @@ export class RunwayMcpBridgeService extends BaseMcpClientService {
    */
   async upscaleVideo(options: RunwayUpscaleVideoOptions): Promise<unknown> {
     const args: Record<string, unknown> = {
-      video: options.video,
+      videoUri: options.video,
     };
     if (options.model) args['model'] = options.model;
 

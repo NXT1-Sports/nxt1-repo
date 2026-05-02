@@ -41,7 +41,7 @@
  */
 
 import type { KnowledgeCategory, KnowledgeEntry, KnowledgeRetrievalResult } from '@nxt1/core';
-import { GlobalKnowledgeModel, type GlobalKnowledgeDocument } from './global-knowledge.model.js';
+import { getGlobalKnowledgeModel, type GlobalKnowledgeDocument } from './global-knowledge.model.js';
 import type { OpenRouterService } from '../llm/openrouter.service.js';
 import { logger } from '../../../utils/logger.js';
 
@@ -98,6 +98,7 @@ export class KnowledgeRetrievalService {
     options: KnowledgeRetrievalOptions = {},
     precomputedEmbedding?: readonly number[]
   ): Promise<readonly KnowledgeRetrievalResult[]> {
+    const GlobalKnowledgeModel = getGlobalKnowledgeModel();
     const topK = Math.min(Math.max(1, Math.round(options.topK ?? DEFAULT_TOP_K)), MAX_TOP_K);
     const scoreThreshold = options.scoreThreshold ?? DEFAULT_SCORE_THRESHOLD;
 
@@ -226,6 +227,7 @@ export class KnowledgeRetrievalService {
     byCategory: Record<string, number>;
     uniqueDocuments: number;
   }> {
+    const GlobalKnowledgeModel = getGlobalKnowledgeModel();
     const [totalChunks, categoryAgg, uniqueDocs] = await Promise.all([
       GlobalKnowledgeModel.countDocuments(),
       GlobalKnowledgeModel.aggregate<{ _id: string; count: number }>([

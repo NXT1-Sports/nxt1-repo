@@ -182,11 +182,11 @@ export class JoinMobileComponent implements OnInit {
     } finally {
       this.isAccepting.set(false);
     }
-    void this.navController.navigateRoot('/agent');
+    void this.navController.navigateRoot('/agent-x');
   }
 
   protected declineInvite(): void {
-    void this.navController.navigateRoot('/agent');
+    void this.navController.navigateRoot('/agent-x');
   }
 
   async ngOnInit(): Promise<void> {

@@ -80,6 +80,6 @@ export class ConversationComponent implements OnInit {
   /** Navigate to Agent X from conversation header */
   protected onAgentX(): void {
     this.logger.debug('Agent X requested from conversation header');
-    this.router.navigate(['/agent']);
+    this.router.navigate(['/agent-x']);
   }
 }

@@ -52,21 +52,14 @@ export const routes: Routes = [
       {
         path: '',
         pathMatch: 'full',
-        redirectTo: 'agent',
+        redirectTo: 'agent-x',
       },
 
-      // Agent X Tab - AI Assistant
-      {
-        path: 'agent',
-        loadChildren: () =>
-          import('./features/agent-x/agent-x.routes').then((m) => m.AGENT_X_ROUTES),
-      },
-
-      // Redirect /agent-x → /agent (web deep links use /agent-x)
+      // Agent X Tab - AI Assistant (canonical)
       {
         path: 'agent-x',
-        redirectTo: 'agent',
-        pathMatch: 'prefix',
+        loadChildren: () =>
+          import('./features/agent-x/agent-x.routes').then((m) => m.AGENT_X_ROUTES),
       },
 
       // Activity Tab - Notifications & Activity Feed
@@ -74,13 +67,6 @@ export const routes: Routes = [
         path: 'activity',
         loadChildren: () =>
           import('./features/activity/activity.routes').then((m) => m.ACTIVITY_ROUTES),
-      },
-
-      // Messages - User Conversations & Direct Messages
-      {
-        path: 'messages',
-        loadChildren: () =>
-          import('./features/messages/messages.routes').then((m) => m.MESSAGES_ROUTES),
       },
 
       // Settings - User Settings & Preferences

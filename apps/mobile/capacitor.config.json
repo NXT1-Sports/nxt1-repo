@@ -7,11 +7,20 @@
     "androidScheme": "https"
   },
   "plugins": {
+    "CapacitorUpdater": {
+      "autoUpdate": false,
+      "resetWhenUpdate": false,
+      "updateUrl": "",
+      "statsUrl": "",
+      "channelUrl": "",
+      "directUpdate": false,
+      "shakeMenu": false,
+      "appReadyTimeout": 10000
+    },
     "FirebaseAuthentication": {
       "skipNativeAuth": false,
       "providers": ["apple.com", "google.com", "microsoft.com"]
     },
-
     "PushNotifications": {
       "presentationOptions": ["badge", "sound", "alert"]
     },
@@ -41,6 +50,6 @@
   "android": {
     "allowMixedContent": false,
     "captureInput": true,
-    "webContentsDebuggingEnabled": true
+    "webContentsDebuggingEnabled": false
   }
 }

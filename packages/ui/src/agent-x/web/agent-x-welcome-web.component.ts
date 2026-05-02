@@ -13,7 +13,7 @@ import { Component, ChangeDetectionStrategy, computed, inject, input, output } f
 import { CommonModule } from '@angular/common';
 import type { AgentXQuickTask } from '@nxt1/core';
 import { NxtIconComponent } from '../../components/icon/icon.component';
-import { AgentXService } from '../agent-x.service';
+import { AgentXService } from '../services/agent-x.service';
 
 /** SVG path data keyed by ionicon name used in quick tasks */
 const TASK_ICON_PATHS: Record<string, string> = {

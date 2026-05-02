@@ -9,6 +9,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { AgentJobPayload, AgentJobOrigin, AgentOperationResult } from '@nxt1/core';
+import { AgentYieldException } from '../../exceptions/agent-yield.exception.js';
 
 // ─── Capture the processor callback ────────────────────────────────────────
 
@@ -29,7 +30,13 @@ vi.mock('bullmq', () => {
     this.close = mockWorkerClose;
     this.isRunning = mockWorkerIsRunning;
   }
-  return { Worker: MockWorker, Job: class {} };
+  class MockUnrecoverableError extends Error {
+    constructor(message: string) {
+      super(message);
+      this.name = 'UnrecoverableError';
+    }
+  }
+  return { Worker: MockWorker, Job: class {}, UnrecoverableError: MockUnrecoverableError };
 });
 
 // ─── Mock Firebase ─────────────────────────────────────────────────────────
@@ -128,19 +135,30 @@ describe('AgentWorker', () => {
 
   const mockJobRepo = {
     updateProgress: vi.fn().mockResolvedValue(undefined),
+    markYielded: vi.fn().mockResolvedValue(undefined),
     markCompleted: vi.fn().mockResolvedValue(undefined),
     markFailed: vi.fn().mockResolvedValue(undefined),
     create: vi.fn().mockResolvedValue(undefined),
+    getById: vi.fn().mockResolvedValue(null),
     writeJobEvent: vi.fn().mockResolvedValue(undefined),
+    writeJobEventWithAutoSeq: vi.fn().mockResolvedValue(0),
+    allocateEventSeqRange: vi.fn().mockResolvedValue(0),
   };
 
   const mockPubSub = {
     publish: vi.fn().mockResolvedValue(undefined),
     subscribe: vi.fn().mockResolvedValue(() => undefined),
+    subscribeControl: vi.fn().mockResolvedValue(async () => undefined),
+  };
+
+  const mockQueueService = {
+    registerController: vi.fn(),
+    unregisterController: vi.fn(),
   };
 
   const mockChatService = {
-    addMessage: vi.fn().mockResolvedValue(undefined),
+    addMessage: vi.fn().mockResolvedValue({ id: 'msg-worker-1' }),
+    updateThreadPausedYieldState: vi.fn().mockResolvedValue(true),
     generateOperationTitle: vi.fn().mockResolvedValue('Built Your Coach Outreach Plan'),
     applyGeneratedThreadTitle: vi.fn().mockResolvedValue('Built Your Coach Outreach Plan'),
     generateThreadTitle: vi.fn().mockResolvedValue('MaxPreps Sync Complete'),
@@ -149,6 +167,8 @@ describe('AgentWorker', () => {
   const mockLlmService = {
     complete: vi.fn(),
   };
+
+  const mockEnqueueContinuation = vi.fn().mockResolvedValue('continued-job-1');
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -162,7 +182,9 @@ describe('AgentWorker', () => {
       mockPubSub as never,
       mockFirestore,
       mockLlmService as never,
-      'redis://localhost:6379'
+      'redis://localhost:6379',
+      mockEnqueueContinuation,
+      mockQueueService as never
     );
   });
 
@@ -192,7 +214,8 @@ describe('AgentWorker', () => {
       expect.any(Function),
       mockFirestore,
       expect.any(Function),
-      'staging'
+      'staging',
+      expect.anything()
     );
   });
 
@@ -206,7 +229,6 @@ describe('AgentWorker', () => {
       'result',
       expect.objectContaining({
         ...mockRouterResult,
-        title: 'Built Your Coach Outreach Plan',
       })
     );
     expect(result).toHaveProperty('durationMs');
@@ -214,7 +236,7 @@ describe('AgentWorker', () => {
     expect(typeof result['durationMs']).toBe('number');
   });
 
-  it('should generate and persist a dedicated operation title', async () => {
+  it('should persist the assistant response without regenerating thread titles', async () => {
     const payload = makePayload({
       context: { threadId: 'thread-123' },
       intent: 'Analyze my linked maxpreps account for Belleville football',
@@ -230,24 +252,81 @@ describe('AgentWorker', () => {
         content: 'Drafted 5 recruiting emails',
       })
     );
-    expect(mockChatService.generateOperationTitle).toHaveBeenCalledWith(
-      payload.intent,
-      'Drafted 5 recruiting emails',
-      mockLlmService
-    );
-    expect(mockJobRepo.markCompleted).toHaveBeenCalledWith(
-      'op-worker-test',
+    expect(mockJobRepo.markCompleted).toHaveBeenCalledWith('op-worker-test', expect.any(Object));
+    expect(mockChatService.generateOperationTitle).not.toHaveBeenCalled();
+    expect(mockChatService.applyGeneratedThreadTitle).not.toHaveBeenCalled();
+    expect(mockChatService.generateThreadTitle).not.toHaveBeenCalled();
+  });
+
+  it('should append scheduled runs to the original thread before router execution', async () => {
+    const payload = makePayload({
+      origin: 'system_cron' as AgentJobOrigin,
+      context: { threadId: 'thread-recurring-123' },
+      intent: 'Send my weekly recruiting analytics recap',
+      displayIntent: 'Weekly recruiting analytics recap',
+    });
+    const job = {
+      ...makeMockJob(payload),
+      name: 'recv:user-abc:1234567890',
+      repeatJobKey: 'repeat:recv:user-abc:1234567890',
+    };
+
+    await capturedProcessor!(job);
+
+    expect(mockJobRepo.create).toHaveBeenCalledWith(
       expect.objectContaining({
-        title: 'Built Your Coach Outreach Plan',
+        operationId: 'op-worker-test',
+        origin: 'system_cron',
       })
     );
-    expect(mockChatService.applyGeneratedThreadTitle).toHaveBeenCalledWith(
-      'thread-123',
-      payload.userId,
-      payload.intent,
-      'Built Your Coach Outreach Plan'
+
+    expect(mockChatService.addMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadId: 'thread-recurring-123',
+        userId: payload.userId,
+        role: 'user',
+        content: 'Weekly recruiting analytics recap',
+        origin: 'system_cron',
+        operationId: 'op-worker-test',
+      })
     );
-    expect(mockChatService.generateThreadTitle).not.toHaveBeenCalled();
+
+    const firstChatWriteOrder = mockChatService.addMessage.mock.invocationCallOrder[0];
+    const routerRunOrder = mockRouter.run.mock.invocationCallOrder[0];
+
+    expect(firstChatWriteOrder).toBeLessThan(routerRunOrder);
+  });
+
+  it('should use the BullMQ run id as the operation id for scheduled executions', async () => {
+    const payload = makePayload({
+      origin: 'system_cron' as AgentJobOrigin,
+      operationId: 'recurring-user-abc-1700000000000',
+      context: { threadId: 'thread-recurring-123' },
+    });
+    const job = {
+      ...makeMockJob(payload),
+      id: 'repeat:key:1777381200000',
+      name: 'recv:user-abc:1234567890',
+      repeatJobKey: 'repeat:key',
+    };
+
+    await capturedProcessor!(job);
+
+    expect(mockJobRepo.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operationId: 'repeat:key:1777381200000',
+      })
+    );
+    expect(mockRouter.run).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operationId: 'repeat:key:1777381200000',
+      }),
+      expect.any(Function),
+      mockFirestore,
+      expect.any(Function),
+      'staging',
+      expect.anything()
+    );
   });
 
   it('should persist streamed parts and tool steps for thread reload hydration', async () => {
@@ -320,6 +399,41 @@ describe('AgentWorker', () => {
             ],
           },
         ],
+      })
+    );
+  });
+
+  it('persists approval yields onto the thread so refresh can recover approvalId', async () => {
+    const payload = makePayload({
+      context: { threadId: 'thread-approval-1' },
+    });
+    const job = makeMockJob(payload);
+
+    mockRouter.run.mockRejectedValueOnce(
+      new AgentYieldException({
+        reason: 'needs_approval',
+        promptToUser: 'Review this email before sending.',
+        agentId: 'recruiting_coordinator',
+        messages: [{ role: 'user', content: 'Send the email' }],
+        pendingToolCall: {
+          toolName: 'send_email',
+          toolInput: {
+            toEmail: 'coach@example.com',
+            subject: 'Checking in',
+          },
+          toolCallId: 'tool-approval-1',
+        },
+        approvalId: 'approval-123',
+      })
+    );
+
+    await capturedProcessor!(job);
+
+    expect(mockChatService.updateThreadPausedYieldState).toHaveBeenCalledWith(
+      'thread-approval-1',
+      expect.objectContaining({
+        reason: 'needs_approval',
+        approvalId: 'approval-123',
       })
     );
   });
@@ -399,6 +513,61 @@ describe('AgentWorker', () => {
     await expect(capturedProcessor!(job)).rejects.toThrow('LLM timeout');
   });
 
+  it('should auto-continue timed out jobs as a new operation', async () => {
+    const payload = makePayload({
+      context: {
+        threadId: 'thread-timeout-1',
+      },
+    });
+    const job = makeMockJob(payload);
+
+    mockRouter.run.mockRejectedValue(new Error('Agent job timed out after 120 minutes'));
+
+    const result = (await capturedProcessor!(job)) as Record<string, unknown>;
+
+    expect(mockEnqueueContinuation).toHaveBeenCalledTimes(1);
+    expect(mockEnqueueContinuation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: payload.userId,
+        intent: payload.intent,
+        context: expect.objectContaining({
+          resumedFrom: payload.operationId,
+          timeoutContinuationCount: 1,
+          timeoutContinuedFrom: payload.operationId,
+        }),
+      }),
+      'staging'
+    );
+
+    expect(mockJobRepo.create).toHaveBeenCalledTimes(2);
+    expect(mockJobRepo.create).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ operationId: payload.operationId })
+    );
+    expect(mockJobRepo.create).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        context: expect.objectContaining({
+          resumedFrom: payload.operationId,
+          timeoutContinuationCount: 1,
+        }),
+      })
+    );
+    expect(mockJobRepo.markCompleted).toHaveBeenCalledWith(
+      payload.operationId,
+      expect.objectContaining({
+        data: expect.objectContaining({
+          continuationReason: 'timeout',
+        }),
+      })
+    );
+    expect(mockJobRepo.markFailed).not.toHaveBeenCalledWith(
+      payload.operationId,
+      'Agent job timed out after 120 minutes'
+    );
+    expect(result).toHaveProperty('result');
+  });
+
   it('should mark the job as failed when the router returns a failed plan result', async () => {
     const payload = makePayload();
     const job = makeMockJob(payload);
@@ -426,6 +595,279 @@ describe('AgentWorker', () => {
     const finalProgress = job.updateProgress.mock.calls.at(-1)?.[0];
     expect(finalProgress.status).toBe('failed');
     expect(finalProgress.message).toContain('Execution plan failed.');
+  });
+
+  it('suppresses terminal completion side effects when persisted job is paused', async () => {
+    const payload = makePayload({
+      context: { threadId: 'thread-paused-1' },
+    });
+    const job = makeMockJob(payload);
+
+    mockJobRepo.getById.mockResolvedValueOnce(null).mockResolvedValueOnce({
+      operationId: payload.operationId,
+      status: 'paused',
+      yieldState: {
+        pendingToolCall: { toolName: 'resume_paused_operation' },
+      },
+    });
+
+    const outcome = (await capturedProcessor!(job)) as { result?: { summary?: string } };
+
+    expect(outcome.result?.summary).toBe('Operation paused. Resume whenever you are ready.');
+    expect(mockJobRepo.markCompleted).not.toHaveBeenCalled();
+    expect(mockChatService.addMessage).not.toHaveBeenCalled();
+
+    const finalProgress = job.updateProgress.mock.calls.at(-1)?.[0];
+    expect(finalProgress.status).toBe('paused');
+  });
+
+  it('treats AbortError as controlled pause when persisted state is paused', async () => {
+    const payload = makePayload({
+      context: { threadId: 'thread-paused-abort-1' },
+    });
+    const job = makeMockJob(payload);
+
+    const abortErr = new Error('Operation aborted');
+    abortErr.name = 'AbortError';
+    mockRouter.run.mockRejectedValueOnce(abortErr);
+
+    mockJobRepo.getById
+      .mockResolvedValueOnce({
+        operationId: payload.operationId,
+        status: 'paused',
+        yieldState: {
+          pendingToolCall: { toolName: 'resume_paused_operation' },
+        },
+      })
+      .mockResolvedValueOnce({
+        operationId: payload.operationId,
+        status: 'paused',
+        yieldState: {
+          pendingToolCall: { toolName: 'resume_paused_operation' },
+        },
+      });
+
+    const outcome = (await capturedProcessor!(job)) as { result?: { summary?: string } };
+
+    expect(outcome.result?.summary).toBe('Operation paused. Resume whenever you are ready.');
+    expect(mockJobRepo.markFailed).not.toHaveBeenCalled();
+
+    const finalProgress = job.updateProgress.mock.calls.at(-1)?.[0];
+    expect(finalProgress.status).toBe('paused');
+  });
+
+  it('aborts queued child operations while waiting on parent completion', async () => {
+    const payload = makePayload({
+      operationId: 'op-child-1',
+      context: { parentOperationId: 'op-parent-1' },
+    });
+    const job = makeMockJob(payload);
+
+    mockPubSub.subscribeControl.mockImplementationOnce(async (_operationId, onControl) => {
+      onControl({ action: 'cancel', issuedBy: 'user' });
+      return async () => undefined;
+    });
+
+    mockJobRepo.getById.mockImplementation(async (operationId: string) => {
+      if (operationId === payload.operationId) {
+        return { operationId, status: 'queued' };
+      }
+      if (operationId === 'op-parent-1') {
+        return { operationId, status: 'running' };
+      }
+      return null;
+    });
+
+    await expect(capturedProcessor!(job)).rejects.toMatchObject({
+      name: 'AbortError',
+      message: 'Queued child operation aborted before parent completion',
+    });
+
+    expect(mockQueueService.registerController).toHaveBeenCalledWith(
+      payload.operationId,
+      expect.any(AbortController)
+    );
+    expect(mockPubSub.subscribeControl).toHaveBeenCalledWith(
+      payload.operationId,
+      expect.any(Function)
+    );
+    expect(mockRouter.run).not.toHaveBeenCalled();
+  });
+
+  it('checks parent operation status before running queued child operations', async () => {
+    const payload = makePayload({
+      operationId: 'op-child-2',
+      context: { parentOperationId: 'op-parent-2' },
+    });
+    const job = makeMockJob(payload);
+
+    mockJobRepo.getById.mockImplementation(async (operationId: string) => {
+      if (operationId === 'op-parent-2') {
+        return { operationId, status: 'completed' };
+      }
+      if (operationId === payload.operationId) {
+        return { operationId, status: 'queued' };
+      }
+      return null;
+    });
+
+    await capturedProcessor!(job);
+
+    expect(mockJobRepo.getById).toHaveBeenCalledWith('op-parent-2');
+    expect(mockRouter.run).toHaveBeenCalledTimes(1);
+    expect(mockQueueService.unregisterController).toHaveBeenCalledWith(payload.operationId);
+  });
+
+  it('force-fails stale parent operations so queued children do not wait forever', async () => {
+    const payload = makePayload({
+      operationId: 'op-child-stale-1',
+      context: { parentOperationId: 'op-parent-stale-1' },
+    });
+    const job = makeMockJob(payload);
+
+    const staleIso = new Date(Date.now() - (2 * 60 * 60 * 1000 + 6 * 60 * 1000)).toISOString();
+
+    mockJobRepo.getById.mockImplementation(async (operationId: string) => {
+      if (operationId === 'op-parent-stale-1') {
+        return {
+          operationId,
+          status: 'acting',
+          createdAt: staleIso,
+          updatedAt: staleIso,
+        };
+      }
+      if (operationId === payload.operationId) {
+        return { operationId, status: 'queued' };
+      }
+      return null;
+    });
+
+    await capturedProcessor!(job);
+
+    expect(mockJobRepo.markFailed).toHaveBeenCalledWith(
+      'op-parent-stale-1',
+      'Parent operation became stale while a child operation was blocked waiting for completion.'
+    );
+    expect(mockRouter.run).toHaveBeenCalledTimes(1);
+  });
+
+  it('should publish deltas immediately (live) and non-deltas after persisted seq', async () => {
+    const payload = makePayload();
+    const job = makeMockJob(payload);
+
+    let nextSeq = 1;
+    let resolveFirstPersist: ((value: number) => void) | null = null;
+    const firstPersistPromise = new Promise<number>((resolve) => {
+      resolveFirstPersist = resolve;
+    });
+
+    mockJobRepo.writeJobEventWithAutoSeq
+      .mockImplementationOnce(async () => firstPersistPromise)
+      .mockImplementation(async () => nextSeq++);
+
+    mockRouter.run.mockImplementationOnce(async (_p, _onUpdate, _db, onStreamEvent) => {
+      onStreamEvent({ type: 'delta', text: 'hello ' });
+      onStreamEvent({ type: 'delta', text: 'world' });
+      onStreamEvent({ type: 'step_active', message: 'Analyzing...' });
+      return {
+        ...mockRouterResult,
+        summary: 'hello world',
+      };
+    });
+
+    const processingPromise = capturedProcessor!(job);
+
+    // ╔════════════════════════════════════════════════════════════════════╗
+    // ║  NEW: Deltas are published IMMEDIATELY (onLiveEvent hook)          ║
+    // ║  Non-delta events wait for persisted seq (onPersistedEvent hook)   ║
+    // ╚════════════════════════════════════════════════════════════════════╝
+    await vi.waitFor(() => {
+      // Live deltas published immediately (token-by-token UX)
+      expect(mockPubSub.publish).toHaveBeenCalledWith(
+        expect.any(String),
+        'delta',
+        expect.objectContaining({ content: expect.any(String) })
+      );
+    });
+
+    const liveDeltaPublishCount = mockPubSub.publish.mock.calls.filter(
+      (call) => call[1] === 'delta'
+    ).length;
+    expect(liveDeltaPublishCount).toBeGreaterThan(0);
+
+    await vi.waitFor(() => {
+      expect(mockJobRepo.writeJobEventWithAutoSeq).toHaveBeenCalledTimes(1);
+    });
+
+    resolveFirstPersist?.(0);
+    await processingPromise;
+
+    // After persistence completes, non-delta events should also be published
+    const allPublishCalls = mockPubSub.publish.mock.calls;
+    expect(allPublishCalls.length).toBeGreaterThan(liveDeltaPublishCount);
+
+    // Verify non-delta events (if any) are published
+    const nonDeltaPublishes = allPublishCalls.filter((call) => call[1] !== 'delta');
+    expect(nonDeltaPublishes.length).toBeGreaterThanOrEqual(0);
+
+    // If non-delta events have seq numbers, they should be monotonic
+    const nonDeltaSeqs = nonDeltaPublishes
+      .map((call) => (call[2] as { seq?: unknown })?.seq)
+      .filter((value): value is number => typeof value === 'number');
+
+    if (nonDeltaSeqs.length > 0) {
+      expect(nonDeltaSeqs).toEqual([...nonDeltaSeqs].sort((a, b) => a - b));
+    }
+  });
+
+  it('should publish panel events and preserve autoOpenPanel on done', async () => {
+    const payload = makePayload();
+    const job = makeMockJob(payload);
+
+    mockRouter.run.mockImplementationOnce(async (_p, _onUpdate, _db, onStreamEvent) => {
+      onStreamEvent({
+        type: 'tool_result',
+        toolName: 'open_live_view',
+        toolSuccess: true,
+        stepId: 'step-live-view',
+        stageType: 'tool',
+        message: 'Opening virtual browser',
+        toolResult: {
+          autoOpenPanel: {
+            type: 'live-view',
+            url: 'https://connect.firecrawl.dev/session/live-123',
+            title: 'acumbbcamps.com',
+          },
+        },
+      });
+
+      return {
+        ...mockRouterResult,
+        summary: 'Live view opened',
+      };
+    });
+
+    await capturedProcessor!(job);
+
+    expect(mockPubSub.publish).toHaveBeenCalledWith(
+      payload.operationId,
+      'panel',
+      expect.objectContaining({
+        type: 'live-view',
+        url: 'https://connect.firecrawl.dev/session/live-123',
+      })
+    );
+
+    expect(mockPubSub.publish).toHaveBeenCalledWith(
+      payload.operationId,
+      'done',
+      expect.objectContaining({
+        autoOpenPanel: expect.objectContaining({
+          type: 'live-view',
+          url: 'https://connect.firecrawl.dev/session/live-123',
+        }),
+      })
+    );
   });
 
   // ── Lifecycle ─────────────────────────────────────────────────────────

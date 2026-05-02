@@ -27,9 +27,8 @@ describe('QueryNxt1DataTool', () => {
   it('exposes the expected tool metadata', () => {
     expect(tool.name).toBe('query_nxt1_data');
     expect(tool.isMutation).toBe(false);
-    expect(tool.category).toBe('database');
-    expect(tool.allowedAgents).toContain('strategy_coordinator');
-    expect(tool.allowedAgents).toContain('data_coordinator');
+    expect(tool.category).toBe('system');
+    expect(tool.allowedAgents).toContain('*');
   });
 
   it('passes only named view arguments and trusted context to the bridge', async () => {

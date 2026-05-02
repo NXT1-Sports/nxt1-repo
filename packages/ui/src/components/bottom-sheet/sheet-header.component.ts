@@ -342,7 +342,10 @@ export class NxtSheetHeaderComponent {
       topOverlay.tagName.toLowerCase() === 'ion-modal' &&
       typeof (topOverlay as { dismiss?: unknown }).dismiss === 'function'
     ) {
-      const modal = topOverlay as any;
+      const modal = topOverlay as {
+        dismiss(data?: unknown, role?: string): Promise<boolean>;
+        setCurrentBreakpoint?(breakpoint: number): Promise<void>;
+      };
 
       // If sheet has breakpoints and setCurrentBreakpoint method, animate to 0
       // This triggers the same backdrop fade + sheet slide as manual swipe
@@ -353,7 +356,7 @@ export class NxtSheetHeaderComponent {
           await new Promise((resolve) => setTimeout(resolve, 350));
           await modal.dismiss(undefined, 'cancel');
           return;
-        } catch (e) {
+        } catch {
           // Fallback if setCurrentBreakpoint fails
         }
       }

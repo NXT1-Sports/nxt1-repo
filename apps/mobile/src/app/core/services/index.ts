@@ -40,6 +40,7 @@ export {
   type AppLifecycleEvent,
   type AppLifecycleHandler,
 } from './native/native-app.service';
+export { LiveUpdateService } from './native/live-update.service';
 export { NativeBadgeService } from './native/native-badge.service';
 export { PushHandlerService } from './native/push-handler.service';
 export {

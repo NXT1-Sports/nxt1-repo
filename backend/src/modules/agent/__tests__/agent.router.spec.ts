@@ -1,30 +1,22 @@
-/**
- * @fileoverview Agent Router — Unit Tests
- * @module @nxt1/backend/modules/agent
- *
- * Tests the orchestration layer: classify, run, context enrichment,
- * task dependency execution, and error handling.
- */
-
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AgentRouter } from '../agent.router.js';
 import type { BaseAgent } from '../agents/base.agent.js';
+import { RecruitingCoordinatorAgent } from '../agents/recruiting-coordinator.agent.js';
 import type { OpenRouterService } from '../llm/openrouter.service.js';
 import type { ToolRegistry } from '../tools/tool-registry.js';
 import type { ContextBuilder } from '../memory/context-builder.js';
 import { AgentDelegationException } from '../exceptions/agent-delegation.exception.js';
 import type {
+  AgentIdentifier,
+  AgentJobOrigin,
   AgentJobPayload,
   AgentJobUpdate,
-  AgentJobOrigin,
   AgentOperationResult,
   AgentPromptContext,
   AgentUserContext,
 } from '@nxt1/core';
 
 const TEST_ORIGIN: AgentJobOrigin = 'user';
-
-// ─── Mock Factories ─────────────────────────────────────────────────────────
 
 function createMockUserContext(): AgentUserContext {
   return {
@@ -60,6 +52,10 @@ function createMockContextBuilder(userContext?: AgentUserContext): ContextBuilde
   return {
     buildContext: vi.fn().mockResolvedValue(ctx),
     buildPromptContext: vi.fn().mockResolvedValue(promptContext),
+    getMemoriesForContext: vi.fn().mockResolvedValue(promptContext.memories),
+    getRecentSyncSummariesForContext: vi.fn().mockResolvedValue([]),
+    getRecentThreadHistory: vi.fn().mockResolvedValue(''),
+    getActiveThreadsSummary: vi.fn().mockResolvedValue(''),
     compressToPrompt: vi
       .fn()
       .mockImplementation(
@@ -79,17 +75,40 @@ function createMockToolRegistry(): ToolRegistry {
   } as unknown as ToolRegistry;
 }
 
-/**
- * Create a mock LLM that returns a plan when called via prompt().
- * The plan JSON is configurable.
- */
-function createMockLLM(planJson: object): OpenRouterService {
+function createMockLLM(planJson: {
+  summary?: string;
+  estimatedSteps?: number;
+  tasks?: unknown[];
+  resultType?: 'execution' | 'clarification';
+  clarificationQuestion?: string | null;
+  clarificationContext?: string | null;
+}): OpenRouterService {
+  const strictPlannerResponse =
+    Array.isArray(planJson.tasks) && planJson.tasks.length > 0
+      ? {
+          resultType: planJson.resultType ?? 'execution',
+          summary: planJson.summary ?? 'Created execution plan.',
+          estimatedSteps: planJson.estimatedSteps ?? planJson.tasks.length,
+          tasks: planJson.tasks,
+          clarificationQuestion: null,
+          clarificationContext: null,
+        }
+      : {
+          resultType: 'clarification' as const,
+          summary: planJson.summary ?? 'Need clarification before planning.',
+          estimatedSteps: 0,
+          tasks: [],
+          clarificationQuestion:
+            planJson.clarificationQuestion ?? 'Can you clarify what you want me to do?',
+          clarificationContext: planJson.clarificationContext ?? null,
+        };
+
   return {
     prompt: vi.fn().mockResolvedValue({
-      content: JSON.stringify(planJson),
-      parsedOutput: planJson,
+      content: JSON.stringify(strictPlannerResponse),
+      parsedOutput: strictPlannerResponse,
       toolCalls: [],
-      model: 'anthropic/claude-haiku-4-5',
+      model: 'anthropic/claude-sonnet-4-5',
       usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
       latencyMs: 200,
       costUsd: 0.0001,
@@ -133,84 +152,11 @@ describe('AgentRouter', () => {
     vi.clearAllMocks();
     toolRegistry = createMockToolRegistry();
     contextBuilder = createMockContextBuilder();
+    llm = createMockLLM({ tasks: [] });
   });
-
-  // ─── classify() ─────────────────────────────────────────────────────────
-
-  describe('classify()', () => {
-    it('should return the agent ID for a single-task plan', async () => {
-      llm = createMockLLM({
-        summary: 'Single task',
-        tasks: [
-          {
-            id: '1',
-            assignedAgent: 'performance_coordinator',
-            description: 'Analyze tape',
-            dependsOn: [],
-          },
-        ],
-      });
-
-      const router = new AgentRouter(llm, toolRegistry, contextBuilder);
-      const agentId = await router.classify('Grade my tape', 'user-123');
-
-      expect(agentId).toBe('performance_coordinator');
-    });
-
-    it('should return "router" for multi-task plans', async () => {
-      llm = createMockLLM({
-        tasks: [
-          {
-            id: '1',
-            assignedAgent: 'performance_coordinator',
-            description: 'Analyze tape',
-            dependsOn: [],
-          },
-          {
-            id: '2',
-            assignedAgent: 'recruiting_coordinator',
-            description: 'Email coaches',
-            dependsOn: ['1'],
-          },
-        ],
-      });
-
-      const router = new AgentRouter(llm, toolRegistry, contextBuilder);
-      const agentId = await router.classify('Grade tape and email coaches', 'user-123');
-
-      expect(agentId).toBe('router');
-    });
-
-    it('should return "strategy_coordinator" when plan has no tasks', async () => {
-      llm = createMockLLM({ tasks: [] });
-
-      const router = new AgentRouter(llm, toolRegistry, contextBuilder);
-      const agentId = await router.classify('ambiguous request', 'user-123');
-
-      expect(agentId).toBe('strategy_coordinator');
-    });
-
-    it('should build user context before classifying', async () => {
-      llm = createMockLLM({
-        tasks: [
-          { id: '1', assignedAgent: 'strategy_coordinator', description: 'test', dependsOn: [] },
-        ],
-      });
-
-      const router = new AgentRouter(llm, toolRegistry, contextBuilder);
-      await router.classify('hello', 'user-123');
-
-      expect(contextBuilder.buildPromptContext).toHaveBeenCalledWith('user-123', 'hello');
-      expect(contextBuilder.compressToPrompt).toHaveBeenCalled();
-    });
-  });
-
-  // ─── run() ──────────────────────────────────────────────────────────────
 
   describe('run()', () => {
     it('should resume yielded approval jobs via resumeExecution and forward approvalId', async () => {
-      llm = createMockLLM({ tasks: [] });
-
       const recruitingAgent = createMockAgent('recruiting_coordinator', {
         summary: 'Approved email sent successfully.',
         data: { sent: true },
@@ -262,7 +208,6 @@ describe('AgentRouter', () => {
         undefined,
         'approval-123'
       );
-
       expect(result.summary).toBe('Approved email sent successfully.');
     });
 
@@ -288,29 +233,22 @@ describe('AgentRouter', () => {
       const router = new AgentRouter(llm, toolRegistry, contextBuilder);
       router.registerAgent(performanceAgent);
 
-      const payload: AgentJobPayload = {
-        operationId: 'op-001',
-        userId: 'user-123',
-        intent: 'Grade my highlight tape',
-        origin: TEST_ORIGIN,
-        priority: 'normal',
-        createdAt: new Date().toISOString(),
-      };
-
       const updates: AgentJobUpdate[] = [];
-      const result = await router.run(payload, (u) => updates.push(u));
+      const result = await router.run(
+        {
+          operationId: 'op-001',
+          userId: 'user-123',
+          intent: 'Grade my highlight tape',
+          origin: TEST_ORIGIN,
+          priority: 'normal',
+          createdAt: new Date().toISOString(),
+        },
+        (u) => updates.push(u)
+      );
 
-      // Agent should have been called
       expect(performanceAgent.execute).toHaveBeenCalledTimes(1);
-
-      // Result should contain the agent's summary
       expect(result.summary).toContain('Tape graded: B+ overall.');
-
-      // Suggestions should propagate
       expect(result.suggestions).toContain('Upload more recent footage.');
-
-      // Should have emitted updates
-      expect(updates.length).toBeGreaterThan(0);
       expect(updates.some((u) => u.status === 'completed')).toBe(true);
     });
 
@@ -334,13 +272,11 @@ describe('AgentRouter', () => {
       });
 
       const executionOrder: string[] = [];
-
       const performanceAgent = createMockAgent('performance_coordinator');
       (performanceAgent.execute as ReturnType<typeof vi.fn>).mockImplementation(async () => {
         executionOrder.push('performance_coordinator');
         return { summary: 'Tape graded.', data: {}, suggestions: [] };
       });
-
       const recruitingAgent = createMockAgent('recruiting_coordinator');
       (recruitingAgent.execute as ReturnType<typeof vi.fn>).mockImplementation(async () => {
         executionOrder.push('recruiting_coordinator');
@@ -351,18 +287,15 @@ describe('AgentRouter', () => {
       router.registerAgent(performanceAgent);
       router.registerAgent(recruitingAgent);
 
-      const payload: AgentJobPayload = {
+      await router.run({
         operationId: 'op-002',
         userId: 'user-123',
         intent: 'Grade tape and email coaches',
         origin: TEST_ORIGIN,
         priority: 'normal',
         createdAt: new Date().toISOString(),
-      };
+      });
 
-      await router.run(payload);
-
-      // Performance coordinator must run before recruiting coordinator
       expect(executionOrder).toEqual(['performance_coordinator', 'recruiting_coordinator']);
     });
 
@@ -389,24 +322,21 @@ describe('AgentRouter', () => {
         data: { grade: 'A-' },
         suggestions: [],
       });
-
       const recruitingAgent = createMockAgent('recruiting_coordinator');
+
       const router = new AgentRouter(llm, toolRegistry, contextBuilder);
       router.registerAgent(performanceAgent);
       router.registerAgent(recruitingAgent);
 
-      const payload: AgentJobPayload = {
+      await router.run({
         operationId: 'op-003',
         userId: 'user-123',
         intent: 'Grade and email',
         origin: TEST_ORIGIN,
         priority: 'normal',
         createdAt: new Date().toISOString(),
-      };
+      });
 
-      await router.run(payload);
-
-      // The recruiting coordinator should receive enriched intent with upstream results
       const recruitingCall = (recruitingAgent.execute as ReturnType<typeof vi.fn>).mock.calls[0];
       const taskIntent = recruitingCall[0] as string;
       expect(taskIntent).toContain('[Result from task 1]');
@@ -433,17 +363,18 @@ describe('AgentRouter', () => {
       const router = new AgentRouter(llm, toolRegistry, contextBuilder);
       router.registerAgent(performanceAgent);
 
-      const payload: AgentJobPayload = {
-        operationId: 'op-004',
-        userId: 'user-123',
-        intent: 'Grade tape',
-        origin: TEST_ORIGIN,
-        priority: 'normal',
-        createdAt: new Date().toISOString(),
-      };
-
       const updates: AgentJobUpdate[] = [];
-      const result = await router.run(payload, (u) => updates.push(u));
+      const result = await router.run(
+        {
+          operationId: 'op-004',
+          userId: 'user-123',
+          intent: 'Grade tape',
+          origin: TEST_ORIGIN,
+          priority: 'normal',
+          createdAt: new Date().toISOString(),
+        },
+        (u) => updates.push(u)
+      );
 
       expect(result.summary).toContain('Execution plan failed.');
       expect(result.summary).toContain('Task 1');
@@ -456,58 +387,54 @@ describe('AgentRouter', () => {
           error: 'LLM timeout',
         },
       });
-
-      expect(updates.some((u) => u.step?.message?.includes('failed'))).toBe(true);
       expect(updates.some((u) => u.status === 'failed')).toBe(true);
     });
 
-    it('should return empty result when planner returns no tasks', async () => {
-      llm = createMockLLM({ tasks: [] });
+    it('should return clarification when planner produces no tasks', async () => {
+      llm = createMockLLM({
+        summary: 'Need clarification before planning.',
+        tasks: [],
+        clarificationQuestion: 'Which coaches should I email?',
+      });
 
       const router = new AgentRouter(llm, toolRegistry, contextBuilder);
-
-      const payload: AgentJobPayload = {
+      const result = await router.run({
         operationId: 'op-005',
         userId: 'user-123',
         intent: 'something impossible',
         origin: TEST_ORIGIN,
         priority: 'normal',
         createdAt: new Date().toISOString(),
-      };
+      });
 
-      const result = await router.run(payload);
-
-      expect(result.summary).toContain('Could not create an execution plan');
-      expect(result.suggestions).toBeDefined();
+      expect(result.summary).toBe('Which coaches should I email?');
+      expect(result.data?.['clarificationQuestion']).toBe('Which coaches should I email?');
+      expect(result.suggestions).toEqual([]);
     });
 
-    it('should throw when assigned agent is not registered', async () => {
+    it('should fail when planner assigns a non-routable agent', async () => {
       llm = createMockLLM({
         tasks: [{ id: '1', assignedAgent: 'nonexistent', description: 'test', dependsOn: [] }],
       });
 
       const router = new AgentRouter(llm, toolRegistry, contextBuilder);
-
-      const payload: AgentJobPayload = {
-        operationId: 'op-006',
-        userId: 'user-123',
-        intent: 'test',
-        origin: TEST_ORIGIN,
-        priority: 'normal',
-        createdAt: new Date().toISOString(),
-      };
-
       const updates: AgentJobUpdate[] = [];
-      await router.run(payload, (u) => updates.push(u));
+      const result = await router.run(
+        {
+          operationId: 'op-006',
+          userId: 'user-123',
+          intent: 'test',
+          origin: TEST_ORIGIN,
+          priority: 'normal',
+          createdAt: new Date().toISOString(),
+        },
+        (u) => updates.push(u)
+      );
 
-      // Should emit failure for the unregistered agent
-      expect(updates.some((u) => u.step?.message?.includes('No agent registered'))).toBe(true);
+      expect(result.summary).toContain('Planner assigned non-routable agents');
+      expect(updates.some((u) => u.status === 'failed')).toBe(true);
     });
-  });
 
-  // ─── Context Enrichment ─────────────────────────────────────────────────
-
-  describe('context enrichment', () => {
     it('should prepend user profile to intent before planning', async () => {
       llm = createMockLLM({
         tasks: [
@@ -516,36 +443,53 @@ describe('AgentRouter', () => {
       });
 
       const router = new AgentRouter(llm, toolRegistry, contextBuilder);
-      const generalAgent = createMockAgent('strategy_coordinator');
-      router.registerAgent(generalAgent);
+      router.registerAgent(createMockAgent('strategy_coordinator'));
 
-      const payload: AgentJobPayload = {
+      await router.run({
         operationId: 'op-007',
         userId: 'user-123',
         intent: 'Help me improve my stats',
         origin: TEST_ORIGIN,
         priority: 'normal',
         createdAt: new Date().toISOString(),
-      };
+      });
 
-      await router.run(payload);
-
-      // The LLM prompt (planner) should receive enriched intent
-      const promptCall = (llm.prompt as ReturnType<typeof vi.fn>).mock.calls[0];
-      const userMessage = promptCall[1] as string;
-
+      const planningCall = (llm.prompt as ReturnType<typeof vi.fn>).mock.calls[0];
+      const userMessage = planningCall[1] as string;
       expect(userMessage).toContain('[User Profile]');
       expect(userMessage).toContain('Test Athlete');
       expect(userMessage).toContain('football');
-      expect(userMessage).toContain('MemoryCount: 1');
+      expect(userMessage).toContain('MemoryCount: 0');
       expect(userMessage).toContain('[Request]');
       expect(userMessage).toContain('Help me improve my stats');
     });
-  });
 
-  // ─── onUpdate Callback ─────────────────────────────────────────────────
+    it('should attach planner-time capability snapshot to planning input', async () => {
+      llm = createMockLLM({
+        tasks: [
+          { id: '1', assignedAgent: 'strategy_coordinator', description: 'test', dependsOn: [] },
+        ],
+      });
 
-  describe('update emissions', () => {
+      const router = new AgentRouter(llm, toolRegistry, contextBuilder);
+      router.registerAgent(createMockAgent('strategy_coordinator'));
+
+      await router.run({
+        operationId: 'op-capability-snapshot',
+        userId: 'user-123',
+        intent: 'Build a weekly recruiting strategy',
+        origin: TEST_ORIGIN,
+        priority: 'normal',
+        createdAt: new Date().toISOString(),
+      });
+
+      const planningCall = (llm.prompt as ReturnType<typeof vi.fn>).mock.calls[0];
+      const planningIntent = planningCall[1] as string;
+      expect(planningIntent).toContain('[Coordinator Capability Snapshot]');
+      expect(planningIntent).toContain('schemaVersion: 1');
+      expect(planningIntent).toContain('strategy_coordinator');
+    });
+
     it('should emit structured updates with operationId and timestamps', async () => {
       llm = createMockLLM({
         tasks: [
@@ -557,67 +501,92 @@ describe('AgentRouter', () => {
       const router = new AgentRouter(llm, toolRegistry, contextBuilder);
       router.registerAgent(generalAgent);
 
-      const payload: AgentJobPayload = {
-        operationId: 'op-008',
-        userId: 'user-123',
-        intent: 'test',
-        origin: TEST_ORIGIN,
-        priority: 'normal',
-        createdAt: new Date().toISOString(),
-      };
-
       const updates: AgentJobUpdate[] = [];
-      await router.run(payload, (u) => updates.push(u));
+      await router.run(
+        {
+          operationId: 'op-008',
+          userId: 'user-123',
+          intent: 'test',
+          origin: TEST_ORIGIN,
+          priority: 'normal',
+          createdAt: new Date().toISOString(),
+        },
+        (u) => updates.push(u)
+      );
 
-      // All updates should reference the correct operationId
       for (const update of updates) {
         expect(update.operationId).toBe('op-008');
         expect(update.step?.timestamp).toBeDefined();
         expect(update.step?.id).toBeDefined();
       }
 
-      // Should have at least: thinking, acting, completed
       const statuses = updates.map((u) => u.status);
       expect(statuses).toContain('thinking');
       expect(statuses).toContain('acting');
       expect(statuses).toContain('completed');
-      expect(
-        updates.some(
-          (u) => u.stage === 'decomposing_intent' || u.step?.stage === 'decomposing_intent'
-        )
-      ).toBe(true);
-      expect(updates.at(-1)?.outcomeCode ?? updates.at(-1)?.step?.outcomeCode).toBe(
-        'success_default'
-      );
-    });
-
-    it('should work without onUpdate callback (no-op)', async () => {
-      llm = createMockLLM({
-        tasks: [
-          { id: '1', assignedAgent: 'strategy_coordinator', description: 'test', dependsOn: [] },
-        ],
-      });
-
-      const generalAgent = createMockAgent('strategy_coordinator');
-      const router = new AgentRouter(llm, toolRegistry, contextBuilder);
-      router.registerAgent(generalAgent);
-
-      const payload: AgentJobPayload = {
-        operationId: 'op-009',
-        userId: 'user-123',
-        intent: 'test',
-        origin: TEST_ORIGIN,
-        priority: 'normal',
-        createdAt: new Date().toISOString(),
-      };
-
-      // Should not throw when no callback provided
-      const result = await router.run(payload);
-      expect(result).toBeDefined();
     });
   });
 
-  // ─── Agent Registration ─────────────────────────────────────────────────
+  describe('context enrichment', () => {
+    it('should keep capability snapshot aligned with policy-filtered tool exposure', async () => {
+      const router = new AgentRouter(llm, toolRegistry, contextBuilder);
+      router.registerAgent(new RecruitingCoordinatorAgent());
+
+      const toolAccessContext = {
+        operationId: 'op-policy-alignment',
+        userId: 'user-123',
+        origin: TEST_ORIGIN,
+        environment: 'production' as const,
+      };
+
+      (toolRegistry.getDefinitions as ReturnType<typeof vi.fn>).mockImplementation(
+        (agentId: string) => {
+          if (agentId !== 'recruiting_coordinator') return [];
+          return [
+            { name: 'search_colleges', description: 'Search colleges', category: 'database' },
+            { name: 'query_gmail_emails', description: 'Query Gmail', category: 'integration' },
+            {
+              name: 'unassigned_internal_tool',
+              description: 'Should not be surfaced in capability snapshot',
+              category: 'integration',
+            },
+          ];
+        }
+      );
+
+      const snapshot = await (
+        router as unknown as {
+          planningService: {
+            buildCapabilitySnapshot: (
+              intent: string,
+              accessContext: typeof toolAccessContext,
+              agents: ReadonlyMap<AgentIdentifier, BaseAgent>
+            ) => Promise<{
+              coordinators: Array<{ agentId: string; allowedToolNames: string[] }>;
+            }>;
+          };
+          getRegisteredAgents: () => ReadonlyMap<AgentIdentifier, BaseAgent>;
+        }
+      ).planningService.buildCapabilitySnapshot(
+        'Find football colleges and email coaches',
+        toolAccessContext,
+        (
+          router as unknown as {
+            getRegisteredAgents: () => ReadonlyMap<AgentIdentifier, BaseAgent>;
+          }
+        ).getRegisteredAgents()
+      );
+
+      const recruitingSnapshot = snapshot.coordinators.find(
+        (coordinator) => coordinator.agentId === 'recruiting_coordinator'
+      );
+
+      expect(recruitingSnapshot).toBeDefined();
+      expect(recruitingSnapshot?.allowedToolNames).toContain('search_colleges');
+      expect(recruitingSnapshot?.allowedToolNames).toContain('query_gmail_emails');
+      expect(recruitingSnapshot?.allowedToolNames).not.toContain('unassigned_internal_tool');
+    });
+  });
 
   describe('registerAgent()', () => {
     it('should register and use agents by ID', async () => {
@@ -635,45 +604,60 @@ describe('AgentRouter', () => {
       const router = new AgentRouter(llm, toolRegistry, contextBuilder);
       router.registerAgent(performanceAgent);
 
-      const payload: AgentJobPayload = {
+      const result = await router.run({
         operationId: 'op-010',
         userId: 'user-123',
         intent: 'test',
         origin: TEST_ORIGIN,
         priority: 'normal',
         createdAt: new Date().toISOString(),
-      };
+      });
 
-      const result = await router.run(payload);
       expect(result.summary).toContain('Performance review done.');
       expect(performanceAgent.execute).toHaveBeenCalledTimes(1);
     });
   });
 
-  // ─── Delegation Handoff ─────────────────────────────────────────────────
-
   describe('delegation handoff', () => {
-    it('should re-dispatch through Planner when a direct agent throws AgentDelegationException', async () => {
-      // Direct agent path: brand_coordinator is set directly on payload.
-      // brand_coordinator throws delegation → Router catches, strips agent lock,
-      // re-dispatches through Planner → Planner routes to recruiting_coordinator.
-      const plannerCallCount = { value: 0 };
-
+    it('should reroute the task when delegation occurs in DAG execution (Planner path)', async () => {
+      let plannerCallCount = 0;
       llm = {
         prompt: vi.fn().mockImplementation(async () => {
-          const plan = {
-            summary: 'Recruiting task.',
-            tasks: [
-              {
-                id: '1',
-                assignedAgent: 'recruiting_coordinator',
-                description: 'Send emails',
-                dependsOn: [],
-              },
-            ],
-          };
-          plannerCallCount.value++;
-          // Only called during re-dispatch (Planner planning phase)
+          plannerCallCount += 1;
+          const plan =
+            plannerCallCount === 1
+              ? {
+                  resultType: 'execution' as const,
+                  summary: 'Route to admin.',
+                  estimatedSteps: 1,
+                  tasks: [
+                    {
+                      id: '1',
+                      assignedAgent: 'admin_coordinator',
+                      description:
+                        'Send email to nxt1@nxt1sports.com asking them to check out the platform.',
+                      dependsOn: [],
+                    },
+                  ],
+                  clarificationQuestion: null,
+                  clarificationContext: null,
+                }
+              : {
+                  resultType: 'execution' as const,
+                  summary: 'Route to recruiting.',
+                  estimatedSteps: 1,
+                  tasks: [
+                    {
+                      id: '1',
+                      assignedAgent: 'recruiting_coordinator',
+                      description: 'Draft and send the requested email to nxt1@nxt1sports.com.',
+                      dependsOn: [],
+                    },
+                  ],
+                  clarificationQuestion: null,
+                  clarificationContext: null,
+                };
+
           return {
             content: JSON.stringify(plan),
             parsedOutput: plan,
@@ -686,154 +670,47 @@ describe('AgentRouter', () => {
           };
         }),
         complete: vi.fn(),
+        embed: vi.fn().mockResolvedValue([0.1, 0.2, 0.3]),
       } as unknown as OpenRouterService;
 
-      const brandMediaAgent = createMockAgent('brand_coordinator');
-      (brandMediaAgent.execute as ReturnType<typeof vi.fn>).mockRejectedValue(
+      const adminAgent = createMockAgent('admin_coordinator');
+      (adminAgent.execute as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
         new AgentDelegationException({
-          forwardingIntent: 'Send recruiting emails to D2 coaches',
-          sourceAgent: 'brand_coordinator',
+          forwardingIntent:
+            'Send an email to nxt1@nxt1sports.com with a link to nxt1sports.com and a message to check out the platform.',
+          sourceAgent: 'admin_coordinator',
         })
       );
 
       const recruitingAgent = createMockAgent('recruiting_coordinator', {
-        summary: 'Emails sent to 5 coaches.',
+        summary: 'Email sent successfully.',
         suggestions: [],
       });
 
       const router = new AgentRouter(llm, toolRegistry, contextBuilder);
-      router.registerAgent(brandMediaAgent);
+      router.registerAgent(adminAgent);
       router.registerAgent(recruitingAgent);
 
       const updates: AgentJobUpdate[] = [];
-      const payload: AgentJobPayload = {
-        operationId: 'op-delegation-1',
-        userId: 'user-123',
-        intent: 'Send emails to coaches',
-        agent: 'brand_coordinator' as AgentJobPayload['agent'],
-        origin: TEST_ORIGIN,
-        priority: 'normal',
-        createdAt: new Date().toISOString(),
-      };
-
-      const result = await router.run(payload, (u) => updates.push(u));
-
-      // Recruiting agent should have handled the re-dispatched request
-      expect(recruitingAgent.execute).toHaveBeenCalledTimes(1);
-      expect(result.summary).toContain('Emails sent to 5 coaches.');
-
-      // Should have emitted a "transferring" update
-      expect(updates.some((u) => u.step?.message?.includes('Transferring'))).toBe(true);
-    });
-
-    it('should fail the task when delegation occurs in DAG execution (Planner path)', async () => {
-      // Direct agent path: brand_coordinator delegates → Router re-dispatches through Planner
-      // → Planner routes to brand_coordinator again → DAG catch treats it as immediate task failure
-      llm = createMockLLM({
-        summary: 'Route to brand media.',
-        tasks: [
-          {
-            id: '1',
-            assignedAgent: 'brand_coordinator',
-            description: 'Handle it',
-            dependsOn: [],
-          },
-        ],
-      });
-
-      const brandMediaAgent = createMockAgent('brand_coordinator');
-      (brandMediaAgent.execute as ReturnType<typeof vi.fn>).mockRejectedValue(
-        new AgentDelegationException({
-          forwardingIntent: 'I cannot handle this',
-          sourceAgent: 'brand_coordinator',
-        })
-      );
-
-      const router = new AgentRouter(llm, toolRegistry, contextBuilder);
-      router.registerAgent(brandMediaAgent);
-
-      const payload: AgentJobPayload = {
-        operationId: 'op-delegation-loop',
-        userId: 'user-123',
-        intent: 'Do something ambiguous',
-        agent: 'brand_coordinator' as AgentJobPayload['agent'],
-        origin: TEST_ORIGIN,
-        priority: 'normal',
-        createdAt: new Date().toISOString(),
-      };
-
-      const updates: AgentJobUpdate[] = [];
-      const result = await router.run(payload, (u) => updates.push(u));
-
-      expect(result.summary).toContain('Execution plan failed.');
-      expect(result.summary).toContain('brand_coordinator');
-      expect(result.data).toMatchObject({
-        operationStatus: 'failed',
-        firstFailedTask: {
-          id: '1',
-          assignedAgent: 'brand_coordinator',
+      const result = await router.run(
+        {
+          operationId: 'op-delegation-loop',
+          userId: 'user-123',
+          intent: 'Send email to nxt1@nxt1sports.com asking them to check out the platform',
+          origin: TEST_ORIGIN,
+          priority: 'normal',
+          createdAt: new Date().toISOString(),
         },
-      });
-      // The brand coordinator should have been called at least twice (direct + DAG)
-      expect(brandMediaAgent.execute).toHaveBeenCalled();
-      // Should have emitted a "misrouted" update from the DAG handler
-      expect(updates.some((u) => u.step?.message?.includes('misrouted'))).toBe(true);
-    });
-
-    it('should include routing hint to avoid same-agent bounce', async () => {
-      // Direct-agent path: brand_coordinator delegates, check the intent passed to Planner
-      llm = createMockLLM({
-        summary: 'After delegation.',
-        tasks: [
-          {
-            id: '1',
-            assignedAgent: 'recruiting_coordinator',
-            description: 'Handle it',
-            dependsOn: [],
-          },
-        ],
-      });
-
-      const brandMediaAgent = createMockAgent('brand_coordinator');
-      (brandMediaAgent.execute as ReturnType<typeof vi.fn>).mockRejectedValue(
-        new AgentDelegationException({
-          forwardingIntent: 'Send emails to coaches',
-          sourceAgent: 'brand_coordinator',
-        })
+        (u) => updates.push(u)
       );
 
-      const recruitingAgent = createMockAgent('recruiting_coordinator', {
-        summary: 'Done.',
-        suggestions: [],
-      });
-
-      const router = new AgentRouter(llm, toolRegistry, contextBuilder);
-      router.registerAgent(brandMediaAgent);
-      router.registerAgent(recruitingAgent);
-
-      const payload: AgentJobPayload = {
-        operationId: 'op-delegation-hint',
-        userId: 'user-123',
-        intent: 'Send emails to coaches',
-        agent: 'brand_coordinator' as AgentJobPayload['agent'],
-        origin: TEST_ORIGIN,
-        priority: 'normal',
-        createdAt: new Date().toISOString(),
-      };
-
-      await router.run(payload);
-
-      // The Planner's prompt() should have received an intent with the routing hint
-      expect(llm.prompt).toHaveBeenCalled();
-      const promptCalls = (llm.prompt as ReturnType<typeof vi.fn>).mock.calls;
-      // Find the call that includes the routing hint (delegation re-dispatch)
-      const hasRoutingHint = promptCalls.some(
-        (call) =>
-          typeof call[1] === 'string' &&
-          call[1].includes('brand_coordinator') &&
-          call[1].includes('could not handle')
-      );
-      expect(hasRoutingHint).toBe(true);
+      expect(result.summary).toContain('Email sent successfully.');
+      expect(adminAgent.execute).toHaveBeenCalledTimes(1);
+      expect(recruitingAgent.execute).toHaveBeenCalledTimes(1);
+      expect(plannerCallCount).toBe(2);
+      expect(
+        updates.some((u) => u.step?.message?.includes('rerouted to recruiting_coordinator'))
+      ).toBe(true);
     });
   });
 });

@@ -28,7 +28,7 @@
  * ```
  */
 
-import { model, Schema } from 'mongoose';
+import { Schema, type Model, type Connection } from 'mongoose';
 import type {
   AgentMemoryCategory,
   AgentMemoryEntry,
@@ -39,6 +39,7 @@ import type {
 import type { OpenRouterService } from '../llm/openrouter.service.js';
 import { logger } from '../../../utils/logger.js';
 import { AgentEngineError } from '../exceptions/agent-engine.error.js';
+import { getMongoEnvironmentConnection } from '../../../config/database.config.js';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -122,7 +123,39 @@ AgentMemorySchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 AgentMemorySchema.index({ userId: 1, category: 1 });
 AgentMemorySchema.index({ userId: 1, target: 1, teamId: 1, organizationId: 1, category: 1 });
 
-export const AgentMemoryModel = model<AgentMemoryDocument>('AgentMemory', AgentMemorySchema);
+const AGENT_MEMORY_MODEL_NAME = 'AgentMemory';
+
+export function getAgentMemoryModel(
+  connection: Connection = getMongoEnvironmentConnection()
+): Model<AgentMemoryDocument> {
+  const existingModel = connection.models[AGENT_MEMORY_MODEL_NAME] as
+    | Model<AgentMemoryDocument>
+    | undefined;
+  if (existingModel) return existingModel;
+
+  return connection.model<AgentMemoryDocument>(AGENT_MEMORY_MODEL_NAME, AgentMemorySchema);
+}
+
+export const AgentMemoryModel = {
+  create(...args: Parameters<Model<AgentMemoryDocument>['create']>) {
+    return getAgentMemoryModel().create(...args);
+  },
+  find(...args: Parameters<Model<AgentMemoryDocument>['find']>) {
+    return getAgentMemoryModel().find(...args);
+  },
+  findOne(...args: Parameters<Model<AgentMemoryDocument>['findOne']>) {
+    return getAgentMemoryModel().findOne(...args);
+  },
+  aggregate(...args: Parameters<Model<AgentMemoryDocument>['aggregate']>) {
+    return getAgentMemoryModel().aggregate(...args);
+  },
+  deleteOne(...args: Parameters<Model<AgentMemoryDocument>['deleteOne']>) {
+    return getAgentMemoryModel().deleteOne(...args);
+  },
+  deleteMany(...args: Parameters<Model<AgentMemoryDocument>['deleteMany']>) {
+    return getAgentMemoryModel().deleteMany(...args);
+  },
+} as unknown as Model<AgentMemoryDocument>;
 
 // ─── Service ──────────────────────────────────────────────────────────────────
 

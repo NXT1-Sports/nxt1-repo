@@ -14,8 +14,8 @@
  *
  * @example
  * ```ts
- * export class ScoutingRubricSkill extends BaseSkill {
- *   readonly name = 'scouting_rubric';
+ * export class AthleteScoutingSkill extends BaseSkill {
+ *   readonly name = 'athlete_scouting_framework';
  *   readonly category = 'evaluation';
  *
  *   getPromptContext(params: { sport: string, position: string }): string {
@@ -25,7 +25,14 @@
  * ```
  */
 
-export type SkillCategory = 'evaluation' | 'copywriting' | 'compliance' | 'strategy' | 'brand';
+export type SkillCategory =
+  | 'evaluation'
+  | 'copywriting'
+  | 'compliance'
+  | 'strategy'
+  | 'brand'
+  | 'data'
+  | 'knowledge';
 
 // ─── Cosine Similarity ──────────────────────────────────────────────────────
 

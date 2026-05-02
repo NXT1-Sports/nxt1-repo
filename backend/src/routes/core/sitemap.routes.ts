@@ -16,7 +16,7 @@
 import { Router, type Router as ExpressRouter, Request, Response } from 'express';
 import { logger } from '../../utils/logger.js';
 import { CollegeModel } from '../../models/core/college.model.js';
-import { HelpArticleModel } from '../../models/help-center/help-article.model.js';
+import { getHelpArticleModel } from '../../models/help-center/help-article.model.js';
 import { HELP_CATEGORIES } from '@nxt1/core';
 import mongoose from 'mongoose';
 
@@ -102,6 +102,9 @@ router.get('/sitemap.xml', async (req: Request, res: Response): Promise<void> =>
       { loc: `${baseUrl}/basketball`, changefreq: 'weekly', priority: 0.8 }
     );
 
+    // userId → unicode map — reused by section 6 (posts)
+    const userUnicodeMap = new Map<string, string>();
+
     // ──────────────────────────────────────────
     // 2. User profiles (athletes, coaches, etc.)
     // ──────────────────────────────────────────
@@ -117,6 +120,8 @@ router.get('/sitemap.xml', async (req: Request, res: Response): Promise<void> =>
 
       usersSnapshot.forEach((doc: FirebaseFirestore.QueryDocumentSnapshot) => {
         const data = doc.data();
+        const rawUnicode = data['unicode'] as string | undefined;
+        if (rawUnicode) userUnicodeMap.set(doc.id, rawUnicode);
         const sport = (data['sport'] as string | undefined)?.toLowerCase() ?? 'athlete';
         const firstName = (data['firstName'] as string | undefined)?.trim() ?? '';
         const lastName = (data['lastName'] as string | undefined)?.trim() ?? '';
@@ -230,6 +235,7 @@ router.get('/sitemap.xml', async (req: Request, res: Response): Promise<void> =>
 
       // Dynamic article pages from MongoDB
       if (mongoose.connection.readyState === 1) {
+        const HelpArticleModel = getHelpArticleModel();
         const articles = await HelpArticleModel.find({ isPublished: true }, 'slug updatedAt')
           .lean()
           .exec();
@@ -262,7 +268,50 @@ router.get('/sitemap.xml', async (req: Request, res: Response): Promise<void> =>
     }
 
     // ──────────────────────────────────────────
-    // 6. Generate XML
+    // 6. Public posts (/post/:unicode/:id)
+    // ──────────────────────────────────────────
+    try {
+      const postsSnapshot = await db
+        .collection('Posts')
+        .where('isPublic', '==', true)
+        .select('userId', 'updatedAt', 'createdAt')
+        .limit(10000)
+        .get();
+
+      logger.info(`[${requestId}] Found ${postsSnapshot.size} public posts`);
+
+      postsSnapshot.forEach((doc: FirebaseFirestore.QueryDocumentSnapshot) => {
+        const data = doc.data();
+        const userId = data['userId'] as string | undefined;
+        if (!userId) return;
+
+        const unicode = userUnicodeMap.get(userId);
+        if (!unicode) return;
+
+        const ts = (data['updatedAt'] ?? data['createdAt']) as
+          | FirebaseFirestore.Timestamp
+          | string
+          | undefined;
+        let lastmod: string | undefined;
+        if (ts && typeof (ts as FirebaseFirestore.Timestamp).toDate === 'function') {
+          lastmod = (ts as FirebaseFirestore.Timestamp).toDate().toISOString().split('T')[0];
+        } else if (typeof ts === 'string') {
+          lastmod = new Date(ts).toISOString().split('T')[0];
+        }
+
+        entries.push({
+          loc: `${baseUrl}/post/${encodeURIComponent(unicode)}/${encodeURIComponent(doc.id)}`,
+          lastmod,
+          changefreq: 'daily',
+          priority: 0.65,
+        });
+      });
+    } catch (error) {
+      logger.error(`[${requestId}] Error fetching public posts`, { error });
+    }
+
+    // ──────────────────────────────────────────
+    // 7. Generate XML
     // ──────────────────────────────────────────
     const xml = generateSitemapXml(entries);
 

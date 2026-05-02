@@ -39,6 +39,20 @@ import {
 
 const router: RouterType = Router();
 
+function getMicrosoftClientId(isStaging: boolean): string {
+  return isStaging
+    ? (process.env['STAGING_MICROSOFT_CLIENT_ID'] ?? process.env['MICROSOFT_CLIENT_ID'] ?? '')
+    : (process.env['MICROSOFT_CLIENT_ID'] ?? '');
+}
+
+function getMicrosoftClientSecret(isStaging: boolean): string {
+  return isStaging
+    ? (process.env['STAGING_MICROSOFT_CLIENT_SECRET'] ??
+        process.env['MICROSOFT_CLIENT_SECRET'] ??
+        '')
+    : (process.env['MICROSOFT_CLIENT_SECRET'] ?? '');
+}
+
 // ============================================================================
 // POST /auth/microsoft/custom-token
 // Validates Microsoft MSAL tokens from mobile app and creates Firebase custom token.
@@ -447,7 +461,7 @@ router.get(
   asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const uid = req.user!.uid;
 
-    const clientId = process.env['MICROSOFT_CLIENT_ID'] ?? '';
+    const clientId = getMicrosoftClientId(req.isStaging);
     if (!clientId) {
       sendError(res, internalError(new Error('Microsoft client ID not configured')));
       return;
@@ -582,8 +596,8 @@ router.get(
 
     const { db } = req.firebase!;
 
-    const clientId = process.env['MICROSOFT_CLIENT_ID'] ?? '';
-    const clientSecret = process.env['MICROSOFT_CLIENT_SECRET'] ?? '';
+    const clientId = getMicrosoftClientId(req.isStaging);
+    const clientSecret = getMicrosoftClientSecret(req.isStaging);
     const backendUrl = process.env['BACKEND_URL'] ?? 'http://localhost:3000';
     const pathPrefix = req.isStaging ? '/api/v1/staging' : '/api/v1';
     const redirectUri = `${backendUrl}${pathPrefix}/auth/microsoft/callback`;
@@ -598,7 +612,7 @@ router.get(
       });
 
       const tokenResponse = await fetch(
-        'https://login.microsoftonline.com/consumers/oauth2/v2.0/token',
+        'https://login.microsoftonline.com/common/oauth2/v2.0/token',
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -974,13 +988,13 @@ router.post(
       });
 
       const tokenParams: Record<string, string> = {
-        client_id: process.env['MICROSOFT_CLIENT_ID'] || '',
+        client_id: getMicrosoftClientId(req.isStaging),
         code,
         redirect_uri: redirectUri,
         grant_type: 'authorization_code',
       };
       if (!isMobileRedirect) {
-        tokenParams['client_secret'] = process.env['MICROSOFT_CLIENT_SECRET'] || '';
+        tokenParams['client_secret'] = getMicrosoftClientSecret(req.isStaging);
       }
 
       try {

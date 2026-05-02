@@ -28,8 +28,8 @@ import { AgentQueueService } from './queue.service.js';
 import { AgentWorker } from './agent.worker.js';
 import { AgentJobRepository } from './job.repository.js';
 import { AgentPubSubService } from './pubsub.service.js';
-import { AgentRouter } from '../agent.router.js';
 import { OpenRouterService } from '../llm/openrouter.service.js';
+import { AgentRouter } from '../agent.router.js';
 import { ToolRegistry } from '../tools/tool-registry.js';
 import {
   ScrapeAndIndexProfileTool,
@@ -38,12 +38,15 @@ import {
   NavigateLiveViewTool,
   InteractWithLiveViewTool,
   ReadLiveViewTool,
+  ExtractLiveViewMediaTool,
+  ExtractLiveViewPlaylistTool,
   CloseLiveViewTool,
   LiveViewSessionService,
   ScraperService,
   DispatchExtractionTool,
-} from '../tools/scraping/index.js';
+} from '../tools/integrations/firecrawl/index.js';
 import {
+  // ── Write (create) ──────────────────────────────────────────────────
   WriteCoreIdentityTool,
   WriteAwardsTool,
   WriteCombineMetricsTool,
@@ -53,49 +56,98 @@ import {
   WriteCalendarEventsTool,
   WriteAthleteVideosTool,
   WriteIntelTool,
-  UpdateIntelTool,
-  SearchNxt1PlatformTool,
-  QueryNxt1PlatformDataTool,
-  SearchMemoryTool,
-  SearchCollegesTool,
-  SearchCollegeCoachesTool,
-  GetCollegeLogosTool,
-  GetConferenceLogosTool,
-  TrackAnalyticsEventTool,
-  GetAnalyticsSummaryTool,
-  SaveMemoryTool,
-  DeleteMemoryTool,
   WriteConnectedSourceTool,
   WriteScheduleTool,
   WriteTeamStatsTool,
   WriteTeamNewsTool,
   WriteTeamPostTool,
   WriteRosterEntriesTool,
-} from '../tools/database/index.js';
+  WriteTimelinePostTool,
+  // ── Update (patch) ──────────────────────────────────────────────────
+  UpdateIntelTool,
+  UpdateCoreIdentityTool,
+  UpdateAwardsTool,
+  UpdateCombineMetricsTool,
+  UpdateRankingsTool,
+  UpdateSeasonStatsTool,
+  UpdateRecruitingActivityTool,
+  UpdateAthleteVideosTool,
+  UpdateTimelinePostTool,
+  UpdateCalendarEventsTool,
+  UpdateRosterEntriesTool,
+  UpdateScheduleEventTool,
+  UpdateTeamStatsTool,
+  UpdateTeamNewsTool,
+  UpdateTeamPostTool,
+  UpdateConnectedSourceTool,
+  // ── Delete ──────────────────────────────────────────────────────────
+  DeleteIntelTool,
+  DeleteCoreIdentityTool,
+  DeleteAwardsTool,
+  DeleteCombineMetricsTool,
+  DeleteRankingsTool,
+  DeleteSeasonStatsTool,
+  DeleteRecruitingActivityTool,
+  DeleteAthleteVideosTool,
+  DeleteTimelinePostTool,
+  DeleteCalendarEventsTool,
+  DeleteRosterEntriesTool,
+  DeleteScheduleEventTool,
+  DeleteTeamStatsTool,
+  DeleteTeamNewsTool,
+  DeleteTeamPostTool,
+  DeleteConnectedSourceTool,
+} from '../tools/intel/index.js';
 import {
-  GenerateGraphicTool,
-  AnalyzeVideoTool,
-  RunwayGenerateVideoTool,
-  RunwayEditVideoTool,
-  RunwayUpscaleVideoTool,
-  RunwayCheckTaskTool,
-} from '../tools/media/index.js';
-import { DynamicExportTool } from '../tools/data/index.js';
+  SearchNxt1PlatformTool,
+  QueryNxt1PlatformDataTool,
+  SearchCollegesTool,
+  SearchCollegeCoachesTool,
+  ScanTimelinePostsTool,
+} from '../tools/platform/index.js';
+import { GetCollegeLogosTool, GetConferenceLogosTool } from '../tools/assets/index.js';
+import {
+  TrackAnalyticsEventTool,
+  GetAnalyticsSummaryTool,
+  GetRecentSyncSummariesTool,
+} from '../tools/analytics/index.js';
+import { SearchMemoryTool, SaveMemoryTool, DeleteMemoryTool } from '../tools/memory/index.js';
+import { GenerateGraphicTool, AnalyzeVideoTool, StageMediaTool } from '../tools/media/index.js';
+import {
+  AskUserTool,
+  DelegateTaskTool,
+  DelegateToCoordinatorTool,
+  DynamicExportTool,
+  PlanAndExecuteTool,
+  WhoamiCapabilitiesTool,
+} from '../tools/system/index.js';
+import {
+  GetUserProfileTool,
+  GetActiveThreadsTool,
+  GetOtherThreadHistoryTool,
+  SearchMemoriesTool,
+} from '../tools/context/index.js';
+import { CapabilityRegistry } from '../capabilities/capability-registry.js';
+import { PrimaryAgent } from '../agents/primary.agent.js';
+import { AgentRouterPrimaryService } from '../orchestrator/agent-router-primary.service.js';
 import { WebSearchTool } from '../tools/integrations/web/web-search.tool.js';
 import { SendEmailTool } from '../tools/integrations/email/send-email.tool.js';
+import { BatchSendEmailTool } from '../tools/integrations/email/batch-send-email.tool.js';
 import { ScrapeTwitterTool } from '../tools/integrations/social/scrape-twitter.tool.js';
 import { ScrapeInstagramTool } from '../tools/integrations/social/scrape-instagram.tool.js';
 import { ApifyService } from '../tools/integrations/apify/apify.service.js';
 import { ScraperMediaService } from '../tools/integrations/social/scraper-media.service.js';
-import { ApifyMcpBridgeService } from '../tools/integrations/apify/apify-mcp-bridge.service.js';
-import { db as appDb } from '../../../utils/firebase.js';
-import { SearchApifyActorsTool } from '../tools/integrations/apify/search-apify-actors.tool.js';
-import { GetApifyActorDetailsTool } from '../tools/integrations/apify/get-apify-actor-details.tool.js';
-import { CallApifyActorTool } from '../tools/integrations/apify/call-apify-actor.tool.js';
-import { GetApifyActorOutputTool } from '../tools/integrations/apify/get-apify-actor-output.tool.js';
 import {
+  ApifyMcpBridgeService,
+  SearchApifyActorsTool,
+  GetApifyActorDetailsTool,
+  CallApifyActorTool,
+  GetApifyActorOutputTool,
   FirecrawlMcpBridgeService,
   FirebaseMcpBridgeService,
+  Microsoft365McpSessionService,
+  ListMicrosoft365ToolsTool,
+  RunMicrosoft365ToolTool,
   GoogleWorkspaceMcpSessionService,
   GoogleWorkspaceToolCatalogService,
   DynamicGoogleWorkspaceTool,
@@ -106,9 +158,20 @@ import {
   FirecrawlSearchTool,
   FirecrawlMapTool,
   FirecrawlExtractTool,
+  FirecrawlAgentTool,
   ListNxt1DataViewsTool,
   QueryNxt1DataTool,
+  FfmpegMcpBridgeService,
+  FfmpegTrimVideoTool,
+  FfmpegMergeVideosTool,
+  FfmpegResizeVideoTool,
+  FfmpegAddTextOverlayTool,
+  FfmpegBurnSubtitlesTool,
+  FfmpegGenerateThumbnailTool,
+  FfmpegConvertVideoTool,
+  FfmpegCompressVideoTool,
   CloudflareMcpBridgeService,
+  CreateSupportTicketTool,
   ImportVideoTool,
   ClipVideoTool,
   GenerateThumbnailTool,
@@ -118,11 +181,11 @@ import {
   EnableDownloadTool,
   ManageWatermarkTool,
   DeleteVideoTool,
+  RunwayGenerateVideoTool,
+  RunwayEditVideoTool,
+  RunwayUpscaleVideoTool,
+  RunwayCheckTaskTool,
 } from '../tools/integrations/index.js';
-import { AskUserTool } from '../tools/comms/ask-user.tool.js';
-import { WriteTimelinePostTool } from '../tools/comms/write-timeline-post.tool.js';
-import { ScanTimelinePostsTool } from '../tools/comms/scan-timeline-posts.tool.js';
-import { DelegateTaskTool } from '../tools/system/index.js';
 import {
   ScheduleRecurringTaskTool,
   ListRecurringTasksTool,
@@ -134,14 +197,35 @@ import { SessionMemoryService } from '../memory/session.service.js';
 import { KnowledgeRetrievalService } from '../memory/knowledge-retrieval.service.js';
 import { AgentChatService } from '../services/agent-chat.service.js';
 import { getCacheService } from '../../../services/core/cache.service.js';
+import { db as appDb } from '../../../utils/firebase.js';
+import { stagingDb } from '../../../utils/firebase-staging.js';
+import { logger } from '../../../utils/logger.js';
 import {
   SkillRegistry,
-  ScoutingRubricSkill,
+  AthleteScoutingSkill,
+  TeamScoutingSkill,
+  VideoAnalysisSkill,
+  FilmBreakdownTaxonomySkill,
+  OpponentScoutingPacketSkill,
   OutreachCopywritingSkill,
   ComplianceRulebookSkill,
+  NilAndBrandComplianceSkill,
+  CommunicationApprovalAndSafetySkill,
+  MediaCreativeIntentSkill,
+  MediaPipelinePlaybooksSkill,
   StaticGraphicStyleSkill,
   VideoHighlightStyleSkill,
   SocialCaptionStyleSkill,
+  StrategyGameplanFrameworkSkill,
+  RecruitingFitScoringSkill,
+  IntelReportQualitySkill,
+  NilDealEvaluationSkill,
+  SocialMediaGrowthStrategySkill,
+  CollegeVisitPlanningSkill,
+  CoachGamePlanAndAdjustmentsSkill,
+  LineupRotationOptimizerSkill,
+  DataNormalizationAndEntityResolutionSkill,
+  ReportFormattingAndExportSkill,
   GlobalKnowledgeSkill,
 } from '../skills/index.js';
 import {
@@ -155,8 +239,6 @@ import {
 import { setAgentDependencies } from '../../../routes/agent/shared.js';
 import { setWelcomeDependencies } from '../services/agent-welcome.service.js';
 import { setScrapeDependencies } from '../services/agent-scrape.service.js';
-import { stagingDb } from '../../../utils/firebase-staging.js';
-import { logger } from '../../../utils/logger.js';
 import { addJobCost } from './job-cost-tracker.js';
 import { getAgentRunConfig } from '../config/agent-app-config.js';
 
@@ -213,7 +295,7 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
     if (process.env['NODE_ENV'] === 'production') {
       logger.error(
         `⚠️  Redis is unreachable at ${redisUrl}. ` +
-          'Ensure the REDIS_URL secret is set in Firebase App Hosting (backend/apphosting.yaml) ' +
+          'Ensure the REDIS_URL secret is set in the backend runtime environment ' +
           'and the service account has roles/secretmanager.secretAccessor. ' +
           'Agent X features are unavailable until Redis is configured.'
       );
@@ -280,6 +362,16 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
     });
   }
 
+  let microsoft365McpSessionService: Microsoft365McpSessionService | null = null;
+  try {
+    microsoft365McpSessionService = new Microsoft365McpSessionService();
+    logger.info('Microsoft 365 MCP session service initialized');
+  } catch (error) {
+    logger.warn('Microsoft 365 MCP session service failed to initialize', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+
   // The shared scraper preserves direct HTML extraction and uses the MCP bridge
   // for rendered markdown when available.
   const scraperService = new ScraperService(firecrawlMcpBridge);
@@ -292,8 +384,12 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
     toolRegistry.register(new NavigateLiveViewTool(liveViewService));
     toolRegistry.register(new InteractWithLiveViewTool(liveViewService));
     toolRegistry.register(new ReadLiveViewTool(liveViewService));
+    toolRegistry.register(new ExtractLiveViewMediaTool(liveViewService));
+    toolRegistry.register(new ExtractLiveViewPlaylistTool(liveViewService));
     toolRegistry.register(new CloseLiveViewTool(liveViewService));
-    logger.info('Live view tools registered (open, navigate, interact, read, close)');
+    logger.info(
+      'Live view tools registered (open, navigate, interact, read, extract media, extract playlist, close)'
+    );
   } catch {
     logger.warn('LiveViewSessionService init failed — open_live_view tool disabled');
   }
@@ -312,7 +408,40 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   toolRegistry.register(new WriteRosterEntriesTool(stagingDb));
   toolRegistry.register(new WriteAthleteVideosTool(stagingDb));
   toolRegistry.register(new WriteIntelTool(stagingDb));
+  // ── Update (patch) tools ─────────────────────────────────────────────
   toolRegistry.register(new UpdateIntelTool(stagingDb));
+  toolRegistry.register(new UpdateCoreIdentityTool(stagingDb));
+  toolRegistry.register(new UpdateAwardsTool(stagingDb));
+  toolRegistry.register(new UpdateCombineMetricsTool(stagingDb));
+  toolRegistry.register(new UpdateRankingsTool(stagingDb));
+  toolRegistry.register(new UpdateSeasonStatsTool(stagingDb));
+  toolRegistry.register(new UpdateRecruitingActivityTool(stagingDb));
+  toolRegistry.register(new UpdateAthleteVideosTool(stagingDb));
+  toolRegistry.register(new UpdateTimelinePostTool(stagingDb));
+  toolRegistry.register(new UpdateCalendarEventsTool(stagingDb));
+  toolRegistry.register(new UpdateRosterEntriesTool(stagingDb));
+  toolRegistry.register(new UpdateScheduleEventTool(stagingDb));
+  toolRegistry.register(new UpdateTeamStatsTool(stagingDb));
+  toolRegistry.register(new UpdateTeamNewsTool(stagingDb));
+  toolRegistry.register(new UpdateTeamPostTool(stagingDb));
+  toolRegistry.register(new UpdateConnectedSourceTool(stagingDb));
+  // ── Delete tools ─────────────────────────────────────────────────────
+  toolRegistry.register(new DeleteIntelTool(stagingDb));
+  toolRegistry.register(new DeleteCoreIdentityTool(stagingDb));
+  toolRegistry.register(new DeleteAwardsTool(stagingDb));
+  toolRegistry.register(new DeleteCombineMetricsTool(stagingDb));
+  toolRegistry.register(new DeleteRankingsTool(stagingDb));
+  toolRegistry.register(new DeleteSeasonStatsTool(stagingDb));
+  toolRegistry.register(new DeleteRecruitingActivityTool(stagingDb));
+  toolRegistry.register(new DeleteAthleteVideosTool(stagingDb));
+  toolRegistry.register(new DeleteTimelinePostTool(stagingDb));
+  toolRegistry.register(new DeleteCalendarEventsTool(stagingDb));
+  toolRegistry.register(new DeleteRosterEntriesTool(stagingDb));
+  toolRegistry.register(new DeleteScheduleEventTool(stagingDb));
+  toolRegistry.register(new DeleteTeamStatsTool(stagingDb));
+  toolRegistry.register(new DeleteTeamNewsTool(stagingDb));
+  toolRegistry.register(new DeleteTeamPostTool(stagingDb));
+  toolRegistry.register(new DeleteConnectedSourceTool(stagingDb));
   toolRegistry.register(new SearchNxt1PlatformTool());
   toolRegistry.register(new QueryNxt1PlatformDataTool());
   toolRegistry.register(new TrackAnalyticsEventTool());
@@ -322,16 +451,27 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   toolRegistry.register(new GetCollegeLogosTool());
   toolRegistry.register(new GetConferenceLogosTool());
   toolRegistry.register(new GenerateGraphicTool(llm));
-  toolRegistry.register(new AnalyzeVideoTool(scraperService, llm));
+  toolRegistry.register(new StageMediaTool());
   toolRegistry.register(new DynamicExportTool());
+
+  let apifyMcpBridge: ApifyMcpBridgeService | undefined;
+  let cfBridge: CloudflareMcpBridgeService | undefined;
+  let ffmpegBridge: FfmpegMcpBridgeService | undefined;
 
   // System tools (cross-cutting infrastructure — available to all agents)
   toolRegistry.register(new DelegateTaskTool());
+
+  // Primary-only system tools (gated by allowedAgents=['router']).
+  // The Primary Agent handles all conversational requests and dispatches
+  // sub-tasks via these tools.
+  toolRegistry.register(new DelegateToCoordinatorTool());
+  toolRegistry.register(new PlanAndExecuteTool());
 
   // ── 1a. Vector memory & knowledge tools ──────────────────────────────
   const vectorMemory = new VectorMemoryService(llm);
   toolRegistry.register(new WebSearchTool());
   toolRegistry.register(new SearchMemoryTool(vectorMemory));
+  toolRegistry.register(new GetRecentSyncSummariesTool());
   toolRegistry.register(new SaveMemoryTool(vectorMemory));
   toolRegistry.register(new DeleteMemoryTool(vectorMemory));
   toolRegistry.register(new WriteConnectedSourceTool(stagingDb));
@@ -339,6 +479,8 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   toolRegistry.register(new WriteTimelinePostTool(stagingDb));
   toolRegistry.register(new ScanTimelinePostsTool(stagingDb, llm, vectorMemory));
   toolRegistry.register(new SendEmailTool(stagingDb));
+  toolRegistry.register(new BatchSendEmailTool(stagingDb));
+  toolRegistry.register(new CreateSupportTicketTool());
 
   // ── 1b. Twitter/X & Instagram scraping (Apify-hosted actors) ─────────
   try {
@@ -355,12 +497,12 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
 
   // ── 1c. MCP-bridged Apify tools (2026 architecture) ──────────────────
   try {
-    const mcpBridge = new ApifyMcpBridgeService();
+    apifyMcpBridge = new ApifyMcpBridgeService();
     const scraperMedia = new ScraperMediaService();
-    toolRegistry.register(new SearchApifyActorsTool(mcpBridge));
-    toolRegistry.register(new GetApifyActorDetailsTool(mcpBridge));
-    toolRegistry.register(new CallApifyActorTool(mcpBridge, scraperMedia));
-    toolRegistry.register(new GetApifyActorOutputTool(mcpBridge, scraperMedia));
+    toolRegistry.register(new SearchApifyActorsTool(apifyMcpBridge));
+    toolRegistry.register(new GetApifyActorDetailsTool(apifyMcpBridge));
+    toolRegistry.register(new CallApifyActorTool(apifyMcpBridge, scraperMedia));
+    toolRegistry.register(new GetApifyActorOutputTool(apifyMcpBridge, scraperMedia));
     logger.info('MCP-bridged Apify tools registered (search, details, call, output)');
   } catch {
     logger.warn('APIFY_API_TOKEN not configured — MCP-bridged Apify tools disabled');
@@ -373,8 +515,9 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
     toolRegistry.register(new FirecrawlSearchTool(firecrawlMcpBridge));
     toolRegistry.register(new FirecrawlMapTool(firecrawlMcpBridge));
     toolRegistry.register(new FirecrawlExtractTool(firecrawlMcpBridge));
+    toolRegistry.register(new FirecrawlAgentTool(firecrawlMcpBridge));
     logger.info(
-      'MCP-bridged Firecrawl tools registered (scrape_webpage, firecrawl_search_web, map_website, extract_web_data)'
+      'MCP-bridged Firecrawl tools registered (scrape_webpage, firecrawl_search_web, map_website, extract_web_data, firecrawl_agent_research)'
     );
   }
 
@@ -417,9 +560,20 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
     }
   }
 
+  // ── 1d.3. Microsoft 365 MCP tools (user-scoped productivity actions) ────
+  if (microsoft365McpSessionService) {
+    toolRegistry.register(new ListMicrosoft365ToolsTool(microsoft365McpSessionService));
+    toolRegistry.register(new RunMicrosoft365ToolTool(microsoft365McpSessionService));
+
+    logger.info('Microsoft 365 MCP tools registered', {
+      infrastructureTools: 2,
+      toolNames: ['list_microsoft_365_tools', 'run_microsoft_365_tool'],
+    });
+  }
+
   // ── 1e. MCP-bridged Cloudflare Stream tools (ephemeral video processing) ──
   try {
-    const cfBridge = new CloudflareMcpBridgeService();
+    cfBridge = new CloudflareMcpBridgeService();
     toolRegistry.register(new ImportVideoTool(cfBridge));
     toolRegistry.register(new ClipVideoTool(cfBridge));
     toolRegistry.register(new GenerateThumbnailTool(cfBridge));
@@ -438,6 +592,26 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
     );
   }
 
+  // ── 1e.1. MCP-bridged FFmpeg tools (allowlisted video processing) ───────
+  try {
+    ffmpegBridge = new FfmpegMcpBridgeService();
+    toolRegistry.register(new FfmpegTrimVideoTool(ffmpegBridge));
+    toolRegistry.register(new FfmpegMergeVideosTool(ffmpegBridge));
+    toolRegistry.register(new FfmpegResizeVideoTool(ffmpegBridge));
+    toolRegistry.register(new FfmpegAddTextOverlayTool(ffmpegBridge));
+    toolRegistry.register(new FfmpegBurnSubtitlesTool(ffmpegBridge));
+    toolRegistry.register(new FfmpegGenerateThumbnailTool(ffmpegBridge));
+    toolRegistry.register(new FfmpegConvertVideoTool(ffmpegBridge));
+    toolRegistry.register(new FfmpegCompressVideoTool(ffmpegBridge));
+    logger.info(
+      'MCP-bridged FFmpeg tools registered (trim, merge, resize, text-overlay, burn-subtitles, thumbnail, convert, compress)'
+    );
+  } catch {
+    logger.warn('FFMPEG_MCP_URL not configured — FFmpeg MCP tools disabled');
+  }
+
+  toolRegistry.register(new AnalyzeVideoTool(scraperService, llm, apifyMcpBridge, ffmpegBridge));
+
   // ── 1f. MCP-bridged Runway ML tools (AI video generation) ──────────────
   if (runwayMcpBridge) {
     toolRegistry.register(new RunwayGenerateVideoTool(runwayMcpBridge));
@@ -451,18 +625,53 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
 
   const contextBuilder = new ContextBuilder(vectorMemory);
 
+  // ── 1g. Lazy context tools (Tier B — fetched on-demand by Primary Agent) ──
+  toolRegistry.register(new GetUserProfileTool(contextBuilder));
+  toolRegistry.register(new GetActiveThreadsTool(contextBuilder));
+  toolRegistry.register(new GetOtherThreadHistoryTool(contextBuilder));
+  toolRegistry.register(new SearchMemoriesTool(vectorMemory));
+
   // ── 1b. Skill Registry (dynamic domain knowledge injection) ─────────────────
   const skillRegistry = new SkillRegistry();
-  skillRegistry.register(new ScoutingRubricSkill());
+  skillRegistry.register(new AthleteScoutingSkill());
+  skillRegistry.register(new TeamScoutingSkill());
+  skillRegistry.register(new VideoAnalysisSkill());
+  skillRegistry.register(new FilmBreakdownTaxonomySkill());
+  skillRegistry.register(new OpponentScoutingPacketSkill());
   skillRegistry.register(new OutreachCopywritingSkill());
   skillRegistry.register(new ComplianceRulebookSkill());
+  skillRegistry.register(new NilAndBrandComplianceSkill());
+  skillRegistry.register(new CommunicationApprovalAndSafetySkill());
+  skillRegistry.register(new MediaCreativeIntentSkill());
+  skillRegistry.register(new MediaPipelinePlaybooksSkill());
   skillRegistry.register(new StaticGraphicStyleSkill());
   skillRegistry.register(new VideoHighlightStyleSkill());
   skillRegistry.register(new SocialCaptionStyleSkill());
+  skillRegistry.register(new StrategyGameplanFrameworkSkill());
+  skillRegistry.register(new RecruitingFitScoringSkill());
+  skillRegistry.register(new IntelReportQualitySkill());
+  skillRegistry.register(new NilDealEvaluationSkill());
+  skillRegistry.register(new SocialMediaGrowthStrategySkill());
+  skillRegistry.register(new CollegeVisitPlanningSkill());
+  skillRegistry.register(new CoachGamePlanAndAdjustmentsSkill());
+  skillRegistry.register(new LineupRotationOptimizerSkill());
+  skillRegistry.register(new DataNormalizationAndEntityResolutionSkill());
+  skillRegistry.register(new ReportFormattingAndExportSkill());
 
   // Global Knowledge Base — dynamic vector retrieval at runtime
   const knowledgeRetrieval = new KnowledgeRetrievalService(llm);
   skillRegistry.register(new GlobalKnowledgeSkill(knowledgeRetrieval));
+
+  // ── 1h. Capability Registry (auto-generated capability card for Primary Agent) ──
+  const capabilityRegistry = new CapabilityRegistry(toolRegistry, skillRegistry);
+  capabilityRegistry.refresh();
+  toolRegistry.register(new WhoamiCapabilitiesTool(capabilityRegistry));
+  // Refresh the card now that whoami_capabilities itself is in the inventory.
+  capabilityRegistry.refresh();
+  // Start the auto-refresh timer (cadence: cfg.capabilityCard.refreshIntervalMs).
+  // Picks up tool/skill registrations that happen later in bootstrap (e.g.
+  // queue-dependent automation tools registered after AgentRouter is built).
+  capabilityRegistry.startAutoRefresh();
 
   // ── 2. Wire the AgentRouter with all sub-agents ───────────────────
   const sessionMemory = new SessionMemoryService(getCacheService(), contextBuilder);
@@ -473,6 +682,22 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   router.registerAgent(new BrandCoordinatorAgent());
   router.registerAgent(new AdminCoordinatorAgent());
   router.registerAgent(new StrategyCoordinatorAgent());
+
+  // ── 2a. Primary Agent (single front-door agent) ──────────────────────────
+  // The Primary owns the full conversational surface via a single
+  // streaming ReAct loop. It dispatches sub-tasks to specialist
+  // coordinators (delegate_to_coordinator) and multi-step plans
+  // (plan_and_execute) through tool calls.
+  const primaryService = new AgentRouterPrimaryService({
+    ...router.getOrchestratorBundle(),
+    agents: router.getRegisteredAgents(),
+    resolveToolAccessContext: async (uid: string) => {
+      const userCtx = await contextBuilder.buildContext(uid);
+      return router.getOrchestratorBundle().policyService.buildToolAccessContext(userCtx);
+    },
+  });
+  const primaryAgent = new PrimaryAgent(capabilityRegistry, primaryService);
+  router.setPrimary(primaryAgent, primaryService);
 
   // ── 3. Queue infrastructure ──────────────────────────────────────────────────
   const { getFirestore } = await import('firebase-admin/firestore');
@@ -505,7 +730,10 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
     agentChatService,
     pubsub,
     stagingDb,
-    llm
+    llm,
+    undefined,
+    (payload, environment) => queueService.enqueue(payload, environment),
+    queueService
   );
 
   // ── 6. Inject dependencies into the REST routes ───────────────────────
@@ -530,6 +758,7 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
     await pubsub.shutdown();
     await queueService.shutdown();
     await googleWorkspaceMcpSessionService?.shutdown();
+    await microsoft365McpSessionService?.shutdown();
     logger.info('Agent X queue engine shut down');
   };
 }

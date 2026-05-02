@@ -12,6 +12,7 @@ import { stagingDb, stagingStorage } from '../../../../../utils/firebase-staging
 import { logger } from '../../../../../utils/logger.js';
 import type { GoogleWorkspaceOAuthTokenDocument } from './shared.js';
 import { AgentEngineError } from '../../../exceptions/agent-engine.error.js';
+import { resolveGoogleWorkspaceMcpStateBucket } from './google-workspace-env.js';
 
 const GOOGLE_ACCESS_TOKEN_TTL_MS = 60 * 60 * 1_000;
 const GOOGLE_ACCESS_TOKEN_REFRESH_BUFFER_MS = 5 * 60 * 1_000;
@@ -132,11 +133,7 @@ export class GoogleWorkspaceTokenManagerService {
     const credentials = resolveGoogleClientCredentials(environment);
     if (!credentials.clientId) return;
 
-    const mcpStorageBucketName =
-      process.env['GOOGLE_WORKSPACE_MCP_STATE_BUCKET'] ??
-      (environment === 'staging' || process.env['NODE_ENV'] === 'staging'
-        ? 'nxt-1-staging-v2-mcp-gw-state'
-        : 'nxt1-mcp-gw-state');
+    const mcpStorageBucketName = resolveGoogleWorkspaceMcpStateBucket(environment);
 
     const storageService =
       environment === 'staging' || process.env['NODE_ENV'] === 'staging'

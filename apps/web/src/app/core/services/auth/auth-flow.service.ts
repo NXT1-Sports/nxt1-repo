@@ -40,6 +40,7 @@
 import {
   Injectable,
   inject,
+  isDevMode,
   signal,
   computed,
   Injector,
@@ -111,6 +112,11 @@ import { mapBackendProfileToCachedUserProfile } from './auth-profile.mapper';
  * 3. Lazily import firebase/auth functions only when needed (browser-only)
  */
 type Auth = FirebaseAuthType;
+
+function isEmailVerificationRequired(): boolean {
+  // Development-only bypass to speed local auth testing.
+  return !isDevMode();
+}
 
 // ============================================
 // TYPES
@@ -1596,20 +1602,25 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
           // Sync user state BEFORE navigating (required for onboarding page)
           await this.syncUserProfile(result.user);
 
-          // Send verification email for email/password signups
-          // OAuth users (Google/Apple/Microsoft) are pre-verified
-          try {
-            await this.sendVerificationEmail();
-            this.logger.info('📧 Verification email sent after signup');
-          } catch (verifyError: unknown) {
-            this.logger.warn('Failed to send verification email', {
-              error: verifyError instanceof Error ? verifyError.message : String(verifyError),
-            });
-            // Continue anyway - user can resend from verify page
-          }
+          if (isEmailVerificationRequired()) {
+            // Send verification email for email/password signups
+            // OAuth users (Google/Apple/Microsoft) are pre-verified
+            try {
+              await this.sendVerificationEmail();
+              this.logger.info('📧 Verification email sent after signup');
+            } catch (verifyError: unknown) {
+              this.logger.warn('Failed to send verification email', {
+                error: verifyError instanceof Error ? verifyError.message : String(verifyError),
+              });
+              // Continue anyway - user can resend from verify page
+            }
 
-          // Navigate to email verification page (not onboarding yet)
-          await this.navigateForward(AUTH_ROUTES.VERIFY_EMAIL);
+            // Navigate to email verification page (not onboarding yet)
+            await this.navigateForward(AUTH_ROUTES.VERIFY_EMAIL);
+          } else {
+            this.logger.info('Skipping email verification in development mode');
+            await this.navigateForward(AUTH_ROUTES.ONBOARDING);
+          }
           return true;
         } finally {
           // Always clear flag to prevent state leaks (via core state manager)

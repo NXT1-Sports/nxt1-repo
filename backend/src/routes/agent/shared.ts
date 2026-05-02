@@ -16,9 +16,10 @@ import {
   AgentGenerationService,
   isLegacyFallbackPlaybook,
 } from '../../modules/agent/services/generation.service.js';
-import { FirecrawlProfileService } from '../../modules/agent/tools/scraping/firecrawl-profile.service.js';
-import { LiveViewSessionService } from '../../modules/agent/tools/scraping/live-view-session.service.js';
+import { FirecrawlProfileService } from '../../modules/agent/tools/integrations/firecrawl/browser/firecrawl-profile.service.js';
+import { LiveViewSessionService } from '../../modules/agent/tools/integrations/firecrawl/browser/live-view-session.service.js';
 import { AGENT_X_ALLOWED_MIME_TYPES, AGENT_X_MAX_FILE_SIZE } from '@nxt1/core';
+import { AGENT_X_RUNTIME_CONFIG } from '@nxt1/core/ai';
 import { logger } from '../../utils/logger.js';
 import multer from 'multer';
 
@@ -53,7 +54,7 @@ export function setAgentDependencies(deps: {
   contextBuilder: ContextBuilder;
   llmService: OpenRouterService;
   toolRegistry?: ToolRegistry;
-  pubsub?: import('../../modules/agent/queue/pubsub.service.js').AgentPubSubService;
+  pubsub?: import('../../modules/agent/queue/pubsub.service.js').AgentPubSubService | null;
   agentRouter?: import('../../modules/agent/agent.router.js').AgentRouter;
 }): void {
   queueService = deps.queueService;
@@ -62,7 +63,7 @@ export function setAgentDependencies(deps: {
   contextBuilder = deps.contextBuilder;
   llmService = deps.llmService;
   if (deps.toolRegistry) toolRegistryRef = deps.toolRegistry;
-  if (deps.pubsub) pubsubService = deps.pubsub;
+  if ('pubsub' in deps) pubsubService = deps.pubsub ?? null;
   if (deps.agentRouter) agentRouterRef = deps.agentRouter;
 
   // Reset generation service cache when dependencies change
@@ -81,7 +82,7 @@ export function setAgentDependencies(deps: {
 export const MAX_AGENTIC_TURNS = 6;
 
 /** Maximum lifetime for an entry in the activeAbortControllers map (10 minutes). */
-export const ABORT_CONTROLLER_TTL_MS = 10 * 60 * 1000;
+export const ABORT_CONTROLLER_TTL_MS = AGENT_X_RUNTIME_CONFIG.clientRecovery.abortControllerTtlMs;
 
 /** Valid MongoDB ObjectId format (24-character hex string). */
 export const OBJECT_ID_RE = /^[a-f0-9]{24}$/i;
@@ -124,7 +125,7 @@ setInterval(() => {
       logger.warn('Evicted stale AbortController (TTL expired)', { operationId: id });
     }
   }
-}, 60_000).unref();
+}, AGENT_X_RUNTIME_CONFIG.clientRecovery.abortControllerSweepIntervalMs).unref();
 
 // ─── Validators ──────────────────────────────────────────────────────────
 
@@ -251,8 +252,16 @@ export function replayJobEventsAsSSE(
     seq?: number;
     type: string;
     text?: string;
+    stepId?: string;
+    agentId?: string;
+    stageType?: string;
+    stage?: string;
+    outcomeCode?: string;
+    metadata?: Record<string, unknown>;
+    icon?: string;
     toolName?: string;
     message?: string;
+    messageKey?: string;
     toolSuccess?: boolean;
   }>,
   afterSeq = -1
@@ -270,33 +279,51 @@ export function replayJobEventsAsSSE(
       case 'step_error': {
         const status =
           evt.type === 'step_active' ? 'active' : evt.type === 'step_done' ? 'success' : 'error';
+        const stepId = typeof evt.stepId === 'string' ? evt.stepId.trim() : '';
+        const label = typeof evt.message === 'string' ? evt.message.trim() : '';
+        if (!stepId || !label) break;
         res.write(
           `event: step\ndata: ${JSON.stringify({
-            id: evt.toolName ?? evt.type,
-            label: evt.message ?? evt.type,
+            ...(typeof evt.seq === 'number' ? { seq: evt.seq } : {}),
+            emittedAt: new Date().toISOString(),
+            ...(evt.messageKey ? { messageKey: evt.messageKey } : {}),
+            id: stepId,
+            label,
+            ...(evt.agentId ? { agentId: evt.agentId } : {}),
+            ...(evt.stageType ? { stageType: evt.stageType } : {}),
+            ...(evt.stage ? { stage: evt.stage } : {}),
+            ...(evt.outcomeCode ? { outcomeCode: evt.outcomeCode } : {}),
+            ...(evt.metadata ? { metadata: evt.metadata } : {}),
+            ...(evt.icon ? { icon: evt.icon } : {}),
             status,
           })}\n\n`
         );
         break;
       }
       case 'tool_call':
-        res.write(
-          `event: step\ndata: ${JSON.stringify({
-            id: evt.toolName ?? 'tool',
-            label: evt.message ?? evt.toolName ?? 'Tool',
-            status: 'active',
-          })}\n\n`
-        );
         break;
-      case 'tool_result':
+      case 'tool_result': {
+        const stepId = typeof evt.stepId === 'string' ? evt.stepId.trim() : '';
+        const label = typeof evt.message === 'string' ? evt.message.trim() : '';
+        if (!stepId || !label) break;
         res.write(
           `event: step\ndata: ${JSON.stringify({
-            id: evt.toolName ?? 'tool',
-            label: evt.message ?? evt.toolName ?? 'Tool',
+            ...(typeof evt.seq === 'number' ? { seq: evt.seq } : {}),
+            emittedAt: new Date().toISOString(),
+            ...(evt.messageKey ? { messageKey: evt.messageKey } : {}),
+            id: stepId,
+            label,
+            ...(evt.agentId ? { agentId: evt.agentId } : {}),
+            ...(evt.stageType ? { stageType: evt.stageType } : {}),
+            ...(evt.stage ? { stage: evt.stage } : {}),
+            ...(evt.outcomeCode ? { outcomeCode: evt.outcomeCode } : {}),
+            ...(evt.metadata ? { metadata: evt.metadata } : {}),
+            ...(evt.icon ? { icon: evt.icon } : {}),
             status: evt.toolSuccess ? 'success' : 'error',
           })}\n\n`
         );
         break;
+      }
       default:
         break;
     }
@@ -306,14 +333,15 @@ export function replayJobEventsAsSSE(
 /**
  * Build an inline ask_user card for the SSE `card` event.
  * The frontend renders this as a question prompt with a text input.
- * The user submits their answer as a normal chat message via POST /chat
- * with the same threadId — thread history handles the resume naturally.
+ * The user submits their answer through POST /resume-job/:operationId
+ * so the backend resumes the exact yielded tool context deterministically.
  */
 export function buildInlineAskUserCard(params: {
   agentId: AgentIdentifier;
   question: string;
   context?: string;
   threadId?: string;
+  operationId?: string;
 }): {
   agentId: AgentIdentifier;
   type: 'ask_user';
@@ -328,6 +356,7 @@ export function buildInlineAskUserCard(params: {
       question: params.question,
       context: params.context ?? '',
       ...(params.threadId ? { threadId: params.threadId } : {}),
+      ...(params.operationId ? { operationId: params.operationId } : {}),
     },
   };
 }
@@ -337,36 +366,15 @@ export function buildInlineAskUserCard(params: {
  */
 export function buildInlineApprovalCard(params: {
   agentId: AgentIdentifier;
-  toolName: string;
   approvalId: string;
   operationId: string;
   promptToUser: string;
-  toolInput: Record<string, unknown>;
 }): {
   agentId: AgentIdentifier;
-  type: 'draft' | 'confirmation';
+  type: 'confirmation';
   title: string;
   payload: Record<string, unknown>;
 } {
-  if (params.toolName === 'send_email') {
-    return {
-      agentId: params.agentId,
-      type: 'draft',
-      title: 'Email Draft',
-      payload: {
-        content:
-          (typeof params.toolInput['bodyHtml'] === 'string' && params.toolInput['bodyHtml']) ||
-          (typeof params.toolInput['body'] === 'string' ? params.toolInput['body'] : '') ||
-          '',
-        subject: typeof params.toolInput['subject'] === 'string' ? params.toolInput['subject'] : '',
-        recipientsCount: 1,
-        toEmail: typeof params.toolInput['toEmail'] === 'string' ? params.toolInput['toEmail'] : '',
-        approvalId: params.approvalId,
-        operationId: params.operationId,
-      },
-    };
-  }
-
   return {
     agentId: params.agentId,
     type: 'confirmation',

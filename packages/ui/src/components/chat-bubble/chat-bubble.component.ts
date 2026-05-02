@@ -13,37 +13,38 @@
  * ⭐ SHARED — Works on web and mobile ⭐
  */
 
-import { Component, ChangeDetectionStrategy, input, output } from '@angular/core';
+import { Component, ChangeDetectionStrategy, computed, input, output } from '@angular/core';
 import type { AgentXToolStep, AgentXRichCard, AgentXMessagePart } from '@nxt1/core/ai';
-import { AgentXToolStepsComponent } from '../../agent-x/agent-x-tool-steps.component';
-import { AgentXPlannerCardComponent } from '../../agent-x/agent-x-planner-card.component';
-import { AgentXDataTableCardComponent } from '../../agent-x/agent-x-data-table-card.component';
+import { AgentXToolStepsComponent } from '../../agent-x/components/shared/agent-x-tool-steps.component';
+import { AgentXPlannerCardComponent } from '../../agent-x/components/cards/agent-x-planner-card.component';
+import { AgentXDataTableCardComponent } from '../../agent-x/components/cards/agent-x-data-table-card.component';
 import {
   AgentXConfirmationCardComponent,
   type ConfirmationActionEvent,
-} from '../../agent-x/agent-x-confirmation-card.component';
-import { AgentXCitationsCardComponent } from '../../agent-x/agent-x-citations-card.component';
+} from '../../agent-x/components/cards/agent-x-confirmation-card.component';
+import { AgentXCitationsCardComponent } from '../../agent-x/components/cards/agent-x-citations-card.component';
 import {
   AgentXParameterFormCardComponent,
   type ParameterFormSubmitEvent,
-} from '../../agent-x/agent-x-parameter-form-card.component';
+} from '../../agent-x/components/cards/agent-x-parameter-form-card.component';
 import {
   AgentXDraftCardComponent,
   type DraftSubmittedEvent,
-} from '../../agent-x/agent-x-draft-card.component';
-import { AgentXProfileCardComponent } from '../../agent-x/agent-x-profile-card.component';
-import { AgentXFilmTimelineCardComponent } from '../../agent-x/agent-x-film-timeline-card.component';
+} from '../../agent-x/components/cards/agent-x-draft-card.component';
+import { AgentXProfileCardComponent } from '../../agent-x/components/cards/agent-x-profile-card.component';
+import { AgentXFilmTimelineCardComponent } from '../../agent-x/components/cards/agent-x-film-timeline-card.component';
 import {
   AgentXBillingActionCardComponent,
   type BillingActionResolvedEvent,
-} from '../../agent-x/agent-x-billing-action-card.component';
+} from '../../agent-x/components/cards/agent-x-billing-action-card.component';
 import {
   AgentXAskUserCardComponent,
   type AskUserReplyEvent,
-} from '../../agent-x/agent-x-ask-user-card.component';
+} from '../../agent-x/components/cards/agent-x-ask-user-card.component';
 import { NxtIconComponent } from '../icon/icon.component';
 import { NxtMarkdownComponent } from '../markdown/markdown.component';
-import { buildAgentCardThemeStyle } from '../../agent-x/agent-x-agent-presentation';
+import { NxtAgentXExtendedThinkingComponent } from '../../agent-x/components/chat/agent-x-extended-thinking.component';
+import { buildAgentCardThemeStyle } from '../../agent-x/types/agent-x-agent-presentation';
 
 /** Visual variant controlling sizing, colors, and border‑radius. */
 export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | 'agent-fab';
@@ -65,6 +66,7 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
     AgentXAskUserCardComponent,
     NxtIconComponent,
     NxtMarkdownComponent,
+    NxtAgentXExtendedThinkingComponent,
   ],
   host: {
     '[class.variant-message]': 'variant() === "message"',
@@ -93,7 +95,7 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
             stroke-linecap="round"
           />
         </svg>
-        <span class="typing-shimmer__text">{{ typingLabel() }}</span>
+        <span class="typing-shimmer__text">{{ resolvedTypingLabel() }}</span>
       </div>
     } @else if (isSystem()) {
       <p class="bubble-text bubble-text--system">{{ content() }}</p>
@@ -102,7 +104,7 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
       @for (part of parts(); track $index) {
         @switch (part.type) {
           @case ('text') {
-            @if (isOwn() || isStreaming()) {
+            @if (isOwn()) {
               <p class="bubble-text">{{ part.content }}</p>
             } @else {
               <nxt1-markdown [content]="part.content" />
@@ -191,6 +193,12 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
               ></video>
             </div>
           }
+          @case ('thinking') {
+            <nxt1-agent-x-extended-thinking
+              [content]="part.content"
+              [isStreaming]="isStreaming()"
+            />
+          }
         }
       }
     } @else {
@@ -199,7 +207,7 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
         <nxt1-agent-x-tool-steps [steps]="steps()" />
       }
       @if (content()) {
-        @if (isOwn() || isStreaming()) {
+        @if (isOwn()) {
           <p class="bubble-text">{{ content() }}</p>
         } @else {
           <nxt1-markdown [content]="content()" />
@@ -712,6 +720,12 @@ export class NxtChatBubbleComponent {
 
   /** Label shown inside the typing shimmer. */
   readonly typingLabel = input('Thinking...');
+
+  /** Typing shimmer label with guaranteed non-empty fallback. */
+  protected readonly resolvedTypingLabel = computed(() => {
+    const label = this.typingLabel()?.trim();
+    return label && label.length > 0 ? label : 'Agent X is thinking...';
+  });
 
   /** Error state. */
   readonly isError = input(false);

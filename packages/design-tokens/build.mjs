@@ -248,6 +248,21 @@ function generateThemeCss(themeTokens, themeName, allTokens) {
     );
   }
 
+  // Surface convenience tokens — generated for ALL themes so components that reference
+  // --nxt1-color-surface-primary (e.g. settings cards, activity items) always get the
+  // correct theme-aware background instead of falling back to hardcoded dark/light values.
+  lines.push('');
+  lines.push('  /* Surface convenience tokens (theme-aware card/panel backgrounds) */');
+  lines.push('  --nxt1-color-surface-primary: var(--nxt1-color-surface-100);');
+  lines.push('  --nxt1-color-surface-secondary: var(--nxt1-color-surface-200);');
+  if (themeName === 'light') {
+    lines.push('  --nxt1-color-surface-hover: rgba(0, 0, 0, 0.03);');
+    lines.push('  --nxt1-color-surface-active: rgba(0, 0, 0, 0.05);');
+  } else {
+    lines.push('  --nxt1-color-surface-hover: rgba(255, 255, 255, 0.04);');
+    lines.push('  --nxt1-color-surface-active: rgba(255, 255, 255, 0.06);');
+  }
+
   // Sport/Team themes get additional component tokens with primary color variations
   if (isSportOrTeamTheme) {
     if (primaryColor) {
@@ -410,6 +425,14 @@ function generateCombinedCss(primitiveTokens, semanticTokens, allTokens) {
       '  --nxt1-nav-shadowSolid: 0 1px 3px rgba(0, 0, 0, 0.12), 0 1px 2px rgba(0, 0, 0, 0.08);'
     );
 
+    // Surface convenience tokens for dark theme
+    lines.push('');
+    lines.push('  /* Surface convenience tokens (theme-aware card/panel backgrounds) */');
+    lines.push('  --nxt1-color-surface-primary: var(--nxt1-color-surface-100);');
+    lines.push('  --nxt1-color-surface-secondary: var(--nxt1-color-surface-200);');
+    lines.push('  --nxt1-color-surface-hover: rgba(255, 255, 255, 0.04);');
+    lines.push('  --nxt1-color-surface-active: rgba(255, 255, 255, 0.06);');
+
     lines.push('}');
   }
 
@@ -445,6 +468,14 @@ function generateCombinedCss(primitiveTokens, semanticTokens, allTokens) {
     lines.push(
       '  --nxt1-nav-shadowSolid: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04);'
     );
+
+    // Surface convenience tokens for light theme
+    lines.push('');
+    lines.push('  /* Surface convenience tokens (theme-aware card/panel backgrounds) */');
+    lines.push('  --nxt1-color-surface-primary: var(--nxt1-color-surface-100);');
+    lines.push('  --nxt1-color-surface-secondary: var(--nxt1-color-surface-200);');
+    lines.push('  --nxt1-color-surface-hover: rgba(0, 0, 0, 0.03);');
+    lines.push('  --nxt1-color-surface-active: rgba(0, 0, 0, 0.05);');
 
     lines.push('}');
   }
@@ -565,6 +596,15 @@ function generateCombinedCss(primitiveTokens, semanticTokens, allTokens) {
         lines.push(`  --nxt1-ripple-color: rgba(${r}, ${g}, ${b}, 0.12);`);
       }
     }
+
+    // Surface convenience tokens — emitted for ALL sport/team themes, regardless of
+    // whether the primary color resolves to a literal hex (team theme uses CSS vars).
+    lines.push('');
+    lines.push('  /* Surface convenience tokens (theme-aware card/panel backgrounds) */');
+    lines.push('  --nxt1-color-surface-primary: var(--nxt1-color-surface-100);');
+    lines.push('  --nxt1-color-surface-secondary: var(--nxt1-color-surface-200);');
+    lines.push('  --nxt1-color-surface-hover: rgba(255, 255, 255, 0.04);');
+    lines.push('  --nxt1-color-surface-active: rgba(255, 255, 255, 0.06);');
 
     lines.push('}');
   }

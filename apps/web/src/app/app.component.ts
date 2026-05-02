@@ -25,7 +25,6 @@ import type { AuthUser } from '@nxt1/core/auth';
 import type { ILogger } from '@nxt1/core/logging';
 import { firstValueFrom } from 'rxjs';
 import { filter } from 'rxjs/operators';
-import { AnalyticsService } from './core/services';
 import { WebVitalsService } from './core/services';
 import { AuthFlowService } from './core/services/auth/auth-flow.service';
 import { environment } from '../environments/environment';
@@ -58,7 +57,6 @@ export class AppComponent implements OnInit {
   private readonly platform = inject(NxtPlatformService);
   private readonly logger: ILogger = inject(NxtLoggingService).child('AppComponent');
   private readonly breadcrumbs = inject(NxtBreadcrumbService);
-  private readonly analytics = inject(AnalyticsService);
   protected readonly downloadBar = inject(NxtAppDownloadBarService);
   private readonly webVitals = inject(WebVitalsService);
   private readonly authFlow = inject(AuthFlowService);
@@ -184,18 +182,12 @@ export class AppComponent implements OnInit {
    * Setup router event listeners for analytics, scroll restoration, etc.
    */
   private setupRouterEvents(): void {
-    this.router.events
-      .pipe(filter((event) => event instanceof NavigationEnd))
-      .subscribe((event) => {
-        if (this.platform.isBrowser()) {
-          // Scroll to top on navigation
-          window.scrollTo(0, 0);
-
-          // Track page view for analytics
-          this.analytics.trackPageView(event.urlAfterRedirects);
-          this.logger.debug('Page view tracked', { path: event.urlAfterRedirects });
-        }
-      });
+    this.router.events.pipe(filter((event) => event instanceof NavigationEnd)).subscribe(() => {
+      if (this.platform.isBrowser()) {
+        // Scroll to top on navigation
+        window.scrollTo(0, 0);
+      }
+    });
   }
 
   private resolveUserTeamBrandSeed(user: AuthUser | null): {

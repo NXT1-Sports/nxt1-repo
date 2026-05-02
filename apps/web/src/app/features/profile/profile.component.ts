@@ -846,10 +846,12 @@ export class ProfileComponent implements OnInit, OnDestroy {
       const slug = this.teamSlug();
       if (slug) {
         this.teamProfileService.startLoading();
-        this.teamProfileService.loadTeam(slug, true).catch((error) => {
+        await this.teamProfileService.loadTeam(slug, true, true).catch((error) => {
           this.logger.error('Failed to reload team after manage', { slug, error });
         });
       }
+
+      await this.syncGlobalUserAfterTeamMutation();
     }
   }
 
@@ -1170,6 +1172,44 @@ export class ProfileComponent implements OnInit, OnDestroy {
     void this.router.navigateByUrl(profilePath ?? this.router.url.split('?')[0], {
       replaceUrl: true,
     });
+  }
+
+  /**
+   * Force-refresh global auth-backed user context after team mutations so
+   * shared navigation (top-right sport selector/avatar) updates immediately.
+   */
+  private async syncGlobalUserAfterTeamMutation(): Promise<void> {
+    await clearHttpCache('*teams*');
+    await clearHttpCache('*auth/profile*');
+    await clearHttpCache('*profile*');
+
+    try {
+      await this.authService.refreshUserProfile();
+    } catch (error) {
+      this.logger.warn('Failed to refresh auth user after team mutation', { error });
+    }
+
+    const team = this.teamProfileService.team();
+    const teamCode = (team?.teamCode ?? team?.id ?? '').trim();
+    if (!team || !teamCode) {
+      return;
+    }
+
+    try {
+      await this.authFlow.applyResolvedTeamIdentity({
+        teamCode,
+        teamId: team.id,
+        slug: team.slug,
+        teamName: team.teamName,
+        sport: team.sport,
+        logoUrl: team.logoUrl ?? null,
+      });
+    } catch (error) {
+      this.logger.warn('Failed to apply resolved team identity after team mutation', {
+        error,
+        teamCode,
+      });
+    }
   }
 
   private buildTeamPathFromUser(profile: User): string | null {

@@ -52,7 +52,7 @@ import { of, throwError } from 'rxjs';
 import type { LiveViewSession } from '@nxt1/core';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import { LiveViewSessionService } from '../../../../../../../../packages/ui/src/agent-x/live-view-session.service';
-import { AGENT_X_API_BASE_URL } from '../../../../../../../../packages/ui/src/agent-x/agent-x-job.service';
+import { AGENT_X_API_BASE_URL } from '../../../../../../../../packages/ui/src/agent-x/services/agent-x-job.service';
 import { NxtToastService } from '../../../../../../../../packages/ui/src/services/toast';
 import { NxtLoggingService } from '../../../../../../../../packages/ui/src/services/logging';
 import { NxtBreadcrumbService } from '../../../../../../../../packages/ui/src/services/breadcrumb/breadcrumb.service';
@@ -487,6 +487,20 @@ describe('LiveViewSessionService', () => {
         expect.objectContaining({
           platform_key: 'none',
         })
+      );
+    });
+
+    it('should keep the session active when analytics tracking throws', () => {
+      analyticsMock.trackEvent.mockImplementation(() => {
+        throw new Error('analytics offline');
+      });
+
+      expect(() => service.adoptSession(MOCK_SESSION)).not.toThrow();
+      expect(service.activeSession()).toEqual(MOCK_SESSION);
+      expect(service.hasActiveSession()).toBe(true);
+      expect(loggerChild.warn).toHaveBeenCalledWith(
+        'Failed to track live view auto-open analytics',
+        expect.objectContaining({ sessionId: MOCK_SESSION.sessionId, error: 'analytics offline' })
       );
     });
   });

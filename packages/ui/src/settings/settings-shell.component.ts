@@ -578,6 +578,7 @@ export class SettingsShellComponent implements OnInit, AfterViewInit, OnDestroy 
       resync: result.resync,
     });
 
+    // Save link changes if any were made
     if (result.linkSources && result.updatedLinks) {
       this.action.emit({
         itemId: 'connectedAccounts',
@@ -585,10 +586,36 @@ export class SettingsShellComponent implements OnInit, AfterViewInit, OnDestroy 
         data: {
           updatedLinks: result.updatedLinks,
           linkSources: result.linkSources,
+          // If resync was also requested, the parent will trigger it AFTER saving
           requestResync: result.resync === true,
           resyncSources: result.sources ?? [],
         },
       } as SettingsActionEvent);
+      return;
+    }
+
+    // Resync only (no link changes) — handle directly via SettingsService so the
+    // toast is guaranteed regardless of which platform wrapper is the parent.
+    if (result.resync === true) {
+      // Collect sources: prefer what the modal returned, fall back to all connected
+      // links from the user's current data so resync always has something to work with.
+      const resyncSources =
+        result.sources && result.sources.length > 0
+          ? result.sources
+          : (currentUser?.linkSourcesData?.links ?? [])
+              .filter((l) => l.connected)
+              .map((l) => ({
+                platform: l.platform,
+                label: l.platform,
+                connected: true,
+                username: l.username,
+                url: l.url,
+              }));
+
+      this.logger.info('Resync requested from connected accounts (no link changes)', {
+        sourceCount: resyncSources.length,
+      });
+      await this.settings.requestConnectedAccountsResync(resyncSources);
     }
   }
 }

@@ -18,6 +18,7 @@ import type {
   AgentExecutionPlan,
   OperationOutcomeCode,
 } from '@nxt1/core';
+import { AGENT_X_RUNTIME_CONFIG } from '@nxt1/core/ai';
 
 // ─── Queue Constants ────────────────────────────────────────────────────────
 
@@ -65,13 +66,13 @@ export const THREAD_SUMMARIZATION_JOB_NAME = 'THREAD_SUMMARIZATION' as const;
  * This means jobs of ANY duration will never stall — the worker auto-heartbeats.
  * The value here is the renewal INTERVAL (half = 2.5 min), not a hard ceiling.
  */
-export const JOB_LOCK_DURATION_MS = 300_000 as const;
+export const JOB_LOCK_DURATION_MS = AGENT_X_RUNTIME_CONFIG.operationQueue.lockDurationMs;
 
 /**
  * Overall timeout for a single agent job (ms).
  * If the job hasn't completed within this window, it's force-failed.
  */
-export const JOB_TIMEOUT_MS = 300_000 as const;
+export const JOB_TIMEOUT_MS = AGENT_X_RUNTIME_CONFIG.operationQueue.jobTimeoutMs;
 
 // ─── Job Data Shapes ────────────────────────────────────────────────────────
 
@@ -202,6 +203,10 @@ export interface RecurringJobInfo {
   readonly actionSummary: string;
   /** The cron pattern controlling execution. */
   readonly cronExpression: string;
+  /** IANA timezone used when evaluating the cron expression. */
+  readonly timezone: string;
+  /** Optional source thread/message identifier captured at schedule creation. */
+  readonly sourceId?: string;
   /** ISO timestamp of the next scheduled execution (null if paused/unknown). */
   readonly nextRun: string | null;
   /** ISO timestamp of when the schedule was created. */

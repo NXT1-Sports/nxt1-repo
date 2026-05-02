@@ -13,12 +13,12 @@
  *   step_error   → event: step    { id, label, status: 'error' }
  *   card         → event: card    { ...cardData }
  *   tool_result  → captures heavyTaskOperationId / media / autoOpenPanel
- *   tool_call    → no-op (step_active already covers the UI update)
+ *   tool_call    → no-op (step_active carries the canonical UI step identity)
  */
 
 import type { Response } from 'express';
 import type { OnStreamEvent, StreamEvent } from '../../modules/agent/queue/event-writer.js';
-import { humanizeToolName, forceProxyFlush } from './shared.js';
+import { forceProxyFlush } from './shared.js';
 
 // ─── Shared mutable ref ────────────────────────────────────────────────────
 
@@ -37,6 +37,115 @@ export interface SseStreamRef {
   tokenUsage: { inputTokens: number; outputTokens: number; model: string } | undefined;
   /** autoOpenPanel payload from tools (e.g. live view, media panel). */
   pendingAutoOpenPanel: Record<string, unknown> | null;
+}
+
+type SseMediaPayload = {
+  type: 'image' | 'video';
+  url: string;
+  mimeType?: string;
+};
+
+function isHttpUrl(value: string): boolean {
+  return /^https?:\/\//i.test(value);
+}
+
+function inferMediaType(url: string, mimeType?: string): 'image' | 'video' | null {
+  const lowerMime = (mimeType ?? '').toLowerCase();
+  if (lowerMime.startsWith('image/')) return 'image';
+  if (lowerMime.startsWith('video/')) return 'video';
+
+  const lowerUrl = url.toLowerCase();
+  if (/\.(png|jpe?g|gif|webp|avif|bmp|svg)(?:\?|#|$)/i.test(lowerUrl)) return 'image';
+  if (/\.(mp4|mov|m4v|webm|avi|mkv|m3u8)(?:\?|#|$)/i.test(lowerUrl)) return 'video';
+  if (/videodelivery\.net\//i.test(lowerUrl)) return 'video';
+  return null;
+}
+
+function maybePushMedia(
+  seen: Set<string>,
+  output: SseMediaPayload[],
+  urlValue: unknown,
+  mimeTypeValue?: unknown,
+  forcedType?: 'image' | 'video'
+): void {
+  if (typeof urlValue !== 'string') return;
+  const url = urlValue.trim();
+  if (!url || !isHttpUrl(url)) return;
+  const mimeType = typeof mimeTypeValue === 'string' ? mimeTypeValue : undefined;
+  const type = forcedType ?? inferMediaType(url, mimeType);
+  if (!type) return;
+  const dedupeKey = `${type}|${url}`;
+  if (seen.has(dedupeKey)) return;
+  seen.add(dedupeKey);
+  output.push({ type, url, ...(mimeType ? { mimeType } : {}) });
+}
+
+function extractMediaPayloads(toolResult: Record<string, unknown>): readonly SseMediaPayload[] {
+  const seen = new Set<string>();
+  const media: SseMediaPayload[] = [];
+
+  maybePushMedia(seen, media, toolResult['imageUrl'], toolResult['mimeType'], 'image');
+  maybePushMedia(seen, media, toolResult['videoUrl'], toolResult['mimeType'], 'video');
+  maybePushMedia(seen, media, toolResult['url'], toolResult['mimeType']);
+  maybePushMedia(seen, media, toolResult['publicUrl'], toolResult['mimeType']);
+  maybePushMedia(seen, media, toolResult['downloadUrl'], toolResult['mimeType']);
+  maybePushMedia(seen, media, toolResult['outputUrl'], toolResult['mimeType'], 'video');
+
+  const imageUrls = toolResult['imageUrls'];
+  if (Array.isArray(imageUrls)) {
+    for (const url of imageUrls) maybePushMedia(seen, media, url, toolResult['mimeType'], 'image');
+  }
+
+  const videoUrls = toolResult['videoUrls'];
+  if (Array.isArray(videoUrls)) {
+    for (const url of videoUrls) maybePushMedia(seen, media, url, toolResult['mimeType'], 'video');
+  }
+
+  const files = toolResult['files'];
+  if (Array.isArray(files)) {
+    for (const file of files) {
+      if (!file || typeof file !== 'object') continue;
+      const record = file as Record<string, unknown>;
+      maybePushMedia(seen, media, record['url'], record['mimeType'], undefined);
+      maybePushMedia(seen, media, record['downloadUrl'], record['mimeType'], undefined);
+    }
+  }
+
+  const markdownOrText = [toolResult['markdown'], toolResult['text'], toolResult['content']]
+    .filter((value): value is string => typeof value === 'string')
+    .join('\n');
+  if (markdownOrText) {
+    const matches = markdownOrText.match(/https?:\/\/[^\s)\]"']+/gi) ?? [];
+    for (const match of matches) {
+      maybePushMedia(seen, media, match, undefined, undefined);
+    }
+  }
+
+  return media;
+}
+
+function toStepPayload(
+  event: StreamEvent,
+  status: 'active' | 'success' | 'error'
+): Record<string, unknown> | null {
+  const stepId = typeof event.stepId === 'string' ? event.stepId.trim() : '';
+  const label = typeof event.message === 'string' ? event.message.trim() : '';
+  if (!stepId || !label) return null;
+
+  return {
+    ...(typeof event.seq === 'number' ? { seq: event.seq } : {}),
+    emittedAt: new Date().toISOString(),
+    ...(event.messageKey ? { messageKey: event.messageKey } : {}),
+    id: stepId,
+    label,
+    ...(event.agentId ? { agentId: event.agentId } : {}),
+    ...(event.stageType ? { stageType: event.stageType } : {}),
+    ...(event.stage ? { stage: event.stage } : {}),
+    ...(event.outcomeCode ? { outcomeCode: event.outcomeCode } : {}),
+    ...(event.metadata ? { metadata: event.metadata } : {}),
+    ...(event.icon ? { icon: event.icon } : {}),
+    status,
+  };
 }
 
 // ─── Step ID tracker ──────────────────────────────────────────────────────
@@ -85,18 +194,17 @@ export function buildSseStreamCallback(res: Response, streamRef: SseStreamRef): 
       }
 
       // ── Tool starting ─────────────────────────────────────────────────
-      case 'step_active':
       case 'tool_call': {
+        return;
+      }
+
+      case 'step_active': {
         if (!event.toolName) return;
-        const stepId = stepTracker.getOrCreate(event.toolName);
+        const stepId = event.stepId ?? stepTracker.getOrCreate(event.toolName);
+        const payload = toStepPayload({ ...event, stepId }, 'active');
+        if (!payload) return;
         try {
-          res.write(
-            `event: step\ndata: ${JSON.stringify({
-              id: stepId,
-              label: humanizeToolName(event.toolName),
-              status: 'active',
-            })}\n\n`
-          );
+          res.write(`event: step\ndata: ${JSON.stringify(payload)}\n\n`);
           forceProxyFlush(res);
         } catch {
           // Client disconnected
@@ -109,21 +217,20 @@ export function buildSseStreamCallback(res: Response, streamRef: SseStreamRef): 
       case 'step_done':
       case 'tool_result': {
         if (!event.toolName) return;
-        const stepId = stepTracker.get(event.toolName) ?? stepTracker.getOrCreate(event.toolName);
+        const stepId =
+          event.stepId ??
+          stepTracker.get(event.toolName) ??
+          stepTracker.getOrCreate(event.toolName);
         const succeeded = event.toolSuccess !== false;
+        const payload = toStepPayload({ ...event, stepId }, succeeded ? 'success' : 'error');
+        if (!payload) return;
 
         if (succeeded && event.toolName) {
           streamRef.successfulTools.push(event.toolName);
         }
 
         try {
-          res.write(
-            `event: step\ndata: ${JSON.stringify({
-              id: stepId,
-              label: humanizeToolName(event.toolName),
-              status: succeeded ? 'success' : 'error',
-            })}\n\n`
-          );
+          res.write(`event: step\ndata: ${JSON.stringify(payload)}\n\n`);
           forceProxyFlush(res);
         } catch {
           // Client disconnected
@@ -149,31 +256,11 @@ export function buildSseStreamCallback(res: Response, streamRef: SseStreamRef): 
             }
           }
 
-          // Emit media events (image / video URLs)
-          if (typeof event.toolResult['imageUrl'] === 'string') {
+          // Emit media events (image / video URLs) from common tool-result shapes.
+          const mediaPayloads = extractMediaPayloads(event.toolResult);
+          for (const media of mediaPayloads) {
             try {
-              res.write(
-                `event: media\ndata: ${JSON.stringify({
-                  type: 'image',
-                  url: event.toolResult['imageUrl'],
-                  mimeType: event.toolResult['mimeType'] ?? 'image/png',
-                })}\n\n`
-              );
-              forceProxyFlush(res);
-            } catch {
-              // Client disconnected
-            }
-          }
-
-          if (typeof event.toolResult['videoUrl'] === 'string') {
-            try {
-              res.write(
-                `event: media\ndata: ${JSON.stringify({
-                  type: 'video',
-                  url: event.toolResult['videoUrl'],
-                  mimeType: event.toolResult['mimeType'] ?? 'video/mp4',
-                })}\n\n`
-              );
+              res.write(`event: media\ndata: ${JSON.stringify(media)}\n\n`);
               forceProxyFlush(res);
             } catch {
               // Client disconnected
@@ -187,15 +274,14 @@ export function buildSseStreamCallback(res: Response, streamRef: SseStreamRef): 
       // ── Tool failed ───────────────────────────────────────────────────
       case 'step_error': {
         if (!event.toolName) return;
-        const stepId = stepTracker.get(event.toolName) ?? stepTracker.getOrCreate(event.toolName);
+        const stepId =
+          event.stepId ??
+          stepTracker.get(event.toolName) ??
+          stepTracker.getOrCreate(event.toolName);
+        const payload = toStepPayload({ ...event, stepId }, 'error');
+        if (!payload) return;
         try {
-          res.write(
-            `event: step\ndata: ${JSON.stringify({
-              id: stepId,
-              label: humanizeToolName(event.toolName),
-              status: 'error',
-            })}\n\n`
-          );
+          res.write(`event: step\ndata: ${JSON.stringify(payload)}\n\n`);
           forceProxyFlush(res);
         } catch {
           // Client disconnected
@@ -208,6 +294,56 @@ export function buildSseStreamCallback(res: Response, streamRef: SseStreamRef): 
         if (!event.cardData) return;
         try {
           res.write(`event: card\ndata: ${JSON.stringify(event.cardData)}\n\n`);
+          forceProxyFlush(res);
+        } catch {
+          // Client disconnected
+        }
+        return;
+      }
+
+      // ── Operation lifecycle / phase commentary ────────────────────────
+      case 'operation': {
+        try {
+          res.write(
+            `event: operation\ndata: ${JSON.stringify({
+              operationId: event.operationId,
+              threadId: event.threadId,
+              status: event.status,
+              agentId: event.agentId,
+              stageType: event.stageType,
+              stage: event.stage,
+              outcomeCode: event.outcomeCode,
+              metadata: event.metadata,
+              message: event.message,
+              yieldState: event.yieldState,
+              timestamp: event.timestamp ?? new Date().toISOString(),
+            })}\n\n`
+          );
+          forceProxyFlush(res);
+        } catch {
+          // Client disconnected
+        }
+        return;
+      }
+
+      case 'progress_stage':
+      case 'progress_subphase':
+      case 'metric': {
+        try {
+          res.write(
+            `event: progress\ndata: ${JSON.stringify({
+              operationId: event.operationId,
+              threadId: event.threadId,
+              type: event.type,
+              agentId: event.agentId,
+              stageType: event.stageType,
+              stage: event.stage,
+              outcomeCode: event.outcomeCode,
+              metadata: event.metadata,
+              message: event.message,
+              timestamp: event.timestamp ?? new Date().toISOString(),
+            })}\n\n`
+          );
           forceProxyFlush(res);
         } catch {
           // Client disconnected

@@ -25,7 +25,7 @@ import type {
 /**
  * MIME type categories that Agent X can process via multimodal models.
  */
-export type AgentXAttachmentType = 'image' | 'video' | 'pdf' | 'csv' | 'doc';
+export type AgentXAttachmentType = 'image' | 'video' | 'pdf' | 'csv' | 'doc' | 'app';
 
 /**
  * Metadata for a file attached to an Agent X message.
@@ -34,8 +34,10 @@ export type AgentXAttachmentType = 'image' | 'video' | 'pdf' | 'csv' | 'doc';
 export interface AgentXAttachment {
   /** Unique attachment identifier (UUID v4). */
   readonly id: string;
-  /** Public CDN URL of the uploaded file in Firebase Storage. */
+  /** Signed/read URL for the uploaded file. May be refreshed by backend on history reads. */
   readonly url: string;
+  /** Firebase Storage object path used to re-sign URLs (non-video files). */
+  readonly storagePath?: string;
   /** Original file name as chosen by the user. */
   readonly name: string;
   /** MIME type (e.g. `image/jpeg`, `application/pdf`). */
@@ -50,6 +52,29 @@ export interface AgentXAttachment {
    * and `generate_captions`.
    */
   readonly cloudflareVideoId?: string;
+  /** Connected-source platform label for app attachments. */
+  readonly platform?: string;
+  /** Platform favicon URL for app attachments. */
+  readonly faviconUrl?: string;
+}
+
+/**
+ * Minimal metadata for a file that is selected but not yet uploaded.
+ * Sent as `attachmentStubs` in a chat request when the upload is still in progress.
+ * The backend waits up to 90 s for the frontend to POST the resolved URL via
+ * `POST /agent-x/chat/pending-attachments/:operationId` before processing.
+ */
+export interface AgentXAttachmentStub {
+  /** Must match the `id` that will be sent in the resolved full attachment. */
+  readonly id: string;
+  /** Original file name chosen by the user. */
+  readonly name: string;
+  /** MIME type (e.g. `video/mp4`, `image/jpeg`). */
+  readonly mimeType: string;
+  /** File size in bytes. */
+  readonly sizeBytes: number;
+  /** Resolved high-level attachment type. */
+  readonly type: AgentXAttachmentType;
 }
 
 // ============================================
@@ -59,7 +84,7 @@ export interface AgentXAttachment {
 /**
  * Role of a message sender in the chat.
  */
-export type ChatRole = 'user' | 'assistant' | 'system';
+export type ChatRole = 'user' | 'assistant' | 'system' | 'tool';
 
 // ============================================
 // MESSAGE PARTS — Copilot-style interleaved rendering
@@ -75,7 +100,13 @@ export type AgentXMessagePart =
   | { readonly type: 'tool-steps'; readonly steps: readonly AgentXToolStep[] }
   | { readonly type: 'card'; readonly card: AgentXRichCard }
   | { readonly type: 'image'; readonly url: string; readonly alt?: string }
-  | { readonly type: 'video'; readonly url: string; readonly mimeType?: string };
+  | { readonly type: 'video'; readonly url: string; readonly mimeType?: string }
+  /**
+   * Extended thinking block emitted by Claude 3.7+ / Gemini 2.5 before the
+   * answer. Hidden by default (collapsed) — surfaced as a collapsible panel
+   * in the chat UI so power users can inspect the model's reasoning.
+   */
+  | { readonly type: 'thinking'; readonly content: string };
 
 /**
  * A single message in the Agent X conversation.
@@ -171,6 +202,8 @@ export interface LiveViewSession {
   readonly sessionId: string;
   /** Interactive VNC/iframe URL returned by Firecrawl. */
   readonly interactiveUrl: string;
+  /** Top-level live-view URL returned by Firecrawl for opening the same session in a browser tab. */
+  readonly liveViewUrl?: string;
   /** The destination the user or agent originally requested. */
   readonly requestedUrl: string;
   /** Resolved canonical URL the browser was actually navigated to. */
@@ -198,6 +231,8 @@ export interface LiveViewSession {
 export interface AutoOpenPanelInstruction {
   readonly type: 'live-view' | 'live-view-launcher' | 'image' | 'video' | 'doc';
   readonly url: string;
+  /** Optional top-level URL to open in a separate browser tab while `url` remains the embedded iframe source. */
+  readonly externalUrl?: string;
   readonly title?: string;
   /**
    * When `type === 'live-view'`, carries the full session contract
@@ -305,12 +340,44 @@ export interface AgentXChatRequest {
    */
   readonly attachments?: readonly AgentXAttachment[];
   /**
+   * Connected app sources the user has explicitly selected for this message.
+   * The backend injects these as context hints so Agent X knows which platforms
+   * are available for retrieval or virtual browser navigation.
+   * e.g. [{ platform: 'Hudl', profileUrl: 'https://hudl.com/athlete/...' }]
+   */
+  readonly connectedSources?: readonly {
+    readonly platform: string;
+    readonly profileUrl: string;
+    readonly faviconUrl?: string;
+  }[];
+  /**
+   * Stubs for files that are selected but not yet uploaded.
+   * When present, the backend starts the SSE stream immediately, emits a
+   * `waiting_for_attachments` event, and awaits a resolution POST before
+   * enqueueing the job. Can coexist with `attachments` (already-uploaded files).
+   */
+  readonly attachmentStubs?: readonly AgentXAttachmentStub[];
+  /**
    * Re-attach to an already-running queued operation stream.
    * Used after approval resolution and SSE drop recovery.
    */
   readonly resumeOperationId?: string;
   /** Replay dedup: skip persisted events up to and including this seq number. */
   readonly afterSeq?: number;
+  /** Optional structured quick-action selection resolved by the backend. */
+  readonly selectedAction?: AgentXSelectedAction;
+}
+
+/** Which coordinator action surface originated the request. */
+export type AgentXSelectedActionSurface = 'command' | 'scheduled' | 'suggested';
+
+/** Structured quick-action metadata sent alongside the visible chip label. */
+export interface AgentXSelectedAction {
+  readonly coordinatorId: string;
+  readonly actionId: string;
+  readonly surface: AgentXSelectedActionSurface;
+  /** Visible chip label for UX, analytics, and operation history. */
+  readonly label?: string;
 }
 
 /**
@@ -373,6 +440,8 @@ export interface AgentXToolStep {
   readonly id: string;
   /** Short human-readable label (e.g. "Searching athlete database…"). */
   readonly label: string;
+  /** Stable backend-authored localization key paired with label text when available. */
+  readonly messageKey?: string;
   /** Which agent emitted the step, when known. */
   readonly agentId?: AgentIdentifier;
   /** Which execution layer emitted this step, when structured stages are available. */
@@ -413,6 +482,8 @@ export interface AgentXPlannerItem {
   readonly label: string;
   /** Whether the step is complete. */
   readonly done: boolean;
+  /** True while this specific task is actively executing. At most one item is active at a time. */
+  readonly active?: boolean;
 }
 
 /**
@@ -482,6 +553,139 @@ export interface AgentXConfirmationAction {
   readonly variant: 'primary' | 'secondary' | 'destructive';
 }
 
+/**
+ * Discriminator for the confirmation card rendering variant.
+ * - `email`           — Single email approval with editable draft UI.
+ * - `email-batch`     — Batch email approval with editable recipient pills + template.
+ * - `timeline_post`   — Timeline/team post approval with editable title + description.
+ * - `generic_approval`— Rich approval card for non-email tools (profile/team writes,
+ *                       workspace actions, deletes, etc.) with action summary + data preview.
+ */
+export type AgentXConfirmationVariant =
+  | 'email'
+  | 'email-batch'
+  | 'timeline_post'
+  | 'generic_approval';
+
+/**
+ * Email payload attached to `email` and `email-batch` confirmation cards.
+ * Enables the frontend to pre-populate an editable draft preview.
+ */
+export interface AgentXConfirmationEmailData {
+  /** Email subject line (or batch subject template). */
+  readonly subject: string;
+  /** Email body HTML (or batch body HTML template). */
+  readonly body: string;
+  /** Single-email recipient address. Present only on `email` variant. */
+  readonly toEmail?: string;
+  /**
+   * Recipient list for batch sends.
+   * Each entry is either a plain email string (legacy) or a structured object
+   * preserving per-recipient template variables for the round-trip approval.
+   */
+  readonly recipients?: readonly (
+    | string
+    | { readonly toEmail: string; readonly variables: Record<string, string | number | boolean> }
+  )[];
+  /** Total recipient count — used for the card title badge. */
+  readonly recipientsCount: number;
+}
+
+/**
+ * Category of a non-email tool approval.
+ * Drives the icon, accent color, and risk language in the generic approval card.
+ */
+export type AgentXGenericApprovalCategory =
+  | 'profileWrite'
+  | 'profileDelete'
+  | 'teamWrite'
+  | 'teamDelete'
+  | 'communication'
+  | 'workspace'
+  | 'automation'
+  | 'destructive'
+  | 'other';
+
+/**
+ * Structured data attached to `generic_approval` confirmation cards.
+ * Provides a rich preview so users understand what Agent X wants to do
+ * without needing to expand a raw JSON accordion.
+ */
+/**
+ * Rich preview for write_season_stats approval — stats displayed in table format.
+ */
+export interface SeasonStatsPreview {
+  readonly type: 'season_stats';
+  readonly sport: string;
+  readonly year?: string | number;
+  readonly rows: ReadonlyArray<{
+    readonly label: string;
+    readonly value: string | number;
+  }>;
+}
+
+/**
+ * Rich preview for write_core_identity approval — profile info in labeled sections.
+ */
+export interface CoreIdentityPreview {
+  readonly type: 'core_identity';
+  readonly sections: ReadonlyArray<{
+    readonly title: string;
+    readonly fields: ReadonlyArray<{ readonly key: string; readonly value: string }>;
+  }>;
+}
+
+/**
+ * Rich preview for write_roster_entries approval — roster in table format.
+ */
+export interface RosterPreview {
+  readonly type: 'roster';
+  readonly teamName?: string;
+  readonly rows: ReadonlyArray<{
+    readonly name: string;
+    readonly number?: string | number;
+    readonly position?: string;
+    readonly grade?: string;
+    readonly status?: string;
+  }>;
+}
+
+/** Union of all rich preview types. */
+export type ApprovalRichPreview = SeasonStatsPreview | CoreIdentityPreview | RosterPreview;
+
+export interface AgentXGenericApprovalData {
+  /** Semantic category driving icon + accent color in the UI. */
+  readonly category: AgentXGenericApprovalCategory;
+  /** Risk level indicator — controls warning color and language. */
+  readonly riskLevel: 'low' | 'medium' | 'high' | 'critical';
+  /** Human-readable one-line summary of the action (from `resolveAgentApprovalCopy`). */
+  readonly actionSummary: string;
+  /** Human-readable resource name (e.g. "timeline post", "season stats"). */
+  readonly resourceName: string;
+  /**
+   * Optional key-value preview of the most relevant fields from `toolInput`.
+   * Limited to 5 entries. Sensitive fields (tokens, passwords, etc.) are stripped.
+   */
+  readonly dataFields?: ReadonlyArray<{ readonly key: string; readonly value: string }>;
+  /** Optional rich structured preview (stats table, profile sections, roster table). */
+  readonly richPreview?: ApprovalRichPreview;
+}
+
+/**
+ * Timeline/team post payload attached to `timeline_post` confirmation cards.
+ * Enables users to edit the post title and description before approval.
+ */
+export interface AgentXConfirmationTimelinePostData {
+  /** Editable post title shown in feed cards (optional for plain text posts). */
+  readonly title?: string;
+  /** Editable post body/description. */
+  readonly description: string;
+  /** Post type (text, image, video, announcement, etc.). */
+  readonly postType?: string;
+  /** True when approval targets a team timeline post. */
+  readonly isTeamPost: boolean;
+}
+
 /** Payload for the `confirmation` card type. */
 export interface AgentXConfirmationPayload {
   /** Descriptive message body. */
@@ -492,6 +696,26 @@ export interface AgentXConfirmationPayload {
   readonly approvalId?: string;
   /** Operation id associated with the pending approval. */
   readonly operationId?: string;
+  /**
+   * Rendering variant — determines which UI branch the action card renders.
+   * Absent on legacy cards; the frontend falls back to toolName detection.
+   */
+  readonly variant?: AgentXConfirmationVariant;
+  /**
+   * Email draft data — present on `email` and `email-batch` variants.
+   * Enables the editable draft UI without re-reading raw toolInput.
+   */
+  readonly emailData?: AgentXConfirmationEmailData;
+  /**
+   * Generic approval data — present on `generic_approval` variant.
+   * Provides a structured rich preview for non-email tool approvals.
+   */
+  readonly genericApprovalData?: AgentXGenericApprovalData;
+  /**
+   * Timeline post data — present on `timeline_post` variant.
+   * Provides editable title/description for timeline/team post approvals.
+   */
+  readonly timelinePostData?: AgentXConfirmationTimelinePostData;
 }
 
 // ── Ask User ──
@@ -504,6 +728,8 @@ export interface AgentXAskUserPayload {
   readonly context?: string;
   /** The thread ID — used when posting the user's reply. */
   readonly threadId?: string;
+  /** Operation ID that is currently yielded and must be resumed. */
+  readonly operationId?: string;
 }
 
 // ── Citations ──
@@ -668,6 +894,14 @@ export interface AgentXDocumentPayload {
  * the threadId without waiting for the full response.
  */
 export interface AgentXStreamThreadEvent {
+  /** Event contract schema version. */
+  readonly schemaVersion?: number;
+  /** Stable unique event identifier. */
+  readonly eventId?: string;
+  /** Monotonic stream sequence number when available. */
+  readonly seq?: number;
+  /** ISO timestamp when backend emitted this event. */
+  readonly emittedAt?: string;
   readonly threadId: string;
   /** The backend operation ID for this chat request. Used for explicit cancellation via POST /cancel/:operationId. */
   readonly operationId?: string;
@@ -679,6 +913,10 @@ export interface AgentXStreamThreadEvent {
  * using a cheap/fast model. Only emitted on the first turn of a new thread.
  */
 export interface AgentXStreamTitleUpdatedEvent {
+  readonly schemaVersion?: number;
+  readonly eventId?: string;
+  readonly seq?: number;
+  readonly emittedAt?: string;
   readonly threadId: string;
   readonly title: string;
 }
@@ -688,6 +926,24 @@ export interface AgentXStreamTitleUpdatedEvent {
  * One frame per token chunk emitted by the LLM.
  */
 export interface AgentXStreamDeltaEvent {
+  readonly schemaVersion?: number;
+  readonly eventId?: string;
+  readonly seq?: number;
+  readonly emittedAt?: string;
+  readonly content: string;
+}
+
+/**
+ * Payload of the `event: thinking` SSE frame.
+ * Emitted by extended-thinking models (Claude 3.7+, Gemini 2.5) before the
+ * first delta frame. The content is the model's raw reasoning chain.
+ */
+export interface AgentXStreamThinkingEvent {
+  readonly schemaVersion?: number;
+  readonly eventId?: string;
+  readonly seq?: number;
+  readonly emittedAt?: string;
+  /** One fragment of the model's reasoning text. */
   readonly content: string;
 }
 
@@ -696,8 +952,19 @@ export interface AgentXStreamDeltaEvent {
  * Final frame sent after all deltas — contains usage metadata.
  */
 export interface AgentXStreamDoneEvent {
-  readonly threadId: string;
-  readonly model: string;
+  readonly schemaVersion?: number;
+  readonly eventId?: string;
+  readonly seq?: number;
+  readonly emittedAt?: string;
+  readonly messageKey?: string;
+  readonly threadId?: string;
+  /** Canonical persisted assistant message ID (Mongo ObjectId). */
+  readonly messageId?: string;
+  readonly model?: string;
+  /** Operation ID associated with this terminal frame. */
+  readonly operationId?: string;
+  /** Canonical terminal status mirrored from backend lifecycle state. */
+  readonly status?: 'complete' | 'error' | 'cancelled';
   readonly usage?: {
     readonly inputTokens: number;
     readonly outputTokens: number;
@@ -712,6 +979,10 @@ export interface AgentXStreamDoneEvent {
  * Payload of the `event: error` SSE frame.
  */
 export interface AgentXStreamErrorEvent {
+  readonly schemaVersion?: number;
+  readonly eventId?: string;
+  readonly seq?: number;
+  readonly emittedAt?: string;
   readonly error: string;
   /** HTTP status code when the error originated from the initial HTTP response. */
   readonly status?: number;
@@ -724,6 +995,11 @@ export interface AgentXStreamErrorEvent {
  * Sent when the backend begins, updates, or completes a tool execution step.
  */
 export interface AgentXStreamStepEvent {
+  readonly schemaVersion?: number;
+  readonly eventId?: string;
+  readonly seq?: number;
+  readonly emittedAt?: string;
+  readonly messageKey?: string;
   /** Unique step identifier. */
   readonly id: string;
   /** Short human-readable label (e.g. "Querying athlete stats…"). */
@@ -751,6 +1027,10 @@ export interface AgentXStreamStepEvent {
  * Sent when the backend wants to embed a rich interactive card in the chat.
  */
 export interface AgentXStreamCardEvent {
+  readonly schemaVersion?: number;
+  readonly eventId?: string;
+  readonly seq?: number;
+  readonly emittedAt?: string;
   /** Which agent generated the card, used for per-agent colorways. */
   readonly agentId: AgentIdentifier;
   /** Card type discriminator. */
@@ -781,17 +1061,98 @@ export interface AgentXStreamCardEvent {
  * can update in real-time without polling.
  */
 export interface AgentXStreamOperationEvent {
+  readonly schemaVersion?: number;
+  readonly eventId?: string;
+  readonly seq?: number;
+  readonly emittedAt?: string;
+  readonly messageKey?: string;
   /** The thread ID this operation belongs to. */
   readonly threadId: string;
-  /** Current operation status. */
-  readonly status: OperationLogStatus;
+  /** Current backend-authoritative lifecycle status. */
+  readonly status: AgentXOperationLifecycleStatus;
   /** ISO timestamp of the status transition. */
   readonly timestamp: string;
   /** Operation ID associated with the lifecycle update. */
   readonly operationId?: string;
+  /** Which agent emitted this lifecycle transition, when known. */
+  readonly agentId?: AgentIdentifier;
+  /** Which execution layer emitted this lifecycle transition, when structured stages are available. */
+  readonly stageType?: AgentProgressStageType;
+  /** Typed machine-readable stage key for frontend dictionaries. */
+  readonly stage?: AgentProgressStage;
+  /** Structured outcome for notable or terminal states. */
+  readonly outcomeCode?: OperationOutcomeCode;
+  /** Additional typed hydration data for UI rendering. */
+  readonly metadata?: AgentProgressMetadata;
+  /** Human-readable operation message for UX commentary. */
+  readonly message?: string;
   /** Serialized yield payload when the operation is awaiting user input or approval. */
   readonly yieldState?: AgentYieldState;
 }
+
+/**
+ * Payload of the `event: progress` SSE frame.
+ * Emitted for stage/subphase/metric commentary updates while work is in-flight.
+ */
+export interface AgentXStreamProgressEvent {
+  readonly schemaVersion?: number;
+  readonly eventId?: string;
+  readonly seq?: number;
+  readonly emittedAt?: string;
+  readonly messageKey?: string;
+  /** Event subtype emitted by backend (`progress_stage`, `progress_subphase`, `metric`). */
+  readonly type: 'progress_stage' | 'progress_subphase' | 'metric';
+  /** Operation ID associated with the progress update. */
+  readonly operationId?: string;
+  /** Thread ID associated with the progress update. */
+  readonly threadId?: string;
+  /** Which agent emitted the update, when known. */
+  readonly agentId?: AgentIdentifier;
+  /** Which execution layer emitted this update, when structured stages are available. */
+  readonly stageType?: AgentProgressStageType;
+  /** Typed machine-readable stage key for frontend dictionaries. */
+  readonly stage?: AgentProgressStage;
+  /** Structured outcome for notable or terminal states. */
+  readonly outcomeCode?: OperationOutcomeCode;
+  /** Additional typed hydration data for UI rendering. */
+  readonly metadata?: AgentProgressMetadata;
+  /** Human-readable commentary text to display in the UI. */
+  readonly message?: string;
+  /** ISO timestamp emitted by backend. */
+  readonly timestamp?: string;
+}
+
+/**
+ * Payload of the `event: stream_replaced` SSE frame.
+ * Emitted when a newer stream lease takes over the same operation.
+ */
+export interface AgentXStreamReplacedEvent {
+  readonly schemaVersion?: number;
+  readonly eventId?: string;
+  readonly seq?: number;
+  readonly emittedAt?: string;
+  readonly operationId: string;
+  readonly replacedByStreamId: string;
+  readonly reason: 'replaced';
+  readonly timestamp: string;
+}
+
+/**
+ * Canonical operation lifecycle statuses emitted by backend SSE streams.
+ *
+ * This contract is intentionally backend-owned and stable so web/mobile
+ * clients can render deterministic lifecycle state without inferring from
+ * partial tool-step events.
+ */
+export type AgentXOperationLifecycleStatus =
+  | 'queued'
+  | 'running'
+  | 'paused'
+  | 'awaiting_input'
+  | 'awaiting_approval'
+  | 'complete'
+  | 'failed'
+  | 'cancelled';
 
 /**
  * Callbacks consumed by `streamMessage()` in the API factory.
@@ -801,6 +1162,12 @@ export interface AgentXStreamCallbacks {
   onThread?: (event: AgentXStreamThreadEvent) => void;
   /** Called for every token chunk the LLM streams. */
   onDelta: (event: AgentXStreamDeltaEvent) => void;
+  /**
+   * Called for every extended thinking fragment (Claude 3.7+, Gemini 2.5).
+   * Arrives before the first delta. Optional — models that don't support
+   * extended thinking will never fire this callback.
+   */
+  onThinking?: (event: AgentXStreamThinkingEvent) => void;
   /** Called once when the stream completes successfully. */
   onDone: (event: AgentXStreamDoneEvent) => void;
   /** Called if the stream encounters an error. */
@@ -813,16 +1180,51 @@ export interface AgentXStreamCallbacks {
   onTitleUpdated?: (event: AgentXStreamTitleUpdatedEvent) => void;
   /** Called when the operation lifecycle status changes (in-progress → complete/error/awaiting_input). */
   onOperation?: (event: AgentXStreamOperationEvent) => void;
+  /** Called for stage/subphase/metric progress commentary updates. */
+  onProgress?: (event: AgentXStreamProgressEvent) => void;
   /** Called immediately when a tool emits an autoOpenPanel instruction (before done). */
   onPanel?: (event: AutoOpenPanelInstruction) => void;
   /** Called when a tool produces a media artifact (image/video URL). */
   onMedia?: (event: AgentXStreamMediaEvent) => void;
+  /** Called when this stream is explicitly replaced by a newer stream lease. */
+  onStreamReplaced?: (event: AgentXStreamReplacedEvent) => void;
+  /**
+   * Called when the backend has received attachment stubs and is waiting for the
+   * frontend to finish uploading. The handler should complete the upload and then
+   * POST resolved attachments to `POST /agent-x/chat/pending-attachments/:operationId`.
+   * May return a Promise — the SSE stream continues regardless (fire-and-forget).
+   */
+  onWaitingForAttachments?: (event: AgentXStreamWaitingForAttachmentsEvent) => void | Promise<void>;
+}
+
+/**
+ * Emitted by the backend when it has received attachment stubs and is waiting
+ * for the frontend to finish uploading and resolve via
+ * `POST /agent-x/chat/pending-attachments/:operationId`.
+ */
+export interface AgentXStreamWaitingForAttachmentsEvent {
+  readonly schemaVersion?: number;
+  readonly eventId?: string;
+  readonly seq?: number;
+  readonly emittedAt?: string;
+  /** The operation ID to use in the resolution POST body and URL parameter. */
+  readonly operationId: string;
+  /** IDs of the stubs that need to be resolved. */
+  readonly attachmentIds: readonly string[];
+  /** How long the backend will wait before timing out (milliseconds). */
+  readonly timeoutMs: number;
+  /** Thread ID if already resolved (may be undefined for brand-new threads). */
+  readonly threadId?: string;
 }
 
 /**
  * Emitted when a tool produces a media artifact (e.g. generated graphic, video).
  */
 export interface AgentXStreamMediaEvent {
+  readonly schemaVersion?: number;
+  readonly eventId?: string;
+  readonly seq?: number;
+  readonly emittedAt?: string;
   readonly type: 'image' | 'video';
   readonly url: string;
   readonly mimeType?: string;
@@ -888,6 +1290,8 @@ export interface ShellActionChip {
   readonly id: string;
   readonly label: string;
   readonly subLabel?: string;
+  /** Exact visible prompt text the UI should send when this chip is tapped. */
+  readonly promptText?: string;
   readonly icon: string;
 }
 
@@ -901,6 +1305,8 @@ export interface ShellCommandCategory {
   readonly commands: readonly ShellActionChip[];
   /** Repeatable tasks the user can schedule (daily, weekly, etc.). */
   readonly scheduledActions?: readonly ShellActionChip[];
+  /** Weekly personalized actions generated from the user's current context. */
+  readonly suggestedActions?: readonly ShellActionChip[];
 }
 
 /** Daily briefing insight from Agent X. */
@@ -1032,7 +1438,7 @@ export interface AgentDashboardPlaybook {
   readonly canRegenerate: boolean;
 }
 
-/** Request to set/update user goals (max 2). */
+/** Request to set/update user goals (max 3). */
 export interface AgentSetGoalsRequest {
   readonly goals: readonly AgentDashboardGoal[];
 }
@@ -1092,7 +1498,9 @@ export type OperationLogStatus =
   | 'error'
   | 'cancelled'
   | 'in-progress'
-  | 'awaiting_input';
+  | 'paused'
+  | 'awaiting_input'
+  | 'awaiting_approval';
 
 /** Category of an operation for icon/color grouping. */
 export type OperationLogCategory =

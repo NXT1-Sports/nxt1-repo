@@ -134,9 +134,9 @@ export class ManageTeamService {
 
   /** Team colors */
   readonly teamColors = computed(() => ({
-    primary: this._formData()?.branding?.primaryColor ?? '#ccff00',
-    secondary: this._formData()?.branding?.secondaryColor ?? '#000000',
-    accent: this._formData()?.branding?.accentColor ?? null,
+    primary: this._formData()?.branding?.primaryColor,
+    secondary: this._formData()?.branding?.secondaryColor,
+    accent: this._formData()?.branding?.accentColor,
   }));
 
   /** Team record */

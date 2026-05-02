@@ -123,6 +123,7 @@ import {
   AuthApiService,
   OnboardingAnalyticsService,
 } from '../../../../core/services/auth';
+import { ProfileService } from '../../../../core/services';
 import { EditProfileApiService } from '../../../../core/services/api/edit-profile-api.service';
 import { ProfileGenerationStateService } from '@nxt1/ui';
 import type { OnboardingProfileData } from '@nxt1/core/auth';
@@ -487,6 +488,7 @@ export class OnboardingPage implements OnInit, OnDestroy {
   private readonly location = inject(Location);
   private readonly route = inject(ActivatedRoute);
   private readonly authFlow = inject(AuthFlowService);
+  private readonly profileService = inject(ProfileService);
   private readonly profileGenerationState = inject(ProfileGenerationStateService);
   private readonly authApi = inject(AuthApiService);
   private readonly errorHandler = inject(AuthErrorHandler);
@@ -1633,7 +1635,13 @@ export class OnboardingPage implements OnInit, OnDestroy {
         });
       }
     } catch (saveError) {
-      this.logger.warn('Failed to save profile data, continuing', { error: saveError });
+      this.logger.error('Failed to save onboarding profile — BLOCKING', {
+        error: saveError,
+        userId: user.uid,
+        userType: formData.userType,
+      });
+      this.toast.error('Failed to save your profile. Please check your connection and try again.');
+      return; // Abort — do NOT navigate to congratulations with missing data
     }
 
     // Save referral source
@@ -1658,14 +1666,7 @@ export class OnboardingPage implements OnInit, OnDestroy {
 
     // Refresh user profile (bulk save already set onboardingCompleted: true)
     this.logger.debug('Refreshing user profile');
-    try {
-      await this.authFlow.refreshUserProfile();
-    } catch (refreshError) {
-      this.logger.error('refreshUserProfile failed', refreshError);
-    }
-
-    // Wait for auth state to update (with timeout)
-    await this.waitForOnboardingComplete();
+    await this.authFlow.refreshUserProfile();
 
     // Clear session from storage
     await this.clearSession();
@@ -1673,27 +1674,13 @@ export class OnboardingPage implements OnInit, OnDestroy {
     // Track completion
     this.trackCompleted();
 
-    // Navigate to congratulations page with haptic feedback (native-feel transition)
+    // Navigate to congratulations page by replacing the onboarding stack.
     await this.haptics.notification('success');
     this.logger.debug('Navigating to congratulations page');
-    await this.navController.navigateForward('/auth/onboarding/congratulations', {
+    await this.navController.navigateRoot('/auth/onboarding/congratulations', {
       animated: true,
       animationDirection: 'forward',
     });
-  }
-
-  /**
-   * Wait for auth state to reflect onboarding completion (with timeout)
-   * Uses exponential backoff for efficient polling
-   */
-  private async waitForOnboardingComplete(maxWaitMs = 2000): Promise<void> {
-    const startTime = Date.now();
-    let delay = 50;
-
-    while (!this.authFlow.hasCompletedOnboarding() && Date.now() - startTime < maxWaitMs) {
-      await new Promise((resolve) => setTimeout(resolve, delay));
-      delay = Math.min(delay * 1.5, 200); // Exponential backoff, max 200ms
-    }
   }
 
   // ============================================

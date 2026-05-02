@@ -100,30 +100,96 @@ export class ChatAttachmentDto {
   id!: string;
 
   @IsUrl({ protocols: ['https'], require_protocol: true })
-  @IsNotEmpty()
-  url!: string;
+  @IsOptional()
+  url?: string;
+
+  @IsString()
+  @IsOptional()
+  storagePath?: string;
 
   @IsString()
   @IsNotEmpty()
   name!: string;
 
   @IsString()
-  @IsNotEmpty()
-  mimeType!: string;
+  @IsOptional()
+  mimeType?: string;
 
-  @IsIn(['image', 'video', 'pdf', 'csv', 'doc'])
+  @IsIn(['image', 'video', 'pdf', 'csv', 'doc', 'app'])
   @IsNotEmpty()
   type!: string;
 
   @IsNumber()
   @Min(1)
   @Max(500 * 1024 * 1024) // 500 MB — videos upload via Cloudflare Stream
-  sizeBytes!: number;
+  @IsOptional()
+  sizeBytes?: number;
 
   /** Cloudflare Stream video ID — present only for video attachments uploaded via TUS. */
   @IsString()
   @IsOptional()
   cloudflareVideoId?: string;
+
+  /** Platform name for app attachments (e.g., 'Instagram', 'TikTok', 'YouTube'). */
+  @IsString()
+  @IsOptional()
+  platform?: string;
+
+  /** Profile/account URL for app attachments (e.g., https://instagram.com/username). */
+  @IsUrl({ protocols: ['https'], require_protocol: true })
+  @IsOptional()
+  profileUrl?: string;
+
+  /** Favicon/logo URL for app attachments. */
+  @IsUrl({ protocols: ['https'], require_protocol: true })
+  @IsOptional()
+  faviconUrl?: string;
+}
+
+export class SelectedActionDto {
+  @IsString()
+  @IsNotEmpty()
+  coordinatorId!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  actionId!: string;
+
+  @IsString()
+  @IsIn(['command', 'scheduled', 'suggested'])
+  surface!: 'command' | 'scheduled' | 'suggested';
+
+  @IsString()
+  @IsOptional()
+  label?: string;
+}
+
+export class ConnectedSourceDto {
+  /** Platform name (e.g., 'Hudl', 'Instagram', 'TikTok'). */
+  @IsString()
+  @IsNotEmpty()
+  platform!: string;
+
+  /** Profile/account URL on the connected platform. */
+  @IsUrl({ protocols: ['https'], require_protocol: true })
+  @IsNotEmpty()
+  profileUrl!: string;
+
+  /** Favicon/logo URL for the platform. */
+  @IsUrl({ protocols: ['https'], require_protocol: true })
+  @IsOptional()
+  faviconUrl?: string;
+
+  /** Optional scope type emitted by the attachments picker context. */
+  @IsString()
+  @IsIn(['global', 'sport', 'team'])
+  @IsOptional()
+  scopeType?: 'global' | 'sport' | 'team';
+
+  /** Optional scope identifier when scopeType is sport/team. */
+  @IsString()
+  @IsOptional()
+  scopeId?: string;
 }
 
 export class AgentChatRequestDto {
@@ -160,6 +226,18 @@ export class AgentChatRequestDto {
   @Type(() => ChatAttachmentDto)
   attachments?: ChatAttachmentDto[];
 
+  /**
+   * Connected app sources the user selected for this message.
+   * Backend injects these as context so Agent X knows which platforms
+   * are available for data retrieval or virtual browser navigation.
+   */
+  @IsArray()
+  @IsOptional()
+  @ArrayMaxSize(20)
+  @ValidateNested({ each: true })
+  @Type(() => ConnectedSourceDto)
+  connectedSources?: ConnectedSourceDto[];
+
   /** Resume streaming for an in-progress heavy task (drop recovery). */
   @IsUUID('4')
   @IsOptional()
@@ -170,6 +248,64 @@ export class AgentChatRequestDto {
   @IsOptional()
   @Min(0)
   afterSeq?: number;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => SelectedActionDto)
+  selectedAction?: SelectedActionDto;
+
+  /**
+   * Metadata for files that are still uploading when the user hits Send.
+   * When present, the backend starts the SSE stream immediately, emits
+   * `waiting_for_attachments`, then awaits a subsequent POST to
+   * `/agent-x/chat/pending-attachments/:operationId` before enqueueing.
+   */
+  @IsArray()
+  @IsOptional()
+  @ArrayMaxSize(5)
+  @ValidateNested({ each: true })
+  @Type(() => AttachmentStubDto)
+  attachmentStubs?: AttachmentStubDto[];
+}
+
+/**
+ * Minimal metadata for a file that is selected but not yet uploaded.
+ * Sent alongside (or instead of) fully resolved {@link ChatAttachmentDto} entries.
+ */
+export class AttachmentStubDto {
+  @IsUUID('4')
+  @IsNotEmpty()
+  id!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  name!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  mimeType!: string;
+
+  @IsNumber()
+  @Min(1)
+  @Max(500 * 1024 * 1024)
+  sizeBytes!: number;
+
+  @IsIn(['image', 'video', 'pdf', 'csv', 'doc', 'app'])
+  @IsNotEmpty()
+  type!: string;
+}
+
+/**
+ * Body for `POST /agent-x/chat/pending-attachments/:operationId`.
+ * Sent by the frontend after background uploads complete to unblock the
+ * backend waiter and inject the resolved URLs into the job payload.
+ */
+export class ResolvePendingAttachmentsDto {
+  @IsArray()
+  @ArrayMaxSize(5)
+  @ValidateNested({ each: true })
+  @Type(() => ChatAttachmentDto)
+  attachments!: ChatAttachmentDto[];
 }
 
 export class AgentEnqueueRequestDto {
@@ -186,6 +322,11 @@ export class AgentEnqueueRequestDto {
   @IsOptional()
   @Matches(/^[a-f0-9]{24}$/i, { message: 'threadId must be a valid 24-character hex string' })
   threadId?: string;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => SelectedActionDto)
+  selectedAction?: SelectedActionDto;
 }
 
 export class AgentChatDto {
@@ -222,6 +363,92 @@ export class CancelAgentTaskDto {
   @IsOptional()
   @Length(0, 500)
   reason?: string;
+}
+
+// ============================================
+// AGENT MESSAGE ACTION DTOs
+// ============================================
+
+export class SyncAgentMessageAttachmentDto {
+  @IsString()
+  @IsNotEmpty()
+  @Length(8, 128)
+  @Matches(/^[A-Za-z0-9:_-]+$/, {
+    message: 'idempotencyKey must use only letters, numbers, colon, underscore, or hyphen',
+  })
+  idempotencyKey!: string;
+
+  @ValidateNested()
+  @Type(() => ChatAttachmentDto)
+  attachment!: ChatAttachmentDto;
+}
+
+export class UpdateAgentMessageDto {
+  @IsString()
+  @IsNotEmpty()
+  @Length(1, 5000, { message: 'Message must be between 1 and 5000 characters' })
+  message!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @Matches(/^[a-f0-9]{24}$/i, { message: 'threadId must be a valid 24-character hex string' })
+  threadId!: string;
+
+  @IsString()
+  @IsOptional()
+  @Length(0, 120)
+  reason?: string;
+}
+
+export class DeleteAgentMessageDto {
+  @IsString()
+  @IsNotEmpty()
+  @Matches(/^[a-f0-9]{24}$/i, { message: 'threadId must be a valid 24-character hex string' })
+  threadId!: string;
+
+  @IsBoolean()
+  @IsOptional()
+  deleteResponse?: boolean;
+}
+
+export class UndoAgentMessageDto {
+  @IsString()
+  @IsNotEmpty()
+  @Length(8, 128)
+  restoreTokenId!: string;
+}
+
+export class AgentMessageFeedbackDto {
+  @IsInt()
+  @Min(1)
+  @Max(5)
+  rating!: 1 | 2 | 3 | 4 | 5;
+
+  @IsString()
+  @IsOptional()
+  @IsIn(['helpful', 'incorrect', 'incomplete', 'confusing', 'other'])
+  category?: 'helpful' | 'incorrect' | 'incomplete' | 'confusing' | 'other';
+
+  @IsString()
+  @IsOptional()
+  @Length(0, 500)
+  text?: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @Matches(/^[a-f0-9]{24}$/i, { message: 'threadId must be a valid 24-character hex string' })
+  threadId!: string;
+}
+
+export class AgentMessageAnnotationDto {
+  @IsString()
+  @IsNotEmpty()
+  @IsIn(['copied', 'viewed'])
+  action!: 'copied' | 'viewed';
+
+  @IsObject()
+  @IsOptional()
+  metadata?: Record<string, unknown>;
 }
 
 // ============================================

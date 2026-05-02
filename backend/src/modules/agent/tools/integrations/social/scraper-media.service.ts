@@ -9,16 +9,16 @@
  * Why this exists:
  * - Instagram/Twitter CDN URLs are temporary and signed. They expire within
  *   hours or days, making them unreliable for in-app display.
- * - By re-hosting media in Firebase Storage with long-lived signed URLs
- *   (7-year expiry), scraped content becomes a permanent asset the user
- *   can view, share, or attach to their profile.
+ * - By re-hosting media in Firebase Storage tmp staging with signed URLs,
+ *   scraped content becomes stable for in-flow processing and can be promoted
+ *   to permanent destinations when the user commits it.
  *
  * Architecture:
  * - Downloads media via native `fetch()` with strict size + timeout limits.
- * - Uploads to Firebase Storage at thread-scoped path:
- *     `Users/{userId}/threads/{threadId}/media/{timestamp}-{hash}.{ext}`
+ * - Uploads to Firebase Storage at thread-scoped tmp path:
+ *     `Users/{userId}/threads/{threadId}/tmp/{type}/{timestamp}_{name}`
  * - A valid `MediaStagingContext` (userId + threadId) is always required.
- * - Generates v4 signed URLs with 7-year read-only expiry.
+ * - Generates v4 signed URLs with 7-day read-only expiry.
  * - Processes media in parallel with concurrency cap (default 5).
  * - Error-tolerant: failed downloads are skipped, never crash the tool.
  * - Supports "promotion" — copying media from thread staging to a permanent
@@ -35,6 +35,7 @@ import { createHash } from 'node:crypto';
 import { getStorage } from 'firebase-admin/storage';
 import { logger } from '../../../../../utils/logger.js';
 import { parallelBatch, type BatchFulfilled } from '../../../utils/parallel-batch.js';
+import { AgentMediaLifecycleService } from '../../media/agent-media-lifecycle.service.js';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -64,8 +65,11 @@ const MIME_TO_EXT: Record<string, string> = {
   'video/webm': 'webm',
 };
 
-/** Cache-Control header for persisted media (1-year cache, immutable). */
+/** Cache-Control header for staged media files. */
 const CACHE_CONTROL = 'public, max-age=31536000, immutable';
+
+/** Read URL TTL for tmp-staged scrape media (7 days). */
+const TMP_SIGNED_URL_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -86,7 +90,7 @@ export interface MediaInput {
 
 /** A successfully persisted media item. */
 export interface PersistedMedia {
-  /** Firebase Storage signed URL (7-year read-only expiry). */
+  /** Firebase Storage signed URL (7-day read-only expiry for tmp staging). */
   readonly url: string;
   /** Firebase Storage path. */
   readonly storagePath: string;
@@ -221,25 +225,26 @@ export class ScraperMediaService {
         return null;
       }
 
-      // ── Upload to Firebase Storage ───────────────────────────────
+      // ── Upload to Firebase Storage tmp staging ───────────────────
       const ext = MIME_TO_EXT[mimeType] ?? this.fallbackExtension(item.type);
       const hash = createHash('sha256').update(buffer).digest('hex').slice(0, 16);
-      const timestamp = Date.now();
-
-      // Thread-scoped path: Users/{userId}/threads/{threadId}/media/{ts}-{hash}.{ext}
-      const filePath = `Users/${staging.userId}/threads/${staging.threadId}/media/${timestamp}-${hash}.${ext}`;
-
-      const bucket = getStorage().bucket();
-      const file = bucket.file(filePath);
-
-      await file.save(buffer, {
-        contentType: mimeType,
-        metadata: { cacheControl: CACHE_CONTROL },
+      const filePath = AgentMediaLifecycleService.buildStoragePath({
+        userId: staging.userId,
+        threadId: staging.threadId,
+        mimeType,
+        fileName: `${hash}.${ext}`,
+        zone: 'tmp',
       });
 
-      // Make publicly accessible and build direct URL
-      await file.makePublic();
-      const signedUrl = `https://storage.googleapis.com/${bucket.name}/${filePath}`;
+      const bucket = getStorage().bucket();
+      const { url: signedUrl } = await AgentMediaLifecycleService.saveBufferAndSignRead({
+        bucket,
+        storagePath: filePath,
+        buffer,
+        mimeType,
+        cacheControl: CACHE_CONTROL,
+        signedUrlTtlMs: TMP_SIGNED_URL_TTL_MS,
+      });
 
       const mediaType: 'image' | 'video' = mimeType.startsWith('video/') ? 'video' : 'image';
 
@@ -341,47 +346,12 @@ export class ScraperMediaService {
     if (signedUrls.length === 0) return [];
 
     const bucket = getStorage().bucket();
-    const promotedUrls: string[] = [];
-    const threadMediaPrefix = `Users/${userId}/threads/`;
-
-    for (const signedUrl of signedUrls) {
-      try {
-        // Extract the storage path from the signed URL
-        const storagePath = ScraperMediaService.extractStoragePath(signedUrl);
-        if (!storagePath || !storagePath.startsWith(threadMediaPrefix)) {
-          // Not a thread-staged file — keep the original URL as-is
-          promotedUrls.push(signedUrl);
-          continue;
-        }
-
-        // Extract filename from path (last segment)
-        const filename = storagePath.split('/').pop()!;
-        const destPath = `${destinationPrefix}/${filename}`;
-
-        // Copy to permanent location
-        const sourceFile = bucket.file(storagePath);
-        await sourceFile.copy(bucket.file(destPath));
-
-        // Make publicly accessible and build direct URL
-        await bucket.file(destPath).makePublic();
-        const permanentUrl = `https://storage.googleapis.com/${bucket.name}/${destPath}`;
-
-        promotedUrls.push(permanentUrl);
-        logger.info('[ScraperMediaService] Media promoted', {
-          from: storagePath,
-          to: destPath,
-        });
-      } catch (err) {
-        // Non-fatal — keep original URL in case of promotion failure
-        logger.warn('[ScraperMediaService] Media promotion failed (keeping original)', {
-          url: signedUrl.slice(0, 100),
-          error: err instanceof Error ? err.message : String(err),
-        });
-        promotedUrls.push(signedUrl);
-      }
-    }
-
-    return promotedUrls;
+    return AgentMediaLifecycleService.promoteSignedUrlsToDestination({
+      bucket,
+      signedUrls,
+      userId,
+      destinationPrefix,
+    });
   }
 
   /**
@@ -392,27 +362,35 @@ export class ScraperMediaService {
    * in one bulk operation — no individual file tracking needed.
    */
   static async deleteThreadMedia(userId: string, threadId: string): Promise<number> {
-    const prefix = `Users/${userId}/threads/${threadId}/media/`;
     const bucket = getStorage().bucket();
+    const prefixes = [
+      `Users/${userId}/threads/${threadId}/media/`,
+      `Users/${userId}/threads/${threadId}/tmp/`,
+    ];
 
     try {
-      const [files] = await bucket.getFiles({ prefix });
-      if (files.length === 0) return 0;
+      let deletedCount = 0;
 
-      await Promise.all(
-        files.map((file) =>
-          file.delete().catch(() => {
-            /* ignore individual failures */
-          })
-        )
-      );
+      for (const prefix of prefixes) {
+        const [files] = await bucket.getFiles({ prefix });
+        if (files.length === 0) continue;
+
+        await Promise.all(
+          files.map((file) =>
+            file.delete().catch(() => {
+              /* ignore individual failures */
+            })
+          )
+        );
+        deletedCount += files.length;
+      }
 
       logger.info('[ScraperMediaService] Thread media deleted', {
         userId,
         threadId,
-        filesDeleted: files.length,
+        filesDeleted: deletedCount,
       });
-      return files.length;
+      return deletedCount;
     } catch (err) {
       logger.error('[ScraperMediaService] Failed to delete thread media', {
         userId,
@@ -420,47 +398,6 @@ export class ScraperMediaService {
         error: err instanceof Error ? err.message : String(err),
       });
       return 0;
-    }
-  }
-
-  /**
-   * Extract the Firebase Storage object path from a signed URL.
-   *
-   * Firebase Admin SDK's `getSignedUrl()` produces **GCS V4 signed URLs**:
-   *   `https://storage.googleapis.com/{bucket}/{object-path}?X-Goog-Algorithm=...`
-   *
-   * The Firebase REST API (client SDK) uses a different format:
-   *   `https://firebasestorage.googleapis.com/v0/b/{bucket}/o/{encoded-path}?alt=media`
-   *
-   * This method handles both formats.
-   */
-  static extractStoragePath(signedUrl: string): string | null {
-    try {
-      const url = new URL(signedUrl);
-      const pathname = url.pathname;
-
-      // Format 1 — Firebase REST API: /v0/b/{bucket}/o/{encoded-path}
-      const oIndex = pathname.indexOf('/o/');
-      if (oIndex !== -1) {
-        const encoded = pathname.slice(oIndex + 3);
-        return decodeURIComponent(encoded);
-      }
-
-      // Format 2 — GCS V4 signed URL: /{bucket}/{object-path}
-      // hostname is storage.googleapis.com; first path segment is bucket name
-      if (url.hostname === 'storage.googleapis.com') {
-        // pathname = /{bucket}/{object/path/here}
-        // Remove leading slash, split on first '/' to separate bucket from path
-        const withoutLeadingSlash = pathname.slice(1);
-        const slashIdx = withoutLeadingSlash.indexOf('/');
-        if (slashIdx === -1) return null;
-        const objectPath = withoutLeadingSlash.slice(slashIdx + 1);
-        return decodeURIComponent(objectPath);
-      }
-
-      return null;
-    } catch {
-      return null;
     }
   }
 }

@@ -6,18 +6,13 @@
  * Matches the shared analytics API contracts in @nxt1/core.
  */
 
-import { createHash } from 'node:crypto';
 import { Router, type Router as ExpressRouter, Request, Response } from 'express';
-import type { Firestore } from 'firebase-admin/firestore';
 import { optionalAuth } from '../../middleware/auth/auth.middleware.js';
 import { logger } from '../../utils/logger.js';
 import { getAnalyticsLoggerService } from '../../services/core/analytics-logger.service.js';
 import { getCacheService } from '../../services/core/cache.service.js';
 import { recordProfileView } from '../../services/core/analytics.service.js';
-import { getDefaultAnalyticsEventType, type AnalyticsDomain } from '@nxt1/core/models';
 import type { UserPreferences } from '@nxt1/core';
-
-const USERS_COLLECTION = 'Users';
 
 /** Cache key matches the pattern used by settings.routes.ts */
 const buildPrefsCacheKey = (uid: string) => `user:prefs:${uid}`;
@@ -25,27 +20,24 @@ const buildPrefsCacheKey = (uid: string) => `user:prefs:${uid}`;
 /**
  * Check whether a user has activity tracking enabled.
  *
- * Reads from the shared preferences cache first (populated by settings routes
- * on every GET/PATCH) to avoid a cold Firestore read on every profile view.
- * Falls back to a direct Firestore read on cache miss.
+ * Reads exclusively from the shared preferences cache (5-min TTL, maintained
+ * by settings routes on every GET/PATCH). No Firestore reads here — analytics
+ * is pure MongoDB and must not depend on Firebase at runtime.
+ *
+ * Fails open: if the cache has no entry (cold start before first GET/PATCH),
+ * tracking proceeds. The settings routes populate the cache on login/GET.
  * Returns true (tracking allowed) when the preference is missing or explicitly true.
- * Fails open — if any read fails, tracking proceeds.
  */
-async function isActivityTrackingEnabled(db: Firestore, userId: string): Promise<boolean> {
+async function isActivityTrackingEnabled(userId: string): Promise<boolean> {
   try {
-    // 1. Check the shared preferences cache (5-min TTL, maintained by settings routes)
     const cached = await getCacheService().get<UserPreferences>(buildPrefsCacheKey(userId));
     if (cached !== null && cached !== undefined) {
       return cached.activityTracking !== false;
     }
-
-    // 2. Cache miss — read directly from Firestore
-    const doc = await db.collection(USERS_COLLECTION).doc(userId).get();
-    if (!doc.exists) return true;
-    const prefs = doc.data()?.['preferences'] as { activityTracking?: boolean } | undefined;
-    return prefs?.activityTracking !== false;
+    // Cache miss → fail-open. Settings routes write the cache on every GET/PATCH.
+    return true;
   } catch {
-    return true; // Fail-open: never block tracking due to a read error
+    return true; // Fail-open: never block tracking due to a cache read error
   }
 }
 
@@ -90,9 +82,10 @@ function parseTrackingSurface(value: unknown): TrackingSurface {
   }
 }
 
-function hashTrackingIdentity(value: string | null): string | null {
-  if (!value) return null;
-  return createHash('sha256').update(value.toLowerCase()).digest('hex');
+function readTrackingHash(value: unknown): string | null {
+  const parsed = readTrackingString(value, 128)?.toLowerCase() ?? null;
+  if (!parsed) return null;
+  return /^[a-f0-9]{64}$/.test(parsed) ? parsed : null;
 }
 
 function parseRedirectDestination(value: unknown): URL | null {
@@ -134,8 +127,7 @@ async function trackCommunicationOrEngagementEvent(
   // Respect activity tracking opt-out for verified, authenticated actors
   const authenticatedActorId = req.user?.uid;
   if (authenticatedActorId) {
-    const db = req.firebase?.db;
-    if (db && !(await isActivityTrackingEnabled(db, authenticatedActorId))) {
+    if (!(await isActivityTrackingEnabled(authenticatedActorId))) {
       return;
     }
   }
@@ -152,9 +144,7 @@ async function trackCommunicationOrEngagementEvent(
   const sessionId = readTrackingString(req.query['sessionId'], 120);
   const recipientCoachId = readTrackingString(req.query['recipientCoachId'], 120);
   const recipientCollegeId = readTrackingString(req.query['recipientCollegeId'], 120);
-  const recipientEmailHash = hashTrackingIdentity(
-    readTrackingString(req.query['recipientEmail'], 320)
-  );
+  const recipientEmailHash = readTrackingHash(req.query['recipientEmailHash']);
   const attributionConfidence = determineTrackingConfidence({
     viewerUserId: viewerUserId ?? null,
     recipientCoachId,
@@ -170,7 +160,7 @@ async function trackCommunicationOrEngagementEvent(
     subjectType,
     domain,
     eventType,
-    source: viewerUserId ? 'user' : 'system',
+    source: 'user',
     actorUserId: viewerUserId ?? null,
     sessionId: sessionId ?? null,
     threadId: threadId ?? null,
@@ -197,176 +187,28 @@ async function trackCommunicationOrEngagementEvent(
   });
 }
 
-function parseClientAnalyticsDomain(eventName: string, value: unknown): AnalyticsDomain {
-  if (
-    value === 'recruiting' ||
-    value === 'nil' ||
-    value === 'performance' ||
-    value === 'engagement' ||
-    value === 'communication' ||
-    value === 'system' ||
-    value === 'custom'
-  ) {
-    return value;
-  }
-
-  const normalized = eventName.toLowerCase();
-
-  if (normalized.includes('email') || normalized.includes('message')) {
-    return 'communication';
-  }
-  if (
-    normalized.includes('offer') ||
-    normalized.includes('visit') ||
-    normalized.includes('commit') ||
-    normalized.includes('recruit')
-  ) {
-    return 'recruiting';
-  }
-  if (
-    normalized.includes('payment') ||
-    normalized.includes('purchase') ||
-    normalized.includes('deal') ||
-    normalized.includes('checkout')
-  ) {
-    return 'nil';
-  }
-  if (
-    normalized.includes('metric') ||
-    normalized.includes('workout') ||
-    normalized.includes('recovery') ||
-    normalized.includes('vital')
-  ) {
-    return 'performance';
-  }
-  if (normalized.includes('sync') || normalized.includes('agent') || normalized.includes('tool')) {
-    return 'system';
-  }
-  if (normalized.includes('error') || normalized.includes('exception')) {
-    return 'custom';
-  }
-
-  return 'engagement';
-}
-
-function parseClientAnalyticsEventType(domain: AnalyticsDomain, eventName: string): string {
-  const normalized = eventName.toLowerCase();
-
-  switch (domain) {
-    case 'communication':
-      if (normalized.includes('open')) return 'email_opened';
-      if (normalized.includes('reply')) return 'email_replied';
-      if (normalized.includes('message')) return 'message_sent';
-      if (normalized.includes('click')) return 'link_clicked';
-      return 'email_sent';
-    case 'recruiting':
-      if (normalized.includes('offer')) return 'offer_recorded';
-      if (normalized.includes('visit')) return 'visit_recorded';
-      if (normalized.includes('commit')) return 'commitment_recorded';
-      if (normalized.includes('contact')) return 'coach_contact_recorded';
-      return 'activity_recorded';
-    case 'nil':
-      if (normalized.includes('payment') || normalized.includes('purchase'))
-        return 'payment_recorded';
-      if (normalized.includes('campaign')) return 'campaign_recorded';
-      return 'deal_recorded';
-    case 'performance':
-      if (normalized.includes('workout')) return 'workout_recorded';
-      if (normalized.includes('recovery')) return 'recovery_recorded';
-      if (normalized.includes('milestone')) return 'milestone_recorded';
-      return 'metric_recorded';
-    case 'system':
-      if (normalized.includes('sync')) return 'sync_completed';
-      if (normalized.includes('tool')) return 'tool_write_completed';
-      return 'agent_task_completed';
-    case 'engagement':
-      if (normalized.includes('search')) return 'search_appeared';
-      if (normalized.includes('click')) return 'link_clicked';
-      if (normalized.includes('profile')) return 'profile_viewed';
-      return 'content_viewed';
-    case 'custom':
-    default:
-      return getDefaultAnalyticsEventType('custom');
-  }
-}
-
 // ============================================
-// POST /events — Backend-owned browser analytics relay
+// POST /events — Browser analytics relay (ack only, not persisted to MongoDB)
+// Web UX telemetry belongs in Firebase Analytics / GA4, not the agent analytics store.
 // ============================================
 
-router.post('/events', optionalAuth, async (req: Request, res: Response) => {
-  try {
-    const rawBody = (req.body ?? {}) as Record<string, unknown>;
-    const eventName = readTrackingString(rawBody['eventName'], 120);
+router.post('/events', optionalAuth, (req: Request, res: Response) => {
+  const rawBody = (req.body ?? {}) as Record<string, unknown>;
+  const eventName = readTrackingString(rawBody['eventName'], 120);
 
-    if (!eventName) {
-      res.status(400).json({ success: false, error: 'eventName is required' });
-      return;
-    }
-
-    const properties =
-      rawBody['properties'] && typeof rawBody['properties'] === 'object'
-        ? (rawBody['properties'] as Record<string, unknown>)
-        : {};
-
-    const userProperties =
-      rawBody['userProperties'] && typeof rawBody['userProperties'] === 'object'
-        ? (rawBody['userProperties'] as Record<string, unknown>)
-        : {};
-
-    const subjectId =
-      req.user?.uid ??
-      readTrackingString(rawBody['subjectId'], 120) ??
-      readTrackingString(rawBody['userId'], 120) ??
-      readTrackingString(rawBody['sessionId'], 120) ??
-      'web-anonymous';
-
-    const subjectType = parseTrackingSubjectType(rawBody['subjectType']);
-    const domain = parseClientAnalyticsDomain(eventName, rawBody['domain']);
-    const eventType = parseClientAnalyticsEventType(domain, eventName);
-    const pagePath =
-      readTrackingString(rawBody['pagePath'], 500) ??
-      readTrackingString(properties['page_path'], 500);
-    const pageTitle =
-      readTrackingString(rawBody['pageTitle'], 250) ??
-      readTrackingString(properties['page_title'], 250);
-
-    const rawTags = Array.isArray(rawBody['tags'])
-      ? rawBody['tags'].filter((tag): tag is string => typeof tag === 'string')
-      : [];
-
-    void getAnalyticsLoggerService().safeTrack({
-      subjectId,
-      subjectType,
-      domain,
-      eventType,
-      source: req.user?.uid ? 'user' : 'system',
-      actorUserId: req.user?.uid ?? null,
-      sessionId: readTrackingString(rawBody['sessionId'], 120),
-      tags: [...new Set([domain, eventName, pagePath ?? '', ...rawTags].filter(Boolean))].slice(
-        0,
-        15
-      ),
-      payload: {
-        pagePath,
-        pageTitle,
-        properties,
-        userProperties,
-      },
-      metadata: {
-        originalEventName: eventName,
-        platform: 'web',
-        referer: readTrackingString(req.get('referer'), 500),
-        userAgent: readTrackingString(req.get('user-agent'), 500),
-      },
-    });
-
-    res.status(200).json({ success: true, tracked: true, domain, eventType });
-  } catch (err) {
-    const error = err instanceof Error ? err : new Error(String(err));
-    logger.warn('Failed to record relayed web analytics event', { error: error.message });
-    res.status(200).json({ success: true, tracked: false });
+  if (!eventName) {
+    res.status(400).json({ success: false, error: 'eventName is required' });
+    return;
   }
+
+  // Browser UX telemetry is not persisted to MongoDB — use Firebase Analytics / GA4.
+  // Anonymous relay is still rejected to prevent endpoint abuse.
+  if (!req.user?.uid) {
+    res.status(200).json({ success: true, tracked: false, reason: 'anonymous_relay_blocked' });
+    return;
+  }
+
+  res.status(200).json({ success: true, tracked: false });
 });
 
 // ============================================
@@ -377,7 +219,7 @@ router.post('/events', optionalAuth, async (req: Request, res: Response) => {
  * Track email open events.
  * GET /api/v1/analytics/track/open
  * Query params: subjectId, subjectType, messageId, threadId, recipientCoachId,
- * recipientCollegeId, recipientEmail, surface
+ * recipientCollegeId, recipientEmailHash, surface
  */
 router.get('/track/open', optionalAuth, async (req: Request, res: Response) => {
   void trackCommunicationOrEngagementEvent(req, 'email_opened').catch((err: unknown) => {
@@ -400,7 +242,7 @@ router.get('/track/open', optionalAuth, async (req: Request, res: Response) => {
  * Track outbound link clicks and safely redirect.
  * GET /api/v1/analytics/track/click
  * Query params: destination, subjectId, subjectType, surface, messageId,
- * threadId, postId, recipientCoachId, recipientCollegeId, recipientEmail
+ * threadId, postId, recipientCoachId, recipientCollegeId, recipientEmailHash
  */
 router.get('/track/click', optionalAuth, async (req: Request, res: Response) => {
   const destination = parseRedirectDestination(req.query['destination']);
@@ -449,7 +291,7 @@ router.post('/profile-view', optionalAuth, async (req: Request, res: Response) =
     }
 
     // Respect activity tracking opt-out for authenticated viewers
-    if (viewerUserId && !(await isActivityTrackingEnabled(db, viewerUserId))) {
+    if (viewerUserId && !(await isActivityTrackingEnabled(viewerUserId))) {
       res.json({ success: true, tracked: false });
       return;
     }

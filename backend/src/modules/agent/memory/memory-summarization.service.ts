@@ -62,7 +62,14 @@ const extractedSummaryFactSchema = z.object({
   target: z.enum(['user', 'team', 'organization']).optional(),
 });
 
-const extractedSummaryFactsSchema = z.array(z.unknown());
+const extractedSummaryFactsPayloadSchema = z.object({
+  facts: z.array(extractedSummaryFactSchema),
+});
+
+const extractedSummaryFactsResultSchema = z.union([
+  extractedSummaryFactsPayloadSchema,
+  z.array(extractedSummaryFactSchema),
+]);
 
 /** System prompt for the memory extraction LLM call. */
 const EXTRACTION_SYSTEM_PROMPT = `You are an AI memory extraction system for a sports recruiting platform called NXT1.
@@ -81,7 +88,18 @@ Do NOT extract:
 - Greetings, pleasantries, or filler
 - Information the agent told the user (only what the USER stated or confirmed)
 
-Return a JSON array of objects. Each object has:
+Return a JSON object with this shape:
+{
+  "facts": [
+    {
+      "content": "...",
+      "category": "preference|goal|recruiting_context|performance_data",
+      "target": "user|team|organization"
+    }
+  ]
+}
+
+Each fact object has:
 - "content": A concise third-person statement (e.g., "User prefers SEC conference schools for recruiting.")
 - "category": One of "preference", "goal", "recruiting_context", "performance_data"
 - "target": One of "user", "team", or "organization"
@@ -90,9 +108,9 @@ Use "team" only when the fact should be remembered as team-level context.
 Use "organization" only when the fact applies to the school, club, or program above the team.
 Default to "user" when in doubt.
 
-If there are no durable facts to extract, return an empty array: []
+If there are no durable facts to extract, return: {"facts": []}
 
-Return ONLY the JSON array, no markdown fences, no explanation.`;
+Return ONLY the JSON object, no markdown fences, no explanation.`;
 
 // ─── Service ──────────────────────────────────────────────────────────────────
 
@@ -247,7 +265,7 @@ export class MemorySummarizationService {
         maxTokens: 2000,
         outputSchema: {
           name: 'thread_memory_facts',
-          schema: z.array(extractedSummaryFactSchema),
+          schema: extractedSummaryFactsPayloadSchema,
         },
         telemetryContext: {
           operationId: `memory-summarize-${threadId}`,
@@ -260,15 +278,11 @@ export class MemorySummarizationService {
 
     let facts: Array<{ content: string; category: string; target?: string }>;
     try {
-      const extracted = resolveStructuredOutput<unknown[]>(
-        completion,
-        extractedSummaryFactsSchema,
-        'Memory summarization extraction'
-      );
-      facts = extracted.flatMap((item) => {
-        const fact = extractedSummaryFactSchema.safeParse(item);
-        return fact.success ? [fact.data] : [];
-      });
+      const extracted = resolveStructuredOutput<
+        | z.infer<typeof extractedSummaryFactsPayloadSchema>
+        | z.infer<typeof extractedSummaryFactSchema>[]
+      >(completion, extractedSummaryFactsResultSchema, 'Memory summarization extraction');
+      facts = Array.isArray(extracted) ? extracted : extracted.facts;
     } catch {
       logger.warn('[MemorySummarization] Failed to parse extraction JSON', {
         threadId,

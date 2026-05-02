@@ -1,4 +1,5 @@
 PODS:
+  - Alamofire (5.10.2)
   - AppAuth (2.0.0):
     - AppAuth/Core (= 2.0.0)
     - AppAuth/ExternalUserAgent (= 2.0.0)
@@ -9,6 +10,7 @@ PODS:
     - GoogleUtilities/Environment (~> 8.0)
     - GoogleUtilities/UserDefaults (~> 8.0)
     - PromisesObjC (~> 2.4)
+  - BigInt (5.2.0)
   - Capacitor (8.3.0):
     - CapacitorCordova
   - CapacitorActionSheet (8.1.1):
@@ -49,9 +51,9 @@ PODS:
   - CapacitorFirebasePerformance (8.2.0):
     - Capacitor
     - FirebasePerformance (~> 12.7.0)
-  - CapacitorGeolocation (7.1.8):
+  - CapacitorGeolocation (8.1.0):
     - Capacitor
-    - IONGeolocationLib (= 1.0.1)
+    - IONGeolocationLib (= 2.0.0)
   - CapacitorHaptics (8.0.2):
     - Capacitor
   - CapacitorKeyboard (8.0.3):
@@ -72,6 +74,12 @@ PODS:
     - Capacitor
   - CapawesomeCapacitorBadge (8.0.1):
     - Capacitor
+  - CapgoCapacitorUpdater (8.45.10):
+    - Alamofire (= 5.10.2)
+    - BigInt (= 5.2.0)
+    - Capacitor
+    - Version (= 0.8.0)
+    - ZIPFoundation (~> 0.9)
   - CapgoNativePurchases (8.3.0):
     - Capacitor
   - FirebaseABTesting (12.7.0):
@@ -187,7 +195,7 @@ PODS:
     - GTMSessionFetcher/Core (< 4.0, >= 3.3)
   - GTMSessionFetcher/Core (3.5.0)
   - IONFilesystemLib (1.1.2)
-  - IONGeolocationLib (1.0.1)
+  - IONGeolocationLib (2.0.0)
   - MSAL (1.9.0):
     - MSAL/app-lib (= 1.9.0)
   - MSAL/app-lib (1.9.0)
@@ -203,6 +211,8 @@ PODS:
   - RecognizebvCapacitorPluginMsauth (4.1.0):
     - Capacitor
     - MSAL (~> 1.1)
+  - Version (0.8.0)
+  - ZIPFoundation (0.9.20)
 
 DEPENDENCIES:
   - "Capacitor (from `../../../../node_modules/@capacitor/ios`)"
@@ -231,13 +241,16 @@ DEPENDENCIES:
   - "CapacitorSplashScreen (from `../../../../node_modules/@capacitor/splash-screen`)"
   - "CapacitorStatusBar (from `../../../../node_modules/@capacitor/status-bar`)"
   - "CapawesomeCapacitorBadge (from `../../../../node_modules/@capawesome/capacitor-badge`)"
+  - "CapgoCapacitorUpdater (from `../../../../node_modules/@capgo/capacitor-updater`)"
   - "CapgoNativePurchases (from `../../../../node_modules/@capgo/native-purchases`)"
   - "RecognizebvCapacitorPluginMsauth (from `../../../../node_modules/@recognizebv/capacitor-plugin-msauth`)"
 
 SPEC REPOS:
   trunk:
+    - Alamofire
     - AppAuth
     - AppCheckCore
+    - BigInt
     - FirebaseABTesting
     - FirebaseAppCheckInterop
     - FirebaseAuth
@@ -265,6 +278,8 @@ SPEC REPOS:
     - PromisesObjC
     - PromisesSwift
     - RecaptchaInterop
+    - Version
+    - ZIPFoundation
 
 EXTERNAL SOURCES:
   Capacitor:
@@ -317,14 +332,18 @@ EXTERNAL SOURCES:
     :path: "../../../../node_modules/@capacitor/status-bar"
   CapawesomeCapacitorBadge:
     :path: "../../../../node_modules/@capawesome/capacitor-badge"
+  CapgoCapacitorUpdater:
+    :path: "../../../../node_modules/@capgo/capacitor-updater"
   CapgoNativePurchases:
     :path: "../../../../node_modules/@capgo/native-purchases"
   RecognizebvCapacitorPluginMsauth:
     :path: "../../../../node_modules/@recognizebv/capacitor-plugin-msauth"
 
 SPEC CHECKSUMS:
+  Alamofire: 7193b3b92c74a07f85569e1a6c4f4237291e7496
   AppAuth: 1c1a8afa7e12f2ec3a294d9882dfa5ab7d3cb063
   AppCheckCore: cc8fd0a3a230ddd401f326489c99990b013f0c4f
+  BigInt: f668a80089607f521586bbe29513d708491ef2f7
   Capacitor: 22e541237135648c9aa736232bb4d2eec35fddcb
   CapacitorActionSheet: c3394c32eb29990e73e9c6c5677e3b31eb46ad3f
   CapacitorApp: 449ffe26375e96f8aaaee625ac6e01e5c57c8650
@@ -339,7 +358,7 @@ SPEC CHECKSUMS:
   CapacitorFirebaseCrashlytics: beb78c76d06bce7bb658038a93c12eb18b36cf09
   CapacitorFirebaseMessaging: 09f9402613a755af4ef37c6ce2fd7b4c02250246
   CapacitorFirebasePerformance: 483b53d0e2134479fe635e3b61ec5d6967602874
-  CapacitorGeolocation: ab54d708e2fcf99a7bafe0219eaa6f7a932f001a
+  CapacitorGeolocation: 7132de914f9d853ec4642dc1d36e4e2018a4e8a8
   CapacitorHaptics: 296f771ecd89c7a1bd92a7b6826a7d268e2e70f5
   CapacitorKeyboard: 31c8285d92c9d1410071d52449f16d2c6673b6f4
   CapacitorNativeBiometric: 78cf21304251a512e4597437325b5e9b0cd9f7b3
@@ -350,6 +369,7 @@ SPEC CHECKSUMS:
   CapacitorSplashScreen: 4b46c72298db552b3c57ce021ef028b6dc7f1fa7
   CapacitorStatusBar: 01d5763b4ed720de5ce2edbc938de6a98f4c8f32
   CapawesomeCapacitorBadge: 0a65ef36db6c236b41f324df5a2f12fe8cdd4a29
+  CapgoCapacitorUpdater: dfcc346d1c376b877507427cbb7de818a1cdb108
   CapgoNativePurchases: 392b4d2b7f5f0de946176e0ed4304f134f736b2f
   FirebaseABTesting: 72e4636929660d40844f2a4db15be9d551fc27d6
   FirebaseAppCheckInterop: d58366471f1dadf2ed998b15f85c658458a10142
@@ -372,14 +392,16 @@ SPEC CHECKSUMS:
   GTMAppAuth: 217a876b249c3c585a54fd6f73e6b58c4f5c4238
   GTMSessionFetcher: 5aea5ba6bd522a239e236100971f10cb71b96ab6
   IONFilesystemLib: 21a63377696b2d8fab5632ecfb7d2ac67bddb68a
-  IONGeolocationLib: 20f9d0248a0b5264511fb57a37e25dd2badf797a
+  IONGeolocationLib: a5e40b54edc2ee9902036eda5aaa41ddf07bb68d
   MSAL: 1a32a1070ccf55d9641d31edd8869ea2b5a78beb
   nanopb: fad817b59e0457d11a5dfbde799381cd727c1275
   PromisesObjC: f5707f49cb48b9636751c5b2e7d227e43fba9f47
   PromisesSwift: 9d77319bbe72ebf6d872900551f7eeba9bce2851
   RecaptchaInterop: 11e0b637842dfb48308d242afc3f448062325aba
   RecognizebvCapacitorPluginMsauth: c108ed22d9d2329bc729661356f9fce24354e2c2
+  Version: de5907f2c5d0f3cf21708db7801d1d5401139486
+  ZIPFoundation: dfd3d681c4053ff7e2f7350bc4e53b5dba3f5351
 
-PODFILE CHECKSUM: 76704e4cdf3644b5d6690680009032abf8829110
+PODFILE CHECKSUM: b1e4daf9d94b1fb6fd5128eade4d0510d15b88d3
 
 COCOAPODS: 1.16.2

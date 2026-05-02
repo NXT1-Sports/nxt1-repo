@@ -39,7 +39,7 @@ include ':capacitor-filesystem'
 project(':capacitor-filesystem').projectDir = new File('../../../node_modules/@capacitor/filesystem/android')
 
 include ':capacitor-geolocation'
-project(':capacitor-geolocation').projectDir = new File('../../../node_modules/@capacitor/geolocation/android')
+project(':capacitor-geolocation').projectDir = new File('../node_modules/@capacitor/geolocation/android')
 
 include ':capacitor-haptics'
 project(':capacitor-haptics').projectDir = new File('../../../node_modules/@capacitor/haptics/android')
@@ -67,6 +67,9 @@ project(':capacitor-status-bar').projectDir = new File('../../../node_modules/@c
 
 include ':capawesome-capacitor-badge'
 project(':capawesome-capacitor-badge').projectDir = new File('../../../node_modules/@capawesome/capacitor-badge/android')
+
+include ':capgo-capacitor-updater'
+project(':capgo-capacitor-updater').projectDir = new File('../../../node_modules/@capgo/capacitor-updater/android')
 
 include ':capgo-native-purchases'
 project(':capgo-native-purchases').projectDir = new File('../../../node_modules/@capgo/native-purchases/android')

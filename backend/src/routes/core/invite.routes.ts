@@ -898,7 +898,7 @@ router.post(
               updatedAt: new Date(now),
             },
           },
-          { new: true }
+          { returnDocument: 'after' }
         )
           .lean()
           .exec();

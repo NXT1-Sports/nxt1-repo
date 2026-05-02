@@ -49,7 +49,7 @@ export function __resetMockFirestore(): void {
 }
 
 export function __seedMockFirestoreDocument(path: string, data: Record<string, unknown>): void {
-  mockFirestoreDocuments.set(path, structuredClone(data));
+  mockFirestoreDocuments.set(path, cloneMockFirestoreValue(data) as Record<string, unknown>);
 }
 
 export function __getMockFirestoreWrites(): readonly MockFirestoreWrite[] {
@@ -58,7 +58,7 @@ export function __getMockFirestoreWrites(): readonly MockFirestoreWrite[] {
 
 export function __getMockFirestoreDocument(path: string): Record<string, unknown> | undefined {
   const data = mockFirestoreDocuments.get(path);
-  return data ? structuredClone(data) : undefined;
+  return data ? (cloneMockFirestoreValue(data) as Record<string, unknown>) : undefined;
 }
 
 function isDeleteTransform(value: unknown): boolean {
@@ -68,6 +68,70 @@ function isDeleteTransform(value: unknown): boolean {
     value.constructor !== undefined &&
     value.constructor.name === 'DeleteTransform'
   );
+}
+
+function cloneMockFirestoreValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((entry) => cloneMockFirestoreValue(entry));
+  }
+
+  if (typeof value !== 'object' || value === null) {
+    return value;
+  }
+
+  const candidate = value as {
+    readonly constructor?: { readonly name?: string };
+    readonly toMillis?: () => number;
+    readonly seconds?: number;
+    readonly nanoseconds?: number;
+    readonly _seconds?: number;
+    readonly _nanoseconds?: number;
+  };
+
+  const isTimestampLike =
+    candidate.constructor?.name === 'Timestamp' ||
+    (typeof candidate.toMillis === 'function' &&
+      (typeof candidate.seconds === 'number' || typeof candidate._seconds === 'number'));
+
+  if (isTimestampLike) {
+    const millis =
+      typeof candidate.toMillis === 'function'
+        ? candidate.toMillis()
+        : Math.floor(
+            ((candidate.seconds ?? candidate._seconds ?? 0) as number) * 1000 +
+              ((candidate.nanoseconds ?? candidate._nanoseconds ?? 0) as number) / 1_000_000
+          );
+    const seconds =
+      typeof candidate.seconds === 'number'
+        ? candidate.seconds
+        : typeof candidate._seconds === 'number'
+          ? candidate._seconds
+          : Math.floor(millis / 1000);
+    const nanoseconds =
+      typeof candidate.nanoseconds === 'number'
+        ? candidate.nanoseconds
+        : typeof candidate._nanoseconds === 'number'
+          ? candidate._nanoseconds
+          : Math.floor((millis % 1000) * 1_000_000);
+
+    return {
+      seconds,
+      nanoseconds,
+      _seconds: seconds,
+      _nanoseconds: nanoseconds,
+    };
+  }
+
+  if (isDeleteTransform(value)) {
+    return value;
+  }
+
+  const record = value as Record<string, unknown>;
+  const normalized: Record<string, unknown> = {};
+  for (const [key, entry] of Object.entries(record)) {
+    normalized[key] = cloneMockFirestoreValue(entry);
+  }
+  return normalized;
 }
 
 function applyMockDocumentUpdate(path: string, payload: Record<string, unknown>): void {
@@ -80,7 +144,7 @@ function applyMockDocumentUpdate(path: string, payload: Record<string, unknown>)
       continue;
     }
 
-    next[key] = structuredClone(value);
+    next[key] = cloneMockFirestoreValue(value);
   }
 
   mockFirestoreDocuments.set(path, next);
@@ -127,16 +191,24 @@ function createMockFirestore() {
         docs: [],
         size: data === undefined ? 0 : 1,
         forEach: () => undefined,
-        data: () => structuredClone(data ?? {}),
+        data: () => cloneMockFirestoreValue(data ?? {}) as Record<string, unknown>,
       } satisfies MockFirestoreSnapshot;
     },
     set: async (payload: Record<string, unknown>) => {
-      mockFirestoreWrites.push({ path, operation: 'set', payload: structuredClone(payload) });
+      mockFirestoreWrites.push({
+        path,
+        operation: 'set',
+        payload: cloneMockFirestoreValue(payload) as Record<string, unknown>,
+      });
       applyMockDocumentUpdate(path, payload);
     },
     add: async () => ({ id: 'test-id' }),
     update: async (payload: Record<string, unknown>) => {
-      mockFirestoreWrites.push({ path, operation: 'update', payload: structuredClone(payload) });
+      mockFirestoreWrites.push({
+        path,
+        operation: 'update',
+        payload: cloneMockFirestoreValue(payload) as Record<string, unknown>,
+      });
       applyMockDocumentUpdate(path, payload);
     },
     delete: async () => {

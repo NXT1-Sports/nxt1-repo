@@ -187,7 +187,7 @@ export class PushHandlerService {
         operationId: data.operationId,
       });
 
-      void this.navController.navigateForward('/agent');
+      void this.navController.navigateForward('/agent-x');
       return;
     }
 
@@ -267,7 +267,7 @@ export class PushHandlerService {
         operationId: data.operationId,
       });
 
-      void this.navController.navigateForward('/agent');
+      void this.navController.navigateForward('/agent-x');
       return;
     }
 
@@ -289,10 +289,10 @@ export class PushHandlerService {
    */
   private async navigateToDeepLink(deepLink: string): Promise<void> {
     try {
-      // Normalize deep links: web uses /agent-x, mobile uses /agent
-      const normalizedLink = deepLink.replace(/^\/agent-x(?=[/?]|$)/, '/agent');
+      // Normalize deep links: canonical route is /agent-x.
+      const normalizedLink = deepLink.replace(/^\/agent(?=[/?]|$)/, '/agent-x');
 
-      if (normalizedLink.startsWith('/agent')) {
+      if (normalizedLink.startsWith('/agent-x')) {
         this.queuePendingThreadFromDeepLink(normalizedLink, {
           title: 'Agent X',
         });
@@ -354,8 +354,8 @@ export class PushHandlerService {
     if (!deepLink) return;
 
     try {
-      const normalizedLink = deepLink.replace(/^\/agent-x(?=[/?]|$)/, '/agent');
-      if (!normalizedLink.startsWith('/agent')) return;
+      const normalizedLink = deepLink.replace(/^\/agent(?=[/?]|$)/, '/agent-x');
+      if (!normalizedLink.startsWith('/agent-x')) return;
 
       const url = new URL(normalizedLink, 'https://nxt1.local');
       const threadId = url.searchParams.get('thread');

@@ -18,6 +18,7 @@
 
 import type { AgentIdentifier, AgentJobOrigin, AgentToolCallRecord } from './agent.types';
 import type { AgentXMessagePart, AgentXToolStep } from './agent-x.types';
+import type { AgentXAttachment } from './agent-x.types';
 
 // ─── Thread ─────────────────────────────────────────────────────────────────
 
@@ -65,6 +66,72 @@ export type AgentThreadCategory =
 export type AgentMessageRole = 'user' | 'assistant' | 'system' | 'tool';
 
 /**
+ * Semantic phase of a persisted `AgentMessage` row. Used by the UI projection
+ * layer to collapse multiple write paths (partial-on-pause, yield prompt,
+ * final enriched response) into a single visible chat bubble per agent turn.
+ *
+ * Phase priority for the same `operationId` (highest wins):
+ *   assistant_final > assistant_yield > assistant_partial > assistant_tool_call
+ *
+ * `tool_result` and `user_message` are never collapsed and always render
+ * as-is (tool rows are filtered from the UI bubble feed entirely).
+ */
+export type AgentMessageSemanticPhase =
+  | 'user_message'
+  | 'assistant_tool_call'
+  | 'tool_result'
+  | 'assistant_partial'
+  | 'assistant_yield'
+  | 'assistant_final'
+  | 'billing_gate';
+
+/** Priority order for phase resolution — higher index wins. */
+export const SEMANTIC_PHASE_PRIORITY: readonly AgentMessageSemanticPhase[] = [
+  'assistant_tool_call',
+  'tool_result',
+  'user_message',
+  'assistant_partial',
+  'billing_gate',
+  'assistant_yield',
+  'assistant_final',
+] as const;
+
+/** User action types that can be recorded against a persisted message. */
+export type AgentMessageActionType =
+  | 'copied'
+  | 'viewed'
+  | 'edited'
+  | 'deleted'
+  | 'undone'
+  | 'feedback_submitted';
+
+/** Immutable record of a user edit to a message. */
+export interface AgentMessageEditRecord {
+  readonly editedAt: string;
+  readonly originalContent: string;
+  readonly newContent: string;
+  readonly reason?: string;
+  readonly agentRerunId?: string;
+}
+
+/** Optional user feedback attached to a message. */
+export interface AgentMessageFeedback {
+  readonly userId: string;
+  readonly rating: 1 | 2 | 3 | 4 | 5;
+  readonly text?: string;
+  readonly category?: 'helpful' | 'incorrect' | 'incomplete' | 'confusing' | 'other';
+  readonly createdAt: string;
+}
+
+/** Immutable action event recorded for analytics and auditing. */
+export interface AgentMessageActionRecord {
+  readonly type: AgentMessageActionType;
+  readonly userId: string;
+  readonly timestamp: string;
+  readonly metadata?: Record<string, unknown>;
+}
+
+/**
  * A single message within an AgentThread.
  * Extends the lightweight AgentSessionMessage with persistence metadata.
  */
@@ -85,10 +152,28 @@ export interface AgentMessage {
   readonly agentId?: AgentIdentifier;
   /** Link to the background operation that produced this reply. */
   readonly operationId?: string;
+  /** File attachments (images, videos, docs) sent with this message. */
+  readonly attachments?: readonly AgentXAttachment[];
   /** Structured result data the UI can render (graphics, emails, etc.). */
   readonly resultData?: Record<string, unknown>;
   /** Tool calls made during this message's generation. */
   readonly toolCalls?: readonly AgentToolCallRecord[];
+  /**
+   * Phase A (thread-as-truth): wire-format LLM tool_calls preserved
+   * verbatim. Used by `ThreadMessageReplayService` to reconstruct an
+   * OpenRouter-valid `LLMMessage[]` on the next turn. Optional — only
+   * present on `role:'assistant'` messages that emitted tool calls.
+   */
+  readonly toolCallsWire?: readonly {
+    readonly id: string;
+    readonly type: 'function';
+    readonly function: { readonly name: string; readonly arguments: string };
+  }[];
+  /**
+   * Phase A (thread-as-truth): for `role:'tool'` messages, the id of the
+   * assistant.tool_calls entry this row resolves.
+   */
+  readonly toolCallId?: string;
   /**
    * Persisted tool execution steps captured from the live stream.
    * Used to rehydrate the exact execution log on reload without falling back
@@ -102,15 +187,44 @@ export interface AgentMessage {
   readonly parts?: readonly AgentXMessagePart[];
   /** Token usage for this message (for usage tracking in the UI). */
   readonly tokenUsage?: AgentMessageTokenUsage;
+  /** User edit history (most recent edit appended last). */
+  readonly editHistory?: readonly AgentMessageEditRecord[];
+  /** Optional user feedback for this message. */
+  readonly feedback?: AgentMessageFeedback;
+  /** Action timeline for copy/edit/delete/undo/feedback interactions. */
+  readonly actions?: readonly AgentMessageActionRecord[];
   /**
    * Vector embedding for semantic search (Phase 2).
    * Populated asynchronously after message creation.
    * Stored as a number array for MongoDB Atlas Vector Search.
    */
   readonly embedding?: readonly number[];
+  /** Soft-delete marker; omitted when the message is active. */
+  readonly deletedAt?: string | null;
+  /** User who soft-deleted the message. */
+  readonly deletedBy?: string;
+  /** Recovery token used to restore soft-deleted messages (undo). */
+  readonly restoreTokenId?: string;
   readonly createdAt: string;
   /** Backend-only: MongoDB TTL expiration date. */
   readonly expiresAt?: Date;
+  /**
+   * Backend-only: optional caller-supplied idempotency key. When present, a
+   * unique sparse MongoDB index guarantees exactly-once persistence across
+   * BullMQ retries. Not surfaced in the UI.
+   */
+  readonly idempotencyKey?: string;
+  /**
+   * Semantic phase of this row within the agent's write lifecycle.
+   * Used by the UI projection layer to collapse partial/yield/final rows for
+   * the same `operationId` into a single visible bubble. When `assistant_final`
+   * exists for an operationId, all `assistant_partial` rows for that same
+   * operationId are suppressed from the rendered chat feed.
+   *
+   * Set on every backend write — legacy rows without this field are treated
+   * as `assistant_final` by the UI projection for backwards compatibility.
+   */
+  readonly semanticPhase?: AgentMessageSemanticPhase;
 }
 
 /** Token usage metadata for a single message. */

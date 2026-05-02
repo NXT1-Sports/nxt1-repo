@@ -15,7 +15,12 @@ import { getCacheService } from '../core/cache.service.js';
 import { logger } from '../../utils/logger.js';
 import { CACHE_CONFIG } from '@nxt1/core';
 
-const db = getFirestore();
+let defaultDb: FirebaseFirestore.Firestore | null = null;
+const getDefaultDb = (): FirebaseFirestore.Firestore => {
+  if (defaultDb) return defaultDb;
+  defaultDb = getFirestore();
+  return defaultDb;
+};
 const USERS_COLLECTION = 'Users';
 const getCache = () => getCacheService();
 
@@ -68,7 +73,7 @@ export async function getUsersByIds(
   }
 
   // Use provided Firestore instance or default to production
-  const firestoreDb = firestore || db;
+  const firestoreDb = firestore ?? getDefaultDb();
 
   // Deduplicate and sort for consistent cache keys
   const uniqueIds = [...new Set(userIds)];
@@ -128,7 +133,7 @@ export async function getUserById(
   if (!userId) return null;
 
   // Use provided Firestore instance or default to production
-  const firestoreDb = firestore || db;
+  const firestoreDb = firestore ?? getDefaultDb();
 
   const cacheKey = CACHE_KEYS.USER_BY_ID(userId);
 

@@ -130,10 +130,7 @@ describe('ScrapeTwitterTool', () => {
   });
 
   it('should allow the correct agents', () => {
-    expect(tool.allowedAgents).toContain('data_coordinator');
-    expect(tool.allowedAgents).toContain('recruiting_coordinator');
-    expect(tool.allowedAgents).toContain('brand_coordinator');
-    expect(tool.allowedAgents).toContain('strategy_coordinator');
+    expect(tool.allowedAgents).toContain('*');
   });
 
   // ── Input Validation ──────────────────────────────────────────────────
