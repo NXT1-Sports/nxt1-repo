@@ -13,6 +13,7 @@ import type {
   RunwayEditVideoOptions,
 } from './runway-mcp-bridge.service.js';
 import { extractRunwayTaskDetails } from './runway-task-result.util.js';
+import { MediaTransportResolverService } from '../../media/media-transport-resolver.service.js';
 import { z } from 'zod';
 
 export class RunwayEditVideoTool extends BaseTool {
@@ -37,6 +38,9 @@ export class RunwayEditVideoTool extends BaseTool {
   readonly category = 'media' as const;
 
   readonly entityGroup = 'user_tools' as const;
+
+  private readonly mediaResolver = new MediaTransportResolverService();
+
   constructor(private readonly bridge: RunwayMcpBridgeService) {
     super();
   }
@@ -47,15 +51,35 @@ export class RunwayEditVideoTool extends BaseTool {
   ): Promise<ToolResult> {
     try {
       const promptText = input['promptText'] as string;
-      const promptImage = input['promptImage'] as string | undefined;
-      const video = input['video'] as string;
+      const rawPromptImage = input['promptImage'] as string | undefined;
+      const rawVideo = input['video'] as string;
 
       if (!promptText?.trim()) {
         return { success: false, error: 'promptText is required.' };
       }
-      if (!video?.trim()) {
+      if (!rawVideo?.trim()) {
         return { success: false, error: 'video (source video URL) is required.' };
       }
+
+      const [resolvedVideo, resolvedPromptImage] = await Promise.all([
+        this.mediaResolver.resolveProcessingUrl({
+          sourceUrl: rawVideo,
+          fallbackToFirebaseStaging: true,
+          stageMediaKind: 'video',
+          executionContext: context,
+        }),
+        rawPromptImage
+          ? this.mediaResolver.resolveProcessingUrl({
+              sourceUrl: rawPromptImage,
+              fallbackToFirebaseStaging: true,
+              stageMediaKind: 'image',
+              executionContext: context,
+            })
+          : Promise.resolve(null),
+      ]);
+
+      const video = resolvedVideo.url;
+      const promptImage = resolvedPromptImage?.url;
 
       const model = (input['model'] as string) || 'gen4';
       const duration = ((input['duration'] as number) || 5) as RunwayEditVideoOptions['duration'];

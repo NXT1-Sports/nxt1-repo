@@ -13,8 +13,16 @@ export class AgentRouterRequestBootstrapService {
 
   buildScopedCacheKey(intent: string, userContext: AgentUserContext | undefined): string {
     const role = userContext?.role ?? 'unknown';
-    const sport = userContext?.sport ?? 'general';
-    return `[${role}|${sport}] ${intent}`;
+    const sports =
+      userContext?.sports
+        ?.map((entry) => entry.sport.trim().toLowerCase())
+        .filter((sport) => sport.length > 0)
+        .sort() ?? [];
+    const sportScope =
+      sports.length > 0
+        ? `sports:${sports.join(',')}`
+        : `sport:${(userContext?.sport ?? 'general').trim().toLowerCase()}`;
+    return `[${role}|${sportScope}] ${intent}`;
   }
 
   async trySemanticCache(payload: {

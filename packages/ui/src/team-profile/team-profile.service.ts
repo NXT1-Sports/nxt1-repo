@@ -34,6 +34,7 @@ import { NxtLoggingService } from '../services/logging/logging.service';
 import { ANALYTICS_ADAPTER } from '../services/analytics/analytics-adapter.token';
 import { NxtBreadcrumbService } from '../services/breadcrumb/breadcrumb.service';
 import { NxtThemeService } from '../services/theme';
+import { NxtToastService } from '../services/toast/toast.service';
 import { TeamProfileApiClient, type TeamProfileApiError } from './team-profile-api.client';
 
 @Injectable({ providedIn: 'root' })
@@ -44,6 +45,7 @@ export class TeamProfileService {
   private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
   private readonly breadcrumb = inject(NxtBreadcrumbService);
   private readonly theme = inject(NxtThemeService);
+  private readonly toast = inject(NxtToastService);
   private readonly apiClient = inject(TeamProfileApiClient);
 
   constructor() {
@@ -331,7 +333,7 @@ export class TeamProfileService {
    * This is the canonical method for routes using /team/:slug/:teamCode.
    * Calls GET /api/v1/teams/by-teamcode/:teamCode on the backend.
    */
-  async loadTeamByCode(teamCode: string, isAdmin = false): Promise<void> {
+  async loadTeamByCode(teamCode: string, isAdmin = false, force = false): Promise<void> {
     if (!teamCode) {
       this.setError('Team code is required');
       return;
@@ -340,7 +342,7 @@ export class TeamProfileService {
     // SSR hydration guard: if data is already present for this team code (transferred
     // from server render), skip the destructive reset to prevent mismatch.
     const existing = this._teamData();
-    if (existing?.team?.teamCode === teamCode) {
+    if (!force && existing?.team?.teamCode === teamCode) {
       this.logger.debug('Team already hydrated, skipping reload', { teamCode });
       this._isLoading.set(false);
       return;
@@ -389,7 +391,7 @@ export class TeamProfileService {
    * Prefer over loadTeam(slug) when you have the exact team ID —
    * avoids slug ambiguity when multiple teams share the same name.
    */
-  async loadTeamById(teamId: string, isAdmin = false): Promise<void> {
+  async loadTeamById(teamId: string, isAdmin = false, force = false): Promise<void> {
     if (!teamId) {
       this.setError('Team ID is required');
       return;
@@ -398,7 +400,7 @@ export class TeamProfileService {
     // SSR hydration guard: if data is already present for this team (transferred
     // from server render), skip the destructive reset to prevent mismatch.
     const existing = this._teamData();
-    if (existing?.team?.id === teamId) {
+    if (!force && (existing?.team?.id === teamId || existing?.team?.teamCode === teamId)) {
       this.logger.debug('Team already hydrated, skipping reload', { teamId });
       this._isLoading.set(false); // ensure loading clears (caller may have set it true)
       return;
@@ -444,7 +446,7 @@ export class TeamProfileService {
   /**
    * Load team profile by slug (using real API)
    */
-  async loadTeam(slug: string, isAdmin = false): Promise<void> {
+  async loadTeam(slug: string, isAdmin = false, force = false): Promise<void> {
     if (!slug) {
       this.setError('Team slug is required');
       return;
@@ -453,7 +455,7 @@ export class TeamProfileService {
     // SSR hydration guard: if data is already present for this slug (transferred
     // from server render), skip the destructive reset to prevent mismatch.
     const existing = this._teamData();
-    if (existing?.team?.slug === slug) {
+    if (!force && existing?.team?.slug === slug) {
       this.logger.debug('Team already hydrated, skipping reload', { slug });
       this._isLoading.set(false); // ensure loading clears (caller may have set it true)
       return;
@@ -505,11 +507,11 @@ export class TeamProfileService {
     if (!team) return;
 
     if (team.teamCode) {
-      await this.loadTeamByCode(team.teamCode, this.isTeamAdmin());
+      await this.loadTeamByCode(team.teamCode, this.isTeamAdmin(), true);
     } else if (team.id) {
-      await this.loadTeamById(team.id, this.isTeamAdmin());
+      await this.loadTeamById(team.id, this.isTeamAdmin(), true);
     } else {
-      await this.loadTeam(team.slug, this.isTeamAdmin());
+      await this.loadTeam(team.slug, this.isTeamAdmin(), true);
     }
   }
 
@@ -666,6 +668,98 @@ export class TeamProfileService {
     this._activeTimelineFilter.set(filter);
     this.analytics?.trackEvent(APP_EVENTS.TEAM_TIMELINE_FILTER_APPLIED, { teamCode, filter });
     this.breadcrumb.trackUserAction('team-timeline-filter', { teamCode, filter });
+  }
+
+  /**
+   * Toggle pin state on a team post (optimistic update).
+   * Admin/coach only — caller must have already verified permission via isTeamAdmin().
+   */
+  async pinPost(post: TeamProfilePost): Promise<void> {
+    const teamId = this.team()?.id;
+    if (!teamId) {
+      this.logger.warn('pinPost() called with no team loaded', { postId: post.id });
+      return;
+    }
+
+    const nextPinnedState = !post.isPinned;
+    const previousTeamData = this._teamData();
+    const previousTimeline = this._timeline();
+
+    // Optimistic update
+    this._teamData.update((data) => {
+      if (!data) return data;
+      return {
+        ...data,
+        recentPosts: data.recentPosts.map((p) =>
+          p.id === post.id ? { ...p, isPinned: nextPinnedState } : p
+        ),
+      };
+    });
+    this._timeline.update((items) =>
+      items.map((item) =>
+        item.id === post.id ? ({ ...item, isPinned: nextPinnedState } as FeedItem) : item
+      )
+    );
+
+    this.logger.info('Updating team post pin state', {
+      teamId,
+      postId: post.id,
+      isPinned: nextPinnedState,
+    });
+
+    try {
+      await this.apiClient.pinTeamPost(teamId, post.id, nextPinnedState);
+      this.toast.success(nextPinnedState ? 'Post pinned.' : 'Post unpinned.');
+    } catch (err) {
+      // Rollback
+      this._teamData.set(previousTeamData);
+      this._timeline.set(previousTimeline);
+      const message = err instanceof Error ? err.message : 'Failed to update post';
+      this.logger.error('Failed to update team post pin state', err as Error, {
+        teamId,
+        postId: post.id,
+      });
+      this.toast.error(message);
+    }
+  }
+
+  /**
+   * Delete a team post (optimistic update).
+   * Admin/coach only — caller must have already verified permission via isTeamAdmin().
+   */
+  async deletePost(post: TeamProfilePost): Promise<void> {
+    const teamId = this.team()?.id;
+    if (!teamId) {
+      this.logger.warn('deletePost() called with no team loaded', { postId: post.id });
+      return;
+    }
+
+    const previousTeamData = this._teamData();
+    const previousTimeline = this._timeline();
+
+    // Optimistic update
+    this._teamData.update((data) => {
+      if (!data) return data;
+      return {
+        ...data,
+        recentPosts: data.recentPosts.filter((p) => p.id !== post.id),
+      };
+    });
+    this._timeline.update((items) => items.filter((item) => item.id !== post.id));
+
+    this.logger.info('Deleting team post', { teamId, postId: post.id });
+
+    try {
+      await this.apiClient.deleteTeamPost(teamId, post.id);
+      this.toast.success('Post deleted.');
+    } catch (err) {
+      // Rollback
+      this._teamData.set(previousTeamData);
+      this._timeline.set(previousTimeline);
+      const message = err instanceof Error ? err.message : 'Failed to delete post';
+      this.logger.error('Failed to delete team post', err as Error, { teamId, postId: post.id });
+      this.toast.error(message);
+    }
   }
 
   /**

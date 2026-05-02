@@ -10,16 +10,18 @@ import { isPlatformBrowser } from '@angular/common';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import {
+  AGENT_X_RUNTIME_CONFIG,
   createAgentXApi,
   type AgentXApi,
   type AgentXAttachment,
+  type AgentXAttachmentStub,
   type AgentXChatRequest,
-  type AgentXMessagePart,
   type AgentXRichCard,
   type AgentXSelectedAction,
   type AgentXStreamCardEvent,
   type AgentXStreamStepEvent,
   type AgentXToolStep,
+  type AgentXStreamWaitingForAttachmentsEvent,
 } from '@nxt1/core/ai';
 import type { AgentYieldState } from '@nxt1/core';
 import { APP_EVENTS } from '@nxt1/core/analytics';
@@ -55,6 +57,21 @@ export interface StreamTurnWatermark {
   confirmedChars: number;
 }
 
+export interface BatchEmailRecipientStatus {
+  readonly email: string;
+  readonly status: 'sending' | 'sent' | 'failed';
+  readonly subject: string;
+  readonly error?: string;
+}
+
+export interface BatchEmailCampaignProgress {
+  readonly total: number;
+  readonly sent: number;
+  readonly failed: number;
+  readonly currentEmail: string | null;
+  readonly recipients: BatchEmailRecipientStatus[];
+}
+
 export interface AgentXOperationChatTransportFacadeHost {
   readonly contextId: () => string;
   readonly contextType: () => 'operation' | 'command';
@@ -62,6 +79,7 @@ export interface AgentXOperationChatTransportFacadeHost {
   readonly messages: WritableSignal<OperationMessage[]>;
   readonly loading: WritableSignal<boolean>;
   readonly latestProgressLabel: WritableSignal<string | null>;
+  readonly batchEmailProgress: WritableSignal<BatchEmailCampaignProgress | null>;
   readonly resolvedThreadId: WritableSignal<string | null>;
   readonly activeYieldState: WritableSignal<AgentYieldState | null>;
   readonly yieldResolved: WritableSignal<boolean>;
@@ -76,6 +94,24 @@ export interface AgentXOperationChatTransportFacadeHost {
   setStreamTurnWatermark(watermark: StreamTurnWatermark | null): void;
   resolveActiveThreadId(): string | null;
   setOperationStatus(status: OperationStatus): void;
+  setActivityPhase(
+    phase:
+      | 'idle'
+      | 'sending'
+      | 'connected'
+      | 'streaming'
+      | 'running_tool'
+      | 'waiting_delta'
+      | 'reconnecting'
+      | 'paused'
+      | 'awaiting_input'
+      | 'awaiting_approval'
+      | 'completed'
+      | 'failed'
+      | 'cancelled',
+    label?: string | null
+  ): void;
+  markActivityPulse(label?: string | null): void;
   emitResponseComplete(): void;
   subscribeToFirestoreJobEvents(
     operationId: string,
@@ -127,7 +163,13 @@ export class AgentXOperationChatTransportFacade {
   async callAgentChat(
     userInput: string,
     attachments: AgentXAttachment[] = [],
-    selectedAction?: AgentXSelectedAction
+    selectedAction?: AgentXSelectedAction,
+    idempotencyKey?: string,
+    connectedSources?: readonly { platform: string; profileUrl: string; faviconUrl?: string }[],
+    pendingAttachmentOptions?: {
+      stubs: readonly AgentXAttachmentStub[];
+      onWaitingForAttachments: (operationId: string) => Promise<void>;
+    }
   ): Promise<void> {
     const host = this.requireHost();
     const maxHistoryContentChars = 40_000;
@@ -163,8 +205,20 @@ export class AgentXOperationChatTransportFacade {
       })),
       ...(host.resolveActiveThreadId() ? { threadId: host.resolveActiveThreadId()! } : {}),
       ...(attachments.length > 0 ? { attachments } : {}),
+      ...(pendingAttachmentOptions?.stubs?.length
+        ? { attachmentStubs: pendingAttachmentOptions.stubs }
+        : {}),
       ...(selectedAction ? { selectedAction } : {}),
+      ...(connectedSources && connectedSources.length > 0 ? { connectedSources } : {}),
     } satisfies AgentXChatRequest;
+
+    this.logger.info('Dispatching Agent X chat request', {
+      contextId: host.contextId(),
+      threadId: host.resolveActiveThreadId() ?? null,
+      attachmentCount: attachments.length,
+      attachmentTypes: attachments.map((attachment) => attachment.type),
+      videoCount: attachments.filter((attachment) => attachment.type === 'video').length,
+    });
 
     const authToken = await this.getAuthToken?.().catch(() => null);
 
@@ -175,7 +229,14 @@ export class AgentXOperationChatTransportFacade {
 
     if (authToken && isPlatformBrowser(this.platformId)) {
       try {
-        await this.sendViaStream(request, authToken);
+        await this.sendViaStream(
+          request,
+          authToken,
+          idempotencyKey,
+          pendingAttachmentOptions?.onWaitingForAttachments
+            ? (event) => pendingAttachmentOptions!.onWaitingForAttachments!(event.operationId)
+            : undefined
+        );
       } catch (error) {
         if (this.isStreamLimitError(error)) {
           this.logger.warn('Stream limited on initial send; retrying once with backoff', {
@@ -185,10 +246,19 @@ export class AgentXOperationChatTransportFacade {
             contextId: host.contextId(),
           });
 
-          await new Promise((resolve) => setTimeout(resolve, 900));
+          await new Promise((resolve) =>
+            setTimeout(resolve, AGENT_X_RUNTIME_CONFIG.clientRecovery.streamLimitRetryBackoffMs)
+          );
 
           try {
-            await this.sendViaStream(request, authToken);
+            await this.sendViaStream(
+              request,
+              authToken,
+              idempotencyKey,
+              pendingAttachmentOptions?.onWaitingForAttachments
+                ? (event) => pendingAttachmentOptions!.onWaitingForAttachments!(event.operationId)
+                : undefined
+            );
             return;
           } catch (retryError) {
             if (this.isStreamLimitError(retryError)) {
@@ -237,7 +307,14 @@ export class AgentXOperationChatTransportFacade {
     return record['status'] === 429 || record['code'] === 'AGENT_STREAM_LIMIT_REACHED';
   }
 
-  sendViaStream(request: AgentXChatRequest, authToken: string): Promise<void> {
+  sendViaStream(
+    request: AgentXChatRequest,
+    authToken: string,
+    idempotencyKey?: string,
+    onWaitingForAttachments?: (
+      event: AgentXStreamWaitingForAttachmentsEvent
+    ) => void | Promise<void>
+  ): Promise<void> {
     const host = this.requireHost();
     this.messageFacade.clearPendingTypingDelta();
     const previousThreadId = host.resolvedThreadId();
@@ -258,6 +335,7 @@ export class AgentXOperationChatTransportFacade {
             onThread: (event) => {
               host.resolvedThreadId.set(event.threadId);
               if (event.operationId) host.setCurrentOperationId(event.operationId);
+              host.setActivityPhase('connected');
               this.logger.debug('Stream thread resolved', { threadId: event.threadId });
 
               const activeStream = host.getActiveStream();
@@ -285,6 +363,7 @@ export class AgentXOperationChatTransportFacade {
                           watermark.confirmedChars += text.length;
                         }
                       },
+                      onThinking: () => undefined,
                       onStep: () => undefined,
                       onCard: () => undefined,
                       onDone: () => undefined,
@@ -302,6 +381,7 @@ export class AgentXOperationChatTransportFacade {
               const threadId = host.resolvedThreadId();
               if (threadId) this.streamRegistry.appendDelta(threadId, event.content);
               this.recordDeltaLatency(event.emittedAt);
+              host.markActivityPulse();
 
               const watermark = host.getStreamTurnWatermark();
               if (watermark) {
@@ -311,9 +391,37 @@ export class AgentXOperationChatTransportFacade {
               this.messageFacade.queueTypingDelta(event.content);
             },
 
+            onThinking: (event) => {
+              const threadId = host.resolvedThreadId();
+              if (threadId) this.streamRegistry.appendThinking(threadId, event.content);
+              // Thinking arrives before deltas — update parts on the typing message
+              this.messageFacade.messages.update((messages) =>
+                messages.map((message) => {
+                  if (message.id !== 'typing') return message;
+                  const prevParts = message.parts ?? [];
+                  const last = prevParts[prevParts.length - 1];
+                  const nextParts =
+                    last?.type === 'thinking'
+                      ? [
+                          ...prevParts.slice(0, -1),
+                          { type: 'thinking' as const, content: last.content + event.content },
+                        ]
+                      : [...prevParts, { type: 'thinking' as const, content: event.content }];
+                  return { ...message, parts: nextParts };
+                })
+              );
+            },
+
             onStep: (event: AgentXStreamStepEvent) => {
               const label = event.label.trim();
               if (!label) return;
+
+              if (event.status === 'active') {
+                host.setActivityPhase('running_tool', event.detail?.trim() || label);
+              } else {
+                host.setActivityPhase('waiting_delta', event.detail?.trim() || label);
+                host.markActivityPulse(event.detail?.trim() || label);
+              }
 
               const step: AgentXToolStep = {
                 id: event.id,
@@ -426,6 +534,8 @@ export class AgentXOperationChatTransportFacade {
               if (event.operationId) {
                 host.setCurrentOperationId(event.operationId);
               }
+
+              const opMessage = typeof event.message === 'string' ? event.message.trim() : '';
               if (
                 (event.status === 'paused' ||
                   event.status === 'awaiting_input' ||
@@ -442,14 +552,26 @@ export class AgentXOperationChatTransportFacade {
 
               if (event.status === 'complete') {
                 host.setOperationStatus('complete');
+                // Keep the shimmer active until terminal `done` arrives. Some
+                // backends emit lifecycle `complete` slightly before the stream
+                // closes.
+                host.setActivityPhase('waiting_delta', opMessage || null);
               } else if (event.status === 'failed') {
                 host.setOperationStatus('error');
+                host.setActivityPhase('failed', opMessage || null);
               } else if (event.status === 'paused') {
                 host.setOperationStatus('paused');
+                host.setActivityPhase('paused', opMessage || null);
               } else if (event.status === 'awaiting_input') {
                 host.setOperationStatus('awaiting_input');
+                host.setActivityPhase('awaiting_input', opMessage || null);
               } else if (event.status === 'awaiting_approval') {
                 host.setOperationStatus('awaiting_approval');
+                host.setActivityPhase('awaiting_approval', opMessage || null);
+              } else if (event.status === 'running' || event.status === 'queued') {
+                host.setOperationStatus('processing');
+                host.setActivityPhase('connected', opMessage || null);
+                host.markActivityPulse(opMessage || undefined);
               }
 
               this.operationEventService.emitOperationStatusUpdated(
@@ -457,6 +579,72 @@ export class AgentXOperationChatTransportFacade {
                 event.status,
                 event.timestamp
               );
+            },
+
+            onProgress: (event) => {
+              const message = typeof event.message === 'string' ? event.message.trim() : '';
+
+              // Route batch-email per-recipient progress to a dedicated signal
+              // so the UI can render a deterministic per-recipient status panel.
+              const meta = event.metadata as Record<string, unknown> | undefined;
+              if (
+                meta?.['phase'] === 'send_email' &&
+                typeof meta?.['recipientEmail'] === 'string'
+              ) {
+                const recipientEmail = meta['recipientEmail'] as string;
+                const recipientCount =
+                  typeof meta['recipientCount'] === 'number'
+                    ? (meta['recipientCount'] as number)
+                    : 0;
+                const subject =
+                  typeof meta['subject'] === 'string' ? (meta['subject'] as string) : '';
+                const recipientStatus =
+                  (meta['recipientStatus'] as 'sending' | 'sent' | 'failed') ?? 'sending';
+                const recipientError =
+                  typeof meta['recipientError'] === 'string'
+                    ? (meta['recipientError'] as string)
+                    : undefined;
+
+                host.batchEmailProgress.update((prev) => {
+                  const base = prev ?? {
+                    total: recipientCount,
+                    sent: 0,
+                    failed: 0,
+                    currentEmail: null,
+                    recipients: [],
+                  };
+                  const prevEntry = base.recipients.find((r) => r.email === recipientEmail);
+                  const updatedEntry: BatchEmailRecipientStatus = {
+                    email: recipientEmail,
+                    status: recipientStatus,
+                    subject,
+                    ...(recipientError ? { error: recipientError } : {}),
+                  };
+                  const updatedRecipients = [
+                    ...base.recipients.filter((r) => r.email !== recipientEmail),
+                    updatedEntry,
+                  ];
+                  const sentDelta =
+                    recipientStatus === 'sent' && prevEntry?.status !== 'sent' ? 1 : 0;
+                  const failedDelta =
+                    recipientStatus === 'failed' && prevEntry?.status !== 'failed' ? 1 : 0;
+                  return {
+                    total: recipientCount || base.total,
+                    sent: base.sent + sentDelta,
+                    failed: base.failed + failedDelta,
+                    currentEmail:
+                      recipientStatus === 'sending' ? recipientEmail : base.currentEmail,
+                    recipients: updatedRecipients,
+                  };
+                });
+              }
+
+              if (message) {
+                host.latestProgressLabel.set(message);
+                host.markActivityPulse(message);
+              } else {
+                host.markActivityPulse();
+              }
             },
 
             onTitleUpdated: (event) => {
@@ -471,22 +659,14 @@ export class AgentXOperationChatTransportFacade {
             },
 
             onMedia: (event) => {
-              const mediaPart: AgentXMessagePart =
-                event.type === 'video'
-                  ? { type: 'video', url: event.url }
-                  : { type: 'image', url: event.url };
-
-              host.messages.update((messages) =>
-                messages.map((message) =>
-                  message.id === streamingId
-                    ? { ...message, parts: [...(message.parts ?? []), mediaPart] }
-                    : message
-                )
-              );
+              // Keep operation chat bubbles focused on text/tools/cards.
+              // Media events can still be consumed by dedicated media panels.
+              void event;
             },
 
             onStreamReplaced: (event) => {
               this.messageFacade.flushPendingTypingDelta();
+              host.setActivityPhase('reconnecting', 'Reconnecting...');
               host.setActiveStream(null);
               host.messages.update((messages) =>
                 messages.filter((message) => message.id !== streamingId)
@@ -507,9 +687,13 @@ export class AgentXOperationChatTransportFacade {
               resolve();
             },
 
+            ...(onWaitingForAttachments ? { onWaitingForAttachments } : {}),
+
             onDone: (event) => {
               this.messageFacade.flushPendingTypingDelta();
               host.latestProgressLabel.set(null);
+              host.batchEmailProgress.set(null);
+              host.setActivityPhase('completed');
               const threadId = host.resolvedThreadId();
               if (threadId) {
                 this.streamRegistry.markDone(threadId, {
@@ -607,6 +791,7 @@ export class AgentXOperationChatTransportFacade {
                   ];
                 });
                 host.loading.set(true);
+                host.setActivityPhase('reconnecting', 'Reconnecting...');
                 host.subscribeToFirestoreJobEvents(
                   currentOperationId,
                   undefined,
@@ -630,6 +815,7 @@ export class AgentXOperationChatTransportFacade {
               host.setShadowFirestoreSub(null);
               host.setStreamTurnWatermark(null);
 
+              host.setActivityPhase('failed', event.error);
               this.messageFacade.replaceTyping({
                 id: host.uid(),
                 role: 'assistant',
@@ -644,7 +830,8 @@ export class AgentXOperationChatTransportFacade {
             },
           },
           authToken,
-          this.baseUrl
+          this.baseUrl,
+          { idempotencyKey }
         )
       );
     });
@@ -684,7 +871,9 @@ export class AgentXOperationChatTransportFacade {
     if (Number.isNaN(emittedAtMs)) return;
 
     const latencyMs = Date.now() - emittedAtMs;
-    if (latencyMs < 0 || latencyMs > 120_000) return;
+    if (latencyMs < 0 || latencyMs > AGENT_X_RUNTIME_CONFIG.clientRecovery.streamLatencyClampMs) {
+      return;
+    }
 
     this.deltaLatencySamples.push(latencyMs);
     if (this.deltaLatencySamples.length > 120) {

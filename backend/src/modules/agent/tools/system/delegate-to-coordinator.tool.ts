@@ -29,10 +29,15 @@ export class DelegateToCoordinatorTool extends BaseTool {
   readonly name = 'delegate_to_coordinator';
 
   readonly description =
-    'Hand a focused sub-task to a specialist coordinator. Use this when the ' +
-    'work falls clearly into one specialist’s domain (recruiting outreach, ' +
-    'brand/creative, data analytics, performance, strategy, or admin). For ' +
-    'multi-step work that spans coordinators, use `plan_and_execute` instead.';
+    'Hand a focused sub-task to a specialist coordinator. ' +
+    'Coordinator routing guide — always pick the correct specialist:\n' +
+    '• data_coordinator — ANY write/save operation: create posts (team posts, timeline announcements, season recaps), write season stats, rankings, metrics, roster entries, schedule, recruiting activity, calendar events, connected sources, or ingest data from external URLs (MaxPreps, Hudl, 247Sports, etc.).\n' +
+    '• brand_coordinator — Creative assets: generate graphics, images, thumbnails, video editing, Runway AI video, captions, watermarks, staged media.\n' +
+    '• performance_coordinator — Film/video analysis, game breakdowns, performance metric interpretation, highlight clip generation.\n' +
+    '• recruiting_coordinator — College search strategy, coach outreach emails, recruiting presentations, visit coordination, offer tracking.\n' +
+    '• strategy_coordinator — Scheduling strategy, analytics dashboards, long-term planning, multi-game review, Microsoft 365 workflows.\n' +
+    '• admin_coordinator — Compliance, platform administration, support tickets, user management, recurring task scheduling.\n' +
+    'Do NOT delegate simple factual lookups the router can answer directly. For work spanning multiple coordinators in sequence, use `plan_and_execute` instead.';
 
   readonly parameters = InputSchema;
   readonly isMutation = false;

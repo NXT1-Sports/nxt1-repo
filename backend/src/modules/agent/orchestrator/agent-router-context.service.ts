@@ -84,6 +84,16 @@ export class AgentRouterContextService {
         const depResult = upstreamResults.get(depId);
         if (depResult) {
           parts.push(`[Result from task ${depId}]: ${depResult.summary}`);
+          // Forward structured artifacts (imageUrl, storagePath, cloudflareVideoId, etc.)
+          // so downstream coordinators have direct URL access rather than relying on prose.
+          if (depResult.artifacts && Object.keys(depResult.artifacts).length > 0) {
+            let artifactStr = JSON.stringify(depResult.artifacts);
+            // Cap at 500 chars to respect token budget
+            if (artifactStr.length > 500) {
+              artifactStr = artifactStr.slice(0, 497) + '...';
+            }
+            parts.push(`[Artifacts from task ${depId}]: ${artifactStr}`);
+          }
         }
       }
     }

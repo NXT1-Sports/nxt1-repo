@@ -178,6 +178,7 @@ function docToOrganization(doc: FirebaseFirestore.DocumentSnapshot): Organizatio
     primaryColor: data['primaryColor'],
     secondaryColor: data['secondaryColor'],
     mascot: data['mascot'],
+    level: data['level'],
     admins: data['admins'] ?? [],
     ownerId: data['ownerId'] ?? '',
     billingOwnerUid: data['billingOwnerUid'],
@@ -234,6 +235,7 @@ export class OrganizationService {
       primaryColor: input.primaryColor || null,
       secondaryColor: input.secondaryColor || null,
       mascot: input.mascot || null,
+      level: input.level || null,
       admins,
       ownerId: admins.length > 0 ? input.createdBy || '' : '',
       isClaimed: input.isClaimed ?? true,
@@ -338,6 +340,7 @@ export class OrganizationService {
     if (input.primaryColor !== undefined) updateData['primaryColor'] = input.primaryColor;
     if (input.secondaryColor !== undefined) updateData['secondaryColor'] = input.secondaryColor;
     if (input.mascot !== undefined) updateData['mascot'] = input.mascot;
+    if (input.level !== undefined) updateData['level'] = input.level;
     if (input.settings !== undefined) updateData['settings'] = input.settings;
 
     await this.db.collection(this.COLLECTION).doc(orgId).update(updateData);

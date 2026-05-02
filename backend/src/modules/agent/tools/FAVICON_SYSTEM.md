@@ -1,0 +1,199 @@
+/\*\*
+
+- @fileoverview Agent X URL Display System — Developer Guide
+- @module @nxt1/backend/modules/agent/tools
+-
+- ═══════════════════════════════════════════════════════════════════════════
+- SYSTEM PURPOSE
+- ═══════════════════════════════════════════════════════════════════════════
+-
+- Centralized system for displaying URLs in Agent X tool results with automatic
+- favicon resolution. Replaces verbose full URLs with compact, brand-aware
+  links.
+-
+- BEFORE:
+- [MaxPreps Athlete Profile](https://www.maxpreps.com/athlete/abc123)
+- [Hudl Video](https://hudl.com/video/xyz789)
+-
+- AFTER:
+- [🔗 MaxPreps](https://www.maxpreps.com/athlete/abc123)
+- [🔗 Hudl](https://hudl.com/video/xyz789)
+-
+- ═══════════════════════════════════════════════════════════════════════════
+- QUICK START
+- ═══════════════════════════════════════════════════════════════════════════
+-
+- Import and use in your tool:
+-
+- import { resolveUrlDisplay } from '../../favicon-registry.js';
+-
+- export class MyTool extends BaseTool {
+- async execute(input, context): Promise<ToolResult> {
+-     const results = await this.api.search(query);
+-
+-     const markdown = [
+-       `## Results for "${query}"`,
+-       ...results.map(r =>
+-         `### ${r.title}\n${resolveUrlDisplay(r.url)} — ${r.excerpt}`
+-       ),
+-     ].join('\n');
+-
+-     return { success: true, markdown };
+- }
+- }
+-
+- ═══════════════════════════════════════════════════════════════════════════
+- API REFERENCE
+- ═══════════════════════════════════════════════════════════════════════════
+-
+- 1.  resolveUrlDisplay(url, options?)
+- Convert a single URL to a compact markdown link with favicon support.
+-
+- Options:
+- - style: 'link' | 'domain' | 'short' (default: 'link')
+- - label: string (override default label)
+- - rawUrl: boolean (if true, returns URL without markdown formatting)
+-
+- Examples:
+- resolveUrlDisplay('https://www.maxpreps.com/athlete/123')
+- → '[🔗 MaxPreps](https://www.maxpreps.com/athlete/123)'
+-
+- resolveUrlDisplay('https://hudl.com/video/456', { style: 'domain' })
+- → '[hudl.com](https://hudl.com/video/456)'
+-
+- resolveUrlDisplay('https://hudl.com/video/456', { style: 'short' })
+- → '[→](https://hudl.com/video/456)'
+-
+- 2.  formatUrlsList(urls, options?)
+- Convert an array of URLs to comma-separated compact links.
+-
+- Example:
+- formatUrlsList(['https://www.maxpreps.com/...', 'https://hudl.com/...'])
+- → '[🔗 MaxPreps](...), [🔗 Hudl](...)'
+-
+- 3.  extractDomain(url)
+- Extract the domain slug from a URL (used for favicon lookup).
+-
+- Example:
+- extractDomain('https://www.maxpreps.com/athlete/123')
+- → 'maxpreps'
+-
+- 4.  getFaviconUrl(domain)
+- Get the favicon URL for a given domain.
+-
+- Example:
+- getFaviconUrl('maxpreps')
+- → 'https://www.maxpreps.com/favicon.ico'
+-
+- 5.  getDisplayName(domain)
+- Get the friendly display name for a domain.
+-
+- Example:
+- getDisplayName('maxpreps')
+- → 'MaxPreps'
+-
+- 6.  compactizeMarkdownUrls(markdown)
+- Replace all markdown links in text with compact versions.
+-
+- Example:
+- compactizeMarkdownUrls('[Visit MaxPreps](https://maxpreps.com) and
+  [Hudl](https://hudl.com)')
+- → '[🔗 MaxPreps](...) and [🔗 Hudl](...)'
+-
+- 7.  createUrlLink(url, label?, options?)
+- Wrapper around resolveUrlDisplay with optional label.
+-
+- Example:
+- createUrlLink('https://maxpreps.com/athlete/123', 'View Profile')
+- → '[🔗 MaxPreps](https://maxpreps.com/athlete/123)'
+-
+- ═══════════════════════════════════════════════════════════════════════════
+- ADDING NEW PLATFORMS
+- ═══════════════════════════════════════════════════════════════════════════
+-
+- 1.  Open: backend/src/modules/agent/tools/favicon-registry.ts
+- 2.  Add an entry to FAVICON_REGISTRY:
+-
+- export const FAVICON_REGISTRY = {
+-      // ... existing entries
+-      newplatform: {
+-        displayName: 'New Platform',
+-        faviconUrl: 'https://www.newplatform.com/favicon.ico',
+-      },
+- };
+-
+- 3.  The system automatically recognizes the new platform for all future URLs.
+-
+- Current platforms: MaxPreps, Hudl, On3, 247Sports, Rivals, NCSA Sports,
+- Athletic.net, MileSplit, USA Shooting, Instagram, X/Twitter, Facebook,
+- YouTube, TikTok, LinkedIn
+-
+- ═══════════════════════════════════════════════════════════════════════════
+- DISPLAY STYLES
+- ═══════════════════════════════════════════════════════════════════════════
+-
+- Default ('link') — Shows favicon + brand name
+- Input: 'https://www.maxpreps.com/athlete/123'
+- Output: '[🔗 MaxPreps](https://...)'
+-
+- Domain — Shows raw domain
+- Input: 'https://www.maxpreps.com/athlete/123'
+- Output: '[maxpreps.com](https://...)'
+-
+- Short — Minimal arrow icon only
+- Input: 'https://www.maxpreps.com/athlete/123'
+- Output: '[→](https://...)'
+-
+- Fallback (unknown domain):
+- Input: 'https://example-unknown.com/page'
+- Output: '[→ Source](https://...)'
+-
+- ═══════════════════════════════════════════════════════════════════════════
+- INTEGRATION EXAMPLES
+- ═══════════════════════════════════════════════════════════════════════════
+-
+- Example 1: Web Search Results (see web-search.tool.ts)
+- const markdown = [
+-     `## Web Search Results for "${query}"`,
+-     ...results.map(r => `### ${r.title}\n${resolveUrlDisplay(r.url)} — ${r.excerpt}`),
+- ].join('\n');
+-
+- Example 2: College Search (see search-colleges.tool.ts)
+- const markdown = results
+-     .map(c =>
+-       `### ${c.name}\n` +
+-       (c.questionnaire ? `- 📋 Questionnaire: ${resolveUrlDisplay(c.questionnaire)}\n` : '') +
+-       (c.sportLandingUrl ? `- 🔗 Sport Page: ${resolveUrlDisplay(c.sportLandingUrl)}\n` : '')
+-     )
+-     .join('\n');
+-
+- Example 3: Multiple URLs
+- const links = formatUrlsList([url1, url2, url3]);
+- const text = `Check these sources: ${links}`;
+-
+- Example 4: Batch Processing
+- const compactMarkdown = compactizeMarkdownUrls(rawMarkdownWithUrls);
+-
+- ═══════════════════════════════════════════════════════════════════════════
+- BEST PRACTICES
+- ═══════════════════════════════════════════════════════════════════════════
+-
+- 1.  Always use resolveUrlDisplay() instead of hardcoding markdown links
+- 2.  Import from index: `import { resolveUrlDisplay } from '../../index.js'`
+- 3.  Add platform to FAVICON_REGISTRY when introducing new sources
+- 4.  For tool results, prefer the default 'link' style (shows brand names)
+- 5.  Use 'domain' style when space is limited or for advanced features
+- 6.  Use 'short' style only for truly minimal UX (e.g., inline notes)
+- 7.  Test with URLs from all supported platforms before shipping
+-
+- ═══════════════════════════════════════════════════════════════════════════
+- TESTING
+- ═══════════════════════════════════════════════════════════════════════════
+-
+- Unit tests are included in favicon-registry.spec.ts (future)
+- Manual test: Try URLs from all platforms in a tool and verify output
+-
+- ═══════════════════════════════════════════════════════════════════════════
+  \*/
+
+export {};

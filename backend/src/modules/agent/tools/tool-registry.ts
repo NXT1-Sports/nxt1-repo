@@ -36,13 +36,26 @@ import {
 import type { IntelGenerationService } from '../services/intel.service.js';
 import { logger } from '../../../utils/logger.js';
 import type { BaseTool, ToolResult, ToolExecutionContext } from './base.tool.js';
+import { compactizeMarkdownUrls } from './favicon-registry.js';
 import {
   isStrictEntityToolGovernanceEnabled,
   isStrictZodToolSchemasEnabled,
   isToolDisabled,
 } from '../config/agent-app-config.js';
+import { isTeamIntelEnabled } from '../../../config/feature-flags.js';
 import { AgentEngineError } from '../exceptions/agent-engine.error.js';
 import { z } from 'zod';
+
+/** Canonical normalization for tool names — mirrors tool-policy.ts normalizeToolName(). */
+function canonicalToolName(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, '_')
+    .replace(/[^a-z0-9_]/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '');
+}
 
 type AthleteIntelSectionId = Parameters<IntelGenerationService['updateAthleteIntelSection']>[1];
 type TeamIntelSectionId = Parameters<IntelGenerationService['updateTeamIntelSection']>[1];
@@ -61,6 +74,17 @@ type IntelSyncPlan =
 
 const INTEL_SYNC_DISABLED_TOOLS = new Set(['write_intel', 'update_intel']);
 
+function normalizeToolResultForDisplay(result: ToolResult): ToolResult {
+  if (!result.success || typeof result.markdown !== 'string' || result.markdown.length === 0) {
+    return result;
+  }
+
+  return {
+    ...result,
+    markdown: compactizeMarkdownUrls(result.markdown),
+  };
+}
+
 export interface MatchedToolDefinition extends AgentToolDefinition {
   readonly semanticScore: number;
 }
@@ -68,24 +92,57 @@ export interface MatchedToolDefinition extends AgentToolDefinition {
 const TOOL_ENTITY_GROUP_OVERRIDES: Readonly<Record<string, AgentToolEntityGroup>> = {
   // Team-scoped writes
   write_team_stats: 'team_tools',
+  update_team_stats: 'team_tools',
+  delete_team_stats: 'team_tools',
   write_team_post: 'team_tools',
+  update_team_post: 'team_tools',
+  delete_team_post: 'team_tools',
   write_team_news: 'team_tools',
+  update_team_news: 'team_tools',
+  delete_team_news: 'team_tools',
   write_roster_entries: 'team_tools',
+  update_roster_entries: 'team_tools',
+  delete_roster_entries: 'team_tools',
   write_schedule: 'team_tools',
+  update_schedule_event: 'team_tools',
+  delete_schedule_event: 'team_tools',
   write_calendar_events: 'team_tools',
+  update_calendar_events: 'team_tools',
+  delete_calendar_events: 'team_tools',
 
   // User/athlete scoped writes
   write_core_identity: 'user_tools',
+  update_core_identity: 'user_tools',
+  delete_core_identity: 'user_tools',
   write_awards: 'user_tools',
+  update_awards: 'user_tools',
+  delete_awards: 'user_tools',
   write_combine_metrics: 'user_tools',
+  update_combine_metrics: 'user_tools',
+  delete_combine_metrics: 'user_tools',
   write_rankings: 'user_tools',
+  update_rankings: 'user_tools',
+  delete_rankings: 'user_tools',
   write_season_stats: 'user_tools',
+  update_season_stats: 'user_tools',
+  delete_season_stats: 'user_tools',
   write_recruiting_activity: 'user_tools',
+  update_recruiting_activity: 'user_tools',
+  delete_recruiting_activity: 'user_tools',
   write_athlete_videos: 'user_tools',
+  update_athlete_videos: 'user_tools',
+  delete_athlete_videos: 'user_tools',
   write_timeline_post: 'user_tools',
+  update_timeline_post: 'user_tools',
+  delete_timeline_post: 'user_tools',
+  write_intel: 'user_tools',
+  update_intel: 'user_tools',
+  delete_intel: 'user_tools',
 
   // Organization-scoped writes
   write_connected_source: 'organization_tools',
+  update_connected_source: 'organization_tools',
+  delete_connected_source: 'organization_tools',
 
   // Cross-cutting infrastructure
   delegate_task: 'system_tools',
@@ -274,11 +331,12 @@ export class ToolRegistry {
 
   /** Register a tool instance. Throws if a tool with the same name already exists. */
   register(tool: BaseTool): void {
-    if (this.tools.has(tool.name)) {
+    const canonicalName = canonicalToolName(tool.name);
+    if (this.tools.has(canonicalName)) {
       throw new AgentEngineError(
         'TOOL_REGISTRY_DUPLICATE',
-        `Tool "${tool.name}" is already registered.`,
-        { metadata: { toolName: tool.name } }
+        `Tool "${canonicalName}" is already registered.`,
+        { metadata: { toolName: canonicalName } }
       );
     }
 
@@ -322,12 +380,12 @@ export class ToolRegistry {
       });
     }
 
-    this.tools.set(tool.name, tool);
+    this.tools.set(canonicalName, tool);
   }
 
   /** Get a tool by name. */
   get(name: string): BaseTool | undefined {
-    return this.tools.get(name);
+    return this.tools.get(canonicalToolName(name));
   }
 
   /** Return all registered tool names. */
@@ -451,13 +509,20 @@ export class ToolRegistry {
       return { success: false, error: 'Operation cancelled' };
     }
 
-    const tool = this.tools.get(name);
+    const normalizedName = canonicalToolName(name);
+    const tool = this.tools.get(normalizedName);
     if (!tool) {
-      return { success: false, error: `Unknown tool: ${name}` };
+      return { success: false, error: `Unknown tool: ${normalizedName}` };
     }
 
-    if (context?.allowedToolNames?.length && !context.allowedToolNames.includes(name)) {
-      return { success: false, error: `Tool is not allowed in this execution context: ${name}` };
+    if (
+      context?.allowedToolNames?.length &&
+      !context.allowedToolNames.map(canonicalToolName).includes(normalizedName)
+    ) {
+      return {
+        success: false,
+        error: `Tool is not allowed in this execution context: ${normalizedName}`,
+      };
     }
 
     if (context?.allowedEntityGroups?.length) {
@@ -473,13 +538,13 @@ export class ToolRegistry {
       }
     }
 
-    if (isToolDisabled(tool.name)) {
-      return { success: false, error: `Tool is currently disabled: ${tool.name}` };
+    if (isToolDisabled(normalizedName)) {
+      return { success: false, error: `Tool is currently disabled: ${normalizedName}` };
     }
-    const result = await tool.execute(input, context);
+    const result = normalizeToolResultForDisplay(await tool.execute(input, context));
 
-    if (result.success && tool.isMutation && !INTEL_SYNC_DISABLED_TOOLS.has(name)) {
-      await this.syncIntelAfterWrite(name, input, context).catch((error: unknown) => {
+    if (result.success && tool.isMutation && !INTEL_SYNC_DISABLED_TOOLS.has(normalizedName)) {
+      await this.syncIntelAfterWrite(normalizedName, input, context).catch((error: unknown) => {
         logger.warn('[ToolRegistry] Post-write Intel sync failed', {
           toolName: name,
           error: error instanceof Error ? error.message : String(error),
@@ -760,7 +825,11 @@ export class ToolRegistry {
         break;
     }
 
-    return plans;
+    if (isTeamIntelEnabled()) {
+      return plans;
+    }
+
+    return plans.filter((plan) => plan.entityType !== 'team');
   }
 
   private readString(input: Record<string, unknown>, key: string): string | null {

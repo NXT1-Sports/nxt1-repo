@@ -2,6 +2,7 @@ import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 import { BaseTool, type ToolExecutionContext, type ToolResult } from '../../base.tool.js';
 import { IntelGenerationService } from '../../../services/intel.service.js';
 import { logger } from '../../../../../utils/logger.js';
+import { isTeamIntelEnabled } from '../../../../../config/feature-flags.js';
 import { z } from 'zod';
 
 type IntelEntityType = 'athlete' | 'team';
@@ -75,6 +76,14 @@ export class UpdateIntelTool extends BaseTool {
     }
     if (!entityId) return this.paramError('entityId');
     const entityType = entityTypeRaw as IntelEntityType;
+
+    if (entityType === 'team' && !isTeamIntelEnabled()) {
+      return {
+        success: false,
+        error: 'Team Intel is currently disabled.',
+      };
+    }
+
     const intelService = new IntelGenerationService();
 
     try {

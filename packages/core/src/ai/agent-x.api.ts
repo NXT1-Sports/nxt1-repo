@@ -35,6 +35,7 @@ import type {
   AgentXStreamThreadEvent,
   AgentXStreamTitleUpdatedEvent,
   AgentXStreamDeltaEvent,
+  AgentXStreamThinkingEvent,
   AgentXStreamDoneEvent,
   AgentXStreamErrorEvent,
   AgentXStreamStepEvent,
@@ -42,6 +43,7 @@ import type {
   AgentXStreamOperationEvent,
   AgentXStreamProgressEvent,
   AgentXStreamReplacedEvent,
+  AgentXStreamWaitingForAttachmentsEvent,
   AutoOpenPanelInstruction,
   CompletedGoalRecord,
   AgentCompleteGoalResponse,
@@ -49,6 +51,7 @@ import type {
 } from './agent-x.types';
 import type { AgentMessage } from './chat.types';
 import { AGENT_X_ENDPOINTS } from './agent-x.constants';
+import { AGENT_X_RUNTIME_CONFIG } from './agent-x-runtime.constants';
 import { externalServiceError, rateLimitError, isNxtApiError } from '../errors';
 
 // ============================================
@@ -117,6 +120,10 @@ export interface DeleteMessageResult extends AgentMessageActionResult {
     readonly restoreTokenId: string;
     readonly undoExpiresAt: string;
   };
+}
+
+export interface AgentXStreamMessageOptions {
+  readonly idempotencyKey?: string;
 }
 
 // ============================================
@@ -341,8 +348,8 @@ export function createAgentXApi(http: HttpAdapter, baseUrl: string) {
         }
 
         const operationId = enqueueResponse.data.operationId;
-        const maxAttempts = 50;
-        const pollIntervalMs = 1500;
+        const maxAttempts = AGENT_X_RUNTIME_CONFIG.playbookAsync.pollMaxAttempts;
+        const pollIntervalMs = AGENT_X_RUNTIME_CONFIG.playbookAsync.pollIntervalMs;
 
         for (let attempt = 0; attempt < maxAttempts; attempt++) {
           const cacheBust = Date.now();
@@ -632,7 +639,8 @@ export function createAgentXApi(http: HttpAdapter, baseUrl: string) {
     async resolveApproval(
       approvalId: string,
       decision: 'approved' | 'rejected',
-      toolInput?: Record<string, unknown>
+      toolInput?: Record<string, unknown>,
+      trustForSession?: boolean
     ): Promise<{
       decision: 'approved' | 'rejected';
       resumed: boolean;
@@ -652,8 +660,37 @@ export function createAgentXApi(http: HttpAdapter, baseUrl: string) {
         >(`${endpoint(AGENT_X_ENDPOINTS.APPROVALS)}/${encodeURIComponent(approvalId)}/resolve`, {
           decision,
           ...(toolInput ? { toolInput } : {}),
+          ...(trustForSession ? { trustForSession: true } : {}),
         });
         return response.success && response.data ? response.data : null;
+      } catch {
+        return null;
+      }
+    },
+
+    /**
+     * Recover a pending approval ID for a given operation.
+     *
+     * Used as a compatibility fallback when older yield cards are missing
+     * `approvalId` after thread rehydration.
+     */
+    async findPendingApprovalByOperation(operationId: string): Promise<{
+      approvalId: string;
+      createdAt: string;
+      expiresAt: string;
+    } | null> {
+      try {
+        const response = await http.get<
+          ApiResponse<{
+            approvalId: string;
+            createdAt: string;
+            expiresAt: string;
+          } | null>
+        >(
+          `${endpoint(AGENT_X_ENDPOINTS.APPROVALS)}/pending/by-operation/${encodeURIComponent(operationId)}`
+        );
+
+        return response.success ? (response.data ?? null) : null;
       } catch {
         return null;
       }
@@ -712,7 +749,8 @@ export function createAgentXApi(http: HttpAdapter, baseUrl: string) {
       request: AgentXChatRequest,
       callbacks: AgentXStreamCallbacks,
       authToken: string,
-      streamBaseUrl: string
+      streamBaseUrl: string,
+      options?: AgentXStreamMessageOptions
     ): AbortController {
       const controller = new AbortController();
 
@@ -724,6 +762,7 @@ export function createAgentXApi(http: HttpAdapter, baseUrl: string) {
               'Content-Type': 'application/json',
               Accept: 'text/event-stream',
               Authorization: `Bearer ${authToken}`,
+              ...(options?.idempotencyKey ? { 'x-idempotency-key': options.idempotencyKey } : {}),
             },
             body: JSON.stringify(request),
             signal: controller.signal,
@@ -747,6 +786,7 @@ export function createAgentXApi(http: HttpAdapter, baseUrl: string) {
           const reader = response.body.getReader();
           const decoder = new TextDecoder();
           let buffer = '';
+          let hasTerminalEvent = false;
 
           while (true) {
             const { done, value } = await reader.read();
@@ -785,6 +825,9 @@ export function createAgentXApi(http: HttpAdapter, baseUrl: string) {
                     break;
                   case 'delta':
                     callbacks.onDelta(payload as AgentXStreamDeltaEvent);
+                    break;
+                  case 'thinking':
+                    callbacks.onThinking?.(payload as AgentXStreamThinkingEvent);
                     break;
                   case 'step': {
                     const step = payload as Record<string, unknown>;
@@ -871,7 +914,22 @@ export function createAgentXApi(http: HttpAdapter, baseUrl: string) {
                     }
                     break;
                   }
+                  case 'waiting_for_attachments': {
+                    const waitingEvt = payload as Record<string, unknown>;
+                    if (
+                      waitingEvt &&
+                      typeof waitingEvt['operationId'] === 'string' &&
+                      Array.isArray(waitingEvt['attachmentIds']) &&
+                      typeof waitingEvt['timeoutMs'] === 'number'
+                    ) {
+                      void callbacks.onWaitingForAttachments?.(
+                        waitingEvt as unknown as AgentXStreamWaitingForAttachmentsEvent
+                      );
+                    }
+                    break;
+                  }
                   case 'done':
+                    hasTerminalEvent = true;
                     callbacks.onDone(payload as AgentXStreamDoneEvent);
                     break;
                   case 'panel': {
@@ -902,6 +960,7 @@ export function createAgentXApi(http: HttpAdapter, baseUrl: string) {
                     break;
                   }
                   case 'error':
+                    hasTerminalEvent = true;
                     callbacks.onError(payload as AgentXStreamErrorEvent);
                     break;
                 }
@@ -909,6 +968,13 @@ export function createAgentXApi(http: HttpAdapter, baseUrl: string) {
                 // Malformed JSON in a single frame — skip silently
               }
             }
+          }
+
+          if (!hasTerminalEvent) {
+            callbacks.onError({
+              error: 'Stream ended unexpectedly before terminal event',
+              code: 'AGENT_STREAM_UNEXPECTED_EOF',
+            });
           }
         } catch (error) {
           if ((error as { name?: string }).name === 'AbortError') return;

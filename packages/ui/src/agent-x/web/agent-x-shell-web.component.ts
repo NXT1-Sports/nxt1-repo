@@ -53,7 +53,10 @@ import { NxtIconComponent } from '../../components/icon';
 import { NxtStateViewComponent } from '../../components/state-view';
 import { NxtHeaderPortalService } from '../../services/header-portal/header-portal.service';
 import { NxtOverlayService } from '../../components/overlay';
-import { ConnectedAccountsModalService } from '../../components/connected-sources';
+import {
+  ConnectedAccountsModalService,
+  FirecrawlSignInService,
+} from '../../components/connected-sources';
 import type { ConnectedAccountsResyncSource } from '../../components/connected-sources';
 import { AgentXService } from '../services/agent-x.service';
 import { LiveViewSessionService } from '../services/live-view-session.service';
@@ -99,7 +102,7 @@ import { buildLinkSourcesFormData, buildTrackedLinkUrl, type OnboardingUserType 
 import type { LinkSourcesFormData } from '@nxt1/core/api';
 import { TEST_IDS } from '@nxt1/core/testing';
 import { NxtBrowserService } from '../../services/browser';
-import { getPlatformFaviconUrl } from '@nxt1/core/platforms';
+import { getPlatformFaviconUrl, PLATFORM_FAVICON_DOMAINS } from '@nxt1/core/platforms';
 import type { ConnectedAppSource } from '../components/modals/agent-x-attachments-sheet.component';
 
 /**
@@ -181,11 +184,11 @@ interface AgentXDesktopResizeState {
 }
 
 const COORDINATOR_ORDER: readonly string[] = [
-  'admin coordinator',
+  'performance coordinator',
   'brand coordinator',
   'strategy coordinator',
   'recruiting coordinator',
-  'performance coordinator',
+  'admin coordinator',
   'data coordinator',
 ] as const;
 
@@ -3508,6 +3511,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   private readonly browser = inject(NxtBrowserService);
   private readonly overlay = inject(NxtOverlayService);
   private readonly connectedAccountsModal = inject(ConnectedAccountsModalService);
+  private readonly firecrawlSignIn = inject(FirecrawlSignInService);
   private readonly headerPortal = inject(NxtHeaderPortalService);
   private readonly sanitizer = inject(DomSanitizer);
 
@@ -3521,6 +3525,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   private readonly operationEventService = inject(AgentXOperationEventService);
   private readonly destroyRef = inject(DestroyRef);
   protected readonly platform = inject(NxtPlatformService);
+  private readonly firecrawlSignedInPlatforms = signal<readonly string[]>([]);
   private desktopSessionCounter = 0;
 
   // ============================================
@@ -4026,6 +4031,26 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       this.resetDesktopPanelWidths();
       this.agentX.startTitleAnimation();
       this.agentX.loadDashboard();
+
+      const startupMessage = this.agentX.consumeStartupMessage();
+      if (startupMessage) {
+        this.launchChatFromStartupMessage(startupMessage);
+      }
+    });
+
+    // React to startup messages queued while the shell is already mounted
+    // (e.g. "Add Update" on /team or /profiles navigates here with a pre-filled prompt).
+    // afterNextRender only fires on initial mount; this effect handles re-navigation.
+    effect(() => {
+      const pending = this.agentX.pendingStartupMessage();
+      if (!pending) return;
+
+      untracked(() => {
+        const msg = this.agentX.consumeStartupMessage();
+        if (msg) {
+          this.launchChatFromStartupMessage(msg);
+        }
+      });
     });
 
     effect(() => {
@@ -4039,6 +4064,14 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     // operation-chat can always read them regardless of how it was opened.
     effect(() => {
       this.agentX.setAttachmentConnectedSources(this.getAttachmentConnectedSources());
+    });
+    effect(() => {
+      if (!this.user()) {
+        this.firecrawlSignedInPlatforms.set([]);
+        return;
+      }
+
+      void this.refreshFirecrawlSignedInAccounts();
     });
 
     // React to pending thread requests (push notifications, deep links, activity taps)
@@ -4054,23 +4087,6 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
         contextIcon: pending.icon ?? 'bolt',
         contextType: 'operation',
         threadId: pending.threadId,
-      });
-    });
-
-    // React to startup messages queued by external surfaces (e.g. profile timeline CTA).
-    // Fires after resetToDefaultDesktopSession() because effects run post-construction.
-    effect(() => {
-      const message = this.agentX.pendingStartupMessage();
-      if (!message) return;
-
-      this.agentX.clearStartupMessage();
-      this.setDesktopSession({
-        contextId: 'agent-x-chat',
-        contextTitle: 'Agent X',
-        contextIcon: 'bolt',
-        contextType: 'command',
-        initialMessage: message,
-        quickActions: this.commandQuickActions(),
       });
     });
 
@@ -4459,6 +4475,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   protected async onSendMessage(): Promise<void> {
     const message = this.agentX.getUserMessage().trim();
     if (!message) return;
+    await this.refreshFirecrawlSignedInAccounts();
 
     // Clear the shell input immediately
     this.agentX.setUserMessage('');
@@ -4474,12 +4491,12 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     });
   }
 
-  protected async onToggleTasks(): Promise<void> {
+  public async onToggleTasks(): Promise<void> {
     await this.openActionPlanModal();
   }
 
   /** Toggles the Sessions rail column (desktop). */
-  protected async toggleSessionsRail(): Promise<void> {
+  public async toggleSessionsRail(): Promise<void> {
     await this.haptics.impact('light');
     this.showSessionsRail.update((value) => {
       if (value) return false;
@@ -4489,7 +4506,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   }
 
   /** Toggles the Action Plan right-column panel (desktop). */
-  protected async toggleActionPlanPanel(): Promise<void> {
+  public async toggleActionPlanPanel(): Promise<void> {
     await this.haptics.impact('light');
     this.showActionPlanModal.update((value) => {
       if (value) return false;
@@ -4508,7 +4525,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   }
 
   /** Closes the Action Plan panel. */
-  protected closeActionPlanModal(): void {
+  public closeActionPlanModal(): void {
     this.showActionPlanModal.set(false);
   }
 
@@ -4525,7 +4542,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   }
 
   /** Copies the expanded panel URL to clipboard */
-  protected async copyExpandedPanelUrl(url: string): Promise<void> {
+  public async copyExpandedPanelUrl(url: string): Promise<void> {
     await this.haptics.impact('light');
     try {
       await navigator.clipboard.writeText(this.buildTrackedPanelUrl(url));
@@ -4536,7 +4553,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   }
 
   /** Refreshes the currently active live view via the session API (falls back to iframe remount) */
-  protected async refreshExpandedPanel(): Promise<void> {
+  public async refreshExpandedPanel(): Promise<void> {
     await this.haptics.impact('light');
     const current = this.expandedSidePanel();
     if (!current) return;
@@ -4562,7 +4579,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   }
 
   /** Toggles native browser fullscreen mode for the expanded panel (for HDMI/Big Screens) */
-  protected async toggleExpandedPanelFullscreen(): Promise<void> {
+  public async toggleExpandedPanelFullscreen(): Promise<void> {
     await this.haptics.impact('light');
     try {
       if (!document.fullscreenElement) {
@@ -4642,7 +4659,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   }
 
   /** Closes the expanded side panel, tears down any active session, and restores the Action Plan. */
-  closeExpandedSidePanel(): void {
+  public closeExpandedSidePanel(): void {
     const panel = this.expandedSidePanel();
     this.expandedSidePanel.set(null);
     this.expandedPanelIframeLoading.set(false);
@@ -4654,7 +4671,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   }
 
   /** Toggle the live-view launcher panel (or close it if already open). */
-  protected async toggleDevLiveView(): Promise<void> {
+  public async toggleDevLiveView(): Promise<void> {
     await this.haptics.impact('light');
 
     if (this.expandedSidePanel()) {
@@ -4671,7 +4688,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   }
 
   /** Called when the launcher component emits a destination (account card or custom URL). */
-  protected async onLiveViewLaunch(event: LiveViewLaunchEvent): Promise<void> {
+  public async onLiveViewLaunch(event: LiveViewLaunchEvent): Promise<void> {
     this.logger.info('Live view launch requested', {
       url: event.url,
       source: event.source,
@@ -4699,7 +4716,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   }
 
   /** Called when the iframe inside the expanded panel finishes loading. */
-  protected onExpandedIframeLoad(): void {
+  public onExpandedIframeLoad(): void {
     this.expandedPanelIframeLoading.set(false);
   }
 
@@ -4711,7 +4728,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
    * Handle coordinator pill tap on mobile — opens a fresh Agent X chat
    * in a full-screen overlay scoped to that coordinator.
    */
-  protected async onMobileCategoryTap(cat: CommandCategory): Promise<void> {
+  public async onMobileCategoryTap(cat: CommandCategory): Promise<void> {
     await this.haptics.impact('light');
 
     const ref = this.overlay.open<AgentXOperationChatComponent>({
@@ -4740,7 +4757,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
    * Handle send from mobile input bar — opens a full-screen Agent X chat
    * overlay pre-populated with the user's message and any pending files.
    */
-  protected async onMobileSendMessage(): Promise<void> {
+  public async onMobileSendMessage(): Promise<void> {
     const message = this.agentX.getUserMessage().trim();
     const servicePendingFiles = this.agentX.pendingFiles();
 
@@ -4749,6 +4766,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
 
     // Capture pending files and convert to operation-chat PendingFile shape
     const initialFiles = servicePendingFiles.map((f) => ({
+      id: crypto.randomUUID(),
       file: f.file,
       previewUrl: f.previewUrl,
       isImage: f.type === 'image',
@@ -4758,6 +4776,8 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     this.agentX.setUserMessage('');
     this.agentX.clearTask();
     this.agentX.takePendingFiles();
+
+    await this.refreshFirecrawlSignedInAccounts();
 
     const ref = this.overlay.open<AgentXOperationChatComponent>({
       component: AgentXOperationChatComponent,
@@ -4782,7 +4802,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     await ref.closed;
   }
 
-  protected async onActivityLogClick(): Promise<void> {
+  public async onActivityLogClick(): Promise<void> {
     await this.haptics.impact('light');
 
     const ref = this.overlay.open<AgentXOperationsLogComponent>({
@@ -4795,6 +4815,29 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     });
 
     await ref.closed;
+  }
+
+  /**
+   * Opens the chat view directly with a pre-built message, bypassing the
+   * greeting/briefing screen. Used when navigating to /agent-x from an
+   * external "Add Update" / "Create Post" button on another page.
+   *
+   * The session facade's initializeAfterView() auto-submits initialMessage via
+   * runControlFacade.send({ text, preserveDraft: true }) once the op-chat mounts.
+   */
+  private launchChatFromStartupMessage(message: string): void {
+    if (!message.trim()) return;
+    // setDesktopSession resets desktopChatActive → false for agent-x-chat context.
+    // Override it immediately so the briefing greeting never flashes.
+    this.setDesktopSession({
+      contextId: 'agent-x-chat',
+      contextTitle: 'Agent X',
+      contextIcon: 'bolt',
+      contextType: 'command',
+      initialMessage: message,
+      quickActions: this.commandQuickActions(),
+    });
+    this.desktopChatActive.set(true);
   }
 
   private resetToDefaultDesktopSession(): void {
@@ -4907,21 +4950,20 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   }
 
   /**
-   * Get user's connected sources filtered by role and selected sports.
-   * Parallel to agent-x-shell.component.ts for web/mobile parity.
-   * These sources are available for selection in the attachments sheet.
+   * Get all connected sources available for selection in the attachments sheet.
+   * Includes persisted connected sources and reconstructed connected links/sign-ins.
    */
   private getAttachmentConnectedSources(): readonly ConnectedAppSource[] {
     const user = this.user();
-    const role = (user?.role ?? '').toLowerCase();
-    const sources = user?.connectedSources ?? [];
-    const selectedSportKeys = new Set(
-      (user?.selectedSports ?? [])
-        .map((sport) => this.normalizeScopeKey(sport))
-        .filter((key): key is string => key.length > 0)
-    );
+    const linkedSources = user?.connectedSources ?? [];
+    const linkSources =
+      buildLinkSourcesFormData({
+        connectedSources: user?.connectedSources ?? [],
+        connectedEmails: user?.connectedEmails ?? [],
+        firebaseProviders: user?.firebaseProviders ?? [],
+      })?.links ?? [];
 
-    const withFavicons = sources.map((source) => {
+    const withFavicons = linkedSources.map((source) => {
       const favicon =
         (source as { faviconUrl?: string }).faviconUrl ??
         getPlatformFaviconUrl(source.platform.toLowerCase()) ??
@@ -4929,22 +4971,120 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       return { ...source, faviconUrl: favicon } as ConnectedAppSource;
     });
 
-    if (role === 'coach' || role === 'director') {
-      return withFavicons.filter((source) => {
-        if (source.scopeType === 'team' || source.scopeType === 'global' || !source.scopeType) {
-          return true;
-        }
+    const attachmentSourcesMap = new Map<string, ConnectedAppSource>();
 
-        if (source.scopeType === 'sport') {
-          const sourceSportKey = this.normalizeScopeKey(source.scopeId);
-          return sourceSportKey.length > 0 && selectedSportKeys.has(sourceSportKey);
-        }
-
-        return false;
-      });
+    for (const source of withFavicons) {
+      attachmentSourcesMap.set(this.getAttachmentSourceKey(source), source);
     }
 
-    return withFavicons.filter((source) => source.scopeType !== 'team');
+    for (const link of linkSources) {
+      if (!link.connected) {
+        continue;
+      }
+
+      const inferredSource: ConnectedAppSource = {
+        platform: link.platform,
+        profileUrl: this.resolveAttachmentProfileUrl(
+          link.platform,
+          typeof link.url === 'string' && link.url.trim().length > 0 ? link.url : link.username
+        ),
+        faviconUrl: getPlatformFaviconUrl(link.platform.toLowerCase()) ?? undefined,
+        scopeType: link.scopeType,
+        scopeId: link.scopeId,
+      };
+
+      const inferredSourceKey = this.getAttachmentSourceKey(inferredSource);
+      if (!attachmentSourcesMap.has(inferredSourceKey)) {
+        attachmentSourcesMap.set(inferredSourceKey, inferredSource);
+      }
+    }
+
+    const connectedAccounts =
+      (user as { connectedAccounts?: Record<string, unknown> } | null)?.connectedAccounts ?? {};
+    if (connectedAccounts && typeof connectedAccounts === 'object') {
+      for (const [platform, accountRaw] of Object.entries(connectedAccounts)) {
+        const account =
+          accountRaw && typeof accountRaw === 'object'
+            ? (accountRaw as Record<string, unknown>)
+            : null;
+        if (!account) {
+          continue;
+        }
+
+        const type = typeof account['type'] === 'string' ? account['type'] : '';
+        const status = typeof account['status'] === 'string' ? account['status'] : '';
+        if (
+          type !== 'firecrawl_profile' ||
+          !['active', 'connected', 'unverified'].includes(status)
+        ) {
+          continue;
+        }
+
+        const inferredSource: ConnectedAppSource = {
+          platform,
+          profileUrl: this.resolveAttachmentProfileUrl(platform),
+          faviconUrl: getPlatformFaviconUrl(platform.toLowerCase()) ?? undefined,
+          scopeType: 'global',
+        };
+
+        const inferredSourceKey = this.getAttachmentSourceKey(inferredSource);
+        if (!attachmentSourcesMap.has(inferredSourceKey)) {
+          attachmentSourcesMap.set(inferredSourceKey, inferredSource);
+        }
+      }
+    }
+
+    for (const platform of this.firecrawlSignedInPlatforms()) {
+      const normalizedPlatform = platform.toLowerCase();
+      const inferredSource: ConnectedAppSource = {
+        platform: normalizedPlatform,
+        profileUrl: this.resolveAttachmentProfileUrl(normalizedPlatform),
+        faviconUrl: getPlatformFaviconUrl(normalizedPlatform) ?? undefined,
+        scopeType: 'global',
+      };
+
+      const inferredSourceKey = this.getAttachmentSourceKey(inferredSource);
+      if (!attachmentSourcesMap.has(inferredSourceKey)) {
+        attachmentSourcesMap.set(inferredSourceKey, inferredSource);
+      }
+    }
+
+    return Array.from(attachmentSourcesMap.values());
+  }
+
+  private async refreshFirecrawlSignedInAccounts(): Promise<void> {
+    try {
+      const accounts = await this.firecrawlSignIn.fetchSignedInAccounts();
+      this.firecrawlSignedInPlatforms.set(Object.keys(accounts));
+    } catch (error) {
+      this.logger.warn('Failed to refresh Firecrawl signed-in accounts for attachment sources', {
+        error,
+      });
+      this.firecrawlSignedInPlatforms.set([]);
+    }
+  }
+
+  private getAttachmentSourceKey(source: {
+    platform: string;
+    scopeType?: 'global' | 'sport' | 'team';
+    scopeId?: string;
+  }): string {
+    return `${source.platform.toLowerCase()}|${source.scopeType ?? 'global'}|${
+      this.normalizeScopeKey(source.scopeId) || 'global'
+    }`;
+  }
+
+  private resolveAttachmentProfileUrl(platform: string, url?: string): string {
+    const trimmedUrl = (url ?? '').trim();
+    if (trimmedUrl.length > 0) {
+      return /^https?:\/\//i.test(trimmedUrl) ? trimmedUrl : `https://${trimmedUrl}`;
+    }
+
+    const platformDomain = (PLATFORM_FAVICON_DOMAINS as Record<string, string>)[
+      platform.toLowerCase()
+    ];
+
+    return platformDomain ? `https://${platformDomain}` : `https://${platform.toLowerCase()}.com`;
   }
 
   /** Normalize source/sport keys so scopeId like "baseball" matches selected sport "Baseball". */

@@ -8,6 +8,11 @@
  * POST /upload
  */
 
+import path from 'path';
+import os from 'os';
+import { createReadStream } from 'fs';
+import { unlink } from 'fs/promises';
+import multer from 'multer';
 import { Router, type Request, type Response } from 'express';
 import { appGuard } from '../../middleware/auth/auth.middleware.js';
 import { uploadRateLimit } from '../../middleware/rate-limit/rate-limit.middleware.js';
@@ -21,6 +26,7 @@ import type {
   OperationLogEntry,
   CompletedGoalRecord,
 } from '@nxt1/core';
+import { AGENT_X_MAX_VIDEO_FILE_SIZE } from '@nxt1/core';
 import { logger } from '../../utils/logger.js';
 import firebaseAdmin from '../../utils/firebase.js';
 import {
@@ -45,6 +51,7 @@ import {
   isLegacyFallbackPlaybook,
   contextBuilder,
 } from './shared.js';
+import { AgentMediaLifecycleService } from '../../modules/agent/tools/media/agent-media-lifecycle.service.js';
 
 type AuthenticatedRequest = Request & {
   user?: {
@@ -73,6 +80,25 @@ type FirestoreDocLike = {
 
 const router = Router();
 const RECURRING_TASKS_COLLECTION = 'RecurringTasks' as const;
+
+const agentVideoProxyUpload = multer({
+  storage: multer.diskStorage({
+    destination: os.tmpdir(),
+    filename: (_req, file, cb) => {
+      const timestamp = Date.now();
+      const safeName = file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_');
+      cb(null, `${timestamp}-${crypto.randomUUID()}-${safeName}`);
+    },
+  }),
+  limits: { fileSize: AGENT_X_MAX_VIDEO_FILE_SIZE },
+  fileFilter: (_req, file, cb) => {
+    if (file.mimetype.startsWith('video/')) {
+      cb(null, true);
+    } else {
+      cb(new Error(`File type ${file.mimetype} not allowed for Agent X video attachments`));
+    }
+  },
+});
 
 function readRecurringTaskString(data: Record<string, unknown>, key: string): string | undefined {
   const value = data[key];
@@ -1027,6 +1053,7 @@ router.get('/goal-history', appGuard, async (req: Request, res: Response) => {
 // Videos use Cloudflare Stream TUS and bypass this endpoint.
 // ThreadId may be null on first message (SSE thread event fires after upload starts).
 // Falls back to unbound storage path if threadId unavailable.
+
 router.post(
   '/upload',
   appGuard,
@@ -1048,29 +1075,19 @@ router.post(
 
       const threadId = (req.body?.threadId as string | undefined) ?? null;
       const bucket = req.firebase.storage.bucket();
-      const timestamp = Date.now();
-      const sanitizedName = file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_');
-
-      // Determine storage path: use thread-bound or fallback to unbound
-      const storagePath = threadId
-        ? `Users/${user.uid}/threads/${threadId}/media/${timestamp}_${sanitizedName}`
-        : `Users/${user.uid}/uploads/unbound/${timestamp}_${sanitizedName}`;
-
-      const storageFile = bucket.file(storagePath);
-
-      await storageFile.save(file.buffer, {
-        metadata: {
-          contentType: file.mimetype,
-          cacheControl: 'private, max-age=0', // Private; require signed URL for access
-        },
+      const storagePath = AgentMediaLifecycleService.buildStoragePath({
+        userId: user.uid,
+        threadId,
+        mimeType: file.mimetype,
+        fileName: file.originalname,
+        zone: 'media',
       });
 
-      // Generate a 24-hour signed URL for the AI to access the file
-      const expiresAt = Date.now() + 24 * 60 * 60 * 1000; // 24 hours
-      const [signedUrl] = await storageFile.getSignedUrl({
-        version: 'v4',
-        action: 'read',
-        expires: expiresAt,
+      const { url: signedUrl, expiresAt } = await AgentMediaLifecycleService.saveBufferAndSignRead({
+        bucket,
+        storagePath,
+        buffer: file.buffer,
+        mimeType: file.mimetype,
       });
 
       logger.info('Agent X file uploaded', {
@@ -1126,6 +1143,392 @@ router.post(
 
       logger.error('Agent X file upload failed', { error: error.message, stack: error.stack });
       res.status(500).json({ success: false, error: 'Failed to upload file' });
+    }
+  }
+);
+
+// ─── POST /upload/tmp ────────────────────────────────────────────────────────
+// Upload a file to the per-type tmp scratch folder. Tmp files are meant to be
+// short-lived: a scheduled backend cleanup removes expired tmp objects.
+// Workers write here for scraped / generated assets; the frontend may also
+// stage files here before committing them to a thread. Identical auth +
+// validation as /upload — only the storage path prefix changes.
+router.post(
+  '/upload/tmp',
+  appGuard,
+  uploadRateLimit,
+  agentUpload.single('file'),
+  async (req: Request, res: Response) => {
+    try {
+      const user = getAuthUser(req);
+      if (!user?.uid) {
+        res.status(401).json({ success: false, error: 'Unauthorized' });
+        return;
+      }
+
+      const file = req.file;
+      if (!file) {
+        res.status(400).json({ success: false, error: 'No file provided' });
+        return;
+      }
+
+      const threadId = (req.body?.threadId as string | undefined) ?? null;
+      const bucket = req.firebase.storage.bucket();
+      const storagePath = AgentMediaLifecycleService.buildStoragePath({
+        userId: user.uid,
+        threadId,
+        mimeType: file.mimetype,
+        fileName: file.originalname,
+        zone: 'tmp',
+      });
+
+      const { url: signedUrl } = await AgentMediaLifecycleService.saveBufferAndSignRead({
+        bucket,
+        storagePath,
+        buffer: file.buffer,
+        mimeType: file.mimetype,
+      });
+
+      logger.info('Agent X tmp file uploaded', {
+        userId: user.uid,
+        threadId: threadId || 'unbound',
+        mimeType: file.mimetype,
+        sizeBytes: file.size,
+        storagePath,
+      });
+
+      res.json({
+        success: true,
+        data: {
+          url: signedUrl,
+          storagePath,
+          name: file.originalname,
+          mimeType: file.mimetype,
+          sizeBytes: file.size,
+        },
+      });
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      const errorCode = (error as ErrorWithCode).code;
+      const requestUser = (req as AuthenticatedRequest).user;
+
+      if (errorCode === 'LIMIT_FILE_SIZE') {
+        logger.warn('Tmp upload size limit exceeded', { userId: requestUser?.uid });
+        res.status(400).json({
+          success: false,
+          error: 'File exceeds maximum size limit (20 MB)',
+          code: 'FILE_TOO_LARGE',
+        });
+        return;
+      }
+      if (errorCode === 'LIMIT_UNEXPECTED_FILE') {
+        res
+          .status(400)
+          .json({ success: false, error: 'Unexpected file field', code: 'INVALID_FILE_FIELD' });
+        return;
+      }
+
+      logger.error('Agent X tmp upload failed', { error: error.message, stack: error.stack });
+      res.status(500).json({ success: false, error: 'Failed to upload tmp file' });
+    }
+  }
+);
+
+// ─── POST /upload/promote ─────────────────────────────────────────────────────
+// Promote a file from tmp/ to media/ via a server-side GCS copy + delete.
+// The calling user must own the file (uid in path must match auth uid) and
+// the path must contain /tmp/ — prevents misuse on already-permanent files.
+//
+// Body: { storagePath: string }
+// Returns: { url, storagePath, mimeType, sizeBytes }
+router.post('/upload/promote', appGuard, async (req: Request, res: Response) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user?.uid) {
+      res.status(401).json({ success: false, error: 'Unauthorized' });
+      return;
+    }
+
+    const { storagePath } = req.body as { storagePath?: unknown };
+    if (typeof storagePath !== 'string' || !storagePath.trim()) {
+      res.status(400).json({ success: false, error: 'storagePath is required' });
+      return;
+    }
+
+    const bucket = req.firebase.storage.bucket();
+    const promoted = await AgentMediaLifecycleService.promoteTmpObject({
+      bucket,
+      storagePath,
+      userId: user.uid,
+    });
+
+    logger.info('Agent X tmp file promoted to media', {
+      userId: user.uid,
+      from: storagePath,
+      to: promoted.storagePath,
+    });
+
+    res.json({
+      success: true,
+      data: {
+        url: promoted.url,
+        storagePath: promoted.storagePath,
+        mimeType: promoted.mimeType,
+        sizeBytes: promoted.sizeBytes,
+      },
+    });
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    if (error.message === 'Forbidden: file does not belong to this user') {
+      res.status(403).json({ success: false, error: error.message });
+      return;
+    }
+    if (error.message === 'storagePath must reference a tmp/ folder') {
+      res.status(400).json({ success: false, error: error.message, code: 'NOT_TMP_PATH' });
+      return;
+    }
+    if (error.message === 'Invalid storagePath') {
+      res.status(400).json({ success: false, error: error.message });
+      return;
+    }
+    if (error.message === 'Source file not found') {
+      res.status(404).json({ success: false, error: error.message, code: 'FILE_NOT_FOUND' });
+      return;
+    }
+    logger.error('Agent X promote failed', { error: error.message, stack: error.stack });
+    res.status(500).json({ success: false, error: 'Failed to promote file' });
+  }
+});
+
+// ─── POST /upload/video ────────────────────────────────────────────────────
+// Provision a Firebase Storage v4 signed upload URL for Agent X chat video
+// attachments. The browser PUTs directly to GCS (no backend buffering), then
+// uses the returned read URL as the attachment URL — which MediaTransportResolver
+// already treats as isDirectlyPortable (no Cloudflare re-encoding wait).
+//
+// Body: { fileName: string, mimeType: string, fileSize: number, threadId?: string }
+// Returns: { uploadUrl, readUrl, storagePath, expiresAt }
+router.post('/upload/video', appGuard, uploadRateLimit, async (req: Request, res: Response) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user?.uid) {
+      res.status(401).json({ success: false, error: 'Unauthorized' });
+      return;
+    }
+
+    const { fileName, mimeType, fileSize, threadId } = req.body as {
+      fileName?: unknown;
+      mimeType?: unknown;
+      fileSize?: unknown;
+      threadId?: unknown;
+    };
+
+    // ── Validate inputs ───────────────────────────────────────────────────
+    if (typeof fileName !== 'string' || !fileName.trim()) {
+      res.status(400).json({ success: false, error: 'fileName is required' });
+      return;
+    }
+    if (typeof mimeType !== 'string' || !mimeType.startsWith('video/')) {
+      res.status(400).json({
+        success: false,
+        error: 'mimeType must be a video/* MIME type',
+        code: 'INVALID_MIME_TYPE',
+      });
+      return;
+    }
+    if (typeof fileSize !== 'number' || fileSize <= 0) {
+      res.status(400).json({ success: false, error: 'fileSize must be a positive number' });
+      return;
+    }
+    if (fileSize > AGENT_X_MAX_VIDEO_FILE_SIZE) {
+      res.status(400).json({
+        success: false,
+        error: `File exceeds maximum video size limit (500 MB)`,
+        code: 'FILE_TOO_LARGE',
+      });
+      return;
+    }
+
+    const resolvedThreadId =
+      typeof threadId === 'string' && threadId.trim() ? threadId.trim() : null;
+
+    // Strip any path components from the filename — prevents path traversal
+    const safeName = path.basename(fileName).replace(/[^a-zA-Z0-9._-]/g, '_');
+    const timestamp = Date.now();
+    const uniqueId = crypto.randomUUID();
+
+    const storagePath = resolvedThreadId
+      ? `Users/${user.uid}/threads/${resolvedThreadId}/media/video/${timestamp}-${uniqueId}-${safeName}`
+      : `Users/${user.uid}/uploads/video/unbound/${timestamp}-${uniqueId}-${safeName}`;
+
+    const bucket = req.firebase.storage.bucket();
+    const storageFile = bucket.file(storagePath);
+
+    // Write signed URL: browser PUTs directly to GCS — 15 min window to start
+    const uploadExpiresAt = Date.now() + 15 * 60 * 1000;
+    const [uploadUrl] = await storageFile.getSignedUrl({
+      version: 'v4',
+      action: 'write',
+      expires: uploadExpiresAt,
+      contentType: mimeType,
+      // Enforce content length so GCS rejects oversized payloads at the edge
+      extensionHeaders: {
+        'x-goog-content-length-range': `1,${AGENT_X_MAX_VIDEO_FILE_SIZE}`,
+      },
+    });
+
+    // Read signed URL: 24-hour window for AI tools to access the video
+    const readExpiresAt = Date.now() + 24 * 60 * 60 * 1000;
+    const [readUrl] = await storageFile.getSignedUrl({
+      version: 'v4',
+      action: 'read',
+      expires: readExpiresAt,
+    });
+
+    logger.info('Agent X video upload URL provisioned', {
+      userId: user.uid,
+      threadId: resolvedThreadId ?? 'unbound',
+      mimeType,
+      fileSize,
+      storagePath,
+      uploadExpiresAt: new Date(uploadExpiresAt).toISOString(),
+      readExpiresAt: new Date(readExpiresAt).toISOString(),
+    });
+
+    res.json({
+      success: true,
+      data: {
+        uploadUrl,
+        readUrl,
+        storagePath,
+        expiresAt: new Date(readExpiresAt).toISOString(),
+      },
+    });
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('Agent X video upload provisioning failed', {
+      error: error.message,
+      stack: error.stack,
+    });
+    res.status(500).json({ success: false, error: 'Failed to provision video upload URL' });
+  }
+});
+
+// ─── POST /upload/video/proxy ─────────────────────────────────────────────
+// Fallback upload path used when browser direct PUT to GCS is blocked by CORS
+// (common in local dev on localhost). Streams video to Firebase Storage via
+// backend, then returns a signed read URL for immediate AI access.
+router.post(
+  '/upload/video/proxy',
+  appGuard,
+  uploadRateLimit,
+  agentVideoProxyUpload.single('file'),
+  async (req: Request, res: Response) => {
+    let tempFilePath: string | null = null;
+    try {
+      const user = getAuthUser(req);
+      if (!user?.uid) {
+        res.status(401).json({ success: false, error: 'Unauthorized' });
+        return;
+      }
+
+      const file = req.file;
+      if (!file) {
+        res.status(400).json({ success: false, error: 'No video file provided' });
+        return;
+      }
+      tempFilePath = file.path;
+
+      if (!file.mimetype.startsWith('video/')) {
+        res.status(400).json({ success: false, error: 'file must be video/*' });
+        return;
+      }
+
+      if (file.size > AGENT_X_MAX_VIDEO_FILE_SIZE) {
+        res.status(400).json({
+          success: false,
+          error: 'File exceeds maximum video size limit (500 MB)',
+          code: 'FILE_TOO_LARGE',
+        });
+        return;
+      }
+
+      const rawThreadId = req.body?.threadId;
+      const resolvedThreadId =
+        typeof rawThreadId === 'string' && rawThreadId.trim() ? rawThreadId.trim() : null;
+
+      const safeName = path.basename(file.originalname).replace(/[^a-zA-Z0-9._-]/g, '_');
+      const timestamp = Date.now();
+      const uniqueId = crypto.randomUUID();
+      const storagePath = resolvedThreadId
+        ? `Users/${user.uid}/threads/${resolvedThreadId}/media/video/${timestamp}-${uniqueId}-${safeName}`
+        : `Users/${user.uid}/uploads/video/unbound/${timestamp}-${uniqueId}-${safeName}`;
+
+      const bucket = req.firebase.storage.bucket();
+      const storageFile = bucket.file(storagePath);
+
+      await new Promise<void>((resolve, reject) => {
+        const readStream = createReadStream(file.path);
+        const writeStream = storageFile.createWriteStream({
+          metadata: {
+            contentType: file.mimetype,
+            cacheControl: 'private, max-age=0',
+          },
+        });
+
+        readStream.on('error', reject);
+        writeStream.on('error', reject);
+        writeStream.on('finish', () => resolve());
+
+        readStream.pipe(writeStream);
+      });
+
+      const readExpiresAt = Date.now() + 24 * 60 * 60 * 1000;
+      const [readUrl] = await storageFile.getSignedUrl({
+        version: 'v4',
+        action: 'read',
+        expires: readExpiresAt,
+      });
+
+      logger.info('Agent X video uploaded via backend proxy fallback', {
+        userId: user.uid,
+        threadId: resolvedThreadId ?? 'unbound',
+        mimeType: file.mimetype,
+        fileSize: file.size,
+        storagePath,
+        readExpiresAt: new Date(readExpiresAt).toISOString(),
+      });
+
+      res.json({
+        success: true,
+        data: {
+          readUrl,
+          storagePath,
+          expiresAt: new Date(readExpiresAt).toISOString(),
+        },
+      });
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      const errorCode = (error as ErrorWithCode).code;
+
+      if (errorCode === 'LIMIT_FILE_SIZE') {
+        res.status(400).json({
+          success: false,
+          error: 'File exceeds maximum video size limit (500 MB)',
+          code: 'FILE_TOO_LARGE',
+        });
+        return;
+      }
+
+      logger.error('Agent X proxy video upload failed', {
+        error: error.message,
+        stack: error.stack,
+      });
+      res.status(500).json({ success: false, error: 'Failed to upload video' });
+    } finally {
+      if (tempFilePath) {
+        void unlink(tempFilePath).catch(() => undefined);
+      }
     }
   }
 );

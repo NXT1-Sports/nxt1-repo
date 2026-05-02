@@ -29,8 +29,9 @@ Use real video media for film analysis. Never infer plays, technique, or movemen
 1. If the user already provided a direct public video URL or an uploaded Cloudflare video, analyze that real video source.
 2. If the clip is inside a signed-in live-view session, use extract_live_view_media first.
 3. If extract_live_view_media returns a direct MP4, use that playable URL.
-4. If it returns protected HLS or DASH only, use call_apify_actor with the extracted headers or cookies and set skipMediaPersistence: true.
-5. When Apify returns a downloadable MP4 URL, use import_video with waitForReady: true, then enable_download, then analyze the downloadable MP4.
+4. If the live-view extractor returns a direct clip URL that requires cookies, referer, origin, or auth headers, do not send that raw URL into analyze_video. Acquire a downloadable MP4 through Apify first.
+5. If it returns HLS or DASH manifests, use call_apify_actor with the extracted headers or cookies and set skipMediaPersistence: true so Apify converts the stream into a downloadable MP4.
+6. Send the Apify-produced MP4 directly to analyze_video. Use import_video with waitForReady: true, then enable_download, only when the media must be persisted for editing, clipping, captions, or later reuse.
 
 ### Playlist Or Multi-Clip Workflow
 1. First use extract_live_view_playlist to capture the playlist entries, clip URLs, titles, and auth bundle from the current page.

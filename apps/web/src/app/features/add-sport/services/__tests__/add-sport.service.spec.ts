@@ -24,6 +24,7 @@ import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import { NxtBreadcrumbService } from '@nxt1/ui/services/breadcrumb';
 import { ANALYTICS_ADAPTER } from '@nxt1/ui/services/analytics';
 import { NxtPlatformService } from '@nxt1/ui/services/platform';
+import { ProfileGenerationStateService } from '@nxt1/ui/profile';
 
 import { AddSportService } from '../../add-sport.service';
 import { AuthFlowService } from '../../../../core/services/auth/auth-flow.service';
@@ -94,6 +95,10 @@ const createProfileServiceMock = () => ({
   invalidateCache: vi.fn(),
 });
 
+const createProfileGenerationStateMock = () => ({
+  attachToOperation: vi.fn(),
+});
+
 // ============================================
 // TEST SUITE
 // ============================================
@@ -108,6 +113,7 @@ describe('AddSportService', () => {
   let httpClientMock: ReturnType<typeof createHttpClientMock>;
   let authFlowMock: ReturnType<typeof createAuthFlowMock>;
   let profileServiceMock: ReturnType<typeof createProfileServiceMock>;
+  let profileGenerationStateMock: ReturnType<typeof createProfileGenerationStateMock>;
 
   beforeAll(() => {
     const testBed = getTestBed();
@@ -128,6 +134,7 @@ describe('AddSportService', () => {
     httpClientMock = createHttpClientMock();
     authFlowMock = createAuthFlowMock();
     profileServiceMock = createProfileServiceMock();
+    profileGenerationStateMock = createProfileGenerationStateMock();
 
     TestBed.configureTestingModule({
       providers: [
@@ -142,6 +149,7 @@ describe('AddSportService', () => {
         { provide: NxtLoggingService, useValue: loggerMock },
         { provide: ANALYTICS_ADAPTER, useValue: analyticsMock },
         { provide: NxtBreadcrumbService, useValue: breadcrumbMock },
+        { provide: ProfileGenerationStateService, useValue: profileGenerationStateMock },
       ],
     });
 
@@ -222,6 +230,73 @@ describe('AddSportService', () => {
       });
       service.onContinue();
       expect(service.agentXMessage()).toContain('Connect your accounts');
+    });
+
+    it('should keep existing athlete behavior by excluding already-added sports', () => {
+      authFlowMock.user.mockReturnValue({
+        uid: 'u1',
+        role: 'athlete',
+        sports: [{ sport: "Men's Basketball" }],
+      });
+
+      expect(service.existingSportNames()).toEqual(["men's basketball"]);
+
+      service.initialize();
+      service.onSportChange({
+        sports: [
+          { sport: "Men's Basketball", isPrimary: false, team: { name: '' }, positions: [] },
+        ],
+      });
+      service.onContinue();
+
+      expect(toastMock.error).toHaveBeenCalledWith(
+        'You already have this sport. Please choose a different one.'
+      );
+    });
+
+    it('should allow coach/director to re-select a sport when no team is attached', () => {
+      authFlowMock.user.mockReturnValue({
+        uid: 'u1',
+        role: 'coach',
+        sports: [{ sport: "Men's Basketball", team: {} }],
+      });
+
+      expect(service.existingSportNames()).toEqual([]);
+
+      service.initialize();
+      service.onSportChange({
+        sports: [
+          { sport: "Men's Basketball", isPrimary: false, team: { name: '' }, positions: [] },
+        ],
+      });
+      service.onContinue();
+
+      expect(toastMock.error).not.toHaveBeenCalledWith(
+        'You already have this team. Please choose a different one.'
+      );
+      expect(service.currentStep()).toBe('organization');
+    });
+
+    it('should block coach/director sport when a concrete team is already attached', () => {
+      authFlowMock.user.mockReturnValue({
+        uid: 'u1',
+        role: 'director',
+        sports: [{ sport: "Men's Basketball", team: { teamId: 'team-123' } }],
+      });
+
+      expect(service.existingSportNames()).toEqual(["men's basketball"]);
+
+      service.initialize();
+      service.onSportChange({
+        sports: [
+          { sport: "Men's Basketball", isPrimary: false, team: { name: '' }, positions: [] },
+        ],
+      });
+      service.onContinue();
+
+      expect(toastMock.error).toHaveBeenCalledWith(
+        'You already have this team. Please choose a different one.'
+      );
     });
   });
 
@@ -462,6 +537,32 @@ describe('AddSportService', () => {
             },
           ],
         });
+      });
+    });
+
+    it('should attach to profile generation when add-sport enqueue returns scrape metadata', async () => {
+      profileServiceMock.addSport.mockReturnValue(
+        of({
+          success: true,
+          data: {
+            sport: 'Basketball',
+            scrapeJobId: 'job-123',
+            scrapeThreadId: 'thread-456',
+          },
+        })
+      );
+
+      service.onLinkSourcesChange({
+        links: [{ platform: 'hudl', connected: true, url: 'https://hudl.com/profile/1' }],
+      } as Parameters<typeof service.onLinkSourcesChange>[0]);
+
+      service.onContinue();
+      await vi.waitFor(() => {
+        expect(profileGenerationStateMock.attachToOperation).toHaveBeenCalledWith(
+          'job-123',
+          'thread-456',
+          'hudl'
+        );
       });
     });
   });

@@ -19,9 +19,7 @@ import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
           />
         </svg>
       </div>
-      @if (label) {
-        <span class="thinking-block__label">{{ label }}</span>
-      }
+      <span class="thinking-block__label">{{ displayLabel }}</span>
     </div>
   `,
   styles: [
@@ -58,9 +56,9 @@ import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
         letter-spacing: -0.01em;
         background: linear-gradient(
           90deg,
-          var(--op-text-muted) 0%,
-          var(--op-text) 50%,
-          var(--op-text-muted) 100%
+          var(--op-text-muted, rgba(211, 218, 227, 0.72)) 0%,
+          var(--op-text, rgba(233, 238, 245, 0.96)) 50%,
+          var(--op-text-muted, rgba(211, 218, 227, 0.72)) 100%
         );
         background-size: 200% auto;
         color: transparent;
@@ -111,4 +109,9 @@ import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
 })
 export class AgentXOperationChatThinkingComponent {
   @Input() label: string | null = null;
+
+  protected get displayLabel(): string {
+    const value = this.label?.trim();
+    return value && value.length > 0 ? value : 'Agent X is thinking...';
+  }
 }

@@ -100,8 +100,8 @@ export class ChatAttachmentDto {
   id!: string;
 
   @IsUrl({ protocols: ['https'], require_protocol: true })
-  @IsNotEmpty()
-  url!: string;
+  @IsOptional()
+  url?: string;
 
   @IsString()
   @IsOptional()
@@ -112,22 +112,38 @@ export class ChatAttachmentDto {
   name!: string;
 
   @IsString()
-  @IsNotEmpty()
-  mimeType!: string;
+  @IsOptional()
+  mimeType?: string;
 
-  @IsIn(['image', 'video', 'pdf', 'csv', 'doc'])
+  @IsIn(['image', 'video', 'pdf', 'csv', 'doc', 'app'])
   @IsNotEmpty()
   type!: string;
 
   @IsNumber()
   @Min(1)
   @Max(500 * 1024 * 1024) // 500 MB — videos upload via Cloudflare Stream
-  sizeBytes!: number;
+  @IsOptional()
+  sizeBytes?: number;
 
   /** Cloudflare Stream video ID — present only for video attachments uploaded via TUS. */
   @IsString()
   @IsOptional()
   cloudflareVideoId?: string;
+
+  /** Platform name for app attachments (e.g., 'Instagram', 'TikTok', 'YouTube'). */
+  @IsString()
+  @IsOptional()
+  platform?: string;
+
+  /** Profile/account URL for app attachments (e.g., https://instagram.com/username). */
+  @IsUrl({ protocols: ['https'], require_protocol: true })
+  @IsOptional()
+  profileUrl?: string;
+
+  /** Favicon/logo URL for app attachments. */
+  @IsUrl({ protocols: ['https'], require_protocol: true })
+  @IsOptional()
+  faviconUrl?: string;
 }
 
 export class SelectedActionDto {
@@ -146,6 +162,34 @@ export class SelectedActionDto {
   @IsString()
   @IsOptional()
   label?: string;
+}
+
+export class ConnectedSourceDto {
+  /** Platform name (e.g., 'Hudl', 'Instagram', 'TikTok'). */
+  @IsString()
+  @IsNotEmpty()
+  platform!: string;
+
+  /** Profile/account URL on the connected platform. */
+  @IsUrl({ protocols: ['https'], require_protocol: true })
+  @IsNotEmpty()
+  profileUrl!: string;
+
+  /** Favicon/logo URL for the platform. */
+  @IsUrl({ protocols: ['https'], require_protocol: true })
+  @IsOptional()
+  faviconUrl?: string;
+
+  /** Optional scope type emitted by the attachments picker context. */
+  @IsString()
+  @IsIn(['global', 'sport', 'team'])
+  @IsOptional()
+  scopeType?: 'global' | 'sport' | 'team';
+
+  /** Optional scope identifier when scopeType is sport/team. */
+  @IsString()
+  @IsOptional()
+  scopeId?: string;
 }
 
 export class AgentChatRequestDto {
@@ -182,6 +226,18 @@ export class AgentChatRequestDto {
   @Type(() => ChatAttachmentDto)
   attachments?: ChatAttachmentDto[];
 
+  /**
+   * Connected app sources the user selected for this message.
+   * Backend injects these as context so Agent X knows which platforms
+   * are available for data retrieval or virtual browser navigation.
+   */
+  @IsArray()
+  @IsOptional()
+  @ArrayMaxSize(20)
+  @ValidateNested({ each: true })
+  @Type(() => ConnectedSourceDto)
+  connectedSources?: ConnectedSourceDto[];
+
   /** Resume streaming for an in-progress heavy task (drop recovery). */
   @IsUUID('4')
   @IsOptional()
@@ -197,6 +253,59 @@ export class AgentChatRequestDto {
   @ValidateNested()
   @Type(() => SelectedActionDto)
   selectedAction?: SelectedActionDto;
+
+  /**
+   * Metadata for files that are still uploading when the user hits Send.
+   * When present, the backend starts the SSE stream immediately, emits
+   * `waiting_for_attachments`, then awaits a subsequent POST to
+   * `/agent-x/chat/pending-attachments/:operationId` before enqueueing.
+   */
+  @IsArray()
+  @IsOptional()
+  @ArrayMaxSize(5)
+  @ValidateNested({ each: true })
+  @Type(() => AttachmentStubDto)
+  attachmentStubs?: AttachmentStubDto[];
+}
+
+/**
+ * Minimal metadata for a file that is selected but not yet uploaded.
+ * Sent alongside (or instead of) fully resolved {@link ChatAttachmentDto} entries.
+ */
+export class AttachmentStubDto {
+  @IsUUID('4')
+  @IsNotEmpty()
+  id!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  name!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  mimeType!: string;
+
+  @IsNumber()
+  @Min(1)
+  @Max(500 * 1024 * 1024)
+  sizeBytes!: number;
+
+  @IsIn(['image', 'video', 'pdf', 'csv', 'doc', 'app'])
+  @IsNotEmpty()
+  type!: string;
+}
+
+/**
+ * Body for `POST /agent-x/chat/pending-attachments/:operationId`.
+ * Sent by the frontend after background uploads complete to unblock the
+ * backend waiter and inject the resolved URLs into the job payload.
+ */
+export class ResolvePendingAttachmentsDto {
+  @IsArray()
+  @ArrayMaxSize(5)
+  @ValidateNested({ each: true })
+  @Type(() => ChatAttachmentDto)
+  attachments!: ChatAttachmentDto[];
 }
 
 export class AgentEnqueueRequestDto {
@@ -259,6 +368,20 @@ export class CancelAgentTaskDto {
 // ============================================
 // AGENT MESSAGE ACTION DTOs
 // ============================================
+
+export class SyncAgentMessageAttachmentDto {
+  @IsString()
+  @IsNotEmpty()
+  @Length(8, 128)
+  @Matches(/^[A-Za-z0-9:_-]+$/, {
+    message: 'idempotencyKey must use only letters, numbers, colon, underscore, or hyphen',
+  })
+  idempotencyKey!: string;
+
+  @ValidateNested()
+  @Type(() => ChatAttachmentDto)
+  attachment!: ChatAttachmentDto;
+}
 
 export class UpdateAgentMessageDto {
   @IsString()

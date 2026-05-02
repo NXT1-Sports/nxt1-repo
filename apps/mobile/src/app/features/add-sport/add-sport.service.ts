@@ -24,6 +24,7 @@ import {
   NxtLoggingService,
   NxtBreadcrumbService,
   ANALYTICS_ADAPTER,
+  ProfileGenerationStateService,
   type AnimationDirection,
   type TeamSearchResult,
 } from '@nxt1/ui';
@@ -82,6 +83,7 @@ export class AddSportService {
   private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
   private readonly breadcrumb = inject(NxtBreadcrumbService);
   private readonly performance = inject(PerformanceService);
+  private readonly profileGenerationState = inject(ProfileGenerationStateService);
 
   // ============================================
   // WRITABLE SIGNALS
@@ -474,6 +476,25 @@ export class AddSportService {
         await this.profileService.refresh(uid);
       } catch (err) {
         this.logger.warn('Profile refresh failed', { error: err });
+      }
+
+      if (sportResponse.data?.scrapeJobId) {
+        const platformNames =
+          this._linkSourcesFormData()
+            ?.links?.filter((link) => link.connected)
+            .map((link) => link.platform)
+            .join(', ') ?? '';
+
+        this.profileGenerationState.attachToOperation(
+          sportResponse.data.scrapeJobId,
+          sportResponse.data.scrapeThreadId,
+          platformNames
+        );
+        this.logger.info('Backend scrape job started for add-sport', {
+          scrapeJobId: sportResponse.data.scrapeJobId,
+          scrapeThreadId: sportResponse.data.scrapeThreadId,
+          sport: primarySport.sport,
+        });
       }
 
       this.analytics?.trackEvent(APP_EVENTS.PROFILE_SPORT_ADDED, {

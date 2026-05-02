@@ -93,6 +93,14 @@ router.get(
           ) {
             user.connectedSources = teamData['connectedSources'];
           }
+          if (
+            teamData?.['connectedAccounts'] &&
+            typeof teamData['connectedAccounts'] === 'object' &&
+            !Array.isArray(teamData['connectedAccounts'])
+          ) {
+            (user as unknown as Record<string, unknown>)['connectedAccounts'] =
+              teamData['connectedAccounts'];
+          }
         }
       } catch (err) {
         logger.warn('[Profile] /me failed to fetch team connected sources', {
@@ -362,6 +370,14 @@ router.get(
             teamData['connectedSources'].length > 0
           ) {
             user.connectedSources = teamData['connectedSources'];
+          }
+          if (
+            teamData?.['connectedAccounts'] &&
+            typeof teamData['connectedAccounts'] === 'object' &&
+            !Array.isArray(teamData['connectedAccounts'])
+          ) {
+            (user as unknown as Record<string, unknown>)['connectedAccounts'] =
+              teamData['connectedAccounts'];
           }
         }
       } catch (err) {

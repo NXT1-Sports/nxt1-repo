@@ -86,6 +86,33 @@ export class ApprovalGateService {
     toolName: string,
     toolInput: Record<string, unknown>
   ): Record<string, unknown> {
+    const collectUrlArray = (value: unknown): string[] => {
+      if (!Array.isArray(value)) return [];
+      return value
+        .filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+        .map((entry) => entry.trim());
+    };
+
+    const firstString = (value: unknown): string | null => {
+      if (typeof value === 'string' && value.trim().length > 0) return value.trim();
+      if (Array.isArray(value)) {
+        const candidate = value.find(
+          (entry) => typeof entry === 'string' && entry.trim().length > 0
+        );
+        return typeof candidate === 'string' ? candidate.trim() : null;
+      }
+      return null;
+    };
+
+    const dedupe = (urls: readonly string[]): string[] => [...new Set(urls)];
+
+    const isLikelyVideoUrl = (url: string): boolean => {
+      const value = url.trim().toLowerCase();
+      return (
+        value.includes('/manifest/video.m3u8') || /\.(mp4|mov|m4v|webm|m3u8)(\?|#|$)/i.test(value)
+      );
+    };
+
     if (toolName === 'send_email') {
       return {
         userId: toolInput['userId'],
@@ -141,6 +168,69 @@ export class ApprovalGateService {
           toolInput['bodyHtml'] ??
           toolInput['body'] ??
           toolInput['message'],
+      };
+    }
+
+    if (toolName === 'write_team_post' || toolName === 'update_team_post') {
+      const posts = Array.isArray(toolInput['posts']) ? toolInput['posts'] : [];
+      const normalizedPosts = posts
+        .map((post) => {
+          if (!post || typeof post !== 'object' || Array.isArray(post)) return null;
+          const p = post as Record<string, unknown>;
+
+          const mediaUrls = dedupe([
+            ...collectUrlArray(p['mediaUrls']),
+            ...collectUrlArray(p['images']),
+            ...collectUrlArray(p['imageUrls']),
+            ...(firstString(p['videoUrl']) ? [firstString(p['videoUrl']) as string] : []),
+            ...(firstString(p['video']) ? [firstString(p['video']) as string] : []),
+          ]);
+
+          const normalized: Record<string, unknown> = {
+            ...(typeof p['type'] === 'string' ? { type: p['type'] } : {}),
+            ...(typeof p['content'] === 'string' ? { content: p['content'] } : {}),
+            ...(typeof p['title'] === 'string' ? { title: p['title'] } : {}),
+            ...(typeof p['sportId'] === 'string' ? { sportId: p['sportId'] } : {}),
+            ...(typeof p['isPinned'] === 'boolean' ? { isPinned: p['isPinned'] } : {}),
+            ...(mediaUrls.length > 0 ? { mediaUrls } : {}),
+          };
+
+          return normalized;
+        })
+        .filter((post): post is Record<string, unknown> => post !== null);
+
+      return {
+        ...(typeof toolInput['teamId'] === 'string' ? { teamId: toolInput['teamId'] } : {}),
+        ...(typeof toolInput['teamCode'] === 'string' ? { teamCode: toolInput['teamCode'] } : {}),
+        posts: normalizedPosts,
+      };
+    }
+
+    if (toolName === 'write_timeline_post' || toolName === 'update_timeline_post') {
+      const rawImages = dedupe([
+        ...collectUrlArray(toolInput['images']),
+        ...collectUrlArray(toolInput['mediaUrls']),
+        ...collectUrlArray(toolInput['imageUrls']),
+      ]);
+
+      const explicitVideoUrl =
+        firstString(toolInput['videoUrl']) || firstString(toolInput['video']) || null;
+
+      const images = rawImages.filter((url) => !isLikelyVideoUrl(url));
+      const inferredVideoFromImages = rawImages.find((url) => isLikelyVideoUrl(url)) ?? null;
+      const videoUrl = explicitVideoUrl ?? inferredVideoFromImages;
+
+      return {
+        ...(typeof toolInput['userId'] === 'string' ? { userId: toolInput['userId'] } : {}),
+        ...(typeof toolInput['content'] === 'string' ? { content: toolInput['content'] } : {}),
+        ...(typeof toolInput['type'] === 'string' ? { type: toolInput['type'] } : {}),
+        ...(typeof toolInput['visibility'] === 'string'
+          ? { visibility: toolInput['visibility'] }
+          : {}),
+        ...(typeof toolInput['teamId'] === 'string' ? { teamId: toolInput['teamId'] } : {}),
+        ...(typeof toolInput['sportId'] === 'string' ? { sportId: toolInput['sportId'] } : {}),
+        ...(images.length > 0 ? { images } : {}),
+        ...(videoUrl ? { videoUrl } : {}),
       };
     }
 
@@ -213,11 +303,14 @@ export class ApprovalGateService {
     const approval = await this.getApproval(approvalId);
     if (!approval) return false;
 
+    const normalizedIncomingInput = this.normalizeToolInput(toolName, toolInput);
+    const normalizedApprovedInput = this.normalizeToolInput(toolName, approval.toolInput);
+
     return (
       approval.userId === userId &&
       approval.toolName === toolName &&
       (approval.status === 'approved' || approval.status === 'auto_approved') &&
-      isDeepStrictEqual(approval.toolInput, toolInput)
+      isDeepStrictEqual(normalizedApprovedInput, normalizedIncomingInput)
     );
   }
 
@@ -275,6 +368,7 @@ export class ApprovalGateService {
         ...request,
         expiresAt: approvalRecordTtlFromNow(APPROVAL_RETENTION_TTL_DAYS),
         firestoreCreatedAt: FieldValue.serverTimestamp(),
+        expiryPushSent: false,
       });
 
     logger.info('Approval request created', {
@@ -442,5 +536,172 @@ export class ApprovalGateService {
     }
 
     return { expired: expiredCount, autoApproved: autoApprovedCount };
+  }
+
+  /**
+   * Scan for pending approvals expiring within `thresholdMs` that have NOT yet
+   * received an expiry warning push. Dispatches a push and marks them so the
+   * cron does not fire again for the same approval.
+   *
+   * @param thresholdMs - Window before expiry in ms (default: 5 minutes).
+   */
+  async notifyExpiringSoon(thresholdMs = 300_000): Promise<{ notified: number }> {
+    const now = Date.now();
+    const snapshot = await this.db
+      .collection(APPROVALS_COLLECTION)
+      .where('status', '==', 'pending')
+      .where('expiryPushSent', '==', false)
+      .get();
+
+    let notified = 0;
+
+    for (const doc of snapshot.docs) {
+      const request = doc.data() as AgentApprovalRequest & { expiryPushSent?: boolean };
+
+      // Skip if already marked (handles race between concurrent cron invocations)
+      if (request.expiryPushSent) continue;
+
+      const createdAtMs = new Date(request.createdAt).getTime();
+      const expiresAtMs = createdAtMs + request.expiresInMs;
+      const remaining = expiresAtMs - now;
+
+      // Only notify when within threshold and not already expired
+      if (remaining <= 0 || remaining > thresholdMs) continue;
+
+      const mins = Math.max(1, Math.round(remaining / 60_000));
+      const copy = resolveAgentApprovalCopy({
+        toolName: request.toolName,
+        toolInput: request.toolInput as Record<string, unknown>,
+      });
+
+      try {
+        await dispatchAgentPush(this.db, {
+          kind: 'agent_approval_expiring_soon',
+          userId: request.userId,
+          operationId: request.operationId,
+          threadId: request.threadId,
+          approvalId: request.id,
+          toolName: request.toolName,
+          title: 'Approval Expiring Soon',
+          body: `Your approval for "${copy.actionSummary}" expires in ${mins} minute${mins === 1 ? '' : 's'}.`,
+          remainingMs: remaining,
+        });
+
+        // Mark so this approval is not notified again
+        await doc.ref.update({ expiryPushSent: true });
+        notified++;
+
+        logger.info('Approval expiry push sent', {
+          approvalId: request.id,
+          toolName: request.toolName,
+          remainingMs: remaining,
+        });
+      } catch (notifyErr) {
+        logger.warn('Failed to send approval expiry push', {
+          approvalId: request.id,
+          error: notifyErr instanceof Error ? notifyErr.message : String(notifyErr),
+        });
+      }
+    }
+
+    return { notified };
+  }
+
+  // ── Session-Level Trust Grants ────────────────────────────────────────────
+
+  private static readonly TRUST_GRANTS_COLLECTION = 'AgentSessionTrustGrants' as const;
+  private static readonly SESSION_TRUST_TTL_MS = 2 * 60 * 60 * 1000; // 2 hours
+
+  /**
+   * Check whether the user has an active session trust grant for the given
+   * tool's `sessionTrustGroup`. If a valid grant exists, the tool may be
+   * auto-approved without showing the approval card.
+   */
+  async hasActiveTrustGrant(userId: string, sessionId: string, toolName: string): Promise<boolean> {
+    const policy = this.getApprovalPolicy(toolName);
+    if (!policy?.sessionTrustGroup) return false;
+
+    const now = new Date().toISOString();
+    const snapshot = await this.db
+      .collection(ApprovalGateService.TRUST_GRANTS_COLLECTION)
+      .where('userId', '==', userId)
+      .where('sessionId', '==', sessionId)
+      .where('trustGroup', '==', policy.sessionTrustGroup)
+      .where('expiresAt', '>', now)
+      .limit(1)
+      .get();
+
+    return !snapshot.empty;
+  }
+
+  /**
+   * Write a session trust grant for the tool's `sessionTrustGroup`.
+   * Called after the user approves an action and checks "Trust for this session".
+   * The grant is valid for 2 hours from creation.
+   *
+   * @returns The created `AgentSessionTrustGrant`, or null when the tool has
+   *          no `sessionTrustGroup` (e.g. critical-risk tools are not eligible).
+   */
+  async grantSessionTrust(
+    userId: string,
+    sessionId: string,
+    toolName: string
+  ): Promise<import('@nxt1/core').AgentSessionTrustGrant | null> {
+    const policy = this.getApprovalPolicy(toolName);
+    if (!policy?.sessionTrustGroup) return null;
+
+    // Critical-risk tools are never eligible for session trust.
+    if (policy.riskLevel === 'critical') return null;
+
+    const now = Date.now();
+    const grant: import('@nxt1/core').AgentSessionTrustGrant = {
+      id: `grant_${crypto.randomUUID()}`,
+      userId,
+      sessionId,
+      trustGroup: policy.sessionTrustGroup,
+      createdAt: new Date(now).toISOString(),
+      expiresAt: new Date(now + ApprovalGateService.SESSION_TRUST_TTL_MS).toISOString(),
+    };
+
+    await this.db
+      .collection(ApprovalGateService.TRUST_GRANTS_COLLECTION)
+      .doc(grant.id)
+      .set({
+        ...grant,
+        firestoreCreatedAt: FieldValue.serverTimestamp(),
+        // Firestore TTL field so old grants are garbage-collected automatically.
+        ttlExpiresAt: Timestamp.fromMillis(now + ApprovalGateService.SESSION_TRUST_TTL_MS),
+      });
+
+    logger.info('Session trust grant created', {
+      grantId: grant.id,
+      userId,
+      sessionId,
+      trustGroup: policy.sessionTrustGroup,
+      toolName,
+    });
+
+    return grant;
+  }
+
+  /**
+   * Revoke all session trust grants for the given user + session.
+   * Called on session end or when the user explicitly revokes trust.
+   */
+  async revokeSessionTrust(userId: string, sessionId: string): Promise<{ revoked: number }> {
+    const snapshot = await this.db
+      .collection(ApprovalGateService.TRUST_GRANTS_COLLECTION)
+      .where('userId', '==', userId)
+      .where('sessionId', '==', sessionId)
+      .get();
+
+    const batch = this.db.batch();
+    for (const doc of snapshot.docs) {
+      batch.delete(doc.ref);
+    }
+    await batch.commit();
+
+    logger.info('Session trust grants revoked', { userId, sessionId, revoked: snapshot.size });
+    return { revoked: snapshot.size };
   }
 }

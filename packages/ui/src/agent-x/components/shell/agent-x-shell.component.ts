@@ -80,8 +80,11 @@ import { NxtStateViewComponent } from '../../../components/state-view';
 import { ActivityService } from '../../../activity/activity.service';
 import { buildLinkSourcesFormData, type OnboardingUserType } from '@nxt1/core';
 import type { LinkSourcesFormData } from '@nxt1/core/api';
-import { getPlatformFaviconUrl } from '@nxt1/core/platforms';
-import type { ConnectedAccountsResyncSource } from '../../../components/connected-sources';
+import { getPlatformFaviconUrl, PLATFORM_FAVICON_DOMAINS } from '@nxt1/core/platforms';
+import {
+  type ConnectedAccountsResyncSource,
+  FirecrawlSignInService,
+} from '../../../components/connected-sources';
 import { buildPendingAttachmentViewer } from '../../utils/pending-attachments-viewer.util';
 import {
   bindAgentXKeyboardOffset,
@@ -168,11 +171,11 @@ export interface WeeklyPlaybookItem {
 }
 
 const COORDINATOR_ORDER: readonly string[] = [
-  'admin coordinator',
+  'performance coordinator',
   'brand coordinator',
   'strategy coordinator',
   'recruiting coordinator',
-  'performance coordinator',
+  'admin coordinator',
   'data coordinator',
 ] as const;
 
@@ -1871,6 +1874,7 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
   private readonly navController = inject(NavController);
   private readonly injector = inject(EnvironmentInjector);
   private readonly activityService = inject(ActivityService);
+  private readonly firecrawlSignIn = inject(FirecrawlSignInService);
   private readonly sidenavService = inject(NxtSidenavService, { optional: true });
   private readonly hostElement = inject(ElementRef<HTMLElement>);
   private readonly platformId = inject(PLATFORM_ID);
@@ -1907,6 +1911,7 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
 
   /** Connected app sources staged from attachment sheet taps. */
   protected readonly pendingConnectedSources = signal<ConnectedAppSource[]>([]);
+  private readonly firecrawlSignedInPlatforms = signal<readonly string[]>([]);
 
   // ============================================
   // OUTPUTS
@@ -2051,6 +2056,15 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
     effect(() => {
       this.agentX.setAttachmentConnectedSources(this.getAttachmentConnectedSources());
     });
+
+    effect(() => {
+      if (!this.user()) {
+        this.firecrawlSignedInPlatforms.set([]);
+        return;
+      }
+
+      void this.refreshFirecrawlSignedInAccounts();
+    });
   }
 
   async ngOnInit(): Promise<void> {
@@ -2114,6 +2128,8 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
       }) as LinkSourcesFormData | null,
       scope: role === 'coach' || role === 'director' ? 'team' : 'athlete',
     });
+
+    await this.refreshFirecrawlSignedInAccounts();
 
     if (result.linkSources) {
       this.connectedAccountsSave.emit({
@@ -2312,6 +2328,8 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
       this.agentX.takePendingFiles();
     }
 
+    await this.refreshFirecrawlSignedInAccounts();
+
     await this.bottomSheet.openSheet({
       component: AgentXOperationChatComponent,
       componentProps: {
@@ -2428,6 +2446,8 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
     await this.haptics.impact('light');
 
     // Open the operation chat bottom sheet with the message and files
+    await this.refreshFirecrawlSignedInAccounts();
+
     await this.bottomSheet.openSheet({
       component: AgentXOperationChatComponent,
       componentProps: {
@@ -2455,6 +2475,7 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
   /** + button — open attachments bottom sheet with file and source options. */
   protected async onToggleAttachments(): Promise<void> {
     await this.haptics.impact('light');
+    await this.refreshFirecrawlSignedInAccounts();
 
     const result = await this.bottomSheet.openSheet({
       component: AgentXAttachmentsSheetComponent,
@@ -2518,42 +2539,136 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * Role-aware connected sources for the attachment sheet:
-   * - Athletes: non-team sources (personal/global + sport)
-   * - Coaches/Directors: team-scoped + selected sport-scoped + global sources
+   * Connected sources for the attachment sheet.
+   * Includes all persisted connected sources plus reconstructed connected links/sign-ins.
    */
   private getAttachmentConnectedSources(): readonly ConnectedAppSource[] {
     const user = this.user();
-    const role = (user?.role ?? '').toLowerCase();
-    const sources = user?.connectedSources ?? [];
-    const selectedSportKeys = new Set(
-      (user?.selectedSports ?? [])
-        .map((sport) => this.normalizeScopeKey(sport))
-        .filter((key): key is string => key.length > 0)
-    );
+    const linkedSources = user?.connectedSources ?? [];
+    const linkSources =
+      buildLinkSourcesFormData({
+        connectedSources: user?.connectedSources ?? [],
+        connectedEmails: user?.connectedEmails ?? [],
+        firebaseProviders: user?.firebaseProviders ?? [],
+      })?.links ?? [];
 
-    const withFavicons = sources.map((source) => ({
+    const withFavicons = linkedSources.map((source) => ({
       ...source,
       faviconUrl:
         source.faviconUrl ?? getPlatformFaviconUrl(source.platform.toLowerCase()) ?? undefined,
     }));
 
-    if (role === 'coach' || role === 'director') {
-      return withFavicons.filter((source) => {
-        if (source.scopeType === 'team' || source.scopeType === 'global' || !source.scopeType) {
-          return true;
-        }
+    const attachmentSourcesMap = new Map<string, ConnectedAppSource>();
 
-        if (source.scopeType === 'sport') {
-          const sourceSportKey = this.normalizeScopeKey(source.scopeId);
-          return sourceSportKey.length > 0 && selectedSportKeys.has(sourceSportKey);
-        }
-
-        return false;
-      });
+    for (const source of withFavicons) {
+      attachmentSourcesMap.set(this.getAttachmentSourceKey(source), source);
     }
 
-    return withFavicons.filter((source) => source.scopeType !== 'team');
+    for (const link of linkSources) {
+      if (!link.connected) {
+        continue;
+      }
+
+      const inferredSource: ConnectedAppSource = {
+        platform: link.platform,
+        profileUrl: this.resolveAttachmentProfileUrl(
+          link.platform,
+          typeof link.url === 'string' && link.url.trim().length > 0 ? link.url : link.username
+        ),
+        faviconUrl: getPlatformFaviconUrl(link.platform.toLowerCase()) ?? undefined,
+        scopeType: link.scopeType,
+        scopeId: link.scopeId,
+      };
+
+      const inferredSourceKey = this.getAttachmentSourceKey(inferredSource);
+      if (!attachmentSourcesMap.has(inferredSourceKey)) {
+        attachmentSourcesMap.set(inferredSourceKey, inferredSource);
+      }
+    }
+
+    const connectedAccounts =
+      (user as { connectedAccounts?: Record<string, unknown> } | null)?.connectedAccounts ?? {};
+    if (connectedAccounts && typeof connectedAccounts === 'object') {
+      for (const [platform, accountRaw] of Object.entries(connectedAccounts)) {
+        const account =
+          accountRaw && typeof accountRaw === 'object'
+            ? (accountRaw as Record<string, unknown>)
+            : null;
+        if (!account) {
+          continue;
+        }
+
+        const type = typeof account['type'] === 'string' ? account['type'] : '';
+        const status = typeof account['status'] === 'string' ? account['status'] : '';
+        if (
+          type !== 'firecrawl_profile' ||
+          !['active', 'connected', 'unverified'].includes(status)
+        ) {
+          continue;
+        }
+
+        const inferredSource: ConnectedAppSource = {
+          platform,
+          profileUrl: this.resolveAttachmentProfileUrl(platform),
+          faviconUrl: getPlatformFaviconUrl(platform.toLowerCase()) ?? undefined,
+          scopeType: 'global',
+        };
+
+        const inferredSourceKey = this.getAttachmentSourceKey(inferredSource);
+        if (!attachmentSourcesMap.has(inferredSourceKey)) {
+          attachmentSourcesMap.set(inferredSourceKey, inferredSource);
+        }
+      }
+    }
+
+    for (const platform of this.firecrawlSignedInPlatforms()) {
+      const normalizedPlatform = platform.toLowerCase();
+      const inferredSource: ConnectedAppSource = {
+        platform: normalizedPlatform,
+        profileUrl: this.resolveAttachmentProfileUrl(normalizedPlatform),
+        faviconUrl: getPlatformFaviconUrl(normalizedPlatform) ?? undefined,
+        scopeType: 'global',
+      };
+
+      const inferredSourceKey = this.getAttachmentSourceKey(inferredSource);
+      if (!attachmentSourcesMap.has(inferredSourceKey)) {
+        attachmentSourcesMap.set(inferredSourceKey, inferredSource);
+      }
+    }
+
+    return Array.from(attachmentSourcesMap.values());
+  }
+
+  private async refreshFirecrawlSignedInAccounts(): Promise<void> {
+    try {
+      const accounts = await this.firecrawlSignIn.fetchSignedInAccounts();
+      this.firecrawlSignedInPlatforms.set(Object.keys(accounts));
+    } catch {
+      this.firecrawlSignedInPlatforms.set([]);
+    }
+  }
+
+  private getAttachmentSourceKey(source: {
+    platform: string;
+    scopeType?: 'global' | 'sport' | 'team';
+    scopeId?: string;
+  }): string {
+    return `${source.platform.toLowerCase()}|${source.scopeType ?? 'global'}|${
+      this.normalizeScopeKey(source.scopeId) || 'global'
+    }`;
+  }
+
+  private resolveAttachmentProfileUrl(platform: string, url?: string): string {
+    const trimmedUrl = (url ?? '').trim();
+    if (trimmedUrl.length > 0) {
+      return /^https?:\/\//i.test(trimmedUrl) ? trimmedUrl : `https://${trimmedUrl}`;
+    }
+
+    const platformDomain = (PLATFORM_FAVICON_DOMAINS as Record<string, string>)[
+      platform.toLowerCase()
+    ];
+
+    return platformDomain ? `https://${platformDomain}` : `https://${platform.toLowerCase()}.com`;
   }
 
   /** Normalize source/sport keys so scopeId like "baseball" matches selected sport "Baseball". */

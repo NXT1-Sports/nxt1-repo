@@ -89,6 +89,7 @@ function extractMediaPayloads(toolResult: Record<string, unknown>): readonly Sse
   maybePushMedia(seen, media, toolResult['url'], toolResult['mimeType']);
   maybePushMedia(seen, media, toolResult['publicUrl'], toolResult['mimeType']);
   maybePushMedia(seen, media, toolResult['downloadUrl'], toolResult['mimeType']);
+  maybePushMedia(seen, media, toolResult['outputUrl'], toolResult['mimeType'], 'video');
 
   const imageUrls = toolResult['imageUrls'];
   if (Array.isArray(imageUrls)) {

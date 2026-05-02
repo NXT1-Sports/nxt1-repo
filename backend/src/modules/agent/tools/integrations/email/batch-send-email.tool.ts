@@ -20,6 +20,7 @@ import {
   MAX_BODY_LENGTH,
   MAX_SUBJECT_LENGTH,
   getMissingTemplatePlaceholders,
+  normalizeTemplateSyntax,
   renderEmailTemplate,
   resolveConnectedEmailProvider,
 } from './email-tool.utils.js';
@@ -40,7 +41,18 @@ const BatchSendEmailInputSchema = z.object({
   userId: z.string().trim().min(1),
   recipients: z.array(BatchRecipientSchema).min(1).max(MAX_BATCH_RECIPIENTS),
   subjectTemplate: z.string().trim().min(1).max(MAX_SUBJECT_LENGTH),
-  bodyHtmlTemplate: z.string().trim().min(1).max(MAX_BODY_LENGTH),
+  bodyHtmlTemplate: z
+    .string()
+    .trim()
+    .min(1)
+    .max(MAX_BODY_LENGTH)
+    .describe(
+      'The email body template as HTML. ALWAYS use proper HTML structure: ' +
+        '<p> tags for each paragraph, <br> for line breaks within a paragraph, ' +
+        '<ul>/<li> for bullet lists, <strong> for bold. ' +
+        'Use {{variableName}} double-brace placeholders for per-recipient substitution (e.g. {{firstName}}, {{teamName}}). ' +
+        'Example: <p>Hi {{firstName}},</p><p>We wanted to reach out to {{collegeName}}...</p><p>Best,<br>Coach Smith</p>'
+    ),
 });
 
 interface BatchSendSuccess {
@@ -176,7 +188,10 @@ export class BatchSendEmailTool extends BaseTool {
       return this.zodError(parsed.error);
     }
 
-    const { userId, recipients: rawRecipients, subjectTemplate, bodyHtmlTemplate } = parsed.data;
+    const { userId, recipients: rawRecipients } = parsed.data;
+    // Normalize template syntax: convert any LLM-generated single-brace {key} to {{key}}
+    const subjectTemplate = normalizeTemplateSyntax(parsed.data.subjectTemplate);
+    const bodyHtmlTemplate = normalizeTemplateSyntax(parsed.data.bodyHtmlTemplate);
     const recipients = rawRecipients.map(normalizeBatchRecipient);
     const duplicateRecipientError = assertUniqueRecipients(recipients);
     if (duplicateRecipientError) {
@@ -259,6 +274,7 @@ export class BatchSendEmailTool extends BaseTool {
         recipientCount: recipients.length,
         subject: rendered.subject,
         phase: 'send_email',
+        recipientStatus: 'sending',
         progress: `${index + 1}/${recipients.length}`,
       });
 
@@ -278,6 +294,18 @@ export class BatchSendEmailTool extends BaseTool {
           messageId: result.externalMessageId ?? null,
           threadId: result.externalThreadId ?? null,
           trackingId: result.trackingId,
+        });
+
+        context?.emitStage?.('submitting_job', {
+          icon: 'email',
+          userId,
+          recipientEmail: recipient.toEmail,
+          recipientIndex: index + 1,
+          recipientCount: recipients.length,
+          subject: rendered.subject,
+          phase: 'send_email',
+          recipientStatus: 'sent',
+          progress: `${sent.length}/${recipients.length}`,
         });
 
         await getAnalyticsLoggerService().safeTrack({
@@ -315,6 +343,19 @@ export class BatchSendEmailTool extends BaseTool {
           toEmail: recipient.toEmail,
           batchIndex: index,
           batchSize: recipients.length,
+        });
+
+        context?.emitStage?.('submitting_job', {
+          icon: 'email',
+          userId,
+          recipientEmail: recipient.toEmail,
+          recipientIndex: index + 1,
+          recipientCount: recipients.length,
+          subject: rendered.subject,
+          phase: 'send_email',
+          recipientStatus: 'failed',
+          recipientError: errorMessage,
+          progress: `${sent.length}/${recipients.length}`,
         });
       }
 

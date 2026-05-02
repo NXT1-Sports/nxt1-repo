@@ -290,6 +290,18 @@ export class SemanticCacheService {
       `Role: ${userContext.role}`,
     ];
     if (userContext.sport) profileParts.push(`Sport: ${userContext.sport}`);
+    if (userContext.sports?.length) {
+      const allSports = userContext.sports
+        .map((entry) => {
+          const tags: string[] = [];
+          if (entry.isActive) tags.push('active');
+          if (entry.positions?.length) tags.push(`pos=${entry.positions.join('/')}`);
+          if (entry.teamName) tags.push(`team=${entry.teamName}`);
+          return tags.length > 0 ? `${entry.sport} (${tags.join(', ')})` : entry.sport;
+        })
+        .join(' | ');
+      profileParts.push(`All Sports: ${allSports}`);
+    }
     if (userContext.position) profileParts.push(`Position: ${userContext.position}`);
     if (userContext.school) profileParts.push(`School: ${userContext.school}`);
     if (userContext.graduationYear) profileParts.push(`Class of ${userContext.graduationYear}`);

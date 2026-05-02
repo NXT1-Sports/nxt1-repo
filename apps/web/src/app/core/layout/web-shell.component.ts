@@ -130,6 +130,7 @@ import { NotificationPopoverComponent } from '../../features/activity/components
 import {
   DEFAULT_SOCIAL_LINKS,
   DEFAULT_SPORTS,
+  type InviteTeam,
   formatSportDisplayName,
   normalizeSportKey,
   buildUserDisplayContext,
@@ -1280,6 +1281,56 @@ export class WebShellComponent {
     });
   }
 
+  /** Build invite overlay inputs with robust no-team fallback. */
+  private buildInviteOverlayInputs(): {
+    readonly isModal: true;
+    readonly inviteType: 'team' | 'general';
+    readonly team: InviteTeam | null;
+    readonly user: { role?: string | undefined };
+  } {
+    const authUser = this.authFlow.user() as {
+      role?: string | null;
+      activeSportIndex?: number;
+      sports?: ReadonlyArray<{
+        sport?: string;
+        team?: {
+          teamId?: string;
+          organizationId?: string;
+          id?: string;
+          name?: string;
+          teamName?: string;
+          logoUrl?: string;
+          logo?: string;
+        };
+      }>;
+    } | null;
+
+    const preferredIndex = authUser?.activeSportIndex ?? 0;
+    const currentSport = authUser?.sports?.[preferredIndex] ?? authUser?.sports?.[0];
+    const teamInfo = currentSport?.team;
+    const teamId =
+      teamInfo?.teamId?.trim() || teamInfo?.organizationId?.trim() || teamInfo?.id?.trim();
+    const teamName = teamInfo?.name?.trim() || teamInfo?.teamName?.trim();
+
+    const team: InviteTeam | null =
+      teamId && teamName
+        ? {
+            id: teamId,
+            name: teamName,
+            sport: currentSport?.sport?.trim() ?? '',
+            logoUrl: teamInfo?.logoUrl ?? teamInfo?.logo ?? undefined,
+            memberCount: 0,
+          }
+        : null;
+
+    return {
+      isModal: true,
+      inviteType: team ? 'team' : 'general',
+      team,
+      user: { role: authUser?.role ?? undefined },
+    };
+  }
+
   // ============================================
   // SIDEBAR HANDLERS (Desktop/Tablet)
   // ============================================
@@ -1302,10 +1353,9 @@ export class WebShellComponent {
 
     // Handle invite-team action
     if (item.action === 'invite-team') {
-      const authUser = this.authFlow.user() as { role?: string | null } | null;
       void this.inviteOverlay.open({
         component: InviteShellComponent,
-        inputs: { isModal: true, inviteType: 'team', user: { role: authUser?.role ?? undefined } },
+        inputs: this.buildInviteOverlayInputs(),
         size: 'lg',
         backdropDismiss: true,
       });
@@ -1464,10 +1514,9 @@ export class WebShellComponent {
 
     // Handle invite-team action
     if (item.action === 'invite-team') {
-      const authUser = this.authFlow.user() as { role?: string | null } | null;
       void this.inviteOverlay.open({
         component: InviteShellComponent,
-        inputs: { isModal: true, inviteType: 'team', user: { role: authUser?.role ?? undefined } },
+        inputs: this.buildInviteOverlayInputs(),
         size: 'lg',
         backdropDismiss: true,
       });

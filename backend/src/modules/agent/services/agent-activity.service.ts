@@ -31,16 +31,20 @@ export interface AgentActivityInput {
   readonly userId: string;
   readonly job: AgentJobPayload;
   readonly result: AgentOperationResult;
+  /** Thread title generated at enqueue time — used as the notification title. */
+  readonly threadTitle?: string;
 }
 
 export async function logAgentTaskCompletion(
   db: Firestore,
   input: AgentActivityInput
 ): Promise<DispatchResult> {
-  const { userId, job, result } = input;
+  const { userId, job, result, threadTitle } = input;
+  const derivedSummary = stripMarkdown(deriveBodyFromResult(result));
   const notificationCopy = resolveAgentSuccessNotificationCopy({
+    threadTitle: threadTitle?.trim() || undefined,
     title: stripMarkdown(result.title ?? ''),
-    summary: stripMarkdown(result.summary),
+    summary: derivedSummary,
   });
   const threadId = job.context?.['threadId'] as string | undefined;
 
@@ -61,7 +65,7 @@ export async function logAgentTaskCompletion(
     origin: job.context?.['origin'] ? String(job.context['origin']) : undefined,
     imageUrl: imageUrl || undefined,
     videoUrl: videoUrl || undefined,
-    resultSummary: stripMarkdown(result.summary),
+    resultSummary: derivedSummary,
   });
 
   logger.info('Agent action dispatched via unified service', {
@@ -109,6 +113,61 @@ export async function logAgentTaskFailure(
   });
 
   return dispatchResult;
+}
+
+/**
+ * Derives a human-readable notification body from an AgentOperationResult.
+ *
+ * Priority:
+ * 1. result.summary — the LLM's direct response (most common path)
+ * 2. Multi-task plan: "Completed N tasks: label1, label2, label3."
+ * 3. Tool call records: "Completed N steps: tool a, tool b."
+ * 4. Empty string (caller falls back to generic copy)
+ */
+export function deriveBodyFromResult(result: AgentOperationResult): string {
+  if (result.summary?.trim()) return result.summary.trim();
+
+  const data =
+    typeof result.data === 'object' && result.data !== null
+      ? (result.data as Record<string, unknown>)
+      : undefined;
+  if (!data) return '';
+
+  // Multi-task orchestration path — plan with named tasks
+  const plan = data['plan'] as
+    | { tasks?: Array<{ displayLabel?: string; description?: string }> }
+    | undefined;
+  if (plan?.tasks && plan.tasks.length > 0) {
+    const taskLabels = plan.tasks
+      .map((t) => t.displayLabel ?? t.description)
+      .filter((label): label is string => Boolean(label))
+      .slice(0, 3)
+      .join(', ');
+    const count = plan.tasks.length;
+    return `Completed ${count} task${count > 1 ? 's' : ''}: ${taskLabels}.`;
+  }
+
+  // Delegation fast-exit path — toolCallRecords
+  const records = data['toolCallRecords'] as
+    | Array<{ toolName?: string; status?: string }>
+    | undefined;
+  if (records && records.length > 0) {
+    const successTools = [
+      ...new Set(
+        records
+          .filter((r) => r.status === 'success')
+          .map((r) => r.toolName?.replace(/_/g, ' '))
+          .filter((name): name is string => Boolean(name))
+      ),
+    ];
+    if (successTools.length > 0) {
+      return successTools.length === 1
+        ? `Completed: ${successTools[0]}.`
+        : `Completed ${successTools.length} steps: ${successTools.join(', ')}.`;
+    }
+  }
+
+  return '';
 }
 
 function stripMarkdown(text: string): string {

@@ -56,6 +56,7 @@ import {
   AGENT_X_MAX_ATTACHMENTS,
   AGENT_X_MAX_FILE_SIZE,
   AGENT_X_MAX_VIDEO_FILE_SIZE,
+  AGENT_X_RUNTIME_CONFIG,
   resolveAttachmentType,
 } from '@nxt1/core';
 import { createAgentXApi } from '@nxt1/core/ai';
@@ -76,6 +77,7 @@ import type { ConnectedAppSource } from '../components/modals/agent-x-attachment
 /** sessionStorage key for in-flight operation drop-recovery. */
 const AGENT_X_PENDING_OP_KEY = 'nxt1_pending_agent_op';
 const AGENT_X_PENDING_PLAYBOOK_OP_KEY = 'nxt1_pending_playbook_op';
+const AGENT_X_PENDING_STARTUP_MESSAGE_KEY = 'nxt1_pending_startup_message';
 const AGENT_X_WEEKLY_TASKS_GOAL_ID = 'recurring';
 const AGENT_X_WEEKLY_TASKS_GOAL_LABEL = 'Weekly Tasks';
 
@@ -174,6 +176,12 @@ export class AgentXService {
   private readonly _quickTasks = signal<readonly AgentXQuickTask[]>([]);
 
   constructor() {
+    if (isPlatformBrowser(this.platformId)) {
+      const persistedMessage = sessionStorage.getItem(AGENT_X_PENDING_STARTUP_MESSAGE_KEY)?.trim();
+      if (persistedMessage) {
+        this._pendingStartupMessage.set(persistedMessage);
+      }
+    }
     void this.loadQuickTasks();
   }
 
@@ -183,8 +191,10 @@ export class AgentXService {
   // Retry counter for loadDashboard() when auth token not yet available
   private _dashboardRetryCount = 0;
   private static readonly MAX_DASHBOARD_RETRIES = 4;
-  private static readonly PLAYBOOK_POLL_INTERVAL_MS = 1500;
-  private static readonly PLAYBOOK_POLL_MAX_ATTEMPTS = 50;
+  private static readonly PLAYBOOK_POLL_INTERVAL_MS =
+    AGENT_X_RUNTIME_CONFIG.playbookAsync.pollIntervalMs;
+  private static readonly PLAYBOOK_POLL_MAX_ATTEMPTS =
+    AGENT_X_RUNTIME_CONFIG.playbookAsync.pollMaxAttempts;
 
   // ============================================
   // DASHBOARD STATE (live from backend)
@@ -543,13 +553,43 @@ export class AgentXService {
    * navigating to /agent. The shell consumes and clears this via effect().
    */
   queueStartupMessage(message: string): void {
-    this._pendingStartupMessage.set(message);
+    const trimmedMessage = message.trim();
+    if (!trimmedMessage) return;
+
+    this._pendingStartupMessage.set(trimmedMessage);
+
+    if (isPlatformBrowser(this.platformId)) {
+      sessionStorage.setItem(AGENT_X_PENDING_STARTUP_MESSAGE_KEY, trimmedMessage);
+    }
+
     this.logger.info('Queued startup message for Agent X shell');
   }
 
   /** Consumed by the shell after it fires the session. */
   clearStartupMessage(): void {
     this._pendingStartupMessage.set(null);
+
+    if (isPlatformBrowser(this.platformId)) {
+      sessionStorage.removeItem(AGENT_X_PENDING_STARTUP_MESSAGE_KEY);
+    }
+  }
+
+  /**
+   * Consume and clear a queued startup message (if present).
+   * Returns null when no startup message is available.
+   */
+  consumeStartupMessage(): string | null {
+    const message = this._pendingStartupMessage()?.trim() ?? '';
+    if (!message) {
+      if (!isPlatformBrowser(this.platformId)) return null;
+      const persisted = sessionStorage.getItem(AGENT_X_PENDING_STARTUP_MESSAGE_KEY)?.trim() ?? '';
+      if (!persisted) return null;
+      this.clearStartupMessage();
+      return persisted;
+    }
+
+    this.clearStartupMessage();
+    return message;
   }
 
   /**
@@ -650,7 +690,13 @@ export class AgentXService {
         return;
       }
 
-      const messages = persistedMessages
+      // Phase K (single-bubble guarantee): suppress assistant_partial rows
+      // when assistant_final exists for the same operationId. This prevents
+      // the pause/resume double-bubble where a partial snapshot row and the
+      // completed final row both render as visible assistant bubbles.
+      const canonicalMessages = this.resolveCanonicalAssistantRows(persistedMessages);
+
+      const messages = canonicalMessages
         // Phase J (thread-as-truth): tool/system rows are persisted for
         // backend replay only — they must not render as chat bubbles.
         .filter((m) => m.role === 'user' || m.role === 'assistant')
@@ -751,6 +797,7 @@ export class AgentXService {
     decision: 'approved' | 'rejected';
     toolInput?: Record<string, unknown>;
     successMessage?: string;
+    trustForSession?: boolean;
   }): Promise<boolean> {
     this.logger.info('Resolving inline approval', {
       approvalId: params.approvalId,
@@ -765,7 +812,8 @@ export class AgentXService {
       const result = await this.api.resolveApproval(
         params.approvalId,
         params.decision,
-        params.toolInput
+        params.toolInput,
+        params.trustForSession
       );
 
       if (!result) {
@@ -957,6 +1005,85 @@ export class AgentXService {
       : `msg-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   }
 
+  /**
+   * Phase-aware projection: suppress `assistant_partial` rows for any
+   * `operationId` that has a corresponding `assistant_final` row.
+   *
+   * Also handles **legacy rows** (written before `semanticPhase` was added)
+   * via a richness-based heuristic: when multiple untagged assistant rows
+   * share the same `operationId`, only the richest one is kept. "Richness" is
+   * ranked as: has resultData > has steps > has toolCalls > longest content.
+   * The richest row is the final persist; the earlier partial has no metadata.
+   *
+   * `assistant_yield` rows are never suppressed — they carry distinct
+   * user-facing prompts that require interaction.
+   */
+  private resolveCanonicalAssistantRows(
+    messages: readonly AgentMessage[]
+  ): readonly AgentMessage[] {
+    // Phase-tagged final rows.
+    const finalOperationIds = new Set<string>();
+    for (const msg of messages) {
+      if (msg.role === 'assistant' && msg.semanticPhase === 'assistant_final' && msg.operationId) {
+        finalOperationIds.add(msg.operationId);
+      }
+    }
+
+    // Legacy untagged rows with duplicate operationIds.
+    const legacyMultiMap = new Map<string, AgentMessage[]>();
+    for (const msg of messages) {
+      if (
+        msg.role === 'assistant' &&
+        !msg.semanticPhase &&
+        msg.operationId &&
+        !finalOperationIds.has(msg.operationId)
+      ) {
+        const bucket = legacyMultiMap.get(msg.operationId) ?? [];
+        bucket.push(msg);
+        legacyMultiMap.set(msg.operationId, bucket);
+      }
+    }
+
+    const legacySuppressedIds = new Set<string>();
+    for (const [, bucket] of legacyMultiMap) {
+      if (bucket.length < 2) continue;
+      const richest = bucket.reduce((best, candidate) =>
+        this.assistantRowRichness(candidate) >= this.assistantRowRichness(best) ? candidate : best
+      );
+      for (const row of bucket) {
+        if (row.id !== richest.id) legacySuppressedIds.add(row.id);
+      }
+    }
+
+    if (finalOperationIds.size === 0 && legacySuppressedIds.size === 0) return messages;
+
+    return messages.filter((msg) => {
+      if (msg.role !== 'assistant') return true;
+
+      // When assistant_final exists for this operationId, keep only the final
+      // row and any yield rows. Suppress partials and untagged trajectory rows
+      // (written by ThreadMessageWriter) that would cause duplicate bubbles.
+      if (msg.operationId && finalOperationIds.has(msg.operationId)) {
+        return msg.semanticPhase === 'assistant_final' || msg.semanticPhase === 'assistant_yield';
+      }
+
+      // Suppress non-richest legacy duplicates (untagged rows with no final).
+      if (legacySuppressedIds.has(msg.id)) return false;
+      return true;
+    });
+  }
+
+  /** Numeric richness score — higher means more metadata, prefers the final row. */
+  private assistantRowRichness(msg: AgentMessage): number {
+    let score = 0;
+    if (msg.resultData && Object.keys(msg.resultData).length > 0) score += 1000;
+    if ((msg.steps?.length ?? 0) > 0) score += 100 * (msg.steps?.length ?? 0);
+    if ((msg.toolCalls?.length ?? 0) > 0) score += 50 * (msg.toolCalls?.length ?? 0);
+    if ((msg.parts?.length ?? 0) > 0) score += 20 * (msg.parts?.length ?? 0);
+    score += Math.min(msg.content?.length ?? 0, 500);
+    return score;
+  }
+
   private mapPersistedMessageToUi(message: AgentMessage): AgentXMessage {
     const imageUrl = message.resultData?.['imageUrl'] as string | undefined;
     const attachments = (message.attachments ?? []) as readonly AgentXAttachment[];
@@ -967,6 +1094,11 @@ export class AgentXService {
     // the chat UI and would show up as raw text when the thread is reloaded from MongoDB.
     const displayContent = message.content
       .replace(/\n\n\[Attached (?:file|video): .+/gs, '')
+      .replace(/\n\n\[Connected sources available[^\]]*\]/gs, '')
+      .replace(
+        /\n\[Instruction: treat these as user-connected sources for this request; do not state they are missing\.\]/gs,
+        ''
+      )
       .trim();
 
     return {

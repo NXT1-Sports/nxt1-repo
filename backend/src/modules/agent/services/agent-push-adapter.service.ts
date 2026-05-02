@@ -80,6 +80,12 @@ function validateIntent(intent: AgentPushIntent): void {
       requireNonEmpty(intent.runId, 'runId');
       requireNonEmpty(intent.errorMessage, 'errorMessage');
       return;
+    case AGENT_PUSH_INTENT_KINDS.APPROVAL_EXPIRING_SOON:
+      requireNonEmpty(intent.title, 'title');
+      requireNonEmpty(intent.body, 'body');
+      requireNonEmpty(intent.approvalId, 'approvalId');
+      requireNonEmpty(intent.toolName, 'toolName');
+      return;
     default:
       throw new Error(
         `Invalid agent push intent: unsupported kind ${(intent as { kind?: string }).kind}`
@@ -319,6 +325,25 @@ export function toDispatchInput(intent: AgentPushIntent): DispatchNotificationIn
         idempotencyKey: sanitizeIdempotencyKey(
           `agent_sched_failed_${intent.userId}_${intent.scheduleId}_${intent.runId}`
         ),
+      };
+    case AGENT_PUSH_INTENT_KINDS.APPROVAL_EXPIRING_SOON:
+      return {
+        userId: intent.userId,
+        type: NOTIFICATION_TYPES.DYNAMIC_AGENT_ALERT,
+        title: intent.title,
+        body: intent.body,
+        deepLink: encodeThreadDeepLink(intent.threadId),
+        data: {
+          operationId: intent.operationId,
+          approvalId: intent.approvalId,
+          toolName: intent.toolName,
+          entityId: intent.approvalId,
+          ...(intent.threadId ? { threadId: intent.threadId } : {}),
+          reason: 'approval_expiring_soon',
+        },
+        source: { userName: 'Agent X' },
+        priority: 'high',
+        idempotencyKey: sanitizeIdempotencyKey(`agent_approval_expiring_${intent.approvalId}`),
       };
     default:
       throw new Error(`Unhandled agent push intent ${(intent as { kind?: string }).kind}`);

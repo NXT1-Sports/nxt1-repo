@@ -65,6 +65,37 @@ export type AgentThreadCategory =
 /** Role of a message sender — aligns with existing AgentSessionMessage. */
 export type AgentMessageRole = 'user' | 'assistant' | 'system' | 'tool';
 
+/**
+ * Semantic phase of a persisted `AgentMessage` row. Used by the UI projection
+ * layer to collapse multiple write paths (partial-on-pause, yield prompt,
+ * final enriched response) into a single visible chat bubble per agent turn.
+ *
+ * Phase priority for the same `operationId` (highest wins):
+ *   assistant_final > assistant_yield > assistant_partial > assistant_tool_call
+ *
+ * `tool_result` and `user_message` are never collapsed and always render
+ * as-is (tool rows are filtered from the UI bubble feed entirely).
+ */
+export type AgentMessageSemanticPhase =
+  | 'user_message'
+  | 'assistant_tool_call'
+  | 'tool_result'
+  | 'assistant_partial'
+  | 'assistant_yield'
+  | 'assistant_final'
+  | 'billing_gate';
+
+/** Priority order for phase resolution — higher index wins. */
+export const SEMANTIC_PHASE_PRIORITY: readonly AgentMessageSemanticPhase[] = [
+  'assistant_tool_call',
+  'tool_result',
+  'user_message',
+  'assistant_partial',
+  'billing_gate',
+  'assistant_yield',
+  'assistant_final',
+] as const;
+
 /** User action types that can be recorded against a persisted message. */
 export type AgentMessageActionType =
   | 'copied'
@@ -183,6 +214,17 @@ export interface AgentMessage {
    * BullMQ retries. Not surfaced in the UI.
    */
   readonly idempotencyKey?: string;
+  /**
+   * Semantic phase of this row within the agent's write lifecycle.
+   * Used by the UI projection layer to collapse partial/yield/final rows for
+   * the same `operationId` into a single visible bubble. When `assistant_final`
+   * exists for an operationId, all `assistant_partial` rows for that same
+   * operationId are suppressed from the rendered chat feed.
+   *
+   * Set on every backend write — legacy rows without this field are treated
+   * as `assistant_final` by the UI projection for backwards compatibility.
+   */
+  readonly semanticPhase?: AgentMessageSemanticPhase;
 }
 
 /** Token usage metadata for a single message. */

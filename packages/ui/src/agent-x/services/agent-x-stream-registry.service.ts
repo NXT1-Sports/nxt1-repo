@@ -41,6 +41,12 @@ export interface StreamEntry {
   cards: AgentXRichCard[];
   /** Ordered message parts for Copilot-style interleaved rendering. */
   parts: AgentXMessagePart[];
+  /**
+   * Accumulated extended thinking content (Claude 3.7+ / Gemini 2.5).
+   * Mirrors the `thinking` parts in `parts` but kept separately for
+   * quick access by the UI without traversing the parts array.
+   */
+  thinking: string;
   /** Whether the stream has completed (done or error). */
   done: boolean;
   /** Error message if the stream errored. */
@@ -76,6 +82,8 @@ export interface StreamRegisterOptions {
 /** Live update callbacks — set by the component that "owns" the UI for this thread. */
 export interface StreamListener {
   onDelta(content: string): void;
+  /** Called with each extended thinking fragment (Claude 3.7+ / Gemini 2.5). */
+  onThinking(content: string): void;
   onStep(step: AgentXToolStep): void;
   onCard(card: AgentXRichCard): void;
   onDone(metadata: Record<string, unknown> | null): void;
@@ -99,6 +107,8 @@ export interface StreamSnapshot {
   steps: readonly AgentXToolStep[];
   cards: readonly AgentXRichCard[];
   parts: readonly AgentXMessagePart[];
+  /** Accumulated extended thinking content for cold-path rehydration. */
+  thinking: string;
   done: boolean;
   error: string | null;
   doneMetadata: Record<string, unknown> | null;
@@ -213,6 +223,7 @@ export class AgentXStreamRegistryService {
       steps: [],
       cards: [],
       parts: [],
+      thinking: '',
       done: false,
       error: null,
       doneMetadata: null,
@@ -247,6 +258,26 @@ export class AgentXStreamRegistryService {
     entry.listener?.onDelta(text);
   }
 
+  /**
+   * Append extended thinking text (Claude 3.7+ / Gemini 2.5).
+   * Accumulates into a `thinking` part and notifies the active listener.
+   * Thinking always arrives before content tokens so the part is prepended.
+   */
+  appendThinking(threadId: string, content: string): void {
+    const entry = this.entries.get(threadId);
+    if (!entry) return;
+    entry.thinking += content;
+
+    const last = entry.parts[entry.parts.length - 1];
+    if (last?.type === 'thinking') {
+      entry.parts[entry.parts.length - 1] = { type: 'thinking', content: last.content + content };
+    } else {
+      entry.parts.push({ type: 'thinking', content });
+    }
+
+    entry.listener?.onThinking(content);
+  }
+
   upsertStep(threadId: string, step: AgentXToolStep): void {
     const entry = this.entries.get(threadId);
     if (!entry) return;
@@ -262,10 +293,18 @@ export class AgentXStreamRegistryService {
       return;
     }
     const idx = entry.steps.findIndex((s) => s.id === step.id);
+    const existing = idx >= 0 ? entry.steps[idx] : null;
+    const mergedStep: AgentXToolStep = {
+      ...(existing ?? {}),
+      ...step,
+      // Preserve previously captured metadata (e.g. sourceUrl for favicons)
+      // when incremental updates do not include metadata.
+      metadata: step.metadata ?? existing?.metadata,
+    };
     if (idx >= 0) {
-      entry.steps[idx] = step;
+      entry.steps[idx] = mergedStep;
     } else {
-      entry.steps.push(step);
+      entry.steps.push(mergedStep);
     }
 
     // Build interleaved parts. Search ALL existing tool-steps groups for this step id
@@ -276,10 +315,10 @@ export class AgentXStreamRegistryService {
     for (let i = 0; i < entry.parts.length; i++) {
       const part = entry.parts[i];
       if (part.type !== 'tool-steps') continue;
-      const si = part.steps.findIndex((s) => s.id === step.id);
+      const si = part.steps.findIndex((s) => s.id === mergedStep.id);
       if (si < 0) continue;
       const nextSteps = [...part.steps];
-      nextSteps[si] = step;
+      nextSteps[si] = mergedStep;
       entry.parts[i] = { type: 'tool-steps', steps: nextSteps };
       updatedExisting = true;
       break;
@@ -290,19 +329,19 @@ export class AgentXStreamRegistryService {
       if (last?.type === 'tool-steps') {
         entry.parts[entry.parts.length - 1] = {
           type: 'tool-steps',
-          steps: [...last.steps, step],
+          steps: [...last.steps, mergedStep],
         };
       } else {
-        entry.parts.push({ type: 'tool-steps', steps: [step] });
+        entry.parts.push({ type: 'tool-steps', steps: [mergedStep] });
       }
     }
 
-    entry.listener?.onStep(step);
+    entry.listener?.onStep(mergedStep);
 
     // Notify per-operation observers
     const operationId = this.threadToOperation.get(threadId);
     if (operationId) {
-      this.operationObservers.get(operationId)?.forEach((obs) => obs.onStep(step));
+      this.operationObservers.get(operationId)?.forEach((obs) => obs.onStep(mergedStep));
     }
   }
 
@@ -387,6 +426,7 @@ export class AgentXStreamRegistryService {
       steps: [...entry.steps],
       cards: [...entry.cards],
       parts: [...entry.parts],
+      thinking: entry.thinking,
       done: entry.done,
       error: entry.error,
       doneMetadata: entry.doneMetadata,
@@ -407,6 +447,7 @@ export class AgentXStreamRegistryService {
       steps: [...entry.steps],
       cards: [...entry.cards],
       parts: [...entry.parts],
+      thinking: entry.thinking,
       done: entry.done,
       error: entry.error,
       doneMetadata: entry.doneMetadata,

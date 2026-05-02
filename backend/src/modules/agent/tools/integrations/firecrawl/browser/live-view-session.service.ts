@@ -214,7 +214,43 @@ export class LiveViewSessionService {
       );
     }
 
-    return (result.stdout ?? result.result ?? '').trim();
+    return this.resolveInteractText(result);
+  }
+
+  /**
+   * Firecrawl may return content on different channels (`stdout`, `output`, `result`).
+   * Prefer the first non-empty channel to avoid dropping valid responses.
+   */
+  private resolveInteractText(result: ScrapeExecuteResponse): string {
+    const candidates: unknown[] = [
+      result.stdout,
+      (result as ScrapeExecuteResponse & { output?: unknown }).output,
+      result.result,
+    ];
+
+    for (const candidate of candidates) {
+      if (typeof candidate === 'string') {
+        const text = candidate.trim();
+        if (text.length > 0) {
+          return text;
+        }
+      }
+    }
+
+    for (const candidate of candidates) {
+      if (candidate && typeof candidate === 'object') {
+        try {
+          const json = JSON.stringify(candidate);
+          if (json.length > 0) {
+            return json;
+          }
+        } catch {
+          // Ignore non-serializable objects.
+        }
+      }
+    }
+
+    return '';
   }
 
   /**
@@ -248,7 +284,7 @@ export class LiveViewSessionService {
       );
     }
 
-    return (result.stdout ?? result.result ?? '').trim();
+    return this.resolveInteractText(result);
   }
 
   /**
@@ -1033,13 +1069,12 @@ If no media URLs found, explain what you checked and why.
 
       try {
         const metadataCode = `
-const metadata = {
-  url: location.href,
-  title: document.title,
-  userAgent: navigator.userAgent,
-};
-const cookies = await page.context().cookies();
-JSON.stringify({ ...metadata, cookies });
+JSON.stringify(await (async () => ({
+  url: page.url(),
+  title: await page.title(),
+  userAgent: await page.evaluate(() => navigator.userAgent),
+  cookies: await page.context().cookies(),
+}))());
 `;
         const metadataRaw = await this.executeBrowserCommand(sessionId, metadataCode);
         metadata = this.parseBrowserJson<typeof metadata>(
@@ -1105,8 +1140,8 @@ JSON.stringify({ ...metadata, cookies });
         url: (metadata.url as string) ?? '',
         title: (metadata.title as string) ?? '',
         streams,
-        currentSrc: null, // Not used in prompt mode
-        blobSrc: null, // Not used in prompt mode
+        currentSrc: null,
+        blobSrc: null,
         auth: {
           userAgent: typeof metadata.userAgent === 'string' ? metadata.userAgent : null,
           referer,
@@ -1214,14 +1249,16 @@ If it's a single-clip page (not a playlist), say so explicitly.
 
       try {
         const metadataCode = `
-const metadata = {
-  url: location.href,
-  title: document.title,
-  playlistTitle: document.querySelector('[data-playlist-title], .playlist-title, .queue-title')?.textContent || null,
-  userAgent: navigator.userAgent,
-};
-const cookies = await page.context().cookies();
-JSON.stringify({ ...metadata, cookies });
+JSON.stringify(await (async () => ({
+  url: page.url(),
+  title: await page.title(),
+  playlistTitle: await page.evaluate(() => {
+    const el = document.querySelector('[data-playlist-title], .playlist-title, .queue-title');
+    return el?.textContent?.trim() || null;
+  }),
+  userAgent: await page.evaluate(() => navigator.userAgent),
+  cookies: await page.context().cookies(),
+}))());
 `;
         const metadataRaw = await this.executeBrowserCommand(sessionId, metadataCode);
         metadata = this.parseBrowserJson<typeof metadata>(

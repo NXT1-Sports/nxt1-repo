@@ -155,17 +155,28 @@ export function firestorePostToFeedPost(
   const dashUrl = doc.playback?.dashUrl ?? null;
   const thumbnailUrl =
     doc.thumbnailUrl ?? doc.poster ?? buildCloudflareThumbnailUrl(doc.cloudflareVideoId);
-  const hasVideo = !!(iframeUrl || hlsUrl);
+  // Feed cards render video through an iframe player. A raw signed Firebase
+  // source URL in `videoUrl` is not iframe-playable and can render XML errors.
+  // Treat only Cloudflare-backed video (cloudflareVideoId) or iframe URLs as
+  // renderable in cards.
+  const hasRenderableVideo = !!(iframeUrl || doc.cloudflareVideoId);
 
   // Determine Cloudflare processing status
   const cfStatus = doc.cloudflareStatus as FeedMedia['processingStatus'] | undefined;
-  const processingStatus: FeedMedia['processingStatus'] =
-    cfStatus ?? (doc.readyToStream === true ? 'ready' : hasVideo ? 'ready' : undefined);
+  const processingStatus: FeedMedia['processingStatus'] = cfStatus
+    ? cfStatus
+    : doc.readyToStream === true
+      ? 'ready'
+      : doc.cloudflareVideoId
+        ? 'inprogress'
+        : hasRenderableVideo
+          ? 'ready'
+          : undefined;
 
-  if (hasVideo || doc.cloudflareVideoId) {
+  if (hasRenderableVideo) {
     // Use iframeUrl as the primary `url` (Cloudflare Stream iframe player);
-    // fall back to hlsUrl for legacy non-CF video posts.
-    const primaryUrl = iframeUrl ?? hlsUrl ?? '';
+    // do not fall back to raw signed source URLs in iframe cards.
+    const primaryUrl = iframeUrl ?? '';
     media.push({
       id: `${id}-video-0`,
       type: 'video' as const,

@@ -28,6 +28,7 @@
 import { FieldValue, type Firestore } from 'firebase-admin/firestore';
 import { isTeamRole } from '@nxt1/core';
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../../base.tool.js';
+import { FAVICON_REGISTRY } from '../../favicon-registry.js';
 import { logger } from '../../../../../utils/logger.js';
 import { z } from 'zod';
 
@@ -44,74 +45,6 @@ const WriteConnectedSourceInputSchema = z.object({
   faviconUrl: z.string().trim().min(1).optional(),
   teamId: z.string().trim().min(1).optional(),
 });
-
-/** Platforms the agent knows by slug — used for validation and favicon fallback. */
-const KNOWN_PLATFORMS: Record<string, { displayName: string; faviconUrl: string }> = {
-  maxpreps: {
-    displayName: 'MaxPreps',
-    faviconUrl: 'https://www.maxpreps.com/favicon.ico',
-  },
-  hudl: {
-    displayName: 'Hudl',
-    faviconUrl: 'https://www.hudl.com/favicon.ico',
-  },
-  instagram: {
-    displayName: 'Instagram',
-    faviconUrl: 'https://www.instagram.com/favicon.ico',
-  },
-  twitter: {
-    displayName: 'X (Twitter)',
-    faviconUrl: 'https://twitter.com/favicon.ico',
-  },
-  x: {
-    displayName: 'X (Twitter)',
-    faviconUrl: 'https://x.com/favicon.ico',
-  },
-  facebook: {
-    displayName: 'Facebook',
-    faviconUrl: 'https://www.facebook.com/favicon.ico',
-  },
-  youtube: {
-    displayName: 'YouTube',
-    faviconUrl: 'https://www.youtube.com/favicon.ico',
-  },
-  tiktok: {
-    displayName: 'TikTok',
-    faviconUrl: 'https://www.tiktok.com/favicon.ico',
-  },
-  on3: {
-    displayName: 'On3',
-    faviconUrl: 'https://www.on3.com/favicon.ico',
-  },
-  '247sports': {
-    displayName: '247Sports',
-    faviconUrl: 'https://247sports.com/favicon.ico',
-  },
-  rivals: {
-    displayName: 'Rivals',
-    faviconUrl: 'https://rivals.com/favicon.ico',
-  },
-  ncsasports: {
-    displayName: 'NCSA Sports',
-    faviconUrl: 'https://www.ncsasports.org/favicon.ico',
-  },
-  athleticnet: {
-    displayName: 'Athletic.net',
-    faviconUrl: 'https://www.athletic.net/favicon.ico',
-  },
-  milesplit: {
-    displayName: 'MileSplit',
-    faviconUrl: 'https://www.milesplit.com/favicon.ico',
-  },
-  usashooting: {
-    displayName: 'USA Shooting',
-    faviconUrl: 'https://www.usashooting.org/favicon.ico',
-  },
-  linkedin: {
-    displayName: 'LinkedIn',
-    faviconUrl: 'https://www.linkedin.com/favicon.ico',
-  },
-};
 
 // ─── Tool ───────────────────────────────────────────────────────────────────
 
@@ -183,7 +116,7 @@ export class WriteConnectedSourceTool extends BaseTool {
     const explicitTeamId = parsed.data.teamId ?? null;
 
     // ── Resolve favicon URL ─────────────────────────────────────────────
-    const faviconUrl = explicitFaviconUrl ?? KNOWN_PLATFORMS[platform]?.faviconUrl ?? undefined;
+    const faviconUrl = explicitFaviconUrl ?? FAVICON_REGISTRY[platform]?.faviconUrl ?? undefined;
 
     // ── Load user document ──────────────────────────────────────────────
     let userData: Record<string, unknown>;
@@ -275,7 +208,7 @@ export class WriteConnectedSourceTool extends BaseTool {
         isNew,
       });
 
-      const platformLabel = KNOWN_PLATFORMS[platform]?.displayName ?? platform;
+      const platformLabel = FAVICON_REGISTRY[platform]?.displayName ?? platform;
       return {
         success: true,
         data: {
@@ -378,7 +311,7 @@ export class WriteConnectedSourceTool extends BaseTool {
         isNew,
       });
 
-      const platformLabel = KNOWN_PLATFORMS[platform]?.displayName ?? platform;
+      const platformLabel = FAVICON_REGISTRY[platform]?.displayName ?? platform;
       return {
         success: true,
         data: {

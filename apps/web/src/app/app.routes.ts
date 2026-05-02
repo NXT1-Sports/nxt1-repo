@@ -235,6 +235,15 @@ export const routes: Routes = [
         path: 'privacy',
         loadChildren: () => import('./legal/privacy/privacy.routes').then((m) => m.PRIVACY_ROUTES),
       },
+
+      // ── Post Detail Route ──────────────────────────────────────────────────
+      // SSR-rendered route host for deep-linked post URLs.
+      // In-browser: opens PostDetailOverlayComponent, navigates back on close.
+      // SEO: serves Open Graph meta for social link previews.
+      {
+        path: 'post/:userUnicode/:postId',
+        loadChildren: () => import('./features/post/post.routes'),
+      },
     ],
   },
 

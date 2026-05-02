@@ -23,6 +23,7 @@ import {
 } from '@angular/core';
 import { DomSanitizer, type SafeHtml } from '@angular/platform-browser';
 import { type TrackingSurface } from '@nxt1/core';
+import { getPlatformFaviconUrlFromUrl } from '@nxt1/core/platforms';
 import { Marked, Renderer } from 'marked';
 import { NxtBrowserService } from '../../services/browser';
 
@@ -47,7 +48,11 @@ function createNxtRenderer(): Renderer {
     // Block javascript: protocol to prevent XSS
     const safeHref = /^javascript:/i.test(href ?? '') ? '#' : escapeAttr(href ?? '');
     const titleAttr = title ? ` title="${escapeAttr(title)}"` : '';
-    return `<a href="${safeHref}"${titleAttr} target="_blank" rel="noopener noreferrer">${text}</a>`;
+    const faviconUrl = href ? getPlatformFaviconUrlFromUrl(href) : null;
+    const faviconHtml = faviconUrl
+      ? `<img class="md-link-favicon" src="${escapeAttr(faviconUrl)}" alt="" aria-hidden="true" loading="lazy" />`
+      : '';
+    return `<a href="${safeHref}"${titleAttr} target="_blank" rel="noopener noreferrer">${faviconHtml}${text}</a>`;
   };
 
   // Code blocks → wrapper for copy-button + optional language label
@@ -170,6 +175,19 @@ const markedInstance = new Marked({
         text-decoration: none;
         font-weight: var(--nxt1-fontWeight-medium, 500);
         transition: opacity 0.15s ease;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+      }
+
+      nxt1-markdown .md .md-link-favicon {
+        width: 14px;
+        height: 14px;
+        border-radius: 2px;
+        flex: 0 0 14px;
+        margin: 0;
+        vertical-align: middle;
+        background: rgba(255, 255, 255, 0.06);
       }
 
       nxt1-markdown .md a:hover {
@@ -465,7 +483,7 @@ export class NxtMarkdownComponent {
         'DOMPurify'
       ] as (typeof import('dompurify'))['default'];
       const clean = DOMPurify.sanitize(html, {
-        ADD_ATTR: ['target', 'rel', 'aria-label'],
+        ADD_ATTR: ['target', 'rel', 'aria-label', 'src', 'alt', 'aria-hidden', 'loading', 'class'],
         ADD_TAGS: ['button'],
       });
       return this.sanitizer.bypassSecurityTrustHtml(clean);

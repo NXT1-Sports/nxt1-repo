@@ -15,6 +15,32 @@ describe('approval-gate.service', () => {
     vi.clearAllMocks();
   });
 
+  it('requires approval for destructive intel tools', () => {
+    const service = new ApprovalGateService({} as Firestore);
+
+    const requirement = service.getApprovalRequirement('delete_timeline_post', {
+      postId: 'post-123',
+    });
+
+    expect(requirement).not.toBeNull();
+    expect(requirement?.policy.toolName).toBe('delete_timeline_post');
+    expect(requirement?.policy.riskLevel).toBe('critical');
+    expect(requirement?.actionSummary).toContain('Delete timeline post');
+  });
+
+  it('requires approval for workspace mutation tools', () => {
+    const service = new ApprovalGateService({} as Firestore);
+
+    const requirement = service.getApprovalRequirement('run_google_workspace_tool', {
+      tool: 'docs_append_text',
+    });
+
+    expect(requirement).not.toBeNull();
+    expect(requirement?.policy.toolName).toBe('run_google_workspace_tool');
+    expect(requirement?.policy.riskLevel).toBe('high');
+    expect(requirement?.actionSummary).toContain('Google Workspace action');
+  });
+
   it('stamps a Firestore TTL timestamp when creating approval requests', async () => {
     const set = vi.fn().mockResolvedValue(undefined);
     const doc = vi.fn(() => ({ set }));

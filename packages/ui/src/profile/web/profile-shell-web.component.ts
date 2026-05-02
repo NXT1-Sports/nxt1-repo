@@ -88,6 +88,7 @@ import { AgentXOperationChatComponent } from '../../agent-x';
 
 import { ProfileTimelineComponent } from '../profile-timeline.component';
 import { ProfileSkeletonComponent } from '../profile-skeleton.component';
+import { PostDetailOverlayService } from '../../post-cards';
 
 const ATHLETE_INTEL_NAV_FALLBACK_ITEMS: readonly SectionNavItem[] = [
   { id: 'agent_x_brief', label: 'Agent Overview' },
@@ -412,6 +413,7 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
                           [emptyTitle]="emptyState().title"
                           [emptyMessage]="emptyState().message"
                           [emptyCta]="null"
+                          [userUnicode]="profileUnicode() || profile.user()?.profileCode || ''"
                           (postClick)="onPostClick($event)"
                           (shareClick)="onSharePost($event)"
                           (menuClick)="onPostMenu($event)"
@@ -1454,6 +1456,7 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
   private readonly bottomSheet = inject(NxtBottomSheetService);
   private readonly modal = inject(NxtModalService);
   private readonly router = inject(Router);
+  private readonly postDetailOverlay = inject(PostDetailOverlayService);
   protected readonly platform = inject(NxtPlatformService);
   private readonly agentX = inject(AgentXService);
   protected readonly generation = inject(ProfileGenerationStateService);
@@ -1883,7 +1886,23 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
 
   // Post actions
   protected onPostClick(post: ProfilePost): void {
-    this.logger.debug('Post click', { postId: post.id });
+    const unicode = this.profileUnicode() || this.profile.user()?.profileCode || '_';
+    const user = this.profile.user();
+    void this.postDetailOverlay.open({
+      post,
+      userUnicode: unicode,
+      author: {
+        name:
+          user?.displayName ||
+          `${user?.firstName ?? ''} ${user?.lastName ?? ''}`.trim() ||
+          'Athlete',
+        avatarUrl: user?.profileImg,
+      },
+    });
+    this.logger.debug('Post click — opening post detail overlay', {
+      postId: post.id,
+      unicode,
+    });
   }
 
   // News board actions
@@ -1892,7 +1911,55 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
   }
 
   protected onSharePost(post: ProfilePost): void {
-    this.logger.debug('Share post', { postId: post.id });
+    const unicode = this.profileUnicode() || this.profile.user()?.profileCode || '_';
+
+    // Keep UX consistent: share action opens the same post detail overlay first.
+    this.onPostClick(post);
+
+    if (typeof window === 'undefined') return;
+
+    const postUrl = `${window.location.origin}/post/${encodeURIComponent(unicode)}/${encodeURIComponent(post.id)}`;
+    const sharePayload = {
+      title: post.title || 'Post | NXT1 Sports',
+      text: (post.body || '').slice(0, 140),
+      url: postUrl,
+    };
+
+    if (typeof navigator !== 'undefined' && 'share' in navigator) {
+      void navigator
+        .share(sharePayload)
+        .then(() => {
+          this.logger.info('Post shared', { postId: post.id, postUrl });
+        })
+        .catch((err) => {
+          // User cancellation throws AbortError; keep noise low while still logging other issues.
+          if (err instanceof DOMException && err.name === 'AbortError') return;
+          this.logger.warn('Web share failed, falling back to clipboard copy', {
+            postId: post.id,
+            reason: String(err),
+          });
+          void this.copyPostLink(postUrl, post.id);
+        });
+      return;
+    }
+
+    void this.copyPostLink(postUrl, post.id);
+  }
+
+  private async copyPostLink(postUrl: string, postId: string): Promise<void> {
+    if (typeof navigator === 'undefined' || !navigator.clipboard?.writeText) {
+      this.toast.info('Sharing is not available on this device.');
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(postUrl);
+      this.toast.success('Post link copied');
+      this.logger.info('Post link copied', { postId, postUrl });
+    } catch (err) {
+      this.logger.error('Failed to copy post link', err, { postId, postUrl });
+      this.toast.error('Unable to copy post link');
+    }
   }
 
   protected onPostMenu(post: ProfilePost): void {
@@ -1921,16 +1988,60 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
   }
 
   protected async onCreatePostWithAgent(): Promise<void> {
+    const user = this.profile.user();
+    if (!user) return;
+
+    const userName = user.displayName?.trim() ?? user.firstName?.trim() ?? 'Athlete';
+    const activeTab = this.activeSideTab();
+
+    let tabContext: string;
+    let sourceCollection: string;
+    switch (activeTab) {
+      case 'stats':
+        tabContext = 'my statistics, performance data, or game stats';
+        sourceCollection = 'season stats';
+        break;
+      case 'schedule':
+        tabContext = 'my upcoming games or schedule';
+        sourceCollection = 'schedule';
+        break;
+      case 'recruiting':
+        tabContext = 'recruiting updates or college recruitment news';
+        sourceCollection = 'recruiting activity';
+        break;
+      case 'news':
+        tabContext = 'news articles or personal announcements';
+        sourceCollection = 'news';
+        break;
+      case 'media':
+        tabContext = 'photos or highlight videos';
+        sourceCollection = 'media';
+        break;
+      case 'pinned':
+        tabContext = 'important pinned announcement';
+        sourceCollection = 'news';
+        break;
+      default:
+        tabContext = 'update';
+        sourceCollection = 'profile updates';
+    }
+
     const hasReport = !!this.intel.athleteReport();
+    const baseMessage =
+      `This is an ATHLETE profile update request for ${userName}. ` +
+      `Active tab: ${activeTab}. ` +
+      `Focus area: ${tabContext}. ` +
+      `Write or update the ${sourceCollection} source collection first, ` +
+      `then create a timeline post only when a public announcement is needed.`;
     const message = hasReport
-      ? 'I want to create a post for my timeline. After creating the post, automatically review it and update any relevant sections of my Agent X Intel report with new stats, achievements, or information from the post.'
-      : 'I want to create a post for my timeline.';
+      ? `${baseMessage} After saving the source data, review and update any relevant sections of my Agent X Intel report with new stats, achievements, or profile updates.`
+      : baseMessage;
     if (this.platform.isMobile()) {
       await this.bottomSheet.openSheet({
         component: AgentXOperationChatComponent,
         componentProps: {
           contextId: 'profile-timeline-post',
-          contextTitle: 'Create a Post',
+          contextTitle: 'Create / Sync Update',
           contextIcon: 'create-outline',
           contextType: 'command',
           initialMessage: message,
@@ -1943,7 +2054,7 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
       });
     } else {
       this.agentX.queueStartupMessage(message);
-      void this.router.navigate(['/agent-x']);
+      void this.router.navigate(['/agent-x'], { queryParams: { q: message } });
     }
   }
 
@@ -1993,7 +2104,7 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
       }
     } else {
       this.agentX.queueStartupMessage(initialMessage);
-      void this.router.navigate(['/agent-x']);
+      void this.router.navigate(['/agent-x'], { queryParams: { q: initialMessage } });
     }
   }
 
@@ -2022,7 +2133,7 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
       }
     } else {
       this.agentX.queueStartupMessage(message);
-      void this.router.navigate(['/agent-x']);
+      void this.router.navigate(['/agent-x'], { queryParams: { q: message } });
     }
   }
 

@@ -844,7 +844,83 @@ describe('createAgentXApi', () => {
         timestamp: '2026-01-01T00:00:00.000Z',
       });
       expect(callbacks.onDone).not.toHaveBeenCalled();
-      expect(callbacks.onError).not.toHaveBeenCalled();
+      expect(callbacks.onError).toHaveBeenCalledWith({
+        error: 'Stream ended unexpectedly before terminal event',
+        code: 'AGENT_STREAM_UNEXPECTED_EOF',
+      });
+    });
+
+    it('should forward idempotency key via SSE request headers when provided', async () => {
+      const frames = 'event: done\ndata: {"threadId":"thread-123"}\n\n';
+      const encoder = new TextEncoder();
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(encoder.encode(frames));
+          controller.close();
+        },
+      });
+
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValue(new Response(body, { status: 200, statusText: 'OK' }));
+      vi.stubGlobal('fetch', fetchMock);
+
+      const callbacks = {
+        onDelta: vi.fn(),
+        onDone: vi.fn(),
+        onError: vi.fn(),
+      };
+
+      api.streamMessage({ message: 'hello', mode: 'recruiting' }, callbacks, 'token-123', baseUrl, {
+        idempotencyKey: 'chat_retry_key_001',
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 25));
+
+      expect(fetchMock).toHaveBeenCalledWith(`${baseUrl}${AGENT_X_ENDPOINTS.CHAT}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'text/event-stream',
+          Authorization: 'Bearer token-123',
+          'x-idempotency-key': 'chat_retry_key_001',
+        },
+        body: JSON.stringify({ message: 'hello', mode: 'recruiting' }),
+        signal: expect.any(AbortSignal),
+      });
+    });
+
+    it('should emit AGENT_STREAM_UNEXPECTED_EOF when stream ends without terminal event', async () => {
+      const frames = 'event: delta\ndata: {"content":"partial"}\n\n';
+      const encoder = new TextEncoder();
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(encoder.encode(frames));
+          controller.close();
+        },
+      });
+
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue(new Response(body, { status: 200, statusText: 'OK' }))
+      );
+
+      const callbacks = {
+        onDelta: vi.fn(),
+        onDone: vi.fn(),
+        onError: vi.fn(),
+      };
+
+      api.streamMessage({ message: 'hello', mode: 'recruiting' }, callbacks, 'token-123', baseUrl);
+
+      await new Promise((resolve) => setTimeout(resolve, 25));
+
+      expect(callbacks.onDelta).toHaveBeenCalledWith({ content: 'partial' });
+      expect(callbacks.onDone).not.toHaveBeenCalled();
+      expect(callbacks.onError).toHaveBeenCalledWith({
+        error: 'Stream ended unexpectedly before terminal event',
+        code: 'AGENT_STREAM_UNEXPECTED_EOF',
+      });
     });
   });
 

@@ -279,6 +279,12 @@ export interface ShareableVideo extends ShareableContent {
 export interface ShareablePost extends ShareableContent {
   type: 'post';
 
+  /** Route owner identifier used in canonical post path: /post/:userUnicode/:postId */
+  userUnicode?: string;
+
+  /** Optional post subtype used for keyword enrichment */
+  postType?: string;
+
   /** Author name */
   authorName: string;
 
@@ -510,6 +516,59 @@ export function buildVideoSeoConfig(video: ShareableVideo): SeoConfig {
   };
 }
 
+/**
+ * Build SEO configuration from shareable post content
+ *
+ * @param post - Shareable post data
+ * @param baseUrl - Canonical base URL (defaults to NXT1 production URL)
+ * @returns Complete SEO configuration
+ */
+export function buildPostSeoConfig(post: ShareablePost, baseUrl: string = BASE_URL): SeoConfig {
+  const resolvedBaseUrl = (baseUrl || BASE_URL).replace(/\/+$/, '');
+  const canonicalPath = post.userUnicode
+    ? `/post/${encodeURIComponent(post.userUnicode)}/${encodeURIComponent(post.id)}`
+    : `/post/${encodeURIComponent(post.id)}`;
+  const canonicalUrl = `${resolvedBaseUrl}${canonicalPath}`;
+  const postTitle = post.title || 'Post';
+  const title = `${postTitle} | ${post.authorName} | NXT1 Sports`;
+  const description =
+    post.description ||
+    `${post.authorName} shared an update on NXT1 Sports. View this post and discover more athlete and team content.`;
+  const image = post.imageUrl || post.authorAvatar || DEFAULT_OG_IMAGE;
+  const keywords = [post.authorName, post.postType, 'sports post', 'athlete update', 'NXT1'].filter(
+    (value): value is string => Boolean(value)
+  );
+
+  return {
+    page: {
+      title,
+      description,
+      canonicalUrl,
+      image,
+      keywords,
+    },
+    openGraph: {
+      type: 'article',
+      title: postTitle,
+      description,
+      image,
+      imageWidth: 1200,
+      imageHeight: 630,
+      url: canonicalUrl,
+      siteName: 'NXT1 Sports',
+    },
+    twitter: {
+      card: 'summary_large_image',
+      site: TWITTER_HANDLE,
+      title: postTitle,
+      description,
+      image,
+      imageAlt: `Post by ${post.authorName}`,
+    },
+    structuredData: buildPostStructuredData(post, canonicalUrl),
+  };
+}
+
 // ============================================
 // INTERNAL HELPER FUNCTIONS
 // ============================================
@@ -705,6 +764,41 @@ function buildVideoStructuredData(video: ShareableVideo, url: string): Record<st
           name: video.athleteName,
         }
       : undefined,
+  };
+}
+
+/**
+ * Build JSON-LD structured data for social post
+ * @see https://schema.org/SocialMediaPosting
+ */
+function buildPostStructuredData(post: ShareablePost, url: string): Record<string, unknown> {
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'SocialMediaPosting',
+    headline: post.title || 'Post',
+    articleBody: post.description || undefined,
+    datePublished: post.createdAt,
+    dateModified: post.createdAt,
+    url,
+    image: post.imageUrl || post.authorAvatar || undefined,
+    author: {
+      '@type': 'Person',
+      name: post.authorName,
+      image: post.authorAvatar || undefined,
+    },
+    publisher: {
+      '@type': 'Organization',
+      name: 'NXT1 Sports',
+      url: BASE_URL,
+    },
+    interactionStatistic:
+      typeof post.likes === 'number'
+        ? {
+            '@type': 'InteractionCounter',
+            interactionType: 'https://schema.org/LikeAction',
+            userInteractionCount: post.likes,
+          }
+        : undefined,
   };
 }
 

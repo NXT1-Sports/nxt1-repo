@@ -107,6 +107,25 @@ export interface AgentOperation {
   readonly toolCalls?: readonly AgentToolCallRecord[];
 }
 
+/**
+ * Canonical media and export artifacts produced by a coordinator.
+ * Forwarded to downstream coordinators in multi-step plans so they have
+ * direct URL access rather than relying on LLM prose summaries.
+ */
+export interface AgentArtifactHandoff {
+  readonly imageUrl?: string;
+  readonly storagePath?: string;
+  readonly cloudflareVideoId?: string;
+  readonly videoUrl?: string;
+  /** FFmpeg-processed output URL (alias for videoUrl from FFmpeg MCP tools). */
+  readonly outputUrl?: string;
+  readonly downloadUrl?: string;
+  readonly pdfUrl?: string;
+  readonly exportUrl?: string;
+  readonly audioUrl?: string;
+  readonly thumbnailUrl?: string;
+}
+
 /** The final output of a completed operation. */
 export interface AgentOperationResult {
   /** Short AI-generated title for activity feed items and notifications. */
@@ -114,6 +133,8 @@ export interface AgentOperationResult {
   readonly summary: string;
   /** Structured data the UI can render (generated graphics, sent emails, etc.). */
   readonly data?: Record<string, unknown>;
+  /** Canonical media/export artifacts forwarded to downstream coordinators in multi-step plans. */
+  readonly artifacts?: AgentArtifactHandoff;
   /** Follow-up suggestions the agent proactively offers. */
   readonly suggestions?: readonly string[];
 }
@@ -503,6 +524,15 @@ export interface ModelRoutingConfig {
   readonly maxTokens?: number;
   /** Temperature (0-2). */
   readonly temperature?: number;
+  /**
+   * Enable extended thinking for models that support it (Claude 3.7+, Gemini 2.5, etc.).
+   * When true, thinking tokens stream separately and appear as a collapsible
+   * reasoning block in the chat UI. OpenRouter silently ignores the param for
+   * models that don't support it.
+   */
+  readonly enableThinking?: boolean;
+  /** Max tokens the model may spend on reasoning. Defaults to 8 000. Must be ≥ 1 024. */
+  readonly thinkingBudgetTokens?: number;
 }
 
 // ─── Job Origin & Triggers ──────────────────────────────────────────────────
@@ -808,14 +838,7 @@ export interface AgentApprovalRequest {
 export type AgentApprovalStatus = 'pending' | 'approved' | 'rejected' | 'expired' | 'auto_approved';
 
 /** Typed reason codes for approval-gated actions. */
-export type AgentApprovalReasonCode =
-  | 'send_email'
-  | 'update_profile'
-  | 'delete_content'
-  | 'post_to_social'
-  | 'send_sms'
-  | 'interact_with_live_view'
-  | 'run_tool';
+export type AgentApprovalReasonCode = 'send_email' | 'interact_with_live_view' | 'run_tool';
 
 /** Typed outcome codes used for approval, yield, and activity notifications. */
 export type AgentNotificationOutcomeCode = Extract<
@@ -873,9 +896,36 @@ export interface AgentApprovalPolicy {
   readonly expiryMs: number;
   /** Risk level indicator for the UI. */
   readonly riskLevel: 'low' | 'medium' | 'high' | 'critical';
+  /**
+   * Optional trust group identifier used for session-level trust grants.
+   * Tools in the same group share a trust grant — if the user approves one
+   * and checks "trust this session", all tools in the same group are
+   * auto-approved for the remainder of the session (2h TTL).
+   *
+   * Examples: 'email', 'profile_write', 'team_write', 'automation'
+   */
+  readonly sessionTrustGroup?: string;
 }
 
-// ─── Context Builder (Profile Hydration) ────────────────────────────────────
+/**
+ * Firestore document stored in `AgentSessionTrustGrants` collection.
+ * When a user approves an action and checks "Trust for this session", a grant
+ * is written for the tool's `sessionTrustGroup`. Subsequent approvals in the
+ * same group are automatically approved for the remainder of the session.
+ */
+export interface AgentSessionTrustGrant {
+  /** Firestore document ID (`grant_{uuid}`). */
+  readonly id: string;
+  readonly userId: string;
+  /** Session/operation origin that created the grant. */
+  readonly sessionId: string;
+  /** Trust group identifier matching `AgentApprovalPolicy.sessionTrustGroup`. */
+  readonly trustGroup: string;
+  /** ISO timestamp when the grant was created. */
+  readonly createdAt: string;
+  /** ISO timestamp after which the grant is no longer valid (2h TTL). */
+  readonly expiresAt: string;
+}
 
 /**
  * The hydrated user context injected into every agent session.
@@ -887,9 +937,40 @@ export interface AgentUserContext {
   readonly role: string;
   /** Display name for personalization. */
   readonly displayName: string;
+  /** Active sport index from user.sports[] when present. */
+  readonly activeSportIndex?: number;
+
+  // ── Canonical NXT1 Routes ────────────────────────────────────
+  /** Primary canonical profile path for the active sport context. */
+  readonly profilePath?: string;
+  /** Canonical profile paths across all known sports for this user. */
+  readonly profilePathsBySport?: ReadonlyArray<{
+    readonly sport: string;
+    readonly path: string;
+  }>;
+  /** Primary canonical team path for the active team context. */
+  readonly teamPath?: string;
+  /** Canonical team paths across known team affiliations. */
+  readonly teamPaths?: ReadonlyArray<{
+    readonly sport?: string;
+    readonly teamName?: string;
+    readonly teamCode: string;
+    readonly path: string;
+  }>;
 
   // ── Athletic Profile ──────────────────────────────────────────
   readonly sport?: string;
+  /**
+   * Multi-sport snapshot from user.sports[].
+   * The active sport remains exposed as `sport`, but this preserves full context
+   * so prompts can reason across every sport profile for the user.
+   */
+  readonly sports?: ReadonlyArray<{
+    readonly sport: string;
+    readonly positions?: readonly string[];
+    readonly teamName?: string;
+    readonly isActive?: boolean;
+  }>;
   readonly position?: string;
   readonly heightInches?: number;
   readonly weightLbs?: number;
@@ -1033,6 +1114,7 @@ export type JobEventType =
   | 'step_done'
   | 'step_error'
   | 'delta'
+  | 'thinking'
   | 'tool_call'
   | 'tool_result'
   | 'card'
@@ -1078,6 +1160,8 @@ export interface JobEvent {
   readonly message?: string;
   /** Accumulated LLM text for `delta` events. */
   readonly text?: string;
+  /** Extended thinking text for `thinking` events (Claude 3.7+ / Gemini 2.5). */
+  readonly thinkingText?: string;
   /** Tool name for `tool_call` / `tool_result` events. */
   readonly toolName?: string;
   /** LLM-assigned stable tool call ID shared across step_active / emitStage / tool_result

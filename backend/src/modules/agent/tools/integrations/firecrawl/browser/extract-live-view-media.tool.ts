@@ -7,6 +7,12 @@ import { BaseTool, type ToolExecutionContext, type ToolResult } from '../../../b
 import type { LiveViewSessionService } from './live-view-session.service.js';
 import { logger } from '../../../../../../utils/logger.js';
 import { z } from 'zod';
+import { buildVideoWorkflowArtifact } from '../../../media/media-workflow.js';
+import {
+  ScraperMediaService,
+  type MediaInput,
+  type MediaThreadContext,
+} from '../../social/scraper-media.service.js';
 
 const MP4_PATTERN = /\.mp4(?:$|[?#])/i;
 const HLS_PATTERN = /\.m3u8(?:$|[?#])/i;
@@ -39,9 +45,9 @@ export class ExtractLiveViewMediaTool extends BaseTool {
   readonly name = 'extract_live_view_media';
 
   readonly description =
-    'Extracts real network media URLs from the active live-view browser session, including HLS manifests (.m3u8), MP4 files, DASH manifests (.mpd), and transport stream chunks. ' +
-    'Use this when the page in live view is a protected or signed-in video player such as Hudl and the DOM only shows a blob: URL. ' +
-    'This reads the browser Performance API from the exact page the user is watching and returns the fetched stream URLs so downstream video analysis can use them.';
+    'Extracts real network media URLs from the active live-view browser session, including MP4 files and streaming format variants. ' +
+    'Use this when the page in live view is a protected or signed-in video player such as Hudl and the DOM only shows an unplayable source. ' +
+    'This reads the browser network activity from the exact page the user is watching and returns the fetched stream URLs so downstream video analysis can use them.';
 
   readonly parameters = z.object({
     sessionId: z.string().trim().min(1).optional(),
@@ -53,8 +59,50 @@ export class ExtractLiveViewMediaTool extends BaseTool {
   readonly entityGroup = 'platform_tools' as const;
   override readonly allowedAgents = ['*'] as const;
 
-  constructor(private readonly sessionService: LiveViewSessionService) {
+  constructor(
+    private readonly sessionService: LiveViewSessionService,
+    private readonly media: ScraperMediaService = new ScraperMediaService()
+  ) {
     super();
+  }
+
+  private guessMediaType(url: string): 'image' | 'video' {
+    const lower = url.toLowerCase();
+    if (
+      lower.includes('.mp4') ||
+      lower.includes('.mov') ||
+      lower.includes('.avi') ||
+      lower.includes('.mkv') ||
+      lower.includes('.m3u8') ||
+      lower.includes('.mpd')
+    ) {
+      return 'video';
+    }
+    return 'image';
+  }
+
+  private async persistExtractedMedia(
+    streams: readonly string[],
+    context?: ToolExecutionContext
+  ): Promise<readonly string[]> {
+    const staging: MediaThreadContext | undefined =
+      context?.userId && context?.threadId
+        ? { userId: context.userId, threadId: context.threadId }
+        : undefined;
+
+    if (!staging || streams.length === 0) {
+      return [];
+    }
+
+    const mediaItems: MediaInput[] = streams.map((url) => ({
+      url,
+      type: this.guessMediaType(url),
+      platform: 'web',
+      sourceUrl: url,
+    }));
+
+    const persisted = await this.media.persistBatch(mediaItems, staging);
+    return persisted.map((entry) => entry.url);
   }
 
   async execute(
@@ -95,6 +143,23 @@ export class ExtractLiveViewMediaTool extends BaseTool {
         preferredStream,
       });
 
+      const mediaArtifact = buildVideoWorkflowArtifact({
+        sourceUrl: preferredStream,
+        playableUrls: result.streams,
+        directMp4Urls: mp4Streams,
+        hlsUrls: hlsStreams,
+        dashUrls: dashStreams,
+        recommendedHeaders,
+        sourceTypeHint:
+          preferredStream && mp4Streams.includes(preferredStream)
+            ? Object.keys(recommendedHeaders).length > 0
+              ? 'protected_direct'
+              : 'public_direct'
+            : undefined,
+      });
+
+      const persistedMediaUrls = await this.persistExtractedMedia(result.streams, context);
+
       return {
         success: true,
         data: {
@@ -122,6 +187,8 @@ export class ExtractLiveViewMediaTool extends BaseTool {
             headers: recommendedHeaders,
             cookies: result.auth.cookies,
           },
+          persistedMediaUrls,
+          mediaArtifact,
           message:
             result.streams.length > 0
               ? `Detected ${result.streams.length} network media stream URL(s) from the live view. Use the auth payload when handing protected streams to Apify or another downloader.`

@@ -196,13 +196,24 @@ AgentMessageSchema.add({
    * final assistant persist on BullMQ retry). Callers use a stable
    * composite key such as `${operationId}:final-assistant`.
    */
-  idempotencyKey: { type: String, sparse: true },
+  idempotencyKey: { type: String },
+  /**
+   * Semantic phase of this row in the agent's write lifecycle.
+   * Enables UI projection to suppress `assistant_partial` rows when
+   * `assistant_final` exists for the same operationId.
+   * Sparse index — only tagged rows are indexed.
+   */
+  semanticPhase: { type: String },
 });
 
 // Prevents duplicate persists on worker retry or concurrent calls.
 // Callers opt in by supplying a stable idempotencyKey; messages without
 // one are unaffected (sparse index ignores null/undefined).
 AgentMessageSchema.index({ idempotencyKey: 1 }, { unique: true, sparse: true });
+
+// Phase-scoped lookup: find all rows for an operationId by their semantic phase.
+// Used by analytics and the thread-history projection pipeline.
+AgentMessageSchema.index({ operationId: 1, semanticPhase: 1 }, { sparse: true });
 
 // Active vs soft-deleted message lookups.
 AgentMessageSchema.index({ threadId: 1, deletedAt: 1, createdAt: 1 });

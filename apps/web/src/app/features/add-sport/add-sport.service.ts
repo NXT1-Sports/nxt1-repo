@@ -24,6 +24,7 @@ import { NxtPlatformService } from '@nxt1/ui/services/platform';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import { ANALYTICS_ADAPTER } from '@nxt1/ui/services/analytics';
 import { NxtBreadcrumbService } from '@nxt1/ui/services/breadcrumb';
+import { ProfileGenerationStateService } from '@nxt1/ui/profile';
 
 import type { SportFormData, LinkSourcesFormData, TeamSelectionFormData } from '@nxt1/core/api';
 import type { OnboardingUserType } from '@nxt1/core';
@@ -48,6 +49,15 @@ function normalizeSportName(value: unknown): string {
   return typeof value === 'string' ? value.trim().toLowerCase() : '';
 }
 
+function hasAttachedTeam(sport: {
+  team?: { teamId?: string | null; organizationId?: string | null; id?: string | null } | null;
+}): boolean {
+  const team = sport.team;
+  if (!team) return false;
+
+  return Boolean(team.teamId?.trim() || team.organizationId?.trim() || team.id?.trim());
+}
+
 @Injectable({ providedIn: 'root' })
 export class AddSportService {
   // ============================================
@@ -61,6 +71,7 @@ export class AddSportService {
   private readonly toast = inject(NxtToastService);
   private readonly platform = inject(NxtPlatformService);
   private readonly platformId = inject(PLATFORM_ID);
+  private readonly profileGenerationState = inject(ProfileGenerationStateService);
 
   private readonly logger = inject(NxtLoggingService).child('AddSport');
   private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
@@ -145,13 +156,27 @@ export class AddSportService {
   /** Sports/teams already associated with the current user profile */
   readonly existingSportNames = computed<string[]>(() => {
     const user = this.authFlow.user() as {
-      sports?: Array<{ sport?: string | null }>;
+      sports?: Array<{
+        sport?: string | null;
+        team?: {
+          teamId?: string | null;
+          organizationId?: string | null;
+          id?: string | null;
+        } | null;
+      }>;
       teamCode?: { sport?: string | null } | null;
     } | null;
     if (!user) return [];
 
     const fromSports = Array.isArray(user.sports)
-      ? user.sports.map((s) => s?.sport).filter((s): s is string => typeof s === 'string')
+      ? this.isTeamRoleUser()
+        ? user.sports
+            .filter((sport) => hasAttachedTeam(sport))
+            .map((sport) => sport.sport)
+            .filter((sport): sport is string => typeof sport === 'string')
+        : user.sports
+            .map((sport) => sport?.sport)
+            .filter((sport): sport is string => typeof sport === 'string')
       : [];
     const fromTeam = user.teamCode?.sport ? [user.teamCode.sport] : [];
 
@@ -410,6 +435,25 @@ export class AddSportService {
 
       // Refresh the auth user signal so sidebar/header reflect new sport immediately
       await this.authFlow.refreshUserProfile();
+
+      if (sportResponse.data?.scrapeJobId) {
+        const platformNames =
+          this._linkSourcesFormData()
+            ?.links?.filter((link) => link.connected)
+            .map((link) => link.platform)
+            .join(', ') ?? '';
+
+        this.profileGenerationState.attachToOperation(
+          sportResponse.data.scrapeJobId,
+          sportResponse.data.scrapeThreadId,
+          platformNames
+        );
+        this.logger.info('Backend scrape job started for add-sport', {
+          scrapeJobId: sportResponse.data.scrapeJobId,
+          scrapeThreadId: sportResponse.data.scrapeThreadId,
+          sport: primarySport.sport,
+        });
+      }
 
       const label = this.isTeamRoleUser() ? 'Team' : 'Sport';
       this.analytics?.trackEvent(APP_EVENTS.PROFILE_SPORT_ADDED, {

@@ -77,8 +77,7 @@ export interface ConnectedAccountsModalCloseData {
         <button
           modalHeaderAction
           type="button"
-          class="nxt1-ca-resync-btn"
-          [class.nxt1-ca-resync-btn--active]="hasChanges()"
+          class="nxt1-ca-resync-btn nxt1-ca-resync-btn--active"
           [attr.data-testid]="testIds.RESYNC_BUTTON"
           (click)="onResync()"
         >

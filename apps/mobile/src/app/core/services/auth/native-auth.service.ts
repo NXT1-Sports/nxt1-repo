@@ -42,6 +42,7 @@ import { FirebaseAuthentication } from '@capacitor-firebase/authentication';
 import { MsAuthPlugin } from '@recognizebv/capacitor-plugin-msauth';
 import { NxtPlatformService, HapticsService, NxtLoggingService } from '@nxt1/ui';
 import { type ILogger } from '@nxt1/core/logging';
+import { GOOGLE_OAUTH_SCOPES } from '@nxt1/core/auth';
 import type { NativeAuthResult, NativeAuthProvider, NativeAuthAvailability } from '@nxt1/core';
 import { environment } from 'src/environments/environment';
 
@@ -127,23 +128,7 @@ export class NativeAuthService {
       // Sign in with Google using Firebase plugin
       // serverAuthCode is automatically generated when GoogleService-Info.plist is properly configured
       const result = await FirebaseAuthentication.signInWithGoogle({
-        scopes: [
-          // Identity scopes
-          'openid',
-          'email',
-          'profile',
-          // Gmail scopes (restricted)
-          'https://www.googleapis.com/auth/gmail.send',
-          'https://www.googleapis.com/auth/gmail.readonly',
-          // Drive scopes
-          'https://www.googleapis.com/auth/drive.file',
-          'https://www.googleapis.com/auth/drive.readonly',
-          // Google Workspace scopes
-          'https://www.googleapis.com/auth/calendar.events',
-          'https://www.googleapis.com/auth/documents',
-          'https://www.googleapis.com/auth/spreadsheets',
-          'https://www.googleapis.com/auth/presentations',
-        ],
+        scopes: [...GOOGLE_OAUTH_SCOPES],
       });
 
       this.logger.info('Google Sign-In successful', {

@@ -37,8 +37,12 @@ import type {
   AgentYieldState,
   AgentXRichCard,
 } from '@nxt1/core';
-import { AgentEngineError } from '../exceptions/agent-engine.error.js';
-import { resolveAgentApprovalCopy, resolveAgentSuccessNotificationCopy } from '@nxt1/core';
+import { AGENT_X_RUNTIME_CONFIG, AGENT_APPROVAL_TOOL_GROUPS } from '@nxt1/core/ai';
+import {
+  resolveAgentApprovalCopy,
+  resolveAgentSuccessNotificationCopy,
+  formatApprovalRichPreview,
+} from '@nxt1/core';
 import type { AgentRouter } from '../agent.router.js';
 import type { AgentQueueJobData, AgentQueueJobResult, AgentJobProgress } from './queue.types.js';
 import {
@@ -60,7 +64,7 @@ import type { AgentChatService } from '../services/agent-chat.service.js';
 import { getThreadMessageWriter } from '../memory/thread-message-writer.service.js';
 import type { OpenRouterService } from '../llm/openrouter.service.js';
 import { isAgentYield } from '../exceptions/agent-yield.exception.js';
-import { getAgentEngineErrorCode } from '../exceptions/agent-engine.error.js';
+import { AgentEngineError, getAgentEngineErrorCode } from '../exceptions/agent-engine.error.js';
 import { notifyYield } from '../services/yield-notifier.service.js';
 import { estimateChargeAmountSync } from '../../billing/pricing.service.js';
 import {
@@ -69,7 +73,11 @@ import {
   releaseWalletHold,
 } from '../../billing/budget.service.js';
 import { executeBillingDeduction } from '../../billing/usage-deduction.service.js';
-import { logAgentTaskCompletion, logAgentTaskFailure } from '../services/agent-activity.service.js';
+import {
+  logAgentTaskCompletion,
+  logAgentTaskFailure,
+  deriveBodyFromResult,
+} from '../services/agent-activity.service.js';
 import { processRecapForUser } from '../services/weekly-recap-email.service.js';
 import { dispatchAgentPush } from '../services/agent-push-adapter.service.js';
 import { logger } from '../../../utils/logger.js';
@@ -90,10 +98,13 @@ function isAgentIdentifier(value: unknown): value is AgentIdentifier {
   return typeof value === 'string' && AGENT_IDENTIFIER_SET.has(value as AgentIdentifier);
 }
 
-const MAX_TIMEOUT_AUTO_CONTINUATIONS = 6;
-const PARENT_OPERATION_POLL_MS = 1_000;
-const PARENT_OPERATION_MAX_WAIT_MS = JOB_TIMEOUT_MS + 5 * 60_000;
-const PARENT_OPERATION_STALE_HEARTBEAT_MS = JOB_TIMEOUT_MS + 5 * 60_000;
+const MAX_TIMEOUT_AUTO_CONTINUATIONS =
+  AGENT_X_RUNTIME_CONFIG.operationQueue.maxTimeoutAutoContinuations;
+const PARENT_OPERATION_POLL_MS = AGENT_X_RUNTIME_CONFIG.operationQueue.parentOperationPollMs;
+const PARENT_OPERATION_MAX_WAIT_MS =
+  JOB_TIMEOUT_MS + AGENT_X_RUNTIME_CONFIG.operationQueue.parentOperationTimeoutBufferMs;
+const PARENT_OPERATION_STALE_HEARTBEAT_MS =
+  JOB_TIMEOUT_MS + AGENT_X_RUNTIME_CONFIG.operationQueue.parentOperationTimeoutBufferMs;
 
 function toMillis(value: unknown): number | null {
   if (!value) return null;
@@ -148,6 +159,182 @@ function createAbortError(message: string): Error {
   return err;
 }
 
+// ─── Approval card enrichment helpers ────────────────────────────────────────
+
+type GenericApprovalCategory =
+  | 'profileWrite'
+  | 'profileDelete'
+  | 'teamWrite'
+  | 'teamDelete'
+  | 'communication'
+  | 'workspace'
+  | 'automation'
+  | 'destructive'
+  | 'other';
+
+type ApprovalRiskLevel = 'low' | 'medium' | 'high' | 'critical';
+
+const PROFILE_WRITE_TOOLS = new Set<string>(AGENT_APPROVAL_TOOL_GROUPS.profileWrites);
+const PROFILE_DELETE_TOOLS = new Set<string>(AGENT_APPROVAL_TOOL_GROUPS.profileDeletes);
+const TEAM_WRITE_TOOLS = new Set<string>(AGENT_APPROVAL_TOOL_GROUPS.teamWrites);
+const TEAM_DELETE_TOOLS = new Set<string>(AGENT_APPROVAL_TOOL_GROUPS.teamDeletes);
+const WORKSPACE_TOOLS = new Set<string>(AGENT_APPROVAL_TOOL_GROUPS.workspaceActions);
+const AUTOMATION_TOOLS = new Set<string>(AGENT_APPROVAL_TOOL_GROUPS.automationAndExternalActions);
+const DESTRUCTIVE_TOOLS = new Set<string>(AGENT_APPROVAL_TOOL_GROUPS.destructiveStorage);
+const INTEL_WRITE_TOOLS = new Set<string>(AGENT_APPROVAL_TOOL_GROUPS.intelAndSourcesWrites);
+const INTEL_DELETE_TOOLS = new Set<string>(AGENT_APPROVAL_TOOL_GROUPS.intelAndSourcesDeletes);
+
+function classifyApprovalTool(toolName: string): {
+  category: GenericApprovalCategory;
+  riskLevel: ApprovalRiskLevel;
+} {
+  if (
+    PROFILE_DELETE_TOOLS.has(toolName) ||
+    TEAM_DELETE_TOOLS.has(toolName) ||
+    INTEL_DELETE_TOOLS.has(toolName)
+  ) {
+    return {
+      category: toolName.startsWith('delete_team') ? 'teamDelete' : 'profileDelete',
+      riskLevel: 'critical',
+    };
+  }
+  if (DESTRUCTIVE_TOOLS.has(toolName)) {
+    return { category: 'destructive', riskLevel: 'critical' };
+  }
+  if (PROFILE_WRITE_TOOLS.has(toolName) || INTEL_WRITE_TOOLS.has(toolName)) {
+    return { category: 'profileWrite', riskLevel: 'medium' };
+  }
+  if (TEAM_WRITE_TOOLS.has(toolName)) {
+    return { category: 'teamWrite', riskLevel: 'medium' };
+  }
+  if (WORKSPACE_TOOLS.has(toolName)) {
+    return { category: 'workspace', riskLevel: 'high' };
+  }
+  if (AUTOMATION_TOOLS.has(toolName)) {
+    return { category: 'automation', riskLevel: 'high' };
+  }
+  return { category: 'other', riskLevel: 'medium' };
+}
+
+const SENSITIVE_FIELD_PATTERN = /password|token|secret|key|auth|credential|ssn|credit|cvv/i;
+const SKIP_FIELD_PATTERN = /id$|Id$|Url$|url$|html$|Html$/;
+const MAX_PREVIEW_FIELDS = 5;
+const MAX_FIELD_VALUE_LEN = 120;
+
+function humanizeKey(key: string): string {
+  return key
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/[_-]+/g, ' ')
+    .trim()
+    .replace(/^./, (c) => c.toUpperCase());
+}
+
+function formatPreviewValue(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'string') {
+    const cleaned = value
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!cleaned) return null;
+    return cleaned.length > MAX_FIELD_VALUE_LEN
+      ? `${cleaned.slice(0, MAX_FIELD_VALUE_LEN).trim()}…`
+      : cleaned;
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (Array.isArray(value)) {
+    const items = value.filter((v) => typeof v === 'string' || typeof v === 'number').slice(0, 3);
+    return items.length ? items.join(', ') : null;
+  }
+  return null;
+}
+
+function extractDataFields(
+  toolInput: Record<string, unknown>
+): Array<{ key: string; value: string }> {
+  const fields: Array<{ key: string; value: string }> = [];
+  for (const [key, value] of Object.entries(toolInput)) {
+    if (fields.length >= MAX_PREVIEW_FIELDS) break;
+    if (SENSITIVE_FIELD_PATTERN.test(key)) continue;
+    if (SKIP_FIELD_PATTERN.test(key)) continue;
+    const formatted = formatPreviewValue(value);
+    if (!formatted) continue;
+    fields.push({ key: humanizeKey(key), value: formatted });
+  }
+  return fields;
+}
+
+function humanizeToolName(toolName: string): string {
+  return toolName
+    .replace(/^(write|update|delete|create)_/, '')
+    .replace(/_/g, ' ')
+    .trim()
+    .replace(/^./, (c) => c.toUpperCase());
+}
+
+function buildGenericApprovalTitle(toolName: string): string {
+  if (toolName.startsWith('delete_')) return 'Confirm Deletion';
+  if (DESTRUCTIVE_TOOLS.has(toolName)) return 'Confirm Destructive Action';
+  if (WORKSPACE_TOOLS.has(toolName)) return 'Review Workspace Action';
+  if (AUTOMATION_TOOLS.has(toolName)) return 'Review Automation';
+  if (toolName.startsWith('write_') || toolName.startsWith('update_')) return 'Review Data Write';
+  return 'Approval Required';
+}
+
+function extractTimelinePostDraft(
+  toolName: string,
+  toolInput: Record<string, unknown>
+): {
+  title?: string;
+  description: string;
+  postType?: string;
+  isTeamPost: boolean;
+} | null {
+  if (toolName === 'write_timeline_post') {
+    const description =
+      (typeof toolInput['content'] === 'string' && toolInput['content'].trim()) ||
+      (typeof toolInput['description'] === 'string' && toolInput['description'].trim()) ||
+      '';
+    if (!description) return null;
+    const title =
+      typeof toolInput['title'] === 'string' && toolInput['title'].trim()
+        ? toolInput['title'].trim()
+        : undefined;
+    const postType =
+      typeof toolInput['type'] === 'string' && toolInput['type'].trim()
+        ? toolInput['type'].trim()
+        : undefined;
+    return { title, description, postType, isTeamPost: false };
+  }
+
+  if (toolName === 'write_team_post') {
+    const posts = Array.isArray(toolInput['posts']) ? (toolInput['posts'] as Array<unknown>) : [];
+    const firstPost = posts.find((p) => p && typeof p === 'object') as
+      | Record<string, unknown>
+      | undefined;
+    if (!firstPost) return null;
+
+    const description =
+      (typeof firstPost['content'] === 'string' && firstPost['content'].trim()) ||
+      (typeof firstPost['description'] === 'string' && firstPost['description'].trim()) ||
+      '';
+    if (!description) return null;
+
+    const title =
+      typeof firstPost['title'] === 'string' && firstPost['title'].trim()
+        ? firstPost['title'].trim()
+        : undefined;
+    const postType =
+      typeof firstPost['type'] === 'string' && firstPost['type'].trim()
+        ? firstPost['type'].trim()
+        : undefined;
+
+    return { title, description, postType, isTeamPost: true };
+  }
+
+  return null;
+}
+
 /**
  * Build an inline rich card for an agent yield (approval or input request).
  *
@@ -155,14 +342,15 @@ function createAbortError(message: string): Error {
  *   • `needs_approval` for `send_email` / `batch_send_email` →
  *     `draft` card (renders an editable email preview with Approve/Reject).
  *   • `needs_approval` for any other tool → `confirmation` card with
- *     Approve/Reject action buttons.
+ *     `generic_approval` variant, rich action summary, risk level, and
+ *     a structured key-value preview of the most relevant tool arguments.
  *   • `needs_input` (ask_user / pause_resume) → `ask_user` card with a
  *     reply text input.
  *
  * Returns `null` when no meaningful card can be built (defensive — falls
  * back to the plain assistant text bubble).
  */
-function buildInlineYieldCard(params: {
+export function buildInlineYieldCard(params: {
   yieldPayload: {
     reason: string;
     promptToUser: string;
@@ -184,24 +372,32 @@ function buildInlineYieldCard(params: {
   if (reason === 'needs_approval' && pendingToolCall && approvalId) {
     const { toolName, toolInput } = pendingToolCall;
 
-    // Email-shaped tools render as an editable Draft card.
+    // Email approvals: enrich with email metadata for frontend to render email-variant approval card
     if (toolName === 'send_email') {
       const subject = typeof toolInput['subject'] === 'string' ? toolInput['subject'] : '';
       const body =
         (typeof toolInput['bodyHtml'] === 'string' && toolInput['bodyHtml']) ||
         (typeof toolInput['body'] === 'string' ? toolInput['body'] : '') ||
-        (typeof toolInput['bodyText'] === 'string' ? toolInput['bodyText'] : '') ||
         '';
       const toEmail = typeof toolInput['toEmail'] === 'string' ? toolInput['toEmail'] : '';
       return {
-        type: 'draft',
+        type: 'confirmation',
         agentId,
-        title: 'Email Draft — Awaiting Approval',
+        title: 'Review and Approve Email',
         payload: {
-          content: body,
-          subject,
-          recipientsCount: 1,
-          toEmail,
+          message: promptToUser,
+          variant: 'email', // Signal frontend to render email UI
+          emailData: {
+            subject,
+            body,
+            toEmail,
+            recipients: toEmail ? [toEmail] : [],
+            recipientsCount: 1,
+          },
+          actions: [
+            { id: 'reject', label: 'Reject', variant: 'secondary' },
+            { id: 'approve', label: 'Send', variant: 'primary' },
+          ],
           approvalId,
           operationId,
         },
@@ -218,28 +414,111 @@ function buildInlineYieldCard(params: {
         (typeof toolInput['bodyHtml'] === 'string' && toolInput['bodyHtml']) ||
         (typeof toolInput['body'] === 'string' ? toolInput['body'] : '') ||
         '';
-      const recipients = Array.isArray(toolInput['recipients']) ? toolInput['recipients'] : [];
+      // Preserve full recipient objects {toEmail, variables} so the frontend
+      // can show variable previews and round-trip them intact through approval.
+      const recipients = Array.isArray(toolInput['recipients'])
+        ? (toolInput['recipients'] as Array<unknown>)
+            .map((r) => {
+              if (typeof r === 'string' && r.trim()) {
+                return { toEmail: r.trim(), variables: {} };
+              }
+              if (r && typeof r === 'object') {
+                const obj = r as Record<string, unknown>;
+                const toEmail =
+                  typeof obj['toEmail'] === 'string' && obj['toEmail'].trim()
+                    ? obj['toEmail'].trim()
+                    : typeof obj['email'] === 'string' && obj['email'].trim()
+                      ? obj['email'].trim()
+                      : '';
+                if (!toEmail) return null;
+                return {
+                  toEmail,
+                  variables:
+                    obj['variables'] &&
+                    typeof obj['variables'] === 'object' &&
+                    !Array.isArray(obj['variables'])
+                      ? (obj['variables'] as Record<string, string | number | boolean>)
+                      : {},
+                };
+              }
+              return null;
+            })
+            .filter(Boolean)
+        : [];
       return {
-        type: 'draft',
+        type: 'confirmation',
         agentId,
-        title: `Email Draft — ${recipients.length} recipient${recipients.length === 1 ? '' : 's'} (Awaiting Approval)`,
+        title: `Review and Approve Emails (${recipients.length} recipient${recipients.length === 1 ? '' : 's'})`,
         payload: {
-          content: body,
-          subject,
-          recipientsCount: recipients.length,
+          message: promptToUser,
+          variant: 'email-batch', // Signal frontend to render batch email UI
+          emailData: {
+            subject,
+            body,
+            recipients,
+            recipientsCount: recipients.length,
+          },
+          actions: [
+            { id: 'reject', label: 'Reject', variant: 'secondary' },
+            { id: 'approve', label: 'Send All', variant: 'primary' },
+          ],
           approvalId,
           operationId,
         },
       };
     }
 
-    // Generic approval-required tool → Confirmation card with action buttons.
+    // Timeline/team post approvals: show editable title + description card.
+    if (toolName === 'write_timeline_post' || toolName === 'write_team_post') {
+      const draft = extractTimelinePostDraft(toolName, toolInput);
+      if (draft) {
+        return {
+          type: 'confirmation',
+          agentId,
+          title: draft.isTeamPost ? 'Review Team Post' : 'Review Timeline Post',
+          payload: {
+            message: promptToUser,
+            variant: 'timeline_post',
+            timelinePostData: {
+              ...(draft.title ? { title: draft.title } : {}),
+              description: draft.description,
+              ...(draft.postType ? { postType: draft.postType } : {}),
+              isTeamPost: draft.isTeamPost,
+            },
+            actions: [
+              { id: 'reject', label: 'Reject', variant: 'secondary' },
+              { id: 'approve', label: 'Publish', variant: 'primary' },
+            ],
+            approvalId,
+            operationId,
+          },
+        };
+      }
+    }
+
+    // Generic approval-required tool → rich `generic_approval` confirmation card.
+    const approvialCopy = resolveAgentApprovalCopy({ toolName, toolInput });
+    const { category, riskLevel } = classifyApprovalTool(toolName);
+    const dataFields = extractDataFields(toolInput);
+    const cardTitle = buildGenericApprovalTitle(toolName);
+    const resourceName = humanizeToolName(toolName);
+    const richPreview = formatApprovalRichPreview(toolName, toolInput);
+
     return {
       type: 'confirmation',
       agentId,
-      title: 'Approval Required',
+      title: cardTitle,
       payload: {
         message: promptToUser,
+        variant: 'generic_approval',
+        genericApprovalData: {
+          category,
+          riskLevel,
+          actionSummary: approvialCopy.actionSummary,
+          resourceName,
+          ...(dataFields.length > 0 ? { dataFields } : {}),
+          ...(richPreview ? { richPreview } : {}),
+        },
         actions: [
           { id: 'reject', label: 'Reject', variant: 'secondary' },
           { id: 'approve', label: 'Approve', variant: 'primary' },
@@ -1009,8 +1288,8 @@ export class AgentWorker {
          * without waiting for the 300ms Firestore batch. Professional typing feel.
          */
         onLiveEvent: (event) => {
-          // Only handle deltas here; other events go through onPersistedEvent
-          if (event.type !== 'delta') return;
+          // Handle deltas and thinking live (token-by-token); all other events go through onPersistedEvent
+          if (event.type !== 'delta' && event.type !== 'thinking') return;
 
           if (!primaryFirstDeltaLogged && event.agentId === 'router') {
             primaryFirstDeltaLogged = true;
@@ -1048,8 +1327,8 @@ export class AgentWorker {
          * state transitions, etc. Deltas already published via onLiveEvent.
          */
         onPersistedEvent: (event) => {
-          // Skip deltas here (already published via onLiveEvent for real-time)
-          if (event.type === 'delta') return;
+          // Skip deltas and thinking — already published live via onLiveEvent
+          if (event.type === 'delta' || event.type === 'thinking') return;
 
           let sseEvent = this.streamEventToSSE(event, payload.operationId, payloadThreadId);
           if (!sseEvent) return;
@@ -1246,6 +1525,10 @@ export class AgentWorker {
                     origin: payload.origin,
                     agentId: 'router',
                     operationId: payload.operationId,
+                    // Phase-scoped idempotency: prevents double-persist if the
+                    // worker is retried after a partial write on abort/pause.
+                    idempotencyKey: `${payload.operationId}:assistant_partial`,
+                    semanticPhase: 'assistant_partial',
                     ...(partialSnapshot.steps.length > 0 ? { steps: partialSnapshot.steps } : {}),
                     ...(partialSnapshot.parts.length > 0 ? { parts: partialSnapshot.parts } : {}),
                   });
@@ -1421,6 +1704,11 @@ export class AgentWorker {
               origin: 'agent_chain',
               agentId: yieldPayload.agentId,
               operationId: payload.operationId,
+              // Phase-scoped idempotency: prevents duplicate yield prompts on
+              // BullMQ retry. Stable per operation — a given job yields at most
+              // once, so the key space is safe.
+              idempotencyKey: `${payload.operationId}:assistant_yield`,
+              semanticPhase: 'assistant_yield',
             });
           } catch (chatErr) {
             logger.warn('Failed to persist yield message to MongoDB', {
@@ -1888,10 +2176,21 @@ export class AgentWorker {
     try {
       const activityDb = await this.getActivityFirestore(job);
 
+      // Fetch the thread title generated at enqueue time so notifications
+      // display a meaningful subject instead of the generic “Agent X Update” fallback.
+      let threadTitle: string | undefined;
+      if (payloadThreadId && this.chatService) {
+        const thread = await this.chatService
+          .getThread(payloadThreadId, payload.userId)
+          .catch(() => null);
+        threadTitle = thread?.title?.trim() || undefined;
+      }
+
       if (scheduledRunContext) {
         const schedCopy = resolveAgentSuccessNotificationCopy({
+          threadTitle,
           title: result.title?.trim() || undefined,
-          summary: result.summary?.trim() || undefined,
+          summary: deriveBodyFromResult(result) || undefined,
         });
         await dispatchAgentPush(activityDb, {
           kind: 'agent_scheduled_execution_completed',
@@ -1914,7 +2213,9 @@ export class AgentWorker {
         const viewerLastSeenAtMs =
           typeof viewerLastSeenAtRaw === 'string' ? Date.parse(viewerLastSeenAtRaw) : Number.NaN;
         const hasRecentViewerHeartbeat =
-          Number.isFinite(viewerLastSeenAtMs) && Date.now() - viewerLastSeenAtMs <= 60_000;
+          Number.isFinite(viewerLastSeenAtMs) &&
+          Date.now() - viewerLastSeenAtMs <=
+            AGENT_X_RUNTIME_CONFIG.operationQueue.viewerHeartbeatFreshnessMs;
 
         const activeSubscribers =
           typeof this.pubsub.subscriberCount === 'function'
@@ -1931,6 +2232,7 @@ export class AgentWorker {
             userId: payload.userId,
             job: payload,
             result,
+            threadTitle,
           });
         }
       }
@@ -1995,6 +2297,10 @@ export class AgentWorker {
           // a second attempt finds the existing row and returns it without
           // creating a new one or double-incrementing thread messageCount.
           idempotencyKey: `${payload.operationId}:final-assistant`,
+          // Phase-aware: final row supersedes any assistant_partial row written
+          // on pause/abort. The UI projection removes partial rows when final
+          // exists for the same operationId.
+          semanticPhase: 'assistant_final',
           ...(persistedStreamSnapshot.steps.length > 0
             ? { steps: persistedStreamSnapshot.steps }
             : {}),
@@ -2156,6 +2462,15 @@ export class AgentWorker {
           data: {
             ...seqPayload,
             content: event.text ?? '',
+            emittedAt: new Date().toISOString(),
+          },
+        };
+      case 'thinking':
+        return {
+          event: 'thinking',
+          data: {
+            ...seqPayload,
+            content: event.thinkingText ?? '',
             emittedAt: new Date().toISOString(),
           },
         };

@@ -9,12 +9,15 @@ import type { AgentYieldState } from '@nxt1/core';
 /** Attachment preview shown inside a sent message. */
 export interface MessageAttachment {
   readonly url: string;
-  readonly type: 'image' | 'video' | 'doc';
+  readonly type: 'image' | 'video' | 'doc' | 'app';
   readonly name: string;
+  readonly platform?: string;
+  readonly faviconUrl?: string;
 }
 
 /** Shape of a pending file staged for upload (preview shown above input). */
 export interface PendingFile {
+  readonly id: string;
   readonly file: File;
   readonly previewUrl: string | null;
   readonly isImage: boolean;
@@ -27,6 +30,7 @@ export interface OperationMessage {
   readonly role: 'user' | 'assistant' | 'system';
   readonly content: string;
   readonly timestamp: Date;
+  readonly idempotencyKey?: string;
   readonly operationId?: string;
   readonly imageUrl?: string;
   readonly videoUrl?: string;

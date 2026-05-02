@@ -62,13 +62,14 @@ const FALLBACK_THREAD_AS_TRUTH = true;
 const FALLBACK_PRIMARY_THREAD_HISTORY_WINDOW = 20;
 const FALLBACK_PRIMARY_THREAD_HISTORY_SUMMARIZE_BEYOND = 20;
 const FALLBACK_PRIMARY_TOOL_CONCURRENCY = 3;
-const FALLBACK_PRIMARY_MODEL_TIER = 'routing';
+const FALLBACK_PRIMARY_MODEL_TIER = 'routing_think';
 const FALLBACK_PRIMARY_MAX_PROMPT_TOKENS = 150_000;
 const FALLBACK_PRIMARY_MAX_MESSAGE_CHARS = 4_000;
 const FALLBACK_PRIMARY_MAX_TOOL_RESULT_CHARS = 8_000;
 const FALLBACK_PRIMARY_TOOL_LOOP_ENABLED = true;
 const FALLBACK_PRIMARY_TOOL_LOOP_WINDOW = 5;
 const FALLBACK_PRIMARY_TOOL_LOOP_THRESHOLD = 3;
+const FALLBACK_PRIMARY_TOOL_LOOP_EMPTY_THRESHOLD = 4;
 const FALLBACK_THREAD_SUPERSEDE_ON_YIELD = true;
 const FALLBACK_CAPABILITY_REFRESH_MS = 300_000;
 const FALLBACK_CAPABILITY_USE_COMPACT = true;
@@ -1661,11 +1662,17 @@ const primarySchema = z
         enabled: z.boolean().default(FALLBACK_PRIMARY_TOOL_LOOP_ENABLED),
         windowSize: z.number().int().positive().default(FALLBACK_PRIMARY_TOOL_LOOP_WINDOW),
         threshold: z.number().int().positive().default(FALLBACK_PRIMARY_TOOL_LOOP_THRESHOLD),
+        emptyThreshold: z
+          .number()
+          .int()
+          .positive()
+          .default(FALLBACK_PRIMARY_TOOL_LOOP_EMPTY_THRESHOLD),
       })
       .default({
         enabled: FALLBACK_PRIMARY_TOOL_LOOP_ENABLED,
         windowSize: FALLBACK_PRIMARY_TOOL_LOOP_WINDOW,
         threshold: FALLBACK_PRIMARY_TOOL_LOOP_THRESHOLD,
+        emptyThreshold: FALLBACK_PRIMARY_TOOL_LOOP_EMPTY_THRESHOLD,
       }),
   })
   .default({
@@ -1680,6 +1687,7 @@ const primarySchema = z
       enabled: FALLBACK_PRIMARY_TOOL_LOOP_ENABLED,
       windowSize: FALLBACK_PRIMARY_TOOL_LOOP_WINDOW,
       threshold: FALLBACK_PRIMARY_TOOL_LOOP_THRESHOLD,
+      emptyThreshold: FALLBACK_PRIMARY_TOOL_LOOP_EMPTY_THRESHOLD,
     },
   });
 
@@ -1925,6 +1933,7 @@ export interface AgentPrimaryConfig {
     readonly enabled: boolean;
     readonly windowSize: number;
     readonly threshold: number;
+    readonly emptyThreshold: number;
   };
 }
 
@@ -2294,6 +2303,7 @@ export const DEFAULT_AGENT_APP_CONFIG: AgentAppConfig = {
       enabled: FALLBACK_PRIMARY_TOOL_LOOP_ENABLED,
       windowSize: FALLBACK_PRIMARY_TOOL_LOOP_WINDOW,
       threshold: FALLBACK_PRIMARY_TOOL_LOOP_THRESHOLD,
+      emptyThreshold: FALLBACK_PRIMARY_TOOL_LOOP_EMPTY_THRESHOLD,
     },
   },
   concurrency: {
@@ -2526,8 +2536,17 @@ export function resolvePlannerSystemPrompt(
   templateValues?: Readonly<Record<string, string | undefined>>,
   config: AgentAppConfig = getCachedAgentAppConfig()
 ): string {
-  const configuredPrompt = config.prompts.plannerSystemPrompt;
-  return interpolatePromptTemplate(configuredPrompt ?? fallbackPrompt, templateValues);
+  // Code-defined prompt is the authoritative base. Firestore can only
+  // append an "Operator Additions" section — never replace the full prompt.
+  const resolvedBase = interpolatePromptTemplate(fallbackPrompt, templateValues);
+
+  const operatorAddition = config.prompts.plannerSystemPrompt;
+  if (!operatorAddition) {
+    return resolvedBase;
+  }
+
+  const resolvedAddition = interpolatePromptTemplate(operatorAddition, templateValues);
+  return `${resolvedBase}\n\n## Operator Additions\n\n${resolvedAddition}`;
 }
 
 /**
@@ -2541,6 +2560,9 @@ export function resolvePrimarySystemPrompt(
   templateValues?: Readonly<Record<string, string | undefined>>,
   config: AgentAppConfig = getCachedAgentAppConfig()
 ): string {
+  // PrimaryAgent appends router/operator additions after its built-in prompt
+  // and reasoning contract. This resolver remains a raw interpolation helper
+  // for config consumers that need the stored string directly.
   const configuredPrompt = config.prompts.primarySystemPrompt;
   return interpolatePromptTemplate(configuredPrompt ?? fallbackPrompt, templateValues);
 }
@@ -2551,12 +2573,26 @@ export function resolveAgentSystemPrompt(
   templateValues?: Readonly<Record<string, string | undefined>>,
   config: AgentAppConfig = getCachedAgentAppConfig()
 ): string {
-  const configuredPrompt =
-    agentId === 'router'
-      ? config.prompts.agentSystemPrompts['router']
-      : config.prompts.agentSystemPrompts[agentId];
+  // The router's prompt is composed additively in PrimaryAgent — do not
+  // touch it here. For all coordinators the code-defined prompt is the
+  // authoritative base; Firestore can only append an "Operator Additions"
+  // section, never replace the entire prompt.  This prevents safety rules
+  // (artifact chaining, no-re-extract, send protocol, etc.) from being
+  // silently dropped when the Firestore string drifts behind the code.
+  const resolvedBase = interpolatePromptTemplate(fallbackPrompt, templateValues);
 
-  return interpolatePromptTemplate(configuredPrompt ?? fallbackPrompt, templateValues);
+  if (agentId === 'router') {
+    // Router additive composition is handled by PrimaryAgent.applyConfiguredPrimaryPrompt.
+    return resolvedBase;
+  }
+
+  const operatorAddition = config.prompts.agentSystemPrompts[agentId];
+  if (!operatorAddition) {
+    return resolvedBase;
+  }
+
+  const resolvedAddition = interpolatePromptTemplate(operatorAddition, templateValues);
+  return `${resolvedBase}\n\n## Operator Additions\n\n${resolvedAddition}`;
 }
 
 export function isToolDisabled(

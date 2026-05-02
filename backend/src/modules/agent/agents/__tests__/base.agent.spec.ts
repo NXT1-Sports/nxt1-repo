@@ -5,6 +5,11 @@ import { BaseAgent } from '../base.agent.js';
 import { ToolRegistry } from '../../tools/tool-registry.js';
 import { BaseTool, type ToolExecutionContext, type ToolResult } from '../../tools/base.tool.js';
 import { AgentDelegationException } from '../../exceptions/agent-delegation.exception.js';
+import type { LLMMessage, LLMToolCall } from '../../llm/llm.types.js';
+import {
+  resetOperationMemoryServiceForTests,
+  getOperationMemoryService,
+} from '../../services/operation-memory.service.js';
 
 class FakeReadTool extends BaseTool {
   readonly name = 'fake_read_tool';
@@ -48,6 +53,62 @@ class FakeAgent extends BaseAgent {
       tier: 'chat',
       maxTokens: 200,
       temperature: 0.2,
+    };
+  }
+
+  callAugmentToolCallWithArtifact(
+    toolCall: LLMToolCall,
+    messages: readonly LLMMessage[],
+    context?: AgentSessionContext,
+    artifactLedger?: ReadonlyArray<{ toolName: string; artifacts: Record<string, unknown> }>
+  ): LLMToolCall {
+    return this.augmentToolCallWithArtifact(toolCall, messages, context, artifactLedger);
+  }
+
+  callExecuteTool(
+    toolCall: LLMToolCall,
+    registry: ToolRegistry,
+    userId: string,
+    sessionContext?: {
+      operationId?: string;
+      sessionId?: string;
+      threadId?: string;
+      allowedToolNames?: readonly string[];
+    }
+  ): Promise<string> {
+    return this.executeTool(
+      toolCall,
+      registry,
+      userId,
+      undefined,
+      undefined,
+      sessionContext as never
+    );
+  }
+}
+
+class FakeExtractLiveViewMediaTool extends BaseTool {
+  readonly name = 'extract_live_view_media';
+  readonly description = 'Extracts media from live view.';
+  readonly parameters = z.object({});
+  readonly isMutation = false;
+  readonly category = 'automation' as const;
+  readonly entityGroup = 'platform_tools' as const;
+  override readonly allowedAgents = ['strategy_coordinator'] as const;
+
+  calls = 0;
+
+  async execute(): Promise<ToolResult> {
+    this.calls += 1;
+    return {
+      success: true,
+      data: {
+        videoUrl: 'https://cdn.example.com/clip.mp4',
+        mediaArtifact: {
+          source: 'hudl',
+          transport: 'signed',
+        },
+      },
     };
   }
 }
@@ -144,6 +205,7 @@ function createMockContext(): AgentSessionContext {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  resetOperationMemoryServiceForTests();
 });
 
 describe('BaseAgent identifier scrubbing', () => {
@@ -251,6 +313,113 @@ describe('BaseAgent identifier scrubbing', () => {
         name: 'Jordan Miles',
       })
     );
+  });
+
+  it('compacts URL descriptors in shared tool step labels', () => {
+    const agent = new FakeAgent();
+
+    const label = agent['resolveToolInvocationLabel']('analyze_video', {
+      url: 'https://hudl.com/video/abc123',
+    });
+
+    expect(label).toBe('Analyzing game film: Hudl');
+  });
+
+  it('auto-injects mediaArtifact from conversationHistory into analyze_video', () => {
+    const agent = new FakeAgent();
+    const context = {
+      ...createMockContext(),
+      conversationHistory: [
+        {
+          role: 'tool' as const,
+          content: JSON.stringify({
+            success: true,
+            data: {
+              mediaArtifact: { source: 'hudl', clipId: 'abc123' },
+            },
+          }),
+          timestamp: new Date().toISOString(),
+        },
+      ],
+    };
+
+    const toolCall: LLMToolCall = {
+      id: 'analyze_1',
+      type: 'function',
+      function: {
+        name: 'analyze_video',
+        arguments: JSON.stringify({
+          url: 'https://vc.hudl.com/video/abc123',
+          prompt: 'Analyze this',
+        }),
+      },
+    };
+
+    const augmented = agent.callAugmentToolCallWithArtifact(toolCall, [], context);
+    const args = JSON.parse(augmented.function.arguments) as Record<string, unknown>;
+
+    expect(args['artifact']).toEqual({ source: 'hudl', clipId: 'abc123' });
+  });
+
+  it('skips duplicate extract_live_view_media executions using OperationMemory', async () => {
+    const agent = new FakeAgent();
+    const registry = new ToolRegistry();
+    const extractTool = new FakeExtractLiveViewMediaTool();
+    registry.register(extractTool);
+
+    const operationMemory = getOperationMemoryService();
+    operationMemory.init('op-dedup', 'Analyze the current live-view clip');
+
+    const toolCall: LLMToolCall = {
+      id: 'extract_1',
+      type: 'function',
+      function: {
+        name: 'extract_live_view_media',
+        arguments: JSON.stringify({}),
+      },
+    };
+
+    const first = await agent.callExecuteTool(toolCall, registry, 'viewer-1', {
+      operationId: 'op-dedup',
+      sessionId: 'session-dedup',
+      allowedToolNames: ['extract_live_view_media'],
+    });
+    const second = await agent.callExecuteTool(toolCall, registry, 'viewer-1', {
+      operationId: 'op-dedup',
+      sessionId: 'session-dedup',
+      allowedToolNames: ['extract_live_view_media'],
+    });
+
+    expect(extractTool.calls).toBe(1);
+    expect(JSON.parse(first)).toEqual(expect.objectContaining({ success: true }));
+    expect(JSON.parse(second)).toEqual(
+      expect.objectContaining({
+        success: true,
+        data: expect.objectContaining({
+          _dedupedFromOperationMemory: true,
+          videoUrl: 'https://cdn.example.com/clip.mp4',
+        }),
+      })
+    );
+  });
+
+  it('prefers draft team post copy over raw team identifiers in tool step labels', () => {
+    const agent = new FakeAgent();
+    const teamId = 'mC3D9qg5d9amvcO0otvi';
+
+    const label = agent['resolveToolInvocationLabel']('write_team_post', {
+      teamId,
+      teamCode: 'crown-point-basketball',
+      posts: [
+        {
+          content: 'Big win tonight. Crown Point moves to 18-2 after a complete team effort.',
+        },
+      ],
+    });
+
+    expect(label).toContain('Publishing team update: Big win tonight.');
+    expect(label).toContain('Crown Point moves to 18-2');
+    expect(label).not.toContain(teamId);
   });
 
   it('emits stable step ids and contextual labels for parallel tool calls', async () => {
@@ -470,7 +639,109 @@ describe('BaseAgent identifier scrubbing', () => {
     );
   });
 
-  it('maps only image attachments to image_url content and appends document refs as text', async () => {
+  it('emits one LLM-generated progress commentary for a large single tool burst', async () => {
+    const agent = new FakeAgent();
+    const registry = new ToolRegistry();
+    registry.register(new FakeReadTool());
+
+    const events: Array<Record<string, unknown>> = [];
+    let callCount = 0;
+    const llm = {
+      complete: vi.fn().mockResolvedValue({
+        content: 'Finished the query burst and now consolidating findings.',
+        toolCalls: [],
+        model: 'test-model',
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+        latencyMs: 1,
+        costUsd: 0,
+        finishReason: 'stop',
+      }),
+      completeStream: vi.fn().mockImplementation(async () => {
+        callCount += 1;
+
+        if (callCount === 1) {
+          return {
+            content: 'Running checks.',
+            toolCalls: [
+              {
+                id: 'call_1',
+                type: 'function',
+                function: { name: 'fake_read_tool', arguments: '{}' },
+              },
+              {
+                id: 'call_2',
+                type: 'function',
+                function: { name: 'fake_read_tool', arguments: '{}' },
+              },
+              {
+                id: 'call_3',
+                type: 'function',
+                function: { name: 'fake_read_tool', arguments: '{}' },
+              },
+              {
+                id: 'call_4',
+                type: 'function',
+                function: { name: 'fake_read_tool', arguments: '{}' },
+              },
+              {
+                id: 'call_5',
+                type: 'function',
+                function: { name: 'fake_read_tool', arguments: '{}' },
+              },
+              {
+                id: 'call_6',
+                type: 'function',
+                function: { name: 'fake_read_tool', arguments: '{}' },
+              },
+            ],
+            model: 'test-model',
+            usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+            latencyMs: 1,
+            costUsd: 0,
+            finishReason: 'tool_calls',
+          };
+        }
+
+        return {
+          content: 'All set.',
+          toolCalls: [],
+          model: 'test-model',
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+          latencyMs: 1,
+          costUsd: 0,
+          finishReason: 'stop',
+        };
+      }),
+    };
+
+    const result = await agent.execute(
+      'Run checks',
+      createMockContext(),
+      [],
+      llm as never,
+      registry,
+      undefined,
+      (event) => events.push(event as unknown as Record<string, unknown>)
+    );
+
+    const commentaryEvent = events.find(
+      (event) =>
+        event['type'] === 'delta' &&
+        event['noBatch'] === true &&
+        String(event['text'] ?? '').includes('consolidating findings')
+    );
+
+    expect(commentaryEvent).toBeDefined();
+    expect(vi.mocked(llm.complete)).toHaveBeenCalledTimes(1);
+    const progressPromptMessages = vi.mocked(llm.complete).mock.calls[0]?.[0] as Array<{
+      role: string;
+      content: string;
+    }>;
+    expect(progressPromptMessages[1]?.content).toContain('Completed tool calls: 6');
+    expect(result.summary).not.toContain('consolidating findings');
+  });
+
+  it('sends PDF attachments natively to OpenRouter; does not extract', async () => {
     const agent = new FakeAgent();
     const registry = new ToolRegistry();
     const llm = {
@@ -489,7 +760,11 @@ describe('BaseAgent identifier scrubbing', () => {
       ...createMockContext(),
       attachments: [
         { url: 'https://storage.example/image.jpg', mimeType: 'image/jpeg' },
-        { url: 'https://storage.example/report.pdf', mimeType: 'application/pdf' },
+        {
+          url: 'https://storage.example/report.pdf',
+          mimeType: 'application/pdf',
+          name: 'report.pdf',
+        },
       ],
       videoAttachments: [
         {
@@ -513,20 +788,36 @@ describe('BaseAgent identifier scrubbing', () => {
 
     const contentParts = userMessage?.content as Array<Record<string, unknown>>;
     const imageParts = contentParts.filter((part) => part['type'] === 'image_url');
+    const fileParts = contentParts.filter((part) => part['type'] === 'file');
     const textPart = contentParts.find((part) => part['type'] === 'text');
     const textBody = String((textPart?.['text'] as string | undefined) ?? '');
     const llmOptions = vi.mocked(llm.complete).mock.calls[0]?.[1] as {
       tier?: string;
     };
 
+    // PDFs sent as native file parts (no extracted text)
+    expect(fileParts).toHaveLength(1);
+    expect(JSON.stringify(fileParts[0])).toContain('report.pdf');
+    expect(JSON.stringify(fileParts[0])).toContain('https://storage.example/report.pdf');
+
+    // Images sent as image_url parts
     expect(imageParts).toHaveLength(1);
     expect(JSON.stringify(imageParts[0])).toContain('https://storage.example/image.jpg');
+
+    // Text body includes video reference but NOT extracted PDF content
     expect(textBody).toContain(
       '[Attached video: clip.mp4 — https://video.example/clip.mp4 | cloudflareVideoId: cf-video-123]'
     );
+
+    // Ensure extracted PDF content is NOT in the text (native path only)
+    expect(textBody).not.toContain('[Extracted Attachment Content]');
+    expect(textBody).not.toContain('[Attachment Extract:');
+
+    // Should still have simple PDF reference line
     expect(textBody).toContain(
       '[Attached document: application/pdf — https://storage.example/report.pdf]'
     );
+
     expect(llmOptions?.tier).toBe('vision_analysis');
   });
 

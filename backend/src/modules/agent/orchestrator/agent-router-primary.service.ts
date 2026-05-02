@@ -27,6 +27,7 @@ import type { PlannerAgent } from '../agents/planner.agent.js';
 import type { AgentRouterExecutionService } from './agent-router-execution.service.js';
 import type { AgentRouterContextService } from './agent-router-context.service.js';
 import type { AgentRouterPolicyService } from './agent-router-policy.service.js';
+import { isAgentYield } from '../exceptions/agent-yield.exception.js';
 import { logger } from '../../../utils/logger.js';
 
 interface PrimaryServiceOptions {
@@ -46,6 +47,23 @@ export class AgentRouterPrimaryService implements PrimaryDispatcher {
     goal: string,
     ctx: PrimaryDispatchContext
   ): Promise<PrimaryDispatchResult> {
+    let streamedDeltaCount = 0;
+    let streamedCharCount = 0;
+    const onDispatchStreamEvent =
+      ctx.onStreamEvent &&
+      ((event: Parameters<NonNullable<typeof ctx.onStreamEvent>>[0]) => {
+        if (
+          event.type === 'delta' &&
+          event.agentId === coordinatorId &&
+          typeof event.text === 'string' &&
+          event.text.length > 0
+        ) {
+          streamedDeltaCount += 1;
+          streamedCharCount += event.text.length;
+        }
+        ctx.onStreamEvent?.(event);
+      });
+
     const task: AgentTask = {
       id: `${coordinatorId}_${Date.now()}`,
       assignedAgent: coordinatorId,
@@ -67,7 +85,7 @@ export class AgentRouterPrimaryService implements PrimaryDispatcher {
         ...(ctx.approvalGate ? { approvalGate: ctx.approvalGate } : {}),
         taskMaxRetries: 1,
         agents: this.opts.agents,
-        ...(ctx.onStreamEvent ? { onStreamEvent: ctx.onStreamEvent } : {}),
+        ...(onDispatchStreamEvent ? { onStreamEvent: onDispatchStreamEvent } : {}),
         ...(ctx.signal ? { signal: ctx.signal } : {}),
         buildTaskIntent: (t, upstream, enriched) =>
           this.opts.contextService.buildTaskIntent(t, upstream, enriched),
@@ -75,8 +93,21 @@ export class AgentRouterPrimaryService implements PrimaryDispatcher {
           this.opts.policyService.rerouteDelegatedTask(intent, sourceAgentId, rerouteContext),
       });
 
-      return formatDispatchResult(coordinatorId, taskResults, mutableTasks);
+      return formatDispatchResult({
+        label: coordinatorId,
+        dispatchKind: 'coordinator',
+        taskResults,
+        mutableTasks,
+        streamedDeltaCount,
+        streamedCharCount,
+      });
     } catch (err) {
+      // Preserve HITL control-flow for delegated coordinators.
+      // Without this pass-through, delegated approvals are flattened into a
+      // generic tool error and the parent operation loses `yieldState`.
+      if (isAgentYield(err)) {
+        throw err;
+      }
       logger.error('[PrimaryService] runCoordinator failed', {
         coordinatorId,
         error: err instanceof Error ? err.message : String(err),
@@ -89,11 +120,33 @@ export class AgentRouterPrimaryService implements PrimaryDispatcher {
             err instanceof Error ? err.message : String(err)
           }`,
         }),
+        dispatchKind: 'coordinator',
+        userAlreadyReceivedResponse: false,
+        streamedDeltaCount,
+        streamedCharCount,
       };
     }
   }
 
   async runPlan(goal: string, ctx: PrimaryDispatchContext): Promise<PrimaryDispatchResult> {
+    let streamedDeltaCount = 0;
+    let streamedCharCount = 0;
+    const onDispatchStreamEvent =
+      ctx.onStreamEvent &&
+      ((event: Parameters<NonNullable<typeof ctx.onStreamEvent>>[0]) => {
+        if (
+          event.type === 'delta' &&
+          typeof event.text === 'string' &&
+          event.text.length > 0 &&
+          event.agentId &&
+          event.agentId !== 'router'
+        ) {
+          streamedDeltaCount += 1;
+          streamedCharCount += event.text.length;
+        }
+        ctx.onStreamEvent?.(event);
+      });
+
     try {
       const planResult = await this.opts.planner.execute(
         goal,
@@ -113,6 +166,10 @@ export class AgentRouterPrimaryService implements PrimaryDispatcher {
             success: false,
             error: 'Planner produced no tasks for goal.',
           }),
+          dispatchKind: 'plan',
+          userAlreadyReceivedResponse: false,
+          streamedDeltaCount,
+          streamedCharCount,
         };
       }
 
@@ -127,7 +184,7 @@ export class AgentRouterPrimaryService implements PrimaryDispatcher {
         ...(ctx.approvalGate ? { approvalGate: ctx.approvalGate } : {}),
         taskMaxRetries: 1,
         agents: this.opts.agents,
-        ...(ctx.onStreamEvent ? { onStreamEvent: ctx.onStreamEvent } : {}),
+        ...(onDispatchStreamEvent ? { onStreamEvent: onDispatchStreamEvent } : {}),
         ...(ctx.signal ? { signal: ctx.signal } : {}),
         buildTaskIntent: (t, upstream, enriched) =>
           this.opts.contextService.buildTaskIntent(t, upstream, enriched),
@@ -135,8 +192,19 @@ export class AgentRouterPrimaryService implements PrimaryDispatcher {
           this.opts.policyService.rerouteDelegatedTask(intent, sourceAgentId, rerouteContext),
       });
 
-      return formatDispatchResult('plan_and_execute', taskResults, mutableTasks);
+      return formatDispatchResult({
+        label: 'plan_and_execute',
+        dispatchKind: 'plan',
+        taskResults,
+        mutableTasks,
+        streamedDeltaCount,
+        streamedCharCount,
+      });
     } catch (err) {
+      // Preserve HITL control-flow for planned multi-step dispatches.
+      if (isAgentYield(err)) {
+        throw err;
+      }
       logger.error('[PrimaryService] runPlan failed', {
         error: err instanceof Error ? err.message : String(err),
       });
@@ -146,21 +214,30 @@ export class AgentRouterPrimaryService implements PrimaryDispatcher {
           success: false,
           error: `Multi-step plan failed: ${err instanceof Error ? err.message : String(err)}`,
         }),
+        dispatchKind: 'plan',
+        userAlreadyReceivedResponse: false,
+        streamedDeltaCount,
+        streamedCharCount,
       };
     }
   }
 }
 
-function formatDispatchResult(
-  label: string,
-  taskResults: ReadonlyMap<string, unknown>,
-  mutableTasks: ReadonlyArray<{
+function formatDispatchResult(payload: {
+  readonly label: string;
+  readonly dispatchKind: 'coordinator' | 'plan';
+  readonly taskResults: ReadonlyMap<string, unknown>;
+  readonly mutableTasks: ReadonlyArray<{
     id: string;
     status: string;
     description: string;
     _lastError?: string;
-  }>
-): PrimaryDispatchResult {
+  }>;
+  readonly streamedDeltaCount: number;
+  readonly streamedCharCount: number;
+}): PrimaryDispatchResult {
+  const { label, dispatchKind, taskResults, mutableTasks, streamedDeltaCount, streamedCharCount } =
+    payload;
   const allCompleted = mutableTasks.every((t) => t.status === 'completed');
   const lines: string[] = [`## ${label} dispatch result`];
 
@@ -179,8 +256,24 @@ function formatDispatchResult(
     }
   }
 
+  // ── Tier 4: Collect coordinator artifacts from all completed task results ──
+  // Merges artifacts across tasks so Primary can chain downstream tool calls
+  // (e.g. use a video URL produced by performance_coordinator in a follow-up).
+  const coordinatorArtifacts: Record<string, unknown> = {};
+  for (const [, rawResult] of taskResults) {
+    const r = rawResult as { artifacts?: Record<string, unknown> } | undefined;
+    if (r?.artifacts && typeof r.artifacts === 'object') {
+      Object.assign(coordinatorArtifacts, r.artifacts);
+    }
+  }
+
   return {
     success: allCompleted,
     observation: lines.join('\n'),
+    dispatchKind,
+    userAlreadyReceivedResponse: streamedDeltaCount > 0,
+    streamedDeltaCount,
+    streamedCharCount,
+    ...(Object.keys(coordinatorArtifacts).length > 0 ? { coordinatorArtifacts } : {}),
   };
 }

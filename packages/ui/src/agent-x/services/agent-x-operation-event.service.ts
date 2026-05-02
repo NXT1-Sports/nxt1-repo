@@ -37,11 +37,14 @@ import type {
   JobEvent,
   AgentYieldState,
   AgentXOperationLifecycleStatus,
+  AgentXMessagePart,
+  AgentXRichCard,
   AgentXToolStep,
   AgentXToolStepStatus,
   AgentXStreamCardEvent,
   AgentXStreamMediaEvent,
   AgentXStreamProgressEvent,
+  AgentXStreamOperationEvent,
 } from '@nxt1/core/ai';
 import type { OperationLogStatus } from '@nxt1/core';
 import { NxtLoggingService } from '../../services/logging/logging.service';
@@ -140,6 +143,11 @@ export const FIRESTORE_ADAPTER = new InjectionToken<FirestoreAdapter>('FIRESTORE
 export interface OperationEventCallbacks {
   /** Called when new LLM text arrives (accumulated delta). */
   onDelta: (text: string, agentId?: string) => void;
+  /**
+   * Called when extended thinking text arrives (Claude 3.7+ / Gemini 2.5).
+   * Arrives before the first delta for models that support native thinking.
+   */
+  onThinking?: (content: string, agentId?: string) => void;
   /** Called when a tool step starts, succeeds, or fails. */
   onStep: (step: AgentXToolStep) => void;
   /** Called when a rich card (planner, data-table, etc.) should be rendered. */
@@ -148,6 +156,8 @@ export interface OperationEventCallbacks {
   onMedia?: (media: AgentXStreamMediaEvent) => void;
   /** Called when progress commentary/metrics events arrive. */
   onProgress?: (event: AgentXStreamProgressEvent) => void;
+  /** Called when operation lifecycle events arrive (including yield state). */
+  onOperation?: (event: AgentXStreamOperationEvent) => void;
   /** Called when the entire job finishes (success or failure). */
   onDone: (event: {
     success: boolean;
@@ -253,6 +263,7 @@ export class AgentXOperationEventService {
     pushCandidate(toolResult['url'], toolResult['mimeType']);
     pushCandidate(toolResult['publicUrl'], toolResult['mimeType']);
     pushCandidate(toolResult['downloadUrl'], toolResult['mimeType']);
+    pushCandidate(toolResult['outputUrl'], toolResult['mimeType'], 'video');
 
     const imageUrls = toolResult['imageUrls'];
     if (Array.isArray(imageUrls)) {
@@ -338,6 +349,7 @@ export class AgentXOperationEventService {
    */
   async getStoredEventState(operationId: string): Promise<{
     content: string;
+    parts: AgentXMessagePart[];
     steps: AgentXToolStep[];
     cards: AgentXStreamCardEvent[];
     latestYieldState: AgentYieldState | null;
@@ -349,6 +361,7 @@ export class AgentXOperationEventService {
     if (!this.firestoreAdapter) {
       return {
         content: '',
+        parts: [],
         steps: [],
         cards: [],
         latestYieldState: null,
@@ -363,6 +376,7 @@ export class AgentXOperationEventService {
       if (docs.length === 0) {
         return {
           content: '',
+          parts: [],
           steps: [],
           cards: [],
           latestYieldState: null,
@@ -376,6 +390,7 @@ export class AgentXOperationEventService {
       let content = '';
       let isDone = false;
       let doneSuccess = false;
+      const parts: AgentXMessagePart[] = [];
       const steps: AgentXToolStep[] = [];
       const cards: AgentXStreamCardEvent[] = [];
       const pendingStepIds = new Map<string, string[]>();
@@ -383,15 +398,43 @@ export class AgentXOperationEventService {
       let latestLifecycleStatus: AgentXOperationLifecycleStatus | null = null;
       let maxSeq = -1;
 
+      // In-place helper: upsert `step` into the trailing tool-steps part,
+      // mirroring AgentXStreamRegistryService.upsertStep for cold-path replay.
+      const upsertStepIntoParts = (step: AgentXToolStep): void => {
+        const last = parts[parts.length - 1];
+        if (last?.type === 'tool-steps') {
+          const existingIdx = last.steps.findIndex((s) => s.id === step.id);
+          if (existingIdx >= 0) {
+            const updated = [...last.steps];
+            updated[existingIdx] = step;
+            parts[parts.length - 1] = { type: 'tool-steps', steps: updated };
+          } else {
+            parts[parts.length - 1] = { type: 'tool-steps', steps: [...last.steps, step] };
+          }
+        } else {
+          parts.push({ type: 'tool-steps', steps: [step] });
+        }
+      };
+
       for (const doc of docs) {
         const event = doc as unknown as JobEvent;
         if (typeof event.seq !== 'number') continue;
         if (event.seq > maxSeq) maxSeq = event.seq;
 
         switch (event.type) {
-          case 'delta':
-            if (event.text) content += event.text;
+          case 'delta': {
+            if (event.text) {
+              content += event.text;
+              // Mirror AgentXStreamRegistryService.appendDelta: merge into trailing text part.
+              const lastPart = parts[parts.length - 1];
+              if (lastPart?.type === 'text') {
+                parts[parts.length - 1] = { type: 'text', content: lastPart.content + event.text };
+              } else {
+                parts.push({ type: 'text', content: event.text });
+              }
+            }
             break;
+          }
 
           case 'step_active':
           case 'tool_call': {
@@ -414,6 +457,7 @@ export class AgentXOperationEventService {
               pendingStepIds.set(event.toolName, q);
             }
             steps.push(this.buildToolStep(event, stepId, 'active', label));
+            upsertStepIntoParts(steps[steps.length - 1]);
             break;
           }
 
@@ -429,8 +473,13 @@ export class AgentXOperationEventService {
               (event.toolName ? pendingStepIds.get(event.toolName)?.shift() : undefined) ??
               `${event.toolName ?? 'step'}-${event.seq}`;
             const idx = steps.findIndex((s) => s.id === stepId);
+            const existingStep = idx >= 0 ? steps[idx] : undefined;
             const resolved = this.buildToolStep(
-              event,
+              // Merge previously captured metadata (e.g. sourceUrl) into this event
+              // so favicon data from step_active survives the success/error update.
+              existingStep?.metadata && !event.metadata
+                ? { ...event, metadata: existingStep.metadata }
+                : event,
               stepId,
               event.toolSuccess === false ? 'error' : 'success',
               label,
@@ -440,6 +489,7 @@ export class AgentXOperationEventService {
             );
             if (idx >= 0) steps[idx] = resolved;
             else steps.push(resolved);
+            upsertStepIntoParts(resolved);
             break;
           }
 
@@ -448,14 +498,33 @@ export class AgentXOperationEventService {
             const q = event.toolName ? pendingStepIds.get(event.toolName) : undefined;
             const stepId = q?.shift() ?? `${event.toolName ?? 'step'}-${event.seq}`;
             const idx = steps.findIndex((s) => s.id === stepId);
+            const existingStep = idx >= 0 ? steps[idx] : undefined;
             const errored = this.buildToolStep(
-              event,
+              existingStep?.metadata && !event.metadata
+                ? { ...event, metadata: existingStep.metadata }
+                : event,
               stepId,
               'error',
               event.message ?? event.error ?? 'Step failed'
             );
             if (idx >= 0) steps[idx] = errored;
             else steps.push(errored);
+            upsertStepIntoParts(errored);
+            break;
+          }
+
+          case 'thinking': {
+            if (event.thinkingText) {
+              const lastPart = parts[parts.length - 1];
+              if (lastPart?.type === 'thinking') {
+                parts[parts.length - 1] = {
+                  type: 'thinking',
+                  content: lastPart.content + event.thinkingText,
+                };
+              } else {
+                parts.push({ type: 'thinking', content: event.thinkingText });
+              }
+            }
             break;
           }
 
@@ -479,12 +548,34 @@ export class AgentXOperationEventService {
               payload !== null &&
               typeof payload === 'object'
             ) {
-              cards.push({
-                type: cardData['type'] as AgentXStreamCardEvent['type'],
+              const clearText = cardData['clearText'] === true;
+              // AgentXRichCard uses a wider payload union (includes AgentXAskUserPayload)
+              // than AgentXStreamCardEvent, so they are kept as separate typed objects.
+              const richCard: AgentXRichCard = {
+                type: cardData['type'] as AgentXRichCard['type'],
                 agentId: normalizeAgentIdentifier(cardData['agentId']) ?? 'router',
                 title: typeof cardData['title'] === 'string' ? cardData['title'] : 'Agent X',
-                payload: payload as AgentXStreamCardEvent['payload'],
-              });
+                payload: payload as AgentXRichCard['payload'],
+              };
+              const cardEvent: AgentXStreamCardEvent = {
+                type: richCard.type as AgentXStreamCardEvent['type'],
+                agentId: richCard.agentId,
+                title: richCard.title,
+                payload: richCard.payload as AgentXStreamCardEvent['payload'],
+                ...(clearText ? { clearText: true } : {}),
+              };
+              cards.push(cardEvent);
+              // Interleave card into parts at its seq position — same semantics
+              // as the live SSE onCard handler in agent-x-operation-chat-transport.facade.ts.
+              if (clearText) {
+                // clearText: discard all preceding streamed text and replace parts
+                // with just this card (e.g. ask_user cards supersede LLM question text).
+                content = '';
+                parts.length = 0;
+                parts.push({ type: 'card', card: richCard });
+              } else {
+                parts.push({ type: 'card', card: richCard });
+              }
             }
             break;
           }
@@ -518,6 +609,7 @@ export class AgentXOperationEventService {
       this.logger.debug('Reconstructed stored event state', {
         operationId,
         contentLength: content.length,
+        partCount: parts.length,
         stepCount: steps.length,
         cardCount: cards.length,
         hasYieldState: !!latestYieldState,
@@ -527,6 +619,7 @@ export class AgentXOperationEventService {
       });
       return {
         content,
+        parts,
         steps,
         cards,
         latestYieldState,
@@ -542,6 +635,7 @@ export class AgentXOperationEventService {
       });
       return {
         content: '',
+        parts: [],
         steps: [],
         cards: [],
         latestYieldState: null,
@@ -576,6 +670,8 @@ export class AgentXOperationEventService {
       callbacks.onError('Live event streaming is not available');
       return { operationId, unsubscribe: () => undefined };
     }
+
+    const firestoreAdapter = this.firestoreAdapter;
 
     // If a Firestore listener is already open for this operation, attach the new
     // callbacks to the existing fanout set — no second Firestore connection needed.
@@ -628,42 +724,82 @@ export class AgentXOperationEventService {
 
     const collectionPath = `AgentJobs/${operationId}/events`;
 
-    entry.unsub = this.firestoreAdapter.onSnapshot(
-      collectionPath,
-      'seq',
-      (docs) => {
-        // Run inside NgZone — Firestore onSnapshot callbacks execute outside the
-        // Angular zone. Signal writes from processEvent must be zone-aware so
-        // OnPush change detection fires correctly and token rendering is ordered.
-        this.ngZone.run(() => {
-          const current = this.activeSubs.get(operationId);
-          if (!current) return;
-          for (const doc of docs) {
-            const event = doc as unknown as JobEvent;
-            if (typeof event.seq !== 'number' || event.seq <= current.lastProcessedSeq) continue;
-            current.lastProcessedSeq = event.seq;
-            // Fan out to every registered listener callback set.
-            for (const cb of current.listeners.values()) {
-              this.processEvent(event, cb, operationId, current.pendingStepIds);
+    const maxRetries = 3;
+    const retryDelayMs = 2_000;
+
+    const openListener = (attemptNumber: number): void => {
+      entry.unsub = firestoreAdapter.onSnapshot(
+        collectionPath,
+        'seq',
+        (docs) => {
+          // Run inside NgZone — Firestore onSnapshot callbacks execute outside the
+          // Angular zone. Signal writes from processEvent must be zone-aware so
+          // OnPush change detection fires correctly and token rendering is ordered.
+          this.ngZone.run(() => {
+            const current = this.activeSubs.get(operationId);
+            if (!current) return;
+            for (const doc of docs) {
+              const event = doc as unknown as JobEvent;
+              if (typeof event.seq !== 'number' || event.seq <= current.lastProcessedSeq) continue;
+              current.lastProcessedSeq = event.seq;
+              // Fan out to every registered listener callback set.
+              for (const cb of current.listeners.values()) {
+                this.processEvent(event, cb, operationId, current.pendingStepIds);
+              }
             }
+          });
+        },
+        (error) => {
+          const errorCode = (error as unknown as Record<string, unknown>)['code'] as
+            | string
+            | undefined;
+          const isPermissionDenied = errorCode === 'permission-denied';
+
+          if (isPermissionDenied && attemptNumber < maxRetries) {
+            // The AgentJobs parent document may not be created yet — the backend
+            // writes it asynchronously after the SSE stream opens. Retry with
+            // backoff so the shadow sub eventually succeeds.
+            this.logger.warn(
+              'Firestore permission denied — AgentJobs document not yet created, retrying',
+              {
+                operationId,
+                attempt: attemptNumber,
+                retryDelayMs,
+                collectionPath,
+              }
+            );
+            // Run inside NgZone so the retry's onSnapshot call is made within
+            // Angular's injection context — prevents the AngularFire zone warning.
+            this.ngZone.run(() => {
+              setTimeout(() => {
+                if (this.activeSubs.has(operationId)) {
+                  openListener(attemptNumber + 1);
+                }
+              }, retryDelayMs * attemptNumber);
+            });
+            return;
           }
-        });
-      },
-      (error) => {
-        this.logger.error('Firestore listener error', error, {
-          operationId,
-          errorCode: (error as unknown as Record<string, unknown>)['code'],
-          errorMessage: error.message,
-          collectionPath: `AgentJobs/${operationId}/events`,
-        });
-        const current = this.activeSubs.get(operationId);
-        if (current) {
-          for (const cb of current.listeners.values()) {
-            cb.onError(error.message);
+
+          this.logger.error('Firestore listener error', error, {
+            operationId,
+            errorCode,
+            errorMessage: error.message,
+            collectionPath,
+          });
+          // Remove the broken entry so a future subscribe() call can open a fresh
+          // listener rather than attaching to a dead one.
+          const current = this.activeSubs.get(operationId);
+          if (current) {
+            for (const cb of current.listeners.values()) {
+              cb.onError(error.message);
+            }
+            this.activeSubs.delete(operationId);
           }
         }
-      }
-    );
+      );
+    };
+
+    openListener(1);
 
     return {
       operationId,
@@ -747,6 +883,12 @@ export class AgentXOperationEventService {
       case 'delta':
         if (event.text) {
           callbacks.onDelta(event.text, event.agentId);
+        }
+        break;
+
+      case 'thinking':
+        if (event.thinkingText) {
+          callbacks.onThinking?.(event.thinkingText, event.agentId);
         }
         break;
 
@@ -864,6 +1006,26 @@ export class AgentXOperationEventService {
               typeof event.timestamp === 'string' ? event.timestamp : new Date().toISOString()
             );
           }
+        }
+
+        if (typeof event.status === 'string') {
+          const operationThreadId =
+            typeof event.threadId === 'string' && event.threadId.trim().length > 0
+              ? event.threadId
+              : operationId;
+          const operationEvent: AgentXStreamOperationEvent = {
+            operationId,
+            threadId: operationThreadId,
+            status: event.status as AgentXOperationLifecycleStatus,
+            ...(typeof event.message === 'string' ? { message: event.message } : {}),
+            ...(typeof event.timestamp === 'string'
+              ? { timestamp: event.timestamp }
+              : { timestamp: new Date().toISOString() }),
+            ...(event.yieldState && typeof event.yieldState === 'object'
+              ? { yieldState: event.yieldState as AgentYieldState }
+              : {}),
+          };
+          callbacks.onOperation?.(operationEvent);
         }
         break;
       }

@@ -25,7 +25,19 @@ const SendEmailInputSchema = z.object({
   userId: z.string().trim().min(1),
   toEmail: z.string().trim().email(),
   subject: z.string().trim().min(1).max(MAX_SUBJECT_LENGTH),
-  bodyHtml: z.string().trim().min(1).max(MAX_BODY_LENGTH),
+  bodyHtml: z
+    .string()
+    .trim()
+    .min(1)
+    .max(MAX_BODY_LENGTH)
+    .describe(
+      'The full email body as HTML. ALWAYS use proper HTML structure: ' +
+        '<p> tags for each paragraph (never send raw text without tags), ' +
+        '<br> for line breaks within a paragraph, ' +
+        '<ul>/<li> for bullet point lists, ' +
+        '<strong> for bold emphasis. ' +
+        'Example: <p>Hi John,</p><p>Here are the details...</p><ul><li>Point 1</li><li>Point 2</li></ul><p>Best,<br>Coach Smith</p>'
+    ),
 });
 
 export class SendEmailTool extends BaseTool {

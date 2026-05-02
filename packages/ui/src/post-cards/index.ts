@@ -26,3 +26,14 @@ export { FeedAwardCardComponent } from './feed-award-card.component';
 export { FeedNewsCardComponent } from './feed-news-card.component';
 
 // ============================================
+// POST DETAIL OVERLAY
+// ============================================
+export {
+  PostDetailOverlayComponent,
+  type PostDetailInput,
+  type PostAuthorInfo,
+} from './post-detail-overlay.component';
+export {
+  PostDetailOverlayService,
+  type OpenPostDetailOptions,
+} from './post-detail-overlay.service';

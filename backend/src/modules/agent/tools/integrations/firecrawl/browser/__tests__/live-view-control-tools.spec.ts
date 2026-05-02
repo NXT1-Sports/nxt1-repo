@@ -375,6 +375,14 @@ describe('ExtractLiveViewMediaTool', () => {
         Origin: 'https://www.hudl.com',
       },
     });
+    expect((result.data as Record<string, unknown>)['mediaArtifact']).toEqual(
+      expect.objectContaining({
+        sourceType: 'hls_manifest',
+        transportReadiness: 'download_required',
+        analysisReady: false,
+        recommendedNextAction: 'call_apify_actor',
+      })
+    );
   });
 
   it('should surface extraction failures', async () => {
@@ -439,6 +447,16 @@ describe('ExtractLiveViewPlaylistTool', () => {
         },
       ],
     });
+    expect(data['mediaArtifacts']).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sourceType: 'playlist',
+          transportReadiness: 'download_required',
+          recommendedNextAction: 'call_apify_actor',
+          analysisReady: false,
+        }),
+      ])
+    );
   });
 
   it('should surface playlist extraction failures', async () => {

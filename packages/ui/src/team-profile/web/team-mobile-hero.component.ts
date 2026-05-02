@@ -139,7 +139,7 @@ import { TeamProfileService } from '../team-profile.service';
       @media (max-width: 768px) {
         .team-mobile-hero {
           display: block;
-          margin: 0 0 10px;
+          margin: 0 0 4px;
           position: relative;
           isolation: isolate;
           overflow: hidden;

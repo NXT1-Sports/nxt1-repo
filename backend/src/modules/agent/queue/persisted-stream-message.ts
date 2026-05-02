@@ -76,6 +76,18 @@ export class PersistedAssistantStreamBuilder {
 
   process(event: StreamEvent): void {
     switch (event.type) {
+      case 'thinking': {
+        if (!event.thinkingText) return;
+        const text = sanitizeAgentOutputText(event.thinkingText);
+        const last = this.parts[this.parts.length - 1];
+        if (last?.type === 'thinking') {
+          this.parts[this.parts.length - 1] = { type: 'thinking', content: last.content + text };
+        } else {
+          this.parts.push({ type: 'thinking', content: text });
+        }
+        return;
+      }
+
       case 'delta': {
         if (!event.text) return;
         const text = sanitizeAgentOutputText(event.text);

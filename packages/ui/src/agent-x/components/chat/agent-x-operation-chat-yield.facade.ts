@@ -4,6 +4,7 @@ import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import { createAgentXApi, type AgentXApi } from '@nxt1/core/ai';
 import type { AgentYieldState } from '@nxt1/core';
+import { resolveApprovalSuccessText } from '@nxt1/core';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import { HapticsService } from '../../../services/haptics/haptics.service';
 import { NxtToastService } from '../../../services/toast/toast.service';
@@ -122,7 +123,7 @@ export class AgentXOperationChatYieldFacade {
           subject: event.subject,
           bodyHtml: event.content,
         },
-        successMessage: 'Draft approved — Agent X is resuming',
+        successMessage: 'Draft approved',
       });
       return;
     }
@@ -156,8 +157,7 @@ export class AgentXOperationChatYieldFacade {
     void this.resolveInlineApproval({
       approvalId: event.approvalId,
       decision,
-      successMessage:
-        decision === 'approved' ? 'Approved — Agent X is resuming' : 'Request rejected',
+      successMessage: decision === 'approved' ? 'Approved' : 'Request rejected',
     });
   }
 
@@ -218,6 +218,7 @@ export class AgentXOperationChatYieldFacade {
 
   async onApproveAction(event: ActionCardApprovalEvent): Promise<void> {
     const host = this.requireHost();
+    const approvedToolName = host.activeYieldState()?.pendingToolCall?.toolName;
     this.logger.info('Action card approval', {
       operationId: event.operationId,
       decision: event.decision,
@@ -228,7 +229,19 @@ export class AgentXOperationChatYieldFacade {
     });
     this.messageFacade.updateInlineYieldMessageState(event.operationId, 'submitting');
 
-    const approvalId = event.approvalId ?? host.activeYieldState()?.approvalId;
+    let approvalId = event.approvalId ?? host.activeYieldState()?.approvalId;
+    if (!approvalId) {
+      const recovered = await this.api.findPendingApprovalByOperation(event.operationId);
+      if (recovered?.approvalId) {
+        approvalId = recovered.approvalId;
+        this.logger.info('Recovered missing approvalId from pending approvals', {
+          operationId: event.operationId,
+          approvalId,
+          expiresAt: recovered.expiresAt,
+        });
+      }
+    }
+
     if (!approvalId) {
       this.logger.warn('Action card approval missing approvalId', {
         operationId: event.operationId,
@@ -245,15 +258,18 @@ export class AgentXOperationChatYieldFacade {
         approvalId,
         decision: event.decision === 'approve' ? 'approved' : 'rejected',
         ...(event.toolInput ? { toolInput: event.toolInput } : {}),
-        successMessage:
-          event.decision === 'approve' ? 'Approved — Agent X is resuming' : 'Request rejected',
+        successMessage: event.decision === 'approve' ? 'Approved' : 'Request rejected',
+        ...(event.trustForSession ? { trustForSession: true } : {}),
       });
       if (success) {
         await this.haptics.notification('success');
+        const successCopy = resolveApprovalSuccessText(approvedToolName ?? '');
+        const resolvedText = event.decision === 'approve' ? successCopy.badge : 'Rejected';
+
         this.messageFacade.updateInlineYieldMessageState(
           event.operationId,
           'resolved',
-          event.decision === 'approve' ? 'Approved — resuming' : 'Rejected — cancelled'
+          resolvedText
         );
         this.analytics?.trackEvent(APP_EVENTS.AGENT_X_OPERATION_APPROVED, {
           operationId: event.operationId,
@@ -263,16 +279,16 @@ export class AgentXOperationChatYieldFacade {
         });
         setTimeout(() => {
           host.yieldResolved.set(true);
-          this.messageFacade.pushMessage({
-            id: host.uid(),
-            role: 'system',
-            content:
-              event.decision === 'approve'
-                ? '✅ Approved — Agent X is resuming the operation.'
-                : '⛔ Rejected — Operation has been cancelled.',
-            timestamp: new Date(),
-          });
-        }, 800);
+
+          if (event.decision === 'approve') {
+            this.messageFacade.pushMessage({
+              id: host.uid(),
+              role: 'assistant',
+              content: successCopy.message,
+              timestamp: new Date(),
+            });
+          }
+        }, 150);
       } else {
         this.logger.warn('Approve API returned false', { operationId: event.operationId });
         await this.haptics.notification('error');
@@ -471,6 +487,7 @@ export class AgentXOperationChatYieldFacade {
     decision: 'approved' | 'rejected';
     toolInput?: Record<string, unknown>;
     successMessage?: string;
+    trustForSession?: boolean;
   }): Promise<boolean> {
     this.logger.info('Resolving inline approval', {
       approvalId: params.approvalId,
@@ -485,7 +502,8 @@ export class AgentXOperationChatYieldFacade {
       const result = await this.api.resolveApproval(
         params.approvalId,
         params.decision,
-        params.toolInput
+        params.toolInput,
+        params.trustForSession
       );
 
       if (!result) {
@@ -508,7 +526,9 @@ export class AgentXOperationChatYieldFacade {
         return true;
       }
 
-      this.toast.success(params.successMessage ?? 'Approved — Agent X is resuming');
+      if (params.successMessage) {
+        this.toast.success(params.successMessage);
+      }
 
       if (result.resumed && result.operationId) {
         await this.attachToResumedOperation({

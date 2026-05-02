@@ -25,7 +25,13 @@ import { sanitizeText } from '@nxt1/core/helpers';
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../../base.tool.js';
 import { ScraperMediaService } from '../../integrations/social/scraper-media.service.js';
 import { getCacheService } from '../../../../../services/core/cache.service.js';
+import {
+  CLOUDFLARE_API_BASE_URL,
+  getCloudflareHighlightPostId,
+  normalizeCloudflareVideoForClient,
+} from '../../../../../routes/core/upload/shared.js';
 import { getAnalyticsLoggerService } from '../../../../../services/core/analytics-logger.service.js';
+import { createProfileWriteAccessService } from '../../../../../services/profile/profile-write-access.service.js';
 import { logger } from '../../../../../utils/logger.js';
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
@@ -67,8 +73,8 @@ export class WriteTimelinePostTool extends BaseTool {
     "Create a new post on the user's timeline/feed. " +
     'Use this to publish scraped content, AI-generated graphics, highlight announcements, ' +
     "achievement updates, or any content to the user's social feed. " +
-    'Supports images (up to 10 Firebase Storage signed URLs) and a single video URL. ' +
-    'Content is automatically sanitized and hashtags/mentions are auto-extracted.\n\n' +
+    'Supports images (up to 10 prepared media URLs) and a single video URL. ' +
+    'Content is automatically sanitized. Do NOT include hashtags in the content — NXT1 does not use hashtags.\n\n' +
     'Post types:\n' +
     '- text: Plain text post\n' +
     '- photo: Post with images attached\n' +
@@ -77,7 +83,7 @@ export class WriteTimelinePostTool extends BaseTool {
     '- stats: Stats update or milestone\n' +
     '- achievement: Achievement or badge earned\n' +
     '- announcement: General announcement\n\n' +
-    'Image and video URLs must be HTTPS Firebase Storage signed URLs ' +
+    'Image and video URLs must be HTTPS CDN-hosted media URLs ' +
     '(from generate_image, scrape_twitter, scrape_instagram, or other agent tools).\n\n' +
     'Sport tagging:\n' +
     'Pass `sportId` (lowercase, e.g. "football", "basketball") so the post ' +
@@ -126,6 +132,34 @@ export class WriteTimelinePostTool extends BaseTool {
     // ── Required parameters ──────────────────────────────────────────────
     const userId = this.str(input, 'userId');
     if (!userId) return this.paramError('userId');
+
+    if (!context?.userId) {
+      return { success: false, error: 'Authenticated tool context is required.' };
+    }
+
+    // ── Roster-based write authorization ────────────────────────────────
+    // Self-writes are always allowed. Delegated writes (coach/director acting
+    // on a player's feed) require the actor to be an active team manager
+    // sharing an active roster scope with the target user.
+    if (userId !== context.userId) {
+      try {
+        await createProfileWriteAccessService(this.db).assertCanManageProfileTarget({
+          actorUserId: context.userId,
+          targetUserId: userId,
+          action: 'write_timeline_post',
+          requireDelegatedAthleteTarget: false,
+        });
+      } catch (err) {
+        const message =
+          err instanceof Error ? err.message : 'Not authorized to post on this timeline.';
+        logger.warn('[WriteTimelinePostTool] Delegated write denied', {
+          actorUserId: context.userId,
+          targetUserId: userId,
+          error: message,
+        });
+        return { success: false, error: message };
+      }
+    }
 
     const content = this.str(input, 'content');
     if (!content) return this.paramError('content');
@@ -183,7 +217,11 @@ export class WriteTimelinePostTool extends BaseTool {
     // sport profile because the timeline endpoint filters by `sportId`.
     const sportId = await this.resolveSportId(userId, explicitSportId);
     if (!sportId) {
-      logger.warn('[WriteTimelinePostTool] No sport could be resolved for user', { userId });
+      return {
+        success: false,
+        error:
+          "No sport could be resolved for this post. Pass a sportId (e.g. 'football') or ensure the user has a sport on their profile. Posts without a sportId are not visible on any sport profile timeline.",
+      };
     }
 
     // ── Build Firestore document ─────────────────────────────────────────
@@ -203,40 +241,69 @@ export class WriteTimelinePostTool extends BaseTool {
       const postVisibility = visibilityMap[visibility];
 
       // ── Media promotion: copy from thread staging → permanent post path ──
-      // Thread-staged media lives under users/{userId}/threads/{threadId}/media/
-      // and expires with the thread. Published posts need permanent copies at
-      // users/{userId}/posts/{postId}/ so they survive thread deletion.
+      // Images are promoted to posts/{postId}/ so they survive thread deletion.
+      // Videos are NOT promoted to Firebase — Cloudflare Stream is the source
+      // of truth for video playback, so the thread-staged URL is submitted
+      // directly to CF. This avoids a redundant Firebase copy that is never served.
       const postIdForMedia = this.db.collection(POSTS_COLLECTIONS.POSTS).doc().id;
       const destinationPrefix = `Users/${userId}/posts/${postIdForMedia}`;
 
       let promotedImages = images.urls;
-      let promotedVideoUrl = videoUrl;
 
-      if (context?.userId) {
-        if (images.urls.length > 0) {
-          context.emitStage?.('uploading_assets', {
-            icon: 'upload',
-            phase: 'upload_post_media',
+      if (context?.userId && images.urls.length > 0) {
+        context.emitStage?.('uploading_assets', {
+          icon: 'upload',
+          phase: 'upload_post_media',
+        });
+        promotedImages = await ScraperMediaService.promoteMedia(
+          images.urls,
+          context.userId,
+          destinationPrefix
+        );
+        if (promotedImages.length !== images.urls.length) {
+          logger.warn('[WriteTimelinePostTool] Some images failed promotion', {
+            original: images.urls.length,
+            promoted: promotedImages.length,
           });
-          promotedImages = await ScraperMediaService.promoteMedia(
-            images.urls,
-            context.userId,
-            destinationPrefix
-          );
-          if (promotedImages.length !== images.urls.length) {
-            logger.warn('[WriteTimelinePostTool] Some images failed promotion', {
-              original: images.urls.length,
-              promoted: promotedImages.length,
-            });
-          }
         }
-        if (videoUrl) {
-          const [promoted] = await ScraperMediaService.promoteMedia(
-            [videoUrl],
-            context.userId,
-            destinationPrefix
-          );
-          promotedVideoUrl = promoted ?? videoUrl;
+      }
+
+      // ── Cloudflare Stream: submit video for transcoding ───────────────────
+      // Any post carrying a videoUrl must be Cloudflare-backed. We submit the
+      // thread-staged URL directly to CF and fail the write if submission fails
+      // so feed cards never fall back to rendering raw signed Firebase URLs.
+      let cloudflareVideoId: string | null = null;
+      let cfResult: {
+        videoId: string;
+        readyToStream: boolean;
+        iframeUrl: string | null;
+        hlsUrl: string | null;
+      } | null = null;
+      let finalDocId = postIdForMedia;
+
+      if (videoUrl) {
+        context?.emitStage?.('uploading_assets', {
+          icon: 'media',
+          phase: 'submit_video_cloudflare',
+        });
+        cfResult = await this.submitVideoToCloudflare(videoUrl, userId);
+        if (!cfResult) {
+          return {
+            success: false,
+            error:
+              'Unable to submit video to Cloudflare Stream. Post was not created to avoid broken playback. Please retry.',
+          };
+        }
+        cloudflareVideoId = cfResult.videoId;
+        finalDocId = getCloudflareHighlightPostId(cfResult.videoId);
+
+        // If CF already processed the video (common for short clips), log it.
+        // The postDoc below will write it in ready state immediately.
+        if (cfResult.readyToStream && cfResult.iframeUrl) {
+          logger.info('[WriteTimelinePostTool] CF video already ready — writing post as playable', {
+            userId,
+            cloudflareVideoId,
+          });
         }
       }
 
@@ -253,7 +320,33 @@ export class WriteTimelinePostTool extends BaseTool {
         sportId: sportId ?? undefined,
         sport: sportId ?? undefined,
         images: promotedImages,
-        videoUrl: promotedVideoUrl ?? undefined,
+        ...(cloudflareVideoId
+          ? (() => {
+              // If CF already processed the video (common for short clips),
+              // write the post in ready state so it's immediately playable.
+              // This avoids the race condition where the webhook fires before
+              // the Firestore doc exists.
+              const alreadyReady = cfResult?.readyToStream === true && !!cfResult?.iframeUrl;
+              return alreadyReady
+                ? {
+                    cloudflareVideoId,
+                    cloudflareStatus: 'ready',
+                    readyToStream: true,
+                    mediaUrl: cfResult!.iframeUrl,
+                    videoUrl: cfResult!.hlsUrl ?? undefined,
+                    playback: {
+                      hlsUrl: cfResult!.hlsUrl ?? undefined,
+                      iframeUrl: cfResult!.iframeUrl,
+                    },
+                  }
+                : {
+                    cloudflareVideoId,
+                    cloudflareStatus: 'inprogress',
+                    readyToStream: false,
+                    mediaUrl: null,
+                  };
+            })()
+          : {}),
         externalLinks: [],
         mentions,
         location: teamId ?? undefined,
@@ -271,8 +364,13 @@ export class WriteTimelinePostTool extends BaseTool {
         icon: 'document',
         phase: 'publish_timeline_post',
       });
-      const docRef = await this.db.collection(POSTS_COLLECTIONS.POSTS).doc(postIdForMedia);
+      const docRef = this.db.collection(POSTS_COLLECTIONS.POSTS).doc(finalDocId);
       await docRef.set(postDoc);
+
+      if (cloudflareVideoId && cfResult && !cfResult.readyToStream) {
+        await this.reconcileCloudflareVideoPost(docRef, cloudflareVideoId, userId);
+      }
+
       const postId = docRef.id;
 
       logger.info('[WriteTimelinePostTool] Post created', {
@@ -328,6 +426,13 @@ export class WriteTimelinePostTool extends BaseTool {
           videoUrl: videoUrl ?? null,
           mentions,
           createdAt: now.toDate().toISOString(),
+          ...(cloudflareVideoId
+            ? {
+                cloudflareVideoId,
+                processingNote:
+                  'Video is processing via Cloudflare Stream and will be playable within 1–2 minutes.',
+              }
+            : {}),
         },
       };
     } catch (err) {
@@ -501,6 +606,166 @@ export class WriteTimelinePostTool extends BaseTool {
         error: err instanceof Error ? err.message : String(err),
         visibility,
         teamId,
+      });
+    }
+  }
+
+  /**
+   * Submit a video URL to Cloudflare Stream via copy-from-URL.
+   * Accepts any HTTPS URL (thread-staged Firebase, external scraped, etc.).
+   * Returns the Cloudflare video UID, or null if CF is unconfigured / fails.
+   * Failure is non-fatal — the post still saves with the raw source URL as fallback.
+   */
+  private async submitVideoToCloudflare(
+    videoUrl: string,
+    userId: string
+  ): Promise<{
+    videoId: string;
+    readyToStream: boolean;
+    iframeUrl: string | null;
+    hlsUrl: string | null;
+  } | null> {
+    const accountId = process.env['CLOUDFLARE_ACCOUNT_ID'];
+    const apiToken = process.env['CLOUDFLARE_API_TOKEN'];
+    const customerCode = process.env['CLOUDFLARE_STREAM_CUSTOMER_CODE'];
+
+    if (!accountId || !apiToken) {
+      logger.warn(
+        '[WriteTimelinePostTool] Cloudflare not configured — video saved as Firebase URL only',
+        { userId }
+      );
+      return null;
+    }
+
+    try {
+      const response = await fetch(`${CLOUDFLARE_API_BASE_URL}/accounts/${accountId}/stream/copy`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          url: videoUrl,
+          meta: {
+            nxt1_user_id: userId,
+            nxt1_context: 'agent_post',
+            nxt1_env: process.env['NODE_ENV'] ?? 'production',
+            webhook_backend_url: (process.env['BACKEND_URL'] ?? '').replace(/\/$/, ''),
+          },
+        }),
+      });
+
+      if (!response.ok) {
+        const text = await response.text().catch(() => '');
+        logger.warn('[WriteTimelinePostTool] CF Stream copy API error (non-fatal)', {
+          status: response.status,
+          userId,
+          body: text.slice(0, 200),
+        });
+        return null;
+      }
+
+      const body = (await response.json()) as Record<string, unknown>;
+      const result = body['result'] as Record<string, unknown> | null | undefined;
+      const videoId = typeof result?.['uid'] === 'string' ? (result['uid'] as string) : null;
+
+      if (!videoId) {
+        logger.warn('[WriteTimelinePostTool] CF Stream copy API returned no video UID', {
+          userId,
+        });
+        return null;
+      }
+
+      const normalized = normalizeCloudflareVideoForClient(videoId, result ?? {}, customerCode);
+
+      logger.info('[WriteTimelinePostTool] Video submitted to Cloudflare Stream', {
+        userId,
+        cloudflareVideoId: videoId,
+        readyToStream: normalized.readyToStream,
+      });
+
+      return {
+        videoId,
+        readyToStream: normalized.readyToStream,
+        iframeUrl: normalized.playback.iframeUrl,
+        hlsUrl: normalized.playback.hlsUrl,
+      };
+    } catch (err) {
+      logger.warn('[WriteTimelinePostTool] CF Stream submission failed (non-fatal)', {
+        error: err instanceof Error ? err.message : String(err),
+        userId,
+      });
+      return null;
+    }
+  }
+
+  private async reconcileCloudflareVideoPost(
+    docRef: FirebaseFirestore.DocumentReference,
+    videoId: string,
+    userId: string
+  ): Promise<void> {
+    const accountId = process.env['CLOUDFLARE_ACCOUNT_ID'];
+    const apiToken = process.env['CLOUDFLARE_API_TOKEN'];
+    const customerCode = process.env['CLOUDFLARE_STREAM_CUSTOMER_CODE'];
+
+    if (!accountId || !apiToken) {
+      return;
+    }
+
+    try {
+      const response = await fetch(
+        `${CLOUDFLARE_API_BASE_URL}/accounts/${accountId}/stream/${videoId}`,
+        {
+          headers: {
+            Authorization: `Bearer ${apiToken}`,
+          },
+        }
+      );
+
+      if (!response.ok) {
+        return;
+      }
+
+      const body = (await response.json()) as Record<string, unknown>;
+      const result = body['result'] as Record<string, unknown> | null | undefined;
+
+      if (!result) {
+        return;
+      }
+
+      const normalized = normalizeCloudflareVideoForClient(videoId, result, customerCode);
+      if (!normalized.readyToStream || !normalized.playback.iframeUrl) {
+        return;
+      }
+
+      await docRef.update({
+        cloudflareStatus: normalized.status,
+        readyToStream: true,
+        mediaUrl: normalized.playback.iframeUrl,
+        videoUrl: normalized.playback.hlsUrl,
+        duration: normalized.durationSeconds,
+        playback: normalized.playback,
+        ...(normalized.thumbnailUrl
+          ? {
+              thumbnailUrl: normalized.thumbnailUrl,
+              poster: normalized.thumbnailUrl,
+            }
+          : {}),
+        updatedAt: Timestamp.now(),
+      });
+
+      logger.info(
+        '[WriteTimelinePostTool] Reconciled Cloudflare video immediately after post write',
+        {
+          userId,
+          cloudflareVideoId: videoId,
+        }
+      );
+    } catch (err) {
+      logger.warn('[WriteTimelinePostTool] Immediate Cloudflare reconcile failed', {
+        userId,
+        cloudflareVideoId: videoId,
+        error: err instanceof Error ? err.message : String(err),
       });
     }
   }

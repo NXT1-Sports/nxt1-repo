@@ -5,6 +5,17 @@
 
 export { BaseTool, type ToolResult } from './base.tool.js';
 export { ToolRegistry } from './tool-registry.js';
+export {
+  FAVICON_REGISTRY,
+  extractDomain,
+  getFaviconUrl,
+  getDisplayName,
+  resolveUrlDisplay,
+  formatUrlsList,
+  compactizeMarkdownUrls,
+  type UrlDisplayOptions,
+} from './favicon-registry.js';
+export { toMarkdownTable, createUrlLink } from './markdown-helpers.js';
 
 // Scraping tools
 export { ScraperService } from './integrations/firecrawl/scraping/index.js';

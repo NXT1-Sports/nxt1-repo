@@ -13,7 +13,7 @@
  * ⭐ SHARED — Works on web and mobile ⭐
  */
 
-import { Component, ChangeDetectionStrategy, input, output } from '@angular/core';
+import { Component, ChangeDetectionStrategy, computed, input, output } from '@angular/core';
 import type { AgentXToolStep, AgentXRichCard, AgentXMessagePart } from '@nxt1/core/ai';
 import { AgentXToolStepsComponent } from '../../agent-x/components/shared/agent-x-tool-steps.component';
 import { AgentXPlannerCardComponent } from '../../agent-x/components/cards/agent-x-planner-card.component';
@@ -43,6 +43,7 @@ import {
 } from '../../agent-x/components/cards/agent-x-ask-user-card.component';
 import { NxtIconComponent } from '../icon/icon.component';
 import { NxtMarkdownComponent } from '../markdown/markdown.component';
+import { NxtAgentXExtendedThinkingComponent } from '../../agent-x/components/chat/agent-x-extended-thinking.component';
 import { buildAgentCardThemeStyle } from '../../agent-x/types/agent-x-agent-presentation';
 
 /** Visual variant controlling sizing, colors, and border‑radius. */
@@ -65,6 +66,7 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
     AgentXAskUserCardComponent,
     NxtIconComponent,
     NxtMarkdownComponent,
+    NxtAgentXExtendedThinkingComponent,
   ],
   host: {
     '[class.variant-message]': 'variant() === "message"',
@@ -93,9 +95,7 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
             stroke-linecap="round"
           />
         </svg>
-        @if (typingLabel()) {
-          <span class="typing-shimmer__text">{{ typingLabel() }}</span>
-        }
+        <span class="typing-shimmer__text">{{ resolvedTypingLabel() }}</span>
       </div>
     } @else if (isSystem()) {
       <p class="bubble-text bubble-text--system">{{ content() }}</p>
@@ -192,6 +192,12 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
                 preload="metadata"
               ></video>
             </div>
+          }
+          @case ('thinking') {
+            <nxt1-agent-x-extended-thinking
+              [content]="part.content"
+              [isStreaming]="isStreaming()"
+            />
           }
         }
       }
@@ -714,6 +720,12 @@ export class NxtChatBubbleComponent {
 
   /** Label shown inside the typing shimmer. */
   readonly typingLabel = input('Thinking...');
+
+  /** Typing shimmer label with guaranteed non-empty fallback. */
+  protected readonly resolvedTypingLabel = computed(() => {
+    const label = this.typingLabel()?.trim();
+    return label && label.length > 0 ? label : 'Agent X is thinking...';
+  });
 
   /** Error state. */
   readonly isError = input(false);

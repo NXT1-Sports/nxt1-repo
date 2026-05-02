@@ -103,6 +103,119 @@ describe('Agent X Routes', () => {
     );
   });
 
+  it('should sync a completed attachment onto an idempotent user message', async () => {
+    const syncedMessage = {
+      id: '64f10b2a6f1c2e0c1d3e8aff',
+      threadId: '64f10b2a6f1c2e0c1d3e8a11',
+      userId: 'test-user',
+      role: 'user',
+      content: 'Analyze these clips',
+      origin: 'user',
+      createdAt: new Date().toISOString(),
+      attachments: [
+        {
+          id: '7b95920d-6fdc-43e0-9c64-cc8fa5c91751',
+          url: 'https://watch.cloudflarestream.com/video-123',
+          name: 'clip.mp4',
+          mimeType: 'video/mp4',
+          type: 'video',
+          sizeBytes: 1024,
+          cloudflareVideoId: 'video-123',
+        },
+      ],
+    };
+
+    const chatService = {
+      syncMessageAttachmentByIdempotencyKey: vi.fn().mockResolvedValue(syncedMessage),
+      queueAttachmentSync: vi.fn(),
+    };
+
+    setAgentDependencies({
+      queueService: { enqueue: vi.fn() } as never,
+      jobRepository: createMockJobRepository() as never,
+      chatService: chatService as never,
+      contextBuilder: {
+        buildContext: vi.fn(),
+        compressToPrompt: vi.fn(),
+        getRecentThreadHistory: vi.fn(),
+      } as never,
+      llmService: {
+        completeStream: vi.fn(),
+        embed: vi.fn(),
+      } as never,
+    });
+
+    const response = await request(app)
+      .post('/api/v1/agent-x/messages/attachments/sync')
+      .set('Authorization', 'Bearer test-token')
+      .send({
+        idempotencyKey: 'chat-test_sync-12345',
+        attachment: syncedMessage.attachments[0],
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(response.body.data.queued).toBe(false);
+    expect(response.body.data.messageId).toBe(syncedMessage.id);
+    expect(chatService.syncMessageAttachmentByIdempotencyKey).toHaveBeenCalledWith({
+      userId: 'test-user',
+      idempotencyKey: 'chat-test_sync-12345',
+      attachment: syncedMessage.attachments[0],
+    });
+    expect(chatService.queueAttachmentSync).not.toHaveBeenCalled();
+  });
+
+  it('should queue attachment to outbox when message not found during sync', async () => {
+    const attachment = {
+      id: '7b95920d-6fdc-43e0-9c64-cc8fa5c91751',
+      url: 'https://watch.cloudflarestream.com/video-456',
+      name: 'clip.mp4',
+      mimeType: 'video/mp4',
+      type: 'video',
+      sizeBytes: 2048,
+      cloudflareVideoId: 'video-456',
+    };
+
+    const chatService = {
+      syncMessageAttachmentByIdempotencyKey: vi.fn().mockResolvedValue(null),
+      queueAttachmentSync: vi.fn().mockResolvedValue(undefined),
+    };
+
+    setAgentDependencies({
+      queueService: { enqueue: vi.fn() } as never,
+      jobRepository: createMockJobRepository() as never,
+      chatService: chatService as never,
+      contextBuilder: {
+        buildContext: vi.fn(),
+        compressToPrompt: vi.fn(),
+        getRecentThreadHistory: vi.fn(),
+      } as never,
+      llmService: {
+        completeStream: vi.fn(),
+        embed: vi.fn(),
+      } as never,
+    });
+
+    const response = await request(app)
+      .post('/api/v1/agent-x/messages/attachments/sync')
+      .set('Authorization', 'Bearer test-token')
+      .send({
+        idempotencyKey: 'chat-test_outbox-67890',
+        attachment,
+      });
+
+    // Must return 200 (not 404) so the browser does not retry unnecessarily
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(response.body.data.queued).toBe(true);
+    expect(response.body.data.messageId).toBeNull();
+    expect(chatService.queueAttachmentSync).toHaveBeenCalledWith({
+      userId: 'test-user',
+      idempotencyKey: 'chat-test_outbox-67890',
+      attachment,
+    });
+  });
+
   it('should edit a user message and enqueue rerun operation', async () => {
     const messageId = '64f10b2a6f1c2e0c1d3e8a20';
     const threadId = '64f10b2a6f1c2e0c1d3e8a21';
@@ -678,11 +791,12 @@ describe('Agent X Routes', () => {
         content: 'Build my recruiting plan',
       })
     );
-    expect(chatService.addMessage).toHaveBeenCalledWith(
+    expect(chatService.addMessage).toHaveBeenNthCalledWith(
+      2,
       expect.objectContaining({
         threadId: 'thread-123',
         role: 'assistant',
-        origin: 'agent',
+        origin: 'agent_chain',
         agentId: 'router',
         content: expect.stringContaining('Add funds to continue this request.'),
         parts: expect.arrayContaining([
@@ -697,6 +811,101 @@ describe('Agent X Routes', () => {
         ]),
       })
     );
+  });
+
+  it('should block chat when wallet balance is positive but below the estimated gate cost', async () => {
+    const now = new Date();
+    const periodKey = now.toISOString().slice(0, 7);
+    const timestamp = { seconds: Math.floor(now.getTime() / 1000), nanoseconds: 0 };
+
+    __seedMockFirestoreDocument('Users/test-user', {
+      activeBillingTarget: {
+        ownerId: 'test-user',
+        ownerType: 'individual',
+        source: 'default',
+      },
+    });
+    __seedMockFirestoreDocument('Wallets/test-user', {
+      balanceCents: 21,
+      pendingHoldsCents: 0,
+      iapLowBalanceNotified: false,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+    __seedMockFirestoreDocument('BillingPreferences/test-user', {
+      hardStop: true,
+      paymentProvider: 'iap',
+      budgetInterval: 'monthly',
+      budgetAlertsEnabled: false,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+    __seedMockFirestoreDocument(`PeriodLedgers/test-user:${periodKey}`, {
+      monthlyBudget: 0,
+      currentPeriodSpend: 0,
+      periodStart: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString(),
+      periodEnd: new Date(
+        Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0, 23, 59, 59, 999)
+      ).toISOString(),
+      notified50: false,
+      notified80: false,
+      notified100: false,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+
+    const jobRepository = createMockJobRepository();
+    const chatService = {
+      addMessage: vi
+        .fn()
+        .mockResolvedValueOnce({ id: 'user-message-1' })
+        .mockResolvedValueOnce({ id: 'billing-assistant-message-1' }),
+      createThread: vi.fn().mockResolvedValue({ id: 'thread-123' }),
+      getThread: vi.fn().mockResolvedValue(null),
+      generateTitleFromPromptOnly: vi.fn().mockResolvedValue(null),
+    };
+    const queueService = {
+      enqueue: vi.fn().mockResolvedValue('job-123'),
+      isHealthy: vi.fn().mockResolvedValue(true),
+    };
+
+    setAgentDependencies({
+      queueService: queueService as never,
+      jobRepository: jobRepository as never,
+      chatService: chatService as never,
+      contextBuilder: {
+        buildContext: vi.fn().mockResolvedValue({}),
+        compressToPrompt: vi.fn().mockReturnValue(''),
+        getRecentThreadHistory: vi.fn().mockResolvedValue(''),
+      } as never,
+      llmService: {
+        completeStream: vi.fn(),
+        embed: vi.fn(),
+      } as never,
+      agentRouter: {
+        run: vi.fn().mockResolvedValue({ summary: '', data: {} }),
+      } as never,
+    });
+
+    const response = await request(app)
+      .post('/api/v1/agent-x/chat')
+      .set('Authorization', 'Bearer test-token')
+      .set('Accept', 'text/event-stream')
+      .send({ message: 'Can you run this task?', mode: 'recruiting' });
+
+    expect(response.status).toBe(200);
+    const events = parseSseEvents(response.text).filter((event) => event.event.length > 0);
+    expect(events.map((event) => event.event)).toEqual(['thread', 'delta', 'card', 'done']);
+    expect(events[2]?.data).toMatchObject({
+      type: 'billing-action',
+      payload: {
+        reason: 'insufficient_funds',
+        description: expect.stringContaining('Wallet balance of $0.21'),
+      },
+    });
+
+    expect(jobRepository.create).not.toHaveBeenCalled();
+    expect(queueService.enqueue).not.toHaveBeenCalled();
   });
 
   it('should normalize chat attachments to plain objects in job payload context', async () => {

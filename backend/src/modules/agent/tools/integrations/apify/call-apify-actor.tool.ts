@@ -136,13 +136,13 @@ function extractStringField(data: unknown, fieldNames: readonly string[]): strin
 export class CallApifyActorTool extends BaseTool {
   readonly name = 'call_apify_actor';
   readonly description =
-    'Run an Apify actor (scraper, crawler, or automation tool) and get results. ' +
+    'Run an automation task (scraper, crawler, or data extraction job) and get results. ' +
     'IMPORTANT: Before calling this, use get_apify_actor_details to learn the exact input schema. ' +
     'Budget limits are enforced automatically: max 200 items, 256 MB memory, 5 min timeout. ' +
     'For large results, use get_apify_actor_output to paginate through the dataset. ' +
-    'Media URLs (images/videos) in results are automatically re-hosted to permanent Firebase Storage URLs. ' +
-    'Set skipMediaPersistence=true when the actor returns large video files that should stay remote for a downstream handoff (for example Cloudflare import) instead of being buffered into Firebase Storage. ' +
-    'This tool costs Apify compute credits — only call when you have the correct input parameters.';
+    'Media URLs (images/videos) in results are automatically re-hosted to permanent CDN-backed URLs. ' +
+    'Set skipMediaPersistence=true when the task returns large video files that should stay remote for a downstream handoff instead of being buffered. ' +
+    'This tool consumes compute resources — only call when you have the correct input parameters.';
 
   readonly parameters = CallApifyActorInputSchema;
 
@@ -229,7 +229,7 @@ export class CallApifyActorTool extends BaseTool {
           mediaPersistenceSkipped: skipMediaPersistence,
           note:
             persistedMediaUrls.length > 0
-              ? `${persistedMediaUrls.length} media file(s) saved to Firebase Storage.`
+              ? `${persistedMediaUrls.length} media file(s) saved to CDN.`
               : skipMediaPersistence
                 ? 'Media persistence was skipped for this actor run.'
                 : undefined,

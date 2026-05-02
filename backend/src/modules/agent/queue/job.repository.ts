@@ -92,6 +92,7 @@ export type JobEventType =
   | 'step_done'
   | 'step_error'
   | 'delta'
+  | 'thinking'
   | 'tool_call'
   | 'tool_result'
   | 'progress_stage'
@@ -138,6 +139,8 @@ export interface JobEvent {
   readonly message?: string;
   /** Accumulated LLM text for `delta` events. */
   readonly text?: string;
+  /** Extended thinking text fragment for `thinking` events (Claude 3.7+ / Gemini 2.5). */
+  readonly thinkingText?: string;
   /** Tool name for `tool_call` / `tool_result` events. */
   readonly toolName?: string;
   /** Tool arguments (JSON string) for `tool_call` events. */

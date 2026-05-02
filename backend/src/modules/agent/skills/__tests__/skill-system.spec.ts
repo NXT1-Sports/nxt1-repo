@@ -8,7 +8,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { BaseSkill, cosineSimilarity } from '../base.skill.js';
 import { SkillRegistry } from '../skill-registry.js';
-import { ScoutingRubricSkill } from '../evaluation/scouting-rubric.skill.js';
+import { AthleteScoutingSkill } from '../evaluation/athlete-scouting.skill.js';
+import { TeamScoutingSkill } from '../evaluation/team-scouting.skill.js';
 import { VideoAnalysisSkill } from '../evaluation/video-analysis.skill.js';
 import { FilmBreakdownTaxonomySkill } from '../evaluation/film-breakdown-taxonomy.skill.js';
 import { OutreachCopywritingSkill } from '../copywriting/outreach-copywriting.skill.js';
@@ -64,7 +65,7 @@ describe('cosineSimilarity', () => {
 // ─── BaseSkill.matchIntent ──────────────────────────────────────────────────
 
 describe('BaseSkill.matchIntent', () => {
-  const skill = new ScoutingRubricSkill();
+  const skill = new AthleteScoutingSkill();
 
   it('should match when cosine similarity exceeds threshold', async () => {
     // Mock embedFn that returns a vector similar to a fixed "intent" embedding
@@ -184,11 +185,19 @@ describe('SkillRegistry', () => {
   });
 
   it('should register and retrieve skills', () => {
-    const skill = new ScoutingRubricSkill();
+    const skill = new AthleteScoutingSkill();
     registry.register(skill);
 
-    expect(registry.get('scouting_rubric')).toBe(skill);
-    expect(registry.listAll()).toContain('scouting_rubric');
+    expect(registry.get('athlete_scouting_framework')).toBe(skill);
+    expect(registry.listAll()).toContain('athlete_scouting_framework');
+  });
+
+  it('should register and retrieve team scouting skill', () => {
+    const skill = new TeamScoutingSkill();
+    registry.register(skill);
+
+    expect(registry.get('team_scouting_framework')).toBe(skill);
+    expect(registry.listAll()).toContain('team_scouting_framework');
   });
 
   it('should register the video analysis skill', () => {
@@ -200,8 +209,8 @@ describe('SkillRegistry', () => {
   });
 
   it('should reject duplicate skill names', () => {
-    const skill1 = new ScoutingRubricSkill();
-    const skill2 = new ScoutingRubricSkill();
+    const skill1 = new AthleteScoutingSkill();
+    const skill2 = new AthleteScoutingSkill();
 
     registry.register(skill1);
     registry.register(skill2); // Should be silently rejected
@@ -214,16 +223,16 @@ describe('SkillRegistry', () => {
   });
 
   it('should match skills above threshold', async () => {
-    const scouting = new ScoutingRubricSkill();
+    const scouting = new AthleteScoutingSkill();
     const outreach = new OutreachCopywritingSkill();
     registry.register(scouting);
     registry.register(outreach);
 
     // Mock: return an embedding based on the input text content
     embedFn.mockImplementation(async (text: string) => {
-      // Scouting description contains "rubric" / "evaluation" → vector close to [1,0,0]
+      // Scouting description contains "scouting" / "evaluation" → vector close to [1,0,0]
       // Outreach description contains "email" / "copywriting" → vector close to [0,0,1]
-      return text.includes('rubric') || text.includes('evaluation')
+      return text.includes('scouting') || text.includes('evaluation')
         ? [0.95, 0.1, 0]
         : [0, 0.1, 0.95];
     });
@@ -232,11 +241,11 @@ describe('SkillRegistry', () => {
     const matched = await registry.match(intentEmbedding, embedFn);
 
     expect(matched.length).toBeGreaterThanOrEqual(1);
-    expect(matched[0].skill.name).toBe('scouting_rubric');
+    expect(matched[0].skill.name).toBe('athlete_scouting_framework');
   });
 
   it('should filter by allowed names', async () => {
-    const scouting = new ScoutingRubricSkill();
+    const scouting = new AthleteScoutingSkill();
     const outreach = new OutreachCopywritingSkill();
     registry.register(scouting);
     registry.register(outreach);
@@ -252,7 +261,7 @@ describe('SkillRegistry', () => {
   });
 
   it('should return empty array when no skills match', async () => {
-    const scouting = new ScoutingRubricSkill();
+    const scouting = new AthleteScoutingSkill();
     registry.register(scouting);
 
     // Orthogonal embedding
@@ -275,14 +284,14 @@ describe('SkillRegistry', () => {
     });
 
     it('should build formatted prompt block for matched skills', () => {
-      const skill = new ScoutingRubricSkill();
+      const skill = new AthleteScoutingSkill();
       const matched = [{ skill, similarity: 0.85 }];
       const block = registry.buildPromptBlock(matched);
 
       expect(block).toContain('## Loaded Skills');
-      expect(block).toContain('### Skill: scouting_rubric');
+      expect(block).toContain('### Skill: athlete_scouting_framework');
       expect(block).toContain('relevance: 0.85');
-      expect(block).toContain('Scout Report Format');
+      expect(block).toContain('Athlete Scouting Framework');
     });
 
     it('should omit empty skill prompt contexts', () => {

@@ -38,6 +38,24 @@ class StubTool extends BaseTool {
   }
 }
 
+class MarkdownUrlTool extends BaseTool {
+  readonly name = 'markdown_url_tool';
+  readonly description = 'Returns markdown with raw URLs.';
+  readonly parameters = z.object({});
+  readonly allowedAgents = ['*'] as const;
+  readonly isMutation = false;
+  readonly category = 'analytics' as const;
+  readonly entityGroup = 'platform_tools' as const;
+
+  async execute(): Promise<ToolResult> {
+    return {
+      success: true,
+      markdown:
+        'Watch film at https://hudl.com/video/abc123 and [https://www.maxpreps.com/athlete/abc](https://www.maxpreps.com/athlete/abc).',
+    };
+  }
+}
+
 class ZodTool extends BaseTool {
   readonly name = 'zod_tool';
   readonly description = 'A stub tool with Zod parameters.';
@@ -267,6 +285,17 @@ describe('ToolRegistry', () => {
       expect(result.success).toBe(false);
       expect(result.error).toBe('Tool is currently disabled: stub_tool');
       expect(stub.executeFn).not.toHaveBeenCalled();
+    });
+
+    it('should compactize raw URLs in shared markdown output', async () => {
+      registry.register(new MarkdownUrlTool());
+
+      const result = await registry.execute('markdown_url_tool', {}, { userId: 'u1' });
+
+      expect(result.success).toBe(true);
+      expect(result.markdown).toContain('[Hudl](https://hudl.com/video/abc123)');
+      expect(result.markdown).toContain('[MaxPreps](https://www.maxpreps.com/athlete/abc)');
+      expect(result.markdown).not.toContain('Watch film at https://hudl.com/video/abc123');
     });
   });
 

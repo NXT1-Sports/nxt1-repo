@@ -46,6 +46,7 @@ import {
   DispatchExtractionTool,
 } from '../tools/integrations/firecrawl/index.js';
 import {
+  // ── Write (create) ──────────────────────────────────────────────────
   WriteCoreIdentityTool,
   WriteAwardsTool,
   WriteCombineMetricsTool,
@@ -55,7 +56,6 @@ import {
   WriteCalendarEventsTool,
   WriteAthleteVideosTool,
   WriteIntelTool,
-  UpdateIntelTool,
   WriteConnectedSourceTool,
   WriteScheduleTool,
   WriteTeamStatsTool,
@@ -63,6 +63,40 @@ import {
   WriteTeamPostTool,
   WriteRosterEntriesTool,
   WriteTimelinePostTool,
+  // ── Update (patch) ──────────────────────────────────────────────────
+  UpdateIntelTool,
+  UpdateCoreIdentityTool,
+  UpdateAwardsTool,
+  UpdateCombineMetricsTool,
+  UpdateRankingsTool,
+  UpdateSeasonStatsTool,
+  UpdateRecruitingActivityTool,
+  UpdateAthleteVideosTool,
+  UpdateTimelinePostTool,
+  UpdateCalendarEventsTool,
+  UpdateRosterEntriesTool,
+  UpdateScheduleEventTool,
+  UpdateTeamStatsTool,
+  UpdateTeamNewsTool,
+  UpdateTeamPostTool,
+  UpdateConnectedSourceTool,
+  // ── Delete ──────────────────────────────────────────────────────────
+  DeleteIntelTool,
+  DeleteCoreIdentityTool,
+  DeleteAwardsTool,
+  DeleteCombineMetricsTool,
+  DeleteRankingsTool,
+  DeleteSeasonStatsTool,
+  DeleteRecruitingActivityTool,
+  DeleteAthleteVideosTool,
+  DeleteTimelinePostTool,
+  DeleteCalendarEventsTool,
+  DeleteRosterEntriesTool,
+  DeleteScheduleEventTool,
+  DeleteTeamStatsTool,
+  DeleteTeamNewsTool,
+  DeleteTeamPostTool,
+  DeleteConnectedSourceTool,
 } from '../tools/intel/index.js';
 import {
   SearchNxt1PlatformTool,
@@ -78,7 +112,7 @@ import {
   GetRecentSyncSummariesTool,
 } from '../tools/analytics/index.js';
 import { SearchMemoryTool, SaveMemoryTool, DeleteMemoryTool } from '../tools/memory/index.js';
-import { GenerateGraphicTool, AnalyzeVideoTool } from '../tools/media/index.js';
+import { GenerateGraphicTool, AnalyzeVideoTool, StageMediaTool } from '../tools/media/index.js';
 import {
   AskUserTool,
   DelegateTaskTool,
@@ -127,6 +161,15 @@ import {
   FirecrawlAgentTool,
   ListNxt1DataViewsTool,
   QueryNxt1DataTool,
+  FfmpegMcpBridgeService,
+  FfmpegTrimVideoTool,
+  FfmpegMergeVideosTool,
+  FfmpegResizeVideoTool,
+  FfmpegAddTextOverlayTool,
+  FfmpegBurnSubtitlesTool,
+  FfmpegGenerateThumbnailTool,
+  FfmpegConvertVideoTool,
+  FfmpegCompressVideoTool,
   CloudflareMcpBridgeService,
   CreateSupportTicketTool,
   ImportVideoTool,
@@ -159,7 +202,8 @@ import { stagingDb } from '../../../utils/firebase-staging.js';
 import { logger } from '../../../utils/logger.js';
 import {
   SkillRegistry,
-  ScoutingRubricSkill,
+  AthleteScoutingSkill,
+  TeamScoutingSkill,
   VideoAnalysisSkill,
   FilmBreakdownTaxonomySkill,
   OpponentScoutingPacketSkill,
@@ -167,6 +211,8 @@ import {
   ComplianceRulebookSkill,
   NilAndBrandComplianceSkill,
   CommunicationApprovalAndSafetySkill,
+  MediaCreativeIntentSkill,
+  MediaPipelinePlaybooksSkill,
   StaticGraphicStyleSkill,
   VideoHighlightStyleSkill,
   SocialCaptionStyleSkill,
@@ -362,7 +408,40 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   toolRegistry.register(new WriteRosterEntriesTool(stagingDb));
   toolRegistry.register(new WriteAthleteVideosTool(stagingDb));
   toolRegistry.register(new WriteIntelTool(stagingDb));
+  // ── Update (patch) tools ─────────────────────────────────────────────
   toolRegistry.register(new UpdateIntelTool(stagingDb));
+  toolRegistry.register(new UpdateCoreIdentityTool(stagingDb));
+  toolRegistry.register(new UpdateAwardsTool(stagingDb));
+  toolRegistry.register(new UpdateCombineMetricsTool(stagingDb));
+  toolRegistry.register(new UpdateRankingsTool(stagingDb));
+  toolRegistry.register(new UpdateSeasonStatsTool(stagingDb));
+  toolRegistry.register(new UpdateRecruitingActivityTool(stagingDb));
+  toolRegistry.register(new UpdateAthleteVideosTool(stagingDb));
+  toolRegistry.register(new UpdateTimelinePostTool(stagingDb));
+  toolRegistry.register(new UpdateCalendarEventsTool(stagingDb));
+  toolRegistry.register(new UpdateRosterEntriesTool(stagingDb));
+  toolRegistry.register(new UpdateScheduleEventTool(stagingDb));
+  toolRegistry.register(new UpdateTeamStatsTool(stagingDb));
+  toolRegistry.register(new UpdateTeamNewsTool(stagingDb));
+  toolRegistry.register(new UpdateTeamPostTool(stagingDb));
+  toolRegistry.register(new UpdateConnectedSourceTool(stagingDb));
+  // ── Delete tools ─────────────────────────────────────────────────────
+  toolRegistry.register(new DeleteIntelTool(stagingDb));
+  toolRegistry.register(new DeleteCoreIdentityTool(stagingDb));
+  toolRegistry.register(new DeleteAwardsTool(stagingDb));
+  toolRegistry.register(new DeleteCombineMetricsTool(stagingDb));
+  toolRegistry.register(new DeleteRankingsTool(stagingDb));
+  toolRegistry.register(new DeleteSeasonStatsTool(stagingDb));
+  toolRegistry.register(new DeleteRecruitingActivityTool(stagingDb));
+  toolRegistry.register(new DeleteAthleteVideosTool(stagingDb));
+  toolRegistry.register(new DeleteTimelinePostTool(stagingDb));
+  toolRegistry.register(new DeleteCalendarEventsTool(stagingDb));
+  toolRegistry.register(new DeleteRosterEntriesTool(stagingDb));
+  toolRegistry.register(new DeleteScheduleEventTool(stagingDb));
+  toolRegistry.register(new DeleteTeamStatsTool(stagingDb));
+  toolRegistry.register(new DeleteTeamNewsTool(stagingDb));
+  toolRegistry.register(new DeleteTeamPostTool(stagingDb));
+  toolRegistry.register(new DeleteConnectedSourceTool(stagingDb));
   toolRegistry.register(new SearchNxt1PlatformTool());
   toolRegistry.register(new QueryNxt1PlatformDataTool());
   toolRegistry.register(new TrackAnalyticsEventTool());
@@ -372,8 +451,12 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   toolRegistry.register(new GetCollegeLogosTool());
   toolRegistry.register(new GetConferenceLogosTool());
   toolRegistry.register(new GenerateGraphicTool(llm));
-  toolRegistry.register(new AnalyzeVideoTool(scraperService, llm));
+  toolRegistry.register(new StageMediaTool());
   toolRegistry.register(new DynamicExportTool());
+
+  let apifyMcpBridge: ApifyMcpBridgeService | undefined;
+  let cfBridge: CloudflareMcpBridgeService | undefined;
+  let ffmpegBridge: FfmpegMcpBridgeService | undefined;
 
   // System tools (cross-cutting infrastructure — available to all agents)
   toolRegistry.register(new DelegateTaskTool());
@@ -414,12 +497,12 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
 
   // ── 1c. MCP-bridged Apify tools (2026 architecture) ──────────────────
   try {
-    const mcpBridge = new ApifyMcpBridgeService();
+    apifyMcpBridge = new ApifyMcpBridgeService();
     const scraperMedia = new ScraperMediaService();
-    toolRegistry.register(new SearchApifyActorsTool(mcpBridge));
-    toolRegistry.register(new GetApifyActorDetailsTool(mcpBridge));
-    toolRegistry.register(new CallApifyActorTool(mcpBridge, scraperMedia));
-    toolRegistry.register(new GetApifyActorOutputTool(mcpBridge, scraperMedia));
+    toolRegistry.register(new SearchApifyActorsTool(apifyMcpBridge));
+    toolRegistry.register(new GetApifyActorDetailsTool(apifyMcpBridge));
+    toolRegistry.register(new CallApifyActorTool(apifyMcpBridge, scraperMedia));
+    toolRegistry.register(new GetApifyActorOutputTool(apifyMcpBridge, scraperMedia));
     logger.info('MCP-bridged Apify tools registered (search, details, call, output)');
   } catch {
     logger.warn('APIFY_API_TOKEN not configured — MCP-bridged Apify tools disabled');
@@ -490,7 +573,7 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
 
   // ── 1e. MCP-bridged Cloudflare Stream tools (ephemeral video processing) ──
   try {
-    const cfBridge = new CloudflareMcpBridgeService();
+    cfBridge = new CloudflareMcpBridgeService();
     toolRegistry.register(new ImportVideoTool(cfBridge));
     toolRegistry.register(new ClipVideoTool(cfBridge));
     toolRegistry.register(new GenerateThumbnailTool(cfBridge));
@@ -508,6 +591,26 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
       'CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID not configured — Cloudflare Stream tools disabled'
     );
   }
+
+  // ── 1e.1. MCP-bridged FFmpeg tools (allowlisted video processing) ───────
+  try {
+    ffmpegBridge = new FfmpegMcpBridgeService();
+    toolRegistry.register(new FfmpegTrimVideoTool(ffmpegBridge));
+    toolRegistry.register(new FfmpegMergeVideosTool(ffmpegBridge));
+    toolRegistry.register(new FfmpegResizeVideoTool(ffmpegBridge));
+    toolRegistry.register(new FfmpegAddTextOverlayTool(ffmpegBridge));
+    toolRegistry.register(new FfmpegBurnSubtitlesTool(ffmpegBridge));
+    toolRegistry.register(new FfmpegGenerateThumbnailTool(ffmpegBridge));
+    toolRegistry.register(new FfmpegConvertVideoTool(ffmpegBridge));
+    toolRegistry.register(new FfmpegCompressVideoTool(ffmpegBridge));
+    logger.info(
+      'MCP-bridged FFmpeg tools registered (trim, merge, resize, text-overlay, burn-subtitles, thumbnail, convert, compress)'
+    );
+  } catch {
+    logger.warn('FFMPEG_MCP_URL not configured — FFmpeg MCP tools disabled');
+  }
+
+  toolRegistry.register(new AnalyzeVideoTool(scraperService, llm, apifyMcpBridge, ffmpegBridge));
 
   // ── 1f. MCP-bridged Runway ML tools (AI video generation) ──────────────
   if (runwayMcpBridge) {
@@ -530,7 +633,8 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
 
   // ── 1b. Skill Registry (dynamic domain knowledge injection) ─────────────────
   const skillRegistry = new SkillRegistry();
-  skillRegistry.register(new ScoutingRubricSkill());
+  skillRegistry.register(new AthleteScoutingSkill());
+  skillRegistry.register(new TeamScoutingSkill());
   skillRegistry.register(new VideoAnalysisSkill());
   skillRegistry.register(new FilmBreakdownTaxonomySkill());
   skillRegistry.register(new OpponentScoutingPacketSkill());
@@ -538,6 +642,8 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   skillRegistry.register(new ComplianceRulebookSkill());
   skillRegistry.register(new NilAndBrandComplianceSkill());
   skillRegistry.register(new CommunicationApprovalAndSafetySkill());
+  skillRegistry.register(new MediaCreativeIntentSkill());
+  skillRegistry.register(new MediaPipelinePlaybooksSkill());
   skillRegistry.register(new StaticGraphicStyleSkill());
   skillRegistry.register(new VideoHighlightStyleSkill());
   skillRegistry.register(new SocialCaptionStyleSkill());

@@ -1,6 +1,7 @@
 import { Injectable, computed, inject, signal, OnDestroy, NgZone } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
+import { AGENT_X_RUNTIME_CONFIG } from '@nxt1/core/ai';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import { ANALYTICS_ADAPTER } from '../../services/analytics/analytics-adapter.token';
 import { NxtBreadcrumbService } from '../../services/breadcrumb/breadcrumb.service';
@@ -84,13 +85,13 @@ export const AGENT_X_GOAL_OPTIONS: readonly AgentXGoalOption[] = [
 ] as const;
 
 /** Health-check polling interval (60 s). */
-const HEALTH_POLL_INTERVAL_MS = 60_000;
+const HEALTH_POLL_INTERVAL_MS = AGENT_X_RUNTIME_CONFIG.controlPanelHealth.pollIntervalMs;
 
 /** Delay before a recovery check after a reported execution failure. */
-const RECOVERY_DELAY_MS = 30_000;
+const RECOVERY_DELAY_MS = AGENT_X_RUNTIME_CONFIG.controlPanelHealth.recoveryDelayMs;
 
 /** Consecutive failures before flipping from degraded → down. */
-const FAILURE_THRESHOLD = 3;
+const FAILURE_THRESHOLD = AGENT_X_RUNTIME_CONFIG.controlPanelHealth.failureThreshold;
 
 @Injectable({ providedIn: 'root' })
 export class AgentXControlPanelStateService implements OnDestroy {

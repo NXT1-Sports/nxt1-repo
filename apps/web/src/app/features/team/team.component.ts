@@ -47,7 +47,7 @@ import { TeamProfileService } from '@nxt1/ui/team-profile';
 import { ManageTeamModalService } from '@nxt1/ui/manage-team';
 import { InviteBottomSheetService } from '@nxt1/ui/invite';
 import { NxtOverlayService } from '@nxt1/ui/components/overlay';
-import { IntelService } from '@nxt1/ui/intel';
+import { PostDetailOverlayService } from '@nxt1/ui/post-cards';
 import {
   ShareActionsOverlayComponent,
   type ShareAction,
@@ -77,7 +77,10 @@ import {
   ProfilePageActionsService,
   EditProfileApiService,
 } from '../../core/services';
+import { clearHttpCache } from '../../core/infrastructure';
 import { environment } from '../../../environments/environment';
+
+const TEAM_INTEL_ENABLED = false;
 
 const CTA_AVATARS: readonly CtaAvatarImage[] = [
   { src: `/${IMAGE_PATHS.athlete1}`, alt: 'High school athlete' },
@@ -98,6 +101,7 @@ const CTA_AVATARS: readonly CtaAvatarImage[] = [
       [teamSlug]="teamSlug()"
       [teamId]="routeTeamCode()"
       [isTeamAdmin]="isTeamAdmin()"
+      [teamIntelEnabled]="teamIntelEnabled"
       [skipInternalLoad]="true"
       (backClick)="onBackClick()"
       (tabChange)="onTabChange($event)"
@@ -167,7 +171,6 @@ export class TeamComponent implements OnInit {
   private readonly analytics = inject(AnalyticsService);
   private readonly share = inject(ShareService);
   private readonly teamProfile = inject(TeamProfileService);
-  private readonly intelService = inject(IntelService);
   private readonly manageTeamModal = inject(ManageTeamModalService);
   private readonly inviteModal = inject(InviteBottomSheetService);
   private readonly connectedAccountsModal = inject(ConnectedAccountsModalService);
@@ -175,6 +178,7 @@ export class TeamComponent implements OnInit {
   private readonly editProfileApi = inject(EditProfileApiService);
   private readonly profilePageActions = inject(ProfilePageActionsService);
   private readonly overlay = inject(NxtOverlayService);
+  private readonly postDetailOverlay = inject(PostDetailOverlayService);
   private readonly platformId = inject(PLATFORM_ID);
   private readonly destroyRef = inject(DestroyRef);
 
@@ -209,6 +213,7 @@ export class TeamComponent implements OnInit {
   protected readonly isLoggedIn = computed(() => this.authFlow.isAuthenticated());
 
   protected readonly ctaAvatars = CTA_AVATARS;
+  protected readonly teamIntelEnabled = TEAM_INTEL_ENABLED;
 
   constructor() {
     // Update mobile top-nav edit/more buttons when team admin status is resolved
@@ -330,9 +335,12 @@ export class TeamComponent implements OnInit {
       // Only set if we are navigating to a strictly different team
       this.teamProfile.startLoading();
 
-      // Load team data from API using the canonical route team code when available.
+      // Use loadTeamById — the :teamCode URL param may be a raw Firestore document ID.
+      // The /by-id backend endpoint handles both Firestore IDs and short team codes via
+      // fallback, so it works for all teams. The /by-teamcode endpoint only matches the
+      // teamCode field and returns 404 for Firestore IDs, causing the first-visit error.
       const loadPromise = teamCode
-        ? this.teamProfile.loadTeamByCode(teamCode, this.isTeamAdmin())
+        ? this.teamProfile.loadTeamById(teamCode, this.isTeamAdmin())
         : this.teamProfile.loadTeam(slug, this.isTeamAdmin());
 
       loadPromise
@@ -359,10 +367,6 @@ export class TeamComponent implements OnInit {
           // Calling it here directly ensures meta tags are written synchronously
           // when the HTTP response arrives, before serialization completes.
           this.updateSeo(loadedTeam);
-
-          // Load intel eagerly so the intel tab renders instantly with no skeleton flash.
-          const teamId = this.teamProfile.team()?.id;
-          if (teamId) void this.intelService.loadTeamIntel(teamId);
 
           // Track page view after data loads — skip if user is an admin of this team
           if (!this.isTeamAdmin()) {
@@ -589,6 +593,7 @@ export class TeamComponent implements OnInit {
 
     if (result.saved) {
       await this.reloadTeamProfile('manage');
+      await this.syncGlobalUserAfterTeamMutation();
     }
   }
 
@@ -679,12 +684,25 @@ export class TeamComponent implements OnInit {
   }
 
   /**
-   * Handle post click — navigate to post detail.
+   * Handle post click — open post detail overlay via canonical post route.
+   * Uses teamCode as the userUnicode segment so deep-link URLs are meaningful.
    */
   protected onPostClick(post: TeamProfilePost): void {
-    if (post.id) {
-      this.router.navigate(['/post', post.id]);
-    }
+    if (!post.id) return;
+    const unicode = this.routeTeamCode() || this.teamSlug() || '_';
+    const team = this.teamProfile.team();
+    void this.postDetailOverlay.open({
+      post,
+      userUnicode: unicode,
+      author: {
+        name: team?.teamName ?? 'Team',
+        avatarUrl: team?.logoUrl,
+      },
+    });
+    this.logger.debug('Post click — opening post detail overlay', {
+      postId: post.id,
+      unicode,
+    });
   }
 
   private async reloadTeamProfile(source: 'manage' | 'connected-accounts'): Promise<void> {
@@ -697,14 +715,52 @@ export class TeamComponent implements OnInit {
 
     try {
       if (teamCode) {
-        await this.teamProfile.loadTeamByCode(teamCode, this.isTeamAdmin());
+        await this.teamProfile.loadTeamByCode(teamCode, this.isTeamAdmin(), true);
       } else {
-        await this.teamProfile.loadTeam(slug, this.isTeamAdmin());
+        await this.teamProfile.loadTeam(slug, this.isTeamAdmin(), true);
       }
     } catch (error) {
       this.logger.error('Failed to reload team profile', error, {
         source,
         slug,
+        teamCode,
+      });
+    }
+  }
+
+  /**
+   * Force-refresh global auth-backed user context after team mutations so
+   * shared navigation (top-right sport selector/avatar) updates immediately.
+   */
+  private async syncGlobalUserAfterTeamMutation(): Promise<void> {
+    await clearHttpCache('*teams*');
+    await clearHttpCache('*auth/profile*');
+    await clearHttpCache('*profile*');
+
+    try {
+      await this.authService.refreshUserProfile();
+    } catch (error) {
+      this.logger.warn('Failed to refresh auth user after team mutation', { error });
+    }
+
+    const team = this.teamProfile.team();
+    const teamCode = (team?.teamCode ?? team?.id ?? '').trim();
+    if (!team || !teamCode) {
+      return;
+    }
+
+    try {
+      await this.authFlow.applyResolvedTeamIdentity({
+        teamCode,
+        teamId: team.id,
+        slug: team.slug,
+        teamName: team.teamName,
+        sport: team.sport,
+        logoUrl: team.logoUrl ?? null,
+      });
+    } catch (error) {
+      this.logger.warn('Failed to apply resolved team identity after team mutation', {
+        error,
         teamCode,
       });
     }

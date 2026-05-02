@@ -30,8 +30,8 @@ export const PROD_MODEL_CATALOGUE: Record<ModelTier, string> = {
   // ── Media Tiers ─────────────────────────────────────────────────────────
   image_generation: 'openai/gpt-5.4-image-2',
   video_generation: 'google/gemini-3-pro-image-preview', // placeholder until video models available
-  vision_analysis: 'openai/gpt-5.5-pro',
-  video_analysis: 'google/gemini-2.5-flash',
+  vision_analysis: 'google/gemini-3.1-pro-preview',
+  video_analysis: 'google/gemini-3.1-pro-preview',
   audio_analysis: 'openai/gpt-5.5',
   voice_generation: 'openai/gpt-audio-mini',
   music_generation: 'google/lyria-3-pro-preview',
@@ -46,15 +46,15 @@ export const PROD_MODEL_CATALOGUE: Record<ModelTier, string> = {
  */
 export const DEV_MODEL_CATALOGUE: Record<ModelTier, string> = {
   // ── Text Tiers ──────────────────────────────────────────────────────────
-  routing: 'anthropic/claude-sonnet-4-5',
-  extraction: 'anthropic/claude-haiku-4-5',
+  routing: 'anthropic/claude-sonnet-4.5',
+  extraction: 'anthropic/claude-haiku-4.5',
   data_heavy: 'qwen/qwen3.6-plus',
   evaluator: 'minimax/minimax-m2.7',
   compliance: 'openai/gpt-4o',
-  copywriting: 'anthropic/claude-sonnet-4-5',
-  prompt_engineering: 'anthropic/claude-sonnet-4-5',
-  chat: 'anthropic/claude-haiku-4-5',
-  task_automation: 'anthropic/claude-sonnet-4-5',
+  copywriting: 'anthropic/claude-sonnet-4.5',
+  prompt_engineering: 'anthropic/claude-sonnet-4.5',
+  chat: 'anthropic/claude-haiku-4.5',
+  task_automation: 'anthropic/claude-sonnet-4.5',
 
   // ── Media Tiers ─────────────────────────────────────────────────────────
   image_generation: 'google/gemini-3-pro-image-preview',
@@ -95,8 +95,12 @@ export const PROD_FALLBACK_CHAIN: Record<ModelTier, readonly string[]> = {
   // ── Media Tiers ─────────────────────────────────────────────────────────
   image_generation: ['openai/gpt-5.4-image-2', 'google/gemini-3-pro-image-preview'],
   video_generation: ['google/gemini-3-pro-image-preview'],
-  vision_analysis: ['openai/gpt-5.5-pro', 'openai/gpt-4o'],
-  video_analysis: ['google/gemini-2.5-flash', 'google/gemini-2.5-pro'],
+  vision_analysis: ['google/gemini-3.1-pro-preview', 'openai/gpt-5.5-pro', 'openai/gpt-4o'],
+  video_analysis: [
+    'google/gemini-3.1-pro-preview',
+    'google/gemini-2.5-flash',
+    'google/gemini-2.5-pro',
+  ],
   audio_analysis: ['openai/gpt-5.5', 'openai/gpt-4o'],
   voice_generation: ['openai/gpt-audio-mini', 'openai/gpt-4o-mini-tts-2025-12-15'],
   music_generation: ['google/lyria-3-pro-preview', 'google/lyria-3-clip-preview'],
@@ -108,15 +112,15 @@ export const PROD_FALLBACK_CHAIN: Record<ModelTier, readonly string[]> = {
 
 export const DEV_FALLBACK_CHAIN: Record<ModelTier, readonly string[]> = {
   // ── Text Tiers ──────────────────────────────────────────────────────────
-  routing: ['anthropic/claude-sonnet-4', 'openai/gpt-4o', 'anthropic/claude-haiku-4-5'],
-  extraction: ['anthropic/claude-haiku-4-5', 'openai/gpt-4o-mini', 'qwen/qwen3.6-plus'],
-  data_heavy: ['qwen/qwen3.6-plus', 'anthropic/claude-haiku-4-5', 'openai/gpt-4o-mini'],
+  routing: ['anthropic/claude-sonnet-4', 'openai/gpt-4o', 'anthropic/claude-haiku-4.5'],
+  extraction: ['anthropic/claude-haiku-4.5', 'openai/gpt-4o-mini', 'qwen/qwen3.6-plus'],
+  data_heavy: ['qwen/qwen3.6-plus', 'anthropic/claude-haiku-4.5', 'openai/gpt-4o-mini'],
   evaluator: ['minimax/minimax-m2.7', 'anthropic/claude-sonnet-4', 'openai/gpt-4o'],
-  compliance: ['openai/gpt-4o', 'anthropic/claude-sonnet-4', 'anthropic/claude-haiku-4-5'],
+  compliance: ['openai/gpt-4o', 'anthropic/claude-sonnet-4', 'anthropic/claude-haiku-4.5'],
   copywriting: ['anthropic/claude-sonnet-4', 'openai/gpt-4o', 'qwen/qwen3.6-plus'],
-  prompt_engineering: ['anthropic/claude-sonnet-4', 'openai/gpt-4o', 'anthropic/claude-haiku-4-5'],
-  chat: ['anthropic/claude-haiku-4-5', 'openai/gpt-4o-mini', 'deepseek/deepseek-v3.2'],
-  task_automation: ['anthropic/claude-sonnet-4', 'openai/gpt-4o', 'anthropic/claude-haiku-4-5'],
+  prompt_engineering: ['anthropic/claude-sonnet-4', 'openai/gpt-4o', 'anthropic/claude-haiku-4.5'],
+  chat: ['anthropic/claude-haiku-4.5', 'openai/gpt-4o-mini', 'deepseek/deepseek-v3.2'],
+  task_automation: ['anthropic/claude-sonnet-4', 'openai/gpt-4o', 'anthropic/claude-haiku-4.5'],
 
   // ── Media Tiers ─────────────────────────────────────────────────────────
   image_generation: ['google/gemini-3-pro-image-preview'],
@@ -206,9 +210,25 @@ export interface LLMVideoUrlContentPart {
 }
 
 /**
+ * A file content part in a multimodal message.
+ * Used for OpenRouter native PDF/file inputs via file URLs or base64 data URLs.
+ */
+export interface LLMFileContentPart {
+  readonly type: 'file';
+  readonly file: {
+    readonly filename: string;
+    readonly file_data: string;
+  };
+}
+
+/**
  * Union of all content part types for multimodal messages.
  */
-export type LLMContentPart = LLMTextContentPart | LLMImageUrlContentPart | LLMVideoUrlContentPart;
+export type LLMContentPart =
+  | LLMTextContentPart
+  | LLMImageUrlContentPart
+  | LLMVideoUrlContentPart
+  | LLMFileContentPart;
 
 /** A single message in the OpenRouter chat format. */
 export interface LLMMessage {
@@ -216,7 +236,7 @@ export interface LLMMessage {
   /**
    * Message content. Can be:
    * - `string` for text-only messages
-   * - `LLMContentPart[]` for multimodal messages (text + images)
+   * - `LLMContentPart[]` for multimodal messages (text + images + files)
    * - `null` when the assistant uses tool calls with no text
    */
   readonly content: string | readonly LLMContentPart[] | null;
@@ -278,6 +298,17 @@ export interface LLMCompletionOptions<TStructuredOutput = unknown> {
     /** Feature name for Helicone cost tracking (e.g. 'scout-report', 'highlights'). */
     readonly feature?: string;
   };
+  /**
+   * Enable extended thinking (Claude 3.7+ / Gemini 2.5).
+   * When true the model reasons before responding; thinking tokens stream
+   * separately via `LLMStreamDelta.thinkingContent`.
+   */
+  readonly enableThinking?: boolean;
+  /**
+   * Max tokens the model may spend on reasoning. Only applied for Claude 3.7+.
+   * Defaults to 8 000. Must be ≥ 1 024.
+   */
+  readonly thinkingBudgetTokens?: number;
 }
 
 /** The parsed response from an LLM completion. */
@@ -337,6 +368,8 @@ export interface ImageGenerationOptions {
   readonly additionalImageUrls?: readonly string[];
   /** Override the default image model. */
   readonly modelOverride?: string;
+  /** Sampling temperature for image generation (lower = more deterministic). */
+  readonly temperature?: number;
   /** Abort signal for cancellation. */
   readonly signal?: AbortSignal;
   /** Telemetry context — passed through to the onTelemetry callback. */
@@ -411,6 +444,12 @@ export interface LLMStreamDelta {
   readonly toolArgs?: string;
   /** Unique index of the tool call within the response (OpenRouter uses this). */
   readonly toolCallIndex?: number;
+  /**
+   * Extended thinking fragment emitted by Claude 3.7+ / Gemini 2.5.
+   * OpenRouter passes it through as a separate `delta.thinking` field.
+   * Never mixed with `content` — a given chunk has one or the other.
+   */
+  readonly thinkingContent?: string;
 }
 
 /** Final metadata returned after the stream completes. */

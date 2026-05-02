@@ -39,6 +39,7 @@ import {
   performanceMiddleware,
   testPerformance,
 } from '../../middleware/performance/performance.middleware.js';
+import { isTeamIntelEnabled } from '../../config/feature-flags.js';
 import {
   getCacheService,
   CACHE_TTL,
@@ -46,6 +47,7 @@ import {
 } from '../../services/core/cache.service.js';
 import { markCacheHit } from '../../middleware/cache/cache-status.middleware.js';
 import type { TeamProfilePageData } from '@nxt1/core/team-profile';
+import type { Organization } from '@nxt1/core/models';
 import { SyncDiffService } from '../../modules/agent/sync/index.js';
 import {
   buildDistilledProfileFromTeamRecord,
@@ -686,7 +688,6 @@ router.patch(
 
     const team = await teamCodeService.updateTeamCode(db, String(id), userId, {
       teamName: teamName?.trim(),
-      teamType,
       sport: sportName?.trim(),
       athleteMember: athleteMember !== undefined ? parseInt(String(athleteMember), 10) : undefined,
       panelMember: panelMember !== undefined ? parseInt(String(panelMember), 10) : undefined,
@@ -694,13 +695,10 @@ router.patch(
       unicode: unicode?.trim(),
       division: division?.trim(),
       conference: conference?.trim(),
-      mascot: typeof mascot === 'string' ? mascot.trim() : undefined,
       email: typeof email === 'string' ? email.trim() : undefined,
       phone: typeof phone === 'string' ? phone.trim() : undefined,
       website: typeof website === 'string' ? website.trim() : undefined,
       address: typeof address === 'string' ? address.trim() : undefined,
-      city: typeof city === 'string' ? city.trim() : undefined,
-      state: typeof state === 'string' ? state.trim() : undefined,
       wins: wins !== undefined ? parseInt(String(wins), 10) : undefined,
       losses: losses !== undefined ? parseInt(String(losses), 10) : undefined,
       ties: ties !== undefined ? parseInt(String(ties), 10) : undefined,
@@ -712,8 +710,6 @@ router.patch(
             .map((item) => item.trim())
             .filter(Boolean)
         : undefined,
-      primaryColor: typeof primaryColor === 'string' ? primaryColor.trim() : undefined,
-      secondaryColor: typeof secondaryColor === 'string' ? secondaryColor.trim() : undefined,
       accentColor: typeof accentColor === 'string' ? accentColor.trim() : undefined,
     });
 
@@ -731,23 +727,75 @@ router.patch(
         ? ((team as { organizationId?: string }).organizationId ?? '').trim()
         : '';
 
-    if (normalizedOrganizationLogoUrl !== undefined && resolvedOrganizationId.length > 0) {
+    const normalizedOrgLevel = typeof teamType === 'string' ? teamType.trim() : undefined;
+    const normalizedOrgMascot = typeof mascot === 'string' ? mascot.trim() : undefined;
+    const normalizedOrgCity = typeof city === 'string' ? city.trim() : undefined;
+    const normalizedOrgState = typeof state === 'string' ? state.trim() : undefined;
+    const normalizedPrimaryColor =
+      typeof primaryColor === 'string' ? primaryColor.trim() : undefined;
+    const normalizedSecondaryColor =
+      typeof secondaryColor === 'string' ? secondaryColor.trim() : undefined;
+
+    const validOrganizationTypes = new Set<Organization['type']>([
+      'high-school',
+      'middle-school',
+      'club',
+      'college',
+      'juco',
+      'organization',
+    ]);
+
+    if (resolvedOrganizationId.length > 0) {
       try {
+        const organizationUpdates: Record<string, unknown> = {
+          updatedAt: FieldValue.serverTimestamp(),
+        };
+
+        if (normalizedOrganizationLogoUrl !== undefined) {
+          organizationUpdates['logoUrl'] = normalizedOrganizationLogoUrl || null;
+        }
+
+        if (normalizedOrgLevel !== undefined) {
+          organizationUpdates['level'] = normalizedOrgLevel || null;
+
+          if (validOrganizationTypes.has(normalizedOrgLevel as Organization['type'])) {
+            organizationUpdates['type'] = normalizedOrgLevel;
+          }
+        }
+
+        if (normalizedOrgMascot !== undefined) {
+          organizationUpdates['mascot'] = normalizedOrgMascot || null;
+        }
+
+        if (normalizedPrimaryColor !== undefined) {
+          organizationUpdates['primaryColor'] = normalizedPrimaryColor || null;
+        }
+
+        if (normalizedSecondaryColor !== undefined) {
+          organizationUpdates['secondaryColor'] = normalizedSecondaryColor || null;
+        }
+
+        if (normalizedOrgCity !== undefined) {
+          organizationUpdates['location.city'] = normalizedOrgCity;
+        }
+
+        if (normalizedOrgState !== undefined) {
+          organizationUpdates['location.state'] = normalizedOrgState;
+        }
+
         await db
           .collection('Organizations')
           .doc(resolvedOrganizationId)
-          .update({
-            logoUrl: normalizedOrganizationLogoUrl || null,
-            updatedAt: FieldValue.serverTimestamp(),
-          });
+          .update(organizationUpdates);
 
-        logger.info('[Teams API] Organization logo updated from manage-team', {
+        logger.info('[Teams API] Organization display fields updated from manage-team', {
           teamId: id,
           organizationId: resolvedOrganizationId,
           userId,
+          updatedFields: Object.keys(organizationUpdates).filter((field) => field !== 'updatedAt'),
         });
       } catch (err) {
-        logger.warn('[Teams API] Failed to update organization logo from manage-team', {
+        logger.warn('[Teams API] Failed to update organization display fields from manage-team', {
           teamId: id,
           organizationId: resolvedOrganizationId,
           userId,
@@ -1239,6 +1287,11 @@ router.get(
   '/:id/intel',
   optionalAuth,
   asyncHandler(async (req: Request, res: Response) => {
+    if (!isTeamIntelEnabled()) {
+      sendSuccess(res, null);
+      return;
+    }
+
     const { id } = req.params as { id: string };
     const db = req.firebase!.db;
 
@@ -1259,6 +1312,16 @@ router.post(
   '/:id/intel/generate',
   appGuard,
   asyncHandler(async (req: Request, res: Response) => {
+    if (!isTeamIntelEnabled()) {
+      throw validationError([
+        {
+          field: 'feature',
+          message: 'Team Intel is currently disabled',
+          rule: 'feature_flag',
+        },
+      ]);
+    }
+
     const { id } = req.params as { id: string };
     const userId = req.user!.uid;
     const db = req.firebase!.db;
@@ -1316,6 +1379,16 @@ router.patch(
   '/:id/intel/section/:sectionId',
   appGuard,
   asyncHandler(async (req: Request, res: Response) => {
+    if (!isTeamIntelEnabled()) {
+      throw validationError([
+        {
+          field: 'feature',
+          message: 'Team Intel is currently disabled',
+          rule: 'feature_flag',
+        },
+      ]);
+    }
+
     const { id, sectionId } = req.params as { id: string; sectionId: string };
     const userId = req.user!.uid;
     const db = req.firebase!.db;
@@ -1459,6 +1532,128 @@ router.get(
 );
 
 // ============================================
+// TEAM POST MANAGEMENT ROUTES
+// ============================================
+
+/**
+ * Toggle pin state on a team post.
+ * PATCH /api/v1/teams/:teamId/posts/:postId/pin
+ * Requires team admin or coach role.
+ */
+router.patch(
+  '/:teamId/posts/:postId/pin',
+  appGuard,
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const { teamId, postId } = req.params as { teamId: string; postId: string };
+    const requesterId = req.user!.uid;
+
+    const db = req.firebase!.db;
+
+    await assertMembershipEditorPermission(db, teamId, requesterId);
+
+    const requestedPinState = (req.body as Record<string, unknown> | undefined)?.['isPinned'];
+    if (typeof requestedPinState !== 'boolean') {
+      res.status(400).json({ success: false, error: 'isPinned must be a boolean' });
+      return;
+    }
+
+    const postRef = db.collection('Posts').doc(postId);
+    const postDoc = await postRef.get();
+
+    if (!postDoc.exists) {
+      res.status(404).json({ success: false, error: 'Post not found' });
+      return;
+    }
+
+    const postData = postDoc.data() as Record<string, unknown>;
+    if (postData['teamId'] !== teamId) {
+      res.status(403).json({ success: false, error: 'Forbidden' });
+      return;
+    }
+
+    await postRef.update({ isPinned: requestedPinState, updatedAt: FieldValue.serverTimestamp() });
+    await invalidateTeamProfileCache(teamId);
+
+    logger.info('[Teams API] Post pin state updated', {
+      teamId,
+      postId,
+      isPinned: requestedPinState,
+      requesterId,
+    });
+    sendSuccess(res, { postId, isPinned: requestedPinState });
+  })
+);
+
+/**
+ * Delete a team post (admin/coach only).
+ * DELETE /api/v1/teams/:teamId/posts/:postId
+ * Requires team admin or coach role.
+ */
+router.delete(
+  '/:teamId/posts/:postId',
+  appGuard,
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const { teamId, postId } = req.params as { teamId: string; postId: string };
+    const requesterId = req.user!.uid;
+
+    const db = req.firebase!.db;
+
+    await assertMembershipEditorPermission(db, teamId, requesterId);
+
+    const postRef = db.collection('Posts').doc(postId);
+    const postDoc = await postRef.get();
+
+    if (!postDoc.exists) {
+      res.status(404).json({ success: false, error: 'Post not found' });
+      return;
+    }
+
+    const postData = postDoc.data() as Record<string, unknown>;
+    if (postData['teamId'] !== teamId) {
+      res.status(403).json({ success: false, error: 'Forbidden' });
+      return;
+    }
+
+    await postRef.delete();
+
+    // Best-effort: delete the Cloudflare Stream asset if this was a video post
+    const cloudflareVideoId =
+      typeof postData['cloudflareVideoId'] === 'string' ? postData['cloudflareVideoId'] : null;
+
+    if (cloudflareVideoId) {
+      const accountId = process.env['CLOUDFLARE_ACCOUNT_ID'];
+      const apiToken = process.env['CLOUDFLARE_API_TOKEN'];
+      if (accountId && apiToken) {
+        try {
+          await fetch(
+            `https://api.cloudflare.com/client/v4/accounts/${accountId}/stream/${cloudflareVideoId}`,
+            {
+              method: 'DELETE',
+              headers: {
+                Authorization: `Bearer ${apiToken}`,
+                'Content-Type': 'application/json',
+              },
+            }
+          );
+        } catch (cfErr) {
+          logger.warn('[Teams API] Cloudflare Stream asset deletion failed', {
+            teamId,
+            postId,
+            cloudflareVideoId,
+            error: cfErr instanceof Error ? cfErr.message : String(cfErr),
+          });
+        }
+      }
+    }
+
+    await invalidateTeamProfileCache(teamId);
+
+    logger.info('[Teams API] Post deleted', { teamId, postId, requesterId });
+    sendSuccess(res, { postId });
+  })
+);
+
+// ============================================
 // MEMBERSHIP EDITOR ROUTES
 // ============================================
 
@@ -1511,7 +1706,7 @@ function mapRosterEntryToEditorItem(
         ? entry['displayName']
         : [firstName, lastName].filter(Boolean).join(' '),
     profileImgs: Array.isArray(entry['profileImgs']) ? entry['profileImgs'] : [],
-    profileCode: typeof entry['profileCode'] === 'string' ? entry['profileCode'] : undefined,
+    unicode: typeof entry['unicode'] === 'string' ? entry['unicode'] : undefined,
     role,
     title: typeof entry['title'] === 'string' ? entry['title'] : undefined,
     status,

@@ -33,12 +33,25 @@ interface OperationLoopState {
   failureCounts: Map<string, number>;
   /** Locked tool names (any further call returns the lockout message). */
   lockedTools: Set<string>;
+  /**
+   * Consecutive empty-result counter per tool name.
+   * Tracks calls that return success:true but with null/empty data.
+   * These are NOT failures (so failure tracking can't catch them) but they
+   * indicate the agent is searching for data that doesn't exist — a futile
+   * search spiral that burns iterations just as badly as a failure loop.
+   * Resets to 0 on the first non-empty success for that tool.
+   */
+  emptyResultCounts: Map<string, number>;
+  /** Tools that have been advisory-warned for empty results (one-shot). */
+  emptyAdvisedTools: Set<string>;
 }
 
 export interface ToolLoopDetectorConfig {
   readonly enabled: boolean;
   readonly windowSize: number;
   readonly threshold: number;
+  /** How many consecutive empty-result calls (across any args) before advisory fires. */
+  readonly emptyThreshold: number;
 }
 
 export class ToolLoopDetector {
@@ -55,6 +68,7 @@ export class ToolLoopDetector {
       enabled: detector?.enabled ?? true,
       windowSize: detector?.windowSize ?? 5,
       threshold: detector?.threshold ?? 3,
+      emptyThreshold: detector?.emptyThreshold ?? 4,
     };
   }
 
@@ -79,20 +93,34 @@ export class ToolLoopDetector {
     return JSON.stringify({
       success: false,
       error: 'tool_loop_aborted',
-      message: `Tool \`${toolName}\` is locked for this operation due to repeated failures with identical args. Try a different approach or different arguments.`,
+      message:
+        `Tool \`${toolName}\` is locked for this operation due to repeated failures with identical args. ` +
+        `Do NOT call it again with the same arguments. ` +
+        `Try a fundamentally different tool, ask the user for clarifying information (e.g. exact ID), ` +
+        `or conclude the task with what you already have.`,
     });
   }
 
   /**
-   * Record the outcome of a tool call. On the threshold-th repeated failure,
-   * the tool is locked and a one-time advisory message is returned (caller
-   * should append it to the next system note for the model).
+   * Record the outcome of a tool call.
+   *
+   * Outcomes:
+   * - `'success'`  — tool returned data. Resets failure AND empty counters.
+   * - `'failure'`  — tool returned success:false. Increments per-signature
+   *                  failure count; locks the tool at threshold.
+   * - `'empty'`    — tool returned success:true but data was null / [] / {}.
+   *                  Increments per-tool empty count; emits a one-shot advisory
+   *                  at emptyThreshold. Does NOT lock the tool (different args
+   *                  could still return data) but warns the LLM to stop.
+   *
+   * Returns an advisory string if one should be appended to the next
+   * observation so the LLM sees it, or null if no action is needed.
    */
   record(
     operationId: string | undefined,
     toolName: string,
     argsString: string,
-    outcome: 'success' | 'failure'
+    outcome: 'success' | 'failure' | 'empty'
   ): { advisory: string | null } {
     const cfg = this.getConfig();
     if (!cfg.enabled || !operationId) return { advisory: null };
@@ -103,13 +131,15 @@ export class ToolLoopDetector {
         signatures: [],
         failureCounts: new Map(),
         lockedTools: new Set(),
+        emptyResultCounts: new Map(),
+        emptyAdvisedTools: new Set(),
       };
       this.states.set(operationId, state);
     }
 
     const sig = ToolLoopDetector.signature(toolName, argsString);
 
-    // Slide the ring buffer.
+    // Slide the ring buffer (used for failure tracking only).
     state.signatures.push(sig);
     if (state.signatures.length > cfg.windowSize) {
       const evicted = state.signatures.shift();
@@ -120,13 +150,41 @@ export class ToolLoopDetector {
       }
     }
 
+    // ── Success (real data returned) ─────────────────────────────────────
     if (outcome === 'success') {
-      // Success on this signature resets its failure counter; it stays in
-      // the buffer but no longer contributes to lockout.
+      // Non-empty success resets both the failure counter for this signature
+      // AND the empty-result counter for this tool.
       state.failureCounts.delete(sig);
+      state.emptyResultCounts.delete(toolName);
       return { advisory: null };
     }
 
+    // ── Empty result (success:true but data is null / [] / {}) ──────────
+    if (outcome === 'empty') {
+      const emptyNext = (state.emptyResultCounts.get(toolName) ?? 0) + 1;
+      state.emptyResultCounts.set(toolName, emptyNext);
+
+      if (emptyNext >= cfg.emptyThreshold && !state.emptyAdvisedTools.has(toolName)) {
+        state.emptyAdvisedTools.add(toolName);
+        logger.warn('[ToolLoopDetector] empty_result_spiral_detected', {
+          operationId,
+          toolName,
+          emptyCount: emptyNext,
+          emptyThreshold: cfg.emptyThreshold,
+        });
+        return {
+          advisory:
+            `[SYSTEM NOTICE] \`${toolName}\` has returned empty or no results ${emptyNext} times in a row with different queries. ` +
+            `The data you are searching for likely does not exist in the platform under any of these query variations. ` +
+            `STOP searching. Either: (1) proceed with the task using only the context you already have, ` +
+            `(2) use \`ask_user\` to request the exact ID or name from the user, ` +
+            `or (3) clearly tell the user what you could not find and why.`,
+        };
+      }
+      return { advisory: null };
+    }
+
+    // ── Failure (success:false) ──────────────────────────────────────────
     const next = (state.failureCounts.get(sig) ?? 0) + 1;
     state.failureCounts.set(sig, next);
 
@@ -140,7 +198,11 @@ export class ToolLoopDetector {
         threshold: cfg.threshold,
       });
       return {
-        advisory: `Tool \`${toolName}\` was called ${next} times with identical args and failed each time. It is now locked for this operation. Choose a different tool or different arguments.`,
+        advisory:
+          `Tool \`${toolName}\` was called ${next} times with identical args and failed each time. ` +
+          `It is now locked for this operation. ` +
+          `Do NOT retry with the same arguments. Choose a different tool, use different parameters, ` +
+          `ask the user for the exact identifier, or conclude with what you already have.`,
       };
     }
 

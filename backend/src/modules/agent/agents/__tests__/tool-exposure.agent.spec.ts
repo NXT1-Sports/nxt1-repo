@@ -45,8 +45,6 @@ describe('Agent tool exposure regressions', () => {
       expect(tools).not.toContain('list_nxt1_data_views');
       expect(tools).not.toContain('query_nxt1_data');
       expect(tools).not.toContain('scan_timeline_posts');
-      expect(tools).not.toContain('write_intel');
-      expect(tools).not.toContain('update_intel');
       expect(tools).not.toContain('firecrawl_search_web');
       expect(tools).not.toContain('firecrawl_agent_research');
       expect(tools).not.toContain('map_website');
@@ -132,6 +130,7 @@ describe('Agent tool exposure regressions', () => {
     expect(agent.getAvailableTools()).toContain('analyze_video');
     expect(agent.getAvailableTools()).toContain('get_video_details');
     expect(agent.getAvailableTools()).toContain('call_apify_actor');
+    expect(agent.getAvailableTools()).not.toContain('stage_media');
     expect(agent.getAvailableTools()).toContain('import_video');
     expect(agent.getAvailableTools()).toContain('enable_download');
   });
@@ -153,12 +152,7 @@ describe('Agent tool exposure regressions', () => {
     expect(prompt).toContain('## Database-First Research Policy (CRITICAL)');
     expect(prompt).toContain('search_colleges');
     expect(prompt).toContain('search_college_coaches');
-    expect(prompt).toContain(
-      'Only if required fields are missing or clearly outdated, use `search_web`'
-    );
-    expect(prompt).toContain(
-      'Never start with web search when NXT1 database tools can answer the request'
-    );
+    expect(prompt).toContain('search_web` only');
   });
 
   it('keeps strategy coordinator explicit and non-empty', () => {
@@ -174,6 +168,7 @@ describe('Agent tool exposure regressions', () => {
     expect(agent.getAvailableTools()).toContain('cancel_recurring_task');
     expect(agent.getAvailableTools()).toContain('call_apify_actor');
     expect(agent.getAvailableTools()).toContain('get_apify_actor_details');
+    expect(agent.getAvailableTools()).toContain('stage_media');
     expect(agent.getAvailableTools()).toContain('import_video');
     expect(agent.getAvailableTools()).toContain('enable_download');
   });
@@ -182,11 +177,14 @@ describe('Agent tool exposure regressions', () => {
     const agent = new StrategyCoordinatorAgent();
     const prompt = agent.getSystemPrompt(context);
 
-    expect(prompt).toContain('use real video analysis');
-    expect(prompt).toContain('call `analyze_video`');
-    expect(prompt).toContain('call `extract_live_view_media`');
+    // Priority ladder covers all key paths
+    expect(prompt).toContain('analyze_video');
+    expect(prompt).toContain('extract_live_view_media');
+    expect(prompt).toContain('extract_live_view_playlist');
     expect(prompt).toContain('skipMediaPersistence: true');
-    expect(prompt).toContain('Batch up to 5 final playable video URLs');
+    // import_video reserved for persistent editing
+    expect(prompt).toContain('import_video');
+    expect(prompt).toContain('batch up to 5');
   });
 
   it('exposes live-view extraction tools in the effective runtime policy for film coordinators', () => {
@@ -197,11 +195,13 @@ describe('Agent tool exposure regressions', () => {
     expect(performanceTools).toContain('extract_live_view_media');
     expect(performanceTools).toContain('extract_live_view_playlist');
     expect(performanceTools).toContain('analyze_video');
+    expect(performanceTools).not.toContain('stage_media');
 
     expect(strategyTools).toContain('open_live_view');
     expect(strategyTools).toContain('extract_live_view_media');
     expect(strategyTools).toContain('extract_live_view_playlist');
     expect(strategyTools).toContain('analyze_video');
+    expect(strategyTools).toContain('stage_media');
   });
 
   it('exposes Microsoft 365 system wrappers in effective policy for all coordinators', () => {
@@ -215,6 +215,10 @@ describe('Agent tool exposure regressions', () => {
   it('allows direct Google Workspace tool families for the router policy', () => {
     const routerTools = getEffectiveAgentToolPolicy('router');
 
+    expect(routerTools).toContain('search_colleges');
+    expect(routerTools).toContain('search_college_coaches');
+    expect(isToolAllowedByPatterns('send_email', routerTools)).toBe(true);
+    expect(isToolAllowedByPatterns('batch_send_email', routerTools)).toBe(true);
     expect(isToolAllowedByPatterns('query_gmail_emails', routerTools)).toBe(true);
     expect(isToolAllowedByPatterns('gmail_send_email', routerTools)).toBe(true);
     expect(isToolAllowedByPatterns('calendar_get_events', routerTools)).toBe(true);
@@ -229,5 +233,25 @@ describe('Agent tool exposure regressions', () => {
     expect(isToolAllowedByPatterns('calendar_get_events', ['*get_*'])).toBe(true);
     expect(isToolAllowedByPatterns('drive_upload_file', ['*upload*'])).toBe(true);
     expect(isToolAllowedByPatterns('analyze_video', ['*upload*'])).toBe(false);
+  });
+
+  it('enforces ask-user decision matrix language across coordinator prompts', () => {
+    const prompts = [
+      new DataCoordinatorAgent().getSystemPrompt(context),
+      new BrandCoordinatorAgent().getSystemPrompt(context),
+      new PerformanceCoordinatorAgent().getSystemPrompt(context),
+      new RecruitingCoordinatorAgent().getSystemPrompt(context),
+      new StrategyCoordinatorAgent().getSystemPrompt(context),
+      new AdminCoordinatorAgent().getSystemPrompt(context),
+    ];
+
+    for (const prompt of prompts) {
+      expect(prompt).toContain('## Ask User Decision Matrix (CRITICAL)');
+      expect(prompt).toContain('Call `ask_user` when required fields are missing');
+      expect(prompt).toContain(
+        'Do NOT call `ask_user` for data already present in task context, prior tool results, or deterministic lookups.'
+      );
+      expect(prompt).toContain('For low-risk read/processing steps, proceed without asking');
+    }
   });
 });

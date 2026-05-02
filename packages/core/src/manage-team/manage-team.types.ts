@@ -534,7 +534,7 @@ export interface MembershipEditorItem {
   readonly lastName: string;
   readonly displayName?: string;
   readonly profileImgs?: readonly string[];
-  readonly profileCode?: string;
+  readonly unicode?: string;
 
   // ── Membership state ─────────────────────────────────────────────────────
 

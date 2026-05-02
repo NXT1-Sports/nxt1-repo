@@ -11,10 +11,11 @@
 
 import crypto from 'node:crypto';
 import { Router, type Request, type Response } from 'express';
-import type { AgentJobPayload } from '@nxt1/core';
+import type { AgentJobPayload, AgentXAttachment } from '@nxt1/core';
 import { appGuard } from '../../middleware/auth/auth.middleware.js';
 import { validateBody } from '../../middleware/validation/validation.middleware.js';
 import {
+  SyncAgentMessageAttachmentDto,
   UpdateAgentMessageDto,
   DeleteAgentMessageDto,
   UndoAgentMessageDto,
@@ -27,6 +28,21 @@ import { chatService, isValidObjectId, queueService } from './shared.js';
 const router = Router();
 
 const EDIT_WINDOW_MS = 5 * 60 * 1000;
+
+function toAgentXAttachment(
+  attachment: SyncAgentMessageAttachmentDto['attachment']
+): AgentXAttachment {
+  return {
+    id: attachment.id,
+    url: attachment.url as string,
+    ...(attachment.storagePath ? { storagePath: attachment.storagePath } : {}),
+    name: attachment.name,
+    mimeType: attachment.mimeType as string,
+    type: attachment.type as AgentXAttachment['type'],
+    sizeBytes: attachment.sizeBytes as number,
+    ...(attachment.cloudflareVideoId ? { cloudflareVideoId: attachment.cloudflareVideoId } : {}),
+  };
+}
 
 function getAuthUser(req: Request): { uid: string } | null {
   const user = (req as Request & { user?: { uid?: string } }).user;
@@ -80,6 +96,55 @@ router.get('/messages/:messageId', appGuard, async (req: Request, res: Response)
     res.status(500).json({ success: false, error: 'Failed to fetch message' });
   }
 });
+
+router.post(
+  '/messages/attachments/sync',
+  appGuard,
+  validateBody(SyncAgentMessageAttachmentDto),
+  async (req: Request, res: Response) => {
+    try {
+      if (!chatService) {
+        res.status(503).json({ success: false, error: 'Chat service not initialized' });
+        return;
+      }
+
+      const auth = getAuthUser(req);
+      if (!auth) {
+        res.status(401).json({ success: false, error: 'Unauthorized' });
+        return;
+      }
+
+      const body = req.body as SyncAgentMessageAttachmentDto;
+      const attachment = toAgentXAttachment(body.attachment);
+      const message = await chatService.syncMessageAttachmentByIdempotencyKey({
+        userId: auth.uid,
+        idempotencyKey: body.idempotencyKey,
+        attachment,
+      });
+
+      if (!message) {
+        // Message not yet persisted (race: TUS finished before /chat committed).
+        // Write to durable outbox — reconciled on next thread-messages load.
+        await chatService.queueAttachmentSync({
+          userId: auth.uid,
+          idempotencyKey: body.idempotencyKey,
+          attachment,
+        });
+        res.json({ success: true, data: { messageId: null, queued: true } });
+        return;
+      }
+
+      res.json({ success: true, data: { messageId: message.id, queued: false } });
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      logger.error('Failed to sync Agent X message attachment', {
+        error: error.message,
+        stack: error.stack,
+      });
+      res.status(500).json({ success: false, error: 'Failed to sync attachment' });
+    }
+  }
+);
 
 router.put(
   '/messages/:messageId',

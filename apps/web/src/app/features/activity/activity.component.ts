@@ -22,6 +22,7 @@ import { AgentXOperationChatComponent } from '@nxt1/ui/agent-x';
 import { NxtBottomSheetService, SHEET_PRESETS } from '@nxt1/ui/components/bottom-sheet';
 import { NxtSidenavService } from '@nxt1/ui/components/sidenav';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
+import { ManageTeamMembershipModalService } from '@nxt1/ui/manage-team';
 import type { ActivityItem, InboxEmailProvider, AgentTaskActivityMetadata } from '@nxt1/core';
 import { AUTH_SERVICE, type IAuthService } from '../../core/services/auth/auth.interface';
 import { SeoService } from '../../core/services';
@@ -62,6 +63,7 @@ export class ActivityComponent implements OnInit {
   private readonly seo = inject(SeoService);
   private readonly emailConnection = inject(WebEmailConnectionService);
   private readonly oauthTokens = inject(OAuthTokensService);
+  private readonly membershipModal = inject(ManageTeamMembershipModalService);
 
   ngOnInit(): void {
     this.seo.updatePage({
@@ -113,6 +115,25 @@ export class ActivityComponent implements OnInit {
     });
 
     const normalizedLink = item.deepLink.replace(/^\/agent(?=[/?]|$)/, '/agent-x');
+
+    // Handle /manage-team deep links by opening the membership modal directly
+    if (normalizedLink.startsWith('/manage-team')) {
+      try {
+        const url = new URL(normalizedLink, 'https://nxt1.local');
+        const teamId = url.searchParams.get('teamId');
+        const tab = url.searchParams.get('tab');
+        if (teamId) {
+          void this.membershipModal.open({
+            teamId,
+            initialFilter: tab === 'pending' ? 'pending' : null,
+          });
+          return;
+        }
+      } catch (err) {
+        this.logger.warn('Failed to parse manage-team deep link', { deepLink: normalizedLink });
+      }
+    }
+
     const threadId = this.resolveAgentThreadId(item, normalizedLink);
     if (this.shouldOpenAgentThread(item, normalizedLink, threadId)) {
       void this.bottomSheet.openSheet({

@@ -46,13 +46,16 @@ import {
 import { CommonModule, isPlatformBrowser } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import type {
-  AgentXToolStep,
   AgentXPlannerItem,
   AgentXMessagePart,
   AgentXRichCard,
   AgentXSelectedAction,
 } from '@nxt1/core/ai';
-import { AGENT_X_ALLOWED_MIME_TYPES, resolveAttachmentType } from '@nxt1/core/ai';
+import {
+  AGENT_X_ALLOWED_MIME_TYPES,
+  AGENT_X_RUNTIME_CONFIG,
+  resolveAttachmentType,
+} from '@nxt1/core/ai';
 import { ModalController } from '@ionic/angular/standalone';
 import { NxtSheetHeaderComponent } from '../../../components/bottom-sheet/sheet-header.component';
 import { NxtChatBubbleComponent } from '../../../components/chat-bubble';
@@ -69,19 +72,22 @@ import { AgentXOperationChatAttachmentsFacade } from './agent-x-operation-chat-a
 import { AgentXOperationChatRunControlFacade } from './agent-x-operation-chat-run-control.facade';
 import { AgentXOperationChatSessionFacade } from './agent-x-operation-chat-session.facade';
 import { AgentXOperationChatTransportFacade } from './agent-x-operation-chat-transport.facade';
+import type { BatchEmailCampaignProgress } from './agent-x-operation-chat-transport.facade';
 import { resolveCoordinatorActionId } from './agent-x-operation-chat.utils';
 import { AgentXOperationChatYieldFacade } from './agent-x-operation-chat-yield.facade';
 import type { OperationEventSubscription } from '../../services/agent-x-operation-event.service';
 import { NxtPlatformIconComponent } from '../../../components/platform-icon/platform-icon.component';
 import { NxtDragDropDirective } from '../../../services/gesture';
-import { AgentXActionCardComponent } from '../cards/agent-x-action-card.component';
+import {
+  AgentXActionCardComponent,
+  type ActionCardOpenMediaEvent,
+} from '../cards/agent-x-action-card.component';
 import { AgentXAskUserCardComponent } from '../cards/agent-x-ask-user-card.component';
 import { AgentXPausedCardComponent } from '../cards/agent-x-paused-card.component';
 import type { DraftSubmittedEvent } from '../cards/agent-x-draft-card.component';
 import type { AgentYieldState } from '@nxt1/core';
 import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/assets';
 import type { AgentXPendingFile } from '../../types/agent-x-pending-file';
-import { getThinkingLabel } from '../../types/agent-x-agent-presentation';
 import type { OperationQuickAction } from './agent-x-operation-chat.types';
 import type { ConnectedAppSource } from '../modals/agent-x-attachments-sheet.component';
 import type {
@@ -92,11 +98,33 @@ import {
   bindAgentXKeyboardOffset,
   type AgentXKeyboardOffsetBinding,
 } from '../../utils/agent-x-keyboard-offset.util';
-import type { OperationMessage, PendingFile } from './agent-x-operation-chat.models';
+import type {
+  OperationMessage,
+  PendingFile,
+  MessageAttachment,
+} from './agent-x-operation-chat.models';
 
 export type { OperationQuickAction } from './agent-x-operation-chat.types';
 
 const PAUSE_RESUME_TOOL_NAME = 'resume_paused_operation';
+const ACTIVITY_GAP_TIMEOUT_MS = AGENT_X_RUNTIME_CONFIG.clientRecovery.activityGapTimeoutMs;
+const TECHNICAL_PROGRESS_PATTERN =
+  /(\blatency\b|\bp95\b|\bp99\b|\btokens?\b|\btps\b|\bthroughput\b|\bwatermark\b|\bseq\b|\bsse\b|\bfirestore\b|\bidempotency\b|\b\d+(?:\.\d+)?\s*ms\b)/i;
+
+type ChatActivityPhase =
+  | 'idle'
+  | 'sending'
+  | 'connected'
+  | 'streaming'
+  | 'running_tool'
+  | 'waiting_delta'
+  | 'reconnecting'
+  | 'paused'
+  | 'awaiting_input'
+  | 'awaiting_approval'
+  | 'completed'
+  | 'failed'
+  | 'cancelled';
 
 @Component({
   selector: 'nxt1-agent-x-operation-chat',
@@ -158,128 +186,236 @@ const PAUSE_RESUME_TOOL_NAME = 'resume_paused_operation';
         }
 
         @for (msg of messages(); track msg.id; let first = $first) {
-          <div
-            class="msg-row"
-            [class.msg-user]="msg.role === 'user'"
-            [class.msg-assistant]="msg.role === 'assistant'"
-            [class.msg-system]="msg.role === 'system'"
-            [class.msg-error]="msg.error"
-            [class.msg-row--wide]="msgHasDataTable(msg) || !!msg.yieldState"
-          >
-            @if (msg.yieldState?.reason === 'needs_approval') {
-              <nxt1-agent-action-card
-                [yield]="msg.yieldState!"
-                [operationId]="msg.operationId || yieldFacade.yieldOperationId()"
-                [externalCardState]="msg.yieldCardState ?? null"
-                [externalResolvedText]="msg.yieldResolvedText ?? ''"
-                (approve)="yieldFacade.onApproveAction($event)"
-                (reply)="yieldFacade.onReplyAction($event)"
-              />
-            } @else if (isPauseYieldMessage(msg)) {
-              <nxt1-agent-x-paused-card
-                [operationId]="msg.operationId || yieldFacade.yieldOperationId()"
-                [message]="
-                  msg.yieldState?.promptToUser || 'Operation paused. Resume whenever you are ready.'
-                "
-                (resumeRequested)="yieldFacade.onPauseResume($event)"
-              />
-            } @else if (isAskUserYield(msg)) {
-              <nxt1-agent-x-ask-user-card
-                [card]="buildAskUserCardFromYield(msg)"
-                (replySubmitted)="yieldFacade.onAskUserReply($event)"
-              />
-            } @else {
-              <nxt1-chat-bubble
-                variant="agent-operation"
-                [isOwn]="msg.role === 'user'"
-                [content]="msg.content"
-                [isStreaming]="msg.id === 'typing'"
-                [isTyping]="!!msg.isTyping"
-                [typingLabel]="msg.id === 'typing' ? thinkingLabel() : 'Thinking...'"
-                [isError]="!!msg.error"
-                [isSystem]="msg.role === 'system'"
-                [steps]="msg.steps ?? []"
-                [cards]="messageCardsForBubble(msg)"
-                [parts]="messagePartsForBubble(msg)"
-                (billingActionResolved)="yieldFacade.onBillingActionResolved($event)"
-                (confirmationAction)="yieldFacade.onConfirmationAction($event)"
-                (draftSubmitted)="yieldFacade.onDraftSubmitted($event)"
-                (askUserReply)="yieldFacade.onAskUserReply($event)"
-                (retryRequested)="runControlFacade.onRetryErrorMessage(msg)"
-              />
-            }
-            @if (!msg.yieldState && msg.attachments?.length) {
-              <div class="msg-attachments">
-                @for (att of msg.attachments; track att.name + $index) {
-                  <div class="msg-attachment" [class.msg-attachment--media]="att.type !== 'doc'">
-                    @if (att.type === 'image') {
-                      <img
-                        [src]="att.url"
-                        [alt]="att.name"
-                        class="msg-attachment__thumb"
-                        (click)="attachmentsFacade.openAttachmentViewer(msg.attachments!, $index)"
-                      />
-                    } @else if (att.type === 'video') {
-                      <video
-                        [src]="att.url"
-                        class="msg-attachment__thumb"
-                        preload="metadata"
-                        (click)="attachmentsFacade.openAttachmentViewer(msg.attachments!, $index)"
-                      ></video>
-                      <div class="msg-attachment__play">
-                        <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14">
-                          <path d="M8 5v14l11-7L8 5z" />
-                        </svg>
-                      </div>
-                    } @else {
-                      <div
-                        class="msg-attachment__doc"
-                        (click)="attachmentsFacade.openAttachmentViewer(msg.attachments!, $index)"
-                        style="cursor: pointer;"
-                      >
-                        <div
-                          class="msg-attachment__doc-icon-wrap"
-                          [style.background]="attachmentsFacade.getFileColor(att.name, 0.15)"
-                          [style.color]="attachmentsFacade.getFileColor(att.name, 1)"
-                        >
-                          <svg
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-width="1.5"
-                            width="14"
-                            height="14"
-                          >
-                            <path
-                              d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6z"
-                            />
-                            <polyline points="14 2 14 8 20 8" />
+          @if (!shouldHideMessage(msg)) {
+            <div
+              class="msg-row"
+              [class.msg-user]="msg.role === 'user'"
+              [class.msg-assistant]="msg.role === 'assistant'"
+              [class.msg-system]="msg.role === 'system'"
+              [class.msg-error]="msg.error"
+              [class.msg-row--wide]="msgHasDataTable(msg) || !!msg.yieldState"
+            >
+              @if (approvalYieldForMessage(msg); as approvalYield) {
+                <nxt1-agent-action-card
+                  [yield]="approvalYield"
+                  [card]="findApprovalCard(msg)"
+                  [operationId]="msg.operationId || yieldFacade.yieldOperationId()"
+                  [externalCardState]="approvalCardStateForMessage(msg)"
+                  [externalResolvedText]="approvalResolvedTextForMessage(msg)"
+                  (approve)="yieldFacade.onApproveAction($event)"
+                  (reply)="yieldFacade.onReplyAction($event)"
+                  (openMedia)="onApprovalCardOpenMedia($event)"
+                />
+              } @else if (isPauseYieldMessage(msg)) {
+                <nxt1-agent-x-paused-card
+                  [operationId]="msg.operationId || yieldFacade.yieldOperationId()"
+                  [message]="
+                    msg.yieldState?.promptToUser ||
+                    'Operation paused. Resume whenever you are ready.'
+                  "
+                  (resumeRequested)="yieldFacade.onPauseResume($event)"
+                />
+              } @else if (isAskUserYield(msg)) {
+                <nxt1-agent-x-ask-user-card
+                  [card]="buildAskUserCardFromYield(msg)"
+                  (replySubmitted)="yieldFacade.onAskUserReply($event)"
+                />
+              } @else {
+                <nxt1-chat-bubble
+                  variant="agent-operation"
+                  [isOwn]="msg.role === 'user'"
+                  [content]="msg.content"
+                  [imageUrl]="msg.role === 'assistant' ? msg.imageUrl : undefined"
+                  [videoUrl]="msg.role === 'assistant' ? msg.videoUrl : undefined"
+                  [isStreaming]="msg.id === 'typing'"
+                  [isTyping]="!!msg.isTyping"
+                  [typingLabel]="msg.id === 'typing' ? thinkingLabel() : 'Thinking...'"
+                  [isError]="!!msg.error"
+                  [isSystem]="msg.role === 'system'"
+                  [steps]="msg.steps ?? []"
+                  [cards]="messageCardsForBubble(msg)"
+                  [parts]="messagePartsForBubble(msg)"
+                  (billingActionResolved)="yieldFacade.onBillingActionResolved($event)"
+                  (confirmationAction)="yieldFacade.onConfirmationAction($event)"
+                  (draftSubmitted)="yieldFacade.onDraftSubmitted($event)"
+                  (askUserReply)="yieldFacade.onAskUserReply($event)"
+                  (retryRequested)="runControlFacade.onRetryErrorMessage(msg)"
+                />
+              }
+              @if (!msg.yieldState && msg.attachments?.length) {
+                <div class="msg-attachments">
+                  @for (att of msg.attachments; track att.name + $index) {
+                    <div
+                      class="msg-attachment"
+                      [class.msg-attachment--media]="att.type === 'image' || att.type === 'video'"
+                      [class.msg-attachment--app]="att.type === 'app'"
+                    >
+                      @if (att.type === 'image') {
+                        <img
+                          [src]="att.url"
+                          [alt]="att.name"
+                          class="msg-attachment__thumb"
+                          (click)="attachmentsFacade.openAttachmentViewer(msg.attachments!, $index)"
+                        />
+                      } @else if (att.type === 'video') {
+                        <video
+                          [src]="att.url"
+                          class="msg-attachment__thumb"
+                          preload="metadata"
+                          (click)="attachmentsFacade.openAttachmentViewer(msg.attachments!, $index)"
+                        ></video>
+                        <div class="msg-attachment__play">
+                          <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14">
+                            <path d="M8 5v14l11-7L8 5z" />
                           </svg>
                         </div>
-                        <div class="msg-attachment__doc-info">
-                          <span class="msg-attachment__doc-name">{{ att.name }}</span>
-                          <span class="msg-attachment__doc-meta">{{
-                            attachmentsFacade.getFileExt(att.name)
+                      } @else if (att.type === 'app') {
+                        <a
+                          class="msg-attachment__app"
+                          [href]="att.url"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          <nxt1-platform-icon
+                            class="msg-attachment__app-icon"
+                            icon="link"
+                            [faviconUrl]="att.faviconUrl"
+                            [size]="28"
+                            [alt]="att.platform || att.name"
+                          />
+                          <span class="msg-attachment__app-name">{{
+                            att.platform || att.name
                           }}</span>
+                        </a>
+                      } @else {
+                        <div
+                          class="msg-attachment__doc"
+                          (click)="attachmentsFacade.openAttachmentViewer(msg.attachments!, $index)"
+                          style="cursor: pointer;"
+                        >
+                          <div
+                            class="msg-attachment__doc-icon-wrap"
+                            [style.background]="attachmentsFacade.getFileColor(att.name, 0.15)"
+                            [style.color]="attachmentsFacade.getFileColor(att.name, 1)"
+                          >
+                            <svg
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              stroke-width="1.5"
+                              width="14"
+                              height="14"
+                            >
+                              <path
+                                d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6z"
+                              />
+                              <polyline points="14 2 14 8 20 8" />
+                            </svg>
+                          </div>
+                          <div class="msg-attachment__doc-info">
+                            <span class="msg-attachment__doc-name">{{ att.name }}</span>
+                            <span class="msg-attachment__doc-meta">{{
+                              attachmentsFacade.getFileExt(att.name)
+                            }}</span>
+                          </div>
                         </div>
-                      </div>
-                    }
-                  </div>
-                }
-              </div>
-            }
-            @if (!msg.yieldState && msg.id !== 'typing' && msg.role !== 'system' && !msg.error) {
-              <nxt1-agent-x-chat-bubble-actions
-                [alignEnd]="msg.role === 'user'"
-                (copy)="messageFacade.copyMessageContent(msg)"
-              />
-            }
-          </div>
+                      }
+                    </div>
+                  }
+                </div>
+              }
+              @if (!msg.yieldState && msg.id !== 'typing' && msg.role !== 'system' && !msg.error) {
+                <nxt1-agent-x-chat-bubble-actions
+                  [alignEnd]="msg.role === 'user'"
+                  (copy)="messageFacade.copyMessageContent(msg)"
+                />
+              }
+            </div>
+          }
         }
 
         <!-- ═══ THINKING INDICATOR (Copilot-style: spinning icon + shimmering text) ═══ -->
         @if (showThinking()) {
           <nxt1-agent-x-operation-chat-thinking [label]="thinkingLabel()" />
+        }
+
+        <!-- ═══ BATCH EMAIL CAMPAIGN PROGRESS PANEL ═══ -->
+        @if (showBatchEmailProgress()) {
+          <div class="batch-email-progress">
+            <div class="batch-email-progress__header">
+              <svg
+                class="batch-email-progress__icon"
+                viewBox="0 0 20 20"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+                aria-hidden="true"
+              >
+                <path
+                  d="M2.5 5.5h15M2.5 5.5l7.5 6 7.5-6M2.5 5.5v9h15v-9"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+              <span class="batch-email-progress__label">{{ batchEmailProgressLabel() }}</span>
+            </div>
+            <div class="batch-email-progress__bar-track">
+              <div
+                class="batch-email-progress__bar-fill"
+                [style.width.%]="
+                  _batchEmailProgress()!.total > 0
+                    ? ((_batchEmailProgress()!.sent + _batchEmailProgress()!.failed) /
+                        _batchEmailProgress()!.total) *
+                      100
+                    : 0
+                "
+              ></div>
+            </div>
+            <div class="batch-email-progress__recipients">
+              @for (r of _batchEmailProgress()!.recipients; track r.email) {
+                <div
+                  class="batch-email-progress__recipient"
+                  [class.batch-email-progress__recipient--sending]="r.status === 'sending'"
+                  [class.batch-email-progress__recipient--sent]="r.status === 'sent'"
+                  [class.batch-email-progress__recipient--failed]="r.status === 'failed'"
+                >
+                  <svg
+                    class="batch-email-progress__status-icon"
+                    viewBox="0 0 12 12"
+                    fill="none"
+                    aria-hidden="true"
+                  >
+                    @if (r.status === 'sent') {
+                      <path
+                        d="M2 6l3 3 5-5"
+                        stroke="#66bb6a"
+                        stroke-width="1.5"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      />
+                    } @else if (r.status === 'failed') {
+                      <path
+                        d="M3 3l6 6M9 3l-6 6"
+                        stroke="#ef5350"
+                        stroke-width="1.5"
+                        stroke-linecap="round"
+                      />
+                    } @else {
+                      <circle
+                        cx="6"
+                        cy="6"
+                        r="4"
+                        stroke="currentColor"
+                        stroke-width="1.5"
+                        stroke-dasharray="3 3"
+                      />
+                    }
+                  </svg>
+                  <span class="batch-email-progress__email">{{ r.email }}</span>
+                </div>
+              }
+            </div>
+          </div>
         }
 
         @if (retryStarted()) {
@@ -588,6 +724,95 @@ const PAUSE_RESUME_TOOL_NAME = 'resume_paused_operation';
         flex-direction: column;
         gap: 20px;
         -webkit-overflow-scrolling: touch;
+      }
+
+      /* ── BATCH EMAIL CAMPAIGN PROGRESS PANEL ── */
+      .batch-email-progress {
+        border-radius: 12px;
+        border: 1px solid rgba(204, 255, 0, 0.15);
+        background: rgba(204, 255, 0, 0.04);
+        padding: 12px 14px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        animation: card-entrance 0.25s ease;
+      }
+
+      .batch-email-progress__header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--nxt1-color-primary, #ccff00);
+      }
+
+      .batch-email-progress__icon {
+        width: 16px;
+        height: 16px;
+        flex-shrink: 0;
+      }
+
+      .batch-email-progress__label {
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.01em;
+        color: var(--nxt1-color-primary, #ccff00);
+      }
+
+      .batch-email-progress__bar-track {
+        width: 100%;
+        height: 3px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.08);
+        overflow: hidden;
+      }
+
+      .batch-email-progress__bar-fill {
+        height: 100%;
+        background: var(--nxt1-color-primary, #ccff00);
+        border-radius: 999px;
+        transition: width 0.4s ease;
+        min-width: 4px;
+      }
+
+      .batch-email-progress__recipients {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        max-height: 140px;
+        overflow-y: auto;
+      }
+
+      .batch-email-progress__recipient {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 11px;
+        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
+      }
+
+      .batch-email-progress__status-icon {
+        width: 12px;
+        height: 12px;
+        flex-shrink: 0;
+      }
+
+      .batch-email-progress__recipient--sending .batch-email-progress__status-icon {
+        color: var(--nxt1-color-primary, #ccff00);
+        animation: ac-spin 1.2s linear infinite;
+      }
+
+      .batch-email-progress__recipient--sent .batch-email-progress__email {
+        color: rgba(255, 255, 255, 0.5);
+      }
+
+      .batch-email-progress__recipient--failed .batch-email-progress__email {
+        color: rgba(239, 83, 80, 0.8);
+      }
+
+      .batch-email-progress__email {
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
 
       /* ── Floating input footer — transparent, lifts with keyboard ── */
@@ -991,6 +1216,49 @@ const PAUSE_RESUME_TOOL_NAME = 'resume_paused_operation';
         line-height: 1.2;
       }
 
+      .msg-attachment--app {
+        width: 72px;
+        height: 72px;
+        border-radius: 10px;
+      }
+
+      .msg-attachment__app {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 5px;
+        padding: 8px 6px;
+        width: 100%;
+        height: 100%;
+        box-sizing: border-box;
+        text-decoration: none;
+        color: inherit;
+      }
+
+      .msg-attachment__app-icon {
+        width: 28px;
+        height: 28px;
+        border-radius: 8px;
+        flex-shrink: 0;
+      }
+
+      .msg-attachment__app-info {
+        display: none;
+      }
+
+      .msg-attachment__app-name {
+        font-size: 9px;
+        font-weight: 500;
+        color: var(--nxt1-color-text-primary, #fff);
+        text-align: center;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 100%;
+        line-height: 1.3;
+      }
+
       /* ── PENDING FILES PREVIEW STRIP ── */
       .pending-files-strip {
         display: flex;
@@ -1384,14 +1652,30 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
    * Current operation status — when `'error'`, the failure banner is shown
    * after thread messages load so the user knows what happened.
    */
-  @Input() operationStatus:
+  @Input()
+  set operationStatus(
+    value:
+      | 'processing'
+      | 'complete'
+      | 'error'
+      | 'paused'
+      | 'awaiting_input'
+      | 'awaiting_approval'
+      | null
+  ) {
+    this._operationStatus.set(value);
+  }
+
+  get operationStatus():
     | 'processing'
     | 'complete'
     | 'error'
     | 'paused'
     | 'awaiting_input'
     | 'awaiting_approval'
-    | null = null;
+    | null {
+    return this._operationStatus();
+  }
 
   /**
    * Human-readable error description when `operationStatus === 'error'`.
@@ -1451,6 +1735,39 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
   /** Most recent backend progress commentary message (stage/subphase/metric). */
   protected readonly _latestProgressLabel = signal<string | null>(null);
+
+  /** Per-recipient send status for in-flight batch email campaigns. */
+  protected readonly _batchEmailProgress = signal<BatchEmailCampaignProgress | null>(null);
+
+  /** Whether a batch email is currently being sent (drives the progress panel). */
+  protected readonly showBatchEmailProgress = computed(
+    () => this._batchEmailProgress() !== null && this.contextType === 'operation'
+  );
+
+  /** Friendly progress label for the batch email progress panel. */
+  protected readonly batchEmailProgressLabel = computed(() => {
+    const p = this._batchEmailProgress();
+    if (!p) return '';
+    const done = p.sent + p.failed;
+    return `Sending email ${done + 1} of ${p.total}…`;
+  });
+
+  /** Signal-backed operation lifecycle status used by selectors and status badges. */
+  private readonly _operationStatus = signal<
+    'processing' | 'complete' | 'error' | 'paused' | 'awaiting_input' | 'awaiting_approval' | null
+  >(null);
+
+  /** Runtime-only activity phase for deterministic loader/shimmer state. */
+  private readonly _activityPhase = signal<ChatActivityPhase>('idle');
+
+  /** Runtime label associated with current in-flight activity phase. */
+  private readonly _activityLabel = signal<string | null>(null);
+
+  /** Last timestamp at which a stream pulse (delta/step/progress) was observed. */
+  private readonly _lastActivityPulseAt = signal(0);
+
+  /** Timeout handle for transitioning from active work to waiting-delta shimmer state. */
+  private activityGapTimer: ReturnType<typeof setTimeout> | null = null;
 
   /**
    * MongoDB thread ID resolved after the first message.
@@ -1554,44 +1871,35 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     return payload.items as readonly AgentXPlannerItem[];
   });
 
+  /** Whether the activity state machine currently considers the run in-flight. */
+  protected readonly isActivityInFlight = computed(() => {
+    switch (this._activityPhase()) {
+      case 'sending':
+      case 'connected':
+      case 'streaming':
+      case 'running_tool':
+      case 'waiting_delta':
+      case 'reconnecting':
+        return true;
+      default:
+        return false;
+    }
+  });
+
   /** Whether to show the persistent backend-driven progress indicator. */
   protected readonly showThinking = computed(() => {
-    if (this.contextType !== 'operation') return false;
-    if (this.operationStatus !== 'processing') return false;
-    if (this.activeYieldState()) return false;
-    const msgs = this.messages();
-    // Avoid duplicate loaders during refresh/rehydration while the inline typing
-    // placeholder is already rendering the in-flight response state.
-    if (msgs.some((msg) => msg.id === 'typing')) return false;
-    // Don't show if the last message is already an assistant reply (thread loaded real content)
-    if (msgs.length === 0) return true;
-    const last = msgs[msgs.length - 1];
-    return last.role !== 'assistant' || !!last.isTyping;
+    return this.contextType === 'operation' && this.isActivityInFlight();
   });
 
-  /** The latest active tool step driving the persistent thinking shimmer. */
-  protected readonly thinkingStep = computed<AgentXToolStep | null>(() => {
-    const messages = this.messages();
-    for (let messageIndex = messages.length - 1; messageIndex >= 0; messageIndex -= 1) {
-      const steps = messages[messageIndex]?.steps;
-      if (!steps?.length) continue;
-      for (let stepIndex = steps.length - 1; stepIndex >= 0; stepIndex -= 1) {
-        const step = steps[stepIndex];
-        if (step.status === 'active') {
-          return step;
-        }
-      }
-    }
-    return null;
-  });
-
-  /** Human-readable thinking shimmer label driven by structured agent progress. */
+  /** Human-readable thinking shimmer label from activity phase and progress updates. */
   protected readonly thinkingLabel = computed(() => {
     const uploadLabel = this._videoUploadLabel();
     if (uploadLabel) return uploadLabel;
-    const progressLabel = this._latestProgressLabel();
+    const activityLabel = this.toUserFacingThinkingLabel(this._activityLabel());
+    if (activityLabel) return activityLabel;
+    const progressLabel = this.toUserFacingThinkingLabel(this._latestProgressLabel());
     if (progressLabel) return progressLabel;
-    return getThinkingLabel(this.thinkingStep());
+    return this.defaultThinkingLabelForPhase(this._activityPhase());
   });
 
   /** Whether this is a background operation (vs a quick command). */
@@ -1697,6 +2005,12 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       setOperationStatus: (status) => {
         this.operationStatus = status;
       },
+      setActivityPhase: (phase, label) => {
+        this.setActivityPhase(phase, label);
+      },
+      markActivityPulse: (label) => {
+        this.markActivityPulse(label);
+      },
       getCurrentOperationId: () => this._currentOperationId,
       setCurrentOperationId: (operationId) => {
         this._currentOperationId = operationId;
@@ -1722,7 +2036,10 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
         this.hasUserSent.set(true);
         this.userMessageSent.emit();
       },
-      send: () => this.runControlFacade.send(),
+      send: (options) =>
+        this.runControlFacade.send(
+          options ? { text: options.text, preserveDraft: options.preserveDraft } : undefined
+        ),
       attachToResumedOperation: (params) => this._attachToResumedOperation(params),
       uid: () => this.uid(),
     });
@@ -1742,6 +2059,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       messages: this.messages,
       loading: this._loading,
       latestProgressLabel: this._latestProgressLabel,
+      batchEmailProgress: this._batchEmailProgress,
       resolvedThreadId: this._resolvedThreadId,
       activeYieldState: this.activeYieldState,
       yieldResolved: this.yieldResolved,
@@ -1766,6 +2084,12 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       setOperationStatus: (status) => {
         this.operationStatus = status;
       },
+      setActivityPhase: (phase, label) => {
+        this.setActivityPhase(phase, label);
+      },
+      markActivityPulse: (label) => {
+        this.markActivityPulse(label);
+      },
       emitResponseComplete: () => this.responseComplete.emit(),
       subscribeToFirestoreJobEvents: (operationId, startAfterSeq, initialWatermark) =>
         this.sessionFacade.subscribeToFirestoreJobEvents(
@@ -1780,6 +2104,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       contextType: () => this.contextType,
       embedded: () => this.embedded,
       resolvedThreadId: this._resolvedThreadId,
+      resolveActiveThreadId: () => this.sessionFacade.resolveActiveThreadId(),
       videoUploadPercent: this._videoUploadPercent,
       user: () => this.user,
       clickDesktopAttachmentInput: () => {
@@ -1801,6 +2126,12 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       yieldResolved: this.yieldResolved,
       setOperationStatus: (status) => {
         this.operationStatus = status;
+      },
+      setActivityPhase: (phase, label) => {
+        this.setActivityPhase(phase, label);
+      },
+      markActivityPulse: (label) => {
+        this.markActivityPulse(label);
       },
       getCurrentOperationId: () => this._currentOperationId,
       setCurrentOperationId: (operationId) => {
@@ -1894,8 +2225,135 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     // Keep this hook for non-stream resources only to avoid aborting resumed runs
     // during component remounts.
     this.attachmentsFacade.clearPendingFiles();
+    this.clearActivityGapTimer();
     this.clearFocusScrollTimers();
     this.keyboardOffsetBinding?.teardown();
+  }
+
+  /** Move the runtime activity machine to a new phase and keep timeout rules consistent. */
+  private setActivityPhase(phase: ChatActivityPhase, label?: string | null): void {
+    this._activityPhase.set(phase);
+
+    if (label !== undefined) {
+      this._activityLabel.set(this.toUserFacingThinkingLabel(label));
+    }
+
+    if (this.isInFlightPhase(phase)) {
+      this._lastActivityPulseAt.set(Date.now());
+      this.armActivityGapTimer();
+      return;
+    }
+
+    this.clearActivityGapTimer();
+    if (phase === 'completed' || phase === 'failed' || phase === 'cancelled') {
+      this._activityLabel.set(null);
+    }
+  }
+
+  /** Register stream activity pulses (delta/progress/step updates) to prevent blank gaps. */
+  private markActivityPulse(label?: string | null): void {
+    if (label !== undefined) {
+      const userLabel = this.toUserFacingThinkingLabel(label);
+      if (userLabel) this._activityLabel.set(userLabel);
+    }
+
+    this._lastActivityPulseAt.set(Date.now());
+    const phase = this._activityPhase();
+    if (
+      phase === 'sending' ||
+      phase === 'connected' ||
+      phase === 'waiting_delta' ||
+      phase === 'reconnecting'
+    ) {
+      this._activityPhase.set('streaming');
+    }
+    this.armActivityGapTimer();
+  }
+
+  private isInFlightPhase(phase: ChatActivityPhase): boolean {
+    return (
+      phase === 'sending' ||
+      phase === 'connected' ||
+      phase === 'streaming' ||
+      phase === 'running_tool' ||
+      phase === 'waiting_delta' ||
+      phase === 'reconnecting'
+    );
+  }
+
+  /** When no deltas arrive for a short window, enter waiting_delta shimmer state. */
+  private armActivityGapTimer(): void {
+    this.clearActivityGapTimer();
+    if (!this.isInFlightPhase(this._activityPhase())) {
+      return;
+    }
+
+    this.activityGapTimer = setTimeout(() => {
+      this.activityGapTimer = null;
+      if (!this.isInFlightPhase(this._activityPhase())) {
+        return;
+      }
+      const elapsed = Date.now() - this._lastActivityPulseAt();
+      if (elapsed < ACTIVITY_GAP_TIMEOUT_MS) {
+        this.armActivityGapTimer();
+        return;
+      }
+
+      if (this._activityPhase() !== 'running_tool') {
+        this._activityPhase.set('waiting_delta');
+      }
+
+      if (!this._activityLabel()) {
+        this._activityLabel.set('Working on next step...');
+      }
+
+      this.armActivityGapTimer();
+    }, ACTIVITY_GAP_TIMEOUT_MS);
+  }
+
+  private clearActivityGapTimer(): void {
+    if (this.activityGapTimer === null) return;
+    clearTimeout(this.activityGapTimer);
+    this.activityGapTimer = null;
+  }
+
+  /** Strip technical telemetry from progress text so users see clean copy only. */
+  private toUserFacingThinkingLabel(label?: string | null): string | null {
+    if (!label) return null;
+
+    const normalized = label.replace(/\s+/g, ' ').trim();
+    if (!normalized) return null;
+
+    // Remove inline metric blocks such as: (latency 321ms, p95 480ms)
+    const withoutMetricParens = normalized
+      .replace(/\((?:[^)]*(?:latency|p95|p99|tokens?|tps|throughput|ms)[^)]*)\)/gi, '')
+      .replace(/\[(?:[^\]]*(?:latency|p95|p99|tokens?|tps|throughput|ms)[^\]]*)\]/gi, '')
+      .trim();
+
+    if (!withoutMetricParens) return null;
+    if (TECHNICAL_PROGRESS_PATTERN.test(withoutMetricParens)) return null;
+
+    return withoutMetricParens.length > 72
+      ? `${withoutMetricParens.slice(0, 69).trimEnd()}...`
+      : withoutMetricParens;
+  }
+
+  private defaultThinkingLabelForPhase(phase: ChatActivityPhase): string {
+    switch (phase) {
+      case 'sending':
+        return 'Kicking this off...';
+      case 'connected':
+      case 'streaming':
+        return 'Working on it...';
+      case 'running_tool':
+        return 'Running next step...';
+      case 'waiting_delta':
+        return 'Working on next step...';
+      case 'reconnecting':
+        return 'Reconnecting...';
+      default:
+        return 'Agent X is thinking...';
+    }
   }
 
   /** Bind shared keyboard offset behavior so operation chat matches shell exactly. */
@@ -1966,14 +2424,90 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
   /** Hide planner cards inline in bubbles; planner is rendered once in the composer dock. */
   protected messageCardsForBubble(msg: OperationMessage): readonly AgentXRichCard[] {
-    return (msg.cards ?? []).filter((card) => card.type !== 'planner');
+    return (msg.cards ?? []).filter(
+      (card) => card.type !== 'planner' && !this.isApprovalConfirmationCard(card)
+    );
   }
 
   /** Hide planner card parts inline in bubbles; planner is rendered once in the composer dock. */
   protected messagePartsForBubble(msg: OperationMessage): readonly AgentXMessagePart[] {
     return (msg.parts ?? []).filter(
-      (part) => !(part.type === 'card' && part.card.type === 'planner')
+      (part) =>
+        !(part.type === 'card' && part.card.type === 'planner') &&
+        !(part.type === 'card' && this.isApprovalConfirmationCard(part.card))
     );
+  }
+
+  /**
+   * Pending approval cards are rendered by the dedicated yield action-card,
+   * so hide only actionable approval confirmations in bubbles.
+   *
+   * Resolved confirmation cards (no actions) should remain visible in history.
+   */
+  private isApprovalConfirmationCard(card: AgentXRichCard): boolean {
+    if (card.type !== 'confirmation') return false;
+    const payload = card.payload as Record<string, unknown> | undefined;
+    if (!payload || typeof payload !== 'object') return false;
+    const hasApprovalId =
+      typeof payload['approvalId'] === 'string' && payload['approvalId'].length > 0;
+    if (!hasApprovalId) return false;
+
+    const actions = payload['actions'];
+    return Array.isArray(actions) && actions.length > 0;
+  }
+
+  /** Resolve approval yield state from either live message.yieldState or persisted card payload. */
+  protected approvalYieldForMessage(msg: OperationMessage): AgentYieldState | null {
+    const direct = msg.yieldState;
+    if (direct?.reason === 'needs_approval' && direct.pendingToolCall?.toolName) {
+      return direct;
+    }
+
+    const approvalCard = this.findApprovalCard(msg);
+    if (!approvalCard || approvalCard.type !== 'confirmation') return null;
+
+    const payload = approvalCard.payload as Record<string, unknown> | undefined;
+    if (!payload || typeof payload !== 'object') return null;
+
+    const persisted = payload['yieldState'];
+    if (!persisted || typeof persisted !== 'object') return null;
+
+    const candidate = persisted as AgentYieldState;
+    if (candidate.reason !== 'needs_approval' || !candidate.pendingToolCall?.toolName) {
+      return null;
+    }
+
+    return candidate;
+  }
+
+  /** Resolve yield card visual state from live message state or persisted card payload. */
+  protected approvalCardStateForMessage(
+    msg: OperationMessage
+  ): 'idle' | 'submitting' | 'resolved' | null {
+    if (msg.yieldCardState) return msg.yieldCardState;
+
+    const approvalCard = this.findApprovalCard(msg);
+    if (!approvalCard || approvalCard.type !== 'confirmation') return null;
+
+    const payload = approvalCard.payload as Record<string, unknown> | undefined;
+    if (!payload || typeof payload !== 'object') return null;
+
+    const state = payload['yieldCardState'];
+    return state === 'idle' || state === 'submitting' || state === 'resolved' ? state : null;
+  }
+
+  /** Resolve yield card resolved text from live message state or persisted card payload. */
+  protected approvalResolvedTextForMessage(msg: OperationMessage): string {
+    if (msg.yieldResolvedText) return msg.yieldResolvedText;
+
+    const approvalCard = this.findApprovalCard(msg);
+    if (!approvalCard || approvalCard.type !== 'confirmation') return '';
+
+    const payload = approvalCard.payload as Record<string, unknown> | undefined;
+    if (!payload || typeof payload !== 'object') return '';
+
+    const text = payload['yieldResolvedText'];
+    return typeof text === 'string' ? text : '';
   }
 
   /** Build the ask_user card payload directly from the yield message in the shared timeline. */
@@ -2003,11 +2537,37 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     };
   }
 
+  /** Find the approval-backed confirmation card in a message (if present). */
+  protected findApprovalCard(msg: OperationMessage): AgentXRichCard | null {
+    if (!msg.cards?.length) return null;
+
+    for (const card of msg.cards) {
+      if (card.type === 'confirmation') {
+        const payload = card.payload as Record<string, unknown> | undefined;
+        if (payload && typeof payload['approvalId'] === 'string') {
+          return card;
+        }
+      }
+    }
+
+    return null;
+  }
+
   protected isPauseYieldMessage(msg: OperationMessage): boolean {
-    const yieldState = msg.yieldState;
-    if (!yieldState || yieldState.reason !== 'needs_input') return false;
-    if (msg.yieldCardState === 'submitting' || msg.yieldCardState === 'resolved') return false;
-    return yieldState.pendingToolCall?.toolName === PAUSE_RESUME_TOOL_NAME;
+    if (!this.isPauseYield(msg)) return false;
+    return !this.shouldHideMessage(msg);
+  }
+
+  /** Open approval-card media in the same shared viewer used by chat attachments. */
+  protected onApprovalCardOpenMedia(event: ActionCardOpenMediaEvent): void {
+    const attachments: readonly MessageAttachment[] = event.attachments;
+    this.attachmentsFacade.openAttachmentViewer(attachments, event.index);
+  }
+
+  /** Remove dismissed pause-yield rows from the timeline to avoid ghost spacing. */
+  protected shouldHideMessage(msg: OperationMessage): boolean {
+    if (!this.isPauseYield(msg)) return false;
+    return msg.yieldCardState === 'submitting' || msg.yieldCardState === 'resolved';
   }
 
   /**
@@ -2020,6 +2580,12 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       msg.yieldState?.reason === 'needs_input' &&
       msg.yieldState?.pendingToolCall?.toolName !== PAUSE_RESUME_TOOL_NAME
     );
+  }
+
+  private isPauseYield(msg: OperationMessage): boolean {
+    const yieldState = msg.yieldState;
+    if (!yieldState || yieldState.reason !== 'needs_input') return false;
+    return yieldState.pendingToolCall?.toolName === PAUSE_RESUME_TOOL_NAME;
   }
 
   // ============================================

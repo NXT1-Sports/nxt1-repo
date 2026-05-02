@@ -19,6 +19,7 @@ export const AGENT_PUSH_INTENT_KINDS = {
   PLAYBOOK_NUDGE: 'agent_playbook_nudge',
   SCHEDULED_EXECUTION_COMPLETED: 'agent_scheduled_execution_completed',
   SCHEDULED_EXECUTION_FAILED: 'agent_scheduled_execution_failed',
+  APPROVAL_EXPIRING_SOON: 'agent_approval_expiring_soon',
 } as const;
 
 export type AgentPushIntentKind =
@@ -118,6 +119,16 @@ export interface AgentScheduledExecutionFailedIntent extends AgentScheduledExecu
   readonly errorMessage: string;
 }
 
+export interface AgentApprovalExpiringSoonIntent extends AgentPushIntentBase {
+  readonly kind: typeof AGENT_PUSH_INTENT_KINDS.APPROVAL_EXPIRING_SOON;
+  readonly approvalId: string;
+  readonly toolName: string;
+  readonly title: string;
+  readonly body: string;
+  /** Milliseconds remaining until expiry at the time of dispatch. */
+  readonly remainingMs: number;
+}
+
 export type AgentPushIntent =
   | AgentTaskCompletedIntent
   | AgentTaskFailedIntent
@@ -128,4 +139,5 @@ export type AgentPushIntent =
   | AgentWeeklyRecapReadyIntent
   | AgentPlaybookNudgeIntent
   | AgentScheduledExecutionCompletedIntent
-  | AgentScheduledExecutionFailedIntent;
+  | AgentScheduledExecutionFailedIntent
+  | AgentApprovalExpiringSoonIntent;

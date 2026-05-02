@@ -20,7 +20,7 @@ import {
 } from '@angular/core';
 import { IonHeader, IonContent, IonToolbar, NavController } from '@ionic/angular/standalone';
 import { InviteShellComponent, InviteService, type InviteUser } from '@nxt1/ui';
-import type { InviteType } from '@nxt1/core';
+import type { InviteType, InviteTeam } from '@nxt1/core';
 import { ActivatedRoute } from '@angular/router';
 import { ProfileService } from '../../core/services/state/profile.service';
 
@@ -36,6 +36,7 @@ import { ProfileService } from '../../core/services/state/profile.service';
       <nxt1-invite-shell
         [user]="userInfo()"
         [inviteType]="inviteType()"
+        [team]="inviteTeam()"
         [isModal]="false"
         [showClose]="true"
         (close)="navigateBack()"
@@ -95,6 +96,23 @@ export class InviteMobileComponent implements OnInit {
       schoolName: primarySport?.team?.name ?? null,
       primarySport: primarySport?.sport ?? null,
       location: location || null,
+    };
+  });
+
+  protected readonly inviteTeam = computed<InviteTeam | null>(() => {
+    const primarySport = this.profileService.primarySport();
+    const teamInfo = primarySport?.team;
+    const teamId = teamInfo?.teamId?.trim() || teamInfo?.organizationId?.trim();
+    const teamName = teamInfo?.name?.trim();
+
+    if (!teamId || !teamName) return null;
+
+    return {
+      id: teamId,
+      name: teamName,
+      sport: primarySport?.sport ?? '',
+      logoUrl: teamInfo?.logoUrl ?? teamInfo?.logo ?? undefined,
+      memberCount: 0,
     };
   });
 

@@ -3,6 +3,7 @@ import {
   Injectable,
   PLATFORM_ID,
   computed,
+  effect,
   inject,
   runInInjectionContext,
   signal,
@@ -15,8 +16,10 @@ import {
   AGENT_X_MAX_ATTACHMENTS,
   AGENT_X_MAX_FILE_SIZE,
   AGENT_X_MAX_VIDEO_FILE_SIZE,
+  AGENT_X_RUNTIME_CONFIG,
   resolveAttachmentType,
   type AgentXAttachment,
+  type AgentXAttachmentStub,
 } from '@nxt1/core/ai';
 import { buildLinkSourcesFormData, type OnboardingUserType } from '@nxt1/core';
 import { APP_EVENTS } from '@nxt1/core/analytics';
@@ -30,7 +33,10 @@ import { ANALYTICS_ADAPTER } from '../../../services/analytics/analytics-adapter
 import { NxtMediaViewerService } from '../../../components/media-viewer/media-viewer.service';
 import type { MediaViewerItem } from '../../../components/media-viewer/media-viewer.types';
 import { AgentXVideoUploadService } from '../../services/agent-x-video-upload.service';
-import { AGENT_X_API_BASE_URL } from '../../services/agent-x-job.service';
+import {
+  AGENT_X_API_BASE_URL,
+  AGENT_X_AUTH_TOKEN_FACTORY,
+} from '../../services/agent-x-job.service';
 import { AgentXService } from '../../services/agent-x.service';
 import {
   AgentXAttachmentsSheetComponent,
@@ -50,14 +56,34 @@ export interface AgentXOperationChatAttachmentsFacadeHost {
   readonly resolvedThreadId: WritableSignal<string | null>;
   readonly videoUploadPercent: WritableSignal<number | null>;
   readonly user: () => AgentXUser | null;
+  resolveActiveThreadId(): string | null;
   clickDesktopAttachmentInput(): void;
   emitConnectedAccountsSave(request: AgentXConnectedAccountsSaveRequest): void;
   uid(): string;
 }
 
+type BackgroundUploadStatus = 'queued' | 'uploading' | 'complete' | 'failed';
+
+interface BackgroundUploadRecord {
+  readonly pendingId: string;
+  readonly resultPromise: Promise<AgentXAttachment | null>;
+  readonly resolveResult: (attachment: AgentXAttachment | null) => void;
+  started: boolean;
+  status: BackgroundUploadStatus;
+  attachment: AgentXAttachment | null;
+  removed: boolean;
+}
+
+const BACKGROUND_UPLOAD_CONCURRENCY = 3;
+const MESSAGE_ATTACHMENT_SYNC_RETRY_MS =
+  AGENT_X_RUNTIME_CONFIG.attachmentTransport.messageSyncRetryMs;
+const PRE_SEND_BACKGROUND_UPLOAD_WAIT_MS =
+  AGENT_X_RUNTIME_CONFIG.attachmentTransport.preSendBackgroundUploadWaitMs;
+
 @Injectable()
 export class AgentXOperationChatAttachmentsFacade {
   private readonly baseUrl = inject(AGENT_X_API_BASE_URL);
+  private readonly getAuthToken = inject(AGENT_X_AUTH_TOKEN_FACTORY, { optional: true });
   private readonly platformId = inject(PLATFORM_ID);
   private readonly injector = inject(EnvironmentInjector);
   private readonly modalCtrl = inject(ModalController);
@@ -79,6 +105,9 @@ export class AgentXOperationChatAttachmentsFacade {
   );
 
   private host: AgentXOperationChatAttachmentsFacadeHost | null = null;
+  private readonly backgroundUploads = new Map<string, BackgroundUploadRecord>();
+  private readonly backgroundUploadQueue: Array<() => Promise<void>> = [];
+  private activeBackgroundUploads = 0;
 
   configure(host: AgentXOperationChatAttachmentsFacadeHost): void {
     this.host = host;
@@ -89,6 +118,9 @@ export class AgentXOperationChatAttachmentsFacade {
       const removed = previous[index];
       if (removed?.previewUrl) {
         URL.revokeObjectURL(removed.previewUrl);
+      }
+      if (removed) {
+        this.discardPendingUpload(removed.id);
       }
       return previous.filter((_, currentIndex) => currentIndex !== index);
     });
@@ -224,8 +256,8 @@ export class AgentXOperationChatAttachmentsFacade {
 
   async uploadFiles(files: readonly PendingFile[], authToken: string): Promise<AgentXAttachment[]> {
     const host = this.requireHost();
-    const uploadTimeoutMs = 20_000;
-    const maxUploadAttempts = 2;
+    const uploadTimeoutMs = AGENT_X_RUNTIME_CONFIG.attachmentTransport.uploadTimeoutMs;
+    const maxUploadAttempts = AGENT_X_RUNTIME_CONFIG.attachmentTransport.uploadMaxAttempts;
 
     const uploaded: AgentXAttachment[] = [];
     const failed: string[] = [];
@@ -236,7 +268,7 @@ export class AgentXOperationChatAttachmentsFacade {
     for (const pending of nonVideoFiles) {
       const formData = new FormData();
       formData.append('file', pending.file);
-      const threadId = host.resolvedThreadId();
+      const threadId = host.resolveActiveThreadId();
       if (threadId) formData.append('threadId', threadId);
 
       let uploadedThisFile = false;
@@ -275,7 +307,7 @@ export class AgentXOperationChatAttachmentsFacade {
           }
 
           uploaded.push({
-            id: host.uid(),
+            id: pending.id,
             url: result.data.url,
             ...(result.data.storagePath ? { storagePath: result.data.storagePath } : {}),
             name: result.data.name,
@@ -362,22 +394,19 @@ export class AgentXOperationChatAttachmentsFacade {
     for (const pending of videoFiles) {
       try {
         host.videoUploadPercent.set(0);
-        const videoResult = await new Promise<{ streamUrl: string; cloudflareVideoId: string }>(
+        const threadId = host.resolveActiveThreadId();
+        const videoResult = await new Promise<{ url: string; storagePath?: string }>(
           (resolve, reject) => {
-            this.videoUploadService.uploadVideo(pending.file, authToken).subscribe({
+            this.videoUploadService.uploadVideo(pending.file, authToken, { threadId }).subscribe({
               next: (progress) => {
                 if (progress.phase === 'uploading' || progress.phase === 'provisioning') {
                   host.videoUploadPercent.set(progress.percent);
                 }
-                if (
-                  progress.phase === 'complete' &&
-                  progress.streamUrl &&
-                  progress.cloudflareVideoId
-                ) {
+                if (progress.phase === 'complete' && progress.streamUrl) {
                   host.videoUploadPercent.set(100);
                   resolve({
-                    streamUrl: progress.streamUrl,
-                    cloudflareVideoId: progress.cloudflareVideoId,
+                    url: progress.streamUrl,
+                    storagePath: progress.storagePath,
                   });
                 } else if (progress.phase === 'error') {
                   reject(new Error(progress.errorMessage ?? 'Video upload failed'));
@@ -390,18 +419,18 @@ export class AgentXOperationChatAttachmentsFacade {
         host.videoUploadPercent.set(null);
 
         uploaded.push({
-          id: host.uid(),
-          url: videoResult.streamUrl,
+          id: pending.id,
+          url: videoResult.url,
+          ...(videoResult.storagePath ? { storagePath: videoResult.storagePath } : {}),
           name: pending.file.name,
           mimeType: pending.file.type,
           type: 'video',
           sizeBytes: pending.file.size,
-          cloudflareVideoId: videoResult.cloudflareVideoId,
         });
       } catch (error) {
         host.videoUploadPercent.set(null);
         const errorMessage = error instanceof Error ? error.message : String(error);
-        this.logger.error('Video Cloudflare upload failed', error, {
+        this.logger.error('Video upload failed', error, {
           contextId: host.contextId(),
           fileName: pending.file.name,
           fileSize: pending.file.size,
@@ -444,6 +473,109 @@ export class AgentXOperationChatAttachmentsFacade {
     });
 
     return uploaded;
+  }
+
+  async prepareAttachmentsForSend(
+    files: readonly PendingFile[],
+    authToken: string
+  ): Promise<AgentXAttachment[]> {
+    const records = files.map((pending) => this.ensureBackgroundUpload(pending, authToken));
+
+    // Wait briefly for in-flight background uploads so the initial chat request
+    // carries attachment URLs whenever they are ready at send time.
+    const pendingRecords = records.filter(
+      (record) => !record.attachment && record.status !== 'failed'
+    );
+    if (pendingRecords.length > 0) {
+      await Promise.all(
+        pendingRecords.map((record) =>
+          this.waitForBackgroundUpload(record, PRE_SEND_BACKGROUND_UPLOAD_WAIT_MS)
+        )
+      );
+    }
+
+    const readyAttachments = files
+      .map((pending) => this.backgroundUploads.get(pending.id)?.attachment ?? null)
+      .filter((attachment): attachment is AgentXAttachment => attachment !== null);
+
+    // Last-chance guarantee: if any attachment is still missing (queued/uploading/failed),
+    // retry those files synchronously in the send path so the chat request does not lose media context.
+    const readyIds = new Set(readyAttachments.map((attachment) => attachment.id));
+    const missingFiles = files.filter((pending) => !readyIds.has(pending.id));
+    if (missingFiles.length === 0) {
+      return readyAttachments;
+    }
+
+    const host = this.requireHost();
+    this.logger.warn('Pre-send attachment fallback activated for missing uploads', {
+      contextId: host.contextId(),
+      totalFiles: files.length,
+      readyCount: readyAttachments.length,
+      missingCount: missingFiles.length,
+      missingNames: missingFiles.map((file) => file.file.name),
+    });
+
+    const fallbackAttachments = await this.uploadFiles(missingFiles, authToken);
+    return [...readyAttachments, ...fallbackAttachments];
+  }
+
+  private async waitForBackgroundUpload(
+    record: BackgroundUploadRecord,
+    timeoutMs: number
+  ): Promise<AgentXAttachment | null> {
+    const timeoutPromise = new Promise<null>((resolve) => {
+      const timeoutId = setTimeout(() => {
+        clearTimeout(timeoutId);
+        resolve(null);
+      }, timeoutMs);
+    });
+
+    try {
+      return await Promise.race([record.resultPromise, timeoutPromise]);
+    } catch {
+      return null;
+    }
+  }
+
+  syncPendingAttachmentsAfterSend(
+    files: readonly PendingFile[],
+    idempotencyKey: string,
+    authToken: string,
+    sentAttachmentIds: ReadonlySet<string>
+  ): void {
+    for (const pending of files) {
+      const record = this.ensureBackgroundUpload(pending, authToken);
+      if (record.attachment && sentAttachmentIds.has(record.attachment.id)) {
+        this.backgroundUploads.delete(pending.id);
+        continue;
+      }
+
+      void record.resultPromise
+        .then(async (attachment) => {
+          if (!attachment || sentAttachmentIds.has(attachment.id) || record.removed) {
+            return;
+          }
+          await this.syncAttachmentToPersistedMessage(idempotencyKey, attachment, authToken);
+        })
+        .catch((error) => {
+          this.logger.warn('Silent background attachment sync skipped after upload failure', {
+            fileName: pending.file.name,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        })
+        .finally(() => {
+          // Guard: only delete the record once the attachment has been accounted for
+          // in sentAttachmentIds (set by onWaitingForAttachments after awaitPendingUploads
+          // resolves). Deleting prematurely causes awaitPendingUploads to find no record
+          // and trigger a redundant second upload for the same file.
+          const rec = this.backgroundUploads.get(pending.id);
+          if (!rec || rec.removed || (rec.attachment && sentAttachmentIds.has(rec.attachment.id))) {
+            this.backgroundUploads.delete(pending.id);
+          }
+          // Otherwise leave the record in place — awaitPendingUploads will collect
+          // and clean it up when the stubs path resolves.
+        });
+    }
   }
 
   openPendingFileViewer(index: number): void {
@@ -490,11 +622,47 @@ export class AgentXOperationChatAttachmentsFacade {
     });
   }
 
+  isCloudflareWatchUrl(url: string | null | undefined): boolean {
+    // Legacy helper for previously persisted Cloudflare attachments.
+    if (!url) return false;
+    try {
+      const parsed = new URL(url);
+      return (
+        parsed.hostname === 'watch.cloudflarestream.com' ||
+        parsed.hostname === 'iframe.videodelivery.net' ||
+        parsed.hostname.endsWith('.videodelivery.net')
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  toCloudflareEmbedUrl(url: string | null | undefined): string | null {
+    // Legacy helper for converting historic Cloudflare watch links to iframe links.
+    if (!url) return null;
+    try {
+      const parsed = new URL(url);
+      if (
+        parsed.hostname !== 'watch.cloudflarestream.com' &&
+        parsed.hostname !== 'iframe.videodelivery.net' &&
+        !parsed.hostname.endsWith('.videodelivery.net')
+      ) {
+        return null;
+      }
+      const videoId = parsed.pathname.split('/').filter(Boolean)[0];
+      if (!videoId) return null;
+      return `https://iframe.videodelivery.net/${videoId}`;
+    } catch {
+      return null;
+    }
+  }
+
   clearPendingFiles(): void {
     for (const pending of this.pendingFiles()) {
       if (pending.previewUrl) {
         URL.revokeObjectURL(pending.previewUrl);
       }
+      this.discardPendingUpload(pending.id);
     }
     this.pendingFiles.set([]);
   }
@@ -544,8 +712,9 @@ export class AgentXOperationChatAttachmentsFacade {
       const isImage = file.type.startsWith('image/');
       const isVideo = file.type.startsWith('video/');
       nextPending.push({
+        id: crypto.randomUUID(),
         file,
-        previewUrl: isImage ? URL.createObjectURL(file) : null,
+        previewUrl: isImage || isVideo ? URL.createObjectURL(file) : null,
         isImage,
         isVideo,
       });
@@ -553,9 +722,398 @@ export class AgentXOperationChatAttachmentsFacade {
 
     if (nextPending.length > 0) {
       this.pendingFiles.update((previous) => [...previous, ...nextPending]);
+      void this.primePendingUploads(nextPending);
     }
 
     return nextPending.length;
+  }
+
+  private async primePendingUploads(files: readonly PendingFile[]): Promise<void> {
+    const authToken = await this.getAuthToken?.().catch(() => null);
+    if (!authToken) {
+      return;
+    }
+
+    for (const pending of files) {
+      this.ensureBackgroundUpload(pending, authToken);
+    }
+  }
+
+  /**
+   * Non-blocking split for immediate send.
+   *
+   * Ensures all background uploads have been started, then partitions the
+   * pending files into:
+   * - `ready`: files whose upload has already completed (have an `attachment`)
+   * - `stubs`: files still uploading — returns only their metadata (no URL yet)
+   *
+   * The caller should include `ready` as full attachments in the chat request
+   * and pass `stubs` as `attachmentStubs`, triggering the backend's
+   * `waiting_for_attachments` pipeline.
+   */
+  prepareForImmediateSend(
+    files: readonly PendingFile[],
+    authToken: string
+  ): { ready: AgentXAttachment[]; stubs: AgentXAttachmentStub[] } {
+    const ready: AgentXAttachment[] = [];
+    const stubs: AgentXAttachmentStub[] = [];
+    for (const pending of files) {
+      const record = this.ensureBackgroundUpload(pending, authToken);
+      if (record.attachment) {
+        ready.push(record.attachment);
+      } else {
+        stubs.push({
+          id: pending.id,
+          name: pending.file.name,
+          mimeType: pending.file.type,
+          sizeBytes: pending.file.size,
+          type: resolveAttachmentType(pending.file.type),
+        });
+      }
+    }
+    return { ready, stubs };
+  }
+
+  /**
+   * Waits for all still-uploading files to finish (up to `timeoutMs`).
+   *
+   * Ensures background uploads are started, then awaits their completion
+   * promises. Used by the `onWaitingForAttachments` SSE callback to resolve
+   * the backend waiter once uploads finish.
+   *
+   * Returns only successfully uploaded attachments (failed / timed-out are
+   * silently omitted — the backend's timeout message covers the failure case).
+   */
+  async awaitPendingUploads(
+    files: readonly PendingFile[],
+    authToken: string,
+    timeoutMs: number
+  ): Promise<AgentXAttachment[]> {
+    // Only process files that have an active upload record in backgroundUploads.
+    // Files whose records are missing were either:
+    //   - ready attachments already included in the original chat request, or
+    //   - already cleaned up by a prior awaitPendingUploads call.
+    // Calling ensureBackgroundUpload for missing records would start a redundant
+    // second upload, so we deliberately skip them here.
+    const activeEntries: Array<{ pending: PendingFile; record: BackgroundUploadRecord }> = [];
+    for (const pending of files) {
+      const record = this.backgroundUploads.get(pending.id);
+      if (record) {
+        activeEntries.push({ pending, record });
+      }
+    }
+
+    const pendingRecords = activeEntries
+      .map((e) => e.record)
+      .filter((r) => !r.attachment && r.status !== 'failed');
+    if (pendingRecords.length > 0) {
+      await Promise.all(
+        pendingRecords.map((record) => this.waitForBackgroundUpload(record, timeoutMs))
+      );
+    }
+
+    const result = activeEntries
+      .map(({ pending }) => this.backgroundUploads.get(pending.id)?.attachment ?? null)
+      .filter((a): a is AgentXAttachment => a !== null);
+
+    // Clean up records now that we have collected all results. This unblocks the
+    // deferred .finally() in syncPendingAttachmentsAfterSend — it will see !rec
+    // and skip deletion (a safe no-op).
+    for (const { pending } of activeEntries) {
+      this.backgroundUploads.delete(pending.id);
+    }
+
+    return result;
+  }
+
+  private ensureBackgroundUpload(pending: PendingFile, authToken: string): BackgroundUploadRecord {
+    let record = this.backgroundUploads.get(pending.id);
+    if (!record) {
+      let resolveResult: (attachment: AgentXAttachment | null) => void = () => undefined;
+      const resultPromise = new Promise<AgentXAttachment | null>((resolve) => {
+        resolveResult = resolve;
+      });
+      record = {
+        pendingId: pending.id,
+        resultPromise,
+        resolveResult,
+        started: false,
+        status: 'queued',
+        attachment: null,
+        removed: false,
+      };
+      this.backgroundUploads.set(pending.id, record);
+    }
+
+    if (!record.started) {
+      record.started = true;
+      this.enqueueBackgroundUpload(async () => {
+        const activeRecord = this.backgroundUploads.get(pending.id);
+        if (!activeRecord || activeRecord.removed) {
+          activeRecord?.resolveResult(null);
+          return;
+        }
+
+        activeRecord.status = 'uploading';
+        const attachment = await this.uploadPendingFile(pending, authToken);
+        activeRecord.attachment = attachment;
+        activeRecord.status = attachment ? 'complete' : 'failed';
+        activeRecord.resolveResult(attachment);
+      });
+    }
+
+    return record;
+  }
+
+  private enqueueBackgroundUpload(task: () => Promise<void>): void {
+    this.backgroundUploadQueue.push(task);
+    this.drainBackgroundUploadQueue();
+  }
+
+  private drainBackgroundUploadQueue(): void {
+    while (
+      this.activeBackgroundUploads < BACKGROUND_UPLOAD_CONCURRENCY &&
+      this.backgroundUploadQueue.length > 0
+    ) {
+      const nextTask = this.backgroundUploadQueue.shift();
+      if (!nextTask) {
+        return;
+      }
+
+      this.activeBackgroundUploads += 1;
+      void nextTask()
+        .catch((error) => {
+          this.logger.error('Background attachment upload failed', error);
+        })
+        .finally(() => {
+          this.activeBackgroundUploads = Math.max(0, this.activeBackgroundUploads - 1);
+          this.drainBackgroundUploadQueue();
+        });
+    }
+  }
+
+  private async uploadPendingFile(
+    pending: PendingFile,
+    authToken: string
+  ): Promise<AgentXAttachment | null> {
+    return pending.isVideo
+      ? this.uploadVideoFile(pending, authToken)
+      : this.uploadNonVideoFile(pending, authToken);
+  }
+
+  private async uploadNonVideoFile(
+    pending: PendingFile,
+    authToken: string
+  ): Promise<AgentXAttachment | null> {
+    const host = this.requireHost();
+    const uploadTimeoutMs = AGENT_X_RUNTIME_CONFIG.attachmentTransport.uploadTimeoutMs;
+    const maxUploadAttempts = AGENT_X_RUNTIME_CONFIG.attachmentTransport.uploadMaxAttempts;
+    const formData = new FormData();
+    formData.append('file', pending.file);
+    const threadId = await this.waitForThreadId(
+      AGENT_X_RUNTIME_CONFIG.attachmentTransport.threadIdResolveWaitMs
+    );
+    if (threadId) {
+      formData.append('threadId', threadId);
+    }
+
+    for (let attempt = 1; attempt <= maxUploadAttempts; attempt += 1) {
+      try {
+        const abortController = new AbortController();
+        const timeoutId = setTimeout(() => abortController.abort(), uploadTimeoutMs);
+
+        const response = await fetch(`${this.baseUrl}${AGENT_X_ENDPOINTS.UPLOAD}`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${authToken}` },
+          body: formData,
+          signal: abortController.signal,
+        }).finally(() => clearTimeout(timeoutId));
+
+        if (!response.ok) {
+          const errorText = await response.text().catch(() => 'Upload failed');
+          throw new Error(`HTTP ${response.status}: ${errorText || 'Unknown error'}`);
+        }
+
+        const result = (await response.json()) as {
+          success: boolean;
+          data?: {
+            url: string;
+            storagePath?: string;
+            name: string;
+            mimeType: string;
+            sizeBytes: number;
+          };
+          error?: string;
+        };
+
+        if (!result.success || !result.data) {
+          throw new Error(result.error || 'Unknown backend error');
+        }
+
+        return {
+          id: pending.id,
+          url: result.data.url,
+          ...(result.data.storagePath ? { storagePath: result.data.storagePath } : {}),
+          name: result.data.name,
+          mimeType: result.data.mimeType,
+          type: resolveAttachmentType(result.data.mimeType),
+          sizeBytes: result.data.sizeBytes,
+        };
+      } catch (error) {
+        if (attempt === maxUploadAttempts) {
+          this.logger.error('Background non-video upload failed after retries', error, {
+            fileName: pending.file.name,
+            contextId: host.contextId(),
+          });
+          return null;
+        }
+      }
+    }
+
+    return null;
+  }
+
+  private async uploadVideoFile(
+    pending: PendingFile,
+    authToken: string
+  ): Promise<AgentXAttachment | null> {
+    const host = this.requireHost();
+    const threadId = await this.waitForThreadId(
+      AGENT_X_RUNTIME_CONFIG.attachmentTransport.threadIdResolveWaitMs
+    );
+
+    try {
+      const result = await new Promise<{ streamUrl: string; storagePath?: string }>(
+        (resolve, reject) => {
+          this.videoUploadService.uploadVideo(pending.file, authToken, { threadId }).subscribe({
+            next: (progress) => {
+              if (progress.phase === 'complete' && progress.streamUrl) {
+                resolve({
+                  streamUrl: progress.streamUrl,
+                  storagePath: progress.storagePath,
+                });
+              } else if (progress.phase === 'error') {
+                reject(new Error(progress.errorMessage ?? 'Video upload failed'));
+              }
+            },
+            error: (error) => reject(error),
+          });
+        }
+      );
+
+      return {
+        id: pending.id,
+        url: result.streamUrl,
+        ...(result.storagePath ? { storagePath: result.storagePath } : {}),
+        name: pending.file.name,
+        mimeType: pending.file.type,
+        type: 'video',
+        sizeBytes: pending.file.size,
+      };
+    } catch (error) {
+      this.logger.error('Background video upload failed', error, {
+        contextId: host.contextId(),
+        fileName: pending.file.name,
+      });
+      return null;
+    }
+  }
+
+  /**
+   * Waits for the SSE `onThread` event to resolve the threadId for the current
+   * chat session, up to `timeoutMs`. Returns immediately if the threadId is
+   * already known (existing thread or already-fired onThread). Falls back to
+   * null on timeout — uploads then land in the unbound path as before.
+   */
+  private waitForThreadId(timeoutMs: number): Promise<string | null> {
+    const host = this.requireHost();
+    const immediate = host.resolveActiveThreadId();
+    if (immediate) return Promise.resolve(immediate);
+
+    return new Promise<string | null>((resolve) => {
+      let settled = false;
+      let effectRef: ReturnType<typeof effect> | null = null;
+
+      const settle = (id: string | null): void => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(deadlineId);
+        effectRef?.destroy();
+        resolve(id);
+      };
+
+      const deadlineId = setTimeout(() => settle(null), timeoutMs);
+
+      effectRef = runInInjectionContext(this.injector, () =>
+        effect(() => {
+          // Reading resolvedThreadId() here registers it as a signal dependency.
+          // The effect re-runs the moment onThread sets the signal, resolving
+          // the promise with the correct threadId before any upload fires.
+          const id = host.resolveActiveThreadId();
+          if (id) settle(id);
+        })
+      );
+    });
+  }
+
+  private async syncAttachmentToPersistedMessage(
+    idempotencyKey: string,
+    attachment: AgentXAttachment,
+    authToken: string
+  ): Promise<void> {
+    // The backend always returns HTTP 200 on success:
+    //   • { queued: false } → attachment was applied directly to the message
+    //   • { queued: true  } → message not found yet; written to durable outbox
+    //                         and will be reconciled on next thread load
+    // We only retry on transient network/5xx errors (max 2 attempts).
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
+      try {
+        const response = await fetch(
+          `${this.baseUrl}${AGENT_X_ENDPOINTS.MESSAGE_ATTACHMENT_SYNC}`,
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${authToken}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ idempotencyKey, attachment }),
+          }
+        );
+
+        if (response.ok) {
+          return; // Server guarantees eventual persistence (sync or outbox)
+        }
+
+        if (attempt === 2) {
+          const errorText = await response.text().catch(() => 'Attachment sync failed');
+          throw new Error(`HTTP ${response.status}: ${errorText || 'Unknown error'}`);
+        }
+      } catch (error) {
+        if (attempt === 2) {
+          this.logger.warn(
+            'Background attachment sync could not reach server; outbox reconciles on next load if server received the upload',
+            {
+              idempotencyKey,
+              attachmentId: attachment.id,
+              fileName: attachment.name,
+              error: error instanceof Error ? error.message : String(error),
+            }
+          );
+          return;
+        }
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, MESSAGE_ATTACHMENT_SYNC_RETRY_MS));
+    }
+  }
+
+  private discardPendingUpload(pendingId: string): void {
+    const record = this.backgroundUploads.get(pendingId);
+    if (!record) {
+      return;
+    }
+    record.removed = true;
+    this.backgroundUploads.delete(pendingId);
   }
 
   getFileColor(filename: string, alpha: number): string {

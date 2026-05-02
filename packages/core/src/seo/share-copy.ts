@@ -97,6 +97,11 @@ function isTeamManagementRole(role: UserRole | null | undefined): boolean {
   return role === USER_ROLES.COACH || role === USER_ROLES.DIRECTOR;
 }
 
+function hasTeamInviteContext(source: InviteShareSource): boolean {
+  if (source.inviteType === 'team') return true;
+  return Boolean(normalizeText(source.team?.name));
+}
+
 function buildBulletLine(parts: ReadonlyArray<string | null | undefined>): string {
   return parts
     .map((part) => normalizeText(part))
@@ -151,7 +156,7 @@ export function buildInviteShareTitle(source: InviteShareSource): string {
     return teamName ? `Step Into ${teamName} on NXT1` : 'Step Into This Team on NXT1';
   }
 
-  if (isTeamManagementRole(source.senderRole)) {
+  if (isTeamManagementRole(source.senderRole) && hasTeamInviteContext(source)) {
     return 'Run With My Program on NXT1';
   }
 
@@ -166,14 +171,14 @@ export function buildInviteShareText(source: InviteShareSource): string {
     );
   }
 
-  if (source.senderRole === USER_ROLES.DIRECTOR) {
+  if (source.senderRole === USER_ROLES.DIRECTOR && hasTeamInviteContext(source)) {
     return appendIdentityLine(
       'Add your program to our network on NXT1.',
       buildInviteIdentityLine(source)
     );
   }
 
-  if (isTeamManagementRole(source.senderRole)) {
+  if (isTeamManagementRole(source.senderRole) && hasTeamInviteContext(source)) {
     return appendIdentityLine('Join our program on NXT1.', buildInviteIdentityLine(source));
   }
 
@@ -197,7 +202,7 @@ export function buildInviteUiCopy(source: InviteShareSource): InviteUiCopy {
     };
   }
 
-  if (isTeamManagementRole(source.senderRole)) {
+  if (isTeamManagementRole(source.senderRole) && hasTeamInviteContext(source)) {
     return {
       title: 'Run Your Program From One Place',
       subtitle:

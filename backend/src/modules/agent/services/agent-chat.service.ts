@@ -44,6 +44,7 @@ import type {
 } from '@nxt1/core';
 import { AgentThreadModel } from '../../../models/agent/agent-thread.model.js';
 import { AgentMessageModel } from '../../../models/agent/agent-message.model.js';
+import { AgentUploadOutboxModel } from '../../../models/agent/agent-upload-outbox.model.js';
 import { logger } from '../../../utils/logger.js';
 import type { OpenRouterService } from '../llm/openrouter.service.js';
 import type { AgentQueueService } from '../queue/queue.service.js';
@@ -469,6 +470,13 @@ export class AgentChatService {
      * Use a stable composite key such as `${operationId}:final-assistant`.
      */
     idempotencyKey?: string;
+    /**
+     * Semantic phase of this row in the agent's write lifecycle.
+     * When `assistant_final` exists for an operationId, the UI projection
+     * suppresses all `assistant_partial` rows for that same operationId so
+     * pause/resume flows never render two assistant bubbles for one turn.
+     */
+    semanticPhase?: import('@nxt1/core').AgentMessageSemanticPhase;
   }): Promise<AgentMessage> {
     const now = new Date().toISOString();
 
@@ -488,6 +496,7 @@ export class AgentChatService {
       steps: params.steps,
       parts: params.parts,
       tokenUsage: params.tokenUsage,
+      semanticPhase: params.semanticPhase,
       createdAt: now,
     };
 
@@ -594,6 +603,158 @@ export class AgentChatService {
       userId,
       deletedAt: null,
     })
+      .lean()
+      .exec();
+
+    return doc ? this.toMessage(doc) : null;
+  }
+
+  /**
+   * Write an attachment to the durable upload outbox.
+   *
+   * Called by the sync endpoint when the target user message cannot be found
+   * yet (race condition: TUS upload finished, browser called sync, but the
+   * `/chat` POST that persists the message hasn't committed yet).
+   *
+   * The thread-load reconciler (reconcileUploadOutboxForThread) applies
+   * pending entries automatically on the next GET /threads/:threadId/messages.
+   */
+  async queueAttachmentSync(params: {
+    userId: string;
+    idempotencyKey: string;
+    attachment: AgentXAttachment;
+  }): Promise<void> {
+    const now = new Date().toISOString();
+    await AgentUploadOutboxModel.create({
+      userId: params.userId,
+      idempotencyKey: params.idempotencyKey,
+      attachment: params.attachment,
+      status: 'pending',
+      createdAt: now,
+    });
+
+    logger.info('[AgentChatService] Upload attachment queued to outbox', {
+      idempotencyKey: params.idempotencyKey,
+      attachmentId: params.attachment.id,
+      userId: params.userId,
+    });
+  }
+
+  /**
+   * Reconcile pending upload-outbox entries for a loaded thread.
+   *
+   * Collects idempotency keys from user messages, finds matching pending
+   * outbox entries, applies each one via syncMessageAttachmentByIdempotencyKey,
+   * and marks them synced. Returns the updated message array.
+   *
+   * Safe to call on every thread-messages load — it is a no-op when the
+   * outbox has no pending entries for this user.
+   */
+  async reconcileUploadOutboxForThread(params: {
+    userId: string;
+    messages: AgentMessage[];
+  }): Promise<AgentMessage[]> {
+    const { userId, messages } = params;
+
+    // Collect idempotency keys present on user messages
+    const idempotencyKeys = messages
+      .filter(
+        (m) =>
+          m.role === 'user' &&
+          typeof (m as unknown as Record<string, unknown>)['idempotencyKey'] === 'string'
+      )
+      .map((m) => (m as unknown as Record<string, unknown>)['idempotencyKey'] as string);
+
+    if (idempotencyKeys.length === 0) return messages;
+
+    const pendingEntries = await AgentUploadOutboxModel.find({
+      userId,
+      idempotencyKey: { $in: idempotencyKeys },
+      status: 'pending',
+    })
+      .lean()
+      .exec();
+
+    if (pendingEntries.length === 0) return messages;
+
+    logger.info('[AgentChatService] Reconciling upload outbox entries for thread', {
+      userId,
+      pendingCount: pendingEntries.length,
+    });
+
+    let updatedMessages = [...messages];
+    const syncedAt = new Date().toISOString();
+
+    for (const entry of pendingEntries) {
+      try {
+        const updated = await this.syncMessageAttachmentByIdempotencyKey({
+          userId,
+          idempotencyKey: entry.idempotencyKey,
+          attachment: entry.attachment as AgentXAttachment,
+        });
+
+        if (updated) {
+          await AgentUploadOutboxModel.updateOne(
+            { _id: entry._id },
+            { $set: { status: 'synced', syncedAt } }
+          ).exec();
+
+          updatedMessages = updatedMessages.map((m) => (m.id === updated.id ? updated : m));
+
+          logger.info('[AgentChatService] Upload outbox entry reconciled', {
+            idempotencyKey: entry.idempotencyKey,
+            attachmentId: (entry.attachment as AgentXAttachment).id,
+            messageId: updated.id,
+          });
+        }
+      } catch (err) {
+        logger.warn('[AgentChatService] Failed to reconcile upload outbox entry', {
+          idempotencyKey: entry.idempotencyKey,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
+    return updatedMessages;
+  }
+
+  async syncMessageAttachmentByIdempotencyKey(params: {
+    userId: string;
+    idempotencyKey: string;
+    attachment: AgentXAttachment;
+  }): Promise<AgentMessage | null> {
+    const existing = await AgentMessageModel.findOne({
+      userId: params.userId,
+      idempotencyKey: params.idempotencyKey,
+      role: 'user',
+      deletedAt: null,
+    })
+      .lean()
+      .exec();
+
+    if (!existing) {
+      return null;
+    }
+
+    const currentAttachments = Array.isArray(existing.attachments) ? existing.attachments : [];
+    const nextAttachments = [
+      ...currentAttachments.filter((attachment) => attachment?.id !== params.attachment.id),
+      params.attachment,
+    ];
+
+    const doc = await AgentMessageModel.findOneAndUpdate(
+      {
+        _id: existing._id,
+        userId: params.userId,
+        deletedAt: null,
+      },
+      {
+        $set: {
+          attachments: nextAttachments,
+        },
+      },
+      { new: true }
+    )
       .lean()
       .exec();
 
@@ -905,6 +1066,7 @@ export class AgentChatService {
       deletedBy: doc.deletedBy,
       restoreTokenId: doc.restoreTokenId,
       createdAt: doc.createdAt,
+      semanticPhase: doc.semanticPhase,
     };
   }
 }

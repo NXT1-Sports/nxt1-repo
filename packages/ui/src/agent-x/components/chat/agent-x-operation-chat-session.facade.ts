@@ -1,11 +1,6 @@
 import { Injectable, inject, signal, type WritableSignal } from '@angular/core';
-import type { AgentYieldState } from '@nxt1/core';
-import type {
-  AgentXMessagePart,
-  AgentXRichCard,
-  AgentXStreamMediaEvent,
-  AgentXToolStep,
-} from '@nxt1/core/ai';
+import type { AgentMessage, AgentYieldState, AgentXAttachment } from '@nxt1/core';
+import type { AgentXRichCard, AgentXStreamMediaEvent, AgentXToolStep } from '@nxt1/core/ai';
 import { AgentXStreamRegistryService } from '../../services/agent-x-stream-registry.service';
 import {
   AgentXOperationEventService,
@@ -15,7 +10,11 @@ import { AgentXService } from '../../services/agent-x.service';
 import { HapticsService } from '../../../services/haptics/haptics.service';
 import { NxtLoggingService } from '../../../services/logging/logging.service';
 import { NxtBreadcrumbService } from '../../../services/breadcrumb/breadcrumb.service';
-import type { PendingFile, OperationMessage } from './agent-x-operation-chat.models';
+import type {
+  MessageAttachment,
+  PendingFile,
+  OperationMessage,
+} from './agent-x-operation-chat.models';
 import { AgentXOperationChatMessageFacade } from './agent-x-operation-chat-message.facade';
 import {
   AgentXOperationChatTransportFacade,
@@ -47,6 +46,24 @@ export interface AgentXOperationChatSessionFacadeHost {
   readonly resolvedThreadId: WritableSignal<string | null>;
   readonly activeYieldState: WritableSignal<AgentYieldState | null>;
   readonly yieldResolved: WritableSignal<boolean>;
+  setActivityPhase(
+    phase:
+      | 'idle'
+      | 'sending'
+      | 'connected'
+      | 'streaming'
+      | 'running_tool'
+      | 'waiting_delta'
+      | 'reconnecting'
+      | 'paused'
+      | 'awaiting_input'
+      | 'awaiting_approval'
+      | 'completed'
+      | 'failed'
+      | 'cancelled',
+    label?: string | null
+  ): void;
+  markActivityPulse(label?: string | null): void;
   getOperationStatus(): OperationStatus;
   setOperationStatus(status: OperationStatus): void;
   getCurrentOperationId(): string | null;
@@ -104,6 +121,171 @@ export class AgentXOperationChatSessionFacade {
     return cards.map((card) => JSON.stringify(card)).join('||');
   }
 
+  private mediaSignature(message: OperationMessage): string {
+    const attachmentSignature = (message.attachments ?? [])
+      .map((attachment) => `${attachment.type}|${attachment.url}`)
+      .sort()
+      .join('||');
+    return `${message.imageUrl ?? ''}|${message.videoUrl ?? ''}|${attachmentSignature}`;
+  }
+
+  private inferMediaTypeFromUrl(url: string): 'image' | 'video' | null {
+    const lowerUrl = url.toLowerCase();
+    if (/(\.png|\.jpe?g|\.gif|\.webp|\.avif|\.bmp|\.svg)(?:\?|#|$)/i.test(lowerUrl)) {
+      return 'image';
+    }
+    if (
+      /(\.mp4|\.mov|\.m4v|\.webm|\.avi|\.mkv|\.m3u8)(?:\?|#|$)/i.test(lowerUrl) ||
+      /videodelivery\.net\//i.test(lowerUrl)
+    ) {
+      return 'video';
+    }
+
+    return null;
+  }
+
+  private extractMediaUrlsFromResultData(resultData: AgentMessage['resultData']): string[] {
+    if (!resultData) return [];
+
+    const mediaUrls = new Set<string>();
+    const pushUrl = (value: unknown): void => {
+      if (typeof value !== 'string') return;
+      const trimmed = value.trim();
+      if (!/^https?:\/\//i.test(trimmed)) return;
+      mediaUrls.add(trimmed);
+    };
+
+    for (const key of ['persistedMediaUrls', 'mediaUrls', 'imageUrls', 'videoUrls'] as const) {
+      const value = resultData[key];
+      if (!Array.isArray(value)) continue;
+      for (const url of value) pushUrl(url);
+    }
+
+    const files = resultData['files'];
+    if (Array.isArray(files)) {
+      for (const file of files) {
+        if (!file || typeof file !== 'object') continue;
+        const record = file as Record<string, unknown>;
+        pushUrl(record['url']);
+        pushUrl(record['downloadUrl']);
+      }
+    }
+
+    return [...mediaUrls];
+  }
+
+  private mapPersistedAttachment(attachment: AgentXAttachment): {
+    url: string;
+    name: string;
+    type: 'image' | 'video' | 'doc' | 'app';
+    platform?: string;
+    faviconUrl?: string;
+  } {
+    const mappedType: 'image' | 'video' | 'doc' | 'app' =
+      attachment.type === 'image'
+        ? 'image'
+        : attachment.type === 'video'
+          ? 'video'
+          : attachment.type === 'app'
+            ? 'app'
+            : 'doc';
+
+    return {
+      url: attachment.url,
+      name: attachment.name,
+      type: mappedType,
+      ...(attachment.platform ? { platform: attachment.platform } : {}),
+      ...(attachment.faviconUrl ? { faviconUrl: attachment.faviconUrl } : {}),
+    };
+  }
+
+  private collectMessageMedia(message: AgentMessage): {
+    imageUrl?: string;
+    videoUrl?: string;
+    attachments?: OperationMessage['attachments'];
+  } {
+    const explicitImageUrl =
+      typeof message.resultData?.['imageUrl'] === 'string'
+        ? (message.resultData['imageUrl'] as string)
+        : undefined;
+    const explicitVideoUrl =
+      typeof message.resultData?.['videoUrl'] === 'string'
+        ? (message.resultData['videoUrl'] as string)
+        : typeof message.resultData?.['outputUrl'] === 'string'
+          ? (message.resultData['outputUrl'] as string)
+          : undefined;
+
+    const persistedAttachments = (message.attachments ?? []).map((attachment) =>
+      this.mapPersistedAttachment(attachment as AgentXAttachment)
+    );
+    const attachmentKeySet = new Set(
+      persistedAttachments.map((attachment) => `${attachment.type}|${attachment.url}`)
+    );
+
+    const resultDataAttachments = this.extractMediaUrlsFromResultData(message.resultData)
+      .map((url, index) => {
+        const mediaType = this.inferMediaTypeFromUrl(url);
+        if (!mediaType) return null;
+        return {
+          url,
+          name:
+            mediaType === 'video' ? `media-video-${index + 1}.mp4` : `media-image-${index + 1}.jpg`,
+          type: mediaType,
+        } as const;
+      })
+      .filter(
+        (attachment): attachment is { url: string; name: string; type: 'image' | 'video' } =>
+          attachment !== null
+      )
+      .filter((attachment) => {
+        const key = `${attachment.type}|${attachment.url}`;
+        if (attachmentKeySet.has(key)) return false;
+        attachmentKeySet.add(key);
+        return true;
+      });
+
+    const attachments = [...persistedAttachments, ...resultDataAttachments];
+    const firstImageUrl =
+      explicitImageUrl ?? attachments.find((attachment) => attachment.type === 'image')?.url;
+    const firstVideoUrl =
+      explicitVideoUrl ?? attachments.find((attachment) => attachment.type === 'video')?.url;
+
+    return {
+      ...(firstImageUrl ? { imageUrl: firstImageUrl } : {}),
+      ...(firstVideoUrl ? { videoUrl: firstVideoUrl } : {}),
+      ...(attachments.length > 0 ? { attachments } : {}),
+    };
+  }
+
+  private mergeLiveMediaIntoTypingMessage(media: AgentXStreamMediaEvent): void {
+    this.messageFacade.messages.update((messages) =>
+      messages.map((message) => {
+        if (message.id !== 'typing') return message;
+
+        const mediaType: 'image' | 'video' = media.type === 'video' ? 'video' : 'image';
+        const existingAttachments = [...(message.attachments ?? [])];
+        const alreadyPresent = existingAttachments.some(
+          (attachment) => attachment.url === media.url && attachment.type === mediaType
+        );
+        const newAttachment: MessageAttachment = {
+          url: media.url,
+          type: mediaType,
+          name: mediaType === 'video' ? 'stream-video.mp4' : 'stream-image.jpg',
+        };
+        const nextAttachments = alreadyPresent
+          ? existingAttachments
+          : [...existingAttachments, newAttachment];
+
+        return {
+          ...message,
+          ...(mediaType === 'image' && !message.imageUrl ? { imageUrl: media.url } : {}),
+          ...(mediaType === 'video' && !message.videoUrl ? { videoUrl: media.url } : {}),
+          ...(nextAttachments.length > 0 ? { attachments: nextAttachments } : {}),
+        };
+      })
+    );
+  }
+
   private dedupeConsecutiveAssistantMessages(
     messages: readonly OperationMessage[]
   ): OperationMessage[] {
@@ -127,8 +309,9 @@ export class AgentXOperationChatSessionFacade {
         this.normalizeMessageContent(previous.content);
       const sameSteps = this.stepSignature(message.steps) === this.stepSignature(previous.steps);
       const sameCards = this.cardSignature(message.cards) === this.cardSignature(previous.cards);
+      const sameMedia = this.mediaSignature(message) === this.mediaSignature(previous);
 
-      if (sameOperation && sameContent && sameSteps && sameCards) {
+      if (sameOperation && sameContent && sameSteps && sameCards && sameMedia) {
         continue;
       }
 
@@ -136,6 +319,99 @@ export class AgentXOperationChatSessionFacade {
     }
 
     return deduped;
+  }
+
+  /**
+   * Phase-aware projection: given the raw persisted rows for a thread,
+   * suppress `assistant_partial` rows for any `operationId` that already
+   * has an `assistant_final` row.
+   *
+   * Also handles **legacy rows** (written before `semanticPhase` was added)
+   * via a richness-based heuristic: when multiple untagged assistant rows
+   * share the same `operationId`, only the richest one is kept. "Richness" is
+   * ranked as: has resultData > has steps > has toolCalls > longest content.
+   * The richest row is always the final persist (worker writes it last with full
+   * metadata); the earlier partial-snapshot row has none of those fields.
+   *
+   * This is the root fix for the pause/resume double-bubble bug:
+   *   1. Job pauses  → worker writes partial snapshot (no steps/resultData)
+   *   2. User resumes → job completes → worker writes final row (full metadata)
+   *   3. On next thread load both rows existed → two visible bubbles ← FIXED HERE
+   *
+   * `assistant_yield` rows are never suppressed — they carry distinct
+   * user-facing prompts that the user must respond to.
+   */
+  private resolveCanonicalAssistantRows(items: readonly AgentMessage[]): readonly AgentMessage[] {
+    // ── Pass 1: phase-tagged rows (new writes) ────────────────────────────
+    const finalOperationIds = new Set<string>();
+    for (const item of items) {
+      if (
+        item.role === 'assistant' &&
+        item.semanticPhase === 'assistant_final' &&
+        item.operationId
+      ) {
+        finalOperationIds.add(item.operationId);
+      }
+    }
+
+    // ── Pass 2: legacy rows (no semanticPhase) ───────────────────────────
+    // Collect operationIds that appear on multiple untagged assistant rows.
+    const legacyMultiMap = new Map<string, AgentMessage[]>();
+    for (const item of items) {
+      if (
+        item.role === 'assistant' &&
+        !item.semanticPhase &&
+        item.operationId &&
+        !finalOperationIds.has(item.operationId)
+      ) {
+        const bucket = legacyMultiMap.get(item.operationId) ?? [];
+        bucket.push(item);
+        legacyMultiMap.set(item.operationId, bucket);
+      }
+    }
+
+    // For each legacy operationId with >1 rows, pick the richest one to keep.
+    const legacySuppressedIds = new Set<string>();
+    for (const [, bucket] of legacyMultiMap) {
+      if (bucket.length < 2) continue;
+      const richest = bucket.reduce((best, candidate) => {
+        return this.assistantRowRichness(candidate) >= this.assistantRowRichness(best)
+          ? candidate
+          : best;
+      });
+      for (const row of bucket) {
+        if (row.id !== richest.id) legacySuppressedIds.add(row.id);
+      }
+    }
+
+    if (finalOperationIds.size === 0 && legacySuppressedIds.size === 0) return items;
+
+    return items.filter((item) => {
+      if (item.role !== 'assistant') return true;
+
+      // When assistant_final exists for this operationId, keep only the final
+      // row and any yield rows (user-facing yield prompts). Suppress everything
+      // else — including assistant_partial snapshots and untagged trajectory
+      // rows written by ThreadMessageWriter — to prevent duplicate bubbles.
+      if (item.operationId && finalOperationIds.has(item.operationId)) {
+        return item.semanticPhase === 'assistant_final' || item.semanticPhase === 'assistant_yield';
+      }
+
+      // Suppress non-richest legacy duplicates (untagged rows with no final).
+      if (legacySuppressedIds.has(item.id)) return false;
+      return true;
+    });
+  }
+
+  /** Numeric richness score for a persisted assistant row. Higher = better. */
+  private assistantRowRichness(msg: AgentMessage): number {
+    let score = 0;
+    if (msg.resultData && Object.keys(msg.resultData).length > 0) score += 1000;
+    if ((msg.steps?.length ?? 0) > 0) score += 100 * (msg.steps?.length ?? 0);
+    if ((msg.toolCalls?.length ?? 0) > 0) score += 50 * (msg.toolCalls?.length ?? 0);
+    if ((msg.parts?.length ?? 0) > 0) score += 20 * (msg.parts?.length ?? 0);
+    score += Math.min(msg.content?.length ?? 0, 500);
+    return score;
   }
 
   configure(host: AgentXOperationChatSessionFacadeHost): void {
@@ -245,6 +521,10 @@ export class AgentXOperationChatSessionFacade {
     const host = this.requireHost();
     const operationId = explicitOperationId ?? host.contextId();
     if (!operationId?.trim() || host.getActiveFirestoreSub()) return;
+    // Bug C: prevent a Firestore subscription from opening alongside an active SSE
+    // stream registry entry — both would write to the same typing bubble simultaneously.
+    const resolvedThreadId = host.resolvedThreadId();
+    if (resolvedThreadId && this.streamRegistry.hasActiveStream(resolvedThreadId)) return;
 
     this.transportFacade.beginResponseTurn('firestore-subscribe');
 
@@ -259,6 +539,7 @@ export class AgentXOperationChatSessionFacade {
 
     if (!this.messageFacade.messages().some((message) => message.id === 'typing')) {
       host.loading.set(true);
+      host.setActivityPhase('reconnecting', 'Reconnecting...');
       this.messageFacade.messages.update((messages) => [
         ...messages,
         {
@@ -276,6 +557,7 @@ export class AgentXOperationChatSessionFacade {
         operationId,
         {
           onDelta: (text) => {
+            host.markActivityPulse();
             if (deltaWatermark) {
               const start = deltaWatermark.confirmedChars;
               deltaWatermark.confirmedChars += text.length;
@@ -295,6 +577,12 @@ export class AgentXOperationChatSessionFacade {
           onStep: (step) => {
             this.messageFacade.flushPendingTypingDelta();
             if (!step.label.trim()) return;
+            if (step.status === 'active') {
+              host.setActivityPhase('running_tool', step.detail?.trim() || step.label);
+            } else {
+              host.setActivityPhase('waiting_delta', step.detail?.trim() || step.label);
+              host.markActivityPulse(step.detail?.trim() || step.label);
+            }
             this.messageFacade.messages.update((messages) =>
               messages.map((message) => {
                 if (message.id !== 'typing') return message;
@@ -330,28 +618,18 @@ export class AgentXOperationChatSessionFacade {
             );
           },
           onMedia: (media) => {
-            this.messageFacade.flushPendingTypingDelta();
-            const mediaPart: AgentXMessagePart =
-              media.type === 'video'
-                ? { type: 'video', url: media.url }
-                : { type: 'image', url: media.url };
-
-            this.messageFacade.messages.update((messages) =>
-              messages.map((message) =>
-                message.id === 'typing'
-                  ? { ...message, parts: [...(message.parts ?? []), mediaPart] }
-                  : message
-              )
-            );
+            this.mergeLiveMediaIntoTypingMessage(media);
           },
           onProgress: (event) => {
             const message = typeof event.message === 'string' ? event.message.trim() : '';
             if (!message) return;
             host.latestProgressLabel.set(message);
+            host.markActivityPulse(message);
           },
           onDone: (event) => {
             this.messageFacade.flushPendingTypingDelta();
             host.latestProgressLabel.set(null);
+            host.setActivityPhase('completed');
             this.messageFacade.finalizeStreamedAssistantMessage({
               streamingId: 'typing',
               messageId: event.messageId,
@@ -368,6 +646,7 @@ export class AgentXOperationChatSessionFacade {
           },
           onError: (error) => {
             host.latestProgressLabel.set(null);
+            host.setActivityPhase('failed', error);
             this.messageFacade.replaceTyping({
               id: host.uid(),
               role: 'assistant',
@@ -424,7 +703,12 @@ export class AgentXOperationChatSessionFacade {
         return;
       }
 
-      const mapped: OperationMessage[] = items
+      // Phase K (single-bubble guarantee): resolve the canonical set of rows
+      // before mapping. Suppresses assistant_partial rows when assistant_final
+      // exists for the same operationId (pause/resume double-bubble fix).
+      const canonicalItems = this.resolveCanonicalAssistantRows(items);
+
+      const mapped: OperationMessage[] = canonicalItems
         // Phase J (thread-as-truth): tool/system rows are persisted
         // for backend replay only — they must not render as chat
         // bubbles. Filter them out at the boundary.
@@ -466,19 +750,30 @@ export class AgentXOperationChatSessionFacade {
                   : part
             ) ?? [];
 
-          const derivedMediaParts = this.extractMediaPartsFromPersistedMessage({
-            content: message.content,
-            resultData: message.resultData,
-          });
-          const mergedParts = this.mergeMediaParts(persistedParts, derivedMediaParts);
-
           // Derive the `cards` array from card-type parts so render methods
           // that read `message.cards` directly (messageCardsForBubble,
           // executionPlanCard, etc.) work correctly on reload — not just
           // during the live stream where cards are pushed to both arrays.
-          const persistedCards: AgentXRichCard[] = mergedParts
+          const persistedCards: AgentXRichCard[] = persistedParts
             .filter((part): part is { type: 'card'; card: AgentXRichCard } => part.type === 'card')
             .map((part) => part.card);
+
+          const persistedMedia = this.collectMessageMedia(message);
+
+          const persistedYieldState = this.coercePersistedYieldState(
+            message.resultData?.['yieldState']
+          );
+          const persistedYieldCardStateRaw = message.resultData?.['yieldCardState'];
+          const persistedYieldCardState =
+            persistedYieldCardStateRaw === 'idle' ||
+            persistedYieldCardStateRaw === 'submitting' ||
+            persistedYieldCardStateRaw === 'resolved'
+              ? persistedYieldCardStateRaw
+              : undefined;
+          const persistedYieldResolvedText =
+            typeof message.resultData?.['yieldResolvedText'] === 'string'
+              ? (message.resultData['yieldResolvedText'] as string)
+              : undefined;
 
           return {
             id: message.id ?? host.uid(),
@@ -492,34 +787,21 @@ export class AgentXOperationChatSessionFacade {
             content: message.content.replace(/\n\n\[Attached (?:file|video): .+/gs, '').trim(),
             timestamp: message.createdAt ? new Date(message.createdAt) : new Date(),
             ...(persistedSteps.length > 0 ? { steps: persistedSteps } : {}),
-            ...(mergedParts.length > 0 ? { parts: mergedParts } : {}),
+            ...(persistedParts.length > 0 ? { parts: persistedParts } : {}),
             ...(persistedCards.length > 0 ? { cards: persistedCards } : {}),
-            ...(typeof message.resultData?.['imageUrl'] === 'string'
-              ? { imageUrl: message.resultData['imageUrl'] as string }
+            ...(persistedYieldState ? { yieldState: persistedYieldState } : {}),
+            ...(persistedYieldCardState ? { yieldCardState: persistedYieldCardState } : {}),
+            ...(persistedYieldResolvedText
+              ? { yieldResolvedText: persistedYieldResolvedText }
               : {}),
-            ...(typeof message.resultData?.['videoUrl'] === 'string'
-              ? { videoUrl: message.resultData['videoUrl'] as string }
-              : {}),
-            ...((message.attachments?.length ?? 0) > 0
-              ? {
-                  attachments: (message.attachments ?? []).map((attachment) => ({
-                    url: attachment.url,
-                    name: attachment.name,
-                    type: (attachment.type === 'image'
-                      ? 'image'
-                      : attachment.type === 'video'
-                        ? 'video'
-                        : 'doc') as 'image' | 'video' | 'doc',
-                  })),
-                }
-              : {}),
+            ...persistedMedia,
           };
         });
 
       const dedupedMapped = this.dedupeConsecutiveAssistantMessages(mapped);
       this.messageFacade.messages.set(dedupedMapped);
 
-      const latestMessageOperationId = [...items]
+      const latestMessageOperationId = [...canonicalItems]
         .reverse()
         .map((message) =>
           typeof message.operationId === 'string' ? message.operationId.trim() : ''
@@ -530,15 +812,20 @@ export class AgentXOperationChatSessionFacade {
       }
 
       if (persistedPendingYieldState) {
+        // applyPendingYieldState already calls upsertInlineYieldMessage internally
+        // with the correct operationId — do NOT call it again or a second message
+        // with a different operationId would create a duplicate action card.
         this.applyPendingYieldState(persistedPendingYieldState, threadId, 'thread-metadata');
-      }
-
-      const activeYield = host.activeYieldState();
-      if (activeYield) {
-        this.messageFacade.upsertInlineYieldMessage(
-          activeYield,
-          host.getCurrentOperationId() ?? host.contextId()
-        );
+      } else {
+        // No persisted yield from thread metadata — sync any pre-existing active
+        // yield that arrived via live SSE before this thread history load completed.
+        const activeYield = host.activeYieldState();
+        if (activeYield) {
+          this.messageFacade.upsertInlineYieldMessage(
+            activeYield,
+            host.getCurrentOperationId() ?? host.contextId()
+          );
+        }
       }
 
       const hadUser = dedupedMapped.some((message) => message.role === 'user');
@@ -561,29 +848,56 @@ export class AgentXOperationChatSessionFacade {
         !host.activeYieldState()
       ) {
         let pendingYieldState: AgentYieldState | null = null;
+        let latestLifecycleStatus:
+          | 'queued'
+          | 'running'
+          | 'paused'
+          | 'awaiting_input'
+          | 'awaiting_approval'
+          | 'complete'
+          | 'failed'
+          | 'cancelled'
+          | null = null;
 
         const operationId = this.resolveFirestoreOperationId();
         if (operationId) {
           const stored = await this.operationEventService.getStoredEventState(operationId);
           pendingYieldState = stored.latestYieldState;
+          latestLifecycleStatus = stored.latestLifecycleStatus;
         }
 
         if (pendingYieldState) {
           this.applyPendingYieldState(pendingYieldState, threadId, 'firestore-fallback');
-        } else {
-          this.logger.info(
-            'Thread content proves job complete — reconciling stale in-progress status',
-            {
-              threadId,
-              contextId: host.contextId(),
-            }
-          );
-          host.setOperationStatus('complete');
+        } else if (latestLifecycleStatus) {
+          const reconciledStatus =
+            latestLifecycleStatus === 'queued' || latestLifecycleStatus === 'running'
+              ? 'processing'
+              : latestLifecycleStatus === 'failed'
+                ? 'error'
+                : latestLifecycleStatus === 'cancelled'
+                  ? 'complete'
+                  : latestLifecycleStatus;
+
+          host.setOperationStatus(reconciledStatus);
           this.operationEventService.emitOperationStatusUpdated(
             threadId,
-            'complete',
+            latestLifecycleStatus,
             new Date().toISOString()
           );
+
+          this.logger.info('Reconciled operation status from stored lifecycle state', {
+            threadId,
+            contextId: host.contextId(),
+            lifecycleStatus: latestLifecycleStatus,
+            reconciledStatus,
+          });
+        } else {
+          // No persisted lifecycle/yield evidence found yet. Keep processing so
+          // the upstream middle shimmer remains visible while waiting for more events.
+          this.logger.info('Keeping operation in processing while awaiting upstream events', {
+            threadId,
+            contextId: host.contextId(),
+          });
         }
       }
 
@@ -629,6 +943,23 @@ export class AgentXOperationChatSessionFacade {
     const snapshot = this.streamRegistry.claim(threadId, {
       onDelta: (text) => {
         this.messageFacade.queueTypingDelta(text);
+      },
+      onThinking: (content) => {
+        this.messageFacade.messages.update((messages) =>
+          messages.map((message) => {
+            if (message.id !== 'typing') return message;
+            const prevParts = message.parts ?? [];
+            const last = prevParts[prevParts.length - 1];
+            const nextParts =
+              last?.type === 'thinking'
+                ? [
+                    ...prevParts.slice(0, -1),
+                    { type: 'thinking' as const, content: last.content + content },
+                  ]
+                : [...prevParts, { type: 'thinking' as const, content }];
+            return { ...message, parts: nextParts };
+          })
+        );
       },
       onStep: (step) => {
         this.messageFacade.flushPendingTypingDelta();
@@ -717,11 +1048,45 @@ export class AgentXOperationChatSessionFacade {
                 error: true,
               },
             ]);
+          } else if (fresh.content) {
+            // Bug B: stream completed while loadThreadMessages was in-flight.
+            // finalizeStreamedAssistantMessage was a no-op (no typing bubble existed yet).
+            // Inject the final response now if Firestore history hasn't caught up.
+            const alreadyPresent = this.messageFacade
+              .messages()
+              .some(
+                (m) =>
+                  m.role === 'assistant' &&
+                  !m.isTyping &&
+                  this.normalizeMessageContent(m.content) ===
+                    this.normalizeMessageContent(fresh.content)
+              );
+            if (!alreadyPresent) {
+              this.messageFacade.messages.update((messages) => [
+                ...messages,
+                {
+                  id: host.uid(),
+                  role: 'assistant',
+                  content: fresh.content,
+                  timestamp: new Date(),
+                  isTyping: false,
+                  steps: fresh.steps.length > 0 ? [...fresh.steps] : undefined,
+                  cards: fresh.cards.length > 0 ? [...fresh.cards] : undefined,
+                  parts: fresh.parts.length > 0 ? [...fresh.parts] : undefined,
+                },
+              ]);
+            }
+            host.loading.set(false);
+            this.transportFacade.emitResponseCompleteOnce('stream-registry-rehydrate-done');
           }
           return;
         }
 
         if (fresh.content || fresh.steps.length || fresh.cards.length) {
+          // Bug A: cancel any RAF-buffered delta that accumulated between claim() and
+          // this bubble insert. fresh.content already has all content from the registry,
+          // so the pending delta would be double-counted if the RAF fired after insertion.
+          this.messageFacade.clearPendingTypingDelta();
           this.messageFacade.messages.update((messages) => {
             // Guard: if a finalized (non-typing) assistant message already has
             // this exact content, the operation completed before we arrived
@@ -826,7 +1191,9 @@ export class AgentXOperationChatSessionFacade {
                 content: stored.content,
                 timestamp: new Date(),
                 isTyping: false,
-                steps: stored.steps.length > 0 ? stored.steps : undefined,
+                steps: stored.steps.length > 0 ? [...stored.steps] : undefined,
+                parts: stored.parts.length > 0 ? [...stored.parts] : undefined,
+                cards: stored.cards.length > 0 ? [...stored.cards] : undefined,
               },
             ]);
           }
@@ -839,13 +1206,10 @@ export class AgentXOperationChatSessionFacade {
           return;
         }
 
-        const storedParts: AgentXMessagePart[] = [];
-        if (stored.steps.length > 0) {
-          storedParts.push({ type: 'tool-steps', steps: stored.steps });
-        }
-        if (stored.content) {
-          storedParts.push({ type: 'text', content: stored.content });
-        }
+        // Phase 5: use stored.parts directly — getStoredEventState now builds parts
+        // in seq order (same merge logic as the SSE stream registry) so text, tools,
+        // and cards are interleaved at their exact positions. No manual storedParts
+        // construction here that would hardcode tools-first/text-last order.
         this.messageFacade.messages.update((messages) => {
           if (messages.some((message) => message.id === 'typing')) return messages;
           return [
@@ -857,7 +1221,8 @@ export class AgentXOperationChatSessionFacade {
               timestamp: new Date(),
               isTyping: !stored.content,
               steps: stored.steps.length > 0 ? [...stored.steps] : undefined,
-              parts: storedParts.length > 0 ? storedParts : undefined,
+              parts: stored.parts.length > 0 ? [...stored.parts] : undefined,
+              cards: stored.cards.length > 0 ? [...stored.cards] : undefined,
             },
           ];
         });
@@ -965,114 +1330,6 @@ export class AgentXOperationChatSessionFacade {
       timestamp: new Date(),
       error: true,
     });
-  }
-
-  private isHttpUrl(value: string): boolean {
-    return /^https?:\/\//i.test(value);
-  }
-
-  private inferMediaType(url: string, mimeType?: string): 'image' | 'video' | null {
-    const lowerMime = (mimeType ?? '').toLowerCase();
-    if (lowerMime.startsWith('image/')) return 'image';
-    if (lowerMime.startsWith('video/')) return 'video';
-
-    const lowerUrl = url.toLowerCase();
-    if (/\.(png|jpe?g|gif|webp|avif|bmp|svg)(?:\?|#|$)/i.test(lowerUrl)) return 'image';
-    if (/\.(mp4|mov|m4v|webm|avi|mkv|m3u8)(?:\?|#|$)/i.test(lowerUrl)) return 'video';
-    if (/videodelivery\.net\//i.test(lowerUrl)) return 'video';
-    return null;
-  }
-
-  private extractMediaUrlsFromText(content: string): readonly AgentXStreamMediaEvent[] {
-    if (!content.trim()) return [];
-    const seen = new Set<string>();
-    const media: AgentXStreamMediaEvent[] = [];
-    const matches = content.match(/https?:\/\/[^\s)\]"']+/gi) ?? [];
-    for (const rawUrl of matches) {
-      const url = rawUrl.trim();
-      if (!url || !this.isHttpUrl(url)) continue;
-      const type = this.inferMediaType(url);
-      if (!type) continue;
-      const key = `${type}|${url}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      media.push({ type, url });
-    }
-    return media;
-  }
-
-  private extractMediaPartsFromPersistedMessage(message: {
-    content: string;
-    resultData?: Record<string, unknown> | null;
-  }): AgentXMessagePart[] {
-    const mediaEvents: AgentXStreamMediaEvent[] = [];
-    const seen = new Set<string>();
-
-    const push = (urlValue: unknown, mimeTypeValue?: unknown, forcedType?: 'image' | 'video') => {
-      if (typeof urlValue !== 'string') return;
-      const url = urlValue.trim();
-      if (!url || !this.isHttpUrl(url)) return;
-      const mimeType = typeof mimeTypeValue === 'string' ? mimeTypeValue : undefined;
-      const type = forcedType ?? this.inferMediaType(url, mimeType);
-      if (!type) return;
-      const key = `${type}|${url}`;
-      if (seen.has(key)) return;
-      seen.add(key);
-      mediaEvents.push({ type, url, ...(mimeType ? { mimeType } : {}) });
-    };
-
-    const resultData = message.resultData;
-    if (resultData && typeof resultData === 'object') {
-      push(resultData['imageUrl'], resultData['mimeType'], 'image');
-      push(resultData['videoUrl'], resultData['mimeType'], 'video');
-      push(resultData['url'], resultData['mimeType']);
-      push(resultData['publicUrl'], resultData['mimeType']);
-      push(resultData['downloadUrl'], resultData['mimeType']);
-
-      const imageUrls = resultData['imageUrls'];
-      if (Array.isArray(imageUrls)) {
-        for (const url of imageUrls) push(url, resultData['mimeType'], 'image');
-      }
-
-      const videoUrls = resultData['videoUrls'];
-      if (Array.isArray(videoUrls)) {
-        for (const url of videoUrls) push(url, resultData['mimeType'], 'video');
-      }
-    }
-
-    const textMedias = this.extractMediaUrlsFromText(message.content);
-    for (const media of textMedias) {
-      push(media.url, media.mimeType, media.type);
-    }
-
-    return mediaEvents.map((media) =>
-      media.type === 'video'
-        ? ({ type: 'video', url: media.url } as const)
-        : ({ type: 'image', url: media.url } as const)
-    );
-  }
-
-  private mergeMediaParts(
-    parts: readonly AgentXMessagePart[],
-    mediaParts: readonly AgentXMessagePart[]
-  ): AgentXMessagePart[] {
-    if (mediaParts.length === 0) return [...parts];
-    const merged = [...parts];
-    const existing = new Set(
-      parts
-        .filter((part) => part.type === 'image' || part.type === 'video')
-        .map((part) => `${part.type}|${part.url}`)
-    );
-
-    for (const mediaPart of mediaParts) {
-      if (mediaPart.type !== 'image' && mediaPart.type !== 'video') continue;
-      const key = `${mediaPart.type}|${mediaPart.url}`;
-      if (existing.has(key)) continue;
-      existing.add(key);
-      merged.push(mediaPart);
-    }
-
-    return merged;
   }
 
   private requireHost(): AgentXOperationChatSessionFacadeHost {

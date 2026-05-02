@@ -336,4 +336,125 @@ router.post('/cron/refresh-help-center', cronGuard, async (_req: Request, res: R
   })();
 });
 
+// ─── POST /cron/cleanup-tmp-media ────────────────────────────────────────────
+// Deletes Firebase Storage files whose path contains a /tmp/ segment and that
+// were created more than TMP_TTL_DAYS ago. Covers both thread-scoped tmp files
+// (Users/{uid}/threads/{threadId}/tmp/) and unbound tmp files
+// (Users/{uid}/uploads/tmp/). Runs daily — GCS lifecycle rules cannot target
+// wildcard mid-path segments so a server-side sweep is the correct approach.
+//
+// Cloud Scheduler: every day at 4:30 AM ET  (cron: 30 4 * * *)
+
+const TMP_TTL_DAYS = 7;
+
+router.post('/cron/cleanup-tmp-media', cronGuard, async (req: Request, res: Response) => {
+  try {
+    const storage = req.firebase?.storage;
+    if (!storage) {
+      res.status(503).json({ success: false, error: 'Firebase Storage not available' });
+      return;
+    }
+
+    const bucket = storage.bucket();
+    const cutoffMs = Date.now() - TMP_TTL_DAYS * 24 * 60 * 60 * 1000;
+
+    // GCS list with prefix="Users/" — iterates all user-owned objects.
+    // We filter server-side for /tmp/ path segment and age.
+    // pageToken loop handles buckets with >1000 objects.
+    let totalScanned = 0;
+    let totalDeleted = 0;
+    let pageToken: string | undefined;
+
+    do {
+      const [files, , nextQuery] = await bucket.getFiles({
+        prefix: 'Users/',
+        maxResults: 1000,
+        ...(pageToken ? { pageToken } : {}),
+      });
+
+      pageToken = (nextQuery as Record<string, string> | undefined)?.['pageToken'];
+      totalScanned += files.length;
+
+      const deletionQueue: Promise<void>[] = [];
+
+      for (const file of files) {
+        // Must contain /tmp/ segment to qualify
+        if (!file.name.includes('/tmp/')) continue;
+
+        const createdMs = file.metadata.timeCreated
+          ? new Date(file.metadata.timeCreated as string).getTime()
+          : 0;
+
+        if (createdMs === 0 || createdMs > cutoffMs) continue;
+
+        deletionQueue.push(
+          file
+            .delete()
+            .then(() => {
+              totalDeleted++;
+            })
+            .catch((err: unknown) => {
+              const msg = err instanceof Error ? err.message : String(err);
+              logger.warn('Failed to delete tmp file', { path: file.name, error: msg });
+            })
+        );
+      }
+
+      // Batch deletes — up to 50 concurrent GCS deletes per page
+      for (let i = 0; i < deletionQueue.length; i += 50) {
+        await Promise.all(deletionQueue.slice(i, i + 50));
+      }
+    } while (pageToken);
+
+    logger.info('CRON cleanup-tmp-media completed', {
+      totalScanned,
+      totalDeleted,
+      ttlDays: TMP_TTL_DAYS,
+      cutoff: new Date(cutoffMs).toISOString(),
+    });
+
+    res.json({ success: true, data: { totalScanned, totalDeleted, ttlDays: TMP_TTL_DAYS } });
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('CRON cleanup-tmp-media failed', { error: error.message, stack: error.stack });
+    res.status(500).json({ success: false, error: 'Tmp media cleanup failed' });
+  }
+});
+
+// ─── POST /cron/approval-expiry-notifications ─────────────────────────────
+// Cloud Scheduler: every 1 minute  (cron: * * * * *)
+// Scans pending approvals within 5 min of expiry and sends a push notification.
+// Uses `expiryPushSent` flag to ensure at-most-once delivery per approval.
+
+router.post(
+  '/cron/approval-expiry-notifications',
+  cronGuard,
+  async (req: Request, res: Response) => {
+    try {
+      const db = (
+        req as typeof req & { firebase?: { db: import('firebase-admin').firestore.Firestore } }
+      ).firebase?.db;
+      if (!db) {
+        res.status(503).json({ success: false, error: 'Firestore not available' });
+        return;
+      }
+
+      const { ApprovalGateService } =
+        await import('../../modules/agent/services/approval-gate.service.js');
+      const approvalGate = new ApprovalGateService(db);
+      const result = await approvalGate.notifyExpiringSoon();
+
+      logger.info('CRON approval-expiry-notifications completed', result);
+      res.json({ success: true, data: result });
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      logger.error('CRON approval-expiry-notifications failed', {
+        error: error.message,
+        stack: error.stack,
+      });
+      res.status(500).json({ success: false, error: 'Approval expiry notifications failed' });
+    }
+  }
+);
+
 export default router;

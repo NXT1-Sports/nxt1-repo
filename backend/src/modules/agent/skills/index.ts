@@ -12,7 +12,8 @@ export {
 export { SkillRegistry, type MatchedSkill } from './skill-registry.js';
 
 // Evaluation
-export { ScoutingRubricSkill } from './evaluation/scouting-rubric.skill.js';
+export { AthleteScoutingSkill } from './evaluation/athlete-scouting.skill.js';
+export { TeamScoutingSkill } from './evaluation/team-scouting.skill.js';
 export { VideoAnalysisSkill } from './evaluation/video-analysis.skill.js';
 export { FilmBreakdownTaxonomySkill } from './evaluation/film-breakdown-taxonomy.skill.js';
 export { OpponentScoutingPacketSkill } from './evaluation/opponent-scouting-packet.skill.js';
@@ -26,6 +27,8 @@ export { NilAndBrandComplianceSkill } from './compliance/nil-and-brand-complianc
 export { CommunicationApprovalAndSafetySkill } from './compliance/communication-approval-and-safety.skill.js';
 
 // Brand
+export { MediaCreativeIntentSkill } from './brand/media-creative-intent.skill.js';
+export { MediaPipelinePlaybooksSkill } from './brand/media-pipeline-playbooks.skill.js';
 export { StaticGraphicStyleSkill } from './brand/static-graphic-style.skill.js';
 export { VideoHighlightStyleSkill } from './brand/video-highlight-style.skill.js';
 export { SocialCaptionStyleSkill } from './brand/social-caption-style.skill.js';

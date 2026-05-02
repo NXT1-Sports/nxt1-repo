@@ -10,6 +10,7 @@
  *   firecrawl/         — Firecrawl web scraping (MCP bridge + tools)
  *   firebase-mcp/      — Firebase read-only MCP bridge + tools
  *   microsoft-365/     — Microsoft 365 productivity MCP tools
+ *   ffmpeg-mcp/        — FFmpeg video processing MCP tools
  *   cloudflare-stream/ — Cloudflare Stream video tools
  *   runway/            — Runway ML video/image generation
  *   social/            — Twitter/Instagram scrapers + media service
@@ -154,6 +155,19 @@ export {
   CreatePresentationTool,
   BatchUpdatePresentationTool,
 } from './google-workspace/index.js';
+
+// ── FFmpeg MCP — Video processing operations ───────────────────────────
+export { FfmpegMcpBridgeService } from './ffmpeg-mcp/ffmpeg-mcp-bridge.service.js';
+export {
+  FfmpegTrimVideoTool,
+  FfmpegMergeVideosTool,
+  FfmpegResizeVideoTool,
+  FfmpegAddTextOverlayTool,
+  FfmpegBurnSubtitlesTool,
+  FfmpegGenerateThumbnailTool,
+  FfmpegConvertVideoTool,
+  FfmpegCompressVideoTool,
+} from './ffmpeg-mcp/index.js';
 
 // ── Cloudflare Stream — Video processing ─────────────────────────────────
 export { CloudflareMcpBridgeService } from './cloudflare-stream/cloudflare-mcp-bridge.service.js';

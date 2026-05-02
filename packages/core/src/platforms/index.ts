@@ -18,4 +18,8 @@ export type {
 
 export { PLATFORM_REGISTRY, PLATFORM_CATEGORIES } from './platform-registry';
 
-export { PLATFORM_FAVICON_DOMAINS, getPlatformFaviconUrl } from './platform-favicons';
+export {
+  PLATFORM_FAVICON_DOMAINS,
+  getPlatformFaviconUrl,
+  getPlatformFaviconUrlFromUrl,
+} from './platform-favicons';

@@ -93,6 +93,12 @@ export interface AppendOptions {
     readonly model: string;
     readonly costUsd?: number;
   };
+  /**
+   * Semantic phase for this trajectory row. Enables the UI projection layer
+   * to discriminate between mid-loop tool-call rows and final text rows so
+   * that pause/resume flows never render two visible bubbles for one turn.
+   */
+  readonly semanticPhase?: import('@nxt1/core').AgentMessageSemanticPhase;
 }
 
 export class ThreadMessageWriter {
@@ -137,6 +143,7 @@ export class ThreadMessageWriter {
         ...(opts.attachments?.length && { attachments: opts.attachments }),
         ...(opts.resultData && { resultData: opts.resultData }),
         ...(opts.tokenUsage && { tokenUsage: opts.tokenUsage }),
+        ...(opts.semanticPhase && { semanticPhase: opts.semanticPhase }),
         ...(friendlyToolCalls && { toolCalls: friendlyToolCalls }),
         ...(wireToolCalls && { toolCallsWire: wireToolCalls }),
         ...(message.tool_call_id && { toolCallId: message.tool_call_id }),

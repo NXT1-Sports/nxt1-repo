@@ -105,7 +105,20 @@ async function refreshAttachmentUrl(
   attachment: AgentXAttachment,
   bucketName: string
 ): Promise<AgentXAttachment> {
-  if (attachment.type === 'video') return attachment;
+  if (attachment.type === 'video') {
+    const videoId =
+      typeof attachment.cloudflareVideoId === 'string' &&
+      attachment.cloudflareVideoId.trim().length > 0
+        ? attachment.cloudflareVideoId.trim()
+        : null;
+
+    if (videoId) {
+      const watchUrl = `https://watch.cloudflarestream.com/${videoId}`;
+      return attachment.url === watchUrl ? attachment : { ...attachment, url: watchUrl };
+    }
+
+    return attachment;
+  }
 
   const refreshedMedia = await refreshStorageUrl(
     {
@@ -130,25 +143,93 @@ async function refreshMessageResultDataMedia(
 
   let refreshedResultData: Record<string, unknown> | null = null;
 
-  const refreshField = async (field: 'imageUrl' | 'videoUrl'): Promise<void> => {
-    const value = resultData[field];
-    if (typeof value !== 'string' || value.trim().length === 0) return;
-
+  const refreshUrlIfNeeded = async (value: string): Promise<string> => {
     const refreshed = await refreshStorageUrl(
       {
         url: value,
       },
       bucketName
     );
+    return refreshed.url;
+  };
 
-    if (refreshed.url !== value) {
+  const refreshField = async (field: 'imageUrl' | 'videoUrl'): Promise<void> => {
+    const value = resultData[field];
+    if (typeof value !== 'string' || value.trim().length === 0) return;
+
+    const refreshedUrl = await refreshUrlIfNeeded(value);
+    if (refreshedUrl !== value) {
       refreshedResultData ??= { ...resultData };
-      refreshedResultData[field] = refreshed.url;
+      refreshedResultData[field] = refreshedUrl;
+    }
+  };
+
+  const refreshArrayField = async (
+    field: 'persistedMediaUrls' | 'mediaUrls' | 'imageUrls' | 'videoUrls'
+  ): Promise<void> => {
+    const value = resultData[field];
+    if (!Array.isArray(value) || value.length === 0) return;
+
+    let changed = false;
+    const refreshedArray: unknown[] = [];
+    for (const item of value) {
+      if (typeof item !== 'string' || item.trim().length === 0) {
+        refreshedArray.push(item);
+        continue;
+      }
+
+      const refreshedUrl = await refreshUrlIfNeeded(item);
+      if (refreshedUrl !== item) changed = true;
+      refreshedArray.push(refreshedUrl);
+    }
+
+    if (changed) {
+      refreshedResultData ??= { ...resultData };
+      refreshedResultData[field] = refreshedArray;
+    }
+  };
+
+  const refreshFilesField = async (): Promise<void> => {
+    const value = resultData['files'];
+    if (!Array.isArray(value) || value.length === 0) return;
+
+    let changed = false;
+    const refreshedFiles = await Promise.all(
+      value.map(async (item) => {
+        if (!item || typeof item !== 'object') return item;
+
+        const record = item as Record<string, unknown>;
+        let nextRecord: Record<string, unknown> | null = null;
+
+        for (const urlField of ['url', 'downloadUrl'] as const) {
+          const current = record[urlField];
+          if (typeof current !== 'string' || current.trim().length === 0) continue;
+
+          const refreshedUrl = await refreshUrlIfNeeded(current);
+          if (refreshedUrl === current) continue;
+
+          nextRecord ??= { ...record };
+          nextRecord[urlField] = refreshedUrl;
+          changed = true;
+        }
+
+        return nextRecord ?? item;
+      })
+    );
+
+    if (changed) {
+      refreshedResultData ??= { ...resultData };
+      refreshedResultData['files'] = refreshedFiles;
     }
   };
 
   await refreshField('imageUrl');
   await refreshField('videoUrl');
+  await refreshArrayField('persistedMediaUrls');
+  await refreshArrayField('mediaUrls');
+  await refreshArrayField('imageUrls');
+  await refreshArrayField('videoUrls');
+  await refreshFilesField();
 
   return refreshedResultData ?? resultData;
 }
@@ -303,11 +384,18 @@ router.get('/threads/:threadId/messages', appGuard, async (req: Request, res: Re
       result.items.map((item) => refreshMessageAttachments(item))
     );
 
+    // Reconcile any pending upload-outbox entries for this user's thread.
+    // No-op when outbox is empty; applies and marks synced when entries exist.
+    const reconciledItems = await chatService.reconcileUploadOutboxForThread({
+      userId: user.uid,
+      messages: refreshedItems,
+    });
+
     res.json({
       success: true,
       data: {
         ...result,
-        items: refreshedItems,
+        items: reconciledItems,
         thread: {
           id: thread.id,
           latestPausedYieldState: thread.latestPausedYieldState,

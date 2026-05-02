@@ -28,6 +28,12 @@ export interface PrimaryDispatchContext {
 export interface PrimaryDispatchResult {
   readonly success: boolean;
   readonly observation: string;
+  readonly dispatchKind?: 'coordinator' | 'plan';
+  readonly userAlreadyReceivedResponse?: boolean;
+  readonly streamedDeltaCount?: number;
+  readonly streamedCharCount?: number;
+  /** Artifacts produced by the coordinator(s) — forwarded back to Primary for chained reasoning (Tier 4). */
+  readonly coordinatorArtifacts?: Record<string, unknown>;
 }
 
 export interface PrimaryDispatcher {

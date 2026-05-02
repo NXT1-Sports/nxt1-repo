@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('../../config/agent-app-config.js', () => ({
   getCachedAgentAppConfig: () => ({
     primary: {
-      toolLoopDetector: { enabled: true, windowSize: 5, threshold: 3 },
+      toolLoopDetector: { enabled: true, windowSize: 5, threshold: 3, emptyThreshold: 4 },
     },
   }),
 }));
@@ -68,6 +68,51 @@ describe('ToolLoopDetector', () => {
     const result = detector.record('op-1', 'search', '{"q":"x"}', 'failure');
     expect(result.advisory).toBeNull();
     expect(detector.checkLockout('op-1', 'search')).toBeNull();
+  });
+
+  // ── Empty result spiral detection ─────────────────────────────────────────
+
+  it('does not fire empty advisory below emptyThreshold', () => {
+    const r1 = detector.record('op-1', 'query', '{"collection":"A"}', 'empty');
+    const r2 = detector.record('op-1', 'query', '{"collection":"B"}', 'empty');
+    const r3 = detector.record('op-1', 'query', '{"collection":"C"}', 'empty');
+    expect(r1.advisory).toBeNull();
+    expect(r2.advisory).toBeNull();
+    expect(r3.advisory).toBeNull();
+  });
+
+  it('fires one-shot empty advisory at emptyThreshold (different args)', () => {
+    detector.record('op-1', 'query', '{"collection":"A"}', 'empty');
+    detector.record('op-1', 'query', '{"collection":"B"}', 'empty');
+    detector.record('op-1', 'query', '{"collection":"C"}', 'empty');
+    const r4 = detector.record('op-1', 'query', '{"collection":"D"}', 'empty');
+    expect(r4.advisory).toContain('SYSTEM NOTICE');
+    expect(r4.advisory).toContain('query');
+    expect(r4.advisory).toContain('STOP searching');
+
+    // One-shot: a fifth empty call should NOT re-fire the advisory
+    const r5 = detector.record('op-1', 'query', '{"collection":"E"}', 'empty');
+    expect(r5.advisory).toBeNull();
+  });
+
+  it('non-empty success resets the empty counter', () => {
+    detector.record('op-1', 'query', '{"collection":"A"}', 'empty');
+    detector.record('op-1', 'query', '{"collection":"B"}', 'empty');
+    detector.record('op-1', 'query', '{"collection":"C"}', 'empty');
+    // Non-empty success resets the counter
+    detector.record('op-1', 'query', '{"collection":"D"}', 'success');
+    // Counter starts fresh — no advisory yet
+    const r = detector.record('op-1', 'query', '{"collection":"E"}', 'empty');
+    expect(r.advisory).toBeNull();
+  });
+
+  it('empty spiral is scoped per operationId', () => {
+    for (let i = 0; i < 4; i++) {
+      detector.record('op-1', 'query', `{"collection":"${i}"}`, 'empty');
+    }
+    // op-2 started fresh — no advisory for it
+    const r = detector.record('op-2', 'query', '{"collection":"X"}', 'empty');
+    expect(r.advisory).toBeNull();
   });
 
   it('lockout is scoped per operationId', () => {

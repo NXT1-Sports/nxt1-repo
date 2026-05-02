@@ -19,6 +19,7 @@ import {
 import { FirecrawlProfileService } from '../../modules/agent/tools/integrations/firecrawl/browser/firecrawl-profile.service.js';
 import { LiveViewSessionService } from '../../modules/agent/tools/integrations/firecrawl/browser/live-view-session.service.js';
 import { AGENT_X_ALLOWED_MIME_TYPES, AGENT_X_MAX_FILE_SIZE } from '@nxt1/core';
+import { AGENT_X_RUNTIME_CONFIG } from '@nxt1/core/ai';
 import { logger } from '../../utils/logger.js';
 import multer from 'multer';
 
@@ -81,7 +82,7 @@ export function setAgentDependencies(deps: {
 export const MAX_AGENTIC_TURNS = 6;
 
 /** Maximum lifetime for an entry in the activeAbortControllers map (10 minutes). */
-export const ABORT_CONTROLLER_TTL_MS = 10 * 60 * 1000;
+export const ABORT_CONTROLLER_TTL_MS = AGENT_X_RUNTIME_CONFIG.clientRecovery.abortControllerTtlMs;
 
 /** Valid MongoDB ObjectId format (24-character hex string). */
 export const OBJECT_ID_RE = /^[a-f0-9]{24}$/i;
@@ -124,7 +125,7 @@ setInterval(() => {
       logger.warn('Evicted stale AbortController (TTL expired)', { operationId: id });
     }
   }
-}, 60_000).unref();
+}, AGENT_X_RUNTIME_CONFIG.clientRecovery.abortControllerSweepIntervalMs).unref();
 
 // ─── Validators ──────────────────────────────────────────────────────────
 
@@ -365,36 +366,15 @@ export function buildInlineAskUserCard(params: {
  */
 export function buildInlineApprovalCard(params: {
   agentId: AgentIdentifier;
-  toolName: string;
   approvalId: string;
   operationId: string;
   promptToUser: string;
-  toolInput: Record<string, unknown>;
 }): {
   agentId: AgentIdentifier;
-  type: 'draft' | 'confirmation';
+  type: 'confirmation';
   title: string;
   payload: Record<string, unknown>;
 } {
-  if (params.toolName === 'send_email') {
-    return {
-      agentId: params.agentId,
-      type: 'draft',
-      title: 'Email Draft',
-      payload: {
-        content:
-          (typeof params.toolInput['bodyHtml'] === 'string' && params.toolInput['bodyHtml']) ||
-          (typeof params.toolInput['body'] === 'string' ? params.toolInput['body'] : '') ||
-          '',
-        subject: typeof params.toolInput['subject'] === 'string' ? params.toolInput['subject'] : '',
-        recipientsCount: 1,
-        toEmail: typeof params.toolInput['toEmail'] === 'string' ? params.toolInput['toEmail'] : '',
-        approvalId: params.approvalId,
-        operationId: params.operationId,
-      },
-    };
-  }
-
   return {
     agentId: params.agentId,
     type: 'confirmation',

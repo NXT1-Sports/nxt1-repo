@@ -34,6 +34,7 @@ import {
   afterNextRender,
 } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
+import { DomSanitizer, type SafeResourceUrl } from '@angular/platform-browser';
 import { ModalController } from '@ionic/angular/standalone';
 import { TEST_IDS } from '@nxt1/core/testing';
 import { APP_EVENTS } from '@nxt1/core/analytics';
@@ -110,16 +111,28 @@ import type { MediaViewerItem } from './media-viewer.types';
         @for (item of items; track item.url; let i = $index) {
           <div class="media-slide" [attr.data-testid]="testIds.SLIDE">
             @if (item.type === 'video') {
-              <video
-                class="media-video"
-                [attr.data-testid]="testIds.VIDEO"
-                [src]="item.url"
-                [poster]="item.poster ?? ''"
-                controls
-                playsinline
-                preload="metadata"
-                (error)="onMediaError(i)"
-              ></video>
+              @if (resolveCloudflareEmbedUrl(item.url); as cloudflareEmbedUrl) {
+                <iframe
+                  class="media-video media-video--iframe"
+                  [attr.data-testid]="testIds.VIDEO"
+                  [src]="getSafeIframeUrl(cloudflareEmbedUrl)"
+                  title="Video playback"
+                  loading="lazy"
+                  allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture"
+                  allowfullscreen
+                ></iframe>
+              } @else {
+                <video
+                  class="media-video"
+                  [attr.data-testid]="testIds.VIDEO"
+                  [src]="item.url"
+                  [poster]="item.poster ?? ''"
+                  controls
+                  playsinline
+                  preload="metadata"
+                  (error)="onMediaError(i)"
+                ></video>
+              }
             } @else if (item.type === 'doc') {
               <div class="doc-preview">
                 <div
@@ -383,6 +396,14 @@ import type { MediaViewerItem } from './media-viewer.types';
       object-fit: contain;
     }
 
+    .media-video--iframe {
+      width: min(100%, 1100px);
+      height: min(100%, 70vh);
+      border: 0;
+      border-radius: 8px;
+      background: #000;
+    }
+
     /* ── Error state ─────────────────────────────── */
     .error-state {
       display: flex;
@@ -550,6 +571,7 @@ import type { MediaViewerItem } from './media-viewer.types';
 export class NxtMediaViewerContentComponent implements OnInit {
   private readonly modalCtrl = inject(ModalController, { optional: true });
   private readonly platformId = inject(PLATFORM_ID);
+  private readonly sanitizer = inject(DomSanitizer);
   private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
 
   /** Output for self-dismissal — NxtOverlayService auto-subscribes. */
@@ -734,5 +756,22 @@ export class NxtMediaViewerContentComponent implements OnInit {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  protected resolveCloudflareEmbedUrl(url: string | null | undefined): string | null {
+    if (!url) return null;
+    try {
+      const parsed = new URL(url);
+      if (parsed.hostname !== 'watch.cloudflarestream.com') return null;
+      const videoId = parsed.pathname.split('/').filter(Boolean)[0];
+      if (!videoId) return null;
+      return `https://iframe.videodelivery.net/${videoId}`;
+    } catch {
+      return null;
+    }
+  }
+
+  protected getSafeIframeUrl(url: string): SafeResourceUrl {
+    return this.sanitizer.bypassSecurityTrustResourceUrl(url);
   }
 }

@@ -7,6 +7,7 @@
  * Active tools:
  * - GenerateGraphicTool       — Professional branded graphic generation ✅
  * - AnalyzeVideoTool          — Game film / video analysis via Gemini ✅
+ * - StageMediaTool            — Thread-scoped ephemeral signed URL staging ✅
  *
  * Planned tools:
  * - GenerateMotionGraphicTool — Runway ML motion graphic generation
@@ -17,3 +18,5 @@
 
 export { GenerateGraphicTool } from './generate-graphic.tool.js';
 export { AnalyzeVideoTool } from './analyze-video.tool.js';
+export { StageMediaTool } from './stage-media.tool.js';
+export { MediaStagingService } from './media-staging.service.js';

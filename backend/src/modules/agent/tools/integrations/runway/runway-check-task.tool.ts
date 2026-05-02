@@ -17,7 +17,7 @@ export class RunwayCheckTaskTool extends BaseTool {
   readonly name = 'runway_check_task';
   readonly description =
     'Check the status of a Runway generation task. When the task is complete, the output ' +
-    'is automatically persisted to Firebase Storage and a permanent CDN URL is returned.';
+    'is automatically saved to cloud storage and a permanent CDN URL is returned.';
 
   readonly parameters = z.object({
     taskId: z.string().trim().min(1),

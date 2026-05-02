@@ -10,6 +10,7 @@
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../../base.tool.js';
 import type { RunwayMcpBridgeService } from './runway-mcp-bridge.service.js';
 import { extractRunwayTaskDetails } from './runway-task-result.util.js';
+import { MediaTransportResolverService } from '../../media/media-transport-resolver.service.js';
 import { z } from 'zod';
 
 export class RunwayUpscaleVideoTool extends BaseTool {
@@ -28,6 +29,9 @@ export class RunwayUpscaleVideoTool extends BaseTool {
   readonly category = 'media' as const;
 
   readonly entityGroup = 'user_tools' as const;
+
+  private readonly mediaResolver = new MediaTransportResolverService();
+
   constructor(private readonly bridge: RunwayMcpBridgeService) {
     super();
   }
@@ -37,10 +41,18 @@ export class RunwayUpscaleVideoTool extends BaseTool {
     context?: ToolExecutionContext
   ): Promise<ToolResult> {
     try {
-      const promptImage = input['promptImage'] as string;
-      if (!promptImage?.trim()) {
+      const rawPromptImage = input['promptImage'] as string;
+      if (!rawPromptImage?.trim()) {
         return { success: false, error: 'promptImage (video URL to upscale) is required.' };
       }
+
+      const resolved = await this.mediaResolver.resolveProcessingUrl({
+        sourceUrl: rawPromptImage,
+        fallbackToFirebaseStaging: true,
+        stageMediaKind: 'video',
+        executionContext: context,
+      });
+      const promptImage = resolved.url;
 
       const model = (input['model'] as string) || 'gen4';
 

@@ -14,7 +14,28 @@ import type {
   AgentIdentifier,
   ModelRoutingConfig,
   GuardrailDescriptor,
+  AgentApprovalPolicy,
+  AgentUsageLimits,
 } from './agent.types';
+import { AGENT_X_RUNTIME_CONFIG } from './agent-x-runtime.constants';
+
+const DEFAULT_APPROVAL_EXPIRY_MS = 86_400_000;
+
+function createApprovalPolicies(
+  toolNames: readonly string[],
+  riskLevel: AgentApprovalPolicy['riskLevel'],
+  autoApproveOnExpiry = false,
+  sessionTrustGroup?: string
+): readonly AgentApprovalPolicy[] {
+  return toolNames.map((toolName) => ({
+    toolName,
+    requiresApproval: true,
+    autoApproveOnExpiry,
+    expiryMs: DEFAULT_APPROVAL_EXPIRY_MS,
+    riskLevel,
+    ...(sessionTrustGroup ? { sessionTrustGroup } : {}),
+  }));
+}
 
 export const COORDINATOR_AGENT_IDS = [
   'admin_coordinator',
@@ -153,20 +174,48 @@ export const MODEL_ROUTING_DEFAULTS: Record<string, ModelRoutingConfig> = {
   // ── Text Tiers ──────────────────────────────────────────────────────────
   /** Fast JSON routing & multi-agent dispatching (Planner). */
   routing: { tier: 'routing', maxTokens: 1024, temperature: 0 },
+  /** Routing tier with extended thinking for the Primary agent — dispatches AND reasons. */
+  routing_think: {
+    tier: 'routing',
+    maxTokens: 4096,
+    temperature: 0,
+    enableThinking: true,
+    thinkingBudgetTokens: 6000,
+  },
   /** Structured data extraction: HTML → JSON, CSV parsing, schema mapping. */
   extraction: { tier: 'extraction', maxTokens: 4096, temperature: 0 },
   /** Massive-context aggregation: play-by-play, bulk stats, scraping. */
   data_heavy: { tier: 'data_heavy', maxTokens: 8192, temperature: 0 },
   /** Deep analytical evaluation: scout reports, biometrics, progression. */
-  evaluator: { tier: 'evaluator', maxTokens: 4096, temperature: 0.3 },
+  evaluator: {
+    tier: 'evaluator',
+    maxTokens: 4096,
+    temperature: 0.3,
+    enableThinking: true,
+    thinkingBudgetTokens: 8000,
+  },
   /** Factual rule validation: NCAA compliance, eligibility, transfer portal. */
-  compliance: { tier: 'compliance', maxTokens: 4096, temperature: 0 },
+  compliance: {
+    tier: 'compliance',
+    maxTokens: 4096,
+    temperature: 0,
+    enableThinking: true,
+    thinkingBudgetTokens: 6000,
+  },
   /** Human-sounding copywriting: recruiting emails, social captions, press. */
   copywriting: { tier: 'copywriting', maxTokens: 2048, temperature: 0.9 },
   /** Creative prompt engineering: text-to-image/video prompt generation. */
   prompt_engineering: { tier: 'prompt_engineering', maxTokens: 2048, temperature: 0.9 },
   /** Lightweight conversational chat: general Q&A, platform help. */
   chat: { tier: 'chat', maxTokens: 2048, temperature: 0.7 },
+  /** Strategic planning: game plans, career strategy, recruiting roadmaps. */
+  strategy: {
+    tier: 'chat',
+    maxTokens: 8192,
+    temperature: 0.7,
+    enableThinking: true,
+    thinkingBudgetTokens: 10000,
+  },
   /** Temporal orchestration: campaign scheduling, recurring tasks. */
   task_automation: { tier: 'task_automation', maxTokens: 2048, temperature: 0.3 },
 
@@ -231,7 +280,7 @@ export const AGENT_JOB_CONFIG = {
   /** Max concurrent workers per instance. */
   CONCURRENCY: 5,
   /** Maximum time (ms) a single operation can run before timeout. */
-  JOB_TIMEOUT_MS: 120_000,
+  JOB_TIMEOUT_MS: AGENT_X_RUNTIME_CONFIG.operationQueue.jobTimeoutMs,
   /** Maximum retry attempts for failed jobs. */
   MAX_RETRIES: 2,
   /** Backoff delay (ms) between retries. */
@@ -410,55 +459,153 @@ export const DEFAULT_TRIGGER_PREFERENCES = {
 
 // ─── Human-in-the-Loop Approval Policies ────────────────────────────────────
 
-import type { AgentApprovalPolicy, AgentUsageLimits } from './agent.types';
-
 /**
  * Defines which tools require user approval before execution.
  * Tools NOT listed here are auto-approved (read-only / low-risk).
  */
+export const AGENT_APPROVAL_TOOL_GROUPS = {
+  communication: [
+    'send_email',
+    'batch_send_email',
+    'gmail_send_email',
+    'create_gmail_draft',
+    'gmail_reply_to_email',
+  ],
+  profileWrites: [
+    'write_core_identity',
+    'update_core_identity',
+    'write_awards',
+    'update_awards',
+    'write_combine_metrics',
+    'update_combine_metrics',
+    'write_rankings',
+    'update_rankings',
+    'write_season_stats',
+    'update_season_stats',
+    'write_recruiting_activity',
+    'update_recruiting_activity',
+    'write_athlete_videos',
+    'update_athlete_videos',
+    'write_timeline_post',
+    'update_timeline_post',
+  ],
+  profileDeletes: [
+    'delete_core_identity',
+    'delete_awards',
+    'delete_combine_metrics',
+    'delete_rankings',
+    'delete_season_stats',
+    'delete_recruiting_activity',
+    'delete_athlete_videos',
+    'delete_timeline_post',
+  ],
+  teamWrites: [
+    'write_calendar_events',
+    'update_calendar_events',
+    'write_schedule',
+    'update_schedule_event',
+    'write_team_stats',
+    'update_team_stats',
+    'write_team_news',
+    'update_team_news',
+    'write_team_post',
+    'update_team_post',
+    'write_roster_entries',
+    'update_roster_entries',
+  ],
+  teamDeletes: [
+    'delete_calendar_events',
+    'delete_schedule_event',
+    'delete_team_stats',
+    'delete_team_news',
+    'delete_team_post',
+    'delete_roster_entries',
+  ],
+  intelAndSourcesWrites: [
+    'write_intel',
+    'update_intel',
+    'write_connected_source',
+    'update_connected_source',
+  ],
+  intelAndSourcesDeletes: ['delete_intel', 'delete_connected_source'],
+  workspaceActions: [
+    'run_google_workspace_tool',
+    'run_microsoft_365_tool',
+    'create_calendar_event',
+    'delete_calendar_event',
+    'drive_upload_file',
+    'drive_create_folder',
+    'drive_delete_file',
+    'docs_create_document',
+    'docs_append_text',
+    'docs_prepend_text',
+    'docs_insert_text',
+    'docs_batch_update',
+    'docs_insert_image',
+    'create_presentation',
+    'create_slide',
+    'add_text_to_slide',
+    'add_formatted_text_to_slide',
+    'add_bulleted_list_to_slide',
+    'add_table_to_slide',
+    'add_slide_notes',
+    'duplicate_slide',
+    'delete_slide',
+    'create_presentation_from_markdown',
+    'sheets_create_spreadsheet',
+    'sheets_write_range',
+    'sheets_append_rows',
+    'sheets_clear_range',
+    'sheets_add_sheet',
+    'sheets_delete_sheet',
+  ],
+  automationAndExternalActions: [
+    'schedule_recurring',
+    'cancel_recurring',
+    'create_support_ticket',
+    'dynamic_export',
+  ],
+  destructiveStorage: ['delete_memory', 'delete_video'],
+} as const;
+
 export const AGENT_APPROVAL_POLICIES: readonly AgentApprovalPolicy[] = [
-  {
-    toolName: 'send_email',
-    requiresApproval: true,
-    autoApproveOnExpiry: false,
-    expiryMs: 86_400_000, // 24 hours
-    riskLevel: 'high',
-  },
-  {
-    toolName: 'batch_send_email',
-    requiresApproval: true,
-    autoApproveOnExpiry: false,
-    expiryMs: 86_400_000, // 24 hours
-    riskLevel: 'high',
-  },
-  {
-    toolName: 'send_sms',
-    requiresApproval: true,
-    autoApproveOnExpiry: false,
-    expiryMs: 86_400_000,
-    riskLevel: 'high',
-  },
-  {
-    toolName: 'post_to_social',
-    requiresApproval: true,
-    autoApproveOnExpiry: false,
-    expiryMs: 86_400_000,
-    riskLevel: 'medium',
-  },
-  {
-    toolName: 'update_profile',
-    requiresApproval: true,
-    autoApproveOnExpiry: true, // Auto-approve after 24h — low risk
-    expiryMs: 86_400_000,
-    riskLevel: 'low',
-  },
-  {
-    toolName: 'delete_content',
-    requiresApproval: true,
-    autoApproveOnExpiry: false,
-    expiryMs: 86_400_000,
-    riskLevel: 'critical',
-  },
+  ...createApprovalPolicies(AGENT_APPROVAL_TOOL_GROUPS.communication, 'high', false, 'email'),
+  ...createApprovalPolicies(
+    AGENT_APPROVAL_TOOL_GROUPS.profileWrites,
+    'medium',
+    false,
+    'profile_write'
+  ),
+  ...createApprovalPolicies(AGENT_APPROVAL_TOOL_GROUPS.profileDeletes, 'critical'),
+  ...createApprovalPolicies(AGENT_APPROVAL_TOOL_GROUPS.teamWrites, 'medium', false, 'team_write'),
+  ...createApprovalPolicies(AGENT_APPROVAL_TOOL_GROUPS.teamDeletes, 'critical'),
+  ...createApprovalPolicies(
+    AGENT_APPROVAL_TOOL_GROUPS.intelAndSourcesWrites,
+    'medium',
+    false,
+    'intel_write'
+  ),
+  ...createApprovalPolicies(AGENT_APPROVAL_TOOL_GROUPS.intelAndSourcesDeletes, 'critical'),
+  // workspaceActions (Google/Microsoft) are excluded — users authorize these at OAuth sign-in
+  ...createApprovalPolicies(
+    AGENT_APPROVAL_TOOL_GROUPS.automationAndExternalActions,
+    'high',
+    false,
+    'automation'
+  ),
+  ...createApprovalPolicies(AGENT_APPROVAL_TOOL_GROUPS.destructiveStorage, 'critical'),
+] as const;
+
+/**
+ * Reserved tool names for roadmap features that are not yet registered in the
+ * live backend tool registry. Keep planned names here so they do not affect
+ * runtime approval behavior or imply support that does not exist yet.
+ */
+export const AGENT_PLANNED_TOOL_NAMES = [
+  'send_sms',
+  'post_to_social',
+  'update_profile',
+  'delete_content',
 ] as const;
 
 // ─── AI Telemetry & Usage Limits ────────────────────────────────────────────

@@ -158,6 +158,7 @@ export class AgentXComponent implements OnInit {
     initialValue: this.route.snapshot.queryParamMap,
   });
   private readonly queuedThreadId = signal<string | null>(null);
+  private readonly queuedStartupPrompt = signal<string | null>(null);
 
   /**
    * Auth-init overlay: prevents the marketing landing page from flashing
@@ -202,6 +203,29 @@ export class AgentXComponent implements OnInit {
         this.logger.info('Queuing thread from query param', { threadId });
         this.agentX.queuePendingThread({ threadId, title: 'Agent X' });
         this.queuedThreadId.set(threadId);
+      },
+      { injector: this.injector }
+    );
+
+    effect(
+      () => {
+        const startupPrompt = this.queryParamMap().get('q')?.trim() ?? '';
+        const queuedStartupPrompt = this.queuedStartupPrompt();
+
+        if (!startupPrompt) {
+          if (queuedStartupPrompt !== null) {
+            this.queuedStartupPrompt.set(null);
+          }
+          return;
+        }
+
+        if (!this.authFlow.isAuthenticated() || queuedStartupPrompt === startupPrompt) {
+          return;
+        }
+
+        this.logger.info('Queuing startup prompt from query param');
+        this.agentX.queueStartupMessage(startupPrompt);
+        this.queuedStartupPrompt.set(startupPrompt);
       },
       { injector: this.injector }
     );

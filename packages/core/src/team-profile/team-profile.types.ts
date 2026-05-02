@@ -86,7 +86,10 @@ export interface TeamProfileTab {
  * Team type classification.
  */
 export type TeamProfileType =
+  | 'youth'
   | 'high-school'
+  | 'jv'
+  | 'varsity'
   | 'club'
   | 'college'
   | 'juco'
@@ -94,6 +97,8 @@ export type TeamProfileType =
   | 'travel'
   | 'middle-school'
   | 'organization'
+  | 'semi-pro'
+  | 'professional'
   | 'other';
 
 /**

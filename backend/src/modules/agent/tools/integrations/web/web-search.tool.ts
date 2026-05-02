@@ -23,6 +23,7 @@
  */
 
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../../base.tool.js';
+import { resolveUrlDisplay } from '../../favicon-registry.js';
 import { logger } from '../../../../../utils/logger.js';
 import { z } from 'zod';
 
@@ -184,7 +185,9 @@ export class WebSearchTool extends BaseTool {
       const markdown = [
         `## Web Search Results for "${query}" (${results.length} found)`,
         ...(data.answer ? ['', `**AI Answer:** ${data.answer}`, ''] : ['']),
-        ...results.map((r, i) => `### ${i + 1}. [${r.title}](${r.url})\n${r.excerpt}`),
+        ...results.map(
+          (r, i) => `### ${i + 1}. ${r.title}\n${resolveUrlDisplay(r.url)} — ${r.excerpt}`
+        ),
       ].join('\n');
 
       return {

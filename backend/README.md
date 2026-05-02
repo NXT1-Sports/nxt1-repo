@@ -248,6 +248,18 @@ Type-check without emitting | | `npm run lint` | Run ESLint | |
 `npm run lint:fix` | Auto-fix lint issues | | `npm run clean` | Remove dist/,
 node_modules/ |
 
+For FFmpeg MCP, use [backend/scripts/deploy-ffmpeg-mcp.sh](/Users/johnkeller/My
+Mac
+(Johns-MacBook-Pro.local)/Main/NXT1/nxt1-monorepo/backend/scripts/deploy-ffmpeg-mcp.sh).
+This deploys an authenticated Cloud Run service backed by
+[backend/mcp/ffmpeg-mcp/Dockerfile](/Users/johnkeller/My Mac
+(Johns-MacBook-Pro.local)/Main/NXT1/nxt1-monorepo/backend/mcp/ffmpeg-mcp/Dockerfile)
+and exposes Streamable HTTP on `/mcp`. After deployment, set these backend
+runtime secrets:
+
+- `FFMPEG_MCP_URL=<service-url>/mcp`
+- `FFMPEG_MCP_API_TOKEN=<same bearer token value used by the service>`
+
 ### Testing
 
 | Command              | Description             |

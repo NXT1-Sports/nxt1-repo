@@ -13,6 +13,7 @@ import type {
   RunwayTextToVideoOptions,
 } from './runway-mcp-bridge.service.js';
 import { extractRunwayTaskDetails } from './runway-task-result.util.js';
+import { MediaTransportResolverService } from '../../media/media-transport-resolver.service.js';
 import { z } from 'zod';
 
 const IMAGE_TO_VIDEO_MODELS = ['gen4_turbo', 'gen4.5', 'veo3.1'] as const;
@@ -47,6 +48,9 @@ export class RunwayGenerateVideoTool extends BaseTool {
   readonly category = 'media' as const;
 
   readonly entityGroup = 'user_tools' as const;
+
+  private readonly mediaResolver = new MediaTransportResolverService();
+
   constructor(private readonly bridge: RunwayMcpBridgeService) {
     super();
   }
@@ -61,7 +65,17 @@ export class RunwayGenerateVideoTool extends BaseTool {
         return { success: false, error: 'promptText is required.' };
       }
 
-      const promptImage = (input['promptImage'] as string) || undefined;
+      const rawPromptImage = (input['promptImage'] as string) || undefined;
+      let promptImage = rawPromptImage;
+      if (rawPromptImage) {
+        const resolved = await this.mediaResolver.resolveProcessingUrl({
+          sourceUrl: rawPromptImage,
+          fallbackToFirebaseStaging: true,
+          stageMediaKind: 'image',
+          executionContext: context,
+        });
+        promptImage = resolved.url;
+      }
       const rawModel = input['model'] as string | undefined;
       const ratio = ((input['ratio'] as string) || '1280:720') as
         | RunwayGenerateVideoOptions['ratio']

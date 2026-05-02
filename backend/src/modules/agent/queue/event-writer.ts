@@ -46,6 +46,11 @@ export interface StreamEvent {
   readonly message?: string;
   readonly text?: string;
   /**
+   * Extended thinking text fragment for `thinking` events (Claude 3.7+ / Gemini 2.5).
+   * Debounced and batched to Firestore the same way delta text is.
+   */
+  readonly thinkingText?: string;
+  /**
    * When true for delta events, bypass debounced coalescing and persist
    * this delta as its own event record.
    */
@@ -140,6 +145,9 @@ export class DebouncedEventWriter {
   private pendingDeltaText = '';
   private pendingDeltaAgentId: string | undefined;
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
+  private pendingThinkingText = '';
+  private pendingThinkingAgentId: string | undefined;
+  private thinkingFlushTimer: ReturnType<typeof setTimeout> | null = null;
   private writeChain: Promise<void> = Promise.resolve();
   private readonly flushIntervalMs: number;
 
@@ -163,8 +171,11 @@ export class DebouncedEventWriter {
   emit(event: StreamEvent): void {
     if (event.type === 'delta') {
       this.bufferDelta(event);
+    } else if (event.type === 'thinking') {
+      this.bufferThinking(event);
     } else {
       this.queueWrite(async () => {
+        await this.flushThinkingPendingIfNeeded();
         await this.flushDeltaPendingIfNeeded();
         await this.writeImmediate(event);
       }).catch((err) => {
@@ -182,6 +193,13 @@ export class DebouncedEventWriter {
    * or before writing a terminal event (`done`).
    */
   async flush(): Promise<void> {
+    if (this.thinkingFlushTimer) {
+      clearTimeout(this.thinkingFlushTimer);
+      this.thinkingFlushTimer = null;
+    }
+    if (this.pendingThinkingText.length > 0) {
+      await this.writePendingThinkingEvent();
+    }
     if (this.flushTimer) {
       clearTimeout(this.flushTimer);
       this.flushTimer = null;
@@ -198,6 +216,13 @@ export class DebouncedEventWriter {
    * before dispose() — dispose handles it.
    */
   async dispose(): Promise<void> {
+    if (this.thinkingFlushTimer) {
+      clearTimeout(this.thinkingFlushTimer);
+      this.thinkingFlushTimer = null;
+    }
+    if (this.pendingThinkingText.length > 0) {
+      await this.writePendingThinkingEvent().catch(() => undefined);
+    }
     if (this.flushTimer) {
       clearTimeout(this.flushTimer);
       this.flushTimer = null;
@@ -313,6 +338,73 @@ export class DebouncedEventWriter {
     });
   }
 
+  // ─── Thinking buffer (mirrors delta buffer for thinking tokens) ──────────────
+
+  private bufferThinking(event: StreamEvent): void {
+    const sanitizedText = event.thinkingText ? sanitizeAgentOutputText(event.thinkingText) : '';
+    if (sanitizedText.length === 0) return;
+
+    this.pendingThinkingText += sanitizedText;
+    this.pendingThinkingAgentId = event.agentId ?? this.pendingThinkingAgentId;
+
+    // Publish immediately to SSE so the UI can show real-time thinking
+    this.hooks?.onLiveEvent?.({
+      type: 'thinking',
+      agentId: event.agentId,
+      thinkingText: sanitizedText,
+    });
+
+    if (!this.thinkingFlushTimer) {
+      this.thinkingFlushTimer = setTimeout(() => {
+        this.thinkingFlushTimer = null;
+        this.writePendingThinkingEvent().catch((err) => {
+          logger.warn('[event-writer] Failed to flush thinking', {
+            operationId: this.operationId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
+      }, this.flushIntervalMs);
+    }
+  }
+
+  private flushThinkingPendingIfNeeded(): Promise<void> {
+    if (this.pendingThinkingText.length === 0) return Promise.resolve();
+    if (this.thinkingFlushTimer) {
+      clearTimeout(this.thinkingFlushTimer);
+      this.thinkingFlushTimer = null;
+    }
+    return this.persistPendingThinking();
+  }
+
+  private async writePendingThinkingEvent(): Promise<void> {
+    if (this.pendingThinkingText.length === 0) return;
+    await this.queueWrite(async () => {
+      await this.persistPendingThinking();
+    });
+  }
+
+  private async persistPendingThinking(): Promise<void> {
+    if (this.pendingThinkingText.length === 0) return;
+
+    const thinkingText = this.pendingThinkingText;
+    const agentId = this.pendingThinkingAgentId;
+    this.pendingThinkingText = '';
+    this.pendingThinkingAgentId = undefined;
+
+    const jobEvent: Omit<JobEvent, 'createdAt' | 'seq'> = {
+      type: 'thinking',
+      userId: this.userId,
+      agentId,
+      thinkingText,
+    };
+
+    await this.persistEvent(jobEvent, {
+      type: 'thinking',
+      agentId: typeof agentId === 'string' ? (agentId as AgentIdentifier) : undefined,
+      thinkingText,
+    });
+  }
+
   private async writeImmediate(event: StreamEvent): Promise<void> {
     // Build event object, stripping undefined fields so Firestore writes
     // are self-contained and don't rely on ignoreUndefinedProperties.
@@ -328,6 +420,7 @@ export class DebouncedEventWriter {
       metadata: event.metadata ? sanitizeAgentPayload(event.metadata) : undefined,
       message: event.message ? sanitizeAgentOutputText(event.message) : undefined,
       text: event.text ? sanitizeAgentOutputText(event.text) : undefined,
+      thinkingText: event.thinkingText ? sanitizeAgentOutputText(event.thinkingText) : undefined,
       toolName: event.toolName,
       toolArgs: event.toolArgs ? sanitizeAgentOutputText(event.toolArgs) : undefined,
       toolResult: event.toolResult ? sanitizeAgentPayload(event.toolResult) : undefined,

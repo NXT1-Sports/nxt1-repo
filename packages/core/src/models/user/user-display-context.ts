@@ -315,7 +315,12 @@ function buildTeamContext(user: UserDisplayInput, personalName: string): UserDis
     : '/team';
   const sport =
     activeSport?.sport?.trim() || rawTopLevelTeamCode?.sport?.trim() || user.primarySport?.trim();
-  const logoUrl = activeTeam?.logoUrl ?? activeTeam?.logo ?? null;
+  const logoUrl =
+    activeTeam?.logoUrl ??
+    activeTeam?.logo ??
+    rawTopLevelTeamCode?.logoUrl ??
+    rawTopLevelTeamCode?.teamLogoImg ??
+    null;
 
   // Name: ALWAYS the team name for team roles. If no team name set, show explicit fallback.
   const name = teamName || personalName;
@@ -368,6 +373,9 @@ function buildTeamContext(user: UserDisplayInput, personalName: string): UserDis
           const additionalLogoUrl = (s.team as Record<string, unknown> | undefined)?.['logoUrl'] as
             | string
             | undefined;
+          const additionalLegacyLogo = (s.team as Record<string, unknown> | undefined)?.['logo'] as
+            | string
+            | undefined;
           return {
             id: `team-sport-${i}`,
             originalIndex: i,
@@ -378,7 +386,7 @@ function buildTeamContext(user: UserDisplayInput, personalName: string): UserDis
             isActive: i === activeSportIndex,
             profileImg: additionalIsPersonalFallback
               ? undefined
-              : additionalLogoUrl || profileImg || undefined,
+              : additionalLogoUrl || additionalLegacyLogo || profileImg || undefined,
           };
         }) ?? [])
     : [];

@@ -246,6 +246,57 @@ export class TeamProfileApiClient {
   }
 
   /**
+   * Toggle pin state on a team post (admin/coach only).
+   * PATCH /api/v1/teams/:teamId/posts/:postId/pin
+   */
+  async pinTeamPost(
+    teamId: string,
+    postId: string,
+    isPinned: boolean
+  ): Promise<{ postId: string; isPinned: boolean }> {
+    const url = `${this.baseUrl}/teams/${encodeURIComponent(teamId)}/posts/${encodeURIComponent(postId)}/pin`;
+
+    try {
+      const response = await firstValueFrom(
+        this.http.patch<ApiResponse<{ postId: string; isPinned: boolean }>>(url, { isPinned })
+      );
+
+      if (!response.success || !response.data) {
+        throw new Error(response.error ?? 'Failed to update post pin state');
+      }
+
+      this.logger.info('Team post pin state updated', { teamId, postId, isPinned });
+      return response.data;
+    } catch (error) {
+      const apiError = this.handleError(error);
+      this.logger.error('Failed to update team post pin state', error, { teamId, postId });
+      throw apiError;
+    }
+  }
+
+  /**
+   * Delete a team post (admin/coach only).
+   * DELETE /api/v1/teams/:teamId/posts/:postId
+   */
+  async deleteTeamPost(teamId: string, postId: string): Promise<void> {
+    const url = `${this.baseUrl}/teams/${encodeURIComponent(teamId)}/posts/${encodeURIComponent(postId)}`;
+
+    try {
+      const response = await firstValueFrom(this.http.delete<ApiResponse<{ postId: string }>>(url));
+
+      if (!response.success) {
+        throw new Error(response.error ?? 'Failed to delete post');
+      }
+
+      this.logger.info('Team post deleted', { teamId, postId });
+    } catch (error) {
+      const apiError = this.handleError(error);
+      this.logger.error('Failed to delete team post', error, { teamId, postId });
+      throw apiError;
+    }
+  }
+
+  /**
    * Handle API errors
    */
   private handleError(error: unknown): TeamProfileApiError {

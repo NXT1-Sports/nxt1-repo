@@ -588,6 +588,7 @@ export class ManageTeamShellComponent implements OnInit {
   @ViewChild('mediaFileInput') private readonly mediaFileInputRef?: ElementRef<HTMLInputElement>;
 
   private readonly pendingUploadTarget = signal<'logo' | 'gallery'>('gallery');
+  private readonly membershipChanged = signal(false);
 
   private initialSectionHandled = false;
 
@@ -748,7 +749,6 @@ export class ManageTeamShellComponent implements OnInit {
       message: 'Choose what you want to update.',
       actions: [
         { text: 'Website', data: 'website' },
-        { text: 'Logo URL', data: 'logo' },
         { text: 'Primary Color', data: 'primaryColor' },
         { text: 'Secondary Color', data: 'secondaryColor' },
         { text: 'Cancel', cancel: true },
@@ -920,6 +920,12 @@ export class ManageTeamShellComponent implements OnInit {
 
   protected toggleRosterSection(): void {
     this.emitAction('roster', 'open');
+
+    if (this.service.roster().length === 0) {
+      this.manageRosterInvite();
+      return;
+    }
+
     void this.openMembershipEditor('roster');
   }
 
@@ -946,6 +952,7 @@ export class ManageTeamShellComponent implements OnInit {
     });
 
     if (result.changed) {
+      this.membershipChanged.set(true);
       // Reload the team to reflect updated roster/staff counts in the shell
       void this.service.loadTeam(teamIdValue as string);
     }
@@ -1052,10 +1059,10 @@ export class ManageTeamShellComponent implements OnInit {
           : colorKey;
     const currentValue =
       normalizedKey === 'primaryColor'
-        ? (this.service.formData()?.branding?.primaryColor ?? '#ccff00')
+        ? this.service.formData()?.branding?.primaryColor
         : normalizedKey === 'secondaryColor'
-          ? (this.service.formData()?.branding?.secondaryColor ?? '#000000')
-          : (this.service.formData()?.branding?.accentColor ?? '#ffffff');
+          ? this.service.formData()?.branding?.secondaryColor
+          : this.service.formData()?.branding?.accentColor;
 
     const result = await this.modal.prompt({
       title: 'Brand Color',
@@ -1245,10 +1252,12 @@ export class ManageTeamShellComponent implements OnInit {
 
   onClose(saved: boolean): void {
     const formData = this.service.formData();
+    const shouldReportSaved = saved || this.membershipChanged();
     this.close.emit({
-      saved,
-      data: saved && formData ? formData : undefined,
+      saved: shouldReportSaved,
+      data: shouldReportSaved && formData ? formData : undefined,
     });
+    this.membershipChanged.set(false);
   }
 
   async onSave(): Promise<void> {

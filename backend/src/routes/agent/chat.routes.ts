@@ -13,7 +13,12 @@ import { Router, type Request, type Response } from 'express';
 import { appGuard } from '../../middleware/auth/auth.middleware.js';
 import { aiRateLimit } from '../../middleware/rate-limit/rate-limit.middleware.js';
 import { validateBody } from '../../middleware/validation/validation.middleware.js';
-import { AgentChatRequestDto, AgentEnqueueRequestDto } from '../../dtos/agent-x.dto.js';
+import {
+  AgentChatRequestDto,
+  AgentEnqueueRequestDto,
+  ResolvePendingAttachmentsDto,
+  ChatAttachmentDto,
+} from '../../dtos/agent-x.dto.js';
 import type {
   AgentJobPayload,
   AgentJobOrigin,
@@ -22,6 +27,8 @@ import type {
   AgentXOperationLifecycleStatus,
   AgentXSelectedAction,
 } from '@nxt1/core';
+import { resolveApprovalSuccessText } from '@nxt1/core';
+import { AGENT_X_RUNTIME_CONFIG } from '@nxt1/core/ai';
 import { STREAM_TERMINAL_EVENTS } from '../../modules/agent/queue/pubsub.service.js';
 import { logger } from '../../utils/logger.js';
 import {
@@ -29,6 +36,7 @@ import {
   checkBudgetFromContext,
   expireStaleHolds,
 } from '../../modules/billing/index.js';
+import { estimateChargeAmountSync } from '../../modules/billing/pricing.service.js';
 import crypto from 'node:crypto';
 import { FieldValue, Timestamp, type Firestore } from 'firebase-admin/firestore';
 
@@ -60,12 +68,16 @@ const OUTBOX_TTL_PENDING_DAYS = 1; // stuck-pending safety floor; fast cleanup
 const OUTBOX_TTL_ENQUEUED_DAYS = 7; // successfully delivered; keep for debug audit
 const OUTBOX_TTL_ERROR_DAYS = 7; // failed delivery; keep for ops triage
 const MAX_CONCURRENT_STREAMS_PER_USER = 5;
-const POLL_BACKOFF_INITIAL_MS = 1200;
-const POLL_BACKOFF_MAX_MS = 30_000;
-const FALLBACK_ALERT_THRESHOLD_MS = 30_000;
-const STREAM_IDLE_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes — auto-cleanup zombie streams
-const LIVE_BUFFER_MAX_EVENTS = 500;
+const POLL_BACKOFF_INITIAL_MS: number = AGENT_X_RUNTIME_CONFIG.operationStream.pollBackoffInitialMs;
+const POLL_BACKOFF_MAX_MS: number = AGENT_X_RUNTIME_CONFIG.operationStream.pollBackoffMaxMs;
+const FALLBACK_ALERT_THRESHOLD_MS: number =
+  AGENT_X_RUNTIME_CONFIG.operationStream.fallbackAlertThresholdMs;
+const STREAM_IDLE_TIMEOUT_MS: number = AGENT_X_RUNTIME_CONFIG.operationStream.idleTimeoutMs;
+const ATTACHMENT_WAIT_TIMEOUT_MS: number =
+  AGENT_X_RUNTIME_CONFIG.operationStream.attachmentWaitTimeoutMs;
+const LIVE_BUFFER_MAX_EVENTS: number = AGENT_X_RUNTIME_CONFIG.operationStream.liveBufferMaxEvents;
 const PAUSE_YIELD_TTL_MS = 24 * 60 * 60 * 1000;
+const CHAT_BILLING_GATE_ESTIMATED_COST_USD = 0.1;
 const PAUSE_RESUME_TOOL_NAME = 'resume_paused_operation';
 const AGENT_STREAM_EVENT_SCHEMA_VERSION = 2;
 const activeUserStreams = new Map<string, Set<string>>();
@@ -77,6 +89,21 @@ interface ActiveOperationStreamLease {
 }
 
 const activeOperationStreams = new Map<string, ActiveOperationStreamLease>();
+
+/** In-memory waiter for a pending-attachment stub resolution. */
+interface PendingAttachmentWaiter {
+  readonly userId: string;
+  resolve(attachments: readonly ChatAttachmentDto[]): void;
+  reject(reason?: Error): void;
+  readonly timeoutHandle: ReturnType<typeof setTimeout>;
+}
+
+/**
+ * Map from operationId → waiter for requests that sent `attachmentStubs`.
+ * Entry is created inside the `/chat` handler and deleted either on resolution
+ * (POST `/pending-attachments/:operationId`) or on timeout.
+ */
+const pendingAttachmentWaiters = new Map<string, PendingAttachmentWaiter>();
 
 const streamObservability = {
   streamAttachedTotal: 0,
@@ -389,6 +416,7 @@ function outboxTtlFromNow(days: number): FirebaseFirestore.Timestamp {
 }
 
 function writeSseHeaders(res: Response): void {
+  if (res.headersSent) return; // Idempotent — already committed (e.g. stub-wait block)
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
   res.setHeader('Connection', 'keep-alive');
@@ -1366,13 +1394,13 @@ async function streamOperationToSse(params: {
 
   // Fallback transport: Firestore tail polling when Redis PubSub is unavailable.
   const fallbackStartedAt = Date.now();
-  let pollDelayMs = POLL_BACKOFF_INITIAL_MS;
+  let pollDelayMs: number = POLL_BACKOFF_INITIAL_MS;
   let pollTimer: ReturnType<typeof setTimeout> | null = null;
   let fallbackAlerted = false;
   let fallbackPollCount = 0;
   let fallbackReadSuccessCount = 0;
   let fallbackReadErrorCount = 0;
-  let fallbackMaxDelayMs = pollDelayMs;
+  let fallbackMaxDelayMs: number = pollDelayMs;
 
   logger.warn('SSE entered Firestore fallback polling mode', {
     operationId,
@@ -2105,6 +2133,82 @@ router.post('/resume-job/:operationId', appGuard, async (req: Request, res: Resp
   }
 });
 
+// ─── GET /approvals/pending/by-operation/:operationId — Recover approvalId ───
+
+router.get(
+  '/approvals/pending/by-operation/:operationId',
+  appGuard,
+  async (req: Request, res: Response) => {
+    try {
+      const user = getAuthUser(req);
+      if (!user?.uid) {
+        res.status(401).json({ success: false, error: 'Unauthorized' });
+        return;
+      }
+
+      const operationId = req.params['operationId'];
+      if (!operationId || typeof operationId !== 'string' || operationId.trim().length === 0) {
+        res.status(400).json({ success: false, error: 'Operation ID is required' });
+        return;
+      }
+
+      const { db } = req.firebase!;
+      const approvalsSnap = await db
+        .collection('AgentApprovalRequests')
+        .where('userId', '==', user.uid)
+        .where('operationId', '==', operationId.trim())
+        .where('status', '==', 'pending')
+        .get();
+
+      if (approvalsSnap.empty) {
+        res.json({ success: true, data: null });
+        return;
+      }
+
+      const nowMs = Date.now();
+      let best: {
+        approvalId: string;
+        createdAt: string;
+        expiresAt: string;
+      } | null = null;
+
+      for (const doc of approvalsSnap.docs) {
+        const data = doc.data() as Record<string, unknown>;
+        const createdAtRaw = typeof data['createdAt'] === 'string' ? data['createdAt'] : null;
+        const expiresInMsRaw = data['expiresInMs'];
+        const expiresInMs =
+          typeof expiresInMsRaw === 'number' && Number.isFinite(expiresInMsRaw)
+            ? expiresInMsRaw
+            : 86_400_000;
+        const createdAtMs = createdAtRaw ? Date.parse(createdAtRaw) : NaN;
+        if (!Number.isFinite(createdAtMs)) continue;
+
+        const expiresAtMs = createdAtMs + expiresInMs;
+        if (expiresAtMs <= nowMs) continue;
+
+        const candidate = {
+          approvalId: doc.id,
+          createdAt: new Date(createdAtMs).toISOString(),
+          expiresAt: new Date(expiresAtMs).toISOString(),
+        };
+
+        if (!best || createdAtMs > Date.parse(best.createdAt)) {
+          best = candidate;
+        }
+      }
+
+      res.json({ success: true, data: best });
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      logger.error('Failed to find pending approval by operation', {
+        error: error.message,
+        stack: error.stack,
+      });
+      res.status(500).json({ success: false, error: 'Failed to find pending approval' });
+    }
+  }
+);
+
 // ─── POST /approvals/:id/resolve — Resolve an approval request ────────────
 
 router.post('/approvals/:id/resolve', appGuard, async (req: Request, res: Response) => {
@@ -2126,9 +2230,10 @@ router.post('/approvals/:id/resolve', appGuard, async (req: Request, res: Respon
       return;
     }
 
-    const { decision, toolInput } = req.body as {
+    const { decision, toolInput, trustForSession } = req.body as {
       decision?: string;
       toolInput?: Record<string, unknown>;
+      trustForSession?: boolean;
     };
     if (decision !== 'approved' && decision !== 'rejected') {
       res.status(400).json({
@@ -2223,7 +2328,83 @@ router.post('/approvals/:id/resolve', appGuard, async (req: Request, res: Respon
     const threadId = jobDoc.threadId;
     const yieldState = jobDoc.yieldState as AgentYieldState | undefined;
 
+    const toolName =
+      typeof yieldState?.pendingToolCall?.toolName === 'string'
+        ? yieldState.pendingToolCall.toolName
+        : 'requested action';
+    const readableToolName = toolName.replace(/[_-]+/g, ' ');
+
+    const persistApprovalResolutionCard = async (decisionValue: 'approved' | 'rejected') => {
+      if (!threadId || !chatService) return;
+
+      const title = decisionValue === 'approved' ? 'Approval Confirmed' : 'Approval Rejected';
+      const message =
+        decisionValue === 'approved'
+          ? `Approved ${readableToolName}. Agent X will continue this task.`
+          : `Rejected ${readableToolName}. Agent X stopped this action.`;
+      const successCopy = resolveApprovalSuccessText(toolName);
+      const resolvedText = decisionValue === 'approved' ? successCopy.badge : 'Rejected';
+
+      const persistedYieldState = yieldState?.pendingToolCall
+        ? {
+            ...yieldState,
+            approvalId,
+            pendingToolCall: {
+              ...yieldState.pendingToolCall,
+              ...(decisionValue === 'approved' && resolvedToolInput
+                ? { toolInput: resolvedToolInput }
+                : {}),
+            },
+          }
+        : yieldState;
+
+      try {
+        await chatService.addMessage({
+          threadId,
+          userId: user.uid,
+          role: 'assistant',
+          content: message,
+          origin: 'agent_chain',
+          agentId: 'router',
+          operationId,
+          resultData: {
+            yieldState: persistedYieldState,
+            yieldCardState: 'resolved',
+            yieldResolvedText: resolvedText,
+          },
+          parts: [
+            {
+              type: 'card',
+              card: {
+                type: 'confirmation',
+                agentId: 'router',
+                title,
+                payload: {
+                  message,
+                  actions: [],
+                  approvalId,
+                  operationId,
+                  yieldState: persistedYieldState,
+                  yieldCardState: 'resolved',
+                  yieldResolvedText: resolvedText,
+                },
+              },
+            },
+          ],
+        });
+      } catch (chatErr) {
+        logger.warn('Failed to persist approval resolution assistant message to MongoDB', {
+          error: chatErr instanceof Error ? chatErr.message : String(chatErr),
+          userId: user.uid,
+          threadId,
+          approvalId,
+          decision: decisionValue,
+        });
+      }
+    };
+
     if (decision === 'rejected') {
+      await persistApprovalResolutionCard('rejected');
       await jobRepository.withDb(db).markCancelled(operationId);
       if (threadId && chatService) {
         try {
@@ -2277,10 +2458,35 @@ router.post('/approvals/:id/resolve', appGuard, async (req: Request, res: Respon
     };
 
     await jobRepository.withDb(db).create(resumedPayload);
+    await persistApprovalResolutionCard('approved');
     await jobRepository.withDb(db).markCompleted(operationId, {
       summary: `Approved — continuing as ${resumedPayload.operationId}`,
       data: { resumedAs: resumedPayload.operationId, approvalId },
     });
+
+    // ── Session trust grant (best-effort) ───────────────────────────────────
+    // When the user checked "Trust for this session", write a Firestore grant
+    // so subsequent approvals in the same trust group are skipped for 2 hours.
+    if (trustForSession === true && yieldState?.pendingToolCall?.toolName) {
+      const toolNameForTrust = yieldState.pendingToolCall.toolName;
+      const sessionIdForTrust = resumedPayload.sessionId;
+      try {
+        const { ApprovalGateService } =
+          await import('../../modules/agent/services/approval-gate.service.js');
+        const approvalGateSvc = new ApprovalGateService(db);
+        await approvalGateSvc.grantSessionTrust(user.uid, sessionIdForTrust, toolNameForTrust);
+        logger.info('Session trust grant written', {
+          userId: user.uid,
+          sessionId: sessionIdForTrust,
+          toolName: toolNameForTrust,
+        });
+      } catch (trustErr) {
+        logger.warn('Failed to write session trust grant (non-fatal)', {
+          error: trustErr instanceof Error ? trustErr.message : String(trustErr),
+          toolName: toolNameForTrust,
+        });
+      }
+    }
 
     if (threadId && chatService) {
       try {
@@ -2321,6 +2527,75 @@ router.post('/approvals/:id/resolve', appGuard, async (req: Request, res: Respon
     res.status(500).json({ success: false, error: 'Failed to resolve approval' });
   }
 });
+
+// ─── POST /pending-attachments/:operationId — Resolve attachment stubs ────
+// Called by the frontend after background uploads complete. Finds the in-memory
+// waiter registered by the /chat handler (when the request contained
+// `attachmentStubs`), validates the caller is the same user, then resolves the
+// waiter so the SSE stream can proceed with fully-resolved attachment URLs.
+
+const resolvePendingAttachmentsHandler = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const user = getAuthUser(req);
+    if (!user?.uid) {
+      res.status(401).json({ success: false, error: 'Unauthorized' });
+      return;
+    }
+
+    const { operationId } = req.params as { operationId: string };
+    const waiter = pendingAttachmentWaiters.get(operationId);
+
+    if (!waiter) {
+      // Already resolved, timed out, or never existed
+      res.status(404).json({
+        success: false,
+        error: 'No pending attachment waiter found for this operationId. It may have timed out.',
+        code: 'WAITER_NOT_FOUND',
+      });
+      return;
+    }
+
+    if (waiter.userId !== user.uid) {
+      // Security: only the user who opened the stream can resolve it
+      res.status(403).json({ success: false, error: 'Forbidden' });
+      return;
+    }
+
+    const body = req.body as ResolvePendingAttachmentsDto;
+    clearTimeout(waiter.timeoutHandle);
+    pendingAttachmentWaiters.delete(operationId);
+    waiter.resolve(body.attachments);
+
+    logger.info('Agent chat: pending attachments resolved', {
+      operationId,
+      userId: user.uid,
+      attachmentCount: body.attachments.length,
+    });
+
+    res.status(200).json({ success: true });
+  } catch (err) {
+    logger.error('POST /pending-attachments error', {
+      route: 'pending-attachments',
+      error: err instanceof Error ? err.message : String(err),
+    });
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+};
+
+router.post(
+  '/pending-attachments/:operationId',
+  appGuard,
+  validateBody(ResolvePendingAttachmentsDto),
+  resolvePendingAttachmentsHandler
+);
+
+// Backward-compatible alias for clients that post to /chat/pending-attachments/:operationId.
+router.post(
+  '/chat/pending-attachments/:operationId',
+  appGuard,
+  validateBody(ResolvePendingAttachmentsDto),
+  resolvePendingAttachmentsHandler
+);
 
 // ─── POST /enqueue — Background enqueue without SSE ──────────────────────
 
@@ -2572,8 +2847,16 @@ router.post(
         });
       });
 
-      const { message, mode, threadId, attachments, resumeOperationId, afterSeq, selectedAction } =
-        req.body as AgentChatRequestDto;
+      const {
+        message,
+        mode,
+        threadId,
+        attachments,
+        connectedSources,
+        resumeOperationId,
+        afterSeq,
+        selectedAction,
+      } = req.body as AgentChatRequestDto;
       const normalizedSelectedAction = normalizeSelectedActionForPayload(selectedAction);
       const idempotencyKey = parseIdempotencyKey(req);
 
@@ -2619,40 +2902,118 @@ router.post(
 
       // New request path: create thread/message, create+enqueue job, then stream from persistence + live pubsub.
       const allAttachments = attachments ?? [];
+      logger.info('Agent chat request attachment summary', {
+        userId: user.uid,
+        threadId: threadId ?? null,
+        attachmentCount: allAttachments.length,
+        attachmentTypes: allAttachments.map((attachment) => attachment.type ?? 'unknown'),
+        videoCount: allAttachments.filter((attachment) => attachment.type === 'video').length,
+      });
+      const VIDEO_URL_HINT_PATTERN =
+        /(?:watch\.cloudflarestream\.com|videodelivery\.net|storage\.googleapis\.com|firebasestorage\.googleapis\.com|\.(?:mp4|mov|m4v|webm|avi|mkv))(?:$|[?#/])/i;
+      const isVideoAttachment = (attachment: {
+        mimeType?: string;
+        type?: string;
+        url?: string;
+        cloudflareVideoId?: string;
+      }): boolean => {
+        if (typeof attachment.mimeType === 'string' && attachment.mimeType.startsWith('video/')) {
+          return true;
+        }
+        if (attachment.type === 'video') return true;
+        if (
+          typeof attachment.cloudflareVideoId === 'string' &&
+          attachment.cloudflareVideoId.trim()
+        ) {
+          return true;
+        }
+        if (typeof attachment.url === 'string' && VIDEO_URL_HINT_PATTERN.test(attachment.url)) {
+          return true;
+        }
+        return false;
+      };
       const fileAttachments: AgentXAttachment[] = allAttachments
         .filter(
-          (a: { mimeType: string }) =>
-            a.mimeType.startsWith('image/') ||
-            a.mimeType === 'application/pdf' ||
-            a.mimeType === 'text/csv' ||
-            a.mimeType === 'text/plain' ||
-            a.mimeType === 'application/vnd.ms-excel' ||
-            a.mimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
-            a.mimeType === 'application/msword' ||
-            a.mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+          (a: {
+            mimeType?: string;
+            type?: string;
+            url?: string;
+            sizeBytes?: number;
+            cloudflareVideoId?: string;
+          }) =>
+            !isVideoAttachment(a) &&
+            typeof a.url === 'string' &&
+            typeof a.mimeType === 'string' &&
+            typeof a.sizeBytes === 'number' &&
+            (a.mimeType.startsWith('image/') ||
+              a.mimeType === 'application/pdf' ||
+              a.mimeType === 'text/csv' ||
+              a.mimeType === 'text/plain' ||
+              a.mimeType === 'application/vnd.ms-excel' ||
+              a.mimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+              a.mimeType === 'application/msword' ||
+              a.mimeType ===
+                'application/vnd.openxmlformats-officedocument.wordprocessingml.document')
         )
-        .map((a) => ({
-          id: a.id,
-          url: a.url,
-          ...(a.storagePath ? { storagePath: a.storagePath } : {}),
-          name: a.name,
-          mimeType: a.mimeType,
-          type: a.type as AgentXAttachment['type'],
-          sizeBytes: a.sizeBytes,
-        }));
+        .map(
+          (a) =>
+            ({
+              id: a.id,
+              url: a.url as string,
+              ...(a.storagePath ? { storagePath: a.storagePath } : {}),
+              name: a.name,
+              mimeType: a.mimeType as string,
+              type: a.type as AgentXAttachment['type'],
+              sizeBytes: a.sizeBytes as number,
+            }) as AgentXAttachment
+        );
       const videoAttachments: AgentXAttachment[] = allAttachments
-        .filter((a: { mimeType: string }) => a.mimeType.startsWith('video/'))
-        .map((a) => ({
-          id: a.id,
-          url: a.url,
-          name: a.name,
-          mimeType: a.mimeType,
-          type: a.type as AgentXAttachment['type'],
-          sizeBytes: a.sizeBytes,
-          ...(a.cloudflareVideoId ? { cloudflareVideoId: a.cloudflareVideoId } : {}),
-        }));
+        .filter(
+          (a: {
+            mimeType?: string;
+            type?: string;
+            url?: string;
+            sizeBytes?: number;
+            cloudflareVideoId?: string;
+          }) =>
+            isVideoAttachment(a) &&
+            typeof a.url === 'string' &&
+            typeof a.mimeType === 'string' &&
+            typeof a.sizeBytes === 'number'
+        )
+        .map(
+          (a) =>
+            ({
+              id: a.id,
+              url: a.url as string,
+              name: a.name,
+              mimeType: a.mimeType as string,
+              type: a.type as AgentXAttachment['type'],
+              sizeBytes: a.sizeBytes as number,
+              ...(a.cloudflareVideoId ? { cloudflareVideoId: a.cloudflareVideoId } : {}),
+            }) as AgentXAttachment
+        );
+
+      const connectedSourceAttachments: AgentXAttachment[] = (connectedSources ?? []).map(
+        (source) => ({
+          id: crypto.randomUUID(),
+          url: source.profileUrl,
+          name: source.platform,
+          mimeType: 'application/x-connected-source',
+          type: 'app',
+          sizeBytes: 1,
+          ...(source.platform ? { platform: source.platform } : {}),
+          ...(source.faviconUrl ? { faviconUrl: source.faviconUrl } : {}),
+        })
+      );
 
       let enrichedMessageText = message.trim();
+      // Inject connected app sources as context so Agent X knows which platforms the user
+      // has made available for retrieval or virtual browser navigation.
+      if (connectedSources && connectedSources.length > 0) {
+        const sourceRefs = connectedSources.map((s) => `${s.platform}: ${s.profileUrl}`).join(', ');
+        enrichedMessageText = `${enrichedMessageText}\n\n[Connected sources available (confirmed by user for this turn): ${sourceRefs}]\n[Instruction: treat these as user-connected sources for this request; do not state they are missing.]`;
+      }
       if (videoAttachments.length > 0) {
         const videoRefs = videoAttachments
           .map((v) => {
@@ -2693,8 +3054,17 @@ router.post(
               role: 'user',
               content: enrichedMessageText,
               origin: 'user',
-              ...(fileAttachments.length > 0 || videoAttachments.length > 0
-                ? { attachments: [...fileAttachments, ...videoAttachments] }
+              ...(idempotencyKey ? { idempotencyKey } : {}),
+              ...(fileAttachments.length > 0 ||
+              videoAttachments.length > 0 ||
+              connectedSourceAttachments.length > 0
+                ? {
+                    attachments: [
+                      ...fileAttachments,
+                      ...videoAttachments,
+                      ...connectedSourceAttachments,
+                    ],
+                  }
                 : {}),
             });
           }
@@ -2706,9 +3076,13 @@ router.post(
         }
       }
 
+      const { chargeAmountCents: estimatedGateCostCents } = estimateChargeAmountSync(
+        CHAT_BILLING_GATE_ESTIMATED_COST_USD
+      );
+
       let chatTarget = await resolveBillingTarget(db, user.uid);
       let chatCtx = chatTarget.context;
-      let chatBudgetCheck = checkBudgetFromContext(chatCtx);
+      let chatBudgetCheck = checkBudgetFromContext(chatCtx, estimatedGateCostCents);
 
       const isWalletContext =
         chatCtx.billingEntity === 'individual' || chatCtx.billingEntity === 'organization';
@@ -2719,7 +3093,7 @@ router.post(
           if (expiredCount > 0) {
             chatTarget = await resolveBillingTarget(db, user.uid);
             chatCtx = chatTarget.context;
-            chatBudgetCheck = checkBudgetFromContext(chatCtx);
+            chatBudgetCheck = checkBudgetFromContext(chatCtx, estimatedGateCostCents);
           }
         } catch (err) {
           logger.warn('Failed to expire stale wallet holds before chat budget gate check', {
@@ -2729,8 +3103,13 @@ router.post(
         }
       }
 
+      const walletBalanceCents = chatCtx.walletBalanceCents ?? 0;
+      const pendingHoldsCents = chatCtx.pendingHoldsCents ?? 0;
       const bypassHoldGateWithPositiveWallet =
-        !chatBudgetCheck.allowed && isWalletContext && (chatCtx.walletBalanceCents ?? 0) > 0;
+        !chatBudgetCheck.allowed &&
+        isWalletContext &&
+        pendingHoldsCents > 0 &&
+        walletBalanceCents >= estimatedGateCostCents;
 
       if (bypassHoldGateWithPositiveWallet) {
         logger.info(
@@ -2738,8 +3117,9 @@ router.post(
           {
             userId: user.uid,
             billingEntity: chatCtx.billingEntity,
-            walletBalanceCents: chatCtx.walletBalanceCents ?? 0,
-            pendingHoldsCents: chatCtx.pendingHoldsCents ?? 0,
+            walletBalanceCents,
+            pendingHoldsCents,
+            estimatedGateCostCents,
           }
         );
       }
@@ -2806,6 +3186,139 @@ router.post(
 
       const operationId = `chat-${crypto.randomUUID()}`;
       const trimmedMessage = message.trim();
+
+      // ── Attachment Stub Resolution ────────────────────────────────────────
+      // When the user hits Send while a video is still uploading, the client
+      // sends `attachmentStubs` (id/name/mimeType/sizeBytes — no URL yet).
+      // We open the SSE stream immediately, emit `waiting_for_attachments`, and
+      // wait up to ATTACHMENT_WAIT_TIMEOUT_MS for a resolution POST from the
+      // frontend. Once resolved the URLs are injected into fileAttachments /
+      // videoAttachments before enqueueing, keeping the outbox payload complete.
+      const rawAttachmentStubs = (req.body as AgentChatRequestDto).attachmentStubs ?? [];
+      if (rawAttachmentStubs.length > 0) {
+        writeSseHeaders(res); // idempotent — no-op if headers already sent
+
+        let preSeq = 0;
+        const buildPreEnvelope = (): {
+          schemaVersion: number;
+          eventId: string;
+          seq: number;
+          emittedAt: string;
+        } => ({
+          schemaVersion: AGENT_STREAM_EVENT_SCHEMA_VERSION,
+          eventId: crypto.randomUUID(),
+          seq: ++preSeq,
+          emittedAt: new Date().toISOString(),
+        });
+
+        if (effectiveThreadId) {
+          res.write(
+            `event: thread\ndata: ${JSON.stringify({
+              ...buildPreEnvelope(),
+              threadId: effectiveThreadId,
+              operationId,
+            })}\n\n`
+          );
+          forceProxyFlush(res);
+        }
+
+        res.write(
+          `event: waiting_for_attachments\ndata: ${JSON.stringify({
+            ...buildPreEnvelope(),
+            operationId,
+            attachmentIds: rawAttachmentStubs.map((s) => s.id),
+            timeoutMs: ATTACHMENT_WAIT_TIMEOUT_MS,
+            ...(effectiveThreadId ? { threadId: effectiveThreadId } : {}),
+          })}\n\n`
+        );
+        forceProxyFlush(res);
+
+        logger.info('Agent chat: waiting for attachment stubs to resolve', {
+          operationId,
+          userId: user.uid,
+          stubCount: rawAttachmentStubs.length,
+          stubIds: rawAttachmentStubs.map((s) => s.id),
+          threadId: effectiveThreadId ?? null,
+        });
+
+        const resolvedStubs = await new Promise<readonly ChatAttachmentDto[] | null>((resolve) => {
+          const timeoutHandle = setTimeout(() => {
+            pendingAttachmentWaiters.delete(operationId);
+            logger.warn('Agent chat: attachment stub wait timed out', {
+              operationId,
+              userId: user.uid,
+              stubCount: rawAttachmentStubs.length,
+            });
+            resolve(null);
+          }, ATTACHMENT_WAIT_TIMEOUT_MS);
+
+          pendingAttachmentWaiters.set(operationId, {
+            userId: user.uid,
+            resolve: (attachments) => resolve(attachments),
+            reject: () => resolve(null),
+            timeoutHandle,
+          });
+        });
+
+        if (resolvedStubs === null) {
+          const endSeq = preSeq;
+          res.write(
+            `event: delta\ndata: ${JSON.stringify({
+              schemaVersion: AGENT_STREAM_EVENT_SCHEMA_VERSION,
+              eventId: crypto.randomUUID(),
+              seq: endSeq + 1,
+              emittedAt: new Date().toISOString(),
+              content:
+                'Your video upload is taking too long. Please try sending your message again.',
+            })}\n\n`
+          );
+          forceProxyFlush(res);
+          res.write(
+            `event: done\ndata: ${JSON.stringify({
+              schemaVersion: AGENT_STREAM_EVENT_SCHEMA_VERSION,
+              eventId: crypto.randomUUID(),
+              seq: endSeq + 2,
+              emittedAt: new Date().toISOString(),
+              operationId,
+              ...(effectiveThreadId ? { threadId: effectiveThreadId } : {}),
+              status: 'failed',
+              success: false,
+            })}\n\n`
+          );
+          forceProxyFlush(res);
+          res.end();
+          return;
+        }
+
+        logger.info('Agent chat: attachment stubs resolved; injecting into payload', {
+          operationId,
+          userId: user.uid,
+          resolvedCount: resolvedStubs.length,
+        });
+
+        // Inject resolved URLs into the mutable attachment arrays so they are
+        // picked up by the job payload below (context.videoAttachments, etc.).
+        for (const stub of resolvedStubs) {
+          if (!stub.url || !stub.mimeType || !stub.sizeBytes) continue;
+          const agentAttachment: AgentXAttachment = {
+            id: stub.id,
+            url: stub.url,
+            ...(stub.storagePath ? { storagePath: stub.storagePath } : {}),
+            name: stub.name,
+            mimeType: stub.mimeType,
+            type: stub.type as AgentXAttachment['type'],
+            sizeBytes: stub.sizeBytes,
+          };
+          if (isVideoAttachment(stub)) {
+            videoAttachments.push(agentAttachment);
+            enrichedMessageText += `\n\n[Attached video: ${agentAttachment.name} — ${agentAttachment.url}]`;
+          } else {
+            fileAttachments.push(agentAttachment);
+            enrichedMessageText += `\n\n[Attached file: ${agentAttachment.name} (${agentAttachment.mimeType}) — ${agentAttachment.url}]`;
+          }
+        }
+      }
+
       const resolvedIntent = await resolveSelectedActionIntent({
         db,
         userId: user.uid,

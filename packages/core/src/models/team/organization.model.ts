@@ -115,6 +115,9 @@ export interface Organization {
   /** Mascot name */
   mascot?: string;
 
+  /** Program/team level shown in team profile and manage-team UI */
+  level?: string;
+
   // ============================================
   // ADMINS & STAFF
   // ============================================
@@ -203,6 +206,7 @@ export interface CreateOrganizationInput {
   primaryColor?: string;
   secondaryColor?: string;
   mascot?: string;
+  level?: string;
   /** Defaults to `true` if not provided */
   isClaimed?: boolean;
   /** Defaults to `'admin'` if not provided */
@@ -220,6 +224,7 @@ export interface UpdateOrganizationInput {
   primaryColor?: string;
   secondaryColor?: string;
   mascot?: string;
+  level?: string;
   settings?: Organization['settings'];
 }
 

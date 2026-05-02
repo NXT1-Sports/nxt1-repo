@@ -254,4 +254,130 @@ describe('Agent handoff and tool narrowing', () => {
     expect(usedToolNames).toContain('runway_generate_video');
     expect(usedToolNames).toContain('runway_check_task');
   });
+
+  it('retains distilled scrape follow-up tools when profile ingestion is selected', async () => {
+    const baseDefs: AgentToolDefinition[] = [
+      {
+        name: 'scrape_and_index_profile',
+        description: 'Scrape and distill an external profile',
+        parameters: {},
+        allowedAgents: ['*'],
+        isMutation: false,
+        category: 'analytics',
+        entityGroup: 'platform_tools',
+      },
+      {
+        name: 'read_distilled_section',
+        description: 'Read a distilled section',
+        parameters: {},
+        allowedAgents: ['*'],
+        isMutation: false,
+        category: 'analytics',
+        entityGroup: 'platform_tools',
+      },
+      {
+        name: 'dispatch_extraction',
+        description: 'Dispatch raw extraction',
+        parameters: {},
+        allowedAgents: ['*'],
+        isMutation: false,
+        category: 'analytics',
+        entityGroup: 'platform_tools',
+      },
+      {
+        name: 'write_core_identity',
+        description: 'Write core identity',
+        parameters: {},
+        allowedAgents: ['*'],
+        isMutation: true,
+        category: 'database',
+        entityGroup: 'user_tools',
+      },
+      {
+        name: 'write_schedule',
+        description: 'Write team schedule',
+        parameters: {},
+        allowedAgents: ['*'],
+        isMutation: true,
+        category: 'database',
+        entityGroup: 'team_tools',
+      },
+    ];
+
+    const scoredDefs: MatchedToolDefinition[] = [{ ...baseDefs[0], semanticScore: 0.91 }];
+
+    const toolRegistry = {
+      getDefinitions: vi.fn().mockReturnValue(baseDefs),
+      matchWithScores: vi.fn().mockResolvedValue(scoredDefs),
+    } as unknown as ToolRegistry;
+
+    const llm = {
+      embed: vi.fn().mockResolvedValue([0.5, 0.4, 0.3]),
+    } as unknown as OpenRouterService;
+
+    const telemetry = {
+      emitProgressOperation: vi.fn(),
+      emitUpdate: vi.fn(),
+      recordPhaseLatency: vi.fn(),
+    };
+
+    const capturedToolDefs: AgentToolDefinition[][] = [];
+    const fakeAgent = {
+      id: 'data_coordinator' as AgentIdentifier,
+      name: 'Data Coordinator',
+      execute: vi
+        .fn()
+        .mockImplementation(
+          async (
+            _intent: string,
+            _context: AgentSessionContext,
+            defs: readonly AgentToolDefinition[]
+          ) => {
+            capturedToolDefs.push([...defs]);
+            return {
+              summary: 'ok',
+              data: {},
+              suggestions: [],
+            } as AgentOperationResult;
+          }
+        ),
+    } as unknown as BaseAgent;
+
+    const service = new AgentRouterExecutionService(llm, toolRegistry, telemetry);
+
+    const task: AgentTask = {
+      id: 't3',
+      assignedAgent: 'data_coordinator',
+      description: 'Re-sync MaxPreps profile',
+      dependsOn: [],
+      status: 'pending',
+      createdAt: new Date().toISOString(),
+    };
+
+    const accessContext: AgentToolAccessContext = {
+      userId: 'user-1',
+      role: 'athlete',
+      allowedEntityGroups: ['platform_tools', 'system_tools', 'user_tools', 'team_tools'],
+    };
+
+    await service.executePlan({
+      operationId: 'op-3',
+      userId: 'user-1',
+      plan: { tasks: [task] },
+      enrichedIntent: 'Re-sync my MaxPreps profile',
+      context: createContext(),
+      toolAccessContext: accessContext,
+      taskMaxRetries: 0,
+      agents: new Map([['data_coordinator', fakeAgent]]),
+      buildTaskIntent: () => 'Objective: Re-sync my MaxPreps profile',
+      rerouteDelegatedTask: async () => null,
+    });
+
+    const usedToolNames = (capturedToolDefs[0] ?? []).map((tool) => tool.name);
+    expect(usedToolNames).toContain('scrape_and_index_profile');
+    expect(usedToolNames).toContain('read_distilled_section');
+    expect(usedToolNames).toContain('dispatch_extraction');
+    expect(usedToolNames).toContain('write_core_identity');
+    expect(usedToolNames).toContain('write_schedule');
+  });
 });

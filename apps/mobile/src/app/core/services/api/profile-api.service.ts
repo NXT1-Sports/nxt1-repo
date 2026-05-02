@@ -15,6 +15,7 @@ import {
   createProfileApi,
   type ProfileApi,
   type ApiResponse,
+  type AddSportResponse,
   type AddSportRequest,
   type UpdateProfileRequest,
   type UpdateSportProfileRequest,
@@ -113,7 +114,7 @@ export class ProfileApiService {
   /**
    * Add new sport to profile
    */
-  async addSport(userId: string, sport: AddSportRequest): Promise<ApiResponse<SportProfile>> {
+  async addSport(userId: string, sport: AddSportRequest): Promise<ApiResponse<AddSportResponse>> {
     return this.api.addSport(userId, sport);
   }
 

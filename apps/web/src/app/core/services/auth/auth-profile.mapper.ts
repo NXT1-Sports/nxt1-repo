@@ -177,6 +177,7 @@ export function mapBackendProfileToCachedUserProfile(user: BackendProfileLike): 
               sportTeam?.logoUrl ??
               sportTeam?.logo ??
               rawTopTeam?.logoUrl ??
+              rawTopTeam?.logo ??
               null,
           }
         : null,

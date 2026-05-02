@@ -38,6 +38,7 @@
 
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
 import { toMarkdownTable } from '../markdown-helpers.js';
+import { resolveUrlDisplay } from '../favicon-registry.js';
 import { CollegeModel } from '../../../../models/core/college.model.js';
 import { getFirestore } from 'firebase-admin/firestore';
 import { resolvePrimarySport } from '../../memory/context-builder.js';
@@ -759,10 +760,14 @@ export class SearchCollegesTool extends BaseTool {
           .map(
             (c, i) =>
               `### ${i + 1}. ${c.name}\n` +
-              (c.questionnaire ? `- 📋 Questionnaire: ${c.questionnaire}\n` : '') +
-              (c.sportLandingUrl ? `- 🔗 Sport Page: ${c.sportLandingUrl}\n` : '') +
-              (c.twitter ? `- 🐦 Twitter: ${c.twitter}\n` : '') +
-              (c.camp ? `- ⛺ Camp: ${c.camp}\n` : '')
+              (c.questionnaire
+                ? `- 📋 Questionnaire: ${resolveUrlDisplay(c.questionnaire)}\n`
+                : '') +
+              (c.sportLandingUrl
+                ? `- 🔗 Sport Page: ${resolveUrlDisplay(c.sportLandingUrl)}\n`
+                : '') +
+              (c.twitter ? `- 🐦 Twitter: ${resolveUrlDisplay(c.twitter)}\n` : '') +
+              (c.camp ? `- ⛺ Camp: ${resolveUrlDisplay(c.camp)}\n` : '')
           )
           .join('\n'),
       ].join('\n');

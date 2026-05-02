@@ -25,7 +25,7 @@ import type {
 /**
  * MIME type categories that Agent X can process via multimodal models.
  */
-export type AgentXAttachmentType = 'image' | 'video' | 'pdf' | 'csv' | 'doc';
+export type AgentXAttachmentType = 'image' | 'video' | 'pdf' | 'csv' | 'doc' | 'app';
 
 /**
  * Metadata for a file attached to an Agent X message.
@@ -52,6 +52,29 @@ export interface AgentXAttachment {
    * and `generate_captions`.
    */
   readonly cloudflareVideoId?: string;
+  /** Connected-source platform label for app attachments. */
+  readonly platform?: string;
+  /** Platform favicon URL for app attachments. */
+  readonly faviconUrl?: string;
+}
+
+/**
+ * Minimal metadata for a file that is selected but not yet uploaded.
+ * Sent as `attachmentStubs` in a chat request when the upload is still in progress.
+ * The backend waits up to 90 s for the frontend to POST the resolved URL via
+ * `POST /agent-x/chat/pending-attachments/:operationId` before processing.
+ */
+export interface AgentXAttachmentStub {
+  /** Must match the `id` that will be sent in the resolved full attachment. */
+  readonly id: string;
+  /** Original file name chosen by the user. */
+  readonly name: string;
+  /** MIME type (e.g. `video/mp4`, `image/jpeg`). */
+  readonly mimeType: string;
+  /** File size in bytes. */
+  readonly sizeBytes: number;
+  /** Resolved high-level attachment type. */
+  readonly type: AgentXAttachmentType;
 }
 
 // ============================================
@@ -77,7 +100,13 @@ export type AgentXMessagePart =
   | { readonly type: 'tool-steps'; readonly steps: readonly AgentXToolStep[] }
   | { readonly type: 'card'; readonly card: AgentXRichCard }
   | { readonly type: 'image'; readonly url: string; readonly alt?: string }
-  | { readonly type: 'video'; readonly url: string; readonly mimeType?: string };
+  | { readonly type: 'video'; readonly url: string; readonly mimeType?: string }
+  /**
+   * Extended thinking block emitted by Claude 3.7+ / Gemini 2.5 before the
+   * answer. Hidden by default (collapsed) — surfaced as a collapsible panel
+   * in the chat UI so power users can inspect the model's reasoning.
+   */
+  | { readonly type: 'thinking'; readonly content: string };
 
 /**
  * A single message in the Agent X conversation.
@@ -311,6 +340,24 @@ export interface AgentXChatRequest {
    */
   readonly attachments?: readonly AgentXAttachment[];
   /**
+   * Connected app sources the user has explicitly selected for this message.
+   * The backend injects these as context hints so Agent X knows which platforms
+   * are available for retrieval or virtual browser navigation.
+   * e.g. [{ platform: 'Hudl', profileUrl: 'https://hudl.com/athlete/...' }]
+   */
+  readonly connectedSources?: readonly {
+    readonly platform: string;
+    readonly profileUrl: string;
+    readonly faviconUrl?: string;
+  }[];
+  /**
+   * Stubs for files that are selected but not yet uploaded.
+   * When present, the backend starts the SSE stream immediately, emits a
+   * `waiting_for_attachments` event, and awaits a resolution POST before
+   * enqueueing the job. Can coexist with `attachments` (already-uploaded files).
+   */
+  readonly attachmentStubs?: readonly AgentXAttachmentStub[];
+  /**
    * Re-attach to an already-running queued operation stream.
    * Used after approval resolution and SSE drop recovery.
    */
@@ -506,6 +553,139 @@ export interface AgentXConfirmationAction {
   readonly variant: 'primary' | 'secondary' | 'destructive';
 }
 
+/**
+ * Discriminator for the confirmation card rendering variant.
+ * - `email`           — Single email approval with editable draft UI.
+ * - `email-batch`     — Batch email approval with editable recipient pills + template.
+ * - `timeline_post`   — Timeline/team post approval with editable title + description.
+ * - `generic_approval`— Rich approval card for non-email tools (profile/team writes,
+ *                       workspace actions, deletes, etc.) with action summary + data preview.
+ */
+export type AgentXConfirmationVariant =
+  | 'email'
+  | 'email-batch'
+  | 'timeline_post'
+  | 'generic_approval';
+
+/**
+ * Email payload attached to `email` and `email-batch` confirmation cards.
+ * Enables the frontend to pre-populate an editable draft preview.
+ */
+export interface AgentXConfirmationEmailData {
+  /** Email subject line (or batch subject template). */
+  readonly subject: string;
+  /** Email body HTML (or batch body HTML template). */
+  readonly body: string;
+  /** Single-email recipient address. Present only on `email` variant. */
+  readonly toEmail?: string;
+  /**
+   * Recipient list for batch sends.
+   * Each entry is either a plain email string (legacy) or a structured object
+   * preserving per-recipient template variables for the round-trip approval.
+   */
+  readonly recipients?: readonly (
+    | string
+    | { readonly toEmail: string; readonly variables: Record<string, string | number | boolean> }
+  )[];
+  /** Total recipient count — used for the card title badge. */
+  readonly recipientsCount: number;
+}
+
+/**
+ * Category of a non-email tool approval.
+ * Drives the icon, accent color, and risk language in the generic approval card.
+ */
+export type AgentXGenericApprovalCategory =
+  | 'profileWrite'
+  | 'profileDelete'
+  | 'teamWrite'
+  | 'teamDelete'
+  | 'communication'
+  | 'workspace'
+  | 'automation'
+  | 'destructive'
+  | 'other';
+
+/**
+ * Structured data attached to `generic_approval` confirmation cards.
+ * Provides a rich preview so users understand what Agent X wants to do
+ * without needing to expand a raw JSON accordion.
+ */
+/**
+ * Rich preview for write_season_stats approval — stats displayed in table format.
+ */
+export interface SeasonStatsPreview {
+  readonly type: 'season_stats';
+  readonly sport: string;
+  readonly year?: string | number;
+  readonly rows: ReadonlyArray<{
+    readonly label: string;
+    readonly value: string | number;
+  }>;
+}
+
+/**
+ * Rich preview for write_core_identity approval — profile info in labeled sections.
+ */
+export interface CoreIdentityPreview {
+  readonly type: 'core_identity';
+  readonly sections: ReadonlyArray<{
+    readonly title: string;
+    readonly fields: ReadonlyArray<{ readonly key: string; readonly value: string }>;
+  }>;
+}
+
+/**
+ * Rich preview for write_roster_entries approval — roster in table format.
+ */
+export interface RosterPreview {
+  readonly type: 'roster';
+  readonly teamName?: string;
+  readonly rows: ReadonlyArray<{
+    readonly name: string;
+    readonly number?: string | number;
+    readonly position?: string;
+    readonly grade?: string;
+    readonly status?: string;
+  }>;
+}
+
+/** Union of all rich preview types. */
+export type ApprovalRichPreview = SeasonStatsPreview | CoreIdentityPreview | RosterPreview;
+
+export interface AgentXGenericApprovalData {
+  /** Semantic category driving icon + accent color in the UI. */
+  readonly category: AgentXGenericApprovalCategory;
+  /** Risk level indicator — controls warning color and language. */
+  readonly riskLevel: 'low' | 'medium' | 'high' | 'critical';
+  /** Human-readable one-line summary of the action (from `resolveAgentApprovalCopy`). */
+  readonly actionSummary: string;
+  /** Human-readable resource name (e.g. "timeline post", "season stats"). */
+  readonly resourceName: string;
+  /**
+   * Optional key-value preview of the most relevant fields from `toolInput`.
+   * Limited to 5 entries. Sensitive fields (tokens, passwords, etc.) are stripped.
+   */
+  readonly dataFields?: ReadonlyArray<{ readonly key: string; readonly value: string }>;
+  /** Optional rich structured preview (stats table, profile sections, roster table). */
+  readonly richPreview?: ApprovalRichPreview;
+}
+
+/**
+ * Timeline/team post payload attached to `timeline_post` confirmation cards.
+ * Enables users to edit the post title and description before approval.
+ */
+export interface AgentXConfirmationTimelinePostData {
+  /** Editable post title shown in feed cards (optional for plain text posts). */
+  readonly title?: string;
+  /** Editable post body/description. */
+  readonly description: string;
+  /** Post type (text, image, video, announcement, etc.). */
+  readonly postType?: string;
+  /** True when approval targets a team timeline post. */
+  readonly isTeamPost: boolean;
+}
+
 /** Payload for the `confirmation` card type. */
 export interface AgentXConfirmationPayload {
   /** Descriptive message body. */
@@ -516,6 +696,26 @@ export interface AgentXConfirmationPayload {
   readonly approvalId?: string;
   /** Operation id associated with the pending approval. */
   readonly operationId?: string;
+  /**
+   * Rendering variant — determines which UI branch the action card renders.
+   * Absent on legacy cards; the frontend falls back to toolName detection.
+   */
+  readonly variant?: AgentXConfirmationVariant;
+  /**
+   * Email draft data — present on `email` and `email-batch` variants.
+   * Enables the editable draft UI without re-reading raw toolInput.
+   */
+  readonly emailData?: AgentXConfirmationEmailData;
+  /**
+   * Generic approval data — present on `generic_approval` variant.
+   * Provides a structured rich preview for non-email tool approvals.
+   */
+  readonly genericApprovalData?: AgentXGenericApprovalData;
+  /**
+   * Timeline post data — present on `timeline_post` variant.
+   * Provides editable title/description for timeline/team post approvals.
+   */
+  readonly timelinePostData?: AgentXConfirmationTimelinePostData;
 }
 
 // ── Ask User ──
@@ -734,6 +934,20 @@ export interface AgentXStreamDeltaEvent {
 }
 
 /**
+ * Payload of the `event: thinking` SSE frame.
+ * Emitted by extended-thinking models (Claude 3.7+, Gemini 2.5) before the
+ * first delta frame. The content is the model's raw reasoning chain.
+ */
+export interface AgentXStreamThinkingEvent {
+  readonly schemaVersion?: number;
+  readonly eventId?: string;
+  readonly seq?: number;
+  readonly emittedAt?: string;
+  /** One fragment of the model's reasoning text. */
+  readonly content: string;
+}
+
+/**
  * Payload of the `event: done` SSE frame.
  * Final frame sent after all deltas — contains usage metadata.
  */
@@ -948,6 +1162,12 @@ export interface AgentXStreamCallbacks {
   onThread?: (event: AgentXStreamThreadEvent) => void;
   /** Called for every token chunk the LLM streams. */
   onDelta: (event: AgentXStreamDeltaEvent) => void;
+  /**
+   * Called for every extended thinking fragment (Claude 3.7+, Gemini 2.5).
+   * Arrives before the first delta. Optional — models that don't support
+   * extended thinking will never fire this callback.
+   */
+  onThinking?: (event: AgentXStreamThinkingEvent) => void;
   /** Called once when the stream completes successfully. */
   onDone: (event: AgentXStreamDoneEvent) => void;
   /** Called if the stream encounters an error. */
@@ -968,6 +1188,33 @@ export interface AgentXStreamCallbacks {
   onMedia?: (event: AgentXStreamMediaEvent) => void;
   /** Called when this stream is explicitly replaced by a newer stream lease. */
   onStreamReplaced?: (event: AgentXStreamReplacedEvent) => void;
+  /**
+   * Called when the backend has received attachment stubs and is waiting for the
+   * frontend to finish uploading. The handler should complete the upload and then
+   * POST resolved attachments to `POST /agent-x/chat/pending-attachments/:operationId`.
+   * May return a Promise — the SSE stream continues regardless (fire-and-forget).
+   */
+  onWaitingForAttachments?: (event: AgentXStreamWaitingForAttachmentsEvent) => void | Promise<void>;
+}
+
+/**
+ * Emitted by the backend when it has received attachment stubs and is waiting
+ * for the frontend to finish uploading and resolve via
+ * `POST /agent-x/chat/pending-attachments/:operationId`.
+ */
+export interface AgentXStreamWaitingForAttachmentsEvent {
+  readonly schemaVersion?: number;
+  readonly eventId?: string;
+  readonly seq?: number;
+  readonly emittedAt?: string;
+  /** The operation ID to use in the resolution POST body and URL parameter. */
+  readonly operationId: string;
+  /** IDs of the stubs that need to be resolved. */
+  readonly attachmentIds: readonly string[];
+  /** How long the backend will wait before timing out (milliseconds). */
+  readonly timeoutMs: number;
+  /** Thread ID if already resolved (may be undefined for brand-new threads). */
+  readonly threadId?: string;
 }
 
 /**

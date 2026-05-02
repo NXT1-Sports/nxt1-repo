@@ -256,11 +256,35 @@ router.post('/', async (req: Request, res: Response) => {
 
         await postRef.update(updatePayload);
 
+        // Determine whether this is a team post and resolve team code for cache
+        // invalidation. Team posts written by WriteTeamPostTool have a `teamId`
+        // field. We look up the team doc to get the `teamCode` slug.
+        const existingData = postSnap.data() as Record<string, unknown>;
+        const teamId =
+          typeof existingData['teamId'] === 'string' ? existingData['teamId'] : undefined;
+        let teamCode: string | undefined;
+        if (teamId) {
+          try {
+            const teamSnap = await db.collection('Teams').doc(teamId).get();
+            const td = teamSnap.data() as Record<string, unknown> | undefined;
+            teamCode =
+              typeof td?.['teamCode'] === 'string' ? (td['teamCode'] as string) : undefined;
+          } catch {
+            // Non-fatal — team cache will expire on TTL
+          }
+        }
+
         const cache = getCacheService();
         await Promise.all([
           cache.del(`profile:videos:${nxt1UserId}*`),
           cache.del('explore:*'),
           invalidateProfileCaches(nxt1UserId),
+          ...(teamCode
+            ? [
+                cache.delByPrefix(`team:timeline:v1:${teamCode}:`),
+                cache.delByPrefix(`team:profile:code:${teamCode}:`),
+              ]
+            : []),
         ]);
 
         logger.info(`${tag} Reconciled persisted highlight post`, {
@@ -311,6 +335,171 @@ router.post('/', async (req: Request, res: Response) => {
       error: error instanceof Error ? error.message : String(error),
     });
     return res.status(500).json({ error: 'Webhook processing failed' });
+  }
+});
+
+/**
+ * POST /api/v1/cloudflare-webhook/repair/:videoId
+ *
+ * Manually syncs a Cloudflare Stream video's current status into the Firestore
+ * post doc. Used when the webhook was not configured or the webhook failed to
+ * deliver (e.g., local dev where CF can't reach localhost).
+ *
+ * The caller must be authenticated (auth middleware applied at route registration).
+ */
+router.post('/repair/:videoId', async (req: Request, res: Response) => {
+  const tag = '[POST /cloudflare-webhook/repair]';
+  const { videoId } = req.params;
+
+  if (!videoId || typeof videoId !== 'string') {
+    return res.status(400).json({ error: 'Missing videoId' });
+  }
+
+  const accountId = process.env['CLOUDFLARE_ACCOUNT_ID'];
+  const apiToken = process.env['CLOUDFLARE_API_TOKEN'];
+  const customerCode = process.env['CLOUDFLARE_STREAM_CUSTOMER_CODE'];
+
+  if (!accountId || !apiToken) {
+    return res.status(503).json({ error: 'Cloudflare not configured on this server' });
+  }
+
+  try {
+    // Fetch current video state from Cloudflare
+    const cfResponse = await fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${accountId}/stream/${videoId}`,
+      {
+        headers: { Authorization: `Bearer ${apiToken}` },
+      }
+    );
+
+    if (!cfResponse.ok) {
+      const body = await cfResponse.text().catch(() => '');
+      logger.warn(`${tag} CF API returned non-2xx`, {
+        videoId,
+        status: cfResponse.status,
+        body: body.slice(0, 200),
+      });
+      return res.status(502).json({ error: `CF API error: ${cfResponse.status}` });
+    }
+
+    const cfBody = (await cfResponse.json()) as Record<string, unknown>;
+    const result = cfBody['result'] as Record<string, unknown> | null | undefined;
+    if (!result) {
+      return res.status(404).json({ error: 'Video not found in Cloudflare' });
+    }
+
+    const state = (result['status'] as Record<string, string> | undefined)?.['state'] ?? 'unknown';
+    const readyToStream = result['readyToStream'] === true;
+    const cfPlayback = result['playback'] as Record<string, string> | undefined;
+    const thumbnailUrl =
+      typeof result['thumbnail'] === 'string'
+        ? result['thumbnail']
+        : typeof result['preview'] === 'string'
+          ? result['preview']
+          : null;
+
+    const playback = buildCloudflarePlaybackUrls(videoId, customerCode, {
+      hls: cfPlayback?.['hls'],
+      dash: cfPlayback?.['dash'],
+    });
+
+    const db = req.firebase?.db;
+    if (!db) {
+      return res.status(503).json({ error: 'Firestore not available' });
+    }
+
+    const postRef = db.collection('Posts').doc(getCloudflareHighlightPostId(videoId));
+    const postSnap = await postRef.get();
+
+    if (!postSnap.exists) {
+      return res
+        .status(404)
+        .json({ error: `Post doc cf-stream-${videoId} not found in Firestore` });
+    }
+
+    const existingData = postSnap.data() as Record<string, unknown>;
+    const nxt1UserId = typeof existingData['userId'] === 'string' ? existingData['userId'] : null;
+
+    const updatePayload: Record<string, unknown> = {
+      cloudflareStatus: state,
+      readyToStream,
+      updatedAt: Timestamp.now(),
+      playback,
+    };
+
+    if (thumbnailUrl) {
+      updatePayload['thumbnailUrl'] = thumbnailUrl;
+      updatePayload['poster'] = thumbnailUrl;
+    }
+
+    if (playback.iframeUrl) {
+      updatePayload['mediaUrl'] = playback.iframeUrl;
+    }
+
+    if (playback.hlsUrl) {
+      updatePayload['videoUrl'] = playback.hlsUrl;
+    }
+
+    if (typeof result['duration'] === 'number') {
+      updatePayload['duration'] = result['duration'];
+    }
+
+    if (state === 'ready') {
+      updatePayload['cloudflareError'] = null;
+    }
+
+    await postRef.update(updatePayload);
+
+    // Invalidate caches
+    if (nxt1UserId) {
+      const teamId =
+        typeof existingData['teamId'] === 'string' ? existingData['teamId'] : undefined;
+      let teamCode: string | undefined;
+      if (teamId) {
+        try {
+          const teamSnap = await db.collection('Teams').doc(teamId).get();
+          const td = teamSnap.data() as Record<string, unknown> | undefined;
+          teamCode = typeof td?.['teamCode'] === 'string' ? (td['teamCode'] as string) : undefined;
+        } catch {
+          /* non-fatal */
+        }
+      }
+
+      const cache = getCacheService();
+      await Promise.all([
+        cache.del(`profile:videos:${nxt1UserId}*`),
+        cache.del('explore:*'),
+        invalidateProfileCaches(nxt1UserId),
+        ...(teamCode
+          ? [
+              cache.delByPrefix(`team:timeline:v1:${teamCode}:`),
+              cache.delByPrefix(`team:profile:code:${teamCode}:`),
+            ]
+          : []),
+      ]);
+    }
+
+    logger.info(`${tag} Repaired stuck post`, {
+      videoId,
+      state,
+      readyToStream,
+      iframeUrl: playback.iframeUrl,
+    });
+
+    return res.status(200).json({
+      repaired: true,
+      videoId,
+      postId: getCloudflareHighlightPostId(videoId),
+      state,
+      readyToStream,
+      iframeUrl: playback.iframeUrl,
+    });
+  } catch (error) {
+    logger.error(`${tag} Repair failed`, {
+      videoId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return res.status(500).json({ error: 'Repair failed' });
   }
 });
 

@@ -64,7 +64,14 @@ const extractedTimelineFactSchema = z.object({
   target: z.enum(['user', 'team', 'organization']).default('user'),
 });
 
-const extractedTimelineFactsSchema = z.array(z.unknown());
+const extractedTimelineFactsPayloadSchema = z.object({
+  facts: z.array(extractedTimelineFactSchema),
+});
+
+const extractedTimelineFactsResultSchema = z.union([
+  extractedTimelineFactsPayloadSchema,
+  z.array(extractedTimelineFactSchema),
+]);
 
 /** How recently a user must have interacted with Agent X to be eligible for cron scanning. */
 const AGENT_ACTIVE_LOOKBACK_DAYS = 7;
@@ -89,7 +96,18 @@ Do NOT extract:
 - Obvious or trivial information (e.g., "User posted a photo")
 - Information the agent already likely knows from the profile
 
-Return a JSON array of objects. Each object has:
+Return a JSON object with this shape:
+{
+  "facts": [
+    {
+      "content": "...",
+      "category": "preference|goal|recruiting_context|performance_data",
+      "target": "user|team|organization"
+    }
+  ]
+}
+
+Each fact object has:
 - "content": A concise third-person factual statement (e.g., "User ran a 4.5 forty-yard dash per a verified post.")
 - "category": One of "preference", "goal", "recruiting_context", "performance_data"
 - "target": One of "user", "team", or "organization"
@@ -98,9 +116,9 @@ Use "team" only when the fact should be remembered as team-level context.
 Use "organization" only when the fact applies to the school, club, or program above the team.
 Default to "user" when in doubt.
 
-If there are no durable facts to extract, return an empty array: []
+If there are no durable facts to extract, return: {"facts": []}
 
-Return ONLY the JSON array, no markdown fences, no explanation.`;
+Return ONLY the JSON object, no markdown fences, no explanation.`;
 
 // ─── Result Types ──────────────────────────────────────────────────────────────
 
@@ -169,7 +187,7 @@ export class TimelineScanService {
         maxTokens: 2000,
         outputSchema: {
           name: 'timeline_scan_facts',
-          schema: extractedTimelineFactsSchema,
+          schema: extractedTimelineFactsPayloadSchema,
         },
         telemetryContext: {
           operationId: `scan-timeline-posts-${userId}`,
@@ -180,11 +198,13 @@ export class TimelineScanService {
       }
     );
 
-    let parsedFacts: z.infer<typeof extractedTimelineFactsSchema>;
+    let parsedFacts:
+      | z.infer<typeof extractedTimelineFactsPayloadSchema>
+      | z.infer<typeof extractedTimelineFactSchema>[];
     try {
       parsedFacts = resolveStructuredOutput(
         completion,
-        extractedTimelineFactsSchema,
+        extractedTimelineFactsResultSchema,
         'Timeline scan extraction'
       );
     } catch {
@@ -200,10 +220,7 @@ export class TimelineScanService {
       };
     }
 
-    const facts = parsedFacts.flatMap((item) => {
-      const fact = extractedTimelineFactSchema.safeParse(item);
-      return fact.success ? [fact.data] : [];
-    });
+    const facts = Array.isArray(parsedFacts) ? parsedFacts : parsedFacts.facts;
 
     const stored = await this.storeFacts(facts, userId, teamId);
 

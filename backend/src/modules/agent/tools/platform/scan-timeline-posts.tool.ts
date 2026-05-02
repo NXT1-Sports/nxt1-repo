@@ -59,7 +59,14 @@ const extractedTimelineFactSchema = z.object({
   target: z.enum(['user', 'team', 'organization']).default('user'),
 });
 
-const extractedTimelineFactsSchema = z.array(z.unknown());
+const extractedTimelineFactsPayloadSchema = z.object({
+  facts: z.array(extractedTimelineFactSchema),
+});
+
+const extractedTimelineFactsResultSchema = z.union([
+  extractedTimelineFactsPayloadSchema,
+  z.array(extractedTimelineFactSchema),
+]);
 
 /**
  * System prompt for the post-scanning extraction model.
@@ -82,7 +89,18 @@ Do NOT extract:
 - Obvious or trivial information (e.g., "User posted a photo")
 - Information the agent already likely knows from the profile
 
-Return a JSON array of objects. Each object has:
+Return a JSON object with this shape:
+{
+  "facts": [
+    {
+      "content": "...",
+      "category": "preference|goal|recruiting_context|performance_data",
+      "target": "user|team|organization"
+    }
+  ]
+}
+
+Each fact object has:
 - "content": A concise third-person factual statement (e.g., "User ran a 4.5 forty-yard dash per a verified post.")
 - "category": One of "preference", "goal", "recruiting_context", "performance_data"
 - "target": One of "user", "team", or "organization"
@@ -91,9 +109,9 @@ Use "team" only when the fact should be remembered as team-level context.
 Use "organization" only when the fact applies to the school, club, or program above the team.
 Default to "user" when in doubt.
 
-If there are no durable facts to extract, return an empty array: []
+If there are no durable facts to extract, return: {"facts": []}
 
-Return ONLY the JSON array, no markdown fences, no explanation.`;
+Return ONLY the JSON object, no markdown fences, no explanation.`;
 
 // ─── Tool Class ────────────────────────────────────────────────────────────────
 
@@ -195,7 +213,7 @@ export class ScanTimelinePostsTool extends BaseTool {
           maxTokens: 2000,
           outputSchema: {
             name: 'timeline_scan_facts',
-            schema: z.array(extractedTimelineFactSchema),
+            schema: extractedTimelineFactsPayloadSchema,
           },
           telemetryContext: {
             operationId: `scan-timeline-posts-${userId}`,
@@ -208,14 +226,12 @@ export class ScanTimelinePostsTool extends BaseTool {
 
       let facts: Array<{ content: string; category: string; target?: string }>;
       try {
-        facts = resolveStructuredOutput(
+        const parsedFacts = resolveStructuredOutput(
           completion,
-          extractedTimelineFactsSchema,
+          extractedTimelineFactsResultSchema,
           'Scan timeline posts extraction'
-        ).flatMap((item) => {
-          const fact = extractedTimelineFactSchema.safeParse(item);
-          return fact.success ? [fact.data] : [];
-        });
+        );
+        facts = Array.isArray(parsedFacts) ? parsedFacts : parsedFacts.facts;
       } catch {
         logger.warn('[ScanTimelinePostsTool] Failed to parse extraction JSON', {
           userId,

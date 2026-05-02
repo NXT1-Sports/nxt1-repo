@@ -183,6 +183,15 @@ import { FeedNewsCardComponent } from '../post-cards/feed-news-card.component';
           [attr.data-testid]="timelineTestIds.POSTS_PANEL"
         >
           @for (item of filteredPolyFeed(); track item.id; let idx = $index) {
+            @if (userUnicode() && item.feedType === 'POST') {
+              <a
+                class="post-seo-link"
+                [href]="'/post/' + userUnicode() + '/' + item.id"
+                aria-hidden="true"
+                tabindex="-1"
+                >View post</a
+              >
+            }
             <nxt1-feed-card-shell
               [item]="item"
               [hideAuthor]="true"
@@ -396,6 +405,20 @@ import { FeedNewsCardComponent } from '../post-cards/feed-news-card.component';
         gap: 12px;
       }
 
+      /* SEO crawl anchor — invisible to users, readable by Google during SSR */
+      .post-seo-link {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+        pointer-events: none;
+      }
+
       /* ─── EMPTY STATE (madden-empty — matches intel/connect tabs) ─── */
       .madden-empty {
         display: flex;
@@ -496,6 +519,11 @@ export class ProfileTimelineComponent {
   /** Override empty state message */
   readonly emptyMessage = input<string | null>(null);
   readonly emptyCta = input<string | null>(null);
+  /**
+   * Owner's unicode (profileCode) — used to generate crawlable /post/:unicode/:id
+   * anchor links that let Google discover post URLs from the profile page.
+   */
+  readonly userUnicode = input<string>('');
 
   // ============================================
   // OUTPUTS — Still emit ProfilePost for backward compatibility
@@ -655,14 +683,17 @@ export class ProfileTimelineComponent {
   private resolveProfilePost(item: FeedItem): ProfilePost | null {
     const existing = this.posts().find((post) => post.id === item.id);
     if (existing) return existing;
-    // For non-POST feed types (METRICS, STATS, EVENTS), return a minimal
-    // ProfilePost stub so delete actions still work (only the id is needed
-    // by the backend DELETE /:userId/posts/:postId endpoint).
+    // For non-POST feed types, synthesize a rich ProfilePost payload so
+    // detail views can display the same content users tapped in the feed.
     if (item.feedType !== 'POST') {
+      const summary = this.summarizeFeedItem(item);
       return {
         id: item.id,
-        type: item.feedType as unknown as ProfilePostType,
-        body: '',
+        type: summary.type,
+        title: summary.title,
+        body: summary.body,
+        thumbnailUrl: summary.thumbnailUrl,
+        mediaUrl: summary.mediaUrl,
         isPinned: item.isPinned,
         shareCount: item.engagement.shareCount,
         viewCount: item.engagement.viewCount,
@@ -694,6 +725,124 @@ export class ProfileTimelineComponent {
       cloudflareStatus: mediaRecord?.['processingStatus'] as string | undefined,
       createdAt: post.createdAt,
     };
+  }
+
+  private summarizeFeedItem(item: FeedItem): {
+    type: ProfilePostType;
+    title?: string;
+    body?: string;
+    thumbnailUrl?: string;
+    mediaUrl?: string;
+  } {
+    switch (item.feedType) {
+      case 'STAT': {
+        const statItem = item as FeedItemStat;
+        const title = statItem.statData.context;
+        const body = statItem.statData.stats
+          .slice(0, 4)
+          .map((line) => `${line.label}: ${line.value}${line.unit ? ` ${line.unit}` : ''}`)
+          .join(' | ');
+        return { type: 'stat', title, body };
+      }
+      case 'METRIC': {
+        const metricsItem = item as FeedItemMetric;
+        const title = metricsItem.metricsData.category ?? 'Performance Metrics';
+        const body = metricsItem.metricsData.metrics
+          .slice(0, 4)
+          .map((line) => `${line.label}: ${line.value}${line.unit ? ` ${line.unit}` : ''}`)
+          .join(' | ');
+        return { type: 'text', title, body: body || metricsItem.metricsData.source };
+      }
+      case 'NEWS': {
+        const newsItem = item as FeedItemNews;
+        return {
+          type: 'news',
+          title: newsItem.newsData.headline,
+          body: newsItem.newsData.excerpt,
+          thumbnailUrl: newsItem.newsData.imageUrl,
+          mediaUrl: newsItem.newsData.imageUrl,
+        };
+      }
+      case 'EVENT':
+      case 'SCHEDULE': {
+        const eventItem = item as FeedItemEvent | FeedItemSchedule;
+        const title = eventItem.eventData.eventTitle;
+        const body = [
+          eventItem.eventData.opponent,
+          eventItem.eventData.venue,
+          eventItem.eventData.result,
+        ]
+          .filter(Boolean)
+          .join(' • ');
+        return { type: 'text', title, body };
+      }
+      case 'AWARD': {
+        const awardItem = item as FeedItemAward;
+        const title = awardItem.awardData.awardName;
+        const body = [awardItem.awardData.organization, awardItem.awardData.season]
+          .filter(Boolean)
+          .join(' • ');
+        return { type: 'text', title, body };
+      }
+      case 'OFFER': {
+        const offerItem = item as FeedItemOffer;
+        const school = offerItem.offerData.collegeName ?? 'College Offer';
+        const body = [offerItem.offerData.division, offerItem.offerData.conference]
+          .filter(Boolean)
+          .join(' • ');
+        return {
+          type: 'offer',
+          title: school,
+          body,
+          thumbnailUrl: offerItem.offerData.collegeLogoUrl,
+          mediaUrl: offerItem.offerData.collegeLogoUrl,
+        };
+      }
+      case 'COMMITMENT': {
+        const commitmentItem = item as FeedItemCommitment;
+        const title = `${commitmentItem.commitmentData.collegeName} Commitment`;
+        const body = [commitmentItem.commitmentData.division, commitmentItem.commitmentData.sport]
+          .filter(Boolean)
+          .join(' • ');
+        return {
+          type: 'text',
+          title,
+          body,
+          thumbnailUrl: commitmentItem.commitmentData.collegeLogoUrl,
+          mediaUrl: commitmentItem.commitmentData.collegeLogoUrl,
+        };
+      }
+      case 'VISIT': {
+        const visitItem = item as FeedItemVisit;
+        const title = visitItem.visitData.collegeName;
+        const body = [visitItem.visitData.visitType, visitItem.visitData.visitDate]
+          .filter(Boolean)
+          .join(' • ');
+        return {
+          type: 'text',
+          title,
+          body,
+          thumbnailUrl: visitItem.visitData.graphicUrl ?? visitItem.visitData.collegeLogoUrl,
+          mediaUrl: visitItem.visitData.graphicUrl ?? visitItem.visitData.collegeLogoUrl,
+        };
+      }
+      case 'CAMP': {
+        const campItem = item as FeedItemCamp;
+        const title = campItem.campData.campName;
+        const body = [campItem.campData.organization, campItem.campData.location]
+          .filter(Boolean)
+          .join(' • ');
+        return {
+          type: 'text',
+          title,
+          body,
+          thumbnailUrl: campItem.campData.graphicUrl ?? campItem.campData.logoUrl,
+          mediaUrl: campItem.campData.graphicUrl ?? campItem.campData.logoUrl,
+        };
+      }
+      default:
+        return { type: 'text', title: 'Post' };
+    }
   }
 
   protected handlePolyPostClick(index: number): void {

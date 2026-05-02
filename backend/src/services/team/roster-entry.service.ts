@@ -637,6 +637,21 @@ export class RosterEntryService {
     const entry = await this.getRosterEntryById(entryId);
     await this.invalidateCaches(entry.userId, entry.teamId, entry.organizationId, entryId);
 
+    // Bidirectional sync — push positions/jerseyNumber back to the user doc so
+    // the athlete's own profile reflects what the coach set on the team.
+    const isNowAthlete = nextRole === 'athlete';
+    const positionsChanged =
+      input.positions !== undefined || (input.role !== undefined && !isNowAthlete);
+    const jerseyChanged = input.jerseyNumber !== undefined;
+    if (isNowAthlete && (positionsChanged || jerseyChanged)) {
+      await this.syncPositionsToUserDoc(
+        entry.userId,
+        entry.sport,
+        isNowAthlete ? (normalizedPositions ?? []) : [],
+        jerseyChanged ? input.jerseyNumber : undefined
+      );
+    }
+
     return this.getRosterEntryById(entryId);
   }
 
@@ -918,6 +933,75 @@ export class RosterEntryService {
     if (role === 'athlete') {
       await this.syncAthleteSportProfiles(userId, readSportProfiles(userData), {
         clearMissing: true,
+      });
+    }
+  }
+
+  /**
+   * Sync positions and jerseyNumber from a RosterEntry back to the user's
+   * sports[] array on the User doc. Called after a coach edits an athlete's
+   * positions in the Manage Members editor so the athlete's own profile stays
+   * consistent with what the team roster shows.
+   */
+  private async syncPositionsToUserDoc(
+    userId: string,
+    sport: string | undefined,
+    positions: string[],
+    jerseyNumber: string | number | undefined
+  ): Promise<void> {
+    if (!userId || !sport) return;
+
+    try {
+      const userRef = this.db.collection('Users').doc(userId);
+      const userSnap = await userRef.get();
+      if (!userSnap.exists) return;
+
+      const userData = userSnap.data() as Record<string, unknown>;
+      const sports = Array.isArray(userData['sports'])
+        ? (userData['sports'] as Record<string, unknown>[])
+        : [];
+
+      if (sports.length === 0) return;
+
+      const normalizedSport = sport.trim().toLowerCase();
+      const matchedIndex = sports.findIndex((s) => {
+        const sportName = typeof s['sport'] === 'string' ? s['sport'].trim().toLowerCase() : '';
+        return sportName === normalizedSport;
+      });
+
+      if (matchedIndex === -1) return;
+
+      const updatedSports = sports.map((s, idx) => {
+        if (idx !== matchedIndex) return s;
+        const next = { ...s };
+        if (positions.length > 0) {
+          next['positions'] = positions;
+        } else {
+          delete next['positions'];
+        }
+        if (jerseyNumber !== undefined) {
+          next['jerseyNumber'] = jerseyNumber;
+        }
+        return next;
+      });
+
+      await userRef.update({
+        sports: updatedSports,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+
+      logger.info('[RosterEntryService] Synced positions/jerseyNumber to user doc', {
+        userId,
+        sport,
+        positions,
+        jerseyNumber,
+      });
+    } catch (err) {
+      // Non-fatal — RosterEntry update already succeeded; log and continue
+      logger.warn('[RosterEntryService] Failed to sync positions to user doc', {
+        userId,
+        sport,
+        err,
       });
     }
   }

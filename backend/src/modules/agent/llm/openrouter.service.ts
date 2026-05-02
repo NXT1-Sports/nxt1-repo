@@ -473,7 +473,7 @@ export class OpenRouterService {
       model,
       messages: [{ role: 'user', content: userContent }],
       max_tokens: 4096,
-      temperature: 0.8,
+      temperature: options.temperature ?? 0.8,
       modalities: ['text', 'image'],
     };
 
@@ -735,6 +735,11 @@ export class OpenRouterService {
 
             const delta = chunk.choices?.[0]?.delta;
 
+            // ── Extended reasoning tokens (Claude, o1, o3, Gemini, etc.) ──
+            if (delta?.reasoning) {
+              onDelta({ content: '', done: false, thinkingContent: delta.reasoning });
+            }
+
             // ── Text content tokens ──
             if (delta?.content) {
               fullContent += delta.content;
@@ -876,6 +881,16 @@ export class OpenRouterService {
     // like Anthropic direct or Azure can still serve the request.
     if (model.startsWith('anthropic/')) {
       body['provider'] = { ignore: ['Amazon Bedrock'], allow_fallbacks: true };
+    }
+
+    // Extended reasoning — opt-in for models that support it (Claude 3.7+, o1, o3, etc.).
+    // OpenRouter's unified `reasoning` param is silently ignored by models that don't support it.
+    // The stream parser handles `delta.reasoning` passively for any model.
+    // Format: https://openrouter.ai/docs/use-cases/reasoning-tokens
+    if (options.enableThinking) {
+      body['reasoning'] = {
+        max_tokens: options.thinkingBudgetTokens ?? 8000,
+      };
     }
 
     return body;
@@ -1570,6 +1585,12 @@ interface OpenRouterStreamChunk {
     readonly delta?: {
       readonly role?: string;
       readonly content?: string;
+      /**
+       * Extended reasoning fragment. OpenRouter's unified streaming format
+       * delivers reasoning tokens via `delta.reasoning` (not `delta.thinking`).
+       * Ref: https://openrouter.ai/docs/use-cases/reasoning-tokens
+       */
+      readonly reasoning?: string;
       readonly tool_calls?: readonly {
         readonly index: number;
         readonly id?: string;

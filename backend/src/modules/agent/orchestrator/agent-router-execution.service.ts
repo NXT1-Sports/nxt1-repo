@@ -20,7 +20,8 @@ import type { SkillRegistry } from '../skills/skill-registry.js';
 import type { ToolRegistry } from '../tools/tool-registry.js';
 import { logger } from '../../../utils/logger.js';
 import type { AgentRouterTelemetryService } from './agent-router-telemetry.service.js';
-import { isToolAllowedByPatterns, getRouterToolPolicy } from '../agents/tool-policy.js';
+import { isToolAllowedByPatterns, getEffectiveAgentToolPolicy } from '../agents/tool-policy.js';
+import { getOperationMemoryService } from '../services/operation-memory.service.js';
 
 export type AgentExecutionMutableTask = Omit<
   AgentTask,
@@ -47,8 +48,43 @@ type TelemetryDeps = Pick<
 const routableCoordinatorSet = new Set<string>(COORDINATOR_AGENT_IDS);
 const SEMANTIC_MATCH_THRESHOLD = 0.35;
 const SAFETY_BUFFER_THRESHOLD = 0.2;
-const ROUTER_POLICY_PATTERNS = getRouterToolPolicy();
 const TOOL_COMPANION_MAP: Readonly<Record<string, readonly string[]>> = {
+  scrape_and_index_profile: [
+    'read_distilled_section',
+    'dispatch_extraction',
+    'write_core_identity',
+    'write_awards',
+    'write_combine_metrics',
+    'write_rankings',
+    'write_season_stats',
+    'write_recruiting_activity',
+    'write_calendar_events',
+    'write_schedule',
+    'write_team_stats',
+    'write_team_news',
+    'write_team_post',
+    'write_timeline_post',
+    'write_roster_entries',
+    'write_athlete_videos',
+    'write_connected_source',
+  ],
+  dispatch_extraction: [
+    'write_core_identity',
+    'write_awards',
+    'write_combine_metrics',
+    'write_rankings',
+    'write_season_stats',
+    'write_recruiting_activity',
+    'write_calendar_events',
+    'write_schedule',
+    'write_team_stats',
+    'write_team_news',
+    'write_team_post',
+    'write_timeline_post',
+    'write_roster_entries',
+    'write_athlete_videos',
+    'write_connected_source',
+  ],
   runway_generate_video: ['runway_check_task'],
   runway_edit_video: ['runway_check_task'],
   runway_upscale_video: ['runway_check_task'],
@@ -136,390 +172,407 @@ export class AgentRouterExecutionService {
     } = payload;
 
     const executionPhaseStartMs = Date.now();
-    this.telemetry.emitProgressOperation(onStreamEvent, {
-      operationId,
-      stage: 'agent_thinking',
-      message: `Executing ${plan.tasks.length} planned task(s)...`,
-      metadata: { eventType: 'progress_stage', phase: 'execution', phaseIndex: 3, phaseTotal: 5 },
-    });
 
-    const taskResults = new Map<string, AgentOperationResult>();
-    const mutableTasks = plan.tasks.map((task) => ({
-      ...task,
-      displayLabel: task.displayLabel,
-      _lastError: undefined as string | undefined,
-    })) as AgentExecutionMutableTask[];
+    // ── Tier 5: Initialise operation memory for duplicate-detection ───────
+    const operationMemory = getOperationMemoryService();
+    operationMemory.init(operationId, enrichedIntent);
 
-    while (this.hasPendingTasks(mutableTasks)) {
-      const ready = mutableTasks.filter(
-        (task) =>
-          task.status === 'pending' &&
-          task.dependsOn.every(
-            (dep) =>
-              mutableTasks.find((mutableTask) => mutableTask.id === dep)?.status === 'completed'
-          )
-      );
-
-      if (ready.length === 0) {
-        for (const task of mutableTasks) {
-          if (task.status === 'pending') {
-            task.status = 'failed' as AgentTaskStatus;
-            task._lastError =
-              'Execution plan stalled because remaining tasks had unmet dependencies.';
-          }
-        }
-        break;
-      }
-
-      // Serial execution: run exactly one task per loop iteration so the UI
-      // shows one active step at a time. Parallelism within a task (the
-      // coordinator's own tool execution) is unaffected by this change.
-      const activeTask = ready[0]!;
-      activeTask.status = 'in_progress' as AgentTaskStatus;
-      this.telemetry.emitUpdate(
-        onUpdate,
+    try {
+      this.telemetry.emitProgressOperation(onStreamEvent, {
         operationId,
-        'acting',
-        `Running task ${activeTask.id}: ${activeTask.description}`,
-        { eventType: 'task_started', taskId: activeTask.id },
-        {
-          agentId: activeTask.assignedAgent,
-          stage: 'agent_thinking',
-          metadata: { taskId: activeTask.id },
+        stage: 'agent_thinking',
+        message: `Executing ${plan.tasks.length} planned task(s)...`,
+        metadata: { eventType: 'progress_stage', phase: 'execution', phaseIndex: 3, phaseTotal: 5 },
+      });
+
+      const taskResults = new Map<string, AgentOperationResult>();
+      const mutableTasks = plan.tasks.map((task) => ({
+        ...task,
+        displayLabel: task.displayLabel,
+        _lastError: undefined as string | undefined,
+      })) as AgentExecutionMutableTask[];
+
+      while (this.hasPendingTasks(mutableTasks)) {
+        const ready = mutableTasks.filter(
+          (task) =>
+            task.status === 'pending' &&
+            task.dependsOn.every(
+              (dep) =>
+                mutableTasks.find((mutableTask) => mutableTask.id === dep)?.status === 'completed'
+            )
+        );
+
+        if (ready.length === 0) {
+          for (const task of mutableTasks) {
+            if (task.status === 'pending') {
+              task.status = 'failed' as AgentTaskStatus;
+              task._lastError =
+                'Execution plan stalled because remaining tasks had unmet dependencies.';
+            }
+          }
+          break;
         }
-      );
-      this.emitActivePlannerCard(onStreamEvent, mutableTasks, activeTask.id);
 
-      const completedAtBatchStart = Object.fromEntries(
-        [...taskResults.entries()].map(([key, value]) => [key, value])
-      );
+        // Serial execution: run exactly one task per loop iteration so the UI
+        // shows one active step at a time. Parallelism within a task (the
+        // coordinator's own tool execution) is unaffected by this change.
+        const activeTask = ready[0]!;
+        activeTask.status = 'in_progress' as AgentTaskStatus;
+        this.telemetry.emitUpdate(
+          onUpdate,
+          operationId,
+          'acting',
+          `Running task ${activeTask.id}: ${activeTask.description}`,
+          { eventType: 'task_started', taskId: activeTask.id },
+          {
+            agentId: activeTask.assignedAgent,
+            stage: 'agent_thinking',
+            metadata: { taskId: activeTask.id },
+          }
+        );
+        this.emitActivePlannerCard(onStreamEvent, mutableTasks, activeTask.id);
 
-      const runTask = async (task: AgentExecutionMutableTask): Promise<void> => {
-        for (let attempt = 0; attempt <= taskMaxRetries; attempt += 1) {
-          try {
-            this.throwIfAborted(signal);
+        const completedAtBatchStart = Object.fromEntries(
+          [...taskResults.entries()].map(([key, value]) => [key, value])
+        );
 
-            const assignedAgentId = task.assignedAgent;
-            if (!isRoutableCoordinatorAgent(assignedAgentId)) {
-              throw new AgentEngineError(
-                'AGENT_NOT_REGISTERED',
-                `Task "${task.id}" assigned to non-routable agent "${assignedAgentId}". ` +
-                  `Allowed coordinators: ${COORDINATOR_AGENT_IDS.join(', ')}.`,
-                {
-                  metadata: {
-                    taskId: task.id,
-                    assignedAgentId,
-                    allowedAgentIds: COORDINATOR_AGENT_IDS,
-                  },
-                }
-              );
-            }
-
-            const agent = agents.get(assignedAgentId);
-            if (!agent) {
-              throw new AgentEngineError(
-                'AGENT_NOT_REGISTERED',
-                `No agent registered for "${assignedAgentId}".`,
-                { metadata: { assignedAgentId, taskId: task.id } }
-              );
-            }
-
-            let taskIntent = buildTaskIntent(task, taskResults, enrichedIntent);
-
-            if (attempt > 0 && task._lastError) {
-              taskIntent +=
-                `\n\n[System Intervention — Retry ${attempt}/${taskMaxRetries}]\n` +
-                `Your previous execution of this task failed with the following error:\n` +
-                `"${task._lastError}"\n` +
-                `Please formulate an alternative strategy to accomplish this task. ` +
-                `Use a different tool, adjust your parameters, or if the task is ` +
-                `truly impossible, explain why clearly.`;
-
-              logger.warn('[AgentRouter] Self-correction retry', {
-                taskId: task.id,
-                agent: task.assignedAgent,
-                attempt,
-                previousError: task._lastError,
-              });
-
-              this.telemetry.emitUpdate(
-                onUpdate,
-                operationId,
-                'acting',
-                `Task ${task.id}: retrying (attempt ${attempt + 1}/${taskMaxRetries + 1})...`,
-                { eventType: 'task_retry', taskId: task.id, attempt },
-                {
-                  agentId: task.assignedAgent,
-                  stage: 'agent_thinking',
-                  metadata: { taskId: task.id, attempt },
-                }
-              );
-            }
-
-            let toolDefs = this.toolRegistry.getDefinitions(agent.id, toolAccessContext);
+        const runTask = async (task: AgentExecutionMutableTask): Promise<void> => {
+          for (let attempt = 0; attempt <= taskMaxRetries; attempt += 1) {
             try {
-              const intentEmbedding = await this.llm.embed(taskIntent);
-              const matchedToolDefs = await this.toolRegistry.matchWithScores(
-                intentEmbedding,
-                (text) => this.llm.embed(text),
-                agent.id,
-                toolAccessContext
-              );
+              this.throwIfAborted(signal);
 
-              const semanticMatched = matchedToolDefs.filter(
-                (tool) => tool.semanticScore >= SEMANTIC_MATCH_THRESHOLD
-              );
-
-              const safetyBuffer = matchedToolDefs.filter((tool) => {
-                if (tool.semanticScore < SAFETY_BUFFER_THRESHOLD) return false;
-                if (tool.category === 'system') return true;
-                if (!tool.isMutation) return true;
-                return isToolAllowedByPatterns(tool.name, ROUTER_POLICY_PATTERNS);
-              });
-
-              const finalTools = new Map<string, (typeof matchedToolDefs)[number]>();
-              for (const tool of semanticMatched) finalTools.set(tool.name, tool);
-              for (const tool of safetyBuffer) finalTools.set(tool.name, tool);
-
-              const selectedScored = [...finalTools.values()];
-              const selected = addCompanionTools(selectedScored, toolDefs);
-              const matchedNonSystemToolCount = selected.filter(
-                (tool) => tool.category !== 'system'
-              ).length;
-
-              if (selected.length > 0 && matchedNonSystemToolCount > 0) {
-                toolDefs = selected.map((definition) => ({ ...definition }));
-
-                logger.info('[AgentRouter] Hybrid tool narrowing selected tools', {
-                  operationId,
-                  taskId: task.id,
-                  agentId: agent.id,
-                  selectedTools: selectedScored.map((tool) => ({
-                    name: tool.name,
-                    score: Number(tool.semanticScore.toFixed(3)),
-                    reason:
-                      tool.semanticScore >= SEMANTIC_MATCH_THRESHOLD
-                        ? 'semantic_match'
-                        : 'safety_buffer',
-                  })),
-                  companionTools: selected
-                    .map((tool) => tool.name)
-                    .filter((toolName) => !selectedScored.some((tool) => tool.name === toolName)),
-                });
-              } else {
-                logger.warn(
-                  '[AgentRouter] Hybrid tool narrowing was too sparse — using full allowed tool set',
+              const assignedAgentId = task.assignedAgent;
+              if (!isRoutableCoordinatorAgent(assignedAgentId)) {
+                throw new AgentEngineError(
+                  'AGENT_NOT_REGISTERED',
+                  `Task "${task.id}" assigned to non-routable agent "${assignedAgentId}". ` +
+                    `Allowed coordinators: ${COORDINATOR_AGENT_IDS.join(', ')}.`,
                   {
-                    operationId,
-                    taskId: task.id,
-                    agentId: agent.id,
-                    matchedToolNames: matchedToolDefs.map((tool) => tool.name),
-                    fallbackToolCount: toolDefs.length,
+                    metadata: {
+                      taskId: task.id,
+                      assignedAgentId,
+                      allowedAgentIds: COORDINATOR_AGENT_IDS,
+                    },
                   }
                 );
               }
-            } catch {
-              // Embedding unavailable — fall back to all permitted tools
-            }
 
-            const result = await agent.execute(
-              taskIntent,
-              context,
-              toolDefs,
-              this.llm,
-              this.toolRegistry,
-              this.skillRegistry,
-              onStreamEvent,
-              approvalGate
-            );
-            this.throwIfAborted(signal);
-
-            taskResults.set(task.id, result);
-            task.status = 'completed' as AgentTaskStatus;
-            this.telemetry.emitUpdate(
-              onUpdate,
-              operationId,
-              'acting',
-              `Task ${task.id} completed: ${result.summary}`,
-              undefined,
-              {
-                agentId: task.assignedAgent,
-                stage: 'agent_thinking',
-                metadata: { taskId: task.id },
+              const agent = agents.get(assignedAgentId);
+              if (!agent) {
+                throw new AgentEngineError(
+                  'AGENT_NOT_REGISTERED',
+                  `No agent registered for "${assignedAgentId}".`,
+                  { metadata: { assignedAgentId, taskId: task.id } }
+                );
               }
-            );
 
-            this.emitPlannerCard(onStreamEvent, mutableTasks);
-            return;
-          } catch (err) {
-            if (this.isAbortError(err)) throw err;
+              let taskIntent = buildTaskIntent(task, taskResults, enrichedIntent);
 
-            if (isAgentYield(err)) {
-              const yieldErr = err as AgentYieldException;
-              throw new AgentYieldException({
-                ...yieldErr.payload,
-                planContext: {
-                  currentTaskId: task.id,
-                  completedTaskResults: completedAtBatchStart,
-                  enrichedIntent,
-                },
-              });
-            }
+              if (attempt > 0 && task._lastError) {
+                taskIntent +=
+                  `\n\n[System Intervention — Retry ${attempt}/${taskMaxRetries}]\n` +
+                  `Your previous execution of this task failed with the following error:\n` +
+                  `"${task._lastError}"\n` +
+                  `Please formulate an alternative strategy to accomplish this task. ` +
+                  `Use a different tool, adjust your parameters, or if the task is ` +
+                  `truly impossible, explain why clearly.`;
 
-            if (isAgentDelegation(err)) {
-              const delErr =
-                err as import('../exceptions/agent-delegation.exception.js').AgentDelegationException;
-              const originalAgentId = task.assignedAgent as Exclude<AgentIdentifier, 'router'>;
-              logger.warn('[AgentRouter] Agent delegated inside DAG — attempting reroute', {
-                operationId,
-                taskId: task.id,
-                sourceAgent: originalAgentId,
-                forwardingIntent: delErr.payload.forwardingIntent.slice(0, 100),
-              });
-
-              const reroute = await rerouteDelegatedTask(
-                delErr.payload.forwardingIntent,
-                originalAgentId,
-                context
-              );
-
-              if (reroute) {
-                task.assignedAgent = reroute.assignedAgent;
-                task.description = reroute.description;
-                task._lastError = undefined;
+                logger.warn('[AgentRouter] Self-correction retry', {
+                  taskId: task.id,
+                  agent: task.assignedAgent,
+                  attempt,
+                  previousError: task._lastError,
+                });
 
                 this.telemetry.emitUpdate(
                   onUpdate,
                   operationId,
                   'acting',
-                  `Task ${task.id} rerouted to ${reroute.assignedAgent}. Retrying...`,
+                  `Task ${task.id}: retrying (attempt ${attempt + 1}/${taskMaxRetries + 1})...`,
+                  { eventType: 'task_retry', taskId: task.id, attempt },
                   {
-                    eventType: 'task_retry',
+                    agentId: task.assignedAgent,
+                    stage: 'agent_thinking',
+                    metadata: { taskId: task.id, attempt },
+                  }
+                );
+              }
+
+              let toolDefs = this.toolRegistry.getDefinitions(agent.id, toolAccessContext);
+              try {
+                const intentEmbedding = await this.llm.embed(taskIntent);
+                const matchedToolDefs = await this.toolRegistry.matchWithScores(
+                  intentEmbedding,
+                  (text) => this.llm.embed(text),
+                  agent.id,
+                  toolAccessContext
+                );
+
+                const semanticMatched = matchedToolDefs.filter(
+                  (tool) => tool.semanticScore >= SEMANTIC_MATCH_THRESHOLD
+                );
+
+                // Use the coordinator's own effective policy to gate mutations in the safety
+                // buffer. Using ROUTER_POLICY_PATTERNS here was the bug: coordinator-only
+                // write tools (write_core_identity, write_season_stats, etc.) have
+                // isMutation=true and are intentionally absent from the router's policy,
+                // so pure-write tasks delegated to data_coordinator would silently receive
+                // no write tools and stall.
+                const agentPolicy = getEffectiveAgentToolPolicy(agent.id);
+                const safetyBuffer = matchedToolDefs.filter((tool) => {
+                  if (tool.semanticScore < SAFETY_BUFFER_THRESHOLD) return false;
+                  if (tool.category === 'system') return true;
+                  if (!tool.isMutation) return true;
+                  return isToolAllowedByPatterns(tool.name, agentPolicy);
+                });
+
+                const finalTools = new Map<string, (typeof matchedToolDefs)[number]>();
+                for (const tool of semanticMatched) finalTools.set(tool.name, tool);
+                for (const tool of safetyBuffer) finalTools.set(tool.name, tool);
+
+                const selectedScored = [...finalTools.values()];
+                const selected = addCompanionTools(selectedScored, toolDefs);
+                const matchedNonSystemToolCount = selected.filter(
+                  (tool) => tool.category !== 'system'
+                ).length;
+
+                if (selected.length > 0 && matchedNonSystemToolCount > 0) {
+                  toolDefs = selected.map((definition) => ({ ...definition }));
+
+                  logger.info('[AgentRouter] Hybrid tool narrowing selected tools', {
+                    operationId,
                     taskId: task.id,
-                    assignedAgent: reroute.assignedAgent,
+                    agentId: agent.id,
+                    selectedTools: selectedScored.map((tool) => ({
+                      name: tool.name,
+                      score: Number(tool.semanticScore.toFixed(3)),
+                      reason:
+                        tool.semanticScore >= SEMANTIC_MATCH_THRESHOLD
+                          ? 'semantic_match'
+                          : 'safety_buffer',
+                    })),
+                    companionTools: selected
+                      .map((tool) => tool.name)
+                      .filter((toolName) => !selectedScored.some((tool) => tool.name === toolName)),
+                  });
+                } else {
+                  logger.warn(
+                    '[AgentRouter] Hybrid tool narrowing was too sparse — using full allowed tool set',
+                    {
+                      operationId,
+                      taskId: task.id,
+                      agentId: agent.id,
+                      matchedToolNames: matchedToolDefs.map((tool) => tool.name),
+                      fallbackToolCount: toolDefs.length,
+                    }
+                  );
+                }
+              } catch {
+                // Embedding unavailable — fall back to all permitted tools
+              }
+
+              const result = await agent.execute(
+                taskIntent,
+                context,
+                toolDefs,
+                this.llm,
+                this.toolRegistry,
+                this.skillRegistry,
+                onStreamEvent,
+                approvalGate
+              );
+              this.throwIfAborted(signal);
+
+              taskResults.set(task.id, result);
+              task.status = 'completed' as AgentTaskStatus;
+              this.telemetry.emitUpdate(
+                onUpdate,
+                operationId,
+                'acting',
+                `Task ${task.id} completed: ${result.summary}`,
+                undefined,
+                {
+                  agentId: task.assignedAgent,
+                  stage: 'agent_thinking',
+                  metadata: { taskId: task.id },
+                }
+              );
+
+              this.emitPlannerCard(onStreamEvent, mutableTasks);
+              return;
+            } catch (err) {
+              if (this.isAbortError(err)) throw err;
+
+              if (isAgentYield(err)) {
+                const yieldErr = err as AgentYieldException;
+                throw new AgentYieldException({
+                  ...yieldErr.payload,
+                  planContext: {
+                    currentTaskId: task.id,
+                    completedTaskResults: completedAtBatchStart,
+                    enrichedIntent,
+                  },
+                });
+              }
+
+              if (isAgentDelegation(err)) {
+                const delErr =
+                  err as import('../exceptions/agent-delegation.exception.js').AgentDelegationException;
+                const originalAgentId = task.assignedAgent as Exclude<AgentIdentifier, 'router'>;
+                logger.warn('[AgentRouter] Agent delegated inside DAG — attempting reroute', {
+                  operationId,
+                  taskId: task.id,
+                  sourceAgent: originalAgentId,
+                  forwardingIntent: delErr.payload.forwardingIntent.slice(0, 100),
+                });
+
+                const reroute = await rerouteDelegatedTask(
+                  delErr.payload.forwardingIntent,
+                  originalAgentId,
+                  context
+                );
+
+                if (reroute) {
+                  task.assignedAgent = reroute.assignedAgent;
+                  task.description = reroute.description;
+                  task._lastError = undefined;
+
+                  this.telemetry.emitUpdate(
+                    onUpdate,
+                    operationId,
+                    'acting',
+                    `Task ${task.id} rerouted to ${reroute.assignedAgent}. Retrying...`,
+                    {
+                      eventType: 'task_retry',
+                      taskId: task.id,
+                      assignedAgent: reroute.assignedAgent,
+                    },
+                    {
+                      agentId: 'router',
+                      stage: 'routing_to_agent',
+                      metadata: {
+                        taskId: task.id,
+                        delegatedFrom: originalAgentId,
+                        reroutedTo: reroute.assignedAgent,
+                      },
+                    }
+                  );
+                  continue;
+                }
+
+                task._lastError = `Delegated back to router: ${delErr.payload.forwardingIntent}`;
+                task.status = 'failed' as AgentTaskStatus;
+                this.telemetry.emitUpdate(
+                  onUpdate,
+                  operationId,
+                  'acting',
+                  `Task ${task.id} was misrouted — ${originalAgentId} could not handle it.`,
+                  {
+                    eventType: 'task_failed',
+                    taskId: task.id,
+                    assignedAgent: originalAgentId,
+                    error: task._lastError,
                   },
                   {
                     agentId: 'router',
                     stage: 'routing_to_agent',
+                    outcomeCode: 'routing_failed',
                     metadata: {
                       taskId: task.id,
-                      delegatedFrom: originalAgentId,
-                      reroutedTo: reroute.assignedAgent,
+                      delegatedAgentId: originalAgentId,
                     },
                   }
                 );
-                continue;
+                this.cascadeFailure(task.id, mutableTasks);
+                return;
               }
 
-              task._lastError = `Delegated back to router: ${delErr.payload.forwardingIntent}`;
-              task.status = 'failed' as AgentTaskStatus;
-              this.telemetry.emitUpdate(
-                onUpdate,
-                operationId,
-                'acting',
-                `Task ${task.id} was misrouted — ${originalAgentId} could not handle it.`,
-                {
-                  eventType: 'task_failed',
-                  taskId: task.id,
-                  assignedAgent: originalAgentId,
-                  error: task._lastError,
-                },
-                {
-                  agentId: 'router',
-                  stage: 'routing_to_agent',
-                  outcomeCode: 'routing_failed',
-                  metadata: {
-                    taskId: task.id,
-                    delegatedAgentId: originalAgentId,
-                  },
-                }
-              );
-              this.cascadeFailure(task.id, mutableTasks);
-              return;
-            }
+              const message = err instanceof Error ? err.message : 'Unknown error';
+              task._lastError = message;
 
-            const message = err instanceof Error ? err.message : 'Unknown error';
-            task._lastError = message;
-
-            if (attempt === taskMaxRetries) {
-              task.status = 'failed' as AgentTaskStatus;
-              logger.error('[AgentRouter] Task failed after retries exhausted', {
-                operationId,
-                taskId: task.id,
-                assignedAgent: task.assignedAgent,
-                attempts: taskMaxRetries + 1,
-                error: message,
-              });
-              this.telemetry.emitUpdate(
-                onUpdate,
-                operationId,
-                'acting',
-                `Task ${task.id} failed after ${taskMaxRetries + 1} attempts: ${message}`,
-                {
-                  eventType: 'task_failed',
+              if (attempt === taskMaxRetries) {
+                task.status = 'failed' as AgentTaskStatus;
+                logger.error('[AgentRouter] Task failed after retries exhausted', {
+                  operationId,
                   taskId: task.id,
                   assignedAgent: task.assignedAgent,
                   attempts: taskMaxRetries + 1,
                   error: message,
-                },
-                {
-                  agentId: task.assignedAgent,
-                  stage: 'agent_thinking',
-                  outcomeCode: 'task_failed',
-                  metadata: {
+                });
+                this.telemetry.emitUpdate(
+                  onUpdate,
+                  operationId,
+                  'acting',
+                  `Task ${task.id} failed after ${taskMaxRetries + 1} attempts: ${message}`,
+                  {
+                    eventType: 'task_failed',
                     taskId: task.id,
+                    assignedAgent: task.assignedAgent,
                     attempts: taskMaxRetries + 1,
+                    error: message,
                   },
-                }
-              );
-              this.cascadeFailure(task.id, mutableTasks);
+                  {
+                    agentId: task.assignedAgent,
+                    stage: 'agent_thinking',
+                    outcomeCode: 'task_failed',
+                    metadata: {
+                      taskId: task.id,
+                      attempts: taskMaxRetries + 1,
+                    },
+                  }
+                );
+                this.cascadeFailure(task.id, mutableTasks);
+              }
             }
           }
-        }
-      };
+        };
 
-      // Run the single active task — AbortError and AgentYieldException propagate naturally.
-      await runTask(activeTask);
-      this.throwIfAborted(signal);
-    }
+        // Run the single active task — AbortError and AgentYieldException propagate naturally.
+        await runTask(activeTask);
+        this.throwIfAborted(signal);
+      }
 
-    const executionDurationMs = Date.now() - executionPhaseStartMs;
-    this.telemetry.recordPhaseLatency('execution', executionDurationMs, {
-      operationId,
-      userId,
-      taskCount: mutableTasks.length,
-      completedTaskCount: taskResults.size,
-    });
-    this.telemetry.emitProgressOperation(onStreamEvent, {
-      operationId,
-      stage: 'agent_thinking',
-      message: `Execution latency: ${executionDurationMs}ms`,
-      metadata: {
-        eventType: 'metric',
-        metricName: 'phase_latency_ms',
-        phase: 'execution',
+      const executionDurationMs = Date.now() - executionPhaseStartMs;
+      this.telemetry.recordPhaseLatency('execution', executionDurationMs, {
+        operationId,
+        userId,
         taskCount: mutableTasks.length,
         completedTaskCount: taskResults.size,
-        value: executionDurationMs,
-      },
-    });
-    this.telemetry.emitProgressOperation(onStreamEvent, {
-      operationId,
-      stage: 'agent_thinking',
-      message: 'Execution stage complete. Preparing final response...',
-      metadata: {
-        eventType: 'progress_subphase',
-        phase: 'execution',
-        status: 'done',
-        taskCount: mutableTasks.length,
-      },
-    });
+      });
+      this.telemetry.emitProgressOperation(onStreamEvent, {
+        operationId,
+        stage: 'agent_thinking',
+        message: `Execution latency: ${executionDurationMs}ms`,
+        metadata: {
+          eventType: 'metric',
+          metricName: 'phase_latency_ms',
+          phase: 'execution',
+          taskCount: mutableTasks.length,
+          completedTaskCount: taskResults.size,
+          value: executionDurationMs,
+        },
+      });
+      this.telemetry.emitProgressOperation(onStreamEvent, {
+        operationId,
+        stage: 'agent_thinking',
+        message: 'Execution stage complete. Preparing final response...',
+        metadata: {
+          eventType: 'progress_subphase',
+          phase: 'execution',
+          status: 'done',
+          taskCount: mutableTasks.length,
+        },
+      });
 
-    return {
-      taskResults,
-      mutableTasks,
-      executionDurationMs,
-    };
+      return {
+        taskResults,
+        mutableTasks,
+        executionDurationMs,
+      };
+    } finally {
+      // ── Tier 5: Always flush operation memory on every exit path ─────────
+      operationMemory.flush(operationId);
+    }
   }
 
   private hasPendingTasks(tasks: readonly AgentExecutionMutableTask[]): boolean {

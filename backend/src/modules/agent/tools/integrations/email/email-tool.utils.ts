@@ -79,3 +79,18 @@ export function renderEmailTemplate(
     return String(value);
   });
 }
+
+/**
+ * Normalizes LLM-generated template syntax by converting single-brace `{key}`
+ * placeholders to the canonical double-brace `{{key}}` format.
+ *
+ * This is a deterministic safety net: if the model generates `{firstName}` instead
+ * of `{{firstName}}`, the template still renders correctly rather than sending the
+ * literal placeholder text to the recipient.
+ *
+ * Only converts tokens that are NOT already wrapped in double braces. The regex
+ * uses negative lookbehind/lookahead to avoid double-converting `{{key}}`.
+ */
+export function normalizeTemplateSyntax(template: string): string {
+  return template.replace(/(?<!\{)\{([A-Za-z0-9_]+)\}(?!\})/g, '{{$1}}');
+}
