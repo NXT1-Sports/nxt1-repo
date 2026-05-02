@@ -12,18 +12,18 @@ module.exports = {
     {
       name: 'nxt1-backend',
       script: './dist/index.js',
-      cwd: '/home/vyacheslav_rud1996/nxt1-repo/backend', // path thực trên server
+      cwd: '/home/vyacheslav_rud1996/nxt1-repo/backend', // actual path on server
 
-      // Số instances (cluster mode để tận dụng đa CPU)
-      instances: 'max', // hoặc số cụ thể: 2, 4...
+      // Number of instances (cluster mode to utilise multiple CPUs)
+      instances: 'max', // or a specific number: 2, 4...
       exec_mode: 'cluster',
 
-      // Tự restart khi crash
+      // Auto-restart on crash
       autorestart: true,
-      watch: false, // Tắt — dùng CI/CD để reload, không watch file
+      watch: false, // Disabled — use CI/CD to reload, do not watch files
       max_memory_restart: '1G',
 
-      // Graceful reload: chờ các request hiện tại xử lý xong
+      // Graceful reload: wait for in-flight requests to finish
       kill_timeout: 5000,
       wait_ready: true,
       listen_timeout: 10000,
@@ -47,14 +47,14 @@ module.exports = {
   ],
 
   // ─────────────────────────────────────────────────────────────
-  // PM2 Deploy Config (Option A-2: dùng `pm2 deploy` từ CI)
+  // PM2 Deploy Config (Option A-2: use `pm2 deploy` from CI)
   // ─────────────────────────────────────────────────────────────
   deploy: {
     production: {
       user: 'ngocsonxx98',
       host: ['34.72.3.113'],
       ref: 'origin/main',
-      repo: 'git@github.com:nxt1/nxt1-repo.git', // ← cập nhật đúng repo URL
+      repo: 'git@github.com:nxt1/nxt1-repo.git', // ← update to the correct repo URL
       path: '/home/vyacheslav_rud1996/nxt1-repo',
       'pre-deploy-local': '',
       'post-deploy': 'npm i && npm run build && pm2 reload 1 --update-env',

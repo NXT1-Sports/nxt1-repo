@@ -1,17 +1,17 @@
 /**
  * GitHub Webhook Listener
  * ─────────────────────────────────────────────────────────────────────────────
- * Chạy trên server, lắng nghe POST từ GitHub khi có push event.
- * Server tự pull code, build, reload PM2 mà không cần SSH từ ngoài vào.
+ * Runs on the server, listens for POST requests from GitHub on push events.
+ * The server pulls code, builds, and reloads PM2 without needing inbound SSH.
  *
  * Setup:
- *   1. npm install express @octokit/webhooks   (trong thư mục này)
+ *   1. npm install express @octokit/webhooks   (in this directory)
  *   2. WEBHOOK_SECRET=xxx PORT=9001 node webhook-server.mjs
  *   3. pm2 start webhook-server.mjs --name nxt1-webhook
- *   4. Thêm webhook trong GitHub repo: Settings → Webhooks
+ *   4. Add webhook in GitHub repo: Settings → Webhooks
  *      - Payload URL: http://your-server:9001/webhook
  *      - Content type: application/json
- *      - Secret: giá trị WEBHOOK_SECRET
+ *      - Secret: value of WEBHOOK_SECRET
  *      - Events: Just the "push" event
  * ─────────────────────────────────────────────────────────────────────────────
  */
@@ -44,7 +44,7 @@ function verifySignature(req, rawBody) {
   const sig = req.headers['x-hub-signature-256'];
   if (!sig) return false;
   const expected = `sha256=${createHmac('sha256', WEBHOOK_SECRET).update(rawBody).digest('hex')}`;
-  // Timing-safe compare để tránh timing attacks
+  // Timing-safe compare to prevent timing attacks
   const a = Buffer.from(sig);
   const b = Buffer.from(expected);
   if (a.length !== b.length) return false;
@@ -69,10 +69,10 @@ function runDeploy(branch, env) {
 // ── Express Server ────────────────────────────────────────────────────────────
 const app = express();
 
-// Parse raw body để verify signature trước
+// Parse raw body first so we can verify the signature
 app.use('/webhook', express.raw({ type: 'application/json', limit: '1mb' }));
 
-let isDeploying = false; // Tránh concurrent deploys
+let isDeploying = false; // Prevent concurrent deploys
 
 app.post('/webhook', (req, res) => {
   // 1. Verify GitHub signature

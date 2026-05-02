@@ -3,18 +3,23 @@
 # =============================================================================
 # Trigger: push to main → deploy production
 #
-# ── Cách thêm SSH_PRIVATE_KEY vào GitHub Secrets ──────────────────────────
-#   1. Trên máy local, chạy:
-#        cat ~/.ssh/nxt1-server | pbcopy   (macOS)
-#        cat ~/.ssh/nxt1-server            (copy thủ công)
-#   2. Vào GitHub repo → Settings → Secrets and variables → Actions
-#   3. Nhấn "New repository secret":
-#        Name:  SSH_PRIVATE_KEY
-#        Value: paste nội dung file key (bắt đầu bằng -----BEGIN...)
+# ── One-time setup: generate a passphrase-free CI deploy key ───────────────
+#   Run on your LOCAL machine:
+#     ssh-keygen -t ed25519 -C "github-actions-deploy" -f ~/.ssh/nxt1-ci -N ""
+#     # -N "" = no passphrase (required for CI)
 #
-# ── Các Secrets cần thêm ──────────────────────────────────────────────────
-#   SSH_PRIVATE_KEY  — Nội dung file nxt1-server (cả -----BEGIN và -----END)
-#   SUDO_PASS        — Password sudo của ngocsonxx98 (hiện tại là: 123)
+#   Add the public key to the server (one-time):
+#     ssh -i ~/path/to/nxt1-server ngocsonxx98@34.72.3.113 \
+#       "echo '$(cat ~/.ssh/nxt1-ci.pub)' >> ~/.ssh/authorized_keys"
+#
+#   Add the private key to GitHub Secrets:
+#     cat ~/.ssh/nxt1-ci | pbcopy
+#     → GitHub repo → Settings → Secrets and variables → Actions
+#     → New repository secret → Name: SSH_PRIVATE_KEY → paste
+#
+# ── Required Secrets ──────────────────────────────────────────────────
+#   SSH_PRIVATE_KEY  — Contents of ~/.ssh/nxt1-ci (passphrase-free)
+#   SUDO_PASS        — sudo password for ngocsonxx98
 # =============================================================================
 
 name: Deploy Backend
@@ -30,7 +35,7 @@ on:
       - 'package.json'
       - 'package-lock.json'
 
-  # Trigger thủ công từ GitHub UI
+  # Manual trigger from GitHub UI
   workflow_dispatch:
 
 concurrency:
@@ -49,30 +54,31 @@ jobs:
 
     steps:
       - name: Setup SSH key
-        uses: webfactory/ssh-agent@v0.9.0
-        with:
-          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
-
-      - name: Add server to known hosts
-        run: ssh-keyscan ${{ env.SSH_HOST }} >> ~/.ssh/known_hosts
+        # Write the key directly — no third-party action needed, no passphrase issues
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan ${{ env.SSH_HOST }} >> ~/.ssh/known_hosts
 
       - name: Deploy via SSH
-        # Dùng sudo -S để pass password không cần interactive prompt
-        # Chạy đúng thứ tự: sudo su → cd repo → git pull → npm i → build → pm2 reload
+        # Use sudo -S to pass the password non-interactively
         run: |
-          ssh ${{ env.SSH_USER }}@${{ env.SSH_HOST }} << 'ENDSSH'
+          ssh -i ~/.ssh/deploy_key \
+            -o StrictHostKeyChecking=no \
+            ${{ env.SSH_USER }}@${{ env.SSH_HOST }} << 'ENDSSH'
             echo "${{ secrets.SUDO_PASS }}" | sudo -S bash -c "
               set -e
               cd ${{ env.REPO_PATH }}
-              echo '📥 git pull...'
+              echo 'git pull...'
               git pull
-              echo '📦 npm install...'
+              echo 'npm install...'
               npm i
-              echo '🔨 npm run build...'
+              echo 'npm run build...'
               npm run build
-              echo '🔄 pm2 reload...'
+              echo 'pm2 reload...'
               pm2 reload 1 --update-env
-              echo '✅ Deploy done!'
+              echo 'Deploy done!'
               pm2 list
             "
           ENDSSH
