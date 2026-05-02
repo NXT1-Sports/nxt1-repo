@@ -129,6 +129,19 @@ jobs:
         env:
           GCP_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_STAGING }}
 
+      - name: Re-enable blocking function token forwarding (Staging)
+        run: |
+          echo '${{ secrets.FIREBASE_SERVICE_ACCOUNT_STAGING }}' > /tmp/sa-staging.json
+          gcloud auth activate-service-account --key-file=/tmp/sa-staging.json
+          ACCESS_TOKEN=$(gcloud auth print-access-token)
+          curl -s -X PATCH \
+            "https://identitytoolkit.googleapis.com/admin/v2/projects/nxt-1-staging-v2/config?updateMask=blockingFunctions.forwardInboundCredentials" \
+            -H "Authorization: Bearer $ACCESS_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d '{"blockingFunctions":{"forwardInboundCredentials":{"idToken":true,"accessToken":true,"refreshToken":true}}}' \
+            | python3 -c "import sys,json; r=json.load(sys.stdin); print('Token forwarding:', r.get('blockingFunctions',{}).get('forwardInboundCredentials','ERROR'))"
+          rm -f /tmp/sa-staging.json
+
   # ============================================================================
   # DEPLOY TO PRODUCTION
   # Auto: push to production branch
@@ -168,3 +181,16 @@ jobs:
           args: deploy --only ${{ github.event.inputs.functions && format('functions:{0}', github.event.inputs.functions) || 'functions' }} --project nxt-1-v2
         env:
           GCP_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_PROD }}
+
+      - name: Re-enable blocking function token forwarding (Production)
+        run: |
+          echo '${{ secrets.FIREBASE_SERVICE_ACCOUNT_PROD }}' > /tmp/sa-prod.json
+          gcloud auth activate-service-account --key-file=/tmp/sa-prod.json
+          ACCESS_TOKEN=$(gcloud auth print-access-token)
+          curl -s -X PATCH \
+            "https://identitytoolkit.googleapis.com/admin/v2/projects/nxt-1-v2/config?updateMask=blockingFunctions.forwardInboundCredentials" \
+            -H "Authorization: Bearer $ACCESS_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d '{"blockingFunctions":{"forwardInboundCredentials":{"idToken":true,"accessToken":true,"refreshToken":true}}}' \
+            | python3 -c "import sys,json; r=json.load(sys.stdin); print('Token forwarding:', r.get('blockingFunctions',{}).get('forwardInboundCredentials','ERROR'))"
+          rm -f /tmp/sa-prod.json
