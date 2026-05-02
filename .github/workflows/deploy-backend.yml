@@ -34,6 +34,7 @@ on:
       - 'packages/cache/**'
       - 'package.json'
       - 'package-lock.json'
+      - '.github/workflows/deploy-backend.yml'
 
   # Manual trigger from GitHub UI
   workflow_dispatch:
@@ -88,11 +89,15 @@ jobs:
               nvm use 22
               echo \"Node: \$(node -v), npm: \$(npm -v)\"
 
+              # Ensure pm2 is installed under this Node version
+              command -v pm2 > /dev/null 2>&1 || npm install -g pm2
+              echo "pm2: $(pm2 -v)"
+
               echo 'npm install...'
               npm i
 
-              echo 'npm run build...'
-              npm run build
+              echo 'npm run build (backend + shared packages only)...'
+              npx turbo run build --filter=@nxt1/backend --filter=@nxt1/core --filter=@nxt1/cache
 
               echo 'pm2 reload...'
               pm2 reload 1 --update-env
