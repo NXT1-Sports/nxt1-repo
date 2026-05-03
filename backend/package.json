@@ -56,7 +56,15 @@
     "backfill:agent-message-interactions:prod": "NODE_ENV=production tsx scripts/backfill-agent-message-interactions.ts --commit",
     "deploy:mobile-bundle": "tsx --tsconfig tsconfig.scripts.json --import dotenv/config scripts/deploy-mobile-bundle.ts",
     "deploy:mobile-bundle:staging": "NODE_ENV=staging tsx --tsconfig tsconfig.scripts.json --import dotenv/config scripts/deploy-mobile-bundle.ts --channel staging",
-    "deploy:mobile-bundle:prod": "NODE_ENV=production tsx --tsconfig tsconfig.scripts.json --import dotenv/config scripts/deploy-mobile-bundle.ts --channel production"
+    "deploy:mobile-bundle:prod": "NODE_ENV=production tsx --tsconfig tsconfig.scripts.json --import dotenv/config scripts/deploy-mobile-bundle.ts --channel production",
+    "deploy:mobile-bundle:ios:staging": "NODE_ENV=staging tsx --tsconfig tsconfig.scripts.json --import dotenv/config scripts/deploy-mobile-bundle.ts --channel staging --platform ios",
+    "deploy:mobile-bundle:ios:prod": "NODE_ENV=production tsx --tsconfig tsconfig.scripts.json --import dotenv/config scripts/deploy-mobile-bundle.ts --channel production --platform ios",
+    "deploy:mobile-bundle:android:staging": "NODE_ENV=staging tsx --tsconfig tsconfig.scripts.json --import dotenv/config scripts/deploy-mobile-bundle.ts --channel staging --platform android",
+    "deploy:mobile-bundle:android:prod": "NODE_ENV=production tsx --tsconfig tsconfig.scripts.json --import dotenv/config scripts/deploy-mobile-bundle.ts --channel production --platform android",
+    "deploy:ota:ios": "NODE_ENV=production tsx --tsconfig tsconfig.scripts.json --import dotenv/config scripts/deploy-mobile-bundle.ts --channel production --platform ios",
+    "deploy:ota:ios:staging": "NODE_ENV=staging tsx --tsconfig tsconfig.scripts.json --import dotenv/config scripts/deploy-mobile-bundle.ts --channel staging --platform ios",
+    "deploy:ota:android": "NODE_ENV=production tsx --tsconfig tsconfig.scripts.json --import dotenv/config scripts/deploy-mobile-bundle.ts --channel production --platform android",
+    "deploy:ota:android:staging": "NODE_ENV=staging tsx --tsconfig tsconfig.scripts.json --import dotenv/config scripts/deploy-mobile-bundle.ts --channel staging --platform android"
   },
   "dependencies": {
     "@apple/app-store-server-library": "^3.0.0",
