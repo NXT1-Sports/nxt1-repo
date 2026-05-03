@@ -28,6 +28,7 @@
  * @module @nxt1/mobile/features/auth
  */
 import { Injectable, inject, signal, computed, OnDestroy } from '@angular/core';
+import { getAdditionalUserInfo } from '@angular/fire/auth';
 import { NavController } from '@ionic/angular/standalone';
 import { NxtPlatformService, HapticsService, NxtLoggingService } from '@nxt1/ui';
 import { NxtModalService } from '@nxt1/ui/services';
@@ -650,6 +651,9 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
     options?: { nullable?: boolean }
   ): Promise<boolean> {
     this.logger.debug(`${method} sign-in started`);
+    // ⏱️ DEBUG: Total OAuth sign-in timing (excludes user interaction)
+    const __dbgT0 = performance.now();
+    this.logger.info(`⏱️ [DEBUG] ${method}: handleOAuthSignIn started`);
     this.authManager.setError(null);
     let sharedLoaderShown = false;
 
@@ -670,7 +674,13 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
     try {
       // Important UX boundary: do not show loading while OAuth account chooser is open.
       // Start loading only after Firebase returns a selected account credential.
+      // ⏱️ DEBUG: Time the native/web sign-in (plugin + Firebase state sync)
+      const __dbgSignInStart = performance.now();
+      this.logger.info(`⏱️ [DEBUG] ${method}: calling signInFn (native plugin + Firebase sync)...`);
       const result = await signInFn(onAccountSelected);
+      this.logger.info(
+        `⏱️ [DEBUG] ${method}: signInFn resolved in ${(performance.now() - __dbgSignInStart).toFixed(0)}ms`
+      );
 
       // User cancelled (applicable to providers that return null)
       if (!result && options?.nullable) {
@@ -706,8 +716,20 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
           email: userEmail,
         });
 
-        // Detect new vs. existing user by checking backend profile
-        const isNewUser = await this.isNewBackendUser(result.user.uid);
+        // ⏱️ DEBUG: Time the new-user detection (Firebase-first, backend fallback)
+        const __dbgUserCheckStart = performance.now();
+        this.logger.info(`⏱️ [DEBUG] ${method}: checking if new backend user...`);
+        // Use Firebase's built-in isNewUser flag (zero network cost) when available.
+        // The native path constructs a partial UserCredential without additionalUserInfo,
+        // so we fall back to the backend check only in that case.
+        const additionalInfo = getAdditionalUserInfo(result);
+        const isNewUser =
+          additionalInfo !== null
+            ? (additionalInfo.isNewUser ?? false)
+            : await this.isNewBackendUser(result.user.uid);
+        this.logger.info(
+          `⏱️ [DEBUG] ${method}: isNewBackendUser check took ${(performance.now() - __dbgUserCheckStart).toFixed(0)}ms — isNewUser=${isNewUser} (source: ${additionalInfo !== null ? 'firebase' : 'backend'})`
+        );
 
         // Track analytics
         this.analytics.trackEvent(
@@ -725,25 +747,90 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
           this.logger.info(`${method} new user — creating backend profile`, {
             uid: result.user.uid,
           });
+          // ⏱️ DEBUG: Time create + sync for new user
+          const __dbgCreateStart = performance.now();
+          this.logger.info(`⏱️ [DEBUG] ${method}: creating new backend user...`);
           await this.authApi.createUser({ uid: result.user.uid, email: userEmail! });
+          this.logger.info(
+            `⏱️ [DEBUG] ${method}: createUser took ${(performance.now() - __dbgCreateStart).toFixed(0)}ms`
+          );
+
+          const __dbgSync1Start = performance.now();
+          this.logger.info(`⏱️ [DEBUG] ${method}: syncing new user profile...`);
           await this.syncUserProfile(result.user.uid);
+          this.logger.info(
+            `⏱️ [DEBUG] ${method}: syncUserProfile (new) took ${(performance.now() - __dbgSync1Start).toFixed(0)}ms`
+          );
+
+          const __dbgNav1Start = performance.now();
           await this.navigateForward(AUTH_REDIRECTS.ONBOARDING);
+          this.logger.info(
+            `⏱️ [DEBUG] ${method}: navigateForward took ${(performance.now() - __dbgNav1Start).toFixed(0)}ms`
+          );
         } else {
           this.logger.debug(`${method} existing user — syncing profile`, { uid: result.user.uid });
-          await this.syncUserProfile(result.user.uid);
+          const __dbgSync2Start = performance.now();
+          this.logger.info(`⏱️ [DEBUG] ${method}: syncing existing user profile...`);
 
-          // Set analytics user properties after sync
-          const user = this.user();
-          if (user) {
-            this.analytics.setUserProperties({
-              user_type: user.role,
-              auth_provider: method,
-            });
+          const persistedUser = this._state().user;
+          const canNavigateOptimistically =
+            persistedUser?.uid === result.user.uid &&
+            persistedUser?.hasCompletedOnboarding === true;
+
+          if (canNavigateOptimistically) {
+            // Navigate immediately — persisted hasCompletedOnboarding is reliable.
+            const __dbgNav2Start = performance.now();
+            await this.navigatePostAuth();
+            this.logger.info(
+              `⏱️ [DEBUG] ${method}: navigatePostAuth (optimistic) took ${(performance.now() - __dbgNav2Start).toFixed(0)}ms`
+            );
+
+            // Sync profile in background — signals update reactively so AgentX
+            // sees fresh data as soon as it arrives.
+            void this.syncUserProfile(result.user.uid)
+              .then(() => {
+                this.logger.info(
+                  `⏱️ [DEBUG] ${method}: syncUserProfile (background) took ${(performance.now() - __dbgSync2Start).toFixed(0)}ms`
+                );
+                const user = this.user();
+                if (user) {
+                  this.analytics.setUserProperties({
+                    user_type: user.role,
+                    auth_provider: method,
+                  });
+                }
+              })
+              .catch((err: unknown) => {
+                this.logger.warn(`${method} background profile sync failed`, {
+                  error: err instanceof Error ? err.message : String(err),
+                });
+              });
+          } else {
+            // Safe sequential path: sync first so navigatePostAuth has correct state.
+            await this.syncUserProfile(result.user.uid);
+            this.logger.info(
+              `⏱️ [DEBUG] ${method}: syncUserProfile (existing) took ${(performance.now() - __dbgSync2Start).toFixed(0)}ms`
+            );
+
+            const user = this.user();
+            if (user) {
+              this.analytics.setUserProperties({
+                user_type: user.role,
+                auth_provider: method,
+              });
+            }
+
+            const __dbgNav2Start = performance.now();
+            await this.navigatePostAuth();
+            this.logger.info(
+              `⏱️ [DEBUG] ${method}: navigatePostAuth took ${(performance.now() - __dbgNav2Start).toFixed(0)}ms`
+            );
           }
-
-          await this.navigatePostAuth();
         }
 
+        this.logger.info(
+          `⏱️ [DEBUG] ${method}: TOTAL post-selection time ${(performance.now() - __dbgT0).toFixed(0)}ms`
+        );
         this.logger.info(`${method} sign-in complete`);
         return true;
       })();

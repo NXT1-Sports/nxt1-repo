@@ -915,18 +915,26 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
     this.authManager.setSignupInProgress(true);
 
     // Store token BEFORE any API calls so the auth interceptor can attach it
+    const __dbgMsInnerT0 = performance.now();
     await this.storeTokenFromUser(result.user);
+    this.logger.info(
+      `⏱️ [DEBUG] Microsoft processMicrosoftAuthResult: storeToken took ${(performance.now() - __dbgMsInnerT0).toFixed(0)}ms`
+    );
 
     try {
       // ALWAYS try to sync existing user first (Firebase isNewUser can be unreliable)
-      this.logger.debug('📡 Attempting to sync existing user profile (Microsoft)');
+      const __dbgMsSyncStart = performance.now();
+      this.logger.info('⏱️ [DEBUG] Microsoft: syncing existing user profile...');
       await this.syncUserProfile(result.user, true);
-      this.logger.info('✅ User profile sync successful - existing user (Microsoft)');
+      this.logger.info(
+        `⏱️ [DEBUG] Microsoft: syncUserProfile took ${(performance.now() - __dbgMsSyncStart).toFixed(0)}ms`
+      );
 
       // Check if user needs onboarding
       const currentUser = this.user();
       const needsOnboarding = !currentUser?.hasCompletedOnboarding;
 
+      const __dbgMsNavStart = performance.now();
       if (needsOnboarding) {
         this.logger.info('🚀 Navigating to onboarding (existing user, incomplete) (Microsoft)');
         await this.navigateForward(AUTH_ROUTES.ONBOARDING);
@@ -934,6 +942,9 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
         this.logger.info('🏠 User already completed onboarding, navigating to /home (Microsoft)');
         await this.navigateRoot(AUTH_REDIRECTS.DEFAULT);
       }
+      this.logger.info(
+        `⏱️ [DEBUG] Microsoft: navigation took ${(performance.now() - __dbgMsNavStart).toFixed(0)}ms`
+      );
     } catch (syncError: unknown) {
       const errorObj = syncError as { message?: string };
       this.logger.warn('❌ User sync failed, attempting to create new user (Microsoft)', {
@@ -942,24 +953,26 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
 
       try {
         // User doesn't exist in backend, create new user
-        this.logger.debug('📝 Creating new user via Microsoft OAuth', {
-          uid: result.user.uid,
-          email: result.user.email!,
-          teamCode: teamCode || 'none',
-          referralId: referralId || 'none',
-        });
-
+        const __dbgMsCreateStart = performance.now();
+        this.logger.info('⏱️ [DEBUG] Microsoft: creating new backend user...');
         const createResult = await this.authApi.createUser({
           uid: result.user.uid,
           email: result.user.email!,
           teamCode: teamCode || undefined,
           referralId: referralId || undefined,
         });
+        this.logger.info(
+          `⏱️ [DEBUG] Microsoft: createUser took ${(performance.now() - __dbgMsCreateStart).toFixed(0)}ms`
+        );
 
         this.logger.info('✅ New user created successfully (Microsoft)', { createResult });
 
         // Sync the newly created user to local state
+        const __dbgMsSync2Start = performance.now();
         await this.syncUserProfile(result.user);
+        this.logger.info(
+          `⏱️ [DEBUG] Microsoft: post-create syncUserProfile took ${(performance.now() - __dbgMsSync2Start).toFixed(0)}ms`
+        );
 
         // Navigate to onboarding for new users
         this.logger.info('🚀 Navigating to onboarding (new user) (Microsoft)');
@@ -1070,7 +1083,9 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
 
     this.authManager.setError(null);
 
-    this.logger.info('🎯 Starting Google OAuth (popup)');
+    // ⏱️ DEBUG: Total social login timing
+    const __dbgT0 = performance.now();
+    this.logger.info('🎯 [DEBUG] Starting Google OAuth (popup)', { ts: __dbgT0.toFixed(0) });
 
     try {
       // Dynamic imports for SSR safety
@@ -1087,8 +1102,15 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
         prompt: 'consent', // Force consent screen to ensure refresh token
       });
 
+      // ⏱️ DEBUG: Time the popup (user picks account)
+      const __dbgPopupStart = performance.now();
+      this.logger.info('⏱️ [DEBUG] Google popup opening...');
       // UX boundary: popup/account selection happens here without loading state.
       const result = await signInWithPopup(this.firebaseAuth, provider);
+      const __dbgPopupMs = performance.now() - __dbgPopupStart;
+      this.logger.info(`⏱️ [DEBUG] Google popup resolved in ${__dbgPopupMs.toFixed(0)}ms`, {
+        uid: result.user.uid,
+      });
 
       return this.runWithLoading(
         async () => {
@@ -1117,29 +1139,73 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
           let isNewlyCreated = false;
 
           try {
+            const persistedUser = this.authManager.getState().user;
+            const canNavigateOptimistically =
+              !isNewUser &&
+              persistedUser?.uid === result.user.uid &&
+              persistedUser?.hasCompletedOnboarding === true;
+
+            if (canNavigateOptimistically) {
+              const __dbgNavStart = performance.now();
+              this.logger.info(
+                '🏠 [OPTIMISTIC] User already completed onboarding, navigating to /home immediately'
+              );
+              await this.navigateRoot(AUTH_REDIRECTS.DEFAULT);
+              this.logger.info(
+                `⏱️ [DEBUG] Google: navigation took ${(performance.now() - __dbgNavStart).toFixed(0)}ms`
+              );
+              this.logger.info(
+                `⏱️ [DEBUG] Google: TOTAL sign-in time ${(performance.now() - __dbgT0).toFixed(0)}ms (excludes user interaction with popup)`
+              );
+
+              // Sync profile in background — signals update reactively so the app sees
+              // fresh data as soon as it arrives without blocking the user
+              void this.syncUserProfile(result.user, true)
+                .then(() => {
+                  this.logger.info('⏱️ [DEBUG] Google: background syncUserProfile complete');
+                  const user = this.user();
+                  if (user) {
+                    this.analytics.setUserProperties({
+                      user_type: user.role,
+                      auth_provider: AUTH_METHODS.GOOGLE,
+                    });
+                  }
+                })
+                .catch((err: unknown) => {
+                  this.logger.warn('Google background profile sync failed', {
+                    error: err instanceof Error ? err.message : String(err),
+                  });
+                });
+
+              return true;
+            }
+
             try {
-              this.logger.debug('📡 Attempting to sync existing user profile');
+              // ⏱️ DEBUG: Time backend profile sync
+              const __dbgSyncStart = performance.now();
+              this.logger.info('⏱️ [DEBUG] Google: syncing existing user profile...');
               await this.syncUserProfile(result.user, true);
-              this.logger.info('✅ User profile sync successful - existing user');
+              this.logger.info(
+                `⏱️ [DEBUG] Google: syncUserProfile took ${(performance.now() - __dbgSyncStart).toFixed(0)}ms`
+              );
             } catch (syncError: unknown) {
               const errorObj = syncError as { message?: string };
               this.logger.warn('❌ User sync failed, attempting to create new user', {
                 error: errorObj?.message,
               });
 
-              this.logger.debug('📝 Creating new user via OAuth', {
-                uid: result.user.uid,
-                email: result.user.email!,
-                teamCode: teamCode || 'none',
-                referralId: referralId || 'none',
-              });
-
+              // ⏱️ DEBUG: Time new user creation
+              const __dbgCreateStart = performance.now();
+              this.logger.info('⏱️ [DEBUG] Google: creating new backend user...');
               const createResult = await this.authApi.createUser({
                 uid: result.user.uid,
                 email: result.user.email!,
                 teamCode: teamCode || undefined,
                 referralId: referralId || undefined,
               });
+              this.logger.info(
+                `⏱️ [DEBUG] Google: createUser took ${(performance.now() - __dbgCreateStart).toFixed(0)}ms`
+              );
 
               if (createResult.success) {
                 this.logger.info('✅ New user created successfully (OAuth)');
@@ -1153,8 +1219,13 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
                 );
               }
 
-              // Sync profile regardless of whether we just created or it already existed
+              // ⏱️ DEBUG: Time second sync after create
+              const __dbgSync2Start = performance.now();
+              this.logger.info('⏱️ [DEBUG] Google: syncing profile after create...');
               await this.syncUserProfile(result.user);
+              this.logger.info(
+                `⏱️ [DEBUG] Google: post-create syncUserProfile took ${(performance.now() - __dbgSync2Start).toFixed(0)}ms`
+              );
             }
 
             // Refresh token capture: the `beforeUserCreate` blocking Cloud Function
@@ -1174,6 +1245,8 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
             const currentUser = this.user();
             const needsOnboarding = isNewlyCreated || !currentUser?.hasCompletedOnboarding;
 
+            // ⏱️ DEBUG: Time navigation
+            const __dbgNavStart = performance.now();
             if (needsOnboarding) {
               this.logger.info(
                 `🚀 Navigating to onboarding (${isNewlyCreated ? 'new user' : 'existing user, incomplete'})`
@@ -1183,6 +1256,12 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
               this.logger.info('🏠 User already completed onboarding, navigating to /home');
               await this.navigateRoot(AUTH_REDIRECTS.DEFAULT);
             }
+            this.logger.info(
+              `⏱️ [DEBUG] Google: navigation took ${(performance.now() - __dbgNavStart).toFixed(0)}ms`
+            );
+            this.logger.info(
+              `⏱️ [DEBUG] Google: TOTAL sign-in time ${(performance.now() - __dbgT0).toFixed(0)}ms (excludes user interaction with popup)`
+            );
 
             return true;
           } finally {
@@ -1306,8 +1385,18 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
       provider.addScope('Files.ReadWrite'); // Required for OneDrive Agent X actions
 
       this.logger.info('🚀 Starting Microsoft OAuth (popup)');
+      // ⏱️ DEBUG: Total Microsoft sign-in timing
+      const __dbgMsT0 = performance.now();
+
+      // ⏱️ DEBUG: Time the popup (user picks account)
+      const __dbgMsPopupStart = performance.now();
+      this.logger.info('⏱️ [DEBUG] Microsoft popup opening...');
       // UX boundary: popup/account selection happens here without loading state.
       const result = await signInWithPopup(this.firebaseAuth, provider);
+      const __dbgMsPopupMs = performance.now() - __dbgMsPopupStart;
+      this.logger.info(`⏱️ [DEBUG] Microsoft popup resolved in ${__dbgMsPopupMs.toFixed(0)}ms`, {
+        uid: result.user.uid,
+      });
 
       return this.runWithLoading(
         async () => {
@@ -1326,8 +1415,19 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
             hasAccessToken: !!popupAccessToken,
           });
 
+          // ⏱️ DEBUG: Time the full auth result processing
+          const __dbgMsProcessStart = performance.now();
+          this.logger.info(
+            '⏱️ [DEBUG] Microsoft: processing auth result (sync/create/navigate)...'
+          );
           // Process result using helper method
           const success = await this.processMicrosoftAuthResult(result, teamCode, referralId);
+          this.logger.info(
+            `⏱️ [DEBUG] Microsoft: processMicrosoftAuthResult took ${(performance.now() - __dbgMsProcessStart).toFixed(0)}ms`
+          );
+          this.logger.info(
+            `⏱️ [DEBUG] Microsoft: TOTAL sign-in time ${(performance.now() - __dbgMsT0).toFixed(0)}ms (excludes user interaction with popup)`
+          );
 
           // Persist the access token to backend after successful auth
           if (success && popupAccessToken) {

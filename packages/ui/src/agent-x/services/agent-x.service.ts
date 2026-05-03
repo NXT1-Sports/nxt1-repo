@@ -172,9 +172,6 @@ export class AgentXService {
     icon?: string;
   } | null>(null);
 
-  /** Quick tasks loaded from the backend. */
-  private readonly _quickTasks = signal<readonly AgentXQuickTask[]>([]);
-
   constructor() {
     if (isPlatformBrowser(this.platformId)) {
       const persistedMessage = sessionStorage.getItem(AGENT_X_PENDING_STARTUP_MESSAGE_KEY)?.trim();
@@ -182,7 +179,6 @@ export class AgentXService {
         this._pendingStartupMessage.set(persistedMessage);
       }
     }
-    void this.loadQuickTasks();
   }
 
   // Animation interval reference
@@ -395,27 +391,10 @@ export class AgentXService {
   // QUICK TASKS (by category)
   // ============================================
 
-  readonly quickTasks = computed(() => this._quickTasks());
-  readonly athleteTasks = computed(() =>
-    this._quickTasks().filter((task) => task.category === 'athlete')
-  );
-  readonly coachTasks = computed(() =>
-    this._quickTasks().filter((task) => task.category === 'coach')
-  );
-  readonly collegeTasks = computed(() =>
-    this._quickTasks().filter((task) => task.category === 'college')
-  );
-
-  async loadQuickTasks(): Promise<void> {
-    try {
-      const tasks = await this.api.getQuickTasks();
-      this._quickTasks.set(tasks);
-      this.logger.debug('Quick tasks loaded', { count: tasks.length });
-    } catch (err) {
-      this._quickTasks.set([]);
-      this.logger.error('Failed to load quick tasks', err);
-    }
-  }
+  readonly quickTasks = computed<readonly AgentXQuickTask[]>(() => []);
+  readonly athleteTasks = computed<readonly AgentXQuickTask[]>(() => []);
+  readonly coachTasks = computed<readonly AgentXQuickTask[]>(() => []);
+  readonly collegeTasks = computed<readonly AgentXQuickTask[]>(() => []);
 
   // ============================================
   // USER MESSAGE TWO-WAY BINDING

@@ -24,7 +24,6 @@ import type { HttpAdapter } from '../api/http-adapter';
 import type {
   AgentXChatRequest,
   AgentXChatResponse,
-  AgentXQuickTask,
   AgentXMessage,
   AgentDashboardData,
   AgentDashboardGoal,
@@ -66,13 +65,6 @@ interface ApiResponse<T> {
   readonly data?: T;
   readonly error?: string;
   readonly errorCode?: string;
-}
-
-/**
- * Tasks response from API.
- */
-interface TasksResponse {
-  readonly tasks: AgentXQuickTask[];
 }
 
 /**
@@ -148,8 +140,6 @@ export interface AgentXStreamMessageOptions {
  *   userContext: { role: 'athlete', sport: 'football' }
  * });
  *
- * // Get tasks for user role
- * const tasks = await api.getQuickTasks('athlete');
  * ```
  */
 export function createAgentXApi(http: HttpAdapter, baseUrl: string) {
@@ -201,30 +191,6 @@ export function createAgentXApi(http: HttpAdapter, baseUrl: string) {
 
         // Wrap network errors
         throw externalServiceError('ai', error);
-      }
-    },
-
-    /**
-     * Get quick tasks filtered by user role.
-     *
-     * @param role - User role to filter tasks
-     * @returns List of quick tasks for the role
-     */
-    async getQuickTasks(role?: string): Promise<AgentXQuickTask[]> {
-      try {
-        const url = role
-          ? `${endpoint(AGENT_X_ENDPOINTS.TASKS)}?role=${encodeURIComponent(role)}`
-          : endpoint(AGENT_X_ENDPOINTS.TASKS);
-
-        const response = await http.get<ApiResponse<TasksResponse>>(url);
-
-        if (!response.success || !response.data) {
-          return [];
-        }
-
-        return response.data.tasks;
-      } catch {
-        return [];
       }
     },
 

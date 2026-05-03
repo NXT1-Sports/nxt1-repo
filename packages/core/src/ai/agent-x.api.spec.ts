@@ -4,7 +4,7 @@
  *
  * Pure Vitest tests for createAgentXApi — no TestBed, no Angular.
  * Covers: sendMessage, getDashboard, setGoals, generatePlaybook,
- * updatePlaybookItemStatus, generateBriefing, getQuickTasks,
+ * updatePlaybookItemStatus, generateBriefing,
  * getHistory, clearHistory.
  */
 
@@ -534,45 +534,6 @@ describe('createAgentXApi', () => {
       const result = await api.resumeYieldedJob('op-original', 'Answer');
 
       expect(result).toBeNull();
-    });
-  });
-
-  // ============================================
-  // getQuickTasks
-  // ============================================
-
-  describe('getQuickTasks', () => {
-    it('should fetch tasks without role filter', async () => {
-      const tasks = [{ id: '1', label: 'Find colleges', prompt: 'Help me find colleges' }];
-      vi.mocked(http.get).mockResolvedValue({
-        success: true,
-        data: { tasks },
-      });
-
-      const result = await api.getQuickTasks();
-
-      expect(http.get).toHaveBeenCalledWith(`${baseUrl}${AGENT_X_ENDPOINTS.TASKS}`);
-      expect(result).toEqual(tasks);
-    });
-
-    it('should fetch tasks with role filter', async () => {
-      vi.mocked(http.get).mockResolvedValue({
-        success: true,
-        data: { tasks: [] },
-      });
-
-      await api.getQuickTasks('athlete');
-
-      const url = vi.mocked(http.get).mock.calls[0][0];
-      expect(url).toContain('role=athlete');
-    });
-
-    it('should return empty array on failure', async () => {
-      vi.mocked(http.get).mockRejectedValue(new Error('Network failure'));
-
-      const result = await api.getQuickTasks();
-
-      expect(result).toEqual([]);
     });
   });
 

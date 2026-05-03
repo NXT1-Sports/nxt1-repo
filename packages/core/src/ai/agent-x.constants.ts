@@ -684,8 +684,6 @@ export const AGENT_X_ENDPOINTS = {
   UPLOAD_TMP: '/agent-x/upload/tmp',
   /** Promote a file from the tmp folder to permanent media storage (copy + delete original) */
   UPLOAD_PROMOTE: '/agent-x/upload/promote',
-  /** Get quick tasks endpoint */
-  TASKS: '/agent-x/tasks',
   /** Get conversation history */
   HISTORY: '/agent-x/history',
   /** Clear conversation */
