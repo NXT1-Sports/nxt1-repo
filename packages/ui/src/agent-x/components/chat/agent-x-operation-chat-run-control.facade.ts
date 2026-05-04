@@ -48,11 +48,13 @@ export interface AgentXOperationChatRunControlFacadeHost {
   readonly contextId: () => string;
   readonly contextTitle: () => string;
   readonly contextType: () => 'operation' | 'command';
+  readonly getOperationStatus: () => OperationChatStatus | null;
   readonly inputValue: WritableSignal<string>;
   readonly loading: WritableSignal<boolean>;
   readonly retryStarted: WritableSignal<boolean>;
   readonly activeYieldState: WritableSignal<AgentYieldState | null>;
   readonly yieldResolved: WritableSignal<boolean>;
+  clearRealtimePipelines(): void;
   setActivityPhase(
     phase:
       | 'idle'
@@ -159,6 +161,8 @@ export class AgentXOperationChatRunControlFacade {
       host.setActiveStream(null);
     }
 
+    host.clearRealtimePipelines();
+
     const currentOperationId = host.getCurrentOperationId();
     if (currentOperationId) {
       pausedOperationId = currentOperationId;
@@ -172,8 +176,8 @@ export class AgentXOperationChatRunControlFacade {
     const targetOperationId = pausedOperationId ?? host.contextId();
     if (targetOperationId) {
       host.setCurrentOperationId(targetOperationId);
-      host.activeYieldState.set(this.buildLocalPauseYieldState(targetOperationId));
-      host.yieldResolved.set(false);
+      host.activeYieldState.set(null);
+      host.yieldResolved.set(true);
     }
 
     this.logger.info('Stream paused by user', { contextId: host.contextId() });
@@ -208,6 +212,8 @@ export class AgentXOperationChatRunControlFacade {
       activeStream.abort();
       host.setActiveStream(null);
     }
+
+    host.clearRealtimePipelines();
 
     const currentOperationId = host.getCurrentOperationId();
     if (currentOperationId) {
@@ -248,6 +254,25 @@ export class AgentXOperationChatRunControlFacade {
 
     if ((!text && files.length === 0 && pendingSources.length === 0) || host.loading()) {
       return;
+    }
+
+    const previousOperationId = host.getCurrentOperationId();
+    const previousStatus = host.getOperationStatus();
+    host.clearRealtimePipelines();
+
+    if (previousStatus === 'paused' && previousOperationId) {
+      this.logger.info('New message after paused stream; cancelling stale paused operation', {
+        pausedOperationId: previousOperationId,
+        contextId: host.contextId(),
+      });
+      this.breadcrumb.trackUserAction('send-after-paused-stream', {
+        operationId: previousOperationId,
+      });
+      this.fireCancelRequest(previousOperationId);
+      host.setCurrentOperationId(null);
+      host.activeYieldState.set(null);
+      host.yieldResolved.set(true);
+      host.setOperationStatus('processing');
     }
 
     const idempotencyKey = options?.idempotencyKey ?? this.createChatIdempotencyKey();
@@ -494,6 +519,8 @@ export class AgentXOperationChatRunControlFacade {
   }
 
   private transitionInFlightMessages(label: 'Paused' | 'Cancelled'): void {
+    const interruptedReason = label === 'Paused' ? 'paused' : 'cancelled';
+
     this.messageFacade.messages.update((messages) =>
       messages.map((message) => {
         const hasTyping = message.isTyping === true;
@@ -512,6 +539,7 @@ export class AgentXOperationChatRunControlFacade {
         return {
           ...message,
           isTyping: false,
+          ...(message.role === 'assistant' ? { interruptedReason } : {}),
           steps: message.steps?.map(updateStep),
           parts: message.parts?.map((part) =>
             part.type === 'tool-steps' ? { ...part, steps: part.steps.map(updateStep) } : part
@@ -519,30 +547,6 @@ export class AgentXOperationChatRunControlFacade {
         };
       })
     );
-  }
-
-  private buildLocalPauseYieldState(operationId: string): AgentYieldState {
-    const nowIso = new Date().toISOString();
-    const expiresAtIso = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-    const existing = this.requireHost().activeYieldState();
-
-    return {
-      reason: 'needs_input',
-      promptToUser: 'Operation paused. Resume whenever you are ready.',
-      agentId: (existing?.agentId ?? 'router') as AgentYieldState['agentId'],
-      messages: existing?.messages ?? [],
-      ...(existing?.planContext ? { planContext: existing.planContext } : {}),
-      pendingToolCall: {
-        toolName: PAUSE_RESUME_TOOL_NAME,
-        toolInput: {
-          operationId,
-          pauseRequestedAt: nowIso,
-        },
-        toolCallId: existing?.pendingToolCall?.toolCallId ?? `pause_resume_${operationId}`,
-      },
-      yieldedAt: nowIso,
-      expiresAt: expiresAtIso,
-    };
   }
 
   private fireCancelRequest(operationId: string): void {

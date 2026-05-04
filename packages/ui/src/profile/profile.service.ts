@@ -1125,6 +1125,7 @@ export class ProfileService {
     const sports = this.allSports();
     if (index >= 0 && index < sports.length) {
       const selectedSport = sports[index];
+      const isOwnProfile = this.isOwnProfile();
 
       this.logger.info('Sport profile switched', {
         from: this._activeSportIndex(),
@@ -1141,7 +1142,7 @@ export class ProfileService {
 
       // Persist to database if API service is configured and we have a user ID
       const userId = this.user()?.uid;
-      if (this.api?.updateActiveSportIndex && userId) {
+      if (isOwnProfile && this.api?.updateActiveSportIndex && userId) {
         try {
           const result = await this.api.updateActiveSportIndex(userId, index);
           if (result.success) {
@@ -1164,6 +1165,11 @@ export class ProfileService {
             error: err,
           });
         }
+      } else if (!isOwnProfile) {
+        this.logger.debug('Skipped active sport index persistence for public profile view', {
+          userId,
+          activeSportIndex: index,
+        });
       }
     }
   }

@@ -654,7 +654,9 @@ export class AgentXOperationChatSessionFacade {
             this.messageFacade.flushPendingTypingDelta();
             if (!step.label.trim()) return;
             if (step.status === 'active') {
-              host.setActivityPhase('running_tool');
+              // Pass the step label so a stale generic gap label
+              // ("Working on next step...") doesn't outlive the tool start.
+              host.setActivityPhase('running_tool', step.label);
             } else if (
               step.stageType === 'tool' &&
               (step.status === 'success' || step.status === 'error')
@@ -820,7 +822,7 @@ export class AgentXOperationChatSessionFacade {
               step.stageType === 'tool'
           );
 
-          const persistedParts =
+          let persistedParts =
             message.parts?.map((part) =>
               part.type === 'tool-steps'
                 ? {
@@ -845,6 +847,23 @@ export class AgentXOperationChatSessionFacade {
                     }
                   : part
             ) ?? [];
+
+          const cleanContent = message.content
+            .replace(/\n\n\[Attached (?:file|video): .+/gs, '')
+            .trim();
+
+          // BUG FIX: Rehydration drops text when cards are present.
+          // nxt1-chat-bubble overrides legacy layout to strictly loop over `parts` if any exist.
+          // We must ensure `cleanContent` is injected as a 'text' part so it renders.
+          if (persistedParts.length > 0 && cleanContent.length > 0) {
+            const hasTextPart = persistedParts.some((p) => p.type === 'text');
+            if (!hasTextPart) {
+              persistedParts = [
+                { type: 'text' as const, content: cleanContent },
+                ...persistedParts,
+              ];
+            }
+          }
 
           // Derive the `cards` array from card-type parts so render methods
           // that read `message.cards` directly (messageCardsForBubble,
@@ -880,7 +899,7 @@ export class AgentXOperationChatSessionFacade {
             // surface them.
             role: message.role,
             operationId: typeof message.operationId === 'string' ? message.operationId : undefined,
-            content: message.content.replace(/\n\n\[Attached (?:file|video): .+/gs, '').trim(),
+            content: cleanContent,
             timestamp: message.createdAt ? new Date(message.createdAt) : new Date(),
             ...(persistedSteps.length > 0 ? { steps: persistedSteps } : {}),
             ...(persistedParts.length > 0 ? { parts: persistedParts } : {}),

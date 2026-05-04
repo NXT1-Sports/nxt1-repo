@@ -44,6 +44,7 @@ export interface OperationMessage {
   readonly yieldCardState?: 'idle' | 'submitting' | 'resolved';
   readonly yieldResolvedText?: string;
   readonly selectedAction?: AgentXSelectedAction;
+  readonly interruptedReason?: 'paused' | 'cancelled';
 }
 
 export interface PendingUndoState {

@@ -686,6 +686,8 @@ export const AGENT_X_ENDPOINTS = {
   UPLOAD_PROMOTE: '/agent-x/upload/promote',
   /** Get conversation history */
   HISTORY: '/agent-x/history',
+  /** Get role-filtered quick tasks */
+  TASKS: '/agent-x/tasks',
   /** Clear conversation */
   CLEAR: '/agent-x/clear',
   /** Aggregated dashboard (briefing + playbook + operations) */

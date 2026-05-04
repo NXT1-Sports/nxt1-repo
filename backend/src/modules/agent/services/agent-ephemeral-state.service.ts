@@ -2,7 +2,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import { createReadStream, createWriteStream } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { mkdir, rename, rm, stat } from 'node:fs/promises';
+import { mkdir, readdir, rename, rm, stat } from 'node:fs/promises';
 import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { Request, Response } from 'express';
@@ -122,7 +122,12 @@ export class AgentEphemeralStateService {
     record: MediaProxyUploadRecord,
     ttlSeconds: number
   ): Promise<void> {
-    await this.getRedis().set(this.uploadKey(record.uploadId), JSON.stringify(record), 'EX', ttlSeconds);
+    await this.getRedis().set(
+      this.uploadKey(record.uploadId),
+      JSON.stringify(record),
+      'EX',
+      ttlSeconds
+    );
   }
 
   static async getUploadRecord(uploadId: string): Promise<MediaProxyUploadRecord | null> {
@@ -353,7 +358,11 @@ export class AgentEphemeralStateService {
         const chunkBytes = Buffer.isBuffer(chunk) ? chunk.length : Buffer.byteLength(chunk);
         totalBytes += chunkBytes;
         if (totalBytes > maxBytes) {
-          callback(new Error(`File exceeds maximum video size limit (${Math.round(maxBytes / (1024 * 1024))} MB)`));
+          callback(
+            new Error(
+              `File exceeds maximum video size limit (${Math.round(maxBytes / (1024 * 1024))} MB)`
+            )
+          );
           return;
         }
         callback(null, chunk);
@@ -473,6 +482,62 @@ export class AgentEphemeralStateService {
     await this.getRedis().del(this.uploadKey(uploadId));
   }
 
+  /**
+   * Explicit cleanup for callers that know an upload is finished with (e.g.
+   * a tool that just consumed it). Equivalent to {@link cleanupUpload} — use
+   * whichever name reads better at the call site.
+   */
+  static async cleanupTempProxyFile(uploadId: string): Promise<void> {
+    await this.cleanupUpload(uploadId);
+  }
+
+  /**
+   * Sweep the on-disk media-proxy temp directory for orphaned files older
+   * than the ready-TTL. Used by the daily cron to recover any tmpfiles that
+   * were not removed by their per-upload setTimeout (e.g. Node process
+   * restarted between provisionUpload and the scheduled cleanup).
+   *
+   * Returns the number of files deleted.
+   */
+  static async sweepOrphanedTempFiles(maxAgeMs?: number): Promise<{
+    scanned: number;
+    deleted: number;
+  }> {
+    const cutoff = Date.now() - (maxAgeMs ?? MEDIA_PROXY_READY_TTL_S * 1000);
+    let scanned = 0;
+    let deleted = 0;
+    let entries: string[];
+    try {
+      entries = await readdir(MEDIA_PROXY_TEMP_DIR);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        return { scanned: 0, deleted: 0 };
+      }
+      throw err;
+    }
+
+    await Promise.all(
+      entries.map(async (entry) => {
+        const fullPath = path.join(MEDIA_PROXY_TEMP_DIR, entry);
+        scanned += 1;
+        try {
+          const fileStats = await stat(fullPath);
+          if (!fileStats.isFile()) return;
+          if (fileStats.mtimeMs > cutoff) return;
+          await rm(fullPath, { force: true });
+          deleted += 1;
+        } catch (err) {
+          logger.warn('Failed to evaluate media-proxy temp file during sweep', {
+            path: fullPath,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      })
+    );
+
+    return { scanned, deleted };
+  }
+
   private static scheduleCleanup(uploadId: string): void {
     const existingTimer = this.cleanupTimers.get(uploadId);
     if (existingTimer) {
@@ -492,7 +557,12 @@ export class AgentEphemeralStateService {
   }
 
   static async setAttachmentWaitOwner(operationId: string, userId: string): Promise<void> {
-    await this.getRedis().set(this.attachmentWaitKey(operationId), userId, 'EX', ATTACHMENT_WAIT_TTL_S);
+    await this.getRedis().set(
+      this.attachmentWaitKey(operationId),
+      userId,
+      'EX',
+      ATTACHMENT_WAIT_TTL_S
+    );
   }
 
   static async getAttachmentWaitOwner(operationId: string): Promise<string | null> {

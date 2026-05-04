@@ -302,51 +302,6 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
                     ariaLabel="Section navigation"
                     (selectionChange)="onSectionNavChange($event)"
                   />
-
-                  <!-- ═══ SPORT PROFILE SWITCHER ═══ -->
-                  @if (profile.hasMultipleSports() && !profile.isOwnProfile()) {
-                    <div class="sport-switcher" role="group" aria-label="Sport profiles">
-                      <span class="sport-switcher__title">Sport Profiles</span>
-                      <div class="sport-switcher__list">
-                        @for (sport of profile.allSports(); track sport.name; let i = $index) {
-                          <button
-                            type="button"
-                            class="sport-switcher__item"
-                            [class.sport-switcher__item--active]="profile.activeSportIndex() === i"
-                            [attr.aria-selected]="profile.activeSportIndex() === i"
-                            [attr.aria-label]="
-                              'Switch to ' + formatSportDisplayName(sport.name) + ' profile'
-                            "
-                            role="tab"
-                            (click)="onSportSwitch(i)"
-                          >
-                            @if (profile.user()?.profileImg) {
-                              <nxt1-image
-                                class="sport-switcher__avatar"
-                                [src]="profile.user()?.profileImg"
-                                [alt]="sport.name"
-                                [width]="28"
-                                [height]="28"
-                                variant="avatar"
-                                fit="cover"
-                                [showPlaceholder]="false"
-                              />
-                            } @else {
-                              <span class="sport-switcher__avatar-fallback" aria-hidden="true">
-                                {{ sport.name.charAt(0) }}
-                              </span>
-                            }
-                            <span class="sport-switcher__sport-name">{{
-                              formatSportDisplayName(sport.name)
-                            }}</span>
-                            @if (profile.activeSportIndex() === i) {
-                              <span class="sport-switcher__active-badge" aria-hidden="true"></span>
-                            }
-                          </button>
-                        }
-                      </div>
-                    </div>
-                  }
                 </div>
 
                 <!-- MAIN CONTENT AREA -->
@@ -462,47 +417,86 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
                   </div>
                 }
 
-                @if (teamAffiliations().length > 0) {
-                  <div class="madden-team-stack">
-                    @for (
-                      team of teamAffiliations();
-                      track team.name + '-' + (team.type || 'other')
-                    ) {
-                      <div
-                        class="madden-team-block madden-team-block--clickable"
-                        role="button"
-                        tabindex="0"
-                        (click)="onTeamClick(team)"
-                        (keydown.enter)="onTeamClick(team)"
-                        (keydown.space)="onTeamClick(team); $event.preventDefault()"
-                      >
-                        @if (team.logoUrl) {
-                          <nxt1-image
-                            class="madden-team-logo"
-                            [src]="team.logoUrl"
-                            [alt]="team.name"
-                            [width]="32"
-                            [height]="32"
-                            variant="avatar"
-                            fit="contain"
-                            [priority]="true"
-                            [showPlaceholder]="false"
-                          />
-                        } @else {
-                          <div class="madden-team-logo-placeholder">
-                            <nxt1-icon [name]="teamIconName(team.type)" [size]="22" />
-                          </div>
-                        }
-                        <div class="madden-team-info">
-                          <div class="madden-team-headline">
-                            <span class="madden-team-name">{{ team.name }}</span>
-                          </div>
-                          @if (team.location) {
-                            <span class="madden-team-location">{{ team.location }}</span>
+                @if (profile.hasMultipleSports() && !profile.isOwnProfile()) {
+                  <div class="sport-switcher" role="group" aria-label="Sport profiles">
+                    <span class="sport-switcher__title">Sport Profiles</span>
+                    <div class="sport-switcher__list">
+                      @for (sport of profile.allSports(); track sport.name; let i = $index) {
+                        <button
+                          type="button"
+                          class="sport-switcher__item"
+                          [class.sport-switcher__item--active]="profile.activeSportIndex() === i"
+                          [attr.aria-selected]="profile.activeSportIndex() === i"
+                          [attr.aria-label]="
+                            'Switch to ' + formatSportDisplayName(sport.name) + ' profile'
+                          "
+                          role="tab"
+                          (click)="onSportSwitch(i)"
+                        >
+                          @if (profile.user()?.profileImg) {
+                            <nxt1-image
+                              class="sport-switcher__avatar"
+                              [src]="profile.user()?.profileImg"
+                              [alt]="sport.name"
+                              [width]="28"
+                              [height]="28"
+                              variant="avatar"
+                              fit="cover"
+                              [showPlaceholder]="false"
+                            />
+                          } @else {
+                            <span class="sport-switcher__avatar-fallback" aria-hidden="true">
+                              {{ sport.name.charAt(0) }}
+                            </span>
                           }
+                          <span class="sport-switcher__sport-name">{{
+                            formatSportDisplayName(sport.name)
+                          }}</span>
+                          @if (profile.activeSportIndex() === i) {
+                            <span class="sport-switcher__active-badge" aria-hidden="true"></span>
+                          }
+                        </button>
+                      }
+                    </div>
+                  </div>
+                }
+
+                @if (primaryRailTeam(); as team) {
+                  <div class="madden-team-stack">
+                    <div
+                      class="madden-team-block madden-team-block--clickable"
+                      role="button"
+                      tabindex="0"
+                      (click)="onTeamClick(team)"
+                      (keydown.enter)="onTeamClick(team)"
+                      (keydown.space)="onTeamClick(team); $event.preventDefault()"
+                    >
+                      @if (team.logoUrl) {
+                        <nxt1-image
+                          class="madden-team-logo"
+                          [src]="team.logoUrl"
+                          [alt]="team.name"
+                          [width]="32"
+                          [height]="32"
+                          variant="avatar"
+                          fit="contain"
+                          [priority]="true"
+                          [showPlaceholder]="false"
+                        />
+                      } @else {
+                        <div class="madden-team-logo-placeholder">
+                          <nxt1-icon [name]="teamIconName(team.type)" [size]="22" />
                         </div>
+                      }
+                      <div class="madden-team-info">
+                        <div class="madden-team-headline">
+                          <span class="madden-team-name">{{ team.name }}</span>
+                        </div>
+                        @if (team.location) {
+                          <span class="madden-team-location">{{ team.location }}</span>
+                        }
                       </div>
-                    }
+                    </div>
                   </div>
                 }
               </div>
@@ -1046,7 +1040,7 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
         align-self: stretch;
         overflow-y: auto;
         scrollbar-width: none;
-        padding-bottom: 120px;
+        padding-bottom: var(--nxt1-spacing-4, 16px);
       }
       .madden-side-nav-column::-webkit-scrollbar {
         display: none;
@@ -1065,16 +1059,18 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
       .sport-switcher {
         display: flex;
         flex-direction: column;
-        gap: 6px;
-        padding-top: 0;
-        position: absolute;
-        bottom: 65px;
-        left: 0;
+        gap: 10px;
+        margin-top: 0;
         width: 100%;
+        padding: 12px;
+        border: 1px solid var(--m-border, rgba(255, 255, 255, 0.08));
+        border-radius: 16px;
+        background: color-mix(in srgb, var(--m-surface, rgba(17, 17, 17, 0.96)) 94%, black);
+        box-shadow: 0 10px 24px rgba(0, 0, 0, 0.22);
       }
 
       .sport-switcher__title {
-        padding: 0 var(--nxt1-spacing-2);
+        padding: 0 2px;
         color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.45));
         font-size: 10px;
         font-weight: 600;
@@ -1084,18 +1080,22 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
 
       .sport-switcher__list {
         display: flex;
-        flex-direction: row;
-        flex-wrap: wrap;
-        gap: 4px;
+        flex-direction: column;
+        gap: 8px;
       }
 
       .sport-switcher__item {
         display: flex;
         align-items: center;
         gap: 6px;
-        padding: 4px 10px 4px 4px;
-        background: transparent;
-        border: 1px solid transparent;
+        width: 100%;
+        padding: 8px 10px 8px 8px;
+        background: color-mix(
+          in srgb,
+          var(--m-surface-2, rgba(255, 255, 255, 0.04)) 88%,
+          transparent
+        );
+        border: 1px solid var(--m-border, rgba(255, 255, 255, 0.08));
         border-radius: var(--nxt1-radius-full, 999px);
         cursor: pointer;
         text-align: left;
@@ -1164,6 +1164,8 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
         font-weight: 500;
         line-height: 1;
         white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
 
       .sport-switcher__active-badge {
@@ -1172,7 +1174,7 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
         border-radius: 50%;
         background: var(--nxt1-color-primary);
         flex-shrink: 0;
-        margin-left: -2px;
+        margin-left: auto;
       }
 
       /* ─── MAIN CONTENT SCROLL AREA ─── */
@@ -2275,6 +2277,7 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
   protected readonly teamAffiliations = computed((): ReadonlyArray<ProfileTeamAffiliation> => {
     const user = this.profile.user();
     if (!user) return [];
+    const activeSportName = this.profile.activeSport()?.name?.trim().toLowerCase();
 
     const normalized: ProfileTeamAffiliation[] = [];
     const seen = new Set<string>();
@@ -2290,6 +2293,7 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
       seen.add(key);
       normalized.push({
         name,
+        sport: affiliation.sport,
         type,
         logoUrl: affiliation.logoUrl,
         teamCode: affiliation.teamCode,
@@ -2318,11 +2322,24 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
       });
     }
 
+    if (activeSportName) {
+      normalized.sort((left, right) => {
+        const leftMatches = left.sport?.trim().toLowerCase() === activeSportName;
+        const rightMatches = right.sport?.trim().toLowerCase() === activeSportName;
+        if (leftMatches === rightMatches) return 0;
+        return leftMatches ? -1 : 1;
+      });
+    }
+
     return normalized.slice(0, 2);
   });
 
   protected readonly primaryRailTeam = computed((): ProfileTeamAffiliation | null => {
-    const existing = this.teamAffiliations()[0];
+    const activeSportName = this.profile.activeSport()?.name?.trim().toLowerCase();
+    const existing =
+      this.teamAffiliations().find(
+        (team) => team.sport?.trim().toLowerCase() === activeSportName
+      ) ?? this.teamAffiliations()[0];
     if (existing) return existing;
 
     const user = this.profile.user();

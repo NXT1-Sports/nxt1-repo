@@ -92,6 +92,8 @@ export type {
   AgentXConfirmationVariant,
   AgentXConfirmationEmailData,
   AgentXConfirmationTimelinePostData,
+  AgentXPlanApprovalData,
+  AgentXPlanApprovalStep,
   AgentXGenericApprovalCategory,
   AgentXGenericApprovalData,
   SeasonStatsPreview,

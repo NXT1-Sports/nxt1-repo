@@ -289,7 +289,7 @@ export class PrimaryAgent extends BaseAgent {
 
   /**
    * Intercept Primary-only control-flow exceptions thrown by
-  * `delegate_to_coordinator`, `create_plan`, and `execute_saved_plan` tools. Dispatch through
+   * `delegate_to_coordinator`, `create_plan`, and `execute_saved_plan` tools. Dispatch through
    * the {@link PrimaryDispatcher} and return the coordinator/plan result as
    * the next ReAct observation so the loop continues seamlessly.
    */

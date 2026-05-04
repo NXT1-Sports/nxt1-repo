@@ -12,6 +12,7 @@ import { cronGuard } from '../../middleware/auth/auth.middleware.js';
 import { logger } from '../../utils/logger.js';
 import { llmService } from './shared.js';
 import { AgentLinkReconciliationService } from '../../modules/agent/services/agent-link-reconciliation.service.js';
+import { AgentEphemeralStateService } from '../../modules/agent/services/agent-ephemeral-state.service.js';
 
 const router = Router();
 
@@ -425,6 +426,29 @@ router.post('/cron/cleanup-tmp-media', cronGuard, async (req: Request, res: Resp
     const error = err instanceof Error ? err : new Error(String(err));
     logger.error('CRON cleanup-tmp-media failed', { error: error.message, stack: error.stack });
     res.status(500).json({ success: false, error: 'Tmp media cleanup failed' });
+  }
+});
+
+// ─── POST /cron/cleanup-media-proxy-tmp ──────────────────────────────────
+// Sweeps the per-instance media-proxy /tmp directory for orphaned upload
+// files that outlived their per-record cleanup timer (e.g. process restarts).
+// Per-upload timers handle the common case; this cron is a belt-and-suspenders
+// guarantee so disk usage cannot grow unbounded.
+//
+// Cloud Scheduler: every day at 4:45 AM ET  (cron: 45 4 * * *)
+
+router.post('/cron/cleanup-media-proxy-tmp', cronGuard, async (_req: Request, res: Response) => {
+  try {
+    const result = await AgentEphemeralStateService.sweepOrphanedTempFiles();
+    logger.info('CRON cleanup-media-proxy-tmp completed', result);
+    res.json({ success: true, data: result });
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('CRON cleanup-media-proxy-tmp failed', {
+      error: error.message,
+      stack: error.stack,
+    });
+    res.status(500).json({ success: false, error: 'Media-proxy tmp sweep failed' });
   }
 });
 

@@ -652,15 +652,64 @@ export class AgentXOperationChatMessageFacade {
 
   upsertInlineYieldMessage(yieldState: AgentYieldState, operationId: string): void {
     const messageId = this.inlineYieldMessageId(yieldState, operationId);
+    const incomingKey = this.yieldIdentityKey(yieldState);
+    const promptText = this.normalizeYieldPrompt(yieldState.promptToUser);
 
     this.messages.update((messages) => {
       const typingIndex = messages.findIndex((message) => message.id === 'typing');
-      const existingIndex = messages.findIndex((message) => message.id === messageId);
+
+      // Resolve the existing row in priority order:
+      //   1. Exact ID match (current canonical id).
+      //   2. Any existing yield bubble carrying the same yield identity
+      //      (approvalId / toolCallId / reason). This collapses legacy ids
+      //      that historically embedded the operationId.
+      //   3. An assistant row whose cards/parts already include a
+      //      confirmation card carrying this yield identity. This covers
+      //      the live SSE path where `onCard` attaches the confirmation
+      //      card to the streaming message *before* `onOperation` fires
+      //      with the yield state — without this we'd render two cards
+      //      (one from the persisted card payload, one from the synthetic
+      //      yield bubble).
+      //   4. A persisted assistant row in the same operation whose content
+      //      matches the yield's promptToUser. The backend persists the
+      //      prompt as an assistant message *and* on the thread metadata —
+      //      adopting it here prevents a duplicate "I drafted a plan" bubble
+      //      on rehydrate.
+      let existingIndex = messages.findIndex((message) => message.id === messageId);
+
+      if (existingIndex < 0 && incomingKey) {
+        existingIndex = messages.findIndex(
+          (message) =>
+            !!message.yieldState && this.yieldIdentityKey(message.yieldState) === incomingKey
+        );
+      }
+
+      if (existingIndex < 0) {
+        existingIndex = messages.findIndex(
+          (message) =>
+            message.role === 'assistant' && this.assistantRowHasYieldIdentity(message, incomingKey)
+        );
+      }
+
+      if (existingIndex < 0 && promptText) {
+        existingIndex = messages.findIndex(
+          (message) =>
+            message.role === 'assistant' &&
+            !message.yieldState &&
+            !message.isTyping &&
+            (message.operationId ?? '') === (operationId ?? '') &&
+            this.normalizeYieldPrompt(message.content) === promptText
+        );
+      }
+
       if (existingIndex >= 0) {
-        const updated = {
-          ...messages[existingIndex],
+        const existing = messages[existingIndex];
+        const updated: OperationMessage = {
+          ...existing,
+          id: messageId,
           yieldState,
-          operationId,
+          operationId: operationId || existing.operationId,
+          yieldCardState: existing.yieldCardState ?? 'idle',
         };
 
         // Keep existing persisted row inline with the active stream: when a typing
@@ -700,6 +749,162 @@ export class AgentXOperationChatMessageFacade {
         ...messages.slice(typingIndex + 1),
       ];
     });
+  }
+
+  /**
+   * Attach a card emitted by the live SSE stream to the in-flight assistant
+   * message. When the card is a `confirmation` carrying a `yieldState`, the
+   * card represents an approval prompt that is *also* delivered via the
+   * `operation` SSE event — routing it through `upsertInlineYieldMessage`
+   * collapses both sources onto a single canonical yield bubble (avoids
+   * rendering two stacked approval cards).
+   *
+   * @param streamingId - The id of the streaming assistant message.
+   * @param card - The card payload from the SSE `card` event.
+   * @param fallbackOperationId - Operation id used when the host has no
+   *                              currently-tracked operation id.
+   * @param clearText - Whether the streaming message text should be cleared
+   *                    (mirrors the SSE event flag).
+   */
+  attachStreamedCard(
+    streamingId: string,
+    card: AgentXRichCard,
+    fallbackOperationId: string,
+    clearText: boolean
+  ): void {
+    const yieldPayload = this.extractYieldStateFromCard(card);
+
+    if (yieldPayload) {
+      const incomingKey = this.yieldIdentityKey(yieldPayload);
+      const operationId = this.resolveCardOperationId(fallbackOperationId);
+
+      // Route the yield through the canonical upsert: this either creates
+      // the synthetic yield bubble or adopts an existing row (e.g. a paused
+      // assistant turn loaded from history).
+      this.upsertInlineYieldMessage(yieldPayload, operationId);
+
+      const canonicalId = this.inlineYieldMessageId(yieldPayload, operationId);
+
+      // Stamp the card onto the canonical yield row (so persisted-card
+      // render paths still work) and ensure the streaming row does not
+      // also carry a duplicate confirmation card with the same identity.
+      this.messages.update((messages) =>
+        messages.map((message) => {
+          if (message.id === canonicalId) {
+            const existingCards = message.cards ?? [];
+            const existingParts = message.parts ?? [];
+            const cardAlreadyPresent = existingCards.some(
+              (existing) =>
+                this.yieldIdentityKey(this.extractYieldStateFromCard(existing)) === incomingKey
+            );
+            if (cardAlreadyPresent) return message;
+
+            return {
+              ...message,
+              cards: [...existingCards, card],
+              parts: [...existingParts, { type: 'card', card }],
+            };
+          }
+
+          if (message.id === streamingId) {
+            const filterCard = (existing: AgentXRichCard): boolean =>
+              this.yieldIdentityKey(this.extractYieldStateFromCard(existing)) !== incomingKey;
+            const nextCards = message.cards?.filter(filterCard);
+            const nextParts = message.parts?.filter(
+              (part) => part.type !== 'card' || filterCard(part.card)
+            );
+
+            const cardsChanged = (message.cards?.length ?? 0) !== (nextCards?.length ?? 0);
+            const partsChanged = (message.parts?.length ?? 0) !== (nextParts?.length ?? 0);
+            if (!cardsChanged && !partsChanged) {
+              return clearText ? { ...message, content: '' } : message;
+            }
+
+            return {
+              ...message,
+              ...(clearText ? { content: '' } : {}),
+              ...(message.cards ? { cards: nextCards } : {}),
+              ...(message.parts ? { parts: nextParts } : {}),
+            };
+          }
+
+          return message;
+        })
+      );
+
+      return;
+    }
+
+    // Non-yield cards (charts, media, billing, etc.) attach directly to the
+    // streaming message — preserving prior behaviour.
+    this.messages.update((messages) =>
+      messages.map((message) => {
+        if (message.id !== streamingId) return message;
+        const baseParts = clearText ? [] : (message.parts ?? []);
+        return {
+          ...message,
+          ...(clearText ? { content: '' } : {}),
+          cards: [...(message.cards ?? []), card],
+          parts: [...baseParts, { type: 'card', card }],
+        };
+      })
+    );
+  }
+
+  private extractYieldStateFromCard(
+    card: AgentXRichCard | undefined | null
+  ): AgentYieldState | null {
+    if (!card || card.type !== 'confirmation') return null;
+    const payload = card.payload as { yieldState?: AgentYieldState } | undefined;
+    const yieldState = payload?.yieldState;
+    if (!yieldState || typeof yieldState !== 'object') return null;
+    if (typeof yieldState.reason !== 'string') return null;
+    if (!yieldState.pendingToolCall || typeof yieldState.pendingToolCall.toolName !== 'string') {
+      return null;
+    }
+    return yieldState;
+  }
+
+  private resolveCardOperationId(fallback: string): string {
+    const trimmedFallback = (fallback ?? '').trim();
+    if (trimmedFallback) return trimmedFallback;
+    const host = this.host;
+    return host?.contextId() ?? '';
+  }
+
+  private yieldIdentityKey(yieldState: AgentYieldState | undefined | null): string {
+    if (!yieldState) return '';
+    const approvalId = yieldState.approvalId?.trim();
+    if (approvalId) return `approval:${approvalId}`;
+    const toolCallId = yieldState.pendingToolCall?.toolCallId?.trim();
+    if (toolCallId) return `tool:${toolCallId}`;
+    return `reason:${yieldState.reason}`;
+  }
+
+  private normalizeYieldPrompt(value: string | undefined | null): string {
+    return (value ?? '').replace(/\s+/g, ' ').trim();
+  }
+
+  /**
+   * True when the assistant row carries a confirmation card whose payload
+   * yield identity (approvalId / toolCallId / reason) matches `incomingKey`.
+   * Walks both `cards` and `parts` because the live SSE path appends to
+   * both arrays while the rehydrate path may only populate one.
+   */
+  private assistantRowHasYieldIdentity(message: OperationMessage, incomingKey: string): boolean {
+    if (!incomingKey) return false;
+
+    const matchesCard = (card: AgentXRichCard | undefined): boolean => {
+      if (!card || card.type !== 'confirmation') return false;
+      const payload = card.payload as { yieldState?: AgentYieldState } | undefined;
+      return this.yieldIdentityKey(payload?.yieldState) === incomingKey;
+    };
+
+    if (message.cards?.some(matchesCard)) return true;
+    if (message.parts?.some((part) => part.type === 'card' && matchesCard(part.card))) {
+      return true;
+    }
+    return false;
   }
 
   updateInlineYieldMessageState(
@@ -802,9 +1007,18 @@ export class AgentXOperationChatMessageFacade {
 
   private inlineYieldMessageId(yieldState: AgentYieldState, operationId: string): string {
     const host = this.requireHost();
-    const discriminator =
-      yieldState.approvalId ?? yieldState.pendingToolCall?.toolCallId ?? yieldState.reason;
-    return `yield:${operationId ?? host.contextId()}:${discriminator}`;
+    // Prefer approvalId — globally unique and stable across all rehydrate
+    // paths (thread metadata, Firestore fallback, live SSE). This guarantees
+    // upsert idempotency: every source resolves to the same row instead of
+    // appending a new card whenever the operationId resolution order varies.
+    const approvalId = yieldState.approvalId?.trim();
+    if (approvalId) return `yield:${approvalId}`;
+
+    const toolCallId = yieldState.pendingToolCall?.toolCallId?.trim();
+    if (toolCallId) return `yield:tool:${toolCallId}`;
+
+    const fallbackOperation = (operationId ?? '').trim() || host.contextId();
+    return `yield:${fallbackOperation}:${yieldState.reason}`;
   }
 
   private isMatchingBillingCard(card: AgentXRichCard, reason: AgentXBillingActionReason): boolean {

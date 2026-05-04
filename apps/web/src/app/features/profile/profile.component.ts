@@ -810,7 +810,8 @@ export class ProfileComponent implements OnInit, OnDestroy {
               nextCursor: resp.nextCursor,
             });
         },
-        error: (err) => this.logger.warn('Failed to refresh timeline after Agent X mutation', { err }),
+        error: (err) =>
+          this.logger.warn('Failed to refresh timeline after Agent X mutation', { err }),
       });
   }
 

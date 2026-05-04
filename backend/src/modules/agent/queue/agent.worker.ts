@@ -496,6 +496,83 @@ export function buildInlineYieldCard(params: {
       }
     }
 
+    // Plan approval (`execute_saved_plan`) → rich `plan_approval` card showing
+    // goal + ordered step list. The plan content is passed through the
+    // pendingToolCall.toolInput under the `__planApproval` namespace by
+    // `agent-router-primary.service.ts.runPlan` precisely so this card
+    // builder can surface the actual plan to the user instead of a bare
+    // `planId` data row.
+    if (toolName === 'execute_saved_plan') {
+      const planMeta =
+        toolInput['__planApproval'] && typeof toolInput['__planApproval'] === 'object'
+          ? (toolInput['__planApproval'] as Record<string, unknown>)
+          : null;
+      const planId =
+        (planMeta && typeof planMeta['planId'] === 'string' && planMeta['planId']) ||
+        (typeof toolInput['planId'] === 'string' ? toolInput['planId'] : '');
+      const goal =
+        planMeta && typeof planMeta['goal'] === 'string' && planMeta['goal'].trim()
+          ? planMeta['goal'].trim()
+          : '';
+      const summary =
+        planMeta && typeof planMeta['summary'] === 'string' && planMeta['summary'].trim()
+          ? planMeta['summary'].trim()
+          : '';
+      const rawSteps =
+        planMeta && Array.isArray(planMeta['steps']) ? (planMeta['steps'] as Array<unknown>) : [];
+      const steps = rawSteps
+        .map((entry) => {
+          if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return null;
+          const step = entry as Record<string, unknown>;
+          const id = typeof step['id'] === 'string' ? step['id'] : '';
+          const label =
+            (typeof step['label'] === 'string' && step['label'].trim()) ||
+            (typeof step['description'] === 'string' && step['description'].trim()) ||
+            '';
+          if (!id || !label) return null;
+          return {
+            id,
+            label,
+            ...(typeof step['description'] === 'string' && step['description'].trim()
+              ? { description: step['description'].trim() }
+              : {}),
+            ...(typeof step['coordinator'] === 'string' && step['coordinator'].trim()
+              ? { coordinator: step['coordinator'].trim() }
+              : {}),
+            ...(typeof step['toolName'] === 'string' && step['toolName'].trim()
+              ? { toolName: step['toolName'].trim() }
+              : {}),
+          };
+        })
+        .filter((s): s is NonNullable<typeof s> => s !== null);
+
+      // Only render the rich plan card when we actually have steps to show;
+      // fall through to the generic approval renderer otherwise so the user
+      // never sees a blank card.
+      if (steps.length > 0 && planId) {
+        return {
+          type: 'confirmation',
+          agentId,
+          title: 'Review Execution Plan',
+          payload: {
+            message: promptToUser,
+            variant: 'plan_approval',
+            planApprovalData: {
+              goal: goal || summary || 'Multi-step plan',
+              planId,
+              steps,
+            },
+            actions: [
+              { id: 'reject', label: 'Reject', variant: 'secondary' },
+              { id: 'approve', label: 'Approve & Execute', variant: 'primary' },
+            ],
+            approvalId,
+            operationId,
+          },
+        };
+      }
+    }
+
     // Generic approval-required tool → rich `generic_approval` confirmation card.
     const approvialCopy = resolveAgentApprovalCopy({ toolName, toolInput });
     const { category, riskLevel } = classifyApprovalTool(toolName);
@@ -531,6 +608,14 @@ export function buildInlineYieldCard(params: {
 
   // ── Ask-user / paused cards ────────────────────────────────────────────
   if (reason === 'needs_input') {
+    // Saved-plan review is handled conversationally: keep the planner card
+    // already emitted by the router, persist the assistant prompt text, and
+    // let the user reply in normal chat. Do not replace that text with an
+    // ask_user input card.
+    if (pendingToolCall?.toolName === 'execute_saved_plan') {
+      return null;
+    }
+
     return {
       type: 'ask_user',
       agentId,

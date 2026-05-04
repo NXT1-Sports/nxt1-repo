@@ -1697,8 +1697,13 @@ export class AgentXOperationsLogComponent {
       return;
     }
 
+    const anchor = this.resolveMenuAnchorElement(entry.id, event);
+    if (!anchor) {
+      return;
+    }
+
     this._menuOpenEntryId.set(entry.id);
-    this.updateMenuPosition(entry, event.currentTarget);
+    this.updateMenuPosition(entry, anchor);
     this._renamingEntryId.set(null);
     this._deleteConfirmEntryId.set(null);
     this._renameDraft.set(entry.title ?? '');
@@ -2017,16 +2022,37 @@ export class AgentXOperationsLogComponent {
       return;
     }
 
-    const hostElement = this.elementRef.nativeElement as HTMLElement;
-    const target = hostElement.querySelector(
-      `[data-menu-anchor-id="${this.escapeAttributeValue(anchor.entryId)}"]`
-    ) as HTMLElement | null;
+    const target = this.queryMenuAnchorElement(anchor.entryId);
     if (!target) {
       this.resetMenuState();
       return;
     }
 
     this.updateMenuPosition({ id: anchor.entryId } as OperationLogEntry, target);
+  }
+
+  private resolveMenuAnchorElement(entryId: string, event: Event): HTMLElement | null {
+    if (event.currentTarget instanceof HTMLElement) {
+      return event.currentTarget;
+    }
+
+    if (event.target instanceof Element) {
+      const closestAnchor = event.target.closest(
+        `[data-menu-anchor-id="${this.escapeAttributeValue(entryId)}"]`
+      );
+      if (closestAnchor instanceof HTMLElement) {
+        return closestAnchor;
+      }
+    }
+
+    return this.queryMenuAnchorElement(entryId);
+  }
+
+  private queryMenuAnchorElement(entryId: string): HTMLElement | null {
+    const hostElement = this.elementRef.nativeElement as HTMLElement;
+    return hostElement.querySelector(
+      `[data-menu-anchor-id="${this.escapeAttributeValue(entryId)}"]`
+    ) as HTMLElement | null;
   }
 
   private updateMenuPosition(entry: OperationLogEntry, target: EventTarget | null): void {

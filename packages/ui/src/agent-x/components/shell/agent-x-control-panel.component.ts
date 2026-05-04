@@ -343,27 +343,6 @@ interface AgentXControlPanelCloseResult {
                       <span class="goals-pill-text">{{ goal.label }}</span>
                       <button
                         type="button"
-                        class="goals-pill-complete"
-                        [attr.data-testid]="testIds.COMPLETE_BTN"
-                        aria-label="Mark goal as complete"
-                        title="Mark as done"
-                        (click)="completeGoalFromPanel(goal.id)"
-                      >
-                        <svg
-                          viewBox="0 0 24 24"
-                          width="12"
-                          height="12"
-                          fill="none"
-                          stroke="currentColor"
-                          stroke-width="2.5"
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                        >
-                          <polyline points="20 6 9 17 4 12" />
-                        </svg>
-                      </button>
-                      <button
-                        type="button"
                         class="goals-pill-remove"
                         aria-label="Remove goal"
                         (click)="toggleGoal(goal.id)"
@@ -1076,25 +1055,6 @@ interface AgentXControlPanelCloseResult {
         color: var(--nxt1-color-primary);
       }
 
-      .goals-pill-complete {
-        background: none;
-        border: none;
-        color: var(--nxt1-color-success, #22c55e);
-        cursor: pointer;
-        padding: 2px;
-        display: flex;
-        border-radius: 999px;
-        transition:
-          color 0.15s,
-          transform 0.15s;
-        flex-shrink: 0;
-      }
-
-      .goals-pill-complete:hover {
-        transform: scale(1.15);
-        color: var(--nxt1-color-success, #22c55e);
-      }
-
       .goal-option {
         cursor: pointer;
         transition:
@@ -1406,12 +1366,6 @@ export class AgentXControlPanelComponent implements OnInit {
     if (target instanceof HTMLInputElement) {
       this.customGoalText.set(target.value);
     }
-  }
-
-  async completeGoalFromPanel(goalId: string): Promise<void> {
-    await this.agentX.completeGoal(goalId);
-    // Also remove from draft so the panel reflects the completion immediately
-    this.draftGoals.update((gs) => gs.filter((id) => id !== goalId));
   }
 
   addCustomGoal(): void {

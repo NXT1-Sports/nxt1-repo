@@ -38,6 +38,7 @@ import type {
   AgentXConfirmationVariant,
   AgentXGenericApprovalData,
   AgentXConfirmationTimelinePostData,
+  AgentXPlanApprovalData,
   ApprovalRichPreview,
 } from '@nxt1/core';
 import { AGENT_X_ACTION_CARD_TEST_IDS } from '@nxt1/core/testing';
@@ -208,6 +209,40 @@ export interface BatchEmailRecipientEdit {
                 (blur)="onBodyHtmlBlur($event)"
               ></div>
             </div>
+          </div>
+        } @else if (isApproval() && isPlanApproval() && planApprovalData()) {
+          <!-- ═══ PLAN APPROVAL — GOAL + ORDERED STEPS ═══ -->
+          <div class="action-card__plan" [attr.data-testid]="testIds.DETAILS_TOGGLE">
+            <p class="action-card__plan-goal" [attr.data-testid]="testIds.PLAN_GOAL">
+              <span class="action-card__plan-goal-label">Goal</span>
+              <span class="action-card__plan-goal-text">{{ planApprovalData()!.goal }}</span>
+            </p>
+            <ol class="action-card__plan-steps" [attr.data-testid]="testIds.PLAN_STEP_LIST">
+              @for (step of planApprovalData()!.steps; track step.id; let idx = $index) {
+                <li class="action-card__plan-step" [attr.data-testid]="testIds.PLAN_STEP_ITEM">
+                  <span class="action-card__plan-step-index" aria-hidden="true">{{ idx + 1 }}</span>
+                  <div class="action-card__plan-step-body">
+                    <span class="action-card__plan-step-label">{{ step.label }}</span>
+                    @if (step.description && step.description !== step.label) {
+                      <span class="action-card__plan-step-desc">{{ step.description }}</span>
+                    }
+                    @if (step.coordinator) {
+                      <span class="action-card__plan-step-meta">
+                        <svg
+                          class="action-card__plan-step-meta-icon"
+                          viewBox="0 0 16 16"
+                          aria-hidden="true"
+                        >
+                          <circle cx="8" cy="6" r="3" />
+                          <path d="M2 14c0-3 2.5-5 6-5s6 2 6 5" />
+                        </svg>
+                        {{ formatCoordinator(step.coordinator) }}
+                      </span>
+                    }
+                  </div>
+                </li>
+              }
+            </ol>
           </div>
         } @else if (isApproval() && isTimelinePostApproval() && timelinePostData()) {
           <!-- ═══ TIMELINE POST EDITOR ═══ -->
@@ -726,6 +761,120 @@ export interface BatchEmailRecipientEdit {
         margin: 0;
         padding-top: 4px;
         border-top: 1px solid rgba(239, 83, 80, 0.15);
+      }
+
+      /* ── Plan approval preview ── */
+      .action-card__plan {
+        margin-top: 10px;
+        border-radius: 10px;
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(255, 255, 255, 0.07);
+        padding: 12px 14px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      .action-card__plan-goal {
+        margin: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+
+      .action-card__plan-goal-label {
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.45));
+      }
+
+      .action-card__plan-goal-text {
+        font-size: 14px;
+        line-height: 1.45;
+        font-weight: 600;
+        color: var(--nxt1-color-text-primary, rgba(255, 255, 255, 0.95));
+        word-break: break-word;
+      }
+
+      .action-card__plan-steps {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        counter-reset: plan-step;
+      }
+
+      .action-card__plan-step {
+        position: relative;
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        padding: 10px 12px;
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid rgba(255, 255, 255, 0.05);
+      }
+
+      .action-card__plan-step-index {
+        flex-shrink: 0;
+        width: 22px;
+        height: 22px;
+        border-radius: 50%;
+        background: rgba(204, 255, 0, 0.18);
+        color: #ccff00;
+        font-size: 11px;
+        font-weight: 700;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        line-height: 1;
+      }
+
+      .action-card__plan-step-body {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        min-width: 0;
+        flex: 1;
+      }
+
+      .action-card__plan-step-label {
+        font-size: 13px;
+        font-weight: 600;
+        line-height: 1.4;
+        color: var(--nxt1-color-text-primary, rgba(255, 255, 255, 0.92));
+        word-break: break-word;
+      }
+
+      .action-card__plan-step-desc {
+        font-size: 12px;
+        line-height: 1.45;
+        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
+        word-break: break-word;
+      }
+
+      .action-card__plan-step-meta {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 11px;
+        font-weight: 500;
+        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.55));
+        margin-top: 2px;
+      }
+
+      .action-card__plan-step-meta-icon {
+        width: 11px;
+        height: 11px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.5;
+        stroke-linecap: round;
+        stroke-linejoin: round;
       }
 
       .action-card__warn-icon {
@@ -1498,6 +1647,30 @@ export class AgentXActionCardComponent implements OnDestroy {
 
   /** Whether this approval is an editable timeline/team post. */
   readonly isTimelinePostApproval = computed(() => this.cardVariant() === 'timeline_post');
+
+  /** Whether this is a multi-step plan approval card. */
+  readonly isPlanApproval = computed(() => this.cardVariant() === 'plan_approval');
+
+  /** Structured plan data — goal + ordered steps — for `plan_approval` cards. */
+  readonly planApprovalData = computed<AgentXPlanApprovalData | null>(() => {
+    if (this.cardVariant() !== 'plan_approval') return null;
+    return this.confirmationPayload()?.planApprovalData ?? null;
+  });
+
+  /**
+   * Convert a coordinator/agent identifier (e.g. `communication_coordinator`)
+   * into a short, human-friendly label for the plan step meta line.
+   */
+  formatCoordinator(coordinator: string): string {
+    const trimmed = coordinator.trim();
+    if (!trimmed) return '';
+    const stripped = trimmed.replace(/_coordinator$/i, '').replace(/_agent$/i, '');
+    return stripped
+      .split(/[_\s-]+/)
+      .filter((word) => word.length > 0)
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+      .join(' ');
+  }
 
   /** Editable recipient field for single send_email (plain string). */
   readonly editEmailTo = signal('');

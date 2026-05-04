@@ -83,7 +83,6 @@ import {
   type ActionCardOpenMediaEvent,
 } from '../cards/agent-x-action-card.component';
 import { AgentXAskUserCardComponent } from '../cards/agent-x-ask-user-card.component';
-import { AgentXPausedCardComponent } from '../cards/agent-x-paused-card.component';
 import type { BillingActionResolvedEvent } from '../cards/agent-x-billing-action-card.component';
 import type { DraftSubmittedEvent } from '../cards/agent-x-draft-card.component';
 import type { AgentYieldState } from '@nxt1/core';
@@ -149,7 +148,6 @@ type ChatActivityPhase =
     AgentXMessageUndoComponent,
     AgentXActionCardComponent,
     AgentXAskUserCardComponent,
-    AgentXPausedCardComponent,
   ],
   template: `
     <div
@@ -206,15 +204,6 @@ type ChatActivityPhase =
                   (approve)="yieldFacade.onApproveAction($event)"
                   (reply)="yieldFacade.onReplyAction($event)"
                   (openMedia)="onApprovalCardOpenMedia($event)"
-                />
-              } @else if (isPauseYieldMessage(msg)) {
-                <nxt1-agent-x-paused-card
-                  [operationId]="msg.operationId || yieldFacade.yieldOperationId()"
-                  [message]="
-                    msg.yieldState?.promptToUser ||
-                    'Operation paused. Resume whenever you are ready.'
-                  "
-                  (resumeRequested)="yieldFacade.onPauseResume($event)"
                 />
               } @else if (isAskUserYield(msg)) {
                 <nxt1-agent-x-ask-user-card
@@ -2134,6 +2123,14 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       resolvedThreadId: this._resolvedThreadId,
       activeYieldState: this.activeYieldState,
       yieldResolved: this.yieldResolved,
+      clearRealtimePipelines: () => {
+        this.messageFacade.clearPendingTypingDelta();
+        this._activeFirestoreSub?.unsubscribe();
+        this._activeFirestoreSub = null;
+        this._shadowFirestoreSub?.unsubscribe();
+        this._shadowFirestoreSub = null;
+        this._streamTurnWatermark = null;
+      },
       getActiveStream: () => this.activeStream,
       setActiveStream: (controller) => {
         this.activeStream = controller;
@@ -2190,11 +2187,20 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       contextId: () => this.contextId,
       contextTitle: () => this.contextTitle,
       contextType: () => this.contextType,
+      getOperationStatus: () => this.operationStatus,
       inputValue: this.inputValue,
       loading: this._loading,
       retryStarted: this.retryStarted,
       activeYieldState: this.activeYieldState,
       yieldResolved: this.yieldResolved,
+      clearRealtimePipelines: () => {
+        this.messageFacade.clearPendingTypingDelta();
+        this._activeFirestoreSub?.unsubscribe();
+        this._activeFirestoreSub = null;
+        this._shadowFirestoreSub?.unsubscribe();
+        this._shadowFirestoreSub = null;
+        this._streamTurnWatermark = null;
+      },
       setOperationStatus: (status) => {
         this.operationStatus = status;
       },
@@ -2370,12 +2376,15 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
         return;
       }
 
+      // While a tool is genuinely running, leave both phase and label
+      // alone. The phase default ("Running next step...") or the active
+      // tool's own label ("Analyzing video...") is far more accurate than
+      // the generic gap fallback, and tool calls can take 30-60s of silence.
       if (this._activityPhase() !== 'running_tool') {
         this._activityPhase.set('waiting_delta');
-      }
-
-      if (!this._activityLabel()) {
-        this._activityLabel.set('Working on next step...');
+        if (!this._activityLabel()) {
+          this._activityLabel.set('Working on next step...');
+        }
       }
 
       this.armActivityGapTimer();
@@ -2660,11 +2669,6 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     return null;
   }
 
-  protected isPauseYieldMessage(msg: OperationMessage): boolean {
-    if (!this.isPauseYield(msg)) return false;
-    return !this.shouldHideMessage(msg);
-  }
-
   /** Open approval-card media in the same shared viewer used by chat attachments. */
   protected onApprovalCardOpenMedia(event: ActionCardOpenMediaEvent): void {
     const attachments: readonly MessageAttachment[] = event.attachments;
@@ -2685,10 +2689,6 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   protected shouldHideMessage(msg: OperationMessage, index?: number): boolean {
     if (msg.id === 'typing' && !this.hasRenderableMessagePayload(msg) && !this.showThinking()) {
       return true;
-    }
-
-    if (this.isPauseYield(msg)) {
-      return msg.yieldCardState === 'submitting' || msg.yieldCardState === 'resolved';
     }
     return this.isDuplicatedAskUserPromptMessage(msg, index);
   }
@@ -2712,14 +2712,9 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   protected isAskUserYield(msg: OperationMessage): boolean {
     return (
       msg.yieldState?.reason === 'needs_input' &&
-      msg.yieldState?.pendingToolCall?.toolName !== PAUSE_RESUME_TOOL_NAME
+      msg.yieldState?.pendingToolCall?.toolName !== PAUSE_RESUME_TOOL_NAME &&
+      msg.yieldState?.pendingToolCall?.toolName !== 'execute_saved_plan'
     );
-  }
-
-  private isPauseYield(msg: OperationMessage): boolean {
-    const yieldState = msg.yieldState;
-    if (!yieldState || yieldState.reason !== 'needs_input') return false;
-    return yieldState.pendingToolCall?.toolName === PAUSE_RESUME_TOOL_NAME;
   }
 
   private isDuplicatedAskUserPromptMessage(msg: OperationMessage, index?: number): boolean {

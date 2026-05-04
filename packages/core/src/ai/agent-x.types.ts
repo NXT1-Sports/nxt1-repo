@@ -565,12 +565,15 @@ export interface AgentXConfirmationAction {
  * - `timeline_post`   — Timeline/team post approval with editable title + description.
  * - `generic_approval`— Rich approval card for non-email tools (profile/team writes,
  *                       workspace actions, deletes, etc.) with action summary + data preview.
+ * - `plan_approval`   — Multi-step execution plan review card with goal + ordered
+ *                       step list (used by `create_plan` / `execute_saved_plan`).
  */
 export type AgentXConfirmationVariant =
   | 'email'
   | 'email-batch'
   | 'timeline_post'
-  | 'generic_approval';
+  | 'generic_approval'
+  | 'plan_approval';
 
 /**
  * Email payload attached to `email` and `email-batch` confirmation cards.
@@ -691,6 +694,41 @@ export interface AgentXConfirmationTimelinePostData {
   readonly isTeamPost: boolean;
 }
 
+/**
+ * A single step inside a plan approval card.
+ * Mirrors the persisted `AgentTask` shape but only carries display-relevant fields
+ * so the frontend can render an ordered, human-readable list without leaking
+ * internal scheduling/DAG metadata.
+ */
+export interface AgentXPlanApprovalStep {
+  /** Stable task id (`task_1`, `task_2`, …) — used as `track` key on the frontend. */
+  readonly id: string;
+  /** Short human-readable label (e.g. "Draft outreach email to coach Smith"). */
+  readonly label: string;
+  /** Optional longer description shown under the label. */
+  readonly description?: string;
+  /** Coordinator/agent that will execute this step (e.g. "communication_coordinator"). */
+  readonly coordinator?: string;
+  /** Tool the coordinator is expected to invoke (display only). */
+  readonly toolName?: string;
+}
+
+/**
+ * Plan approval payload attached to `plan_approval` confirmation cards.
+ *
+ * Surfaces the actual plan (goal + ordered steps) so users can review and
+ * approve a multi-step execution plan, instead of seeing only an opaque
+ * `planId` in the generic-approval data table.
+ */
+export interface AgentXPlanApprovalData {
+  /** The user-stated goal that produced this plan. */
+  readonly goal: string;
+  /** Backend-issued plan id — preserved for the resume / execute step. */
+  readonly planId: string;
+  /** Ordered, display-ready list of plan steps. */
+  readonly steps: ReadonlyArray<AgentXPlanApprovalStep>;
+}
+
 /** Payload for the `confirmation` card type. */
 export interface AgentXConfirmationPayload {
   /** Descriptive message body. */
@@ -721,6 +759,12 @@ export interface AgentXConfirmationPayload {
    * Provides editable title/description for timeline/team post approvals.
    */
   readonly timelinePostData?: AgentXConfirmationTimelinePostData;
+  /**
+   * Plan approval data — present on `plan_approval` variant.
+   * Surfaces the goal and the ordered list of steps Agent X drafted so the
+   * user can review the actual plan instead of just an opaque plan id.
+   */
+  readonly planApprovalData?: AgentXPlanApprovalData;
 }
 
 // ── Ask User ──

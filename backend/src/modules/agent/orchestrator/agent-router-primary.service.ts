@@ -146,8 +146,8 @@ export class AgentRouterPrimaryService implements PrimaryDispatcher {
   }
 
   async runPlan(goal: string, ctx: PrimaryDispatchContext): Promise<PrimaryDispatchResult> {
-    let streamedDeltaCount = 0;
-    let streamedCharCount = 0;
+    const streamedDeltaCount = 0;
+    const streamedCharCount = 0;
 
     try {
       const toolAccessContext = await this.opts.resolveToolAccessContext(ctx.userId);
@@ -183,20 +183,6 @@ export class AgentRouterPrimaryService implements PrimaryDispatcher {
         };
       }
 
-      if (!ctx.approvalGate) {
-        return {
-          success: false,
-          observation: JSON.stringify({
-            success: false,
-            error: 'Plan approval is unavailable for this execution context.',
-          }),
-          dispatchKind: 'plan',
-          userAlreadyReceivedResponse: false,
-          streamedDeltaCount,
-          streamedCharCount,
-        };
-      }
-
       const planId = `plan_${ctx.operationId}`;
       const planHash = this.opts.planningService.hashExecutionPlan({
         operationId: ctx.operationId,
@@ -216,26 +202,37 @@ export class AgentRouterPrimaryService implements PrimaryDispatcher {
 
       this.emitPlanReviewCard(ctx, planSummary, planTasks);
 
-      const approval = await ctx.approvalGate.requestApproval({
-        operationId: ctx.operationId,
-        taskId: 'saved_plan_review',
-        userId: ctx.userId,
-        toolName: 'execute_saved_plan',
-        toolInput: { planId },
-        actionSummary: 'Review this plan and approve execution when you are ready.',
-        reasoning: planSummary,
-        threadId: ctx.sessionContext.threadId,
-      });
+      // Display-only metadata: passed alongside `planId` on the *yield* so the
+      // resumed agent can still see the exact saved plan to execute after the
+      // user replies in chat. This keeps planning out of the approval-policy
+      // flow while preserving deterministic plan execution on explicit user
+      // approval.
+      const planSteps = planTasks.map((task) => ({
+        id: task.id,
+        label: task.displayLabel ?? task.description,
+        ...(task.description && task.description !== (task.displayLabel ?? '')
+          ? { description: task.description }
+          : {}),
+        ...(task.assignedAgent ? { coordinator: task.assignedAgent } : {}),
+      }));
+      const planReviewPrompt = this.buildPlanReviewPrompt(planSummary, planSteps);
 
       throw new AgentYieldException({
-        reason: 'needs_approval',
-        promptToUser: 'I drafted a plan. Review the steps and approve execution when ready.',
+        reason: 'needs_input',
+        promptToUser: planReviewPrompt,
         agentId: 'router',
-        approvalId: approval.id,
         pendingToolCall: {
           toolCallId: `execute_saved_plan:${planId}`,
           toolName: 'execute_saved_plan',
-          toolInput: { planId },
+          toolInput: {
+            planId,
+            __planApproval: {
+              goal,
+              planId,
+              summary: planSummary,
+              steps: planSteps,
+            },
+          },
         },
         messages: [],
       });
@@ -423,6 +420,48 @@ export class AgentRouterPrimaryService implements PrimaryDispatcher {
         },
       },
     });
+  }
+
+  private buildPlanReviewPrompt(
+    summary: string,
+    steps: ReadonlyArray<{
+      readonly label: string;
+      readonly description?: string;
+      readonly coordinator?: string;
+    }>
+  ): string {
+    const lines: string[] = [];
+    lines.push(`I drafted this plan: ${summary}`);
+    lines.push('');
+
+    steps.forEach((step, index) => {
+      const coordinator =
+        typeof step.coordinator === 'string' && step.coordinator.trim().length > 0
+          ? ` (${this.humanizeCoordinator(step.coordinator)})`
+          : '';
+      lines.push(`${index + 1}. ${step.label}${coordinator}`);
+      if (
+        typeof step.description === 'string' &&
+        step.description.trim().length > 0 &&
+        step.description.trim() !== step.label.trim()
+      ) {
+        lines.push(`   ${step.description.trim()}`);
+      }
+    });
+
+    lines.push('');
+    lines.push('Reply "approve" to run it, or tell me what to change.');
+    return lines.join('\n');
+  }
+
+  private humanizeCoordinator(coordinator: string): string {
+    return coordinator
+      .replace(/_coordinator$/i, '')
+      .replace(/_agent$/i, '')
+      .split(/[_\s-]+/)
+      .filter((segment) => segment.length > 0)
+      .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1).toLowerCase())
+      .join(' ');
   }
 
   private toPersistedTasks(

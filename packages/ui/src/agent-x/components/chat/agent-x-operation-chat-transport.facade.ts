@@ -85,6 +85,7 @@ export interface AgentXOperationChatTransportFacadeHost {
   readonly resolvedThreadId: WritableSignal<string | null>;
   readonly activeYieldState: WritableSignal<AgentYieldState | null>;
   readonly yieldResolved: WritableSignal<boolean>;
+  clearRealtimePipelines(): void;
   getActiveStream(): AbortController | null;
   setActiveStream(controller: AbortController | null): void;
   getCurrentOperationId(): string | null;

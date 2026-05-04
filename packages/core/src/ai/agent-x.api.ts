@@ -25,6 +25,7 @@ import type {
   AgentXChatRequest,
   AgentXChatResponse,
   AgentXMessage,
+  AgentXQuickTask,
   AgentDashboardData,
   AgentDashboardGoal,
   AgentDashboardPlaybook,
@@ -73,6 +74,13 @@ interface ApiResponse<T> {
 interface HistoryResponse {
   readonly messages: AgentXMessage[];
   readonly hasMore: boolean;
+}
+
+/**
+ * Quick tasks response from API.
+ */
+interface TasksResponse {
+  readonly tasks: AgentXQuickTask[];
 }
 
 /**
@@ -217,6 +225,30 @@ export function createAgentXApi(http: HttpAdapter, baseUrl: string) {
         return response.data;
       } catch {
         return { messages: [], hasMore: false };
+      }
+    },
+
+    /**
+     * Get quick tasks filtered by user role.
+     *
+     * @param role - User role to filter tasks
+     * @returns List of quick tasks for the role
+     */
+    async getQuickTasks(role?: string): Promise<AgentXQuickTask[]> {
+      try {
+        const url = role
+          ? `${endpoint(AGENT_X_ENDPOINTS.TASKS)}?role=${encodeURIComponent(role)}`
+          : endpoint(AGENT_X_ENDPOINTS.TASKS);
+
+        const response = await http.get<ApiResponse<TasksResponse>>(url);
+
+        if (!response.success || !response.data) {
+          return [];
+        }
+
+        return response.data.tasks;
+      } catch {
+        return [];
       }
     },
 

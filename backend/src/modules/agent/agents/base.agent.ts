@@ -990,6 +990,16 @@ export abstract class BaseAgent {
     } else {
       messages = yieldState.messages.map((msg) => ({ ...msg })) as unknown as LLMMessage[];
     }
+    if (yieldState.reason === 'needs_input' && yieldState.pendingToolCall) {
+      const pendingToolMessage = this.buildPendingInputResumeMessage(yieldState.pendingToolCall);
+      const alreadyPresent = messages.some(
+        (msg) => msg.role === 'assistant' && msg.content === pendingToolMessage
+      );
+      if (!alreadyPresent) {
+        messages.push({ role: 'assistant', content: pendingToolMessage });
+      }
+    }
+
     const sessionContext: ToolSessionContext = {
       sessionId: context.sessionId,
       threadId: context.threadId,
@@ -1170,6 +1180,21 @@ export abstract class BaseAgent {
       approvalGate,
       requiresComputeFirst
     );
+  }
+
+  private buildPendingInputResumeMessage(pendingToolCall: {
+    readonly toolName: string;
+    readonly toolInput: Record<string, unknown>;
+    readonly toolCallId: string;
+  }): string {
+    const toolArgs = JSON.stringify(pendingToolCall.toolInput);
+    return [
+      'Resume context:',
+      `A pending tool is available: ${pendingToolCall.toolName}.`,
+      `If the latest user reply clearly approves proceeding, call ${pendingToolCall.toolName} with exactly this payload: ${toolArgs}.`,
+      'If the latest user reply requests changes, asks questions, or is ambiguous, do not call the tool yet.',
+      'Instead, revise the plan or ask one focused follow-up question.',
+    ].join(' ');
   }
 
   private async runLoop(

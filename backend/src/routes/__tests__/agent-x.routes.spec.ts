@@ -2022,6 +2022,60 @@ describe('Agent X Routes', () => {
     expect(response.body.code).toBe('AGENT_STREAM_LIMIT_REACHED');
   });
 
+  it('should prune stale chat stream leases before enforcing the concurrent stream limit', async () => {
+    const operationId = 'a2777f26-f4c2-47e6-8bf1-0c5646bcf3a0';
+    const jobRepository = createMockJobRepository({
+      operationId,
+      threadId: 'thread-stream-stale-prune',
+      userId: 'test-user',
+      status: 'completed',
+    });
+    jobRepository.getJobEvents.mockResolvedValue([
+      {
+        seq: 7,
+        type: 'done',
+        operationId,
+        threadId: 'thread-stream-stale-prune',
+        status: 'completed',
+        success: true,
+      },
+    ]);
+
+    setAgentDependencies({
+      queueService: {
+        enqueue: vi.fn().mockResolvedValue('job-123'),
+      } as never,
+      jobRepository: jobRepository as never,
+      chatService: {
+        addMessage: vi.fn(),
+      } as never,
+      contextBuilder: {
+        buildContext: vi.fn(),
+        compressToPrompt: vi.fn(),
+        getRecentThreadHistory: vi.fn(),
+      } as never,
+      llmService: {
+        completeStream: vi.fn(),
+        embed: vi.fn(),
+      } as never,
+      agentRouter: {
+        run: vi.fn().mockResolvedValue({ summary: '', data: {} }),
+      } as never,
+    });
+
+    chatRouteTestUtils.setStaleActiveUserStreams('test-user', 5);
+
+    const response = await request(app)
+      .post('/api/v1/agent-x/chat')
+      .set('Authorization', 'Bearer test-token')
+      .set('Accept', 'text/event-stream')
+      .send({ message: 'Recover from stale streams', resumeOperationId: operationId });
+
+    expect(response.status).toBe(200);
+    expect(response.text).toContain('event: done');
+    expect(chatRouteTestUtils.getActiveUserStreamCount('test-user')).toBe(0);
+  });
+
   it('should replace an existing stream for the same operation instead of rejecting at stream limit', async () => {
     const operationId = '8ef6679c-2f96-4f57-b122-6e8ca4f1ad8a';
     const beforeObs = await request(app)

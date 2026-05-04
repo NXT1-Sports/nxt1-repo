@@ -55,7 +55,7 @@ export class AgentPlanRepository {
       ...(input.threadId ? { threadId: input.threadId } : {}),
       originOperationId: input.originOperationId,
       version: input.version ?? 1,
-      status: input.status ?? 'awaiting_approval',
+      status: input.status ?? 'draft',
       summary: input.summary,
       planHash: input.planHash,
       tasks: input.tasks,

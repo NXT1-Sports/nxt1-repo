@@ -24,7 +24,6 @@ import type {
   ActionCardApprovalEvent,
   ActionCardReplyEvent,
 } from '../cards/agent-x-action-card.component';
-import type { PauseResumeEvent } from '../cards/agent-x-paused-card.component';
 import { AgentXOperationChatMessageFacade } from './agent-x-operation-chat-message.facade';
 import { AgentXOperationChatTransportFacade } from './agent-x-operation-chat-transport.facade';
 
@@ -342,42 +341,6 @@ export class AgentXOperationChatYieldFacade {
       }
     } catch (error) {
       this.logger.error('Action card reply failed', error, { operationId: event.operationId });
-      await this.haptics.notification('error');
-      this.messageFacade.updateInlineYieldMessageState(event.operationId, 'idle');
-    }
-  }
-
-  async onPauseResume(event: PauseResumeEvent): Promise<void> {
-    const host = this.requireHost();
-    this.logger.info('Pause card resume requested', { operationId: event.operationId });
-    this.breadcrumb.trackUserAction('pause-card-resume', {
-      operationId: event.operationId,
-    });
-    this.messageFacade.updateInlineYieldMessageState(event.operationId, 'submitting');
-
-    try {
-      const success = await this.resumeYieldedOperation(event.operationId, '');
-      if (success) {
-        await this.haptics.notification('success');
-        this.messageFacade.updateInlineYieldMessageState(
-          event.operationId,
-          'resolved',
-          'Resuming operation…'
-        );
-        this.analytics?.trackEvent(APP_EVENTS.AGENT_X_OPERATION_REPLIED, {
-          operationId: event.operationId,
-          source: 'operation-chat-pause-card',
-        });
-
-        setTimeout(() => {
-          host.yieldResolved.set(true);
-        }, 600);
-      } else {
-        await this.haptics.notification('error');
-        this.messageFacade.updateInlineYieldMessageState(event.operationId, 'idle');
-      }
-    } catch (error) {
-      this.logger.error('Pause card resume failed', error, { operationId: event.operationId });
       await this.haptics.notification('error');
       this.messageFacade.updateInlineYieldMessageState(event.operationId, 'idle');
     }

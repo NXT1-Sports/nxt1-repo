@@ -738,6 +738,9 @@ export const AGENT_X_ACTION_CARD_TEST_IDS = {
   BTN_REPLY: 'agent-action-card-btn-reply',
   LOADING: 'agent-action-card-loading',
   RESOLVED: 'agent-action-card-resolved',
+  PLAN_GOAL: 'agent-action-card-plan-goal',
+  PLAN_STEP_LIST: 'agent-action-card-plan-steps',
+  PLAN_STEP_ITEM: 'agent-action-card-plan-step',
 } as const;
 
 /**

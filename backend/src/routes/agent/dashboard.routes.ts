@@ -9,12 +9,9 @@
  */
 
 import os from 'os';
-import path from 'path';
-import { createReadStream } from 'fs';
 import { unlink } from 'fs/promises';
 import multer from 'multer';
 import { Router, type Request, type Response } from 'express';
-import { getStorage } from 'firebase-admin/storage';
 import { appGuard } from '../../middleware/auth/auth.middleware.js';
 import { uploadRateLimit } from '../../middleware/rate-limit/rate-limit.middleware.js';
 import { validateBody } from '../../middleware/validation/validation.middleware.js';
@@ -53,6 +50,7 @@ import {
   contextBuilder,
 } from './shared.js';
 import { AgentMediaLifecycleService } from '../../modules/agent/tools/media/agent-media-lifecycle.service.js';
+import { AgentEphemeralStateService } from '../../modules/agent/services/agent-ephemeral-state.service.js';
 
 type AuthenticatedRequest = Request & {
   user?: {
@@ -1353,51 +1351,37 @@ router.post('/upload/video', appGuard, uploadRateLimit, async (req: Request, res
     const resolvedThreadId =
       typeof threadId === 'string' && threadId.trim() ? threadId.trim() : null;
 
-    // Single universal path: provision a v4 signed upload URL directly to GCS.
-    // The browser PUTs to this URL, then we hand the agent a signed read URL.
-    // Works identically on localhost and production — no media-proxy round-trip.
-    const safeName = path.basename(fileName).replace(/[^a-zA-Z0-9._-]/g, '_');
-    const timestamp = Date.now();
-    const uniqueId = crypto.randomUUID();
-    const storagePath = resolvedThreadId
-      ? `Users/${user.uid}/threads/${resolvedThreadId}/media/video/${timestamp}-${uniqueId}-${safeName}`
-      : `Users/${user.uid}/uploads/video/unbound/${timestamp}-${uniqueId}-${safeName}`;
-
-    const storageFile = getStorage().bucket().file(storagePath);
-    const uploadExpiresAt = Date.now() + 15 * 60 * 1000;
-    const [uploadUrl] = await storageFile.getSignedUrl({
-      version: 'v4',
-      action: 'write',
-      expires: uploadExpiresAt,
-      contentType: mimeType,
-      extensionHeaders: {
-        'x-goog-content-length-range': `1,${AGENT_X_MAX_VIDEO_FILE_SIZE}`,
-      },
+    // Single universal path: provision a backend media-proxy upload URL.
+    // The browser PUTs raw bytes directly to the backend, which streams them
+    // to /tmp and serves them through an HMAC-signed GET URL. This eliminates
+    // the GCS-upload-first bottleneck so Gemini can fetch as soon as ingest
+    // completes (no GCS round-trip on the read side).
+    const provision = await AgentEphemeralStateService.provisionUpload({
+      userId: user.uid,
+      fileName,
+      mimeType,
+      fileSize,
+      threadId: resolvedThreadId,
+      routeBase: AgentEphemeralStateService.resolveAgentRouteBase(req),
     });
-    const readExpiresAt = Date.now() + 24 * 60 * 60 * 1000;
-    const [readUrl] = await storageFile.getSignedUrl({
-      version: 'v4',
-      action: 'read',
-      expires: readExpiresAt,
-    });
-    const expiresAt = new Date(readExpiresAt).toISOString();
 
-    logger.info('Agent X video upload URL provisioned (Firebase)', {
+    logger.info('Agent X video upload URL provisioned (media-proxy)', {
       userId: user.uid,
       threadId: resolvedThreadId ?? 'unbound',
       mimeType,
       fileSize,
-      storagePath,
-      readExpiresAt: expiresAt,
+      uploadId: provision.uploadId,
+      storagePath: provision.storagePath,
+      expiresAt: provision.expiresAt,
     });
 
     res.json({
       success: true,
       data: {
-        uploadUrl,
-        readUrl,
-        storagePath,
-        expiresAt,
+        uploadUrl: provision.uploadUrl,
+        readUrl: provision.readUrl,
+        storagePath: provision.storagePath,
+        expiresAt: provision.expiresAt,
       },
     });
   } catch (err) {
@@ -1455,53 +1439,38 @@ router.post(
       const resolvedThreadId =
         typeof rawThreadId === 'string' && rawThreadId.trim() ? rawThreadId.trim() : null;
 
-      // Single universal fallback: stream upload to Firebase Storage and
-      // return a signed read URL. Used only when the direct PUT fails.
-      const safeName = path.basename(file.originalname).replace(/[^a-zA-Z0-9._-]/g, '_');
-      const timestamp = Date.now();
-      const uniqueId = crypto.randomUUID();
-      const storagePath = resolvedThreadId
-        ? `Users/${user.uid}/threads/${resolvedThreadId}/media/video/${timestamp}-${uniqueId}-${safeName}`
-        : `Users/${user.uid}/uploads/video/unbound/${timestamp}-${uniqueId}-${safeName}`;
-
-      const storageFile = getStorage().bucket().file(storagePath);
-      await new Promise<void>((resolve, reject) => {
-        const readStream = createReadStream(file.path);
-        const writeStream = storageFile.createWriteStream({
-          metadata: {
-            contentType: file.mimetype,
-            cacheControl: 'private, max-age=0',
-          },
-        });
-        readStream.on('error', reject);
-        writeStream.on('error', reject);
-        writeStream.on('finish', () => resolve());
-        readStream.pipe(writeStream);
+      // Single universal fallback: stage the multer temp file into the same
+      // media-proxy /tmp slot used by the direct PUT path and return an HMAC-
+      // signed read URL. The agent never sees a Firebase URL on the read side.
+      const provisioned = await AgentEphemeralStateService.createReadyUploadFromProxy({
+        userId: user.uid,
+        fileName: file.originalname,
+        mimeType: file.mimetype,
+        fileSize: file.size,
+        threadId: resolvedThreadId,
+        routeBase: AgentEphemeralStateService.resolveAgentRouteBase(req),
+        tempFilePath: file.path,
       });
 
-      const readExpiresAt = Date.now() + 24 * 60 * 60 * 1000;
-      const [readUrl] = await storageFile.getSignedUrl({
-        version: 'v4',
-        action: 'read',
-        expires: readExpiresAt,
-      });
-      const expiresAt = new Date(readExpiresAt).toISOString();
+      // The temp file has been moved into the media-proxy slot — don't unlink.
+      shouldCleanupTempFile = false;
 
-      logger.info('Agent X video uploaded via backend proxy fallback (Firebase)', {
+      logger.info('Agent X video uploaded via backend proxy fallback (media-proxy)', {
         userId: user.uid,
         threadId: resolvedThreadId ?? 'unbound',
         mimeType: file.mimetype,
         fileSize: file.size,
-        storagePath,
-        readExpiresAt: expiresAt,
+        uploadId: provisioned.uploadId,
+        storagePath: provisioned.storagePath,
+        expiresAt: provisioned.expiresAt,
       });
 
       res.json({
         success: true,
         data: {
-          readUrl,
-          storagePath,
-          expiresAt,
+          readUrl: provisioned.readUrl,
+          storagePath: provisioned.storagePath,
+          expiresAt: provisioned.expiresAt,
         },
       });
     } catch (err) {
