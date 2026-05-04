@@ -42,7 +42,7 @@ import { FirebaseAuthentication } from '@capacitor-firebase/authentication';
 import { MsAuthPlugin } from '@recognizebv/capacitor-plugin-msauth';
 import { NxtPlatformService, HapticsService, NxtLoggingService } from '@nxt1/ui';
 import { type ILogger } from '@nxt1/core/logging';
-import { GOOGLE_OAUTH_SCOPES } from '@nxt1/core/auth';
+import { GOOGLE_IDENTITY_SCOPES } from '@nxt1/core/auth';
 import type { NativeAuthResult, NativeAuthProvider, NativeAuthAvailability } from '@nxt1/core';
 import { environment } from 'src/environments/environment';
 
@@ -128,7 +128,7 @@ export class NativeAuthService {
       // Sign in with Google using Firebase plugin
       // serverAuthCode is automatically generated when GoogleService-Info.plist is properly configured
       const result = await FirebaseAuthentication.signInWithGoogle({
-        scopes: [...GOOGLE_OAUTH_SCOPES],
+        scopes: [...GOOGLE_IDENTITY_SCOPES],
       });
 
       this.logger.info('Google Sign-In successful', {

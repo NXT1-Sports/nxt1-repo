@@ -80,7 +80,7 @@ import {
 } from '@nxt1/core';
 import {
   type IAuthFlowService,
-  GOOGLE_OAUTH_SCOPES,
+  GOOGLE_IDENTITY_SCOPES,
   type SignInCredentials,
   type SignUpCredentials,
   type OAuthOptions,
@@ -1092,7 +1092,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
       const { GoogleAuthProvider, signInWithPopup } = await import('@angular/fire/auth');
 
       const provider = new GoogleAuthProvider();
-      for (const scope of GOOGLE_OAUTH_SCOPES) {
+      for (const scope of GOOGLE_IDENTITY_SCOPES) {
         provider.addScope(scope);
       }
 

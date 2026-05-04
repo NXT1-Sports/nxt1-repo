@@ -60,7 +60,7 @@ import { environment } from '../../../../environments/environment';
 import { Subscription } from 'rxjs';
 import { NxtPlatformService, NxtLoggingService } from '@nxt1/ui';
 import { type ILogger } from '@nxt1/core/logging';
-import { GOOGLE_OAUTH_SCOPES } from '@nxt1/core/auth';
+import { GOOGLE_IDENTITY_SCOPES } from '@nxt1/core/auth';
 import { NativeAuthService } from './native-auth.service';
 import { FirebaseUserInfo, NativeAuthResult } from '@nxt1/core';
 
@@ -381,7 +381,7 @@ export class FirebaseAuthService implements OnDestroy {
     this.logger.debug('Using web Google Sign-In (fallback)');
     const webResult = await runInInjectionContext(this.injector, () => {
       const provider = new GoogleAuthProvider();
-      for (const scope of GOOGLE_OAUTH_SCOPES) {
+      for (const scope of GOOGLE_IDENTITY_SCOPES) {
         provider.addScope(scope);
       }
       return signInWithPopup(this.auth, provider);
