@@ -49,6 +49,11 @@ env:
   - variable: NODE_ENV
     value: 'production'
 
+  # Allow SSR for Firebase App Hosting domains (Angular CommonEngine host validation)
+  # Wildcard *.hosted.app covers all App Hosting preview/staging/production URLs
+  - variable: NG_ALLOWED_HOSTS
+    value: 'nxt1-repo--nxt-1-v2.us-east4.hosted.app,nxt1-repo--nxt-1-staging-v2.us-east4.hosted.app,localhost,127.0.0.1'
+
 # Build-time environment variables (from Firebase App Hosting secrets)
 # These are injected from Cloud Secret Manager
 # Configure with: firebase apphosting:secrets:set SECRET_NAME
