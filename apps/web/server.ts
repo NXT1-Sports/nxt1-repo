@@ -127,8 +127,8 @@ export function createServer(): express.Express {
   // ============================================
 
   // All routes (except static files) go through Angular
-  // Express 5 uses new path-to-regexp syntax - use {*path} instead of *
-  server.get('/{*path}', (req: Request, res: Response, next: NextFunction) => {
+  // Express 4 wildcard syntax - matches root / and all sub-paths
+  server.get('*', (req: Request, res: Response, next: NextFunction) => {
     const { protocol, originalUrl, baseUrl, headers } = req;
 
     // Construct the full URL

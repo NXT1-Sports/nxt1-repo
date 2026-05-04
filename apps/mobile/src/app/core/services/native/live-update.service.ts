@@ -21,6 +21,7 @@
  */
 
 import { Injectable, inject, signal, computed } from '@angular/core';
+import { AlertController } from '@ionic/angular/standalone';
 import { Capacitor } from '@capacitor/core';
 import { App as CapacitorApp } from '@capacitor/app';
 import { Device } from '@capacitor/device';
@@ -61,6 +62,7 @@ interface LiveUpdaterPlugin {
 export class LiveUpdateService {
   private readonly firestore = inject(Firestore);
   private readonly logger: ILogger = inject(NxtLoggingService).child('LiveUpdateService');
+  private readonly alertController = inject(AlertController);
 
   private readonly _checking = signal(false);
   private readonly _applying = signal(false);
@@ -130,9 +132,37 @@ export class LiveUpdateService {
     const result = await this.checkForUpdate(updater);
     this._lastResult.set(result);
 
+    if (!environment.production) {
+      void this.showDebugAlert(result);
+    }
+
     if (result.status === 'available') {
       await this.applyUpdate(updater, result.manifest);
     }
+  }
+
+  private async showDebugAlert(result: LiveUpdateCheckResult): Promise<void> {
+    const current = this._currentVersion();
+    const state = await this.loadState();
+
+    let message = `<b>Status:</b> ${result.status}`;
+    if (result.status === 'skipped') message += `<br><b>Reason:</b> ${result.reason}`;
+    if (result.status === 'error') message += `<br><b>Error:</b> ${result.error}`;
+    if (result.status === 'available') {
+      message += `<br><b>New version:</b> ${result.manifest.version}`;
+      message += `<br><b>Min native:</b> ${result.manifest.minNativeVersion}`;
+    }
+    message += `<br><br><b>Bundle (Capgo):</b> ${current ?? 'native shell'}`;
+    message += `<br><b>App version:</b> ${environment.appVersion}`;
+    message += `<br><b>Failures:</b> ${state.failureCount} / 3`;
+    message += `<br><b>Last check:</b> ${state.lastCheckedAt ?? 'never'}`;
+
+    const alert = await this.alertController.create({
+      header: '🔄 OTA Check',
+      message,
+      buttons: ['OK'],
+    });
+    await alert.present();
   }
 
   /**

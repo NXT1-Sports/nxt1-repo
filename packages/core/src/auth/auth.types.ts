@@ -81,6 +81,13 @@ export interface AuthUser {
   activeSportIndex?: number;
   /** Whether user has completed onboarding */
   hasCompletedOnboarding: boolean;
+  /**
+   * Original document ID from the old NXT1 system.
+   * Presence of this field means the user was migrated from the legacy system.
+   */
+  _legacyId?: string;
+  /** Whether legacy-migrated user has completed the 3-step intro onboarding */
+  legacyOnboardingCompleted?: boolean;
   /** Auth provider used */
   provider: AuthProvider;
   /** Email verification status */

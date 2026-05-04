@@ -104,12 +104,12 @@ export type TeamCodeValidationState = 'idle' | 'validating' | 'success' | 'error
  * Location comes from profile step geolocation, not contact/school steps.
  */
 export interface OnboardingProfileData {
-  firstName: string;
-  lastName: string;
+  firstName?: string;
+  lastName?: string;
   profileImg?: string;
   profileImgs?: string[];
   /** User role — only the 3 allowed V2 roles */
-  userType: 'athlete' | 'coach' | 'director';
+  userType?: 'athlete' | 'coach' | 'director';
   gender?: string;
   sports?: Array<{
     sport: string;
@@ -154,6 +154,12 @@ export interface OnboardingProfileData {
   scrapeJobId?: string;
   /** Phone number (optional) — saved to contact.phone */
   phoneNumber?: string;
+  /**
+   * When true, this is a legacy-migration onboarding update.
+   * Backend will NOT overwrite existing profile fields (name, sport, role).
+   * Only linkSources will be saved, and legacyOnboardingCompleted is set to true.
+   */
+  isLegacyOnboardingUpdate?: boolean;
 }
 
 /**

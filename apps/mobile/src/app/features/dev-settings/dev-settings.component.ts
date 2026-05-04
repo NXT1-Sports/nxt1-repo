@@ -13,7 +13,7 @@
  * @version 1.0.0
  */
 
-import { Component, ChangeDetectionStrategy, inject, signal } from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject, signal, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import {
   IonHeader,
@@ -53,6 +53,8 @@ import {
 } from 'ionicons/icons';
 
 import { CrashlyticsService } from '../../core/services/infrastructure/crashlytics.service';
+import { LiveUpdateService } from '../../core/services/native/live-update.service';
+import { Preferences } from '@capacitor/preferences';
 import { CRASH_KEYS } from '@nxt1/core/crashlytics';
 import { environment } from '../../../environments/environment';
 
@@ -133,6 +135,72 @@ import { environment } from '../../../environments/environment';
               <ion-label>
                 <h3>App Version</h3>
                 <p>{{ appVersion() }}</p>
+              </ion-label>
+            </ion-item>
+          </ion-list>
+        </ion-card-content>
+      </ion-card>
+
+      <!-- OTA Live Update Debug -->
+      <ion-card>
+        <ion-card-header>
+          <ion-card-title> <ion-icon name="refresh-outline" /> OTA Live Update </ion-card-title>
+        </ion-card-header>
+        <ion-card-content>
+          <ion-list lines="none">
+            <ion-item>
+              <ion-label>
+                <h3>Bundle Version (Capgo)</h3>
+                <p>{{ otaCurrentVersion() ?? 'native shell' }}</p>
+              </ion-label>
+            </ion-item>
+            <ion-item>
+              <ion-label>
+                <h3>Last Check Status</h3>
+                <p>{{ otaLastResultText() }}</p>
+              </ion-label>
+              <ion-badge slot="end" [color]="otaStatusColor()">{{ otaStatusBadge() }}</ion-badge>
+            </ion-item>
+            <ion-item>
+              <ion-label>
+                <h3>Failure Count</h3>
+                <p>
+                  {{ otaFailureCount() }} / 3 — circuit breaker
+                  {{ otaFailureCount() >= 3 ? 'TRIPPED' : 'OK' }}
+                </p>
+              </ion-label>
+              <ion-badge slot="end" [color]="otaFailureCount() >= 3 ? 'danger' : 'success'">
+                {{ otaFailureCount() >= 3 ? 'TRIPPED' : 'OK' }}
+              </ion-badge>
+            </ion-item>
+            <ion-item>
+              <ion-label>
+                <h3>Last Checked At</h3>
+                <p>{{ otaLastCheckedAt() ?? 'never' }}</p>
+              </ion-label>
+            </ion-item>
+          </ion-list>
+
+          <ion-list lines="full" style="margin-top: 8px">
+            <ion-item button detail="false" (click)="otaForceCheck()">
+              <ion-icon name="refresh-outline" slot="start" color="primary" />
+              <ion-label>
+                <h2>Force Check Update</h2>
+                <p>Re-run OTA check now & show alert</p>
+              </ion-label>
+            </ion-item>
+            <ion-item button detail="false" (click)="otaResetCircuitBreaker()">
+              <ion-icon name="warning-outline" slot="start" color="warning" />
+              <ion-label>
+                <h2>Reset Circuit Breaker</h2>
+                <p>Clear failure count (allows OTA to retry)</p>
+              </ion-label>
+            </ion-item>
+            <ion-item button detail="false" (click)="otaResetToNative()">
+              <ion-icon name="trash-outline" slot="start" color="danger" />
+              <ion-label>
+                <h2>Reset to Native Bundle</h2>
+                <p>Rollback to built-in JS bundle</p>
               </ion-label>
             </ion-item>
           </ion-list>
@@ -378,6 +446,7 @@ import { environment } from '../../../environments/environment';
 })
 export class DevSettingsComponent {
   private readonly crashlytics = inject(CrashlyticsService);
+  private readonly liveUpdate = inject(LiveUpdateService);
   private readonly alertController = inject(AlertController);
   private readonly toastController = inject(ToastController);
 
@@ -390,6 +459,32 @@ export class DevSettingsComponent {
   readonly crashlyticsReady = signal(false);
   readonly crashlyticsEnabled = signal(false);
   readonly didCrashPreviously = signal(false);
+
+  // OTA signals
+  readonly otaCurrentVersion = this.liveUpdate.currentVersion;
+  readonly otaFailureCount = signal(0);
+  readonly otaLastCheckedAt = signal<string | null>(null);
+  readonly otaLastResultText = computed(() => {
+    const r = this.liveUpdate.lastResult();
+    if (!r) return '(not checked yet)';
+    if (r.status === 'skipped') return `skipped: ${r.reason}`;
+    if (r.status === 'error') return `error: ${r.error}`;
+    if (r.status === 'available') return `available → ${r.manifest.version}`;
+    return `up-to-date (${r.currentVersion ?? 'native'})`;
+  });
+  readonly otaStatusColor = computed(() => {
+    const r = this.liveUpdate.lastResult();
+    if (!r) return 'medium';
+    if (r.status === 'error') return 'danger';
+    if (r.status === 'skipped') return 'warning';
+    if (r.status === 'available') return 'success';
+    return 'primary';
+  });
+  readonly otaStatusBadge = computed(() => {
+    const r = this.liveUpdate.lastResult();
+    if (!r) return '?';
+    return r.status.toUpperCase();
+  });
 
   constructor() {
     // Register Ionicons
@@ -411,6 +506,61 @@ export class DevSettingsComponent {
 
     // Initialize status
     this.refreshStatus();
+    void this.loadOtaState();
+  }
+
+  async loadOtaState(): Promise<void> {
+    try {
+      const { value } = await Preferences.get({ key: 'nxt1.liveUpdate.state.v1' });
+      if (value) {
+        const state = JSON.parse(value) as { failureCount: number; lastCheckedAt: string | null };
+        this.otaFailureCount.set(state.failureCount ?? 0);
+        this.otaLastCheckedAt.set(state.lastCheckedAt ?? null);
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  async otaForceCheck(): Promise<void> {
+    await this.liveUpdate.initialize();
+    await this.loadOtaState();
+    await this.showToast('OTA check complete — see alert', 'success');
+  }
+
+  async otaResetCircuitBreaker(): Promise<void> {
+    try {
+      const { value } = await Preferences.get({ key: 'nxt1.liveUpdate.state.v1' });
+      const state = value ? JSON.parse(value) : {};
+      await Preferences.set({
+        key: 'nxt1.liveUpdate.state.v1',
+        value: JSON.stringify({ ...state, failureCount: 0 }),
+      });
+      this.otaFailureCount.set(0);
+      await this.showToast('Circuit breaker reset — failure count = 0', 'success');
+    } catch {
+      await this.showToast('Failed to reset', 'danger');
+    }
+  }
+
+  async otaResetToNative(): Promise<void> {
+    const alert = await this.alertController.create({
+      header: 'Reset to Native Bundle',
+      message: 'This will rollback to the original built-in JS bundle. The app will reload.',
+      buttons: [
+        { text: 'Cancel', role: 'cancel' },
+        {
+          text: 'Reset',
+          role: 'destructive',
+          handler: async () => {
+            await this.liveUpdate.resetToNativeBundle();
+            await this.loadOtaState();
+            await this.showToast('Reset to native bundle', 'warning');
+          },
+        },
+      ],
+    });
+    await alert.present();
   }
 
   async refreshStatus(): Promise<void> {

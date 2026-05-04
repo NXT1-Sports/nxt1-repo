@@ -33,6 +33,10 @@ export interface AppUser {
   profileImg?: string;
   role: UserRole;
   hasCompletedOnboarding: boolean;
+  /** Original legacy system document ID — presence means migrated user */
+  _legacyId?: string;
+  /** Whether legacy-migrated user has completed the 3-step intro onboarding */
+  legacyOnboardingCompleted?: boolean;
   createdAt: string;
   updatedAt: string;
   unicode?: string | null;

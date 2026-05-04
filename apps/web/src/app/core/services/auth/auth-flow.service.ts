@@ -228,6 +228,12 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
   readonly hasCompletedOnboarding = computed(
     () => this._state().user?.hasCompletedOnboarding ?? false
   );
+  /** True when user was migrated from the legacy NXT1 system */
+  readonly isLegacyUser = computed(() => !!this._state().user?._legacyId);
+  /** True when the legacy user has completed the 3-step intro onboarding */
+  readonly legacyOnboardingCompleted = computed(
+    () => this._state().user?.legacyOnboardingCompleted === true
+  );
 
   // ============================================
   // INITIALIZATION
@@ -717,8 +723,12 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
         // Otherwise continue with null profile - use Firebase data with defaults
       }
 
-      // V2: Use onboardingCompleted field only (no legacy fallback)
-      const hasCompletedOnboarding = backendProfile?.onboardingCompleted === true;
+      // Use onboardingCompletedAt (never set by migration) as the reliable completion signal.
+      // Migration always sets onboardingCompleted: true, so we cannot rely on that field.
+      // legacyOnboardingCompleted is set when a legacy user completes the 3-step intro.
+      const hasCompletedOnboarding =
+        !!backendProfile?.onboardingCompletedAt ||
+        backendProfile?.legacyOnboardingCompleted === true;
 
       this.logger.debug('Onboarding status determined', { hasCompletedOnboarding });
 
@@ -745,6 +755,8 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
         ),
         // Premium status — metered billing only, no plan tiers
         hasCompletedOnboarding,
+        _legacyId: backendProfile?._legacyId,
+        legacyOnboardingCompleted: backendProfile?.legacyOnboardingCompleted,
         provider: this.getProviderFromFirebase(firebaseUser),
         emailVerified: firebaseUser.emailVerified,
         createdAt: firebaseUser.metadata.creationTime ?? new Date().toISOString(),
@@ -936,8 +948,13 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
 
       const __dbgMsNavStart = performance.now();
       if (needsOnboarding) {
-        this.logger.info('🚀 Navigating to onboarding (existing user, incomplete) (Microsoft)');
-        await this.navigateForward(AUTH_ROUTES.ONBOARDING);
+        if (currentUser?._legacyId) {
+          this.logger.info('🚀 Legacy user: navigating directly to congratulations (Microsoft)');
+          await this.navigateForward('/auth/onboarding/congratulations');
+        } else {
+          this.logger.info('🚀 Navigating to onboarding (existing user, incomplete) (Microsoft)');
+          await this.navigateForward(AUTH_ROUTES.ONBOARDING);
+        }
       } else {
         this.logger.info('🏠 User already completed onboarding, navigating to /home (Microsoft)');
         await this.navigateRoot(AUTH_REDIRECTS.DEFAULT);
@@ -1143,7 +1160,11 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
             const canNavigateOptimistically =
               !isNewUser &&
               persistedUser?.uid === result.user.uid &&
-              persistedUser?.hasCompletedOnboarding === true;
+              persistedUser?.hasCompletedOnboarding === true &&
+              // Force a full sync for legacy users — their cached hasCompletedOnboarding
+              // may be stale (old code derived it from onboardingCompleted which migration
+              // always sets to true). Only skip sync once legacyOnboardingCompleted is set.
+              !(persistedUser?._legacyId && !persistedUser?.legacyOnboardingCompleted);
 
             if (canNavigateOptimistically) {
               const __dbgNavStart = performance.now();
@@ -1248,10 +1269,15 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
             // ⏱️ DEBUG: Time navigation
             const __dbgNavStart = performance.now();
             if (needsOnboarding) {
-              this.logger.info(
-                `🚀 Navigating to onboarding (${isNewlyCreated ? 'new user' : 'existing user, incomplete'})`
-              );
-              await this.navigateForward(AUTH_ROUTES.ONBOARDING);
+              if (!isNewlyCreated && currentUser?._legacyId) {
+                this.logger.info('🚀 Legacy user: navigating directly to congratulations (Google)');
+                await this.navigateForward('/auth/onboarding/congratulations');
+              } else {
+                this.logger.info(
+                  `🚀 Navigating to onboarding (${isNewlyCreated ? 'new user' : 'existing user, incomplete'})`
+                );
+                await this.navigateForward(AUTH_ROUTES.ONBOARDING);
+              }
             } else {
               this.logger.info('🏠 User already completed onboarding, navigating to /home');
               await this.navigateRoot(AUTH_REDIRECTS.DEFAULT);
@@ -1548,8 +1574,13 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
             const needsOnboarding = !currentUser?.hasCompletedOnboarding;
 
             if (needsOnboarding) {
-              this.logger.info('🚀 Navigating to onboarding (existing user, incomplete) (Apple)');
-              await this.navigateForward(AUTH_ROUTES.ONBOARDING);
+              if (currentUser?._legacyId) {
+                this.logger.info('🚀 Legacy user: navigating directly to congratulations (Apple)');
+                await this.navigateForward('/auth/onboarding/congratulations');
+              } else {
+                this.logger.info('🚀 Navigating to onboarding (existing user, incomplete) (Apple)');
+                await this.navigateForward(AUTH_ROUTES.ONBOARDING);
+              }
             } else {
               this.logger.info('🏠 User already completed onboarding, navigating to /home (Apple)');
               await this.navigateRoot(AUTH_REDIRECTS.DEFAULT);
@@ -2112,6 +2143,35 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
       teamCode: nextTeamCode.teamCode,
       slug: nextTeamCode.slug,
     });
+  }
+
+  /**
+   * Mark a legacy-migrated user as having completed the intro welcome screen.
+   *
+   * Called once when a legacy user arrives at /agent-x for the first time.
+   * Sets legacyOnboardingCompleted: true in Firestore (via the backend) and
+   * patches the local auth state so hasCompletedOnboarding becomes true —
+   * preventing the congratulations redirect on all future logins.
+   *
+   * Fire-and-forget safe: errors are logged but never rethrow.
+   */
+  async completeLegacyOnboarding(): Promise<void> {
+    const user = this.user();
+    if (!user?._legacyId || user.legacyOnboardingCompleted) {
+      return; // Not a legacy user, or already marked done
+    }
+
+    this.logger.info('Marking legacy onboarding complete', { uid: user.uid });
+    try {
+      await this.authApi.saveOnboardingProfile(user.uid, { isLegacyOnboardingUpdate: true });
+      // Patch local state immediately so the signal reflects the change
+      this.patchUser({ legacyOnboardingCompleted: true, hasCompletedOnboarding: true });
+      // Invalidate cache so the next cold-start fetches fresh data
+      void globalAuthUserCache.invalidate(user.uid);
+      this.logger.info('Legacy onboarding marked complete', { uid: user.uid });
+    } catch (err) {
+      this.logger.error('Failed to mark legacy onboarding complete', err, { uid: user.uid });
+    }
   }
 
   /**

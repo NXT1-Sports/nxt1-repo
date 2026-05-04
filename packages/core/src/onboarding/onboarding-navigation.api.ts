@@ -761,6 +761,17 @@ export const ONBOARDING_STEPS: Record<OnboardingUserType, OnboardingStep[]> = {
   ],
 };
 
+/**
+ * Steps for legacy-migrated users — they already have profile/sport/role from the
+ * old system, so we only show 3 lightweight steps to connect their accounts.
+ * This is NOT an OnboardingUserType — legacy is a migration flag, not a role.
+ */
+export const LEGACY_ONBOARDING_STEPS: OnboardingStep[] = [
+  { ...LINK_SOURCES_STEP, required: false, order: 1 },
+  { ...SELECT_TEAMS_STEP, required: false, order: 2 },
+  { ...REFERRAL_STEP, required: false, order: 3 },
+];
+
 // ============================================
 // AGENT X ONBOARDING MESSAGES
 // ============================================
@@ -1377,6 +1388,7 @@ export function createOnboardingNavigationApi() {
     // Constants
     ROLE_SELECTION_STEP,
     ONBOARDING_STEPS,
+    LEGACY_ONBOARDING_STEPS,
   };
 }
 

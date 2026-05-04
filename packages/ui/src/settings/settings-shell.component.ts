@@ -143,7 +143,9 @@ export interface SettingsUser {
             <!-- Footer -->
             <footer class="settings-footer">
               <p class="settings-footer__text">Made with ❤️ by NXT1 Sports</p>
-              <p class="settings-footer__version">Version {{ appVersion }}</p>
+              <p class="settings-footer__version" (click)="onVersionTap()">
+                Version {{ appVersion }}
+              </p>
             </footer>
           </div>
         </div>
@@ -188,7 +190,9 @@ export interface SettingsUser {
                 <!-- Footer -->
                 <footer class="settings-footer">
                   <p class="settings-footer__text">Made with ❤️ by NXT1 Sports</p>
-                  <p class="settings-footer__version">Version {{ appVersion }}</p>
+                  <p class="settings-footer__version" (click)="onVersionTap()">
+                    Version {{ appVersion }}
+                  </p>
                 </footer>
               }
             </div>
@@ -376,6 +380,9 @@ export class SettingsShellComponent implements OnInit, AfterViewInit, OnDestroy 
   /** Emitted when delete account is requested */
   readonly deleteAccount = output<void>();
 
+  /** Emitted when dev-settings easter egg is unlocked (7 taps on version text) */
+  readonly devSettingsUnlock = output<void>();
+
   /** Emitted when user wants to connect an email provider (Gmail, Microsoft, etc.) */
   readonly connectProviderRequest = output<InboxEmailProvider>();
 
@@ -389,6 +396,8 @@ export class SettingsShellComponent implements OnInit, AfterViewInit, OnDestroy 
   // ============================================
 
   protected readonly appVersion = inject(APP_VERSION, { optional: true }) ?? '2.0.0';
+  private _versionTapCount = 0;
+  private _versionTapTimer: ReturnType<typeof setTimeout> | null = null;
 
   // ============================================
   // COMPUTED
@@ -461,6 +470,18 @@ export class SettingsShellComponent implements OnInit, AfterViewInit, OnDestroy 
   // ============================================
   // EVENT HANDLERS
   // ============================================
+
+  protected onVersionTap(): void {
+    this._versionTapCount++;
+    if (this._versionTapTimer) clearTimeout(this._versionTapTimer);
+    this._versionTapTimer = setTimeout(() => {
+      this._versionTapCount = 0;
+    }, 3000);
+    if (this._versionTapCount >= 7) {
+      this._versionTapCount = 0;
+      this.devSettingsUnlock.emit();
+    }
+  }
 
   protected onHeaderAction(action: PageHeaderAction): void {
     this.logger.debug('Header action clicked', { actionId: action.id });

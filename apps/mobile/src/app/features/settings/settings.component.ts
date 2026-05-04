@@ -61,6 +61,7 @@ import { MobileEmailConnectionService } from '../../core/services/api/email-conn
         (signOut)="onSignOut()"
         (deleteAccount)="onDeleteAccount()"
         (connectProviderRequest)="onConnectProvider($event)"
+        (devSettingsUnlock)="onDevSettingsUnlock()"
       />
     </ion-content>
   `,
@@ -191,6 +192,10 @@ export class SettingsComponent {
    */
   protected onEditProfile(): void {
     this.navController.navigateForward('/settings/account-information');
+  }
+
+  protected onDevSettingsUnlock(): void {
+    this.navController.navigateForward('/dev-settings');
   }
 
   /**

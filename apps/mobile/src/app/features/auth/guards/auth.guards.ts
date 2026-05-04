@@ -62,6 +62,8 @@ function getAuthState(authService: AuthFlowService): AuthState {
           profileImg: user.profileImg ?? undefined,
           role: user.role,
           hasCompletedOnboarding: user.hasCompletedOnboarding,
+          _legacyId: user._legacyId,
+          legacyOnboardingCompleted: user.legacyOnboardingCompleted,
           provider: user.provider ?? 'email',
           emailVerified: user.emailVerified ?? true,
           createdAt: user.createdAt,
@@ -187,7 +189,8 @@ export const onboardingCompleteGuard: CanActivateFn = () => {
 
 /**
  * Guard that requires user to have started but NOT completed onboarding
- * Use this to protect the onboarding route itself
+ * Use this to protect the onboarding route itself.
+ * Also allows legacy-migrated users who have not yet completed legacy onboarding.
  */
 export const onboardingInProgressGuard: CanActivateFn = () => {
   const authService = inject(AuthFlowService);

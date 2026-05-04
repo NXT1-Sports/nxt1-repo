@@ -62,7 +62,13 @@ export interface BackendProfileLike {
   readonly profileImgs?: readonly string[] | null;
   readonly role?: string | null;
   readonly onboardingCompleted?: boolean;
+  /** ISO timestamp set by normal onboarding flow — NEVER set by migration script. */
+  readonly onboardingCompletedAt?: string;
   readonly completeSignUp?: boolean;
+  /** Original document ID from the legacy NXT1 system — set by migration script. */
+  readonly _legacyId?: string;
+  /** Whether a legacy-migrated user has completed the 3-step intro onboarding. */
+  readonly legacyOnboardingCompleted?: boolean;
   /** Which sport index is currently active for sport switching. Preserved so
    * the sidebar shows the correct active team after refreshUserProfile(). */
   readonly activeSportIndex?: number;
@@ -154,6 +160,9 @@ export function mapBackendProfileToCachedUserProfile(user: BackendProfileLike): 
     displayName: `${user.firstName ?? ''} ${user.lastName ?? ''}`.trim(),
     role: user.role ?? null,
     onboardingCompleted: user.onboardingCompleted,
+    onboardingCompletedAt: user.onboardingCompletedAt,
+    _legacyId: user._legacyId,
+    legacyOnboardingCompleted: user.legacyOnboardingCompleted,
     completeSignUp: user.completeSignUp,
     teamCode:
       teamName || slug || canonicalTeamIdentifier || unicode

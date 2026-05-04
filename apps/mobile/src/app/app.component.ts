@@ -142,11 +142,20 @@ export class AppComponent {
         .navigateRoot(AUTH_ROUTES.ROOT)
         .catch((err) => this.logger.error('Navigation to auth failed', err));
     } else if (!user.hasCompletedOnboarding) {
-      // Authenticated but onboarding incomplete - go to onboarding
-      this.logger.info('Onboarding incomplete, navigating to onboarding');
-      this.navController
-        .navigateRoot(AUTH_REDIRECTS.ONBOARDING)
-        .catch((err) => this.logger.error('Navigation to onboarding failed', err));
+      if (user._legacyId) {
+        // Legacy migrated user — show congratulations/welcome screen directly,
+        // skipping the full onboarding flow they don't need.
+        this.logger.info('Legacy user: navigating directly to congratulations');
+        this.navController
+          .navigateRoot('/auth/onboarding/congratulations')
+          .catch((err) => this.logger.error('Navigation to legacy congratulations failed', err));
+      } else {
+        // Regular user who hasn't completed onboarding — full onboarding flow
+        this.logger.info('Onboarding incomplete, navigating to onboarding');
+        this.navController
+          .navigateRoot(AUTH_REDIRECTS.ONBOARDING)
+          .catch((err) => this.logger.error('Navigation to onboarding failed', err));
+      }
     } else {
       // Authenticated and onboarding complete - go to agent
       this.logger.info('Authenticated and onboarded, navigating to agent');

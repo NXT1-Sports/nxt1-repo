@@ -47,6 +47,7 @@ import {
   type LinkSourcesFormData,
   type TeamSelectionFormData,
   ONBOARDING_STEPS,
+  LEGACY_ONBOARDING_STEPS,
   getAgentXMessage,
   createOnboardingStateMachine,
   type OnboardingStateMachine,
@@ -170,6 +171,8 @@ export class OnboardingService {
   private readonly _isCurrentStepValid = signal(true);
   private readonly _contentReady = signal(false);
   private readonly _footerVisible = signal(false);
+  /** True when the current session is for a legacy-migrated user (3-step flow) */
+  private readonly _isLegacyMode = signal(false);
   // Pre-detect invite status synchronously from localStorage to avoid flash on reload.
   // resolveSkipStepIds() will confirm/update this via native storage async.
   readonly isTeamInvite = signal(
@@ -222,6 +225,8 @@ export class OnboardingService {
   readonly totalSteps = computed(() => this._steps().length);
   readonly currentStepIndex = computed(() => this._currentStepIndex());
   readonly completedStepIds = computed(() => this._completedSteps());
+  /** True when running the 3-step legacy onboarding flow */
+  readonly isLegacyMode = computed(() => this._isLegacyMode());
 
   readonly currentStep = computed(() => {
     const steps = this._steps();
@@ -591,14 +596,24 @@ export class OnboardingService {
   private initializeStateMachine(userId: string): void {
     this.logger.info('Initializing shared state machine', { userId });
 
+    const isLegacy = this.authFlow.isLegacyUser();
+    if (isLegacy) {
+      this._isLegacyMode.set(true);
+      this.logger.info('Legacy migration user detected — using 3-step legacy onboarding flow');
+    }
+
     this.resolveSkipStepIds().then((skipStepIds) => {
       this.machine = createOnboardingStateMachine({
         userId,
-        initialSteps: ONBOARDING_STEPS.athlete,
+        initialSteps: isLegacy ? LEGACY_ONBOARDING_STEPS : ONBOARDING_STEPS.athlete,
         skipStepIds,
         debug: false,
         onComplete: async (formData) => {
-          await this.handleCompletion(formData);
+          if (isLegacy) {
+            await this.handleLegacyCompletion(formData);
+          } else {
+            await this.handleCompletion(formData);
+          }
         },
       });
 
@@ -828,6 +843,89 @@ export class OnboardingService {
     this._error.set(state.error);
     this._animationDirection.set(state.animationDirection as AnimationDirection);
     this._isCurrentStepValid.set(state.isCurrentStepValid);
+  }
+
+  // ============================================
+  // PRIVATE: LEGACY COMPLETION HANDLER
+  // ============================================
+
+  /**
+   * Simplified completion for legacy-migrated users.
+   * Saves only link sources and referral source (skips full profile overwrite),
+   * then marks legacyOnboardingCompleted = true on the backend.
+   */
+  private async handleLegacyCompletion(formData: OnboardingFormData): Promise<void> {
+    const user = this.authFlow.user();
+    if (!user) {
+      throw new Error('User not authenticated');
+    }
+
+    this.logger.info('Completing legacy onboarding', { userId: user.uid });
+    this.breadcrumb.trackStateChange('onboarding:legacy-completing', { userId: user.uid });
+
+    try {
+      const result = await this.performance.trace(
+        TRACE_NAMES.ONBOARDING_PROFILE_SAVE,
+        () =>
+          this.authApi.saveOnboardingProfile(user.uid, {
+            userType: (user.role ?? 'athlete') as OnboardingProfileData['userType'],
+            // Pass only supplemental data — backend keeps existing profile intact
+            linkSources: formData.linkSources,
+            isLegacyOnboardingUpdate: true,
+          } as OnboardingProfileData),
+        { attributes: { userType: 'legacy' } }
+      );
+
+      if (result.scrapeJobId) {
+        const platformNames =
+          formData.linkSources?.links
+            ?.filter((l) => l.connected)
+            .map((l) => l.platform)
+            .join(', ') ?? '';
+        this.profileGenerationState.attachToOperation(
+          result.scrapeJobId,
+          result.scrapeThreadId,
+          platformNames
+        );
+        this.logger.info('Backend scrape job started (legacy)', {
+          scrapeJobId: result.scrapeJobId,
+        });
+      }
+    } catch (saveError) {
+      this.logger.error('Failed to save legacy onboarding data', {
+        error: saveError,
+        userId: user.uid,
+      });
+      this.toast.error('Failed to save your data. Please check your connection and try again.');
+      return;
+    }
+
+    if (formData.referralSource?.source) {
+      try {
+        await this.authApi.saveReferralSource(user.uid, {
+          source: formData.referralSource.source,
+          details: formData.referralSource.details,
+          clubName: formData.referralSource.clubName,
+          otherSpecify: formData.referralSource.otherSpecify,
+        });
+        this.logger.info('Referral source saved (legacy)');
+      } catch (referralError) {
+        this.logger.warn('Failed to save referral source (legacy), continuing', {
+          error: referralError,
+        });
+      }
+    }
+
+    await this.authFlow.refreshUserProfile();
+    await this.clearSession();
+    this.trackCompleted();
+
+    await this.haptics.notification('success');
+    this.logger.debug('Navigating to congratulations page (legacy)');
+    await this.navController.navigateRoot('/auth/onboarding/congratulations', {
+      animated: true,
+      animationDirection: 'forward',
+    });
   }
 
   // ============================================
