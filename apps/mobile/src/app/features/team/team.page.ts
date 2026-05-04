@@ -32,6 +32,7 @@ import {
   computed,
   DestroyRef,
   effect,
+  viewChild,
 } from '@angular/core';
 import { Location } from '@angular/common';
 import { ActivatedRoute } from '@angular/router';
@@ -42,6 +43,8 @@ import {
   TeamProfileShellWebComponent,
   TeamProfileService,
   ManageTeamModalService,
+  ConnectedAccountsModalService,
+  InviteBottomSheetService,
   QrCodeBottomSheetService,
   NxtLoggingService,
   NxtToastService,
@@ -98,6 +101,8 @@ const TEAM_INTEL_ENABLED = false;
         (copyLinkClick)="onCopyLink()"
         (qrCodeClick)="onQrCode()"
         (manageTeamClick)="onManageTeam()"
+        (connectedAccountsClick)="onConnectAccountsFooter()"
+        (inviteRosterClick)="onInviteRoster()"
         (rosterMemberClick)="onRosterMemberClick($event)"
         (postClick)="onPostClick($event)"
         (refreshRequest)="onRefreshRequest()"
@@ -209,6 +214,7 @@ const TEAM_INTEL_ENABLED = false;
 })
 export class TeamPage {
   protected readonly teamIntelEnabled = TEAM_INTEL_ENABLED;
+  private readonly teamShell = viewChild(TeamProfileShellWebComponent);
 
   // ============================================
   // DEPENDENCIES
@@ -220,6 +226,8 @@ export class TeamPage {
   private readonly teamProfile = inject(TeamProfileService);
   private readonly teamApi = inject(TeamProfileApiService);
   private readonly manageTeamModal = inject(ManageTeamModalService);
+  private readonly connectedAccountsModal = inject(ConnectedAccountsModalService);
+  private readonly inviteModal = inject(InviteBottomSheetService);
   private readonly qrCode = inject(QrCodeBottomSheetService);
   private readonly analytics = inject(AnalyticsService);
   private readonly share = inject(ShareService);
@@ -265,7 +273,7 @@ export class TeamPage {
   protected readonly teamTitle = computed(() => this.teamProfile.team()?.teamName ?? 'Team');
 
   /**
-   * Sticky footer buttons for team admin actions on the intel tab.
+   * Sticky footer buttons for team admin actions on key tabs.
    */
   protected readonly teamFooterButtons = computed<ActionFooterButton[]>(() => {
     if (!this.isTeamAdmin()) return [];
@@ -276,6 +284,26 @@ export class TeamPage {
           label: this.intel.teamReport() ? 'Update Intel' : 'Generate Intel',
           variant: 'primary',
           onClick: () => void this.onGenerateTeamIntel(),
+        },
+      ];
+    }
+    if (this.teamProfile.activeTab() === 'connect') {
+      return [
+        {
+          id: 'connect-accounts',
+          label: 'Connect Accounts',
+          variant: 'primary',
+          onClick: () => void this.onConnectAccountsFooter(),
+        },
+      ];
+    }
+    if (this.teamProfile.activeTab() === 'roster') {
+      return [
+        {
+          id: 'invite-roster',
+          label: 'Invite',
+          variant: 'primary',
+          onClick: () => void this.onInviteRoster(),
         },
       ];
     }
@@ -488,6 +516,37 @@ export class TeamPage {
     });
   }
 
+  protected async onConnectAccountsFooter(): Promise<void> {
+    const user = this.authService.user();
+    const role = user?.role ?? null;
+
+    await this.connectedAccountsModal.open({
+      role,
+      selectedSports: [
+        ...(user?.primarySport ? [user.primarySport] : []),
+        ...(user?.sports?.map((sport) => sport.sport) ?? []),
+      ],
+      scope: 'team',
+    });
+  }
+
+  protected async onInviteRoster(): Promise<void> {
+    const team = this.teamProfile.team();
+    if (!team) return;
+
+    await this.inviteModal.open({
+      inviteType: 'team',
+      team: {
+        id: team.id,
+        name: team.teamName || 'Team',
+        sport: team.sport || 'Sports',
+        logoUrl: team.logoUrl ?? undefined,
+        memberCount: this.teamProfile.rosterCount(),
+        teamCode: team.teamCode ?? undefined,
+      },
+    });
+  }
+
   protected async onShare(): Promise<void> {
     const team = this.teamProfile.team();
     if (!team) return;
@@ -672,26 +731,9 @@ export class TeamPage {
   }
 
   protected async onAddUpdate(): Promise<void> {
-    const hasReport = !!this.intel.teamReport();
-    const message = hasReport
-      ? 'I want to create a post for our team timeline. After creating the post, automatically review it and update any relevant sections of our Agent X Intel report with new stats, results, recruiting activity, or program updates from the post.'
-      : 'I want to create a post for our team timeline.';
-
-    await this.bottomSheet.openSheet({
-      component: AgentXOperationChatComponent,
-      componentProps: {
-        contextId: 'team-timeline-post',
-        contextTitle: 'Create a Post',
-        contextIcon: 'create-outline',
-        contextType: 'command',
-        initialMessage: message,
-      },
-      ...SHEET_PRESETS.FULL,
-      showHandle: true,
-      handleBehavior: 'cycle',
-      backdropDismiss: true,
-      cssClass: 'agent-x-operation-sheet',
-    });
+    const teamShell = this.teamShell();
+    if (!teamShell) return;
+    await teamShell.triggerAddUpdateFromExternalAction(false);
   }
 
   protected async onGenerateTeamIntel(): Promise<void> {

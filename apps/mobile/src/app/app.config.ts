@@ -11,6 +11,8 @@ import {
   provideZoneChangeDetection,
   ErrorHandler,
   APP_INITIALIZER,
+  EnvironmentInjector,
+  runInInjectionContext,
 } from '@angular/core';
 import { APP_BASE_HREF } from '@angular/common';
 import { provideRouter, withComponentInputBinding, RouteReuseStrategy } from '@angular/router';
@@ -61,7 +63,7 @@ import {
   TEAM_PROFILE_API_BASE_URL,
 } from '@nxt1/ui';
 import { FEED_ENGAGEMENT } from '@nxt1/ui/feed';
-import { TEAM_LOGO_UPLOADER } from '@nxt1/ui/manage-team';
+import { MANAGE_TEAM_API_BASE_URL, TEAM_LOGO_UPLOADER } from '@nxt1/ui/manage-team';
 // Mobile-specific Activity API adapter (uses CapacitorHttpAdapter + auth)
 // Settings persistence adapter (connects SettingsService → backend API)
 // Email connection service (OAuth connect flow for linked accounts in settings)
@@ -241,6 +243,9 @@ export const appConfig: ApplicationConfig = {
     // Team Profile API base URL (team/timeline endpoints)
     { provide: TEAM_PROFILE_API_BASE_URL, useFactory: () => environment.apiUrl },
 
+    // Manage Team API base URL (editing team data)
+    { provide: MANAGE_TEAM_API_BASE_URL, useFactory: () => environment.apiUrl },
+
     // Agent X Auth Token Factory (for SSE uploads and fallback requests)
     {
       provide: AGENT_X_AUTH_TOKEN_FACTORY,
@@ -249,9 +254,12 @@ export const appConfig: ApplicationConfig = {
     },
 
     // Agent X live background operation events (onSnapshot adapter)
+    // Wrap Firebase modular calls in runInInjectionContext to keep them associated
+    // with the AngularFire injector even when invoked from outside Angular's
+    // injection context (rehydrate paths, async tails, sheet reopen flows).
     {
       provide: FIRESTORE_ADAPTER,
-      useFactory: (firestore: Firestore) => ({
+      useFactory: (firestore: Firestore, injector: EnvironmentInjector) => ({
         onSnapshot: (
           path: string,
           orderByField: string,
@@ -261,19 +269,21 @@ export const appConfig: ApplicationConfig = {
           if (!/^AgentJobs\/[^/]+\/events$/.test(path)) {
             throw new Error(`Unsupported Firestore subscription path: ${path}`);
           }
-          const ref = collection(firestore, path);
-          const q = query(ref, firestoreOrderBy(orderByField));
-          return firestoreOnSnapshot(
-            q,
-            (snap) => {
-              onNext(
-                snap.docs.map(
-                  (d) => normalizeFirestoreSnapshotValue(d.data()) as Record<string, unknown>
-                )
-              );
-            },
-            onError
-          );
+          return runInInjectionContext(injector, () => {
+            const ref = collection(firestore, path);
+            const q = query(ref, firestoreOrderBy(orderByField));
+            return firestoreOnSnapshot(
+              q,
+              (snap) => {
+                onNext(
+                  snap.docs.map(
+                    (d) => normalizeFirestoreSnapshotValue(d.data()) as Record<string, unknown>
+                  )
+                );
+              },
+              onError
+            );
+          });
         },
         getDocs: async (
           path: string,
@@ -282,15 +292,17 @@ export const appConfig: ApplicationConfig = {
           if (!/^AgentJobs\/[^/]+\/events$/.test(path)) {
             throw new Error(`Unsupported Firestore query path: ${path}`);
           }
-          const ref = collection(firestore, path);
-          const q = query(ref, firestoreOrderBy(orderByField));
-          const snap = await firestoreGetDocs(q);
-          return snap.docs.map(
-            (d) => normalizeFirestoreSnapshotValue(d.data()) as Record<string, unknown>
-          );
+          return runInInjectionContext(injector, async () => {
+            const ref = collection(firestore, path);
+            const q = query(ref, firestoreOrderBy(orderByField));
+            const snap = await firestoreGetDocs(q);
+            return snap.docs.map(
+              (d) => normalizeFirestoreSnapshotValue(d.data()) as Record<string, unknown>
+            );
+          });
         },
       }),
-      deps: [Firestore],
+      deps: [Firestore, EnvironmentInjector],
     },
 
     // Activity API base URL

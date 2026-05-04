@@ -42,6 +42,7 @@ import { CONNECTED_ACCOUNTS_OAUTH_HANDLER } from './connected-accounts-modal.ser
       closePosition="right"
       [centerTitle]="true"
       [showBorder]="true"
+      [dismissOnClose]="false"
       (closeSheet)="dismiss()"
     >
       <button
@@ -258,10 +259,29 @@ export class ConnectedAccountsSheetComponent implements OnInit {
     if (this._hasChanges()) {
       const data = this.buildCloseData();
 
-      this.breadcrumb.trackStateChange('connected-accounts-sheet:saved', {
-        count: data.updatedLinks.length,
-      });
-      void this.modalCtrl.dismiss(data, 'save');
+      // Detect any link-type accounts that were newly added in this session
+      const originalConnectedPlatforms = new Set(
+        (this._linkSourcesData() ?? { links: [] }).links
+          .filter((l) => l.connected)
+          .map((l) => l.platform)
+      );
+      const newLinkSources = data.sources.filter(
+        (s) => s.connectionType === 'link' && !originalConnectedPlatforms.has(s.platform)
+      );
+
+      if (newLinkSources.length > 0) {
+        // Save AND auto-resync for the newly added link accounts
+        this.breadcrumb.trackStateChange('connected-accounts-sheet:saved-with-resync', {
+          count: data.updatedLinks.length,
+          newLinkCount: newLinkSources.length,
+        });
+        void this.modalCtrl.dismiss({ ...data, sources: newLinkSources }, 'resync');
+      } else {
+        this.breadcrumb.trackStateChange('connected-accounts-sheet:saved', {
+          count: data.updatedLinks.length,
+        });
+        void this.modalCtrl.dismiss(data, 'save');
+      }
     } else {
       this.breadcrumb.trackStateChange('connected-accounts-sheet:cancelled');
       void this.modalCtrl.dismiss(null, 'cancel');
@@ -327,6 +347,7 @@ export class ConnectedAccountsSheetComponent implements OnInit {
       connected: boolean;
       username?: string;
       url?: string;
+      connectionType?: string;
     }[];
     readonly updatedLinks: readonly {
       platform: string;
@@ -348,6 +369,7 @@ export class ConnectedAccountsSheetComponent implements OnInit {
         connected: link.connected,
         username: link.username,
         url: link.url,
+        connectionType: link.connectionType,
       })),
       updatedLinks: connectedLinks.map((link, index) => ({
         platform: link.platform,

@@ -91,6 +91,10 @@ export class UsageService implements OnDestroy {
   private _externalRefreshTimeouts: Array<ReturnType<typeof setTimeout>> = [];
   /** Monotonic token so stale async dashboard loads cannot overwrite newer state */
   private _dashboardLoadRequestId = 0;
+  /** Monotonic token so stale chart loads cannot overwrite newer state */
+  private _chartLoadRequestId = 0;
+  /** Monotonic token so stale breakdown loads cannot overwrite newer state */
+  private _breakdownLoadRequestId = 0;
 
   // ============================================
   // PRIVATE WRITEABLE SIGNALS
@@ -109,7 +113,8 @@ export class UsageService implements OnDestroy {
   private readonly _billingContext = signal<BillingStateSummary | null>(null);
   private readonly _isLoading = signal(false);
   private readonly _error = signal<string | null>(null);
-  private readonly _timeframe = signal<UsageTimeframe>('current-month');
+  private readonly _chartTimeframe = signal<UsageTimeframe>('current-month');
+  private readonly _breakdownTimeframe = signal<UsageTimeframe>('current-month');
   private readonly _activeProductTab = signal<UsageProductCategory>('media');
   private readonly _expandedBreakdownRow = signal<string | null>(null);
   private readonly _searchQuery = signal('');
@@ -273,7 +278,8 @@ export class UsageService implements OnDestroy {
   readonly billingContext = computed(() => this._billingContext());
   readonly isLoading = computed(() => this._isLoading());
   readonly error = computed(() => this._error());
-  readonly timeframe = computed(() => this._timeframe());
+  readonly chartTimeframe = computed(() => this._chartTimeframe());
+  readonly breakdownTimeframe = computed(() => this._breakdownTimeframe());
   readonly activeProductTab = computed(() => this._activeProductTab());
   readonly expandedBreakdownRow = computed(() => this._expandedBreakdownRow());
   readonly searchQuery = computed(() => this._searchQuery());
@@ -400,6 +406,11 @@ export class UsageService implements OnDestroy {
   /** Period label */
   readonly periodLabel = computed(() => this._overview()?.period.label ?? '');
 
+  /** Breakdown-specific period label derived from its own timeframe */
+  readonly breakdownPeriodLabel = computed(() =>
+    this.formatTimeframePeriodLabel(this._breakdownTimeframe())
+  );
+
   /** Next payment due display */
   readonly nextPaymentDisplay = computed(() => {
     const overview = this._overview();
@@ -486,11 +497,30 @@ export class UsageService implements OnDestroy {
     this.haptics.impact('light');
   }
 
-  /** Set the timeframe filter */
-  setTimeframe(timeframe: UsageTimeframe): void {
-    this._timeframe.set(timeframe);
-    this.analytics?.trackEvent(APP_EVENTS.USAGE_TIMEFRAME_CHANGED, { timeframe });
-    this.loadDashboard();
+  /** Set the metered usage timeframe filter */
+  setChartTimeframe(timeframe: UsageTimeframe): void {
+    if (this._chartTimeframe() === timeframe) {
+      return;
+    }
+    this._chartTimeframe.set(timeframe);
+    this.analytics?.trackEvent(APP_EVENTS.USAGE_TIMEFRAME_CHANGED, {
+      timeframe,
+      section: 'metered-usage',
+    });
+    void this.loadChartData();
+  }
+
+  /** Set the breakdown timeframe filter */
+  setBreakdownTimeframe(timeframe: UsageTimeframe): void {
+    if (this._breakdownTimeframe() === timeframe) {
+      return;
+    }
+    this._breakdownTimeframe.set(timeframe);
+    this.analytics?.trackEvent(APP_EVENTS.USAGE_TIMEFRAME_CHANGED, {
+      timeframe,
+      section: 'breakdown',
+    });
+    void this.loadBreakdownRows();
   }
 
   /** Set the active product tab */
@@ -558,28 +588,45 @@ export class UsageService implements OnDestroy {
 
   async loadDashboard(forceFresh = false): Promise<void> {
     const requestId = ++this._dashboardLoadRequestId;
-    const timeframe = this._timeframe();
-    this.logger.info('Loading usage dashboard', { timeframe, forceFresh });
-    this.breadcrumb.trackStateChange('usage:loading', { timeframe, forceFresh });
+    const chartTimeframe = this._chartTimeframe();
+    const breakdownTimeframe = this._breakdownTimeframe();
+    this.logger.info('Loading usage dashboard', {
+      chartTimeframe,
+      breakdownTimeframe,
+      forceFresh,
+    });
+    this.breadcrumb.trackStateChange('usage:loading', {
+      chartTimeframe,
+      breakdownTimeframe,
+      forceFresh,
+    });
     this._isLoading.set(true);
     this._error.set(null);
 
     try {
-      const [dashboard, billingCtx] = await Promise.all([
-        forceFresh ? this.api.getDashboardFresh(timeframe) : this.api.getDashboard({ timeframe }),
+      const [dashboard, billingCtx, chartData, breakdownRows] = await Promise.all([
+        forceFresh
+          ? this.api.getDashboardFresh(chartTimeframe)
+          : this.api.getDashboard({ timeframe: chartTimeframe }),
         forceFresh ? this.api.getBillingStateFresh() : this.api.getBillingState(),
+        this.api.getChartData(chartTimeframe),
+        this.api.getBreakdown(breakdownTimeframe),
       ]);
 
       if (requestId !== this._dashboardLoadRequestId) {
-        this.logger.info('Discarding stale usage dashboard response', { requestId, timeframe });
+        this.logger.info('Discarding stale usage dashboard response', {
+          requestId,
+          chartTimeframe,
+          breakdownTimeframe,
+        });
         return;
       }
 
       this._overview.set(dashboard.overview);
-      this._chartData.set(dashboard.chartData);
+      this._chartData.set(chartData);
       this._productDetails.set(dashboard.productDetails);
       this._topItems.set(dashboard.topItems);
-      this._breakdownRows.set(dashboard.breakdownRows);
+      this._breakdownRows.set(breakdownRows);
       this._paymentHistory.set(dashboard.paymentHistory);
       this._paymentMethods.set(dashboard.paymentMethods);
       this._billingInfo.set(dashboard.billingInfo);
@@ -601,7 +648,8 @@ export class UsageService implements OnDestroy {
       this.logger.info('Usage dashboard loaded', { entity: billingCtx.billingEntity });
       this.breadcrumb.trackStateChange('usage:loaded', { entity: billingCtx.billingEntity });
       this.analytics?.trackEvent(APP_EVENTS.USAGE_DASHBOARD_VIEWED, {
-        timeframe,
+        chartTimeframe,
+        breakdownTimeframe,
         entity: billingCtx.billingEntity,
       });
 
@@ -621,6 +669,89 @@ export class UsageService implements OnDestroy {
         this._isLoading.set(false);
       }
     }
+  }
+
+  async loadChartData(): Promise<void> {
+    const requestId = ++this._chartLoadRequestId;
+    const timeframe = this._chartTimeframe();
+
+    try {
+      const chartData = await this.api.getChartData(timeframe);
+      if (requestId !== this._chartLoadRequestId) {
+        return;
+      }
+      this._chartData.set(chartData);
+    } catch (err) {
+      if (requestId !== this._chartLoadRequestId) {
+        return;
+      }
+      const message = err instanceof Error ? err.message : 'Failed to load chart data';
+      this._error.set(message);
+      this.logger.error('Failed to load usage chart data', err, { timeframe });
+      this.breadcrumb.trackStateChange('usage:chart-error', { timeframe, message });
+    }
+  }
+
+  async loadBreakdownRows(): Promise<void> {
+    const requestId = ++this._breakdownLoadRequestId;
+    const timeframe = this._breakdownTimeframe();
+
+    try {
+      const breakdownRows = await this.api.getBreakdown(timeframe);
+      if (requestId !== this._breakdownLoadRequestId) {
+        return;
+      }
+      this._breakdownRows.set(breakdownRows);
+      this._expandedBreakdownRow.set(null);
+    } catch (err) {
+      if (requestId !== this._breakdownLoadRequestId) {
+        return;
+      }
+      const message = err instanceof Error ? err.message : 'Failed to load usage breakdown';
+      this._error.set(message);
+      this.logger.error('Failed to load usage breakdown data', err, { timeframe });
+      this.breadcrumb.trackStateChange('usage:breakdown-error', { timeframe, message });
+    }
+  }
+
+  private formatTimeframePeriodLabel(timeframe: UsageTimeframe): string {
+    const now = new Date();
+    let start: Date;
+    let end: Date;
+
+    switch (timeframe) {
+      case 'last-month': {
+        start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+        end = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59);
+        break;
+      }
+      case 'last-3-months':
+        start = new Date(now.getFullYear(), now.getMonth() - 2, 1);
+        end = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+        break;
+      case 'last-6-months':
+        start = new Date(now.getFullYear(), now.getMonth() - 5, 1);
+        end = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+        break;
+      case 'last-12-months':
+        start = new Date(now.getFullYear(), now.getMonth() - 11, 1);
+        end = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+        break;
+      case 'current-month':
+      default:
+        start = new Date(now.getFullYear(), now.getMonth(), 1);
+        end = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+        break;
+    }
+
+    const startStr = start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const endStr = end.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    });
+
+    return `${startStr} – ${endStr}`;
   }
 
   /** Refresh all usage data (pull-to-refresh) */

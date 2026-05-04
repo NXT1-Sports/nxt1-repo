@@ -4467,9 +4467,11 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
    * Mark a task as explicitly done — user already completed it outside the app.
    */
   protected async onMarkDoneTask(task: ShellWeeklyPlaybookItem): Promise<void> {
-    await this.haptics.notification('success');
-    this.agentX.markPlaybookItemComplete(task.id);
-    this.toast.success('Task marked complete');
+    const saved = await this.agentX.markPlaybookItemComplete(task.id);
+    if (saved) {
+      await this.haptics.notification('success');
+      this.toast.success('Task marked complete');
+    }
   }
 
   protected async onSendMessage(): Promise<void> {

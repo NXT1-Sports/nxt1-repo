@@ -32,6 +32,8 @@ import {
   getReferralRewardCents,
   NEW_USER_MAX_AGE_MINUTES,
 } from '../../modules/billing/index.js';
+import { notifyTeamJoined } from '../../services/communications/team-join-notifications.js';
+import { resolveRosterPositions } from '../../services/team/roster-sport-profile.service.js';
 
 const router = Router();
 
@@ -1056,9 +1058,7 @@ router.post(
             const teamSport: string = teamDocSnap.data()?.['sport'] ?? team.sport ?? '';
             const athletePositions =
               rosterRole === 'athlete'
-                ? userData?.sports?.find(
-                    (sport) => sport.sport?.trim().toLowerCase() === teamSport.trim().toLowerCase()
-                  )?.positions
+                ? resolveRosterPositions(userData?.sports, teamSport)
                 : undefined;
 
             const rosterService = new RosterEntryService(db);
@@ -1132,6 +1132,41 @@ router.post(
           });
 
           void invalidateTeamProfileCache(team.id ?? '', team.slug ?? undefined);
+
+          // Fire-and-forget: notify ALL org admins that a new member joined or
+          // requested to join. ALWAYS org-level (not team.createdBy).
+          // Staff roles (Coach / Administrative) come in as PENDING and use
+          // the `team_join_request` type so admins see an approval prompt.
+          if (team.id) {
+            const joinerName =
+              [userData?.firstName ?? '', userData?.lastName ?? '']
+                .map((value) => value.trim())
+                .filter(Boolean)
+                .join(' ') ||
+              userData?.displayName ||
+              'Someone';
+            const joinerAvatarUrl = userData?.profileImgs?.[0] ?? null;
+
+            void notifyTeamJoined(db, {
+              teamId: team.id,
+              teamName: team.teamName ?? teamJoined ?? 'your team',
+              organizationId: team.organizationId,
+              joinerUid: userId,
+              joinerName,
+              joinerAvatarUrl,
+              pending: joinedAsPending,
+              ...(inviterId ? { inviterUid: inviterId } : {}),
+            }).catch((err) =>
+              logger.error(
+                '[POST /invite/accept] Failed to dispatch org-level team join notification',
+                {
+                  error: err instanceof Error ? err.message : String(err),
+                  teamId: team.id,
+                  joinerUid: userId,
+                }
+              )
+            );
+          }
         } catch (teamErr) {
           // Non-blocking — if team join fails (e.g. team full), invite is still accepted
           logger.warn('[POST /invite/accept] Team join failed (non-blocking)', {

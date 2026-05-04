@@ -1,3 +1,4 @@
+import { buildCanonicalProfilePath } from '@nxt1/core';
 import { Timestamp, type Firestore, type Query } from 'firebase-admin/firestore';
 import type {
   FirebaseMcpQueryInput,
@@ -14,6 +15,7 @@ import {
   normalizeViewLimit,
 } from './shared.js';
 import { AgentEngineError } from '../../../exceptions/agent-engine.error.js';
+import { toAbsoluteAppUrl } from '../../../../../utils/app-url.js';
 
 const USERS_COLLECTION = 'Users';
 const POSTS_COLLECTION = 'Posts';
@@ -121,6 +123,85 @@ function createdAtCursor(items: PrimitiveRecord[], fieldName: string): string | 
   return sortValue ? encodeCursor(sortValue) : undefined;
 }
 
+function asNonEmptyString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function resolveRosterProfileDisplayName(
+  profile: PrimitiveRecord,
+  entry: PrimitiveRecord
+): string | undefined {
+  const directDisplayName =
+    asNonEmptyString(profile['displayName']) ??
+    asNonEmptyString(profile['name']) ??
+    asNonEmptyString(entry['displayName']);
+  if (directDisplayName) return directDisplayName;
+
+  const firstName = asNonEmptyString(profile['firstName']);
+  const lastName = asNonEmptyString(profile['lastName']);
+  const combined = [firstName, lastName].filter(Boolean).join(' ').trim();
+
+  return combined || undefined;
+}
+
+function resolveRosterProfileSport(
+  profile: PrimitiveRecord,
+  entry: PrimitiveRecord
+): string | undefined {
+  const directSport =
+    asNonEmptyString(entry['sport']) ??
+    asNonEmptyString(profile['primarySport']) ??
+    asNonEmptyString(profile['sport']);
+  if (directSport) return directSport;
+
+  const sports = Array.isArray(profile['sports']) ? profile['sports'] : [];
+  for (const sportEntry of sports) {
+    if (!sportEntry || typeof sportEntry !== 'object') continue;
+    const sportName = asNonEmptyString((sportEntry as PrimitiveRecord)['sport']);
+    if (sportName) return sportName;
+  }
+
+  const sportInfo = Array.isArray(profile['sportInfo']) ? profile['sportInfo'] : [];
+  for (const sportEntry of sportInfo) {
+    if (!sportEntry || typeof sportEntry !== 'object') continue;
+    const sportName =
+      asNonEmptyString((sportEntry as PrimitiveRecord)['sport']) ??
+      asNonEmptyString((sportEntry as PrimitiveRecord)['sportName']) ??
+      asNonEmptyString((sportEntry as PrimitiveRecord)['name']);
+    if (sportName) return sportName;
+  }
+
+  return undefined;
+}
+
+function buildRosterProfileLink(
+  profile: PrimitiveRecord,
+  entry: PrimitiveRecord,
+  appBaseUrl?: string
+): { profilePath: string; profileUrl: string } | null {
+  const profileId = asNonEmptyString(profile['id']) ?? asNonEmptyString(entry['userId']);
+  const unicode =
+    asNonEmptyString(profile['unicode']) ?? asNonEmptyString(profile['username']) ?? profileId;
+  const displayName = resolveRosterProfileDisplayName(profile, entry);
+  const sport = resolveRosterProfileSport(profile, entry);
+
+  if (!profileId || !unicode || !displayName || !sport) {
+    return null;
+  }
+
+  const profilePath = buildCanonicalProfilePath({
+    athleteName: displayName,
+    sport,
+    unicode,
+    id: profileId,
+  });
+
+  return {
+    profilePath,
+    profileUrl: toAbsoluteAppUrl(profilePath, appBaseUrl ? { appBaseUrl } : {}),
+  };
+}
+
 async function queryDocuments(query: Query, limit: number): Promise<PrimitiveRecord[]> {
   const snapshot = await query.limit(limit).get();
   return snapshot.docs.map((doc) => sanitizeRecord({ id: doc.id, ...doc.data() }));
@@ -225,7 +306,8 @@ async function queryAcrossIds(
 
 async function buildRosterItems(
   db: Firestore,
-  rosterEntries: readonly PrimitiveRecord[]
+  rosterEntries: readonly PrimitiveRecord[],
+  appBaseUrl?: string
 ): Promise<PrimitiveRecord[]> {
   const userIds = rosterEntries
     .map((entry) => entry['userId'])
@@ -243,8 +325,12 @@ async function buildRosterItems(
     loadDocumentsById(db, ORGANIZATIONS_COLLECTION, organizationIds),
   ]);
 
-  return rosterEntries.map((entry) =>
-    sanitizeRecord({
+  return rosterEntries.map((entry) => {
+    const profileRecord =
+      typeof entry['userId'] === 'string' ? (profilesById[entry['userId']] ?? {}) : {};
+    const profileLink = buildRosterProfileLink(profileRecord, entry, appBaseUrl);
+
+    return sanitizeRecord({
       ...pickFields(entry, [
         'id',
         'userId',
@@ -267,22 +353,30 @@ async function buildRosterItems(
         'updatedAt',
         'leftAt',
       ]),
+      ...(profileLink ?? {}),
       profile:
         typeof entry['userId'] === 'string'
-          ? pickFields(profilesById[entry['userId']] ?? {}, [
-              'id',
-              'firstName',
-              'lastName',
-              'displayName',
-              'classOf',
-              'school',
-              'city',
-              'state',
-              'height',
-              'weight',
-              'profileImgs',
-              'sportInfo',
-            ])
+          ? sanitizeRecord({
+              ...pickFields(profileRecord, [
+                'id',
+                'firstName',
+                'lastName',
+                'displayName',
+                'classOf',
+                'school',
+                'city',
+                'state',
+                'height',
+                'weight',
+                'profileImgs',
+                'sportInfo',
+                'sport',
+                'primarySport',
+                'unicode',
+                'username',
+              ]),
+              ...(profileLink ?? {}),
+            })
           : null,
       team:
         typeof entry['teamId'] === 'string'
@@ -320,8 +414,8 @@ async function buildRosterItems(
               'status',
             ])
           : null,
-    })
-  );
+    });
+  });
 }
 
 async function buildHighlightItems(
@@ -766,7 +860,7 @@ const VIEW_DEFINITIONS: Record<FirebaseViewName, FirebaseViewDefinition> = {
       if (status) query = query.where('status', '==', status);
 
       const rosterEntries = await queryDocuments(query, limit);
-      const items = await buildRosterItems(db, rosterEntries);
+      const items = await buildRosterItems(db, rosterEntries, scope.appBaseUrl);
 
       return {
         view: 'user_team_membership',
@@ -1064,7 +1158,10 @@ const VIEW_DEFINITIONS: Record<FirebaseViewName, FirebaseViewDefinition> = {
       );
 
       const filteredRosterEntries = applySearchFilter(rosterEntries, search, ['displayName']);
-      const items = (await buildRosterItems(db, filteredRosterEntries)).slice(0, limit);
+      const items = (await buildRosterItems(db, filteredRosterEntries, scope.appBaseUrl)).slice(
+        0,
+        limit
+      );
 
       return {
         view: 'team_roster_members',
@@ -1313,7 +1410,10 @@ const VIEW_DEFINITIONS: Record<FirebaseViewName, FirebaseViewDefinition> = {
       );
 
       const filteredRosterEntries = applySearchFilter(rosterEntries, search, ['displayName']);
-      const items = (await buildRosterItems(db, filteredRosterEntries)).slice(0, limit);
+      const items = (await buildRosterItems(db, filteredRosterEntries, scope.appBaseUrl)).slice(
+        0,
+        limit
+      );
 
       return {
         view: 'organization_roster_members',

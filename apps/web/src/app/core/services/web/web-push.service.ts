@@ -43,6 +43,7 @@ import { ANALYTICS_ADAPTER } from '@nxt1/ui/services/analytics';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import { AgentXService } from '@nxt1/ui/agent-x';
 import { AgentXFabService } from '@nxt1/ui/agent-x/fab';
+import { ManageTeamMembershipModalService } from '@nxt1/ui/manage-team';
 import { NxtPlatformService } from '@nxt1/ui/services/platform';
 import { AUTH_SERVICE } from '../auth';
 import { environment } from '../../../../environments/environment';
@@ -65,6 +66,7 @@ export class WebPushService {
   private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
   private readonly agentX = inject(AgentXService);
   private readonly fabService = inject(AgentXFabService);
+  private readonly membershipModal = inject(ManageTeamMembershipModalService);
   private readonly platform = inject(NxtPlatformService);
 
   // ============================================
@@ -98,10 +100,7 @@ export class WebPushService {
   private get isLocalDevHost(): boolean {
     if (!isPlatformBrowser(this.platformId)) return false;
 
-    return (
-      window.location.hostname === 'localhost' ||
-      window.location.hostname === '127.0.0.1'
-    );
+    return window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
   }
 
   // ============================================
@@ -146,6 +145,9 @@ export class WebPushService {
           this.logger.info('Background notification clicked', { deepLink });
           this.breadcrumb.trackUserAction('push:background-click', { deepLink });
           this.analytics?.trackEvent(APP_EVENTS.PUSH_BACKGROUND_OPENED, { deepLink });
+          if (this.openManageMembersModal(deepLink)) {
+            return;
+          }
           this.router.navigateByUrl(deepLink);
         });
       }
@@ -435,10 +437,36 @@ export class WebPushService {
         text: 'View',
         handler: () => {
           this.analytics?.trackEvent(APP_EVENTS.PUSH_FOREGROUND_ACTION, { deepLink });
+          if (this.openManageMembersModal(deepLink)) {
+            return;
+          }
           this.router.navigateByUrl(deepLink);
         },
       },
     });
+  }
+
+  private openManageMembersModal(deepLink: string): boolean {
+    if (!deepLink.startsWith('/manage-team')) {
+      return false;
+    }
+
+    try {
+      const url = new URL(deepLink, 'https://nxt1.local');
+      const teamId = url.searchParams.get('teamId');
+      const tab = url.searchParams.get('tab');
+      if (!teamId) {
+        return false;
+      }
+
+      const initialFilter = tab === 'pending' ? 'pending' : tab === 'staff' ? 'staff' : 'roster';
+
+      void this.membershipModal.open({ teamId, initialFilter });
+      return true;
+    } catch {
+      this.logger.warn('Failed to parse manage-team deep link from push', { deepLink });
+      return false;
+    }
   }
 }
 

@@ -60,6 +60,7 @@ import { IntelService } from '@nxt1/ui/intel';
 import { TeamProfileService } from '@nxt1/ui/team-profile';
 import { EditProfileModalService } from '@nxt1/ui/edit-profile';
 import { ManageTeamModalService } from '@nxt1/ui/manage-team';
+import { ConnectedAccountsModalService } from '@nxt1/ui/components/connected-sources';
 import { NxtOverlayService } from '@nxt1/ui/components/overlay';
 import {
   ShareActionsOverlayComponent,
@@ -136,6 +137,8 @@ const CTA_AVATARS: readonly CtaAvatarImage[] = [
       (copyLinkClick)="onCopyLink()"
       (qrCodeClick)="onQrCode()"
       (aiSummaryClick)="onAiSummary()"
+      (connectedAccountsClick)="onConnectedAccounts()"
+      (sportProfileSelect)="onSportProfileSelect($event)"
       (retryClick)="onRetry()"
       (generationDismissed)="onGenerationDismissed($event)"
     >
@@ -187,6 +190,7 @@ export class ProfileComponent implements OnInit, OnDestroy {
   private readonly qrCode = inject(QrCodeService);
   private readonly editProfileModal = inject(EditProfileModalService);
   private readonly manageTeamModal = inject(ManageTeamModalService);
+  private readonly connectedAccountsModal = inject(ConnectedAccountsModalService);
   private readonly sidenavService = inject(NxtSidenavService);
   private readonly platform = inject(NxtPlatformService);
   private readonly router = inject(Router);
@@ -940,6 +944,17 @@ export class ProfileComponent implements OnInit, OnDestroy {
     });
   }
 
+  protected async onConnectedAccounts(): Promise<void> {
+    const user = this.authService.user();
+    const role = user?.role ?? null;
+
+    await this.connectedAccountsModal.open({
+      role,
+      selectedSports: user?.selectedSports ?? [],
+      scope: role === 'coach' || role === 'director' ? 'team' : 'athlete',
+    });
+  }
+
   /**
    * Searches programs/teams via the backend API.
    * Passed to the edit-profile modal for inline program search.
@@ -1089,6 +1104,38 @@ export class ProfileComponent implements OnInit, OnDestroy {
       this.logger.error('Failed to open QR code modal', err);
       this.toast.error('Unable to open QR code');
     }
+  }
+
+  protected onSportProfileSelect(index: number): void {
+    const profile = this.fetchedProfile();
+    const selectedSport =
+      this.profileService.allSports()[index]?.name ?? profile?.sports?.[index]?.sport;
+
+    if (!selectedSport) {
+      void this.profileService.setActiveSportIndex(index);
+      return;
+    }
+
+    void this.profileService.setActiveSportIndex(index);
+
+    const profilePath = buildCanonicalProfilePath({
+      athleteName:
+        `${profile?.firstName ?? ''} ${profile?.lastName ?? ''}`.trim() || 'NXT1 Athlete',
+      sport: selectedSport,
+      unicode: profile?.unicode ?? this.profileUnicode(),
+    });
+
+    this.logger.debug('Profile sport selected from page rail', {
+      index,
+      sport: selectedSport,
+      profilePath,
+    });
+
+    if (profilePath === this.router.url.split('?')[0]) {
+      return;
+    }
+
+    void this.router.navigateByUrl(profilePath);
   }
 
   /**

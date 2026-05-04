@@ -129,6 +129,7 @@ export interface ConnectedAccountsModalResult {
     connected: boolean;
     username?: string;
     url?: string;
+    connectionType?: string;
   }[];
 }
 
@@ -207,6 +208,8 @@ export class ConnectedAccountsModalService {
         _scope: options.scope ?? 'athlete',
       },
       showHandle: true,
+      // Prevent swipe-to-dismiss from bypassing the component's explicit save path.
+      canDismiss: async (_data, role) => role !== 'gesture',
     });
 
     if (result.role === 'resync') {
@@ -258,8 +261,9 @@ export class ConnectedAccountsModalService {
           scope: options.scope ?? 'athlete',
         },
         size: 'lg',
-        backdropDismiss: true,
-        escDismiss: true,
+        // Prevent backdrop / Escape dismiss from bypassing the component's explicit save path.
+        backdropDismiss: false,
+        escDismiss: false,
         showCloseButton: false,
         ariaLabel: 'Connected Accounts',
         panelClass: 'nxt1-connected-accounts-overlay',

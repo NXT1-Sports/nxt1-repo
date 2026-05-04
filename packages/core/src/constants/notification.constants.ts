@@ -323,8 +323,8 @@ export const NOTIFICATION_DEEP_LINKS: Partial<Record<NotificationType, string>> 
 
   // Team
   team_invite: '/activity?tab=inbox',
-  team_join_request: '/activity',
-  team_member_joined: '/manage-team?teamId={teamId}&tab=pending',
+  team_join_request: '/manage-team?teamId={teamId}&tab=pending',
+  team_member_joined: '/manage-team?teamId={teamId}&tab=roster',
   team_member_left: '/manage-team?teamId={teamId}',
   team_announcement: '/team/{teamId}',
   team_event: '/team/{teamId}',

@@ -196,6 +196,7 @@ export class FirebaseMcpBridgeService extends BaseMcpClientService {
       organizationIds,
       ...(context.threadId ? { threadId: context.threadId } : {}),
       ...(context.sessionId ? { sessionId: context.sessionId } : {}),
+      ...(context.appBaseUrl ? { appBaseUrl: context.appBaseUrl } : {}),
       ...(teamIds.length > 0 ? { defaultTeamId: teamIds[0] } : {}),
       ...(organizationIds.length > 0 ? { defaultOrganizationId: organizationIds[0] } : {}),
     };
@@ -266,6 +267,7 @@ export class FirebaseMcpBridgeService extends BaseMcpClientService {
       userId: context.userId,
       teamIds: scope.teamIds.join(','),
       organizationIds: scope.organizationIds.join(','),
+      appBaseUrl: scope.appBaseUrl,
       view: input.view,
       limit: input.limit,
       cursor: input.cursor,

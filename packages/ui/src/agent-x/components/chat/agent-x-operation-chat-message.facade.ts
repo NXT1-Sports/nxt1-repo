@@ -75,7 +75,16 @@ export class AgentXOperationChatMessageFacade {
   }
 
   pushMessage(message: OperationMessage): void {
-    this.messages.update((previous) => [...previous, message]);
+    this.messages.update((previous) => {
+      // Sentinel-id dedup: only one row may carry id === 'typing' at a time.
+      // Multiple call sites (run-control send, yield resume, sse-fallback,
+      // reconnect rehydrate) push typing bubbles independently, so guard here
+      // to keep @for track unique and avoid NG0955.
+      if (message.id === 'typing' && previous.some((entry) => entry.id === 'typing')) {
+        return previous;
+      }
+      return [...previous, message];
+    });
   }
 
   replaceTyping(message: OperationMessage): void {

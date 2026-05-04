@@ -115,6 +115,23 @@ import { USAGE_TEST_IDS } from '@nxt1/core/testing';
         margin-bottom: var(--nxt1-spacing-5);
       }
 
+      .timeframe-select {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+      }
+
+      .timeframe-select::after {
+        content: '';
+        position: absolute;
+        right: var(--nxt1-spacing-3);
+        width: 10px;
+        height: 6px;
+        background: var(--nxt1-color-text-secondary);
+        clip-path: polygon(0 0, 100% 0, 50% 100%);
+        pointer-events: none;
+      }
+
       .section-heading {
         font-family: var(--nxt1-fontFamily-brand);
         font-size: var(--nxt1-fontSize-xl);
@@ -124,13 +141,19 @@ import { USAGE_TEST_IDS } from '@nxt1/core/testing';
       }
 
       .timeframe-dropdown {
+        appearance: none;
+        -webkit-appearance: none;
         background: var(--nxt1-color-surface-200);
+        background-image: none;
         color: var(--nxt1-color-text-primary);
         border: 1px solid var(--nxt1-color-border-default);
         border-radius: var(--nxt1-radius-md, 8px);
-        padding: var(--nxt1-spacing-2) var(--nxt1-spacing-3);
+        min-width: 9.5rem;
+        padding: var(--nxt1-spacing-2) var(--nxt1-spacing-8) var(--nxt1-spacing-2)
+          var(--nxt1-spacing-3);
         font-size: var(--nxt1-fontSize-sm);
         font-family: var(--nxt1-fontFamily-brand);
+        line-height: 1.25;
         cursor: pointer;
         outline: none;
 

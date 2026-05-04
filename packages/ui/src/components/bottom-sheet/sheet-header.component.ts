@@ -320,6 +320,12 @@ export class NxtSheetHeaderComponent {
   /** Optional data-testid for the close button. */
   readonly closeTestId = input<string | undefined>(undefined);
 
+  /**
+   * When true, the header attempts to dismiss the active Ionic modal directly before
+   * notifying the parent. Set to false for sheets that need custom save/cancel logic.
+   */
+  readonly dismissOnClose = input<boolean>(true);
+
   // ============================================
   // OUTPUTS
   // ============================================
@@ -333,6 +339,11 @@ export class NxtSheetHeaderComponent {
 
   async onClose(): Promise<void> {
     await this.haptics.impact('light');
+
+    if (!this.dismissOnClose()) {
+      this.closeSheet.emit();
+      return;
+    }
 
     // Dismiss immediately so backdrop and sheet close timing match classic behavior.
     const topOverlay = await this.modalCtrl.getTop();

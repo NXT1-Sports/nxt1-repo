@@ -28,7 +28,7 @@ import type {
   AgentXSelectedAction,
 } from '@nxt1/core';
 import { resolveApprovalSuccessText } from '@nxt1/core';
-import { AGENT_X_RUNTIME_CONFIG } from '@nxt1/core/ai';
+import { AGENT_X_REQUEST_HEADERS, AGENT_X_RUNTIME_CONFIG } from '@nxt1/core/ai';
 import {
   STREAM_TERMINAL_EVENTS,
   type PubSubUnsubscribe,
@@ -61,6 +61,7 @@ import {
   resolveThread,
   forceProxyFlush,
 } from './shared.js';
+import { resolveAppBaseUrl } from '../../utils/app-url.js';
 
 const router = Router();
 
@@ -150,6 +151,27 @@ function removeActiveUserStreamLease(userId: string, streamId: string): void {
   if (userStreams.size === 0) {
     activeUserStreams.delete(userId);
   }
+}
+
+function resolveRequestAppBaseUrl(req: Request): string {
+  const explicitAppBaseUrlHeader = req.header(AGENT_X_REQUEST_HEADERS.APP_BASE_URL) ?? undefined;
+
+  return resolveAppBaseUrl({
+    environment: req.isStaging ? 'staging' : 'production',
+    appBaseUrl: explicitAppBaseUrlHeader,
+    origin: typeof req.headers.origin === 'string' ? req.headers.origin : undefined,
+    referer: typeof req.headers.referer === 'string' ? req.headers.referer : undefined,
+    host: typeof req.headers.host === 'string' ? req.headers.host : undefined,
+    protocol: req.protocol,
+    forwardedHost:
+      typeof req.headers['x-forwarded-host'] === 'string'
+        ? req.headers['x-forwarded-host']
+        : undefined,
+    forwardedProto:
+      typeof req.headers['x-forwarded-proto'] === 'string'
+        ? req.headers['x-forwarded-proto']
+        : undefined,
+  });
 }
 
 function pruneInactiveUserStreams(userId: string, now = Date.now()): number {
@@ -2187,6 +2209,7 @@ router.post('/resume-job/:operationId', appGuard, async (req: Request, res: Resp
       sessionId: crypto.randomUUID(),
       origin: 'user' as AgentJobOrigin,
       context: {
+        appBaseUrl: resolveRequestAppBaseUrl(req),
         threadId,
         resumedFrom: operationId,
         yieldState: {
@@ -2553,6 +2576,7 @@ router.post('/approvals/:id/resolve', appGuard, async (req: Request, res: Respon
       sessionId: crypto.randomUUID(),
       origin: 'user' as AgentJobOrigin,
       context: {
+        appBaseUrl: resolveRequestAppBaseUrl(req),
         threadId,
         resumedFrom: operationId,
         approvalId,
@@ -2871,6 +2895,7 @@ router.post(
         sessionId,
         origin: 'user' as AgentJobOrigin,
         context: {
+          appBaseUrl: resolveRequestAppBaseUrl(req),
           ...(userContext ?? {}),
           ...(idempotencyKey ? { idempotencyKey } : {}),
           ...(resolvedThreadId ? { threadId: resolvedThreadId } : {}),
@@ -3539,6 +3564,7 @@ router.post(
         sessionId: crypto.randomUUID(),
         origin: 'user' as AgentJobOrigin,
         context: {
+          appBaseUrl: resolveRequestAppBaseUrl(req),
           ...(idempotencyKey ? { idempotencyKey } : {}),
           ...(effectiveThreadId ? { threadId: effectiveThreadId } : {}),
           ...(mode ? { mode } : {}),

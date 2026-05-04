@@ -35,7 +35,13 @@ export class AgentRouterContextService {
     const contextStr = this.contextBuilder.compressToPrompt(
       userContext,
       memories,
-      recentSyncSummaries
+      recentSyncSummaries,
+      {
+        appBaseUrl:
+          typeof jobContext?.['appBaseUrl'] === 'string'
+            ? String(jobContext['appBaseUrl'])
+            : undefined,
+      }
     );
     let enriched = `[User Profile]\n${contextStr}`;
 
@@ -44,6 +50,7 @@ export class AgentRouterContextService {
         threadId: _threadId,
         mode: _mode,
         attachments: _attachments,
+        appBaseUrl: _appBaseUrl,
         ...visibleContext
       } = jobContext;
       if (Object.keys(visibleContext).length > 0) {
@@ -119,6 +126,7 @@ export class AgentRouterContextService {
     operationId?: string,
     threadId?: string,
     environment?: 'staging' | 'production',
+    appBaseUrl?: string,
     signal?: AbortSignal,
     mode?: string,
     attachments?: readonly {
@@ -143,6 +151,7 @@ export class AgentRouterContextService {
       createdAt: now,
       lastActiveAt: now,
       ...(environment && { environment }),
+      ...(appBaseUrl && { appBaseUrl }),
       ...(operationId && { operationId }),
       ...(threadId && { threadId }),
       ...(mode && { mode }),

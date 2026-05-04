@@ -25,8 +25,9 @@ export const environment = {
   // Development API - Local backend
   apiUrl: `http://${DETECTED_LOCAL_IP}:3000/api/v1/staging`,
 
-  // Web URL for shareable links (profile, team, post URLs)
-  webUrl: 'http://localhost:4300',
+  // Web URL for shareable links (profile, team, post URLs).
+  // Points to staging web app so QR codes are scannable from real devices.
+  webUrl: 'https://nxt-1-staging-v2.web.app',
 
   // Firebase Staging Configuration (nxt-1-staging-v2)
   firebase: {

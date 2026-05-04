@@ -34,6 +34,9 @@ export interface ManageTeamSheetOptions {
   /** Initial breakpoint */
   initialBreakpoint?: number;
 
+  /** When the backdrop becomes visible */
+  backdropBreakpoint?: number;
+
   /** CSS class for the sheet */
   cssClass?: string;
 }
@@ -78,6 +81,7 @@ export class ManageTeamBottomSheetService {
       title = teamId ? 'Manage Team' : 'Create Team',
       breakpoints = SHEET_PRESETS.FULL.breakpoints,
       initialBreakpoint = SHEET_PRESETS.FULL.initialBreakpoint,
+      backdropBreakpoint = SHEET_PRESETS.FULL.backdropBreakpoint,
       cssClass = 'manage-team-sheet',
     } = options;
 
@@ -91,8 +95,10 @@ export class ManageTeamBottomSheetService {
       },
       breakpoints,
       initialBreakpoint,
+      backdropBreakpoint,
       cssClass,
-      handle: false,
+      handle: true,
+      handleBehavior: 'cycle',
       backdropDismiss: true,
       showBackdrop: true,
     });

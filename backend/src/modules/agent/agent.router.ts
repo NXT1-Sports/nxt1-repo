@@ -477,6 +477,9 @@ export class AgentRouter {
       operationId,
       threadId,
       environment,
+      typeof rawContextObj['appBaseUrl'] === 'string'
+        ? String(rawContextObj['appBaseUrl'])
+        : undefined,
       signal,
       mode,
       attachments,
@@ -734,6 +737,7 @@ export class AgentRouter {
     operationId?: string,
     threadId?: string,
     environment?: 'staging' | 'production',
+    appBaseUrl?: string,
     signal?: AbortSignal,
     mode?: string,
     attachments?: readonly {
@@ -755,6 +759,7 @@ export class AgentRouter {
       operationId,
       threadId,
       environment,
+      appBaseUrl,
       signal,
       mode,
       attachments,

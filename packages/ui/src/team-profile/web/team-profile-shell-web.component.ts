@@ -439,6 +439,7 @@ const TEAM_TIMELINE_EMPTY_STATE_BY_SECTION: Readonly<
                     @case ('connect') {
                       <nxt1-team-contact-web
                         [activeSection]="activeSideTab()"
+                        [hideConnectedInlineCta]="hideConnectInlineCta()"
                         (manageTeam)="manageTeamClick.emit()"
                         (connectedAccountsClick)="connectedAccountsClick.emit()"
                       />
@@ -519,20 +520,20 @@ const TEAM_TIMELINE_EMPTY_STATE_BY_SECTION: Readonly<
         <!-- Projected content (e.g. CTA banner for logged-out users) -->
         <ng-content />
 
-        @if (
-          isTeamAdmin() &&
-          teamProfile.activeTab() === 'timeline' &&
-          !platform.isMobile() &&
-          platform.isBelowBreakpoint('md') &&
-          !hideFooterFab()
-        ) {
+        @if (showFooterActionBar()) {
           <div class="mobile-web-fab-bar">
             <button
               type="button"
               class="mobile-web-fab-bar__btn mobile-web-fab-bar__btn--primary"
-              (click)="onAddUpdate()"
+              (click)="onFooterPrimaryAction()"
             >
-              + Add Update
+              {{
+                teamProfile.activeTab() === 'connect'
+                  ? 'Connect Accounts'
+                  : teamProfile.activeTab() === 'roster'
+                    ? 'Invite'
+                    : '+ Add Update'
+              }}
             </button>
           </div>
         }
@@ -1354,6 +1355,23 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
   // ============================================
 
   /** Check if content is ready to render (prevents SSR hydration mismatch) */
+  protected readonly showFooterActionBar = computed(
+    () =>
+      this.isTeamAdmin() &&
+      !this.hideFooterFab() &&
+      (this.teamProfile.activeTab() === 'timeline' ||
+        this.teamProfile.activeTab() === 'connect' ||
+        this.teamProfile.activeTab() === 'roster') &&
+      (this.platform.isMobile() || this.platform.isBelowBreakpoint('md'))
+  );
+
+  protected readonly hideConnectInlineCta = computed(
+    () =>
+      this.isTeamAdmin() &&
+      this.teamProfile.activeTab() === 'connect' &&
+      (this.hideFooterFab() || this.showFooterActionBar())
+  );
+
   protected readonly isContentReady = computed(() => {
     return (
       !this.teamProfile.isLoading() &&
@@ -2005,56 +2023,61 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
     void this.onCreatePostWithAgent();
   }
 
-  private async onCreatePostWithAgent(): Promise<void> {
+  protected onFooterPrimaryAction(): void {
+    if (this.teamProfile.activeTab() === 'connect') {
+      this.connectedAccountsClick.emit();
+      return;
+    }
+
+    if (this.teamProfile.activeTab() === 'roster') {
+      this.inviteRosterClick.emit();
+      return;
+    }
+
+    this.onAddUpdate();
+  }
+
+  public triggerAddUpdateFromExternalAction(includeIntelSync = true): Promise<void> {
+    return this.onCreatePostWithAgent(includeIntelSync);
+  }
+
+  private async onCreatePostWithAgent(includeIntelSync = true): Promise<void> {
     const team = this.teamProfile.team();
     if (!team) return;
 
-    const teamName = team.teamName?.trim() ?? 'Team';
     const activeTab = this.activeSideTab();
-
-    // Build tab-specific context
-    let tabContext: string;
-    let sourceCollection: string;
+    let message: string;
     switch (activeTab) {
-      case 'stats':
-        tabContext = 'team statistics and performance data';
-        sourceCollection = 'team stats';
-        break;
-      case 'schedule':
-        tabContext = 'upcoming games, schedule changes, or game results';
-        sourceCollection = 'schedule';
-        break;
-      case 'recruiting':
-        tabContext = 'recruiting updates, scholarships, or player recruitment';
-        sourceCollection = 'recruiting activity';
-        break;
-      case 'news':
-        tabContext = 'news articles or program announcements';
-        sourceCollection = 'news';
-        break;
-      case 'media':
-        tabContext = 'photos or highlight videos';
-        sourceCollection = 'media';
+      case 'all-posts':
+        message = `I'd like to add a general team update. Please help me figure out whether this belongs in Posts, TeamStats, Schedule, Recruiting, or News based on what I'm sharing. If this is team photos or highlight video, save it in Posts with the post type set to image or video. If the right section is not obvious, ask me a quick follow-up before saving anything.`;
         break;
       case 'pinned':
-        tabContext = 'important pinned announcement';
-        sourceCollection = 'news';
+        message = `We need to create an important featured update. Please help me write it, then save it to the Posts collection with isPinned set to true.`;
+        break;
+      case 'stats':
+        message = `I need to update the team stats and recent results. Please guide me through the latest numbers, then save that data to the TeamStats collection.`;
+        break;
+      case 'schedule':
+        message = `I want to add upcoming games or recent results. Please help me organize the details, then add the update to the Schedule collection.`;
+        break;
+      case 'recruiting':
+        message = `We have recruiting activity to add, including roster movement and college-related updates. Please help me put it together, then save it to the Recruiting collection.`;
+        break;
+      case 'news':
+        message = `I'd like to share a program announcement or news update. Please help me write it clearly, then publish it to the News collection.`;
+        break;
+      case 'media':
+        message = `I want to add new team photos or highlight videos. Please help me prepare the update, then save it to the Posts collection and make sure the post type is set correctly as image or video.`;
         break;
       default:
-        tabContext = 'update';
-        sourceCollection = 'team updates';
+        message = `I'd like to post a general team update. Please help me draft it, then save it to the Posts collection.`;
     }
 
     const hasReport = !!this.intel.teamReport();
-    const baseMessage =
-      `This is a TEAM profile update request for ${teamName}. ` +
-      `Active tab: ${activeTab}. ` +
-      `Focus area: ${tabContext}. ` +
-      `Write or update the ${sourceCollection} source collection first, ` +
-      `then create a timeline post only when a public announcement is needed.`;
-    const message = hasReport
-      ? `${baseMessage} After saving the source data, review and update any relevant sections of our Agent X Intel report with new stats, results, recruiting activity, or program updates.`
-      : baseMessage;
+    if (hasReport && includeIntelSync) {
+      message +=
+        ' After that is saved, refresh any relevant parts of our Intel report with the latest stats, results, recruiting activity, and program updates.';
+    }
 
     if (this.platform.isMobile()) {
       await this.bottomSheet.openSheet({

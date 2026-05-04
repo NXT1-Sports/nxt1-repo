@@ -255,6 +255,7 @@ export class SettingsComponent {
                 username?: string;
                 url?: string;
                 connected?: boolean;
+                connectionType?: string;
               }[];
             };
           }

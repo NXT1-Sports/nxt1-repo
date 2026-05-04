@@ -26,6 +26,7 @@
 import { Injectable, inject, InjectionToken } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
+import { AGENT_X_REQUEST_HEADERS } from '@nxt1/core/ai';
 import { NxtLoggingService } from '../../services/logging/logging.service';
 import { ANALYTICS_ADAPTER } from '../../services/analytics/analytics-adapter.token';
 import { NxtBreadcrumbService } from '../../services/breadcrumb/breadcrumb.service';
@@ -64,6 +65,17 @@ export const AGENT_X_API_BASE_URL = new InjectionToken<string>('AGENT_X_API_BASE
 export const AGENT_X_AUTH_TOKEN_FACTORY = new InjectionToken<() => Promise<string | null>>(
   'AGENT_X_AUTH_TOKEN_FACTORY'
 );
+
+export function resolveCurrentAgentXAppBaseUrl(): string | undefined {
+  const origin = globalThis.location?.origin;
+  if (typeof origin !== 'string' || !origin.trim()) return undefined;
+
+  try {
+    return new URL(origin).origin;
+  } catch {
+    return undefined;
+  }
+}
 
 /** Result returned when enqueue fails. */
 export interface EnqueueFailure {
@@ -128,6 +140,7 @@ export class AgentXJobService {
     });
 
     try {
+      const appBaseUrl = resolveCurrentAgentXAppBaseUrl();
       const enqueueHttp = () =>
         firstValueFrom(
           this.http.post<{
@@ -135,10 +148,18 @@ export class AgentXJobService {
             data?: { jobId: string; operationId: string; threadId?: string };
             error?: string;
             code?: string;
-          }>(`${this.baseUrl}/enqueue`, {
-            intent,
-            userContext: context,
-          })
+          }>(
+            `${this.baseUrl}/enqueue`,
+            {
+              intent,
+              userContext: context,
+            },
+            {
+              ...(appBaseUrl
+                ? { headers: { [AGENT_X_REQUEST_HEADERS.APP_BASE_URL]: appBaseUrl } }
+                : {}),
+            }
+          )
         );
 
       const response = await (this.performance?.trace(

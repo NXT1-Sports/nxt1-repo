@@ -43,7 +43,11 @@ import type {
   AgentRetrievedMemories,
   AgentUserContext,
 } from '@nxt1/core';
-import { buildCanonicalProfilePath, buildCanonicalTeamPath } from '@nxt1/core';
+import {
+  buildCanonicalProfilePath,
+  buildCanonicalTeamPath,
+  resolveCanonicalTeamRoute,
+} from '@nxt1/core';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getUserById, type UserData } from '../../../services/profile/users.service.js';
 import { getCacheService, CACHE_TTL } from '../../../services/core/cache.service.js';
@@ -53,12 +57,17 @@ import { AgentMessageModel } from '../../../models/agent/agent-message.model.js'
 import { AgentThreadModel } from '../../../models/agent/agent-thread.model.js';
 import type { VectorMemoryService } from './vector.service.js';
 import {
+  getRuntimeEnvironment,
+  type RuntimeEnvironment,
+} from '../../../config/runtime-environment.js';
+import {
   type AgentSeasonInfo,
   getAgentAppConfig,
   resolveRolePersona as resolveConfiguredRolePersona,
   resolveSeasonInfo as resolveConfiguredSeasonInfo,
 } from '../config/agent-app-config.js';
 import { logger } from '../../../utils/logger.js';
+import { resolveAppBaseUrl, toAbsoluteAppUrl } from '../../../utils/app-url.js';
 
 /** Cache key prefix for assembled agent context. Exported so callers can build/invalidate the same key without hardcoding. */
 export const AGENT_CONTEXT_PREFIX = 'agent:context:';
@@ -127,7 +136,15 @@ type TeamLinkCandidate = {
   teamName?: string;
   slug?: string;
   teamCode?: string;
+  id?: string;
 };
+
+interface PromptCompressionOptions {
+  readonly environment?: RuntimeEnvironment;
+  readonly appBaseUrl?: string;
+  readonly origin?: string;
+  readonly referer?: string;
+}
 
 function dedupeProfilePathsBySport(
   links: Array<{ sport: string; path: string }>
@@ -161,6 +178,12 @@ function dedupeTeamPaths(
   return unique;
 }
 
+function isLikelyTeamDocumentIdentifier(value: string | undefined): boolean {
+  if (!value) return false;
+  const trimmed = value.trim();
+  return /^[A-Za-z0-9]{20,}$/.test(trimmed);
+}
+
 export class ContextBuilder {
   constructor(private readonly vectorMemory?: VectorMemoryService) {}
 
@@ -174,6 +197,7 @@ export class ContextBuilder {
     firestore?: FirebaseFirestore.Firestore
   ): Promise<AgentUserContext> {
     const cacheKey = `${AGENT_CONTEXT_PREFIX}${userId}`;
+    const db = firestore ?? getFirestore();
 
     try {
       const cache = getCacheService();
@@ -187,7 +211,7 @@ export class ContextBuilder {
     }
 
     logger.info('[ContextBuilder] Cache MISS — building context', { userId });
-    await getAgentAppConfig(firestore ?? getFirestore());
+    await getAgentAppConfig(db);
 
     const user = await getUserById(userId, firestore);
 
@@ -201,10 +225,10 @@ export class ContextBuilder {
     }
 
     let context = this.mapUserToContext(userId, user);
+    context = await this.hydrateCanonicalTeamRoutes(context, db);
 
     if (!context.teamId) {
       try {
-        const db = firestore ?? getFirestore();
         const teamAdapter = new TeamServiceAdapter(db);
         const userTeams = await teamAdapter.getUserTeams(userId);
         const activeTeam = this.selectFallbackTeam(userTeams, context.sport);
@@ -323,9 +347,16 @@ export class ContextBuilder {
   compressToPrompt(
     context: AgentUserContext,
     memories: AgentRetrievedMemories = EMPTY_RETRIEVED_MEMORIES,
-    recentSyncSummaries: readonly string[] = []
+    recentSyncSummaries: readonly string[] = [],
+    options: PromptCompressionOptions = {}
   ): string {
     const lines: string[] = [];
+    const appBaseUrl = resolveAppBaseUrl({
+      environment: options.environment ?? getRuntimeEnvironment(),
+      appBaseUrl: options.appBaseUrl,
+      origin: options.origin,
+      referer: options.referer,
+    });
 
     // Internal reference IDs — for tool arguments only, NEVER mention or display to the user.
     lines.push(`[User Profile]`);
@@ -389,27 +420,40 @@ export class ContextBuilder {
     }
 
     const shouldShowProfileLinks = context.role === 'athlete';
+    const hasExactNxt1Links =
+      (shouldShowProfileLinks &&
+        Boolean(context.profilePath || context.profilePathsBySport?.length)) ||
+      Boolean(context.teamPath || context.teamPaths?.length);
+
+    if (hasExactNxt1Links) {
+      lines.push(
+        'Use the exact NXT1 URLs below when referencing a profile or team. Do not invent, shorten, or rewrite them.'
+      );
+    }
 
     if (shouldShowProfileLinks && context.profilePath) {
-      lines.push(`Profile URL: ${context.profilePath}`);
+      lines.push(`Profile URL: ${toAbsoluteAppUrl(context.profilePath, { appBaseUrl })}`);
     }
 
     if (shouldShowProfileLinks && context.profilePathsBySport?.length) {
       const profileLinks = context.profilePathsBySport
         .slice(0, 8)
-        .map((link) => `${link.sport}: ${link.path}`)
+        .map((link) => `${link.sport}: ${toAbsoluteAppUrl(link.path, { appBaseUrl })}`)
         .join(' | ');
       lines.push(`All Sport Profile URLs: ${profileLinks}`);
     }
 
     if (context.teamPath) {
-      lines.push(`Team URL: ${context.teamPath}`);
+      lines.push(`Team URL: ${toAbsoluteAppUrl(context.teamPath, { appBaseUrl })}`);
     }
 
     if (context.teamPaths?.length) {
       const teamLinks = context.teamPaths
         .slice(0, 8)
-        .map((link) => `${link.teamName ?? link.teamCode}: ${link.path}`)
+        .map(
+          (link) =>
+            `${link.teamName ?? link.teamCode}: ${toAbsoluteAppUrl(link.path, { appBaseUrl })}`
+        )
         .join(' | ');
       lines.push(`Team URLs: ${teamLinks}`);
     }
@@ -531,6 +575,84 @@ export class ContextBuilder {
         return teamSport === normalizedSport;
       }) ?? userTeams[0]
     );
+  }
+
+  private async hydrateCanonicalTeamRoutes(
+    context: AgentUserContext,
+    db: FirebaseFirestore.Firestore
+  ): Promise<AgentUserContext> {
+    const teamDocIds = new Set<string>();
+
+    if (context.teamId) {
+      teamDocIds.add(context.teamId);
+    }
+
+    for (const entry of context.teamPaths ?? []) {
+      if (isLikelyTeamDocumentIdentifier(entry.teamCode)) {
+        teamDocIds.add(entry.teamCode);
+      }
+    }
+
+    if (teamDocIds.size === 0) return context;
+
+    try {
+      const teamDocs = await Promise.all(
+        Array.from(teamDocIds).map(async (teamDocId) => {
+          const teamDoc = await db.collection('Teams').doc(teamDocId).get();
+          if (!teamDoc.exists) return null;
+
+          const team = (teamDoc.data() ?? {}) as Record<string, unknown>;
+          const resolvedTeamRoute = resolveCanonicalTeamRoute({
+            slug: asString(team['slug']) ?? asString(team['unicode']),
+            teamName: asString(team['teamName']) ?? asString(team['name']),
+            teamCode: asString(team['teamCode']),
+            code: asString(team['code']),
+            teamId: asString(team['teamId']) ?? teamDoc.id,
+            id: asString(team['id']) ?? teamDoc.id,
+            unicode: asString(team['unicode']),
+          });
+
+          if (!resolvedTeamRoute?.teamIdentifier) return null;
+
+          return {
+            docId: teamDocId,
+            sport: asString(team['sport']) ?? asString(team['sportName']),
+            teamName: resolvedTeamRoute.teamName,
+            teamCode: resolvedTeamRoute.teamIdentifier,
+            path: resolvedTeamRoute.path,
+          };
+        })
+      );
+
+      const canonicalByDocId = new Map(
+        teamDocs
+          .filter((entry): entry is NonNullable<(typeof teamDocs)[number]> => entry !== null)
+          .map((entry) => [entry.docId, entry])
+      );
+
+      if (canonicalByDocId.size === 0) return context;
+
+      const hydratedTeamPaths = dedupeTeamPaths([
+        ...(context.teamPaths ?? []).map((entry) => canonicalByDocId.get(entry.teamCode) ?? entry),
+        ...Array.from(canonicalByDocId.values()),
+      ]);
+
+      const hydratedPrimaryPath =
+        (context.teamId ? canonicalByDocId.get(context.teamId)?.path : undefined) ??
+        context.teamPath;
+
+      return {
+        ...context,
+        ...(hydratedPrimaryPath ? { teamPath: hydratedPrimaryPath } : {}),
+        ...(hydratedTeamPaths.length > 0 ? { teamPaths: hydratedTeamPaths } : {}),
+      };
+    } catch (err) {
+      logger.warn('[ContextBuilder] Failed to hydrate canonical team route from team document', {
+        teamId: context.teamId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return context;
+    }
   }
 
   // ─── Internal Mapping ────────────────────────────────────────────────────
@@ -695,6 +817,7 @@ export class ContextBuilder {
         teamName: asString(activeSportTeam['name']) ?? asString(activeSportTeam['teamName']),
         slug: asString(activeSportTeam['slug']) ?? asString(activeSportTeam['unicode']),
         teamCode: asString(activeSportTeam['teamCode']) ?? asString(activeSportTeam['code']),
+        id: asString(activeSportTeam['teamId']) ?? asString(activeSportTeam['id']),
       });
     }
 
@@ -706,6 +829,7 @@ export class ContextBuilder {
         teamName: asString(team['name']) ?? asString(team['teamName']),
         slug: asString(team['slug']) ?? asString(team['unicode']),
         teamCode: asString(team['teamCode']) ?? asString(team['code']),
+        id: asString(team['teamId']) ?? asString(team['id']),
       });
     }
 
@@ -719,6 +843,7 @@ export class ContextBuilder {
         teamName: asString(topLevelTeam['teamName']) ?? asString(topLevelTeam['name']),
         slug: asString(topLevelTeam['slug']) ?? asString(topLevelTeam['unicode']),
         teamCode: asString(topLevelTeam['teamCode']) ?? asString(topLevelTeam['code']),
+        id: asString(topLevelTeam['teamId']) ?? asString(topLevelTeam['id']),
       });
     }
 
@@ -727,8 +852,48 @@ export class ContextBuilder {
         teamName: asString(currentTeamHistory['name']) ?? asString(currentTeamHistory['teamName']),
         slug: asString(currentTeamHistory['slug']) ?? asString(currentTeamHistory['unicode']),
         teamCode: asString(currentTeamHistory['teamCode']) ?? asString(currentTeamHistory['code']),
+        id: asString(currentTeamHistory['teamId']) ?? asString(currentTeamHistory['id']),
       });
     }
+
+    const primaryResolvedTeamRoute = resolveCanonicalTeamRoute({
+      slug:
+        asString(topLevelTeam?.['slug']) ??
+        asString(activeSportTeam?.['slug']) ??
+        asString(currentTeamHistory?.['slug']) ??
+        asString(topLevelTeam?.['unicode']) ??
+        asString(activeSportTeam?.['unicode']) ??
+        asString(currentTeamHistory?.['unicode']),
+      teamName:
+        asString(topLevelTeam?.['teamName']) ??
+        asString(topLevelTeam?.['name']) ??
+        asString(activeSportTeam?.['name']) ??
+        asString(activeSportTeam?.['teamName']) ??
+        asString(currentTeamHistory?.['name']) ??
+        asString(currentTeamHistory?.['teamName']),
+      teamCode:
+        asString(topLevelTeam?.['teamCode']) ??
+        asString(activeSportTeam?.['teamCode']) ??
+        asString(currentTeamHistory?.['teamCode']),
+      code:
+        asString(topLevelTeam?.['code']) ??
+        asString(activeSportTeam?.['code']) ??
+        asString(currentTeamHistory?.['code']),
+      teamId:
+        asString(topLevelTeam?.['teamId']) ??
+        asString(activeSportTeam?.['teamId']) ??
+        asString(currentTeamHistory?.['teamId']) ??
+        teamId,
+      id:
+        asString(topLevelTeam?.['id']) ??
+        asString(activeSportTeam?.['id']) ??
+        asString(currentTeamHistory?.['id']) ??
+        teamId,
+      unicode:
+        asString(topLevelTeam?.['unicode']) ??
+        asString(activeSportTeam?.['unicode']) ??
+        asString(currentTeamHistory?.['unicode']),
+    });
 
     const teamPathLinks: Array<{
       sport?: string;
@@ -738,22 +903,29 @@ export class ContextBuilder {
     }> = [];
 
     for (const candidate of teamLinkCandidates) {
-      if (!candidate.teamCode) continue;
+      const routeIdentifier = candidate.teamCode ?? candidate.id;
+      if (!routeIdentifier) continue;
 
       teamPathLinks.push({
         ...(candidate.sport ? { sport: candidate.sport } : {}),
         ...(candidate.teamName ? { teamName: candidate.teamName } : {}),
-        teamCode: candidate.teamCode,
+        teamCode: routeIdentifier,
         path: buildCanonicalTeamPath({
           slug: candidate.slug,
           teamName: candidate.teamName,
           teamCode: candidate.teamCode,
+          id: candidate.id,
         }),
       });
     }
 
-    const teamPaths = dedupeTeamPaths(teamPathLinks);
-    const teamPath = teamPaths[0]?.path;
+    const teamPaths = dedupeTeamPaths(teamPathLinks).sort((left, right) => {
+      const leftUsesShortCode = left.path.endsWith(`/${encodeURIComponent(left.teamCode)}`);
+      const rightUsesShortCode = right.path.endsWith(`/${encodeURIComponent(right.teamCode)}`);
+      if (leftUsesShortCode === rightUsesShortCode) return 0;
+      return leftUsesShortCode ? -1 : 1;
+    });
+    const teamPath = primaryResolvedTeamRoute?.path ?? teamPaths[0]?.path;
 
     // ── Coach / director-specific ────────────────────────────────────────
     const coachProgram =

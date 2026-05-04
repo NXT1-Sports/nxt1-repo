@@ -52,6 +52,7 @@ export const FirebaseMcpScopeSchema = z.object({
   defaultOrganizationId: z.string().min(1).optional(),
   threadId: z.string().min(1).optional(),
   sessionId: z.string().min(1).optional(),
+  appBaseUrl: z.string().url().optional(),
 });
 
 export type FirebaseMcpScope = z.infer<typeof FirebaseMcpScopeSchema>;

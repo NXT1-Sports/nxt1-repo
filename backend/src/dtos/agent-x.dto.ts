@@ -593,6 +593,10 @@ export class UpdatePlaybookItemStatusDto {
   })
   @IsNotEmpty()
   status!: PlaybookItemStatus;
+
+  @IsString()
+  @IsOptional()
+  playbookId?: string;
 }
 
 export class GenerateBriefingDto {

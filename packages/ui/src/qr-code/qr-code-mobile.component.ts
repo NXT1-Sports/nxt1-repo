@@ -33,6 +33,8 @@ import { NxtLogoComponent } from '../components/logo/logo.component';
 import { NxtSheetHeaderComponent } from '../components/bottom-sheet/sheet-header.component';
 import { NxtToastService } from '../services/toast';
 import { NxtLoggingService } from '../services/logging';
+import { NxtMediaService } from '../services/media/media.service';
+import { Capacitor } from '@capacitor/core';
 
 @Component({
   selector: 'nxt1-qr-code-mobile',
@@ -274,6 +276,7 @@ export class NxtQrCodeMobileComponent {
   private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('QrCodeMobile');
   private readonly platformId = inject(PLATFORM_ID);
+  private readonly mediaService = inject(NxtMediaService);
 
   private readonly qrCanvas = viewChild<ElementRef<HTMLCanvasElement>>('qrCanvas');
 
@@ -384,10 +387,27 @@ export class NxtQrCodeMobileComponent {
     try {
       const canvas = canvasRef.nativeElement;
       const dataUrl = canvas.toDataURL('image/png', 1.0);
-      const link = document.createElement('a');
-      link.download = `${this.displayName || 'nxt1'}-qr-code.png`;
-      link.href = dataUrl;
-      link.click();
+      const fileName = `${this.displayName || 'nxt1'}-qr-code`;
+
+      // On native iOS/Android use NxtMediaService to save to camera roll;
+      // on web fall back to the browser download anchor trick.
+      if (Capacitor.isNativePlatform()) {
+        const result = await this.mediaService.saveImage({
+          data: dataUrl,
+          fileName,
+          format: 'png',
+          album: 'NXT1',
+        });
+
+        if (!result.success) {
+          throw new Error(result.error ?? 'Failed to save image');
+        }
+      } else {
+        const link = document.createElement('a');
+        link.download = `${fileName}.png`;
+        link.href = dataUrl;
+        link.click();
+      }
 
       this.toast.success('QR code saved');
       this.action.emit('download');

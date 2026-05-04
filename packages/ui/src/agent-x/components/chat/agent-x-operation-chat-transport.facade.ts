@@ -1,4 +1,5 @@
 import {
+  DestroyRef,
   EnvironmentInjector,
   Injectable,
   PLATFORM_ID,
@@ -31,6 +32,7 @@ import { ANALYTICS_ADAPTER } from '../../../services/analytics/analytics-adapter
 import {
   AGENT_X_API_BASE_URL,
   AGENT_X_AUTH_TOKEN_FACTORY,
+  resolveCurrentAgentXAppBaseUrl,
 } from '../../services/agent-x-job.service';
 import { AgentXStreamRegistryService } from '../../services/agent-x-stream-registry.service';
 import {
@@ -160,6 +162,17 @@ export class AgentXOperationChatTransportFacade {
   private responseTurnId = 0;
   private responseCompleteEmitted = false;
   private deltaLatencySamples: number[] = [];
+  private destroyed = false;
+
+  constructor() {
+    // Per-component facade: when the host component is destroyed, mark this
+    // facade as destroyed so any in-flight stream that resolves later cannot
+    // emit on a torn-down OutputRef (NG0953).
+    inject(DestroyRef).onDestroy(() => {
+      this.destroyed = true;
+      this.host = null;
+    });
+  }
 
   configure(host: AgentXOperationChatTransportFacadeHost): void {
     this.host = host;
@@ -363,6 +376,7 @@ export class AgentXOperationChatTransportFacade {
     }
 
     return new Promise<void>((resolve, reject) => {
+      const appBaseUrl = resolveCurrentAgentXAppBaseUrl();
       const streamController = this.api.streamMessage(
         request,
         {
@@ -882,7 +896,10 @@ export class AgentXOperationChatTransportFacade {
         },
         authToken,
         this.baseUrl,
-        { idempotencyKey }
+        {
+          ...(idempotencyKey ? { idempotencyKey } : {}),
+          ...(appBaseUrl ? { appBaseUrl } : {}),
+        }
       );
 
       host.setActiveStream(streamController);
@@ -902,7 +919,19 @@ export class AgentXOperationChatTransportFacade {
   }
 
   emitResponseCompleteOnce(source: string): void {
-    const host = this.requireHost();
+    // Stream may resolve after the host component was destroyed (e.g. user
+    // closed the chat sheet mid-flight then reopened a different instance).
+    // Skip emitting on a dead OutputRef — the new component instance has its
+    // own Firestore tail that already received the same `done` signal.
+    if (this.destroyed || !this.host) {
+      this.logger.debug('responseComplete skipped — host destroyed', {
+        turnId: this.responseTurnId,
+        source,
+      });
+      this.responseCompleteEmitted = true;
+      return;
+    }
+    const host = this.host;
     if (this.responseCompleteEmitted) {
       this.logger.debug('Duplicate responseComplete suppressed', {
         turnId: this.responseTurnId,

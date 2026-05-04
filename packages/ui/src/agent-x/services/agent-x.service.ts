@@ -218,6 +218,7 @@ export class AgentXService {
   private readonly _weeklyPlaybook = signal<ShellWeeklyPlaybookItem[]>([]);
   private readonly _coordinators = signal<ShellCommandCategory[]>([]);
   private readonly _goals = signal<AgentDashboardGoal[]>([]);
+  private readonly _activePlaybookId = signal<string | null>(null);
   private readonly _playbookGeneratedAt = signal<string | null>(null);
   private readonly _canRegenerate = signal(false);
   private readonly _playbookGenerating = signal(false);
@@ -1319,6 +1320,7 @@ export class AgentXService {
         this._briefingInsights.set([...briefing.insights]);
         this._briefingPreviewText.set(briefing.previewText);
         this._weeklyPlaybook.set([...playbook.items]);
+        this._activePlaybookId.set(playbook.id ?? null);
         this.resetCategoryFilter();
         this._goals.set([...playbook.goals]);
         this._playbookGeneratedAt.set(playbook.generatedAt);
@@ -1650,6 +1652,7 @@ export class AgentXService {
   ): Promise<void> {
     if (playbook) {
       const newItems = playbook.items as ShellWeeklyPlaybookItem[];
+      this._activePlaybookId.set(playbook.id ?? null);
 
       // Forced regenerations should immediately reflect the server-generated
       // playbook, even when IDs are reused. This fixes the stale UI case where
@@ -1880,20 +1883,46 @@ export class AgentXService {
    * Mark a playbook item as explicitly complete (user pressed "Mark Done").
    * Updates the local signal immediately and persists to backend.
    */
-  markPlaybookItemComplete(itemId: string): void {
+  async markPlaybookItemComplete(itemId: string): Promise<boolean> {
+    const previousItems = this._weeklyPlaybook();
+    const playbookId = this._activePlaybookId() ?? undefined;
+
     this._weeklyPlaybook.update((items) =>
       items.map((i) => (i.id === itemId ? { ...i, status: 'complete' as const } : i))
     );
-    this.logger.info('Playbook item marked done', { itemId });
+    this.logger.info('Playbook item marked done', { itemId, playbookId });
 
-    firstValueFrom(
-      this.http.post<{ success: boolean }>(
-        `${this.baseUrl}/agent-x/playbook/item/${encodeURIComponent(itemId)}/status`,
-        { status: 'complete' }
-      )
-    ).catch((err) => {
-      this.logger.warn('Failed to persist mark-done to backend', { itemId, error: String(err) });
-    });
+    try {
+      const response = await firstValueFrom(
+        this.http.post<{ success: boolean; error?: string }>(
+          `${this.baseUrl}/agent-x/playbook/item/${encodeURIComponent(itemId)}/status`,
+          { status: 'complete', ...(playbookId ? { playbookId } : {}) }
+        )
+      );
+
+      if (!response.success) {
+        this._weeklyPlaybook.set(previousItems);
+        this.logger.warn('Mark-done rejected by backend', {
+          itemId,
+          playbookId,
+          error: response.error,
+        });
+        this.toast.error(response.error ?? 'Failed to save completed task');
+        return false;
+      }
+
+      await this.loadGoalHistory();
+      return true;
+    } catch (err) {
+      this._weeklyPlaybook.set(previousItems);
+      this.logger.warn('Failed to persist mark-done to backend', {
+        itemId,
+        playbookId,
+        error: String(err),
+      });
+      this.toast.error('Failed to save completed task');
+      return false;
+    }
   }
 
   /**

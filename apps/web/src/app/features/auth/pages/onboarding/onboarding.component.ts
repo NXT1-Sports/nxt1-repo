@@ -370,15 +370,6 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
           (backClick)="onBack()"
           (continueClick)="onContinue()"
         />
-        <!-- TODO: Re-enable sign out link when ready
-        <button
-          type="button"
-          (click)="onSignOut()"
-          class="text-text-tertiary hover:text-error mt-4 text-sm hover:underline"
-        >
-          Sign out and start over
-        </button>
-        -->
       </div>
     </nxt1-auth-shell>
 

@@ -50,7 +50,7 @@ import type {
   AgentGoalHistoryResponse,
 } from './agent-x.types';
 import type { AgentMessage } from './chat.types';
-import { AGENT_X_ENDPOINTS } from './agent-x.constants';
+import { AGENT_X_ENDPOINTS, AGENT_X_REQUEST_HEADERS } from './agent-x.constants';
 import { AGENT_X_RUNTIME_CONFIG } from './agent-x-runtime.constants';
 import { externalServiceError, rateLimitError, isNxtApiError } from '../errors';
 
@@ -124,6 +124,7 @@ export interface DeleteMessageResult extends AgentMessageActionResult {
 
 export interface AgentXStreamMessageOptions {
   readonly idempotencyKey?: string;
+  readonly appBaseUrl?: string;
 }
 
 // ============================================
@@ -761,6 +762,9 @@ export function createAgentXApi(http: HttpAdapter, baseUrl: string) {
               Accept: 'text/event-stream',
               Authorization: `Bearer ${authToken}`,
               ...(options?.idempotencyKey ? { 'x-idempotency-key': options.idempotencyKey } : {}),
+              ...(options?.appBaseUrl
+                ? { [AGENT_X_REQUEST_HEADERS.APP_BASE_URL]: options.appBaseUrl }
+                : {}),
             },
             body: JSON.stringify(request),
             signal: controller.signal,

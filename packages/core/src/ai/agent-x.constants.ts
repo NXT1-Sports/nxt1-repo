@@ -665,6 +665,11 @@ export function resolveAttachmentType(mimeType: string): AgentXAttachmentType {
 /**
  * Agent X API endpoints (relative to base URL).
  */
+export const AGENT_X_REQUEST_HEADERS = {
+  /** Explicit frontend app origin used when backend is behind a proxy. */
+  APP_BASE_URL: 'x-nxt1-app-base-url',
+} as const;
+
 export const AGENT_X_ENDPOINTS = {
   /** Chat completion endpoint */
   CHAT: '/agent-x/chat',

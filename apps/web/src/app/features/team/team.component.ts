@@ -664,20 +664,25 @@ export class TeamComponent implements OnInit {
   }
 
   /**
-   * Handle roster member click — navigate to their profile.
+   * Handle roster member click — open desktop web roster clicks in a new tab.
    */
   protected onRosterMemberClick(member: TeamProfileRosterMember): void {
     const canonicalUnicode = member.unicode || member.profileCode;
     if (canonicalUnicode) {
       const teamSport = this.teamProfile.team()?.sport;
       const athleteName = member.displayName || `${member.firstName} ${member.lastName}`.trim();
-      this.router.navigateByUrl(
-        buildCanonicalProfilePath({
-          athleteName,
-          sport: teamSport,
-          unicode: canonicalUnicode,
-        })
-      );
+      const profilePath = buildCanonicalProfilePath({
+        athleteName,
+        sport: teamSport,
+        unicode: canonicalUnicode,
+      });
+
+      if (isPlatformBrowser(this.platformId) && this.platform.isDesktop()) {
+        window.open(profilePath, '_blank', 'noopener,noreferrer');
+        return;
+      }
+
+      void this.router.navigateByUrl(profilePath);
     } else {
       this.logger.debug('Roster member has no unicode', { memberId: member.id });
     }

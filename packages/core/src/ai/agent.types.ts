@@ -352,6 +352,8 @@ export interface AgentSessionContext {
   readonly lastActiveAt: string;
   /** Which backend environment is serving this agent run. */
   readonly environment?: 'staging' | 'production';
+  /** Public app origin for environment-aware NXT1 URLs, including localhost during development. */
+  readonly appBaseUrl?: string;
   /** The job/operation ID — threaded into LLM calls as Helicone-Property-Job-Id for cost tracking. */
   readonly operationId?: string;
   /** The MongoDB thread ID for the current conversation. Used by tools for thread-scoped storage. */

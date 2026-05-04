@@ -610,6 +610,7 @@ export class SettingsShellComponent implements OnInit, AfterViewInit, OnDestroy 
                 connected: true,
                 username: l.username,
                 url: l.url,
+                connectionType: l.connectionType,
               }));
 
       this.logger.info('Resync requested from connected accounts (no link changes)', {

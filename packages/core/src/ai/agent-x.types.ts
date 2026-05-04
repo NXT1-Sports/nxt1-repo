@@ -1431,6 +1431,29 @@ export interface CompletedGoalRecord {
   readonly role: string;
   /** Whole-day count from createdAt → completedAt */
   readonly daysToComplete: number;
+  /** Total playbook items generated for this goal across the active cycle. */
+  readonly itemsTotal?: number;
+  /** Number of playbook items completed for this goal. */
+  readonly itemsCompleted?: number;
+  /** Completed playbook tasks linked to this goal. */
+  readonly completedItems?: readonly CompletedPlaybookTaskRecord[];
+  /** Pending playbook tasks still linked to this goal. */
+  readonly pendingItems?: readonly PendingPlaybookTaskRecord[];
+  /** Whether the goal has been fully completed. */
+  readonly isCompleted?: boolean;
+}
+
+/** A playbook task completed under a goal-history record. */
+export interface CompletedPlaybookTaskRecord {
+  readonly id: string;
+  readonly title: string;
+  readonly completedAt: PortableTimestamp;
+}
+
+/** A playbook task still pending under a goal-history record. */
+export interface PendingPlaybookTaskRecord {
+  readonly id: string;
+  readonly title: string;
 }
 
 /** Request body for completing an active goal. */
@@ -1481,6 +1504,7 @@ export interface AgentDashboardBriefing {
 
 /** Goal-driven weekly playbook. */
 export interface AgentDashboardPlaybook {
+  readonly id?: string;
   readonly items: readonly ShellWeeklyPlaybookItem[];
   readonly goals: readonly AgentDashboardGoal[];
   readonly generatedAt: string | null;

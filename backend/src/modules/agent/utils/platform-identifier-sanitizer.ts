@@ -1,5 +1,30 @@
 const REDACTED_TOKEN = '[redacted]';
 const REDACTED_ROUTE = '[redacted-route]';
+const PRESERVED_PUBLIC_URL_TOKEN = '__NXT1_PUBLIC_URL__';
+
+function preservePublicAppUrls(value: string): {
+  readonly text: string;
+  readonly urls: readonly string[];
+} {
+  const urls: string[] = [];
+  const text = value.replace(
+    /https?:\/\/[^\s"')\]]+\/(?:profile|team)\/[A-Za-z0-9/_-]+/gi,
+    (match) => {
+      const token = `${PRESERVED_PUBLIC_URL_TOKEN}${urls.length}__`;
+      urls.push(match);
+      return token;
+    }
+  );
+
+  return { text, urls };
+}
+
+function restorePreservedPublicAppUrls(value: string, urls: readonly string[]): string {
+  return urls.reduce(
+    (restored, url, index) => restored.replace(`${PRESERVED_PUBLIC_URL_TOKEN}${index}__`, url),
+    value
+  );
+}
 
 /**
  * Replaces backend infrastructure terms that must never appear in user-visible text.
@@ -83,7 +108,7 @@ function sanitizeStringInternal(value: string): string {
       /("(?:id|ids|uid|unicode|teamCode|route|cursor|nextCursor|[A-Za-z0-9]+Id(?:s)?)"\s*:\s*")[^"]*(")/g,
       `$1${REDACTED_TOKEN}$2`
     )
-    .replace(/\/(?:profile|team|organization|org|post|event)\/[A-Za-z0-9/_-]+/gi, REDACTED_ROUTE)
+    .replace(/\/(?:organization|org|post|event)\/[A-Za-z0-9/_-]+/gi, REDACTED_ROUTE)
     .replace(
       /\b(?:user|team|org|organization|post|event|roster|recruit|stat|metric|session|thread|operation|approval)(?:-|_)[A-Za-z0-9-]+\b/gi,
       REDACTED_TOKEN
@@ -103,7 +128,8 @@ function sanitizeStringInternal(value: string): string {
 }
 
 export function sanitizeAgentOutputText(value: string): string {
-  const sanitized = sanitizeStringInternal(value);
+  const preserved = preservePublicAppUrls(value);
+  const sanitized = sanitizeStringInternal(preserved.text);
 
   // Strip any remaining [redacted] / [redacted-route] tokens from user-visible text.
   // These tokens are fine inside JSON payloads (sanitizeAgentPayload) but must never
@@ -118,7 +144,7 @@ export function sanitizeAgentOutputText(value: string): string {
 
   // Final pass: scrub backend infrastructure terms (Firebase, Apify, auth-gated, etc.)
   // Only applied to user-visible text, not to LLM observation payloads.
-  return sanitizeInfrastructureTerms(redactedClean);
+  return restorePreservedPublicAppUrls(sanitizeInfrastructureTerms(redactedClean), preserved.urls);
 }
 
 export function sanitizeAgentPayload<T>(value: T): T {

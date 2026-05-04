@@ -17,6 +17,7 @@ import type {
   MembershipEditorItem,
   UpdateMembershipRequest,
 } from '@nxt1/core';
+import { formatPositionDisplay, getPositionGroupsForSport } from '@nxt1/core/constants';
 import { NxtIconComponent } from '../../components/icon';
 import { NxtSheetHeaderComponent } from '../../components/bottom-sheet/sheet-header.component';
 import { NxtAvatarComponent } from '../../components/avatar';
@@ -25,6 +26,8 @@ import { NxtModalService } from '../../services/modal';
 import { ManageTeamMembershipService } from '../manage-team-membership.service';
 
 type FilterTab = 'all' | 'roster' | 'staff' | 'pending';
+
+const MAX_POSITIONS = 5;
 
 @Component({
   selector: 'nxt1-manage-team-membership-editor',
@@ -120,7 +123,7 @@ type FilterTab = 'all' | 'roster' | 'staff' | 'pending';
                   <span class="nxt1-mm__name">{{ memberDisplayName(member) }}</span>
                   <span class="nxt1-mm__meta">
                     @if (member.role) {
-                      {{ member.role }}
+                      {{ formatRole(member.role) }}
                     }
                     @if (member.membershipKind === 'roster' && member.positions?.length) {
                       &middot;
@@ -169,20 +172,6 @@ type FilterTab = 'all' | 'roster' | 'staff' | 'pending';
               <!-- Inline edit form -->
               @if (editingEntryId() === member.entryId) {
                 <form class="nxt1-mm__edit-form" (ngSubmit)="saveEdit(member.entryId, member)">
-                  @if (member.membershipKind === 'roster') {
-                    <nxt1-form-field label="Role" [inputId]="'role-' + member.entryId">
-                      <input
-                        [id]="'role-' + member.entryId"
-                        type="text"
-                        class="nxt1-input"
-                        [(ngModel)]="editRole"
-                        [ngModelOptions]="{ standalone: true }"
-                        placeholder="e.g. player"
-                        autocomplete="off"
-                      />
-                    </nxt1-form-field>
-                  }
-
                   @if (member.membershipKind === 'staff') {
                     <nxt1-form-field label="Title" [inputId]="'title-' + member.entryId">
                       <input
@@ -198,17 +187,70 @@ type FilterTab = 'all' | 'roster' | 'staff' | 'pending';
                   }
 
                   @if (member.membershipKind === 'roster') {
-                    <nxt1-form-field label="Positions" [inputId]="'pos-' + member.entryId">
-                      <input
-                        [id]="'pos-' + member.entryId"
-                        type="text"
-                        class="nxt1-input"
-                        [(ngModel)]="editPositionsRaw"
-                        [ngModelOptions]="{ standalone: true }"
-                        placeholder="e.g. Point Guard, Small Forward"
-                        autocomplete="off"
-                      />
-                    </nxt1-form-field>
+                    <div class="nxt1-mm__positions-field">
+                      <div class="nxt1-mm__positions-label-row">
+                        <label class="nxt1-mm__positions-label">Positions</label>
+                        <span class="nxt1-mm__positions-hint"
+                          >{{ editPositions().length }}/{{ maxPositions }}</span
+                        >
+                      </div>
+
+                      @if (editPositions().length > 0) {
+                        <div class="nxt1-mm__position-pills">
+                          @for (position of editPositions(); track position) {
+                            <button
+                              type="button"
+                              class="nxt1-mm__position-pill"
+                              (click)="removePosition(position)"
+                              [attr.aria-label]="'Remove ' + formatPosition(position, member.sport)"
+                            >
+                              {{ formatPosition(position, member.sport) }}
+                              <svg
+                                class="nxt1-mm__position-pill-icon"
+                                viewBox="0 0 12 12"
+                                aria-hidden="true"
+                              >
+                                <path
+                                  d="M3 3l6 6M9 3L3 9"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  stroke-linecap="round"
+                                  stroke-width="1.5"
+                                />
+                              </svg>
+                            </button>
+                          }
+                        </div>
+                      }
+
+                      @if (hasAvailablePositions(member)) {
+                        <button
+                          type="button"
+                          class="nxt1-mm__position-trigger"
+                          (click)="openPositionsPicker(member)"
+                        >
+                          <svg
+                            class="nxt1-mm__position-trigger-icon"
+                            viewBox="0 0 16 16"
+                            aria-hidden="true"
+                          >
+                            <path
+                              d="M8 3.25v9.5M3.25 8h9.5"
+                              fill="none"
+                              stroke="currentColor"
+                              stroke-linecap="round"
+                              stroke-width="1.5"
+                            />
+                          </svg>
+                          {{ editPositions().length === 0 ? 'Add positions' : 'Add more' }}
+                        </button>
+                      } @else {
+                        <p class="nxt1-mm__positions-empty">
+                          No positions available for this sport.
+                        </p>
+                      }
+                    </div>
+
                     <nxt1-form-field label="Jersey #" [inputId]="'jersey-' + member.entryId">
                       <input
                         [id]="'jersey-' + member.entryId"
@@ -488,6 +530,107 @@ type FilterTab = 'all' | 'roster' | 'staff' | 'pending';
         color: var(--nxt1-color-text-secondary);
       }
 
+      .nxt1-mm__positions-field {
+        display: flex;
+        flex-direction: column;
+        gap: var(--nxt1-spacing-2, 8px);
+      }
+
+      .nxt1-mm__positions-label-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--nxt1-spacing-2, 8px);
+      }
+
+      .nxt1-mm__positions-label {
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-sm);
+        font-weight: var(--nxt1-fontWeight-medium);
+        color: var(--nxt1-color-text-secondary);
+      }
+
+      .nxt1-mm__positions-hint {
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-xs);
+        color: var(--nxt1-color-text-tertiary, var(--nxt1-color-text-secondary));
+      }
+
+      .nxt1-mm__position-pills {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--nxt1-spacing-2, 8px);
+      }
+
+      .nxt1-mm__position-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--nxt1-spacing-1-5, 6px);
+        padding: var(--nxt1-spacing-2, 8px) var(--nxt1-spacing-3, 12px);
+        border: 1px solid var(--nxt1-color-border-default);
+        border-radius: var(--nxt1-radius-full, 9999px);
+        background: var(--nxt1-color-surface-100);
+        color: var(--nxt1-color-text-primary);
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-sm);
+        cursor: pointer;
+        transition:
+          background 0.15s ease,
+          border-color 0.15s ease,
+          color 0.15s ease;
+      }
+
+      .nxt1-mm__position-pill:hover {
+        background: var(--nxt1-color-surface-200);
+        border-color: var(--nxt1-color-border-strong);
+      }
+
+      .nxt1-mm__position-pill-icon {
+        width: 12px;
+        height: 12px;
+        flex-shrink: 0;
+      }
+
+      .nxt1-mm__position-trigger {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: var(--nxt1-spacing-2, 8px);
+        min-height: 42px;
+        padding: 0 var(--nxt1-spacing-4, 16px);
+        border: 1px dashed var(--nxt1-color-border-default);
+        border-radius: var(--nxt1-radius-full, 9999px);
+        background: transparent;
+        color: var(--nxt1-color-text-secondary);
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-sm);
+        font-weight: var(--nxt1-fontWeight-medium);
+        cursor: pointer;
+        transition:
+          background 0.15s ease,
+          border-color 0.15s ease,
+          color 0.15s ease;
+      }
+
+      .nxt1-mm__position-trigger:hover {
+        background: var(--nxt1-color-surface-200);
+        border-color: var(--nxt1-color-border-strong);
+        color: var(--nxt1-color-text-primary);
+      }
+
+      .nxt1-mm__position-trigger-icon {
+        width: 16px;
+        height: 16px;
+        flex-shrink: 0;
+      }
+
+      .nxt1-mm__positions-empty {
+        margin: 0;
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-xs);
+        color: var(--nxt1-color-text-secondary);
+      }
+
       .nxt1-mm__edit-actions {
         display: flex;
         gap: var(--nxt1-spacing-2-5);
@@ -621,14 +764,14 @@ export class ManageTeamMembershipEditorComponent implements OnInit, OnDestroy {
 
   protected readonly service = inject(ManageTeamMembershipService);
   private readonly modalController = inject(ModalController, { optional: true });
-  private readonly modal = inject(NxtModalService);
+  private readonly modalService = inject(NxtModalService);
 
   protected readonly activeTab = signal<FilterTab>('all');
   protected readonly editingEntryId = signal<string | null>(null);
-  protected editRole = '';
   protected editTitle = '';
-  protected editPositionsRaw = ''; // comma-separated string bound to the input
+  protected readonly editPositions = signal<string[]>([]);
   protected editJerseyNumber = '';
+  protected readonly maxPositions = MAX_POSITIONS;
 
   protected readonly skeletonRows = [1, 2, 3, 4, 5];
 
@@ -694,7 +837,7 @@ export class ManageTeamMembershipEditorComponent implements OnInit, OnDestroy {
   }
 
   protected async remove(entryId: string): Promise<void> {
-    const confirmed = await this.modal.confirm({
+    const confirmed = await this.modalService.confirm({
       title: 'Remove Member?',
       message: 'This will remove the member from the team.',
       confirmText: 'Remove',
@@ -723,30 +866,22 @@ export class ManageTeamMembershipEditorComponent implements OnInit, OnDestroy {
 
   protected startEdit(member: MembershipEditorItem): void {
     this.editingEntryId.set(member.entryId);
-    this.editRole = member.role ?? '';
     this.editTitle = member.title ?? '';
-    this.editPositionsRaw = member.positions?.join(', ') ?? '';
+    this.editPositions.set([...(member.positions ?? [])]);
     this.editJerseyNumber = member.jerseyNumber != null ? String(member.jerseyNumber) : '';
   }
 
   protected cancelEdit(): void {
     this.editingEntryId.set(null);
-    this.editRole = '';
     this.editTitle = '';
-    this.editPositionsRaw = '';
+    this.editPositions.set([]);
     this.editJerseyNumber = '';
   }
 
   protected async saveEdit(entryId: string, member: MembershipEditorItem): Promise<void> {
-    const positions = this.editPositionsRaw
-      .split(',')
-      .map((p) => p.trim())
-      .filter(Boolean);
-
     const payload: UpdateMembershipRequest = {
-      role: member.membershipKind === 'roster' ? this.editRole.trim() || undefined : undefined,
       title: member.membershipKind === 'staff' ? this.editTitle.trim() || undefined : undefined,
-      positions: member.membershipKind === 'roster' ? positions : undefined,
+      positions: member.membershipKind === 'roster' ? this.editPositions() : undefined,
       jerseyNumber:
         member.membershipKind === 'roster' && this.editJerseyNumber.trim()
           ? this.editJerseyNumber.trim()
@@ -763,9 +898,82 @@ export class ManageTeamMembershipEditorComponent implements OnInit, OnDestroy {
     this.emitClose(false);
   }
 
+  protected formatPosition(position: string, sport?: string): string {
+    return formatPositionDisplay(position, sport, { showAbbreviation: false });
+  }
+
+  protected formatRole(role: string): string {
+    return role
+      .trim()
+      .replace(/[-_]+/g, ' ')
+      .replace(/\b\w/g, (character) => character.toUpperCase());
+  }
+
+  protected hasAvailablePositions(member: MembershipEditorItem): boolean {
+    return this.availablePositions(member).length > 0;
+  }
+
+  protected removePosition(position: string): void {
+    this.editPositions.update((current) => current.filter((entry) => entry !== position));
+  }
+
+  protected async openPositionsPicker(member: MembershipEditorItem): Promise<void> {
+    const sport = member.sport?.trim() ?? '';
+    const positions = this.availablePositions(member);
+
+    if (!sport || positions.length === 0) {
+      return;
+    }
+
+    let keepSelecting = true;
+    while (keepSelecting) {
+      const current = this.editPositions();
+      const atMax = current.length >= MAX_POSITIONS;
+      const title =
+        current.length > 0 ? `Positions (${current.length}/${MAX_POSITIONS})` : 'Select Position';
+
+      const result = await this.modalService.actionSheet({
+        title,
+        actions: positions.map((position) => {
+          const isSelected = current.includes(position);
+          const display = formatPositionDisplay(position, sport);
+          return {
+            text: isSelected ? `✓ ${display}` : display,
+            data: position,
+            ...(atMax && !isSelected ? { destructive: false } : {}),
+          };
+        }),
+        preferNative: 'native',
+      });
+
+      if (!result?.selected || !result.data) {
+        keepSelecting = false;
+        continue;
+      }
+
+      const selectedPosition = result.data as string;
+      if (current.includes(selectedPosition)) {
+        this.editPositions.update((existing) =>
+          existing.filter((entry) => entry !== selectedPosition)
+        );
+      } else if (current.length < MAX_POSITIONS) {
+        this.editPositions.update((existing) => [...existing, selectedPosition]);
+      }
+    }
+  }
+
   private emitClose(changed: boolean): void {
     this.close.emit({ changed });
     void this.dismissNativeModal(changed);
+  }
+
+  private availablePositions(member: MembershipEditorItem): readonly string[] {
+    const sport = member.sport?.trim() ?? '';
+    if (!sport) {
+      return [];
+    }
+
+    return getPositionGroupsForSport(sport).flatMap((group) => group.positions);
   }
 
   private async dismissNativeModal(changed: boolean): Promise<void> {

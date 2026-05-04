@@ -34,6 +34,7 @@ import {
   signal,
   effect,
   DestroyRef,
+  viewChild,
 } from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
 import { toSignal, toObservable, takeUntilDestroyed } from '@angular/core/rxjs-interop';
@@ -60,6 +61,7 @@ import {
   NxtBottomSheetService,
   SHEET_PRESETS,
   ConnectedAccountsModalService,
+  InviteBottomSheetService,
   type ActionFooterButton,
   type TeamSearchResult,
 } from '@nxt1/ui';
@@ -130,12 +132,15 @@ const TEAM_INTEL_ENABLED = false;
           [teamIntelEnabled]="teamIntelEnabled"
           [isTeamAdmin]="true"
           [skipInternalLoad]="true"
+          [hideFooterFab]="true"
           (backClick)="onBackClick()"
           (tabChange)="onTeamTabChange($event)"
           (shareClick)="onTeamShare()"
           (copyLinkClick)="onTeamCopyLink()"
           (qrCodeClick)="onTeamQrCode()"
           (manageTeamClick)="onManageTeam()"
+          (connectedAccountsClick)="onConnectAccountsFooter()"
+          (inviteRosterClick)="onInviteRoster()"
           (rosterMemberClick)="onRosterMemberClick($event)"
           (postClick)="onTeamPostClick($event)"
           (refreshRequest)="onTeamRefreshRequest()"
@@ -276,6 +281,7 @@ export class ProfileComponent {
   protected readonly intel = inject(IntelService);
   private readonly bottomSheet = inject(NxtBottomSheetService);
   private readonly connectedAccountsModal = inject(ConnectedAccountsModalService);
+  private readonly inviteModal = inject(InviteBottomSheetService);
 
   // Team profile dependencies (for coach/director own-profile view)
   private readonly teamProfile = inject(TeamProfileService);
@@ -292,6 +298,7 @@ export class ProfileComponent {
   // ============================================
 
   private readonly fetchedProfile = signal<User | null>(null);
+  private readonly profileShell = viewChild(ProfileShellComponent);
 
   /**
    * Guard: tracks the last "userId:sportId" key that sub-collections were fetched for.
@@ -368,6 +375,26 @@ export class ProfileComponent {
             label: this.intel.teamReport() ? 'Update Intel' : 'Generate Intel',
             variant: 'primary',
             onClick: () => void this.onGenerateTeamIntel(),
+          },
+        ];
+      }
+      if (this.teamProfile.activeTab() === 'connect') {
+        return [
+          {
+            id: 'team-connect-accounts',
+            label: 'Connect Accounts',
+            variant: 'primary',
+            onClick: () => this.onConnectAccountsFooter(),
+          },
+        ];
+      }
+      if (this.teamProfile.activeTab() === 'roster') {
+        return [
+          {
+            id: 'team-invite-roster',
+            label: 'Invite',
+            variant: 'primary',
+            onClick: () => void this.onInviteRoster(),
           },
         ];
       }
@@ -1274,10 +1301,12 @@ export class ProfileComponent {
   // ============================================
 
   private onAddUpdate(): void {
-    void this.openCreatePostSheet();
+    const profileShell = this.profileShell();
+    if (!profileShell) return;
+    void profileShell.triggerAddUpdateFromExternalAction();
   }
 
-  private async onConnectAccountsFooter(): Promise<void> {
+  protected async onConnectAccountsFooter(): Promise<void> {
     const user = this.uiProfileService.user();
     const role = user?.role ?? null;
     await this.connectedAccountsModal.open({
@@ -1290,25 +1319,20 @@ export class ProfileComponent {
     });
   }
 
-  private async openCreatePostSheet(): Promise<void> {
-    const hasReport = !!this.intel.athleteReport();
-    const message = hasReport
-      ? 'I want to create a post for my timeline. After creating the post, automatically review it and update any relevant sections of my Agent X Intel report with new stats, achievements, or information from the post.'
-      : 'I want to create a post for my timeline.';
-    await this.bottomSheet.openSheet({
-      component: AgentXOperationChatComponent,
-      componentProps: {
-        contextId: 'profile-timeline-post',
-        contextTitle: 'Create a Post',
-        contextIcon: 'create-outline',
-        contextType: 'command',
-        initialMessage: message,
+  protected async onInviteRoster(): Promise<void> {
+    const team = this.teamProfile.team();
+    if (!team) return;
+
+    await this.inviteModal.open({
+      inviteType: 'team',
+      team: {
+        id: team.id,
+        name: team.teamName || 'Team',
+        sport: team.sport || 'Sports',
+        logoUrl: team.logoUrl ?? undefined,
+        memberCount: this.teamProfile.rosterCount(),
+        teamCode: team.teamCode ?? undefined,
       },
-      ...SHEET_PRESETS.FULL,
-      showHandle: true,
-      handleBehavior: 'cycle',
-      backdropDismiss: true,
-      cssClass: 'agent-x-operation-sheet',
     });
   }
 

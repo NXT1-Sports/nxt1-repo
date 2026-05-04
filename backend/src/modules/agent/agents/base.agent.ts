@@ -171,6 +171,7 @@ export interface ToolSessionContext {
   readonly threadId?: string;
   readonly operationId?: string;
   readonly environment?: 'staging' | 'production';
+  readonly appBaseUrl?: string;
   readonly approvalId?: string;
   readonly allowedToolNames?: readonly string[];
   readonly allowedEntityGroups?: readonly AgentToolEntityGroup[];
@@ -1005,6 +1006,7 @@ export abstract class BaseAgent {
       threadId: context.threadId,
       operationId: context.operationId,
       ...(context.environment && { environment: context.environment }),
+      ...(context.appBaseUrl && { appBaseUrl: context.appBaseUrl }),
       ...(approvalId ? { approvalId } : {}),
       ...(yieldState.reason === 'needs_approval' && yieldState.pendingToolCall
         ? {
@@ -1496,6 +1498,7 @@ export abstract class BaseAgent {
         sessionId: context.sessionId,
         threadId: context.threadId,
         operationId: context.operationId,
+        ...(context.appBaseUrl ? { appBaseUrl: context.appBaseUrl } : {}),
         allowedToolNames,
         allowedEntityGroups,
       };
@@ -2546,6 +2549,7 @@ export abstract class BaseAgent {
       userId,
       ...(signal && { signal }),
       ...(sessionContext?.environment && { environment: sessionContext.environment }),
+      ...(sessionContext?.appBaseUrl && { appBaseUrl: sessionContext.appBaseUrl }),
       ...(sessionContext?.operationId && { operationId: sessionContext.operationId }),
       ...(sessionContext?.threadId && { threadId: sessionContext.threadId }),
       ...(sessionContext?.sessionId && { sessionId: sessionContext.sessionId }),

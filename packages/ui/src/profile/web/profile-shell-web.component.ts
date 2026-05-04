@@ -323,7 +323,8 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
                   @if (
                     profile.isOwnProfile() &&
                     profile.activeTab() === 'timeline' &&
-                    !platform.isMobile()
+                    !platform.isMobile() &&
+                    !platform.isBelowBreakpoint('md')
                   ) {
                     <div class="desktop-intel-action-bar">
                       <button
@@ -380,7 +381,13 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
                     }
 
                     @case ('connect') {
-                      <nxt1-profile-contact [activeSection]="activeSideTab()" />
+                      <nxt1-profile-contact
+                        [activeSection]="activeSideTab()"
+                        [hideConnectedInlineCta]="
+                          profile.isOwnProfile() &&
+                          (platform.isMobile() || platform.isBelowBreakpoint('md'))
+                        "
+                      />
                     }
                   }
                 </section>
@@ -508,14 +515,18 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
         <ng-content />
       }
 
-      @if (profile.isOwnProfile() && profile.activeTab() === 'timeline' && platform.isMobile()) {
+      @if (
+        profile.isOwnProfile() &&
+        (profile.activeTab() === 'timeline' || profile.activeTab() === 'connect') &&
+        (platform.isMobile() || platform.isBelowBreakpoint('md'))
+      ) {
         <div class="mobile-intel-footer">
           <button
             type="button"
             class="mobile-intel-footer__btn mobile-intel-footer__btn--primary mobile-intel-footer__btn--full"
-            (click)="onAddUpdate()"
+            (click)="onFooterPrimaryAction()"
           >
-            Add Update
+            {{ profile.activeTab() === 'connect' ? 'Connect Accounts' : 'Add Update' }}
           </button>
         </div>
       }
@@ -722,7 +733,7 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
         align-items: center;
         gap: var(--nxt1-spacing-3);
         width: 300px;
-        height: auto;
+        min-height: 100%;
         padding-top: 20px;
         padding-bottom: 12px;
       }
@@ -1060,7 +1071,12 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
         display: flex;
         flex-direction: column;
         gap: 10px;
-        margin-top: 0;
+        order: 2;
+        margin-top: auto;
+        position: sticky;
+        bottom: 16px;
+        align-self: stretch;
+        z-index: 1;
         width: 100%;
         padding: 12px;
         border: 1px solid var(--m-border, rgba(255, 255, 255, 0.08));
@@ -1509,6 +1525,8 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
   readonly menuClick = output<void>();
   readonly qrCodeClick = output<void>();
   readonly aiSummaryClick = output<void>();
+  readonly connectedAccountsClick = output<void>();
+  readonly sportProfileSelect = output<number>();
   readonly retryClick = output<void>();
   readonly generationDismissed = output<'completed' | 'skipped'>();
 
@@ -1761,8 +1779,11 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
 
   /** Handle sport profile switching */
   protected onSportSwitch(index: number): void {
-    this.profile.setActiveSportIndex(index);
-    this.logger.debug('Sport profile switched', { index, sport: this.profile.activeSport()?.name });
+    this.sportProfileSelect.emit(index);
+    this.logger.debug('Sport profile selected', {
+      index,
+      sport: this.profile.allSports()[index]?.name,
+    });
   }
 
   /**
@@ -1993,51 +2014,39 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
     const user = this.profile.user();
     if (!user) return;
 
-    const userName = user.displayName?.trim() ?? user.firstName?.trim() ?? 'Athlete';
     const activeTab = this.activeSideTab();
-
-    let tabContext: string;
-    let sourceCollection: string;
+    let message: string;
     switch (activeTab) {
-      case 'stats':
-        tabContext = 'my statistics, performance data, or game stats';
-        sourceCollection = 'season stats';
-        break;
-      case 'schedule':
-        tabContext = 'my upcoming games or schedule';
-        sourceCollection = 'schedule';
-        break;
-      case 'recruiting':
-        tabContext = 'recruiting updates or college recruitment news';
-        sourceCollection = 'recruiting activity';
-        break;
-      case 'news':
-        tabContext = 'news articles or personal announcements';
-        sourceCollection = 'news';
-        break;
-      case 'media':
-        tabContext = 'photos or highlight videos';
-        sourceCollection = 'media';
+      case 'all-posts':
+        message = `I'd like to add a general update. Please help me figure out whether this belongs in Posts, PlayerStats, Schedule, Recruiting, or News based on what I'm sharing. If this is photos or highlight video, save it in Posts with the post type set to image or video. If the right section is not obvious, ask me a quick follow-up before saving anything.`;
         break;
       case 'pinned':
-        tabContext = 'important pinned announcement';
-        sourceCollection = 'news';
+        message = `I need to create an important featured update that should stay at the top of my profile. Please help me write it, then save it to the Posts collection with isPinned set to true.`;
+        break;
+      case 'stats':
+        message = `I want to update my season stats and recent performances. Please guide me through the latest numbers, then save that data to the PlayerStats collection.`;
+        break;
+      case 'schedule':
+        message = `I want to add upcoming games or recent results. Please help me organize the details, then add the update to the Schedule collection.`;
+        break;
+      case 'recruiting':
+        message = `I have new recruiting activity to add, including college interest and outreach updates. Please help me put it together, then save it to the Recruiting collection.`;
+        break;
+      case 'news':
+        message = `I'd like to share a news update or announcement. Please help me write it clearly, then publish it to the News collection.`;
+        break;
+      case 'media':
+        message = `I want to add new photos or highlight videos. Please help me prepare the update, then save it to the Posts collection and make sure the post type is set correctly as image or video.`;
         break;
       default:
-        tabContext = 'update';
-        sourceCollection = 'profile updates';
+        message = `I'd like to add a new profile update. Please help me draft it, then save it to the Posts collection.`;
     }
 
     const hasReport = !!this.intel.athleteReport();
-    const baseMessage =
-      `This is an ATHLETE profile update request for ${userName}. ` +
-      `Active tab: ${activeTab}. ` +
-      `Focus area: ${tabContext}. ` +
-      `Write or update the ${sourceCollection} source collection first, ` +
-      `then create a timeline post only when a public announcement is needed.`;
-    const message = hasReport
-      ? `${baseMessage} After saving the source data, review and update any relevant sections of my Agent X Intel report with new stats, achievements, or profile updates.`
-      : baseMessage;
+    if (hasReport) {
+      message +=
+        ' After that is saved, refresh any relevant parts of my Intel report with the latest stats, achievements, and profile updates.';
+    }
     if (this.platform.isMobile()) {
       await this.bottomSheet.openSheet({
         component: AgentXOperationChatComponent,
@@ -2062,6 +2071,15 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
 
   protected onAddUpdate(): void {
     void this.onCreatePostWithAgent();
+  }
+
+  protected onFooterPrimaryAction(): void {
+    if (this.profile.activeTab() === 'connect') {
+      this.connectedAccountsClick.emit();
+      return;
+    }
+
+    this.onAddUpdate();
   }
 
   protected async onGenerateIntel(): Promise<void> {

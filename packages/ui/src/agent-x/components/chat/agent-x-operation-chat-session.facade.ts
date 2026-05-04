@@ -322,7 +322,76 @@ export class AgentXOperationChatSessionFacade {
   }
 
   /**
-   * Phase-aware projection: given the raw persisted rows for a thread,
+   * Pair-by-arrival reorder.
+   *
+   * The backend stamps `assistant_final.createdAt` at completion time,
+   * which can be LATER than a follow-up user message that was sent while
+   * the previous response was still streaming (or paused). The thread
+   * query sorts strictly by `createdAt`, so on rehydrate we get
+   * [user1, user2, assistant1, assistant2] instead of the conversational
+   * [user1, assistant1, user2, assistant2].
+   *
+   * This pass walks chronologically and attaches the Nth assistant row to
+   * the Nth user row — falling back to the user with the fewest assistants
+   * attached so far when more assistants exist than users (yield + final).
+   *
+   * Non-user/assistant rows pass through untouched. Orphan assistants
+   * (none preceding user) are appended at their natural position.
+   */
+  private reorderTurnsByPairing(messages: readonly OperationMessage[]): OperationMessage[] {
+    const result: OperationMessage[] = [];
+    // Track each user's landing index in `result` and how many assistants
+    // have been attached after it. A user's "block" occupies indices
+    // [idx, idx + assistantCount].
+    const userSlots: Array<{ idx: number; assistantCount: number }> = [];
+
+    const attachAfter = (
+      slot: { idx: number; assistantCount: number },
+      msg: OperationMessage
+    ): void => {
+      const insertAt = slot.idx + 1 + slot.assistantCount;
+      result.splice(insertAt, 0, msg);
+      slot.assistantCount += 1;
+      // Shift later user slots — their landing index moved by +1.
+      for (const other of userSlots) {
+        if (other !== slot && other.idx >= insertAt) other.idx += 1;
+      }
+    };
+
+    for (const msg of messages) {
+      if (msg.role === 'user') {
+        result.push(msg);
+        userSlots.push({ idx: result.length - 1, assistantCount: 0 });
+        continue;
+      }
+
+      if (msg.role === 'assistant') {
+        // Prefer the earliest user with zero assistants attached.
+        let target = userSlots.find((s) => s.assistantCount === 0);
+        if (!target && userSlots.length > 0) {
+          // Otherwise attach to the user with the fewest assistants
+          // (preferring earlier on ties — stable scan order does this).
+          target = userSlots.reduce(
+            (best, s) => (s.assistantCount < best.assistantCount ? s : best),
+            userSlots[0]
+          );
+        }
+        if (target) {
+          attachAfter(target, msg);
+        } else {
+          // Orphan assistant (e.g. opening greeting before any user msg).
+          result.push(msg);
+        }
+        continue;
+      }
+
+      result.push(msg);
+    }
+
+    return result;
+  }
+
+  /**
    * suppress `assistant_partial` rows for any `operationId` that already
    * has an `assistant_final` row.
    *
@@ -914,7 +983,8 @@ export class AgentXOperationChatSessionFacade {
         });
 
       const dedupedMapped = this.dedupeConsecutiveAssistantMessages(mapped);
-      this.messageFacade.messages.set(dedupedMapped);
+      const reorderedMapped = this.reorderTurnsByPairing(dedupedMapped);
+      this.messageFacade.messages.set(reorderedMapped);
 
       const latestMessageOperationId = [...canonicalItems]
         .reverse()
@@ -1080,6 +1150,11 @@ export class AgentXOperationChatSessionFacade {
 
     const snapshot = this.streamRegistry.claim(threadId, {
       onDelta: (text) => {
+        // Mirror live transport: first delta means the model is streaming text.
+        // Subsequent deltas just pulse so the gap timer doesn't prematurely
+        // flip into waiting_delta while content is actively flowing.
+        host.setActivityPhase('streaming');
+        host.markActivityPulse();
         this.messageFacade.queueTypingDelta(text);
       },
       onThinking: (content) => {
@@ -1102,6 +1177,20 @@ export class AgentXOperationChatSessionFacade {
       onStep: (step) => {
         this.messageFacade.flushPendingTypingDelta();
         if (!step.label.trim()) return;
+        // Mirror live transport phase logic so the shimmer/loader behavior on
+        // session re-entry matches first-watch streaming.
+        if (step.status === 'active') {
+          host.setActivityPhase('running_tool', step.label);
+        } else if (
+          step.stageType === 'tool' &&
+          (step.status === 'success' || step.status === 'error')
+        ) {
+          // Tool finished: leave running_tool so waiting_delta shimmer can show
+          // while the model computes the next assistant text delta.
+          host.setActivityPhase('waiting_delta');
+        } else {
+          host.markActivityPulse();
+        }
         this.messageFacade.messages.update((messages) =>
           messages.map((message) => {
             if (message.id !== 'typing') return message;
@@ -1121,6 +1210,9 @@ export class AgentXOperationChatSessionFacade {
       },
       onCard: (card) => {
         this.messageFacade.flushPendingTypingDelta();
+        // A card landing typically means a tool just emitted output; keep the
+        // shimmer pulsed so it doesn't drop out before the next phase update.
+        host.markActivityPulse();
         this.messageFacade.messages.update((messages) =>
           messages.map((message) => {
             if (message.id !== 'typing') return message;
@@ -1146,6 +1238,7 @@ export class AgentXOperationChatSessionFacade {
             event != null && typeof event['success'] === 'boolean' ? event['success'] : undefined,
           source: 'stream-registry-done',
         });
+        host.setActivityPhase('completed');
         host.loading.set(false);
         void this.haptics.notification('success');
         this.transportFacade.emitResponseCompleteOnce('stream-registry-done');
@@ -1158,6 +1251,7 @@ export class AgentXOperationChatSessionFacade {
           timestamp: new Date(),
           error: true,
         });
+        host.setActivityPhase('failed', error || null);
         host.loading.set(false);
         void this.haptics.notification('error');
       },
@@ -1169,6 +1263,26 @@ export class AgentXOperationChatSessionFacade {
         contentLength: snapshot.content.length,
         done: snapshot.done,
       });
+
+      // Seed the activity phase immediately on re-entry so the shimmer shows
+      // while we wait for the next stream callback. Without this, _activityPhase
+      // stays 'idle' (the component default) and showThinking returns false even
+      // though the stream is still running in the background.
+      if (!snapshot.done) {
+        const activeStep = [...snapshot.steps].reverse().find((s) => s.status === 'active');
+        if (activeStep) {
+          host.setActivityPhase('running_tool', activeStep.label || null);
+        } else if (snapshot.content.length > 0) {
+          // Content already streamed → either still streaming text or waiting
+          // for the next delta. Use 'streaming' so the showThinking computed
+          // correctly suppresses the shimmer once content is visible while
+          // remaining ON if no text has been painted yet.
+          host.setActivityPhase('streaming');
+        } else {
+          host.setActivityPhase('reconnecting', 'Reconnecting...');
+        }
+        host.loading.set(true);
+      }
 
       void this.loadThreadMessages(threadId).then(() => {
         const fresh = this.streamRegistry.getSnapshot(threadId);
@@ -1279,20 +1393,9 @@ export class AgentXOperationChatSessionFacade {
           return;
         }
 
-        const hasAssistantReply = this.messageFacade
-          .messages()
-          .some(
-            (message) =>
-              !message.isTyping && message.role === 'assistant' && message.content?.trim()
-          );
-
-        if (hasAssistantReply) {
-          this.logger.info('Thread already has assistant reply — skipping Firestore subscribe', {
-            operationId,
-          });
-          return;
-        }
-
+        // Always fetch stored state first — historical assistant replies from prior turns
+        // must NOT block subscribing to the current in-flight operation. The done/in-flight
+        // branches below correctly dedupe content for the current operationId.
         const stored = await this.operationEventService.getStoredEventState(operationId);
 
         if (stored.latestYieldState) {

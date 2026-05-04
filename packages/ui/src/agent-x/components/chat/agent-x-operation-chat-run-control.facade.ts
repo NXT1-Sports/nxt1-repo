@@ -520,6 +520,7 @@ export class AgentXOperationChatRunControlFacade {
 
   private transitionInFlightMessages(label: 'Paused' | 'Cancelled'): void {
     const interruptedReason = label === 'Paused' ? 'paused' : 'cancelled';
+    const host = this.requireHost();
 
     this.messageFacade.messages.update((messages) =>
       messages.map((message) => {
@@ -529,7 +530,14 @@ export class AgentXOperationChatRunControlFacade {
           (part) =>
             part.type === 'tool-steps' && part.steps.some((step) => step.status === 'active')
         );
-        if (!hasTyping && !hasActiveSteps && !hasActiveParts) {
+        // The streaming bubble keeps id === 'typing' even after the first
+        // delta flips isTyping=false (so flushPendingTypingDelta can keep
+        // appending into it). On pause/cancel we MUST rotate that sentinel
+        // off the now-finalized row, otherwise the next send's typing push
+        // is rejected by pushMessage's typing-dedup and new deltas keep
+        // landing in this old bubble (rendering above the new user message).
+        const carriesTypingSentinel = message.id === 'typing';
+        if (!hasTyping && !hasActiveSteps && !hasActiveParts && !carriesTypingSentinel) {
           return message;
         }
 
@@ -538,6 +546,7 @@ export class AgentXOperationChatRunControlFacade {
 
         return {
           ...message,
+          ...(carriesTypingSentinel ? { id: host.uid() } : {}),
           isTyping: false,
           ...(message.role === 'assistant' ? { interruptedReason } : {}),
           steps: message.steps?.map(updateStep),

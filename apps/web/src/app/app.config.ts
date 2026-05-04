@@ -26,6 +26,8 @@ import {
   inject,
   NgZone,
   APP_INITIALIZER,
+  EnvironmentInjector,
+  runInInjectionContext,
 } from '@angular/core';
 import {
   provideRouter,
@@ -309,9 +311,14 @@ export const appConfig: ApplicationConfig = {
     // file uploads go through backend API for security
 
     // Firestore adapter for Agent X live operation events (onSnapshot)
+    // All Firebase modular API calls are wrapped in runInInjectionContext so they
+    // remain associated with the AngularFire injector even when invoked from
+    // outside Angular's injection context (e.g., async tail of getDocs, or from
+    // a bottom-sheet rehydrate path). This silences AngularFire's "called outside
+    // injection context" warning and prevents Zone/CD destabilization.
     {
       provide: FIRESTORE_ADAPTER,
-      useFactory: (firestore: Firestore) => ({
+      useFactory: (firestore: Firestore, injector: EnvironmentInjector) => ({
         onSnapshot: (
           path: string,
           orderByField: string,
@@ -321,19 +328,21 @@ export const appConfig: ApplicationConfig = {
           if (!/^AgentJobs\/[^/]+\/events$/.test(path)) {
             throw new Error(`Unsupported Firestore subscription path: ${path}`);
           }
-          const ref = collection(firestore, path);
-          const q = query(ref, firestoreOrderBy(orderByField));
-          return firestoreOnSnapshot(
-            q,
-            (snap) => {
-              onNext(
-                snap.docs.map(
-                  (d) => normalizeFirestoreSnapshotValue(d.data()) as Record<string, unknown>
-                )
-              );
-            },
-            onError
-          );
+          return runInInjectionContext(injector, () => {
+            const ref = collection(firestore, path);
+            const q = query(ref, firestoreOrderBy(orderByField));
+            return firestoreOnSnapshot(
+              q,
+              (snap) => {
+                onNext(
+                  snap.docs.map(
+                    (d) => normalizeFirestoreSnapshotValue(d.data()) as Record<string, unknown>
+                  )
+                );
+              },
+              onError
+            );
+          });
         },
         getDocs: async (
           path: string,
@@ -342,15 +351,17 @@ export const appConfig: ApplicationConfig = {
           if (!/^AgentJobs\/[^/]+\/events$/.test(path)) {
             throw new Error(`Unsupported Firestore query path: ${path}`);
           }
-          const ref = collection(firestore, path);
-          const q = query(ref, firestoreOrderBy(orderByField));
-          const snap = await firestoreGetDocs(q);
-          return snap.docs.map(
-            (d) => normalizeFirestoreSnapshotValue(d.data()) as Record<string, unknown>
-          );
+          return runInInjectionContext(injector, async () => {
+            const ref = collection(firestore, path);
+            const q = query(ref, firestoreOrderBy(orderByField));
+            const snap = await firestoreGetDocs(q);
+            return snap.docs.map(
+              (d) => normalizeFirestoreSnapshotValue(d.data()) as Record<string, unknown>
+            );
+          });
         },
       }),
-      deps: [Firestore],
+      deps: [Firestore, EnvironmentInjector],
     },
 
     // ============================================

@@ -376,7 +376,7 @@ interface AgentXControlPanelCloseResult {
               @defer (on interaction) {
                 <nxt1-agent-x-goal-history />
               } @placeholder {
-                <button type="button" class="goals-history-trigger">View completed goals</button>
+                <button type="button" class="goals-history-trigger">View task history</button>
               }
             </section>
           }

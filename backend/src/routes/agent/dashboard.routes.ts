@@ -801,6 +801,7 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
           generatedAt: briefingGeneratedAt,
         },
         playbook: {
+          ...(latestRealPlaybook ? { id: latestRealPlaybook.id } : {}),
           items: playbookItems,
           goals: agentGoals,
           generatedAt: playbookGeneratedAt,

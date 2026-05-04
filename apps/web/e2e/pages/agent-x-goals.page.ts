@@ -81,7 +81,7 @@ export class AgentXGoalsPage extends BasePage {
    * Waits for the history container to appear.
    */
   async openHistorySection(): Promise<void> {
-    const trigger = this.page.getByRole('button', { name: /view completed goals/i });
+    const trigger = this.page.getByRole('button', { name: /view task history/i });
     await trigger.click();
     await this.historyContainer.waitFor({ state: 'visible', timeout: 8_000 });
   }
