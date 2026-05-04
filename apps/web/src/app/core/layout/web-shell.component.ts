@@ -1587,7 +1587,7 @@ export class WebShellComponent {
   onHeaderSearchInput(_query: string): void {}
 
   onHeaderSearchSubmit(event: TopNavSearchSubmitEvent): void {
-    const query = event.query.trim();
+    const query = (event.query ?? '').trim();
     if (query) {
       void this.router.navigate(['/agent-x'], { queryParams: { q: query } });
     }

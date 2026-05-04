@@ -38,6 +38,7 @@ import {
   type AgentXAttachment,
   type AgentXMessage,
   type AgentXQuickTask,
+  type AgentXRichCard,
   type AgentXMode,
   type AgentXUserContext,
   type AgentDashboardData,
@@ -104,6 +105,10 @@ export class AgentXService {
   private readonly platformId = inject(PLATFORM_ID);
   private readonly http = inject(HttpClient);
   private readonly baseUrl = inject(AGENT_X_API_BASE_URL);
+
+  private isLocalDevApiBaseUrl(): boolean {
+    return /https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?\//i.test(this.baseUrl);
+  }
   private readonly getAuthToken = inject(AGENT_X_AUTH_TOKEN_FACTORY, { optional: true });
   /** Pure API factory instance — used for non-streaming calls (approval, threads, dashboard). */
   private readonly api = createAgentXApi(
@@ -152,6 +157,15 @@ export class AgentXService {
   private readonly _pendingResumeOp = signal<{
     operationId: string;
     threadId?: string;
+  } | null>(null);
+
+  /**
+   * Pending resolved op: filled when onThread fires for an in-flight stream
+   * after the originating chat component was destroyed.
+   */
+  private readonly _pendingResolvedOp = signal<{
+    operationId: string;
+    threadId: string;
   } | null>(null);
 
   /**
@@ -287,6 +301,14 @@ export class AgentXService {
    * The web shell effect watches this and opens op-chat with the resume params.
    */
   readonly pendingResumeOp = computed(() => this._pendingResumeOp());
+
+  /**
+   * Set when the SSE `onThread` event fires for a stream whose chat component
+   * was already destroyed (navigate-away-before-thread race). The web shell
+   * effect watches this and remounts the chat component with the correct
+   * threadId so it can claim the buffered stream from the registry.
+   */
+  readonly pendingResolvedOp = computed(() => this._pendingResolvedOp());
 
   /**
    * Requested side panel content from the agent.
@@ -604,6 +626,23 @@ export class AgentXService {
   }
 
   /**
+   * Signal that an in-flight SSE stream resolved its threadId while no
+   * chat component was mounted. The shell's effect will remount the
+   * component with the correct threadId to claim the buffered stream.
+   */
+  setPendingResolvedOp(operationId: string, threadId: string): void {
+    const trimmedOp = operationId.trim();
+    const trimmedThread = threadId.trim();
+    if (!trimmedOp || !trimmedThread) return;
+    this._pendingResolvedOp.set({ operationId: trimmedOp, threadId: trimmedThread });
+  }
+
+  /** Clear the pending resolved op after the shell has consumed it. */
+  clearPendingResolvedOp(): void {
+    this._pendingResolvedOp.set(null);
+  }
+
+  /**
    * Read and immediately clear any pending drop-recovery operation from
    * sessionStorage (saved mid-stream when the page was refreshed).
    * The web shell calls this on init and opens op-chat with the result.
@@ -622,6 +661,38 @@ export class AgentXService {
       };
     } catch {
       return null;
+    }
+  }
+
+  /**
+   * Persist an in-flight operation so the web shell can recover it after
+   * refresh/navigation even before the stream resolves a threadId.
+   */
+  persistDropRecoveryOp(operationId: string, threadId?: string): void {
+    if (!isPlatformBrowser(this.platformId)) return;
+    const trimmedOperationId = operationId.trim();
+    if (!trimmedOperationId) return;
+    try {
+      sessionStorage.setItem(
+        AGENT_X_PENDING_OP_KEY,
+        JSON.stringify({
+          operationId: trimmedOperationId,
+          ...(threadId?.trim() ? { threadId: threadId.trim() } : {}),
+          savedAt: Date.now(),
+        })
+      );
+    } catch {
+      // Non-blocking best-effort persistence.
+    }
+  }
+
+  /** Clear any persisted drop-recovery operation marker. */
+  clearDropRecoveryOp(): void {
+    if (!isPlatformBrowser(this.platformId)) return;
+    try {
+      sessionStorage.removeItem(AGENT_X_PENDING_OP_KEY);
+    } catch {
+      // Non-blocking best-effort cleanup.
     }
   }
 
@@ -679,6 +750,16 @@ export class AgentXService {
         // Phase J (thread-as-truth): tool/system rows are persisted for
         // backend replay only — they must not render as chat bubbles.
         .filter((m) => m.role === 'user' || m.role === 'assistant')
+        // P1: skip empty assistant rows (no content, no parts, no steps, no resultData).
+        .filter((m) => {
+          if (m.role !== 'assistant') return true;
+          return (
+            (m.content ?? '').trim().length > 0 ||
+            (m.parts?.length ?? 0) > 0 ||
+            (m.steps?.length ?? 0) > 0 ||
+            (!!m.resultData && Object.keys(m.resultData).length > 0)
+          );
+        })
         .map((message) => this.mapPersistedMessageToUi(message));
 
       this._messages.set(messages);
@@ -1000,11 +1081,37 @@ export class AgentXService {
   private resolveCanonicalAssistantRows(
     messages: readonly AgentMessage[]
   ): readonly AgentMessage[] {
+    const isChatPrefixedOperationId = (value: string | undefined): boolean =>
+      typeof value === 'string' && value.startsWith('chat-');
+
     // Phase-tagged final rows.
     const finalOperationIds = new Set<string>();
-    for (const msg of messages) {
+    let lastBareFinalIndex = -1;
+    messages.forEach((msg, index) => {
       if (msg.role === 'assistant' && msg.semanticPhase === 'assistant_final' && msg.operationId) {
         finalOperationIds.add(msg.operationId);
+        if (!isChatPrefixedOperationId(msg.operationId)) {
+          lastBareFinalIndex = Math.max(lastBareFinalIndex, index);
+        }
+      }
+    });
+
+    // Collapse assistant_tool_call rows when no final exists for the operationId.
+    // Keep only the last intermediate row per operationId (last-wins as items are
+    // in chronological order). Earlier turns are suppressed — they are abandoned
+    // ReAct iterations, not distinct user-visible replies.
+    const toolCallSuppressedIds = new Set<string>();
+    const toolCallLastSeen = new Map<string, string>();
+    for (const msg of messages) {
+      if (
+        msg.role === 'assistant' &&
+        msg.semanticPhase === 'assistant_tool_call' &&
+        msg.operationId &&
+        !finalOperationIds.has(msg.operationId)
+      ) {
+        const prev = toolCallLastSeen.get(msg.operationId);
+        if (prev) toolCallSuppressedIds.add(prev);
+        toolCallLastSeen.set(msg.operationId, msg.id);
       }
     }
 
@@ -1034,17 +1141,48 @@ export class AgentXService {
       }
     }
 
-    if (finalOperationIds.size === 0 && legacySuppressedIds.size === 0) return messages;
+    if (
+      finalOperationIds.size === 0 &&
+      toolCallSuppressedIds.size === 0 &&
+      legacySuppressedIds.size === 0
+    )
+      return messages;
 
-    return messages.filter((msg) => {
+    return messages.filter((msg, index) => {
       if (msg.role !== 'assistant') return true;
+
+      const hasRenderableCard =
+        (msg.cards?.length ?? 0) > 0 || (msg.parts?.some((part) => part.type === 'card') ?? false);
 
       // When assistant_final exists for this operationId, keep only the final
       // row and any yield rows. Suppress partials and untagged trajectory rows
       // (written by ThreadMessageWriter) that would cause duplicate bubbles.
       if (msg.operationId && finalOperationIds.has(msg.operationId)) {
-        return msg.semanticPhase === 'assistant_final' || msg.semanticPhase === 'assistant_yield';
+        return (
+          msg.semanticPhase === 'assistant_final' ||
+          msg.semanticPhase === 'assistant_yield' ||
+          hasRenderableCard
+        );
       }
+
+      // Pause/resume cross-operation collapse:
+      // parent operation ids are `chat-*` while resumed child operations use
+      // bare UUID ids. When a later bare-UUID final exists, suppress stale
+      // parent assistant trajectory rows so only the resumed final bubble remains.
+      if (
+        lastBareFinalIndex >= 0 &&
+        index < lastBareFinalIndex &&
+        msg.operationId &&
+        isChatPrefixedOperationId(msg.operationId) &&
+        !finalOperationIds.has(msg.operationId) &&
+        (msg.semanticPhase === 'assistant_tool_call' || !msg.semanticPhase) &&
+        !hasRenderableCard
+      ) {
+        return false;
+      }
+
+      // Suppress all-but-last assistant_tool_call rows (no final path).
+      if (toolCallSuppressedIds.has(msg.id)) return false;
 
       // Suppress non-richest legacy duplicates (untagged rows with no final).
       if (legacySuppressedIds.has(msg.id)) return false;
@@ -1066,6 +1204,18 @@ export class AgentXService {
   private mapPersistedMessageToUi(message: AgentMessage): AgentXMessage {
     const imageUrl = message.resultData?.['imageUrl'] as string | undefined;
     const attachments = (message.attachments ?? []) as readonly AgentXAttachment[];
+    const cards = (
+      message.cards?.length
+        ? message.cards
+        : (message.parts ?? [])
+            .filter(
+              (
+                part
+              ): part is Extract<NonNullable<AgentMessage['parts']>[number], { type: 'card' }> =>
+                part.type === 'card'
+            )
+            .map((part) => part.card)
+    ) as readonly AgentXRichCard[];
 
     // Strip the AI-context annotation lines appended by the backend before display.
     // These "[Attached file: ...]" / "[Attached video: ...]" suffixes are injected into
@@ -1091,6 +1241,7 @@ export class AgentXService {
       timestamp: message.createdAt ? new Date(message.createdAt) : new Date(),
       ...(imageUrl ? { imageUrl } : {}),
       ...(attachments.length > 0 ? { attachments } : {}),
+      ...(cards.length > 0 ? { cards } : {}),
     };
   }
 

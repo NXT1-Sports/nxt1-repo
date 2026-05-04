@@ -42,6 +42,10 @@ env:
   # App Hosting injects env vars at runtime — dotenv is a no-op in production
   - variable: NODE_ENV
     value: 'staging'
+  - variable: BACKEND_URL
+    value: 'https://api.nxt1sports.com'
+  - variable: MEDIA_PROXY_HMAC_SECRET
+    secret: media-proxy-hmac-secret
   # Allow devDependencies during build (needed for TypeScript compiler + shx)
   - variable: NPM_CONFIG_PRODUCTION
     value: 'false'

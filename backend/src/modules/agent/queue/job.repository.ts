@@ -270,7 +270,7 @@ function deepSanitize(value: unknown, seen: WeakSet<object>, depth = 0): unknown
   return null;
 }
 
-function sanitizeForFirestore<T>(value: T): T {
+export function sanitizeForFirestore<T>(value: T): T {
   if (value === null || value === undefined) return value;
   // Always run the recursive walker — JSON round-trip alone does NOT handle
   // nested arrays, which Firestore rejects with INVALID_ARGUMENT.
@@ -319,6 +319,10 @@ export interface AgentJobDocument {
   readonly idempotencyKey?: string | null;
   readonly intent: string;
   readonly origin: string;
+  readonly planId?: string | null;
+  readonly planStatus?: string | null;
+  readonly executionSource?: string | null;
+  readonly resumedFromPlanId?: string | null;
   readonly status: AgentOperationStatus;
   readonly progress: AgentJobProgress | null;
   readonly result: AgentOperationResult | null;
@@ -367,6 +371,10 @@ export class AgentJobRepository {
         idempotencyKey: (payload.context?.['idempotencyKey'] as string) ?? null,
         intent: payload.displayIntent ?? payload.intent,
         origin: payload.origin,
+        planId: (payload.context?.['planId'] as string) ?? null,
+        planStatus: (payload.context?.['planStatus'] as string) ?? null,
+        executionSource: (payload.context?.['executionSource'] as string) ?? null,
+        resumedFromPlanId: (payload.context?.['resumedFromPlanId'] as string) ?? null,
         status: 'queued' satisfies AgentOperationStatus,
         progress: null,
         result: null,

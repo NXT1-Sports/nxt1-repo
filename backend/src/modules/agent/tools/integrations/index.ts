@@ -46,6 +46,7 @@ export { FirecrawlAgentTool } from './firecrawl/mcp/firecrawl-agent.tool.js';
 export { FirebaseMcpBridgeService } from './firebase-mcp/firebase-mcp-bridge.service.js';
 export { ListNxt1DataViewsTool } from './firebase-mcp/list-user-firebase-views.tool.js';
 export { QueryNxt1DataTool } from './firebase-mcp/query-user-firebase-data.tool.js';
+export { MutateNxt1DataTool } from './firebase-mcp/mutate-nxt1-data.tool.js';
 
 // ── Microsoft 365 MCP — User-scoped productivity actions ─────────────────
 export {

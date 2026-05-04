@@ -107,6 +107,8 @@ const PROGRESS_COMMENTARY_SLOW_BURST_TOOLS = 2;
 const PROGRESS_COMMENTARY_SLOW_BURST_MS = 4_000;
 const PROGRESS_COMMENTARY_STALE_SILENCE_TOOLS = 4;
 const PROGRESS_COMMENTARY_COOLDOWN_MS = 5_000;
+const PROGRESS_COMMENTARY_COUNT_PATTERN =
+  /\b(?:processed|completed|handled|ran|executed)\s+\d+\s+tool\s+calls?\b/i;
 
 /** Artifact field names promoted from tool results for cross-coordinator handoff. */
 const ARTIFACT_KEYS = [
@@ -221,7 +223,7 @@ export abstract class BaseAgent {
    * the messages array remains structurally valid for OpenRouter.
    */
   getToolConcurrency(): number {
-    return 1;
+    return 5;
   }
 
   private shouldInlineDocumentAttachment(attachment: SessionImageAttachment): boolean {
@@ -1200,6 +1202,7 @@ export abstract class BaseAgent {
     const recentToolNames: string[] = [];
     let lastProgressCommentaryAtMs = 0;
     let lastProgressCommentaryToolCount = 0;
+    let lastProgressCommentaryText = '';
 
     for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
       this.throwIfAborted(context.signal);
@@ -1719,15 +1722,19 @@ export abstract class BaseAgent {
           nowMs,
         });
         if (shouldEmitProgress) {
-          await this.emitLlmProgressCommentary(
+          const emittedProgressText = await this.emitLlmProgressCommentary(
             llm,
             onStreamEvent,
             context,
             completedToolCallCount,
-            recentToolNames
+            recentToolNames,
+            lastProgressCommentaryText
           );
-          lastProgressCommentaryAtMs = nowMs;
-          lastProgressCommentaryToolCount = completedToolCallCount;
+          if (emittedProgressText) {
+            lastProgressCommentaryAtMs = nowMs;
+            lastProgressCommentaryToolCount = completedToolCallCount;
+            lastProgressCommentaryText = emittedProgressText;
+          }
         }
       }
 
@@ -1739,7 +1746,12 @@ export abstract class BaseAgent {
       //    follow_up_required: false), skip the next LLM call entirely.
       //    Without this guard the model generates an acknowledgment token
       //    like "Completed:" that appears as a spurious second response.
-      const DELEGATION_TOOLS = new Set(['delegate_to_coordinator', 'plan_and_execute']);
+      const DELEGATION_TOOLS = new Set([
+        'delegate_to_coordinator',
+        'create_plan',
+        'execute_saved_plan',
+        'plan_and_execute',
+      ]);
       const shouldExitAfterDelegation = result.toolCalls.some((tc) => {
         if (!DELEGATION_TOOLS.has(tc.function.name)) return false;
         const toolMsg = [...messages]
@@ -1878,21 +1890,24 @@ export abstract class BaseAgent {
     onStreamEvent: OnStreamEvent | undefined,
     context: AgentSessionContext,
     completedToolCallCount: number,
-    recentToolNames: readonly string[]
-  ): Promise<void> {
-    if (!onStreamEvent) return;
-    if (typeof llm.complete !== 'function') return;
+    recentToolNames: readonly string[],
+    previousCommentary: string
+  ): Promise<string | null> {
+    if (!onStreamEvent) return null;
+    if (typeof llm.complete !== 'function') return null;
 
     try {
       const progressPrompt: readonly LLMMessage[] = [
         {
           role: 'system',
           content:
-            'Write exactly one short live progress line for an AI workflow stream. ' +
+            'Write exactly one short live operations commentary line for an AI workflow stream. ' +
+            'Use a play-by-play style about what is happening right now. ' +
             'Keep it operational, clear, and under 14 words. ' +
             'No hype, no filler, no markdown, no emojis, no quotes. ' +
             'Do not invent results, metrics, counts, or names. ' +
-            'You may reference only the provided completed tool call count.',
+            'Never mention number of tool calls or numeric progress totals. ' +
+            'Avoid template phrasing; the line must read naturally and be materially different from the prior line.',
         },
         {
           role: 'user',
@@ -1900,6 +1915,7 @@ export abstract class BaseAgent {
             `Agent: ${this.id}\n` +
             `Completed tool calls: ${completedToolCallCount}\n` +
             `Recent tools: ${recentToolNames.join(', ') || 'none'}\n` +
+            `Prior commentary: ${previousCommentary || 'none'}\n` +
             'Return one progress line now.',
         },
       ];
@@ -1916,21 +1932,44 @@ export abstract class BaseAgent {
         .trim()
         .slice(0, PROGRESS_COMMENTARY_MAX_CHARS);
 
-      if (!text) return;
+      if (!text) return null;
+      if (this.shouldSuppressProgressCommentary(text, previousCommentary)) return null;
 
       onStreamEvent({
         type: 'delta',
         agentId: this.id,
-        text,
+        text: `\n${text}\n`,
         noBatch: true,
       });
+      return text;
     } catch (err) {
       logger.warn(`[${this.id}] Failed to generate LLM progress commentary`, {
         agentId: this.id,
         completedToolCallCount,
         error: err instanceof Error ? err.message : String(err),
       });
+      return null;
     }
+  }
+
+  private shouldSuppressProgressCommentary(text: string, previousCommentary: string): boolean {
+    const normalized = text
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, '')
+      .trim();
+    const normalizedPrev = previousCommentary
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, '')
+      .trim();
+
+    if (!normalized) return true;
+    if (PROGRESS_COMMENTARY_COUNT_PATTERN.test(text)) return true;
+    if (normalized.includes('currently querying platform data sources')) return true;
+    if (normalizedPrev && (normalized === normalizedPrev || normalized.includes(normalizedPrev))) {
+      return true;
+    }
+
+    return false;
   }
 
   private shouldEmitProgressCommentary(input: {
@@ -2278,7 +2317,12 @@ export abstract class BaseAgent {
     // Delegation handoffs stream their user-facing output from downstream
     // coordinators/plans. Emitting "Completed: delegate to coordinator." here
     // creates redundant noise and can concatenate awkwardly with streamed text.
-    const HANDOFF_TOOLS = new Set(['delegate_to_coordinator', 'plan_and_execute']);
+    const HANDOFF_TOOLS = new Set([
+      'delegate_to_coordinator',
+      'create_plan',
+      'execute_saved_plan',
+      'plan_and_execute',
+    ]);
     const allSuccessesAreHandoffs = successRecords.every((r) => HANDOFF_TOOLS.has(r.toolName));
     if (allSuccessesAreHandoffs) {
       return '';
@@ -2511,20 +2555,22 @@ export abstract class BaseAgent {
       const result = await registry.execute(toolName, input, toolExecContext);
       this.throwIfAborted(signal);
 
-      const sanitizedData =
-        result.data !== undefined ? sanitizeAgentPayload(result.data) : undefined;
+      // Keep exact tool payloads for the agent's internal ReAct loop so later
+      // tool calls can reuse IDs, cursors, routes, and other machine-readable
+      // references. User-visible text is scrubbed separately at render/stream time.
+      const rawData = result.data !== undefined ? result.data : undefined;
 
       // Classify the outcome for the loop detector:
       //   'failure' — tool explicitly reported an error (success: false)
       //   'empty'   — tool succeeded but returned null / [] / {} (futile search)
       //   'success' — tool returned real data
       const isDataEmpty =
-        sanitizedData === null ||
-        sanitizedData === undefined ||
-        (Array.isArray(sanitizedData) && sanitizedData.length === 0) ||
-        (typeof sanitizedData === 'object' &&
-          !Array.isArray(sanitizedData) &&
-          Object.keys(sanitizedData as object).length === 0);
+        rawData === null ||
+        rawData === undefined ||
+        (Array.isArray(rawData) && rawData.length === 0) ||
+        (typeof rawData === 'object' &&
+          !Array.isArray(rawData) &&
+          Object.keys(rawData as object).length === 0);
 
       const outcome: 'success' | 'failure' | 'empty' = !result.success
         ? 'failure'
@@ -2547,16 +2593,16 @@ export abstract class BaseAgent {
           outcome: result.success ? 'success' : 'failure',
         });
 
-        if (result.success && sanitizedData !== undefined) {
+        if (result.success && rawData !== undefined) {
           operationMemory.rememberSuccessfulResult(
             sessionContext.operationId,
             toolName,
             input,
-            sanitizedData
+            rawData
           );
 
-          if (typeof sanitizedData === 'object' && sanitizedData !== null) {
-            const artifactData = sanitizedData as Record<string, unknown>;
+          if (typeof rawData === 'object' && rawData !== null) {
+            const artifactData = rawData as Record<string, unknown>;
             for (const key of ARTIFACT_KEYS) {
               if (artifactData[key] !== undefined) {
                 operationMemory.logArtifact(sessionContext.operationId, {
@@ -2589,7 +2635,7 @@ export abstract class BaseAgent {
       const payload = result.success
         ? {
             success: true,
-            ...(sanitizedData !== undefined ? { data: sanitizedData } : {}),
+            ...(rawData !== undefined ? { data: rawData } : {}),
             ...(advisory ? { _advisory: advisory } : {}),
           }
         : {
@@ -2820,7 +2866,9 @@ export abstract class BaseAgent {
       search_apify_actors: 'Finding automation templates',
       get_apify_actor_details: 'Reviewing automation details',
       get_apify_actor_output: 'Reviewing automation results',
-      plan_and_execute: 'Building execution plan',
+      create_plan: 'Drafting execution plan',
+      execute_saved_plan: 'Executing approved plan',
+      plan_and_execute: 'Drafting execution plan',
       delegate_to_coordinator: 'Routing to specialist coordinator',
       discover_analytics_templates: 'Reviewing analytics templates',
       register_analytics_template: 'Saving analytics template',

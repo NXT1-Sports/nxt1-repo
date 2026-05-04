@@ -14,6 +14,7 @@ import { ModalController } from '@ionic/angular/standalone';
 import type { ManageTeamFormData, ManageTeamSectionId } from '@nxt1/core';
 import { SHEET_PRESETS } from '../components/bottom-sheet';
 import { ManageTeamShellComponent, type ManageTeamCloseEvent } from './manage-team-shell.component';
+import { ManageTeamService } from './manage-team.service';
 import { NxtLoggingService } from '../services/logging';
 
 /** Options for presenting the manage team sheet */
@@ -52,6 +53,7 @@ export interface ManageTeamSheetResult {
 @Injectable({ providedIn: 'root' })
 export class ManageTeamBottomSheetService {
   private readonly modalController = inject(ModalController);
+  private readonly manageTeam = inject(ManageTeamService);
   private readonly logger = inject(NxtLoggingService);
 
   private activeModal: HTMLIonModalElement | null = null;
@@ -66,6 +68,9 @@ export class ManageTeamBottomSheetService {
     if (this.activeModal) {
       await this.activeModal.dismiss();
     }
+
+    // ManageTeamService is root-scoped; clear any stale editor state before opening.
+    this.manageTeam.reset();
 
     const {
       teamId = null,
@@ -92,20 +97,23 @@ export class ManageTeamBottomSheetService {
       showBackdrop: true,
     });
 
-    await this.activeModal.present();
+    try {
+      await this.activeModal.present();
 
-    // Wait for dismissal
-    const { data } = await this.activeModal.onWillDismiss<ManageTeamCloseEvent>();
+      // Wait for dismissal
+      const { data } = await this.activeModal.onWillDismiss<ManageTeamCloseEvent>();
 
-    this.activeModal = null;
+      this.logger.debug('ManageTeamBottomSheet: Sheet dismissed');
 
-    this.logger.debug('ManageTeamBottomSheet: Sheet dismissed');
-
-    return {
-      saved: data?.saved ?? false,
-      data: data?.data,
-      dismissed: true,
-    };
+      return {
+        saved: data?.saved ?? false,
+        data: data?.data,
+        dismissed: true,
+      };
+    } finally {
+      this.activeModal = null;
+      this.manageTeam.reset();
+    }
   }
 
   /**

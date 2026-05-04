@@ -1298,6 +1298,18 @@ export class AgentXOperationsLogComponent {
    */
   private readonly _sseGeneratedTitles = new Map<string, string>();
 
+  /**
+   * Terminal statuses confirmed via the `operationStatusUpdated$` stream
+   * during this session, keyed by threadId.
+   *
+   * Unlike the per-call `liveStatuses` snapshot inside `silentRefresh()`,
+   * this map persists for the lifetime of the component. It prevents a
+   * stale HTTP response (e.g. still showing `in-progress` for a thread
+   * that SSE already marked `complete`) from overwriting a terminal status
+   * that was correctly applied earlier in the same session.
+   */
+  private readonly _confirmedTerminalStatuses = new Map<string, OperationLogStatus>();
+
   protected readonly loading = computed(() => this._loading());
   protected readonly operations = computed(() => this._operations());
   protected readonly activeFilter = computed(() => this._activeFilter());
@@ -1482,6 +1494,13 @@ export class AgentXOperationsLogComponent {
             return next;
           });
         }
+
+        // Cache confirmed terminal statuses so silentRefresh() can re-apply
+        // them when a stale HTTP response races with a just-fired `done` event.
+        const terminalLogStatuses = new Set<OperationLogStatus>(['complete', 'error', 'cancelled']);
+        if (terminalLogStatuses.has(evt.status)) {
+          this._confirmedTerminalStatuses.set(evt.threadId, evt.status);
+        }
       });
   }
 
@@ -1556,6 +1575,15 @@ export class AgentXOperationsLogComponent {
             // Merge SSE-generated title — beats HTTP when HTTP still shows raw intent
             if (sseTitle && merged.title !== sseTitle) {
               merged = { ...merged, title: sseTitle };
+            }
+
+            // Apply confirmed terminal status — prevents a stale HTTP `in-progress`
+            // from overwriting a terminal status that SSE already delivered this session.
+            const confirmedTerminal = entry.threadId
+              ? this._confirmedTerminalStatuses.get(entry.threadId)
+              : undefined;
+            if (confirmedTerminal && !terminalStates.has(merged.status)) {
+              merged = { ...merged, status: confirmedTerminal };
             }
 
             return merged;

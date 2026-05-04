@@ -21,6 +21,8 @@ export interface AgentDelegationPayload {
   readonly forwardingIntent: string;
   /** The agent that initiated the delegation. */
   readonly sourceAgent: string;
+  /** Structured key/value data to preserve across coordinator re-routing. */
+  readonly structuredPayload?: Record<string, unknown>;
 }
 
 /**

@@ -85,7 +85,7 @@ export interface AgentXOperationChatRunControlFacadeHost {
   uid(): string;
 }
 
-@Injectable()
+@Injectable({ providedIn: 'root' })
 export class AgentXOperationChatRunControlFacade {
   private readonly http = inject(HttpClient);
   private readonly baseUrl = inject(AGENT_X_API_BASE_URL);

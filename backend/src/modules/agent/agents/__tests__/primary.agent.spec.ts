@@ -435,7 +435,8 @@ describe('PrimaryAgent delegation control flow', () => {
       'Analyze the active clip',
       expect.objectContaining({
         enrichedIntent: expect.stringContaining('[Prior Tool Results from Primary'),
-      })
+      }),
+      undefined
     );
     expect(observation).toContain('coordinator_artifacts');
     expect(observation).toContain('https://cdn.example.com/analyzed.mp4');

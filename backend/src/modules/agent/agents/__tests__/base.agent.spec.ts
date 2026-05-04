@@ -209,6 +209,40 @@ afterEach(() => {
 });
 
 describe('BaseAgent identifier scrubbing', () => {
+  it('preserves identifier fields inside internal tool observations for follow-up tool calls', async () => {
+    const agent = new FakeAgent();
+    const registry = new ToolRegistry();
+    registry.register(new FakeReadTool());
+
+    const observation = await agent.callExecuteTool(
+      {
+        id: 'call_fake_read',
+        type: 'function',
+        function: {
+          name: 'fake_read_tool',
+          arguments: '{}',
+        },
+      },
+      registry,
+      'viewer-1',
+      {
+        operationId: 'op-preserve-identifiers',
+        sessionId: 'session-preserve-identifiers',
+        allowedToolNames: ['fake_read_tool'],
+      }
+    );
+
+    expect(JSON.parse(observation)).toEqual({
+      success: true,
+      data: {
+        userId: 'user-123',
+        teamId: 'team-789',
+        route: '/profile/123456',
+        name: 'Jordan Miles',
+      },
+    });
+  });
+
   it('sanitizes final summaries in non-streaming mode', async () => {
     const agent = new FakeAgent();
     const registry = new ToolRegistry();

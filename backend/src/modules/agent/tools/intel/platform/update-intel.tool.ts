@@ -122,7 +122,13 @@ export class UpdateIntelTool extends BaseTool {
         };
       }
 
-      // Team
+      // Team — verify ownership before triggering AI generation
+      const teamDoc = await this.db.collection('Teams').doc(entityId).get();
+      if (!teamDoc.exists) return { success: false, error: 'Team not found.' };
+      if (teamDoc.data()?.['ownerId'] !== context?.userId) {
+        return { success: false, error: 'Forbidden: you do not own this team.' };
+      }
+
       context?.emitStage?.('submitting_job', {
         icon: 'document',
         entityType: 'team',

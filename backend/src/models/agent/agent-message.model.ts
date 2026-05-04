@@ -152,6 +152,7 @@ const AgentMessageSchema = new Schema<AgentMessage>(
     steps: { type: [Schema.Types.Mixed] },
     parts: { type: [Schema.Types.Mixed] },
     attachments: { type: [Schema.Types.Mixed] },
+    cards: { type: [Schema.Types.Mixed] },
     tokenUsage: { type: TokenUsageSchema },
     editHistory: { type: [MessageEditRecordSchema], default: [] },
     feedback: { type: MessageFeedbackSchema },

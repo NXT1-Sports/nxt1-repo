@@ -26,11 +26,10 @@ export class PlanAndExecuteTool extends BaseTool {
   readonly name = 'plan_and_execute';
 
   readonly description =
-    'Build and run a multi-step plan across specialist coordinators. Use this ' +
-    'only when the work clearly spans 3+ steps with dependencies, or multiple ' +
-    'coordinators must collaborate. For a single coordinator’s work, prefer ' +
-    '`delegate_to_coordinator`. For one-shot tasks, call the underlying tool ' +
-    'directly.';
+    'Legacy alias for `create_plan`. Build a saved multi-step plan across specialist ' +
+    'coordinators, then wait for explicit user approval before any execution begins. ' +
+    'For a single coordinator’s work, prefer `delegate_to_coordinator`. For one-shot ' +
+    'tasks, call the underlying tool directly.';
 
   readonly parameters = InputSchema;
   readonly isMutation = false;

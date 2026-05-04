@@ -84,7 +84,7 @@ export class AgentRouterPlanningOrchestratorService {
       onUpdate,
       operationId,
       'acting',
-      'Analyzing your request and building a plan...',
+      'Thinking through your request...',
       undefined,
       {
         agentId: 'router',
@@ -94,7 +94,7 @@ export class AgentRouterPlanningOrchestratorService {
     this.telemetry.emitProgressOperation(onStreamEvent, {
       operationId,
       stage: 'decomposing_intent',
-      message: 'Analyzing your request and building a plan...',
+      message: 'Thinking through your request...',
       metadata: { eventType: 'progress_stage', phase: 'planning', phaseIndex: 2, phaseTotal: 5 },
     });
 
@@ -143,10 +143,18 @@ export class AgentRouterPlanningOrchestratorService {
 
     try {
       this.throwIfAborted(signal);
-      planResult = await this.planner.execute(enrichedIntent, context, [], undefined, {
-        capabilitySnapshot: capabilitySnapshotForPlanning,
-        capabilitySnapshotResolver: resolveCapabilitySnapshotForPlanning,
-      });
+      planResult = await this.planner.execute(
+        enrichedIntent,
+        context,
+        [],
+        undefined,
+        {
+          capabilitySnapshot: capabilitySnapshotForPlanning,
+          capabilitySnapshotResolver: resolveCapabilitySnapshotForPlanning,
+        },
+        undefined,
+        onStreamEvent
+      );
       this.throwIfAborted(signal);
     } catch (err) {
       if (this.isAbortError(err)) throw err;
@@ -283,7 +291,7 @@ export class AgentRouterPlanningOrchestratorService {
       this.telemetry.emitProgressOperation(onStreamEvent, {
         operationId,
         stage: 'agent_thinking',
-        message: 'Response ready.',
+        message: 'Almost there...',
         metadata: {
           eventType: 'progress_subphase',
           phase: 'planning',
@@ -314,7 +322,7 @@ export class AgentRouterPlanningOrchestratorService {
       onUpdate,
       operationId,
       'acting',
-      'Matching skills and tools for the best execution path...',
+      'Picking the right approach...',
       undefined,
       {
         agentId: 'router',
@@ -324,7 +332,7 @@ export class AgentRouterPlanningOrchestratorService {
     this.telemetry.emitProgressOperation(onStreamEvent, {
       operationId,
       stage: 'decomposing_intent',
-      message: 'Matching skills and tools for the best execution path...',
+      message: 'Picking the right approach...',
       metadata: { eventType: 'progress_subphase', phase: 'planning', status: 'capability_match' },
     });
 

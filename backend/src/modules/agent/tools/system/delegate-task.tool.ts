@@ -32,10 +32,17 @@ export class DelegateTaskTool extends BaseTool {
     'Hand off a request to a different specialist agent when the current task ' +
     'is outside your domain. Use this when the user asks you to do something ' +
     'you are not equipped to handle (e.g., a media agent asked to send emails). ' +
-    "Provide the user's exact request so the correct specialist can take over.";
+    "Provide the user's exact request so the correct specialist can take over. " +
+    'If you have exact IDs, codes, or references needed by the next agent, include them in `structured_payload`.';
 
   readonly parameters = z.object({
     forwarding_intent: z.string().trim().min(1),
+    /**
+     * Optional structured key/value pairs to carry across coordinator re-routing.
+     * Use this to preserve IDs, codes, and references that must not be paraphrased
+     * (e.g. postId, teamCode, userId) when handing off to a different specialist.
+     */
+    structured_payload: z.record(z.string(), z.unknown()).optional(),
   });
 
   readonly isMutation = false;
@@ -61,12 +68,15 @@ export class DelegateTaskTool extends BaseTool {
       return this.paramError('forwarding_intent');
     }
 
+    const structuredPayload = input['structured_payload'] as Record<string, unknown> | undefined;
+
     // sourceAgent is set to a placeholder here. The BaseAgent.executeTool()
     // re-throws this exception and the AgentRouter identifies the source
     // agent from its own execution context (directAgent.id).
     throw new AgentDelegationException({
       forwardingIntent,
       sourceAgent: 'delegate_task_tool',
+      ...(structuredPayload ? { structuredPayload } : {}),
     });
   }
 }

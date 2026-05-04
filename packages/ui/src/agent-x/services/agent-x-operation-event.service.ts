@@ -430,6 +430,14 @@ export class AgentXOperationEventService {
               if (lastPart?.type === 'text') {
                 parts[parts.length - 1] = { type: 'text', content: lastPart.content + event.text };
               } else {
+                // First text delta after a non-text part — mark any open thinking blocks as done
+                // so they collapse immediately rather than waiting for the full stream to finish.
+                for (let i = 0; i < parts.length; i++) {
+                  const p = parts[i];
+                  if (p.type === 'thinking' && !p.done) {
+                    parts[i] = { type: 'thinking', content: p.content, done: true };
+                  }
+                }
                 parts.push({ type: 'text', content: event.text });
               }
             }
@@ -510,21 +518,6 @@ export class AgentXOperationEventService {
             if (idx >= 0) steps[idx] = errored;
             else steps.push(errored);
             upsertStepIntoParts(errored);
-            break;
-          }
-
-          case 'thinking': {
-            if (event.thinkingText) {
-              const lastPart = parts[parts.length - 1];
-              if (lastPart?.type === 'thinking') {
-                parts[parts.length - 1] = {
-                  type: 'thinking',
-                  content: lastPart.content + event.thinkingText,
-                };
-              } else {
-                parts.push({ type: 'thinking', content: event.thinkingText });
-              }
-            }
             break;
           }
 
@@ -883,12 +876,6 @@ export class AgentXOperationEventService {
       case 'delta':
         if (event.text) {
           callbacks.onDelta(event.text, event.agentId);
-        }
-        break;
-
-      case 'thinking':
-        if (event.thinkingText) {
-          callbacks.onThinking?.(event.thinkingText, event.agentId);
         }
         break;
 

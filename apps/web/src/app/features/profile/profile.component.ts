@@ -115,9 +115,10 @@ const CTA_AVATARS: readonly CtaAvatarImage[] = [
 @Component({
   selector: 'app-profile',
   standalone: true,
-  // Scope ProfileService to this component instance so each route navigation
-  // gets isolated state and cannot pollute a concurrent instance's view.
-  providers: [ProfileService],
+  // ProfileService is providedIn:'root' — using the root instance here so the
+  // Agent X transport facade (also root-scoped) can notify the same instance
+  // when a timeline mutation completes (e.g. delete_timeline_post).
+  // startLoading() resets all state on each navigation, so there is no stale-data risk.
   imports: [ProfileShellWebComponent, NxtCtaBannerComponent],
   template: `
     <nxt1-profile-shell-web
@@ -411,6 +412,9 @@ export class ProfileComponent implements OnInit, OnDestroy {
     // Register the cursor-based load-more handler so the timeline shell's
     // "Load More" button fetches the next page via the real API.
     this.profileService.registerLoadMoreHandler(() => this.loadMoreTimeline());
+    // Register the Agent X timeline refresh handler so delete/update tool
+    // completions silently re-fetch the timeline without a full page reload.
+    this.profileService.registerTimelineRefreshHandler(() => this.refreshTimeline());
 
     // Auto-invalidate profile cache when user returns to tab/window.
     // This ensures fresh data after editing profile in another tab or coming back from edit page.
@@ -783,23 +787,31 @@ export class ProfileComponent implements OnInit, OnDestroy {
 
     // Re-fetch timeline posts on tab select so data stays fresh
     if (tab === 'timeline') {
-      const userId = this.fetchedProfile()?.id;
-      if (userId) {
-        this.apiProfileService
-          .getProfileTimeline(userId)
-          .pipe(first())
-          .subscribe({
-            next: (resp) => {
-              if (resp.success)
-                this.profileService.setPolymorphicTimeline(resp.data, {
-                  hasMore: resp.hasMore,
-                  nextCursor: resp.nextCursor,
-                });
-            },
-            error: (err) => this.logger.warn('Failed to refresh timeline posts', { err }),
-          });
-      }
+      this.refreshTimeline();
     }
+  }
+
+  /**
+   * Silently re-fetches the timeline for the currently loaded profile and
+   * pushes updated items into ProfileService. Called by the Agent X bridge
+   * after a timeline mutation tool (delete / update) completes successfully.
+   */
+  private refreshTimeline(): void {
+    const userId = this.fetchedProfile()?.id;
+    if (!userId) return;
+    this.apiProfileService
+      .getProfileTimeline(userId)
+      .pipe(first())
+      .subscribe({
+        next: (resp) => {
+          if (resp.success)
+            this.profileService.setPolymorphicTimeline(resp.data, {
+              hasMore: resp.hasMore,
+              nextCursor: resp.nextCursor,
+            });
+        },
+        error: (err) => this.logger.warn('Failed to refresh timeline after Agent X mutation', { err }),
+      });
   }
 
   /**

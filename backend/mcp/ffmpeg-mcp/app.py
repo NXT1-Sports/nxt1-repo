@@ -60,6 +60,40 @@ def _is_url(value: str) -> bool:
     return value.startswith("http://") or value.startswith("https://")
 
 
+# Hostnames that require Google service-account auth for downloads.
+_GCS_AUTH_HOSTNAMES = frozenset([
+    "firebasestorage.googleapis.com",
+    "storage.googleapis.com",
+])
+
+
+def _is_gcs_url(url: str) -> bool:
+    """Return True if the URL requires GCS / Firebase Storage authentication."""
+    try:
+        from urllib.parse import urlparse
+        return urlparse(url).hostname in _GCS_AUTH_HOSTNAMES
+    except Exception:
+        return False
+
+
+def _gcs_auth_token() -> str | None:
+    """
+    Obtain an access token via Application Default Credentials.
+    Returns None if ADC is unavailable (e.g. local dev without credentials).
+    """
+    try:
+        import google.auth
+        import google.auth.transport.requests as _g_requests
+        credentials, _ = google.auth.default(
+            scopes=["https://www.googleapis.com/auth/devstorage.read_only"]
+        )
+        credentials.refresh(_g_requests.Request())
+        return credentials.token  # type: ignore[attr-defined]
+    except Exception as exc:
+        print(f"[ffmpeg-mcp] ADC token fetch failed: {exc}", file=sys.stderr)
+        return None
+
+
 def _is_streaming_url(url: str) -> bool:
     """Return True if the URL points to an HLS/DASH manifest rather than a direct file."""
     clean = url.split("?")[0].split("#")[0].lower()
@@ -114,10 +148,17 @@ def _download_url(url: str) -> str:
 
     # Direct file URL — try urllib first
     try:
-        req = urllib.request.Request(
-            url,
-            headers={"User-Agent": "Mozilla/5.0 (compatible; ffmpeg-mcp/1.0)"},
-        )
+        headers: dict[str, str] = {"User-Agent": "Mozilla/5.0 (compatible; ffmpeg-mcp/1.0)"}
+
+        # Firebase Storage and GCS URLs require a bearer token.
+        # We use ADC (the service-account bound to the Cloud Run container);
+        # this avoids passing signed URLs through the entire tool call chain.
+        if _is_gcs_url(url):
+            token = _gcs_auth_token()
+            if token:
+                headers["Authorization"] = f"Bearer {token}"
+
+        req = urllib.request.Request(url, headers=headers)
         with urllib.request.urlopen(req, timeout=120) as resp, open(local_path, "wb") as f:
             while chunk := resp.read(65536):
                 f.write(chunk)

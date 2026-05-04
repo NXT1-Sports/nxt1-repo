@@ -284,6 +284,8 @@ export type {
   AgentTaskStatus,
   AgentTask,
   AgentExecutionPlan,
+  AgentSavedPlanStatus,
+  AgentSavedPlan,
   AgentPlannerOutput,
   AgentTaskNode,
   AgentJobOrigin,

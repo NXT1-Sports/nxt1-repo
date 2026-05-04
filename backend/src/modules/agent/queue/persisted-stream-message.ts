@@ -22,6 +22,13 @@ function sanitizeMetadata(metadata?: AgentProgressMetadata): AgentProgressMetada
   return sanitizeAgentPayload(metadata) as AgentProgressMetadata;
 }
 
+function humanizeToolName(toolName: string): string {
+  return toolName
+    .replace(/[_-]+/g, ' ')
+    .replace(/\b\w/g, (char) => char.toUpperCase())
+    .trim();
+}
+
 function summarizeToolResult(result: Record<string, unknown>): string {
   if (Array.isArray(result['items'])) {
     return `Found ${result['items'].length} result(s)`;
@@ -226,9 +233,16 @@ export class PersistedAssistantStreamBuilder {
   }
 
   private resolveStepLabel(event: StreamEvent): string | null {
-    const label =
+    const explicitLabel =
       typeof event.message === 'string' ? sanitizeAgentOutputText(event.message).trim() : '';
-    return label.length > 0 ? label : null;
+    if (explicitLabel.length > 0) return explicitLabel;
+
+    const fallback =
+      typeof event.toolName === 'string' && event.toolName.trim().length > 0
+        ? humanizeToolName(event.toolName)
+        : '';
+
+    return fallback.length > 0 ? fallback : null;
   }
 
   private upsertStep(step: AgentXToolStep): void {

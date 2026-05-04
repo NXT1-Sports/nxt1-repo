@@ -109,7 +109,37 @@ export class DeleteTimelinePostTool extends BaseTool {
         phase: 'delete_timeline_post',
       });
 
-      await postRef.delete();
+      // ── Batch delete: main post + user subcollection ───────────────────
+      const originalPostId =
+        typeof postData['originalPostId'] === 'string' ? postData['originalPostId'] : null;
+
+      const batch = this.db.batch();
+      batch.delete(postRef);
+
+      const userPostRef = this.db
+        .collection(`Users/${userId}/Posts`)
+        .doc(postId);
+      batch.delete(userPostRef);
+
+      // If this is a repost, decrement the repost counter on the original
+      if (originalPostId) {
+        const originalRef = this.db.collection(POSTS_COLLECTION).doc(originalPostId);
+        const originalSnap = await originalRef.get();
+        if (originalSnap.exists) {
+          const originalData = originalSnap.data() ?? {};
+          const repostCount =
+            typeof originalData['reposts'] === 'number' ? originalData['reposts'] : 1;
+          batch.update(originalRef, { reposts: Math.max(0, repostCount - 1) });
+        }
+      }
+
+      await batch.commit();
+
+      // Update Users/{userId}.lastUpdated so profile reloads fresh data
+      await this.db
+        .collection('Users')
+        .doc(userId)
+        .update({ lastUpdated: new Date() });
 
       // ── Cache invalidation ─────────────────────────────────────────────
       const cache = getCacheService();
@@ -119,7 +149,11 @@ export class DeleteTimelinePostTool extends BaseTool {
         cache.delByPrefix(`user:timeline:${userId}:`),
       ]);
 
-      logger.info('[DeleteTimelinePostTool] Post deleted', { postId, userId });
+      logger.info('[DeleteTimelinePostTool] Post deleted', {
+        postId,
+        userId,
+        wasRepost: !!originalPostId,
+      });
 
       return {
         success: true,

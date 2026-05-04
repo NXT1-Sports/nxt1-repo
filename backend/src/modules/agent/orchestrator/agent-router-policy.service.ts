@@ -12,6 +12,7 @@ import type { PlannerAgent } from '../agents/planner.agent.js';
 export type TaskDelegationRerouteResult = {
   readonly assignedAgent: Exclude<AgentIdentifier, 'router'>;
   readonly description: string;
+  readonly structuredPayload?: Record<string, unknown>;
 };
 
 const routableCoordinatorSet = new Set<string>(COORDINATOR_AGENT_IDS);
@@ -26,7 +27,8 @@ export class AgentRouterPolicyService {
   async rerouteDelegatedTask(
     forwardingIntent: string,
     sourceAgentId: Exclude<AgentIdentifier, 'router'>,
-    context: AgentSessionContext
+    context: AgentSessionContext,
+    structuredPayload?: Record<string, unknown>
   ): Promise<TaskDelegationRerouteResult | null> {
     const routingHint =
       `\n\n[System: The "${sourceAgentId}" agent could not handle this task. ` +
@@ -54,6 +56,7 @@ export class AgentRouterPolicyService {
     return {
       assignedAgent: reroutedTask.assignedAgent,
       description: reroutedTask.description,
+      ...(structuredPayload ? { structuredPayload } : {}),
     };
   }
 

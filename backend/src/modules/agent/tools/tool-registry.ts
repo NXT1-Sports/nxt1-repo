@@ -92,43 +92,23 @@ export interface MatchedToolDefinition extends AgentToolDefinition {
 const TOOL_ENTITY_GROUP_OVERRIDES: Readonly<Record<string, AgentToolEntityGroup>> = {
   // Team-scoped writes
   write_team_stats: 'team_tools',
-  update_team_stats: 'team_tools',
-  delete_team_stats: 'team_tools',
   write_team_post: 'team_tools',
   update_team_post: 'team_tools',
   delete_team_post: 'team_tools',
   write_team_news: 'team_tools',
-  update_team_news: 'team_tools',
-  delete_team_news: 'team_tools',
   write_roster_entries: 'team_tools',
-  update_roster_entries: 'team_tools',
-  delete_roster_entries: 'team_tools',
   write_schedule: 'team_tools',
-  update_schedule_event: 'team_tools',
-  delete_schedule_event: 'team_tools',
   write_calendar_events: 'team_tools',
-  update_calendar_events: 'team_tools',
-  delete_calendar_events: 'team_tools',
 
   // User/athlete scoped writes
   write_core_identity: 'user_tools',
   update_core_identity: 'user_tools',
   delete_core_identity: 'user_tools',
   write_awards: 'user_tools',
-  update_awards: 'user_tools',
-  delete_awards: 'user_tools',
   write_combine_metrics: 'user_tools',
-  update_combine_metrics: 'user_tools',
-  delete_combine_metrics: 'user_tools',
   write_rankings: 'user_tools',
-  update_rankings: 'user_tools',
-  delete_rankings: 'user_tools',
   write_season_stats: 'user_tools',
-  update_season_stats: 'user_tools',
-  delete_season_stats: 'user_tools',
   write_recruiting_activity: 'user_tools',
-  update_recruiting_activity: 'user_tools',
-  delete_recruiting_activity: 'user_tools',
   write_athlete_videos: 'user_tools',
   update_athlete_videos: 'user_tools',
   delete_athlete_videos: 'user_tools',
@@ -137,7 +117,6 @@ const TOOL_ENTITY_GROUP_OVERRIDES: Readonly<Record<string, AgentToolEntityGroup>
   delete_timeline_post: 'user_tools',
   write_intel: 'user_tools',
   update_intel: 'user_tools',
-  delete_intel: 'user_tools',
 
   // Organization-scoped writes
   write_connected_source: 'organization_tools',
@@ -147,6 +126,7 @@ const TOOL_ENTITY_GROUP_OVERRIDES: Readonly<Record<string, AgentToolEntityGroup>
   // Cross-cutting infrastructure
   delegate_task: 'system_tools',
   ask_user: 'system_tools',
+  mutate_nxt1_data: 'platform_tools',
 };
 
 interface LegacyToolSchemaChecklistItem {

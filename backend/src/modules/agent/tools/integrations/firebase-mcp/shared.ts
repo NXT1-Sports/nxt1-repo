@@ -208,6 +208,36 @@ export function verifySignedScopeEnvelope(
   return normalized;
 }
 
+// ── Mutation schemas ─────────────────────────────────────────────────────────
+
+export const MutationOperationSchema = z.enum(['update', 'delete']);
+export type MutationOperation = z.infer<typeof MutationOperationSchema>;
+
+export const FirebaseMcpMutateInputSchema = z.object({
+  operation: MutationOperationSchema,
+  collection: z.string().trim().min(1),
+  documentId: z.string().trim().min(1),
+  patch: z.record(z.string(), z.unknown()).optional(),
+});
+
+export type FirebaseMcpMutateInput = z.infer<typeof FirebaseMcpMutateInputSchema>;
+
+export const FirebaseMcpMutateToolArgsSchema = FirebaseMcpMutateInputSchema.extend({
+  scopeEnvelope: FirebaseMcpSignedScopeEnvelopeSchema,
+});
+
+export const FirebaseMcpMutateResultSchema = z.object({
+  collection: z.string().min(1),
+  documentId: z.string().min(1),
+  operation: MutationOperationSchema,
+  success: z.boolean(),
+  message: z.string().optional(),
+});
+
+export type FirebaseMcpMutateResult = z.infer<typeof FirebaseMcpMutateResultSchema>;
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 export function normalizeViewLimit(limit?: number): number {
   if (!Number.isFinite(limit)) {
     return DEFAULT_FIREBASE_VIEW_LIMIT;

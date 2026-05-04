@@ -15,6 +15,7 @@ export {
 
 // API Adapters
 export { ActivityApiService } from './api/activity-api.service';
+export { FeedEngagementApiService } from './api/feed-engagement-api.service';
 export { HelpCenterApiService } from './api/help-center-api.service';
 export { EditProfileApiService } from './api/edit-profile-api.service';
 export { MobileEmailConnectionService } from './api/email-connection.service';

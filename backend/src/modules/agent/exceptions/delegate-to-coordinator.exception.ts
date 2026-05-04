@@ -18,6 +18,8 @@ import type { AgentIdentifier } from '@nxt1/core';
 export interface DelegateToCoordinatorPayload {
   readonly coordinatorId: Exclude<AgentIdentifier, 'router'>;
   readonly goal: string;
+  /** Structured key/value data to forward verbatim to the coordinator as a machine-readable JSON block. */
+  readonly structuredPayload?: Record<string, unknown>;
 }
 
 export class DelegateToCoordinatorException extends Error {

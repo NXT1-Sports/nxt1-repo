@@ -24,6 +24,7 @@ import firecrawlRoutes from './firecrawl.routes.js';
 import liveViewRoutes from './live-view.routes.js';
 import knowledgeAdminRoutes from './knowledge-admin.routes.js';
 import messagesRoutes from './messages.routes.js';
+import mediaProxyRoutes from './media-proxy.routes.js';
 
 const router = Router();
 
@@ -37,5 +38,6 @@ router.use(firecrawlRoutes);
 router.use(liveViewRoutes);
 router.use(knowledgeAdminRoutes);
 router.use(messagesRoutes);
+router.use(mediaProxyRoutes);
 
 export default router;

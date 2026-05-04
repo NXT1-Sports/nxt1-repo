@@ -60,4 +60,15 @@ describe('AgentXOperationChatExecutionPlanComponent', () => {
 
     expect(spy).toHaveBeenCalledWith(false);
   });
+
+  it('stops active spinner rendering when paused', () => {
+    fixture.componentRef.setInput('items', [
+      { id: '1', label: 'Search programs', done: false, active: true },
+    ]);
+    fixture.componentRef.setInput('paused', true);
+    fixture.detectChanges();
+
+    const spinner = nativeEl.querySelector('.execution-plan-dock__item-spinner');
+    expect(spinner).toBeNull();
+  });
 });

@@ -60,6 +60,7 @@ import {
   HELP_CENTER_API,
   TEAM_PROFILE_API_BASE_URL,
 } from '@nxt1/ui';
+import { FEED_ENGAGEMENT } from '@nxt1/ui/feed';
 import { TEAM_LOGO_UPLOADER } from '@nxt1/ui/manage-team';
 // Mobile-specific Activity API adapter (uses CapacitorHttpAdapter + auth)
 // Settings persistence adapter (connects SettingsService → backend API)
@@ -72,6 +73,7 @@ import {
   SettingsApiService,
   MobileEmailConnectionService,
   EditProfileApiService,
+  FeedEngagementApiService,
   CrashlyticsService,
   AnalyticsService,
   PerformanceService,
@@ -308,6 +310,9 @@ export const appConfig: ApplicationConfig = {
 
     // Help Center API adapter
     { provide: HELP_CENTER_API, useExisting: HelpCenterApiService },
+
+    // Feed engagement adapter — powers share tap + scroll-view impressions on feed card shell
+    { provide: FEED_ENGAGEMENT, useExisting: FeedEngagementApiService },
 
     // Team logo uploader — bridges TEAM_LOGO_UPLOADER token → EditProfileApiService
     {

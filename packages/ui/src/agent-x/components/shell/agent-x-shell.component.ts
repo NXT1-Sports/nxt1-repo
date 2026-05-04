@@ -597,10 +597,6 @@ function sortCoordinatorCategories(
               </button>
             }
           </div>
-        } @else {
-          <div class="floating-coordinators-empty" role="status" aria-live="polite">
-            No coordinators are configured for this role.
-          </div>
         }
       </section>
 
@@ -2318,6 +2314,7 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
     // Capture and transfer any pending attachments from the main input strip
     const servicePendingFiles = this.agentX.pendingFiles();
     const initialFiles = servicePendingFiles.map((f) => ({
+      id: crypto.randomUUID(),
       file: f.file,
       previewUrl: f.previewUrl,
       isImage: f.type === 'image',
@@ -2432,6 +2429,7 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
 
     // Capture pending files and convert to operation-chat PendingFile shape
     const initialFiles = servicePendingFiles.map((f) => ({
+      id: crypto.randomUUID(),
       file: f.file,
       previewUrl: f.previewUrl,
       isImage: f.type === 'image',
@@ -2552,11 +2550,24 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
         firebaseProviders: user?.firebaseProviders ?? [],
       })?.links ?? [];
 
-    const withFavicons = linkedSources.map((source) => ({
-      ...source,
-      faviconUrl:
-        source.faviconUrl ?? getPlatformFaviconUrl(source.platform.toLowerCase()) ?? undefined,
-    }));
+    const withFavicons = linkedSources.flatMap((source) => {
+      const platform = source.platform.trim();
+      const profileUrl = source.profileUrl.trim();
+      if (!platform || !profileUrl || platform.toLowerCase() === 'nxt1') {
+        return [];
+      }
+
+      return [
+        {
+          platform,
+          profileUrl,
+          faviconUrl:
+            source.faviconUrl ?? getPlatformFaviconUrl(platform.toLowerCase()) ?? undefined,
+          scopeType: source.scopeType,
+          scopeId: source.scopeId,
+        } satisfies ConnectedAppSource,
+      ];
+    });
 
     const attachmentSourcesMap = new Map<string, ConnectedAppSource>();
 

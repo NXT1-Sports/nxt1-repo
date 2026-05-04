@@ -8,12 +8,13 @@
  * POST /upload
  */
 
-import path from 'path';
 import os from 'os';
+import path from 'path';
 import { createReadStream } from 'fs';
 import { unlink } from 'fs/promises';
 import multer from 'multer';
 import { Router, type Request, type Response } from 'express';
+import { getStorage } from 'firebase-admin/storage';
 import { appGuard } from '../../middleware/auth/auth.middleware.js';
 import { uploadRateLimit } from '../../middleware/rate-limit/rate-limit.middleware.js';
 import { validateBody } from '../../middleware/validation/validation.middleware.js';
@@ -1352,47 +1353,42 @@ router.post('/upload/video', appGuard, uploadRateLimit, async (req: Request, res
     const resolvedThreadId =
       typeof threadId === 'string' && threadId.trim() ? threadId.trim() : null;
 
-    // Strip any path components from the filename — prevents path traversal
+    // Single universal path: provision a v4 signed upload URL directly to GCS.
+    // The browser PUTs to this URL, then we hand the agent a signed read URL.
+    // Works identically on localhost and production — no media-proxy round-trip.
     const safeName = path.basename(fileName).replace(/[^a-zA-Z0-9._-]/g, '_');
     const timestamp = Date.now();
     const uniqueId = crypto.randomUUID();
-
     const storagePath = resolvedThreadId
       ? `Users/${user.uid}/threads/${resolvedThreadId}/media/video/${timestamp}-${uniqueId}-${safeName}`
       : `Users/${user.uid}/uploads/video/unbound/${timestamp}-${uniqueId}-${safeName}`;
 
-    const bucket = req.firebase.storage.bucket();
-    const storageFile = bucket.file(storagePath);
-
-    // Write signed URL: browser PUTs directly to GCS — 15 min window to start
+    const storageFile = getStorage().bucket().file(storagePath);
     const uploadExpiresAt = Date.now() + 15 * 60 * 1000;
     const [uploadUrl] = await storageFile.getSignedUrl({
       version: 'v4',
       action: 'write',
       expires: uploadExpiresAt,
       contentType: mimeType,
-      // Enforce content length so GCS rejects oversized payloads at the edge
       extensionHeaders: {
         'x-goog-content-length-range': `1,${AGENT_X_MAX_VIDEO_FILE_SIZE}`,
       },
     });
-
-    // Read signed URL: 24-hour window for AI tools to access the video
     const readExpiresAt = Date.now() + 24 * 60 * 60 * 1000;
     const [readUrl] = await storageFile.getSignedUrl({
       version: 'v4',
       action: 'read',
       expires: readExpiresAt,
     });
+    const expiresAt = new Date(readExpiresAt).toISOString();
 
-    logger.info('Agent X video upload URL provisioned', {
+    logger.info('Agent X video upload URL provisioned (Firebase)', {
       userId: user.uid,
       threadId: resolvedThreadId ?? 'unbound',
       mimeType,
       fileSize,
       storagePath,
-      uploadExpiresAt: new Date(uploadExpiresAt).toISOString(),
-      readExpiresAt: new Date(readExpiresAt).toISOString(),
+      readExpiresAt: expiresAt,
     });
 
     res.json({
@@ -1401,7 +1397,7 @@ router.post('/upload/video', appGuard, uploadRateLimit, async (req: Request, res
         uploadUrl,
         readUrl,
         storagePath,
-        expiresAt: new Date(readExpiresAt).toISOString(),
+        expiresAt,
       },
     });
   } catch (err) {
@@ -1425,6 +1421,7 @@ router.post(
   agentVideoProxyUpload.single('file'),
   async (req: Request, res: Response) => {
     let tempFilePath: string | null = null;
+    let shouldCleanupTempFile = false;
     try {
       const user = getAuthUser(req);
       if (!user?.uid) {
@@ -1438,6 +1435,7 @@ router.post(
         return;
       }
       tempFilePath = file.path;
+      shouldCleanupTempFile = true;
 
       if (!file.mimetype.startsWith('video/')) {
         res.status(400).json({ success: false, error: 'file must be video/*' });
@@ -1457,6 +1455,8 @@ router.post(
       const resolvedThreadId =
         typeof rawThreadId === 'string' && rawThreadId.trim() ? rawThreadId.trim() : null;
 
+      // Single universal fallback: stream upload to Firebase Storage and
+      // return a signed read URL. Used only when the direct PUT fails.
       const safeName = path.basename(file.originalname).replace(/[^a-zA-Z0-9._-]/g, '_');
       const timestamp = Date.now();
       const uniqueId = crypto.randomUUID();
@@ -1464,9 +1464,7 @@ router.post(
         ? `Users/${user.uid}/threads/${resolvedThreadId}/media/video/${timestamp}-${uniqueId}-${safeName}`
         : `Users/${user.uid}/uploads/video/unbound/${timestamp}-${uniqueId}-${safeName}`;
 
-      const bucket = req.firebase.storage.bucket();
-      const storageFile = bucket.file(storagePath);
-
+      const storageFile = getStorage().bucket().file(storagePath);
       await new Promise<void>((resolve, reject) => {
         const readStream = createReadStream(file.path);
         const writeStream = storageFile.createWriteStream({
@@ -1475,11 +1473,9 @@ router.post(
             cacheControl: 'private, max-age=0',
           },
         });
-
         readStream.on('error', reject);
         writeStream.on('error', reject);
         writeStream.on('finish', () => resolve());
-
         readStream.pipe(writeStream);
       });
 
@@ -1489,14 +1485,15 @@ router.post(
         action: 'read',
         expires: readExpiresAt,
       });
+      const expiresAt = new Date(readExpiresAt).toISOString();
 
-      logger.info('Agent X video uploaded via backend proxy fallback', {
+      logger.info('Agent X video uploaded via backend proxy fallback (Firebase)', {
         userId: user.uid,
         threadId: resolvedThreadId ?? 'unbound',
         mimeType: file.mimetype,
         fileSize: file.size,
         storagePath,
-        readExpiresAt: new Date(readExpiresAt).toISOString(),
+        readExpiresAt: expiresAt,
       });
 
       res.json({
@@ -1504,7 +1501,7 @@ router.post(
         data: {
           readUrl,
           storagePath,
-          expiresAt: new Date(readExpiresAt).toISOString(),
+          expiresAt,
         },
       });
     } catch (err) {
@@ -1526,7 +1523,7 @@ router.post(
       });
       res.status(500).json({ success: false, error: 'Failed to upload video' });
     } finally {
-      if (tempFilePath) {
+      if (tempFilePath && shouldCleanupTempFile) {
         void unlink(tempFilePath).catch(() => undefined);
       }
     }

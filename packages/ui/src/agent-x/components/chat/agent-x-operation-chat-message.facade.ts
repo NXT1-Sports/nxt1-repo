@@ -5,8 +5,11 @@ import { firstValueFrom } from 'rxjs';
 import {
   createAgentXApi,
   type AgentXApi,
+  type AgentXBillingActionPayload,
+  type AgentXBillingActionReason,
   type AgentXToolStep,
   type AgentXMessagePart,
+  type AgentXRichCard,
 } from '@nxt1/core/ai';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import { HapticsService } from '../../../services/haptics/haptics.service';
@@ -651,14 +654,32 @@ export class AgentXOperationChatMessageFacade {
     const messageId = this.inlineYieldMessageId(yieldState, operationId);
 
     this.messages.update((messages) => {
+      const typingIndex = messages.findIndex((message) => message.id === 'typing');
       const existingIndex = messages.findIndex((message) => message.id === messageId);
       if (existingIndex >= 0) {
-        return messages.map((message, index) =>
-          index === existingIndex ? { ...message, yieldState, operationId } : message
-        );
+        const updated = {
+          ...messages[existingIndex],
+          yieldState,
+          operationId,
+        };
+
+        // Keep existing persisted row inline with the active stream: when a typing
+        // placeholder exists, the ask-user card should sit directly below it.
+        if (typingIndex >= 0) {
+          const withoutExisting = messages.filter((_, index) => index !== existingIndex);
+          const nextTypingIndex = withoutExisting.findIndex((message) => message.id === 'typing');
+          if (nextTypingIndex >= 0) {
+            return [
+              ...withoutExisting.slice(0, nextTypingIndex + 1),
+              updated,
+              ...withoutExisting.slice(nextTypingIndex + 1),
+            ];
+          }
+        }
+
+        return messages.map((message, index) => (index === existingIndex ? updated : message));
       }
 
-      const typingIndex = messages.findIndex((message) => message.id === 'typing');
       const yieldMessage: OperationMessage = {
         id: messageId,
         role: 'assistant',
@@ -696,6 +717,29 @@ export class AgentXOperationChatMessageFacade {
             }
           : message
       )
+    );
+  }
+
+  dismissBillingActionCards(reason: AgentXBillingActionReason): void {
+    this.messages.update((messages) =>
+      messages.map((message) => {
+        const nextCards = message.cards?.filter(
+          (card) => !this.isMatchingBillingCard(card, reason)
+        );
+        const nextParts = message.parts?.filter(
+          (part) => part.type !== 'card' || !this.isMatchingBillingCard(part.card, reason)
+        );
+
+        const cardsChanged = (message.cards?.length ?? 0) !== (nextCards?.length ?? 0);
+        const partsChanged = (message.parts?.length ?? 0) !== (nextParts?.length ?? 0);
+        if (!cardsChanged && !partsChanged) return message;
+
+        return {
+          ...message,
+          ...(message.cards ? { cards: nextCards } : {}),
+          ...(message.parts ? { parts: nextParts } : {}),
+        };
+      })
     );
   }
 
@@ -761,6 +805,13 @@ export class AgentXOperationChatMessageFacade {
     const discriminator =
       yieldState.approvalId ?? yieldState.pendingToolCall?.toolCallId ?? yieldState.reason;
     return `yield:${operationId ?? host.contextId()}:${discriminator}`;
+  }
+
+  private isMatchingBillingCard(card: AgentXRichCard, reason: AgentXBillingActionReason): boolean {
+    if (card.type !== 'billing-action') return false;
+
+    const payload = card.payload as AgentXBillingActionPayload | undefined;
+    return !payload?.reason || payload.reason === reason;
   }
 
   private async copyText(value: string): Promise<boolean> {

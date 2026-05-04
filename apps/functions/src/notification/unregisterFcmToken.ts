@@ -64,13 +64,23 @@ export const unregisterFcmToken = onCall(
 
       return { success: true };
     } catch (error) {
+      // Expected client/auth errors (unauthenticated, invalid-argument, etc.)
+      // are logged at info level — they must NOT create Error Reporting entries.
+      if (error instanceof HttpsError && error.code !== 'internal') {
+        logger.info('FCM token unregistration rejected', {
+          code: error.code,
+          userId: request.auth?.uid,
+        });
+        throw error;
+      }
+
+      // Unexpected server-side failures — log at error level for Error Reporting.
       logger.error('Failed to unregister FCM token', {
         error: error instanceof Error ? error.message : String(error),
         stack: error instanceof Error ? error.stack : undefined,
         userId: request.auth?.uid,
       });
 
-      // Re-throw HttpsErrors as-is, wrap others
       if (error instanceof HttpsError) {
         throw error;
       }

@@ -129,9 +129,13 @@ gcloud secrets create FFMPEG_MCP_API_TOKEN \
 
 ### 3. Production Deployment
 
-- Requires `nxt-1-prod-v2` credentials (user currently lacks access)
-- Steps: Run same deployment script with `--project nxt-1-prod-v2`
-- Bearer token: Reuse same token across staging/prod for simplicity
+- Production Firebase/GCP project: `nxt-1-v2`
+- Steps: Run same deployment script with `--project nxt-1-v2`
+- Live backend runtime: the production backend currently deploys via SSH + PM2
+  and must have `FFMPEG_MCP_URL` and `FFMPEG_MCP_API_TOKEN` present in the
+  server environment before reload
+- Bearer token: prefer a production-only token instead of reusing the staging
+  token
 
 ---
 

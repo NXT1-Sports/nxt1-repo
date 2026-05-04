@@ -74,7 +74,8 @@ export class DeleteTeamPostTool extends BaseTool {
       if (!teamDoc.exists) {
         return { success: false, error: `Team ${teamId} not found.` };
       }
-      const teamOwnerId = teamDoc.data()?.['ownerId'] as string | undefined;
+      const teamData = teamDoc.data() ?? {};
+      const teamOwnerId = teamData['ownerId'] as string | undefined;
       if (teamOwnerId !== context.userId) {
         return { success: false, error: 'Not authorized to delete posts for this team.' };
       }
@@ -92,6 +93,9 @@ export class DeleteTeamPostTool extends BaseTool {
         return { success: false, error: 'Post does not belong to the specified team.' };
       }
 
+      const cloudflareVideoId =
+        typeof postData['cloudflareVideoId'] === 'string' ? postData['cloudflareVideoId'] : null;
+
       context?.emitStage?.('submitting_job', {
         icon: 'document',
         phase: 'delete_team_post',
@@ -99,12 +103,49 @@ export class DeleteTeamPostTool extends BaseTool {
 
       await postRef.delete();
 
+      // Best-effort: delete linked Cloudflare Stream asset for video posts.
+      if (cloudflareVideoId) {
+        const accountId = process.env['CLOUDFLARE_ACCOUNT_ID'];
+        const apiToken = process.env['CLOUDFLARE_API_TOKEN'];
+        if (accountId && apiToken) {
+          try {
+            await fetch(
+              `https://api.cloudflare.com/client/v4/accounts/${accountId}/stream/${cloudflareVideoId}`,
+              {
+                method: 'DELETE',
+                headers: {
+                  Authorization: `Bearer ${apiToken}`,
+                  'Content-Type': 'application/json',
+                },
+              }
+            );
+          } catch (cfErr) {
+            logger.warn('[DeleteTeamPostTool] Cloudflare Stream asset deletion failed', {
+              postId,
+              teamId,
+              cloudflareVideoId,
+              error: cfErr instanceof Error ? cfErr.message : String(cfErr),
+            });
+          }
+        }
+      }
+
       // ── Cache invalidation ────────────────────────────────────────────
       const cache = getCacheService();
-      await Promise.allSettled([
-        cache.delByPrefix(`team:timeline:v1:${teamCode}:`),
-        cache.delByPrefix(`team:profile:code:${teamCode}:`),
-      ]);
+      const cacheCodes = new Set<string>();
+      cacheCodes.add(teamCode);
+      const canonicalTeamCode =
+        typeof teamData['teamCode'] === 'string' ? teamData['teamCode'].trim() : '';
+      const teamSlug = typeof teamData['slug'] === 'string' ? teamData['slug'].trim() : '';
+      if (canonicalTeamCode) cacheCodes.add(canonicalTeamCode);
+      if (teamSlug) cacheCodes.add(teamSlug);
+
+      await Promise.allSettled(
+        [...cacheCodes].flatMap((code) => [
+          cache.delByPrefix(`team:timeline:v1:${code}:`),
+          cache.delByPrefix(`team:profile:code:${code}:`),
+        ])
+      );
 
       logger.info('[DeleteTeamPostTool] Post deleted', { postId, teamId });
 

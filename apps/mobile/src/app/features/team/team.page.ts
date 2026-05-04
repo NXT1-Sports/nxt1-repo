@@ -33,28 +33,24 @@ import {
   DestroyRef,
   effect,
 } from '@angular/core';
+import { Location } from '@angular/common';
 import { ActivatedRoute } from '@angular/router';
 import { toSignal, toObservable, takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { map, distinctUntilChanged, switchMap, tap, from, combineLatest, filter, of } from 'rxjs';
-import { IonContent, NavController } from '@ionic/angular/standalone';
+import { IonHeader, IonToolbar, IonContent, NavController } from '@ionic/angular/standalone';
 import {
   TeamProfileShellWebComponent,
   TeamProfileService,
-  ManageTeamBottomSheetService,
+  ManageTeamModalService,
   QrCodeBottomSheetService,
   NxtLoggingService,
   NxtToastService,
-  NxtPageHeaderComponent,
-  NxtIconComponent,
   NxtBottomSheetService,
   NxtSidenavService,
-  NxtRefresherComponent,
   SHEET_PRESETS,
   IntelService,
   AgentXOperationChatComponent,
   type ActionFooterButton,
-  type BottomSheetAction,
-  type RefreshEvent,
 } from '@nxt1/ui';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import {
@@ -67,77 +63,31 @@ import {
   type TeamProfileRosterMember,
   type TeamProfilePost,
 } from '@nxt1/core';
-import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/assets';
 
 import { MobileAuthService } from '../../core/services/auth/mobile-auth.service';
 import { AnalyticsService } from '../../core/services/infrastructure/analytics.service';
 import { ShareService } from '../../core/services/native/share.service';
 import { TeamProfileApiService } from '../../core/services/api/team-profile-api.service';
 import { environment } from '../../../environments/environment';
+import { PostDetailOverlayService } from '@nxt1/ui/post-cards';
 
 const TEAM_INTEL_ENABLED = false;
 
 @Component({
   selector: 'app-team',
   standalone: true,
-  imports: [
-    IonContent,
-    NxtPageHeaderComponent,
-    NxtIconComponent,
-    NxtRefresherComponent,
-    TeamProfileShellWebComponent,
-  ],
+  providers: [TeamProfileService],
+  imports: [IonHeader, IonToolbar, IonContent, TeamProfileShellWebComponent],
   template: `
-    <!-- Page header: sibling of ion-content — Ionic auto-calculates offset-top (matches profile-shell.component.ts pattern) -->
-    <nxt1-page-header [showBack]="true" (backClick)="onBackClick()" (menuClick)="onMenuClick()">
-      <!-- Title: "Team" + NXT1 brand logo (mirrors "Profile" + logo in profile-shell) -->
-      <div pageHeaderSlot="title" class="header-logo">
-        <span class="header-title-text">Team</span>
-        <svg
-          class="header-brand-logo"
-          viewBox="0 0 612 792"
-          width="40"
-          height="40"
-          fill="currentColor"
-          stroke="currentColor"
-          stroke-width="10"
-          stroke-linejoin="round"
-          aria-hidden="true"
-        >
-          <path [attr.d]="agentXLogoPath" />
-          <polygon [attr.points]="agentXLogoPolygon" />
-        </svg>
-      </div>
+    <ion-header class="ion-no-border" [translucent]="true">
+      <ion-toolbar></ion-toolbar>
+    </ion-header>
 
-      <!-- End: three-dots + pencil (admin only) -->
-      <div pageHeaderSlot="end" class="header-actions">
-        <button
-          type="button"
-          class="header-action-btn"
-          aria-label="More options"
-          (click)="onMoreMenu()"
-        >
-          <nxt1-icon name="moreHorizontal" [size]="22" />
-        </button>
-        @if (isTeamAdmin()) {
-          <button
-            type="button"
-            class="header-action-btn"
-            aria-label="Manage team"
-            (click)="onManageTeam()"
-          >
-            <nxt1-icon name="pencil" [size]="20" />
-          </button>
-        }
-      </div>
-    </nxt1-page-header>
-
-    <!-- Scrollable content: sibling of nxt1-page-header, Ionic offsets it automatically -->
-    <ion-content [fullscreen]="true" class="team-scroll-content">
-      <nxt-refresher (onRefresh)="handleRefresh($event)" />
+    <ion-content [fullscreen]="true" class="team-scroll-content" [scrollY]="false">
       <nxt1-team-profile-shell-web
         [teamSlug]="teamSlug()"
-        [teamId]="routeTeamCode()"
+        [teamId]="resolvedTeamId()"
+        [showPageHeader]="true"
         [isTeamAdmin]="isTeamAdmin()"
         [teamIntelEnabled]="teamIntelEnabled"
         [skipInternalLoad]="true"
@@ -152,22 +102,24 @@ const TEAM_INTEL_ENABLED = false;
         (postClick)="onPostClick($event)"
         (refreshRequest)="onRefreshRequest()"
       />
-    </ion-content>
-    @if (teamFooterButtons().length > 0) {
-      <div class="team-action-footer-bar">
-        <div class="team-action-footer-inner">
-          @for (btn of teamFooterButtons(); track btn.id) {
-            <button
-              type="button"
-              [class]="'taf-btn taf-btn--' + btn.variant"
-              (click)="btn.onClick()"
-            >
-              {{ btn.label }}
-            </button>
-          }
+      @if (teamFooterButtons().length > 0) {
+        <div class="taf-overlay" slot="fixed">
+          <div class="team-action-footer-bar">
+            <div class="team-action-footer-inner">
+              @for (btn of teamFooterButtons(); track btn.id) {
+                <button
+                  type="button"
+                  [class]="'taf-btn taf-btn--' + btn.variant"
+                  (click)="btn.onClick()"
+                >
+                  {{ btn.label }}
+                </button>
+              }
+            </div>
+          </div>
         </div>
-      </div>
-    }
+      }
+    </ion-content>
   `,
   styles: `
     :host {
@@ -175,78 +127,56 @@ const TEAM_INTEL_ENABLED = false;
       height: 100%;
     }
 
+    ion-header {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: -1;
+      --background: transparent;
+    }
+
+    ion-toolbar {
+      --background: transparent;
+      --min-height: 0;
+      --padding-top: 0;
+      --padding-bottom: 0;
+    }
+
     /* Scrollable content — sibling of nxt1-page-header, Ionic auto-offsets */
     ion-content.team-scroll-content {
       --background: var(--nxt1-color-bg-primary, #0a0a0a);
     }
 
-    /* Header logo: team name + brand logo (matches profile-shell.component.ts) */
-    .header-logo {
+    ion-content.team-scroll-content::part(scroll) {
+      overflow: hidden;
       display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 0;
-      width: 100%;
-      margin-top: -8px;
-      margin-left: -18px;
-    }
-    .header-title-text {
-      display: inline-flex;
-      align-items: center;
-      font-family: var(--nxt1-font-family-brand, var(--ion-font-family));
-      font-size: var(--nxt1-font-size-xl, 20px);
-      font-weight: var(--nxt1-font-weight-semibold, 600);
-      letter-spacing: var(--nxt1-letter-spacing-tight, -0.01em);
-      color: var(--nxt1-color-text-primary, #ffffff);
-      line-height: 1;
-      transform: translateY(1px);
-    }
-    .header-brand-logo {
-      display: block;
-      flex-shrink: 0;
-      color: var(--nxt1-color-text-primary, #ffffff);
-      transform: translateY(1px);
+      flex-direction: column;
+      height: 100%;
     }
 
-    /* Action buttons (matches profile-shell.component.ts) */
-    .header-actions {
+    nxt1-team-profile-shell-web {
       display: flex;
-      align-items: center;
-      gap: var(--nxt1-spacing-1, 4px);
+      flex: 1;
+      min-height: 0;
     }
-    .header-action-btn {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      width: 40px;
-      height: 40px;
-      padding: 0;
-      margin: 0;
-      border: none;
-      background: transparent;
-      border-radius: var(--nxt1-radius-full, 50%);
-      color: var(--m-text);
-      cursor: pointer;
-      -webkit-tap-highlight-color: transparent;
-      transition:
-        background-color 0.15s ease,
-        transform 0.1s ease;
-    }
-    .header-action-btn:active {
-      background: var(--m-surface-2);
-      transform: scale(0.92);
-    }
-    .team-action-footer-bar {
+
+    .taf-overlay {
       position: fixed;
-      bottom: 84px;
-      left: 16px;
-      right: 16px;
-      z-index: 999;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      z-index: 30;
+      pointer-events: none;
+      padding: 0 16px calc(env(safe-area-inset-bottom, 0px) + 8px);
+    }
+
+    .team-action-footer-bar {
+      pointer-events: auto;
       background: var(--nxt1-nav-bgSolid, rgb(22, 22, 22));
       border-radius: 16px;
       border: 0.55px solid var(--nxt1-nav-borderSolid, rgba(255, 255, 255, 0.12));
       box-shadow: var(--nxt1-nav-shadowSolid, 0 1px 3px rgba(0, 0, 0, 0.12));
-      pointer-events: auto;
       overflow: hidden;
     }
     .team-action-footer-inner {
@@ -278,8 +208,6 @@ const TEAM_INTEL_ENABLED = false;
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class TeamPage {
-  protected readonly agentXLogoPath = AGENT_X_LOGO_PATH;
-  protected readonly agentXLogoPolygon = AGENT_X_LOGO_POLYGON;
   protected readonly teamIntelEnabled = TEAM_INTEL_ENABLED;
 
   // ============================================
@@ -291,16 +219,18 @@ export class TeamPage {
   private readonly authService = inject(MobileAuthService);
   private readonly teamProfile = inject(TeamProfileService);
   private readonly teamApi = inject(TeamProfileApiService);
-  private readonly manageTeamSheet = inject(ManageTeamBottomSheetService);
+  private readonly manageTeamModal = inject(ManageTeamModalService);
   private readonly qrCode = inject(QrCodeBottomSheetService);
   private readonly analytics = inject(AnalyticsService);
   private readonly share = inject(ShareService);
   private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('TeamPage');
   private readonly destroyRef = inject(DestroyRef);
+  private readonly location = inject(Location);
   private readonly bottomSheet = inject(NxtBottomSheetService);
   private readonly sidenavService = inject(NxtSidenavService);
   private readonly intel = inject(IntelService);
+  private readonly postDetailOverlay = inject(PostDetailOverlayService);
 
   // ============================================
   // STATE
@@ -324,6 +254,9 @@ export class TeamPage {
    * Derived from TeamProfileService after data loads.
    */
   protected readonly isTeamAdmin = computed(() => this.teamProfile.isTeamAdmin());
+
+  /** Team document ID resolved from loaded payload (never from URL params). */
+  protected readonly resolvedTeamId = computed(() => this.teamProfile.team()?.id ?? '');
 
   /**
    * Page header title — team name once loaded, "Team" as fallback.
@@ -359,10 +292,9 @@ export class TeamPage {
     return [];
   });
 
-  constructor() {
-    // Clean up service state when leaving this page
-    this.destroyRef.onDestroy(() => this.teamProfile.startLoading());
+  private readonly firestoreIdPattern = /^[A-Za-z0-9]{20,}$/;
 
+  constructor() {
     // Clear stale data immediately when slug changes (prevents old-data flash)
     effect(() => {
       this.teamSlug();
@@ -398,7 +330,7 @@ export class TeamPage {
             return of({ success: false as const, error: 'Team code route is required' });
           }
 
-          return from(this.teamApi.getTeamByTeamCode(teamCode));
+          return from(this.fetchTeamByRouteIdentifier(teamCode));
         }),
         takeUntilDestroyed(this.destroyRef)
       )
@@ -456,17 +388,6 @@ export class TeamPage {
   // ============================================
 
   /**
-   * Handle native pull-to-refresh (ion-refresher event from the inner ion-content).
-   */
-  protected async handleRefresh(event: RefreshEvent): Promise<void> {
-    try {
-      await this.onRefreshRequest();
-    } finally {
-      event.complete();
-    }
-  }
-
-  /**
    * Re-fetches team data from the API and pushes it into TeamProfileService.
    * Called by both the native refresher and the shell's (refreshRequest) output.
    */
@@ -478,7 +399,7 @@ export class TeamPage {
     }
 
     try {
-      const response = await this.teamApi.getTeamByTeamCode(teamCode);
+      const response = await this.fetchTeamByRouteIdentifier(teamCode);
 
       if (response.success && response.data) {
         this.teamProfile.loadFromExternalData(response.data);
@@ -498,6 +419,17 @@ export class TeamPage {
         routeTeamCode: teamCode,
       });
     }
+  }
+
+  private isLikelyDocumentIdentifier(value: string): boolean {
+    const trimmed = value.trim();
+    return this.firestoreIdPattern.test(trimmed) && /[A-Z]/.test(trimmed) && /[a-z]/.test(trimmed);
+  }
+
+  private fetchTeamByRouteIdentifier(teamIdentifier: string) {
+    return this.isLikelyDocumentIdentifier(teamIdentifier)
+      ? this.teamApi.getTeamById(teamIdentifier)
+      : this.teamApi.getTeamByTeamCode(teamIdentifier);
   }
 
   protected onBackClick(): void {
@@ -525,60 +457,27 @@ export class TeamPage {
       id: team.id,
     });
 
+    if (canonicalPath === '/team') {
+      this.logger.warn('Skipping canonical route repair due to missing valid team code', {
+        routeTeamCode: currentTeamCode,
+        resolvedTeamCode,
+        teamId: team.id,
+      });
+      return;
+    }
+
     if (currentTeamCode === resolvedTeamCode && currentSlug === (team.slug || currentSlug)) {
       return;
     }
 
-    // Mobile canonical repair: match web by enforcing /team/:slug/:teamCode.
-    void this.navController.navigateRoot(canonicalPath);
+    // Canonical URL repair without navigation cycle.
+    // Prevents a second route activation + skeleton flash when legacy links
+    // arrive as /team/:slug/:teamId.
+    this.location.replaceState(canonicalPath);
   }
 
   protected onMenuClick(): void {
     this.sidenavService.open();
-  }
-
-  protected async onMoreMenu(): Promise<void> {
-    const isAdmin = this.isTeamAdmin();
-    const actions: BottomSheetAction[] = isAdmin
-      ? [
-          { label: 'Manage Team', role: 'secondary', icon: 'settings' },
-          { label: 'Share Team', role: 'secondary', icon: 'share' },
-          { label: 'QR Code', role: 'secondary', icon: 'qrCode' },
-          { label: 'Copy Link', role: 'secondary', icon: 'link' },
-        ]
-      : [
-          { label: 'Share Team', role: 'secondary', icon: 'share' },
-          { label: 'Copy Link', role: 'secondary', icon: 'link' },
-          { label: 'Report', role: 'destructive', icon: 'flag' },
-        ];
-
-    const result = await this.bottomSheet.show<BottomSheetAction>({
-      actions,
-      showClose: false,
-      backdropDismiss: true,
-      ...SHEET_PRESETS.COMPACT,
-    });
-
-    const selected = result?.data as BottomSheetAction | undefined;
-    if (!selected) return;
-
-    switch (selected.label) {
-      case 'Manage Team':
-        await this.onManageTeam();
-        break;
-      case 'Share Team':
-        await this.onShare();
-        break;
-      case 'Copy Link':
-        await this.onCopyLink();
-        break;
-      case 'QR Code':
-        await this.onQrCode();
-        break;
-      case 'Report':
-        this.logger.info('Report team requested');
-        break;
-    }
   }
 
   protected onTabChange(tab: TeamProfileTabId): void {
@@ -672,8 +571,19 @@ export class TeamPage {
   }
 
   protected async onManageTeam(): Promise<void> {
-    const result = await this.manageTeamSheet.open({
-      teamId: this.teamProfile.team()?.id,
+    const teamId = await this.resolveManageTeamId();
+    if (!teamId) {
+      this.logger.warn('Manage Team blocked: unable to resolve canonical team document id', {
+        routeTeamCode: this.routeTeamCode(),
+        teamSlug: this.teamSlug(),
+      });
+      this.toast.error('Team is still loading. Try again in a second.');
+      return;
+    }
+
+    const result = await this.manageTeamModal.open({
+      teamId,
+      title: 'Manage Team',
     });
 
     if (result?.saved) {
@@ -685,7 +595,7 @@ export class TeamPage {
 
       const teamCode = this.routeTeamCode();
       const response = teamCode
-        ? await this.teamApi.getTeamByTeamCode(teamCode)
+        ? await this.fetchTeamByRouteIdentifier(teamCode)
         : slug
           ? await this.teamApi.getTeamBySlug(slug)
           : null;
@@ -694,6 +604,42 @@ export class TeamPage {
         this.teamProfile.loadFromExternalData(response.data);
       }
     }
+  }
+
+  private async resolveManageTeamId(): Promise<string | null> {
+    const currentTeam = this.teamProfile.team();
+    const currentId = currentTeam?.id?.trim() ?? '';
+    const routeTeamCode = this.routeTeamCode().trim();
+
+    // If the team is already hydrated, use that canonical ID directly.
+    if (currentId) {
+      return currentId;
+    }
+
+    if (routeTeamCode) {
+      const response = await this.fetchTeamByRouteIdentifier(routeTeamCode);
+      const resolvedId = response.success ? response.data?.team?.id?.trim() : '';
+      if (response.success && response.data) {
+        this.teamProfile.loadFromExternalData(response.data);
+      }
+      if (resolvedId) {
+        return resolvedId;
+      }
+    }
+
+    const slug = this.teamSlug().trim();
+    if (slug) {
+      const bySlug = await this.teamApi.getTeamBySlug(slug);
+      const resolvedBySlug = bySlug.success ? bySlug.data?.team?.id?.trim() : '';
+      if (bySlug.success && bySlug.data) {
+        this.teamProfile.loadFromExternalData(bySlug.data);
+      }
+      if (resolvedBySlug) {
+        return resolvedBySlug;
+      }
+    }
+
+    return currentId || null;
   }
 
   protected onRosterMemberClick(member: TeamProfileRosterMember): void {
@@ -712,9 +658,17 @@ export class TeamPage {
   }
 
   protected onPostClick(post: TeamProfilePost): void {
-    if (post.id) {
-      void this.navController.navigateForward(`/post/${post.id}`);
-    }
+    if (!post.id) return;
+    const team = this.teamProfile.team();
+    const unicode = this.routeTeamCode() || this.teamSlug() || team?.teamCode || team?.slug || '_';
+    void this.postDetailOverlay.open({
+      post,
+      userUnicode: unicode,
+      author: {
+        name: team?.teamName ?? 'Team',
+        avatarUrl: team?.logoUrl,
+      },
+    });
   }
 
   protected async onAddUpdate(): Promise<void> {

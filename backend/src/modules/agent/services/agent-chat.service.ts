@@ -40,6 +40,8 @@ import type {
   AgentMessageQuery,
   PaginatedResult,
   AgentXAttachment,
+  AgentXRichCard,
+  AgentXMessagePart,
   AgentYieldState,
 } from '@nxt1/core';
 import { AgentThreadModel } from '../../../models/agent/agent-thread.model.js';
@@ -81,6 +83,18 @@ const PROMPT_ONLY_TITLE_GENERATION_PROMPT = `You are a concise title generator f
 - Be specific (e.g. "Ohio D2 College Search" not "College Question")
 - Include sport/context when relevant
 - Maximum 50 characters`;
+
+function extractCardsFromParts(
+  parts?: readonly AgentXMessagePart[]
+): readonly AgentXRichCard[] | undefined {
+  if (!parts || parts.length === 0) return undefined;
+
+  const cards = parts
+    .filter((part): part is Extract<AgentXMessagePart, { type: 'card' }> => part.type === 'card')
+    .map((part) => part.card);
+
+  return cards.length > 0 ? cards : undefined;
+}
 
 // ─── Service ────────────────────────────────────────────────────────────────
 
@@ -444,6 +458,7 @@ export class AgentChatService {
     agentId?: AgentIdentifier;
     operationId?: string;
     attachments?: readonly AgentXAttachment[];
+    cards?: readonly AgentXRichCard[];
     resultData?: Record<string, unknown>;
     toolCalls?: readonly AgentToolCallRecord[];
     /**
@@ -460,7 +475,7 @@ export class AgentChatService {
      */
     toolCallId?: string;
     steps?: readonly import('@nxt1/core').AgentXToolStep[];
-    parts?: readonly import('@nxt1/core').AgentXMessagePart[];
+    parts?: readonly AgentXMessagePart[];
     tokenUsage?: AgentMessageTokenUsage;
     /**
      * Optional caller-supplied idempotency key. When set, a unique sparse
@@ -479,6 +494,7 @@ export class AgentChatService {
     semanticPhase?: import('@nxt1/core').AgentMessageSemanticPhase;
   }): Promise<AgentMessage> {
     const now = new Date().toISOString();
+    const normalizedCards = params.cards ?? extractCardsFromParts(params.parts);
 
     const docFields = {
       threadId: params.threadId,
@@ -489,6 +505,7 @@ export class AgentChatService {
       agentId: params.agentId,
       operationId: params.operationId,
       attachments: params.attachments,
+      cards: normalizedCards,
       resultData: params.resultData,
       toolCalls: params.toolCalls,
       toolCallsWire: params.toolCallsWire,
@@ -516,11 +533,55 @@ export class AgentChatService {
         );
       } catch (err: unknown) {
         if ((err as { code?: number }).code === 11000) {
-          // Duplicate key — return the already-persisted message as-is.
+          // Duplicate key — the row was already written (BullMQ retry, concurrent
+          // write, or a prior app version that omitted steps/parts). Instead of
+          // returning the stale row blindly, check whether the new write carries
+          // richer data (steps or parts) that the existing row is missing and
+          // patch it in-place so historical chats gain tool-call visibility.
           const existing = await AgentMessageModel.findOne({
             idempotencyKey: params.idempotencyKey,
           }).exec();
           if (!existing) throw err; // Should never happen; re-throw to surface the issue.
+
+          const existingStepsEmpty = !existing.steps || (existing.steps as unknown[]).length === 0;
+          const existingPartsEmpty = !existing.parts || (existing.parts as unknown[]).length === 0;
+          const existingCardsEmpty = !existing.cards || (existing.cards as unknown[]).length === 0;
+          const newStepsProvided = params.steps && params.steps.length > 0;
+          const newPartsProvided = params.parts && params.parts.length > 0;
+          const newCardsProvided = normalizedCards && normalizedCards.length > 0;
+
+          if (
+            (newStepsProvided && existingStepsEmpty) ||
+            (newPartsProvided && existingPartsEmpty) ||
+            (newCardsProvided && existingCardsEmpty)
+          ) {
+            // Enrich the existing row without changing its idempotencyKey or
+            // creating a duplicate — safe to call repeatedly.
+            const patch: Record<string, unknown> = {};
+            if (newStepsProvided && existingStepsEmpty) patch['steps'] = params.steps;
+            if (newPartsProvided && existingPartsEmpty) patch['parts'] = params.parts;
+            if (newCardsProvided && existingCardsEmpty) patch['cards'] = normalizedCards;
+
+            const enriched = await AgentMessageModel.findOneAndUpdate(
+              { idempotencyKey: params.idempotencyKey },
+              { $set: patch },
+              { new: true }
+            ).exec();
+
+            logger.info(
+              '[AgentChatService] Idempotent duplicate — enriched existing message with steps/parts',
+              {
+                idempotencyKey: params.idempotencyKey,
+                existingId: existing.id,
+                stepCount: params.steps?.length ?? 0,
+                partCount: params.parts?.length ?? 0,
+                cardCount: normalizedCards?.length ?? 0,
+              }
+            );
+
+            return this.toMessage(enriched ?? existing);
+          }
+
           logger.info('[AgentChatService] Idempotent duplicate — returning existing message', {
             idempotencyKey: params.idempotencyKey,
             existingId: existing.id,
@@ -1051,6 +1112,7 @@ export class AgentChatService {
       agentId: doc.agentId,
       operationId: doc.operationId,
       attachments: doc.attachments,
+      cards: doc.cards,
       resultData: doc.resultData,
       toolCalls: doc.toolCalls,
       toolCallsWire: doc.toolCallsWire,

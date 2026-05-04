@@ -37,11 +37,14 @@ export const reconcileAgentJobThreadLinks = onSchedule(
 
       if (!response.ok) {
         const body = await response.text().catch(() => '');
-        logger.error('Agent job-thread link reconciliation backend call failed', {
+        // Use warn (not error) so the scheduler wrapper doesn't create a
+        // duplicate Error Reporting group — the outer catch logs the single
+        // authoritative error entry.
+        logger.warn('Backend returned non-OK response', {
           status: response.status,
           body: body.slice(0, 500),
         });
-        throw new Error(`Backend returned ${response.status}`);
+        throw new Error(`Reconcile job-thread links: backend returned ${response.status}`);
       }
 
       const result = (await response.json()) as { data?: Record<string, unknown> };

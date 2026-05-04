@@ -196,7 +196,7 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
           @case ('thinking') {
             <nxt1-agent-x-extended-thinking
               [content]="part.content"
-              [isStreaming]="isStreaming()"
+              [isStreaming]="isStreaming() && !part.done"
             />
           }
         }

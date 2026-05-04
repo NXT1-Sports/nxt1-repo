@@ -24,15 +24,14 @@ describe('Agent tool exposure regressions', () => {
   const context = createMockContext();
 
   it('keeps system-auto-included core/research tools out of per-coordinator policy', () => {
-    const agents = [
-      new DataCoordinatorAgent(),
+    const nonDataAgents = [
       new BrandCoordinatorAgent(),
       new PerformanceCoordinatorAgent(),
       new RecruitingCoordinatorAgent(),
       new StrategyCoordinatorAgent(),
     ];
 
-    for (const agent of agents) {
+    for (const agent of nonDataAgents) {
       const tools = agent.getAvailableTools();
       expect(tools).not.toContain('ask_user');
       expect(tools).not.toContain('search_web');
@@ -56,6 +55,13 @@ describe('Agent tool exposure regressions', () => {
       expect(tools).not.toContain('extract_live_view_media');
       expect(tools).not.toContain('close_live_view');
     }
+
+    const dataTools = new DataCoordinatorAgent().getAvailableTools();
+    expect(dataTools).toContain('query_nxt1_data');
+    expect(dataTools).toContain('list_nxt1_data_views');
+    expect(dataTools).not.toContain('search_nxt1_platform');
+    expect(dataTools).not.toContain('query_nxt1_platform_data');
+    expect(dataTools).not.toContain('scan_timeline_posts');
 
     // Admin coordinator should now be policy-empty and rely entirely on system tools.
     expect(new AdminCoordinatorAgent().getAvailableTools()).toEqual([]);
@@ -93,8 +99,8 @@ describe('Agent tool exposure regressions', () => {
     expect(agent.getAvailableTools()).toContain('write_rankings');
     expect(agent.getAvailableTools()).not.toContain('search_nxt1_platform');
     expect(agent.getAvailableTools()).not.toContain('query_nxt1_platform_data');
-    expect(agent.getAvailableTools()).not.toContain('query_nxt1_data');
-    expect(agent.getAvailableTools()).not.toContain('list_nxt1_data_views');
+    expect(agent.getAvailableTools()).toContain('query_nxt1_data');
+    expect(agent.getAvailableTools()).toContain('list_nxt1_data_views');
     expect(agent.getAvailableTools()).not.toContain('firecrawl_agent_research');
   });
 

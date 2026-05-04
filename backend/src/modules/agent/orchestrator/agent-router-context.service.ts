@@ -101,6 +101,15 @@ export class AgentRouterContextService {
     parts.push('[Agent Handoff]');
     parts.push(`Objective: ${task.description}`);
 
+    // Inject verbatim structured data so coordinators can read IDs, codes, and
+    // references without relying on LLM paraphrasing. This block is the single
+    // source of truth for machine-readable handoff data.
+    if (task.structuredPayload && Object.keys(task.structuredPayload).length > 0) {
+      parts.push(
+        `[Structured Handoff Data — use these values exactly, do not paraphrase]:\n${JSON.stringify(task.structuredPayload, null, 2)}`
+      );
+    }
+
     return parts.join('\n\n');
   }
 

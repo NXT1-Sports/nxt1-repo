@@ -118,6 +118,18 @@ export const registerFcmToken = onCall(
 
       return { success: true };
     } catch (error) {
+      // Expected client/auth errors (unauthenticated, invalid-argument, etc.)
+      // are logged at info level — they must NOT create Error Reporting entries.
+      if (error instanceof HttpsError && error.code !== 'internal') {
+        logger.info('FCM token registration rejected', {
+          code: error.code,
+          userId: request.auth?.uid,
+          platform: request.data?.platform,
+        });
+        throw error;
+      }
+
+      // Unexpected server-side failures — log at error level for Error Reporting.
       logger.error('Failed to register FCM token', {
         error: error instanceof Error ? error.message : String(error),
         stack: error instanceof Error ? error.stack : undefined,
@@ -125,7 +137,6 @@ export const registerFcmToken = onCall(
         platform: request.data?.platform,
       });
 
-      // Re-throw HttpsErrors as-is, wrap others
       if (error instanceof HttpsError) {
         throw error;
       }

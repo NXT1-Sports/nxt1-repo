@@ -25,12 +25,13 @@ import { getOperationMemoryService } from '../services/operation-memory.service.
 
 export type AgentExecutionMutableTask = Omit<
   AgentTask,
-  'status' | 'assignedAgent' | 'description' | 'displayLabel'
+  'status' | 'assignedAgent' | 'description' | 'displayLabel' | 'structuredPayload'
 > & {
   status: AgentTaskStatus;
   assignedAgent: Exclude<AgentIdentifier, 'router'>;
   displayLabel?: string;
   description: string;
+  structuredPayload?: Record<string, unknown>;
   _lastError?: string;
 };
 
@@ -139,6 +140,10 @@ export class AgentRouterExecutionService {
     readonly agents: ReadonlyMap<AgentIdentifier, BaseAgent>;
     readonly onUpdate?: (update: AgentJobUpdate) => void;
     readonly onStreamEvent?: OnStreamEvent;
+    readonly onPlanStateChange?: (
+      mutableTasks: readonly AgentExecutionMutableTask[],
+      taskResults: ReadonlyMap<string, AgentOperationResult>
+    ) => Promise<void> | void;
     readonly signal?: AbortSignal;
     readonly buildTaskIntent: (
       task: AgentTask,
@@ -148,10 +153,12 @@ export class AgentRouterExecutionService {
     readonly rerouteDelegatedTask: (
       forwardingIntent: string,
       sourceAgentId: Exclude<AgentIdentifier, 'router'>,
-      context: AgentSessionContext
+      context: AgentSessionContext,
+      structuredPayload?: Record<string, unknown>
     ) => Promise<{
       readonly assignedAgent: Exclude<AgentIdentifier, 'router'>;
       readonly description: string;
+      readonly structuredPayload?: Record<string, unknown>;
     } | null>;
   }): Promise<AgentExecutionLoopResult> {
     const {
@@ -166,6 +173,7 @@ export class AgentRouterExecutionService {
       agents,
       onUpdate,
       onStreamEvent,
+      onPlanStateChange,
       signal,
       buildTaskIntent,
       rerouteDelegatedTask,
@@ -181,7 +189,7 @@ export class AgentRouterExecutionService {
       this.telemetry.emitProgressOperation(onStreamEvent, {
         operationId,
         stage: 'agent_thinking',
-        message: `Executing ${plan.tasks.length} planned task(s)...`,
+        message: 'On it...',
         metadata: { eventType: 'progress_stage', phase: 'execution', phaseIndex: 3, phaseTotal: 5 },
       });
 
@@ -191,6 +199,8 @@ export class AgentRouterExecutionService {
         displayLabel: task.displayLabel,
         _lastError: undefined as string | undefined,
       })) as AgentExecutionMutableTask[];
+
+      await onPlanStateChange?.(mutableTasks, taskResults);
 
       while (this.hasPendingTasks(mutableTasks)) {
         const ready = mutableTasks.filter(
@@ -205,11 +215,13 @@ export class AgentRouterExecutionService {
         if (ready.length === 0) {
           for (const task of mutableTasks) {
             if (task.status === 'pending') {
-              task.status = 'failed' as AgentTaskStatus;
+              task.status = 'blocked' as AgentTaskStatus;
               task._lastError =
                 'Execution plan stalled because remaining tasks had unmet dependencies.';
             }
           }
+          this.emitPlannerCard(onStreamEvent, mutableTasks);
+          await onPlanStateChange?.(mutableTasks, taskResults);
           break;
         }
 
@@ -231,6 +243,7 @@ export class AgentRouterExecutionService {
           }
         );
         this.emitActivePlannerCard(onStreamEvent, mutableTasks, activeTask.id);
+        await onPlanStateChange?.(mutableTasks, taskResults);
 
         const completedAtBatchStart = Object.fromEntries(
           [...taskResults.entries()].map(([key, value]) => [key, value])
@@ -399,12 +412,17 @@ export class AgentRouterExecutionService {
               );
 
               this.emitPlannerCard(onStreamEvent, mutableTasks);
+              await onPlanStateChange?.(mutableTasks, taskResults);
               return;
             } catch (err) {
               if (this.isAbortError(err)) throw err;
 
               if (isAgentYield(err)) {
                 const yieldErr = err as AgentYieldException;
+                task.status = 'awaiting_tool_approval' as AgentTaskStatus;
+                task._lastError = 'Waiting for user approval to continue this task.';
+                this.emitPlannerCard(onStreamEvent, mutableTasks);
+                await onPlanStateChange?.(mutableTasks, taskResults);
                 throw new AgentYieldException({
                   ...yieldErr.payload,
                   planContext: {
@@ -429,12 +447,18 @@ export class AgentRouterExecutionService {
                 const reroute = await rerouteDelegatedTask(
                   delErr.payload.forwardingIntent,
                   originalAgentId,
-                  context
+                  context,
+                  delErr.payload.structuredPayload
                 );
 
                 if (reroute) {
                   task.assignedAgent = reroute.assignedAgent;
                   task.description = reroute.description;
+                  // Preserve structured payload through reroute so the new
+                  // coordinator receives all verbatim IDs and references.
+                  if (reroute.structuredPayload !== undefined) {
+                    task.structuredPayload = reroute.structuredPayload;
+                  }
                   task._lastError = undefined;
 
                   this.telemetry.emitUpdate(
@@ -484,6 +508,8 @@ export class AgentRouterExecutionService {
                   }
                 );
                 this.cascadeFailure(task.id, mutableTasks);
+                this.emitPlannerCard(onStreamEvent, mutableTasks);
+                await onPlanStateChange?.(mutableTasks, taskResults);
                 return;
               }
 
@@ -522,6 +548,8 @@ export class AgentRouterExecutionService {
                   }
                 );
                 this.cascadeFailure(task.id, mutableTasks);
+                this.emitPlannerCard(onStreamEvent, mutableTasks);
+                await onPlanStateChange?.(mutableTasks, taskResults);
               }
             }
           }
@@ -555,7 +583,7 @@ export class AgentRouterExecutionService {
       this.telemetry.emitProgressOperation(onStreamEvent, {
         operationId,
         stage: 'agent_thinking',
-        message: 'Execution stage complete. Preparing final response...',
+        message: 'Putting your answer together...',
         metadata: {
           eventType: 'progress_subphase',
           phase: 'execution',
@@ -597,7 +625,7 @@ export class AgentRouterExecutionService {
 
       for (const task of tasks) {
         if (task.status === 'pending' && task.dependsOn.includes(current)) {
-          task.status = 'failed' as AgentTaskStatus;
+          task.status = 'blocked' as AgentTaskStatus;
           task._lastError = `Blocked by failed dependency: ${current}`;
           queue.push(task.id);
         }
@@ -623,12 +651,7 @@ export class AgentRouterExecutionService {
         type: 'planner',
         title: 'Execution Plan',
         payload: {
-          items: mutableTasks.map((task) => ({
-            id: task.id,
-            label: task.displayLabel ?? task.description,
-            done: task.status === ('completed' as AgentTaskStatus),
-            active: false,
-          })),
+          items: mutableTasks.map((task) => this.toPlannerItem(task, false)),
         },
       },
     });
@@ -653,14 +676,30 @@ export class AgentRouterExecutionService {
         type: 'planner',
         title: 'Execution Plan',
         payload: {
-          items: mutableTasks.map((task) => ({
-            id: task.id,
-            label: task.displayLabel ?? task.description,
-            done: task.status === ('completed' as AgentTaskStatus),
-            active: task.id === activeTaskId,
-          })),
+          items: mutableTasks.map((task) => this.toPlannerItem(task, task.id === activeTaskId)),
         },
       },
     });
+  }
+
+  private toPlannerItem(
+    task: AgentExecutionMutableTask,
+    active: boolean
+  ): {
+    id: string;
+    label: string;
+    done: boolean;
+    active: boolean;
+    status: AgentTaskStatus;
+    note?: string;
+  } {
+    return {
+      id: task.id,
+      label: task.displayLabel ?? task.description,
+      done: task.status === ('completed' as AgentTaskStatus),
+      active,
+      status: task.status,
+      ...(task._lastError ? { note: task._lastError } : {}),
+    };
   }
 }

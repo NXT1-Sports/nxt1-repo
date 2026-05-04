@@ -2,17 +2,14 @@
  * @fileoverview Agent X Video Upload Service — Firebase Storage Direct Upload
  * @module @nxt1/ui/agent-x
  *
- * Uploads Agent X chat video attachments directly to Firebase Storage via a
- * GCS v4 signed URL provisioned by the backend. The browser PUTs the file
- * directly to GCS (no backend buffering, handles up to 500 MB), then the
- * returned signed read URL is immediately usable by the AI — MediaTransportResolver
- * already treats Firebase Storage URLs as isDirectlyPortable (no Cloudflare
- * re-encoding wait needed).
+ * Uploads Agent X chat video attachments through the backend-controlled
+ * provision → PUT pipeline. The backend decides whether the upload target is a
+ * fast temp-media proxy or a signed storage URL suitable for immediate AI use.
  *
  * Flow:
  *   1. POST /agent-x/upload/video  → { uploadUrl, readUrl, storagePath }
- *   2. XHR PUT uploadUrl (direct to GCS)  → 200 on completion
- *   3. readUrl is the signed Firebase Storage URL passed to the AI tools
+ *   2. XHR PUT uploadUrl  → 200 on completion
+ *   3. readUrl is the backend-resolved URL passed to the AI tools
  *
  * Progress is emitted via Observable<VideoUploadProgress> using XHR upload
  * progress events (fetch API does not expose upload progress).
@@ -144,47 +141,6 @@ export class AgentXVideoUploadService {
       sizeBytes: file.size,
     });
     subject.next({ phase: 'provisioning', percent: 0 });
-
-    if (this._shouldUseProxyFirst()) {
-      subject.next({ phase: 'uploading', percent: 0 });
-      this.breadcrumb.trackStateChange('agent-x-video-upload:uploading-proxy', {
-        name: file.name,
-      });
-
-      try {
-        const fallback = await this._uploadViaProxy(file, authToken, threadId);
-        this.logger.info('Video uploaded via backend proxy (localhost mode)', {
-          name: file.name,
-          storagePath: fallback.storagePath,
-          expiresAt: fallback.expiresAt,
-          hasThreadId: !!threadId,
-        });
-        this.analytics?.trackEvent(APP_EVENTS.VIDEO_UPLOADED, {
-          source: 'agent-x-chat',
-          mimeType: file.type,
-          sizeBytes: file.size,
-          storageBackend: 'firebase-proxy',
-        });
-        subject.next({
-          phase: 'complete',
-          percent: 100,
-          streamUrl: fallback.readUrl,
-          storagePath: fallback.storagePath,
-        });
-        subject.complete();
-        return;
-      } catch (proxyErr) {
-        this.logger.warn(
-          'Backend proxy upload failed in localhost mode; falling back to direct signed URL upload',
-          {
-            name: file.name,
-            sizeBytes: file.size,
-            mimeType: file.type,
-            error: proxyErr instanceof Error ? proxyErr.message : String(proxyErr),
-          }
-        );
-      }
-    }
 
     let uploadUrl: string;
     let readUrl: string;
@@ -379,12 +335,6 @@ export class AgentXVideoUploadService {
 
     return payload.data;
   }
-
-  private _shouldUseProxyFirst(): boolean {
-    const host = globalThis.location?.hostname;
-    return host === 'localhost' || host === '127.0.0.1';
-  }
-
   /**
    * Retry direct PUT once for transient network/browser failures.
    */

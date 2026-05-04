@@ -73,9 +73,10 @@ const GLOBAL_SYSTEM_TOOL_POLICY: readonly ToolPattern[] = composeToolPatterns([
  * to the model and execute at runtime. It mirrors PRIMARY_FAST_PATH_TOOLS in
  * primary.agent.ts — that constant now derives directly from this policy.
  *
- * System-category tools (delegate_to_coordinator, plan_and_execute,
- * whoami_capabilities, delegate_task) bypass policy checks in BaseAgent and
- * are always available regardless of this list.
+ * System-category tools (delegate_to_coordinator, create_plan,
+ * execute_saved_plan, plan_and_execute, whoami_capabilities, delegate_task)
+ * bypass policy checks in BaseAgent and are always available regardless of
+ * this list.
  */
 const ROUTER_TOOL_POLICY: readonly ToolPattern[] = [
   // Lazy context (Tier B)
@@ -139,6 +140,8 @@ const ROUTER_TOOL_POLICY: readonly ToolPattern[] = [
 
 const INTERNAL_ONLY_TOOL_POLICY: readonly string[] = [
   'delegate_to_coordinator',
+  'create_plan',
+  'execute_saved_plan',
   'get_active_threads',
   'get_other_thread_history',
   'get_user_profile',
@@ -185,36 +188,21 @@ const AGENT_TOOL_POLICY: Readonly<Record<CoordinatorAgentId, readonly ToolPatter
     'scrape_and_index_profile',
     'read_distilled_section',
     'dispatch_extraction',
+    'list_nxt1_data_views',
+    'query_nxt1_data',
+    'mutate_nxt1_data',
     'write_core_identity',
     'update_core_identity',
     'delete_core_identity',
     'write_awards',
-    'update_awards',
-    'delete_awards',
     'write_combine_metrics',
-    'update_combine_metrics',
-    'delete_combine_metrics',
     'write_rankings',
-    'update_rankings',
-    'delete_rankings',
     'write_season_stats',
-    'update_season_stats',
-    'delete_season_stats',
     'write_recruiting_activity',
-    'update_recruiting_activity',
-    'delete_recruiting_activity',
     'write_calendar_events',
-    'update_calendar_events',
-    'delete_calendar_events',
     'write_schedule',
-    'update_schedule_event',
-    'delete_schedule_event',
     'write_team_stats',
-    'update_team_stats',
-    'delete_team_stats',
     'write_team_news',
-    'update_team_news',
-    'delete_team_news',
     'write_team_post',
     'update_team_post',
     'delete_team_post',
@@ -222,14 +210,11 @@ const AGENT_TOOL_POLICY: Readonly<Record<CoordinatorAgentId, readonly ToolPatter
     'update_timeline_post',
     'delete_timeline_post',
     'write_roster_entries',
-    'update_roster_entries',
-    'delete_roster_entries',
     'write_athlete_videos',
     'update_athlete_videos',
     'delete_athlete_videos',
     'write_intel',
     'update_intel',
-    'delete_intel',
     'write_connected_source',
     'update_connected_source',
     'delete_connected_source',
@@ -249,12 +234,9 @@ const AGENT_TOOL_POLICY: Readonly<Record<CoordinatorAgentId, readonly ToolPatter
     'scrape_and_index_profile',
     'read_distilled_section',
     'write_season_stats',
-    'update_season_stats',
-    'delete_season_stats',
+    'mutate_nxt1_data',
     'write_combine_metrics',
     'write_schedule',
-    'update_schedule_event',
-    'delete_schedule_event',
     'analyze_video',
     'get_video_details',
     'search_apify_actors',

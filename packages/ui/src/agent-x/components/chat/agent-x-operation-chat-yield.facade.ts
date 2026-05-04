@@ -92,6 +92,9 @@ export class AgentXOperationChatYieldFacade {
       source: 'operation-chat',
     });
 
+    // Hide the inline billing action card once user acts (open usage or dismiss).
+    this.messageFacade.dismissBillingActionCards(event.reason);
+
     if (event.completed) {
       this.messageFacade.pushMessage({
         id: this.requireHost().uid(),
@@ -279,15 +282,6 @@ export class AgentXOperationChatYieldFacade {
         });
         setTimeout(() => {
           host.yieldResolved.set(true);
-
-          if (event.decision === 'approve') {
-            this.messageFacade.pushMessage({
-              id: host.uid(),
-              role: 'assistant',
-              content: successCopy.message,
-              timestamp: new Date(),
-            });
-          }
         }, 150);
       } else {
         this.logger.warn('Approve API returned false', { operationId: event.operationId });

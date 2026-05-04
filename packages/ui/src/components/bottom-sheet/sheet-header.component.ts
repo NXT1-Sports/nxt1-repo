@@ -334,8 +334,7 @@ export class NxtSheetHeaderComponent {
   async onClose(): Promise<void> {
     await this.haptics.impact('light');
 
-    // Match manual swipe-down animation: animate through breakpoints (backdrop fades),
-    // then dismiss when sheet reaches closed position
+    // Dismiss immediately so backdrop and sheet close timing match classic behavior.
     const topOverlay = await this.modalCtrl.getTop();
     if (
       topOverlay instanceof Element &&
@@ -344,22 +343,7 @@ export class NxtSheetHeaderComponent {
     ) {
       const modal = topOverlay as {
         dismiss(data?: unknown, role?: string): Promise<boolean>;
-        setCurrentBreakpoint?(breakpoint: number): Promise<void>;
       };
-
-      // If sheet has breakpoints and setCurrentBreakpoint method, animate to 0
-      // This triggers the same backdrop fade + sheet slide as manual swipe
-      if (typeof modal.setCurrentBreakpoint === 'function') {
-        try {
-          await modal.setCurrentBreakpoint(0);
-          // Wait for sheet animation to complete before dismissing
-          await new Promise((resolve) => setTimeout(resolve, 350));
-          await modal.dismiss(undefined, 'cancel');
-          return;
-        } catch {
-          // Fallback if setCurrentBreakpoint fails
-        }
-      }
 
       // Fallback: standard dismiss
       const dismissed = await modal.dismiss(undefined, 'cancel');

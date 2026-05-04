@@ -105,8 +105,9 @@ export type AgentXMessagePart =
    * Extended thinking block emitted by Claude 3.7+ / Gemini 2.5 before the
    * answer. Hidden by default (collapsed) — surfaced as a collapsible panel
    * in the chat UI so power users can inspect the model's reasoning.
+   * `done` is set to true when the first text delta arrives, collapsing the block.
    */
-  | { readonly type: 'thinking'; readonly content: string };
+  | { readonly type: 'thinking'; readonly content: string; readonly done?: true };
 
 /**
  * A single message in the Agent X conversation.
@@ -484,6 +485,10 @@ export interface AgentXPlannerItem {
   readonly done: boolean;
   /** True while this specific task is actively executing. At most one item is active at a time. */
   readonly active?: boolean;
+  /** Typed task status for richer execution-plan rendering. */
+  readonly status?: import('./agent.types').AgentTaskStatus;
+  /** Optional short detail line shown under the main label. */
+  readonly note?: string;
 }
 
 /**

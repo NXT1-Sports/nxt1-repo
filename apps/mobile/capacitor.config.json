@@ -19,10 +19,18 @@
     },
     "FirebaseAuthentication": {
       "skipNativeAuth": false,
-      "providers": ["apple.com", "google.com", "microsoft.com"]
+      "providers": [
+        "apple.com",
+        "google.com",
+        "microsoft.com"
+      ]
     },
     "PushNotifications": {
-      "presentationOptions": ["badge", "sound", "alert"]
+      "presentationOptions": [
+        "badge",
+        "sound",
+        "alert"
+      ]
     },
     "Keyboard": {
       "resize": "none",
@@ -50,6 +58,6 @@
   "android": {
     "allowMixedContent": false,
     "captureInput": true,
-    "webContentsDebuggingEnabled": false
+    "webContentsDebuggingEnabled": true
   }
 }

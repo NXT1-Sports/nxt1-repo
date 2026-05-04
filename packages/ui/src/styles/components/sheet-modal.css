@@ -52,6 +52,17 @@
   background: var(--nxt1-color-bg-primary);
 }
 
+/* Keep scroll gestures inside sheet content instead of chaining into sheet drag. */
+.nxt1-sheet-modal ion-content {
+  overscroll-behavior-y: contain;
+}
+
+.nxt1-sheet-modal ion-content::part(scroll) {
+  overscroll-behavior-y: contain;
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
+}
+
 /* ============================================
    NATIVE DRAG HANDLE (Grabber Bar)
    ============================================ */
@@ -71,6 +82,7 @@
 
 .nxt1-sheet-modal::part(backdrop) {
   background: rgba(0, 0, 0, 0.5);
+  transition: opacity 0ms linear !important;
 }
 
 /* ============================================

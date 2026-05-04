@@ -786,7 +786,7 @@ export class AgentXOperationChatAttachmentsFacade {
    */
   async awaitPendingUploads(
     files: readonly PendingFile[],
-    authToken: string,
+    _authToken: string,
     timeoutMs: number
   ): Promise<AgentXAttachment[]> {
     // Only process files that have an active upload record in backgroundUploads.

@@ -342,19 +342,46 @@ export class AgentXOperationChatSessionFacade {
    * user-facing prompts that the user must respond to.
    */
   private resolveCanonicalAssistantRows(items: readonly AgentMessage[]): readonly AgentMessage[] {
+    const isChatPrefixedOperationId = (value: string | undefined): boolean =>
+      typeof value === 'string' && value.startsWith('chat-');
+
     // ── Pass 1: phase-tagged rows (new writes) ────────────────────────────
     const finalOperationIds = new Set<string>();
-    for (const item of items) {
+    let lastBareFinalIndex = -1;
+    items.forEach((item, index) => {
       if (
         item.role === 'assistant' &&
         item.semanticPhase === 'assistant_final' &&
         item.operationId
       ) {
         finalOperationIds.add(item.operationId);
+        if (!isChatPrefixedOperationId(item.operationId)) {
+          lastBareFinalIndex = Math.max(lastBareFinalIndex, index);
+        }
+      }
+    });
+
+    // ── Pass 2: collapse assistant_tool_call rows (no final exists) ───────
+    // When no assistant_final exists for an operationId, keep only the LAST
+    // assistant_tool_call row per operationId. Earlier turns represent abandoned
+    // ReAct iterations and must not render as separate bubbles on replay.
+    // Items arrive in chronological order, so walking forward gives last-wins.
+    const toolCallSuppressedIds = new Set<string>();
+    const toolCallLastSeen = new Map<string, string>(); // operationId → id of latest row
+    for (const item of items) {
+      if (
+        item.role === 'assistant' &&
+        item.semanticPhase === 'assistant_tool_call' &&
+        item.operationId &&
+        !finalOperationIds.has(item.operationId)
+      ) {
+        const prev = toolCallLastSeen.get(item.operationId);
+        if (prev) toolCallSuppressedIds.add(prev);
+        toolCallLastSeen.set(item.operationId, item.id);
       }
     }
 
-    // ── Pass 2: legacy rows (no semanticPhase) ───────────────────────────
+    // ── Pass 3: legacy rows (no semanticPhase) ───────────────────────────
     // Collect operationIds that appear on multiple untagged assistant rows.
     const legacyMultiMap = new Map<string, AgentMessage[]>();
     for (const item of items) {
@@ -384,18 +411,50 @@ export class AgentXOperationChatSessionFacade {
       }
     }
 
-    if (finalOperationIds.size === 0 && legacySuppressedIds.size === 0) return items;
+    if (
+      finalOperationIds.size === 0 &&
+      toolCallSuppressedIds.size === 0 &&
+      legacySuppressedIds.size === 0
+    )
+      return items;
 
-    return items.filter((item) => {
+    return items.filter((item, index) => {
       if (item.role !== 'assistant') return true;
+
+      const hasRenderableCard =
+        (item.cards?.length ?? 0) > 0 ||
+        (item.parts?.some((part) => part.type === 'card') ?? false);
 
       // When assistant_final exists for this operationId, keep only the final
       // row and any yield rows (user-facing yield prompts). Suppress everything
       // else — including assistant_partial snapshots and untagged trajectory
       // rows written by ThreadMessageWriter — to prevent duplicate bubbles.
       if (item.operationId && finalOperationIds.has(item.operationId)) {
-        return item.semanticPhase === 'assistant_final' || item.semanticPhase === 'assistant_yield';
+        return (
+          item.semanticPhase === 'assistant_final' ||
+          item.semanticPhase === 'assistant_yield' ||
+          hasRenderableCard
+        );
       }
+
+      // Pause/resume cross-operation collapse:
+      // parent operation ids are `chat-*` while resumed child operations use
+      // bare UUID ids. When a later bare-UUID final exists, suppress stale
+      // parent assistant trajectory rows so only the resumed final bubble remains.
+      if (
+        lastBareFinalIndex >= 0 &&
+        index < lastBareFinalIndex &&
+        item.operationId &&
+        isChatPrefixedOperationId(item.operationId) &&
+        !finalOperationIds.has(item.operationId) &&
+        (item.semanticPhase === 'assistant_tool_call' || !item.semanticPhase) &&
+        !hasRenderableCard
+      ) {
+        return false;
+      }
+
+      // Suppress all-but-last assistant_tool_call rows (no final path).
+      if (toolCallSuppressedIds.has(item.id)) return false;
 
       // Suppress non-richest legacy duplicates (untagged rows with no final).
       if (legacySuppressedIds.has(item.id)) return false;
@@ -471,13 +530,30 @@ export class AgentXOperationChatSessionFacade {
   handleDestroy(): void {
     const host = this.requireHost();
     this.messageFacade.clearPendingTypingDelta();
+
     const threadId = host.resolvedThreadId();
     if (threadId) {
       this.streamRegistry.detach(threadId);
     }
-    if (!threadId || !this.streamRegistry.hasActiveStream(threadId)) {
+
+    // Preserve any in-flight pre-thread stream regardless of contextType.
+    // 'command' sessions (the most common case) also have active streams
+    // that must survive component destroy so the shell can reconnect them
+    // once onThread resolves the threadId (via AgentXService.pendingResolvedOp).
+    const shouldPreservePreThreadStream = !threadId && host.getActiveStream() !== null;
+
+    if (
+      !shouldPreservePreThreadStream &&
+      (!threadId || !this.streamRegistry.hasActiveStream(threadId))
+    ) {
       host.getActiveStream()?.abort();
+    } else if (shouldPreservePreThreadStream) {
+      this.logger.info('Preserving pre-thread stream during component destroy', {
+        contextId: host.contextId(),
+        contextType: host.contextType(),
+      });
     }
+
     host.setActiveStream(null);
     host.getActiveFirestoreSub()?.unsubscribe();
     host.setActiveFirestoreSub(null);
@@ -578,10 +654,18 @@ export class AgentXOperationChatSessionFacade {
             this.messageFacade.flushPendingTypingDelta();
             if (!step.label.trim()) return;
             if (step.status === 'active') {
-              host.setActivityPhase('running_tool', step.detail?.trim() || step.label);
+              host.setActivityPhase('running_tool');
+            } else if (
+              step.stageType === 'tool' &&
+              (step.status === 'success' || step.status === 'error')
+            ) {
+              // Tool finished: leave running_tool so waiting_delta shimmer can show
+              // while the model computes the next assistant text delta.
+              host.setActivityPhase('waiting_delta');
             } else {
-              host.setActivityPhase('waiting_delta', step.detail?.trim() || step.label);
-              host.markActivityPulse(step.detail?.trim() || step.label);
+              // Keep streaming state stable for non-active step updates.
+              // Waiting+immediate-pulse causes a visible loader flash.
+              host.markActivityPulse();
             }
             this.messageFacade.messages.update((messages) =>
               messages.map((message) => {
@@ -716,6 +800,18 @@ export class AgentXOperationChatSessionFacade {
           (message): message is typeof message & { role: 'user' | 'assistant' } =>
             message.role === 'user' || message.role === 'assistant'
         )
+        // P1: skip empty assistant rows (no content, no parts, no steps, no resultData).
+        // These arise when the LLM emits an empty turn before a tool call — harmless
+        // for backend replay but must not render as blank bubbles in the chat UI.
+        .filter((message) => {
+          if (message.role !== 'assistant') return true;
+          return (
+            (message.content ?? '').trim().length > 0 ||
+            (message.parts?.length ?? 0) > 0 ||
+            (message.steps?.length ?? 0) > 0 ||
+            (!!message.resultData && Object.keys(message.resultData).length > 0)
+          );
+        })
         .map((message) => {
           const persistedSteps: AgentXToolStep[] = (message.steps ?? []).filter(
             (step): step is AgentXToolStep =>
@@ -847,57 +943,80 @@ export class AgentXOperationChatSessionFacade {
         hasAssistantReply &&
         !host.activeYieldState()
       ) {
-        let pendingYieldState: AgentYieldState | null = null;
-        let latestLifecycleStatus:
-          | 'queued'
-          | 'running'
-          | 'paused'
-          | 'awaiting_input'
-          | 'awaiting_approval'
-          | 'complete'
-          | 'failed'
-          | 'cancelled'
-          | null = null;
-
-        const operationId = this.resolveFirestoreOperationId();
-        if (operationId) {
-          const stored = await this.operationEventService.getStoredEventState(operationId);
-          pendingYieldState = stored.latestYieldState;
-          latestLifecycleStatus = stored.latestLifecycleStatus;
-        }
-
-        if (pendingYieldState) {
-          this.applyPendingYieldState(pendingYieldState, threadId, 'firestore-fallback');
-        } else if (latestLifecycleStatus) {
-          const reconciledStatus =
-            latestLifecycleStatus === 'queued' || latestLifecycleStatus === 'running'
-              ? 'processing'
-              : latestLifecycleStatus === 'failed'
-                ? 'error'
-                : latestLifecycleStatus === 'cancelled'
-                  ? 'complete'
-                  : latestLifecycleStatus;
-
-          host.setOperationStatus(reconciledStatus);
+        // ── Mongo-authoritative fast path ──────────────────────────────────
+        // If any canonical row carries assistant_final the operation has
+        // completed, regardless of what Firestore says for the stored
+        // operationId. This covers parent/child approval flows where the
+        // parent ends at awaiting_approval (no `done` in Firestore for it)
+        // but the child wrote assistant_final to MongoDB.
+        const hasMongoFinal = canonicalItems.some(
+          (item) => item.role === 'assistant' && item.semanticPhase === 'assistant_final'
+        );
+        if (hasMongoFinal) {
+          host.setOperationStatus('complete');
           this.operationEventService.emitOperationStatusUpdated(
             threadId,
-            latestLifecycleStatus,
+            'complete',
             new Date().toISOString()
           );
-
-          this.logger.info('Reconciled operation status from stored lifecycle state', {
+          this.logger.info('Reconciled operation to complete from Mongo assistant_final', {
             threadId,
             contextId: host.contextId(),
-            lifecycleStatus: latestLifecycleStatus,
-            reconciledStatus,
           });
         } else {
-          // No persisted lifecycle/yield evidence found yet. Keep processing so
-          // the upstream middle shimmer remains visible while waiting for more events.
-          this.logger.info('Keeping operation in processing while awaiting upstream events', {
-            threadId,
-            contextId: host.contextId(),
-          });
+          // ── Firestore fallback: check stored lifecycle state ──────────────
+          let pendingYieldState: AgentYieldState | null = null;
+          let latestLifecycleStatus:
+            | 'queued'
+            | 'running'
+            | 'paused'
+            | 'awaiting_input'
+            | 'awaiting_approval'
+            | 'complete'
+            | 'failed'
+            | 'cancelled'
+            | null = null;
+
+          const operationId = this.resolveFirestoreOperationId();
+          if (operationId) {
+            const stored = await this.operationEventService.getStoredEventState(operationId);
+            pendingYieldState = stored.latestYieldState;
+            latestLifecycleStatus = stored.latestLifecycleStatus;
+          }
+
+          if (pendingYieldState) {
+            this.applyPendingYieldState(pendingYieldState, threadId, 'firestore-fallback');
+          } else if (latestLifecycleStatus) {
+            const reconciledStatus =
+              latestLifecycleStatus === 'queued' || latestLifecycleStatus === 'running'
+                ? 'processing'
+                : latestLifecycleStatus === 'failed'
+                  ? 'error'
+                  : latestLifecycleStatus === 'cancelled'
+                    ? 'complete'
+                    : latestLifecycleStatus;
+
+            host.setOperationStatus(reconciledStatus);
+            this.operationEventService.emitOperationStatusUpdated(
+              threadId,
+              latestLifecycleStatus,
+              new Date().toISOString()
+            );
+
+            this.logger.info('Reconciled operation status from stored lifecycle state', {
+              threadId,
+              contextId: host.contextId(),
+              lifecycleStatus: latestLifecycleStatus,
+              reconciledStatus,
+            });
+          } else {
+            // No persisted lifecycle/yield evidence found yet. Keep processing so
+            // the upstream middle shimmer remains visible while waiting for more events.
+            this.logger.info('Keeping operation in processing while awaiting upstream events', {
+              threadId,
+              contextId: host.contextId(),
+            });
+          }
         }
       }
 

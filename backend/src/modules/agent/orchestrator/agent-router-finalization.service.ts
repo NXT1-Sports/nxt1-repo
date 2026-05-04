@@ -46,7 +46,7 @@ export class AgentRouterFinalizationService {
     this.telemetry.emitProgressOperation(onStreamEvent, {
       operationId,
       stage: 'agent_thinking',
-      message: 'Aggregating results...',
+      message: 'Pulling everything together...',
       metadata: { eventType: 'progress_stage', phase: 'aggregation', phaseIndex: 4, phaseTotal: 5 },
     });
     const summaries = [...taskResults.values()].map((result) => result.summary);
@@ -184,7 +184,7 @@ export class AgentRouterFinalizationService {
     this.telemetry.emitProgressOperation(onStreamEvent, {
       operationId,
       stage: 'agent_thinking',
-      message: 'Aggregation complete. Final response ready.',
+      message: 'Almost done...',
       metadata: { eventType: 'progress_subphase', phase: 'aggregation', status: 'done' },
     });
 

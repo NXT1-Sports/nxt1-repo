@@ -28,7 +28,7 @@ export interface PrimaryDispatchContext {
 export interface PrimaryDispatchResult {
   readonly success: boolean;
   readonly observation: string;
-  readonly dispatchKind?: 'coordinator' | 'plan';
+  readonly dispatchKind?: 'coordinator' | 'plan' | 'saved_plan';
   readonly userAlreadyReceivedResponse?: boolean;
   readonly streamedDeltaCount?: number;
   readonly streamedCharCount?: number;
@@ -44,12 +44,18 @@ export interface PrimaryDispatcher {
   runCoordinator(
     coordinatorId: Exclude<AgentIdentifier, 'router'>,
     goal: string,
-    ctx: PrimaryDispatchContext
+    ctx: PrimaryDispatchContext,
+    structuredPayload?: Record<string, unknown>
   ): Promise<PrimaryDispatchResult>;
 
   /**
-   * Build and execute a multi-step DAG plan via the existing PlannerAgent +
-   * AgentRouterExecutionService pipeline.
+   * Build a multi-step DAG plan and pause for explicit user approval before
+   * execution begins.
    */
   runPlan(goal: string, ctx: PrimaryDispatchContext): Promise<PrimaryDispatchResult>;
+
+  /**
+   * Execute a previously saved plan after user approval has been granted.
+   */
+  runApprovedPlan(planId: string, ctx: PrimaryDispatchContext): Promise<PrimaryDispatchResult>;
 }

@@ -84,6 +84,7 @@ import {
 } from '../cards/agent-x-action-card.component';
 import { AgentXAskUserCardComponent } from '../cards/agent-x-ask-user-card.component';
 import { AgentXPausedCardComponent } from '../cards/agent-x-paused-card.component';
+import type { BillingActionResolvedEvent } from '../cards/agent-x-billing-action-card.component';
 import type { DraftSubmittedEvent } from '../cards/agent-x-draft-card.component';
 import type { AgentYieldState } from '@nxt1/core';
 import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/assets';
@@ -185,8 +186,8 @@ type ChatActivityPhase =
           />
         }
 
-        @for (msg of messages(); track msg.id; let first = $first) {
-          @if (!shouldHideMessage(msg)) {
+        @for (msg of messages(); track msg.id; let first = $first; let idx = $index) {
+          @if (!shouldHideMessage(msg, idx)) {
             <div
               class="msg-row"
               [class.msg-user]="msg.role === 'user'"
@@ -227,20 +228,25 @@ type ChatActivityPhase =
                   [content]="msg.content"
                   [imageUrl]="msg.role === 'assistant' ? msg.imageUrl : undefined"
                   [videoUrl]="msg.role === 'assistant' ? msg.videoUrl : undefined"
-                  [isStreaming]="msg.id === 'typing'"
-                  [isTyping]="!!msg.isTyping"
+                  [isStreaming]="msg.id === 'typing' && isActivityInFlight()"
                   [typingLabel]="msg.id === 'typing' ? thinkingLabel() : 'Thinking...'"
                   [isError]="!!msg.error"
                   [isSystem]="msg.role === 'system'"
                   [steps]="msg.steps ?? []"
                   [cards]="messageCardsForBubble(msg)"
                   [parts]="messagePartsForBubble(msg)"
-                  (billingActionResolved)="yieldFacade.onBillingActionResolved($event)"
+                  (billingActionResolved)="onBillingActionResolved($event)"
                   (confirmationAction)="yieldFacade.onConfirmationAction($event)"
                   (draftSubmitted)="yieldFacade.onDraftSubmitted($event)"
                   (askUserReply)="yieldFacade.onAskUserReply($event)"
                   (retryRequested)="runControlFacade.onRetryErrorMessage(msg)"
                 />
+                @if (msg.id === 'typing' && showThinking()) {
+                  <nxt1-agent-x-operation-chat-thinking
+                    class="msg-inline-thinking"
+                    [label]="thinkingLabel()"
+                  />
+                }
               }
               @if (!msg.yieldState && msg.attachments?.length) {
                 <div class="msg-attachments">
@@ -334,11 +340,6 @@ type ChatActivityPhase =
           }
         }
 
-        <!-- ═══ THINKING INDICATOR (Copilot-style: spinning icon + shimmering text) ═══ -->
-        @if (showThinking()) {
-          <nxt1-agent-x-operation-chat-thinking [label]="thinkingLabel()" />
-        }
-
         <!-- ═══ BATCH EMAIL CAMPAIGN PROGRESS PANEL ═══ -->
         @if (showBatchEmailProgress()) {
           <div class="batch-email-progress">
@@ -424,7 +425,6 @@ type ChatActivityPhase =
               variant="agent-operation"
               [isOwn]="false"
               [content]="'🔄 Retrying this operation — a new job has been queued. You can close this sheet.'"
-              [isTyping]="false"
               [isError]="false"
               [isSystem]="true"
             />
@@ -438,6 +438,7 @@ type ChatActivityPhase =
           <nxt1-agent-x-operation-chat-execution-plan
             [title]="executionPlan.title"
             [items]="executionPlanItems()"
+            [paused]="isExecutionPlanPaused()"
             [expanded]="executionPlanExpanded()"
             (expandedChange)="executionPlanExpanded.set($event)"
           />
@@ -1102,6 +1103,13 @@ type ChatActivityPhase =
         align-items: flex-start;
       }
 
+      .msg-inline-thinking {
+        align-self: flex-start;
+        /* Label should align with assistant bubble text start (16px inset).
+           Spinner(16px)+gap(8px)=24px, so shift the inline shimmer left by 24px. */
+        margin-left: -24px;
+      }
+
       .msg-assistant ::ng-deep nxt1-chat-bubble {
         background: var(--op-surface);
         border: 1px solid var(--op-border);
@@ -1721,7 +1729,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   /**
    * Video upload progress (0–100) while Cloudflare TUS upload is in-flight.
    * `null` when no upload is active. Drives the progress indicator in the
-   * typing bubble so the user sees real-time feedback on large video uploads.
+   * unified context/waiting loader so users see real-time feedback on large uploads.
    */
   protected readonly _videoUploadPercent = signal<number | null>(null);
 
@@ -1871,6 +1879,11 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     return payload.items as readonly AgentXPlannerItem[];
   });
 
+  /** Freeze execution-plan active spinner whenever the operation is paused. */
+  protected readonly isExecutionPlanPaused = computed(
+    () => this.operationStatus === 'paused' || this._activityPhase() === 'paused'
+  );
+
   /** Whether the activity state machine currently considers the run in-flight. */
   protected readonly isActivityInFlight = computed(() => {
     switch (this._activityPhase()) {
@@ -1886,15 +1899,73 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     }
   });
 
-  /** Whether to show the persistent backend-driven progress indicator. */
+  /**
+   * True when the typing bubble has visible text content already flushed into the
+   * messages signal. Tool/card/thinking parts are intentionally excluded so waiting
+   * phases can still render shimmer while no assistant text has been produced yet.
+   */
+  private readonly typingBubbleHasContent = computed(() => {
+    const typing = this.messages().find((m) => m.id === 'typing');
+    if (!typing) return false;
+    // Only text content counts — tool-steps/thinking/card/image/video parts are
+    // inline indicators, not final visible text. If only those parts exist the
+    // shimmer should remain visible (e.g. between last tool completing and the
+    // agent starting to stream its final text response).
+    if (typing.content.length > 0) return true;
+    return (typing.parts ?? []).some((p) => p.type === 'text' && p.content.length > 0);
+  });
+
+  /** True once at least one tool-step part is already visible in the typing bubble. */
+  private readonly typingBubbleHasToolSteps = computed(() => {
+    const typing = this.messages().find((m) => m.id === 'typing');
+    if (!typing) return false;
+    return (typing.parts ?? []).some((p) => p.type === 'tool-steps' && p.steps.length > 0);
+  });
+
+  /** Whether to show the persistent backend-driven progress indicator.
+   * Single rule: show during any waiting/streaming phase ONLY while the typing
+   * bubble has no visible content yet. Once content is painted the shimmer is
+   * always off — regardless of what phase fires (connected, reconnecting, etc.)
+   * This prevents flashes from mid-stream lifecycle events re-entering these phases.
+   */
   protected readonly showThinking = computed(() => {
-    return this.contextType === 'operation' && this.isActivityInFlight();
+    const phase = this._activityPhase();
+    switch (phase) {
+      // running_tool: always working — show until tool-step card is visible.
+      case 'running_tool':
+        return !this.typingBubbleHasToolSteps();
+
+      // waiting_delta: backend is computing between deltas/tools.
+      // ALWAYS show — even when preamble text is already visible.
+      // This covers: gap between preamble ending and first tool step active,
+      // and gap after last tool success before the next text delta starts.
+      case 'waiting_delta':
+        return true;
+
+      // Early-connection and streaming phases: suppress once text is already visible.
+      // This prevents shimmer re-appearing over existing text when lifecycle events
+      // re-enter connected/reconnecting mid-stream (e.g. operation running|queued).
+      case 'sending':
+      case 'connected':
+      case 'reconnecting':
+      case 'streaming':
+        return !this.typingBubbleHasContent();
+
+      default:
+        return false;
+    }
   });
 
   /** Human-readable thinking shimmer label from activity phase and progress updates. */
   protected readonly thinkingLabel = computed(() => {
     const uploadLabel = this._videoUploadLabel();
     if (uploadLabel) return uploadLabel;
+    const phase = this._activityPhase();
+    // For active-work phases, always use a generic label — never echo raw backend
+    // progress strings (e.g. 'Context loaded.', 'Fetching data…') which look confusing.
+    if (phase === 'running_tool' || phase === 'waiting_delta') {
+      return this.defaultThinkingLabelForPhase(phase);
+    }
     const activityLabel = this.toUserFacingThinkingLabel(this._activityLabel());
     if (activityLabel) return activityLabel;
     const progressLabel = this.toUserFacingThinkingLabel(this._latestProgressLabel());
@@ -2425,17 +2496,53 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   /** Hide planner cards inline in bubbles; planner is rendered once in the composer dock. */
   protected messageCardsForBubble(msg: OperationMessage): readonly AgentXRichCard[] {
     return (msg.cards ?? []).filter(
-      (card) => card.type !== 'planner' && !this.isApprovalConfirmationCard(card)
+      (card) =>
+        card.type !== 'planner' &&
+        card.type !== 'ask_user' &&
+        !this.isApprovalConfirmationCard(card)
     );
   }
 
   /** Hide planner card parts inline in bubbles; planner is rendered once in the composer dock. */
   protected messagePartsForBubble(msg: OperationMessage): readonly AgentXMessagePart[] {
-    return (msg.parts ?? []).filter(
+    const filtered = (msg.parts ?? []).filter(
       (part) =>
         !(part.type === 'card' && part.card.type === 'planner') &&
+        !(part.type === 'card' && part.card.type === 'ask_user') &&
         !(part.type === 'card' && this.isApprovalConfirmationCard(part.card))
     );
+
+    return this.ensureTextBeforeThinking(filtered);
+  }
+
+  /**
+   * Primary-agent UX rule: response text must appear before reasoning.
+   * If thinking arrives first, move it to immediately after the first text part.
+   */
+  private ensureTextBeforeThinking(
+    parts: readonly AgentXMessagePart[]
+  ): readonly AgentXMessagePart[] {
+    if (parts.length === 0) return parts;
+
+    const firstTextIndex = parts.findIndex(
+      (part) => part.type === 'text' && part.content.trim().length > 0
+    );
+    if (firstTextIndex <= 0) return parts;
+
+    const leadingThinking: AgentXMessagePart[] = [];
+    for (let i = 0; i < firstTextIndex; i += 1) {
+      const part = parts[i];
+      if (part.type !== 'thinking') return parts;
+      leadingThinking.push(part);
+    }
+
+    if (leadingThinking.length === 0) return parts;
+
+    return [
+      ...parts.slice(firstTextIndex, firstTextIndex + 1),
+      ...leadingThinking,
+      ...parts.slice(firstTextIndex + 1),
+    ];
   }
 
   /**
@@ -2564,10 +2671,37 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     this.attachmentsFacade.openAttachmentViewer(attachments, event.index);
   }
 
-  /** Remove dismissed pause-yield rows from the timeline to avoid ghost spacing. */
-  protected shouldHideMessage(msg: OperationMessage): boolean {
-    if (!this.isPauseYield(msg)) return false;
-    return msg.yieldCardState === 'submitting' || msg.yieldCardState === 'resolved';
+  /** Handle billing card outcomes from inline chat bubbles. */
+  protected async onBillingActionResolved(event: BillingActionResolvedEvent): Promise<void> {
+    this.yieldFacade.onBillingActionResolved(event);
+
+    // In sheet mode (mobile), close the chat after successful navigation so Usage is visible.
+    if (event.completed && !this.embedded) {
+      await this.dismiss();
+    }
+  }
+
+  /** Remove dismissed pause-yield rows and duplicate ask-user prompts from the timeline. */
+  protected shouldHideMessage(msg: OperationMessage, index?: number): boolean {
+    if (msg.id === 'typing' && !this.hasRenderableMessagePayload(msg) && !this.showThinking()) {
+      return true;
+    }
+
+    if (this.isPauseYield(msg)) {
+      return msg.yieldCardState === 'submitting' || msg.yieldCardState === 'resolved';
+    }
+    return this.isDuplicatedAskUserPromptMessage(msg, index);
+  }
+
+  private hasRenderableMessagePayload(msg: OperationMessage): boolean {
+    if (msg.content.trim().length > 0) return true;
+    if ((msg.cards?.length ?? 0) > 0) return true;
+    if ((msg.steps?.length ?? 0) > 0) return true;
+    if ((msg.attachments?.length ?? 0) > 0) return true;
+    if ((msg.imageUrl?.trim().length ?? 0) > 0) return true;
+    if ((msg.videoUrl?.trim().length ?? 0) > 0) return true;
+    if ((msg.parts?.length ?? 0) > 0) return true;
+    return false;
   }
 
   /**
@@ -2586,6 +2720,94 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     const yieldState = msg.yieldState;
     if (!yieldState || yieldState.reason !== 'needs_input') return false;
     return yieldState.pendingToolCall?.toolName === PAUSE_RESUME_TOOL_NAME;
+  }
+
+  private isDuplicatedAskUserPromptMessage(msg: OperationMessage, index?: number): boolean {
+    if (msg.yieldState) return false;
+    if (msg.role !== 'assistant') return false;
+    if (typeof index !== 'number') return false;
+    if (!msg.content.trim()) return false;
+    // Never suppress a message that contains rich content beyond plain text.
+    if (
+      (msg.cards?.length ?? 0) > 0 ||
+      (msg.parts?.some((p) => p.type !== 'text') ?? false) ||
+      (msg.attachments?.length ?? 0) > 0 ||
+      (msg.steps?.length ?? 0) > 0
+    ) {
+      return false;
+    }
+
+    // Scan forward from index + 1 to find an ask-user yield that belongs to
+    // the same operation.  We check up to 2 positions forward to tolerate
+    // any intermediate empty system messages.
+    const allMessages = this.messages();
+    let askUserMsg: OperationMessage | undefined;
+    for (let offset = 1; offset <= 2; offset++) {
+      const candidate = allMessages[index + offset];
+      if (!candidate) break;
+      if (this.isAskUserYield(candidate)) {
+        // operationId must match when both are present.
+        if (msg.operationId && candidate.operationId && msg.operationId !== candidate.operationId) {
+          break;
+        }
+        askUserMsg = candidate;
+        break;
+      }
+      // Stop if we hit another non-yield assistant message (different topic).
+      if (candidate.role === 'assistant' && !candidate.yieldState) break;
+    }
+
+    if (!askUserMsg) return false;
+
+    // Once the question has been answered, keep the assistant message visible
+    // as a conversation history record.  Only suppress it while the yield is
+    // still active (pending the user's answer).
+    if (askUserMsg.yieldCardState === 'resolved' || askUserMsg.yieldCardState === 'submitting') {
+      return false;
+    }
+
+    const askUserPrompt = this.rawAskUserPromptForMessage(askUserMsg);
+    if (!askUserPrompt) return false;
+
+    const normalizedMessage = this.normalizeAskUserComparisonText(msg.content);
+    const normalizedPrompt = this.normalizeAskUserComparisonText(askUserPrompt);
+    if (normalizedMessage.length < 24 || normalizedPrompt.length < 24) return false;
+
+    // Only suppress when the message IS the question (exact match or the
+    // Suppress when: (a) the message IS exactly the question, (b) the message
+    // fully contains the question text (LLM preamble + question streamed
+    // together), or (c) the question fully contains the message.
+    return (
+      normalizedMessage === normalizedPrompt ||
+      normalizedMessage.includes(normalizedPrompt) ||
+      normalizedPrompt.includes(normalizedMessage)
+    );
+  }
+
+  private rawAskUserPromptForMessage(msg: OperationMessage): string {
+    const yieldState = msg.yieldState;
+    const pendingInput = yieldState?.pendingToolCall?.toolInput;
+    const question =
+      pendingInput && typeof pendingInput['question'] === 'string'
+        ? pendingInput['question']
+        : (yieldState?.promptToUser ?? '');
+    const context =
+      pendingInput && typeof pendingInput['context'] === 'string' ? pendingInput['context'] : '';
+
+    return [question, context]
+      .filter((value) => value.trim().length > 0)
+      .join('\n\n')
+      .trim();
+  }
+
+  private normalizeAskUserComparisonText(value: string): string {
+    return value
+      .replace(/\*\*(.*?)\*\*/g, '$1')
+      .replace(/__(.*?)__/g, '$1')
+      .replace(/`([^`]+)`/g, '$1')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase();
   }
 
   // ============================================

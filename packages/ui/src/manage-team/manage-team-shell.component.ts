@@ -575,7 +575,7 @@ export interface ManageTeamCloseEvent {
 export class ManageTeamShellComponent implements OnInit {
   readonly service = inject(ManageTeamService);
 
-  private readonly modal = inject(NxtModalService);
+  private readonly modalService = inject(NxtModalService);
   private readonly logger = inject(NxtLoggingService).child('ManageTeamShell');
   private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
   private readonly breadcrumb = inject(NxtBreadcrumbService);
@@ -744,7 +744,7 @@ export class ManageTeamShellComponent implements OnInit {
     this.service.expandSection('team-info');
     this.emitAction('accounts', 'manage');
 
-    const result = await this.modal.actionSheet({
+    const result = await this.modalService.actionSheet({
       title: 'Team Setup',
       message: 'Choose what you want to update.',
       actions: [
@@ -805,7 +805,7 @@ export class ManageTeamShellComponent implements OnInit {
   }
 
   protected async editTeamName(): Promise<void> {
-    const result = await this.modal.prompt({
+    const result = await this.modalService.prompt({
       title: 'Team Name',
       placeholder: 'Enter team name',
       defaultValue: this.teamName(),
@@ -821,7 +821,7 @@ export class ManageTeamShellComponent implements OnInit {
   }
 
   protected async editMascot(): Promise<void> {
-    const result = await this.modal.prompt({
+    const result = await this.modalService.prompt({
       title: 'Mascot',
       placeholder: 'e.g. Tigers',
       defaultValue: this.mascot(),
@@ -836,7 +836,7 @@ export class ManageTeamShellComponent implements OnInit {
   }
 
   protected async editLocation(): Promise<void> {
-    const city = await this.modal.prompt({
+    const city = await this.modalService.prompt({
       title: 'City',
       placeholder: 'Team city',
       defaultValue: this.service.formData()?.contact?.city ?? '',
@@ -845,7 +845,7 @@ export class ManageTeamShellComponent implements OnInit {
     });
     if (!city.confirmed) return;
 
-    const state = await this.modal.prompt({
+    const state = await this.modalService.prompt({
       title: 'State',
       placeholder: 'State or province',
       defaultValue: this.service.formData()?.contact?.state ?? '',
@@ -861,7 +861,7 @@ export class ManageTeamShellComponent implements OnInit {
   }
 
   protected async editLevel(): Promise<void> {
-    const selected = await this.modal.actionSheet({
+    const selected = await this.modalService.actionSheet({
       title: 'Team Level',
       message: 'Select the team level.',
       actions: [
@@ -885,7 +885,7 @@ export class ManageTeamShellComponent implements OnInit {
   }
 
   protected async editDivision(): Promise<void> {
-    const result = await this.modal.prompt({
+    const result = await this.modalService.prompt({
       title: 'Division',
       placeholder: 'e.g. NCAA D1, 4A, Metro East',
       defaultValue: this.service.formData()?.basicInfo?.division ?? '',
@@ -902,7 +902,7 @@ export class ManageTeamShellComponent implements OnInit {
   }
 
   protected async editConference(): Promise<void> {
-    const result = await this.modal.prompt({
+    const result = await this.modalService.prompt({
       title: 'Conference',
       placeholder: 'e.g. Big 12, SEC, District 5',
       defaultValue: this.service.formData()?.basicInfo?.conference ?? '',
@@ -959,7 +959,7 @@ export class ManageTeamShellComponent implements OnInit {
   }
 
   protected async editEmail(): Promise<void> {
-    const result = await this.modal.prompt({
+    const result = await this.modalService.prompt({
       title: 'Team Email',
       placeholder: 'team@email.com',
       defaultValue: this.emailSummary(),
@@ -976,7 +976,7 @@ export class ManageTeamShellComponent implements OnInit {
   }
 
   protected async editPhone(): Promise<void> {
-    const result = await this.modal.prompt({
+    const result = await this.modalService.prompt({
       title: 'Team Phone',
       placeholder: '(555) 123-4567',
       defaultValue: this.phoneSummary(),
@@ -993,7 +993,7 @@ export class ManageTeamShellComponent implements OnInit {
   }
 
   protected async editWebsite(): Promise<void> {
-    const result = await this.modal.prompt({
+    const result = await this.modalService.prompt({
       title: 'Team Website',
       placeholder: 'https://yourteam.com',
       defaultValue: this.service.formData()?.contact?.website ?? '',
@@ -1012,7 +1012,7 @@ export class ManageTeamShellComponent implements OnInit {
     const formData = this.service.formData();
     if (!formData) return;
 
-    const wins = await this.modal.prompt({
+    const wins = await this.modalService.prompt({
       title: 'Wins',
       placeholder: '0',
       defaultValue: String(formData.record.wins ?? 0),
@@ -1022,7 +1022,7 @@ export class ManageTeamShellComponent implements OnInit {
     });
     if (!wins.confirmed) return;
 
-    const losses = await this.modal.prompt({
+    const losses = await this.modalService.prompt({
       title: 'Losses',
       placeholder: '0',
       defaultValue: String(formData.record.losses ?? 0),
@@ -1032,7 +1032,7 @@ export class ManageTeamShellComponent implements OnInit {
     });
     if (!losses.confirmed) return;
 
-    const ties = await this.modal.prompt({
+    const ties = await this.modalService.prompt({
       title: 'Ties',
       placeholder: '0',
       defaultValue: String(formData.record.ties ?? 0),
@@ -1064,7 +1064,7 @@ export class ManageTeamShellComponent implements OnInit {
           ? this.service.formData()?.branding?.secondaryColor
           : this.service.formData()?.branding?.accentColor;
 
-    const result = await this.modal.prompt({
+    const result = await this.modalService.prompt({
       title: 'Brand Color',
       message: 'Enter a hex color like #CCFF00',
       placeholder: '#CCFF00',
@@ -1094,7 +1094,7 @@ export class ManageTeamShellComponent implements OnInit {
     }
 
     // Fallback: prompt for a URL
-    const result = await this.modal.prompt({
+    const result = await this.modalService.prompt({
       title: 'Organization Logo URL',
       placeholder: 'https://example.com/org-logo.jpg',
       inputType: 'url',
@@ -1123,7 +1123,7 @@ export class ManageTeamShellComponent implements OnInit {
       return;
     }
 
-    const result = await this.modal.prompt({
+    const result = await this.modalService.prompt({
       title: 'Gallery Image URL',
       placeholder: 'https://example.com/team-gallery.jpg',
       inputType: 'url',

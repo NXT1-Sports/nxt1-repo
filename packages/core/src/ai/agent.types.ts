@@ -750,7 +750,14 @@ export interface AgentJobUpdate {
 // ─── Execution Plan (DAG) ───────────────────────────────────────────────────
 
 /** Status of an individual task within an execution plan. */
-export type AgentTaskStatus = 'pending' | 'in_progress' | 'completed' | 'failed' | 'skipped';
+export type AgentTaskStatus =
+  | 'pending'
+  | 'in_progress'
+  | 'completed'
+  | 'failed'
+  | 'blocked'
+  | 'skipped'
+  | 'awaiting_tool_approval';
 
 /** A single task in the agent's execution plan (To-Do List). */
 export interface AgentTask {
@@ -761,13 +768,54 @@ export interface AgentTask {
   readonly displayLabel?: string;
   /** Full execution intent passed to the coordinator agent. */
   readonly description: string;
+  /**
+   * Optional structured key/value data forwarded verbatim to the coordinator.
+   * Injected as a machine-readable JSON block in the task intent so coordinators
+   * can extract IDs, codes, and references without relying on prose paraphrasing.
+   */
+  readonly structuredPayload?: Record<string, unknown>;
   readonly status: AgentTaskStatus;
   /** IDs of tasks that must complete before this one starts. */
   readonly dependsOn: readonly string[];
   /** Optional output data from the task once finished. */
   readonly result?: Record<string, unknown>;
+  /** Optional human-readable result summary for execution logs and review UIs. */
+  readonly resultSummary?: string;
+  /** Canonical artifacts produced by the task for downstream handoff. */
+  readonly artifacts?: AgentArtifactHandoff;
+  /** Short operator-facing note about the current state of the task. */
+  readonly statusNote?: string;
   readonly error?: string;
   readonly createdAt: string;
+  readonly updatedAt?: string;
+}
+
+/** Persisted lifecycle state of a saved execution plan. */
+export type AgentSavedPlanStatus =
+  | 'draft'
+  | 'awaiting_approval'
+  | 'approved'
+  | 'executing'
+  | 'completed'
+  | 'failed'
+  | 'superseded'
+  | 'cancelled';
+
+/** A first-class saved plan that can be reviewed, approved, and executed later. */
+export interface AgentSavedPlan {
+  readonly planId: string;
+  readonly userId: string;
+  readonly threadId?: string;
+  readonly originOperationId: string;
+  readonly approvedExecutionOperationId?: string;
+  readonly supersededByPlanId?: string;
+  readonly version: number;
+  readonly status: AgentSavedPlanStatus;
+  readonly summary: string;
+  readonly planHash: string;
+  readonly tasks: readonly AgentTask[];
+  readonly createdAt: string;
+  readonly approvedAt?: string;
   readonly updatedAt?: string;
 }
 

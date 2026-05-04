@@ -170,6 +170,7 @@ function buildPayload() {
     prompts: buildPromptTemplates(),
     featureFlags,
     coordinators: DEFAULT_AGENT_APP_CONFIG.coordinators,
+    primary: DEFAULT_AGENT_APP_CONFIG.primary,
   } as const;
 }
 

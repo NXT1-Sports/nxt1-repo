@@ -76,6 +76,7 @@ import {
 import { resolveCanonicalTeamRoute } from '@nxt1/core/helpers';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import type { User, ProfileTabId, ProfileTeamAffiliation } from '@nxt1/core';
+import type { ProfilePost } from '@nxt1/core/profile';
 import type { TeamProfileTabId, TeamProfileRosterMember, TeamProfilePost } from '@nxt1/core';
 
 // Mobile-specific services
@@ -90,6 +91,7 @@ import { TeamProfileApiService } from '../../core/services/api/team-profile-api.
 import { AnalyticsService } from '../../core/services/infrastructure/analytics.service';
 import { CapacitorHttpAdapter } from '../../core/infrastructure';
 import { environment } from '../../../environments/environment';
+import { PostDetailOverlayService } from '@nxt1/ui/post-cards';
 
 const TEAM_INTEL_ENABLED = false;
 
@@ -157,6 +159,7 @@ const TEAM_INTEL_ENABLED = false;
           (copyLinkClick)="onCopyLink()"
           (qrCodeClick)="onQrCode()"
           (aiSummaryClick)="onAiSummary()"
+          (postClick)="onPostClick($event)"
           (refreshRequest)="onRefreshRequest()"
           (generationDismissed)="onGenerationDismissed($event)"
         />
@@ -279,6 +282,7 @@ export class ProfileComponent {
   private readonly teamApi = inject(TeamProfileApiService);
   private readonly qrCode = inject(QrCodeBottomSheetService);
   private readonly analyticsService = inject(AnalyticsService);
+  private readonly postDetailOverlay = inject(PostDetailOverlayService);
   private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('ProfileComponent');
   private readonly breadcrumb = inject(NxtBreadcrumbService);
@@ -881,9 +885,33 @@ export class ProfileComponent {
   }
 
   protected onTeamPostClick(post: TeamProfilePost): void {
-    if (post.id) {
-      void this.navController.navigateForward(`/post/${post.id}`);
-    }
+    if (!post.id) return;
+    const team = this.teamProfile.team();
+    const unicode = team?.teamCode || team?.slug || this.teamSlug() || '_';
+    void this.postDetailOverlay.open({
+      post,
+      userUnicode: unicode,
+      author: {
+        name: team?.teamName ?? 'Team',
+        avatarUrl: team?.logoUrl,
+      },
+    });
+  }
+
+  protected onPostClick(post: ProfilePost): void {
+    const user = this.uiProfileService.user();
+    const unicode = this.profileUnicode() || user?.profileCode || user?.uid || '_';
+    void this.postDetailOverlay.open({
+      post,
+      userUnicode: unicode,
+      author: {
+        name:
+          user?.displayName ||
+          `${user?.firstName ?? ''} ${user?.lastName ?? ''}`.trim() ||
+          'Athlete',
+        avatarUrl: user?.profileImg,
+      },
+    });
   }
 
   /**

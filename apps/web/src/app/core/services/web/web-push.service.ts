@@ -95,6 +95,15 @@ export class WebPushService {
 
   private readonly WEB_TOKEN_STORAGE_KEY = 'nxt1_web_fcm_token';
 
+  private get isLocalDevHost(): boolean {
+    if (!isPlatformBrowser(this.platformId)) return false;
+
+    return (
+      window.location.hostname === 'localhost' ||
+      window.location.hostname === '127.0.0.1'
+    );
+  }
+
   // ============================================
   // INITIALIZATION
   // ============================================
@@ -109,6 +118,14 @@ export class WebPushService {
    */
   async initialize(): Promise<void> {
     if (!isPlatformBrowser(this.platformId)) return;
+
+    // Local dev does not have a reliable Firebase Installations / FCM setup and
+    // should not spam the console with offline/installations startup errors.
+    if (this.isLocalDevHost) {
+      this._permissionState.set('unsupported');
+      this.logger.info('Skipping web push initialization on local development host');
+      return;
+    }
 
     // Check basic support
     if (!('Notification' in window) || !('serviceWorker' in navigator)) {

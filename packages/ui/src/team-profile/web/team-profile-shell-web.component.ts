@@ -47,7 +47,7 @@ import {
   getSeasonForDate,
 } from '@nxt1/core';
 import { NxtIconComponent } from '../../components/icon';
-// NxtPageHeaderComponent not used — web team profile uses shell top nav on mobile and page header in wide layouts
+import { NxtPageHeaderComponent } from '../../components/page-header';
 import { NxtRefresherComponent, type RefreshEvent } from '../../components/refresh-container';
 import {
   NxtOptionScrollerComponent,
@@ -72,6 +72,7 @@ import { AgentXOperationChatComponent } from '../../agent-x';
 import { NxtPlatformService } from '../../services/platform/platform.service';
 import { Router } from '@angular/router';
 import { TeamProfileService } from '../team-profile.service';
+import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/assets';
 
 // ─── Extracted Section Components ───
 import { TeamMobileHeroComponent } from './team-mobile-hero.component';
@@ -145,6 +146,7 @@ const TEAM_TIMELINE_EMPTY_STATE_BY_SECTION: Readonly<
   imports: [
     CommonModule,
     NxtIconComponent,
+    NxtPageHeaderComponent,
     NxtRefresherComponent,
     NxtOptionScrollerComponent,
     NxtSectionNavWebComponent,
@@ -257,6 +259,49 @@ const TEAM_TIMELINE_EMPTY_STATE_BY_SECTION: Readonly<
         </svg>
       </button>
     </ng-template>
+
+    @if (showPageHeader()) {
+      <nxt1-page-header [showBack]="true" (backClick)="backClick.emit()">
+        <div pageHeaderSlot="title" class="header-logo">
+          <span class="header-title-text">Team</span>
+          <svg
+            class="header-brand-logo"
+            viewBox="0 0 612 792"
+            width="40"
+            height="40"
+            fill="currentColor"
+            stroke="currentColor"
+            stroke-width="10"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path [attr.d]="agentXLogoPath" />
+            <polygon [attr.points]="agentXLogoPolygon" />
+          </svg>
+        </div>
+
+        <div pageHeaderSlot="end" class="header-actions">
+          <button
+            type="button"
+            class="header-action-btn"
+            aria-label="More options"
+            (click)="onMenuClick()"
+          >
+            <nxt1-icon name="moreHorizontal" [size]="22" />
+          </button>
+          @if (isTeamAdmin()) {
+            <button
+              type="button"
+              class="header-action-btn"
+              aria-label="Manage team"
+              (click)="manageTeamClick.emit()"
+            >
+              <nxt1-icon name="pencil" [size]="20" />
+            </button>
+          }
+        </div>
+      </nxt1-page-header>
+    }
 
     <main class="team-profile-main">
       <nxt-refresher (onRefresh)="handleRefresh($event)" (onTimeout)="handleRefreshTimeout()" />
@@ -507,11 +552,14 @@ const TEAM_TIMELINE_EMPTY_STATE_BY_SECTION: Readonly<
          ═══════════════════════════════════════════════════════════ */
 
       :host {
-        display: block;
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        min-height: 0;
         height: 100%;
         width: 100%;
         overflow-x: hidden;
-        overflow-y: auto;
+        overflow-y: hidden;
         --m-bg: var(--nxt1-color-bg-primary, #0a0a0a);
         --m-surface: var(--nxt1-color-surface-100, rgba(255, 255, 255, 0.04));
         --m-surface-2: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.08));
@@ -526,6 +574,35 @@ const TEAM_TIMELINE_EMPTY_STATE_BY_SECTION: Readonly<
         display: flex;
         align-items: center;
         gap: var(--nxt1-spacing-1, 4px);
+      }
+
+      .header-logo {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0;
+        width: 100%;
+        margin-top: -8px;
+        margin-left: -18px;
+      }
+
+      .header-title-text {
+        display: inline-flex;
+        align-items: center;
+        font-family: var(--nxt1-font-family-brand, var(--ion-font-family));
+        font-size: var(--nxt1-font-size-xl, 20px);
+        font-weight: var(--nxt1-font-weight-semibold, 600);
+        letter-spacing: var(--nxt1-letter-spacing-tight, -0.01em);
+        color: var(--nxt1-color-text-primary, #ffffff);
+        line-height: 1;
+        transform: translateY(1px);
+      }
+
+      .header-brand-logo {
+        display: block;
+        flex-shrink: 0;
+        color: var(--nxt1-color-text-primary, #ffffff);
+        transform: translateY(1px);
       }
 
       .header-action-btn {
@@ -554,7 +631,8 @@ const TEAM_TIMELINE_EMPTY_STATE_BY_SECTION: Readonly<
 
       .team-profile-main {
         background: var(--m-bg);
-        height: 100%;
+        flex: 1;
+        min-height: 0;
         overflow-x: hidden;
         overflow-y: auto;
         padding-top: 0;
@@ -1194,6 +1272,8 @@ const TEAM_TIMELINE_EMPTY_STATE_BY_SECTION: Readonly<
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDestroy {
+  protected readonly agentXLogoPath = AGENT_X_LOGO_PATH;
+  protected readonly agentXLogoPolygon = AGENT_X_LOGO_POLYGON;
   protected readonly teamProfile = inject(TeamProfileService);
   private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('TeamProfileShellWeb');
@@ -1238,6 +1318,12 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
    * and push data via TeamProfileService.loadFromExternalData().
    */
   readonly skipInternalLoad = input(false);
+
+  /**
+   * When true, render an internal mobile page header in the shell.
+   * Used by mobile wrappers to avoid wrapper-level header nesting.
+   */
+  readonly showPageHeader = input(false);
 
   /**
    * When true, hide the built-in mobile FAB footer bar.
@@ -1716,6 +1802,8 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
   }
 
   ngAfterViewInit(): void {
+    if (this.showPageHeader()) return;
+
     const centerTpl = this.teamPortalContent();
     if (centerTpl) this.headerPortal.setCenterContent(centerTpl);
     const rightTpl = this.teamRightPortalContent();
@@ -1724,7 +1812,9 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
 
   ngOnDestroy(): void {
     this.teamProfile.reset();
-    this.headerPortal.clearAll();
+    if (!this.showPageHeader()) {
+      this.headerPortal.clearAll();
+    }
   }
 
   // ============================================
@@ -1787,7 +1877,6 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
     const isAdmin = this.isTeamAdmin();
     const actions: BottomSheetAction[] = isAdmin
       ? [
-          { label: 'Manage Team', role: 'secondary', icon: 'settings' },
           { label: 'Share Team', role: 'secondary', icon: 'share' },
           { label: 'QR Code', role: 'secondary', icon: 'qrCode' },
           { label: 'Copy Link', role: 'secondary', icon: 'link' },
@@ -1809,9 +1898,6 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
     if (!selected) return;
 
     switch (selected.label) {
-      case 'Manage Team':
-        this.manageTeamClick.emit();
-        break;
       case 'Share Team':
         this.shareClick.emit();
         break;

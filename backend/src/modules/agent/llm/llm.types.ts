@@ -315,6 +315,8 @@ export interface LLMCompletionOptions<TStructuredOutput = unknown> {
 export interface LLMCompletionResult<TStructuredOutput = unknown> {
   /** The assistant's text content (null if only tool calls). */
   readonly content: string | null;
+  /** Extended thinking/reasoning content produced before the main response (null if not enabled). */
+  readonly thinkingContent?: string | null;
   /** Parsed structured output when an outputSchema was provided and validation succeeded. */
   readonly parsedOutput?: TStructuredOutput;
   /** Tool calls the assistant wants to make (empty if pure text response). */
@@ -418,6 +420,13 @@ export interface LLMStreamOptions {
   readonly temperature?: number;
   /** Tool schemas for function calling (optional — enables agentic streaming). */
   readonly tools?: readonly LLMToolSchema[];
+  /**
+   * Enable extended thinking (Claude 3.7+ / Gemini 2.5 / reasoning-capable models).
+   * When true, reasoning fragments may stream via `LLMStreamDelta.thinkingContent`.
+   */
+  readonly enableThinking?: boolean;
+  /** Max tokens the model may spend on reasoning for streaming calls. */
+  readonly thinkingBudgetTokens?: number;
   /** Abort signal for cancellation. */
   readonly signal?: AbortSignal;
   /** Optional per-call timeout override in milliseconds. */

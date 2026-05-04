@@ -1,0 +1,46 @@
+# Firebase App Hosting Configuration - Backend Express API (Production override)
+# This file is for the nxt-1-v2 App Hosting environment only.
+
+runtimeConfig:
+  nodeVersion: 22
+
+scripts:
+  buildCommand: >-
+    cd .. &&
+    npm ci --include=dev &&
+    npx turbo run build --filter=@nxt1/backend
+  runCommand: node dist/index.js
+
+runConfig:
+  cpu: 2
+  memoryMiB: 2048
+  concurrency: 80
+  minInstances: 1
+  maxInstances: 20
+
+  startupProbe:
+    httpGet:
+      path: /health
+      port: 8080
+    initialDelaySeconds: 20
+    timeoutSeconds: 10
+    periodSeconds: 15
+    failureThreshold: 6
+
+env:
+  - variable: NODE_VERSION
+    value: '22'
+  - variable: NODE_ENV
+    value: 'production'
+  - variable: NPM_CONFIG_PRODUCTION
+    value: 'false'
+  - variable: NPM_CONFIG_INCLUDE
+    value: 'dev'
+  - variable: FFMPEG_MCP_URL
+    secret: FFMPEG_MCP_URL
+    availability:
+      - RUNTIME
+  - variable: FFMPEG_MCP_API_TOKEN
+    secret: FFMPEG_MCP_API_TOKEN
+    availability:
+      - RUNTIME

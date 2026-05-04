@@ -90,9 +90,6 @@ const HEALTH_POLL_INTERVAL_MS = AGENT_X_RUNTIME_CONFIG.controlPanelHealth.pollIn
 /** Delay before a recovery check after a reported execution failure. */
 const RECOVERY_DELAY_MS = AGENT_X_RUNTIME_CONFIG.controlPanelHealth.recoveryDelayMs;
 
-/** Consecutive failures before flipping from degraded → down. */
-const FAILURE_THRESHOLD = AGENT_X_RUNTIME_CONFIG.controlPanelHealth.failureThreshold;
-
 @Injectable({ providedIn: 'root' })
 export class AgentXControlPanelStateService implements OnDestroy {
   private readonly logger = inject(NxtLoggingService).child('AgentXControlPanelState');
@@ -173,11 +170,9 @@ export class AgentXControlPanelStateService implements OnDestroy {
     this._consecutiveFailures++;
     const failures = this._consecutiveFailures;
 
-    if (failures >= FAILURE_THRESHOLD) {
-      this._serverStatus.set('down');
-    } else {
-      this._serverStatus.set('degraded');
-    }
+    // Execution failures alone are not a reliable outage signal.
+    // Reserve "down" for explicit server health responses or network offline.
+    this._serverStatus.set('degraded');
 
     this.logger.warn('Execution failure reported', { failures });
     this.breadcrumb.trackStateChange('agent-x-health:execution-failure', { failures });
@@ -245,6 +240,9 @@ export class AgentXControlPanelStateService implements OnDestroy {
       const serverStatus = response?.data?.status ?? 'active';
 
       this.zone.run(() => {
+        // If the health probe succeeded, treat the client as online even if a
+        // stale offline event previously set the flag.
+        this._isNetworkOffline.set(false);
         this._serverStatus.set(serverStatus);
       });
       this._consecutiveFailures = 0;
@@ -255,7 +253,10 @@ export class AgentXControlPanelStateService implements OnDestroy {
       const failures = this._consecutiveFailures;
 
       this.zone.run(() => {
-        this._serverStatus.set(failures >= FAILURE_THRESHOLD ? 'down' : 'degraded');
+        // A failed probe from the client can be caused by auth/session/cors
+        // edge cases. Keep status degraded until /agent-x/health explicitly
+        // reports "down".
+        this._serverStatus.set('degraded');
       });
 
       this.logger.warn('Health check failed', {
@@ -269,6 +270,12 @@ export class AgentXControlPanelStateService implements OnDestroy {
     panel: AgentXControlPanelKind,
     presentation: AgentXControlPanelPresentation
   ): void {
+    // Force a fresh probe when the user opens the status panel so the UI
+    // cannot remain stuck on an older state.
+    if (panel === 'status') {
+      void this.syncHealth();
+    }
+
     this.logger.info('Agent X briefing panel opened', { panel, presentation });
     this.breadcrumb.trackStateChange('agent-x-control-panel:opened', {
       panel,

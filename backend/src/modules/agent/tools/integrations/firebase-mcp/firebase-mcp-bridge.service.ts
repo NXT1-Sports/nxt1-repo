@@ -24,6 +24,9 @@ import {
   type FirebaseMcpQueryInput,
   type FirebaseMcpQueryResult,
   FirebaseMcpQueryResultSchema,
+  type FirebaseMcpMutateInput,
+  type FirebaseMcpMutateResult,
+  FirebaseMcpMutateResultSchema,
   createSignedScopeEnvelope,
   type FirebaseMcpScope,
   type FirebaseViewName,
@@ -301,6 +304,66 @@ export class FirebaseMcpBridgeService extends BaseMcpClientService {
 
     await cache.set(cacheKey, JSON.stringify(payload), { ttl: resolveCacheTtl(input.view) });
     incrementCacheSet();
+    return payload;
+  }
+
+  async mutate(
+    input: FirebaseMcpMutateInput,
+    context: ToolExecutionContext
+  ): Promise<FirebaseMcpMutateResult> {
+    context.emitStage?.('submitting_job', {
+      source: 'firebase_mcp',
+      phase: 'mutate',
+      collection: input.collection,
+      operation: input.operation,
+      icon: 'database',
+    });
+
+    const scope = await this.resolveAccessScope(context);
+    const scopeEnvelope = createSignedScopeEnvelope(scope, this.scopeSecret);
+
+    logger.info('[FirebaseMCP] Executing mutation', {
+      collection: input.collection,
+      documentId: input.documentId,
+      operation: input.operation,
+      userId: context.userId,
+    });
+
+    const result = await this.executeTool(
+      'firebase_mutate',
+      { scopeEnvelope, ...input },
+      { timeoutMs: FIREBASE_MCP_TOOL_TIMEOUT_MS, signal: context.signal }
+    );
+
+    const payload = FirebaseMcpMutateResultSchema.parse(extractPayload(result));
+
+    // Invalidate related cache prefixes so next reads are fresh
+    const cache = getCacheService();
+    const invalidations: Promise<unknown>[] = [
+      cache.delByPrefix(`user:${scope.userId}:`),
+      cache.delByPrefix(`agent:mcp:firebase:query-view:${context.userId}`),
+    ];
+    for (const teamId of scope.teamIds) {
+      invalidations.push(cache.delByPrefix(`team:${teamId}:`));
+    }
+    for (const orgId of scope.organizationIds) {
+      invalidations.push(cache.delByPrefix(`org:${orgId}:`));
+    }
+    await Promise.allSettled(invalidations);
+
+    // Write immutable audit record
+    await this.firestore.collection('AgentMutationAudit').add({
+      userId: context.userId,
+      threadId: context.threadId ?? null,
+      sessionId: context.sessionId ?? null,
+      collection: input.collection,
+      documentId: input.documentId,
+      operation: input.operation,
+      patch: input.patch ?? null,
+      success: payload.success,
+      createdAt: new Date(),
+    });
+
     return payload;
   }
 }

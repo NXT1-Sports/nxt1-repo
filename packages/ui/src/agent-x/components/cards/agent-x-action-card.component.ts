@@ -1563,6 +1563,8 @@ export class AgentXActionCardComponent implements OnDestroy {
   readonly friendlyToolName = computed(() => {
     const name = this.yield().pendingToolCall?.toolName ?? '';
     switch (name) {
+      case 'execute_saved_plan':
+        return 'Execution Plan Ready';
       case 'send_email':
         return 'Email Draft Ready';
       case 'post_to_social':

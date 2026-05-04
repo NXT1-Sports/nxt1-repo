@@ -45,6 +45,11 @@ export class DeleteConnectedSourceTool extends BaseTool {
     // Verify access to organization
     const orgDoc = await this.db.collection('Organizations').doc(organizationId).get();
     if (!orgDoc.exists) return { success: false, error: 'Organization not found.' };
+    const orgData = orgDoc.data() as Record<string, unknown>;
+    const adminIds = (orgData['adminIds'] as string[] | undefined) ?? [];
+    if (orgData['ownerId'] !== context.userId && !adminIds.includes(context.userId)) {
+      return { success: false, error: 'Forbidden: you do not have access to this organization.' };
+    }
 
     context?.emitStage?.('submitting_job', { icon: 'database', phase: 'delete_connected_source' });
 

@@ -112,6 +112,8 @@ export class NxtBottomSheetService {
     // Build CSS classes
     const cssClasses = this.buildSheetCssClasses(config.cssClass);
 
+    const gestureGuard = this.createGestureDismissGuard<T>(config.canDismiss);
+
     // Create the modal with injected component
     const modal = await this.modalCtrl.create({
       component: config.component as Type<unknown>,
@@ -132,7 +134,7 @@ export class NxtBottomSheetService {
       backdropDismiss: config.backdropDismiss ?? false,
 
       // Dismiss guard (for unsaved changes)
-      canDismiss: config.canDismiss ?? true,
+      canDismiss: gestureGuard.canDismiss,
 
       // Platform-specific styling
       cssClass: cssClasses,
@@ -142,9 +144,11 @@ export class NxtBottomSheetService {
 
     // Present the modal
     await modal.present();
+    gestureGuard.attach(modal);
 
     // Wait for dismissal
     const { data, role } = await modal.onWillDismiss<T>();
+    gestureGuard.detach();
 
     this.activeModal = null;
 
@@ -231,6 +235,8 @@ export class NxtBottomSheetService {
     // Haptic feedback on open
     await this.triggerHaptic();
 
+    const gestureGuard = this.createGestureDismissGuard(config.canDismiss);
+
     // Create the modal
     const modal = await this.modalCtrl.create({
       component: NxtBottomSheetComponent,
@@ -247,12 +253,15 @@ export class NxtBottomSheetService {
       presentingElement: config.presentingElement,
       breakpoints: config.breakpoints ?? SHEET_PRESETS.FULL.breakpoints,
       initialBreakpoint: config.initialBreakpoint ?? SHEET_PRESETS.FULL.initialBreakpoint,
+      // Keep inner content scroll gestures from being interpreted as sheet drag gestures.
+      // This prevents accidental dismiss while users scroll inside the sheet body.
+      expandToScroll: false,
       backdropBreakpoint: config.backdropBreakpoint ?? 0,
       backdropDismiss: config.backdropDismiss ?? true,
       showBackdrop: true,
       handle: true,
       handleBehavior: 'cycle',
-      canDismiss: config.canDismiss ?? true,
+      canDismiss: gestureGuard.canDismiss,
       // Use the same CSS classes as openSheet() for consistent appearance
       cssClass: this.buildSheetCssClasses(config.cssClass),
     });
@@ -261,9 +270,11 @@ export class NxtBottomSheetService {
 
     // Present the modal
     await modal.present();
+    gestureGuard.attach(modal);
 
     // Wait for dismissal
     const { data, role } = await modal.onWillDismiss();
+    gestureGuard.detach();
 
     this.activeModal = null;
 
@@ -380,5 +391,119 @@ export class NxtBottomSheetService {
     } catch {
       // Haptics not available
     }
+  }
+
+  /**
+   * Prevent accidental gesture-dismiss while users are scrolling content.
+   * Gesture close remains available from the sheet's top grab zone.
+   */
+  private createGestureDismissGuard<T = unknown>(
+    baseCanDismiss?: boolean | ((data?: T, role?: string) => Promise<boolean>)
+  ): {
+    canDismiss: (data?: T, role?: string) => Promise<boolean>;
+    attach: (modal: HTMLIonModalElement) => void;
+    detach: () => void;
+  } {
+    let allowGestureDismiss = true;
+    let currentModal: HTMLIonModalElement | null = null;
+    let removeListener: (() => void) | null = null;
+
+    const canDismiss = async (data?: T, role?: string): Promise<boolean> => {
+      if (role === 'gesture' && !allowGestureDismiss) {
+        return false;
+      }
+
+      if (typeof baseCanDismiss === 'function') {
+        return baseCanDismiss(data, role);
+      }
+
+      return baseCanDismiss ?? true;
+    };
+
+    const onTouchStart = (event: Event): void => {
+      if (!(event instanceof TouchEvent)) {
+        allowGestureDismiss = true;
+        return;
+      }
+
+      const touch = event.touches[0];
+      if (!touch || !currentModal) {
+        allowGestureDismiss = true;
+        return;
+      }
+
+      const target = event.target instanceof Element ? event.target : null;
+      allowGestureDismiss = this.shouldAllowGestureDismiss(currentModal, touch.clientY, target);
+    };
+
+    return {
+      canDismiss,
+      attach: (modal: HTMLIonModalElement) => {
+        currentModal = modal;
+        allowGestureDismiss = true;
+        modal.addEventListener('touchstart', onTouchStart, { capture: true, passive: true });
+        removeListener = () => {
+          modal.removeEventListener('touchstart', onTouchStart, true);
+        };
+      },
+      detach: () => {
+        removeListener?.();
+        removeListener = null;
+        currentModal = null;
+        allowGestureDismiss = true;
+      },
+    };
+  }
+
+  private shouldAllowGestureDismiss(
+    modal: HTMLIonModalElement,
+    touchClientY: number,
+    target: Element | null
+  ): boolean {
+    const topZonePx = 96;
+    const sheetTop = this.getSheetTop(modal);
+    const isTopZone = touchClientY <= sheetTop + topZonePx;
+
+    if (isTopZone) {
+      return true;
+    }
+
+    if (target && this.isInsideScrollableContent(target)) {
+      return false;
+    }
+
+    return true;
+  }
+
+  private getSheetTop(modal: HTMLIonModalElement): number {
+    const contentPart = modal.shadowRoot?.querySelector('.modal-content') as HTMLElement | null;
+    if (contentPart) {
+      return contentPart.getBoundingClientRect().top;
+    }
+
+    const wrapper = modal.shadowRoot?.querySelector('.modal-wrapper') as HTMLElement | null;
+    if (wrapper) {
+      return wrapper.getBoundingClientRect().top;
+    }
+
+    return window.innerHeight * 0.5;
+  }
+
+  private isInsideScrollableContent(target: Element): boolean {
+    if (target.closest('nxt1-sheet-header,[data-sheet-header],ion-header')) {
+      return false;
+    }
+
+    const scrollHost = target.closest('ion-content,[data-sheet-scroll],.sheet-scroll,.scrollable');
+    if (!scrollHost) {
+      return false;
+    }
+
+    if (scrollHost.tagName.toLowerCase() === 'ion-content') {
+      return true;
+    }
+
+    const hostEl = scrollHost as HTMLElement;
+    return hostEl.scrollHeight > hostEl.clientHeight + 1;
   }
 }

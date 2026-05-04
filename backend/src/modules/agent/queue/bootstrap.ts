@@ -66,35 +66,14 @@ import {
   // ── Update (patch) ──────────────────────────────────────────────────
   UpdateIntelTool,
   UpdateCoreIdentityTool,
-  UpdateAwardsTool,
-  UpdateCombineMetricsTool,
-  UpdateRankingsTool,
-  UpdateSeasonStatsTool,
-  UpdateRecruitingActivityTool,
   UpdateAthleteVideosTool,
   UpdateTimelinePostTool,
-  UpdateCalendarEventsTool,
-  UpdateRosterEntriesTool,
-  UpdateScheduleEventTool,
-  UpdateTeamStatsTool,
-  UpdateTeamNewsTool,
   UpdateTeamPostTool,
   UpdateConnectedSourceTool,
   // ── Delete ──────────────────────────────────────────────────────────
-  DeleteIntelTool,
   DeleteCoreIdentityTool,
-  DeleteAwardsTool,
-  DeleteCombineMetricsTool,
-  DeleteRankingsTool,
-  DeleteSeasonStatsTool,
-  DeleteRecruitingActivityTool,
   DeleteAthleteVideosTool,
   DeleteTimelinePostTool,
-  DeleteCalendarEventsTool,
-  DeleteRosterEntriesTool,
-  DeleteScheduleEventTool,
-  DeleteTeamStatsTool,
-  DeleteTeamNewsTool,
   DeleteTeamPostTool,
   DeleteConnectedSourceTool,
 } from '../tools/intel/index.js';
@@ -115,9 +94,11 @@ import { SearchMemoryTool, SaveMemoryTool, DeleteMemoryTool } from '../tools/mem
 import { GenerateGraphicTool, AnalyzeVideoTool, StageMediaTool } from '../tools/media/index.js';
 import {
   AskUserTool,
+  CreatePlanTool,
   DelegateTaskTool,
   DelegateToCoordinatorTool,
   DynamicExportTool,
+  ExecuteSavedPlanTool,
   PlanAndExecuteTool,
   WhoamiCapabilitiesTool,
 } from '../tools/system/index.js';
@@ -130,6 +111,7 @@ import {
 import { CapabilityRegistry } from '../capabilities/capability-registry.js';
 import { PrimaryAgent } from '../agents/primary.agent.js';
 import { AgentRouterPrimaryService } from '../orchestrator/agent-router-primary.service.js';
+import { AgentPlanRepository } from './agent-plan.repository.js';
 import { WebSearchTool } from '../tools/integrations/web/web-search.tool.js';
 import { SendEmailTool } from '../tools/integrations/email/send-email.tool.js';
 import { BatchSendEmailTool } from '../tools/integrations/email/batch-send-email.tool.js';
@@ -161,6 +143,7 @@ import {
   FirecrawlAgentTool,
   ListNxt1DataViewsTool,
   QueryNxt1DataTool,
+  MutateNxt1DataTool,
   FfmpegMcpBridgeService,
   FfmpegTrimVideoTool,
   FfmpegMergeVideosTool,
@@ -411,35 +394,14 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   // ── Update (patch) tools ─────────────────────────────────────────────
   toolRegistry.register(new UpdateIntelTool(stagingDb));
   toolRegistry.register(new UpdateCoreIdentityTool(stagingDb));
-  toolRegistry.register(new UpdateAwardsTool(stagingDb));
-  toolRegistry.register(new UpdateCombineMetricsTool(stagingDb));
-  toolRegistry.register(new UpdateRankingsTool(stagingDb));
-  toolRegistry.register(new UpdateSeasonStatsTool(stagingDb));
-  toolRegistry.register(new UpdateRecruitingActivityTool(stagingDb));
   toolRegistry.register(new UpdateAthleteVideosTool(stagingDb));
   toolRegistry.register(new UpdateTimelinePostTool(stagingDb));
-  toolRegistry.register(new UpdateCalendarEventsTool(stagingDb));
-  toolRegistry.register(new UpdateRosterEntriesTool(stagingDb));
-  toolRegistry.register(new UpdateScheduleEventTool(stagingDb));
-  toolRegistry.register(new UpdateTeamStatsTool(stagingDb));
-  toolRegistry.register(new UpdateTeamNewsTool(stagingDb));
   toolRegistry.register(new UpdateTeamPostTool(stagingDb));
   toolRegistry.register(new UpdateConnectedSourceTool(stagingDb));
   // ── Delete tools ─────────────────────────────────────────────────────
-  toolRegistry.register(new DeleteIntelTool(stagingDb));
   toolRegistry.register(new DeleteCoreIdentityTool(stagingDb));
-  toolRegistry.register(new DeleteAwardsTool(stagingDb));
-  toolRegistry.register(new DeleteCombineMetricsTool(stagingDb));
-  toolRegistry.register(new DeleteRankingsTool(stagingDb));
-  toolRegistry.register(new DeleteSeasonStatsTool(stagingDb));
-  toolRegistry.register(new DeleteRecruitingActivityTool(stagingDb));
   toolRegistry.register(new DeleteAthleteVideosTool(stagingDb));
   toolRegistry.register(new DeleteTimelinePostTool(stagingDb));
-  toolRegistry.register(new DeleteCalendarEventsTool(stagingDb));
-  toolRegistry.register(new DeleteRosterEntriesTool(stagingDb));
-  toolRegistry.register(new DeleteScheduleEventTool(stagingDb));
-  toolRegistry.register(new DeleteTeamStatsTool(stagingDb));
-  toolRegistry.register(new DeleteTeamNewsTool(stagingDb));
   toolRegistry.register(new DeleteTeamPostTool(stagingDb));
   toolRegistry.register(new DeleteConnectedSourceTool(stagingDb));
   toolRegistry.register(new SearchNxt1PlatformTool());
@@ -465,6 +427,8 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   // The Primary Agent handles all conversational requests and dispatches
   // sub-tasks via these tools.
   toolRegistry.register(new DelegateToCoordinatorTool());
+  toolRegistry.register(new CreatePlanTool());
+  toolRegistry.register(new ExecuteSavedPlanTool());
   toolRegistry.register(new PlanAndExecuteTool());
 
   // ── 1a. Vector memory & knowledge tools ──────────────────────────────
@@ -525,7 +489,8 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   if (firebaseMcpBridge) {
     toolRegistry.register(new ListNxt1DataViewsTool(firebaseMcpBridge));
     toolRegistry.register(new QueryNxt1DataTool(firebaseMcpBridge));
-    logger.info('MCP-bridged NXT1 data tools registered (list_nxt1_data_views, query_nxt1_data)');
+    toolRegistry.register(new MutateNxt1DataTool(firebaseMcpBridge));
+    logger.info('MCP-bridged NXT1 data tools registered (list_nxt1_data_views, query_nxt1_data, mutate_nxt1_data)');
   }
 
   // ── 1d.2. Google Workspace MCP tools (user-scoped productivity actions) ───
@@ -691,6 +656,7 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   const primaryService = new AgentRouterPrimaryService({
     ...router.getOrchestratorBundle(),
     agents: router.getRegisteredAgents(),
+    planRepository: new AgentPlanRepository(appDb, stagingDb),
     resolveToolAccessContext: async (uid: string) => {
       const userCtx = await contextBuilder.buildContext(uid);
       return router.getOrchestratorBundle().policyService.buildToolAccessContext(userCtx);

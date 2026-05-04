@@ -62,6 +62,19 @@ interface ApiResponse<T> {
   error?: string;
 }
 
+function parseApiTextResponse<T>(raw: string): ApiResponse<T> {
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    throw new Error('Empty server response');
+  }
+
+  try {
+    return JSON.parse(trimmed) as ApiResponse<T>;
+  } catch {
+    throw new Error('Invalid server response format');
+  }
+}
+
 // ============================================
 // SERVICE
 // ============================================
@@ -89,7 +102,10 @@ export class ManageTeamApiClient {
 
     try {
       const url = `${this.baseUrl}/teams/by-id/${encodeURIComponent(teamId)}`;
-      const response = await firstValueFrom(this.http.get<ApiResponse<TeamProfilePageData>>(url));
+      const rawResponse = await firstValueFrom(
+        this.http.get(url, { responseType: 'text' })
+      );
+      const response = parseApiTextResponse<TeamProfilePageData>(rawResponse);
 
       if (!response.success || !response.data) {
         throw new Error(response.error || 'Failed to fetch team data');

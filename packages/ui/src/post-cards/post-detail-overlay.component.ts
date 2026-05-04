@@ -11,8 +11,9 @@
  * SSR-safe — no direct browser API access.
  */
 
-import { Component, ChangeDetectionStrategy, input, output, computed } from '@angular/core';
+import { Component, ChangeDetectionStrategy, input, output, computed, inject } from '@angular/core';
 import { DatePipe, DecimalPipe } from '@angular/common';
+import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import type { IconName } from '@nxt1/design-tokens/assets/icons';
 import { NxtImageComponent } from '../components/image';
 import { NxtIconComponent } from '../components/icon';
@@ -463,6 +464,8 @@ const TYPE_LABELS: Record<string, string> = {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class PostDetailOverlayComponent {
+  private readonly sanitizer = inject(DomSanitizer);
+
   // ─── INPUTS ───
   readonly post = input.required<PostDetailInput>();
   readonly author = input<PostAuthorInfo>({ name: 'Athlete' });
@@ -501,9 +504,11 @@ export class PostDetailOverlayComponent {
     return !!(p.thumbnailUrl || (p.type === 'image' && p.mediaUrl));
   });
 
-  protected readonly videoEmbedUrl = computed(() => {
+  protected readonly videoEmbedUrl = computed<SafeResourceUrl | null>(() => {
     const p = this.post();
-    return p.iframeUrl ?? p.mediaUrl ?? '';
+    const rawUrl = p.iframeUrl ?? p.mediaUrl ?? '';
+    if (!rawUrl) return null;
+    return this.sanitizer.bypassSecurityTrustResourceUrl(rawUrl);
   });
 
   protected readonly imageUrl = computed(() => {

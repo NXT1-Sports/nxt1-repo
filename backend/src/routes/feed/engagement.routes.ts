@@ -60,6 +60,7 @@ async function resolveAuthorId(
  */
 router.post(
   '/:id/view',
+  optionalAuth,
   asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const { id } = req.params as { id: string };
     const db = req.firebase!.db;
@@ -67,41 +68,57 @@ router.post(
     // Respond immediately — never block the client on a view write
     res.status(204).end();
 
-    const viewerUserId = (req as Request & { user?: { uid?: string } }).user?.uid ?? null;
+    const viewerUserId = req.user?.uid ?? null;
 
-    db.collection(ENGAGEMENT_COLLECTION)
-      .doc(id)
-      .set({ views: FieldValue.increment(1) }, { merge: true })
-      .catch((err) =>
-        logger.warn('[Engagement] viewCount increment failed', {
-          itemId: id,
-          error: err?.message,
-        })
-      );
+    void (async () => {
+      // Skip counting a post view when the viewer is the post owner.
+      if (viewerUserId) {
+        const authorId = await resolveAuthorId(db, id);
+        if (authorId && authorId === viewerUserId) {
+          return;
+        }
+      }
 
-    // Mirror to MongoDB so Agent X analytics queries reflect live view counts
-    if (viewerUserId) {
-      void getAnalyticsLoggerService()
-        .safeTrack({
-          subjectId: viewerUserId,
-          subjectType: 'user',
-          domain: 'engagement',
-          eventType: 'content_viewed',
-          source: 'user',
-          actorUserId: viewerUserId,
-          sessionId: null,
-          threadId: null,
-          tags: ['feed_card', 'view'],
-          payload: { itemId: id },
-          metadata: { initiatedBy: 'engagement_route' },
-        })
+      await db
+        .collection(ENGAGEMENT_COLLECTION)
+        .doc(id)
+        .set({ views: FieldValue.increment(1) }, { merge: true })
         .catch((err) =>
-          logger.warn('[Engagement] analytics track view failed', {
+          logger.warn('[Engagement] viewCount increment failed', {
             itemId: id,
             error: err?.message,
           })
         );
-    }
+
+      // Mirror to MongoDB so Agent X analytics queries reflect live view counts
+      if (viewerUserId) {
+        await getAnalyticsLoggerService()
+          .safeTrack({
+            subjectId: viewerUserId,
+            subjectType: 'user',
+            domain: 'engagement',
+            eventType: 'content_viewed',
+            source: 'user',
+            actorUserId: viewerUserId,
+            sessionId: null,
+            threadId: null,
+            tags: ['feed_card', 'view'],
+            payload: { itemId: id },
+            metadata: { initiatedBy: 'engagement_route' },
+          })
+          .catch((err) =>
+            logger.warn('[Engagement] analytics track view failed', {
+              itemId: id,
+              error: err?.message,
+            })
+          );
+      }
+    })().catch((err) =>
+      logger.warn('[Engagement] view pipeline failed', {
+        itemId: id,
+        error: err instanceof Error ? err.message : String(err),
+      })
+    );
   })
 );
 

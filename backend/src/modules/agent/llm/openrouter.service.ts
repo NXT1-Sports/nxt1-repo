@@ -953,6 +953,14 @@ export class OpenRouterService {
       streamBody['provider'] = { ignore: ['Amazon Bedrock'], allow_fallbacks: true };
     }
 
+    // Extended reasoning for streaming requests (same behavior as non-streaming path).
+    // Without this, `enableThinking` from routing config is never sent for SSE chat flows.
+    if (options.enableThinking) {
+      streamBody['reasoning'] = {
+        max_tokens: options.thinkingBudgetTokens ?? 8000,
+      };
+    }
+
     return streamBody;
   }
 
@@ -1367,6 +1375,19 @@ export class OpenRouterService {
       content = textParts.length > 0 ? textParts.join('\n') : null;
     }
 
+    // Extract extended thinking/reasoning content.
+    // OpenRouter non-streaming: top-level `message.reasoning` string.
+    // Some model formats: content array with { type: 'thinking', thinking: '...' } parts.
+    let thinkingContent: string | null = null;
+    if (typeof message?.reasoning === 'string' && message.reasoning.length > 0) {
+      thinkingContent = message.reasoning;
+    } else if (Array.isArray(rawContent)) {
+      const thinkingParts = (rawContent as Array<Record<string, unknown>>)
+        .filter((p) => p['type'] === 'thinking' && typeof p['thinking'] === 'string')
+        .map((p) => p['thinking'] as string);
+      thinkingContent = thinkingParts.length > 0 ? thinkingParts.join('\n') : null;
+    }
+
     // Extract tool calls (normalise to our internal shape)
     const toolCalls: LLMToolCall[] = (message?.tool_calls ?? []).map((tc) => ({
       id: tc.id,
@@ -1382,6 +1403,7 @@ export class OpenRouterService {
 
     return {
       content,
+      thinkingContent,
       toolCalls,
       model: raw.model ?? requestedModel,
       usage: {
@@ -1557,6 +1579,12 @@ interface OpenRouterRawChoice {
     readonly role: string;
     /** String for text responses, array for multimodal (image + text). */
     readonly content: string | readonly Record<string, unknown>[] | null;
+    /**
+     * Extended reasoning/thinking content from the model (non-streaming).
+     * OpenRouter delivers this as a top-level `reasoning` field on the message
+     * when the `reasoning: { max_tokens }` request param is set.
+     */
+    readonly reasoning?: string;
     /** Image outputs returned by multimodal models (e.g. Gemini image generation). */
     readonly images?: readonly {
       readonly type: string;

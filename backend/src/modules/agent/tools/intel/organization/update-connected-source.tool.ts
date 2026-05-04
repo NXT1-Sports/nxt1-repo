@@ -16,8 +16,6 @@ const UpdateConnectedSourceInputSchema = z.object({
   organizationId: z.string().trim().min(1),
   platform: z.string().trim().min(1).optional(),
   accountId: z.string().trim().min(1).optional(),
-  accessToken: z.string().trim().min(1).optional(),
-  refreshToken: z.string().trim().min(1).optional(),
   isActive: z.boolean().optional(),
 });
 
@@ -50,6 +48,11 @@ export class UpdateConnectedSourceTool extends BaseTool {
     // Verify access to organization
     const orgDoc = await this.db.collection('Organizations').doc(organizationId).get();
     if (!orgDoc.exists) return { success: false, error: 'Organization not found.' };
+    const orgData = orgDoc.data() as Record<string, unknown>;
+    const adminIds = (orgData['adminIds'] as string[] | undefined) ?? [];
+    if (orgData['ownerId'] !== context.userId && !adminIds.includes(context.userId)) {
+      return { success: false, error: 'Forbidden: you do not have access to this organization.' };
+    }
 
     context?.emitStage?.('submitting_job', { icon: 'database', phase: 'update_connected_source' });
 
@@ -58,8 +61,6 @@ export class UpdateConnectedSourceTool extends BaseTool {
 
     if (parsed.data.platform !== undefined) patch['platform'] = parsed.data.platform;
     if (parsed.data.accountId !== undefined) patch['accountId'] = parsed.data.accountId;
-    if (parsed.data.accessToken !== undefined) patch['accessToken'] = parsed.data.accessToken;
-    if (parsed.data.refreshToken !== undefined) patch['refreshToken'] = parsed.data.refreshToken;
     if (parsed.data.isActive !== undefined) patch['isActive'] = parsed.data.isActive;
 
     if (Object.keys(patch).length === 0)

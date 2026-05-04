@@ -26,7 +26,10 @@ import type { AgentXPlannerItem } from '@nxt1/core/ai';
             <div
               class="execution-plan-dock__item"
               [class.execution-plan-dock__item--done]="item.done"
-              [class.execution-plan-dock__item--active]="item.active && !item.done"
+              [class.execution-plan-dock__item--active]="item.active && !item.done && !paused"
+              [class.execution-plan-dock__item--failed]="item.status === 'failed'"
+              [class.execution-plan-dock__item--blocked]="item.status === 'blocked'"
+              [class.execution-plan-dock__item--awaiting]="item.status === 'awaiting_tool_approval'"
             >
               <span class="execution-plan-dock__item-check" aria-hidden="true">
                 @if (item.done) {
@@ -47,7 +50,7 @@ import type { AgentXPlannerItem } from '@nxt1/core/ai';
                       stroke-linejoin="round"
                     />
                   </svg>
-                } @else if (item.active) {
+                } @else if (item.active && !paused) {
                   <svg class="execution-plan-dock__item-spinner" viewBox="0 0 16 16" fill="none">
                     <circle cx="8" cy="8" r="6.5" stroke="var(--op-border)" stroke-width="1.2" />
                     <path
@@ -71,7 +74,12 @@ import type { AgentXPlannerItem } from '@nxt1/core/ai';
                   </svg>
                 }
               </span>
-              <span class="execution-plan-dock__item-label">{{ item.label }}</span>
+              <span class="execution-plan-dock__item-copy">
+                <span class="execution-plan-dock__item-label">{{ item.label }}</span>
+                @if (item.note) {
+                  <span class="execution-plan-dock__item-note">{{ item.note }}</span>
+                }
+              </span>
             </div>
           }
         </div>
@@ -168,6 +176,15 @@ import type { AgentXPlannerItem } from '@nxt1/core/ai';
         font-weight: 500;
       }
 
+      .execution-plan-dock__item--failed .execution-plan-dock__item-note,
+      .execution-plan-dock__item--blocked .execution-plan-dock__item-note {
+        color: #ff8f8f;
+      }
+
+      .execution-plan-dock__item--awaiting .execution-plan-dock__item-note {
+        color: #ffd27a;
+      }
+
       .execution-plan-dock__item-check {
         width: 16px;
         height: 16px;
@@ -196,6 +213,20 @@ import type { AgentXPlannerItem } from '@nxt1/core/ai';
         font-size: 0.76rem;
         line-height: 1.45;
       }
+
+      .execution-plan-dock__item-copy {
+        display: flex;
+        flex: 1;
+        min-width: 0;
+        flex-direction: column;
+        gap: 2px;
+      }
+
+      .execution-plan-dock__item-note {
+        font-size: 0.72rem;
+        line-height: 1.35;
+        color: var(--op-text-muted);
+      }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -203,6 +234,7 @@ import type { AgentXPlannerItem } from '@nxt1/core/ai';
 export class AgentXOperationChatExecutionPlanComponent {
   @Input() title = '';
   @Input() items: readonly AgentXPlannerItem[] = [];
+  @Input() paused = false;
   @Input() expanded = true;
   @Output() readonly expandedChange = new EventEmitter<boolean>();
 

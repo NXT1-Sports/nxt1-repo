@@ -639,6 +639,7 @@ export class ProfileShellComponent implements OnInit {
   readonly retryClick = output<void>();
   readonly refreshRequest = output<void>();
   readonly generationDismissed = output<'completed' | 'skipped'>();
+  readonly postClick = output<ProfilePost>();
 
   // ============================================
   // COMPUTED — Tab Options
@@ -900,6 +901,7 @@ export class ProfileShellComponent implements OnInit {
   // Post actions
   protected onPostClick(post: ProfilePost): void {
     this.logger.debug('Post click', { postId: post.id });
+    this.postClick.emit(post);
   }
 
   protected onNewsBoardItemClick(item: NewsArticle): void {

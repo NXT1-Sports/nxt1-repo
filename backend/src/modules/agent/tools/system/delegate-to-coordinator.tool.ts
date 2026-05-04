@@ -23,6 +23,12 @@ import { DelegateToCoordinatorException } from '../../exceptions/delegate-to-coo
 const InputSchema = z.object({
   coordinator: z.enum(COORDINATOR_AGENT_IDS as readonly [string, ...string[]]),
   goal: z.string().trim().min(1).max(2_000),
+  /**
+   * Optional structured key/value pairs forwarded verbatim to the coordinator.
+   * Use this to pass IDs, codes, and references that must not be paraphrased
+   * by the LLM (e.g. postId, teamCode, userId, itemCount).
+   */
+  structured_payload: z.record(z.string(), z.unknown()).optional(),
 });
 
 export class DelegateToCoordinatorTool extends BaseTool {
@@ -37,7 +43,8 @@ export class DelegateToCoordinatorTool extends BaseTool {
     '• recruiting_coordinator — College search strategy, coach outreach emails, recruiting presentations, visit coordination, offer tracking.\n' +
     '• strategy_coordinator — Scheduling strategy, analytics dashboards, long-term planning, multi-game review, Microsoft 365 workflows.\n' +
     '• admin_coordinator — Compliance, platform administration, support tickets, user management, recurring task scheduling.\n' +
-    'Do NOT delegate simple factual lookups the router can answer directly. For work spanning multiple coordinators in sequence, use `plan_and_execute` instead.';
+    'Do NOT delegate simple factual lookups the router can answer directly. For work spanning multiple coordinators in sequence, use `create_plan` so the user can review the plan before execution begins. `plan_and_execute` remains a legacy alias only.\n' +
+    'IMPORTANT: When you have exact IDs, codes, or references the coordinator needs (e.g. postId, teamCode, userId), always include them in `structured_payload` — never rely on prose to carry them.';
 
   readonly parameters = InputSchema;
   readonly isMutation = false;
@@ -60,6 +67,7 @@ export class DelegateToCoordinatorTool extends BaseTool {
         'router'
       >,
       goal: parsed.data.goal,
+      ...(parsed.data.structured_payload ? { structuredPayload: parsed.data.structured_payload } : {}),
     });
   }
 }
