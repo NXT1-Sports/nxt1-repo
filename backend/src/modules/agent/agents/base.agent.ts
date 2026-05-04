@@ -677,15 +677,12 @@ export abstract class BaseAgent {
       'delegate instead. Never apologize or tell the user you cannot help; just delegate.',
     ].join('\n');
 
-    let systemContent = this.getSystemPrompt(context);
+    let systemContent = this.withConfiguredSystemPrompt(this.getSystemPrompt(context));
     const appConfig = getCachedAgentAppConfig();
-    // 'router' (PrimaryAgent) has its own dedicated override path via
-    // prompts.primarySystemPrompt — skip the coordinator override map for it.
     const configuredPrompt =
       this.id !== 'router' ? appConfig.prompts.agentSystemPrompts[this.id] : undefined;
     if (configuredPrompt) {
-      systemContent = configuredPrompt;
-      logger.info(`[${this.id}] Applying configured system prompt override`, {
+      logger.info(`[${this.id}] Applying configured system prompt additions`, {
         agentId: this.id,
         configSchemaVersion: appConfig.schemaVersion,
         configUpdatedAt: appConfig.updatedAt,

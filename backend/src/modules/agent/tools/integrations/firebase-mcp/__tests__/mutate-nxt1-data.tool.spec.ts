@@ -136,12 +136,28 @@ describe('MutateNxt1DataTool', () => {
     expect(result.success).toBe(true);
   });
 
+  it('accepts organization branding updates', async () => {
+    const patch = { mascot: 'Ravens' };
+    vi.mocked(bridge.mutate).mockResolvedValue({ success: true, message: 'Updated.' });
+
+    const result = await tool.execute(
+      { operation: 'update', collection: 'Organizations', documentId: 'org-123', patch },
+      makeContext('director-789')
+    );
+
+    expect(bridge.mutate).toHaveBeenCalledWith(
+      { operation: 'update', collection: 'Organizations', documentId: 'org-123', patch },
+      expect.objectContaining({ userId: 'director-789' })
+    );
+    expect(result.success).toBe(true);
+  });
+
   // ── Bridge error propagation ─────────────────────────────────────────────
 
   it('returns error when bridge returns success: false', async () => {
     vi.mocked(bridge.mutate).mockResolvedValue({
       success: false,
-      message: 'Forbidden: you do not own this document.',
+      message: 'Forbidden: you do not have permission to manage this document.',
     });
 
     const result = await tool.execute(

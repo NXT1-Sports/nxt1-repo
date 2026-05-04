@@ -163,7 +163,7 @@ export class WriteCoreIdentityTool extends BaseTool {
     '- targetSport (required): Sport key (e.g. "football").\n' +
     '- identity (optional): { firstName, lastName, displayName, aboutMe, height, weight, classOf, city, state, country }.\n' +
     '- academics (optional): { gpa, weightedGpa, satScore, actScore, classRank, classSize, intendedMajor }.\n' +
-    '- sportInfo (optional): { positions, jerseyNumber, side }.\n' +
+    '- sportInfo (optional): { positions, jerseyNumber, side }. Position values from scraped data are not written; use update_core_identity for manual position corrections.\n' +
     '- team (optional): { name, type, mascot, conference, division, logoUrl, primaryColor, secondaryColor, city, state, country, galleryImages }.\n' +
     '- coach (optional): { firstName, lastName, email, phone, title }.\n' +
     '- awards (optional): Array of { title, category, sport, season, issuer, date }.\n' +
@@ -1358,39 +1358,44 @@ export class WriteCoreIdentityTool extends BaseTool {
     galleryImages?: string[]
   ): Promise<void> {
     const teamId = this.str(teamRef ?? {}, 'teamId');
-    const orgIdFromRef = this.str(teamRef ?? {}, 'organizationId');
-    let organizationId = orgIdFromRef;
+    let organizationId = this.str(teamRef ?? {}, 'organizationId');
+    let existingTeamData: Record<string, unknown> | null = null;
+    let teamCode: string | undefined;
+    let teamUnicode: string | undefined;
 
     if (teamId) {
       const teamDoc = await this.db.collection('Teams').doc(teamId).get();
       if (teamDoc.exists) {
         const data = teamDoc.data() ?? {};
-        const teamCode = typeof data['teamCode'] === 'string' ? data['teamCode'] : undefined;
-        const teamUnicode = typeof data['unicode'] === 'string' ? data['unicode'] : undefined;
+        existingTeamData = data;
+        teamCode = typeof data['teamCode'] === 'string' ? data['teamCode'] : undefined;
+        teamUnicode = typeof data['unicode'] === 'string' ? data['unicode'] : undefined;
         organizationId ||=
           typeof data['organizationId'] === 'string' ? data['organizationId'] : null;
-
-        // Write-once: only set conference/division if not already populated on the Team doc
-        const updateData: Record<string, unknown> = { updatedAt: FieldValue.serverTimestamp() };
-        const conf = this.str(teamInput, 'conference');
-        if (conf && !this.hasValue(data['conference'])) updateData['conference'] = conf;
-        const div = this.str(teamInput, 'division');
-        if (div && !this.hasValue(data['division'])) updateData['division'] = div;
-        if (galleryImages && galleryImages.length > 0) {
-          updateData['galleryImages'] = FieldValue.arrayUnion(...galleryImages);
-        }
-
-        if (Object.keys(updateData).length > 1) {
-          await this.db.collection('Teams').doc(teamId).update(updateData);
-          await invalidateTeamCache(teamId, teamCode, teamUnicode);
-        }
-
-        await this.syncOrganizationMetadata(organizationId, teamInput);
-        return;
       }
     }
 
     await this.syncOrganizationMetadata(organizationId, teamInput);
+
+    if (!teamId || !existingTeamData) {
+      return;
+    }
+
+    // Write-once: only set conference/division if not already populated on the Team doc.
+    // Organization metadata is synchronized first because branding renders from the organization.
+    const updateData: Record<string, unknown> = { updatedAt: FieldValue.serverTimestamp() };
+    const conf = this.str(teamInput, 'conference');
+    if (conf && !this.hasValue(existingTeamData['conference'])) updateData['conference'] = conf;
+    const div = this.str(teamInput, 'division');
+    if (div && !this.hasValue(existingTeamData['division'])) updateData['division'] = div;
+    if (galleryImages && galleryImages.length > 0) {
+      updateData['galleryImages'] = FieldValue.arrayUnion(...galleryImages);
+    }
+
+    if (Object.keys(updateData).length > 1) {
+      await this.db.collection('Teams').doc(teamId).update(updateData);
+      await invalidateTeamCache(teamId, teamCode, teamUnicode);
+    }
   }
 
   private async syncOrganizationMetadata(

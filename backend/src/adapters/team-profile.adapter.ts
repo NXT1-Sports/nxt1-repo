@@ -57,7 +57,7 @@ type UserDataRecord = UserData & {
   phone?: string;
   phoneNumber?: string;
   bio?: string;
-  sports?: Array<{ positions?: string[] }>;
+  sports?: Array<{ sport?: string; positions?: string[] }>;
 };
 
 /**
@@ -398,19 +398,94 @@ function toStaffRole(role: string): TeamProfileStaffMember['role'] {
   return 'head-coach';
 }
 
+function resolveRosterEntryUserId(entry: RosterEntry): string {
+  if (typeof entry.userId === 'string' && entry.userId.trim()) {
+    return entry.userId.trim();
+  }
+
+  const legacyPlayerId = (entry as unknown as Record<string, unknown>)['playerId'];
+  return typeof legacyPlayerId === 'string' ? legacyPlayerId.trim() : '';
+}
+
+function resolveUserSportPositions(
+  user: UserDataRecord | undefined,
+  sport: string | undefined
+): string[] | undefined {
+  const sports = Array.isArray(user?.sports) ? user.sports : [];
+  if (sports.length === 0) return undefined;
+
+  const normalizedSport = sport?.trim().toLowerCase();
+  if (normalizedSport) {
+    const matchedSport = sports.find(
+      (entry) => entry.sport?.trim().toLowerCase() === normalizedSport
+    );
+    if (matchedSport?.positions?.length) {
+      return matchedSport.positions;
+    }
+  }
+
+  return sports.find((entry) => Array.isArray(entry.positions) && entry.positions.length > 0)
+    ?.positions;
+}
+
+function resolveRosterMemberPosition(
+  entryAny: Record<string, unknown>,
+  user: UserDataRecord | undefined
+): string | undefined {
+  const positions = entryAny['positions'];
+  if (Array.isArray(positions)) {
+    const firstPosition = positions.find(
+      (value): value is string => typeof value === 'string' && value.trim().length > 0
+    );
+    if (firstPosition) return firstPosition;
+  }
+
+  if (typeof entryAny['position'] === 'string' && entryAny['position'].trim()) {
+    return entryAny['position'].trim();
+  }
+
+  const sport = typeof entryAny['sport'] === 'string' ? entryAny['sport'] : undefined;
+  return resolveUserSportPositions(user, sport)?.[0];
+}
+
+function resolveRosterMemberClassYear(
+  entryAny: Record<string, unknown>,
+  user: UserDataRecord | undefined
+): string | undefined {
+  const canonicalClassOfWhenJoined = entryAny['classOfWhenJoined'];
+  if (
+    typeof canonicalClassOfWhenJoined === 'number' ||
+    typeof canonicalClassOfWhenJoined === 'string'
+  ) {
+    return String(canonicalClassOfWhenJoined);
+  }
+
+  const canonicalClassOf = entryAny['classOf'];
+  if (typeof canonicalClassOf === 'number' || typeof canonicalClassOf === 'string') {
+    return String(canonicalClassOf);
+  }
+
+  if (typeof entryAny['classYear'] === 'string' && entryAny['classYear'].trim()) {
+    return entryAny['classYear'].trim();
+  }
+
+  return user?.classOf !== undefined ? String(user.classOf) : undefined;
+}
+
 function mapRosterEntryToRosterMember(
   entry: RosterEntry,
   userDataMap: Map<string, UserDataRecord>
 ): TeamProfileRosterMember {
   const entryAny = entry as unknown as Record<string, unknown>;
-  const user = userDataMap.get(entry.userId);
+  const rosterUserId = resolveRosterEntryUserId(entry);
+  const user = userDataMap.get(rosterUserId);
   const unicode =
     (typeof entryAny['unicode'] === 'string' ? entryAny['unicode'] : undefined)?.trim() ||
     user?.unicode?.trim() ||
     user?.username?.trim() ||
     undefined;
   return {
-    id: entry.userId,
+    id: rosterUserId,
     firstName:
       user?.firstName ??
       entry.firstName ??
@@ -427,10 +502,8 @@ function mapRosterEntryToRosterMember(
     profileCode: unicode,
     role: 'athlete',
     jerseyNumber: (entryAny['jerseyNumber'] as string | undefined) ?? user?.jerseyNumber,
-    position: (entryAny['position'] as string | undefined) ?? user?.sports?.[0]?.positions?.[0],
-    classYear:
-      (entryAny['classYear'] as string | undefined) ??
-      (user?.classOf !== undefined ? String(user.classOf) : undefined),
+    position: resolveRosterMemberPosition(entryAny, user),
+    classYear: resolveRosterMemberClassYear(entryAny, user),
     height: user?.height,
     weight: user?.weight,
     isVerified: user?.isVerify ?? false,
@@ -443,9 +516,10 @@ function mapRosterEntryToStaffMember(
   userDataMap: Map<string, UserDataRecord>
 ): TeamProfileStaffMember {
   const entryAny = entry as unknown as Record<string, unknown>;
-  const user = userDataMap.get(entry.userId);
+  const rosterUserId = resolveRosterEntryUserId(entry);
+  const user = userDataMap.get(rosterUserId);
   return {
-    id: entry.userId,
+    id: rosterUserId,
     firstName:
       user?.firstName ??
       entry.firstName ??
@@ -566,7 +640,7 @@ function isUserTeamAdmin(
   rosterEntries: RosterEntry[],
   legacyMembers: TeamCode['members']
 ): boolean {
-  const entryMatch = rosterEntries.find((r) => r.userId === userId);
+  const entryMatch = rosterEntries.find((r) => resolveRosterEntryUserId(r) === userId);
   if (entryMatch) {
     return ['director', 'coach'].includes(String(entryMatch.role ?? '').toLowerCase());
   }
@@ -585,7 +659,7 @@ function isUserTeamMember(
   legacyMembers: TeamCode['members'],
   memberIds: string[] | undefined
 ): boolean {
-  if (rosterEntries.some((r) => r.userId === userId)) return true;
+  if (rosterEntries.some((r) => resolveRosterEntryUserId(r) === userId)) return true;
   if (legacyMembers?.some((m) => m.id === userId)) return true;
   if (memberIds?.includes(userId)) return true;
   return false;
@@ -675,7 +749,9 @@ export async function mapTeamCodeToProfile(
 
     if (rosterEntries.length > 0) {
       // New architecture: hydrate with live user data
-      const userIds = [...new Set(rosterEntries.map((r) => r.userId).filter(Boolean))];
+      const userIds = [
+        ...new Set(rosterEntries.map((r) => resolveRosterEntryUserId(r)).filter(Boolean)),
+      ];
       const userDataMap = await fetchUserDataMap(userIds, db);
 
       for (const entry of rosterEntries) {

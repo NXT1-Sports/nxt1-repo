@@ -65,6 +65,18 @@ describe('getMutationPolicy', () => {
       expect(p!.allowedPatchFields).toContain('height');
       expect(p!.allowedPatchFields).toContain('weight');
     });
+
+    it('returns policy for Organizations', () => {
+      const p = getMutationPolicy('Organizations');
+      expect(p).toBeDefined();
+      expect(p!.ownershipPath).toBe('__org_admin_or_team_admin');
+      expect(p!.softDelete).toBe(false);
+      expect(p!.allowedOperations).toContain('update');
+      expect(p!.allowedOperations).not.toContain('delete');
+      expect(p!.allowedPatchFields).toContain('mascot');
+      expect(p!.allowedPatchFields).toContain('primaryColor');
+      expect(p!.allowedPatchFields).toContain('location');
+    });
   });
 
   describe('team-scoped collections', () => {
@@ -151,6 +163,7 @@ describe('getMutationPolicy', () => {
       expect(ALLOWED_MUTATION_COLLECTIONS).toContain('Recruiting');
       expect(ALLOWED_MUTATION_COLLECTIONS).toContain('PlayerStats');
       expect(ALLOWED_MUTATION_COLLECTIONS).toContain('PlayerMetrics');
+      expect(ALLOWED_MUTATION_COLLECTIONS).toContain('Organizations');
       expect(ALLOWED_MUTATION_COLLECTIONS).toContain('Schedule');
       expect(ALLOWED_MUTATION_COLLECTIONS).toContain('Calendar');
       expect(ALLOWED_MUTATION_COLLECTIONS).toContain('TeamNews');

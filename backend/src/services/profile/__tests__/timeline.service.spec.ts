@@ -40,6 +40,9 @@ function buildQuery(state: QueryState) {
         filters: [...(state.filters ?? []), { field, op, value }],
       });
     },
+    select(..._fields: string[]) {
+      return buildQuery(state);
+    },
     orderBy(field: string, direction: 'asc' | 'desc' = 'asc') {
       return buildQuery({
         ...state,
@@ -65,6 +68,9 @@ function buildQuery(state: QueryState) {
           if (filter.op === '==') {
             return value === filter.value;
           }
+          if (filter.op === 'in' && Array.isArray(filter.value)) {
+            return filter.value.includes(value);
+          }
           if (filter.op === '<') {
             return valueToComparable(value) < valueToComparable(filter.value);
           }
@@ -87,7 +93,7 @@ function buildQuery(state: QueryState) {
         docs = docs.slice(0, state.limitCount);
       }
 
-      return { docs };
+      return { docs, empty: docs.length === 0 };
     },
   };
 }
@@ -282,5 +288,87 @@ describe('TimelineService', () => {
       expect(ranking.awardData.organization).toBe('247Sports');
       expect(ranking.awardData.awardName).toContain('Nat #31');
     }
+  });
+
+  it('uses canonical roster userId for team recruiting fan-out with legacy playerId fallback', async () => {
+    const db = createMockDb({
+      Teams: [
+        {
+          id: 'team-1',
+          data: () => ({
+            teamCode: 'TEAM01',
+            teamName: 'Argyle Eagles',
+            teamType: 'high-school',
+            sport: 'basketball',
+            isActive: true,
+            createdAt: '2026-04-01T12:00:00.000Z',
+            updatedAt: '2026-04-01T12:00:00.000Z',
+          }),
+        },
+      ],
+      Posts: [],
+      Schedule: [],
+      TeamStats: [],
+      News: [],
+      RosterEntries: [
+        {
+          id: 'roster-1',
+          data: () => ({
+            teamId: 'team-1',
+            userId: 'athlete-canonical',
+            playerId: 'athlete-legacy-copy',
+            status: 'active',
+          }),
+        },
+        {
+          id: 'roster-2',
+          data: () => ({
+            teamId: 'team-1',
+            playerId: 'athlete-legacy-only',
+            status: 'ghost',
+          }),
+        },
+      ],
+      Recruiting: [
+        {
+          id: 'offer-canonical',
+          data: () => ({
+            userId: 'athlete-canonical',
+            ownerType: 'user',
+            category: 'offer',
+            collegeName: 'UConn',
+            sport: 'basketball',
+            date: '2026-04-10T12:00:00.000Z',
+          }),
+        },
+        {
+          id: 'offer-legacy',
+          data: () => ({
+            userId: 'athlete-legacy-only',
+            ownerType: 'user',
+            category: 'offer',
+            collegeName: 'Duke',
+            sport: 'basketball',
+            date: '2026-04-09T12:00:00.000Z',
+          }),
+        },
+      ],
+    });
+
+    const service = new TimelineService(db as never);
+    const result = await service.getTeamTimeline('TEAM01', {
+      limit: 10,
+      filter: 'recruiting',
+      sportId: 'basketball',
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.data).toHaveLength(2);
+    expect(result.data.every((item) => item.feedType === 'OFFER')).toBe(true);
+    expect(
+      result.data
+        .filter((item) => item.feedType === 'OFFER')
+        .map((item) => (item.feedType === 'OFFER' ? item.offerData.collegeName : null))
+    ).toEqual(['UConn', 'Duke']);
   });
 });

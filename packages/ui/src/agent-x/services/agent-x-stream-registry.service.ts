@@ -204,6 +204,15 @@ export class AgentXStreamRegistryService {
   }
 
   /**
+   * Look up the in-flight operationId for a thread (if any). Used by chat
+   * rehydration to suppress persisted `assistant_partial` rows for the
+   * operation that is currently streaming live into the typing bubble.
+   */
+  getOperationIdForThread(threadId: string): string | undefined {
+    return this.threadToOperation.get(threadId);
+  }
+
+  /**
    * Register a new stream. If one already exists for this threadId,
    * the old one is aborted and replaced.
    */

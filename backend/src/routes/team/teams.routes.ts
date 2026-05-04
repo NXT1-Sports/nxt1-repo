@@ -57,6 +57,15 @@ import {
 } from '../../modules/agent/sync/manual-sync-state.helpers.js';
 import { onDailySyncComplete } from '../../modules/agent/triggers/trigger.listeners.js';
 import { createTimelineService } from '../../services/profile/timeline.service.js';
+import {
+  canGenerateTeamIntelForUser,
+  canManageTeamMembershipForRole,
+} from '../../services/team/team-intel-permissions.js';
+
+export {
+  canGenerateTeamIntelForUser,
+  canManageTeamMembershipForRole,
+} from '../../services/team/team-intel-permissions.js';
 
 const router: ExpressRouter = Router();
 
@@ -145,62 +154,6 @@ function parseRosterEditorStatus(status: string | undefined): RosterEntryStatus 
       rule: 'enum',
     },
   ]);
-}
-
-interface TeamIntelPermissionMemberLike {
-  readonly id?: string;
-  readonly uid?: string;
-  readonly userId?: string;
-  readonly role?: string | null;
-}
-
-interface TeamIntelPermissionInput {
-  readonly userId: string;
-  readonly legacyMembers?: readonly TeamIntelPermissionMemberLike[];
-  readonly roster?: readonly TeamIntelPermissionMemberLike[];
-}
-
-const TEAM_INTEL_MANAGER_ROLES = new Set([
-  'administrative',
-  'admin',
-  'coach',
-  'director',
-  'owner',
-  'head-coach',
-  'assistant-coach',
-  'staff',
-  'program-director',
-]);
-
-export function canManageTeamMembershipForRole(role: unknown): boolean {
-  return TEAM_INTEL_MANAGER_ROLES.has(normalizeTeamIntelRole(role));
-}
-
-function normalizeTeamIntelRole(value: unknown): string {
-  if (typeof value !== 'string') return '';
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/[_\s]+/g, '-');
-}
-
-export function canGenerateTeamIntelForUser({
-  userId,
-  legacyMembers = [],
-  roster = [],
-}: TeamIntelPermissionInput): boolean {
-  const hasLegacyPermission = legacyMembers.some((member) => {
-    const memberId = member.id ?? member.uid ?? member.userId;
-    const role = normalizeTeamIntelRole(member.role);
-    return memberId === userId && TEAM_INTEL_MANAGER_ROLES.has(role);
-  });
-
-  const hasRosterPermission = roster.some((entry) => {
-    const role = normalizeTeamIntelRole(entry.role);
-    return entry.userId === userId && TEAM_INTEL_MANAGER_ROLES.has(role);
-  });
-
-  return hasLegacyPermission || hasRosterPermission;
 }
 
 // ============================================

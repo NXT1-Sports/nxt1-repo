@@ -890,6 +890,30 @@ export class AgentXOperationChatMessageFacade {
     return `reason:${yieldState.reason}`;
   }
 
+  /**
+   * Extract the yield identity directly from a confirmation card's payload.
+   * The backend's `buildInlineYieldCard` writes `approvalId` and (optionally)
+   * `toolCallId` at the top level of the payload — it does NOT embed a full
+   * `yieldState` object. This helper bridges the gap so identity matching
+   * (used to collapse duplicate approval cards on rehydrate) works without
+   * requiring a synthesized yieldState.
+   */
+  private cardPayloadYieldIdentityKey(card: AgentXRichCard | undefined | null): string {
+    if (!card || card.type !== 'confirmation') return '';
+    const payload = card.payload as
+      | { approvalId?: unknown; toolCallId?: unknown; yieldState?: AgentYieldState }
+      | undefined;
+    if (!payload) return '';
+    // Prefer embedded yieldState identity when present.
+    const embedded = this.yieldIdentityKey(payload.yieldState);
+    if (embedded) return embedded;
+    const approvalId = typeof payload.approvalId === 'string' ? payload.approvalId.trim() : '';
+    if (approvalId) return `approval:${approvalId}`;
+    const toolCallId = typeof payload.toolCallId === 'string' ? payload.toolCallId.trim() : '';
+    if (toolCallId) return `tool:${toolCallId}`;
+    return '';
+  }
+
   private normalizeYieldPrompt(value: string | undefined | null): string {
     return (value ?? '').replace(/\s+/g, ' ').trim();
   }
@@ -904,9 +928,11 @@ export class AgentXOperationChatMessageFacade {
     if (!incomingKey) return false;
 
     const matchesCard = (card: AgentXRichCard | undefined): boolean => {
-      if (!card || card.type !== 'confirmation') return false;
-      const payload = card.payload as { yieldState?: AgentYieldState } | undefined;
-      return this.yieldIdentityKey(payload?.yieldState) === incomingKey;
+      if (!card) return false;
+      // Read identity from card payload directly (handles the common case
+      // where backend cards carry approvalId at the top level rather than
+      // an embedded yieldState).
+      return this.cardPayloadYieldIdentityKey(card) === incomingKey;
     };
 
     if (message.cards?.some(matchesCard)) return true;

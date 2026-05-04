@@ -1,4 +1,4 @@
-import { normalizeSportKey } from '@nxt1/core';
+import { normalizeBaseSportKey, normalizeSportKey } from '@nxt1/core';
 
 type RosterSportProfileLike = {
   sport?: string;
@@ -37,7 +37,20 @@ export function resolveRosterSportProfile(
     (sport) => normalizeSportKey(sport.sport ?? '') === normalizedTeamKey
   );
   if (keyMatches.length === 0) {
-    return undefined;
+    const normalizedBaseTeamKey = normalizeBaseSportKey(teamSport);
+    if (!normalizedBaseTeamKey) {
+      return undefined;
+    }
+
+    const baseMatches = sports.filter(
+      (sport) => normalizeBaseSportKey(sport.sport ?? '') === normalizedBaseTeamKey
+    );
+
+    if (baseMatches.length === 0) {
+      return undefined;
+    }
+
+    return baseMatches.find((sport) => sport.order === 0) ?? baseMatches[0];
   }
 
   return keyMatches.find((sport) => sport.order === 0) ?? keyMatches[0];

@@ -12,6 +12,7 @@
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../../base.tool.js';
 import { getCacheService } from '../../../../../services/core/cache.service.js';
+import { canManageTeamMutationForUser } from '../../../../../services/team/team-intel-permissions.js';
 import { logger } from '../../../../../utils/logger.js';
 import { z } from 'zod';
 
@@ -75,8 +76,13 @@ export class DeleteTeamPostTool extends BaseTool {
         return { success: false, error: `Team ${teamId} not found.` };
       }
       const teamData = teamDoc.data() ?? {};
-      const teamOwnerId = teamData['ownerId'] as string | undefined;
-      if (teamOwnerId !== context.userId) {
+      const isAuthorized = await canManageTeamMutationForUser(
+        this.db,
+        context.userId,
+        teamId,
+        teamData
+      );
+      if (!isAuthorized) {
         return { success: false, error: 'Not authorized to delete posts for this team.' };
       }
 

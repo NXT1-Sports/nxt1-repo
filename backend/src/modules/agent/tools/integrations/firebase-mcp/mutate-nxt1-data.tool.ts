@@ -47,8 +47,8 @@ export class MutateNxt1DataTool extends BaseTool {
   readonly description =
     'Update or delete an NXT1 Firestore document in a permitted collection. ' +
     'Ownership is verified server-side — the authenticated user must own the document. ' +
-    'Use this for Awards, Rankings, CombineMetrics, PlayerStats, Recruiting, Schedule, Roster, ' +
-    'TeamStats, TeamNews, Calendar, Events, and similar structured profile data. ' +
+    'Use this for Awards, Rankings, CombineMetrics, PlayerStats, Recruiting, Organizations, ' +
+    'Schedule, Roster, TeamStats, TeamNews, Calendar, Events, and similar structured profile data. ' +
     'Do NOT use this for timeline posts — use write_timeline_post / delete_timeline_post instead.';
 
   readonly parameters = MutateNxt1DataInputSchema;

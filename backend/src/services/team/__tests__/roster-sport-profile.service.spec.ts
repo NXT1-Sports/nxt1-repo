@@ -20,6 +20,12 @@ describe('resolveRosterSportProfile', () => {
 
     expect(resolveRosterSportProfile(sports, 'Basketball Mens')).toEqual(sports[0]);
   });
+
+  it('matches display-name gender prefixes to the same base sport', () => {
+    const sports = [{ sport: "Men's Basketball", order: 0, positions: ['PG', 'SG'] }];
+
+    expect(resolveRosterSportProfile(sports, 'Basketball')).toEqual(sports[0]);
+  });
 });
 
 describe('resolveRosterPositions', () => {

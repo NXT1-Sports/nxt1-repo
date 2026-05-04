@@ -15,6 +15,7 @@
 import { Timestamp, getFirestore, type Firestore } from 'firebase-admin/firestore';
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../../base.tool.js';
 import { getCacheService } from '../../../../../services/core/cache.service.js';
+import { canManageTeamMutationForUser } from '../../../../../services/team/team-intel-permissions.js';
 import { ScraperMediaService } from '../../integrations/social/scraper-media.service.js';
 import {
   CLOUDFLARE_API_BASE_URL,
@@ -104,14 +105,19 @@ export class WriteTeamPostTool extends BaseTool {
       if (!teamDoc.exists) {
         return { success: false, error: `Team ${teamId} not found.` };
       }
-      const teamOwnerId = teamDoc.data()?.['ownerId'] as string | undefined;
-      if (teamOwnerId && teamOwnerId !== context.userId) {
+      const teamData = (teamDoc.data() ?? {}) as Record<string, unknown>;
+      const isAuthorized = await canManageTeamMutationForUser(
+        this.db,
+        context.userId,
+        teamId,
+        teamData
+      );
+      if (!isAuthorized) {
         return { success: false, error: 'Not authorized to post on behalf of this team.' };
       }
 
       // Resolve the team's default sport for post tagging.
       // Explicit sportId on each post overrides this; falls back to team sport.
-      const teamData = teamDoc.data() as Record<string, unknown>;
       const teamSport =
         typeof teamData['sport'] === 'string' ? teamData['sport'].trim().toLowerCase() : undefined;
 

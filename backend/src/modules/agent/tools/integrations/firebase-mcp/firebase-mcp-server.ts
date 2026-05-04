@@ -18,6 +18,7 @@ import {
 } from './shared.js';
 import { executeFirebaseViewQuery, listFirebaseViewMetadata } from './views.js';
 import { getMutationPolicy, ALLOWED_MUTATION_COLLECTIONS } from './mutation-policy.js';
+import { canManageOrganizationMutation } from './mutation-authorization.js';
 import { AgentEngineError } from '../../../exceptions/agent-engine.error.js';
 
 const MCP_SERVER_NAME = 'firebase-readonly';
@@ -252,17 +253,17 @@ async function run(): Promise<void> {
 
         const docData = docSnap.data() as Record<string, unknown>;
 
-        let ownerId: string | undefined;
+        let isAuthorized = false;
         if (policy.ownershipPath === '__team_owner') {
-          const teamId =
-            typeof docData['teamId'] === 'string' ? docData['teamId'] : undefined;
+          const teamId = typeof docData['teamId'] === 'string' ? docData['teamId'] : undefined;
           if (!teamId) {
             return errorResult(`Document "${documentId}" has no teamId — cannot verify ownership.`);
           }
           const teamSnap = await firestore.collection('Teams').doc(teamId).get();
-          ownerId = teamSnap.exists
-            ? (teamSnap.data() as Record<string, unknown>)['ownerId'] as string | undefined
+          const ownerId = teamSnap.exists
+            ? ((teamSnap.data() as Record<string, unknown>)['ownerId'] as string | undefined)
             : undefined;
+          isAuthorized = !!ownerId && ownerId === scope.userId;
         } else if (policy.ownershipPath === '__org_owner') {
           const orgId =
             typeof docData['organizationId'] === 'string' ? docData['organizationId'] : undefined;
@@ -272,33 +273,45 @@ async function run(): Promise<void> {
             );
           }
           const orgSnap = await firestore.collection('Organizations').doc(orgId).get();
-          ownerId = orgSnap.exists
-            ? (orgSnap.data() as Record<string, unknown>)['ownerId'] as string | undefined
+          const ownerId = orgSnap.exists
+            ? ((orgSnap.data() as Record<string, unknown>)['ownerId'] as string | undefined)
             : undefined;
+          isAuthorized = !!ownerId && ownerId === scope.userId;
+        } else if (policy.ownershipPath === '__org_admin_or_team_admin') {
+          isAuthorized = await canManageOrganizationMutation(
+            firestore,
+            scope.userId,
+            documentId,
+            docData
+          );
         } else if (policy.ownershipPath === '__schedule_owner') {
-          const ownerType = typeof docData['ownerType'] === 'string' ? docData['ownerType'] : undefined;
-          const rawOwnerId = typeof docData['ownerId'] === 'string' ? docData['ownerId'] : undefined;
+          const ownerType =
+            typeof docData['ownerType'] === 'string' ? docData['ownerType'] : undefined;
+          const rawOwnerId =
+            typeof docData['ownerId'] === 'string' ? docData['ownerId'] : undefined;
           if (!ownerType || !rawOwnerId) {
             return errorResult(
               `Document "${documentId}" has no ownerType/ownerId — cannot verify ownership.`
             );
           }
           if (ownerType === 'user') {
-            ownerId = rawOwnerId;
+            isAuthorized = rawOwnerId === scope.userId;
           } else {
             // team-owned schedule event — check Teams.ownerId
             const teamSnap = await firestore.collection('Teams').doc(rawOwnerId).get();
-            ownerId = teamSnap.exists
-              ? (teamSnap.data() as Record<string, unknown>)['ownerId'] as string | undefined
+            const ownerId = teamSnap.exists
+              ? ((teamSnap.data() as Record<string, unknown>)['ownerId'] as string | undefined)
               : undefined;
+            isAuthorized = !!ownerId && ownerId === scope.userId;
           }
         } else {
           // Simple dot-path: only top-level field supported
-          ownerId = docData[policy.ownershipPath] as string | undefined;
+          const ownerId = docData[policy.ownershipPath] as string | undefined;
+          isAuthorized = !!ownerId && ownerId === scope.userId;
         }
 
-        if (!ownerId || ownerId !== scope.userId) {
-          return errorResult('Forbidden: you do not own this document.');
+        if (!isAuthorized) {
+          return errorResult('Forbidden: you do not have permission to manage this document.');
         }
 
         // Execute the mutation
@@ -332,7 +345,14 @@ async function run(): Promise<void> {
             }
           } else {
             // Strip immutable/ownership fields
-            const IMMUTABLE = new Set(['id', 'userId', 'teamId', 'organizationId', 'ownerId', 'createdAt']);
+            const IMMUTABLE = new Set([
+              'id',
+              'userId',
+              'teamId',
+              'organizationId',
+              'ownerId',
+              'createdAt',
+            ]);
             filteredPatch = Object.fromEntries(
               Object.entries(patch).filter(([key]) => !IMMUTABLE.has(key))
             );

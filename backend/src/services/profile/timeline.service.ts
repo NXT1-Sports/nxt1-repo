@@ -1398,17 +1398,27 @@ export class TimelineService {
     }>
   > {
     try {
-      // Fan-out via RosterEntries: get all playerIds for this team
+      // Fan-out via RosterEntries: prefer canonical userId, fall back to legacy playerId
       const rosterSnap = await this.db
         .collection(ROSTER_ENTRIES_COLLECTION)
         .where('teamId', '==', teamId)
         .where('status', 'in', ['active', 'ghost'])
-        .select('playerId')
+        .select('userId', 'playerId')
         .get();
 
-      const playerIds = rosterSnap.docs
-        .map((doc) => doc.data()['playerId'] as string | undefined)
-        .filter((id): id is string => !!id);
+      const playerIds = [
+        ...new Set(
+          rosterSnap.docs
+            .map((doc) => {
+              const data = doc.data();
+              const userId = data['userId'];
+              if (typeof userId === 'string' && userId.trim()) return userId.trim();
+              const playerId = data['playerId'];
+              return typeof playerId === 'string' && playerId.trim() ? playerId.trim() : undefined;
+            })
+            .filter((id): id is string => !!id)
+        ),
+      ];
 
       if (playerIds.length === 0) return [];
 

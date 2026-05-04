@@ -50,6 +50,7 @@ import type {
   AgentXMessagePart,
   AgentXRichCard,
   AgentXSelectedAction,
+  AgentXToolStep,
 } from '@nxt1/core/ai';
 import {
   AGENT_X_ALLOWED_MIME_TYPES,
@@ -194,6 +195,33 @@ type ChatActivityPhase =
               [class.msg-error]="msg.error"
               [class.msg-row--wide]="msgHasDataTable(msg) || !!msg.yieldState"
             >
+              @if (hasBubbleProse(msg) || (!approvalYieldForMessage(msg) && !isAskUserYield(msg))) {
+                <nxt1-chat-bubble
+                  variant="agent-operation"
+                  [isOwn]="msg.role === 'user'"
+                  [content]="msg.content"
+                  [imageUrl]="msg.role === 'assistant' ? msg.imageUrl : undefined"
+                  [videoUrl]="msg.role === 'assistant' ? msg.videoUrl : undefined"
+                  [isStreaming]="msg.id === 'typing' && isActivityInFlight()"
+                  [typingLabel]="msg.id === 'typing' ? thinkingLabel() : 'Thinking...'"
+                  [isError]="!!msg.error"
+                  [isSystem]="msg.role === 'system'"
+                  [steps]="messageStepsForBubble(msg)"
+                  [cards]="messageCardsForBubble(msg)"
+                  [parts]="messagePartsForBubble(msg)"
+                  (billingActionResolved)="onBillingActionResolved($event)"
+                  (confirmationAction)="yieldFacade.onConfirmationAction($event)"
+                  (draftSubmitted)="yieldFacade.onDraftSubmitted($event)"
+                  (askUserReply)="yieldFacade.onAskUserReply($event)"
+                  (retryRequested)="runControlFacade.onRetryErrorMessage(msg)"
+                />
+                @if (msg.id === 'typing' && showThinking()) {
+                  <nxt1-agent-x-operation-chat-thinking
+                    class="msg-inline-thinking"
+                    [label]="thinkingLabel()"
+                  />
+                }
+              }
               @if (approvalYieldForMessage(msg); as approvalYield) {
                 <nxt1-agent-action-card
                   [yield]="approvalYield"
@@ -210,32 +238,6 @@ type ChatActivityPhase =
                   [card]="buildAskUserCardFromYield(msg)"
                   (replySubmitted)="yieldFacade.onAskUserReply($event)"
                 />
-              } @else {
-                <nxt1-chat-bubble
-                  variant="agent-operation"
-                  [isOwn]="msg.role === 'user'"
-                  [content]="msg.content"
-                  [imageUrl]="msg.role === 'assistant' ? msg.imageUrl : undefined"
-                  [videoUrl]="msg.role === 'assistant' ? msg.videoUrl : undefined"
-                  [isStreaming]="msg.id === 'typing' && isActivityInFlight()"
-                  [typingLabel]="msg.id === 'typing' ? thinkingLabel() : 'Thinking...'"
-                  [isError]="!!msg.error"
-                  [isSystem]="msg.role === 'system'"
-                  [steps]="msg.steps ?? []"
-                  [cards]="messageCardsForBubble(msg)"
-                  [parts]="messagePartsForBubble(msg)"
-                  (billingActionResolved)="onBillingActionResolved($event)"
-                  (confirmationAction)="yieldFacade.onConfirmationAction($event)"
-                  (draftSubmitted)="yieldFacade.onDraftSubmitted($event)"
-                  (askUserReply)="yieldFacade.onAskUserReply($event)"
-                  (retryRequested)="runControlFacade.onRetryErrorMessage(msg)"
-                />
-                @if (msg.id === 'typing' && showThinking()) {
-                  <nxt1-agent-x-operation-chat-thinking
-                    class="msg-inline-thinking"
-                    [label]="thinkingLabel()"
-                  />
-                }
               }
               @if (!msg.yieldState && msg.attachments?.length) {
                 <div class="msg-attachments">
@@ -2502,6 +2504,24 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     return false;
   }
 
+  /**
+   * True when a message has visible content that should render in a chat
+   * bubble alongside any yield card (approval / ask-user). When `false`,
+   * synthetic yield-only rows (content === '' and no non-yield cards)
+   * skip the bubble and render only the action/ask-user card.
+   */
+  protected hasBubbleProse(msg: OperationMessage): boolean {
+    if (msg.id === 'typing') return true;
+    if ((msg.content ?? '').trim().length > 0) return true;
+    if ((msg.attachments?.length ?? 0) > 0) return true;
+    if ((msg.imageUrl?.trim().length ?? 0) > 0) return true;
+    if ((msg.videoUrl?.trim().length ?? 0) > 0) return true;
+    if ((msg.steps?.length ?? 0) > 0) return true;
+    if (this.messageCardsForBubble(msg).length > 0) return true;
+    if (this.messagePartsForBubble(msg).length > 0) return true;
+    return false;
+  }
+
   /** Hide planner cards inline in bubbles; planner is rendered once in the composer dock. */
   protected messageCardsForBubble(msg: OperationMessage): readonly AgentXRichCard[] {
     return (msg.cards ?? []).filter(
@@ -2514,14 +2534,60 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
   /** Hide planner card parts inline in bubbles; planner is rendered once in the composer dock. */
   protected messagePartsForBubble(msg: OperationMessage): readonly AgentXMessagePart[] {
-    const filtered = (msg.parts ?? []).filter(
-      (part) =>
-        !(part.type === 'card' && part.card.type === 'planner') &&
-        !(part.type === 'card' && part.card.type === 'ask_user') &&
-        !(part.type === 'card' && this.isApprovalConfirmationCard(part.card))
-    );
+    const pendingApprovalToolIds = this.pendingApprovalToolIds();
+    const filtered = (msg.parts ?? [])
+      .map((part) => {
+        if (part.type !== 'tool-steps') return part;
+        if (!pendingApprovalToolIds.size) return part;
+        const remaining = part.steps.filter((step) => !pendingApprovalToolIds.has(step.id));
+        if (remaining.length === part.steps.length) return part;
+        return remaining.length === 0 ? null : { type: 'tool-steps' as const, steps: remaining };
+      })
+      .filter(
+        (part): part is AgentXMessagePart =>
+          part !== null &&
+          !(part.type === 'card' && part.card.type === 'planner') &&
+          !(part.type === 'card' && part.card.type === 'ask_user') &&
+          !(part.type === 'card' && this.isApprovalConfirmationCard(part.card))
+      );
 
     return this.ensureTextBeforeThinking(filtered);
+  }
+
+  /**
+   * Filter the legacy `msg.steps` array to hide tool steps whose tool call
+   * is currently awaiting user approval. The backend emits `step_active`
+   * the moment the LLM proposes a tool call — but for approval-gated tools
+   * the action hasn't actually happened yet (the agent yields awaiting_approval
+   * with the same toolCallId). Showing the in-flight step above the approval
+   * card is misleading: it implies the email was already sent. The step ids
+   * are stamped with the OpenRouter `toolCall.id` so they match
+   * `pendingToolCall.toolCallId` on the yield exactly.
+   */
+  protected messageStepsForBubble(msg: OperationMessage): readonly AgentXToolStep[] {
+    const steps = msg.steps ?? [];
+    if (!steps.length) return steps;
+    const pending = this.pendingApprovalToolIds();
+    if (!pending.size) return steps;
+    return steps.filter((step) => !pending.has(step.id));
+  }
+
+  /**
+   * Set of toolCallIds for tools currently awaiting user approval (or input)
+   * across the message timeline. Used to suppress the in-flight tool step
+   * row that would otherwise render above the approval card.
+   */
+  private pendingApprovalToolIds(): Set<string> {
+    const ids = new Set<string>();
+    for (const message of this.messages()) {
+      const ys = message.yieldState;
+      if (!ys) continue;
+      if (ys.reason !== 'needs_approval' && ys.reason !== 'needs_input') continue;
+      if (message.yieldCardState === 'resolved') continue;
+      const toolCallId = ys.pendingToolCall?.toolCallId?.trim();
+      if (toolCallId) ids.add(toolCallId);
+    }
+    return ids;
   }
 
   /**

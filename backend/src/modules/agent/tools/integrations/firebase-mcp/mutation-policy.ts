@@ -23,6 +23,9 @@ export interface MutationPolicy {
    * the parent Teams document whose id is stored in the doc's `teamId` field.
    * Special value `"__org_owner"` means the ownershipPath is "ownerId" on the
    * parent Organizations document referenced by the doc's `organizationId` field.
+   * Special value `"__org_admin_or_team_admin"` means the Organizations doc may
+   * be mutated by the organization owner, any organization admin, or a manager
+   * of any team attached to that organization.
    * Special value `"__schedule_owner"` reads `ownerType` (`'user'`|`'team'`) and
    * `ownerId` from the document: for `'user'` it matches `ownerId === scope.userId`
    * directly; for `'team'` it fetches `Teams/{ownerId}.ownerId` and matches that.
@@ -126,6 +129,13 @@ const POLICIES: readonly MutationPolicy[] = [
     ownershipPath: 'userId',
     softDelete: false,
     allowedPatchFields: ['height', 'weight', 'wingspan', 'reach', 'hand', 'fortyTime', 'vertical'],
+  },
+  {
+    collection: 'Organizations',
+    allowedOperations: ['update'],
+    ownershipPath: '__org_admin_or_team_admin',
+    softDelete: false,
+    allowedPatchFields: ['name', 'mascot', 'logoUrl', 'primaryColor', 'secondaryColor', 'location'],
   },
   // ── Team-scoped collections ─────────────────────────────────────────────────
   {

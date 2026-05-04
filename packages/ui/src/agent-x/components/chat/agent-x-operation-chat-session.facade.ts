@@ -450,6 +450,28 @@ export class AgentXOperationChatSessionFacade {
       }
     }
 
+    // ── Pass 2b: collapse assistant_partial rows (no final exists) ────────
+    // While a stream is still in flight, the backend periodically writes
+    // assistant_partial snapshots to Firestore so the work survives a crash.
+    // On a mid-stream refresh, no assistant_final exists yet to suppress these,
+    // so multiple partials render as separate bubbles (same answer twice, etc.)
+    // until the final lands and the user refreshes again. Keep only the LAST
+    // partial per operationId so the user sees the latest persisted state.
+    const partialSuppressedIds = new Set<string>();
+    const partialLastSeen = new Map<string, string>();
+    for (const item of items) {
+      if (
+        item.role === 'assistant' &&
+        item.semanticPhase === 'assistant_partial' &&
+        item.operationId &&
+        !finalOperationIds.has(item.operationId)
+      ) {
+        const prev = partialLastSeen.get(item.operationId);
+        if (prev) partialSuppressedIds.add(prev);
+        partialLastSeen.set(item.operationId, item.id);
+      }
+    }
+
     // ── Pass 3: legacy rows (no semanticPhase) ───────────────────────────
     // Collect operationIds that appear on multiple untagged assistant rows.
     const legacyMultiMap = new Map<string, AgentMessage[]>();
@@ -480,30 +502,30 @@ export class AgentXOperationChatSessionFacade {
       }
     }
 
-    if (
-      finalOperationIds.size === 0 &&
-      toolCallSuppressedIds.size === 0 &&
-      legacySuppressedIds.size === 0
-    )
-      return items;
-
     return items.filter((item, index) => {
       if (item.role !== 'assistant') return true;
+
+      // Suppress `assistant_yield` rows from rendering. These are persisted
+      // by the worker so the LLM has the prompt text in its context on
+      // resume — they are *not* user-facing. The same prompt is already
+      // shown inside the inline approval / ask-user card carried by the
+      // assistant_partial row (or the synthetic yield bubble created by
+      // applyPendingYieldState). Rendering this row produces a duplicate
+      // "Review and approve…" prose bubble alongside the card.
+      if (item.semanticPhase === 'assistant_yield') return false;
 
       const hasRenderableCard =
         (item.cards?.length ?? 0) > 0 ||
         (item.parts?.some((part) => part.type === 'card') ?? false);
 
       // When assistant_final exists for this operationId, keep only the final
-      // row and any yield rows (user-facing yield prompts). Suppress everything
-      // else — including assistant_partial snapshots and untagged trajectory
-      // rows written by ThreadMessageWriter — to prevent duplicate bubbles.
+      // row. Suppress everything else — including assistant_partial snapshots
+      // and untagged trajectory rows written by ThreadMessageWriter — to
+      // prevent duplicate bubbles. (assistant_yield rows were already
+      // suppressed above; partial rows still render any cards they hold via
+      // the `hasRenderableCard` escape hatch below.)
       if (item.operationId && finalOperationIds.has(item.operationId)) {
-        return (
-          item.semanticPhase === 'assistant_final' ||
-          item.semanticPhase === 'assistant_yield' ||
-          hasRenderableCard
-        );
+        return item.semanticPhase === 'assistant_final' || hasRenderableCard;
       }
 
       // Pause/resume cross-operation collapse:
@@ -524,6 +546,9 @@ export class AgentXOperationChatSessionFacade {
 
       // Suppress all-but-last assistant_tool_call rows (no final path).
       if (toolCallSuppressedIds.has(item.id)) return false;
+
+      // Suppress all-but-last assistant_partial rows (no final path).
+      if (partialSuppressedIds.has(item.id)) return false;
 
       // Suppress non-richest legacy duplicates (untagged rows with no final).
       if (legacySuppressedIds.has(item.id)) return false;
@@ -759,17 +784,17 @@ export class AgentXOperationChatSessionFacade {
           },
           onCard: (card) => {
             this.messageFacade.flushPendingTypingDelta();
-            this.messageFacade.messages.update((messages) =>
-              messages.map((message) => {
-                if (message.id !== 'typing') return message;
-                const nextParts = [...(message.parts ?? [])];
-                nextParts.push({ type: 'card', card });
-                return {
-                  ...message,
-                  cards: [...(message.cards ?? []), card],
-                  parts: nextParts,
-                };
-              })
+            // Route the card through the canonical attach helper so confirmation
+            // cards carrying a yieldState collapse onto the existing yield bubble
+            // instead of rendering as a second approval card on the typing row
+            // after a hard refresh (Firestore replays buffered card events from
+            // seq 0; the thread metadata yield has already produced one card via
+            // applyPendingYieldState → upsertInlineYieldMessage).
+            this.messageFacade.attachStreamedCard(
+              'typing',
+              card,
+              host.getCurrentOperationId() ?? operationId ?? host.contextId(),
+              false
             );
           },
           onMedia: (media) => {
@@ -984,7 +1009,34 @@ export class AgentXOperationChatSessionFacade {
 
       const dedupedMapped = this.dedupeConsecutiveAssistantMessages(mapped);
       const reorderedMapped = this.reorderTurnsByPairing(dedupedMapped);
-      this.messageFacade.messages.set(reorderedMapped);
+
+      // Preserve any in-flight typing bubble across the persisted-history
+      // replace. Without this, callers that synchronously inserted a typing
+      // bubble (e.g. stream-registry rehydrate on session re-entry) would see
+      // the bubble flash + disappear when this set() lands before the post-
+      // load .then() can re-insert it. Persisted history never contains a
+      // typing bubble, so this is purely additive.
+      //
+      // ALSO: drop any persisted assistant rows whose operationId matches the
+      // live in-flight operation. Those are `assistant_partial` snapshots that
+      // the backend writes periodically; the typing bubble already represents
+      // the latest live content for that operation. Without this filter, the
+      // partial renders ABOVE the typing bubble and the user sees the same
+      // sentence twice until the stream completes (assistant_final) and
+      // resolveCanonicalAssistantRows suppresses the partial on next reload.
+      const existingTyping = this.messageFacade.messages().find((m) => m.id === 'typing');
+      let persistedRows = reorderedMapped;
+      if (existingTyping) {
+        const liveOperationId = this.streamRegistry.getOperationIdForThread(threadId);
+        if (liveOperationId) {
+          persistedRows = reorderedMapped.filter(
+            (m) => m.role !== 'assistant' || m.operationId !== liveOperationId
+          );
+        }
+      }
+      this.messageFacade.messages.set(
+        existingTyping ? [...persistedRows, existingTyping] : persistedRows
+      );
 
       const latestMessageOperationId = [...canonicalItems]
         .reverse()
@@ -1150,10 +1202,9 @@ export class AgentXOperationChatSessionFacade {
 
     const snapshot = this.streamRegistry.claim(threadId, {
       onDelta: (text) => {
-        // Mirror live transport: first delta means the model is streaming text.
-        // Subsequent deltas just pulse so the gap timer doesn't prematurely
-        // flip into waiting_delta while content is actively flowing.
-        host.setActivityPhase('streaming');
+        // Mirror live transport: every delta is a pulse. The pulse handler
+        // auto-promotes waiting_delta/connected/reconnecting -> streaming and
+        // re-arms the gap timer so a quiet stretch flips back to waiting_delta.
         host.markActivityPulse();
         this.messageFacade.queueTypingDelta(text);
       },
@@ -1213,17 +1264,15 @@ export class AgentXOperationChatSessionFacade {
         // A card landing typically means a tool just emitted output; keep the
         // shimmer pulsed so it doesn't drop out before the next phase update.
         host.markActivityPulse();
-        this.messageFacade.messages.update((messages) =>
-          messages.map((message) => {
-            if (message.id !== 'typing') return message;
-            const nextParts = [...(message.parts ?? [])];
-            nextParts.push({ type: 'card', card });
-            return {
-              ...message,
-              cards: [...(message.cards ?? []), card],
-              parts: nextParts,
-            };
-          })
+        // Route through the canonical attach helper so confirmation cards
+        // carrying a yieldState collapse onto the existing yield bubble
+        // instead of stacking a duplicate approval card on the typing row
+        // when the registry replays buffered events on session re-entry.
+        this.messageFacade.attachStreamedCard(
+          'typing',
+          card,
+          host.getCurrentOperationId() ?? host.contextId(),
+          false
         );
       },
       onDone: (event) => {
@@ -1268,20 +1317,38 @@ export class AgentXOperationChatSessionFacade {
       // while we wait for the next stream callback. Without this, _activityPhase
       // stays 'idle' (the component default) and showThinking returns false even
       // though the stream is still running in the background.
+      //
+      // Use waiting_delta as the default because it always renders the shimmer,
+      // even if the typing bubble already has visible text from earlier deltas.
+      // The next real callback will move the phase forward naturally.
       if (!snapshot.done) {
         const activeStep = [...snapshot.steps].reverse().find((s) => s.status === 'active');
         if (activeStep) {
           host.setActivityPhase('running_tool', activeStep.label || null);
-        } else if (snapshot.content.length > 0) {
-          // Content already streamed → either still streaming text or waiting
-          // for the next delta. Use 'streaming' so the showThinking computed
-          // correctly suppresses the shimmer once content is visible while
-          // remaining ON if no text has been painted yet.
-          host.setActivityPhase('streaming');
         } else {
-          host.setActivityPhase('reconnecting', 'Reconnecting...');
+          host.setActivityPhase('waiting_delta');
         }
         host.loading.set(true);
+
+        // The shimmer template guard requires both an in-flight phase and a
+        // typing bubble in the message list. Insert that bubble synchronously
+        // on remount so the shimmer paints immediately, even during a silent
+        // thinking gap before the next delta/step arrives.
+        if (!this.messageFacade.messages().some((message) => message.id === 'typing')) {
+          this.messageFacade.messages.update((messages) => [
+            ...messages,
+            {
+              id: 'typing',
+              role: 'assistant',
+              content: snapshot.content,
+              timestamp: new Date(),
+              isTyping: !snapshot.content,
+              steps: snapshot.steps.length > 0 ? [...snapshot.steps] : undefined,
+              cards: snapshot.cards.length > 0 ? [...snapshot.cards] : undefined,
+              parts: snapshot.parts.length > 0 ? [...snapshot.parts] : undefined,
+            },
+          ]);
+        }
       }
 
       void this.loadThreadMessages(threadId).then(() => {
@@ -1372,6 +1439,28 @@ export class AgentXOperationChatSessionFacade {
               },
             ];
           });
+        } else {
+          // Race condition fix: loadThreadMessages calls messages.set() and
+          // wipes the synchronous typing bubble we inserted before awaiting
+          // history. When the snapshot is empty AND the stream is still
+          // in-flight (no deltas yet), we MUST re-insert the placeholder
+          // bubble — otherwise the shimmer template guard
+          // (`@if (msg.id === 'typing' && showThinking())`) sees no bubble
+          // and renders nothing while the model thinks silently.
+          this.messageFacade.messages.update((messages) =>
+            messages.some((m) => m.id === 'typing')
+              ? messages
+              : [
+                  ...messages,
+                  {
+                    id: 'typing',
+                    role: 'assistant',
+                    content: '',
+                    timestamp: new Date(),
+                    isTyping: true,
+                  },
+                ]
+          );
         }
         host.loading.set(true);
       });
@@ -1453,8 +1542,19 @@ export class AgentXOperationChatSessionFacade {
         // construction here that would hardcode tools-first/text-last order.
         this.messageFacade.messages.update((messages) => {
           if (messages.some((message) => message.id === 'typing')) return messages;
+          // Hard-refresh dedup: loadThreadMessages may have inserted persisted
+          // assistant rows for the SAME in-flight operation (e.g. preamble-only
+          // assistant_tool_call rows from earlier ReAct iterations). The typing
+          // bubble we are about to insert already represents the full live state
+          // (stored.content/steps/parts/cards from accumulated event log).
+          // Without this filter the user sees the preamble twice — once in the
+          // persisted bubble, once in the typing bubble — until assistant_final
+          // lands and the next render suppresses the partial.
+          const filtered = messages.filter(
+            (m) => m.role !== 'assistant' || m.operationId !== operationId
+          );
           return [
-            ...messages,
+            ...filtered,
             {
               id: 'typing',
               role: 'assistant',

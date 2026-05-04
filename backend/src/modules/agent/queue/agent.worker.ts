@@ -82,6 +82,7 @@ import { processRecapForUser } from '../services/weekly-recap-email.service.js';
 import { dispatchAgentPush } from '../services/agent-push-adapter.service.js';
 import { logger } from '../../../utils/logger.js';
 import { AgentGenerationService } from '../services/generation.service.js';
+import { runWithMongoEnvironmentScope } from '../../../middleware/mongo/mongo-scope.context.js';
 import crypto from 'node:crypto';
 
 const AGENT_IDENTIFIER_SET = new Set<AgentIdentifier>([
@@ -656,14 +657,23 @@ export class AgentWorker {
     // Parse URL into RedisOptions for BullMQ compatibility (includes auth)
     const connection = AgentQueueService.parseRedisUrl(url);
 
-    this.worker = new Worker(AGENT_QUEUE_NAME, async (job) => this.processJob(job), {
-      connection,
-      prefix: AGENT_QUEUE_PREFIX,
-      concurrency: WORKER_CONCURRENCY,
-      lockDuration: JOB_LOCK_DURATION_MS,
-      removeOnComplete: { age: COMPLETED_JOB_TTL_S, count: 1000 },
-      removeOnFail: { age: FAILED_JOB_TTL_S, count: 500 },
-    });
+    this.worker = new Worker(
+      AGENT_QUEUE_NAME,
+      async (job) => {
+        // BullMQ jobs run outside the Express request lifecycle, so rehydrate
+        // the Mongo environment scope from the job payload before any model access.
+        const scope = job.data.environment === 'production' ? 'production' : 'staging';
+        return runWithMongoEnvironmentScope(scope, () => this.processJob(job));
+      },
+      {
+        connection,
+        prefix: AGENT_QUEUE_PREFIX,
+        concurrency: WORKER_CONCURRENCY,
+        lockDuration: JOB_LOCK_DURATION_MS,
+        removeOnComplete: { age: COMPLETED_JOB_TTL_S, count: 1000 },
+        removeOnFail: { age: FAILED_JOB_TTL_S, count: 500 },
+      }
+    );
 
     this.attachEventListeners();
 
