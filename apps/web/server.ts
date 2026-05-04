@@ -24,6 +24,7 @@ import { CommonEngine } from '@angular/ssr/node';
 import express, { Request, Response, NextFunction } from 'express';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
+import { existsSync } from 'node:fs';
 import bootstrap from './src/main.server';
 
 // Import the SSR_AUTH_TOKEN injection token from the dedicated tokens file
@@ -42,6 +43,9 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const DIST_FOLDER = resolve(__dirname, '../browser');
 const INDEX_HTML = join(__dirname, 'index.server.html');
+
+/** CSR fallback HTML (served when SSR fails) — Angular generates index.csr.html in browser/ */
+const CSR_INDEX = join(DIST_FOLDER, 'index.csr.html');
 
 /** Cookie name for Firebase auth token */
 const AUTH_TOKEN_COOKIE = '__session';
@@ -176,19 +180,32 @@ export function createServer(): express.Express {
         res.status(200).send(html);
       })
       .catch((err) => {
-        console.error('=== SSR RENDER ERROR ===');
+        // Log the SSR error for debugging in Cloud Run logs
+        console.error('=== SSR RENDER ERROR — falling back to CSR ===');
         console.error('URL:', fullUrl);
         console.error('Error Name:', err?.name);
         console.error('Error Message:', err?.message);
         console.error('Error Stack:', err?.stack);
-        console.error('Full Error:', JSON.stringify(err, Object.getOwnPropertyNames(err), 2));
-        console.error('========================');
-        next(err);
+        console.error('=============================================');
+
+        // Serve index.html for client-side rendering fallback
+        // This ensures users see the app instead of a blank 500 error
+        res.setHeader('X-Content-Type-Options', 'nosniff');
+        res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+        res.setHeader('X-XSS-Protection', '1; mode=block');
+        res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
+        res.setHeader('X-SSR-Fallback', 'true');
+        res.status(200).sendFile(CSR_INDEX, (sendErr) => {
+          if (sendErr) {
+            console.error('CSR fallback failed:', sendErr?.message);
+            next(err); // Only use error handler as last resort
+          }
+        });
       });
   });
 
   // ============================================
-  // ERROR HANDLER
+  // ERROR HANDLER (last resort — CSR fallback failed)
   // ============================================
 
   server.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
@@ -197,16 +214,13 @@ export function createServer(): express.Express {
     console.error('Error Message:', err?.message);
     console.error('Error Stack:', err?.stack);
     console.error('============================');
-    res.status(500).send(`
-      <!DOCTYPE html>
-      <html>
-        <head><title>Server Error</title></head>
-        <body>
-          <h1>Something went wrong</h1>
-          <p>Please try again later.</p>
-        </body>
-      </html>
-    `);
+    // Last-resort: try sending CSR index.csr.html, fall back to plain 500
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.sendFile(CSR_INDEX, (sendErr) => {
+      if (sendErr) {
+        res.status(500).send('Internal Server Error');
+      }
+    });
   });
 
   return server;
@@ -227,6 +241,17 @@ function run(): void {
     console.log(`  __dirname: ${__dirname}`);
     console.log(`  DIST_FOLDER: ${DIST_FOLDER}`);
     console.log(`  INDEX_HTML: ${INDEX_HTML}`);
+
+    // Verify critical files exist at startup
+    const distExists = existsSync(DIST_FOLDER);
+    const indexExists = existsSync(INDEX_HTML);
+    const csrExists = existsSync(CSR_INDEX);
+    console.log(`  DIST_FOLDER exists: ${distExists}`);
+    console.log(`  INDEX_HTML exists: ${indexExists}`);
+    console.log(`  CSR index.csr.html exists: ${csrExists} (${CSR_INDEX})`);
+    if (!distExists || !indexExists) {
+      console.error('CRITICAL: Required files missing! Check build output.');
+    }
 
     const server = createServer();
     const port = Number(process.env['PORT']) || 8080;

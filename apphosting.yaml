@@ -26,9 +26,10 @@ env:
   - variable: NODE_ENV
     value: 'production'
 
-  # Allow SSR for Firebase App Hosting domains (Angular CommonEngine host validation)
+  # Allow SSR for ALL hosts (Firebase App Hosting handles security at the load balancer)
+  # Using wildcard to avoid host mismatch issues with envoy proxy
   - variable: NG_ALLOWED_HOSTS
-    value: 'nxt1-repo--nxt-1-v2.us-east4.hosted.app,nxt1-repo--nxt-1-staging-v2.us-east4.hosted.app,localhost,127.0.0.1'
+    value: '*'
 
   # App Hosting builds @nxt1/core as part of the web pipeline, and that build
   # needs devDependencies for TypeScript declarations (e.g. vitest and type-only packages).
