@@ -21,7 +21,6 @@
  */
 
 import { Injectable, inject, signal, computed } from '@angular/core';
-import { AlertController } from '@ionic/angular/standalone';
 import { Capacitor } from '@capacitor/core';
 import { App as CapacitorApp } from '@capacitor/app';
 import { Device } from '@capacitor/device';
@@ -62,7 +61,6 @@ interface LiveUpdaterPlugin {
 export class LiveUpdateService {
   private readonly firestore = inject(Firestore);
   private readonly logger: ILogger = inject(NxtLoggingService).child('LiveUpdateService');
-  private readonly alertController = inject(AlertController);
 
   private readonly _checking = signal(false);
   private readonly _applying = signal(false);
@@ -83,18 +81,36 @@ export class LiveUpdateService {
    * Lazily resolves the Capgo updater plugin. We avoid a static import so the
    * web build (and SSR) doesn't pull native code paths.
    */
-  private async getUpdater(): Promise<LiveUpdaterPlugin | null> {
-    if (!Capacitor.isNativePlatform()) return null;
-    try {
-      // Dynamic import keeps web bundles clean.
-      const mod = (await import('@capgo/capacitor-updater')) as unknown as {
-        CapacitorUpdater: LiveUpdaterPlugin;
-      };
-      return mod.CapacitorUpdater;
-    } catch (err) {
-      this.logger.warn('Capgo updater plugin not installed; skipping OTA', { err: String(err) });
-      return null;
+  private updaterInstance: LiveUpdaterPlugin | null = null;
+  private updaterLoaded = false;
+
+  /**
+   * Capacitor's registerPlugin() returns a Proxy that traps ALL property
+   * access — including `.then()`. The Promise/A+ spec requires that any
+   * value resolved from a Promise is checked for a `.then()` method
+   * (thenable assimilation). This means we can NEVER resolve a Promise
+   * with a Capacitor plugin Proxy, or the runtime will call `.then()`
+   * on it and the native bridge will throw.
+   *
+   * Solution: load the plugin synchronously into a field via a void
+   * Promise, then access it via a sync getter.
+   */
+  private ensureUpdaterLoaded(): Promise<void> {
+    if (this.updaterLoaded) return Promise.resolve();
+    if (!Capacitor.isNativePlatform()) {
+      this.updaterLoaded = true;
+      return Promise.resolve();
     }
+    return import('@capgo/capacitor-updater').then(
+      (mod) => {
+        this.updaterInstance = mod.CapacitorUpdater as unknown as LiveUpdaterPlugin;
+        this.updaterLoaded = true;
+      },
+      (err) => {
+        this.logger.warn('Capgo updater plugin not installed; skipping OTA', { err: String(err) });
+        this.updaterLoaded = true;
+      }
+    );
   }
 
   /**
@@ -107,7 +123,8 @@ export class LiveUpdateService {
       return;
     }
 
-    const updater = await this.getUpdater();
+    await this.ensureUpdaterLoaded();
+    const updater = this.updaterInstance;
     if (!updater) {
       this._lastResult.set({ status: 'skipped', reason: 'not-native' });
       return;
@@ -132,37 +149,9 @@ export class LiveUpdateService {
     const result = await this.checkForUpdate(updater);
     this._lastResult.set(result);
 
-    if (!environment.production) {
-      void this.showDebugAlert(result);
-    }
-
     if (result.status === 'available') {
       await this.applyUpdate(updater, result.manifest);
     }
-  }
-
-  private async showDebugAlert(result: LiveUpdateCheckResult): Promise<void> {
-    const current = this._currentVersion();
-    const state = await this.loadState();
-
-    let message = `<b>Status:</b> ${result.status}`;
-    if (result.status === 'skipped') message += `<br><b>Reason:</b> ${result.reason}`;
-    if (result.status === 'error') message += `<br><b>Error:</b> ${result.error}`;
-    if (result.status === 'available') {
-      message += `<br><b>New version:</b> ${result.manifest.version}`;
-      message += `<br><b>Min native:</b> ${result.manifest.minNativeVersion}`;
-    }
-    message += `<br><br><b>Bundle (Capgo):</b> ${current ?? 'native shell'}`;
-    message += `<br><b>App version:</b> ${environment.appVersion}`;
-    message += `<br><b>Failures:</b> ${state.failureCount} / 3`;
-    message += `<br><b>Last check:</b> ${state.lastCheckedAt ?? 'never'}`;
-
-    const alert = await this.alertController.create({
-      header: '🔄 OTA Check',
-      message,
-      buttons: ['OK'],
-    });
-    await alert.present();
   }
 
   /**
@@ -234,7 +223,8 @@ export class LiveUpdateService {
    * crashing or for manual rollback.
    */
   async resetToNativeBundle(): Promise<void> {
-    const updater = await this.getUpdater();
+    await this.ensureUpdaterLoaded();
+    const updater = this.updaterInstance;
     if (!updater) return;
     try {
       await updater.reset({ toLastSuccessful: false });

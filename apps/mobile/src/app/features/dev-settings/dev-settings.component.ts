@@ -523,9 +523,19 @@ export class DevSettingsComponent {
   }
 
   async otaForceCheck(): Promise<void> {
-    await this.liveUpdate.initialize();
-    await this.loadOtaState();
-    await this.showToast('OTA check complete — see alert', 'success');
+    try {
+      await this.liveUpdate.initialize();
+      await this.loadOtaState();
+      const result = this.liveUpdate.lastResult();
+      const isNative = result?.status !== 'skipped' || result?.reason !== 'not-native';
+      const msg = isNative
+        ? 'OTA check complete — see alert'
+        : `OTA skipped: not a native platform (status: ${result?.status ?? 'unknown'})`;
+      await this.showToast(msg, 'success');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      await this.showToast(`OTA check failed: ${message}`, 'danger');
+    }
   }
 
   async otaResetCircuitBreaker(): Promise<void> {
