@@ -46,6 +46,10 @@ env:
     secret: FFMPEG_MCP_API_TOKEN
     availability:
       - RUNTIME
+  - variable: CLOUDFLARE_WEBHOOK_SECRET
+    secret: CLOUDFLARE_WEBHOOK_SECRET
+    availability:
+      - RUNTIME
   - variable: CHART_MCP_URL
     secret: CHART_MCP_URL
     availability:

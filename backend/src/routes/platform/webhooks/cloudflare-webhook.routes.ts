@@ -46,19 +46,35 @@ function getCloudflareHighlightPostId(cloudflareVideoId: string): string {
  *
  * @see https://developers.cloudflare.com/stream/manage-video-library/using-webhooks/#verify-webhook-authenticity
  */
-function verifySignature(rawBody: string, signatureHeader: string, secret: string): boolean {
-  if (!secret || !signatureHeader) return false;
+function verifySignature(
+  rawBody: string,
+  signatureHeader: string,
+  secret: string,
+  debugTag = ''
+): boolean {
+  if (!secret || !signatureHeader) {
+    logger.warn(
+      `${debugTag} verifySignature: missing secret=${!secret} or header=${!signatureHeader}`
+    );
+    return false;
+  }
 
   try {
     // Cloudflare sends: time=<timestamp>,sig1=<hex_signature>
-    // Parse the signature components
     const parts = signatureHeader.split(',');
     const timePart = parts.find((p) => p.startsWith('time='));
     const sigPart = parts.find((p) => p.startsWith('sig1='));
 
+    logger.info(
+      `${debugTag} CF sig debug: rawBodySource=${rawBody.length > 0 ? 'ok' : 'empty'} rawBodyLen=${rawBody.length} headerParsed=${!!(timePart && sigPart)} header=${signatureHeader.slice(0, 60)}`
+    );
+
     if (!timePart || !sigPart) {
       // Fallback: treat entire header as plain hex signature
       const expected = crypto.createHmac('sha256', secret).update(rawBody).digest('hex');
+      logger.info(
+        `${debugTag} CF sig fallback: recv=${signatureHeader.slice(0, 12)}... exp=${expected.slice(0, 12)}...`
+      );
       return crypto.timingSafeEqual(Buffer.from(signatureHeader), Buffer.from(expected));
     }
 
@@ -69,10 +85,17 @@ function verifySignature(rawBody: string, signatureHeader: string, secret: strin
     const signedPayload = `${timestamp}.${rawBody}`;
     const expected = crypto.createHmac('sha256', secret).update(signedPayload).digest('hex');
 
+    logger.info(
+      `${debugTag} CF sig compare: recv=${signature.slice(0, 12)}... exp=${expected.slice(0, 12)}... match=${signature === expected}`
+    );
+
     // Constant-time comparison to prevent timing attacks
     if (signature.length !== expected.length) return false;
     return crypto.timingSafeEqual(Buffer.from(signature, 'hex'), Buffer.from(expected, 'hex'));
-  } catch {
+  } catch (err) {
+    logger.error(`${debugTag} verifySignature threw`, {
+      error: err instanceof Error ? err.message : String(err),
+    });
     return false;
   }
 }
@@ -93,14 +116,18 @@ router.post('/', async (req: Request, res: Response) => {
     // ── 1. Signature verification ────────────────────────────────────────
     if (WEBHOOK_SECRET) {
       const signature = req.headers['webhook-signature'] as string | undefined;
+      const rawBodySource = req.rawBody ? 'rawBody' : 'stringified';
       const rawBody = req.rawBody || JSON.stringify(req.body);
+      logger.info(
+        `${tag} signature check: rawBodySource=${rawBodySource} rawBodyLen=${rawBody.length}`
+      );
 
       if (!signature) {
         logger.warn(`${tag} Missing Webhook-Signature header`);
         return res.status(401).json({ error: 'Missing Webhook-Signature header' });
       }
 
-      if (!verifySignature(rawBody, signature, WEBHOOK_SECRET)) {
+      if (!verifySignature(rawBody, signature, WEBHOOK_SECRET, tag)) {
         logger.warn(`${tag} Invalid webhook signature`);
         return res.status(401).json({ error: 'Invalid signature' });
       }

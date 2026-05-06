@@ -255,6 +255,17 @@ export class WriteTeamPostTool extends BaseTool {
                   cloudflareStatus: 'inprogress',
                   readyToStream: false,
                   mediaUrl: null,
+                  // Save embed URLs now — iframe works even while video is processing
+                  ...(cfResult.iframeUrl ? { iframeUrl: cfResult.iframeUrl } : {}),
+                  ...(cfResult.hlsUrl ? { videoUrl: cfResult.hlsUrl } : {}),
+                  ...(cfResult.iframeUrl
+                    ? {
+                        playback: {
+                          hlsUrl: cfResult.hlsUrl ?? undefined,
+                          iframeUrl: cfResult.iframeUrl,
+                        },
+                      }
+                    : {}),
                 }),
             engagement: { likeCount: 0, commentCount: 0, shareCount: 0, viewCount: 0 },
             createdAt: resolveCreatedAt(undefined, undefined, now),
@@ -553,6 +564,8 @@ export class WriteTeamPostTool extends BaseTool {
             iframeUrl: normalized.playback.iframeUrl,
           }
         );
+        // Start a background poller — works even on localhost (no webhook needed)
+        this.startBackgroundVideoPoller(docId, videoId, userId);
         return;
       }
 
@@ -588,5 +601,138 @@ export class WriteTeamPostTool extends BaseTool {
         error: err instanceof Error ? err.message : String(err),
       });
     }
+  }
+
+  /**
+   * Fire-and-forget background poller.
+   * Polls Cloudflare every 15 seconds for up to 10 minutes until the video
+   * becomes ready, then updates the Firestore post and invalidates caches.
+   * Works on localhost (no webhook delivery required).
+   */
+  private startBackgroundVideoPoller(docId: string, videoId: string, userId: string): void {
+    const accountId = process.env['CLOUDFLARE_ACCOUNT_ID'];
+    const apiToken = process.env['CLOUDFLARE_API_TOKEN'];
+    const customerCode = process.env['CLOUDFLARE_STREAM_CUSTOMER_CODE'];
+
+    if (!accountId || !apiToken) return;
+
+    const POLL_INTERVAL_MS = 15_000; // 15 seconds
+    const MAX_ATTEMPTS = 40; // 10 minutes total
+    let attempts = 0;
+
+    const poll = async (): Promise<void> => {
+      attempts++;
+      try {
+        const response = await fetch(
+          `${CLOUDFLARE_API_BASE_URL}/accounts/${accountId}/stream/${videoId}`,
+          { headers: { Authorization: `Bearer ${apiToken}` } }
+        );
+
+        if (!response.ok) {
+          logger.warn('[WriteTeamPostTool] Background poller got non-2xx from CF', {
+            cloudflareVideoId: videoId,
+            docId,
+            status: response.status,
+            attempt: attempts,
+          });
+          if (attempts < MAX_ATTEMPTS)
+            setTimeout(() => {
+              void poll();
+            }, POLL_INTERVAL_MS);
+          return;
+        }
+
+        const body = (await response.json()) as Record<string, unknown>;
+        const result = body['result'] as Record<string, unknown> | null | undefined;
+        if (!result) {
+          if (attempts < MAX_ATTEMPTS)
+            setTimeout(() => {
+              void poll();
+            }, POLL_INTERVAL_MS);
+          return;
+        }
+
+        const normalized = normalizeCloudflareVideoForClient(videoId, result, customerCode);
+        logger.info('[WriteTeamPostTool] Background poller check', {
+          cloudflareVideoId: videoId,
+          docId,
+          attempt: attempts,
+          status: normalized.status,
+          readyToStream: normalized.readyToStream,
+        });
+
+        if (!normalized.readyToStream || !normalized.playback.iframeUrl) {
+          if (attempts < MAX_ATTEMPTS)
+            setTimeout(() => {
+              void poll();
+            }, POLL_INTERVAL_MS);
+          return;
+        }
+
+        // Video is ready — update Firestore
+        await this.db
+          .collection(POSTS_COLLECTION)
+          .doc(docId)
+          .update({
+            cloudflareStatus: normalized.status,
+            readyToStream: true,
+            mediaUrl: normalized.playback.iframeUrl,
+            videoUrl: normalized.playback.hlsUrl,
+            duration: normalized.durationSeconds,
+            playback: normalized.playback,
+            ...(normalized.thumbnailUrl
+              ? { thumbnailUrl: normalized.thumbnailUrl, poster: normalized.thumbnailUrl }
+              : {}),
+            updatedAt: Timestamp.now(),
+          });
+
+        // Invalidate all caches for this team post
+        const cache = getCacheService();
+        const postDoc = await this.db.collection(POSTS_COLLECTION).doc(docId).get();
+        const teamId = postDoc.data()?.['teamId'] as string | undefined;
+        if (teamId) {
+          const teamDoc = await this.db.collection(TEAMS_COLLECTION).doc(teamId).get();
+          const teamCode = teamDoc.data()?.['teamCode'] as string | undefined;
+          if (teamCode) {
+            await Promise.all([
+              cache.delByPrefix(`team:timeline:v1:${teamCode}:`),
+              cache.delByPrefix(`team:profile:code:${teamCode}:`),
+              cache.delByPrefix(`team:profile:id:${teamId}:`),
+            ]);
+          }
+        }
+
+        logger.info('[WriteTeamPostTool] Background poller updated video post to ready', {
+          cloudflareVideoId: videoId,
+          docId,
+          userId,
+          attempts,
+        });
+      } catch (err) {
+        logger.warn('[WriteTeamPostTool] Background poller error', {
+          cloudflareVideoId: videoId,
+          docId,
+          attempt: attempts,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        if (attempts < MAX_ATTEMPTS)
+          setTimeout(() => {
+            void poll();
+          }, POLL_INTERVAL_MS);
+      }
+    };
+
+    // First retry after initial interval
+    setTimeout(() => {
+      void poll();
+    }, POLL_INTERVAL_MS);
+
+    logger.info('[WriteTeamPostTool] Background video poller started', {
+      cloudflareVideoId: videoId,
+      docId,
+      userId,
+      pollIntervalMs: POLL_INTERVAL_MS,
+      maxAttempts: MAX_ATTEMPTS,
+    });
   }
 }
