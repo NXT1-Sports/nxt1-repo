@@ -1,17 +1,32 @@
 /**
- * @fileoverview Analytics Service - Backend Event Relay
+ * @fileoverview Analytics Service - Firebase Analytics for Web
  * @module @nxt1/web/core/services
  *
- * Web analytics now flow through the backend-owned analytics pipeline instead of
- * direct Firebase SDK calls from the browser layer. This keeps Mongo rollups as
- * the reporting source of truth while preserving the shared AnalyticsAdapter API.
+ * Web product telemetry is sent to Firebase Analytics / GA4. Agent-facing
+ * Mongo analytics should only be populated by dedicated backend engagement
+ * endpoints, not generic browser telemetry.
  */
 
 import { Injectable, inject, PLATFORM_ID } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
-import type { AnalyticsAdapter, UserProperties } from '@nxt1/core/analytics';
-import { APP_EVENTS, FIREBASE_EVENTS, getEventCategory } from '@nxt1/core/analytics';
+import {
+  APP_EVENTS,
+  FIREBASE_EVENTS,
+  createFirebaseAnalyticsAdapter,
+  getEventCategory,
+  type AnalyticsAdapter,
+  type UserProperties,
+} from '@nxt1/core/analytics';
 import type { ILogger } from '@nxt1/core/logging';
+import { getApp, getApps, initializeApp } from 'firebase/app';
+import {
+  getAnalytics,
+  isSupported,
+  logEvent,
+  setAnalyticsCollectionEnabled,
+  setUserId,
+  setUserProperties,
+} from 'firebase/analytics';
 import { LoggingService } from './logging.service';
 import { environment } from '../../../../environments/environment';
 
@@ -39,8 +54,10 @@ import { environment } from '../../../../environments/environment';
 export class AnalyticsService implements AnalyticsAdapter {
   private readonly platformId = inject(PLATFORM_ID);
   private readonly logger: ILogger;
-  private readonly relayEndpoint = `${environment.apiURL}/analytics/events`;
-  private readonly sessionId = this.createSessionId();
+  private adapter: AnalyticsAdapter | null = null;
+  private readonly pendingOperations: Array<(adapter: AnalyticsAdapter) => void> = [];
+  private readonly initPromise: Promise<void>;
+  private initialized = false;
 
   /** Current user ID for event enrichment */
   private currentUserId: string | null = null;
@@ -57,6 +74,7 @@ export class AnalyticsService implements AnalyticsAdapter {
   constructor() {
     const loggingService = inject(LoggingService);
     this.logger = loggingService.child('Analytics');
+    this.initPromise = this.initializeAdapter();
   }
 
   /** Whether we're in browser environment */
@@ -86,13 +104,8 @@ export class AnalyticsService implements AnalyticsAdapter {
     const category = getEventCategory(eventName);
 
     this.logger.debug(`[${category}] ${eventName}`, enrichedProps);
-    this.relayEvent({
-      eventName,
-      properties: enrichedProps,
-      userId: this.currentUserId,
-      userProperties: this.normalizeUserProperties(this.userProps),
-      sessionId: this.sessionId,
-      tags: [category],
+    this.runWhenReady((adapter) => {
+      adapter.trackEvent(eventName, enrichedProps);
     });
   }
 
@@ -114,15 +127,8 @@ export class AnalyticsService implements AnalyticsAdapter {
     });
 
     this.logger.debug('Page View', { pagePath, ...payload });
-    this.relayEvent({
-      eventName: 'page_view',
-      pagePath,
-      pageTitle,
-      properties: payload,
-      userId: this.currentUserId,
-      userProperties: this.normalizeUserProperties(this.userProps),
-      sessionId: this.sessionId,
-      tags: ['navigation'],
+    this.runWhenReady((adapter) => {
+      adapter.trackPageView(pagePath, pageTitle, payload);
     });
   }
 
@@ -134,9 +140,10 @@ export class AnalyticsService implements AnalyticsAdapter {
   setUserId(userId: string | null): void {
     this.currentUserId = userId;
 
-    if (!this.isEnabled) return;
-
     this.logger.debug('Set User ID', { userId });
+    this.runWhenReady((adapter) => {
+      adapter.setUserId(userId);
+    }, false);
   }
 
   /**
@@ -147,9 +154,10 @@ export class AnalyticsService implements AnalyticsAdapter {
   setUserProperties(properties: UserProperties): void {
     this.userProps = { ...this.userProps, ...properties };
 
-    if (!this.isEnabled) return;
-
     this.logger.debug('Set User Properties', properties);
+    this.runWhenReady((adapter) => {
+      adapter.setUserProperties(this.normalizeUserProperties(properties));
+    }, false);
   }
 
   /**
@@ -159,16 +167,17 @@ export class AnalyticsService implements AnalyticsAdapter {
     this.currentUserId = null;
     this.userProps = {};
 
-    if (!this.isEnabled) return;
-
     this.logger.debug('User cleared');
+    this.runWhenReady((adapter) => {
+      adapter.clearUser();
+    }, false);
   }
 
   /**
    * Check if analytics is initialized
    */
   isInitialized(): boolean {
-    return this.isEnabled;
+    return this.isEnabled && this.initialized && this.adapter?.isInitialized() === true;
   }
 
   /**
@@ -185,10 +194,16 @@ export class AnalyticsService implements AnalyticsAdapter {
   setEnabled(enabled: boolean): void {
     this.analyticsEnabled = enabled;
     this.logger.info(`Analytics ${enabled ? 'enabled' : 'disabled'}`);
+    this.runWhenReady((adapter) => {
+      adapter.setEnabled(enabled);
+    }, false);
   }
 
   setDefaultEventParams(params: Record<string, unknown>): void {
     this.defaultEventParams = { ...this.defaultEventParams, ...params };
+    this.runWhenReady((adapter) => {
+      adapter.setDefaultEventParams?.(params);
+    }, false);
   }
 
   trackTiming(category: string, name: string, value: number): void {
@@ -311,49 +326,87 @@ export class AnalyticsService implements AnalyticsAdapter {
     return Object.fromEntries(Object.entries(enriched).filter(([, value]) => value !== undefined));
   }
 
-  private relayEvent(payload: {
-    readonly eventName: string;
-    readonly pagePath?: string;
-    readonly pageTitle?: string;
-    readonly properties?: Record<string, unknown>;
-    readonly userId?: string | null;
-    readonly userProperties?: Record<string, string | number | boolean>;
-    readonly sessionId: string;
-    readonly tags?: readonly string[];
-  }): void {
-    if (!this.isBrowser) return;
-
-    const body = JSON.stringify(payload);
+  private async initializeAdapter(): Promise<void> {
+    if (!this.isBrowser) {
+      return;
+    }
 
     try {
-      if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
-        const accepted = navigator.sendBeacon(
-          this.relayEndpoint,
-          new Blob([body], { type: 'application/json' })
-        );
+      this.adapter = await createFirebaseAnalyticsAdapter({
+        firebaseConfig: environment.firebase,
+        debug: !environment.production,
+        enabled: this.analyticsEnabled,
+        platform: 'web',
+        appVersion: environment.appVersion || environment.version,
+        firebaseSdk: {
+          initializeApp,
+          getApps,
+          getApp,
+          getAnalytics,
+          logEvent,
+          setUserId,
+          setUserProperties,
+          setAnalyticsCollectionEnabled,
+          isSupported,
+        },
+      });
 
-        if (accepted) {
-          return;
-        }
+      this.adapter.setDefaultEventParams?.(this.defaultEventParams);
+      this.adapter.setEnabled(this.analyticsEnabled);
+
+      if (this.currentUserId) {
+        this.adapter.setUserId(this.currentUserId);
       }
+
+      const normalizedUserProps = this.normalizeUserProperties(this.userProps);
+      if (Object.keys(normalizedUserProps).length > 0) {
+        this.adapter.setUserProperties(normalizedUserProps);
+      }
+
+      this.initialized = this.adapter.isInitialized();
+      this.flushPendingOperations();
+      this.logger.info('Firebase Analytics initialized', {
+        initialized: this.initialized,
+      });
     } catch (error) {
-      this.logger.debug('Analytics beacon relay fallback engaged', {
+      this.pendingOperations.length = 0;
+      this.logger.warn('Firebase Analytics initialization failed', {
         error: error instanceof Error ? error.message : String(error),
       });
     }
+  }
 
-    void fetch(this.relayEndpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      keepalive: true,
-      body,
-    }).catch((error: unknown) => {
-      this.logger.debug('Analytics relay skipped', {
-        error: error instanceof Error ? error.message : String(error),
-        eventName: payload.eventName,
-      });
-    });
+  private flushPendingOperations(): void {
+    if (!this.adapter) {
+      this.pendingOperations.length = 0;
+      return;
+    }
+
+    const operations = this.pendingOperations.splice(0, this.pendingOperations.length);
+    for (const operation of operations) {
+      operation(this.adapter);
+    }
+  }
+
+  private runWhenReady(
+    operation: (adapter: AnalyticsAdapter) => void,
+    requireEnabled = true
+  ): void {
+    if (!this.isBrowser) {
+      return;
+    }
+
+    if (requireEnabled && !this.analyticsEnabled) {
+      return;
+    }
+
+    if (this.adapter) {
+      operation(this.adapter);
+      return;
+    }
+
+    this.pendingOperations.push(operation);
+    void this.initPromise;
   }
 
   private normalizeUserProperties(
@@ -365,9 +418,5 @@ export class AnalyticsService implements AnalyticsAdapter {
           typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
       )
     ) as Record<string, string | number | boolean>;
-  }
-
-  private createSessionId(): string {
-    return `web_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
   }
 }

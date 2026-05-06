@@ -1100,6 +1100,7 @@ const VIEW_DEFINITIONS: Record<FirebaseViewName, FirebaseViewDefinition> = {
             'conference',
             'division',
             'logoUrl',
+            'galleryImages',
             'primaryColor',
             'secondaryColor',
             'city',

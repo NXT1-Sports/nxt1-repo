@@ -3,13 +3,12 @@
  * @module @nxt1/ui/agent-x
  *
  * Uploads Agent X chat video attachments through the backend-controlled
- * provision → PUT pipeline. The backend decides whether the upload target is a
- * fast temp-media proxy or a signed storage URL suitable for immediate AI use.
+ * provision → PUT pipeline backed by Firebase Storage signed URLs.
  *
  * Flow:
  *   1. POST /agent-x/upload/video  → { uploadUrl, readUrl, storagePath }
  *   2. XHR PUT uploadUrl  → 200 on completion
- *   3. readUrl is the backend-resolved URL passed to the AI tools
+ *   3. readUrl is the signed Firebase/GCS URL passed to the AI tools
  *
  * Progress is emitted via Observable<VideoUploadProgress> using XHR upload
  * progress events (fetch API does not expose upload progress).
@@ -62,16 +61,6 @@ interface VideoProvisionResponse {
   readonly success: boolean;
   readonly data?: {
     readonly uploadUrl: string;
-    readonly readUrl: string;
-    readonly storagePath: string;
-    readonly expiresAt: string;
-  };
-  readonly error?: string;
-}
-
-interface VideoProxyUploadResponse {
-  readonly success: boolean;
-  readonly data?: {
     readonly readUrl: string;
     readonly storagePath: string;
     readonly expiresAt: string;
@@ -243,97 +232,21 @@ export class AgentXVideoUploadService {
       });
       subject.complete();
     } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Video upload to storage failed';
       this.logger.error('Firebase Storage PUT failed', err, {
         name: file.name,
         storagePath,
+        sizeBytes: file.size,
+        mimeType: file.type,
       });
-
-      // CORS-safe fallback: proxy upload through backend for local-dev and
-      // environments where bucket CORS has not yet been configured.
-      try {
-        this.logger.warn('Falling back to backend video proxy upload', {
-          name: file.name,
-          sizeBytes: file.size,
-          mimeType: file.type,
-        });
-
-        const fallback = await this._uploadViaProxy(file, authToken, threadId);
-
-        this.logger.info('Video uploaded via backend proxy fallback', {
-          name: file.name,
-          storagePath: fallback.storagePath,
-          expiresAt: fallback.expiresAt,
-        });
-
-        this.analytics?.trackEvent(APP_EVENTS.VIDEO_UPLOADED, {
-          source: 'agent-x-chat',
-          mimeType: file.type,
-          sizeBytes: file.size,
-          storageBackend: 'firebase-proxy',
-        });
-
-        subject.next({
-          phase: 'complete',
-          percent: 100,
-          streamUrl: fallback.readUrl,
-          storagePath: fallback.storagePath,
-        });
-        subject.complete();
-        return;
-      } catch (fallbackErr) {
-        const msg =
-          fallbackErr instanceof Error ? fallbackErr.message : 'Video upload to storage failed';
-        this.logger.error(
-          'Backend proxy upload fallback failed after direct PUT error',
-          fallbackErr,
-          {
-            name: file.name,
-            storagePath,
-            sizeBytes: file.size,
-            mimeType: file.type,
-          }
-        );
-        this.breadcrumb.trackStateChange('agent-x-video-upload:error', {
-          name: file.name,
-          phase: 'uploading',
-          storagePath,
-        });
-        subject.next({ phase: 'error', percent: 0, errorMessage: msg });
-        subject.complete();
-      }
+      this.breadcrumb.trackStateChange('agent-x-video-upload:error', {
+        name: file.name,
+        phase: 'uploading',
+        storagePath,
+      });
+      subject.next({ phase: 'error', percent: 0, errorMessage: msg });
+      subject.complete();
     }
-  }
-
-  private async _uploadViaProxy(
-    file: File,
-    authToken: string,
-    threadId: string | null
-  ): Promise<{ readUrl: string; storagePath: string; expiresAt: string }> {
-    const formData = new FormData();
-    formData.append('file', file);
-    if (threadId) {
-      formData.append('threadId', threadId);
-    }
-
-    const response = await fetch(`${this.baseUrl}${AGENT_X_ENDPOINTS.VIDEO_UPLOAD_PROXY}`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${authToken}`,
-      },
-      body: formData,
-    });
-
-    if (!response.ok) {
-      const errText = await response.text().catch(() => `HTTP ${response.status}`);
-      throw new Error(`Proxy upload failed: ${errText}`);
-    }
-
-    const payload = (await response.json()) as VideoProxyUploadResponse;
-    if (!payload.success || !payload.data) {
-      throw new Error(payload.error ?? 'Proxy upload failed');
-    }
-
-    return payload.data;
   }
   /**
    * Retry direct PUT once for transient network/browser failures.

@@ -683,8 +683,6 @@ export const AGENT_X_ENDPOINTS = {
   CLOUDFLARE_DIRECT_URL: '/upload/cloudflare/direct-url',
   /** Provision a Firebase Storage signed upload URL for Agent X chat video attachments */
   VIDEO_UPLOAD_PROVISION: '/agent-x/upload/video',
-  /** Proxy video upload through backend when direct GCS upload is blocked (e.g., local CORS) */
-  VIDEO_UPLOAD_PROXY: '/agent-x/upload/video/proxy',
   /** Upload a file to the temporary scratch folder (worker output, staged uploads, scraped assets) */
   UPLOAD_TMP: '/agent-x/upload/tmp',
   /** Promote a file from the tmp folder to permanent media storage (copy + delete original) */

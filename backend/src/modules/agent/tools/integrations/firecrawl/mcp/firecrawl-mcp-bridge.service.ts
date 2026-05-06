@@ -167,18 +167,30 @@ const SearchResponseSchema = z.union([
 ]);
 
 /** Schema for firecrawl_map output — array of discovered URLs. */
+const MapLinkObjectSchema = z
+  .object({
+    url: z.string().trim().optional(),
+    href: z.string().trim().optional(),
+    link: z.string().trim().optional(),
+  })
+  .passthrough();
+
+const MapLinkEntrySchema = z.union([z.string().trim(), MapLinkObjectSchema]);
+
 const MapResponseSchema = z.union([
-  z.array(z.string().url()),
+  z.array(MapLinkEntrySchema),
   z
     .object({
-      urls: z.array(z.string()).optional(),
-      links: z.array(z.string()).optional(),
+      urls: z.array(MapLinkEntrySchema).optional(),
+      links: z.array(MapLinkEntrySchema).optional(),
     })
     .passthrough()
     .refine((payload) => payload.urls !== undefined || payload.links !== undefined, {
       message: 'Map response must include urls or links array',
     }),
 ]);
+
+type MapResponsePayload = z.infer<typeof MapResponseSchema>;
 
 /** Schema for firecrawl_extract output — structured extraction result. */
 const ExtractResponseSchema = JsonValueSchema;
@@ -253,6 +265,36 @@ export interface FirecrawlMapOptions {
   readonly includeSubdomains?: boolean;
   readonly sitemap?: 'include' | 'skip' | 'only';
   readonly ignoreQueryParameters?: boolean;
+}
+
+function isHttpUrl(value: string): boolean {
+  if (!value.startsWith('http://') && !value.startsWith('https://')) return false;
+
+  try {
+    new URL(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function normalizeMapResponse(payload: MapResponsePayload): string[] {
+  const entries = Array.isArray(payload)
+    ? payload
+    : [...(payload.urls ?? []), ...(payload.links ?? [])];
+
+  const deduped = new Set<string>();
+  for (const entry of entries) {
+    const candidate =
+      typeof entry === 'string'
+        ? entry.trim()
+        : (entry.url ?? entry.href ?? entry.link ?? '').trim();
+
+    if (!candidate || !isHttpUrl(candidate)) continue;
+    deduped.add(candidate);
+  }
+
+  return [...deduped];
 }
 
 export interface FirecrawlExtractOptions {
@@ -438,7 +480,7 @@ export class FirecrawlMcpBridgeService extends BaseMcpClientService {
    * @param options - Search filter, subdomain inclusion, limit.
    * @returns Array of discovered URLs.
    */
-  async map(url: string, options?: FirecrawlMapOptions): Promise<unknown> {
+  async map(url: string, options?: FirecrawlMapOptions): Promise<string[]> {
     const args: Record<string, unknown> = { url };
     if (options?.search) args['search'] = options.search;
     if (options?.limit !== undefined) args['limit'] = options.limit;
@@ -448,7 +490,7 @@ export class FirecrawlMcpBridgeService extends BaseMcpClientService {
     if (options?.ignoreQueryParameters !== undefined)
       args['ignoreQueryParameters'] = options.ignoreQueryParameters;
 
-    return this.withCache(
+    const raw = await this.withCache(
       FIRECRAWL_CACHE_PREFIX.MAP,
       { url, ...options },
       CACHE_TTL.RANKINGS,
@@ -472,6 +514,8 @@ export class FirecrawlMcpBridgeService extends BaseMcpClientService {
         return extractPayload(result);
       }
     );
+
+    return normalizeMapResponse(raw);
   }
 
   /**

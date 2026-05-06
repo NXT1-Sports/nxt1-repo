@@ -11,6 +11,7 @@ import type { OpenRouterService } from '../llm/openrouter.service.js';
 import type { BaseAgent } from '../agents/base.agent.js';
 import type { SkillRegistry } from '../skills/skill-registry.js';
 import type { ToolRegistry } from '../tools/tool-registry.js';
+import type { AgentPlanDocument } from '../queue/agent-plan.repository.js';
 import { getEffectiveAgentToolPolicy, isToolAllowedByPatterns } from '../agents/tool-policy.js';
 
 interface AgentPlannerCapabilityCoordinatorSnapshot {
@@ -364,6 +365,35 @@ export class AgentRouterPlanningService {
       `Previous plan: ${JSON.stringify(plan)}`,
       'Preflight issues:',
       issueList,
+    ].join('\n');
+  }
+
+  buildRevisionIntent(
+    intent: string,
+    existingPlan: Pick<AgentPlanDocument, 'planId' | 'version' | 'summary' | 'tasks'>
+  ): string {
+    const compactPlan = {
+      planId: existingPlan.planId,
+      version: existingPlan.version,
+      summary: existingPlan.summary,
+      tasks: existingPlan.tasks.map((task) => ({
+        id: task.id,
+        assignedAgent: task.assignedAgent,
+        displayLabel: task.displayLabel,
+        description: task.description,
+        dependsOn: task.dependsOn,
+      })),
+    };
+
+    return [
+      intent,
+      '',
+      '[Plan Revision Context]',
+      'You are revising an existing saved plan in the same thread.',
+      'Revise the current plan instead of treating this as a brand-new plan request.',
+      'Preserve still-valid tasks and coordinator assignments where possible.',
+      "Only change the parts required by the user's latest request and keep the plan coherent end-to-end.",
+      `Current saved plan: ${JSON.stringify(compactPlan)}`,
     ].join('\n');
   }
 

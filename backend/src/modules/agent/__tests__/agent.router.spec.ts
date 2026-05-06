@@ -2,11 +2,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AgentRouter } from '../agent.router.js';
 import type { BaseAgent } from '../agents/base.agent.js';
 import { RecruitingCoordinatorAgent } from '../agents/recruiting-coordinator.agent.js';
+import { PlannerAgent } from '../agents/planner.agent.js';
 import { AgentRouterPrimaryService } from '../orchestrator/agent-router-primary.service.js';
+import { AgentRouterPlanningService } from '../orchestrator/agent-router-planning.service.js';
 import type { OpenRouterService } from '../llm/openrouter.service.js';
 import type { ToolRegistry } from '../tools/tool-registry.js';
 import type { ContextBuilder } from '../memory/context-builder.js';
 import { AgentDelegationException } from '../exceptions/agent-delegation.exception.js';
+import type { AgentPlanRepository } from '../queue/agent-plan.repository.js';
 import type {
   AgentIdentifier,
   AgentJobOrigin,
@@ -158,32 +161,56 @@ describe('AgentRouter', () => {
    */
   function wirePrimary(router: AgentRouter): void {
     const bundle = router.getOrchestratorBundle();
+    const planRepository = {
+      getLatestRevisableByThread: vi.fn().mockResolvedValue(null),
+      createDraft: vi.fn().mockImplementation(async (input) => ({
+        planId: input.planId,
+        userId: input.userId,
+        threadId: input.threadId,
+        originOperationId: input.originOperationId,
+        version: input.version ?? 1,
+        status: input.status ?? 'draft',
+        summary: input.summary,
+        planHash: input.planHash,
+        tasks: input.tasks,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      })),
+      reviseDraft: vi.fn(),
+      getById: vi.fn(),
+      markExecuting: vi.fn(),
+      syncExecutionSnapshot: vi.fn(),
+      markTerminal: vi.fn(),
+    } as unknown as AgentPlanRepository;
     const service = new AgentRouterPrimaryService({
       ...bundle,
       agents: router.getRegisteredAgents(),
       resolveToolAccessContext: async () =>
         bundle.policyService.buildToolAccessContext(createMockUserContext()),
+      planRepository,
     });
     const primary = {
       id: 'router' as const,
       name: 'Test Primary',
       beginRun: vi.fn(),
       endRun: vi.fn(),
-      execute: vi.fn().mockImplementation(
-        async (intent: string, context: AgentSessionContext): Promise<AgentOperationResult> => {
-          const result = await service.runPlan(intent, {
-            operationId: context.operationId ?? 'test-op',
-            userId: context.userId ?? 'user-123',
-            enrichedIntent: intent,
-            sessionContext: context,
-          });
-          return {
-            summary: result.observation,
-            suggestions: [],
-            ...(result.success ? {} : { data: { operationStatus: 'failed' as const } }),
-          };
-        }
-      ),
+      execute: vi
+        .fn()
+        .mockImplementation(
+          async (intent: string, context: AgentSessionContext): Promise<AgentOperationResult> => {
+            const result = await service.runPlan(intent, {
+              operationId: context.operationId ?? 'test-op',
+              userId: context.userId ?? 'user-123',
+              enrichedIntent: intent,
+              sessionContext: context,
+            });
+            return {
+              summary: result.observation,
+              suggestions: [],
+              ...(result.success ? {} : { data: { operationStatus: 'failed' as const } }),
+            };
+          }
+        ),
     } as unknown as import('../agents/primary.agent.js').PrimaryAgent;
     router.setPrimary(primary, service);
   }
@@ -196,6 +223,104 @@ describe('AgentRouter', () => {
   });
 
   describe('run()', () => {
+    it('passes existing draft context into planning before revising the saved plan', async () => {
+      llm = createMockLLM({
+        summary: 'Updated plan scoped to D1 only.',
+        tasks: [
+          {
+            id: '1',
+            assignedAgent: 'recruiting_coordinator',
+            displayLabel: 'Build D1 target list',
+            description: 'Compile D1-only college targets for each athlete.',
+            dependsOn: [],
+          },
+        ],
+      });
+
+      const planningService = new AgentRouterPlanningService(llm, toolRegistry);
+      const planner = new PlannerAgent(llm);
+      const existingDraft = {
+        planId: 'plan_existing',
+        userId: 'user-123',
+        threadId: 'thread-123',
+        originOperationId: 'op-old',
+        version: 3,
+        status: 'draft' as const,
+        summary: 'Original multi-division outreach plan.',
+        planHash: 'hash-old',
+        tasks: [
+          {
+            id: 'old-1',
+            assignedAgent: 'recruiting_coordinator' as const,
+            displayLabel: 'Build target lists',
+            description: 'Compile D1, D2, and D3 target programs.',
+            dependsOn: [],
+            status: 'pending' as const,
+            createdAt: new Date().toISOString(),
+          },
+        ],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      const planRepository = {
+        getLatestRevisableByThread: vi.fn().mockResolvedValue(existingDraft),
+        reviseDraft: vi
+          .fn()
+          .mockImplementation(
+            async ({ existingPlan, originOperationId, summary, planHash, tasks }) => ({
+              ...existingPlan,
+              originOperationId,
+              version: existingPlan.version + 1,
+              summary,
+              planHash,
+              tasks,
+              status: 'draft' as const,
+              updatedAt: new Date().toISOString(),
+            })
+          ),
+        createDraft: vi.fn(),
+      } as unknown as AgentPlanRepository;
+
+      const service = new AgentRouterPrimaryService({
+        executionService: {} as never,
+        contextService: {} as never,
+        policyService: {} as never,
+        planningService,
+        planner,
+        agents: new Map(),
+        resolveToolAccessContext: async () => ({}) as never,
+        planRepository,
+      });
+
+      const result = await service.runPlan('Scope the outreach to Division 1 only.', {
+        operationId: 'op-new',
+        userId: 'user-123',
+        enrichedIntent: 'Scope the outreach to Division 1 only.',
+        sessionContext: {
+          sessionId: 'session-123',
+          userId: 'user-123',
+          threadId: 'thread-123',
+          operationId: 'op-new',
+          conversationHistory: [],
+          createdAt: new Date().toISOString(),
+          lastActiveAt: new Date().toISOString(),
+        },
+      });
+
+      const plannerCall = (llm.prompt as ReturnType<typeof vi.fn>).mock.calls[0];
+      expect(plannerCall?.[1]).toContain('[Plan Revision Context]');
+      expect(plannerCall?.[1]).toContain('Original multi-division outreach plan.');
+
+      const observation = JSON.parse(result.observation) as Record<string, unknown>;
+      expect(observation['plan_created']).toBe(false);
+      expect(observation['plan_revised']).toBe(true);
+      expect(observation['plan_id']).toBe('plan_existing');
+      expect(observation['plan_version']).toBe(4);
+      expect(planRepository.reviseDraft).toHaveBeenCalledTimes(1);
+      expect(planRepository.createDraft).not.toHaveBeenCalled();
+    });
+
     it('should resume yielded approval jobs via resumeExecution and forward approvalId', async () => {
       const recruitingAgent = createMockAgent('recruiting_coordinator', {
         summary: 'Approved email sent successfully.',

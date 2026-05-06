@@ -105,21 +105,6 @@ async function refreshAttachmentUrl(
   attachment: AgentXAttachment,
   bucketName: string
 ): Promise<AgentXAttachment> {
-  if (attachment.type === 'video') {
-    const videoId =
-      typeof attachment.cloudflareVideoId === 'string' &&
-      attachment.cloudflareVideoId.trim().length > 0
-        ? attachment.cloudflareVideoId.trim()
-        : null;
-
-    if (videoId) {
-      const watchUrl = `https://watch.cloudflarestream.com/${videoId}`;
-      return attachment.url === watchUrl ? attachment : { ...attachment, url: watchUrl };
-    }
-
-    return attachment;
-  }
-
   const refreshedMedia = await refreshStorageUrl(
     {
       url: attachment.url,

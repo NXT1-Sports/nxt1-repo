@@ -87,6 +87,11 @@ export interface AgentXOperationChatTransportFacadeHost {
   readonly resolvedThreadId: WritableSignal<string | null>;
   readonly activeYieldState: WritableSignal<AgentYieldState | null>;
   readonly yieldResolved: WritableSignal<boolean>;
+  applyYieldState(params: {
+    yieldState: AgentYieldState;
+    source: string;
+    operationId?: string;
+  }): void;
   clearRealtimePipelines(): void;
   getActiveStream(): AbortController | null;
   setActiveStream(controller: AbortController | null): void;
@@ -568,33 +573,11 @@ export class AgentXOperationChatTransportFacade {
             };
             const threadId = host.resolvedThreadId();
             if (threadId) this.streamRegistry.appendCard(threadId, card);
-
-            if (event.clearText) {
-              host.messages.update((messages) =>
-                messages.map((message) =>
-                  message.id === streamingId
-                    ? {
-                        ...message,
-                        content: '',
-                        cards: [...(message.cards ?? []), card],
-                        parts: [{ type: 'card', card }],
-                      }
-                    : message
-                )
-              );
-              return;
-            }
-
-            host.messages.update((messages) =>
-              messages.map((message) =>
-                message.id === streamingId
-                  ? {
-                      ...message,
-                      cards: [...(message.cards ?? []), card],
-                      parts: [...(message.parts ?? []), { type: 'card', card }],
-                    }
-                  : message
-              )
+            this.messageFacade.attachStreamedCard(
+              streamingId,
+              card,
+              host.getCurrentOperationId() ?? host.contextId(),
+              !!event.clearText
             );
           },
 
@@ -610,12 +593,11 @@ export class AgentXOperationChatTransportFacade {
                 event.status === 'awaiting_approval') &&
               event.yieldState
             ) {
-              host.activeYieldState.set(event.yieldState);
-              host.yieldResolved.set(false);
-              this.messageFacade.upsertInlineYieldMessage(
-                event.yieldState,
-                event.operationId ?? host.getCurrentOperationId() ?? host.contextId()
-              );
+              host.applyYieldState({
+                yieldState: event.yieldState,
+                source: 'sse-operation',
+                ...(event.operationId ? { operationId: event.operationId } : {}),
+              });
             }
 
             if (event.status === 'complete') {

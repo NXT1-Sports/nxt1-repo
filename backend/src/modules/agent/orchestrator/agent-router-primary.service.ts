@@ -34,7 +34,7 @@ import type { AgentRouterExecutionService } from './agent-router-execution.servi
 import type { AgentRouterContextService } from './agent-router-context.service.js';
 import type { AgentRouterPolicyService } from './agent-router-policy.service.js';
 import type { AgentRouterPlanningService } from './agent-router-planning.service.js';
-import { AgentYieldException, isAgentYield } from '../exceptions/agent-yield.exception.js';
+import { isAgentYield } from '../exceptions/agent-yield.exception.js';
 import { AgentPlanRepository, buildPlanTaskSnapshot } from '../queue/agent-plan.repository.js';
 import { logger } from '../../../utils/logger.js';
 
@@ -150,13 +150,26 @@ export class AgentRouterPrimaryService implements PrimaryDispatcher {
     const streamedCharCount = 0;
 
     try {
+      const existingDraft =
+        typeof ctx.sessionContext.threadId === 'string' && ctx.sessionContext.threadId.length > 0
+          ? await this.opts.planRepository.getLatestRevisableByThread(
+              ctx.userId,
+              ctx.sessionContext.threadId,
+              ctx.sessionContext.environment
+            )
+          : null;
+
       const toolAccessContext = await this.opts.resolveToolAccessContext(ctx.userId);
       const capabilitySnapshot = await this.opts.planningService
         .buildCapabilitySnapshot(ctx.enrichedIntent, toolAccessContext, this.opts.agents)
         .catch(() => undefined);
 
+      const plannerGoal = existingDraft
+        ? this.opts.planningService.buildRevisionIntent(goal, existingDraft)
+        : goal;
+
       const planResult = await this.opts.planner.execute(
-        goal,
+        plannerGoal,
         ctx.sessionContext,
         [],
         undefined,
@@ -183,30 +196,35 @@ export class AgentRouterPrimaryService implements PrimaryDispatcher {
         };
       }
 
-      const planId = `plan_${ctx.operationId}`;
+      const planId = existingDraft?.planId ?? `plan_${ctx.operationId}`;
       const planHash = this.opts.planningService.hashExecutionPlan({
         operationId: ctx.operationId,
         tasks: planTasks,
         createdAt: new Date().toISOString(),
       });
-      await this.opts.planRepository.createDraft({
-        planId,
-        userId: ctx.userId,
-        threadId: ctx.sessionContext.threadId,
-        originOperationId: ctx.operationId,
-        summary: planSummary,
-        planHash,
-        tasks: planTasks,
-        environment: ctx.sessionContext.environment,
-      });
+
+      const savedPlan = existingDraft
+        ? await this.opts.planRepository.reviseDraft({
+            existingPlan: existingDraft,
+            originOperationId: ctx.operationId,
+            summary: planSummary,
+            planHash,
+            tasks: planTasks,
+            environment: ctx.sessionContext.environment,
+          })
+        : await this.opts.planRepository.createDraft({
+            planId,
+            userId: ctx.userId,
+            threadId: ctx.sessionContext.threadId,
+            originOperationId: ctx.operationId,
+            summary: planSummary,
+            planHash,
+            tasks: planTasks,
+            environment: ctx.sessionContext.environment,
+          });
 
       this.emitPlanReviewCard(ctx, planSummary, planTasks);
 
-      // Display-only metadata: passed alongside `planId` on the *yield* so the
-      // resumed agent can still see the exact saved plan to execute after the
-      // user replies in chat. This keeps planning out of the approval-policy
-      // flow while preserving deterministic plan execution on explicit user
-      // approval.
       const planSteps = planTasks.map((task) => ({
         id: task.id,
         label: task.displayLabel ?? task.description,
@@ -215,30 +233,51 @@ export class AgentRouterPrimaryService implements PrimaryDispatcher {
           : {}),
         ...(task.assignedAgent ? { coordinator: task.assignedAgent } : {}),
       }));
-      const planReviewPrompt = this.buildPlanReviewPrompt(planSummary, planSteps);
 
-      throw new AgentYieldException({
-        reason: 'needs_input',
-        promptToUser: planReviewPrompt,
-        agentId: 'router',
-        pendingToolCall: {
-          toolCallId: `execute_saved_plan:${planId}`,
-          toolName: 'execute_saved_plan',
-          toolInput: {
-            planId,
-            __planApproval: {
-              goal,
-              planId,
-              summary: planSummary,
-              steps: planSteps,
-            },
+      return {
+        success: true,
+        observation: JSON.stringify({
+          success: true,
+          plan_created: existingDraft === null,
+          plan_revised: existingDraft !== null,
+          goal,
+          plan_id: planId,
+          plan_version: savedPlan.version,
+          summary: planSummary,
+          steps: planSteps,
+          approval: {
+            tool_name: 'execute_saved_plan',
+            payload: { planId },
+            instruction:
+              'Explain the plan in your own words. Wait for explicit user approval before execution.',
           },
-        },
-        messages: [],
-      });
+        }),
+        dispatchKind: 'plan',
+        userAlreadyReceivedResponse: false,
+        streamedDeltaCount,
+        streamedCharCount,
+      };
     } catch (err) {
+      // Plan creation is intentionally non-yielding. If a nested yield leaks
+      // through, normalize to a regular error so Primary can recover with a
+      // conversational follow-up instead of entering resume mode.
       if (isAgentYield(err)) {
-        throw err;
+        logger.warn('[PrimaryService] runPlan received unexpected yield; converting to failure', {
+          reason: err.payload.reason,
+          pendingTool: err.payload.pendingToolCall?.toolName,
+        });
+        return {
+          success: false,
+          observation: JSON.stringify({
+            success: false,
+            error:
+              'Plan drafting paused unexpectedly. Please restate the plan request in one sentence.',
+          }),
+          dispatchKind: 'plan',
+          userAlreadyReceivedResponse: false,
+          streamedDeltaCount,
+          streamedCharCount,
+        };
       }
 
       logger.error('[PrimaryService] runPlan failed', {
@@ -420,48 +459,6 @@ export class AgentRouterPrimaryService implements PrimaryDispatcher {
         },
       },
     });
-  }
-
-  private buildPlanReviewPrompt(
-    summary: string,
-    steps: ReadonlyArray<{
-      readonly label: string;
-      readonly description?: string;
-      readonly coordinator?: string;
-    }>
-  ): string {
-    const lines: string[] = [];
-    lines.push(`I drafted this plan: ${summary}`);
-    lines.push('');
-
-    steps.forEach((step, index) => {
-      const coordinator =
-        typeof step.coordinator === 'string' && step.coordinator.trim().length > 0
-          ? ` (${this.humanizeCoordinator(step.coordinator)})`
-          : '';
-      lines.push(`${index + 1}. ${step.label}${coordinator}`);
-      if (
-        typeof step.description === 'string' &&
-        step.description.trim().length > 0 &&
-        step.description.trim() !== step.label.trim()
-      ) {
-        lines.push(`   ${step.description.trim()}`);
-      }
-    });
-
-    lines.push('');
-    lines.push('Reply "approve" to run it, or tell me what to change.');
-    return lines.join('\n');
-  }
-
-  private humanizeCoordinator(coordinator: string): string {
-    return coordinator
-      .replace(/_coordinator$/i, '')
-      .replace(/_agent$/i, '')
-      .split(/[_\s-]+/)
-      .filter((segment) => segment.length > 0)
-      .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1).toLowerCase())
-      .join(' ');
   }
 
   private toPersistedTasks(

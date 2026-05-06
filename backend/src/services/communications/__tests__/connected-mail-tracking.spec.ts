@@ -43,6 +43,23 @@ describe('buildTrackedEmailHtml', () => {
     expect(html).not.toContain('[my profile](');
   });
 
+  it('wraps bare urls in tracked anchors instead of exposing the tracking url as visible text', () => {
+    process.env['BACKEND_URL'] = 'https://api.nxt1sports.com';
+
+    const html = buildTrackedEmailHtml(
+      'View roster: https://example.com/team/crown-point-basketball-mens/2P49TB',
+      {
+        userId: 'user_999',
+        to: 'coach@example.com',
+        trackingId: 'track_bare_url',
+      }
+    );
+
+    expect(html).toContain('<a href="https://api.nxt1sports.com/api/v1/analytics/track/click?');
+    expect(html).toContain('>https://example.com/team/crown-point-basketball-mens/2P49TB</a>');
+    expect(html).not.toContain('>https://api.nxt1sports.com/api/v1/analytics/track/click?');
+  });
+
   it('does not rewrite non-http(s) links', () => {
     process.env['BACKEND_URL'] = 'https://api.nxt1sports.com';
 

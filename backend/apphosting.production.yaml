@@ -32,6 +32,8 @@ env:
     value: '22'
   - variable: NODE_ENV
     value: 'production'
+  - variable: BACKEND_URL
+    value: 'https://api.nxt1sports.com'
   - variable: NPM_CONFIG_PRODUCTION
     value: 'false'
   - variable: NPM_CONFIG_INCLUDE
@@ -42,5 +44,13 @@ env:
       - RUNTIME
   - variable: FFMPEG_MCP_API_TOKEN
     secret: FFMPEG_MCP_API_TOKEN
+    availability:
+      - RUNTIME
+  - variable: CHART_MCP_URL
+    secret: CHART_MCP_URL
+    availability:
+      - RUNTIME
+  - variable: CHART_MCP_API_TOKEN
+    secret: CHART_MCP_API_TOKEN
     availability:
       - RUNTIME

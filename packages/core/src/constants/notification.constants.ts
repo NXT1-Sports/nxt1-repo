@@ -56,6 +56,8 @@ export const NOTIFICATION_TYPES = {
   POST_SHARE: 'post_share',
   PROFILE_VIEW: 'profile_view',
   VIDEO_VIEW: 'video_view',
+  EMAIL_OPENED: 'email_opened',
+  LINK_CLICKED: 'link_clicked',
 
   // Team
   TEAM_INVITE: 'team_invite',
@@ -151,6 +153,8 @@ export const NOTIFICATION_TYPE_CATEGORY: Record<NotificationType, NotificationCa
   post_share: 'social',
   profile_view: 'social',
   video_view: 'social',
+  email_opened: 'content',
+  link_clicked: 'content',
 
   // Team
   team_invite: 'team',
@@ -255,6 +259,8 @@ export const NOTIFICATION_TYPE_TAB: Record<NotificationType, ActivityTabId> = {
   post_share: 'alerts',
   profile_view: 'alerts',
   video_view: 'alerts',
+  email_opened: 'alerts',
+  link_clicked: 'alerts',
 
   // Team → alerts
   team_invite: 'alerts',
@@ -320,6 +326,8 @@ export const NOTIFICATION_DEEP_LINKS: Partial<Record<NotificationType, string>> 
   post_share: '/post/{entityId}',
   profile_view: '/analytics',
   video_view: '/analytics',
+  email_opened: '/analytics',
+  link_clicked: '/analytics',
 
   // Team
   team_invite: '/activity?tab=inbox',

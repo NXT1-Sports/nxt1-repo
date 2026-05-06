@@ -153,6 +153,8 @@ import {
   FfmpegGenerateThumbnailTool,
   FfmpegConvertVideoTool,
   FfmpegCompressVideoTool,
+  ChartMcpBridgeService,
+  GenerateChartVisualizationTool,
   CloudflareMcpBridgeService,
   CreateSupportTicketTool,
   ImportVideoTool,
@@ -419,6 +421,7 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   let apifyMcpBridge: ApifyMcpBridgeService | undefined;
   let cfBridge: CloudflareMcpBridgeService | undefined;
   let ffmpegBridge: FfmpegMcpBridgeService | undefined;
+  let chartBridge: ChartMcpBridgeService | undefined;
 
   // System tools (cross-cutting infrastructure — available to all agents)
   toolRegistry.register(new DelegateTaskTool());
@@ -490,7 +493,9 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
     toolRegistry.register(new ListNxt1DataViewsTool(firebaseMcpBridge));
     toolRegistry.register(new QueryNxt1DataTool(firebaseMcpBridge));
     toolRegistry.register(new MutateNxt1DataTool(firebaseMcpBridge));
-    logger.info('MCP-bridged NXT1 data tools registered (list_nxt1_data_views, query_nxt1_data, mutate_nxt1_data)');
+    logger.info(
+      'MCP-bridged NXT1 data tools registered (list_nxt1_data_views, query_nxt1_data, mutate_nxt1_data)'
+    );
   }
 
   // ── 1d.2. Google Workspace MCP tools (user-scoped productivity actions) ───
@@ -573,6 +578,15 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
     );
   } catch {
     logger.warn('FFMPEG_MCP_URL not configured — FFmpeg MCP tools disabled');
+  }
+
+  // ── 1e.2. MCP-bridged Chart tools (analytics + visualization) ─────────
+  try {
+    chartBridge = new ChartMcpBridgeService();
+    toolRegistry.register(new GenerateChartVisualizationTool(chartBridge));
+    logger.info('MCP-bridged Chart tools registered (generate_chart_visualization)');
+  } catch {
+    logger.warn('CHART_MCP_URL not configured — Chart MCP tools disabled');
   }
 
   toolRegistry.register(new AnalyzeVideoTool(scraperService, llm, apifyMcpBridge, ffmpegBridge));

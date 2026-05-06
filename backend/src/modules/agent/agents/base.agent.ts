@@ -48,6 +48,7 @@ import {
 } from '../exceptions/agent-delegation.exception.js';
 import { isDelegateToCoordinator } from '../exceptions/delegate-to-coordinator.exception.js';
 import { isPlanAndExecute } from '../exceptions/plan-and-execute.exception.js';
+import { isExecuteSavedPlan } from '../exceptions/execute-saved-plan.exception.js';
 import { AgentEngineError } from '../exceptions/agent-engine.error.js';
 import type { ApprovalGateService } from '../services/approval-gate.service.js';
 import { ASK_USER_CONTEXT_KEY, type AskUserToolContext } from '../tools/system/ask-user.tool.js';
@@ -74,6 +75,18 @@ import { resolveUrlText } from '../tools/favicon-registry.js';
 
 /** Maximum tool-calling iterations before we force the agent to respond. */
 const MAX_ITERATIONS = 20;
+
+const SHARED_PERSISTENCE_CONTRACT = [
+  '## Shared Persistence Contract (CRITICAL)',
+  '- Long-term memory: call `save_memory` immediately when the user states a durable preference, goal, recruiting constraint, performance baseline, recurring workflow preference, or brand/compliance constraint that should persist across sessions.',
+  '- Save concise third-person facts only. Do not save transient chat, drafts, internal reasoning, duplicate facts, or one-off tool errors.',
+  '- Analytics logging: after any successful user-visible mutation, saved artifact, outbound communication, imported dataset, published content, generated deliverable, or completed workflow milestone, call `track_analytics_event` before your final reply.',
+  '- Domain mapping: recruiting emails, coach outreach, visits, commitments, and recruiting pipelines -> `recruiting` or `communication`; film analysis, stat imports, scouting, rankings, and performance reports -> `performance`; NIL deals, sponsorships, and brand partnerships -> `nil`; posts, graphics, videos, plans, profile/team activity, and general Agent X workflow completion -> `engagement`.',
+  '- Use the target `subjectId` and `subjectType` when the work is for a team or organization; otherwise default to the current user.',
+  '- Include useful payload fields when known: `coordinatorId`, `workflow`, `outcome`, `entityId`, `teamId`, `organizationId`, `toolName`, `artifactType`.',
+  '- Do not emit duplicate analytics for pure reads, internal reasoning, abandoned drafts, or failed retries the user never received.',
+  '- When the user asks for analytics or activity history, retrieve it with `get_analytics_summary` instead of guessing.',
+].join('\n');
 
 /**
  * Maximum characters for a single tool observation fed back to the LLM.
@@ -543,7 +556,11 @@ export abstract class BaseAgent {
     basePrompt: string,
     templateValues?: Readonly<Record<string, string | undefined>>
   ): string {
-    return resolveAgentSystemPrompt(this.id, basePrompt, templateValues);
+    return resolveAgentSystemPrompt(
+      this.id,
+      `${basePrompt}\n\n${SHARED_PERSISTENCE_CONTRACT}`,
+      templateValues
+    );
   }
 
   private extractSportFromIntent(intent: string): string | undefined {
@@ -678,16 +695,6 @@ export abstract class BaseAgent {
     ].join('\n');
 
     let systemContent = this.withConfiguredSystemPrompt(this.getSystemPrompt(context));
-    const appConfig = getCachedAgentAppConfig();
-    const configuredPrompt =
-      this.id !== 'router' ? appConfig.prompts.agentSystemPrompts[this.id] : undefined;
-    if (configuredPrompt) {
-      logger.info(`[${this.id}] Applying configured system prompt additions`, {
-        agentId: this.id,
-        configSchemaVersion: appConfig.schemaVersion,
-        configUpdatedAt: appConfig.updatedAt,
-      });
-    }
 
     if (skillBlock) systemContent += `\n${skillBlock}`;
 
@@ -1024,6 +1031,52 @@ export abstract class BaseAgent {
           arguments: JSON.stringify(yieldState.pendingToolCall.toolInput),
         },
       };
+
+      // ── Repair the assistant↔tool pairing for Anthropic/Vertex ─────────
+      // The replay reconciliation strips `tool_calls` from any assistant
+      // turn whose tool wasn't resolved by a following `tool` row. After a
+      // pause-for-approval, the originating assistant turn is persisted
+      // with tool_calls but no tool row follows it, so reconcileToolPairs
+      // drops the tool_calls. Pushing the resumed tool_result without a
+      // matching `tool_use` block on the immediately preceding assistant
+      // produces a 400 from Anthropic:
+      //   "messages.N.content.0: unexpected tool_use_id ... Each
+      //    tool_result block must have a corresponding tool_use block in
+      //    the previous message."
+      // Synthesize/repair the assistant turn so the pairing is valid.
+      const lastAssistantWithCallIdx = (() => {
+        for (let i = messages.length - 1; i >= 0; i--) {
+          const m = messages[i];
+          if (!m) continue;
+          if (m.role === 'assistant') return i;
+          if (m.role === 'user') return -1;
+        }
+        return -1;
+      })();
+      const lastAssistant =
+        lastAssistantWithCallIdx >= 0 ? messages[lastAssistantWithCallIdx] : undefined;
+      const lastAssistantCoversCall =
+        lastAssistant?.role === 'assistant' &&
+        (lastAssistant.tool_calls ?? []).some((tc: LLMToolCall) => tc.id === pendingToolCall.id);
+
+      if (!lastAssistantCoversCall) {
+        if (lastAssistant?.role === 'assistant' && lastAssistantWithCallIdx >= 0) {
+          // Re-attach the missing tool_call to the most recent assistant turn.
+          const repaired: LLMMessage = {
+            ...lastAssistant,
+            tool_calls: [...(lastAssistant.tool_calls ?? []), pendingToolCall],
+          };
+          messages[lastAssistantWithCallIdx] = repaired;
+        } else {
+          // No suitable assistant turn (e.g. resume from snapshot only) —
+          // synthesize a minimal assistant turn that owns the tool_call.
+          messages.push({
+            role: 'assistant',
+            content: '',
+            tool_calls: [pendingToolCall],
+          });
+        }
+      }
 
       onStreamEvent?.({
         type: 'step_active',
@@ -2678,6 +2731,7 @@ export abstract class BaseAgent {
       // the result as the next ReAct observation.
       if (isDelegateToCoordinator(err)) throw err;
       if (isPlanAndExecute(err)) throw err;
+      if (isExecuteSavedPlan(err)) throw err;
       if (isAgentDelegation(err)) {
         // ── Tier 2: Enrich delegation with source agent ID and prior work context ──
         // Append artifacts + tool summaries from current-turn messages so the
@@ -2735,7 +2789,7 @@ export abstract class BaseAgent {
     if (/(download|export)/.test(normalized)) return 'download';
     if (/(search|query|find|fetch)/.test(normalized)) return 'search';
     if (/(email|mail)/.test(normalized)) return 'email';
-    if (/(video|image|graphic|media)/.test(normalized)) return 'media';
+    if (/(video|image|graphic|media|chart|graph)/.test(normalized)) return 'media';
     if (/(database|firebase|mongo|memory)/.test(normalized)) return 'database';
     if (/(document|pdf|doc)/.test(normalized)) return 'document';
     if (/approval/.test(normalized)) return 'approval';
@@ -2796,6 +2850,7 @@ export abstract class BaseAgent {
 
       // Media & Video
       generate_graphic: 'Designing graphic',
+      generate_chart_visualization: 'Generating chart visualization',
       runway_generate_video: 'Generating AI video',
       analyze_video: 'Analyzing game film',
       runway_upscale_video: 'Enhancing video quality',

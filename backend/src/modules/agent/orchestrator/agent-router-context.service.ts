@@ -17,6 +17,19 @@ const EMPTY_RETRIEVED_MEMORIES: AgentRetrievedMemories = {
   organization: [],
 };
 
+function stripRequestSection(enrichedContext?: string): string | null {
+  if (!enrichedContext) return null;
+
+  const marker = '\n\n[Request]\n';
+  const markerIndex = enrichedContext.indexOf(marker);
+  if (markerIndex < 0) {
+    return enrichedContext.trim().length > 0 ? enrichedContext : null;
+  }
+
+  const scoped = enrichedContext.slice(0, markerIndex).trim();
+  return scoped.length > 0 ? scoped : null;
+}
+
 export class AgentRouterContextService {
   constructor(
     private readonly contextBuilder: ContextBuilder,
@@ -82,8 +95,9 @@ export class AgentRouterContextService {
   ): string {
     const parts: string[] = [];
 
-    if (enrichedContext) {
-      parts.push(enrichedContext);
+    const scopedContext = stripRequestSection(enrichedContext);
+    if (scopedContext) {
+      parts.push(scopedContext);
     }
 
     if (task.dependsOn.length > 0) {
@@ -107,6 +121,12 @@ export class AgentRouterContextService {
 
     parts.push('[Agent Handoff]');
     parts.push(`Objective: ${task.description}`);
+    parts.push('[Task Boundaries]');
+    parts.push('- Execute only this Objective for the current task.');
+    parts.push('- Do NOT perform downstream or future plan tasks in this step.');
+    parts.push(
+      '- If blocked by missing prerequisite data, report blocked status instead of continuing.'
+    );
 
     // Inject verbatim structured data so coordinators can read IDs, codes, and
     // references without relying on LLM paraphrasing. This block is the single

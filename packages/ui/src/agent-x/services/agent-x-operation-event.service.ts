@@ -285,6 +285,27 @@ export class AgentXOperationEventService {
       }
     }
 
+    const attachments = toolResult['attachments'];
+    if (Array.isArray(attachments)) {
+      for (const attachment of attachments) {
+        if (!attachment || typeof attachment !== 'object') continue;
+        const record = attachment as Record<string, unknown>;
+        const forcedType =
+          record['type'] === 'image' || record['type'] === 'video' ? record['type'] : undefined;
+        pushCandidate(record['url'], record['mimeType'], forcedType);
+        pushCandidate(record['downloadUrl'], record['mimeType'], forcedType);
+      }
+    }
+
+    const mediaArtifact = toolResult['mediaArtifact'];
+    if (mediaArtifact && typeof mediaArtifact === 'object' && !Array.isArray(mediaArtifact)) {
+      const record = mediaArtifact as Record<string, unknown>;
+      const forcedType =
+        record['type'] === 'image' || record['type'] === 'video' ? record['type'] : undefined;
+      pushCandidate(record['url'], record['mimeType'], forcedType);
+      pushCandidate(record['downloadUrl'], record['mimeType'], forcedType);
+    }
+
     const markdownOrText = [toolResult['markdown'], toolResult['text'], toolResult['content']]
       .filter((value): value is string => typeof value === 'string')
       .join('\n');
@@ -352,6 +373,7 @@ export class AgentXOperationEventService {
     parts: AgentXMessagePart[];
     steps: AgentXToolStep[];
     cards: AgentXStreamCardEvent[];
+    media: AgentXStreamMediaEvent[];
     latestYieldState: AgentYieldState | null;
     latestLifecycleStatus: AgentXOperationLifecycleStatus | null;
     isDone: boolean;
@@ -364,6 +386,7 @@ export class AgentXOperationEventService {
         parts: [],
         steps: [],
         cards: [],
+        media: [],
         latestYieldState: null,
         latestLifecycleStatus: null,
         isDone: false,
@@ -379,6 +402,7 @@ export class AgentXOperationEventService {
           parts: [],
           steps: [],
           cards: [],
+          media: [],
           latestYieldState: null,
           latestLifecycleStatus: null,
           isDone: false,
@@ -393,6 +417,8 @@ export class AgentXOperationEventService {
       const parts: AgentXMessagePart[] = [];
       const steps: AgentXToolStep[] = [];
       const cards: AgentXStreamCardEvent[] = [];
+      const media: AgentXStreamMediaEvent[] = [];
+      const seenMedia = new Set<string>();
       const pendingStepIds = new Map<string, string[]>();
       let latestYieldState: AgentYieldState | null = null;
       let latestLifecycleStatus: AgentXOperationLifecycleStatus | null = null;
@@ -498,6 +524,16 @@ export class AgentXOperationEventService {
             if (idx >= 0) steps[idx] = resolved;
             else steps.push(resolved);
             upsertStepIntoParts(resolved);
+
+            if (event.type === 'tool_result' && event.toolResult) {
+              const extractedMedia = this.extractMediaEventsFromToolResult(event.toolResult);
+              for (const mediaEvent of extractedMedia) {
+                const key = `${mediaEvent.type}|${mediaEvent.url}`;
+                if (seenMedia.has(key)) continue;
+                seenMedia.add(key);
+                media.push(mediaEvent);
+              }
+            }
             break;
           }
 
@@ -605,6 +641,7 @@ export class AgentXOperationEventService {
         partCount: parts.length,
         stepCount: steps.length,
         cardCount: cards.length,
+        mediaCount: media.length,
         hasYieldState: !!latestYieldState,
         lifecycleStatus: latestLifecycleStatus,
         isDone,
@@ -615,6 +652,7 @@ export class AgentXOperationEventService {
         parts,
         steps,
         cards,
+        media,
         latestYieldState,
         latestLifecycleStatus,
         isDone,
@@ -631,6 +669,7 @@ export class AgentXOperationEventService {
         parts: [],
         steps: [],
         cards: [],
+        media: [],
         latestYieldState: null,
         latestLifecycleStatus: null,
         isDone: false,

@@ -44,7 +44,8 @@ export interface ProvisionMediaProxyUploadInput {
   readonly mimeType: string;
   readonly fileSize: number;
   readonly threadId?: string | null;
-  readonly routeBase: string;
+  readonly uploadRouteBase: string;
+  readonly readRouteBase: string;
 }
 
 export interface ProvisionMediaProxyUploadResult {
@@ -272,42 +273,15 @@ export class AgentEphemeralStateService {
     const read = this.buildSignedReadUrl({
       uploadId,
       fileName: safeFileName,
-      routeBase: input.routeBase,
+      routeBase: input.readRouteBase,
     });
 
     return {
       uploadId,
-      uploadUrl: `${this.normalizeRouteBase(input.routeBase)}/media-proxy/upload/${uploadId}`,
+      uploadUrl: `${this.normalizeRouteBase(input.uploadRouteBase)}/media-proxy/upload/${uploadId}`,
       readUrl: read.url,
       storagePath,
       expiresAt: read.expiresAt,
-    };
-  }
-
-  static async createReadyUploadFromProxy(params: {
-    readonly userId: string;
-    readonly fileName: string;
-    readonly mimeType: string;
-    readonly fileSize: number;
-    readonly threadId?: string | null;
-    readonly routeBase: string;
-    readonly tempFilePath: string;
-  }): Promise<Omit<ProvisionMediaProxyUploadResult, 'uploadUrl'>> {
-    const provisional = await this.provisionUpload({
-      userId: params.userId,
-      fileName: params.fileName,
-      mimeType: params.mimeType,
-      fileSize: params.fileSize,
-      threadId: params.threadId,
-      routeBase: params.routeBase,
-    });
-
-    await this.finalizeUploadFromExistingFile(provisional.uploadId, params.tempFilePath);
-    return {
-      uploadId: provisional.uploadId,
-      readUrl: provisional.readUrl,
-      storagePath: provisional.storagePath,
-      expiresAt: provisional.expiresAt,
     };
   }
 

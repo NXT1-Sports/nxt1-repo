@@ -78,7 +78,9 @@ describe('PrimaryAgent delegation control flow', () => {
     expect(prompt).toContain('simple_routing');
     expect(prompt).toContain('numeric_or_aggregation');
     expect(prompt).toContain('sketch the likely steps to finish the request');
-    expect(prompt).toContain('search_web` and `firecrawl_search_web` as fallback tools');
+    expect(prompt).toContain('The router must stay fast. Do NOT perform web research');
+    expect(prompt).toContain('delegate to `data_coordinator`');
+    expect(prompt).toContain('delegate to `strategy_coordinator`');
     expect(prompt).toContain('single objective sentence as the handoff payload');
     expect(prompt).toContain('Ask User Decision Matrix (CRITICAL)');
     expect(prompt).toContain('Do NOT call `ask_user` for data already present in task context');
@@ -89,9 +91,37 @@ describe('PrimaryAgent delegation control flow', () => {
     expect(prompt).toContain(
       'use `delegate_to_coordinator` with coordinatorId=`recruiting_coordinator`'
     );
+    expect(prompt).toContain('Memory persistence rule');
+    expect(prompt).toContain('call `save_memory` immediately');
+    expect(prompt).toContain('Router analytics rule');
+    expect(prompt).toContain('call `track_analytics_event` once before the final response');
   });
 
-  it('appends configured primary prompt additions without replacing the built-in contract', () => {
+  it('keeps heavy web-research tools out of the primary router policy', () => {
+    const capabilities = {
+      current: () => ({
+        rendered: {
+          compactMarkdown: 'Capabilities',
+          detailedMarkdown: 'Capabilities',
+        },
+      }),
+    } as unknown as CapabilityRegistry;
+
+    const dispatcher: PrimaryDispatcher = {
+      runCoordinator: vi.fn(),
+      runPlan: vi.fn(),
+    };
+
+    const agent = new TestPrimaryAgent(capabilities, dispatcher);
+
+    expect(agent.getAvailableTools()).not.toContain('search_web');
+    expect(agent.getAvailableTools()).not.toContain('firecrawl_search_web');
+    expect(agent.getAvailableTools()).not.toContain('scrape_webpage');
+    expect(agent.getAvailableTools()).not.toContain('map_website');
+    expect(agent.getAvailableTools()).not.toContain('extract_web_data');
+  });
+
+  it('ignores configured primary prompt additions and keeps the built-in contract authoritative', () => {
     const config = parseAgentAppConfig({
       prompts: {
         primarySystemPrompt: 'Primary operator note.',
@@ -120,9 +150,9 @@ describe('PrimaryAgent delegation control flow', () => {
     const prompt = agent.getSystemPrompt(createMockContext());
 
     expect(prompt).toContain('Primary Reasoning Contract (2026)');
-    expect(prompt).toContain('## Operator Additions');
-    expect(prompt).toContain('Primary operator note.');
-    expect(prompt).toContain('Router policy note.');
+    expect(prompt).not.toContain('## Operator Additions');
+    expect(prompt).not.toContain('Primary operator note.');
+    expect(prompt).not.toContain('Router policy note.');
 
     setCachedAgentAppConfig(DEFAULT_AGENT_APP_CONFIG);
   });
@@ -442,5 +472,78 @@ describe('PrimaryAgent delegation control flow', () => {
     expect(observation).toContain('https://cdn.example.com/analyzed.mp4');
 
     agent.endRun('op-3');
+  });
+
+  it('reroutes direct analyze_video tool calls to a video-capable coordinator', async () => {
+    const capabilities = {
+      current: () => ({
+        rendered: {
+          compactMarkdown: 'Capabilities',
+          detailedMarkdown: 'Capabilities',
+        },
+      }),
+    } as unknown as CapabilityRegistry;
+
+    const dispatcher: PrimaryDispatcher = {
+      runCoordinator: vi.fn().mockResolvedValue({
+        success: true,
+        observation: '## strategy_coordinator dispatch result\n- analyzed',
+      }),
+      runPlan: vi.fn(),
+    };
+
+    const agent = new TestPrimaryAgent(capabilities, dispatcher);
+    const context = {
+      ...createMockContext(),
+      operationId: 'op-4',
+    };
+
+    agent.beginRun({
+      operationId: 'op-4',
+      userId: context.userId,
+      sessionContext: context,
+      enrichedIntent: 'Review this game film and give strategic recommendations',
+    });
+
+    const registry = new ConcreteToolRegistry();
+
+    const toolCall: LLMToolCall = {
+      id: 'call_direct_analyze',
+      type: 'function',
+      function: {
+        name: 'analyze_video',
+        arguments: JSON.stringify({
+          url: 'https://cdn.example.com/film.mp4',
+          prompt: 'Analyze this film and provide strategic recommendations.',
+        }),
+      },
+    };
+
+    const observation = await agent.callExecuteTool(
+      toolCall,
+      registry,
+      context.userId,
+      undefined,
+      undefined,
+      { operationId: 'op-4' },
+      [],
+      undefined,
+      undefined
+    );
+
+    expect(dispatcher.runCoordinator).toHaveBeenCalledWith(
+      'strategy_coordinator',
+      expect.stringContaining('Analyze the provided video'),
+      expect.objectContaining({
+        operationId: 'op-4',
+      }),
+      expect.objectContaining({
+        source: 'router_analyze_video_fallback',
+        url: 'https://cdn.example.com/film.mp4',
+      })
+    );
+    expect(observation).toContain('strategy_coordinator');
+
+    agent.endRun('op-4');
   });
 });

@@ -34,8 +34,10 @@ const GLOBAL_SYSTEM_TOOL_POLICY: readonly ToolPattern[] = composeToolPatterns([
   'create_support_ticket',
   'delegate_task',
   'track_analytics_event',
+  'get_analytics_summary',
   'search_memory',
   'search_memories',
+  'save_memory',
   'get_recent_sync_summaries',
   'delete_memory',
   'dynamic_export',
@@ -86,6 +88,7 @@ const ROUTER_TOOL_POLICY: readonly ToolPattern[] = [
   'get_recent_sync_summaries',
   'search_memory',
   'search_memories',
+  'save_memory',
   // Read-only data lookup — Primary calls these directly for factual questions
   // to avoid hallucination. Delegating a simple lookup to a coordinator adds
   // latency without value.
@@ -95,17 +98,13 @@ const ROUTER_TOOL_POLICY: readonly ToolPattern[] = [
   'query_nxt1_data',
   'search_colleges',
   'search_college_coaches',
-  'search_web',
-  'firecrawl_search_web',
-  'scrape_webpage',
-  'map_website',
-  'extract_web_data',
   'open_live_view',
   'read_live_view',
   'close_live_view',
   'get_college_logos',
   'get_conference_logos',
   'get_analytics_summary',
+  'track_analytics_event',
   'scan_timeline_posts',
   'list_google_workspace_tools',
   'run_google_workspace_tool',
@@ -185,6 +184,7 @@ const AGENT_TOOL_POLICY: Readonly<Record<CoordinatorAgentId, readonly ToolPatter
   ]),
 
   data_coordinator: composeToolPatterns([
+    'get_analytics_summary',
     'scrape_and_index_profile',
     'read_distilled_section',
     'dispatch_extraction',
@@ -226,6 +226,7 @@ const AGENT_TOOL_POLICY: Readonly<Record<CoordinatorAgentId, readonly ToolPatter
     'call_apify_actor',
     'get_apify_actor_output',
     'stage_media',
+    'generate_chart_visualization',
     'ffmpeg_trim_video',
     'ffmpeg_generate_thumbnail',
   ]),
@@ -287,6 +288,7 @@ const AGENT_TOOL_POLICY: Readonly<Record<CoordinatorAgentId, readonly ToolPatter
 
   strategy_coordinator: composeToolPatterns([
     'get_analytics_summary',
+    'generate_chart_visualization',
     'list_recurring_tasks',
     'cancel_recurring_task',
     'list_microsoft_365_tools',

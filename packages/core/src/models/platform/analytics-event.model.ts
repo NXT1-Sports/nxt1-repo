@@ -34,6 +34,7 @@ export const ANALYTICS_EVENT_TYPES = {
   engagement: [
     'profile_viewed',
     'content_viewed',
+    'content_created',
     'content_shared',
     'search_appeared',
     'link_clicked',

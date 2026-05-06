@@ -100,16 +100,11 @@ export class FirecrawlMapTool extends BaseTool {
     });
 
     try {
-      const result = await this.bridge.map(url, options);
-      const urls = Array.isArray(result)
-        ? result
-        : ((result as Record<string, unknown>)['urls'] ??
-          (result as Record<string, unknown>)['links'] ??
-          []);
+      const urls = await this.bridge.map(url, options);
 
       logger.info('[FirecrawlMap] Completed', {
         url,
-        discoveredUrls: Array.isArray(urls) ? urls.length : 0,
+        discoveredUrls: urls.length,
       });
 
       return {
@@ -117,7 +112,7 @@ export class FirecrawlMapTool extends BaseTool {
         data: {
           baseUrl: url,
           search: search || undefined,
-          urlCount: Array.isArray(urls) ? urls.length : 0,
+          urlCount: urls.length,
           urls,
         },
       };

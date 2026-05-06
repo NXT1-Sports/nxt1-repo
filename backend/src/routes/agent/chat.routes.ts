@@ -27,7 +27,6 @@ import type {
   AgentXOperationLifecycleStatus,
   AgentXSelectedAction,
 } from '@nxt1/core';
-import { resolveApprovalSuccessText } from '@nxt1/core';
 import { AGENT_X_REQUEST_HEADERS, AGENT_X_RUNTIME_CONFIG } from '@nxt1/core/ai';
 import {
   STREAM_TERMINAL_EVENTS,
@@ -81,6 +80,7 @@ const STREAM_IDLE_TIMEOUT_MS: number = AGENT_X_RUNTIME_CONFIG.operationStream.id
 const STREAM_LEASE_STALE_AFTER_MS: number = STREAM_IDLE_TIMEOUT_MS + 30_000;
 const ATTACHMENT_WAIT_TIMEOUT_MS: number =
   AGENT_X_RUNTIME_CONFIG.operationStream.attachmentWaitTimeoutMs;
+const ATTACHMENT_WAIT_PROGRESS_INTERVAL_MS = 4_000;
 const LIVE_BUFFER_MAX_EVENTS: number = AGENT_X_RUNTIME_CONFIG.operationStream.liveBufferMaxEvents;
 const PAUSE_YIELD_TTL_MS = 24 * 60 * 60 * 1000;
 const CHAT_BILLING_GATE_ESTIMATED_COST_USD = 0.1;
@@ -2464,83 +2464,7 @@ router.post('/approvals/:id/resolve', appGuard, async (req: Request, res: Respon
     const threadId = jobDoc.threadId;
     const yieldState = jobDoc.yieldState as AgentYieldState | undefined;
 
-    const toolName =
-      typeof yieldState?.pendingToolCall?.toolName === 'string'
-        ? yieldState.pendingToolCall.toolName
-        : 'requested action';
-    const readableToolName = toolName.replace(/[_-]+/g, ' ');
-
-    const persistApprovalResolutionCard = async (decisionValue: 'approved' | 'rejected') => {
-      if (!threadId || !chatService) return;
-
-      const title = decisionValue === 'approved' ? 'Approval Confirmed' : 'Approval Rejected';
-      const message =
-        decisionValue === 'approved'
-          ? `Approved ${readableToolName}. Agent X will continue this task.`
-          : `Rejected ${readableToolName}. Agent X stopped this action.`;
-      const successCopy = resolveApprovalSuccessText(toolName);
-      const resolvedText = decisionValue === 'approved' ? successCopy.badge : 'Rejected';
-
-      const persistedYieldState = yieldState?.pendingToolCall
-        ? {
-            ...yieldState,
-            approvalId,
-            pendingToolCall: {
-              ...yieldState.pendingToolCall,
-              ...(decisionValue === 'approved' && resolvedToolInput
-                ? { toolInput: resolvedToolInput }
-                : {}),
-            },
-          }
-        : yieldState;
-
-      try {
-        await chatService.addMessage({
-          threadId,
-          userId: user.uid,
-          role: 'assistant',
-          content: message,
-          origin: 'agent_chain',
-          agentId: 'router',
-          operationId,
-          resultData: {
-            yieldState: persistedYieldState,
-            yieldCardState: 'resolved',
-            yieldResolvedText: resolvedText,
-          },
-          parts: [
-            {
-              type: 'card',
-              card: {
-                type: 'confirmation',
-                agentId: 'router',
-                title,
-                payload: {
-                  message,
-                  actions: [],
-                  approvalId,
-                  operationId,
-                  yieldState: persistedYieldState,
-                  yieldCardState: 'resolved',
-                  yieldResolvedText: resolvedText,
-                },
-              },
-            },
-          ],
-        });
-      } catch (chatErr) {
-        logger.warn('Failed to persist approval resolution assistant message to MongoDB', {
-          error: chatErr instanceof Error ? chatErr.message : String(chatErr),
-          userId: user.uid,
-          threadId,
-          approvalId,
-          decision: decisionValue,
-        });
-      }
-    };
-
     if (decision === 'rejected') {
-      await persistApprovalResolutionCard('rejected');
       await jobRepository.withDb(db).markCancelled(operationId);
       if (threadId && chatService) {
         try {
@@ -2595,7 +2519,6 @@ router.post('/approvals/:id/resolve', appGuard, async (req: Request, res: Respon
     };
 
     await jobRepository.withDb(db).create(resumedPayload);
-    await persistApprovalResolutionCard('approved');
     await jobRepository.withDb(db).markCompleted(operationId, {
       summary: `Approved — continuing as ${resumedPayload.operationId}`,
       data: { resumedAs: resumedPayload.operationId, approvalId },
@@ -3087,7 +3010,7 @@ router.post(
         videoCount: allAttachments.filter((attachment) => attachment.type === 'video').length,
       });
       const VIDEO_URL_HINT_PATTERN =
-        /(?:watch\.cloudflarestream\.com|videodelivery\.net|storage\.googleapis\.com|firebasestorage\.googleapis\.com|\.(?:mp4|mov|m4v|webm|avi|mkv))(?:$|[?#/])/i;
+        /(?:storage\.googleapis\.com|firebasestorage\.googleapis\.com|\.(?:mp4|mov|m4v|webm|avi|mkv))(?:$|[?#/])/i;
       const isVideoAttachment = (attachment: {
         mimeType?: string;
         type?: string;
@@ -3098,12 +3021,6 @@ router.post(
           return true;
         }
         if (attachment.type === 'video') return true;
-        if (
-          typeof attachment.cloudflareVideoId === 'string' &&
-          attachment.cloudflareVideoId.trim()
-        ) {
-          return true;
-        }
         if (typeof attachment.url === 'string' && VIDEO_URL_HINT_PATTERN.test(attachment.url)) {
           return true;
         }
@@ -3163,6 +3080,7 @@ router.post(
             ({
               id: a.id,
               url: a.url as string,
+              ...(a.storagePath ? { storagePath: a.storagePath } : {}),
               name: a.name,
               mimeType: a.mimeType as string,
               type: a.type as AgentXAttachment['type'],
@@ -3180,6 +3098,7 @@ router.post(
           type: 'app',
           sizeBytes: 1,
           ...(source.platform ? { platform: source.platform } : {}),
+          ...(source.profileUrl ? { profileUrl: source.profileUrl } : {}),
           ...(source.faviconUrl ? { faviconUrl: source.faviconUrl } : {}),
         })
       );
@@ -3193,12 +3112,7 @@ router.post(
       }
       if (videoAttachments.length > 0) {
         const videoRefs = videoAttachments
-          .map((v) => {
-            const idPart = v.cloudflareVideoId
-              ? ` | cloudflareVideoId: ${v.cloudflareVideoId}`
-              : '';
-            return `[Attached video: ${v.name} — ${v.url}${idPart}]`;
-          })
+          .map((v) => `[Attached video: ${v.name} — ${v.url}]`)
           .join('\n');
         enrichedMessageText = `${enrichedMessageText}\n\n${videoRefs}`;
       }
@@ -3221,11 +3135,13 @@ router.post(
         }
       }
 
+      let persistedUserMessageId: string | null = null;
+
       if (chatService) {
         try {
           effectiveThreadId = await resolveThread(chatService, user.uid, threadId, message);
           if (effectiveThreadId) {
-            await chatService.addMessage({
+            const persistedUserMessage = await chatService.addMessage({
               threadId: effectiveThreadId,
               userId: user.uid,
               role: 'user',
@@ -3244,6 +3160,8 @@ router.post(
                   }
                 : {}),
             });
+            persistedUserMessageId =
+              typeof persistedUserMessage?.id === 'string' ? persistedUserMessage.id : null;
           }
         } catch (chatErr) {
           logger.warn('Failed to persist user message to MongoDB', {
@@ -3410,6 +3328,34 @@ router.post(
         );
         forceProxyFlush(res);
 
+        const attachmentWaitStartedAt = Date.now();
+        const attachmentWaitProgressHandle = setInterval(() => {
+          if (res.destroyed || res.writableEnded) {
+            clearInterval(attachmentWaitProgressHandle);
+            return;
+          }
+
+          res.write(
+            `event: progress\ndata: ${JSON.stringify({
+              ...buildPreEnvelope(),
+              operationId,
+              ...(effectiveThreadId ? { threadId: effectiveThreadId } : {}),
+              type: 'progress_stage',
+              metadata: {
+                phase: 'attachment_upload',
+                stubCount: rawAttachmentStubs.length,
+                elapsedMs: Date.now() - attachmentWaitStartedAt,
+              },
+              message:
+                rawAttachmentStubs.length === 1
+                  ? 'Uploading attachment...'
+                  : `Uploading ${rawAttachmentStubs.length} attachments...`,
+              timestamp: new Date().toISOString(),
+            })}\n\n`
+          );
+          forceProxyFlush(res);
+        }, ATTACHMENT_WAIT_PROGRESS_INTERVAL_MS);
+
         logger.info('Agent chat: waiting for attachment stubs to resolve', {
           operationId,
           userId: user.uid,
@@ -3460,6 +3406,7 @@ router.post(
         }
 
         const timeoutHandle = setTimeout(() => {
+          clearInterval(attachmentWaitProgressHandle);
           pendingAttachmentWaiters.delete(operationId);
           logger.warn('Agent chat: attachment stub wait timed out', {
             operationId,
@@ -3477,6 +3424,7 @@ router.post(
         });
 
         const resolvedStubs = await stubsResolutionPromise;
+        clearInterval(attachmentWaitProgressHandle);
         clearTimeout(timeoutHandle);
         pendingAttachmentWaiters.delete(operationId);
         if (pubsubUnsubscribe) {
@@ -3530,6 +3478,10 @@ router.post(
             id: stub.id,
             url: stub.url,
             ...(stub.storagePath ? { storagePath: stub.storagePath } : {}),
+            ...(stub.cloudflareVideoId ? { cloudflareVideoId: stub.cloudflareVideoId } : {}),
+            ...(stub.platform ? { platform: stub.platform } : {}),
+            ...(stub.profileUrl ? { profileUrl: stub.profileUrl } : {}),
+            ...(stub.faviconUrl ? { faviconUrl: stub.faviconUrl } : {}),
             name: stub.name,
             mimeType: stub.mimeType,
             type: stub.type as AgentXAttachment['type'],
@@ -3541,6 +3493,34 @@ router.post(
           } else {
             fileAttachments.push(agentAttachment);
             enrichedMessageText += `\n\n[Attached file: ${agentAttachment.name} (${agentAttachment.mimeType}) — ${agentAttachment.url}]`;
+          }
+        }
+
+        if (chatService && persistedUserMessageId) {
+          const resolvedAttachments = [
+            ...fileAttachments,
+            ...videoAttachments,
+            ...connectedSourceAttachments,
+          ];
+
+          if (resolvedAttachments.length > 0) {
+            try {
+              await chatService.updateMessageResolvedAttachments({
+                userId: user.uid,
+                messageId: persistedUserMessageId,
+                content: enrichedMessageText,
+                attachments: resolvedAttachments,
+              });
+            } catch (chatErr) {
+              logger.warn('Failed to persist resolved attachment stubs to MongoDB', {
+                error: chatErr instanceof Error ? chatErr.message : String(chatErr),
+                userId: user.uid,
+                threadId: effectiveThreadId ?? null,
+                messageId: persistedUserMessageId,
+                operationId,
+                attachmentCount: resolvedAttachments.length,
+              });
+            }
           }
         }
       }

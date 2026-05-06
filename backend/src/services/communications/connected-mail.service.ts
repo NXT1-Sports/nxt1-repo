@@ -711,6 +711,15 @@ function hashRecipientEmail(email: string): string {
   return createHash('sha256').update(email.trim().toLowerCase()).digest('hex');
 }
 
+function escapeEmailHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 export function buildTrackedEmailHtmlWithRecipientHash(
   body: string,
   options: { userId: string; trackingId: string; recipientEmailHash?: string | null }
@@ -745,9 +754,14 @@ export function buildTrackedEmailHtmlWithRecipientHash(
     (_match, quote: string, href: string) => `href=${quote}${buildClickUrl(href)}${quote}`
   );
 
-  rewrittenHtml = rewrittenHtml.replace(/(?<!["'=])(https?:\/\/[^\s<]+)/gi, (href: string) =>
-    buildClickUrl(href)
-  );
+  rewrittenHtml = rewrittenHtml.replace(/(?<!["'=])(https?:\/\/[^\s<]+)/gi, (href: string) => {
+    const trackedHref = buildClickUrl(href);
+    if (trackedHref === href) {
+      return href;
+    }
+
+    return `<a href="${trackedHref}" style="color:#0f62fe;text-decoration:underline;">${escapeEmailHtml(href)}</a>`;
+  });
 
   const openUrl = new URL(`${baseUrl}/api/v1/analytics/track/open`);
   openUrl.searchParams.set('subjectId', options.userId);

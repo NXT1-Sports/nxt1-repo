@@ -8,10 +8,10 @@
  */
 
 import { config as loadDotenv } from 'dotenv';
+import admin from 'firebase-admin';
+import type { Firestore } from 'firebase-admin/firestore';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { db } from '../src/utils/firebase.js';
-import { stagingDb } from '../src/utils/firebase-staging.js';
 import {
   AGENT_CONFIG_DOC_ID,
   APP_CONFIG_COLLECTION,
@@ -23,13 +23,6 @@ import {
   PROD_MODEL_CATALOGUE,
   PROD_FALLBACK_CHAIN,
 } from '../src/modules/agent/llm/llm.types.js';
-import { PlannerAgent } from '../src/modules/agent/agents/planner.agent.js';
-import { AdminCoordinatorAgent } from '../src/modules/agent/agents/admin-coordinator.agent.js';
-import { BrandCoordinatorAgent } from '../src/modules/agent/agents/brand-coordinator.agent.js';
-import { DataCoordinatorAgent } from '../src/modules/agent/agents/data-coordinator.agent.js';
-import { PerformanceCoordinatorAgent } from '../src/modules/agent/agents/performance-coordinator.agent.js';
-import { RecruitingCoordinatorAgent } from '../src/modules/agent/agents/recruiting-coordinator.agent.js';
-import { StrategyCoordinatorAgent } from '../src/modules/agent/agents/strategy-coordinator.agent.js';
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const backendRoot = resolve(scriptDir, '..');
@@ -39,12 +32,49 @@ loadDotenv({ path: resolve(backendRoot, '.env.local'), override: true });
 const args = process.argv.slice(2);
 const dryRun = !args.includes('--commit');
 const environment = args.includes('--staging') ? 'staging' : 'production';
-const firestore = environment === 'staging' ? stagingDb : db;
-const promptContext = {} as Parameters<PlannerAgent['getSystemPrompt']>[0];
 const EXPECTED_PROJECT_IDS = {
   production: 'nxt-1-v2',
   staging: 'nxt-1-staging-v2',
 } as const;
+
+async function getFirestoreForEnvironment(): Promise<Firestore> {
+  const projectId =
+    environment === 'staging'
+      ? process.env['STAGING_FIREBASE_PROJECT_ID']
+      : process.env['FIREBASE_PROJECT_ID'];
+  const clientEmail =
+    environment === 'staging'
+      ? process.env['STAGING_FIREBASE_CLIENT_EMAIL']
+      : process.env['FIREBASE_CLIENT_EMAIL'];
+  const privateKey =
+    environment === 'staging'
+      ? process.env['STAGING_FIREBASE_PRIVATE_KEY']?.replace(/\\n/g, '\n')
+      : process.env['FIREBASE_PRIVATE_KEY']?.replace(/\\n/g, '\n');
+  const storageBucket =
+    environment === 'staging'
+      ? process.env['STAGING_FIREBASE_STORAGE_BUCKET']
+      : process.env['FIREBASE_STORAGE_BUCKET'];
+
+  const appName = `agent-config-seed-${environment}`;
+  const existingApp = admin.apps.find((app) => app?.name === appName);
+
+  const app =
+    existingApp ??
+    admin.initializeApp(
+      {
+        credential:
+          projectId && clientEmail && privateKey
+            ? admin.credential.cert({ projectId, clientEmail, privateKey })
+            : admin.credential.applicationDefault(),
+        storageBucket,
+      },
+      appName
+    );
+
+  const firestore = app.firestore();
+  firestore.settings({ ignoreUndefinedProperties: true });
+  return firestore;
+}
 
 function resolveConfiguredProjectId(): string | undefined {
   if (environment === 'staging') {
@@ -82,74 +112,9 @@ function assertExpectedProjectTarget(): string {
   return configuredProjectId;
 }
 
-function getTodayLabel(): string {
-  return new Date().toLocaleDateString('en-US', {
-    weekday: 'long',
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-  });
-}
-
-/** Chief of Staff system prompt — the public conversational voice of Agent X.
- * Stored in agentSystemPrompts.router so it can be hot-swapped in Firebase
- * without a code deploy. Used by the AgentRouter when handling requests
- * directly (no coordinator plan produced).
- */
-function buildChiefOfStaffPrompt(): string {
-  return [
-    'You are Agent X — the Chief of Staff of NXT1 Sports.',
-    'Your job is to be the intelligent, welcoming, and action-oriented first contact for every user.',
-    '',
-    '## Your Identity',
-    '- You are the face and voice of Agent X: sharp, supportive, and sports-obsessed.',
-    '- You understand high school and college sports at an expert level.',
-    '- You know the NXT1 platform completely: profiles, stats, recruiting, media, AI tools, and Agent X operations.',
-    '- You have a confident, energetic tone — like a chief of staff who gets things done.',
-    '- You are concise. You do not pad responses. You answer and move on.',
-    '',
-    '## Your Purpose',
-    '- Handle general Q&A about the platform, sports, recruiting, and anything in the NXT1 universe.',
-    '- Explain what Agent X can do and direct users to the right capability or coordinator.',
-    '- Kick off autonomous operations when the user describes something they need done.',
-    '- When a request needs deep strategy, recruiting, performance, data, brand, or admin work — hand it to the right coordinator seamlessly.',
-    '',
-    '## Rules',
-    '- NEVER fabricate platform features that do not exist.',
-    '- NEVER claim agent operations are running if none have been dispatched.',
-    '- Always be respectful, energetic, and genuinely helpful — sports is hard, and users deserve a great experience.',
-    '- NEVER reveal raw NXT1 platform identifiers (user IDs, team IDs, post IDs, etc). Refer to people by name only.',
-  ].join('\n');
-}
-
-function buildPromptTemplates() {
-  const today = getTodayLabel();
-
-  return {
-    plannerSystemPrompt: new PlannerAgent({} as never).getSystemPrompt(promptContext),
-    agentSystemPrompts: {
-      router: buildChiefOfStaffPrompt(),
-      admin_coordinator: new AdminCoordinatorAgent()
-        .getSystemPrompt(promptContext)
-        .replace(today, '{{today}}'),
-      brand_coordinator: new BrandCoordinatorAgent().getSystemPrompt(promptContext),
-      data_coordinator: new DataCoordinatorAgent().getSystemPrompt(promptContext),
-      performance_coordinator: new PerformanceCoordinatorAgent().getSystemPrompt(promptContext),
-      recruiting_coordinator: new RecruitingCoordinatorAgent().getSystemPrompt(promptContext),
-      strategy_coordinator: new StrategyCoordinatorAgent().getSystemPrompt(promptContext),
-    },
-  } as const;
-}
-
 function buildPayload() {
   const featureFlags = {
     ...DEFAULT_AGENT_APP_CONFIG.featureFlags,
-    ...(environment === 'staging'
-      ? {
-          strictZodToolSchemas: true,
-          strictEntityToolGovernance: true,
-        }
-      : {}),
   };
 
   // Staging is seeded with DEV models (cheap, fast) — prod gets PROD models.
@@ -167,7 +132,6 @@ function buildPayload() {
       catalogue: modelCatalogue,
       fallbackChains: modelFallbackChain,
     },
-    prompts: buildPromptTemplates(),
     featureFlags,
     coordinators: DEFAULT_AGENT_APP_CONFIG.coordinators,
     primary: DEFAULT_AGENT_APP_CONFIG.primary,
@@ -176,6 +140,7 @@ function buildPayload() {
 
 async function main(): Promise<void> {
   const projectId = assertExpectedProjectTarget();
+  const firestore = await getFirestoreForEnvironment();
   const payload = buildPayload();
   const docRef = firestore.collection(APP_CONFIG_COLLECTION).doc(AGENT_CONFIG_DOC_ID);
 
@@ -187,21 +152,25 @@ async function main(): Promise<void> {
   console.log(`  Mode: ${dryRun ? 'DRY RUN (no writes)' : 'COMMIT MODE'}`);
   console.log('═══════════════════════════════════════════════════');
   console.log('');
-  console.log(`Planner prompt length: ${payload.prompts.plannerSystemPrompt.length}`);
-  console.log(
-    `Coordinator prompt count: ${Object.keys(payload.prompts.agentSystemPrompts).length}`
-  );
+  console.log('Prompt source: CODE ONLY (Firestore prompts will be cleared)');
   console.log(`Disabled tools seeded: ${payload.featureFlags.disabledTools.length}`);
 
   if (dryRun) {
     console.log('');
     console.log(JSON.stringify(payload, null, 2));
     console.log('');
-    console.log('Dry run complete. Re-run with --commit to write AppConfig/agentConfig.');
+    console.log(
+      'Dry run complete. Re-run with --commit to write AppConfig/agentConfig and clear Firestore prompts.'
+    );
     return;
   }
 
   await docRef.set(payload, { merge: true });
+  await docRef.update({
+    prompts: admin.firestore.FieldValue.delete(),
+    updatedBy: admin.firestore.FieldValue.delete(),
+    'featureFlags.useprimaryAgent': admin.firestore.FieldValue.delete(),
+  });
   console.log(`Seed complete. AppConfig/agentConfig updated successfully in ${projectId}.`);
 }
 

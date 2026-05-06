@@ -128,10 +128,13 @@ describe('agent-app-config', () => {
     ]);
   });
 
-  it('parses planner and agent prompt overrides and interpolates template placeholders', () => {
+  it('ignores Firestore prompt fields and keeps system prompts code-defined', () => {
     const config = parseAgentAppConfig({
       prompts: {
         plannerSystemPrompt: 'Plan for {{today}}.',
+        primarySystemPrompt: 'Primary prompt injection for {{today}}.',
+        classifierSystemPrompt: 'Classifier prompt injection.',
+        conversationSystemPrompt: 'Conversation prompt injection.',
         agentSystemPrompts: {
           router: 'Chief of Staff briefing for {{today}}.',
           admin_coordinator: 'Compliance snapshot for {{today}}.',
@@ -141,29 +144,18 @@ describe('agent-app-config', () => {
 
     setCachedAgentAppConfig(config);
 
-    // planner: code-defined fallback is the base; Firestore string is appended additively
+    expect(config.prompts.agentSystemPrompts).toEqual({});
     expect(resolvePlannerSystemPrompt('planner fallback', { today: 'Tuesday' })).toBe(
-      'planner fallback\n\n## Operator Additions\n\nPlan for Tuesday.'
+      'planner fallback'
     );
-    // router: Firestore config is ignored here — PrimaryAgent handles additive composition
     expect(
       resolveAgentSystemPrompt('router', 'hardcoded router fallback', { today: 'Tuesday' })
     ).toBe('hardcoded router fallback');
-    // coordinator: code-defined fallback is always the base; Firestore string is appended additively
     expect(
       resolveAgentSystemPrompt('admin_coordinator', 'Base admin prompt for {{today}}.', {
         today: 'Tuesday',
       })
-    ).toBe(
-      'Base admin prompt for Tuesday.\n\n## Operator Additions\n\nCompliance snapshot for Tuesday.'
-    );
-    // coordinator with no Firestore override returns base prompt unchanged
-    const configWithoutRouter = parseAgentAppConfig({
-      prompts: { plannerSystemPrompt: 'Plan.', agentSystemPrompts: {} },
-    });
-    setCachedAgentAppConfig(configWithoutRouter);
-    expect(resolveAgentSystemPrompt('router', 'hardcoded fallback')).toBe('hardcoded fallback');
-    expect(resolveAgentSystemPrompt('admin_coordinator', 'base admin')).toBe('base admin');
+    ).toBe('Base admin prompt for Tuesday.');
   });
 
   it('supports runtime tool kill switches', () => {

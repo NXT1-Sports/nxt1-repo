@@ -206,6 +206,7 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/ass
                   [isOwn]="message.role === 'user'"
                   [content]="message.content"
                   [imageUrl]="message.imageUrl"
+                  [videoUrl]="message.videoUrl"
                   [isStreaming]="message.id === 'typing'"
                   [isTyping]="!!message.isTyping"
                   [isError]="!!message.error"

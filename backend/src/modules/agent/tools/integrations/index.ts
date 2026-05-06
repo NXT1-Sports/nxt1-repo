@@ -170,6 +170,10 @@ export {
   FfmpegCompressVideoTool,
 } from './ffmpeg-mcp/index.js';
 
+// ── Chart MCP — Data visualization operations ──────────────────────────
+export { ChartMcpBridgeService } from './chart-mcp/chart-mcp-bridge.service.js';
+export { GenerateChartVisualizationTool } from './chart-mcp/index.js';
+
 // ── Cloudflare Stream — Video processing ─────────────────────────────────
 export { CloudflareMcpBridgeService } from './cloudflare-stream/cloudflare-mcp-bridge.service.js';
 export {

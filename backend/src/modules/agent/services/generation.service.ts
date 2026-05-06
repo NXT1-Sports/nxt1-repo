@@ -1028,7 +1028,9 @@ export class AgentGenerationService {
           { role: 'user', content: prompt },
         ],
         {
-          tier: 'chat',
+          // Weekly playbooks are generated asynchronously and should route through
+          // the automation tier rather than the interactive chat tier.
+          tier: 'task_automation',
           maxTokens: 2048,
           temperature: 0.7,
           outputSchema: {
@@ -1315,7 +1317,9 @@ export class AgentGenerationService {
           { role: 'user', content: promptLines },
         ],
         {
-          tier: 'extraction',
+          // Daily briefings are a scheduled/background planning surface, not a
+          // raw parsing task, so they should use the automation tier.
+          tier: 'task_automation',
           maxTokens: 1024,
           temperature: 0.7,
           outputSchema: {

@@ -235,7 +235,7 @@ export class AgentXOperationChatExecutionPlanComponent {
   @Input() title = '';
   @Input() items: readonly AgentXPlannerItem[] = [];
   @Input() paused = false;
-  @Input() expanded = true;
+  @Input() expanded = false;
   @Output() readonly expandedChange = new EventEmitter<boolean>();
 
   protected get totalCount(): number {

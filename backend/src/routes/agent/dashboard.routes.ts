@@ -8,9 +8,6 @@
  * POST /upload
  */
 
-import os from 'os';
-import { unlink } from 'fs/promises';
-import multer from 'multer';
 import { Router, type Request, type Response } from 'express';
 import { appGuard } from '../../middleware/auth/auth.middleware.js';
 import { uploadRateLimit } from '../../middleware/rate-limit/rate-limit.middleware.js';
@@ -50,7 +47,6 @@ import {
   contextBuilder,
 } from './shared.js';
 import { AgentMediaLifecycleService } from '../../modules/agent/tools/media/agent-media-lifecycle.service.js';
-import { AgentEphemeralStateService } from '../../modules/agent/services/agent-ephemeral-state.service.js';
 
 type AuthenticatedRequest = Request & {
   user?: {
@@ -79,25 +75,6 @@ type FirestoreDocLike = {
 
 const router = Router();
 const RECURRING_TASKS_COLLECTION = 'RecurringTasks' as const;
-
-const agentVideoProxyUpload = multer({
-  storage: multer.diskStorage({
-    destination: os.tmpdir(),
-    filename: (_req, file, cb) => {
-      const timestamp = Date.now();
-      const safeName = file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_');
-      cb(null, `${timestamp}-${crypto.randomUUID()}-${safeName}`);
-    },
-  }),
-  limits: { fileSize: AGENT_X_MAX_VIDEO_FILE_SIZE },
-  fileFilter: (_req, file, cb) => {
-    if (file.mimetype.startsWith('video/')) {
-      cb(null, true);
-    } else {
-      cb(new Error(`File type ${file.mimetype} not allowed for Agent X video attachments`));
-    }
-  },
-});
 
 function readRecurringTaskString(data: Record<string, unknown>, key: string): string | undefined {
   const value = data[key];
@@ -1352,37 +1329,59 @@ router.post('/upload/video', appGuard, uploadRateLimit, async (req: Request, res
     const resolvedThreadId =
       typeof threadId === 'string' && threadId.trim() ? threadId.trim() : null;
 
-    // Single universal path: provision a backend media-proxy upload URL.
-    // The browser PUTs raw bytes directly to the backend, which streams them
-    // to /tmp and serves them through an HMAC-signed GET URL. This eliminates
-    // the GCS-upload-first bottleneck so Gemini can fetch as soon as ingest
-    // completes (no GCS round-trip on the read side).
-    const provision = await AgentEphemeralStateService.provisionUpload({
+    const bucket = req.firebase.storage.bucket();
+    const storagePath = AgentMediaLifecycleService.buildStoragePath({
       userId: user.uid,
-      fileName,
-      mimeType,
-      fileSize,
       threadId: resolvedThreadId,
-      routeBase: AgentEphemeralStateService.resolveAgentRouteBase(req),
+      mimeType,
+      fileName,
+      zone: 'media',
     });
+    const storageFile = bucket.file(storagePath) as {
+      getSignedUrl: (options: {
+        version: 'v4';
+        action: 'write' | 'read';
+        expires: number;
+        contentType?: string;
+        extensionHeaders?: Record<string, string>;
+      }) => Promise<[string]>;
+    };
 
-    logger.info('Agent X video upload URL provisioned (media-proxy)', {
+    const uploadExpiresAtMs = Date.now() + 30 * 60 * 1000;
+    const readExpiresAtMs = Date.now() + AgentMediaLifecycleService.DEFAULT_SIGNED_URL_TTL_MS;
+
+    const [uploadUrl, readUrl] = await Promise.all([
+      storageFile.getSignedUrl({
+        version: 'v4',
+        action: 'write',
+        expires: uploadExpiresAtMs,
+        contentType: mimeType,
+      }),
+      storageFile.getSignedUrl({
+        version: 'v4',
+        action: 'read',
+        expires: readExpiresAtMs,
+      }),
+    ]).then((entries) => entries.map(([url]) => url) as [string, string]);
+
+    logger.info('Agent X video upload URL provisioned (firebase)', {
       userId: user.uid,
       threadId: resolvedThreadId ?? 'unbound',
       mimeType,
       fileSize,
-      uploadId: provision.uploadId,
-      storagePath: provision.storagePath,
-      expiresAt: provision.expiresAt,
+      storagePath,
+      uploadExpiresAt: new Date(uploadExpiresAtMs).toISOString(),
+      readExpiresAt: new Date(readExpiresAtMs).toISOString(),
+      bucketName: bucket.name,
     });
 
     res.json({
       success: true,
       data: {
-        uploadUrl: provision.uploadUrl,
-        readUrl: provision.readUrl,
-        storagePath: provision.storagePath,
-        expiresAt: provision.expiresAt,
+        uploadUrl,
+        readUrl,
+        storagePath,
+        expiresAt: new Date(readExpiresAtMs).toISOString(),
       },
     });
   } catch (err) {
@@ -1394,110 +1393,5 @@ router.post('/upload/video', appGuard, uploadRateLimit, async (req: Request, res
     res.status(500).json({ success: false, error: 'Failed to provision video upload URL' });
   }
 });
-
-// ─── POST /upload/video/proxy ─────────────────────────────────────────────
-// Fallback upload path used when browser direct PUT to GCS is blocked by CORS
-// (common in local dev on localhost). Streams video to Firebase Storage via
-// backend, then returns a signed read URL for immediate AI access.
-router.post(
-  '/upload/video/proxy',
-  appGuard,
-  uploadRateLimit,
-  agentVideoProxyUpload.single('file'),
-  async (req: Request, res: Response) => {
-    let tempFilePath: string | null = null;
-    let shouldCleanupTempFile = false;
-    try {
-      const user = getAuthUser(req);
-      if (!user?.uid) {
-        res.status(401).json({ success: false, error: 'Unauthorized' });
-        return;
-      }
-
-      const file = req.file;
-      if (!file) {
-        res.status(400).json({ success: false, error: 'No video file provided' });
-        return;
-      }
-      tempFilePath = file.path;
-      shouldCleanupTempFile = true;
-
-      if (!file.mimetype.startsWith('video/')) {
-        res.status(400).json({ success: false, error: 'file must be video/*' });
-        return;
-      }
-
-      if (file.size > AGENT_X_MAX_VIDEO_FILE_SIZE) {
-        res.status(400).json({
-          success: false,
-          error: 'File exceeds maximum video size limit (500 MB)',
-          code: 'FILE_TOO_LARGE',
-        });
-        return;
-      }
-
-      const rawThreadId = req.body?.threadId;
-      const resolvedThreadId =
-        typeof rawThreadId === 'string' && rawThreadId.trim() ? rawThreadId.trim() : null;
-
-      // Single universal fallback: stage the multer temp file into the same
-      // media-proxy /tmp slot used by the direct PUT path and return an HMAC-
-      // signed read URL. The agent never sees a Firebase URL on the read side.
-      const provisioned = await AgentEphemeralStateService.createReadyUploadFromProxy({
-        userId: user.uid,
-        fileName: file.originalname,
-        mimeType: file.mimetype,
-        fileSize: file.size,
-        threadId: resolvedThreadId,
-        routeBase: AgentEphemeralStateService.resolveAgentRouteBase(req),
-        tempFilePath: file.path,
-      });
-
-      // The temp file has been moved into the media-proxy slot — don't unlink.
-      shouldCleanupTempFile = false;
-
-      logger.info('Agent X video uploaded via backend proxy fallback (media-proxy)', {
-        userId: user.uid,
-        threadId: resolvedThreadId ?? 'unbound',
-        mimeType: file.mimetype,
-        fileSize: file.size,
-        uploadId: provisioned.uploadId,
-        storagePath: provisioned.storagePath,
-        expiresAt: provisioned.expiresAt,
-      });
-
-      res.json({
-        success: true,
-        data: {
-          readUrl: provisioned.readUrl,
-          storagePath: provisioned.storagePath,
-          expiresAt: provisioned.expiresAt,
-        },
-      });
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error(String(err));
-      const errorCode = (error as ErrorWithCode).code;
-
-      if (errorCode === 'LIMIT_FILE_SIZE') {
-        res.status(400).json({
-          success: false,
-          error: 'File exceeds maximum video size limit (500 MB)',
-          code: 'FILE_TOO_LARGE',
-        });
-        return;
-      }
-
-      logger.error('Agent X proxy video upload failed', {
-        error: error.message,
-        stack: error.stack,
-      });
-      res.status(500).json({ success: false, error: 'Failed to upload video' });
-    } finally {
-      if (tempFilePath && shouldCleanupTempFile) {
-        void unlink(tempFilePath).catch(() => undefined);
-      }
-    }
-  }
-);
 
 export default router;

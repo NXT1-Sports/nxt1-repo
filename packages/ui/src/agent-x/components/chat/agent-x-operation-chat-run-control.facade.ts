@@ -3,13 +3,7 @@ import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import type { AgentYieldState } from '@nxt1/core';
 import { APP_EVENTS } from '@nxt1/core/analytics';
-import type {
-  AgentXAttachment,
-  AgentXAttachmentStub,
-  AgentXSelectedAction,
-  AgentXToolStep,
-} from '@nxt1/core/ai';
-import { AGENT_X_ENDPOINTS } from '@nxt1/core/ai';
+import type { AgentXAttachment, AgentXSelectedAction, AgentXToolStep } from '@nxt1/core/ai';
 import { HapticsService } from '../../../services/haptics/haptics.service';
 import { NxtToastService } from '../../../services/toast/toast.service';
 import { NxtLoggingService } from '../../../services/logging/logging.service';
@@ -345,8 +339,6 @@ export class AgentXOperationChatRunControlFacade {
       ...sourceDisplayAttachments,
     ];
 
-    this.attachmentsFacade.pendingFiles.set([]);
-
     this.messageFacade.pushMessage({
       id: host.uid(),
       role: 'user',
@@ -357,7 +349,6 @@ export class AgentXOperationChatRunControlFacade {
       ...(selectedAction ? { selectedAction } : {}),
     });
 
-    this.transportFacade.beginResponseTurn('send');
     this.messageFacade.pushMessage({
       id: 'typing',
       role: 'assistant',
@@ -366,27 +357,59 @@ export class AgentXOperationChatRunControlFacade {
       isTyping: true,
     });
 
+    // Mirror regular chat UX: move staged files into the sent message row instantly.
+    this.attachmentsFacade.pendingFiles.set([]);
+
     try {
       let readyAttachments: AgentXAttachment[] = [];
-      let attachmentStubs: AgentXAttachmentStub[] = [];
       let authToken: string | null = null;
       if (files.length > 0) {
         authToken = (await this.getAuthToken?.().catch(() => null)) ?? null;
         if (authToken) {
-          // Non-blocking: immediately returns already-uploaded files as `ready`
-          // and still-uploading files as `stubs`. The stubs trigger the backend's
-          // `waiting_for_attachments` pipeline rather than blocking the send.
-          const split = this.attachmentsFacade.prepareForImmediateSend(files, authToken);
-          readyAttachments = split.ready;
-          attachmentStubs = split.stubs;
-
-          this.logger.info('Attachment split before chat dispatch', {
+          this.logger.info('Uploading staged attachments before chat dispatch', {
             contextId: host.contextId(),
             selectedFileCount: files.length,
-            readyCount: readyAttachments.length,
-            stubCount: attachmentStubs.length,
-            stubNames: attachmentStubs.map((s) => s.name),
           });
+
+          readyAttachments = await this.attachmentsFacade.prepareAttachmentsForSend(
+            files,
+            authToken
+          );
+          if (readyAttachments.length !== files.length) {
+            const failedCount = files.length - readyAttachments.length;
+            this.logger.warn('Blocking chat send because some attachments failed to upload', {
+              contextId: host.contextId(),
+              selectedCount: files.length,
+              uploadedCount: readyAttachments.length,
+              failedCount,
+            });
+            this.breadcrumb.trackStateChange(
+              'agent-x-operation-chat:attachment-upload-incomplete',
+              {
+                contextId: host.contextId(),
+                selectedCount: files.length,
+                uploadedCount: readyAttachments.length,
+                failedCount,
+              }
+            );
+            this.toast.error(
+              failedCount === 1
+                ? '1 attachment failed to upload. Fix it and retry before sending.'
+                : `${failedCount} attachments failed to upload. Fix them and retry before sending.`
+            );
+            this.attachmentsFacade.pendingFiles.set([...files]);
+            this.messageFacade.replaceTyping({
+              id: host.uid(),
+              role: 'assistant',
+              content:
+                failedCount === 1
+                  ? '1 attachment failed to upload. Fix it and tap send again.'
+                  : `${failedCount} attachments failed to upload. Fix them and tap send again.`,
+              timestamp: new Date(),
+              error: true,
+            });
+            return;
+          }
         } else {
           this.logger.error('Auth token unavailable — staged attachments cannot be sent to AI', {
             count: files.length,
@@ -404,6 +427,7 @@ export class AgentXOperationChatRunControlFacade {
           this.toast.error(
             `Session expired: ${files.length} attached file(s) cannot be sent. Please re-authenticate.`
           );
+          this.attachmentsFacade.pendingFiles.set([...files]);
           this.messageFacade.replaceTyping({
             id: host.uid(),
             role: 'assistant',
@@ -416,59 +440,15 @@ export class AgentXOperationChatRunControlFacade {
         }
       }
 
-      // Mutable set — the `onWaitingForAttachments` closure adds resolved IDs after the send.
-      const sentAttachmentIds = new Set(readyAttachments.map((attachment) => attachment.id));
+      this.transportFacade.beginResponseTurn('send');
 
-      const pendingAttachmentOptions =
-        attachmentStubs.length > 0 && authToken
-          ? {
-              stubs: attachmentStubs,
-              onWaitingForAttachments: async (operationId: string): Promise<void> => {
-                this.logger.info(
-                  'Backend waiting for attachment stubs — awaiting upload completion',
-                  { operationId, stubCount: attachmentStubs.length }
-                );
-                this.breadcrumb.trackStateChange('agent-x-operation-chat:awaiting-stubs', {
-                  operationId,
-                  stubCount: attachmentStubs.length,
-                });
-                // Allow 80 s — backend timeout is 90 s, giving a buffer for the POST.
-                const resolved = await this.attachmentsFacade.awaitPendingUploads(
-                  files,
-                  authToken!,
-                  80_000
-                );
-                this.logger.info('Pending uploads complete — notifying backend', {
-                  operationId,
-                  resolvedCount: resolved.length,
-                });
-                await this.notifyAttachmentsReady(operationId, resolved);
-                for (const attachment of resolved) {
-                  sentAttachmentIds.add(attachment.id);
-                }
-              },
-            }
-          : undefined;
-
-      const chatPromise = this.transportFacade.callAgentChat(
+      await this.transportFacade.callAgentChat(
         displayContent,
         readyAttachments,
         selectedAction ?? undefined,
         idempotencyKey,
-        pendingSources.length > 0 ? pendingSources : undefined,
-        pendingAttachmentOptions
+        pendingSources.length > 0 ? pendingSources : undefined
       );
-
-      if (files.length > 0 && authToken) {
-        this.attachmentsFacade.syncPendingAttachmentsAfterSend(
-          files,
-          idempotencyKey,
-          authToken,
-          sentAttachmentIds
-        );
-      }
-
-      await chatPromise;
       await this.haptics.notification('success');
     } catch (error) {
       this.logger.error('Chat message failed', error, { contextId: host.contextId() });
@@ -607,54 +587,5 @@ export class AgentXOperationChatRunControlFacade {
       throw new Error('AgentXOperationChatRunControlFacade host not configured');
     }
     return this.host;
-  }
-
-  /**
-   * POSTs fully-resolved attachment URLs to the backend waiter opened when the
-   * initial chat request contained `attachmentStubs`. The backend unblocks and
-   * enqueues the job immediately upon receiving this call.
-   */
-  private async notifyAttachmentsReady(
-    operationId: string,
-    attachments: readonly AgentXAttachment[]
-  ): Promise<void> {
-    const authToken = await this.getAuthToken?.().catch(() => null);
-    if (!authToken) {
-      this.logger.error('Cannot notify backend: auth token unavailable', {
-        operationId,
-        attachmentCount: attachments.length,
-      });
-      return;
-    }
-
-    const url = `${this.baseUrl}${AGENT_X_ENDPOINTS.PENDING_ATTACHMENTS_RESOLVE}/${operationId}`;
-    try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${authToken}`,
-        },
-        body: JSON.stringify({ attachments }),
-      });
-      if (!response.ok) {
-        const text = await response.text().catch(() => '');
-        this.logger.error('Failed to notify backend of resolved attachments', {
-          operationId,
-          status: response.status,
-          body: text.slice(0, 200),
-        });
-      } else {
-        this.logger.info('Backend notified of resolved attachments', {
-          operationId,
-          attachmentCount: attachments.length,
-        });
-      }
-    } catch (err) {
-      this.logger.error('Network error notifying backend of resolved attachments', err, {
-        operationId,
-        attachmentCount: attachments.length,
-      });
-    }
   }
 }

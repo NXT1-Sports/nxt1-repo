@@ -7,12 +7,18 @@
  */
 
 import { Router, type Router as ExpressRouter, Request, Response } from 'express';
+import { createHash } from 'node:crypto';
 import { optionalAuth } from '../../middleware/auth/auth.middleware.js';
 import { logger } from '../../utils/logger.js';
 import { getAnalyticsLoggerService } from '../../services/core/analytics-logger.service.js';
 import { getCacheService } from '../../services/core/cache.service.js';
+import { dispatch } from '../../services/communications/notification.service.js';
 import { recordProfileView } from '../../services/core/analytics.service.js';
-import type { UserPreferences } from '@nxt1/core';
+import {
+  NOTIFICATION_TYPES,
+  type DispatchNotificationInput,
+  type UserPreferences,
+} from '@nxt1/core';
 
 /** Cache key matches the pattern used by settings.routes.ts */
 const buildPrefsCacheKey = (uid: string) => `user:prefs:${uid}`;
@@ -116,6 +122,132 @@ function determineTrackingConfidence(input: {
   return 'anonymous';
 }
 
+function buildTrackingRecipientKey(input: {
+  readonly viewerUserId: string | null;
+  readonly recipientCoachId: string | null;
+  readonly recipientCollegeId: string | null;
+  readonly recipientEmailHash: string | null;
+}): string {
+  return (
+    input.viewerUserId ??
+    input.recipientCoachId ??
+    input.recipientCollegeId ??
+    input.recipientEmailHash ??
+    'anonymous'
+  );
+}
+
+function buildTrackingNotificationIdempotencyKey(input: {
+  readonly eventType: 'email_opened' | 'link_clicked';
+  readonly subjectId: string;
+  readonly sourceRecordId: string;
+  readonly recipientKey: string;
+  readonly normalizedUrl: string | null;
+}): string {
+  const urlDigest = input.normalizedUrl
+    ? createHash('sha256').update(input.normalizedUrl).digest('hex').slice(0, 16)
+    : 'none';
+
+  return [
+    'email-engagement',
+    input.eventType,
+    input.subjectId,
+    input.sourceRecordId,
+    input.recipientKey,
+    urlDigest,
+  ].join(':');
+}
+
+function buildTrackingNotification(input: {
+  readonly eventType: 'email_opened' | 'link_clicked';
+  readonly subjectId: string;
+  readonly subjectType: TrackingSubjectType;
+  readonly surface: TrackingSurface;
+  readonly viewerUserId: string | null;
+  readonly sourceRecordId: string | null;
+  readonly messageId: string | null;
+  readonly threadId: string | null;
+  readonly sessionId: string | null;
+  readonly destination: URL | undefined;
+  readonly normalizedUrl: string | null;
+  readonly recipientCoachId: string | null;
+  readonly recipientCollegeId: string | null;
+  readonly recipientEmailHash: string | null;
+  readonly attributionConfidence: 'verified' | 'known-recipient' | 'anonymous';
+}): DispatchNotificationInput | null {
+  if (input.subjectType !== 'user' || input.surface !== 'email' || !input.sourceRecordId) {
+    return null;
+  }
+
+  if (input.viewerUserId && input.viewerUserId === input.subjectId) {
+    return null;
+  }
+
+  const recipientKey = buildTrackingRecipientKey({
+    viewerUserId: input.viewerUserId,
+    recipientCoachId: input.recipientCoachId,
+    recipientCollegeId: input.recipientCollegeId,
+    recipientEmailHash: input.recipientEmailHash,
+  });
+  const type =
+    input.eventType === 'email_opened'
+      ? NOTIFICATION_TYPES.EMAIL_OPENED
+      : NOTIFICATION_TYPES.LINK_CLICKED;
+  const body =
+    input.eventType === 'email_opened'
+      ? 'A recipient opened an email you sent.'
+      : 'A recipient clicked a link in your email.';
+
+  return {
+    userId: input.subjectId,
+    type,
+    title: input.eventType === 'email_opened' ? 'Email opened' : 'Link clicked',
+    body,
+    deepLink: '/analytics',
+    data: {
+      entityId: input.sourceRecordId,
+      sourceRecordId: input.sourceRecordId,
+      eventType: input.eventType,
+      surface: input.surface,
+      destinationUrl: input.destination?.toString() ?? '',
+      normalizedUrl: input.normalizedUrl ?? '',
+      messageId: input.messageId ?? '',
+      threadId: input.threadId ?? '',
+      sessionId: input.sessionId ?? '',
+      recipientCoachId: input.recipientCoachId ?? '',
+      recipientCollegeId: input.recipientCollegeId ?? '',
+      recipientEmailHash: input.recipientEmailHash ?? '',
+      attributionConfidence: input.attributionConfidence,
+    },
+    metadata: {
+      eventType: input.eventType,
+      surface: input.surface,
+      sourceRecordId: input.sourceRecordId,
+      messageId: input.messageId,
+      threadId: input.threadId,
+      sessionId: input.sessionId,
+      destinationUrl: input.destination?.toString() ?? null,
+      normalizedUrl: input.normalizedUrl,
+      host: input.destination?.host ?? null,
+      path: input.destination?.pathname ?? null,
+      recipientCoachId: input.recipientCoachId,
+      recipientCollegeId: input.recipientCollegeId,
+      recipientEmailHash: input.recipientEmailHash,
+      attributionConfidence: input.attributionConfidence,
+    },
+    source: {
+      userName: 'Email analytics',
+    },
+    idempotencyKey: buildTrackingNotificationIdempotencyKey({
+      eventType: input.eventType,
+      subjectId: input.subjectId,
+      sourceRecordId: input.sourceRecordId,
+      recipientKey,
+      normalizedUrl: input.normalizedUrl,
+    }),
+  };
+}
+
 async function trackCommunicationOrEngagementEvent(
   req: Request,
   eventType: 'email_opened' | 'link_clicked',
@@ -154,6 +286,7 @@ async function trackCommunicationOrEngagementEvent(
 
   const domain = surface === 'email' || surface === 'message' ? 'communication' : 'engagement';
   const normalizedUrl = destination ? `${destination.origin}${destination.pathname}` : null;
+  const db = req.firebase?.db;
 
   void getAnalyticsLoggerService().safeTrack({
     subjectId,
@@ -185,6 +318,30 @@ async function trackCommunicationOrEngagementEvent(
       userAgent: readTrackingString(req.get('user-agent'), 500),
     },
   });
+
+  const notificationInput = buildTrackingNotification({
+    eventType,
+    subjectId,
+    subjectType,
+    surface,
+    viewerUserId: viewerUserId ?? null,
+    sourceRecordId,
+    messageId,
+    threadId,
+    sessionId,
+    destination,
+    normalizedUrl,
+    recipientCoachId,
+    recipientCollegeId,
+    recipientEmailHash,
+    attributionConfidence,
+  });
+
+  if (!db || !notificationInput) {
+    return;
+  }
+
+  await dispatch(db, notificationInput);
 }
 
 // ============================================

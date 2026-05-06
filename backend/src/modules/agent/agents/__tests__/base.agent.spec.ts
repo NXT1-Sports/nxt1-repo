@@ -1020,7 +1020,7 @@ describe('BaseAgent identifier scrubbing', () => {
     expect(systemContent).toContain('Never estimate or infer totals/counts');
   });
 
-  it('appends operator additions without replacing the base coordinator prompt', async () => {
+  it('ignores configured coordinator prompt additions and keeps the base coordinator prompt authoritative', async () => {
     setCachedAgentAppConfig(
       parseAgentAppConfig({
         prompts: {
@@ -1055,8 +1055,8 @@ describe('BaseAgent identifier scrubbing', () => {
     const systemContent = String(systemMessage?.content ?? '');
 
     expect(systemContent).toContain('You are a test agent.');
-    expect(systemContent).toContain('## Operator Additions');
-    expect(systemContent).toContain('Operator note for');
+    expect(systemContent).not.toContain('## Operator Additions');
+    expect(systemContent).not.toContain('Operator note for');
   });
 
   it('attaches evidenceTrace metadata for numeric tool-backed responses', async () => {

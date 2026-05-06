@@ -41,6 +41,15 @@ export interface CreatePlanDraftInput {
   readonly environment?: 'staging' | 'production';
 }
 
+export interface RevisePlanDraftInput {
+  readonly existingPlan: AgentPlanDocument;
+  readonly originOperationId: string;
+  readonly summary: string;
+  readonly planHash: string;
+  readonly tasks: readonly AgentTask[];
+  readonly environment?: 'staging' | 'production';
+}
+
 export class AgentPlanRepository {
   constructor(
     private readonly db: Firestore = getFirestore(),
@@ -71,6 +80,75 @@ export class AgentPlanRepository {
       .set(
         sanitizeForFirestore({
           planId: input.planId,
+          planStatus: doc.status,
+          updatedAt: now,
+        }),
+        { merge: true }
+      );
+
+    return doc;
+  }
+
+  async getLatestRevisableByThread(
+    userId: string,
+    threadId: string,
+    environment?: 'staging' | 'production'
+  ): Promise<AgentPlanDocument | null> {
+    const snapshot = await this.getDb(environment)
+      .collection(COLLECTION)
+      .where('userId', '==', userId)
+      .where('threadId', '==', threadId)
+      .limit(25)
+      .get();
+
+    if (snapshot.empty) return null;
+
+    const revisableStatuses: readonly AgentSavedPlanStatus[] = [
+      'draft',
+      'approved',
+      'awaiting_approval',
+    ];
+
+    const candidates = snapshot.docs
+      .map((doc) => doc.data() as AgentPlanDocument)
+      .filter((plan) => revisableStatuses.includes(plan.status));
+
+    if (candidates.length === 0) return null;
+
+    return candidates.sort((a, b) => {
+      const aTs = Date.parse(a.updatedAt ?? a.createdAt);
+      const bTs = Date.parse(b.updatedAt ?? b.createdAt);
+      return Number.isFinite(bTs) && Number.isFinite(aTs) ? bTs - aTs : 0;
+    })[0] as AgentPlanDocument;
+  }
+
+  async reviseDraft(input: RevisePlanDraftInput): Promise<AgentPlanDocument> {
+    const now = new Date().toISOString();
+    const previousVersion = Number.isFinite(input.existingPlan.version)
+      ? input.existingPlan.version
+      : 1;
+    const doc: AgentPlanDocument = {
+      planId: input.existingPlan.planId,
+      userId: input.existingPlan.userId,
+      ...(input.existingPlan.threadId ? { threadId: input.existingPlan.threadId } : {}),
+      originOperationId: input.originOperationId,
+      version: previousVersion + 1,
+      status: 'draft',
+      summary: input.summary,
+      planHash: input.planHash,
+      tasks: input.tasks,
+      createdAt: input.existingPlan.createdAt,
+      updatedAt: now,
+    };
+
+    const firestore = this.getDb(input.environment);
+    await firestore.collection(COLLECTION).doc(doc.planId).set(sanitizeForFirestore(doc));
+    await firestore
+      .collection(JOB_COLLECTION)
+      .doc(input.originOperationId)
+      .set(
+        sanitizeForFirestore({
+          planId: doc.planId,
           planStatus: doc.status,
           updatedAt: now,
         }),

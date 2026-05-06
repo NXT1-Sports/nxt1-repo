@@ -395,33 +395,39 @@ export class AgentXOperationChatAttachmentsFacade {
       try {
         host.videoUploadPercent.set(0);
         const threadId = host.resolveActiveThreadId();
-        const videoResult = await new Promise<{ url: string; storagePath?: string }>(
-          (resolve, reject) => {
-            this.videoUploadService.uploadVideo(pending.file, authToken, { threadId }).subscribe({
-              next: (progress) => {
-                if (progress.phase === 'uploading' || progress.phase === 'provisioning') {
-                  host.videoUploadPercent.set(progress.percent);
-                }
-                if (progress.phase === 'complete' && progress.streamUrl) {
-                  host.videoUploadPercent.set(100);
-                  resolve({
-                    url: progress.streamUrl,
-                    storagePath: progress.storagePath,
-                  });
-                } else if (progress.phase === 'error') {
-                  reject(new Error(progress.errorMessage ?? 'Video upload failed'));
-                }
-              },
-              error: (error) => reject(error),
-            });
-          }
-        );
+        const videoResult = await new Promise<{
+          url: string;
+          storagePath?: string;
+          cloudflareVideoId?: string;
+        }>((resolve, reject) => {
+          this.videoUploadService.uploadVideo(pending.file, authToken, { threadId }).subscribe({
+            next: (progress) => {
+              if (progress.phase === 'uploading' || progress.phase === 'provisioning') {
+                host.videoUploadPercent.set(progress.percent);
+              }
+              if (progress.phase === 'complete' && progress.streamUrl) {
+                host.videoUploadPercent.set(100);
+                resolve({
+                  url: progress.streamUrl,
+                  storagePath: progress.storagePath,
+                  cloudflareVideoId: progress.cloudflareVideoId,
+                });
+              } else if (progress.phase === 'error') {
+                reject(new Error(progress.errorMessage ?? 'Video upload failed'));
+              }
+            },
+            error: (error) => reject(error),
+          });
+        });
         host.videoUploadPercent.set(null);
 
         uploaded.push({
           id: pending.id,
           url: videoResult.url,
           ...(videoResult.storagePath ? { storagePath: videoResult.storagePath } : {}),
+          ...(videoResult.cloudflareVideoId
+            ? { cloudflareVideoId: videoResult.cloudflareVideoId }
+            : {}),
           name: pending.file.name,
           mimeType: pending.file.type,
           type: 'video',
@@ -507,7 +513,7 @@ export class AgentXOperationChatAttachmentsFacade {
     }
 
     const host = this.requireHost();
-    this.logger.warn('Pre-send attachment fallback activated for missing uploads', {
+    this.logger.info('Completing pending attachment uploads in send gate', {
       contextId: host.contextId(),
       totalFiles: files.length,
       readyCount: readyAttachments.length,
@@ -667,14 +673,33 @@ export class AgentXOperationChatAttachmentsFacade {
     this.pendingFiles.set([]);
   }
 
+  private fileSignature(file: File): string {
+    return `${file.name}|${file.size}|${file.lastModified}|${file.type}`;
+  }
+
   stageFiles(files: readonly File[]): number {
     const host = this.requireHost();
     if (files.length === 0) return 0;
 
-    const currentCount = this.pendingFiles().length;
+    const currentPending = this.pendingFiles();
+    const currentCount = currentPending.length;
+    const knownFileSignatures = new Set(
+      currentPending.map((pending) => this.fileSignature(pending.file))
+    );
     const nextPending: PendingFile[] = [];
 
     for (const file of files) {
+      const signature = this.fileSignature(file);
+      if (knownFileSignatures.has(signature)) {
+        this.logger.info('Skipped duplicate operation chat file', {
+          contextId: host.contextId(),
+          fileName: file.name,
+          fileSize: file.size,
+          mimeType: file.type,
+        });
+        continue;
+      }
+
       if (currentCount + nextPending.length >= AGENT_X_MAX_ATTACHMENTS) {
         this.toast.error(`Maximum ${AGENT_X_MAX_ATTACHMENTS} attachments allowed`);
         this.logger.warn('Rejected file because attachment limit was reached', {
@@ -718,6 +743,7 @@ export class AgentXOperationChatAttachmentsFacade {
         isImage,
         isVideo,
       });
+      knownFileSignatures.add(signature);
     }
 
     if (nextPending.length > 0) {
@@ -983,28 +1009,37 @@ export class AgentXOperationChatAttachmentsFacade {
     );
 
     try {
-      const result = await new Promise<{ streamUrl: string; storagePath?: string }>(
-        (resolve, reject) => {
-          this.videoUploadService.uploadVideo(pending.file, authToken, { threadId }).subscribe({
-            next: (progress) => {
-              if (progress.phase === 'complete' && progress.streamUrl) {
-                resolve({
-                  streamUrl: progress.streamUrl,
-                  storagePath: progress.storagePath,
-                });
-              } else if (progress.phase === 'error') {
-                reject(new Error(progress.errorMessage ?? 'Video upload failed'));
-              }
-            },
-            error: (error) => reject(error),
-          });
-        }
-      );
+      host.videoUploadPercent.set(0);
+      const result = await new Promise<{
+        streamUrl: string;
+        storagePath?: string;
+        cloudflareVideoId?: string;
+      }>((resolve, reject) => {
+        this.videoUploadService.uploadVideo(pending.file, authToken, { threadId }).subscribe({
+          next: (progress) => {
+            if (progress.phase === 'uploading' || progress.phase === 'provisioning') {
+              host.videoUploadPercent.set(progress.percent);
+            }
+            if (progress.phase === 'complete' && progress.streamUrl) {
+              host.videoUploadPercent.set(100);
+              resolve({
+                streamUrl: progress.streamUrl,
+                storagePath: progress.storagePath,
+                cloudflareVideoId: progress.cloudflareVideoId,
+              });
+            } else if (progress.phase === 'error') {
+              reject(new Error(progress.errorMessage ?? 'Video upload failed'));
+            }
+          },
+          error: (error) => reject(error),
+        });
+      });
 
       return {
         id: pending.id,
         url: result.streamUrl,
         ...(result.storagePath ? { storagePath: result.storagePath } : {}),
+        ...(result.cloudflareVideoId ? { cloudflareVideoId: result.cloudflareVideoId } : {}),
         name: pending.file.name,
         mimeType: pending.file.type,
         type: 'video',
@@ -1016,6 +1051,8 @@ export class AgentXOperationChatAttachmentsFacade {
         fileName: pending.file.name,
       });
       return null;
+    } finally {
+      host.videoUploadPercent.set(null);
     }
   }
 

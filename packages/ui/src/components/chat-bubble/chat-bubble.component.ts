@@ -201,6 +201,26 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
           }
         }
       }
+      @if (!hasExplicitMediaPart() && imageUrl()) {
+        <div class="bubble-media">
+          <img
+            [src]="imageUrl()"
+            [alt]="content() || 'Generated image'"
+            class="bubble-img"
+            loading="lazy"
+          />
+        </div>
+      } @else if (!hasExplicitMediaPart() && videoUrl()) {
+        <div class="bubble-media">
+          <video
+            [src]="videoUrl()"
+            class="bubble-video"
+            controls
+            playsinline
+            preload="metadata"
+          ></video>
+        </div>
+      }
     } @else {
       <!-- ═══ LEGACY FLAT LAYOUT (history messages without parts) ═══ -->
       @if (steps().length) {
@@ -726,6 +746,10 @@ export class NxtChatBubbleComponent {
     const label = this.typingLabel()?.trim();
     return label && label.length > 0 ? label : 'Agent X is thinking...';
   });
+
+  protected readonly hasExplicitMediaPart = computed(() =>
+    this.parts().some((part) => part.type === 'image' || part.type === 'video')
+  );
 
   /** Error state. */
   readonly isError = input(false);

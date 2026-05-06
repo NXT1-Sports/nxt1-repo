@@ -17,14 +17,14 @@ import type { ZodType } from 'zod';
  */
 export const PROD_MODEL_CATALOGUE: Record<ModelTier, string> = {
   // ── Text Tiers ──────────────────────────────────────────────────────────
-  routing: 'openai/o1',
+  routing: '~anthropic/claude-sonnet-latest',
   extraction: 'anthropic/claude-opus-4.7',
-  data_heavy: 'openai/o3-deep-research',
+  data_heavy: 'x-ai/grok-4.3',
   evaluator: 'anthropic/claude-opus-4.7',
   compliance: 'openai/o1',
   copywriting: '~anthropic/claude-opus-latest',
   prompt_engineering: 'openai/o1',
-  chat: 'anthropic/claude-haiku-4.5',
+  chat: 'openai/gpt-chat-latest',
   task_automation: 'openai/gpt-5.5-pro',
 
   // ── Media Tiers ─────────────────────────────────────────────────────────
@@ -82,26 +82,44 @@ export const MODEL_CATALOGUE: Record<ModelTier, string> =
 
 export const PROD_FALLBACK_CHAIN: Record<ModelTier, readonly string[]> = {
   // ── Text Tiers ──────────────────────────────────────────────────────────
-  routing: ['openai/o1', 'anthropic/claude-opus-4.7', 'openai/gpt-5.5'],
+  routing: [
+    '~anthropic/claude-sonnet-latest',
+    'mistralai/mistral-medium-3-5',
+    'anthropic/claude-opus-4.7',
+    'openai/gpt-5.5-pro',
+  ],
   extraction: ['anthropic/claude-opus-4.7', 'openai/o1', 'openai/gpt-4o-mini'],
-  data_heavy: ['openai/o3-deep-research', 'openai/gpt-5.5-pro', 'anthropic/claude-opus-4.6'],
+  data_heavy: ['x-ai/grok-4.3', 'openai/o3-deep-research', 'openai/gpt-5.5-pro'],
   evaluator: ['anthropic/claude-opus-4.7', 'openai/o1', 'anthropic/claude-sonnet-4'],
   compliance: ['openai/o1', 'anthropic/claude-opus-4.7', 'openai/gpt-4o'],
   copywriting: ['~anthropic/claude-opus-latest', 'openai/gpt-5.5-pro', 'anthropic/claude-opus-4.5'],
   prompt_engineering: ['openai/o1', 'anthropic/claude-opus-4.7', 'openai/gpt-4o'],
-  chat: ['anthropic/claude-haiku-4.5', 'anthropic/claude-sonnet-4.5', 'openai/gpt-5.5'],
-  task_automation: ['openai/gpt-5.5-pro', 'anthropic/claude-opus-4.7', 'openai/o1'],
+  chat: ['openai/gpt-chat-latest', 'anthropic/claude-haiku-4.5', 'anthropic/claude-sonnet-4.5'],
+  task_automation: [
+    'openai/gpt-5.5-pro',
+    'mistralai/mistral-medium-3-5',
+    'anthropic/claude-opus-4.7',
+  ],
 
   // ── Media Tiers ─────────────────────────────────────────────────────────
   image_generation: ['openai/gpt-5.4-image-2', 'google/gemini-3-pro-image-preview'],
   video_generation: ['google/gemini-3-pro-image-preview'],
-  vision_analysis: ['google/gemini-3.1-pro-preview', 'openai/gpt-5.5-pro', 'openai/gpt-4o'],
+  vision_analysis: [
+    'google/gemini-3.1-pro-preview',
+    'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',
+    'openai/gpt-5.5-pro',
+    'openai/gpt-4o',
+  ],
   video_analysis: [
     'google/gemini-3.1-pro-preview',
     'google/gemini-2.5-flash',
     'google/gemini-2.5-pro',
   ],
-  audio_analysis: ['openai/gpt-5.5', 'openai/gpt-4o'],
+  audio_analysis: [
+    'openai/gpt-5.5',
+    'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',
+    'openai/gpt-4o',
+  ],
   voice_generation: ['openai/gpt-audio-mini', 'openai/gpt-4o-mini-tts-2025-12-15'],
   music_generation: ['google/lyria-3-pro-preview', 'google/lyria-3-clip-preview'],
 

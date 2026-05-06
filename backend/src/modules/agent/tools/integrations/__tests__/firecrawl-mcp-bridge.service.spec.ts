@@ -175,6 +175,34 @@ describe('FirecrawlMcpBridgeService', () => {
 
       expect(executeToolSpy).toHaveBeenCalledTimes(1);
     });
+
+    it('normalizes object-style link entries returned by Firecrawl map', async () => {
+      const service = new FirecrawlMcpBridgeService();
+      vi.spyOn(service, 'executeTool').mockResolvedValue({
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              links: [
+                { url: 'https://www.maxpreps.com/a' },
+                { href: 'https://www.maxpreps.com/b' },
+                { link: 'https://www.maxpreps.com/c' },
+                { foo: 'bar' },
+                'https://www.maxpreps.com/d',
+              ],
+            }),
+          },
+        ],
+      });
+
+      const result = await service.map('https://www.maxpreps.com');
+      expect(result).toEqual([
+        'https://www.maxpreps.com/a',
+        'https://www.maxpreps.com/b',
+        'https://www.maxpreps.com/c',
+        'https://www.maxpreps.com/d',
+      ]);
+    });
   });
 
   // ── extract() ─────────────────────────────────────────────────────────

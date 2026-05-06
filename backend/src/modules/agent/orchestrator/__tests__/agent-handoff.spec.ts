@@ -25,7 +25,7 @@ function createContext(): AgentSessionContext {
 }
 
 describe('Agent handoff and tool narrowing', () => {
-  it('buildTaskIntent produces an objective-first handoff block', () => {
+  it('buildTaskIntent scopes handoff to objective and enforces task boundaries', () => {
     const contextService = new AgentRouterContextService(
       {
         compressToPrompt: () => 'mocked',
@@ -42,10 +42,20 @@ describe('Agent handoff and tool narrowing', () => {
       createdAt: new Date().toISOString(),
     };
 
-    const taskIntent = contextService.buildTaskIntent(task, new Map(), '[User Profile]\nAthlete');
+    const taskIntent = contextService.buildTaskIntent(
+      task,
+      new Map(),
+      '[User Profile]\nAthlete\n\n[Request]\nCreate, export, and send everything end to end'
+    );
 
+    expect(taskIntent).toContain('[User Profile]\nAthlete');
     expect(taskIntent).toContain('[Agent Handoff]');
     expect(taskIntent).toContain('Objective: Create a 60-second cinematic highlight reel');
+    expect(taskIntent).toContain('[Task Boundaries]');
+    expect(taskIntent).toContain('Execute only this Objective for the current task.');
+    expect(taskIntent).toContain('Do NOT perform downstream or future plan tasks in this step.');
+    expect(taskIntent).not.toContain('[Request]');
+    expect(taskIntent).not.toContain('Create, export, and send everything end to end');
     expect(taskIntent).not.toContain('[Current Task]');
   });
 
@@ -379,5 +389,95 @@ describe('Agent handoff and tool narrowing', () => {
     expect(usedToolNames).toContain('dispatch_extraction');
     expect(usedToolNames).toContain('write_core_identity');
     expect(usedToolNames).toContain('write_schedule');
+  });
+
+  it('enforces single in-progress task ownership across plan snapshots', async () => {
+    const toolRegistry = {
+      getDefinitions: vi.fn().mockReturnValue([]),
+      matchWithScores: vi.fn().mockResolvedValue([]),
+    } as unknown as ToolRegistry;
+
+    const llm = {
+      embed: vi.fn().mockResolvedValue([0.2, 0.2, 0.2]),
+    } as unknown as OpenRouterService;
+
+    const telemetry = {
+      emitProgressOperation: vi.fn(),
+      emitUpdate: vi.fn(),
+      recordPhaseLatency: vi.fn(),
+    };
+
+    const executionOrder: string[] = [];
+    const fakeAgent = {
+      id: 'strategy_coordinator' as AgentIdentifier,
+      name: 'Strategy',
+      execute: vi.fn().mockImplementation(async (intent: string) => {
+        executionOrder.push(intent.includes('Step A') ? 'A' : 'B');
+        return {
+          summary: 'ok',
+          data: {},
+          suggestions: [],
+        } as AgentOperationResult;
+      }),
+    } as unknown as BaseAgent;
+
+    const service = new AgentRouterExecutionService(llm, toolRegistry, telemetry);
+
+    const taskA: AgentTask = {
+      id: 'a',
+      assignedAgent: 'strategy_coordinator',
+      description: 'Step A objective',
+      dependsOn: [],
+      status: 'pending',
+      createdAt: new Date().toISOString(),
+    };
+
+    const taskB: AgentTask = {
+      id: 'b',
+      assignedAgent: 'strategy_coordinator',
+      description: 'Step B objective',
+      dependsOn: [],
+      status: 'pending',
+      createdAt: new Date().toISOString(),
+    };
+
+    const snapshots: Array<readonly { id: string; status: string }[]> = [];
+
+    const accessContext: AgentToolAccessContext = {
+      userId: 'user-1',
+      role: 'athlete',
+      allowedEntityGroups: ['platform_tools', 'system_tools', 'user_tools'],
+    };
+
+    await service.executePlan({
+      operationId: 'op-single-active',
+      userId: 'user-1',
+      plan: { tasks: [taskA, taskB] },
+      enrichedIntent: 'Run two independent steps serially',
+      context: createContext(),
+      toolAccessContext: accessContext,
+      taskMaxRetries: 0,
+      agents: new Map([['strategy_coordinator', fakeAgent]]),
+      buildTaskIntent: (task) => `Objective: ${task.description}`,
+      rerouteDelegatedTask: async () => null,
+      onPlanStateChange: async (mutableTasks) => {
+        snapshots.push(mutableTasks.map((task) => ({ id: task.id, status: task.status })));
+      },
+    });
+
+    expect(executionOrder).toEqual(['A', 'B']);
+
+    for (const snapshot of snapshots) {
+      const inProgressCount = snapshot.filter((task) => task.status === 'in_progress').length;
+      expect(inProgressCount).toBeLessThanOrEqual(1);
+    }
+
+    const finalSnapshot = snapshots[snapshots.length - 1] ?? [];
+    expect(finalSnapshot).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'a', status: 'completed' }),
+        expect.objectContaining({ id: 'b', status: 'completed' }),
+      ])
+    );
   });
 });

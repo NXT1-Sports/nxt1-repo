@@ -193,6 +193,7 @@ ${agentCatalogue}
 6. Imperative requests such as open, launch, navigate, watch, send, create, generate, run, log in, or analyze should default to execution unless a concrete missing parameter prevents safe execution.
 7. Do not invent missing recipients, destinations, or assets just to avoid clarification.
 8. Assign each task to exactly one coordinator by id.
+9. If the user input contains [Plan Revision Context], treat it as an in-place revision of an existing saved plan. Preserve valid steps where possible and modify only the parts required by the latest request.
 
 ## Output Format (STRICT JSON)
 Respond with ONLY a JSON object:

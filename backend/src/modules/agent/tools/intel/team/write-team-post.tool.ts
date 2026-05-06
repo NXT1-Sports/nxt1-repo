@@ -173,6 +173,15 @@ export class WriteTeamPostTool extends BaseTool {
             phase: 'submit_video_cloudflare',
           });
 
+          logger.info('[WriteTeamPostTool] Submitting video to Cloudflare Stream', {
+            teamId,
+            teamCode,
+            actorUserId: context.userId,
+            sourceVideoUrl,
+            backendUrl: (process.env['BACKEND_URL'] ?? '').replace(/\/$/, ''),
+            environment: process.env['NODE_ENV'] ?? 'production',
+          });
+
           const cfResult = await this.submitVideoToCloudflare(sourceVideoUrl, context.userId);
 
           if (!cfResult) {
@@ -186,6 +195,17 @@ export class WriteTeamPostTool extends BaseTool {
 
           const cloudflareVideoId = cfResult.videoId;
           const docId = getCloudflareHighlightPostId(cloudflareVideoId);
+
+          logger.info('[WriteTeamPostTool] Cloudflare submission completed', {
+            teamId,
+            teamCode,
+            actorUserId: context.userId,
+            cloudflareVideoId,
+            readyToStream: cfResult.readyToStream,
+            iframeUrl: cfResult.iframeUrl,
+            hlsUrl: cfResult.hlsUrl,
+            docId,
+          });
 
           const docRef = this.db.collection(POSTS_COLLECTION).doc(docId);
 
@@ -239,6 +259,17 @@ export class WriteTeamPostTool extends BaseTool {
             engagement: { likeCount: 0, commentCount: 0, shareCount: 0, viewCount: 0 },
             createdAt: resolveCreatedAt(undefined, undefined, now),
             updatedAt: now,
+          });
+
+          logger.info('[WriteTeamPostTool] Queued team post document write', {
+            teamId,
+            teamCode,
+            postId: docId,
+            actorUserId: context.userId,
+            cloudflareVideoId,
+            initialCloudflareStatus: alreadyReady ? 'ready' : 'inprogress',
+            readyToStream: cfResult.readyToStream,
+            mediaUrl: alreadyReady ? cfResult.iframeUrl ?? null : null,
           });
 
           if (!alreadyReady) {
@@ -298,6 +329,14 @@ export class WriteTeamPostTool extends BaseTool {
       });
       await batch.commit();
 
+      logger.info('[WriteTeamPostTool] Batch commit completed', {
+        teamId,
+        teamCode,
+        written,
+        skipped,
+        pendingVideoReconciliations: pendingVideoReconciliations.length,
+      });
+
       await Promise.all(
         pendingVideoReconciliations.map((target) =>
           this.reconcileCloudflareVideoPost(target.docId, target.videoId, target.userId)
@@ -313,12 +352,22 @@ export class WriteTeamPostTool extends BaseTool {
 
       logger.info('[WriteTeamPostTool] Posts written', { teamId, teamCode, written, skipped });
 
+      const pendingVideoCount = pendingVideoReconciliations.length;
+      const processingNote =
+        pendingVideoCount > 0
+          ? `${pendingVideoCount} video post(s) are still processing in Cloudflare Stream and will become playable shortly.`
+          : null;
+
       return {
         success: true,
         data: {
           written,
           skipped,
-          message: `Created ${written} team post(s)${skipped > 0 ? `, skipped ${skipped}` : ''}.`,
+          pendingVideoCount,
+          ...(processingNote ? { processingNote } : {}),
+          message:
+            `Created ${written} team post(s)${skipped > 0 ? `, skipped ${skipped}` : ''}.` +
+            (processingNote ? ` ${processingNote}` : ''),
         },
       };
     } catch (err) {
@@ -376,6 +425,7 @@ export class WriteTeamPostTool extends BaseTool {
     }
 
     try {
+      const webhookBackendUrl = (process.env['BACKEND_URL'] ?? '').replace(/\/$/, '');
       const response = await fetch(`${CLOUDFLARE_API_BASE_URL}/accounts/${accountId}/stream/copy`, {
         method: 'POST',
         headers: {
@@ -391,6 +441,14 @@ export class WriteTeamPostTool extends BaseTool {
             webhook_backend_url: (process.env['BACKEND_URL'] ?? '').replace(/\/$/, ''),
           },
         }),
+      });
+
+      logger.info('[WriteTeamPostTool] Cloudflare copy API responded', {
+        userId,
+        sourceVideoUrl: videoUrl,
+        webhookBackendUrl,
+        status: response.status,
+        ok: response.ok,
       });
 
       if (!response.ok) {
@@ -459,6 +517,12 @@ export class WriteTeamPostTool extends BaseTool {
       );
 
       if (!response.ok) {
+        logger.warn('[WriteTeamPostTool] Immediate Cloudflare reconcile returned non-2xx', {
+          userId,
+          cloudflareVideoId: videoId,
+          docId,
+          status: response.status,
+        });
         return;
       }
 
@@ -466,11 +530,24 @@ export class WriteTeamPostTool extends BaseTool {
       const result = body['result'] as Record<string, unknown> | null | undefined;
 
       if (!result) {
+        logger.warn('[WriteTeamPostTool] Immediate Cloudflare reconcile returned no result', {
+          userId,
+          cloudflareVideoId: videoId,
+          docId,
+        });
         return;
       }
 
       const normalized = normalizeCloudflareVideoForClient(videoId, result, customerCode);
       if (!normalized.readyToStream || !normalized.playback.iframeUrl) {
+        logger.info('[WriteTeamPostTool] Immediate Cloudflare reconcile found video not ready yet', {
+          userId,
+          cloudflareVideoId: videoId,
+          docId,
+          status: normalized.status,
+          readyToStream: normalized.readyToStream,
+          iframeUrl: normalized.playback.iframeUrl,
+        });
         return;
       }
 

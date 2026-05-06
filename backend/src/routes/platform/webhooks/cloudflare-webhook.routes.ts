@@ -21,33 +21,15 @@ import { Timestamp } from 'firebase-admin/firestore';
 import { logger } from '../../../utils/logger.js';
 import { getCacheService } from '../../../services/core/cache.service.js';
 import { invalidateProfileCaches } from '../../profile/shared.js';
+import { buildCloudflarePlaybackUrls } from '../../core/upload/shared.js';
 
 const router = Router();
 
 const WEBHOOK_SECRET = process.env['CLOUDFLARE_WEBHOOK_SECRET'] ?? '';
 
-function getCloudflareStreamHost(customerCode: string | undefined): string | null {
-  if (!customerCode) return null;
-
-  const normalizedCustomerCode = customerCode.startsWith('customer-')
-    ? customerCode
-    : `customer-${customerCode}`;
-
-  return `https://${normalizedCustomerCode}.cloudflarestream.com`;
-}
-
-function buildCloudflarePlaybackUrls(
-  videoId: string,
-  customerCode: string | undefined,
-  playback?: { hls?: string; dash?: string }
-): { hlsUrl: string | null; dashUrl: string | null; iframeUrl: string | null } {
-  const streamHost = getCloudflareStreamHost(customerCode);
-
-  return {
-    hlsUrl: playback?.hls ?? (streamHost ? `${streamHost}/${videoId}/manifest/video.m3u8` : null),
-    dashUrl: playback?.dash ?? (streamHost ? `${streamHost}/${videoId}/manifest/video.mpd` : null),
-    iframeUrl: streamHost ? `${streamHost}/${videoId}/iframe` : null,
-  };
+function resolveWebhookPath(meta: Record<string, string>): '/api/v1/cloudflare-webhook' | '/api/v1/staging/cloudflare-webhook' {
+  const env = (meta['nxt1_env'] ?? '').trim().toLowerCase();
+  return env === 'staging' ? '/api/v1/staging/cloudflare-webhook' : '/api/v1/cloudflare-webhook';
 }
 
 function getCloudflareHighlightPostId(cloudflareVideoId: string): string {
@@ -137,6 +119,7 @@ router.post('/', async (req: Request, res: Response) => {
     const meta = (payload.meta ?? {}) as Record<string, string>;
     const targetBackendUrl = meta['webhook_backend_url'];
     const currentBackendUrl = process.env['BACKEND_URL']?.replace(/\/$/, '');
+    const webhookPath = resolveWebhookPath(meta);
 
     // ── 3. Cross-Environment Proxy Routing ───────────────────────────────
     // Cloudflare Stream only supports exactly 1 global webhook per account.
@@ -151,9 +134,11 @@ router.post('/', async (req: Request, res: Response) => {
         return res.status(200).json({ ignored: true, reason: 'local_creator' });
       }
 
-      logger.info(`${tag} Proxying webhook to creator environment: ${targetBackendUrl}`);
+      logger.info(`${tag} Proxying webhook to creator environment: ${targetBackendUrl}`, {
+        webhookPath,
+      });
       try {
-        const proxyResponse = await fetch(`${targetBackendUrl}/api/v1/cloudflare-webhook`, {
+        const proxyResponse = await fetch(`${targetBackendUrl}${webhookPath}`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -171,6 +156,35 @@ router.post('/', async (req: Request, res: Response) => {
         logger.error(`${tag} Failed to proxy webhook to ${targetBackendUrl}`, { error: err });
         // Return 200 to Cloudflare so it doesn't retry the dead local tunnel endlessly
         return res.status(200).json({ proxied: false, error: 'Proxy fetch failed' });
+      }
+    }
+
+    // Single global Cloudflare webhook commonly points at /api/v1/cloudflare-webhook.
+    // If the payload declares staging but this request is on the production path,
+    // internally re-route to the staging path on the same backend.
+    const isRequestPathStaging = req.originalUrl.includes('/staging/');
+    if (!isRequestPathStaging && webhookPath === '/api/v1/staging/cloudflare-webhook' && currentBackendUrl) {
+      logger.info(`${tag} Re-routing webhook to staging path on same backend`, {
+        currentBackendUrl,
+        webhookPath,
+      });
+      try {
+        const rerouteResponse = await fetch(`${currentBackendUrl}${webhookPath}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Webhook-Signature': req.headers['webhook-signature'] as string,
+          },
+          body: req.rawBody || JSON.stringify(payload),
+        });
+
+        if (!rerouteResponse.ok) {
+          logger.warn(`${tag} Staging re-route returned non-2xx status: ${rerouteResponse.status}`);
+        }
+        return res.status(rerouteResponse.status).json(await rerouteResponse.json());
+      } catch (err) {
+        logger.error(`${tag} Failed to re-route webhook to staging path`, { error: err });
+        return res.status(200).json({ proxied: false, error: 'Staging re-route failed' });
       }
     }
 
@@ -216,7 +230,14 @@ router.post('/', async (req: Request, res: Response) => {
     });
 
     const db = req.firebase?.db;
-    if (db && nxt1UserId) {
+    if (!db) {
+      logger.warn(`${tag} Firestore context unavailable; skipping reconciliation`, {
+        videoUid,
+        state,
+      });
+    }
+
+    if (db) {
       const postRef = db.collection('Posts').doc(getCloudflareHighlightPostId(videoUid));
       const postSnap = await postRef.get();
 
@@ -260,6 +281,10 @@ router.post('/', async (req: Request, res: Response) => {
         // invalidation. Team posts written by WriteTeamPostTool have a `teamId`
         // field. We look up the team doc to get the `teamCode` slug.
         const existingData = postSnap.data() as Record<string, unknown>;
+        const resolvedUserId =
+          typeof existingData['userId'] === 'string' && existingData['userId'].trim().length > 0
+            ? (existingData['userId'] as string)
+            : nxt1UserId;
         const teamId =
           typeof existingData['teamId'] === 'string' ? existingData['teamId'] : undefined;
         let teamCode: string | undefined;
@@ -276,9 +301,13 @@ router.post('/', async (req: Request, res: Response) => {
 
         const cache = getCacheService();
         await Promise.all([
-          cache.del(`profile:videos:${nxt1UserId}*`),
+          ...(resolvedUserId
+            ? [
+                cache.del(`profile:videos:${resolvedUserId}*`),
+                invalidateProfileCaches(resolvedUserId),
+              ]
+            : []),
           cache.del('explore:*'),
-          invalidateProfileCaches(nxt1UserId),
           ...(teamCode
             ? [
                 cache.delByPrefix(`team:timeline:v1:${teamCode}:`),
@@ -288,6 +317,14 @@ router.post('/', async (req: Request, res: Response) => {
         ]);
 
         logger.info(`${tag} Reconciled persisted highlight post`, {
+          videoUid,
+          postId: getCloudflareHighlightPostId(videoUid),
+          state,
+          nxt1UserId,
+          resolvedUserId,
+        });
+      } else {
+        logger.warn(`${tag} No persisted highlight post found for Cloudflare UID`, {
           videoUid,
           postId: getCloudflareHighlightPostId(videoUid),
           state,

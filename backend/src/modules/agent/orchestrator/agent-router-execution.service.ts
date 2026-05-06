@@ -199,6 +199,7 @@ export class AgentRouterExecutionService {
         displayLabel: task.displayLabel,
         _lastError: undefined as string | undefined,
       })) as AgentExecutionMutableTask[];
+      this.normalizeTasksForDeterministicExecution(mutableTasks);
 
       await onPlanStateChange?.(mutableTasks, taskResults);
 
@@ -229,7 +230,7 @@ export class AgentRouterExecutionService {
         // shows one active step at a time. Parallelism within a task (the
         // coordinator's own tool execution) is unaffected by this change.
         const activeTask = ready[0]!;
-        activeTask.status = 'in_progress' as AgentTaskStatus;
+        this.markTaskInProgress(activeTask.id, mutableTasks);
         this.telemetry.emitUpdate(
           onUpdate,
           operationId,
@@ -242,7 +243,7 @@ export class AgentRouterExecutionService {
             metadata: { taskId: activeTask.id },
           }
         );
-        this.emitActivePlannerCard(onStreamEvent, mutableTasks, activeTask.id);
+        this.emitActivePlannerCard(onStreamEvent, mutableTasks);
         await onPlanStateChange?.(mutableTasks, taskResults);
 
         const completedAtBatchStart = Object.fromEntries(
@@ -651,7 +652,7 @@ export class AgentRouterExecutionService {
         type: 'planner',
         title: 'Execution Plan',
         payload: {
-          items: mutableTasks.map((task) => this.toPlannerItem(task, false)),
+          items: mutableTasks.map((task) => this.toPlannerItem(task)),
         },
       },
     });
@@ -664,8 +665,7 @@ export class AgentRouterExecutionService {
    */
   private emitActivePlannerCard(
     onStreamEvent: OnStreamEvent | undefined,
-    mutableTasks: readonly AgentExecutionMutableTask[],
-    activeTaskId: string
+    mutableTasks: readonly AgentExecutionMutableTask[]
   ): void {
     if (!onStreamEvent || mutableTasks.length < 3) return;
 
@@ -676,16 +676,13 @@ export class AgentRouterExecutionService {
         type: 'planner',
         title: 'Execution Plan',
         payload: {
-          items: mutableTasks.map((task) => this.toPlannerItem(task, task.id === activeTaskId)),
+          items: mutableTasks.map((task) => this.toPlannerItem(task)),
         },
       },
     });
   }
 
-  private toPlannerItem(
-    task: AgentExecutionMutableTask,
-    active: boolean
-  ): {
+  private toPlannerItem(task: AgentExecutionMutableTask): {
     id: string;
     label: string;
     done: boolean;
@@ -697,9 +694,37 @@ export class AgentRouterExecutionService {
       id: task.id,
       label: task.displayLabel ?? task.description,
       done: task.status === ('completed' as AgentTaskStatus),
-      active,
+      active: task.status === ('in_progress' as AgentTaskStatus),
       status: task.status,
       ...(task._lastError ? { note: task._lastError } : {}),
     };
+  }
+
+  private normalizeTasksForDeterministicExecution(tasks: AgentExecutionMutableTask[]): void {
+    for (const task of tasks) {
+      const isTerminal =
+        task.status === ('completed' as AgentTaskStatus) ||
+        task.status === ('failed' as AgentTaskStatus) ||
+        task.status === ('blocked' as AgentTaskStatus);
+      if (isTerminal) continue;
+
+      // Resume and stale snapshots may carry legacy intermediate states
+      // (in_progress/awaiting_tool_approval). Re-normalize so execution
+      // deterministically owns one active task at a time.
+      task.status = 'pending' as AgentTaskStatus;
+    }
+  }
+
+  private markTaskInProgress(activeTaskId: string, tasks: AgentExecutionMutableTask[]): void {
+    for (const task of tasks) {
+      if (task.id === activeTaskId) {
+        task.status = 'in_progress' as AgentTaskStatus;
+        continue;
+      }
+
+      if (task.status === ('in_progress' as AgentTaskStatus)) {
+        task.status = 'pending' as AgentTaskStatus;
+      }
+    }
   }
 }

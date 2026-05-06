@@ -400,6 +400,7 @@ export function buildInlineYieldCard(params: {
             { id: 'approve', label: 'Send', variant: 'primary' },
           ],
           approvalId,
+          toolCallId: pendingToolCall.toolCallId,
           operationId,
         },
       };
@@ -464,6 +465,7 @@ export function buildInlineYieldCard(params: {
             { id: 'approve', label: 'Send All', variant: 'primary' },
           ],
           approvalId,
+          toolCallId: pendingToolCall.toolCallId,
           operationId,
         },
       };
@@ -491,6 +493,7 @@ export function buildInlineYieldCard(params: {
               { id: 'approve', label: 'Publish', variant: 'primary' },
             ],
             approvalId,
+            toolCallId: pendingToolCall.toolCallId,
             operationId,
           },
         };
@@ -568,6 +571,7 @@ export function buildInlineYieldCard(params: {
               { id: 'approve', label: 'Approve & Execute', variant: 'primary' },
             ],
             approvalId,
+            toolCallId: pendingToolCall.toolCallId,
             operationId,
           },
         };
@@ -602,6 +606,7 @@ export function buildInlineYieldCard(params: {
           { id: 'approve', label: 'Approve', variant: 'primary' },
         ],
         approvalId,
+        toolCallId: pendingToolCall.toolCallId,
         operationId,
       },
     };
@@ -1790,6 +1795,59 @@ export class AgentWorker {
 
         if (threadId && this.chatService) {
           try {
+            // Persist stream snapshot (tool steps + parts) so the thread
+            // timeline survives a page reload while the yield card is active.
+            // Without this, only the assistant_yield text row is stored and
+            // all streamed tool steps are lost from MongoDB on reload.
+            // Uses the same idempotency key as the controlled-abort path —
+            // safe because the two paths are mutually exclusive per operation.
+            const yieldSnapshot = persistedAssistantStream.snapshot();
+            const hasYieldSnapshot =
+              yieldSnapshot.content.length > 0 ||
+              yieldSnapshot.steps.length > 0 ||
+              yieldSnapshot.parts.length > 0;
+
+            if (hasYieldSnapshot) {
+              const enrichedExisting =
+                await this.chatService.enrichLatestAssistantMessageForOperation({
+                  threadId,
+                  userId: payload.userId,
+                  operationId: payload.operationId,
+                  ...(yieldSnapshot.steps.length > 0 ? { steps: yieldSnapshot.steps } : {}),
+                  ...(yieldSnapshot.parts.length > 0 ? { parts: yieldSnapshot.parts } : {}),
+                });
+
+              if (!enrichedExisting) {
+                await this.chatService.addMessage({
+                  threadId,
+                  userId: payload.userId,
+                  role: 'assistant',
+                  content: yieldSnapshot.content || '',
+                  origin: payload.origin,
+                  agentId: yieldPayload.agentId,
+                  operationId: payload.operationId,
+                  idempotencyKey: `${payload.operationId}:assistant_partial`,
+                  semanticPhase: 'assistant_partial',
+                  ...(yieldSnapshot.steps.length > 0 ? { steps: yieldSnapshot.steps } : {}),
+                  ...(yieldSnapshot.parts.length > 0 ? { parts: yieldSnapshot.parts } : {}),
+                });
+                logger.info('Persisted fallback partial agent response on yield', {
+                  operationId: payload.operationId,
+                  threadId,
+                  contentLength: yieldSnapshot.content.length,
+                  stepCount: yieldSnapshot.steps.length,
+                });
+              } else {
+                logger.info('Enriched existing assistant response on yield', {
+                  operationId: payload.operationId,
+                  threadId,
+                  contentLength: yieldSnapshot.content.length,
+                  stepCount: yieldSnapshot.steps.length,
+                  messageId: enrichedExisting.id,
+                });
+              }
+            }
+
             await this.chatService.updateThreadPausedYieldState?.(threadId, yieldState);
             await this.chatService.addMessage({
               threadId,

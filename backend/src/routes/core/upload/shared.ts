@@ -413,9 +413,21 @@ export function extractCloudflareVideoId(uploadUrl: string): string | null {
 export function getCloudflareStreamHost(customerCode: string | undefined): string | null {
   if (!customerCode) return null;
 
-  const normalizedCustomerCode = customerCode.startsWith('customer-')
-    ? customerCode
-    : `customer-${customerCode}`;
+  const normalizedInput = customerCode
+    .trim()
+    .replace(/^https?:\/\//i, '')
+    .replace(/\/+$/, '')
+    .split('/')[0];
+
+  if (!normalizedInput) return null;
+
+  if (normalizedInput.endsWith('.cloudflarestream.com')) {
+    return `https://${normalizedInput}`;
+  }
+
+  const normalizedCustomerCode = normalizedInput.startsWith('customer-')
+    ? normalizedInput
+    : `customer-${normalizedInput}`;
 
   return `https://${normalizedCustomerCode}.cloudflarestream.com`;
 }

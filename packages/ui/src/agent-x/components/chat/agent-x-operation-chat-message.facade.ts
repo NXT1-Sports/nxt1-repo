@@ -5,6 +5,7 @@ import { firstValueFrom } from 'rxjs';
 import {
   createAgentXApi,
   type AgentXApi,
+  type AgentXAskUserPayload,
   type AgentXBillingActionPayload,
   type AgentXBillingActionReason,
   type AgentXToolStep,
@@ -665,7 +666,73 @@ export class AgentXOperationChatMessageFacade {
     const promptText = this.normalizeYieldPrompt(yieldState.promptToUser);
 
     this.messages.update((messages) => {
+      const isActionableApprovalCard = (card: AgentXRichCard): boolean => {
+        if (card.type !== 'confirmation') return false;
+        const payload = card.payload as Record<string, unknown> | undefined;
+        if (!payload || typeof payload !== 'object') return false;
+        const hasApprovalId =
+          typeof payload['approvalId'] === 'string' && payload['approvalId'].length > 0;
+        if (!hasApprovalId) return false;
+        const actions = payload['actions'];
+        return Array.isArray(actions) && actions.length > 0;
+      };
+      const messageHasVisiblePayload = (message: OperationMessage): boolean =>
+        (message.content ?? '').trim().length > 0 ||
+        (message.attachments?.length ?? 0) > 0 ||
+        (message.imageUrl?.trim().length ?? 0) > 0 ||
+        (message.videoUrl?.trim().length ?? 0) > 0 ||
+        (message.steps?.length ?? 0) > 0 ||
+        (message.parts?.length ?? 0) > 0 ||
+        (message.cards?.length ?? 0) > 0;
       const typingIndex = messages.findIndex((message) => message.id === 'typing');
+      const typingMessage = typingIndex >= 0 ? messages[typingIndex] : undefined;
+      const carriedParts = typingMessage?.parts?.filter(
+        (part) => part.type !== 'card' || !isActionableApprovalCard(part.card)
+      );
+      const carriedCards = typingMessage?.cards?.filter((card) => !isActionableApprovalCard(card));
+      const hasCarriedTypingPayload =
+        !!typingMessage &&
+        ((typingMessage.content ?? '').trim().length > 0 ||
+          (typingMessage.attachments?.length ?? 0) > 0 ||
+          (typingMessage.imageUrl?.trim().length ?? 0) > 0 ||
+          (typingMessage.videoUrl?.trim().length ?? 0) > 0 ||
+          (typingMessage.steps?.length ?? 0) > 0 ||
+          (carriedParts?.length ?? 0) > 0 ||
+          (carriedCards?.length ?? 0) > 0);
+
+      const carriedTypingPayload: Partial<OperationMessage> = hasCarriedTypingPayload
+        ? {
+            content: typingMessage?.content ?? '',
+            ...(typingMessage?.attachments?.length
+              ? { attachments: typingMessage.attachments }
+              : {}),
+            ...(typingMessage?.imageUrl?.trim().length ? { imageUrl: typingMessage.imageUrl } : {}),
+            ...(typingMessage?.videoUrl?.trim().length ? { videoUrl: typingMessage.videoUrl } : {}),
+            ...(typingMessage?.steps?.length ? { steps: typingMessage.steps } : {}),
+            ...(carriedCards?.length ? { cards: carriedCards } : {}),
+            ...(carriedParts?.length ? { parts: carriedParts } : {}),
+          }
+        : {};
+
+      const clearTypingCarrier = (rows: readonly OperationMessage[]): OperationMessage[] => {
+        if (!hasCarriedTypingPayload) return [...rows];
+
+        return rows.map((message) =>
+          message.id !== 'typing'
+            ? message
+            : {
+                ...message,
+                content: '',
+                attachments: [],
+                imageUrl: undefined,
+                videoUrl: undefined,
+                cards: [],
+                parts: [],
+                steps: [],
+                isTyping: false,
+              }
+        );
+      };
 
       // Resolve the existing row in priority order:
       //   1. Exact ID match (current canonical id).
@@ -684,6 +751,10 @@ export class AgentXOperationChatMessageFacade {
       //      prompt as an assistant message *and* on the thread metadata —
       //      adopting it here prevents a duplicate "I drafted a plan" bubble
       //      on rehydrate.
+      //   5. Any existing yield row in the same operation with the same
+      //      reason. This collapses mixed-source ask_user arrivals where
+      //      the card-synthesized yield and operation-stream yield carry
+      //      different toolCallId values but refer to the same interruption.
       let existingIndex = messages.findIndex((message) => message.id === messageId);
 
       if (existingIndex < 0 && incomingKey) {
@@ -711,10 +782,20 @@ export class AgentXOperationChatMessageFacade {
         );
       }
 
+      if (existingIndex < 0) {
+        existingIndex = messages.findIndex(
+          (message) =>
+            !!message.yieldState &&
+            (message.operationId ?? '') === (operationId ?? '') &&
+            message.yieldState.reason === yieldState.reason
+        );
+      }
+
       if (existingIndex >= 0) {
         const existing = messages[existingIndex];
         const updated: OperationMessage = {
           ...existing,
+          ...(!messageHasVisiblePayload(existing) ? carriedTypingPayload : {}),
           id: messageId,
           yieldState,
           operationId: operationId || existing.operationId,
@@ -724,7 +805,9 @@ export class AgentXOperationChatMessageFacade {
         // Keep existing persisted row inline with the active stream: when a typing
         // placeholder exists, the ask-user card should sit directly below it.
         if (typingIndex >= 0) {
-          const withoutExisting = messages.filter((_, index) => index !== existingIndex);
+          const withoutExisting = clearTypingCarrier(messages).filter(
+            (_, index) => index !== existingIndex
+          );
           const nextTypingIndex = withoutExisting.findIndex((message) => message.id === 'typing');
           if (nextTypingIndex >= 0) {
             return [
@@ -735,14 +818,17 @@ export class AgentXOperationChatMessageFacade {
           }
         }
 
-        return messages.map((message, index) => (index === existingIndex ? updated : message));
+        return clearTypingCarrier(messages).map((message, index) =>
+          index === existingIndex ? updated : message
+        );
       }
 
       const yieldMessage: OperationMessage = {
         id: messageId,
         role: 'assistant',
-        content: '',
-        timestamp: new Date(),
+        ...(carriedTypingPayload as Omit<OperationMessage, 'id' | 'role' | 'timestamp'>),
+        content: (carriedTypingPayload.content as string | undefined) ?? '',
+        timestamp: typingMessage?.timestamp ?? new Date(),
         operationId,
         yieldState,
         yieldCardState: 'idle',
@@ -752,11 +838,11 @@ export class AgentXOperationChatMessageFacade {
         return [...messages, yieldMessage];
       }
 
-      return [
+      return clearTypingCarrier([
         ...messages.slice(0, typingIndex + 1),
         yieldMessage,
         ...messages.slice(typingIndex + 1),
-      ];
+      ]);
     });
   }
 
@@ -785,7 +871,7 @@ export class AgentXOperationChatMessageFacade {
 
     if (yieldPayload) {
       const incomingKey = this.yieldIdentityKey(yieldPayload);
-      const operationId = this.resolveCardOperationId(fallbackOperationId);
+      const operationId = this.resolveCardOperationId(fallbackOperationId, yieldPayload);
 
       // Route the yield through the canonical upsert: this either creates
       // the synthetic yield bubble or adopts an existing row (e.g. a paused
@@ -863,18 +949,61 @@ export class AgentXOperationChatMessageFacade {
   private extractYieldStateFromCard(
     card: AgentXRichCard | undefined | null
   ): AgentYieldState | null {
-    if (!card || card.type !== 'confirmation') return null;
-    const payload = card.payload as { yieldState?: AgentYieldState } | undefined;
-    const yieldState = payload?.yieldState;
-    if (!yieldState || typeof yieldState !== 'object') return null;
-    if (typeof yieldState.reason !== 'string') return null;
-    if (!yieldState.pendingToolCall || typeof yieldState.pendingToolCall.toolName !== 'string') {
-      return null;
+    if (!card) return null;
+
+    if (card.type === 'confirmation') {
+      const payload = card.payload as { yieldState?: AgentYieldState } | undefined;
+      const yieldState = payload?.yieldState;
+      if (!yieldState || typeof yieldState !== 'object') return null;
+      if (typeof yieldState.reason !== 'string') return null;
+      if (!yieldState.pendingToolCall || typeof yieldState.pendingToolCall.toolName !== 'string') {
+        return null;
+      }
+      return yieldState;
     }
-    return yieldState;
+
+    if (card.type !== 'ask_user') return null;
+
+    const payload = card.payload as AgentXAskUserPayload | undefined;
+    if (!payload) return null;
+    const question = payload?.question?.trim();
+    if (!question) return null;
+
+    const nowIso = new Date().toISOString();
+    const expiresIso = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    const context = typeof payload.context === 'string' ? payload.context.trim() : '';
+    const operationId = typeof payload.operationId === 'string' ? payload.operationId.trim() : '';
+    const threadId = typeof payload.threadId === 'string' ? payload.threadId.trim() : '';
+    const prompt = context ? `${question}\n\n${context}` : question;
+
+    return {
+      reason: 'needs_input',
+      promptToUser: prompt,
+      agentId: card.agentId,
+      messages: [],
+      pendingToolCall: {
+        toolName: 'ask_user',
+        toolCallId: operationId ? `ask_user:${operationId}` : `ask_user:${question}`,
+        toolInput: {
+          question,
+          ...(context ? { context } : {}),
+          ...(operationId ? { operationId } : {}),
+          ...(threadId ? { threadId } : {}),
+        },
+      },
+      yieldedAt: nowIso,
+      expiresAt: expiresIso,
+    };
   }
 
-  private resolveCardOperationId(fallback: string): string {
+  private resolveCardOperationId(fallback: string, yieldState?: AgentYieldState): string {
+    const toolInputOperationId =
+      yieldState?.pendingToolCall?.toolInput &&
+      typeof yieldState.pendingToolCall.toolInput['operationId'] === 'string'
+        ? yieldState.pendingToolCall.toolInput['operationId'].trim()
+        : '';
+    if (toolInputOperationId) return toolInputOperationId;
+
     const trimmedFallback = (fallback ?? '').trim();
     if (trimmedFallback) return trimmedFallback;
     const host = this.host;

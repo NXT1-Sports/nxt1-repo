@@ -54,6 +54,8 @@ export interface AgentXAttachment {
   readonly cloudflareVideoId?: string;
   /** Connected-source platform label for app attachments. */
   readonly platform?: string;
+  /** Connected-source profile/account URL for app attachments. */
+  readonly profileUrl?: string;
   /** Platform favicon URL for app attachments. */
   readonly faviconUrl?: string;
 }
@@ -127,6 +129,8 @@ export interface AgentXMessage {
   readonly error?: boolean;
   /** Optional image URL (e.g. generated graphic from Agent X) */
   readonly imageUrl?: string;
+  /** Optional video URL (e.g. uploaded or generated video from Agent X) */
+  readonly videoUrl?: string;
   /** File attachments (images, PDFs, CSVs) uploaded with this message. */
   readonly attachments?: readonly AgentXAttachment[];
   /** Optional metadata */

@@ -254,6 +254,8 @@ function mapNotificationTypeToActivityType(type: NotificationType): string {
   const map: Partial<Record<NotificationType, string>> = {
     post_like: 'like',
     post_mention: 'mention',
+    email_opened: 'update',
+    link_clicked: 'update',
     special_offer: 'deal',
     team_announcement: 'announcement',
     feature_announcement: 'announcement',

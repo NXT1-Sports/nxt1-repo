@@ -51,11 +51,14 @@ type FeedPostContentMode = 'full' | 'media' | 'body';
                 />
               } @else if (media.type === 'video') {
                 @if (media.processingStatus && media.processingStatus !== 'ready') {
-                  <!-- Video is still being processed by Cloudflare -->
-                  <div class="post-content__video-processing">
+                  <!-- Video is processing or failed in Cloudflare -->
+                  <div
+                    class="post-content__video-processing"
+                    [class.post-content__video-processing--error]="media.processingStatus === 'error'"
+                  >
                     <div class="post-content__video-processing-inner">
                       <nxt1-icon name="videocam" [size]="32" />
-                      <span>Video processing…</span>
+                      <span>{{ getVideoStatusMessage(media.processingStatus) }}</span>
                     </div>
                   </div>
                 } @else if (activeVideoSlide() === getMediaIndex(media.id)) {
@@ -274,6 +277,10 @@ type FeedPostContentMode = 'full' | 'media' | 'body';
         color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
         font-size: 13px;
         font-weight: 500;
+      }
+
+      .post-content__video-processing--error .post-content__video-processing-inner {
+        color: var(--nxt1-color-danger, #ff6b6b);
       }
 
       .post-content__video-iframe {
@@ -570,6 +577,18 @@ export class FeedPostContentComponent {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `${mins}:${secs.toString().padStart(2, '0')}`;
+  }
+
+  protected getVideoStatusMessage(status: string | undefined): string {
+    switch (status) {
+      case 'error':
+        return 'Video failed to process';
+      case 'queued':
+      case 'pendingupload':
+      case 'inprogress':
+      default:
+        return 'Video processing…';
+    }
   }
 
   protected handleAuthorClick(event: Event): void {

@@ -127,6 +127,15 @@ type ChatActivityPhase =
   | 'failed'
   | 'cancelled';
 
+type YieldStateSource =
+  | 'input-binding'
+  | 'sse-operation'
+  | 'thread-metadata'
+  | 'thread-metadata-empty'
+  | 'firestore-fallback'
+  | 'stored-state-rehydrate'
+  | 'stored-state-pending';
+
 @Component({
   selector: 'nxt1-agent-x-operation-chat',
   standalone: true,
@@ -239,9 +248,9 @@ type ChatActivityPhase =
                   (replySubmitted)="yieldFacade.onAskUserReply($event)"
                 />
               }
-              @if (!msg.yieldState && msg.attachments?.length) {
+              @if (!msg.yieldState && messageAttachmentsForStrip(msg).length) {
                 <div class="msg-attachments">
-                  @for (att of msg.attachments; track att.name + $index) {
+                  @for (att of messageAttachmentsForStrip(msg); track att.name + $index) {
                     <div
                       class="msg-attachment"
                       [class.msg-attachment--media]="att.type === 'image' || att.type === 'video'"
@@ -252,14 +261,24 @@ type ChatActivityPhase =
                           [src]="att.url"
                           [alt]="att.name"
                           class="msg-attachment__thumb"
-                          (click)="attachmentsFacade.openAttachmentViewer(msg.attachments!, $index)"
+                          (click)="
+                            attachmentsFacade.openAttachmentViewer(
+                              messageAttachmentsForStrip(msg),
+                              $index
+                            )
+                          "
                         />
                       } @else if (att.type === 'video') {
                         <video
                           [src]="att.url"
                           class="msg-attachment__thumb"
                           preload="metadata"
-                          (click)="attachmentsFacade.openAttachmentViewer(msg.attachments!, $index)"
+                          (click)="
+                            attachmentsFacade.openAttachmentViewer(
+                              messageAttachmentsForStrip(msg),
+                              $index
+                            )
+                          "
                         ></video>
                         <div class="msg-attachment__play">
                           <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14">
@@ -1638,13 +1657,10 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
    */
   @Input()
   set yieldState(value: AgentYieldState | null) {
-    this.activeYieldState.set(value);
-    if (value) {
-      this.messageFacade.upsertInlineYieldMessage(
-        value,
-        this.yieldFacade.resolveYieldOperationId(value) ?? this.contextId
-      );
-    }
+    this.applyYieldState({
+      yieldState: value,
+      source: 'input-binding',
+    });
   }
 
   /**
@@ -1784,6 +1800,9 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   /** Whether the yield has been resolved (approved/replied). */
   protected readonly yieldResolved = signal(false);
 
+  /** Tracks the last accepted yield identity and source priority for deterministic reconciliation. */
+  private readonly yieldResolutionStamp = signal<{ key: string; priority: number } | null>(null);
+
   /** Agent X SVG logo path data for inline icon rendering. */
   protected readonly agentXLogoPath: string = AGENT_X_LOGO_PATH;
   protected readonly agentXLogoPolygon: string = AGENT_X_LOGO_POLYGON;
@@ -1837,7 +1856,16 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
           const p = part.card.payload;
           // Only show card when plan has ≥3 tasks — single/dual-task plans run silently
           if ('items' in p && Array.isArray(p.items) && p.items.length >= 3) {
-            return part.card;
+            // Suppress pre-execution review cards; show only once execution has started.
+            const hasExecutionStarted = p.items.some(
+              (item) =>
+                item.active === true ||
+                item.done === true ||
+                (typeof item.status === 'string' && item.status !== 'pending')
+            );
+            if (hasExecutionStarted) {
+              return part.card;
+            }
           }
           return null;
         }
@@ -1849,7 +1877,15 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
         if (card?.type === 'planner') {
           const p = card.payload;
           if ('items' in p && Array.isArray(p.items) && p.items.length >= 3) {
-            return card;
+            const hasExecutionStarted = p.items.some(
+              (item) =>
+                item.active === true ||
+                item.done === true ||
+                (typeof item.status === 'string' && item.status !== 'pending')
+            );
+            if (hasExecutionStarted) {
+              return card;
+            }
           }
           return null;
         }
@@ -1914,22 +1950,22 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   });
 
   /** Whether to show the persistent backend-driven progress indicator.
-   * Single rule: show during any waiting/streaming phase ONLY while the typing
-   * bubble has no visible content yet. Once content is painted the shimmer is
-   * always off — regardless of what phase fires (connected, reconnecting, etc.)
-   * This prevents flashes from mid-stream lifecycle events re-entering these phases.
+   * Connection and active streaming phases suppress shimmer once text is visible
+   * so lifecycle re-entries do not flash over streamed prose. The explicit
+   * waiting_delta phase is the exception: it must stay visible between deltas,
+   * even after earlier assistant text has already rendered.
    */
   protected readonly showThinking = computed(() => {
     const phase = this._activityPhase();
+
     switch (phase) {
       // running_tool: always working — show until tool-step card is visible.
       case 'running_tool':
         return !this.typingBubbleHasToolSteps();
 
       // waiting_delta: backend is computing between deltas/tools.
-      // ALWAYS show — even when preamble text is already visible.
-      // This covers: gap between preamble ending and first tool step active,
-      // and gap after last tool success before the next text delta starts.
+      // Keep the shimmer visible between streamed chunks, even if earlier
+      // assistant text has already rendered in the typing bubble.
       case 'waiting_delta':
         return true;
 
@@ -2063,6 +2099,13 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       resolvedThreadId: this._resolvedThreadId,
       activeYieldState: this.activeYieldState,
       yieldResolved: this.yieldResolved,
+      applyYieldState: ({ yieldState, source, operationId }) => {
+        this.applyYieldState({
+          yieldState,
+          source: source as YieldStateSource,
+          ...(operationId ? { operationId } : {}),
+        });
+      },
       getOperationStatus: () => this.operationStatus,
       setOperationStatus: (status) => {
         this.operationStatus = status;
@@ -2125,6 +2168,13 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       resolvedThreadId: this._resolvedThreadId,
       activeYieldState: this.activeYieldState,
       yieldResolved: this.yieldResolved,
+      applyYieldState: ({ yieldState, source, operationId }) => {
+        this.applyYieldState({
+          yieldState,
+          source: source as YieldStateSource,
+          ...(operationId ? { operationId } : {}),
+        });
+      },
       clearRealtimePipelines: () => {
         this.messageFacade.clearPendingTypingDelta();
         this._activeFirestoreSub?.unsubscribe();
@@ -2278,15 +2328,93 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     effect(() => {
       const yieldState = this.activeYieldState();
       if (yieldState) {
-        // Keep timeline and yield state in sync so cards always render inline,
-        // even if a specific event path misses direct insertion.
-        this.messageFacade.upsertInlineYieldMessage(
-          yieldState,
-          this.yieldFacade.resolveYieldOperationId(yieldState) ?? this.contextId
-        );
         this.scrollToBottom({ behavior: 'smooth' });
       }
     });
+  }
+
+  private yieldSourcePriority(source: YieldStateSource): number {
+    switch (source) {
+      case 'sse-operation':
+        return 600;
+      case 'thread-metadata':
+      case 'thread-metadata-empty':
+        return 500;
+      case 'stored-state-rehydrate':
+        return 400;
+      case 'firestore-fallback':
+      case 'stored-state-pending':
+        return 300;
+      case 'input-binding':
+      default:
+        return 200;
+    }
+  }
+
+  private yieldIdentityKey(yieldState: AgentYieldState | null): string {
+    if (!yieldState) return '';
+    const approvalId = yieldState.approvalId?.trim();
+    if (approvalId) return `approval:${approvalId}`;
+    const toolCallId = yieldState.pendingToolCall?.toolCallId?.trim();
+    if (toolCallId) return `tool:${toolCallId}`;
+    return `reason:${yieldState.reason}`;
+  }
+
+  private resolveYieldOperationId(
+    yieldState: AgentYieldState,
+    explicitOperationId?: string
+  ): string {
+    const candidates = [
+      explicitOperationId?.trim(),
+      this.yieldFacade.resolveYieldOperationId(yieldState)?.trim(),
+      this._currentOperationId?.trim(),
+      this.resumeOperationId?.trim(),
+      this.sessionFacade.resolveFirestoreOperationId()?.trim(),
+      this.contextId?.trim(),
+    ];
+
+    for (const candidate of candidates) {
+      if (!candidate) continue;
+      if (this.sessionFacade.isFirestoreOperationId(candidate)) return candidate;
+    }
+
+    return candidates.find((candidate): candidate is string => !!candidate) ?? this.contextId;
+  }
+
+  private applyYieldState(params: {
+    yieldState: AgentYieldState | null;
+    source: YieldStateSource;
+    operationId?: string;
+  }): void {
+    const { yieldState, source, operationId } = params;
+
+    if (!yieldState) {
+      this.activeYieldState.set(null);
+      this.yieldResolutionStamp.set(null);
+      return;
+    }
+
+    const incomingKey = this.yieldIdentityKey(yieldState);
+    const incomingPriority = this.yieldSourcePriority(source);
+    const currentStamp = this.yieldResolutionStamp();
+    const currentKey = this.yieldIdentityKey(this.activeYieldState());
+
+    if (
+      currentStamp &&
+      currentKey &&
+      incomingKey !== currentKey &&
+      incomingPriority < currentStamp.priority
+    ) {
+      return;
+    }
+
+    this.activeYieldState.set(yieldState);
+    this.yieldResolved.set(false);
+    this.yieldResolutionStamp.set({ key: incomingKey, priority: incomingPriority });
+    this.messageFacade.upsertInlineYieldMessage(
+      yieldState,
+      this.resolveYieldOperationId(yieldState, operationId)
+    );
   }
 
   // ============================================
@@ -2326,6 +2454,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     this.clearActivityGapTimer();
     if (phase === 'completed' || phase === 'failed' || phase === 'cancelled') {
       this._activityLabel.set(null);
+      this._videoUploadPercent.set(null);
     }
   }
 
@@ -2510,13 +2639,31 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
    * synthetic yield-only rows (content === '' and no non-yield cards)
    * skip the bubble and render only the action/ask-user card.
    */
+  /**
+   * Attachments to render in the strip — excludes any whose URL is already
+   * shown as the primary `imageUrl` / `videoUrl` in the bubble above, so
+   * scraped/generated media never appears in both places simultaneously.
+   */
+  protected messageAttachmentsForStrip(
+    msg: OperationMessage
+  ): readonly NonNullable<OperationMessage['attachments']>[number][] {
+    const atts = msg.attachments;
+    if (!atts?.length) return [];
+    if (msg.role !== 'assistant') return atts;
+    const primaryUrls = new Set<string>();
+    if (msg.imageUrl?.trim()) primaryUrls.add(msg.imageUrl.trim());
+    if (msg.videoUrl?.trim()) primaryUrls.add(msg.videoUrl.trim());
+    if (!primaryUrls.size) return atts;
+    return atts.filter((att) => !att.url || !primaryUrls.has(att.url.trim()));
+  }
+
   protected hasBubbleProse(msg: OperationMessage): boolean {
     if (msg.id === 'typing') return true;
     if ((msg.content ?? '').trim().length > 0) return true;
     if ((msg.attachments?.length ?? 0) > 0) return true;
     if ((msg.imageUrl?.trim().length ?? 0) > 0) return true;
     if ((msg.videoUrl?.trim().length ?? 0) > 0) return true;
-    if ((msg.steps?.length ?? 0) > 0) return true;
+    if (this.messageStepsForBubble(msg).length > 0) return true;
     if (this.messageCardsForBubble(msg).length > 0) return true;
     if (this.messagePartsForBubble(msg).length > 0) return true;
     return false;
@@ -2534,12 +2681,12 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
   /** Hide planner card parts inline in bubbles; planner is rendered once in the composer dock. */
   protected messagePartsForBubble(msg: OperationMessage): readonly AgentXMessagePart[] {
-    const pendingApprovalToolIds = this.pendingApprovalToolIds();
+    const suppressedToolIds = this.suppressedToolStepIdsForMessage(msg);
     const filtered = (msg.parts ?? [])
       .map((part) => {
         if (part.type !== 'tool-steps') return part;
-        if (!pendingApprovalToolIds.size) return part;
-        const remaining = part.steps.filter((step) => !pendingApprovalToolIds.has(step.id));
+        if (!suppressedToolIds.size) return part;
+        const remaining = part.steps.filter((step) => !suppressedToolIds.has(step.id));
         if (remaining.length === part.steps.length) return part;
         return remaining.length === 0 ? null : { type: 'tool-steps' as const, steps: remaining };
       })
@@ -2555,36 +2702,53 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   }
 
   /**
-   * Filter the legacy `msg.steps` array to hide tool steps whose tool call
-   * is currently awaiting user approval. The backend emits `step_active`
-   * the moment the LLM proposes a tool call — but for approval-gated tools
-   * the action hasn't actually happened yet (the agent yields awaiting_approval
-   * with the same toolCallId). Showing the in-flight step above the approval
-   * card is misleading: it implies the email was already sent. The step ids
-   * are stamped with the OpenRouter `toolCall.id` so they match
-   * `pendingToolCall.toolCallId` on the yield exactly.
+   * Filter the legacy `msg.steps` array to hide approval-gated tool calls
+   * before they run. The backend emits `step_active` the moment the LLM
+   * proposes a gated tool call, then yields for approval with the same
+   * toolCallId. Showing that proposal as an execution row above the card is
+   * misleading, and after approval it duplicates the fresh resumed tool row.
    */
   protected messageStepsForBubble(msg: OperationMessage): readonly AgentXToolStep[] {
     const steps = msg.steps ?? [];
     if (!steps.length) return steps;
-    const pending = this.pendingApprovalToolIds();
-    if (!pending.size) return steps;
-    return steps.filter((step) => !pending.has(step.id));
+    const suppressedToolIds = this.suppressedToolStepIdsForMessage(msg);
+    if (!suppressedToolIds.size) return steps;
+    return steps.filter((step) => !suppressedToolIds.has(step.id));
   }
 
   /**
-   * Set of toolCallIds for tools currently awaiting user approval (or input)
-   * across the message timeline. Used to suppress the in-flight tool step
-   * row that would otherwise render above the approval card.
+   * Tool steps hidden for this specific bubble.
+   *
+   * Hide only the exact tool call that yielded this message's action card;
+   * preserve all prior tool steps from earlier bubbles so historical
+   * execution context remains visible.
    */
-  private pendingApprovalToolIds(): Set<string> {
+  private suppressedToolStepIdsForMessage(msg: OperationMessage): Set<string> {
     const ids = new Set<string>();
-    for (const message of this.messages()) {
-      const ys = message.yieldState;
-      if (!ys) continue;
-      if (ys.reason !== 'needs_approval' && ys.reason !== 'needs_input') continue;
-      if (message.yieldCardState === 'resolved') continue;
-      const toolCallId = ys.pendingToolCall?.toolCallId?.trim();
+    if (
+      msg.yieldState &&
+      (msg.yieldState.reason === 'needs_approval' || msg.yieldState.reason === 'needs_input')
+    ) {
+      // Collect the UUID ids of every active step on this message. The backend
+      // suspends on the last active step (the yield-triggering call); prior
+      // steps have already settled to 'success' before the yield fires, so
+      // any remaining active step IS the suspended step and must be hidden.
+      // We cannot match by pendingToolCall.toolCallId because that is the LLM
+      // tool-call namespace (e.g. "call_abc123") which is distinct from the
+      // step UUID assigned in the AgentXStreamStepEvent.
+      for (const part of msg.parts ?? []) {
+        if (part.type === 'tool-steps') {
+          for (const step of part.steps) {
+            if (step.status === 'active') ids.add(step.id);
+          }
+        }
+      }
+      for (const step of msg.steps ?? []) {
+        if (step.status === 'active') ids.add(step.id);
+      }
+      // Belt-and-suspenders: also add the raw toolCallId for any legacy message
+      // whose step was assigned the LLM call ID directly as its id.
+      const toolCallId = msg.yieldState.pendingToolCall?.toolCallId?.trim();
       if (toolCallId) ids.add(toolCallId);
     }
     return ids;
@@ -2753,10 +2917,49 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
   /** Remove dismissed pause-yield rows and duplicate ask-user prompts from the timeline. */
   protected shouldHideMessage(msg: OperationMessage, index?: number): boolean {
+    if (msg.id === 'typing' && this.hasPendingAskUserYieldMessage()) {
+      return true;
+    }
     if (msg.id === 'typing' && !this.hasRenderableMessagePayload(msg) && !this.showThinking()) {
       return true;
     }
+    if (this.isLegacyApprovalResolutionMessage(msg)) return true;
     return this.isDuplicatedAskUserPromptMessage(msg, index);
+  }
+
+  private hasPendingAskUserYieldMessage(): boolean {
+    return this.messages().some(
+      (message) =>
+        this.isAskUserYield(message) &&
+        message.yieldCardState !== 'resolved' &&
+        message.yieldCardState !== 'submitting'
+    );
+  }
+
+  /**
+   * Hide previously-persisted "Approval Confirmed" / "Approval Rejected"
+   * resolution rows that older sessions wrote alongside the real approval
+   * card. The current main resolved approval card has a different title
+   * (e.g. "Review and Approve Email") and is left untouched.
+   */
+  private isLegacyApprovalResolutionMessage(msg: OperationMessage): boolean {
+    if (msg.role !== 'assistant') return false;
+
+    const cards: AgentXRichCard[] = [
+      ...(msg.cards ?? []),
+      ...(msg.parts ?? [])
+        .filter(
+          (part): part is Extract<AgentXMessagePart, { type: 'card' }> => part.type === 'card'
+        )
+        .map((part) => part.card),
+    ];
+    if (!cards.length) return false;
+
+    return cards.every((card) => {
+      if (card.type !== 'confirmation') return false;
+      const title = (card as { title?: string }).title?.trim();
+      return title === 'Approval Confirmed' || title === 'Approval Rejected';
+    });
   }
 
   private hasRenderableMessagePayload(msg: OperationMessage): boolean {

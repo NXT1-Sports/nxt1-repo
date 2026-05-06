@@ -36,8 +36,18 @@ const TrackAnalyticsEventInputSchema = z.object({
 
 export class TrackAnalyticsEventTool extends BaseTool {
   readonly name = 'track_analytics_event';
-  readonly description =
-    'Tracks a structured analytics event for recruiting, NIL, performance, engagement, communication, or custom user-defined metrics. Use this whenever the user explicitly asks to track something.';
+  readonly description = [
+    'Tracks a structured analytics event. Use after any successful user-visible mutation, published content, or completed workflow milestone.',
+    'VALID domain → eventType combinations (use ONLY these values):',
+    '  recruiting: activity_recorded | offer_recorded | visit_recorded | coach_contact_recorded | commitment_recorded',
+    '  nil: deal_recorded | campaign_recorded | payment_recorded',
+    '  performance: metric_recorded | workout_recorded | milestone_recorded | recovery_recorded',
+    '  engagement: profile_viewed | content_viewed | content_created | content_shared | search_appeared | link_clicked',
+    '  communication: email_sent | email_delivered | email_opened | email_replied | link_clicked | message_sent | follow_up_scheduled',
+    '  system: sync_completed',
+    '  custom: requires a registered template (use register_analytics_template first)',
+    'For team/post creation events use domain="engagement" eventType="content_created". Never invent event type names.',
+  ].join('\n');
 
   readonly parameters = TrackAnalyticsEventInputSchema;
 

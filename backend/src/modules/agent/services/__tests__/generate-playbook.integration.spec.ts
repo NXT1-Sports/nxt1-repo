@@ -497,12 +497,14 @@ describe('AgentGenerationService.generatePlaybook', () => {
 
     const llmCall = vi.mocked(llm.complete).mock.calls[0];
     const userPrompt = llmCall?.[0]?.[1]?.content;
+    const llmOptions = llmCall?.[1];
 
     expect(typeof userPrompt).toBe('string');
     expect(String(userPrompt)).toContain('EXACTLY 8 playbook items');
     expect(String(userPrompt)).toContain(
       'For EACH active user goal listed above, return EXACTLY 2 items tied to that goal.'
     );
+    expect(llmOptions).toMatchObject({ tier: 'task_automation' });
 
     const savedPlaybooks = fakeDb.inspectCollection(['Users', 'user-1', 'agent_playbooks']);
     expect(savedPlaybooks).toHaveLength(1);

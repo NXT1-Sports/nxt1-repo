@@ -2,6 +2,7 @@ import { signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { AgentYieldState } from '@nxt1/core';
 import type { AgentXRichCard } from '@nxt1/core/ai';
 import { HapticsService } from '../../../services/haptics/haptics.service';
 import { NxtToastService } from '../../../services/toast/toast.service';
@@ -126,5 +127,44 @@ describe('AgentXOperationChatMessageFacade', () => {
     expect(message.id).toBe('typing');
     expect(message.content).toBe('Resumed. Waiting for synced updates from Agent X…');
     expect(loadThreadMessages).toHaveBeenCalledWith('thread-1');
+  });
+
+  it('moves already-streamed assistant prose onto the inline yield row', () => {
+    const yieldState: AgentYieldState = {
+      reason: 'needs_approval',
+      promptToUser:
+        'Review and approve this email draft before sending. Send an email to john@nxt1sports.com.',
+      agentId: 'router',
+      approvalId: 'approval-1',
+      pendingToolCall: {
+        toolName: 'send_email',
+        toolCallId: 'tool-1',
+        toolInput: {
+          toEmail: 'john@nxt1sports.com',
+          subject: 'Check Out NXT 1 Sports',
+        },
+      },
+      messages: [],
+    };
+
+    facade.messages.set([
+      {
+        id: 'typing',
+        role: 'assistant',
+        content: "I'll send that email to john@nxt1sports.com right now.",
+        timestamp: new Date('2026-05-04T19:00:00.000Z'),
+      },
+    ]);
+
+    facade.upsertInlineYieldMessage(yieldState, 'op-1');
+
+    const typing = facade.messages().find((message) => message.id === 'typing');
+    const yieldMessage = facade
+      .messages()
+      .find((message) => message.yieldState?.approvalId === 'approval-1');
+
+    expect(typing?.content).toBe('');
+    expect(yieldMessage?.content).toBe("I'll send that email to john@nxt1sports.com right now.");
+    expect(yieldMessage?.yieldState).toEqual(yieldState);
   });
 });

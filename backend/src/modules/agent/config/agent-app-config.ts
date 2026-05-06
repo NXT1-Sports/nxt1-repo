@@ -53,22 +53,22 @@ export const AGENT_APP_CONFIG_CACHE_TTL_MS = 60_000;
 /** Fallback values — used when the Firestore doc is missing or a field is invalid. */
 const FALLBACK_TASK_MAX_RETRIES = 2;
 const FALLBACK_MAX_DELEGATION_DEPTH = 2;
-const FALLBACK_MAX_AGENTIC_TURNS = 6;
+const FALLBACK_MAX_AGENTIC_TURNS = 18;
 const FALLBACK_MAX_JOB_ATTEMPTS = 2;
 const FALLBACK_RETRY_BACKOFF_MS = 5_000;
 
 /** Primary Agent (single-agent native tool-calling loop) defaults. */
 const FALLBACK_THREAD_AS_TRUTH = true;
-const FALLBACK_PRIMARY_THREAD_HISTORY_WINDOW = 20;
-const FALLBACK_PRIMARY_THREAD_HISTORY_SUMMARIZE_BEYOND = 20;
-const FALLBACK_PRIMARY_TOOL_CONCURRENCY = 3;
-const FALLBACK_PRIMARY_MODEL_TIER = 'routing_think';
+const FALLBACK_PRIMARY_THREAD_HISTORY_WINDOW = 40;
+const FALLBACK_PRIMARY_THREAD_HISTORY_SUMMARIZE_BEYOND = 40;
+const FALLBACK_PRIMARY_TOOL_CONCURRENCY = 5;
+const FALLBACK_PRIMARY_MODEL_TIER = 'routing';
 const FALLBACK_PRIMARY_MAX_PROMPT_TOKENS = 150_000;
 const FALLBACK_PRIMARY_MAX_MESSAGE_CHARS = 4_000;
-const FALLBACK_PRIMARY_MAX_TOOL_RESULT_CHARS = 8_000;
+const FALLBACK_PRIMARY_MAX_TOOL_RESULT_CHARS = 32_000;
 const FALLBACK_PRIMARY_TOOL_LOOP_ENABLED = true;
-const FALLBACK_PRIMARY_TOOL_LOOP_WINDOW = 5;
-const FALLBACK_PRIMARY_TOOL_LOOP_THRESHOLD = 3;
+const FALLBACK_PRIMARY_TOOL_LOOP_WINDOW = 8;
+const FALLBACK_PRIMARY_TOOL_LOOP_THRESHOLD = 5;
 const FALLBACK_PRIMARY_TOOL_LOOP_EMPTY_THRESHOLD = 4;
 const FALLBACK_THREAD_SUPERSEDE_ON_YIELD = true;
 const FALLBACK_CAPABILITY_REFRESH_MS = 300_000;
@@ -1627,18 +1627,9 @@ const modelRoutingSchema = z
     fallbackChains: {},
   });
 
-const promptsSchema = z
-  .object({
-    classifierSystemPrompt: z.string().trim().min(1).optional(),
-    conversationSystemPrompt: z.string().trim().min(1).optional(),
-    plannerSystemPrompt: z.string().trim().min(1).optional(),
-    /** Optional override for the Primary Agent's system prompt (default lives in code). */
-    primarySystemPrompt: z.string().trim().min(1).optional(),
-    agentSystemPrompts: z.record(z.string(), z.string().trim().min(1)).default({}),
-  })
-  .default({
-    agentSystemPrompts: {},
-  });
+const promptsSchema = z.unknown().transform(() => ({
+  agentSystemPrompts: Object.freeze({}) as Readonly<Partial<Record<AgentIdentifier, string>>>,
+}));
 
 const primarySchema = z
   .object({
@@ -1714,8 +1705,8 @@ const featureFlagsSchema = z
     disabledTools: z.array(z.string().trim().min(1)).default([]),
     disableImageGeneration: z.boolean().default(false),
     disableEmailSending: z.boolean().default(false),
-    strictZodToolSchemas: z.boolean().default(false),
-    strictEntityToolGovernance: z.boolean().default(false),
+    strictZodToolSchemas: z.boolean().default(true),
+    strictEntityToolGovernance: z.boolean().default(true),
     /**
      * Phase F (thread-as-truth): rollout gate for the canonical
      * MongoDB-replay history path. When true (default), every turn
@@ -1730,8 +1721,8 @@ const featureFlagsSchema = z
     disabledTools: [],
     disableImageGeneration: false,
     disableEmailSending: false,
-    strictZodToolSchemas: false,
-    strictEntityToolGovernance: false,
+    strictZodToolSchemas: true,
+    strictEntityToolGovernance: true,
     threadAsTruth: FALLBACK_THREAD_AS_TRUTH,
   });
 
@@ -1897,10 +1888,6 @@ export interface AgentModelRoutingConfig {
 }
 
 export interface AgentPromptConfig {
-  readonly classifierSystemPrompt?: string;
-  readonly conversationSystemPrompt?: string;
-  readonly plannerSystemPrompt?: string;
-  readonly primarySystemPrompt?: string;
   readonly agentSystemPrompts: Readonly<Partial<Record<AgentIdentifier, string>>>;
 }
 
@@ -2286,8 +2273,8 @@ export const DEFAULT_AGENT_APP_CONFIG: AgentAppConfig = {
     disabledTools: [],
     disableImageGeneration: false,
     disableEmailSending: false,
-    strictZodToolSchemas: false,
-    strictEntityToolGovernance: false,
+    strictZodToolSchemas: true,
+    strictEntityToolGovernance: true,
     threadAsTruth: FALLBACK_THREAD_AS_TRUTH,
   },
   coordinators: DEFAULT_COORDINATOR_DESCRIPTORS,
@@ -2399,24 +2386,7 @@ export function parseAgentAppConfig(
       catalogue: mergedModelCatalogue,
       fallbackChains: mergedFallbackChains,
     },
-    prompts: {
-      classifierSystemPrompt: prompts.classifierSystemPrompt?.trim() || undefined,
-      conversationSystemPrompt: prompts.conversationSystemPrompt?.trim() || undefined,
-      plannerSystemPrompt: prompts.plannerSystemPrompt?.trim() || undefined,
-      primarySystemPrompt: prompts.primarySystemPrompt?.trim() || undefined,
-      agentSystemPrompts: Object.freeze(
-        Object.fromEntries(
-          Object.entries(prompts.agentSystemPrompts)
-            .filter(
-              ([agentId, prompt]) =>
-                (agentId === 'router' ||
-                  coordinatorIds.includes(agentId as CoordinatorIdentifier)) &&
-                prompt.trim().length > 0
-            )
-            .map(([agentId, prompt]) => [agentId, prompt.trim()])
-        ) as Partial<Record<AgentIdentifier, string>>
-      ),
-    },
+    prompts: promptsSchema.parse(prompts),
     featureFlags: {
       disabledTools: Object.freeze(
         Array.from(
@@ -2534,65 +2504,18 @@ function interpolatePromptTemplate(
 export function resolvePlannerSystemPrompt(
   fallbackPrompt: string,
   templateValues?: Readonly<Record<string, string | undefined>>,
-  config: AgentAppConfig = getCachedAgentAppConfig()
+  _config: AgentAppConfig = getCachedAgentAppConfig()
 ): string {
-  // Code-defined prompt is the authoritative base. Firestore can only
-  // append an "Operator Additions" section — never replace the full prompt.
-  const resolvedBase = interpolatePromptTemplate(fallbackPrompt, templateValues);
-
-  const operatorAddition = config.prompts.plannerSystemPrompt;
-  if (!operatorAddition) {
-    return resolvedBase;
-  }
-
-  const resolvedAddition = interpolatePromptTemplate(operatorAddition, templateValues);
-  return `${resolvedBase}\n\n## Operator Additions\n\n${resolvedAddition}`;
-}
-
-/**
- * Resolves the Primary Agent system prompt. Default lives in code
- * (`AGENT_X_IDENTITY` from @nxt1/core/ai) and is composed with capability
- * card / user summary / mode addendum at runtime. This resolver only
- * applies an optional Firestore override for emergency tuning.
- */
-export function resolvePrimarySystemPrompt(
-  fallbackPrompt: string,
-  templateValues?: Readonly<Record<string, string | undefined>>,
-  config: AgentAppConfig = getCachedAgentAppConfig()
-): string {
-  // PrimaryAgent appends router/operator additions after its built-in prompt
-  // and reasoning contract. This resolver remains a raw interpolation helper
-  // for config consumers that need the stored string directly.
-  const configuredPrompt = config.prompts.primarySystemPrompt;
-  return interpolatePromptTemplate(configuredPrompt ?? fallbackPrompt, templateValues);
+  return interpolatePromptTemplate(fallbackPrompt, templateValues);
 }
 
 export function resolveAgentSystemPrompt(
-  agentId: AgentIdentifier,
+  _agentId: AgentIdentifier,
   fallbackPrompt: string,
   templateValues?: Readonly<Record<string, string | undefined>>,
-  config: AgentAppConfig = getCachedAgentAppConfig()
+  _config: AgentAppConfig = getCachedAgentAppConfig()
 ): string {
-  // The router's prompt is composed additively in PrimaryAgent — do not
-  // touch it here. For all coordinators the code-defined prompt is the
-  // authoritative base; Firestore can only append an "Operator Additions"
-  // section, never replace the entire prompt.  This prevents safety rules
-  // (artifact chaining, no-re-extract, send protocol, etc.) from being
-  // silently dropped when the Firestore string drifts behind the code.
-  const resolvedBase = interpolatePromptTemplate(fallbackPrompt, templateValues);
-
-  if (agentId === 'router') {
-    // Router additive composition is handled by PrimaryAgent.applyConfiguredPrimaryPrompt.
-    return resolvedBase;
-  }
-
-  const operatorAddition = config.prompts.agentSystemPrompts[agentId];
-  if (!operatorAddition) {
-    return resolvedBase;
-  }
-
-  const resolvedAddition = interpolatePromptTemplate(operatorAddition, templateValues);
-  return `${resolvedBase}\n\n## Operator Additions\n\n${resolvedAddition}`;
+  return interpolatePromptTemplate(fallbackPrompt, templateValues);
 }
 
 export function isToolDisabled(

@@ -51,3 +51,11 @@ env:
     value: 'false'
   - variable: NPM_CONFIG_INCLUDE
     value: 'dev'
+  - variable: CHART_MCP_URL
+    secret: CHART_MCP_URL
+    availability:
+      - RUNTIME
+  - variable: CHART_MCP_API_TOKEN
+    secret: CHART_MCP_API_TOKEN
+    availability:
+      - RUNTIME

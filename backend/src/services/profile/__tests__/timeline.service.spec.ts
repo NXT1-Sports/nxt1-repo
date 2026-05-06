@@ -130,6 +130,122 @@ const author: FeedAuthor = {
 };
 
 describe('TimelineService', () => {
+  it('excludes unresolved Cloudflare videos from the profile timeline until they are ready', async () => {
+    const db = createMockDb({
+      Posts: [
+        {
+          id: 'post-video-inprogress',
+          data: () => ({
+            userId: 'athlete-1',
+            type: 'video',
+            sportId: 'football',
+            content: 'Pending video',
+            cloudflareVideoId: 'cf-pending-1',
+            cloudflareStatus: 'inprogress',
+            readyToStream: false,
+            createdAt: '2026-04-12T12:00:00.000Z',
+            updatedAt: '2026-04-12T12:00:00.000Z',
+          }),
+        },
+        {
+          id: 'post-video-ready',
+          data: () => ({
+            userId: 'athlete-1',
+            type: 'video',
+            sportId: 'football',
+            content: 'Ready video',
+            cloudflareVideoId: 'cf-ready-1',
+            cloudflareStatus: 'ready',
+            readyToStream: true,
+            mediaUrl: 'https://customer-123.cloudflarestream.com/cf-ready-1/iframe',
+            createdAt: '2026-04-11T12:00:00.000Z',
+            updatedAt: '2026-04-11T12:00:00.000Z',
+          }),
+        },
+      ],
+      Events: [],
+      PlayerStats: [],
+      Recruiting: [],
+      PlayerMetrics: [],
+      Rankings: [],
+    });
+
+    const service = new TimelineService(db as never);
+    const result = await service.getProfileTimeline('athlete-1', author, {
+      limit: 20,
+      sportId: 'football',
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.data).toHaveLength(1);
+    expect(result.data[0]?.id).toBe('post-video-ready');
+  });
+
+  it('excludes unresolved Cloudflare videos from the team timeline until they are ready', async () => {
+    const db = createMockDb({
+      Teams: [
+        {
+          id: 'team-1',
+          data: () => ({
+            teamCode: 'TEAM01',
+            teamName: 'Argyle Eagles',
+            teamType: 'high-school',
+            sport: 'football',
+            isActive: true,
+            createdAt: '2026-04-01T12:00:00.000Z',
+            updatedAt: '2026-04-01T12:00:00.000Z',
+          }),
+        },
+      ],
+      Posts: [
+        {
+          id: 'team-video-inprogress',
+          data: () => ({
+            teamId: 'team-1',
+            userId: 'athlete-1',
+            type: 'video',
+            content: 'Pending team video',
+            cloudflareVideoId: 'cf-team-pending-1',
+            cloudflareStatus: 'inprogress',
+            readyToStream: false,
+            createdAt: '2026-04-13T12:00:00.000Z',
+            updatedAt: '2026-04-13T12:00:00.000Z',
+          }),
+        },
+        {
+          id: 'team-video-ready',
+          data: () => ({
+            teamId: 'team-1',
+            userId: 'athlete-1',
+            type: 'video',
+            content: 'Ready team video',
+            cloudflareVideoId: 'cf-team-ready-1',
+            cloudflareStatus: 'ready',
+            readyToStream: true,
+            mediaUrl: 'https://customer-123.cloudflarestream.com/cf-team-ready-1/iframe',
+            createdAt: '2026-04-12T12:00:00.000Z',
+            updatedAt: '2026-04-12T12:00:00.000Z',
+          }),
+        },
+      ],
+      Schedule: [],
+      TeamStats: [],
+      News: [],
+      RosterEntries: [],
+      Recruiting: [],
+    });
+
+    const service = new TimelineService(db as never);
+    const result = await service.getTeamTimeline('TEAM01', {
+      limit: 20,
+      filter: 'media',
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.data).toHaveLength(1);
+    expect(result.data[0]?.id).toBe('team-video-ready');
+  });
+
   it('assembles recruiting, metrics, and rankings into the polymorphic timeline', async () => {
     const db = createMockDb({
       Posts: [],

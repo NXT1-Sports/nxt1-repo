@@ -1093,8 +1093,8 @@ export class AgentXService {
    * ranked as: has resultData > has steps > has toolCalls > longest content.
    * The richest row is the final persist; the earlier partial has no metadata.
    *
-   * `assistant_yield` rows are never suppressed — they carry distinct
-   * user-facing prompts that require interaction.
+   * `assistant_yield` rows are kept until a final exists because they carry
+   * distinct user-facing prompts that require interaction.
    */
   private resolveCanonicalAssistantRows(
     messages: readonly AgentMessage[]
@@ -1133,6 +1133,24 @@ export class AgentXService {
       }
     }
 
+    // Collapse assistant_partial rows when no final exists for the operationId.
+    // These are durability snapshots for an in-flight stream, so only the latest
+    // snapshot should render while the operation is still running.
+    const partialSuppressedIds = new Set<string>();
+    const partialLastSeen = new Map<string, string>();
+    for (const msg of messages) {
+      if (
+        msg.role === 'assistant' &&
+        msg.semanticPhase === 'assistant_partial' &&
+        msg.operationId &&
+        !finalOperationIds.has(msg.operationId)
+      ) {
+        const prev = partialLastSeen.get(msg.operationId);
+        if (prev) partialSuppressedIds.add(prev);
+        partialLastSeen.set(msg.operationId, msg.id);
+      }
+    }
+
     // Legacy untagged rows with duplicate operationIds.
     const legacyMultiMap = new Map<string, AgentMessage[]>();
     for (const msg of messages) {
@@ -1162,6 +1180,7 @@ export class AgentXService {
     if (
       finalOperationIds.size === 0 &&
       toolCallSuppressedIds.size === 0 &&
+      partialSuppressedIds.size === 0 &&
       legacySuppressedIds.size === 0
     )
       return messages;
@@ -1169,18 +1188,12 @@ export class AgentXService {
     return messages.filter((msg, index) => {
       if (msg.role !== 'assistant') return true;
 
-      const hasRenderableCard =
-        (msg.cards?.length ?? 0) > 0 || (msg.parts?.some((part) => part.type === 'card') ?? false);
-
       // When assistant_final exists for this operationId, keep only the final
-      // row and any yield rows. Suppress partials and untagged trajectory rows
-      // (written by ThreadMessageWriter) that would cause duplicate bubbles.
+      // row. Suppress partials and untagged trajectory rows (written by
+      // ThreadMessageWriter) that would cause duplicate bubbles with repeated
+      // media/cards.
       if (msg.operationId && finalOperationIds.has(msg.operationId)) {
-        return (
-          msg.semanticPhase === 'assistant_final' ||
-          msg.semanticPhase === 'assistant_yield' ||
-          hasRenderableCard
-        );
+        return msg.semanticPhase === 'assistant_final';
       }
 
       // Pause/resume cross-operation collapse:
@@ -1193,14 +1206,16 @@ export class AgentXService {
         msg.operationId &&
         isChatPrefixedOperationId(msg.operationId) &&
         !finalOperationIds.has(msg.operationId) &&
-        (msg.semanticPhase === 'assistant_tool_call' || !msg.semanticPhase) &&
-        !hasRenderableCard
+        (msg.semanticPhase === 'assistant_tool_call' || !msg.semanticPhase)
       ) {
         return false;
       }
 
       // Suppress all-but-last assistant_tool_call rows (no final path).
       if (toolCallSuppressedIds.has(msg.id)) return false;
+
+      // Suppress all-but-last assistant_partial rows (no final path).
+      if (partialSuppressedIds.has(msg.id)) return false;
 
       // Suppress non-richest legacy duplicates (untagged rows with no final).
       if (legacySuppressedIds.has(msg.id)) return false;
@@ -1219,9 +1234,106 @@ export class AgentXService {
     return score;
   }
 
+  private normalizeDetectedMediaUrl(url: string): string {
+    return url.trim().replace(/[.,!?;:]+$/g, '');
+  }
+
+  private inferMediaTypeFromUrl(url: string): 'image' | 'video' | null {
+    const normalizedUrl = this.normalizeDetectedMediaUrl(url).toLowerCase();
+    const pathname = normalizedUrl.split(/[?#]/, 1)[0] ?? normalizedUrl;
+
+    if (
+      /\.(avif|bmp|gif|heic|heif|jpe?g|png|svg|webp)$/i.test(pathname) ||
+      /\/images?\//i.test(pathname)
+    ) {
+      return 'image';
+    }
+
+    if (
+      /\.(m3u8|mov|mp4|m4v|webm|ogg|ogv)$/i.test(pathname) ||
+      /\/videos?\//i.test(pathname) ||
+      /stream|cloudflare/i.test(normalizedUrl)
+    ) {
+      return 'video';
+    }
+
+    return null;
+  }
+
+  private extractMediaUrlsFromText(content: string | undefined): string[] {
+    if (!content) return [];
+
+    const urls = new Set<string>();
+    const matches = content.match(/https?:\/\/[^\s)\]"'<>]+/gi) ?? [];
+    for (const match of matches) {
+      const normalized = this.normalizeDetectedMediaUrl(match);
+      if (!normalized || !/^https?:\/\//i.test(normalized)) continue;
+      if (!this.inferMediaTypeFromUrl(normalized)) continue;
+      urls.add(normalized);
+    }
+
+    return [...urls];
+  }
+
+  private extractMediaUrlsFromResultData(resultData: AgentMessage['resultData']): string[] {
+    if (!resultData) return [];
+
+    const mediaUrls = new Set<string>();
+    const pushUrl = (value: unknown): void => {
+      if (typeof value !== 'string') return;
+      const trimmed = this.normalizeDetectedMediaUrl(value);
+      if (!/^https?:\/\//i.test(trimmed)) return;
+      if (!this.inferMediaTypeFromUrl(trimmed)) return;
+      mediaUrls.add(trimmed);
+    };
+
+    pushUrl(resultData['imageUrl']);
+    pushUrl(resultData['videoUrl']);
+    pushUrl(resultData['outputUrl']);
+
+    for (const key of ['persistedMediaUrls', 'mediaUrls', 'imageUrls', 'videoUrls'] as const) {
+      const value = resultData[key];
+      if (!Array.isArray(value)) continue;
+      for (const url of value) pushUrl(url);
+    }
+
+    const files = resultData['files'];
+    if (Array.isArray(files)) {
+      for (const file of files) {
+        if (!file || typeof file !== 'object') continue;
+        const record = file as Record<string, unknown>;
+        pushUrl(record['url']);
+        pushUrl(record['downloadUrl']);
+      }
+    }
+
+    return [...mediaUrls];
+  }
+
   private mapPersistedMessageToUi(message: AgentMessage): AgentXMessage {
-    const imageUrl = message.resultData?.['imageUrl'] as string | undefined;
     const attachments = (message.attachments ?? []) as readonly AgentXAttachment[];
+    const contentMediaUrls = this.extractMediaUrlsFromText(message.content);
+    const resultDataMediaUrls = this.extractMediaUrlsFromResultData(message.resultData);
+    const explicitImageUrl =
+      typeof message.resultData?.['imageUrl'] === 'string'
+        ? this.normalizeDetectedMediaUrl(message.resultData['imageUrl'] as string)
+        : undefined;
+    const explicitVideoUrl =
+      typeof message.resultData?.['videoUrl'] === 'string'
+        ? this.normalizeDetectedMediaUrl(message.resultData['videoUrl'] as string)
+        : typeof message.resultData?.['outputUrl'] === 'string'
+          ? this.normalizeDetectedMediaUrl(message.resultData['outputUrl'] as string)
+          : undefined;
+    const attachmentImageUrl = attachments.find((attachment) => attachment.type === 'image')?.url;
+    const attachmentVideoUrl = attachments.find((attachment) => attachment.type === 'video')?.url;
+    const derivedImageUrl = [...resultDataMediaUrls, ...contentMediaUrls].find(
+      (url) => this.inferMediaTypeFromUrl(url) === 'image'
+    );
+    const derivedVideoUrl = [...resultDataMediaUrls, ...contentMediaUrls].find(
+      (url) => this.inferMediaTypeFromUrl(url) === 'video'
+    );
+    const imageUrl = attachmentImageUrl ?? explicitImageUrl ?? derivedImageUrl;
+    const videoUrl = attachmentVideoUrl ?? explicitVideoUrl ?? derivedVideoUrl;
     const cards = (
       message.cards?.length
         ? message.cards
@@ -1258,6 +1370,7 @@ export class AgentXService {
       content: displayContent,
       timestamp: message.createdAt ? new Date(message.createdAt) : new Date(),
       ...(imageUrl ? { imageUrl } : {}),
+      ...(videoUrl ? { videoUrl } : {}),
       ...(attachments.length > 0 ? { attachments } : {}),
       ...(cards.length > 0 ? { cards } : {}),
     };

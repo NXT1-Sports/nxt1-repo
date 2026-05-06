@@ -286,8 +286,20 @@ export class WriteTimelinePostTool extends BaseTool {
           icon: 'media',
           phase: 'submit_video_cloudflare',
         });
+        logger.info('[WriteTimelinePostTool] Submitting video to Cloudflare Stream', {
+          userId,
+          postIdForMedia,
+          sourceVideoUrl: videoUrl,
+          backendUrl: (process.env['BACKEND_URL'] ?? '').replace(/\/$/, ''),
+          environment: process.env['NODE_ENV'] ?? 'production',
+        });
         cfResult = await this.submitVideoToCloudflare(videoUrl, userId);
         if (!cfResult) {
+          logger.warn('[WriteTimelinePostTool] Cloudflare submission returned no result', {
+            userId,
+            postIdForMedia,
+            sourceVideoUrl: videoUrl,
+          });
           return {
             success: false,
             error:
@@ -296,6 +308,15 @@ export class WriteTimelinePostTool extends BaseTool {
         }
         cloudflareVideoId = cfResult.videoId;
         finalDocId = getCloudflareHighlightPostId(cfResult.videoId);
+
+        logger.info('[WriteTimelinePostTool] Cloudflare submission completed', {
+          userId,
+          cloudflareVideoId,
+          readyToStream: cfResult.readyToStream,
+          iframeUrl: cfResult.iframeUrl,
+          hlsUrl: cfResult.hlsUrl,
+          finalDocId,
+        });
 
         // If CF already processed the video (common for short clips), log it.
         // The postDoc below will write it in ready state immediately.
@@ -367,7 +388,24 @@ export class WriteTimelinePostTool extends BaseTool {
       const docRef = this.db.collection(POSTS_COLLECTIONS.POSTS).doc(finalDocId);
       await docRef.set(postDoc);
 
+      logger.info('[WriteTimelinePostTool] Post document persisted', {
+        postId: docRef.id,
+        userId,
+        hasVideo: !!cloudflareVideoId,
+        cloudflareVideoId,
+        initialCloudflareStatus:
+          cloudflareVideoId && cfResult?.readyToStream === true ? 'ready' : cloudflareVideoId ? 'inprogress' : null,
+        readyToStream: cfResult?.readyToStream ?? null,
+        mediaUrl:
+          cloudflareVideoId && cfResult?.readyToStream === true ? cfResult?.iframeUrl ?? null : null,
+      });
+
       if (cloudflareVideoId && cfResult && !cfResult.readyToStream) {
+        logger.info('[WriteTimelinePostTool] Starting immediate Cloudflare reconcile after write', {
+          postId: docRef.id,
+          userId,
+          cloudflareVideoId,
+        });
         await this.reconcileCloudflareVideoPost(docRef, cloudflareVideoId, userId);
       }
 
@@ -638,6 +676,7 @@ export class WriteTimelinePostTool extends BaseTool {
     }
 
     try {
+      const webhookBackendUrl = (process.env['BACKEND_URL'] ?? '').replace(/\/$/, '');
       const response = await fetch(`${CLOUDFLARE_API_BASE_URL}/accounts/${accountId}/stream/copy`, {
         method: 'POST',
         headers: {
@@ -650,9 +689,17 @@ export class WriteTimelinePostTool extends BaseTool {
             nxt1_user_id: userId,
             nxt1_context: 'agent_post',
             nxt1_env: process.env['NODE_ENV'] ?? 'production',
-            webhook_backend_url: (process.env['BACKEND_URL'] ?? '').replace(/\/$/, ''),
+            webhook_backend_url: webhookBackendUrl,
           },
         }),
+      });
+
+      logger.info('[WriteTimelinePostTool] Cloudflare copy API responded', {
+        userId,
+        sourceVideoUrl: videoUrl,
+        webhookBackendUrl,
+        status: response.status,
+        ok: response.ok,
       });
 
       if (!response.ok) {
@@ -723,6 +770,12 @@ export class WriteTimelinePostTool extends BaseTool {
       );
 
       if (!response.ok) {
+        logger.warn('[WriteTimelinePostTool] Immediate Cloudflare reconcile returned non-2xx', {
+          userId,
+          cloudflareVideoId: videoId,
+          postId: docRef.id,
+          status: response.status,
+        });
         return;
       }
 
@@ -730,11 +783,24 @@ export class WriteTimelinePostTool extends BaseTool {
       const result = body['result'] as Record<string, unknown> | null | undefined;
 
       if (!result) {
+        logger.warn('[WriteTimelinePostTool] Immediate Cloudflare reconcile returned no result', {
+          userId,
+          cloudflareVideoId: videoId,
+          postId: docRef.id,
+        });
         return;
       }
 
       const normalized = normalizeCloudflareVideoForClient(videoId, result, customerCode);
       if (!normalized.readyToStream || !normalized.playback.iframeUrl) {
+        logger.info('[WriteTimelinePostTool] Immediate Cloudflare reconcile found video not ready yet', {
+          userId,
+          cloudflareVideoId: videoId,
+          postId: docRef.id,
+          status: normalized.status,
+          readyToStream: normalized.readyToStream,
+          iframeUrl: normalized.playback.iframeUrl,
+        });
         return;
       }
 
