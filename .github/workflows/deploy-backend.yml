@@ -93,8 +93,11 @@ jobs:
               command -v pm2 > /dev/null 2>&1 || npm install -g pm2
               echo "pm2: $(pm2 -v)"
 
-              echo 'npm install...'
-              npm i
+              echo 'Clear stale Turbo cache, @nxt1/core dist, and backend dist...'
+              rm -rf packages/core/.turbo packages/core/dist .turbo backend/dist
+
+              echo 'npm ci (clean install from package-lock.json)...'
+              npm ci
 
               echo 'npm run build (backend + shared packages only)...'
               npx turbo run build --filter=@nxt1/backend --filter=@nxt1/core --filter=@nxt1/cache
