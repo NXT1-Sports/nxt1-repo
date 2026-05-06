@@ -121,7 +121,11 @@ router.post(
       ? Math.min(Math.max(parsedMaxDuration, 1), 36_000)
       : DEFAULT_CF_VIDEO_MAX_DURATION_SECONDS;
 
-    const environment = process.env['NODE_ENV'] === 'production' ? 'production' : 'staging';
+    // Use req.isStaging (set from the URL path by firebaseContext middleware)
+    // NOT NODE_ENV — so that a single server instance handles both environments:
+    // POST /api/v1/staging/upload/... → 'staging' → CF webhook updates stagingDb
+    // POST /api/v1/upload/...         → 'production' → CF webhook updates productionDb
+    const environment: 'staging' | 'production' = req.isStaging ? 'staging' : 'production';
     const backendUrl = process.env['BACKEND_URL']?.replace(/\/$/, '') ?? '';
     const expiresAt = new Date(
       Date.now() + DEFAULT_CF_UPLOAD_EXPIRY_HOURS * 60 * 60 * 1000

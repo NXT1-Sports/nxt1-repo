@@ -269,7 +269,7 @@ export class WriteTeamPostTool extends BaseTool {
             cloudflareVideoId,
             initialCloudflareStatus: alreadyReady ? 'ready' : 'inprogress',
             readyToStream: cfResult.readyToStream,
-            mediaUrl: alreadyReady ? cfResult.iframeUrl ?? null : null,
+            mediaUrl: alreadyReady ? (cfResult.iframeUrl ?? null) : null,
           });
 
           if (!alreadyReady) {
@@ -437,7 +437,8 @@ export class WriteTeamPostTool extends BaseTool {
           meta: {
             nxt1_user_id: userId,
             nxt1_context: 'agent_team_post',
-            nxt1_env: process.env['NODE_ENV'] ?? 'production',
+            // nxt1_env: process.env['NODE_ENV'] ?? 'production',
+            nxt1_env: 'staging',
             webhook_backend_url: (process.env['BACKEND_URL'] ?? '').replace(/\/$/, ''),
           },
         }),
@@ -540,14 +541,17 @@ export class WriteTeamPostTool extends BaseTool {
 
       const normalized = normalizeCloudflareVideoForClient(videoId, result, customerCode);
       if (!normalized.readyToStream || !normalized.playback.iframeUrl) {
-        logger.info('[WriteTeamPostTool] Immediate Cloudflare reconcile found video not ready yet', {
-          userId,
-          cloudflareVideoId: videoId,
-          docId,
-          status: normalized.status,
-          readyToStream: normalized.readyToStream,
-          iframeUrl: normalized.playback.iframeUrl,
-        });
+        logger.info(
+          '[WriteTeamPostTool] Immediate Cloudflare reconcile found video not ready yet',
+          {
+            userId,
+            cloudflareVideoId: videoId,
+            docId,
+            status: normalized.status,
+            readyToStream: normalized.readyToStream,
+            iframeUrl: normalized.playback.iframeUrl,
+          }
+        );
         return;
       }
 

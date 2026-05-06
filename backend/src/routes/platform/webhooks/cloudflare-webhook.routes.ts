@@ -27,7 +27,9 @@ const router = Router();
 
 const WEBHOOK_SECRET = process.env['CLOUDFLARE_WEBHOOK_SECRET'] ?? '';
 
-function resolveWebhookPath(meta: Record<string, string>): '/api/v1/cloudflare-webhook' | '/api/v1/staging/cloudflare-webhook' {
+function resolveWebhookPath(
+  meta: Record<string, string>
+): '/api/v1/cloudflare-webhook' | '/api/v1/staging/cloudflare-webhook' {
   const env = (meta['nxt1_env'] ?? '').trim().toLowerCase();
   return env === 'staging' ? '/api/v1/staging/cloudflare-webhook' : '/api/v1/cloudflare-webhook';
 }
@@ -163,7 +165,11 @@ router.post('/', async (req: Request, res: Response) => {
     // If the payload declares staging but this request is on the production path,
     // internally re-route to the staging path on the same backend.
     const isRequestPathStaging = req.originalUrl.includes('/staging/');
-    if (!isRequestPathStaging && webhookPath === '/api/v1/staging/cloudflare-webhook' && currentBackendUrl) {
+    if (
+      !isRequestPathStaging &&
+      webhookPath === '/api/v1/staging/cloudflare-webhook' &&
+      currentBackendUrl
+    ) {
       logger.info(`${tag} Re-routing webhook to staging path on same backend`, {
         currentBackendUrl,
         webhookPath,
@@ -537,6 +543,191 @@ router.post('/repair/:videoId', async (req: Request, res: Response) => {
       error: error instanceof Error ? error.message : String(error),
     });
     return res.status(500).json({ error: 'Repair failed' });
+  }
+});
+
+/**
+ * POST /api/v1/staging/cloudflare-webhook/repair-team/:teamId
+ *
+ * Bulk-repairs all stuck video posts for a team — i.e. posts where
+ * cloudflareVideoId is set but readyToStream is false (status: inprogress).
+ *
+ * This was needed because WriteTeamPostTool historically set nxt1_env to
+ * NODE_ENV ('production') in Cloudflare video metadata, causing the CF webhook
+ * to update the production Firestore doc instead of the staging one, leaving
+ * team video posts permanently stuck at cloudflareStatus: 'inprogress'.
+ *
+ * The caller must be authenticated (auth middleware applied at route registration).
+ */
+router.post('/repair-team/:teamId', async (req: Request, res: Response) => {
+  const tag = '[POST /cloudflare-webhook/repair-team]';
+  const { teamId } = req.params;
+
+  if (!teamId || typeof teamId !== 'string') {
+    return res.status(400).json({ error: 'Missing teamId' });
+  }
+
+  const accountId = process.env['CLOUDFLARE_ACCOUNT_ID'];
+  const apiToken = process.env['CLOUDFLARE_API_TOKEN'];
+  const customerCode = process.env['CLOUDFLARE_STREAM_CUSTOMER_CODE'];
+
+  if (!accountId || !apiToken) {
+    return res.status(503).json({ error: 'Cloudflare not configured on this server' });
+  }
+
+  const db = req.firebase?.db;
+  if (!db) {
+    return res.status(503).json({ error: 'Firestore not available' });
+  }
+
+  try {
+    // Find all video posts for this team that are stuck (readyToStream !== true)
+    const stuckSnap = await db
+      .collection('Posts')
+      .where('teamId', '==', teamId)
+      .where('type', '==', 'video')
+      .where('readyToStream', '==', false)
+      .get();
+
+    if (stuckSnap.empty) {
+      return res.status(200).json({ repaired: 0, skipped: 0, message: 'No stuck posts found' });
+    }
+
+    logger.info(`${tag} Found stuck video posts`, { teamId, count: stuckSnap.docs.length });
+
+    const results: Array<{ postId: string; videoId: string; state: string; repaired: boolean }> =
+      [];
+
+    for (const postDoc of stuckSnap.docs) {
+      const data = postDoc.data() as Record<string, unknown>;
+      const cloudflareVideoId =
+        typeof data['cloudflareVideoId'] === 'string' ? data['cloudflareVideoId'] : null;
+
+      if (!cloudflareVideoId) {
+        results.push({ postId: postDoc.id, videoId: '', state: 'no_cf_id', repaired: false });
+        continue;
+      }
+
+      try {
+        const cfResponse = await fetch(
+          `https://api.cloudflare.com/client/v4/accounts/${accountId}/stream/${cloudflareVideoId}`,
+          { headers: { Authorization: `Bearer ${apiToken}` } }
+        );
+
+        if (!cfResponse.ok) {
+          logger.warn(`${tag} CF API non-2xx for video`, {
+            cloudflareVideoId,
+            status: cfResponse.status,
+          });
+          results.push({
+            postId: postDoc.id,
+            videoId: cloudflareVideoId,
+            state: `cf_error_${cfResponse.status}`,
+            repaired: false,
+          });
+          continue;
+        }
+
+        const cfBody = (await cfResponse.json()) as Record<string, unknown>;
+        const result = cfBody['result'] as Record<string, unknown> | null | undefined;
+        if (!result) {
+          results.push({
+            postId: postDoc.id,
+            videoId: cloudflareVideoId,
+            state: 'cf_not_found',
+            repaired: false,
+          });
+          continue;
+        }
+
+        const state =
+          (result['status'] as Record<string, string> | undefined)?.['state'] ?? 'unknown';
+        const readyToStream = result['readyToStream'] === true;
+        const cfPlayback = result['playback'] as Record<string, string> | undefined;
+        const thumbnailUrl =
+          typeof result['thumbnail'] === 'string'
+            ? result['thumbnail']
+            : typeof result['preview'] === 'string'
+              ? result['preview']
+              : null;
+
+        const playback = buildCloudflarePlaybackUrls(cloudflareVideoId, customerCode, {
+          hls: cfPlayback?.['hls'],
+          dash: cfPlayback?.['dash'],
+        });
+
+        const updatePayload: Record<string, unknown> = {
+          cloudflareStatus: state,
+          readyToStream,
+          updatedAt: Timestamp.now(),
+          playback,
+        };
+
+        if (thumbnailUrl) {
+          updatePayload['thumbnailUrl'] = thumbnailUrl;
+          updatePayload['poster'] = thumbnailUrl;
+        }
+        if (playback.iframeUrl) updatePayload['mediaUrl'] = playback.iframeUrl;
+        if (playback.hlsUrl) updatePayload['videoUrl'] = playback.hlsUrl;
+        if (typeof result['duration'] === 'number') updatePayload['duration'] = result['duration'];
+        if (state === 'ready') updatePayload['cloudflareError'] = null;
+
+        await postDoc.ref.update(updatePayload);
+        results.push({ postId: postDoc.id, videoId: cloudflareVideoId, state, repaired: true });
+
+        logger.info(`${tag} Repaired stuck team video post`, {
+          teamId,
+          postId: postDoc.id,
+          cloudflareVideoId,
+          state,
+          readyToStream,
+        });
+      } catch (err) {
+        logger.error(`${tag} Failed to repair individual post`, {
+          postId: postDoc.id,
+          cloudflareVideoId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        results.push({
+          postId: postDoc.id,
+          videoId: cloudflareVideoId,
+          state: 'repair_error',
+          repaired: false,
+        });
+      }
+    }
+
+    // Invalidate team caches after bulk repair
+    const teamSnap = await db
+      .collection('Teams')
+      .doc(teamId)
+      .get()
+      .catch(() => null);
+    const td = teamSnap?.data() as Record<string, unknown> | undefined;
+    const teamCode = typeof td?.['teamCode'] === 'string' ? td['teamCode'] : undefined;
+
+    if (teamCode) {
+      const cache = getCacheService();
+      await Promise.all([
+        cache.delByPrefix(`team:timeline:v1:${teamCode}:`),
+        cache.delByPrefix(`team:profile:code:${teamCode}:`),
+      ]);
+    }
+
+    const repairedCount = results.filter((r) => r.repaired).length;
+    logger.info(`${tag} Bulk repair complete`, { teamId, repairedCount, total: results.length });
+
+    return res.status(200).json({
+      repaired: repairedCount,
+      skipped: results.length - repairedCount,
+      results,
+    });
+  } catch (error) {
+    logger.error(`${tag} Bulk repair failed`, {
+      teamId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return res.status(500).json({ error: 'Bulk repair failed' });
   }
 });
 

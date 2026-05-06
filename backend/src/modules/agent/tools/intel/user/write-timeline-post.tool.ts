@@ -394,10 +394,16 @@ export class WriteTimelinePostTool extends BaseTool {
         hasVideo: !!cloudflareVideoId,
         cloudflareVideoId,
         initialCloudflareStatus:
-          cloudflareVideoId && cfResult?.readyToStream === true ? 'ready' : cloudflareVideoId ? 'inprogress' : null,
+          cloudflareVideoId && cfResult?.readyToStream === true
+            ? 'ready'
+            : cloudflareVideoId
+              ? 'inprogress'
+              : null,
         readyToStream: cfResult?.readyToStream ?? null,
         mediaUrl:
-          cloudflareVideoId && cfResult?.readyToStream === true ? cfResult?.iframeUrl ?? null : null,
+          cloudflareVideoId && cfResult?.readyToStream === true
+            ? (cfResult?.iframeUrl ?? null)
+            : null,
       });
 
       if (cloudflareVideoId && cfResult && !cfResult.readyToStream) {
@@ -793,14 +799,17 @@ export class WriteTimelinePostTool extends BaseTool {
 
       const normalized = normalizeCloudflareVideoForClient(videoId, result, customerCode);
       if (!normalized.readyToStream || !normalized.playback.iframeUrl) {
-        logger.info('[WriteTimelinePostTool] Immediate Cloudflare reconcile found video not ready yet', {
-          userId,
-          cloudflareVideoId: videoId,
-          postId: docRef.id,
-          status: normalized.status,
-          readyToStream: normalized.readyToStream,
-          iframeUrl: normalized.playback.iframeUrl,
-        });
+        logger.info(
+          '[WriteTimelinePostTool] Immediate Cloudflare reconcile found video not ready yet',
+          {
+            userId,
+            cloudflareVideoId: videoId,
+            postId: docRef.id,
+            status: normalized.status,
+            readyToStream: normalized.readyToStream,
+            iframeUrl: normalized.playback.iframeUrl,
+          }
+        );
         return;
       }
 
