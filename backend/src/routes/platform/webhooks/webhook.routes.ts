@@ -17,7 +17,7 @@ const router = Router();
  * Must be applied before any body parser
  */
 export const webhookRawBodyMiddleware: RequestHandler = (req: Request, _res, next) => {
-  if (req.originalUrl.includes('/webhook')) {
+  if (req.originalUrl.includes('webhook')) {
     let data = '';
     req.setEncoding('utf8');
 
