@@ -1,6 +1,6 @@
 {
   "name": "@nxt1/functions",
-  "version": "1.16.1",
+  "version": "1.16.2",
   "private": true,
   "main": "lib/index.js",
   "scripts": {
