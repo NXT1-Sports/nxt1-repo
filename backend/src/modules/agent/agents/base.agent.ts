@@ -1318,6 +1318,8 @@ export abstract class BaseAgent {
         maxTokens: routing.maxTokens,
         temperature: routing.temperature,
         tools: toolSchemas.length > 0 ? toolSchemas : undefined,
+        // Agent queue jobs can take longer than the default 60s — use 5 minutes
+        timeoutMs: 300_000,
         ...(routing.enableThinking && {
           enableThinking: true,
           thinkingBudgetTokens: routing.thinkingBudgetTokens,

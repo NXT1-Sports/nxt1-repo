@@ -129,6 +129,9 @@ const STATIC_ALLOWED_ORIGINS = process.env['CORS_ORIGINS']
       // Firebase Hosting (staging)
       'https://nxt-1-staging-v2.web.app',
       'https://nxt-1-v2.web.app',
+      // Production server (direct IP access — staging/dev only)
+      'http://34.72.3.113:8080',
+      'https://api.nxt1sports.com',
     ];
 
 app.use(
