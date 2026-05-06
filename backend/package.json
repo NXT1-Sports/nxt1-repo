@@ -79,7 +79,7 @@
     "@nxt1/cache": "file:../packages/cache",
     "@nxt1/core": "file:../packages/core",
     "apify-client": "^2.22.3",
-    "axios": "^1.15.0",
+    "axios": "^1.16.0",
     "bullmq": "^5.76.2",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.3",
