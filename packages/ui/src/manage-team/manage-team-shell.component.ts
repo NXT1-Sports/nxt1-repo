@@ -865,7 +865,14 @@ export class ManageTeamShellComponent implements OnInit {
       title: 'Team Level',
       message: 'Select the team level.',
       actions: [
-        ...Object.entries(TEAM_LEVEL_CONFIG)
+        ...(
+          Object.entries(TEAM_LEVEL_CONFIG) as Array<
+            [
+              string,
+              { readonly label: string; readonly shortLabel: string; readonly order: number },
+            ]
+          >
+        )
           .sort(([, a], [, b]) => a.order - b.order)
           .map(([value, config]) => ({
             text: config.label,

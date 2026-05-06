@@ -336,7 +336,7 @@ export class ConnectedAccountsModalService {
 
     // Build a set of platforms already in the caller-supplied list so we can
     // update them in-place (connected → true) rather than adding duplicates.
-    const existingByPlatform = new Map(existingLinks.map((l) => [l.platform, l]));
+    const existingByPlatform = new Map(existingLinks.map((l) => [l.platform, l] as const));
 
     for (const provider of providerData) {
       const platformId = FIREBASE_PROVIDER_PLATFORM_MAP[provider.providerId];
@@ -394,7 +394,7 @@ export class ConnectedAccountsModalService {
       }
 
       const existingLinks = options.linkSourcesData?.links ?? [];
-      const existingByPlatform = new Map(existingLinks.map((l) => [l.platform, l]));
+      const existingByPlatform = new Map(existingLinks.map((l) => [l.platform, l] as const));
 
       for (const platform of platforms) {
         const existing = existingByPlatform.get(platform);

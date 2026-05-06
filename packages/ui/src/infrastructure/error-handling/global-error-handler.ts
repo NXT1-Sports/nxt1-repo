@@ -233,12 +233,13 @@ export class GlobalErrorHandler implements ErrorHandler {
 
     // Handle NxtApiError from @nxt1/core
     if (isNxtApiError(error)) {
+      const nxtErr = error as { message: string; code?: string; stack?: string };
       return {
         ...baseDetails,
-        message: error.message,
-        code: error.code,
+        message: nxtErr.message,
+        code: nxtErr.code,
         name: 'NxtApiError',
-        stack: error.stack,
+        stack: nxtErr.stack,
       };
     }
 
@@ -289,7 +290,7 @@ export class GlobalErrorHandler implements ErrorHandler {
 
     // NxtApiError with specific codes
     if (isNxtApiError(error)) {
-      const code = error.code;
+      const code = (error as { code?: string }).code;
 
       // Auth errors are warnings (expected user flow)
       if (

@@ -835,9 +835,9 @@ export class UsageService implements OnDestroy {
     const isNativePlatform = typeof window !== 'undefined' && Capacitor.isNativePlatform();
 
     try {
-      const url = await this.runWithSharedLoader({ message: 'Opening billing portal...' }, () =>
+      const url = (await this.runWithSharedLoader({ message: 'Opening billing portal...' }, () =>
         this.api.createPortalSession()
-      );
+      )) as string;
       this.analytics?.trackEvent(APP_EVENTS.USAGE_BILLING_PORTAL_OPENED);
       // Flag the shell to force-refresh when the user returns from the portal
       this._pendingPortalRefresh = true;
@@ -1008,12 +1008,12 @@ export class UsageService implements OnDestroy {
     const isNativePlatform = typeof window !== 'undefined' && Capacitor.isNativePlatform();
 
     try {
-      const result = await this.runWithSharedLoader(
+      const result = (await this.runWithSharedLoader(
         {
           message: hasSavedDefaultMethod ? 'Processing payment...' : 'Opening secure checkout...',
         },
         () => this.api.buyCredits(amountCents, organizationId)
-      );
+      )) as { type: 'redirect'; url: string } | { type: 'credited'; newBalance: number };
       this.analytics?.trackEvent(APP_EVENTS.USAGE_CREDITS_PURCHASED, {
         amountCents,
         billingEntity: organizationId ? 'organization' : 'individual',
@@ -1156,9 +1156,9 @@ export class UsageService implements OnDestroy {
     this.logger.info('Requesting invoice top-up', request);
     this.breadcrumb.trackStateChange('usage:invoice-topup', request);
     try {
-      const result = await this.runWithSharedLoader({ message: 'Creating invoice...' }, () =>
+      const result = (await this.runWithSharedLoader({ message: 'Creating invoice...' }, () =>
         this.api.requestInvoiceTopUp(request)
-      );
+      )) as { invoiceId: string; invoiceUrl: string; hostedInvoiceUrl: string };
       await this.haptics.notification('success');
       this.toast.success('Invoice sent — funds will be credited when payment is received');
       return result;

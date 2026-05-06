@@ -24,7 +24,7 @@ function formatDirectorySportName(key: string): string {
 
 const UNIVERSAL_SPORT_DIRECTORY_LINKS: readonly UniversalSportDirectoryLink[] = Array.from(
   new Set(SPORTS.map((sport) => normalizeSportKey(sport)).filter((sport) => sport.length > 0))
-).map((sportKey) => ({
+).map((sportKey: string) => ({
   slug: sportKey,
   sport: formatDirectorySportName(sportKey),
   href: SPORT_ROUTE_OVERRIDES[sportKey] ?? `/explore?sport=${encodeURIComponent(sportKey)}`,
