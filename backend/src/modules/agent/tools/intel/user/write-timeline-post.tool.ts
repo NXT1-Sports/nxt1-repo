@@ -84,7 +84,9 @@ export class WriteTimelinePostTool extends BaseTool {
     '- achievement: Achievement or badge earned\n' +
     '- announcement: General announcement\n\n' +
     'Image and video URLs must be HTTPS CDN-hosted media URLs ' +
-    '(from generate_image, scrape_twitter, scrape_instagram, or other agent tools).\n\n' +
+    '(from generate_image, scrape_twitter, scrape_instagram, or other agent tools).\n' +
+    "IMPORTANT: When the user's message contains an [Attached video: name — URL] annotation, " +
+    'you MUST pass that URL as `videoUrl` and set `type: "video"`. Never omit videoUrl when a video is attached.\n\n' +
     'Sport tagging:\n' +
     'Pass `sportId` (lowercase, e.g. "football", "basketball") so the post ' +
     'is filed under the correct sport profile. If omitted, it falls back to ' +

@@ -299,6 +299,7 @@ export class DataCoordinatorAgent extends BaseAgent {
       '- If the user says "last N" for a category, use the first N matching items from descending feed results. Execute directly. Do not request Firestore IDs from the user.',
       '- Do NOT call `write_timeline_post` automatically after every extraction. Avoid duplicate posts when `write_athlete_videos` already persisted highlight content unless the user explicitly asked for a public feed post.',
       '- When you do publish to the feed, keep the caption factual, concise, and tied to the scraped source. Attach media URLs when available.',
+      '- **Video attachment → media post (CRITICAL)**: When the user\'s message contains `[Attached video: name — URL]`, you MUST include that URL in `mediaUrls` for `write_team_post` or `videoUrl` for `write_timeline_post`. Always set `type: "video"` in this case. NEVER create a text or announcement post when a video attachment is present in the current message — the video URL IS the primary content and must be attached.',
       '- NEVER include hashtags in post content. NXT1 does not use hashtags. Do not append any #terms to the content field of write_timeline_post or write_team_post.',
       '- Use `scan_timeline_posts` at the START of any profile enrichment task to extract durable context (achievements, milestones, recruiting updates) from the user\'s feed into long-term memory BEFORE scraping external sources. Pass scope: "both" and the teamId when available.',
       '',

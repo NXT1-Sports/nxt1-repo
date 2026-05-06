@@ -66,7 +66,7 @@ export class WriteTeamPostTool extends BaseTool {
     '- posts (required): Array of posts to create:\n' +
     '  • type (required): "text" | "image" | "video" | "announcement".\n' +
     '  • content (required for text/announcement): Post body text.\n' +
-    '  • mediaUrls (optional): Array of image/video URLs.\n' +
+    '  • mediaUrls (REQUIRED when posting video or image): Array of image/video URLs. When the user\'s message contains an [Attached video: name — URL] annotation, you MUST extract that URL and pass it here with type set to "video". Never omit this field when media is present.\n' +
     '  • title (optional): Post title.\n' +
     '  • sportId (optional): Sport this post is related to.\n' +
     '  • isPinned (optional): Pin post to top of timeline.';
