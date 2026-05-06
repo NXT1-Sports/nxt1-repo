@@ -130,15 +130,35 @@ export const PROD_FALLBACK_CHAIN: Record<ModelTier, readonly string[]> = {
 
 export const DEV_FALLBACK_CHAIN: Record<ModelTier, readonly string[]> = {
   // ── Text Tiers ──────────────────────────────────────────────────────────
-  routing: ['anthropic/claude-sonnet-4', 'openai/gpt-4o', 'anthropic/claude-haiku-4.5'],
+  routing: [
+    'anthropic/claude-sonnet-4',
+    'openai/gpt-4o',
+    'anthropic/claude-haiku-4.5',
+    'deepseek/deepseek-v3.2',
+  ],
   extraction: ['anthropic/claude-haiku-4.5', 'openai/gpt-4o-mini', 'qwen/qwen3.6-plus'],
   data_heavy: ['qwen/qwen3.6-plus', 'anthropic/claude-haiku-4.5', 'openai/gpt-4o-mini'],
   evaluator: ['minimax/minimax-m2.7', 'anthropic/claude-sonnet-4', 'openai/gpt-4o'],
-  compliance: ['openai/gpt-4o', 'anthropic/claude-sonnet-4', 'anthropic/claude-haiku-4.5'],
+  compliance: [
+    'openai/gpt-4o',
+    'anthropic/claude-sonnet-4',
+    'anthropic/claude-haiku-4.5',
+    'deepseek/deepseek-v3.2',
+  ],
   copywriting: ['anthropic/claude-sonnet-4', 'openai/gpt-4o', 'qwen/qwen3.6-plus'],
-  prompt_engineering: ['anthropic/claude-sonnet-4', 'openai/gpt-4o', 'anthropic/claude-haiku-4.5'],
+  prompt_engineering: [
+    'anthropic/claude-sonnet-4',
+    'openai/gpt-4o',
+    'anthropic/claude-haiku-4.5',
+    'deepseek/deepseek-v3.2',
+  ],
   chat: ['anthropic/claude-haiku-4.5', 'openai/gpt-4o-mini', 'deepseek/deepseek-v3.2'],
-  task_automation: ['anthropic/claude-sonnet-4', 'openai/gpt-4o', 'anthropic/claude-haiku-4.5'],
+  task_automation: [
+    'anthropic/claude-sonnet-4',
+    'openai/gpt-4o',
+    'anthropic/claude-haiku-4.5',
+    'deepseek/deepseek-v3.2',
+  ],
 
   // ── Media Tiers ─────────────────────────────────────────────────────────
   image_generation: ['google/gemini-3-pro-image-preview'],

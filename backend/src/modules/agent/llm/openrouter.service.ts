@@ -601,7 +601,9 @@ export class OpenRouterService {
         if (isLastModel) throw lastError;
 
         const statusCode = lastError instanceof OpenRouterError ? lastError.status : undefined;
-        const isRetryable = statusCode != null && RETRYABLE_STATUS_CODES.has(statusCode);
+        const isRetryable =
+          (statusCode != null && RETRYABLE_STATUS_CODES.has(statusCode)) ||
+          this.isRegionRestrictionError(lastError);
 
         if (!isRetryable) throw lastError;
 
@@ -1099,6 +1101,18 @@ export class OpenRouterService {
     }
   }
 
+  /**
+   * Returns true when a 403 is a region-restriction (not an auth failure).
+   * Region errors are retryable — the next model in the fallback chain may be
+   * served from a different region and will succeed.
+   */
+  private isRegionRestrictionError(error: Error): boolean {
+    if (!(error instanceof OpenRouterError)) return false;
+    if (error.status !== 403) return false;
+    const msg = error.message.toLowerCase();
+    return msg.includes('not available in your region') || msg.includes('region');
+  }
+
   private isRetryable(error: Error): boolean {
     if (error instanceof AgentEngineError) {
       if (error.code === 'OPENROUTER_REQUEST_TIMEOUT') return true;
@@ -1106,6 +1120,8 @@ export class OpenRouterService {
     }
 
     if (error instanceof OpenRouterError) {
+      // Region 403s are NOT retried on the same model — they are handled by the
+      // outer fallback chain (isRegionRestrictionError check in completeStream).
       return RETRYABLE_STATUS_CODES.has(error.status);
     }
     // Only retry genuine network failures (not user/external aborts)
