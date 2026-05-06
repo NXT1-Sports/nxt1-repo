@@ -432,6 +432,14 @@ export interface TeamProfilePost {
   readonly body?: string;
   readonly thumbnailUrl?: string;
   readonly mediaUrl?: string;
+  /** Cloudflare Stream iframe embed URL — preferred for video rendering */
+  readonly iframeUrl?: string;
+  /** Cloudflare Stream HLS manifest URL */
+  readonly hlsUrl?: string;
+  /** Cloudflare Stream video UID */
+  readonly cloudflareVideoId?: string;
+  /** Processing state; absent means ready (legacy/non-CF posts) */
+  readonly processingStatus?: 'queued' | 'inprogress' | 'ready' | 'error' | 'pendingupload';
   readonly externalLink?: string;
   readonly shareCount: number;
   readonly viewCount?: number;

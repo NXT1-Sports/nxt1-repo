@@ -343,11 +343,12 @@ export class WriteTeamPostTool extends BaseTool {
         )
       );
 
-      // Invalidate team timeline and profile caches
+      // Invalidate team timeline and profile caches (all key variants)
       const cache = getCacheService();
       await Promise.all([
         cache.delByPrefix(`team:timeline:v1:${teamCode}:`),
         cache.delByPrefix(`team:profile:code:${teamCode}:`),
+        cache.delByPrefix(`team:profile:id:${teamId}:`),
       ]);
 
       logger.info('[WriteTeamPostTool] Posts written', { teamId, teamCode, written, skipped });

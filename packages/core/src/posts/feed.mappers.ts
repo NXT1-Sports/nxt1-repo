@@ -9,7 +9,13 @@
  * 100% Portable — NO platform dependencies.
  */
 
-import type { FeedPost, FeedPostType, FeedAuthor, FeedMedia } from './feed.types';
+import type {
+  FeedPost,
+  FeedPostType,
+  FeedAuthor,
+  FeedMedia,
+  FeedVideoProcessingStatus,
+} from './feed.types';
 import type {
   FeedItem,
   FeedItemPost,
@@ -412,17 +418,39 @@ export function teamToFeedAuthor(team: TeamProfileTeam): FeedAuthor {
  * Builds a FeedMedia array from a TeamProfilePost's single media fields.
  * TeamProfilePost has flat thumbnailUrl/mediaUrl while FeedPost has a media array.
  */
+/** Normalizes raw processingStatus strings to the canonical FeedVideoProcessingStatus union. */
+function normalizeProcessingStatus(raw: string | undefined): FeedVideoProcessingStatus | undefined {
+  switch (raw) {
+    case 'ready':
+    case 'error':
+    case 'queued':
+    case 'pendingupload':
+      return raw;
+    case 'inprogress':
+    case 'processing': // legacy alias
+      return 'inprogress';
+    default:
+      return undefined;
+  }
+}
+
 function buildMediaFromTeamPost(post: TeamProfilePost): readonly FeedMedia[] {
-  if (!post.thumbnailUrl && !post.mediaUrl) return [];
+  const hasMedia = post.thumbnailUrl || post.mediaUrl || post.iframeUrl || post.cloudflareVideoId;
+  if (!hasMedia) return [];
 
   const mediaType: FeedMedia['type'] = post.type === 'video' ? 'video' : 'image';
+  const processingStatus = normalizeProcessingStatus(post.processingStatus);
 
   return [
     {
       id: `${post.id}-media-0`,
       type: mediaType,
-      url: post.mediaUrl ?? post.thumbnailUrl!,
+      url: post.iframeUrl ?? post.mediaUrl ?? post.thumbnailUrl!,
       thumbnailUrl: post.thumbnailUrl,
+      iframeUrl: post.iframeUrl ?? post.mediaUrl,
+      hlsUrl: post.hlsUrl,
+      cloudflareVideoId: post.cloudflareVideoId,
+      processingStatus,
       duration: post.duration,
       altText: post.title ?? 'Team post media',
     },

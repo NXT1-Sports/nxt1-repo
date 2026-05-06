@@ -590,6 +590,31 @@ async function fetchTeamPosts(teamId: string, db: Firestore): Promise<TeamProfil
     return snap.docs
       .map((d) => {
         const data = d.data() as Record<string, unknown>;
+        // Resolve processingStatus from cloudflareStatus / readyToStream fields
+        const cfStatus = data['cloudflareStatus'] as string | undefined;
+        const readyToStream = data['readyToStream'] as boolean | undefined;
+        let processingStatus: TeamProfilePost['processingStatus'];
+        if (cfStatus === 'error') {
+          processingStatus = 'error';
+        } else if (cfStatus === 'ready' || readyToStream === true) {
+          processingStatus = 'ready';
+        } else if (cfStatus === 'inprogress' || cfStatus === 'processing') {
+          processingStatus = 'inprogress';
+        } else if (cfStatus === 'queued' || cfStatus === 'pendingupload') {
+          processingStatus = cfStatus as 'queued' | 'pendingupload';
+        }
+
+        // Resolve iframeUrl: prefer playback.iframeUrl, fallback to mediaUrl if it looks like an iframe URL
+        const playback = data['playback'] as Record<string, unknown> | undefined;
+        const iframeUrl =
+          (playback?.['iframeUrl'] as string | undefined) ??
+          (data['mediaUrl'] as string | undefined) ??
+          undefined;
+        const hlsUrl =
+          (playback?.['hlsUrl'] as string | undefined) ??
+          (data['videoUrl'] as string | undefined) ??
+          undefined;
+
         return {
           id: d.id,
           type: toTeamPostType(data['type']),
@@ -597,6 +622,10 @@ async function fetchTeamPosts(teamId: string, db: Firestore): Promise<TeamProfil
           body: data['body'] as string | undefined,
           thumbnailUrl: data['thumbnailUrl'] as string | undefined,
           mediaUrl: data['mediaUrl'] as string | undefined,
+          iframeUrl,
+          hlsUrl,
+          cloudflareVideoId: data['cloudflareVideoId'] as string | undefined,
+          processingStatus,
           externalLink: data['externalLink'] as string | undefined,
           shareCount: (data['shareCount'] as number) ?? 0,
           viewCount: data['viewCount'] as number | undefined,
