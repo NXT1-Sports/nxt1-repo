@@ -21,9 +21,17 @@ if (!admin.apps.length) {
   const clientEmail = isStaging
     ? process.env['STAGING_FIREBASE_CLIENT_EMAIL']
     : process.env['FIREBASE_CLIENT_EMAIL'];
+  // Normalize private key: env vars often store newlines as literal \n or \\n.
+  // Handle all three cases: actual newlines (already fine), \n, and \\n.
+  const normalizePrivateKey = (raw: string | undefined): string | undefined => {
+    if (!raw) return undefined;
+    // Replace double-escaped \\n first, then single-escaped \n
+    return raw.replace(/\\\\n/g, '\n').replace(/\\n/g, '\n');
+  };
+
   const privateKey = isStaging
-    ? process.env['STAGING_FIREBASE_PRIVATE_KEY']?.replace(/\\n/g, '\n')
-    : process.env['FIREBASE_PRIVATE_KEY']?.replace(/\\n/g, '\n');
+    ? normalizePrivateKey(process.env['STAGING_FIREBASE_PRIVATE_KEY'])
+    : normalizePrivateKey(process.env['FIREBASE_PRIVATE_KEY']);
   const storageBucket = isStaging
     ? process.env['STAGING_FIREBASE_STORAGE_BUCKET']
     : process.env['FIREBASE_STORAGE_BUCKET'];
