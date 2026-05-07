@@ -417,8 +417,17 @@ export abstract class BaseMcpClientService {
 
   /**
    * Internal connection logic with exponential backoff.
+   *
+   * Note: `reconnectAttempts` is reset to 0 at the start of every invocation.
+   * Without this reset, a previous fully-exhausted retry cycle would leave the
+   * counter at MAX+1, causing the while-loop to be skipped entirely on the next
+   * call — returning void silently without setting `this.client`, which then
+   * surfaces as the misleading "Client is not connected" error with durationMs: 0.
    */
   private async performConnect(): Promise<void> {
+    // Reset counter so every fresh connect() invocation gets a full retry budget.
+    this.reconnectAttempts = 0;
+
     while (this.reconnectAttempts <= MAX_RECONNECT_ATTEMPTS) {
       try {
         const transport = this.getTransport();

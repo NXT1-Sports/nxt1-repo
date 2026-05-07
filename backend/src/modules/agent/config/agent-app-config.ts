@@ -141,7 +141,11 @@ const actionChipSchema = z.object({
   subLabel: z.string().trim().min(1).optional(),
   promptText: z.string().trim().min(1).optional(),
   icon: z.string().trim().min(1),
-  executionPrompt: z.string().trim().min(1).optional(),
+  // Firestore may store null for optional fields; treat null the same as absent.
+  executionPrompt: z.preprocess(
+    (v) => (v === null ? undefined : v),
+    z.string().trim().min(1).optional()
+  ),
 });
 
 const coordinatorRoleUiOverrideSchema = z.object({
