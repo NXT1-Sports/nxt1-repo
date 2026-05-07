@@ -31,6 +31,7 @@ import { z } from 'zod';
 const POSTS_COLLECTION = 'Posts';
 const TEAMS_COLLECTION = 'Teams';
 const MAX_POSTS_PER_CALL = 10;
+const CLOUDFLARE_REPAIR_FALLBACK_DELAYS_MS = [45_000, 180_000, 600_000] as const;
 
 const VALID_POST_TYPES = new Set(['text', 'image', 'video', 'announcement']);
 

@@ -32,6 +32,7 @@ import {
   type MapTeamProfileOptions,
 } from '../../adapters/team-profile.adapter.js';
 import { logger } from '../../utils/logger.js';
+import { getAnalyticsLoggerService } from '../../services/core/analytics-logger.service.js';
 import { dispatch } from '../../services/communications/notification.service.js';
 import { notifyTeamJoined } from '../../services/communications/team-join-notifications.js';
 import { getUserById } from '../../services/profile/users.service.js';
@@ -1205,6 +1206,7 @@ router.get(
  */
 router.post(
   '/:id/view',
+  optionalAuth,
   asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
     const db = req.firebase!.db;
@@ -1212,6 +1214,22 @@ router.post(
     validateRequired(id, 'Team ID');
 
     await teamCodeService.incrementTeamPageView(db, String(id));
+
+    const viewerUserId = req.user?.uid ?? null;
+    void getAnalyticsLoggerService().safeTrack({
+      subjectId: String(id),
+      subjectType: 'team',
+      domain: 'engagement',
+      eventType: 'content_viewed',
+      source: 'user',
+      actorUserId: viewerUserId,
+      tags: ['team_page', 'view', viewerUserId ? 'authenticated' : 'anonymous'],
+      payload: { teamId: String(id), route: 'teams/:id/view' },
+      metadata: {
+        initiatedBy: 'teams_route',
+        viewerAuthenticated: Boolean(viewerUserId),
+      },
+    });
 
     sendSuccess(res, { message: 'View recorded' });
   })
@@ -1226,6 +1244,7 @@ router.post(
  */
 router.post(
   '/:id/page-view',
+  optionalAuth,
   asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
     const db = req.firebase!.db;
@@ -1234,7 +1253,26 @@ router.post(
 
     await teamCodeService.incrementTeamPageView(db, String(id));
 
-    const viewerId: string | undefined = req.body?.viewerId;
+    const viewerIdRaw = req.body?.viewerId;
+    const viewerId =
+      typeof viewerIdRaw === 'string' && viewerIdRaw.trim().length > 0 ? viewerIdRaw.trim() : null;
+    const viewerUserId = req.user?.uid ?? viewerId;
+
+    void getAnalyticsLoggerService().safeTrack({
+      subjectId: String(id),
+      subjectType: 'team',
+      domain: 'engagement',
+      eventType: 'content_viewed',
+      source: 'user',
+      actorUserId: viewerUserId,
+      tags: ['team_page', 'view', viewerUserId ? 'authenticated' : 'anonymous'],
+      payload: { teamId: String(id), route: 'teams/:id/page-view' },
+      metadata: {
+        initiatedBy: 'teams_route',
+        viewerAuthenticated: Boolean(viewerUserId),
+      },
+    });
+
     logger.debug('[Teams API] Page view recorded', { teamId: id, viewerId });
 
     sendSuccess(res, { message: 'Page view recorded' });

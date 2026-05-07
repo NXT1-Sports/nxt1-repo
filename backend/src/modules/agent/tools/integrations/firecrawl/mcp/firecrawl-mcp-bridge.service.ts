@@ -120,6 +120,7 @@ const ScrapeResponseSchema = z.union([
     .object({
       markdown: z.string().optional(),
       html: z.string().optional(),
+      rawHtml: z.string().optional(),
       content: z.string().optional(),
       json: JsonValueSchema.optional(),
       metadata: z.record(z.string(), JsonValueSchema).optional(),
@@ -130,10 +131,13 @@ const ScrapeResponseSchema = z.union([
       (payload) =>
         payload.markdown !== undefined ||
         payload.html !== undefined ||
+        payload.rawHtml !== undefined ||
         payload.content !== undefined ||
         payload.json !== undefined ||
         payload.branding !== undefined,
-      { message: 'Scrape response must include markdown, html, content, json, or branding' }
+      {
+        message: 'Scrape response must include markdown, html, rawHtml, content, json, or branding',
+      }
     ),
 ]);
 
@@ -384,7 +388,7 @@ export class FirecrawlMcpBridgeService extends BaseMcpClientService {
   // ── Proxy Methods ─────────────────────────────────────────────────────────
 
   /**
-   * Scrape content from a single URL in markdown or JSON format.
+   * Scrape content from a single URL. Default format is rawHtml (full unmodified HTML).
    *
    * Cached: yes (LONG_TTL — page content rarely changes within the hour).
    *

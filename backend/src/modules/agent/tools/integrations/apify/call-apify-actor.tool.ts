@@ -180,6 +180,19 @@ export class CallApifyActorTool extends BaseTool {
 
     const { actorId, input: rawInput, skipMediaPersistence } = parsed.data;
 
+    // ── Hard preflight gate ────────────────────────────────────────────
+    // get_apify_actor_details MUST be called first so the LLM knows the
+    // exact input schema. This is a code-enforced gate — not a prompt rule.
+    if (context?.resolvedApifyActors && !context.resolvedApifyActors.has(actorId)) {
+      return {
+        success: false,
+        error:
+          `Actor "${actorId}" has not been validated. ` +
+          `Call get_apify_actor_details({ actorId: "${actorId}" }) first to verify ` +
+          `the required input schema, pricing, and availability before executing.`,
+      };
+    }
+
     // ── Budget enforcement ─────────────────────────────────────────────
     const sanitizedInput = this.enforceBudget({ ...rawInput });
 

@@ -533,6 +533,134 @@ function outboxTtlFromNow(days: number): FirebaseFirestore.Timestamp {
   return Timestamp.fromMillis(Date.now() + days * 24 * 60 * 60 * 1000);
 }
 
+// ─── Shared attachment utilities ──────────────────────────────────────────
+// Used by both /chat and /enqueue so attachment processing is identical.
+
+const ATTACHMENT_VIDEO_URL_HINT_PATTERN =
+  /(?:storage\.googleapis\.com|firebasestorage\.googleapis\.com|\.(?:mp4|mov|m4v|webm|avi|mkv))(?:$|[?#/])/i;
+
+function isVideoAttachmentDto(a: {
+  mimeType?: string;
+  type?: string;
+  url?: string;
+  cloudflareVideoId?: string;
+}): boolean {
+  if (typeof a.mimeType === 'string' && a.mimeType.startsWith('video/')) return true;
+  if (a.type === 'video') return true;
+  if (typeof a.url === 'string' && ATTACHMENT_VIDEO_URL_HINT_PATTERN.test(a.url)) return true;
+  return false;
+}
+
+/**
+ * Build typed attachment arrays and an enriched text string from raw DTO
+ * inputs. Mirrors the processing in the /chat handler so /enqueue produces
+ * the same enriched message content and worker payload.
+ */
+function buildAttachmentArrays(
+  rawAttachments: ReadonlyArray<{
+    id?: string;
+    url?: string;
+    storagePath?: string;
+    name?: string;
+    mimeType?: string;
+    type?: string;
+    sizeBytes?: number;
+    cloudflareVideoId?: string;
+    platform?: string;
+    profileUrl?: string;
+    faviconUrl?: string;
+  }>,
+  rawConnectedSources: ReadonlyArray<{
+    platform: string;
+    profileUrl: string;
+    faviconUrl?: string;
+  }>,
+  baseText: string
+): {
+  fileAttachments: AgentXAttachment[];
+  videoAttachments: AgentXAttachment[];
+  connectedSourceAttachments: AgentXAttachment[];
+  enrichedText: string;
+} {
+  const fileAttachments: AgentXAttachment[] = rawAttachments
+    .filter(
+      (a) =>
+        !isVideoAttachmentDto(a) &&
+        typeof a.url === 'string' &&
+        typeof a.mimeType === 'string' &&
+        typeof a.sizeBytes === 'number' &&
+        (a.mimeType.startsWith('image/') ||
+          a.mimeType === 'application/pdf' ||
+          a.mimeType === 'text/csv' ||
+          a.mimeType === 'text/plain' ||
+          a.mimeType === 'application/vnd.ms-excel' ||
+          a.mimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+          a.mimeType === 'application/msword' ||
+          a.mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')
+    )
+    .map((a) => ({
+      id: a.id as string,
+      url: a.url as string,
+      ...(a.storagePath ? { storagePath: a.storagePath } : {}),
+      name: a.name ?? '',
+      mimeType: a.mimeType as string,
+      type: a.type as AgentXAttachment['type'],
+      sizeBytes: a.sizeBytes as number,
+    }));
+
+  const videoAttachments: AgentXAttachment[] = rawAttachments
+    .filter(
+      (a) =>
+        isVideoAttachmentDto(a) &&
+        typeof a.url === 'string' &&
+        typeof a.mimeType === 'string' &&
+        typeof a.sizeBytes === 'number'
+    )
+    .map((a) => ({
+      id: a.id as string,
+      url: a.url as string,
+      ...(a.storagePath ? { storagePath: a.storagePath } : {}),
+      name: a.name ?? '',
+      mimeType: a.mimeType as string,
+      type: a.type as AgentXAttachment['type'],
+      sizeBytes: a.sizeBytes as number,
+      ...(a.cloudflareVideoId ? { cloudflareVideoId: a.cloudflareVideoId } : {}),
+    }));
+
+  const connectedSourceAttachments: AgentXAttachment[] = rawConnectedSources.map((source) => ({
+    id: crypto.randomUUID(),
+    url: source.profileUrl,
+    name: source.platform,
+    mimeType: 'application/x-connected-source',
+    type: 'app' as AgentXAttachment['type'],
+    sizeBytes: 1,
+    ...(source.platform ? { platform: source.platform } : {}),
+    ...(source.profileUrl ? { profileUrl: source.profileUrl } : {}),
+    ...(source.faviconUrl ? { faviconUrl: source.faviconUrl } : {}),
+  }));
+
+  let enrichedText = baseText;
+
+  if (rawConnectedSources.length > 0) {
+    const sourceRefs = rawConnectedSources.map((s) => `${s.platform}: ${s.profileUrl}`).join(', ');
+    enrichedText = `${enrichedText}\n\n[Connected sources available (confirmed by user for this turn): ${sourceRefs}]\n[Instruction: treat these as user-connected sources for this request; do not state they are missing.]`;
+  }
+  if (videoAttachments.length > 0) {
+    const videoRefs = videoAttachments
+      .map((v) => `[Attached video: ${v.name} — ${v.url}]`)
+      .join('\n');
+    enrichedText = `${enrichedText}\n\n${videoRefs}`;
+  }
+  if (fileAttachments.length > 0) {
+    const fileRefs = fileAttachments
+      .map((f) => `[Attached file: ${f.name} (${f.mimeType}) — ${f.url}]`)
+      .join('\n');
+    enrichedText = `${enrichedText}\n\n${fileRefs}`;
+  }
+
+  return { fileAttachments, videoAttachments, connectedSourceAttachments, enrichedText };
+}
+
 function writeSseHeaders(res: Response): void {
   if (res.headersSent) return; // Idempotent — already committed (e.g. stub-wait block)
   res.setHeader('Content-Type', 'text/event-stream');
@@ -2726,7 +2854,8 @@ router.post(
         return;
       }
 
-      const { intent, userContext, threadId, selectedAction } = req.body as AgentEnqueueRequestDto;
+      const { intent, userContext, threadId, selectedAction, attachments, connectedSources } =
+        req.body as AgentEnqueueRequestDto;
       const normalizedSelectedAction = normalizeSelectedActionForPayload(selectedAction);
       const db = req.firebase?.db;
       if (!db) {
@@ -2735,6 +2864,10 @@ router.post(
       }
       const environment = req.isStaging ? 'staging' : 'production';
       const trimmedIntent = intent.trim();
+
+      // ── Attachment processing (mirrors /chat) ─────────────────────────────
+      const { fileAttachments, videoAttachments, connectedSourceAttachments, enrichedText } =
+        buildAttachmentArrays(attachments ?? [], connectedSources ?? [], trimmedIntent);
       const resolvedIntent = await resolveSelectedActionIntent({
         db,
         userId: user.uid,
@@ -2792,8 +2925,20 @@ router.post(
               threadId: resolvedThreadId,
               userId: user.uid,
               role: 'user',
-              content: intent.trim(),
+              content: enrichedText,
               origin: 'user',
+              ...(idempotencyKey ? { idempotencyKey } : {}),
+              ...(fileAttachments.length > 0 ||
+              videoAttachments.length > 0 ||
+              connectedSourceAttachments.length > 0
+                ? {
+                    attachments: [
+                      ...fileAttachments,
+                      ...videoAttachments,
+                      ...connectedSourceAttachments,
+                    ],
+                  }
+                : {}),
             });
           }
         } catch (threadErr) {
@@ -2826,6 +2971,8 @@ router.post(
             ? { parentOperationId: concurrencyDecision.parentOperationId }
             : {}),
           ...(normalizedSelectedAction ? { selectedAction: normalizedSelectedAction } : {}),
+          ...(fileAttachments.length > 0 ? { attachments: fileAttachments } : {}),
+          ...(videoAttachments.length > 0 ? { videoAttachments } : {}),
         },
       };
 

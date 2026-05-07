@@ -68,6 +68,9 @@ export interface OperationStatusUpdatedEvent {
   readonly threadId: string;
   readonly status: OperationLogStatus;
   readonly timestamp: string;
+  readonly source: 'chat' | 'enqueue';
+  readonly operationId?: string;
+  readonly title?: string;
 }
 
 const LIFECYCLE_TO_LOG_STATUS: Readonly<
@@ -337,7 +340,10 @@ export class AgentXOperationEventService {
   emitOperationStatusUpdated(
     threadId: string,
     status: AgentXOperationLifecycleStatus | OperationLogStatus,
-    timestamp: string
+    timestamp: string,
+    source: 'chat' | 'enqueue' = 'chat',
+    operationId?: string,
+    title?: string
   ): void {
     const normalizedStatus =
       status in LIFECYCLE_TO_LOG_STATUS
@@ -350,6 +356,9 @@ export class AgentXOperationEventService {
         threadId,
         status: normalizedStatus,
         timestamp,
+        source,
+        ...(operationId ? { operationId } : {}),
+        ...(title ? { title } : {}),
       })
     );
   }

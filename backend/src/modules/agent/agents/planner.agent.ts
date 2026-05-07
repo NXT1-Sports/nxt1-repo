@@ -194,6 +194,7 @@ ${agentCatalogue}
 7. Do not invent missing recipients, destinations, or assets just to avoid clarification.
 8. Assign each task to exactly one coordinator by id.
 9. If the user input contains [Plan Revision Context], treat it as an in-place revision of an existing saved plan. Preserve valid steps where possible and modify only the parts required by the latest request.
+10. For tasks containing external links/media URLs, plan direct extraction first (classification/scrape/staged media path). Do not start with live view unless the source is explicitly auth-gated or direct extraction fails.
 
 ## Output Format (STRICT JSON)
 Respond with ONLY a JSON object:
@@ -206,9 +207,9 @@ Respond with ONLY a JSON object:
   "tasks": [
     {
       "id": "1",
-      "assignedAgent": "strategy_coordinator",
-      "displayLabel": "Navigate to Hudl",
-      "description": "Open live view and navigate to Hudl.",
+      "assignedAgent": "data_coordinator",
+      "displayLabel": "Extract Link Data",
+      "description": "Classify the URL and extract media directly using the platform-specific route before any fallback.",
       "dependsOn": []
     }
   ]

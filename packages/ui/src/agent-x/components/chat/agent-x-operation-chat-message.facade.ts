@@ -679,8 +679,6 @@ export class AgentXOperationChatMessageFacade {
       const messageHasVisiblePayload = (message: OperationMessage): boolean =>
         (message.content ?? '').trim().length > 0 ||
         (message.attachments?.length ?? 0) > 0 ||
-        (message.imageUrl?.trim().length ?? 0) > 0 ||
-        (message.videoUrl?.trim().length ?? 0) > 0 ||
         (message.steps?.length ?? 0) > 0 ||
         (message.parts?.length ?? 0) > 0 ||
         (message.cards?.length ?? 0) > 0;
@@ -694,8 +692,6 @@ export class AgentXOperationChatMessageFacade {
         !!typingMessage &&
         ((typingMessage.content ?? '').trim().length > 0 ||
           (typingMessage.attachments?.length ?? 0) > 0 ||
-          (typingMessage.imageUrl?.trim().length ?? 0) > 0 ||
-          (typingMessage.videoUrl?.trim().length ?? 0) > 0 ||
           (typingMessage.steps?.length ?? 0) > 0 ||
           (carriedParts?.length ?? 0) > 0 ||
           (carriedCards?.length ?? 0) > 0);
@@ -706,8 +702,6 @@ export class AgentXOperationChatMessageFacade {
             ...(typingMessage?.attachments?.length
               ? { attachments: typingMessage.attachments }
               : {}),
-            ...(typingMessage?.imageUrl?.trim().length ? { imageUrl: typingMessage.imageUrl } : {}),
-            ...(typingMessage?.videoUrl?.trim().length ? { videoUrl: typingMessage.videoUrl } : {}),
             ...(typingMessage?.steps?.length ? { steps: typingMessage.steps } : {}),
             ...(carriedCards?.length ? { cards: carriedCards } : {}),
             ...(carriedParts?.length ? { parts: carriedParts } : {}),
@@ -724,8 +718,6 @@ export class AgentXOperationChatMessageFacade {
                 ...message,
                 content: '',
                 attachments: [],
-                imageUrl: undefined,
-                videoUrl: undefined,
                 cards: [],
                 parts: [],
                 steps: [],

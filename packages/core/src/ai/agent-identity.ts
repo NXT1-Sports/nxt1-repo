@@ -41,6 +41,135 @@ export interface AgentIdentitySnapshot {
  * NEVER hardcode product taglines, role personas, or capabilities here that
  * belong in the live capability card or the user context summary.
  */
+/**
+ * Extract media attachments from tool resultData and return as AgentXAttachment array.
+ * - imageUrl, videoUrl, outputUrl scalar fields → one attachment each
+ * - imageUrls[], videoUrls[] arrays → one attachment each
+ * - files[] array → map each using url, name, mimeType
+ * - persistedMediaUrls[] → map each
+ *
+ * Dedup by URL. Used by backend at save time to populate message.attachments[].
+ */
+export function extractMediaAttachmentsFromResultData(
+  resultData: Record<string, unknown>
+): Array<{ url: string; name: string; type: 'image' | 'video' | 'doc' | 'app' }> {
+  const attachments: Array<{ url: string; name: string; type: 'image' | 'video' | 'doc' | 'app' }> =
+    [];
+  const seen = new Set<string>();
+
+  const addAttachment = (
+    url: string | undefined,
+    name: string,
+    type: 'image' | 'video' | 'doc' | 'app'
+  ): void => {
+    if (!url || typeof url !== 'string') return;
+    const normalized = url.trim();
+    if (!normalized || seen.has(normalized)) return;
+    seen.add(normalized);
+    attachments.push({ url: normalized, name, type });
+  };
+
+  // Scalar fields: imageUrl, videoUrl, outputUrl
+  addAttachment(
+    typeof resultData['imageUrl'] === 'string' ? resultData['imageUrl'] : undefined,
+    'image.jpg',
+    'image'
+  );
+  addAttachment(
+    typeof resultData['videoUrl'] === 'string' ? resultData['videoUrl'] : undefined,
+    'video.mp4',
+    'video'
+  );
+  addAttachment(
+    typeof resultData['outputUrl'] === 'string' ? resultData['outputUrl'] : undefined,
+    'video.mp4',
+    'video'
+  );
+
+  // Array fields: imageUrls, videoUrls
+  if (Array.isArray(resultData['imageUrls'])) {
+    (resultData['imageUrls'] as unknown[]).forEach((url, idx) => {
+      addAttachment(typeof url === 'string' ? url : undefined, `image-${idx}.jpg`, 'image');
+    });
+  }
+  if (Array.isArray(resultData['videoUrls'])) {
+    (resultData['videoUrls'] as unknown[]).forEach((url, idx) => {
+      addAttachment(typeof url === 'string' ? url : undefined, `video-${idx}.mp4`, 'video');
+    });
+  }
+
+  // files[] array: map each item's url/name/mimeType
+  if (Array.isArray(resultData['files'])) {
+    (resultData['files'] as unknown[]).forEach((file, idx) => {
+      if (!file || typeof file !== 'object') return;
+      const obj = file as Record<string, unknown>;
+      const url =
+        typeof obj['url'] === 'string'
+          ? obj['url']
+          : typeof obj['downloadUrl'] === 'string'
+            ? obj['downloadUrl']
+            : undefined;
+      const name = typeof obj['name'] === 'string' ? obj['name'] : `file-${idx}`;
+      const mimeType = typeof obj['mimeType'] === 'string' ? obj['mimeType'] : '';
+      const type = mimeType.startsWith('image/')
+        ? 'image'
+        : mimeType.startsWith('video/')
+          ? 'video'
+          : 'doc';
+      addAttachment(url, name, type);
+    });
+  }
+
+  // persistedMediaUrls[] array: map each as media
+  if (Array.isArray(resultData['persistedMediaUrls'])) {
+    (resultData['persistedMediaUrls'] as unknown[]).forEach((url, idx) => {
+      if (typeof url !== 'string') return;
+      const type = url.match(/\.(jpg|jpeg|png|gif|webp)$/i) ? 'image' : 'video';
+      const name = type === 'image' ? `media-${idx}.jpg` : `media-${idx}.mp4`;
+      addAttachment(url, name, type);
+    });
+  }
+
+  return attachments;
+}
+
+/**
+ * Strip storage artifact URLs from LLM response text.
+ * Removes raw storage URLs matching known patterns: Firebase Storage,
+ * Google Cloud Storage, S3, CDN download links. Preserves regular web URLs.
+ */
+export interface SanitizeStorageUrlsOptions {
+  readonly normalizeWhitespace?: boolean;
+}
+
+export function sanitizeStorageUrlsFromText(
+  content: string,
+  options: SanitizeStorageUrlsOptions = {}
+): string {
+  const { normalizeWhitespace = true } = options;
+
+  // Storage URL patterns to strip
+  const storagePatterns = [
+    /https:\/\/firebasestorage\.googleapis\.com\/[^\s)\]]+/gi,
+    /https:\/\/storage\.googleapis\.com\/[^\s)\]]+/gi,
+    /https:\/\/[^\s)\]]+\.s3(?:\.\w+-\w+-\d)?(?:\.amazonaws\.com)?\/[^\s)\]]+/gi,
+    /https:\/\/[^\s)\]]+\.cloudfront\.net\/[^\s)\]]+\.(?:jpg|jpeg|png|gif|mp4|mov|webm|pdf|csv|xlsx?|docx?)/gi,
+    /https:\/\/firebasestorage\.googleapis\.com\/[^\s)\]]+(\?[^\s)\]]*)?\btokentoken=/gi,
+  ];
+
+  let sanitized = content;
+  for (const pattern of storagePatterns) {
+    sanitized = sanitized.replace(pattern, '');
+  }
+
+  if (!normalizeWhitespace) {
+    return sanitized;
+  }
+
+  // Clean up resulting double-spaces/newlines for finalized text.
+  return sanitized.replace(/\s{2,}/g, ' ').trim();
+}
+
 export const AGENT_X_IDENTITY = `You are Agent X — NXT1's AI command center for the entire sports industry.
 
 NXT1 is the first AI-native platform built for athletes, coaches, scouts,
@@ -137,7 +266,19 @@ BEFORE you answer — your training data is stale.
 - Default to crisp, scannable prose. Use short paragraphs and lists when they
   carry meaning. Use markdown structure when the user needs structure
   (timelines, comparisons, plans). Otherwise prefer plain text.
-- End most replies with the clearest single next action the user can take.`;
+- End most replies with the clearest single next action the user can take.
+
+# Handling Tool-Generated Files
+
+- When a tool produces a downloadable file — an image, video, PDF, CSV, spreadsheet,
+  or any generated asset — NEVER paste the raw storage URL into your text response.
+- Confirm the result with a plain description only. Examples:
+  - "Done! Your graphic is ready."
+  - "I've exported the data as a CSV." 
+  - "Video has been trimmed and is ready for download."
+- The download link will be displayed automatically in the UI attachment strip.
+- Regular web URLs (articles, sources, external links, citations) are fine to
+  include in text as normal.`;
 
 // ─── Pure Composer ───────────────────────────────────────────────────────────
 

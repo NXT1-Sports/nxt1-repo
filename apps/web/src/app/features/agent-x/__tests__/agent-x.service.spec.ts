@@ -253,10 +253,12 @@ describe('AgentXService', () => {
   it('rehydrates image and video media from persisted history fallback fields', async () => {
     const persistedWithMediaFallbacks: AgentMessage = {
       ...createPersistedMessage(
-        'm-media-1',
+        'm-media-2',
         'Can you add this clip?\n\n[Attached video: https://cdn.example.com/highlight.mp4]',
         '2026-04-13T10:06:00.000Z'
       ),
+      role: 'assistant',
+      origin: 'agent_chain',
       attachments: [
         {
           id: 'att-image-1',
@@ -286,8 +288,9 @@ describe('AgentXService', () => {
 
     const [message] = service.messages();
     expect(message?.content).toBe('Can you add this clip?');
-    expect(message?.imageUrl).toBe('https://cdn.example.com/poster.jpg');
-    expect(message?.videoUrl).toBe('https://cdn.example.com/highlight.mp4');
+    expect(message?.attachments?.length).toBe(2);
+    expect(message?.attachments?.[0]?.url).toBe('https://cdn.example.com/poster.jpg');
+    expect(message?.attachments?.[1]?.url).toBe('https://cdn.example.com/highlight.mp4');
   });
 
   it('prefers refreshed attachment media over stale fallback fields on history reload', async () => {
@@ -334,12 +337,54 @@ describe('AgentXService', () => {
     await service.loadThread('thread-123');
 
     const [message] = service.messages();
-    expect(message?.imageUrl).toBe(
+    expect(message?.attachments?.[0]?.url).toBe(
       'https://storage.googleapis.com/bucket/thread/poster-refreshed.jpg'
     );
-    expect(message?.videoUrl).toBe(
+    expect(message?.attachments?.[1]?.url).toBe(
       'https://storage.googleapis.com/bucket/thread/highlight-refreshed.mp4'
     );
+  });
+
+  it('keeps uploaded user video only in attachments when reloading history', async () => {
+    const uploadedVideoUrl = 'https://cdn.example.com/uploads/highlight.mp4';
+    const persistedUserUpload: AgentMessage = {
+      ...createPersistedMessage(
+        'm-user-upload-1',
+        `Please add this clip\n\n[Attached video: highlight.mp4 — ${uploadedVideoUrl}]`,
+        '2026-04-13T10:08:00.000Z'
+      ),
+      attachments: [
+        {
+          id: 'att-video-user-1',
+          url: uploadedVideoUrl,
+          name: 'highlight.mp4',
+          mimeType: 'video/mp4',
+          type: 'video',
+          sizeBytes: 4096,
+        },
+      ],
+      resultData: {
+        outputUrl: uploadedVideoUrl,
+      },
+    };
+
+    httpMock.get.mockReturnValueOnce(
+      of({
+        success: true,
+        data: {
+          items: [persistedUserUpload],
+          hasMore: false,
+        },
+      })
+    );
+
+    await service.loadThread('thread-123');
+
+    const [message] = service.messages();
+    expect(message?.content).toBe('Please add this clip');
+    expect(message?.attachments?.length).toBe(1);
+    expect(message?.attachments?.[0]?.url).toBe(uploadedVideoUrl);
+    expect(message?.attachments?.[0]?.type).toBe('video');
   });
 
   it('keeps Weekly Tasks as the last action plan pill', () => {

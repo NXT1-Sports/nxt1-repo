@@ -9,4 +9,5 @@ export type {
   PreviousSeasonEntry,
   PreviousScheduleEntry,
   PreviousVideoEntry,
+  PreviousPlaybookEntry,
 } from './sync-diff.service.js';

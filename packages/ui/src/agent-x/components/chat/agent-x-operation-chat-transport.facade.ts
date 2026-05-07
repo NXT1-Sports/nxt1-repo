@@ -20,6 +20,7 @@ import {
   type AgentXRichCard,
   type AgentXSelectedAction,
   type AgentXStreamCardEvent,
+  type AgentXStreamMediaEvent,
   type AgentXStreamStepEvent,
   type AgentXToolStep,
   type AgentXStreamWaitingForAttachmentsEvent,
@@ -44,7 +45,7 @@ import { IntelService } from '../../../intel/intel.service';
 import { ProfileGenerationStateService } from '../../../profile/profile-generation-state.service';
 import { ProfileService } from '../../../profile/profile.service';
 import { TeamProfileService } from '../../../team-profile/team-profile.service';
-import type { OperationMessage } from './agent-x-operation-chat.models';
+import type { MessageAttachment, OperationMessage } from './agent-x-operation-chat.models';
 import { AgentXOperationChatMessageFacade } from './agent-x-operation-chat-message.facade';
 
 type OperationStatus =
@@ -168,6 +169,81 @@ export class AgentXOperationChatTransportFacade {
   private responseCompleteEmitted = false;
   private deltaLatencySamples: number[] = [];
   private destroyed = false;
+
+  private inferStreamMediaType(url: string, mimeType?: string): 'image' | 'video' | null {
+    const lowerMime = (mimeType ?? '').toLowerCase();
+    if (lowerMime.startsWith('image/')) return 'image';
+    if (lowerMime.startsWith('video/')) return 'video';
+
+    const lowerUrl = url.toLowerCase();
+    if (/\.(png|jpe?g|gif|webp|avif|bmp|svg)(?:\?|#|$)/i.test(lowerUrl)) return 'image';
+    if (/\.(mp4|mov|m4v|webm|avi|mkv|m3u8)(?:\?|#|$)/i.test(lowerUrl)) return 'video';
+    if (/videodelivery\.net\//i.test(lowerUrl)) return 'video';
+    return null;
+  }
+
+  private extractStreamMediaFromToolResult(
+    toolResult?: Record<string, unknown>
+  ): readonly AgentXStreamMediaEvent[] {
+    if (!toolResult) return [];
+
+    const seen = new Set<string>();
+    const media: AgentXStreamMediaEvent[] = [];
+
+    const pushCandidate = (
+      urlValue: unknown,
+      mimeTypeValue?: unknown,
+      forcedType?: 'image' | 'video'
+    ): void => {
+      if (typeof urlValue !== 'string') return;
+      const url = urlValue.trim();
+      if (!url || !/^https?:\/\//i.test(url)) return;
+      const mimeType = typeof mimeTypeValue === 'string' ? mimeTypeValue : undefined;
+      const type = forcedType ?? this.inferStreamMediaType(url, mimeType);
+      if (!type) return;
+      const key = `${type}|${url}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      media.push({ type, url, ...(mimeType ? { mimeType } : {}) });
+    };
+
+    pushCandidate(toolResult['imageUrl'], toolResult['mimeType'], 'image');
+    pushCandidate(toolResult['videoUrl'], toolResult['mimeType'], 'video');
+    pushCandidate(toolResult['url'], toolResult['mimeType']);
+    pushCandidate(toolResult['publicUrl'], toolResult['mimeType']);
+    pushCandidate(toolResult['downloadUrl'], toolResult['mimeType']);
+    pushCandidate(toolResult['outputUrl'], toolResult['mimeType'], 'video');
+
+    return media;
+  }
+
+  private mergeLiveMediaIntoTypingMessage(media: AgentXStreamMediaEvent): void {
+    const attachmentType: MessageAttachment['type'] = media.type === 'video' ? 'video' : 'image';
+
+    this.messageFacade.messages.update((messages) =>
+      messages.map((message) => {
+        if (message.id !== 'typing') return message;
+
+        const existingAttachments = [...(message.attachments ?? [])];
+        const alreadyPresent = existingAttachments.some(
+          (attachment) => attachment.url === media.url && attachment.type === attachmentType
+        );
+        if (alreadyPresent) return message;
+
+        return {
+          ...message,
+          attachments: [
+            ...existingAttachments,
+            {
+              url: media.url,
+              type: attachmentType,
+              name: attachmentType === 'video' ? 'stream-video.mp4' : 'stream-image.jpg',
+            },
+          ],
+        };
+      })
+    );
+  }
 
   constructor() {
     // Per-component facade: when the host component is destroyed, mark this
@@ -515,6 +591,13 @@ export class AgentXOperationChatTransportFacade {
             const currentOperationId = host.getCurrentOperationId();
             if (currentOperationId) {
               this.profileGenerationState?.receiveStep(currentOperationId, step);
+            }
+
+            if (event.toolResult) {
+              const liveMedia = this.extractStreamMediaFromToolResult(event.toolResult);
+              for (const media of liveMedia) {
+                this.mergeLiveMediaIntoTypingMessage(media);
+              }
             }
 
             if (event.stageType !== 'tool') return;

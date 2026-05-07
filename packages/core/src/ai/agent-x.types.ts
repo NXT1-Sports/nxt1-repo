@@ -127,11 +127,7 @@ export interface AgentXMessage {
   readonly isTyping?: boolean;
   /** Whether this message represents an error */
   readonly error?: boolean;
-  /** Optional image URL (e.g. generated graphic from Agent X) */
-  readonly imageUrl?: string;
-  /** Optional video URL (e.g. uploaded or generated video from Agent X) */
-  readonly videoUrl?: string;
-  /** File attachments (images, PDFs, CSVs) uploaded with this message. */
+  /** File attachments (images, PDFs, CSVs, videos) for this message. */
   readonly attachments?: readonly AgentXAttachment[];
   /** Optional metadata */
   readonly metadata?: AgentXMessageMetadata;
@@ -1073,6 +1069,8 @@ export interface AgentXStreamStepEvent {
   readonly icon?: AgentXToolStepIcon;
   /** Optional expanded detail (e.g. "Found 24 matching athletes"). */
   readonly detail?: string;
+  /** Optional structured tool payload for successful terminal step updates. */
+  readonly toolResult?: Record<string, unknown>;
 }
 
 /**

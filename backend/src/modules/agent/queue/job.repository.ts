@@ -319,6 +319,8 @@ export interface AgentJobDocument {
   readonly idempotencyKey?: string | null;
   readonly intent: string;
   readonly origin: string;
+  /** BullMQ repeatable key (RecurringTasks doc id) for scheduled runs. */
+  readonly recurringTaskKey?: string | null;
   readonly planId?: string | null;
   readonly planStatus?: string | null;
   readonly executionSource?: string | null;
@@ -371,6 +373,7 @@ export class AgentJobRepository {
         idempotencyKey: (payload.context?.['idempotencyKey'] as string) ?? null,
         intent: payload.displayIntent ?? payload.intent,
         origin: payload.origin,
+        recurringTaskKey: (payload.context?.['recurringTaskKey'] as string) ?? null,
         planId: (payload.context?.['planId'] as string) ?? null,
         planStatus: (payload.context?.['planStatus'] as string) ?? null,
         executionSource: (payload.context?.['executionSource'] as string) ?? null,
@@ -590,6 +593,65 @@ export class AgentJobRepository {
       .get();
 
     return snapshot.docs.map((doc) => doc.data() as AgentJobDocument);
+  }
+
+  /**
+   * Aggregate execution stats for a recurring schedule key.
+   * Used by list_recurring_tasks so Agent X can answer run-count questions.
+   */
+  async getExecutionSummaryByScheduleKey(
+    userId: string,
+    recurringTaskKey: string
+  ): Promise<{
+    totalRuns: number;
+    successfulRuns: number;
+    failedRuns: number;
+    lastRunAt: string | null;
+    lastRunStatus: 'completed' | 'failed' | null;
+  }> {
+    if (!userId.trim() || !recurringTaskKey.trim()) {
+      return {
+        totalRuns: 0,
+        successfulRuns: 0,
+        failedRuns: 0,
+        lastRunAt: null,
+        lastRunStatus: null,
+      };
+    }
+
+    const snapshot = await this.db
+      .collection(COLLECTION)
+      .where('userId', '==', userId)
+      .where('recurringTaskKey', '==', recurringTaskKey)
+      .get();
+
+    let successfulRuns = 0;
+    let failedRuns = 0;
+    let latestMs = 0;
+    let lastRunAt: string | null = null;
+    let lastRunStatus: 'completed' | 'failed' | null = null;
+
+    for (const doc of snapshot.docs) {
+      const data = doc.data() as AgentJobDocument;
+      if (data.status === 'completed') successfulRuns += 1;
+      if (data.status === 'failed') failedRuns += 1;
+
+      const createdAtMs = data.createdAt?.toMillis?.() ?? 0;
+      if (createdAtMs > latestMs) {
+        latestMs = createdAtMs;
+        lastRunAt = new Date(createdAtMs).toISOString();
+        lastRunStatus =
+          data.status === 'completed' || data.status === 'failed' ? data.status : null;
+      }
+    }
+
+    return {
+      totalRuns: snapshot.size,
+      successfulRuns,
+      failedRuns,
+      lastRunAt,
+      lastRunStatus,
+    };
   }
 
   /**

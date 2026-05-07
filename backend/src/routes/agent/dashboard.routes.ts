@@ -1,6 +1,7 @@
 /**
  * @fileoverview Agent X — Dashboard, history, operations-log, goals, upload routes.
  *
+ * GET  /jobs/:operationId
  * GET  /history
  * GET  /operations-log
  * GET  /dashboard
@@ -108,6 +109,58 @@ function buildRecurringTaskPayload(userId: string, actionSummary: string, source
   };
 }
 
+// ─── GET /jobs/:operationId ─────────────────────────────────────────────────
+
+router.get('/jobs/:operationId', appGuard, async (req: Request, res: Response) => {
+  try {
+    if (!jobRepository) {
+      res.status(503).json({ success: false, error: 'Agent queue not initialized' });
+      return;
+    }
+
+    const user = getAuthUser(req);
+    if (!user?.uid) {
+      res.status(401).json({ success: false, error: 'Unauthorized' });
+      return;
+    }
+
+    const operationId = req.params['operationId'] as string;
+    const { db } = req.firebase!;
+    const job = await jobRepository.withDb(db).getById(operationId);
+
+    if (!job) {
+      res.status(404).json({ success: false, error: 'Job not found' });
+      return;
+    }
+
+    // Enforce ownership — only the job owner can poll their own job.
+    if (job.userId !== user.uid) {
+      res.status(403).json({ success: false, error: 'Forbidden' });
+      return;
+    }
+
+    const progress = job.progress;
+
+    res.json({
+      success: true,
+      data: {
+        jobId: job.operationId,
+        operationId,
+        status: job.status,
+        progress: progress
+          ? { percent: progress.percent ?? 0, message: progress.message ?? '' }
+          : undefined,
+        result: job.result,
+        error: job.error,
+      },
+    });
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('Failed to get job status', { error: error.message, stack: error.stack });
+    res.status(500).json({ success: false, error: 'Failed to get job status' });
+  }
+});
+
 // ─── GET /history ─────────────────────────────────────────────────────────
 
 router.get('/history', appGuard, async (req: Request, res: Response) => {
@@ -197,7 +250,7 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
         }
 
         if (threadResult.hasMore) {
-          logger.warn('Operations log thread augmentation truncated — consider increasing limit', {
+          logger.info('Operations log thread augmentation truncated — consider increasing limit', {
             userId: user.uid,
             displayedCount: activeThreads.length,
             limit,
@@ -336,7 +389,9 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
             id: `schedule:${doc.id}`,
             title: (explicitTitle || resolvedTitle || actionSummary).slice(0, 120),
             summary: nextRunIso
-              ? `Next run ${new Date(nextRunIso).toLocaleString()} (${timezone})`
+              ? cronExpression
+                ? `Next run ${cronExpression} (${timezone})`
+                : `Next run (${timezone})`
               : cronExpression
                 ? `Schedule ${cronExpression} (${timezone})`
                 : `Scheduled task (${timezone})`,

@@ -617,6 +617,15 @@ export interface SyncNewVideo {
   readonly title?: string;
 }
 
+/** A new playbook detected during a daily sync. */
+export interface SyncNewPlaybook {
+  readonly name: string;
+  readonly sport: string;
+  readonly playCount: number;
+  readonly formationTypes?: readonly string[];
+  readonly videoRefs?: readonly string[];
+}
+
 /**
  * Deterministic report of what changed between the previous DB state
  * and the latest AI-extracted web data during a daily sync.
@@ -661,6 +670,9 @@ export interface SyncDeltaReport {
   /** New videos/highlights detected on external platforms. */
   readonly newVideos: readonly SyncNewVideo[];
 
+  /** New playbooks detected. */
+  readonly newPlaybooks?: readonly SyncNewPlaybook[];
+
   /** Summary counts for quick decisions. */
   readonly summary: {
     readonly identityFieldsChanged: number;
@@ -670,7 +682,16 @@ export interface SyncDeltaReport {
     readonly newAwards: number;
     readonly newScheduleEvents: number;
     readonly newVideos: number;
+    readonly newPlaybooks: number;
     readonly totalChanges: number;
+  };
+
+  /** Metadata indicating delta generation approach and version. */
+  readonly metadata?: {
+    readonly generationType: 'typed' | 'synthetic';
+    readonly policyVersion: string;
+    readonly fallbackReason?: string;
+    readonly adapterVersion?: string;
   };
 }
 

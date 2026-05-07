@@ -42,7 +42,7 @@ export class TrackAnalyticsEventTool extends BaseTool {
     '  recruiting: activity_recorded | offer_recorded | visit_recorded | coach_contact_recorded | commitment_recorded',
     '  nil: deal_recorded | campaign_recorded | payment_recorded',
     '  performance: metric_recorded | workout_recorded | milestone_recorded | recovery_recorded',
-    '  engagement: profile_viewed | content_viewed | content_created | content_shared | search_appeared | link_clicked',
+    '  engagement: profile_viewed | content_viewed | content_created | content_shared | video_played | video_watched | search_appeared | link_clicked',
     '  communication: email_sent | email_delivered | email_opened | email_replied | link_clicked | message_sent | follow_up_scheduled',
     '  system: sync_completed',
     '  custom: requires a registered template (use register_analytics_template first)',

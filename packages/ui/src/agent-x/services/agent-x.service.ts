@@ -531,16 +531,20 @@ export class AgentXService {
    * Push a message into the chat from an external source
    * (e.g., background agent task completion, push notification).
    *
-   * Supports text-only, image-only, or text + image messages.
+   * Supports text-only, text + attachments messages.
    */
   pushMessage(message: Omit<AgentXMessage, 'id' | 'timestamp'>): void {
-    // Dedup: skip if the last message has the same imageUrl (prevents duplicate
+    // Dedup: skip if the last message has the same attachment URLs (prevents duplicate
     // injection when user taps an activity item or notification multiple times).
-    if (message.imageUrl) {
+    const attachmentUrls = (message.attachments ?? []).map((a) => a.url).join('|');
+    if (attachmentUrls.length > 0) {
       const msgs = this._messages();
       const last = msgs[msgs.length - 1];
-      if (last?.imageUrl === message.imageUrl) {
-        this.logger.debug('Duplicate image message skipped', { imageUrl: message.imageUrl });
+      const lastUrls = (last?.attachments ?? []).map((a) => a.url).join('|');
+      if (lastUrls === attachmentUrls) {
+        this.logger.debug('Duplicate message with same attachments skipped', {
+          attachmentUrls,
+        });
         return;
       }
     }
@@ -553,7 +557,7 @@ export class AgentXService {
     this._messages.update((msgs) => [...msgs, fullMessage]);
     this.logger.info('External message pushed', {
       role: message.role,
-      hasImage: !!message.imageUrl,
+      attachmentCount: message.attachments?.length ?? 0,
     });
   }
 
@@ -1310,30 +1314,61 @@ export class AgentXService {
     return [...mediaUrls];
   }
 
+  private normalizePersistedAttachments(
+    attachments: readonly AgentXAttachment[]
+  ): readonly AgentXAttachment[] {
+    const seen = new Set<string>();
+    const deduped: AgentXAttachment[] = [];
+
+    for (const attachment of attachments) {
+      const normalizedUrl = this.normalizeDetectedMediaUrl(attachment.url);
+      const key = `${attachment.type}|${normalizedUrl}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      deduped.push({
+        ...attachment,
+        url: normalizedUrl,
+      });
+    }
+
+    return deduped;
+  }
+
+  private stripPersistedAttachmentAnnotations(content: string): string {
+    return content
+      .replace(/\n\n\[Attached (?:file|video): .+/gs, '')
+      .replace(/\n\n\[Connected sources available[^\]]*\]/gs, '')
+      .replace(
+        /\n\[Instruction: treat these as user-connected sources for this request; do not state they are missing\.\]/gs,
+        ''
+      )
+      .trim();
+  }
+
   private mapPersistedMessageToUi(message: AgentMessage): AgentXMessage {
-    const attachments = (message.attachments ?? []) as readonly AgentXAttachment[];
-    const contentMediaUrls = this.extractMediaUrlsFromText(message.content);
-    const resultDataMediaUrls = this.extractMediaUrlsFromResultData(message.resultData);
-    const explicitImageUrl =
-      typeof message.resultData?.['imageUrl'] === 'string'
-        ? this.normalizeDetectedMediaUrl(message.resultData['imageUrl'] as string)
-        : undefined;
-    const explicitVideoUrl =
-      typeof message.resultData?.['videoUrl'] === 'string'
-        ? this.normalizeDetectedMediaUrl(message.resultData['videoUrl'] as string)
-        : typeof message.resultData?.['outputUrl'] === 'string'
-          ? this.normalizeDetectedMediaUrl(message.resultData['outputUrl'] as string)
-          : undefined;
-    const attachmentImageUrl = attachments.find((attachment) => attachment.type === 'image')?.url;
-    const attachmentVideoUrl = attachments.find((attachment) => attachment.type === 'video')?.url;
-    const derivedImageUrl = [...resultDataMediaUrls, ...contentMediaUrls].find(
-      (url) => this.inferMediaTypeFromUrl(url) === 'image'
+    const attachments = this.normalizePersistedAttachments(
+      (message.attachments ?? []) as readonly AgentXAttachment[]
     );
-    const derivedVideoUrl = [...resultDataMediaUrls, ...contentMediaUrls].find(
-      (url) => this.inferMediaTypeFromUrl(url) === 'video'
-    );
-    const imageUrl = attachmentImageUrl ?? explicitImageUrl ?? derivedImageUrl;
-    const videoUrl = attachmentVideoUrl ?? explicitVideoUrl ?? derivedVideoUrl;
+
+    // Strip the AI-context annotation lines appended by the backend FIRST, before
+    // any URL scanning. "[Attached video: ...]" suffixes are injected into message
+    // content so the LLM knows what was resolved — scanning the raw content would
+    // cause those URLs to appear as derivedVideoUrl and render as attachment pills
+    // on the user's message bubble even though the user never uploaded anything.
+    const displayContent = this.stripPersistedAttachmentAnnotations(message.content);
+
+    if (message.role !== 'assistant') {
+      return {
+        id: message.id || this.generateId(),
+        role: message.role,
+        content: displayContent,
+        timestamp: message.createdAt ? new Date(message.createdAt) : new Date(),
+        ...(attachments.length > 0 ? { attachments } : {}),
+      };
+    }
+
+    // Unified attachment model: backend populates attachments[] at save time from tool resultData.
+    // Frontend simply reads attachments directly — no content scanning, no waterfall.
     const cards = (
       message.cards?.length
         ? message.cards
@@ -1347,30 +1382,11 @@ export class AgentXService {
             .map((part) => part.card)
     ) as readonly AgentXRichCard[];
 
-    // Strip the AI-context annotation lines appended by the backend before display.
-    // These "[Attached file: ...]" / "[Attached video: ...]" suffixes are injected into
-    // the message content so the LLM knows what was attached — they are not meant for
-    // the chat UI and would show up as raw text when the thread is reloaded from MongoDB.
-    const displayContent = message.content
-      .replace(/\n\n\[Attached (?:file|video): .+/gs, '')
-      .replace(/\n\n\[Connected sources available[^\]]*\]/gs, '')
-      .replace(
-        /\n\[Instruction: treat these as user-connected sources for this request; do not state they are missing\.\]/gs,
-        ''
-      )
-      .trim();
-
     return {
       id: message.id || this.generateId(),
-      // Phase J (thread-as-truth): preserve role fidelity. Persisted
-      // tool/system rows surface as their true role and are filtered
-      // out of the chat-bubble feed by the consuming component's
-      // computed signal (see `agent-x-fab-chat-panel`).
       role: message.role,
       content: displayContent,
       timestamp: message.createdAt ? new Date(message.createdAt) : new Date(),
-      ...(imageUrl ? { imageUrl } : {}),
-      ...(videoUrl ? { videoUrl } : {}),
       ...(attachments.length > 0 ? { attachments } : {}),
       ...(cards.length > 0 ? { cards } : {}),
     };

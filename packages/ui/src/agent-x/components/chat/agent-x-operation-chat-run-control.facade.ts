@@ -157,7 +157,12 @@ export class AgentXOperationChatRunControlFacade {
 
     host.clearRealtimePipelines();
 
-    const currentOperationId = host.getCurrentOperationId();
+    // For /chat turns, currentOperationId is set by the SSE stream transport.
+    // For /enqueue threads, no SSE stream runs so currentOperationId is null —
+    // fall back to contextId() which IS the operationId for contextType 'operation'.
+    const currentOperationId =
+      host.getCurrentOperationId() ??
+      (host.contextType() === 'operation' ? host.contextId() : null);
     if (currentOperationId) {
       pausedOperationId = currentOperationId;
       this.firePauseRequest(currentOperationId);
@@ -209,7 +214,11 @@ export class AgentXOperationChatRunControlFacade {
 
     host.clearRealtimePipelines();
 
-    const currentOperationId = host.getCurrentOperationId();
+    // Same enqueue fallback as pauseStream() — contextId() is the operationId
+    // for 'operation' context type when no SSE turn has set currentOperationId.
+    const currentOperationId =
+      host.getCurrentOperationId() ??
+      (host.contextType() === 'operation' ? host.contextId() : null);
     if (currentOperationId) {
       host.setCurrentOperationId(null);
       this.fireCancelRequest(currentOperationId);

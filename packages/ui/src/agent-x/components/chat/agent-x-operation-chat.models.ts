@@ -32,8 +32,6 @@ export interface OperationMessage {
   readonly timestamp: Date;
   readonly idempotencyKey?: string;
   readonly operationId?: string;
-  readonly imageUrl?: string;
-  readonly videoUrl?: string;
   readonly attachments?: readonly MessageAttachment[];
   readonly isTyping?: boolean;
   readonly error?: boolean;

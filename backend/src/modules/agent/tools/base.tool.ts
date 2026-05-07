@@ -32,6 +32,12 @@ export interface ToolExecutionContext {
   readonly allowedEntityGroups?: readonly AgentToolEntityGroup[];
   readonly allowedToolNames?: readonly string[];
   readonly signal?: AbortSignal;
+  /**
+   * Thread-scoped set of Apify actor IDs for which `get_apify_actor_details`
+   * has been called. `call_apify_actor` hard-gates on this — the tool will
+   * refuse to execute if the actorId is not in this set.
+   */
+  readonly resolvedApifyActors?: Set<string>;
   readonly emitStage?: (
     stage: ToolStage,
     metadata?: AgentProgressMetadata & {

@@ -585,6 +585,12 @@ export class NxtMediaViewerContentComponent implements OnInit {
   @Input() showShare = true;
   @Input() showCounter = true;
   @Input() source = '';
+  /**
+   * Set to true when opened via NxtOverlayService (Angular CDK, no Ionic modal).
+   * Prevents modalCtrl.dismiss() from accidentally closing the topmost Ionic
+   * modal behind the overlay (e.g. an Agent X operation-chat sheet).
+   */
+  @Input() isOverlay = false;
 
   // ── Internal state ─────────────────────────────────────
   protected readonly currentIndex = signal(0);
@@ -658,9 +664,13 @@ export class NxtMediaViewerContentComponent implements OnInit {
   dismiss(): void {
     const data = { lastIndex: this.currentIndex(), item: this.currentItem() };
     this.close.emit(data);
-    // modalCtrl.dismiss() only works when opened via Ionic bottom sheet.
-    // When opened via NxtOverlayService, no Ionic modal exists on the stack.
-    this.modalCtrl?.dismiss(data, 'dismiss').catch(() => undefined);
+    // Only call ModalController.dismiss() when opened via Ionic bottom sheet.
+    // When isOverlay=true (NxtOverlayService path), there is no Ionic modal on
+    // the stack for this viewer — calling dismiss() here would hit the topmost
+    // Ionic modal underneath (e.g. the Agent X operation-chat sheet) and close it.
+    if (!this.isOverlay) {
+      this.modalCtrl?.dismiss(data, 'dismiss').catch(() => undefined);
+    }
   }
 
   share(): void {
@@ -671,7 +681,9 @@ export class NxtMediaViewerContentComponent implements OnInit {
     });
     const data = { lastIndex: this.currentIndex(), item: this.currentItem() };
     this.close.emit(data);
-    this.modalCtrl?.dismiss(data, 'share').catch(() => undefined);
+    if (!this.isOverlay) {
+      this.modalCtrl?.dismiss(data, 'share').catch(() => undefined);
+    }
   }
 
   onMediaError(index: number): void {

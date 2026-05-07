@@ -767,6 +767,10 @@ export const AGENT_X_OPERATION_CHAT_TEST_IDS = {
   BTN_RETRY: 'agent-op-chat-btn-retry',
   BTN_DISMISS: 'agent-op-chat-btn-dismiss',
   DROP_OVERLAY: 'agent-op-chat-drop-overlay',
+  RECURRING_DOCK: 'agent-op-chat-recurring-dock',
+  RECURRING_ITEM: 'agent-op-chat-recurring-item',
+  RECURRING_NEXT_SEND: 'agent-op-chat-recurring-next-send',
+  BTN_RECURRING_CANCEL: 'agent-op-chat-btn-recurring-cancel',
 } as const;
 
 export const AGENT_X_CHAT_BUBBLE_ACTIONS_TEST_IDS = {

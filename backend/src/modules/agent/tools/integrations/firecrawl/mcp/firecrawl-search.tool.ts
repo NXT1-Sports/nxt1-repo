@@ -104,7 +104,7 @@ export class FirecrawlSearchTool extends BaseTool {
       limit,
       country,
       tbs,
-      scrapeOptions: extractContent ? { formats: ['markdown'], onlyMainContent: true } : undefined,
+      scrapeOptions: extractContent ? { formats: ['rawHtml'], onlyMainContent: true } : undefined,
     };
 
     logger.info('[FirecrawlSearch] Searching', {

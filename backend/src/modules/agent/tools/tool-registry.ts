@@ -42,6 +42,7 @@ import {
   isStrictZodToolSchemasEnabled,
   isToolDisabled,
 } from '../config/agent-app-config.js';
+import { getAgentMutationPolicyService } from './mutation-policy.service.js';
 import { isTeamIntelEnabled } from '../../../config/feature-flags.js';
 import { AgentEngineError } from '../exceptions/agent-engine.error.js';
 import { z } from 'zod';
@@ -522,6 +523,21 @@ export class ToolRegistry {
       return { success: false, error: `Tool is currently disabled: ${normalizedName}` };
     }
     const result = normalizeToolResultForDisplay(await tool.execute(input, context));
+
+    if (result.success && tool.isMutation) {
+      await getAgentMutationPolicyService()
+        .apply({
+          toolName: normalizedName,
+          input,
+          context,
+        })
+        .catch((error: unknown) => {
+          logger.warn('[ToolRegistry] Post-mutation policy pipeline failed', {
+            toolName: name,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
+    }
 
     if (result.success && tool.isMutation && !INTEL_SYNC_DISABLED_TOOLS.has(normalizedName)) {
       await this.syncIntelAfterWrite(normalizedName, input, context).catch((error: unknown) => {

@@ -15,6 +15,7 @@ export { SkillRegistry, type MatchedSkill } from './skill-registry.js';
 export { AthleteScoutingSkill } from './evaluation/athlete-scouting.skill.js';
 export { TeamScoutingSkill } from './evaluation/team-scouting.skill.js';
 export { VideoAnalysisSkill } from './evaluation/video-analysis.skill.js';
+export { ImageAnalysisSkill } from './evaluation/image-analysis.skill.js';
 export { FilmBreakdownTaxonomySkill } from './evaluation/film-breakdown-taxonomy.skill.js';
 export { OpponentScoutingPacketSkill } from './evaluation/opponent-scouting-packet.skill.js';
 

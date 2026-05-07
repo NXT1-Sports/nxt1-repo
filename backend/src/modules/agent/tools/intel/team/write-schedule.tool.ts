@@ -29,8 +29,6 @@ import {
 } from '../../../../../services/profile/profile-write-access.service.js';
 import { CACHE_KEYS as USER_CACHE_KEYS } from '../../../../../services/profile/users.service.js';
 import { invalidateProfileCaches } from '../../../../../routes/profile/shared.js';
-import { SyncDiffService, type PreviousScheduleEntry } from '../../../sync/index.js';
-import { onDailySyncComplete } from '../../../triggers/trigger.listeners.js';
 import { logger } from '../../../../../utils/logger.js';
 import { normalizeOpponentName } from '../dedup-utils.js';
 import { resolveCreatedAt } from '../doc-date-utils.js';
@@ -197,16 +195,9 @@ export class WriteScheduleTool extends BaseTool {
         .get();
 
       const existingKeys = new Set<string>();
-      const previousSchedule: PreviousScheduleEntry[] = [];
       for (const doc of existingSnap.docs) {
         const data = doc.data();
         existingKeys.add(this.dedupeKey(data));
-        previousSchedule.push({
-          date: String(data['date'] ?? ''),
-          opponent: typeof data['opponent'] === 'string' ? data['opponent'] : undefined,
-          sport: typeof data['sport'] === 'string' ? data['sport'] : undefined,
-          eventType: typeof data['scheduleType'] === 'string' ? data['scheduleType'] : undefined,
-        });
       }
 
       let written = 0;
@@ -323,58 +314,6 @@ export class WriteScheduleTool extends BaseTool {
         await Promise.all(cacheOps);
       } catch {
         // Best-effort
-      }
-
-      // ── Delta computation & Agent X trigger (athlete only) ─────────────
-      if (written > 0 && ownerType === 'user') {
-        try {
-          const diffService = new SyncDiffService();
-          const extractedProfile = {
-            platform: source,
-            profileUrl: '',
-            schedule: (events as Record<string, unknown>[])
-              .filter((e) => e && typeof e === 'object' && (e as Record<string, unknown>)['date'])
-              .map((e) => {
-                const ev = e as Record<string, unknown>;
-                return {
-                  date: String(ev['date'] ?? ''),
-                  eventType:
-                    typeof ev['scheduleType'] === 'string' ? ev['scheduleType'] : undefined,
-                  opponent: typeof ev['opponent'] === 'string' ? ev['opponent'] : undefined,
-                  location: typeof ev['location'] === 'string' ? ev['location'] : undefined,
-                  result: typeof ev['result'] === 'string' ? ev['result'] : undefined,
-                  score: typeof ev['result'] === 'string' ? ev['result'] : undefined,
-                };
-              }),
-          };
-
-          const delta = diffService.diff(
-            ownerId,
-            sportId,
-            source,
-            { schedule: previousSchedule },
-            extractedProfile
-          );
-
-          if (!delta.isEmpty) {
-            logger.info('[WriteSchedule] Delta detected, firing sync trigger', {
-              ownerId,
-              sport: sportId,
-              newScheduleEvents: delta.summary.newScheduleEvents,
-            });
-            onDailySyncComplete(delta).catch((err) => {
-              logger.warn('[WriteSchedule] Trigger dispatch failed', {
-                ownerId,
-                error: err instanceof Error ? err.message : String(err),
-              });
-            });
-          }
-        } catch (err) {
-          logger.warn('[WriteSchedule] Delta computation failed (non-critical)', {
-            ownerId,
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }
       }
 
       return {
