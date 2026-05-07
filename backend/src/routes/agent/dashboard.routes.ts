@@ -709,35 +709,26 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
       .limit(1)
       .get();
 
-    let suggestedActionsPayload: Record<string, unknown> | null = suggestedActionsDoc.empty
+    const suggestedActionsPayload: Record<string, unknown> | null = suggestedActionsDoc.empty
       ? null
       : (suggestedActionsDoc.docs[0].data() as Record<string, unknown>);
 
     if (!suggestedActionsPayload) {
-      try {
-        logger.info('Generating first-load suggested actions during dashboard request', {
-          userId: user.uid,
-          role,
-        });
-
-        const generatedSuggestedActions =
-          await getGenerationService().generateWeeklySuggestedActions(user.uid, true, db);
-
-        if (generatedSuggestedActions) {
-          suggestedActionsPayload = {
-            coordinators: generatedSuggestedActions.coordinators,
-            generatedAt: generatedSuggestedActions.generatedAt,
-          };
-        }
-      } catch (suggestedActionsErr) {
-        logger.warn('Failed to generate first-load suggested actions during dashboard request', {
-          userId: user.uid,
-          error:
-            suggestedActionsErr instanceof Error
-              ? suggestedActionsErr.message
-              : String(suggestedActionsErr),
-        });
-      }
+      // Fire-and-forget — do NOT block the dashboard response waiting for an LLM call.
+      // The client will get an empty suggested actions list on first load and will
+      // receive the generated actions on the next dashboard request.
+      logger.info('Triggering first-load suggested actions generation in background', {
+        userId: user.uid,
+        role,
+      });
+      getGenerationService()
+        .generateWeeklySuggestedActions(user.uid, true, db)
+        .catch((err) =>
+          logger.warn('Failed to generate first-load suggested actions during dashboard request', {
+            userId: user.uid,
+            error: err instanceof Error ? err.message : String(err),
+          })
+        );
     }
 
     const suggestedActionsByCoordinator = new Map<string, readonly ShellActionChip[]>();
