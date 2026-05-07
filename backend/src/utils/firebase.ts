@@ -21,67 +21,23 @@ if (!admin.apps.length) {
   const clientEmail = isStaging
     ? process.env['STAGING_FIREBASE_CLIENT_EMAIL']
     : process.env['FIREBASE_CLIENT_EMAIL'];
-  // Normalize private key: strip surrounding quotes that get included when copy-pasting
-  // into .env files, then normalize \n escape sequences.
-  const normalizePrivateKey = (raw: string | undefined): string | undefined => {
-    if (!raw) return undefined;
-    return raw
-      .replace(/^['"]|['"]$/g, '') // strip leading/trailing ' or "
-      .replace(/\\\\n/g, '\n') // \\n → newline
-      .replace(/\\n/g, '\n'); // \n  → newline
-  };
-
   const privateKey = isStaging
-    ? normalizePrivateKey(process.env['STAGING_FIREBASE_PRIVATE_KEY'])
-    : normalizePrivateKey(process.env['FIREBASE_PRIVATE_KEY']);
+    ? process.env['STAGING_FIREBASE_PRIVATE_KEY']?.replace(/\\n/g, '\n')
+    : process.env['FIREBASE_PRIVATE_KEY']?.replace(/\\n/g, '\n');
   const storageBucket = isStaging
     ? process.env['STAGING_FIREBASE_STORAGE_BUCKET']
     : process.env['FIREBASE_STORAGE_BUCKET'];
 
   if (projectId && clientEmail && privateKey) {
-    // Diagnostic: log key shape (never log the actual key value)
-    const keyStart = privateKey.slice(0, 40);
-    const keyEnd = privateKey.slice(-30);
-    const hasHeader = privateKey.includes('-----BEGIN PRIVATE KEY-----');
-    const hasFooter = privateKey.includes('-----END PRIVATE KEY-----');
-    const hasRealNewlines = privateKey.includes('\n');
-    console.log('[Firebase] Private key diagnostics:', {
-      length: privateKey.length,
-      hasHeader,
-      hasFooter,
-      hasRealNewlines,
-      start: keyStart,
-      end: keyEnd,
+    admin.initializeApp({
+      credential: admin.credential.cert({ projectId, clientEmail, privateKey }),
+      storageBucket,
     });
-
-    try {
-      admin.initializeApp({
-        credential: admin.credential.cert({ projectId, clientEmail, privateKey }),
-        storageBucket,
-      });
-      console.log(`[Firebase] Initialized for ${isStaging ? 'STAGING' : 'PRODUCTION'} environment`);
-      console.log(`[Firebase] Project: ${projectId}`);
-      console.log(`[Firebase] Storage: ${storageBucket}`);
-    } catch (certErr) {
-      console.error(
-        '[Firebase] Failed to init with service account key — falling back to ADC:',
-        certErr
-      );
-      // Fallback: use Application Default Credentials so the server doesn't crash.
-      // Fix the FIREBASE_PRIVATE_KEY env var on the server to resolve this properly.
-      admin.initializeApp({
-        credential: admin.credential.applicationDefault(),
-        storageBucket,
-      });
-      console.log('[Firebase] Initialized with Application Default Credentials (fallback)');
-    }
+    console.log(`[Firebase] Initialized for ${isStaging ? 'STAGING' : 'PRODUCTION'} environment`);
+    console.log(`[Firebase] Project: ${projectId}`);
+    console.log(`[Firebase] Storage: ${storageBucket}`);
   } else {
-    // Missing credentials — fall back to Application Default Credentials (e.g. on Firebase hosting)
-    console.warn('[Firebase] Missing service account credentials:', {
-      hasProjectId: !!projectId,
-      hasClientEmail: !!clientEmail,
-      hasPrivateKey: !!privateKey,
-    });
+    // Fallback to Application Default Credentials (e.g. on Firebase hosting)
     admin.initializeApp({
       credential: admin.credential.applicationDefault(),
       storageBucket,
