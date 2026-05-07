@@ -103,36 +103,50 @@ const isPrivateNetworkOrigin = (origin: string): boolean => {
   }
 };
 
-const STATIC_ALLOWED_ORIGINS = process.env['CORS_ORIGINS']
-  ? process.env['CORS_ORIGINS'].split(',')
-  : [
-      'http://localhost:4200',
-      'http://127.0.0.1:4200',
-      'http://localhost:4300',
-      'http://127.0.0.1:4300',
-      'http://localhost:8100',
-      'http://127.0.0.1:8100',
-      // Capacitor native apps (iOS & Android)
-      'capacitor://localhost',
-      'ionic://localhost',
-      'https://nxt1.com',
-      'https://www.nxt1.com',
-      'https://nxt1sports.com',
-      'https://www.nxt1sports.com',
-      // Firebase App Hosting (staging)
-      'https://nxt1-repo--nxt-1-v2.us-east4.hosted.app',
-      'https://nxt1-repo--nxt-1-staging-v2.us-central1.hosted.app',
-      'https://nxt1-repo--nxt-1-staging-v2.us-east4.hosted.app',
+// Merge CORS_ORIGINS and STAGING_ALLOWED_FRONTEND_ORIGINS env vars with the hardcoded list.
+// This ensures env-var overrides (e.g. set in Firebase console) don't silently drop staging URLs.
+const _envCorsOrigins = [
+  ...(process.env['CORS_ORIGINS'] ? process.env['CORS_ORIGINS'].split(',') : []),
+  ...(process.env['STAGING_ALLOWED_FRONTEND_ORIGINS']
+    ? process.env['STAGING_ALLOWED_FRONTEND_ORIGINS'].split(',')
+    : []),
+]
+  .map((o) => o.trim())
+  .filter(Boolean);
 
-      'https://nxt1-repo-backend--nxt-1-v2.us-east4.hosted.app',
-      'https://nxt1-repo-backend--nxt-1-staging-v2.us-east4.hosted.app',
-      // Firebase Hosting (staging)
-      'https://nxt-1-staging-v2.web.app',
-      'https://nxt-1-v2.web.app',
-      // Production server (direct IP access — staging/dev only)
-      'http://34.72.3.113:8080',
-      'https://api.nxt1sports.com',
-    ];
+const STATIC_ALLOWED_ORIGINS =
+  _envCorsOrigins.length > 0
+    ? _envCorsOrigins
+    : [
+        'http://localhost:4200',
+        'http://127.0.0.1:4200',
+        'http://localhost:4300',
+        'http://127.0.0.1:4300',
+        'http://localhost:8100',
+        'http://127.0.0.1:8100',
+        // Capacitor native apps (iOS & Android)
+        'capacitor://localhost',
+        'ionic://localhost',
+        'https://nxt1.com',
+        'https://www.nxt1.com',
+        'https://nxt1sports.com',
+        'https://www.nxt1sports.com',
+        // Firebase App Hosting (staging)
+        'https://nxt1-repo--nxt-1-v2.us-east4.hosted.app',
+        'https://nxt1-repo--nxt-1-staging-v2.us-central1.hosted.app',
+        'https://nxt1-repo--nxt-1-staging-v2.us-east4.hosted.app',
+
+        'https://nxt1-repo-backend--nxt-1-v2.us-east4.hosted.app',
+        'https://nxt1-repo-backend--nxt-1-staging-v2.us-east4.hosted.app',
+        // Firebase Hosting (staging) — both .web.app and .firebaseapp.com domains
+        'https://nxt-1-staging-v2.web.app',
+        'https://nxt-1-staging-v2.firebaseapp.com',
+        'https://nxt-1-v2.web.app',
+        'https://nxt-1-v2.firebaseapp.com',
+        // Production server (direct IP access — staging/dev only)
+        'http://34.72.3.113:8080',
+        'https://api.nxt1sports.com',
+      ];
 
 app.use(
   cors({
