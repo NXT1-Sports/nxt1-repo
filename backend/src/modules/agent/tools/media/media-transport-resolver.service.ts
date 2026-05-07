@@ -232,14 +232,27 @@ export class MediaTransportResolverService {
   ): Promise<string | null> {
     try {
       const parsed = new URL(url);
-      if (parsed.hostname !== 'storage.googleapis.com') return null;
 
-      const pathWithoutLeadingSlash = parsed.pathname.slice(1);
-      const slashIdx = pathWithoutLeadingSlash.indexOf('/');
-      if (slashIdx === -1) return null;
+      let bucketName: string;
+      let storagePath: string;
 
-      const bucketName = pathWithoutLeadingSlash.slice(0, slashIdx);
-      const storagePath = decodeURIComponent(pathWithoutLeadingSlash.slice(slashIdx + 1));
+      if (parsed.hostname === 'storage.googleapis.com') {
+        // https://storage.googleapis.com/{bucket}/{object-path}
+        const pathWithoutLeadingSlash = parsed.pathname.slice(1);
+        const slashIdx = pathWithoutLeadingSlash.indexOf('/');
+        if (slashIdx === -1) return null;
+        bucketName = pathWithoutLeadingSlash.slice(0, slashIdx);
+        storagePath = decodeURIComponent(pathWithoutLeadingSlash.slice(slashIdx + 1));
+      } else if (parsed.hostname === 'firebasestorage.googleapis.com') {
+        // https://firebasestorage.googleapis.com/v0/b/{bucket}/o/{encoded-path}
+        const match = parsed.pathname.match(/^\/v0\/b\/([^/]+)\/o\/(.+)$/);
+        if (!match) return null;
+        bucketName = match[1];
+        storagePath = decodeURIComponent(match[2]);
+      } else {
+        return null;
+      }
+
       if (!bucketName || !storagePath) return null;
 
       const isStaging = environment === 'staging' || bucketName.toLowerCase().includes('staging');
