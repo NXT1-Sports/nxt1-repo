@@ -215,9 +215,10 @@ export interface IAuthService {
 
   /**
    * Get ID token for authenticated API requests
+   * @param forceRefresh - If true, bypass cache and force a new token from Firebase
    * @returns Token string or null if not authenticated
    */
-  getIdToken(): Promise<string | null>;
+  getIdToken(forceRefresh?: boolean): Promise<string | null>;
 
   /**
    * Refresh user profile from backend

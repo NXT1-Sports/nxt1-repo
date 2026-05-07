@@ -61,24 +61,30 @@ export async function appGuard(req: Request, res: Response, next: NextFunction):
 
     next();
   } catch (error) {
-    logger.error('[Auth] Token verification failed:', {
-      error,
-      authHeader: !!req.headers.authorization,
-    });
-
     // Provide specific error messages using unified error codes
     if (error instanceof Error) {
-      if (error.message.includes('expired')) {
+      const code = (error as Error & { code?: string }).code ?? '';
+
+      if (code === 'auth/id-token-expired' || error.message.includes('expired')) {
+        // Expected: client token expired — not an server-side error
+        logger.warn('[Auth] Token expired — client should refresh:', { uid: undefined });
         const apiError = unauthorizedError('expired');
         res.status(401).json(apiError.toResponse());
         return;
       }
-      if (error.message.includes('revoked')) {
+      if (code === 'auth/id-token-revoked' || error.message.includes('revoked')) {
+        logger.warn('[Auth] Token revoked:', { authHeader: !!req.headers.authorization });
         const apiError = unauthorizedError('revoked');
         res.status(401).json(apiError.toResponse());
         return;
       }
     }
+
+    // Unexpected verification failure — log at error level
+    logger.error('[Auth] Token verification failed:', {
+      error,
+      authHeader: !!req.headers.authorization,
+    });
 
     const apiError = unauthorizedError('invalid');
     res.status(401).json(apiError.toResponse());

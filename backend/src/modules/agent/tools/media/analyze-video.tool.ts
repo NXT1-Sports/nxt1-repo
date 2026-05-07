@@ -506,8 +506,8 @@ export class AnalyzeVideoTool extends BaseTool {
             outputPath: `analysis-${Date.now()}-${index}.mp4`,
             videoCodec: 'libx264',
             audioCodec: 'aac',
-            preset: 'medium',
-            crf: 23,
+            preset: 'ultrafast',
+            crf: 28,
           },
           context
         );

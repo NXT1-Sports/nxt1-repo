@@ -2001,7 +2001,28 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
   /**
    * Get ID token for authenticated requests
    */
-  async getIdToken(): Promise<string | null> {
+  async getIdToken(forceRefresh = false): Promise<string | null> {
+    // Force refresh path — bypass cache, get a brand-new token from Firebase.
+    // Used by the auth interceptor when the server returns 401 (token expired).
+    if (forceRefresh) {
+      if (this.firebaseAuth?.currentUser) {
+        try {
+          const freshToken = await this.firebaseAuth.currentUser.getIdToken(true);
+          await this.authManager.setToken({
+            token: freshToken,
+            expiresAt: Date.now() + 55 * 60 * 1000,
+            userId: this.firebaseAuth.currentUser.uid,
+          });
+          this.logger.info('Token force-refreshed successfully');
+          return freshToken;
+        } catch (err) {
+          this.logger.warn('Force token refresh failed', { error: err });
+          return null;
+        }
+      }
+      return null;
+    }
+
     // First try to get from auth manager (cached)
     const storedToken = await this.authManager.getToken();
     if (storedToken && (await this.authManager.isTokenValid())) {
