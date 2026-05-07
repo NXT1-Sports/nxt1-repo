@@ -8,6 +8,7 @@
 
 import type { Firestore } from 'firebase-admin/firestore';
 import type { AgentJobPayload, UserRole } from '@nxt1/core';
+import { enqueueWithOutbox } from '../queue/outbox.service.js';
 import { logger } from '../../../utils/logger.js';
 
 export interface LinkedAccount {
@@ -90,7 +91,7 @@ export async function enqueueLinkedAccountScrape(
 
   try {
     await jobRepository.withDb(db).create(payload);
-    await queueService.enqueue(payload, environment);
+    await enqueueWithOutbox(db, payload, environment, queueService);
 
     let threadId: string | undefined;
     const repo = jobRepository;

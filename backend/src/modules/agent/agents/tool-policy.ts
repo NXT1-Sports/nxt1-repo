@@ -73,6 +73,8 @@ const GLOBAL_SYSTEM_TOOL_POLICY: readonly ToolPattern[] = composeToolPatterns([
   'classify_media_url',
   'extract_page_images',
   'extract_hudl_video',
+  // Background queue escalation — any agent can offload a genuinely heavy operation
+  'enqueue_heavy_task',
 ]);
 
 /**
@@ -117,6 +119,8 @@ const ROUTER_TOOL_POLICY: readonly ToolPattern[] = [
   'list_recurring_tasks',
   'send_email',
   'batch_send_email',
+  // Background queue escalation (Primary only uses this directly for whole-request hand-off)
+  'enqueue_heavy_task',
   // Direct Google Workspace families (loosened to prevent false-negative
   // blocks when the model emits concrete tool names instead of wrappers).
   'gmail_*',

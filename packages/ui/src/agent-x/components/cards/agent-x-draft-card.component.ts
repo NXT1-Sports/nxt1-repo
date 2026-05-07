@@ -32,10 +32,6 @@ export interface DraftSubmittedEvent {
   readonly content: string;
   /** Recipient email address (from the card payload). */
   readonly toEmail?: string;
-  /** Pending approval request id when the draft is approval-backed. */
-  readonly approvalId?: string;
-  /** Operation id associated with the approval-backed draft. */
-  readonly operationId?: string;
 }
 
 @Component({
@@ -103,25 +99,14 @@ export interface DraftSubmittedEvent {
         </div>
       </div>
 
-      <div class="draft-card__footer">
-        <button
-          class="draft-card__send"
-          type="button"
-          [disabled]="sent() || !contentValue()"
-          (click)="onSend()"
-        >
-          @if (sent()) {
-            <svg class="draft-card__check" viewBox="0 0 16 16" fill="none">
-              <path
-                d="M3.5 8.5L6.5 11.5L12.5 4.5"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              />
-            </svg>
-            Sent
-          } @else {
+      @if (!sent()) {
+        <div class="draft-card__footer">
+          <button
+            class="draft-card__send"
+            type="button"
+            [disabled]="sent() || !contentValue()"
+            (click)="onSend()"
+          >
             <svg class="draft-card__send-icon" viewBox="0 0 16 16" fill="none">
               <path
                 d="M2 8L14 2L8 14L7 9L2 8Z"
@@ -131,9 +116,22 @@ export interface DraftSubmittedEvent {
               />
             </svg>
             Approve & Send
-          }
-        </button>
-      </div>
+          </button>
+        </div>
+      } @else {
+        <div class="draft-card__footer draft-card__footer--resolved">
+          <svg class="draft-card__check" viewBox="0 0 16 16" fill="none">
+            <path
+              d="M3.5 8.5L6.5 11.5L12.5 4.5"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+          <span>{{ externalResolvedText() || 'Draft approved & sent' }}</span>
+        </div>
+      }
     </div>
   `,
   styles: [
@@ -249,6 +247,23 @@ export interface DraftSubmittedEvent {
         padding: 0 12px 12px;
       }
 
+      .draft-card__footer--resolved {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 0.8125rem;
+        font-weight: 600;
+        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.65));
+        padding: 8px 12px 12px;
+      }
+
+      .draft-card__footer--resolved .draft-card__check {
+        color: var(--nxt1-color-success, #22c55e);
+        width: 16px;
+        height: 16px;
+        flex-shrink: 0;
+      }
+
       .draft-card__send {
         display: inline-flex;
         align-items: center;
@@ -291,11 +306,28 @@ export class AgentXDraftCardComponent implements OnInit {
   /** The rich card data (type, title, payload). */
   readonly card = input.required<AgentXRichCard>();
 
+  /** External lifecycle state driven by the yield facade (mirrors action-card pattern). */
+  readonly externalCardState = input<'idle' | 'submitting' | 'resolved' | null>(null);
+
+  /** Text shown in the resolved footer when externally resolved. */
+  readonly externalResolvedText = input<string>('');
+
   /** Emitted when the user approves the draft for sending. */
   readonly draftSubmitted = output<DraftSubmittedEvent>();
 
-  /** Whether the draft has been sent (one-shot lock). */
+  /** Whether the draft has been sent (local optimistic lock). */
   protected readonly sent = signal(false);
+
+  /**
+   * Unified sent/resolved state — local OR externally resolved/submitting.
+   * If externalCardState returns to 'idle' (server failure), the card unlocks.
+   */
+  protected readonly displaySent = computed(() => {
+    const ext = this.externalCardState();
+    if (ext === 'idle') return false; // revert on server failure
+    if (ext === 'resolved' || ext === 'submitting') return true;
+    return this.sent();
+  });
 
   /** Editable subject line. */
   protected readonly subjectValue = signal('');
@@ -326,7 +358,7 @@ export class AgentXDraftCardComponent implements OnInit {
   }
 
   protected onSend(): void {
-    if (this.sent() || !this.contentValue()) return;
+    if (this.displaySent() || !this.contentValue()) return;
     this.sent.set(true);
     const payload = this.card().payload as AgentXDraftPayload;
     this.draftSubmitted.emit({
@@ -334,8 +366,6 @@ export class AgentXDraftCardComponent implements OnInit {
       subject: this.subjectValue(),
       content: this.contentValue(),
       toEmail: typeof payload?.toEmail === 'string' ? payload.toEmail : undefined,
-      approvalId: typeof payload?.approvalId === 'string' ? payload.approvalId : undefined,
-      operationId: typeof payload?.operationId === 'string' ? payload.operationId : undefined,
     });
   }
 }

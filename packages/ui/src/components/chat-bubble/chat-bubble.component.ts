@@ -16,23 +16,6 @@
 import { Component, ChangeDetectionStrategy, computed, input, output } from '@angular/core';
 import type { AgentXToolStep, AgentXRichCard, AgentXMessagePart } from '@nxt1/core/ai';
 import { AgentXToolStepsComponent } from '../../agent-x/components/shared/agent-x-tool-steps.component';
-import { AgentXPlannerCardComponent } from '../../agent-x/components/cards/agent-x-planner-card.component';
-import { AgentXDataTableCardComponent } from '../../agent-x/components/cards/agent-x-data-table-card.component';
-import {
-  AgentXConfirmationCardComponent,
-  type ConfirmationActionEvent,
-} from '../../agent-x/components/cards/agent-x-confirmation-card.component';
-import { AgentXCitationsCardComponent } from '../../agent-x/components/cards/agent-x-citations-card.component';
-import {
-  AgentXParameterFormCardComponent,
-  type ParameterFormSubmitEvent,
-} from '../../agent-x/components/cards/agent-x-parameter-form-card.component';
-import {
-  AgentXDraftCardComponent,
-  type DraftSubmittedEvent,
-} from '../../agent-x/components/cards/agent-x-draft-card.component';
-import { AgentXProfileCardComponent } from '../../agent-x/components/cards/agent-x-profile-card.component';
-import { AgentXFilmTimelineCardComponent } from '../../agent-x/components/cards/agent-x-film-timeline-card.component';
 import {
   AgentXBillingActionCardComponent,
   type BillingActionResolvedEvent,
@@ -54,14 +37,6 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
   standalone: true,
   imports: [
     AgentXToolStepsComponent,
-    AgentXPlannerCardComponent,
-    AgentXDataTableCardComponent,
-    AgentXConfirmationCardComponent,
-    AgentXCitationsCardComponent,
-    AgentXParameterFormCardComponent,
-    AgentXDraftCardComponent,
-    AgentXProfileCardComponent,
-    AgentXFilmTimelineCardComponent,
     AgentXBillingActionCardComponent,
     AgentXAskUserCardComponent,
     NxtIconComponent,
@@ -115,44 +90,7 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
           }
           @case ('card') {
             <div class="agent-card-shell" [style]="cardThemeStyle(part.card)">
-              @if (part.card.type === 'planner') {
-                <nxt1-agent-x-planner-card
-                  [card]="part.card"
-                  (itemToggled)="plannerItemToggled.emit($event)"
-                />
-              } @else if (part.card.type === 'data-table') {
-                <nxt1-agent-x-data-table-card [card]="part.card" />
-              } @else if (part.card.type === 'confirmation') {
-                <nxt1-agent-x-confirmation-card
-                  [card]="part.card"
-                  (actionSelected)="confirmationAction.emit($event)"
-                />
-              } @else if (part.card.type === 'citations') {
-                <nxt1-agent-x-citations-card
-                  [card]="part.card"
-                  (citationClicked)="citationClicked.emit($event)"
-                />
-              } @else if (part.card.type === 'parameter-form') {
-                <nxt1-agent-x-parameter-form-card
-                  [card]="part.card"
-                  (formSubmitted)="parameterFormSubmitted.emit($event)"
-                />
-              } @else if (part.card.type === 'draft') {
-                <nxt1-agent-x-draft-card
-                  [card]="part.card"
-                  (draftSubmitted)="draftSubmitted.emit($event)"
-                />
-              } @else if (part.card.type === 'profile') {
-                <nxt1-agent-x-profile-card
-                  [card]="part.card"
-                  (profileClicked)="profileClicked.emit($event)"
-                />
-              } @else if (part.card.type === 'film-timeline') {
-                <nxt1-agent-x-film-timeline-card
-                  [card]="part.card"
-                  (markerClicked)="filmMarkerClicked.emit($event)"
-                />
-              } @else if (part.card.type === 'billing-action') {
+              @if (part.card.type === 'billing-action') {
                 <nxt1-agent-x-billing-action-card
                   [card]="part.card"
                   (actionResolved)="billingActionResolved.emit($event)"
@@ -160,6 +98,8 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
               } @else if (part.card.type === 'ask_user') {
                 <nxt1-agent-x-ask-user-card
                   [card]="part.card"
+                  [externalCardState]="externalCardState()"
+                  [externalResolvedText]="externalResolvedText()"
                   (replySubmitted)="askUserReply.emit($event)"
                 />
               } @else {
@@ -215,41 +155,7 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
       }
       @for (card of cards(); track $index) {
         <div class="agent-card-shell" [style]="cardThemeStyle(card)">
-          @if (card.type === 'planner') {
-            <nxt1-agent-x-planner-card
-              [card]="card"
-              (itemToggled)="plannerItemToggled.emit($event)"
-            />
-          } @else if (card.type === 'data-table') {
-            <nxt1-agent-x-data-table-card [card]="card" />
-          } @else if (card.type === 'confirmation') {
-            <nxt1-agent-x-confirmation-card
-              [card]="card"
-              (actionSelected)="confirmationAction.emit($event)"
-            />
-          } @else if (card.type === 'citations') {
-            <nxt1-agent-x-citations-card
-              [card]="card"
-              (citationClicked)="citationClicked.emit($event)"
-            />
-          } @else if (card.type === 'parameter-form') {
-            <nxt1-agent-x-parameter-form-card
-              [card]="card"
-              (formSubmitted)="parameterFormSubmitted.emit($event)"
-            />
-          } @else if (card.type === 'draft') {
-            <nxt1-agent-x-draft-card [card]="card" (draftSubmitted)="draftSubmitted.emit($event)" />
-          } @else if (card.type === 'profile') {
-            <nxt1-agent-x-profile-card
-              [card]="card"
-              (profileClicked)="profileClicked.emit($event)"
-            />
-          } @else if (card.type === 'film-timeline') {
-            <nxt1-agent-x-film-timeline-card
-              [card]="card"
-              (markerClicked)="filmMarkerClicked.emit($event)"
-            />
-          } @else if (card.type === 'billing-action') {
+          @if (card.type === 'billing-action') {
             <nxt1-agent-x-billing-action-card
               [card]="card"
               (actionResolved)="billingActionResolved.emit($event)"
@@ -257,6 +163,8 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
           } @else if (card.type === 'ask_user') {
             <nxt1-agent-x-ask-user-card
               [card]="card"
+              [externalCardState]="externalCardState()"
+              [externalResolvedText]="externalResolvedText()"
               (replySubmitted)="askUserReply.emit($event)"
             />
           } @else {
@@ -726,26 +634,15 @@ export class NxtChatBubbleComponent {
   /** Ordered message parts for Copilot-style interleaved rendering. */
   readonly parts = input<readonly AgentXMessagePart[]>([]);
 
-  /** Emitted when a planner card item is toggled. */
-  readonly plannerItemToggled = output<string>();
+  /**
+   * External yield lifecycle state for interactive cards (confirmation, draft, ask_user)
+   * rendered inside this bubble. Driven by the yield facade after server confirmation.
+   * Mirrors the externalCardState contract on each card component.
+   */
+  readonly externalCardState = input<'idle' | 'submitting' | 'resolved' | null>(null);
 
-  /** Emitted when a confirmation card action is selected. */
-  readonly confirmationAction = output<ConfirmationActionEvent>();
-
-  /** Emitted when a citation pill is clicked (sends citation ID). */
-  readonly citationClicked = output<string>();
-
-  /** Emitted when a parameter form card is submitted. */
-  readonly parameterFormSubmitted = output<ParameterFormSubmitEvent>();
-
-  /** Emitted when a draft card is approved and sent. */
-  readonly draftSubmitted = output<DraftSubmittedEvent>();
-
-  /** Emitted when a profile card "View Profile" is clicked (sends userId). */
-  readonly profileClicked = output<string>();
-
-  /** Emitted when a film timeline marker is clicked (sends timeMs). */
-  readonly filmMarkerClicked = output<number>();
+  /** Resolved text shown in the card's resolved badge when externally resolved. */
+  readonly externalResolvedText = input<string>('');
 
   /** Emitted when a billing action card CTA is resolved. */
   readonly billingActionResolved = output<BillingActionResolvedEvent>();

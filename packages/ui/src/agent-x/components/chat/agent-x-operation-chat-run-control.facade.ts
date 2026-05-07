@@ -29,7 +29,8 @@ type OperationChatStatus =
   | 'error'
   | 'paused'
   | 'awaiting_input'
-  | 'awaiting_approval';
+  | 'awaiting_approval'
+  | 'cancelled';
 
 interface SendOptions {
   readonly text?: string;

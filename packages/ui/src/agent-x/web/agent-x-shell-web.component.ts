@@ -76,7 +76,6 @@ import {
   resolveCoordinatorActionId,
   resolveCoordinatorChipId,
 } from '../components/chat/agent-x-operation-chat.utils';
-import type { DraftSubmittedEvent } from '../components/cards/agent-x-draft-card.component';
 import { AgentXInputBarComponent } from '../components/inputs/agent-x-input-bar.component';
 import {
   AgentXControlPanelStateService,
@@ -535,7 +534,6 @@ function sortCoordinatorCategories(
                 [user]="user()"
                 (userMessageSent)="onUserMessageSent()"
                 (responseComplete)="onResponseComplete()"
-                (draftSubmitted)="onDraftSubmitted($event)"
                 (coordinatorQuickActionSelected)="onEmbeddedCoordinatorQuickAction($event)"
                 (connectedAccountsSave)="connectedAccountsSave.emit($event)"
               />
@@ -4348,29 +4346,6 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
    */
   protected onResponseComplete(): void {
     this.operationsLog()?.refresh();
-  }
-
-  /** Handle draft approval from the desktop shell. */
-  protected async onDraftSubmitted(event: DraftSubmittedEvent): Promise<void> {
-    if (event.approvalId) {
-      await this.agentX.resolveInlineApproval({
-        approvalId: event.approvalId,
-        decision: 'approved',
-        toolInput: {
-          ...(event.toEmail ? { toEmail: event.toEmail } : {}),
-          subject: event.subject,
-          bodyHtml: event.content,
-        },
-        successMessage: 'Draft approved — Agent X is resuming',
-      });
-      return;
-    }
-
-    this.logger.warn('Desktop draft submission missing approvalId', {
-      toEmail: event.toEmail,
-      subject: event.subject?.slice(0, 50),
-    });
-    this.toast.error('This draft can no longer be sent directly. Refresh and try again.');
   }
 
   /**

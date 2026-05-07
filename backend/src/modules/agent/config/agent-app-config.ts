@@ -123,7 +123,7 @@ const coordinatorIds = COORDINATOR_AGENT_IDS;
 type CoordinatorIdentifier = (typeof coordinatorIds)[number];
 type DashboardRole = 'athlete' | 'coach' | 'director';
 type ConfiguredCoordinatorActionChip = ShellActionChip & {
-  readonly executionPrompt?: string;
+  readonly executionPrompt?: string | null;
 };
 type CoordinatorRoleUiOverride = {
   readonly description?: string;
@@ -141,7 +141,7 @@ const actionChipSchema = z.object({
   subLabel: z.string().trim().min(1).optional(),
   promptText: z.string().trim().min(1).optional(),
   icon: z.string().trim().min(1),
-  executionPrompt: z.string().trim().min(1).optional(),
+  executionPrompt: z.string().trim().min(1).nullish(),
 });
 
 const coordinatorRoleUiOverrideSchema = z.object({
@@ -443,7 +443,7 @@ function buildRoleOverrideFromBase(
   addition: CoordinatorRoleUiOverride | undefined
 ): CoordinatorRoleUiOverride {
   return {
-    description: addition?.description ?? existing?.description ?? base.description,
+    description: existing?.description ?? addition?.description ?? base.description,
     commands: mergeConfiguredActionChips(existing?.commands ?? base.commands, addition?.commands),
     scheduledActions: mergeConfiguredActionChips(
       existing?.scheduledActions ?? base.scheduledActions,

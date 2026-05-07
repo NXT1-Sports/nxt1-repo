@@ -50,9 +50,8 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/ass
 
 /** Emitted when the user approves or rejects an operation. */
 export interface ActionCardApprovalEvent {
-  readonly operationId: string;
+  readonly messageId?: string;
   readonly decision: 'approve' | 'reject';
-  readonly approvalId?: string;
   readonly toolInput?: Record<string, unknown>;
   /** When true, the user checked "Trust for this session" and future same-group approvals should be skipped. */
   readonly trustForSession?: boolean;
@@ -60,7 +59,7 @@ export interface ActionCardApprovalEvent {
 
 /** Emitted when the user replies to an agent's question. */
 export interface ActionCardReplyEvent {
-  readonly operationId: string;
+  readonly messageId?: string;
   readonly response: string;
 }
 
@@ -102,273 +101,278 @@ export interface BatchEmailRecipientEdit {
       [class.action-card--resolved]="displayCardState() === 'resolved'"
       [attr.data-testid]="testIds.CARD"
     >
-      <!-- ═══ HEADER ═══ -->
-      <div class="action-card__header" [attr.data-testid]="testIds.HEADER">
-        <div class="action-card__icon-wrap">
-          <svg class="action-card__agent-mark" viewBox="0 0 612 792" aria-hidden="true">
-            <path [attr.d]="agentXLogoPath" />
-            <polygon [attr.points]="agentXLogoPolygon" />
-          </svg>
-        </div>
-        <div class="action-card__header-text">
-          <span class="action-card__title">
-            {{ cardTitle() }}
-          </span>
-          @if (isApproval() && genericApprovalData()) {
-            <span
-              class="action-card__risk-badge"
-              [class.action-card__risk-badge--medium]="
-                genericApprovalData()?.riskLevel === 'medium'
-              "
-              [class.action-card__risk-badge--high]="genericApprovalData()?.riskLevel === 'high'"
-              [class.action-card__risk-badge--critical]="
-                genericApprovalData()?.riskLevel === 'critical'
-              "
-            >
-              {{ riskLevelLabel() }}
-            </span>
-          }
-          @if (expiresLabel()) {
-            <span
-              class="action-card__expires"
-              [class.action-card__expires--urgent]="isExpiringSoon()"
-              >{{ expiresLabel() }}</span
-            >
-          }
-        </div>
-      </div>
-
-      <!-- ═══ BODY ═══ -->
-      <div class="action-card__body">
-        <p class="action-card__prompt" [attr.data-testid]="testIds.PROMPT">
-          {{ yield().promptToUser }}
-        </p>
-
-        @if (isApproval() && isEmailApproval()) {
-          <!-- ═══ EMAIL DRAFT EDITOR ═══ -->
-          <div class="action-card__email-editor" [attr.data-testid]="testIds.DETAILS_TOGGLE">
-            <div class="action-card__email-field">
-              <label class="action-card__email-label">Recipients</label>
-              @if (isBatchEmail()) {
-                <!-- Pill list for batch emails -->
-                <div class="action-card__recipients-bubbles">
-                  @for (recipient of visibleEmailRecipients(); track recipient.toEmail) {
-                    <span class="action-card__recipient-bubble">
-                      {{ recipient.displayName || recipient.toEmail }}
-                      <button
-                        type="button"
-                        class="action-card__recipient-remove"
-                        (click)="removeRecipient(resolveRecipientIndex(recipient.toEmail))"
-                        aria-label="Remove recipient"
-                      >
-                        &#x2715;
-                      </button>
-                    </span>
-                  }
-                </div>
-                @if (hiddenRecipientCount() > 0) {
-                  <button
-                    type="button"
-                    class="action-card__recipients-toggle"
-                    (click)="toggleBatchRecipients()"
-                  >
-                    {{
-                      showAllBatchRecipients()
-                        ? 'Show fewer'
-                        : 'Show ' + hiddenRecipientCount() + ' more'
-                    }}
-                  </button>
-                }
-              } @else {
-                <input
-                  type="text"
-                  class="action-card__email-input"
-                  [ngModel]="editEmailTo()"
-                  (ngModelChange)="editEmailTo.set($event)"
-                  placeholder="recipient@example.com"
-                />
-              }
-            </div>
-            <div class="action-card__email-field">
-              <label class="action-card__email-label">Subject</label>
-              <input
-                type="text"
-                class="action-card__email-input"
-                [ngModel]="editEmailSubject()"
-                (ngModelChange)="editEmailSubject.set($event)"
-                placeholder="Subject line"
-              />
-            </div>
-            <div class="action-card__email-field">
-              <label class="action-card__email-label">Body</label>
-              <div
-                class="action-card__email-preview action-card__email-preview--editable"
-                contenteditable="true"
-                spellcheck="true"
-                [innerHTML]="safeBodyHtml()"
-                (blur)="onBodyHtmlBlur($event)"
-              ></div>
-            </div>
+      @if (displayCardState() !== 'resolved') {
+        <!-- ═══ HEADER ═══ -->
+        <div class="action-card__header" [attr.data-testid]="testIds.HEADER">
+          <div class="action-card__icon-wrap">
+            <svg class="action-card__agent-mark" viewBox="0 0 612 792" aria-hidden="true">
+              <path [attr.d]="agentXLogoPath" />
+              <polygon [attr.points]="agentXLogoPolygon" />
+            </svg>
           </div>
-        } @else if (isApproval() && isPlanApproval() && planApprovalData()) {
-          <!-- ═══ PLAN APPROVAL — GOAL + ORDERED STEPS ═══ -->
-          <div class="action-card__plan" [attr.data-testid]="testIds.DETAILS_TOGGLE">
-            <p class="action-card__plan-goal" [attr.data-testid]="testIds.PLAN_GOAL">
-              <span class="action-card__plan-goal-label">Goal</span>
-              <span class="action-card__plan-goal-text">{{ planApprovalData()!.goal }}</span>
-            </p>
-            <ol class="action-card__plan-steps" [attr.data-testid]="testIds.PLAN_STEP_LIST">
-              @for (step of planApprovalData()!.steps; track step.id; let idx = $index) {
-                <li class="action-card__plan-step" [attr.data-testid]="testIds.PLAN_STEP_ITEM">
-                  <span class="action-card__plan-step-index" aria-hidden="true">{{ idx + 1 }}</span>
-                  <div class="action-card__plan-step-body">
-                    <span class="action-card__plan-step-label">{{ step.label }}</span>
-                    @if (step.description && step.description !== step.label) {
-                      <span class="action-card__plan-step-desc">{{ step.description }}</span>
-                    }
-                    @if (step.coordinator) {
-                      <span class="action-card__plan-step-meta">
-                        <svg
-                          class="action-card__plan-step-meta-icon"
-                          viewBox="0 0 16 16"
-                          aria-hidden="true"
+          <div class="action-card__header-text">
+            <span class="action-card__title">
+              {{ cardTitle() }}
+            </span>
+            @if (isApproval() && genericApprovalData()) {
+              <span
+                class="action-card__risk-badge"
+                [class.action-card__risk-badge--medium]="
+                  genericApprovalData()?.riskLevel === 'medium'
+                "
+                [class.action-card__risk-badge--high]="genericApprovalData()?.riskLevel === 'high'"
+                [class.action-card__risk-badge--critical]="
+                  genericApprovalData()?.riskLevel === 'critical'
+                "
+              >
+                {{ riskLevelLabel() }}
+              </span>
+            }
+            @if (expiresLabel()) {
+              <span
+                class="action-card__expires"
+                [class.action-card__expires--urgent]="isExpiringSoon()"
+                >{{ expiresLabel() }}</span
+              >
+            }
+          </div>
+        </div>
+
+        <!-- ═══ BODY ═══ -->
+        <div class="action-card__body">
+          <p class="action-card__prompt" [attr.data-testid]="testIds.PROMPT">
+            {{ yield().promptToUser }}
+          </p>
+
+          @if (isApproval() && isEmailApproval()) {
+            <!-- ═══ EMAIL DRAFT EDITOR ═══ -->
+            <div class="action-card__email-editor" [attr.data-testid]="testIds.DETAILS_TOGGLE">
+              <div class="action-card__email-field">
+                <label class="action-card__email-label">Recipients</label>
+                @if (isBatchEmail()) {
+                  <!-- Pill list for batch emails -->
+                  <div class="action-card__recipients-bubbles">
+                    @for (recipient of visibleEmailRecipients(); track recipient.toEmail) {
+                      <span class="action-card__recipient-bubble">
+                        {{ recipient.displayName || recipient.toEmail }}
+                        <button
+                          type="button"
+                          class="action-card__recipient-remove"
+                          (click)="removeRecipient(resolveRecipientIndex(recipient.toEmail))"
+                          aria-label="Remove recipient"
                         >
-                          <circle cx="8" cy="6" r="3" />
-                          <path d="M2 14c0-3 2.5-5 6-5s6 2 6 5" />
-                        </svg>
-                        {{ formatCoordinator(step.coordinator) }}
+                          &#x2715;
+                        </button>
                       </span>
                     }
                   </div>
-                </li>
-              }
-            </ol>
-          </div>
-        } @else if (isApproval() && isTimelinePostApproval() && timelinePostData()) {
-          <!-- ═══ TIMELINE POST EDITOR ═══ -->
-          <div class="action-card__email-editor" [attr.data-testid]="testIds.DETAILS_TOGGLE">
-            <div class="action-card__email-field">
-              <label class="action-card__email-label">Title</label>
-              <input
-                type="text"
-                class="action-card__email-input"
-                [ngModel]="editPostTitle()"
-                (ngModelChange)="editPostTitle.set($event)"
-                placeholder="Post title"
-              />
-            </div>
-            <div class="action-card__email-field">
-              <label class="action-card__email-label">Description</label>
-              <textarea
-                class="action-card__email-textarea"
-                [ngModel]="editPostDescription()"
-                (ngModelChange)="editPostDescription.set($event)"
-                placeholder="What's this post about?"
-                rows="5"
-              ></textarea>
-            </div>
-            @if (timelineMediaAttachments().length > 0) {
-              <div class="action-card__timeline-media">
-                <label class="action-card__email-label">Attached Media</label>
-                <div class="action-card__timeline-media-grid">
-                  @for (media of timelineMediaAttachments(); track media.url; let idx = $index) {
+                  @if (hiddenRecipientCount() > 0) {
                     <button
                       type="button"
-                      class="action-card__timeline-media-button"
-                      [attr.aria-label]="'Open attached ' + media.type"
-                      (click)="onTimelineMediaClick(idx)"
+                      class="action-card__recipients-toggle"
+                      (click)="toggleBatchRecipients()"
                     >
-                      @if (media.type === 'image') {
-                        <img
-                          class="action-card__timeline-media-thumb"
-                          [src]="media.url"
-                          [alt]="media.name"
-                          loading="lazy"
-                        />
-                      } @else {
-                        <video
-                          class="action-card__timeline-media-thumb"
-                          [src]="media.url"
-                          preload="metadata"
-                        ></video>
-                        <span class="action-card__timeline-media-play" aria-hidden="true">
-                          <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14">
-                            <path d="M8 5v14l11-7L8 5z" />
-                          </svg>
-                        </span>
-                      }
+                      {{
+                        showAllBatchRecipients()
+                          ? 'Show fewer'
+                          : 'Show ' + hiddenRecipientCount() + ' more'
+                      }}
                     </button>
                   }
-                </div>
-              </div>
-            }
-          </div>
-        } @else if (isApproval() && isGenericApproval() && genericApprovalData()) {
-          <!-- ═══ GENERIC APPROVAL RICH PREVIEW ═══ -->
-          <div
-            class="action-card__generic-preview"
-            [class.action-card__generic-preview--destructive]="isDestructiveApproval()"
-            [attr.data-testid]="testIds.DETAILS_TOGGLE"
-          >
-            <p class="action-card__generic-summary">
-              {{ genericApprovalData()!.actionSummary }}
-            </p>
-
-            <!-- Season Stats Preview -->
-            @if (richPreview() && richPreview()!.type === 'season_stats') {
-              <div class="action-card__rich-preview action-card__stats-table">
-                <p>Preview rendering coming soon</p>
-              </div>
-            }
-
-            <!-- Data display (fallback) -->
-            @if (!richPreview() && genericApprovalData()!.dataFields?.length) {
-              <table class="action-card__data-table">
-                @for (field of genericApprovalData()!.dataFields!; track field.key) {
-                  <tr class="action-card__data-row">
-                    <td class="action-card__data-key">{{ field.key }}</td>
-                    <td class="action-card__data-value">{{ field.value }}</td>
-                  </tr>
+                } @else {
+                  <input
+                    type="text"
+                    class="action-card__email-input"
+                    [ngModel]="editEmailTo()"
+                    (ngModelChange)="editEmailTo.set($event)"
+                    placeholder="recipient@example.com"
+                  />
                 }
-              </table>
-            }
-            @if (isDestructiveApproval()) {
-              <p class="action-card__destructive-warning">
-                <svg class="action-card__warn-icon" viewBox="0 0 16 16" aria-hidden="true">
-                  <path d="M8 1L15 14H1L8 1Z" />
-                  <line x1="8" y1="6" x2="8" y2="10" />
-                  <circle cx="8" cy="12" r="0.5" />
-                </svg>
-                This action may be irreversible.
+              </div>
+              <div class="action-card__email-field">
+                <label class="action-card__email-label">Subject</label>
+                <input
+                  type="text"
+                  class="action-card__email-input"
+                  [ngModel]="editEmailSubject()"
+                  (ngModelChange)="editEmailSubject.set($event)"
+                  placeholder="Subject line"
+                />
+              </div>
+              <div class="action-card__email-field">
+                <label class="action-card__email-label">Body</label>
+                <div
+                  class="action-card__email-preview action-card__email-preview--editable"
+                  contenteditable="true"
+                  spellcheck="true"
+                  [innerHTML]="safeBodyHtml()"
+                  (blur)="onBodyHtmlBlur($event)"
+                ></div>
+              </div>
+            </div>
+          } @else if (isApproval() && isPlanApproval() && planApprovalData()) {
+            <!-- ═══ PLAN APPROVAL — GOAL + ORDERED STEPS ═══ -->
+            <div class="action-card__plan" [attr.data-testid]="testIds.DETAILS_TOGGLE">
+              <p class="action-card__plan-goal" [attr.data-testid]="testIds.PLAN_GOAL">
+                <span class="action-card__plan-goal-label">Goal</span>
+                <span class="action-card__plan-goal-text">{{ planApprovalData()!.goal }}</span>
               </p>
-            }
-          </div>
-        } @else if (isApproval() && yield().pendingToolCall) {
-          <details class="action-card__details" [attr.data-testid]="testIds.DETAILS_TOGGLE">
-            <summary class="action-card__details-summary">
-              <span class="action-card__summary-bullet" aria-hidden="true"></span>
-              <span>{{ friendlyToolName() }}</span>
-              <svg class="action-card__chevron" viewBox="0 0 12 12" aria-hidden="true">
-                <path d="M2.25 4.5L6 8.25L9.75 4.5" />
-              </svg>
-            </summary>
-            @if (toolSummaryLines().length > 0) {
-              <ul class="action-card__summary-list">
-                @for (line of toolSummaryLines(); track line) {
-                  <li>{{ line }}</li>
+              <ol class="action-card__plan-steps" [attr.data-testid]="testIds.PLAN_STEP_LIST">
+                @for (step of planApprovalData()!.steps; track step.id; let idx = $index) {
+                  <li class="action-card__plan-step" [attr.data-testid]="testIds.PLAN_STEP_ITEM">
+                    <span class="action-card__plan-step-index" aria-hidden="true">{{
+                      idx + 1
+                    }}</span>
+                    <div class="action-card__plan-step-body">
+                      <span class="action-card__plan-step-label">{{ step.label }}</span>
+                      @if (step.description && step.description !== step.label) {
+                        <span class="action-card__plan-step-desc">{{ step.description }}</span>
+                      }
+                      @if (step.coordinator) {
+                        <span class="action-card__plan-step-meta">
+                          <svg
+                            class="action-card__plan-step-meta-icon"
+                            viewBox="0 0 16 16"
+                            aria-hidden="true"
+                          >
+                            <circle cx="8" cy="6" r="3" />
+                            <path d="M2 14c0-3 2.5-5 6-5s6 2 6 5" />
+                          </svg>
+                          {{ formatCoordinator(step.coordinator) }}
+                        </span>
+                      }
+                    </div>
+                  </li>
                 }
-              </ul>
-            }
-            @if (toolDetailLines().length > 0) {
-              <ul class="action-card__summary-list action-card__summary-list--compact">
-                @for (line of toolDetailLines(); track line) {
-                  <li>{{ line }}</li>
-                }
-              </ul>
-            }
-          </details>
-        }
-      </div>
+              </ol>
+            </div>
+          } @else if (isApproval() && isTimelinePostApproval() && timelinePostData()) {
+            <!-- ═══ TIMELINE POST EDITOR ═══ -->
+            <div class="action-card__email-editor" [attr.data-testid]="testIds.DETAILS_TOGGLE">
+              <div class="action-card__email-field">
+                <label class="action-card__email-label">Title</label>
+                <input
+                  type="text"
+                  class="action-card__email-input"
+                  [ngModel]="editPostTitle()"
+                  (ngModelChange)="editPostTitle.set($event)"
+                  placeholder="Post title"
+                />
+              </div>
+              <div class="action-card__email-field">
+                <label class="action-card__email-label">Description</label>
+                <textarea
+                  class="action-card__email-textarea"
+                  [ngModel]="editPostDescription()"
+                  (ngModelChange)="editPostDescription.set($event)"
+                  placeholder="What's this post about?"
+                  rows="5"
+                ></textarea>
+              </div>
+              @if (timelineMediaAttachments().length > 0) {
+                <div class="action-card__timeline-media">
+                  <label class="action-card__email-label">Attached Media</label>
+                  <div class="action-card__timeline-media-grid">
+                    @for (media of timelineMediaAttachments(); track media.url; let idx = $index) {
+                      <button
+                        type="button"
+                        class="action-card__timeline-media-button"
+                        [attr.aria-label]="'Open attached ' + media.type"
+                        (click)="onTimelineMediaClick(idx)"
+                      >
+                        @if (media.type === 'image') {
+                          <img
+                            class="action-card__timeline-media-thumb"
+                            [src]="media.url"
+                            [alt]="media.name"
+                            loading="lazy"
+                          />
+                        } @else {
+                          <video
+                            class="action-card__timeline-media-thumb"
+                            [src]="media.url"
+                            preload="metadata"
+                          ></video>
+                          <span class="action-card__timeline-media-play" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14">
+                              <path d="M8 5v14l11-7L8 5z" />
+                            </svg>
+                          </span>
+                        }
+                      </button>
+                    }
+                  </div>
+                </div>
+              }
+            </div>
+          } @else if (isApproval() && isGenericApproval() && genericApprovalData()) {
+            <!-- ═══ GENERIC APPROVAL RICH PREVIEW ═══ -->
+            <div
+              class="action-card__generic-preview"
+              [class.action-card__generic-preview--destructive]="isDestructiveApproval()"
+              [attr.data-testid]="testIds.DETAILS_TOGGLE"
+            >
+              <p class="action-card__generic-summary">
+                {{ genericApprovalData()!.actionSummary }}
+              </p>
+
+              <!-- Season Stats Preview -->
+              @if (richPreview() && richPreview()!.type === 'season_stats') {
+                <div class="action-card__rich-preview action-card__stats-table">
+                  <p>Preview rendering coming soon</p>
+                </div>
+              }
+
+              <!-- Data display (fallback) -->
+              @if (!richPreview() && genericApprovalData()!.dataFields?.length) {
+                <table class="action-card__data-table">
+                  @for (field of genericApprovalData()!.dataFields!; track field.key) {
+                    <tr class="action-card__data-row">
+                      <td class="action-card__data-key">{{ field.key }}</td>
+                      <td class="action-card__data-value">{{ field.value }}</td>
+                    </tr>
+                  }
+                </table>
+              }
+              @if (isDestructiveApproval()) {
+                <p class="action-card__destructive-warning">
+                  <svg class="action-card__warn-icon" viewBox="0 0 16 16" aria-hidden="true">
+                    <path d="M8 1L15 14H1L8 1Z" />
+                    <line x1="8" y1="6" x2="8" y2="10" />
+                    <circle cx="8" cy="12" r="0.5" />
+                  </svg>
+                  This action may be irreversible.
+                </p>
+              }
+            </div>
+          } @else if (isApproval() && yield().pendingToolCall) {
+            <details class="action-card__details" [attr.data-testid]="testIds.DETAILS_TOGGLE">
+              <summary class="action-card__details-summary">
+                <span class="action-card__summary-bullet" aria-hidden="true"></span>
+                <span>{{ friendlyToolName() }}</span>
+                <svg class="action-card__chevron" viewBox="0 0 12 12" aria-hidden="true">
+                  <path d="M2.25 4.5L6 8.25L9.75 4.5" />
+                </svg>
+              </summary>
+              @if (toolSummaryLines().length > 0) {
+                <ul class="action-card__summary-list">
+                  @for (line of toolSummaryLines(); track line) {
+                    <li>{{ line }}</li>
+                  }
+                </ul>
+              }
+              @if (toolDetailLines().length > 0) {
+                <ul class="action-card__summary-list action-card__summary-list--compact">
+                  @for (line of toolDetailLines(); track line) {
+                    <li>{{ line }}</li>
+                  }
+                </ul>
+              }
+            </details>
+          }
+        </div>
+      }
+      <!-- /@if displayCardState !== 'resolved' -->
 
       <!-- ═══ ACTIONS ═══ -->
       @switch (displayCardState()) {
@@ -584,8 +588,6 @@ export interface BatchEmailRecipientEdit {
           opacity: 0.6;
         }
       }
-
-      /* ── Risk level badge ── */
       .action-card__risk-badge {
         display: inline-flex;
         align-items: center;
@@ -1392,6 +1394,9 @@ export class AgentXActionCardComponent implements OnDestroy {
   /** The operation ID needed to approve/reply. */
   readonly operationId = input.required<string>();
 
+  /** Optional persisted message id associated with this card render. */
+  readonly messageId = input<string | null>(null);
+
   /** Optional externally controlled visual state for inline timeline rendering. */
   readonly externalCardState = input<CardState | null>(null);
 
@@ -1825,9 +1830,8 @@ export class AgentXActionCardComponent implements OnDestroy {
   onApprove(): void {
     this.cardState.set('submitting');
     this.approve.emit({
-      operationId: this.operationId(),
+      messageId: this.messageId() ?? undefined,
       decision: 'approve',
-      approvalId: this.yield().approvalId,
       toolInput: this.isEmailApproval()
         ? this.buildEditedEmailInput()
         : this.isTimelinePostApproval()
@@ -1841,9 +1845,8 @@ export class AgentXActionCardComponent implements OnDestroy {
     this.trustForSession.set(false);
     this.cardState.set('submitting');
     this.approve.emit({
-      operationId: this.operationId(),
+      messageId: this.messageId() ?? undefined,
       decision: 'reject',
-      approvalId: this.yield().approvalId,
     });
   }
 
@@ -1932,7 +1935,7 @@ export class AgentXActionCardComponent implements OnDestroy {
     if (!text) return;
     this.cardState.set('submitting');
     this.reply.emit({
-      operationId: this.operationId(),
+      messageId: this.messageId() ?? undefined,
       response: text,
     });
   }

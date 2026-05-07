@@ -136,26 +136,6 @@ function toMillis(value: unknown): number | null {
   return null;
 }
 
-function summarizeToolResult(result: Record<string, unknown>): string {
-  if (Array.isArray(result['items'])) {
-    return `Found ${result['items'].length} result(s)`;
-  }
-  if (Array.isArray(result['views'])) {
-    return `Found ${result['views'].length} data view(s)`;
-  }
-  if (typeof result['count'] === 'number') {
-    return `${result['count']} result(s)`;
-  }
-  if (typeof result['url'] === 'string') {
-    return 'Generated successfully';
-  }
-  if (typeof result['imageUrl'] === 'string') {
-    return 'Image generated';
-  }
-  const keys = Object.keys(result);
-  return keys.length > 0 ? `Returned ${keys.length} field(s)` : 'Completed';
-}
-
 function isJobTimeoutError(err: unknown): err is Error {
   if (!(err instanceof Error)) return false;
   return err.message.startsWith('Agent job timed out after ');
@@ -2731,12 +2711,6 @@ export class AgentWorker {
             stage: event.stage,
             status: event.toolSuccess ? 'success' : 'error',
             icon: event.icon,
-            ...(event.toolResult
-              ? {
-                  detail: summarizeToolResult(event.toolResult),
-                  toolResult: event.toolResult,
-                }
-              : {}),
           },
         };
       case 'done': {

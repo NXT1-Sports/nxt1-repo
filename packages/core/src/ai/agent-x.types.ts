@@ -1069,8 +1069,6 @@ export interface AgentXStreamStepEvent {
   readonly icon?: AgentXToolStepIcon;
   /** Optional expanded detail (e.g. "Found 24 matching athletes"). */
   readonly detail?: string;
-  /** Optional structured tool payload for successful terminal step updates. */
-  readonly toolResult?: Record<string, unknown>;
 }
 
 /**

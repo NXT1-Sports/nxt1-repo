@@ -14,11 +14,8 @@ import { ANALYTICS_ADAPTER } from '../../../services/analytics/analytics-adapter
 import {
   AGENT_X_API_BASE_URL,
   AGENT_X_AUTH_TOKEN_FACTORY,
-  AgentXJobService,
 } from '../../services/agent-x-job.service';
 import type { BillingActionResolvedEvent } from '../cards/agent-x-billing-action-card.component';
-import type { DraftSubmittedEvent } from '../cards/agent-x-draft-card.component';
-import type { ConfirmationActionEvent } from '../cards/agent-x-confirmation-card.component';
 import type { AskUserReplyEvent } from '../cards/agent-x-ask-user-card.component';
 import type {
   ActionCardApprovalEvent,
@@ -54,7 +51,6 @@ export class AgentXOperationChatYieldFacade {
   private readonly baseUrl = inject(AGENT_X_API_BASE_URL);
   private readonly getAuthToken = inject(AGENT_X_AUTH_TOKEN_FACTORY, { optional: true });
   private readonly platformId = inject(PLATFORM_ID);
-  private readonly jobService = inject(AgentXJobService);
   private readonly haptics = inject(HapticsService);
   private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('AgentXOperationChatYield');
@@ -104,83 +100,17 @@ export class AgentXOperationChatYieldFacade {
     }
   }
 
-  onDraftSubmitted(event: DraftSubmittedEvent): void {
-    this.logger.info('Draft email approved', {
-      toEmail: event.toEmail,
-      subject: event.subject?.slice(0, 50),
-      approvalId: event.approvalId,
-    });
-    this.breadcrumb.trackUserAction('draft-email-approved', {
-      toEmail: event.toEmail,
-      source: 'operation-chat',
-      approvalId: event.approvalId,
-    });
-
-    if (event.approvalId) {
-      void this.resolveInlineApproval({
-        approvalId: event.approvalId,
-        decision: 'approved',
-        toolInput: {
-          ...(event.toEmail ? { toEmail: event.toEmail } : {}),
-          subject: event.subject,
-          bodyHtml: event.content,
-        },
-        successMessage: 'Draft approved',
-      });
-      return;
-    }
-
-    this.logger.warn('Inline draft card missing approvalId', {
-      toEmail: event.toEmail,
-      subject: event.subject?.slice(0, 50),
-    });
-    this.toast.error('This draft can no longer be sent directly. Refresh and try again.');
-  }
-
-  onConfirmationAction(event: ConfirmationActionEvent): void {
-    if (!event.approvalId) {
-      this.logger.warn('Inline confirmation action missing approvalId', {
-        actionId: event.actionId,
-      });
-      return;
-    }
-
-    const decision =
-      event.actionId === 'approve' ? 'approved' : event.actionId === 'reject' ? 'rejected' : null;
-
-    if (!decision) {
-      this.logger.warn('Unsupported inline confirmation action', {
-        actionId: event.actionId,
-        approvalId: event.approvalId,
-      });
-      return;
-    }
-
-    void this.resolveInlineApproval({
-      approvalId: event.approvalId,
-      decision,
-      successMessage: decision === 'approved' ? 'Approved' : 'Request rejected',
-    });
-  }
-
   async onAskUserReply(event: AskUserReplyEvent): Promise<void> {
-    const host = this.requireHost();
-    const operationId = event.operationId?.trim() || this.yieldOperationId();
+    const operationId = this.yieldOperationId();
 
-    this.logger.info('ask_user reply submitted', {
-      threadId: event.threadId,
-      operationId,
-    });
+    this.logger.info('ask_user reply submitted', { operationId });
     this.breadcrumb.trackUserAction('ask-user-reply', {
-      threadId: event.threadId,
       operationId,
       source: 'operation-chat',
     });
 
     if (!operationId) {
-      this.logger.warn('ask_user reply missing operationId', {
-        threadId: event.threadId,
-      });
+      this.logger.warn('ask_user reply missing operationId — no active yield state');
       this.toast.error('This question is no longer available. Refresh and try again.');
       return;
     }
@@ -188,20 +118,36 @@ export class AgentXOperationChatYieldFacade {
     this.messageFacade.updateInlineYieldMessageState(operationId, 'submitting');
 
     try {
-      const success = await this.resumeYieldedOperation(operationId, event.answer);
-      if (success) {
+      const result = await this.submitThreadAction({
+        actionType: 'ask_user_reply',
+        messageId: event.messageId,
+        operationIdHint: operationId,
+        response: event.answer,
+      });
+
+      if (result) {
         await this.haptics.notification('success');
-        this.messageFacade.updateInlineYieldMessageState(
-          operationId,
-          'resolved',
-          'Reply sent — resuming'
-        );
+        this.messageFacade.pushMessage({
+          id: this.requireHost().uid(),
+          role: 'user',
+          content: event.answer,
+          timestamp: new Date(),
+        });
+        this.messageFacade.updateInlineYieldMessageState(operationId, 'resolved', 'Answered');
+
+        if (result.resumed && result.operationId) {
+          await this.attachToResumedOperation({
+            operationId: result.operationId,
+            threadId: result.threadId ?? undefined,
+          });
+        }
+
         this.analytics?.trackEvent(APP_EVENTS.AGENT_X_OPERATION_REPLIED, {
           operationId,
           source: 'operation-chat-ask-user',
         });
         setTimeout(() => {
-          host.yieldResolved.set(true);
+          this.requireHost().yieldResolved.set(true);
         }, 300);
         return;
       }
@@ -209,140 +155,115 @@ export class AgentXOperationChatYieldFacade {
       await this.haptics.notification('error');
       this.messageFacade.updateInlineYieldMessageState(operationId, 'idle');
     } catch (error) {
-      this.logger.error('ask_user reply failed', error, {
-        threadId: event.threadId,
-        operationId,
-      });
+      this.logger.error('ask_user reply failed', error, { operationId });
       await this.haptics.notification('error');
       this.messageFacade.updateInlineYieldMessageState(operationId, 'idle');
     }
   }
 
   async onApproveAction(event: ActionCardApprovalEvent): Promise<void> {
-    const host = this.requireHost();
-    const approvedToolName = host.activeYieldState()?.pendingToolCall?.toolName;
+    const operationId = this.yieldOperationId();
+    const approvedToolName = this.requireHost().activeYieldState()?.pendingToolCall?.toolName;
     this.logger.info('Action card approval', {
-      operationId: event.operationId,
+      operationId,
       decision: event.decision,
     });
     this.breadcrumb.trackUserAction('action-card-approve', {
-      operationId: event.operationId,
+      operationId,
       decision: event.decision,
     });
-    this.messageFacade.updateInlineYieldMessageState(event.operationId, 'submitting');
-
-    let approvalId = event.approvalId ?? host.activeYieldState()?.approvalId;
-    if (!approvalId) {
-      const recovered = await this.api.findPendingApprovalByOperation(event.operationId);
-      if (recovered?.approvalId) {
-        approvalId = recovered.approvalId;
-        this.logger.info('Recovered missing approvalId from pending approvals', {
-          operationId: event.operationId,
-          approvalId,
-          expiresAt: recovered.expiresAt,
-        });
-      }
-    }
-
-    if (!approvalId) {
-      this.logger.warn('Action card approval missing approvalId', {
-        operationId: event.operationId,
-        decision: event.decision,
-      });
-      await this.haptics.notification('error');
-      this.messageFacade.updateInlineYieldMessageState(event.operationId, 'idle');
-      this.toast.error('This approval request is no longer available. Refresh and try again.');
-      return;
-    }
+    this.messageFacade.updateInlineYieldMessageState(operationId, 'submitting');
 
     try {
-      const success = await this.resolveInlineApproval({
-        approvalId,
+      const result = await this.submitThreadAction({
+        actionType: 'approval_decision',
+        messageId: event.messageId,
+        operationIdHint: operationId,
         decision: event.decision === 'approve' ? 'approved' : 'rejected',
         ...(event.toolInput ? { toolInput: event.toolInput } : {}),
-        successMessage: event.decision === 'approve' ? 'Approved' : 'Request rejected',
         ...(event.trustForSession ? { trustForSession: true } : {}),
       });
-      if (success) {
+      if (result) {
         await this.haptics.notification('success');
         const successCopy = resolveApprovalSuccessText(approvedToolName ?? '');
         const resolvedText = event.decision === 'approve' ? successCopy.badge : 'Rejected';
 
-        this.messageFacade.updateInlineYieldMessageState(
-          event.operationId,
-          'resolved',
-          resolvedText
-        );
+        this.messageFacade.updateInlineYieldMessageState(operationId, 'resolved', resolvedText);
         this.analytics?.trackEvent(APP_EVENTS.AGENT_X_OPERATION_APPROVED, {
-          operationId: event.operationId,
+          operationId,
           decision: event.decision,
-          approvalId,
           source: 'operation-chat',
         });
+
+        if (event.decision === 'approve' && result.resumed && result.operationId) {
+          await this.attachToResumedOperation({
+            operationId: result.operationId,
+            threadId: result.threadId ?? undefined,
+          });
+        }
+
         setTimeout(() => {
-          host.yieldResolved.set(true);
-        }, 150);
+          this.requireHost().yieldResolved.set(true);
+        }, 300);
       } else {
-        this.logger.warn('Approve API returned false', { operationId: event.operationId });
+        this.logger.warn('Thread action approval returned null', { operationId });
         await this.haptics.notification('error');
-        this.messageFacade.updateInlineYieldMessageState(event.operationId, 'idle');
+        this.messageFacade.updateInlineYieldMessageState(operationId, 'idle');
       }
     } catch (error) {
-      this.logger.error('Action card approval failed', error, { operationId: event.operationId });
+      this.logger.error('Action card approval failed', error, { operationId });
       await this.haptics.notification('error');
-      this.messageFacade.updateInlineYieldMessageState(event.operationId, 'idle');
+      this.messageFacade.updateInlineYieldMessageState(operationId, 'idle');
     }
   }
 
   async onReplyAction(event: ActionCardReplyEvent): Promise<void> {
-    const host = this.requireHost();
-    this.logger.info('Action card reply', { operationId: event.operationId });
-    this.breadcrumb.trackUserAction('action-card-reply', {
-      operationId: event.operationId,
-    });
-    this.messageFacade.updateInlineYieldMessageState(event.operationId, 'submitting');
+    const operationId = this.yieldOperationId();
+    this.logger.info('Action card reply', { operationId });
+    this.breadcrumb.trackUserAction('action-card-reply', { operationId });
+    this.messageFacade.updateInlineYieldMessageState(operationId, 'submitting');
 
     try {
-      const activeYield = host.activeYieldState();
-      const success =
-        activeYield?.reason === 'needs_input'
-          ? await this.resumeYieldedOperation(event.operationId, event.response)
-          : await this.jobService.replyOperation(event.operationId, event.response);
-      if (success) {
+      const result = await this.submitThreadAction({
+        actionType: 'ask_user_reply',
+        messageId: event.messageId,
+        operationIdHint: operationId,
+        response: event.response,
+      });
+
+      if (result) {
         await this.haptics.notification('success');
-        this.messageFacade.updateInlineYieldMessageState(
-          event.operationId,
-          'resolved',
-          'Reply sent — resuming'
-        );
+        this.messageFacade.pushMessage({
+          id: this.requireHost().uid(),
+          role: 'user',
+          content: event.response,
+          timestamp: new Date(),
+        });
+        this.messageFacade.updateInlineYieldMessageState(operationId, 'resolved', 'Replied');
+
+        if (result.resumed && result.operationId) {
+          await this.attachToResumedOperation({
+            operationId: result.operationId,
+            threadId: result.threadId ?? undefined,
+          });
+        }
+
         this.analytics?.trackEvent(APP_EVENTS.AGENT_X_OPERATION_REPLIED, {
-          operationId: event.operationId,
+          operationId,
           source: 'operation-chat',
         });
         setTimeout(() => {
-          host.yieldResolved.set(true);
-          this.messageFacade.pushMessage({
-            id: host.uid(),
-            role: 'user',
-            content: event.response,
-            timestamp: new Date(),
-          });
-          this.messageFacade.pushMessage({
-            id: host.uid(),
-            role: 'system',
-            content: '✅ Reply sent — Agent X is resuming with your input.',
-            timestamp: new Date(),
-          });
-        }, 800);
+          this.requireHost().yieldResolved.set(true);
+        }, 300);
       } else {
-        this.logger.warn('Reply API returned false', { operationId: event.operationId });
+        this.logger.warn('Thread action reply returned null', { operationId });
         await this.haptics.notification('error');
-        this.messageFacade.updateInlineYieldMessageState(event.operationId, 'idle');
+        this.messageFacade.updateInlineYieldMessageState(operationId, 'idle');
       }
     } catch (error) {
-      this.logger.error('Action card reply failed', error, { operationId: event.operationId });
+      this.logger.error('Action card reply failed', error, { operationId });
       await this.haptics.notification('error');
-      this.messageFacade.updateInlineYieldMessageState(event.operationId, 'idle');
+      this.messageFacade.updateInlineYieldMessageState(operationId, 'idle');
     }
   }
 
@@ -503,6 +424,50 @@ export class AgentXOperationChatYieldFacade {
       this.toast.error('Failed to process approval');
       return false;
     }
+  }
+
+  private async submitThreadAction(params: {
+    actionType: 'ask_user_reply' | 'approval_decision';
+    messageId?: string;
+    operationIdHint?: string;
+    response?: string;
+    decision?: 'approved' | 'rejected';
+    toolInput?: Record<string, unknown>;
+    trustForSession?: boolean;
+  }): Promise<{
+    actionType: 'ask_user_reply' | 'approval_decision';
+    resumed: boolean;
+    decision?: 'approved' | 'rejected';
+    operationId?: string;
+    threadId?: string | null;
+  } | null> {
+    const host = this.requireHost();
+    const threadId = host.threadId()?.trim() || host.resolvedThreadId()?.trim() || undefined;
+
+    if (!threadId) {
+      this.logger.warn('Thread action rejected: missing threadId', {
+        actionType: params.actionType,
+      });
+      this.toast.error('This thread is unavailable. Refresh and try again.');
+      return null;
+    }
+
+    const result = await this.api.submitThreadAction(threadId, {
+      actionType: params.actionType,
+      ...(params.messageId ? { messageId: params.messageId } : {}),
+      ...(params.operationIdHint ? { operationIdHint: params.operationIdHint } : {}),
+      ...(params.response ? { response: params.response } : {}),
+      ...(params.decision ? { decision: params.decision } : {}),
+      ...(params.toolInput ? { toolInput: params.toolInput } : {}),
+      ...(params.trustForSession ? { trustForSession: true } : {}),
+    });
+
+    if (!result) {
+      this.toast.error('Failed to process action. Please retry.');
+      return null;
+    }
+
+    return result;
   }
 
   async attachToResumedOperation(params: {

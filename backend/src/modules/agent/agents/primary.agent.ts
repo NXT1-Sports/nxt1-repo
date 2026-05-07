@@ -116,6 +116,7 @@ const PRIMARY_REASONING_CONTRACT = [
   '    - `performance_coordinator` for film analysis, technique breakdowns, scouting, and player evaluation.',
   '    - `strategy_coordinator` for strategic interpretation, planning recommendations, and executive summaries from video.',
   '    - `brand_coordinator` for creative/video-content outputs (social edits, thumbnails, branded storytelling assets).',
+  '10i) NEVER call `generate_graphic` directly from router. ALL creative image/poster/thumbnail/social visual requests must be delegated to `brand_coordinator` via `delegate_to_coordinator`.',
   '10a) URL ingestion routing rule (CRITICAL):',
   '    - When the user provides any external link and asks to extract, import, analyze, or post media, enforce DIRECT-FIRST acquisition.',
   '    - Delegate link/media ingestion to `data_coordinator` first so it can run `classify_media_url` and follow `nextStep` exactly.',
@@ -150,6 +151,11 @@ const PRIMARY_REASONING_CONTRACT = [
   '12) After `delegate_to_coordinator`, `create_plan`, or `execute_saved_plan`, inspect the tool result JSON fields `user_already_received_response` and `follow_up_required`.',
   '13) If `user_already_received_response` is true and `follow_up_required` is false, do NOT add any extra narration, recap, or postamble. End your turn immediately.',
   '14) Only add follow-up text when `follow_up_required` is true (for example failures or missing output). Keep it to one concise recovery sentence.',
+  '15) `enqueue_heavy_task` — background queue escalation rules (STRICT):',
+  "   15a) ONLY call `enqueue_heavy_task` when the user's request clearly requires an operation that would take longer than 5 minutes to complete. If the operation can finish in under 5 minutes, handle it through normal coordinator delegation or plan mode — never queue it.",
+  '   15b) DO NOT call `enqueue_heavy_task` for requests that can be handled conversationally, through coordinator delegation, or via a saved plan — those are always the preferred paths.',
+  '   15c) NEVER call `enqueue_heavy_task` when the current mode is `planner`. In planner mode the user wants a reviewable plan, not background execution. Use `create_plan` instead.',
+  '   15d) When you enqueue a heavy task, immediately tell the user what was queued, that it is running in the background, and that they will receive a notification when it is done. Do not add further tool calls after enqueuing.',
 ].join('\n');
 
 interface PrimaryToolSelectionTrace {
@@ -347,6 +353,19 @@ export class PrimaryAgent extends BaseAgent {
       );
     }
 
+    // Safety fallback: some model generations may still attempt generate_graphic
+    // even when router-only tools are exposed. Force brand delegation.
+    if (toolCall.function.name === 'generate_graphic') {
+      return this.handleDirectGraphicGenerationFallback(
+        toolCall,
+        userId,
+        sessionContext?.operationId,
+        approvalGate,
+        onStreamEvent,
+        signal
+      );
+    }
+
     try {
       return await super.executeTool(
         toolCall,
@@ -523,6 +542,93 @@ export class PrimaryAgent extends BaseAgent {
     }
 
     return 'performance_coordinator';
+  }
+
+  private async handleDirectGraphicGenerationFallback(
+    toolCall: LLMToolCall,
+    userId: string,
+    operationId: string | undefined,
+    approvalGate: ApprovalGateService | undefined,
+    onStreamEvent: OnStreamEvent | undefined,
+    signal: AbortSignal | undefined
+  ): Promise<string> {
+    const ctx = this.resolveDispatchContext(
+      operationId,
+      userId,
+      approvalGate,
+      onStreamEvent,
+      signal
+    );
+
+    if (!ctx) {
+      return JSON.stringify({
+        success: false,
+        error: 'Graphic delegation unavailable: missing per-run state.',
+      });
+    }
+
+    let args: Record<string, unknown> = {};
+    try {
+      const parsed = JSON.parse(toolCall.function.arguments) as unknown;
+      if (parsed && typeof parsed === 'object') {
+        args = parsed as Record<string, unknown>;
+      }
+    } catch {
+      // Keep fallback resilient even if model emits malformed JSON.
+      args = {};
+    }
+
+    const coordinatorId: Extract<AgentIdentifier, 'brand_coordinator'> = 'brand_coordinator';
+    const goal =
+      'Create the requested branded visual asset and deliver final user-ready output with media URL(s).';
+
+    const structuredPayload = {
+      ...args,
+      source: 'router_generate_graphic_fallback',
+    };
+
+    onStreamEvent?.({
+      type: 'tool_result',
+      agentId: this.id,
+      stepId: toolCall.id,
+      toolName: toolCall.function.name,
+      stageType: 'tool',
+      toolSuccess: true,
+      toolResult: {
+        delegated: true,
+        coordinatorId,
+      },
+      icon: this.resolveToolStepIcon(toolCall.function.name),
+      message: this.resolveToolInvocationLabel(toolCall.function.name, toolCall.function.arguments),
+    });
+
+    const result = await this.dispatcher.runCoordinator(
+      coordinatorId,
+      goal,
+      ctx,
+      structuredPayload
+    );
+
+    const userAlreadyReceivedResponse = result.userAlreadyReceivedResponse === true;
+    const followUpRequired = !result.success && !userAlreadyReceivedResponse;
+    return JSON.stringify({
+      success: result.success,
+      data: {
+        dispatch_kind: result.dispatchKind ?? 'coordinator',
+        coordinator_id: coordinatorId,
+        user_already_received_response: userAlreadyReceivedResponse,
+        follow_up_required: followUpRequired,
+        follow_up_hint: followUpRequired
+          ? 'Coordinator dispatch did not complete successfully. Provide a single recovery sentence and next step.'
+          : 'No follow-up needed because the coordinator already responded directly to the user.',
+        coordinator_observation: result.observation,
+        ...(result.coordinatorArtifacts && Object.keys(result.coordinatorArtifacts).length > 0
+          ? { coordinator_artifacts: result.coordinatorArtifacts }
+          : {}),
+        streamed_delta_count: result.streamedDeltaCount ?? 0,
+        streamed_char_count: result.streamedCharCount ?? 0,
+      },
+    });
   }
 
   // ─── Dispatcher Integration ─────────────────────────────────────────────

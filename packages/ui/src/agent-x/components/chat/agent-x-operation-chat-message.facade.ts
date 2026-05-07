@@ -964,8 +964,6 @@ export class AgentXOperationChatMessageFacade {
     const nowIso = new Date().toISOString();
     const expiresIso = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
     const context = typeof payload.context === 'string' ? payload.context.trim() : '';
-    const operationId = typeof payload.operationId === 'string' ? payload.operationId.trim() : '';
-    const threadId = typeof payload.threadId === 'string' ? payload.threadId.trim() : '';
     const prompt = context ? `${question}\n\n${context}` : question;
 
     return {
@@ -975,12 +973,10 @@ export class AgentXOperationChatMessageFacade {
       messages: [],
       pendingToolCall: {
         toolName: 'ask_user',
-        toolCallId: operationId ? `ask_user:${operationId}` : `ask_user:${question}`,
+        toolCallId: `ask_user:${question}`,
         toolInput: {
           question,
           ...(context ? { context } : {}),
-          ...(operationId ? { operationId } : {}),
-          ...(threadId ? { threadId } : {}),
         },
       },
       yieldedAt: nowIso,

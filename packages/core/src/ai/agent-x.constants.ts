@@ -709,6 +709,8 @@ export const AGENT_X_ENDPOINTS = {
   OPERATIONS_LOG: '/agent-x/operations-log',
   /** Get messages for a specific thread */
   THREAD_MESSAGES: '/agent-x/threads',
+  /** Submit a semantic thread action (ask_user reply / approval decision) */
+  THREAD_ACTIONS: '/agent-x/threads',
   /** Message-level actions base path */
   MESSAGES: '/agent-x/messages',
   /** System health probe (unauthenticated, cached) */

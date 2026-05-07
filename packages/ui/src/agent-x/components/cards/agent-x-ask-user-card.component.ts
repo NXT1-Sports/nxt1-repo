@@ -18,10 +18,8 @@ import { NxtIconComponent } from '../../../components/icon/icon.component';
 export interface AskUserReplyEvent {
   /** The user's typed answer. */
   readonly answer: string;
-  /** Thread ID to route the reply to the correct conversation. */
-  readonly threadId?: string;
-  /** Yielded operation ID to resume deterministically on backend. */
-  readonly operationId?: string;
+  /** Optional persisted assistant message id that rendered this card. */
+  readonly messageId?: string;
 }
 
 @Component({
@@ -29,7 +27,7 @@ export interface AskUserReplyEvent {
   standalone: true,
   imports: [NxtIconComponent],
   template: `
-    <div class="ask-card" [class.ask-card--answered]="answered()">
+    <div class="ask-card" [class.ask-card--answered]="displayAnswered()">
       <!-- Header -->
       <div class="ask-card__header">
         <svg class="ask-card__icon" viewBox="0 0 20 20" fill="none">
@@ -58,7 +56,7 @@ export interface AskUserReplyEvent {
       }
 
       <!-- Answer area (hidden once answered) -->
-      @if (!answered()) {
+      @if (!displayAnswered()) {
         @if (questionCount() > 1) {
           <div class="ask-card__pagination">
             <button
@@ -125,27 +123,45 @@ export interface AskUserReplyEvent {
           </div>
         </div>
       } @else {
-        <div class="ask-card__answered">
-          <div class="ask-card__answered-badge">
-            <svg viewBox="0 0 16 16" fill="none" class="ask-card__check-icon">
-              <path
-                d="M3 8L6.5 11.5L13 5"
-                stroke="currentColor"
-                stroke-width="1.5"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              />
-            </svg>
-            <span>Answered</span>
-          </div>
-
-          @if (submittedAnswer()) {
-            <div class="ask-card__answer">
-              <span class="ask-card__answer-label">Your response</span>
-              <p class="ask-card__answer-text">{{ submittedAnswer() }}</p>
+        <!-- Resolved badge — shown when externally resolved (server confirms) -->
+        @if (externalCardState() === 'resolved') {
+          <div class="ask-card__answered">
+            <div class="ask-card__answered-badge">
+              <svg viewBox="0 0 16 16" fill="none" class="ask-card__check-icon">
+                <path
+                  d="M3 8L6.5 11.5L13 5"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+              <span>{{ externalResolvedText() || 'Answered' }}</span>
             </div>
-          }
-        </div>
+          </div>
+        } @else {
+          <div class="ask-card__answered">
+            <div class="ask-card__answered-badge">
+              <svg viewBox="0 0 16 16" fill="none" class="ask-card__check-icon">
+                <path
+                  d="M3 8L6.5 11.5L13 5"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+              <span>Answered</span>
+            </div>
+
+            @if (submittedAnswer()) {
+              <div class="ask-card__answer">
+                <span class="ask-card__answer-label">Your response</span>
+                <p class="ask-card__answer-text">{{ submittedAnswer() }}</p>
+              </div>
+            }
+          </div>
+        }
       }
     </div>
   `,
@@ -442,6 +458,15 @@ export class AgentXAskUserCardComponent {
   /** The rich card data from the SSE stream. */
   readonly card = input.required<AgentXRichCard>();
 
+  /** Optional persisted message id associated with this card render. */
+  readonly messageId = input<string | null>(null);
+
+  /** External lifecycle state driven by the yield facade. */
+  readonly externalCardState = input<'idle' | 'submitting' | 'resolved' | null>(null);
+
+  /** Text shown in the resolved badge when externally resolved. */
+  readonly externalResolvedText = input<string>('');
+
   /** Emitted when the user submits a reply. */
   readonly replySubmitted = output<AskUserReplyEvent>();
 
@@ -457,11 +482,21 @@ export class AgentXAskUserCardComponent {
   /** Per-question answers for multi-step question prompts. */
   protected readonly answers = signal<string[]>([]);
 
-  /** True once the user has submitted — locks the card. */
+  /** True once the user has submitted locally — locks the card. */
   protected readonly answered = signal(false);
 
   /** Snapshot of the submitted reply shown inline once the card is answered. */
   protected readonly submittedAnswer = signal('');
+
+  /** Unified answered state — local OR externally resolved.
+   * If externalCardState returns to 'idle' (server failure), the card unlocks.
+   */
+  protected readonly displayAnswered = computed(() => {
+    const ext = this.externalCardState();
+    if (ext === 'idle') return false; // revert on server failure
+    if (ext === 'resolved' || ext === 'submitting') return true;
+    return this.answered();
+  });
 
   protected readonly canAdvance = computed(() => this.draft().trim().length > 0);
 
@@ -493,14 +528,6 @@ export class AgentXAskUserCardComponent {
 
   protected get context(): () => string | undefined {
     return () => (this.card().payload as AgentXAskUserPayload).context;
-  }
-
-  protected get threadId(): string | undefined {
-    return (this.card().payload as AgentXAskUserPayload).threadId;
-  }
-
-  protected get operationId(): string | undefined {
-    return (this.card().payload as AgentXAskUserPayload).operationId;
   }
 
   protected onInput(event: Event): void {
@@ -550,8 +577,7 @@ export class AgentXAskUserCardComponent {
     this.answered.set(true);
     this.replySubmitted.emit({
       answer,
-      threadId: this.threadId,
-      operationId: this.operationId,
+      messageId: this.messageId() ?? undefined,
     });
   }
 

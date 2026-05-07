@@ -22,6 +22,7 @@ import {
 import type {
   AgentJobPayload,
   AgentJobOrigin,
+  AgentOperationStatus,
   AgentYieldState,
   AgentXAttachment,
   AgentXOperationLifecycleStatus,
@@ -41,7 +42,7 @@ import {
 } from '../../modules/billing/index.js';
 import { estimateChargeAmountSync } from '../../modules/billing/pricing.service.js';
 import crypto from 'node:crypto';
-import { FieldValue, Timestamp, type Firestore } from 'firebase-admin/firestore';
+import { FieldValue, type Firestore } from 'firebase-admin/firestore';
 
 import {
   getAgentAppConfig,
@@ -61,16 +62,19 @@ import {
   forceProxyFlush,
 } from './shared.js';
 import { resolveAppBaseUrl } from '../../utils/app-url.js';
+import { AgentMessageModel } from '../../models/agent/agent-message.model.js';
 
 const router = Router();
 
 const IDEMPOTENCY_KEY_HEADER = 'x-idempotency-key';
 const IDEMPOTENCY_KEY_RE = /^[a-zA-Z0-9:_-]{8,128}$/;
-const OUTBOX_COLLECTION = 'AgentJobOutbox';
-// Outbox TTL durations — Firestore auto-deletes docs once expiresAt passes.
-const OUTBOX_TTL_PENDING_DAYS = 1; // stuck-pending safety floor; fast cleanup
-const OUTBOX_TTL_ENQUEUED_DAYS = 7; // successfully delivered; keep for debug audit
-const OUTBOX_TTL_ERROR_DAYS = 7; // failed delivery; keep for ops triage
+import {
+  enqueueWithOutbox,
+  OUTBOX_COLLECTION,
+  OUTBOX_TTL_ENQUEUED_DAYS,
+  OUTBOX_TTL_ERROR_DAYS,
+  outboxTtlFromNow,
+} from '../../modules/agent/queue/outbox.service.js';
 const MAX_CONCURRENT_STREAMS_PER_USER = 5;
 const POLL_BACKOFF_INITIAL_MS: number = AGENT_X_RUNTIME_CONFIG.operationStream.pollBackoffInitialMs;
 const POLL_BACKOFF_MAX_MS: number = AGENT_X_RUNTIME_CONFIG.operationStream.pollBackoffMaxMs;
@@ -528,11 +532,6 @@ async function isAgentInfraHealthy(): Promise<boolean> {
   return typeof pubsubService.isHealthy === 'function' ? pubsubService.isHealthy() : true;
 }
 
-/** Build a Firestore Timestamp N days from now for outbox TTL writes. */
-function outboxTtlFromNow(days: number): FirebaseFirestore.Timestamp {
-  return Timestamp.fromMillis(Date.now() + days * 24 * 60 * 60 * 1000);
-}
-
 // ─── Shared attachment utilities ──────────────────────────────────────────
 // Used by both /chat and /enqueue so attachment processing is identical.
 
@@ -784,64 +783,13 @@ function streamBillingGateToSse(params: {
   res.end();
 }
 
-async function enqueueWithOutbox(
+async function enqueueWithOutboxLocal(
   db: Firestore,
   payload: AgentJobPayload,
   environment: 'staging' | 'production'
 ): Promise<{ jobId: string; deduplicated: boolean }> {
   if (!queueService) throw new Error('Agent queue is unavailable');
-
-  const outboxRef = db.collection(OUTBOX_COLLECTION).doc(payload.operationId);
-  const existing = await outboxRef.get();
-  if (existing.exists) {
-    const existingData = existing.data() as Partial<AgentOutboxDocument>;
-    if (existingData.status === 'enqueued' && typeof existingData.jobId === 'string') {
-      return { jobId: existingData.jobId, deduplicated: true };
-    }
-  }
-
-  await outboxRef.set(
-    {
-      operationId: payload.operationId,
-      userId: payload.userId,
-      environment,
-      status: 'pending' as AgentOutboxStatus,
-      attempts: FieldValue.increment(1),
-      payload,
-      expiresAt: outboxTtlFromNow(OUTBOX_TTL_PENDING_DAYS),
-      updatedAt: FieldValue.serverTimestamp(),
-      createdAt: FieldValue.serverTimestamp(),
-    },
-    { merge: true }
-  );
-
-  try {
-    const jobId = await queueService.enqueue(payload, environment);
-    await outboxRef.set(
-      {
-        status: 'enqueued' as AgentOutboxStatus,
-        jobId,
-        lastError: null,
-        expiresAt: outboxTtlFromNow(OUTBOX_TTL_ENQUEUED_DAYS),
-        enqueuedAt: FieldValue.serverTimestamp(),
-        updatedAt: FieldValue.serverTimestamp(),
-      },
-      { merge: true }
-    );
-    return { jobId, deduplicated: false };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    await outboxRef.set(
-      {
-        status: 'error' as AgentOutboxStatus,
-        lastError: message,
-        expiresAt: outboxTtlFromNow(OUTBOX_TTL_ERROR_DAYS),
-        updatedAt: FieldValue.serverTimestamp(),
-      },
-      { merge: true }
-    );
-    throw err;
-  }
+  return enqueueWithOutbox(db, payload, environment, queueService);
 }
 
 /**
@@ -2372,7 +2320,7 @@ router.post('/resume-job/:operationId', appGuard, async (req: Request, res: Resp
     }
 
     const environment = req.isStaging ? 'staging' : 'production';
-    const enqueueResult = await enqueueWithOutbox(db, resumedPayload, environment);
+    const enqueueResult = await enqueueWithOutboxLocal(db, resumedPayload, environment);
 
     logger.info('Agent job resumed', {
       originalOperationId: operationId,
@@ -2394,6 +2342,556 @@ router.post('/resume-job/:operationId', appGuard, async (req: Request, res: Resp
     const error = err instanceof Error ? err : new Error(String(err));
     logger.error('Failed to resume agent job', { error: error.message, stack: error.stack });
     res.status(500).json({ success: false, error: 'Failed to resume job' });
+  }
+});
+
+// ─── POST /threads/:threadId/actions — Thread-truth semantic actions ──────
+
+type ThreadActionType = 'ask_user_reply' | 'approval_decision';
+
+interface ThreadActionRequestBody {
+  readonly actionType?: ThreadActionType;
+  readonly messageId?: string;
+  readonly operationIdHint?: string;
+  readonly response?: string;
+  readonly decision?: 'approved' | 'rejected';
+  readonly toolInput?: Record<string, unknown>;
+  readonly trustForSession?: boolean;
+}
+
+const THREAD_ACTION_PENDING_STATUSES: readonly AgentOperationStatus[] = [
+  'awaiting_input',
+  'awaiting_approval',
+  'paused',
+] as const;
+
+function toMillis(value: unknown): number {
+  if (typeof value === 'string') {
+    const ms = Date.parse(value);
+    return Number.isFinite(ms) ? ms : 0;
+  }
+  if (
+    value &&
+    typeof value === 'object' &&
+    'toDate' in value &&
+    typeof (value as { toDate?: unknown }).toDate === 'function'
+  ) {
+    try {
+      const date = (value as { toDate: () => Date }).toDate();
+      return date.getTime();
+    } catch {
+      return 0;
+    }
+  }
+  return 0;
+}
+
+async function resolveOperationForThreadAction(params: {
+  db: Firestore;
+  userId: string;
+  threadId: string;
+  operationIdHint?: string;
+  messageId?: string;
+}): Promise<string | null> {
+  const { db, userId, threadId } = params;
+
+  const resolveFromHint = async (operationId: string): Promise<string | null> => {
+    const trimmed = operationId.trim();
+    if (!trimmed) return null;
+    const job = await jobRepository?.withDb(db).getById(trimmed);
+    if (!job) return null;
+    if (job.userId !== userId || job.threadId !== threadId) return null;
+    if (!THREAD_ACTION_PENDING_STATUSES.includes(job.status)) return null;
+    return trimmed;
+  };
+
+  if (params.operationIdHint) {
+    const fromHint = await resolveFromHint(params.operationIdHint);
+    if (fromHint) return fromHint;
+  }
+
+  if (params.messageId && params.messageId.trim().length > 0) {
+    const message = await AgentMessageModel.findOne({
+      _id: params.messageId.trim(),
+      threadId,
+      userId,
+    })
+      .select({ operationId: 1 })
+      .lean()
+      .exec();
+
+    const messageOperationId =
+      message && typeof message['operationId'] === 'string' ? message['operationId'] : null;
+    if (messageOperationId) {
+      const fromMessage = await resolveFromHint(messageOperationId);
+      if (fromMessage) return fromMessage;
+    }
+  }
+
+  const pendingSnap = await db
+    .collection('AgentJobs')
+    .where('userId', '==', userId)
+    .where('threadId', '==', threadId)
+    .where('status', 'in', [...THREAD_ACTION_PENDING_STATUSES])
+    .get();
+
+  if (pendingSnap.empty) return null;
+
+  const sorted = [...pendingSnap.docs].sort((a, b) => {
+    const aData = a.data() as Record<string, unknown>;
+    const bData = b.data() as Record<string, unknown>;
+    const aMs = Math.max(toMillis(aData['updatedAt']), toMillis(aData['createdAt']));
+    const bMs = Math.max(toMillis(bData['updatedAt']), toMillis(bData['createdAt']));
+    return bMs - aMs;
+  });
+
+  return sorted[0]?.id ?? null;
+}
+
+router.post('/threads/:threadId/actions', appGuard, async (req: Request, res: Response) => {
+  try {
+    if (!queueService || !jobRepository) {
+      res.status(503).json({ success: false, error: 'Agent queue not initialized' });
+      return;
+    }
+
+    const user = getAuthUser(req);
+    if (!user?.uid) {
+      res.status(401).json({ success: false, error: 'Unauthorized' });
+      return;
+    }
+
+    const threadIdParam = req.params['threadId'];
+    if (!threadIdParam || typeof threadIdParam !== 'string' || threadIdParam.trim().length === 0) {
+      res.status(400).json({ success: false, error: 'Thread ID is required' });
+      return;
+    }
+
+    const body = (req.body ?? {}) as ThreadActionRequestBody;
+    if (body.actionType !== 'ask_user_reply' && body.actionType !== 'approval_decision') {
+      res.status(400).json({ success: false, error: 'Invalid actionType' });
+      return;
+    }
+
+    const { db } = req.firebase!;
+    const resolvedOperationId = await resolveOperationForThreadAction({
+      db,
+      userId: user.uid,
+      threadId: threadIdParam.trim(),
+      operationIdHint: body.operationIdHint,
+      messageId: body.messageId,
+    });
+
+    if (!resolvedOperationId) {
+      res.status(409).json({ success: false, error: 'No pending action found for this thread' });
+      return;
+    }
+
+    if (body.actionType === 'ask_user_reply') {
+      const userResponse = typeof body.response === 'string' ? body.response : '';
+      if (userResponse.trim().length === 0) {
+        res.status(400).json({ success: false, error: 'A non-empty response is required' });
+        return;
+      }
+      if (userResponse.length > 5000) {
+        res.status(400).json({ success: false, error: 'Response must be 5000 characters or less' });
+        return;
+      }
+
+      const jobDoc = await jobRepository.withDb(db).getById(resolvedOperationId);
+      if (!jobDoc || jobDoc.userId !== user.uid || jobDoc.threadId !== threadIdParam.trim()) {
+        res.status(404).json({ success: false, error: 'Job not found' });
+        return;
+      }
+
+      const status = jobDoc.status;
+      if (status !== 'awaiting_input' && status !== 'awaiting_approval' && status !== 'paused') {
+        res.status(409).json({ success: false, error: `Job is in "${status}" state` });
+        return;
+      }
+
+      const yieldState = jobDoc.yieldState as AgentYieldState | undefined;
+      if (!yieldState) {
+        res.status(409).json({ success: false, error: 'No yield state found on this job' });
+        return;
+      }
+
+      const trimmedUserResponse = userResponse.trim();
+      const resumeFromPausedState = isPauseYieldState(yieldState);
+      if (!resumeFromPausedState && trimmedUserResponse.length === 0) {
+        res.status(400).json({ success: false, error: 'A non-empty response is required' });
+        return;
+      }
+
+      if (new Date(yieldState.expiresAt).getTime() < Date.now()) {
+        await jobRepository
+          .withDb(db)
+          .markFailed(resolvedOperationId, 'Yield expired before user responded');
+        res.status(410).json({ success: false, error: 'This request has expired' });
+        return;
+      }
+
+      if (jobDoc.threadId && chatService && trimmedUserResponse.length > 0) {
+        try {
+          await chatService.addMessage({
+            threadId: jobDoc.threadId,
+            userId: user.uid,
+            role: 'user',
+            content: trimmedUserResponse,
+            origin: 'user',
+            operationId: resolvedOperationId,
+          });
+        } catch (chatErr) {
+          logger.warn('Failed to persist thread action reply to MongoDB', {
+            error: chatErr instanceof Error ? chatErr.message : String(chatErr),
+            userId: user.uid,
+          });
+        }
+      }
+
+      const resumeSourceMessages = normalizeYieldMessages(yieldState.messages);
+      const pendingToolCallId = resumeFromPausedState
+        ? (yieldState.pendingToolCall?.toolCallId ?? 'ask_user_response')
+        : resolveResumeToolCallId(resumeSourceMessages, yieldState.pendingToolCall?.toolCallId);
+      const normalizedMessages = stripToolResultForCallId(resumeSourceMessages, pendingToolCallId);
+      const sanitizedMessages = resumeFromPausedState
+        ? stripPauseResumeToolResults(normalizedMessages)
+        : normalizedMessages;
+      const effectiveSanitizedMessages: ResumeMessageShape[] =
+        sanitizedMessages.length === 0 && jobDoc.intent?.trim()
+          ? [{ role: 'user', content: jobDoc.intent.trim() }]
+          : sanitizedMessages;
+
+      const resumedMessages = resumeFromPausedState
+        ? trimmedUserResponse.length > 0
+          ? [
+              ...effectiveSanitizedMessages,
+              {
+                role: 'user',
+                content: trimmedUserResponse,
+              },
+            ]
+          : effectiveSanitizedMessages
+        : [
+            ...effectiveSanitizedMessages,
+            {
+              role: 'tool',
+              content: JSON.stringify({
+                success: true,
+                data: { userResponse: trimmedUserResponse },
+              }),
+              tool_call_id: pendingToolCallId,
+            },
+          ];
+
+      const resumedPayload: AgentJobPayload = {
+        operationId: crypto.randomUUID(),
+        userId: user.uid,
+        intent: jobDoc.intent,
+        sessionId: crypto.randomUUID(),
+        origin: 'user' as AgentJobOrigin,
+        context: {
+          appBaseUrl: resolveRequestAppBaseUrl(req),
+          threadId: jobDoc.threadId,
+          resumedFrom: resolvedOperationId,
+          yieldState: {
+            ...yieldState,
+            messages: resumedMessages,
+          } satisfies AgentYieldState,
+        },
+      };
+
+      await jobRepository.withDb(db).create(resumedPayload);
+      await jobRepository.withDb(db).markCompleted(resolvedOperationId, {
+        summary: resumeFromPausedState
+          ? `Resumed after pause — continuing as ${resumedPayload.operationId}`
+          : `Resumed by user — continuing as ${resumedPayload.operationId}`,
+        data: {
+          resumedAs: resumedPayload.operationId,
+          ...(resumeFromPausedState ? { resumedFromPause: true } : {}),
+        },
+      });
+
+      if (jobDoc.threadId && chatService) {
+        try {
+          await chatService.clearThreadPausedYieldState(jobDoc.threadId);
+        } catch (err) {
+          logger.warn('Failed to clear thread paused yield state on thread action resume', {
+            threadId: jobDoc.threadId,
+            operationId: resolvedOperationId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+
+      const environment = req.isStaging ? 'staging' : 'production';
+      const enqueueResult = await enqueueWithOutboxLocal(db, resumedPayload, environment);
+
+      res.status(202).json({
+        success: true,
+        data: {
+          actionType: body.actionType,
+          resumed: true,
+          jobId: enqueueResult.jobId,
+          operationId: resumedPayload.operationId,
+          threadId: jobDoc.threadId,
+          resolvedOperationId,
+        },
+      });
+      return;
+    }
+
+    if (body.decision !== 'approved' && body.decision !== 'rejected') {
+      res.status(400).json({
+        success: false,
+        error: 'Decision must be "approved" or "rejected"',
+      });
+      return;
+    }
+    if (
+      body.toolInput !== undefined &&
+      (typeof body.toolInput !== 'object' ||
+        body.toolInput === null ||
+        Array.isArray(body.toolInput))
+    ) {
+      res.status(400).json({
+        success: false,
+        error: 'toolInput must be an object when provided',
+      });
+      return;
+    }
+
+    const approvalsSnap = await db
+      .collection('AgentApprovalRequests')
+      .where('userId', '==', user.uid)
+      .where('operationId', '==', resolvedOperationId)
+      .where('status', '==', 'pending')
+      .get();
+
+    if (approvalsSnap.empty) {
+      res.status(409).json({ success: false, error: 'No pending approval found for this thread' });
+      return;
+    }
+
+    let approvalDoc = approvalsSnap.docs[0];
+    if (approvalsSnap.docs.length > 1) {
+      approvalDoc = [...approvalsSnap.docs].sort((a, b) => {
+        const aData = a.data() as Record<string, unknown>;
+        const bData = b.data() as Record<string, unknown>;
+        return toMillis(bData['createdAt']) - toMillis(aData['createdAt']);
+      })[0];
+    }
+
+    const approvalRef = db.collection('AgentApprovalRequests').doc(approvalDoc.id);
+    const transactionResult = await db.runTransaction(async (txn) => {
+      const approvalSnap = await txn.get(approvalRef);
+      if (!approvalSnap.exists) return { code: 404, error: 'Approval request not found' } as const;
+
+      const approvalData = approvalSnap.data()!;
+      if (approvalData['userId'] !== user.uid) {
+        return { code: 404, error: 'Approval request not found' } as const;
+      }
+      if (approvalData['status'] !== 'pending') {
+        return { code: 409, error: `Approval is already "${approvalData['status']}"` } as const;
+      }
+
+      txn.update(approvalRef, {
+        status: body.decision,
+        resolvedAt: new Date().toISOString(),
+        resolvedBy: user.uid,
+        ...(body.toolInput ? { toolInput: body.toolInput } : {}),
+      });
+
+      return {
+        code: 200,
+        operationId: approvalData['operationId'] as string | undefined,
+        toolInput: (body.toolInput ?? approvalData['toolInput']) as
+          | Record<string, unknown>
+          | undefined,
+      } as const;
+    });
+
+    if ('error' in transactionResult) {
+      res.status(transactionResult.code).json({ success: false, error: transactionResult.error });
+      return;
+    }
+
+    const operationId = transactionResult.operationId;
+    const resolvedToolInput = transactionResult.toolInput;
+    if (!operationId) {
+      res.json({
+        success: true,
+        data: {
+          actionType: body.actionType,
+          decision: body.decision,
+          resumed: false,
+          resolvedOperationId,
+        },
+      });
+      return;
+    }
+
+    const jobDoc = await jobRepository.withDb(db).getById(operationId);
+    if (!jobDoc) {
+      res.json({
+        success: true,
+        data: {
+          actionType: body.actionType,
+          decision: body.decision,
+          resumed: false,
+          resolvedOperationId,
+        },
+      });
+      return;
+    }
+
+    if (
+      jobDoc.status === 'cancelled' ||
+      jobDoc.status === 'failed' ||
+      jobDoc.status === 'completed'
+    ) {
+      res.json({
+        success: true,
+        data: {
+          actionType: body.actionType,
+          decision: body.decision,
+          resumed: false,
+          reason: 'operation_already_terminal',
+          resolvedOperationId,
+        },
+      });
+      return;
+    }
+
+    const yieldState = jobDoc.yieldState as AgentYieldState | undefined;
+    const threadId = jobDoc.threadId;
+
+    if (body.decision === 'rejected') {
+      await jobRepository.withDb(db).markCancelled(operationId);
+      if (threadId && chatService) {
+        try {
+          await chatService.clearThreadPausedYieldState(threadId);
+        } catch (err) {
+          logger.warn('Failed to clear thread paused yield state on thread action rejection', {
+            threadId,
+            operationId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+
+      res.json({
+        success: true,
+        data: {
+          actionType: body.actionType,
+          decision: body.decision,
+          resumed: false,
+          resolvedOperationId,
+        },
+      });
+      return;
+    }
+
+    if (!yieldState?.pendingToolCall) {
+      await jobRepository.withDb(db).markCompleted(operationId, {
+        summary: 'Approval granted but no pending action to resume.',
+      });
+      res.json({
+        success: true,
+        data: {
+          actionType: body.actionType,
+          decision: body.decision,
+          resumed: false,
+          resolvedOperationId,
+        },
+      });
+      return;
+    }
+
+    const normalizedApprovalMessages = stripToolResultForCallId(
+      normalizeYieldMessages(yieldState.messages),
+      yieldState.pendingToolCall.toolCallId
+    );
+
+    const resumedPayload: AgentJobPayload = {
+      operationId: crypto.randomUUID(),
+      userId: user.uid,
+      intent: jobDoc.intent,
+      sessionId: crypto.randomUUID(),
+      origin: 'user' as AgentJobOrigin,
+      context: {
+        appBaseUrl: resolveRequestAppBaseUrl(req),
+        threadId,
+        resumedFrom: operationId,
+        approvalId: approvalDoc.id,
+        yieldState: {
+          ...yieldState,
+          messages: normalizedApprovalMessages,
+          approvalId: approvalDoc.id,
+          pendingToolCall: {
+            ...yieldState.pendingToolCall,
+            toolInput: resolvedToolInput ?? yieldState.pendingToolCall.toolInput,
+          },
+        },
+      },
+    };
+
+    await jobRepository.withDb(db).create(resumedPayload);
+    await jobRepository.withDb(db).markCompleted(operationId, {
+      summary: `Approved — continuing as ${resumedPayload.operationId}`,
+      data: { resumedAs: resumedPayload.operationId, approvalId: approvalDoc.id },
+    });
+
+    if (body.trustForSession === true && yieldState.pendingToolCall.toolName) {
+      const toolNameForTrust = yieldState.pendingToolCall.toolName;
+      try {
+        const { ApprovalGateService } =
+          await import('../../modules/agent/services/approval-gate.service.js');
+        const approvalGateSvc = new ApprovalGateService(db);
+        await approvalGateSvc.grantSessionTrust(
+          user.uid,
+          resumedPayload.sessionId,
+          toolNameForTrust
+        );
+      } catch (trustErr) {
+        logger.warn('Failed to write session trust grant (non-fatal)', {
+          error: trustErr instanceof Error ? trustErr.message : String(trustErr),
+          toolName: toolNameForTrust,
+        });
+      }
+    }
+
+    if (threadId && chatService) {
+      try {
+        await chatService.clearThreadPausedYieldState(threadId);
+      } catch (err) {
+        logger.warn('Failed to clear thread paused yield state on thread action approval', {
+          threadId,
+          operationId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
+    const environment = req.isStaging ? 'staging' : 'production';
+    const enqueueResult = await enqueueWithOutboxLocal(db, resumedPayload, environment);
+
+    res.json({
+      success: true,
+      data: {
+        actionType: body.actionType,
+        decision: body.decision,
+        resumed: true,
+        jobId: enqueueResult.jobId,
+        operationId: resumedPayload.operationId,
+        threadId,
+        resolvedOperationId,
+      },
+    });
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('Failed to execute thread action', { error: error.message, stack: error.stack });
+    res.status(500).json({ success: false, error: 'Failed to execute thread action' });
   }
 });
 
@@ -2689,7 +3187,7 @@ router.post('/approvals/:id/resolve', appGuard, async (req: Request, res: Respon
     }
 
     const environment = req.isStaging ? 'staging' : 'production';
-    const enqueueResult = await enqueueWithOutbox(db, resumedPayload, environment);
+    const enqueueResult = await enqueueWithOutboxLocal(db, resumedPayload, environment);
 
     logger.info('Approval resolved and job resumed', {
       approvalId,
@@ -3025,7 +3523,7 @@ router.post(
         })();
       }
 
-      const enqueueResult = await enqueueWithOutbox(db, payload, environment);
+      const enqueueResult = await enqueueWithOutboxLocal(db, payload, environment);
 
       logger.info('Agent X background job enqueued', {
         operationId,
@@ -3705,7 +4203,7 @@ router.post(
       };
 
       await jobRepository.withDb(db).create(payload);
-      await enqueueWithOutbox(db, payload, environment);
+      await enqueueWithOutboxLocal(db, payload, environment);
 
       // ── Prompt-only title generation (fire-and-forget) ───────────────────
       // New threads only: generate an AI title from the raw user message.

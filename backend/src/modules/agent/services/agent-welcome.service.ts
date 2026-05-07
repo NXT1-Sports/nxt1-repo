@@ -12,6 +12,7 @@
 import type { DocumentReference, Firestore } from 'firebase-admin/firestore';
 import type { AgentJobPayload, UserRole } from '@nxt1/core';
 import { buildAthleteWelcomePrompt, buildTeamWelcomePrompt } from '@nxt1/core';
+import { enqueueWithOutbox } from '../queue/outbox.service.js';
 import { logger } from '../../../utils/logger.js';
 
 const USERS_COLLECTION = 'Users';
@@ -392,7 +393,7 @@ export async function enqueueWelcomeGraphic(
 
   try {
     await jobRepository.withDb(db).create(payload);
-    await queueService.enqueue(payload, environment);
+    await enqueueWithOutbox(db, payload, environment, queueService);
 
     logger.info('[Welcome] Welcome graphic job enqueued', {
       userId: input.userId,

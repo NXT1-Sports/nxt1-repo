@@ -59,6 +59,7 @@ import {
   WriteConnectedSourceTool,
   WriteScheduleTool,
   WriteTeamStatsTool,
+  WritePlaybooksTool,
   WriteTeamNewsTool,
   WriteTeamPostTool,
   WriteRosterEntriesTool,
@@ -185,6 +186,7 @@ import {
   UpdateRecurringTaskTool,
   ListRecurringTasksTool,
   CancelRecurringTaskTool,
+  EnqueueHeavyTaskTool,
 } from '../tools/automation/index.js';
 import { ContextBuilder } from '../memory/context-builder.js';
 import { VectorMemoryService } from '../memory/vector.service.js';
@@ -399,6 +401,7 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   toolRegistry.register(new WriteCalendarEventsTool(stagingDb));
   toolRegistry.register(new WriteScheduleTool(stagingDb));
   toolRegistry.register(new WriteTeamStatsTool(stagingDb));
+  toolRegistry.register(new WritePlaybooksTool(stagingDb));
   toolRegistry.register(new WriteTeamNewsTool(stagingDb));
   toolRegistry.register(new WriteTeamPostTool(stagingDb));
   toolRegistry.register(new WriteRosterEntriesTool(stagingDb));
@@ -712,6 +715,7 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   toolRegistry.register(new UpdateRecurringTaskTool(queueService, stagingDb));
   toolRegistry.register(new ListRecurringTasksTool(queueService, stagingDb));
   toolRegistry.register(new CancelRecurringTaskTool(queueService, stagingDb));
+  toolRegistry.register(new EnqueueHeavyTaskTool(queueService, stagingDb));
 
   // ── 4. Create the Redis PubSub service (real-time SSE pipe) ───────────
   // Enables BullMQ workers to stream tokens/steps back to the Express SSE

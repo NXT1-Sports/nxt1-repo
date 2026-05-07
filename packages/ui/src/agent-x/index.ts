@@ -116,23 +116,6 @@ export { AgentXFabService, type FabPanelState } from './fab';
 
 // Rich card components
 export { AgentXToolStepsComponent } from './components/shared/agent-x-tool-steps.component';
-export { AgentXPlannerCardComponent } from './components/cards/agent-x-planner-card.component';
-export { AgentXDataTableCardComponent } from './components/cards/agent-x-data-table-card.component';
-export {
-  AgentXConfirmationCardComponent,
-  type ConfirmationActionEvent,
-} from './components/cards/agent-x-confirmation-card.component';
-export { AgentXCitationsCardComponent } from './components/cards/agent-x-citations-card.component';
-export {
-  AgentXParameterFormCardComponent,
-  type ParameterFormSubmitEvent,
-} from './components/cards/agent-x-parameter-form-card.component';
-export {
-  AgentXDraftCardComponent,
-  type DraftSubmittedEvent,
-} from './components/cards/agent-x-draft-card.component';
-export { AgentXProfileCardComponent } from './components/cards/agent-x-profile-card.component';
-export { AgentXFilmTimelineCardComponent } from './components/cards/agent-x-film-timeline-card.component';
 export {
   AgentXBillingActionCardComponent,
   type BillingActionResolvedEvent,

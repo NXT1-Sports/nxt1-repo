@@ -81,6 +81,7 @@ describe('PrimaryAgent delegation control flow', () => {
     expect(prompt).toContain('The router must stay fast. Do NOT perform web research');
     expect(prompt).toContain('delegate to `data_coordinator`');
     expect(prompt).toContain('delegate to `strategy_coordinator`');
+    expect(prompt).toContain('NEVER call `generate_graphic` directly from router');
     expect(prompt).toContain('single objective sentence as the handoff payload');
     expect(prompt).toContain('Ask User Decision Matrix (CRITICAL)');
     expect(prompt).toContain('Do NOT call `ask_user` for data already present in task context');
@@ -545,5 +546,78 @@ describe('PrimaryAgent delegation control flow', () => {
     expect(observation).toContain('strategy_coordinator');
 
     agent.endRun('op-4');
+  });
+
+  it('reroutes direct generate_graphic tool calls to brand_coordinator', async () => {
+    const capabilities = {
+      current: () => ({
+        rendered: {
+          compactMarkdown: 'Capabilities',
+          detailedMarkdown: 'Capabilities',
+        },
+      }),
+    } as unknown as CapabilityRegistry;
+
+    const dispatcher: PrimaryDispatcher = {
+      runCoordinator: vi.fn().mockResolvedValue({
+        success: true,
+        observation: '## brand_coordinator dispatch result\n- graphic generated',
+      }),
+      runPlan: vi.fn(),
+    };
+
+    const agent = new TestPrimaryAgent(capabilities, dispatcher);
+    const context = {
+      ...createMockContext(),
+      operationId: 'op-5',
+    };
+
+    agent.beginRun({
+      operationId: 'op-5',
+      userId: context.userId,
+      sessionContext: context,
+      enrichedIntent: 'Create a recruiting commitment graphic',
+    });
+
+    const registry = new ConcreteToolRegistry();
+
+    const toolCall: LLMToolCall = {
+      id: 'call_direct_graphic',
+      type: 'function',
+      function: {
+        name: 'generate_graphic',
+        arguments: JSON.stringify({
+          graphicType: 'commitment',
+          text: 'Committed',
+        }),
+      },
+    };
+
+    const observation = await agent.callExecuteTool(
+      toolCall,
+      registry,
+      context.userId,
+      undefined,
+      undefined,
+      { operationId: 'op-5' },
+      [],
+      undefined,
+      undefined
+    );
+
+    expect(dispatcher.runCoordinator).toHaveBeenCalledWith(
+      'brand_coordinator',
+      expect.stringContaining('Create the requested branded visual asset'),
+      expect.objectContaining({
+        operationId: 'op-5',
+      }),
+      expect.objectContaining({
+        source: 'router_generate_graphic_fallback',
+        graphicType: 'commitment',
+      })
+    );
+    expect(observation).toContain('brand_coordinator');
+
+    agent.endRun('op-5');
   });
 });
