@@ -90,6 +90,13 @@ const DASH_MANIFEST = /\.mpd(?:[?#]|$)/i;
 /** Direct MP4 / MOV / AVI / MKV / WEBM */
 const DIRECT_VIDEO = /\.(?:mp4|mov|avi|mkv|webm)(?:[?#]|$)/i;
 
+/**
+ * Firebase Storage and Google Cloud Storage hosts — already-uploaded user media.
+ * Videos at these hosts should go directly to analyze_video, not stage_media.
+ */
+const FIREBASE_GCS_STORAGE =
+  /^https?:\/\/(?:storage\.googleapis\.com|firebasestorage\.googleapis\.com)\//i;
+
 /** Direct image extensions */
 const DIRECT_IMAGE = /\.(?:jpg|jpeg|png|webp|gif|avif|svg)(?:[?#]|$)/i;
 
@@ -259,6 +266,18 @@ export class UrlClassifierService {
         assetKind: 'stream',
         strategy: 'stage_direct_stream',
         correctiveExample: `stage_media({ sourceUrl: "${rawUrl}" })`,
+        isSocialBlocked: false,
+      };
+    }
+
+    // ── Firebase Storage / GCS direct video ─────────────────────────
+    // Already-uploaded user media — should be analyzed in-place, not re-staged.
+    if (FIREBASE_GCS_STORAGE.test(href) && DIRECT_VIDEO.test(href)) {
+      return {
+        platform: 'web',
+        assetKind: 'video',
+        strategy: 'analyze_video_direct',
+        correctiveExample: `analyze_video({ url: "${rawUrl}" })`,
         isSocialBlocked: false,
       };
     }

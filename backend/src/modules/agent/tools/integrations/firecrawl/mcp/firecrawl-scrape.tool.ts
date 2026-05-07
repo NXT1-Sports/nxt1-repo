@@ -20,7 +20,10 @@ import type {
   FirecrawlMcpBridgeService,
   FirecrawlScrapeOptions,
 } from './firecrawl-mcp-bridge.service.js';
-import { checkSocialDomainBlock } from '../../../media/media-acquisition.middleware.js';
+import {
+  checkMediaAcquisitionRouting,
+  checkSocialDomainBlock,
+} from '../../../media/media-acquisition.middleware.js';
 import { z } from 'zod';
 import { logger } from '../../../../../../utils/logger.js';
 import {
@@ -206,6 +209,12 @@ export class FirecrawlScrapeTool extends BaseTool {
     // Hard block social domains — dedicated tools exist for these platforms
     const socialBlock = checkSocialDomainBlock(url);
     if (socialBlock) return socialBlock;
+
+    // Block media file URLs — Firecrawl cannot process binary content types.
+    // The routing guard returns a corrective message pointing to the right tool
+    // (analyze_video for Firebase/GCS videos, stage_media for other direct files).
+    const routingBlock = checkMediaAcquisitionRouting('scrape_webpage', url);
+    if (routingBlock) return routingBlock;
 
     const format = this.str(input, 'format') ?? 'rawHtml';
     const jsonPrompt = this.str(input, 'jsonPrompt');
