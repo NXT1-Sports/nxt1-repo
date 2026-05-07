@@ -15,23 +15,42 @@ if (!admin.apps.find((app) => app?.name === 'staging')) {
   // Staging — nxt-1-staging-v2
   const projectId = process.env['STAGING_FIREBASE_PROJECT_ID'];
   const clientEmail = process.env['STAGING_FIREBASE_CLIENT_EMAIL'];
-  const privateKey = process.env['STAGING_FIREBASE_PRIVATE_KEY']?.replace(/\\n/g, '\n');
+  const rawKey = process.env['STAGING_FIREBASE_PRIVATE_KEY'];
+  // Strip leading/trailing single or double quotes that may have been included
+  // when copy-pasting into .env, then normalize \n escape sequences.
+  const privateKey = rawKey
+    ? rawKey
+        .replace(/^['"]|['"]$/g, '')
+        .replace(/\\\\n/g, '\n')
+        .replace(/\\n/g, '\n')
+    : undefined;
   const storageBucket = process.env['STAGING_FIREBASE_STORAGE_BUCKET'];
 
   if (!projectId || !clientEmail || !privateKey) {
     console.warn('⚠️  STAGING_FIREBASE_PROJECT_ID / CLIENT_EMAIL / PRIVATE_KEY not configured');
   }
 
-  stagingApp = admin.initializeApp(
-    {
-      credential:
-        projectId && clientEmail && privateKey
-          ? admin.credential.cert({ projectId, clientEmail, privateKey })
-          : admin.credential.applicationDefault(),
-      storageBucket,
-    },
-    'staging'
-  );
+  try {
+    stagingApp = admin.initializeApp(
+      {
+        credential:
+          projectId && clientEmail && privateKey
+            ? admin.credential.cert({ projectId, clientEmail, privateKey })
+            : admin.credential.applicationDefault(),
+        storageBucket,
+      },
+      'staging'
+    );
+  } catch (err) {
+    console.error(
+      '[Firebase Staging] Failed to init with service account — falling back to ADC:',
+      err
+    );
+    stagingApp = admin.initializeApp(
+      { credential: admin.credential.applicationDefault(), storageBucket },
+      'staging'
+    );
+  }
 } else {
   stagingApp = admin.app('staging');
 }

@@ -21,12 +21,14 @@ if (!admin.apps.length) {
   const clientEmail = isStaging
     ? process.env['STAGING_FIREBASE_CLIENT_EMAIL']
     : process.env['FIREBASE_CLIENT_EMAIL'];
-  // Normalize private key: env vars often store newlines as literal \n or \\n.
-  // Handle all three cases: actual newlines (already fine), \n, and \\n.
+  // Normalize private key: strip surrounding quotes that get included when copy-pasting
+  // into .env files, then normalize \n escape sequences.
   const normalizePrivateKey = (raw: string | undefined): string | undefined => {
     if (!raw) return undefined;
-    // Replace double-escaped \\n first, then single-escaped \n
-    return raw.replace(/\\\\n/g, '\n').replace(/\\n/g, '\n');
+    return raw
+      .replace(/^['"]|['"]$/g, '') // strip leading/trailing ' or "
+      .replace(/\\\\n/g, '\n') // \\n → newline
+      .replace(/\\n/g, '\n'); // \n  → newline
   };
 
   const privateKey = isStaging
