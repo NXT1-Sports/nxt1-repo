@@ -377,6 +377,7 @@ export class AnalyzeVideoTool extends BaseTool {
       tier: 'video_analysis',
       maxTokens,
       temperature: 0.3,
+      timeoutMs: 180_000,
       signal: AbortSignal.timeout(VIDEO_ANALYSIS_TIMEOUT_MS),
       telemetryContext: context?.userId
         ? {

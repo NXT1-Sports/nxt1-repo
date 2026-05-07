@@ -31,7 +31,7 @@ export const PROD_MODEL_CATALOGUE: Record<ModelTier, string> = {
   image_generation: 'openai/gpt-5.4-image-2',
   video_generation: 'google/gemini-3-pro-image-preview', // placeholder until video models available
   vision_analysis: 'google/gemini-3.1-pro-preview',
-  video_analysis: 'google/gemini-3.1-pro-preview',
+  video_analysis: 'google/gemini-2.5-flash',
   audio_analysis: 'openai/gpt-5.5',
   voice_generation: 'openai/gpt-audio-mini',
   music_generation: 'google/lyria-3-pro-preview',
@@ -111,9 +111,9 @@ export const PROD_FALLBACK_CHAIN: Record<ModelTier, readonly string[]> = {
     'openai/gpt-4o',
   ],
   video_analysis: [
-    'google/gemini-3.1-pro-preview',
     'google/gemini-2.5-flash',
     'google/gemini-2.5-pro',
+    'google/gemini-3.1-pro-preview',
   ],
   audio_analysis: [
     'openai/gpt-5.5',
