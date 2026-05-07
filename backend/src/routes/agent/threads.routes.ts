@@ -11,7 +11,12 @@
 
 import { Router, type Request, type Response } from 'express';
 import { appGuard } from '../../middleware/auth/auth.middleware.js';
-import type { AgentThreadCategory, AgentMessage, AgentXAttachment } from '@nxt1/core';
+import {
+  extractMediaAttachmentsFromResultData,
+  type AgentThreadCategory,
+  type AgentMessage,
+  type AgentXAttachment,
+} from '@nxt1/core';
 import { logger } from '../../utils/logger.js';
 import { chatService, isValidObjectId, VALID_THREAD_CATEGORIES } from './shared.js';
 import { getStorage } from 'firebase-admin/storage';
@@ -53,6 +58,30 @@ function extractLegacyMessageAttachments(message: AgentMessage): readonly AgentX
       sizeBytes: 0,
     };
   });
+}
+
+function inferMimeTypeFromAttachmentType(type: AgentXAttachment['type']): string {
+  if (type === 'image') return 'image/jpeg';
+  if (type === 'video') return 'video/mp4';
+  if (type === 'pdf') return 'application/pdf';
+  if (type === 'csv') return 'text/csv';
+  if (type === 'app') return 'application/json';
+  return 'application/octet-stream';
+}
+
+function extractResultDataAttachments(message: AgentMessage): readonly AgentXAttachment[] {
+  const resultData = message.resultData;
+  if (!resultData || typeof resultData !== 'object') return [];
+
+  const extracted = extractMediaAttachmentsFromResultData(resultData);
+  return extracted.map((attachment, index) => ({
+    id: `${message.id}-result-${index + 1}`,
+    url: attachment.url,
+    name: attachment.name,
+    mimeType: inferMimeTypeFromAttachmentType(attachment.type),
+    type: attachment.type,
+    sizeBytes: 0,
+  }));
 }
 
 function extractStoragePathFromUrl(url: string, bucketName: string): string | null {
@@ -138,7 +167,7 @@ async function refreshMessageResultDataMedia(
     return refreshed.url;
   };
 
-  const refreshField = async (field: 'imageUrl' | 'videoUrl'): Promise<void> => {
+  const refreshField = async (field: 'imageUrl' | 'videoUrl' | 'outputUrl'): Promise<void> => {
     const value = resultData[field];
     if (typeof value !== 'string' || value.trim().length === 0) return;
 
@@ -210,6 +239,7 @@ async function refreshMessageResultDataMedia(
 
   await refreshField('imageUrl');
   await refreshField('videoUrl');
+  await refreshField('outputUrl');
   await refreshArrayField('persistedMediaUrls');
   await refreshArrayField('mediaUrls');
   await refreshArrayField('imageUrls');
@@ -224,7 +254,11 @@ async function refreshMessageAttachments(message: AgentMessage): Promise<AgentMe
   const attachments =
     message.attachments && message.attachments.length > 0
       ? message.attachments
-      : extractLegacyMessageAttachments(message);
+      : (() => {
+          const fromResultData = extractResultDataAttachments(message);
+          if (fromResultData.length > 0) return fromResultData;
+          return extractLegacyMessageAttachments(message);
+        })();
   const refreshedAttachments =
     attachments && attachments.length > 0
       ? await Promise.all(

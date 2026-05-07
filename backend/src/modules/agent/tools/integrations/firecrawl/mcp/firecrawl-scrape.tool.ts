@@ -20,6 +20,7 @@ import type {
   FirecrawlMcpBridgeService,
   FirecrawlScrapeOptions,
 } from './firecrawl-mcp-bridge.service.js';
+import { checkSocialDomainBlock } from '../../../media/media-acquisition.middleware.js';
 import { z } from 'zod';
 import { logger } from '../../../../../../utils/logger.js';
 import {
@@ -88,19 +89,41 @@ function truncateOutput(data: unknown): string {
 export class FirecrawlScrapeTool extends BaseTool {
   readonly name = 'scrape_webpage';
   readonly description =
-    'Scrape content from a single web page URL. Returns clean markdown or structured JSON. ' +
-    'Use this after search_web to get full page content, or when you know the exact URL. ' +
-    'Supports extracting: article text, roster tables, coaching directories, program info. ' +
-    'For structured data, use JSON format with a schema. For full page content, use markdown format. ' +
+    'Scrape content from a single web page URL. ' +
+    'DEFAULT format is rawHtml — always used unless you explicitly need something else. ' +
+    'rawHtml returns the full unmodified page HTML including all <script> tags, inline JS, and embedded data blobs. ' +
+    'This is the only way to find video URLs, MP4 sources, player configs, and JS-rendered content on any page type — ' +
+    'including articles, news sites, recruiting pages, and sports platforms. ' +
+    'FORMAT GUIDE: ' +
+    '(1) rawHtml (DEFAULT) — always use this. Captures everything including embedded video/media data. ' +
+    '(2) markdown — only use when you explicitly need clean readable text and are certain no video/JS data is needed. ' +
+    '(3) json — structured data extraction with a schema. ' +
+    '(4) images — collect all image URLs from the page. ' +
+    'IMPORTANT — persistedMediaUrls: The tool automatically scans the FULL page content (before any truncation) for video and image URLs. ' +
+    'Any found media is staged to Firebase Storage and returned in the persistedMediaUrls array. ' +
+    'When persistedMediaUrls is non-empty, those are already staged, ready-to-use media assets. ' +
+    'For video team posts, pass the video URL from persistedMediaUrls directly to write_team_post (mediaUrls: [url]) or write_athlete_videos. ' +
+    'Do NOT search the content field for media URLs — persistedMediaUrls is the authoritative extracted media list. ' +
     'For discovering URLs on a site first, use map_website instead. ' +
     'For searching the web without a specific URL, use search_web instead.';
 
   readonly parameters = z.object({
     url: z.string().trim().min(1),
-    format: z.enum(['markdown', 'json', 'branding']).optional(),
+    format: z
+      .enum(['markdown', 'html', 'rawHtml', 'json', 'branding', 'images', 'markdown+images'])
+      .optional(),
     jsonPrompt: z.string().trim().min(1).optional(),
     onlyMainContent: z.boolean().optional(),
     mobile: z.boolean().optional(),
+    waitFor: z
+      .number()
+      .int()
+      .min(0)
+      .max(30000)
+      .optional()
+      .describe(
+        'Milliseconds to wait after page load before capturing content. Use for JavaScript-heavy pages (e.g. Next.js apps like fan.hudl.com require waitFor: 8000).'
+      ),
   });
 
   readonly isMutation = false;
@@ -180,18 +203,35 @@ export class FirecrawlScrapeTool extends BaseTool {
       return { success: false, error: 'URL must start with http:// or https://' };
     }
 
-    const format = this.str(input, 'format') ?? 'markdown';
+    // Hard block social domains — dedicated tools exist for these platforms
+    const socialBlock = checkSocialDomainBlock(url);
+    if (socialBlock) return socialBlock;
+
+    const format = this.str(input, 'format') ?? 'rawHtml';
     const jsonPrompt = this.str(input, 'jsonPrompt');
     const onlyMainContent = input['onlyMainContent'] !== false;
     const mobile = input['mobile'] === true;
+    const waitFor = typeof input['waitFor'] === 'number' ? input['waitFor'] : undefined;
+
+    // Build Firecrawl formats array — native 'images' format returns data.images: string[]
+    // rawHtml returns unmodified HTML as received from the page (includes <script> tags & JS blobs)
+    // html returns a cleaned/sanitized HTML version
+    let formats: string[];
+    if (format === 'images') {
+      formats = ['images'];
+    } else if (format === 'markdown+images') {
+      formats = ['markdown', 'images'];
+    } else if (format === 'json' && jsonPrompt) {
+      formats = [{ type: 'json', prompt: jsonPrompt } as unknown as string];
+    } else {
+      formats = [format];
+    }
 
     const options: FirecrawlScrapeOptions = {
-      formats:
-        format === 'json' && jsonPrompt
-          ? [{ type: 'json', prompt: jsonPrompt } as unknown as string]
-          : [format],
+      formats,
       onlyMainContent,
       mobile,
+      ...(waitFor !== undefined && { waitFor }),
     };
 
     logger.info('[FirecrawlScrape] Scraping URL', { url, format, userId: context?.userId });
@@ -216,6 +256,10 @@ export class FirecrawlScrapeTool extends BaseTool {
           format,
           content: output,
           persistedMediaUrls,
+          _hint:
+            persistedMediaUrls.length > 0
+              ? `${persistedMediaUrls.length} media asset(s) were automatically extracted from the full page and staged. Use these URLs directly for write_team_post (mediaUrls: [url]), write_athlete_videos, or write_athlete_images — no need to parse the content for media URLs.`
+              : 'No media assets were found on this page.',
         },
       };
     } catch (err) {

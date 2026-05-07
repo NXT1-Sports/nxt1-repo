@@ -39,6 +39,7 @@ import type {
 } from '@nxt1/core';
 import { AGENT_X_RUNTIME_CONFIG, AGENT_APPROVAL_TOOL_GROUPS } from '@nxt1/core/ai';
 import {
+  extractMediaAttachmentsFromResultData,
   resolveAgentApprovalCopy,
   resolveAgentSuccessNotificationCopy,
   formatApprovalRichPreview,
@@ -133,6 +134,26 @@ function toMillis(value: unknown): number | null {
   }
 
   return null;
+}
+
+function summarizeToolResult(result: Record<string, unknown>): string {
+  if (Array.isArray(result['items'])) {
+    return `Found ${result['items'].length} result(s)`;
+  }
+  if (Array.isArray(result['views'])) {
+    return `Found ${result['views'].length} data view(s)`;
+  }
+  if (typeof result['count'] === 'number') {
+    return `${result['count']} result(s)`;
+  }
+  if (typeof result['url'] === 'string') {
+    return 'Generated successfully';
+  }
+  if (typeof result['imageUrl'] === 'string') {
+    return 'Image generated';
+  }
+  const keys = Object.keys(result);
+  return keys.length > 0 ? `Returned ${keys.length} field(s)` : 'Completed';
 }
 
 function isJobTimeoutError(err: unknown): err is Error {
@@ -2435,6 +2456,29 @@ export class AgentWorker {
         const toolCalls = Array.isArray(rawToolCalls)
           ? (rawToolCalls as import('@nxt1/core').AgentToolCallRecord[])
           : undefined;
+        const resultDataRecord =
+          typeof result.data === 'object' && result.data !== null
+            ? (result.data as Record<string, unknown>)
+            : undefined;
+        const generatedAttachments = resultDataRecord
+          ? extractMediaAttachmentsFromResultData(resultDataRecord)
+          : [];
+        const attachmentsFromResultData: import('@nxt1/core').AgentXAttachment[] =
+          generatedAttachments.map((attachment) => ({
+            id: crypto.randomUUID(),
+            url: attachment.url,
+            name: attachment.name,
+            mimeType:
+              attachment.type === 'image'
+                ? 'image/jpeg'
+                : attachment.type === 'video'
+                  ? 'video/mp4'
+                  : attachment.type === 'doc'
+                    ? 'application/octet-stream'
+                    : 'application/octet-stream',
+            type: attachment.type,
+            sizeBytes: 0,
+          }));
 
         const persistedAssistantMessage = await this.chatService.addMessage({
           threadId,
@@ -2460,10 +2504,10 @@ export class AgentWorker {
           ...(persistedStreamSnapshot.parts.length > 0
             ? { parts: persistedStreamSnapshot.parts }
             : {}),
-          resultData:
-            typeof result.data === 'object' && result.data !== null
-              ? (result.data as Record<string, unknown>)
-              : undefined,
+          ...(attachmentsFromResultData.length > 0
+            ? { attachments: attachmentsFromResultData }
+            : {}),
+          resultData: resultDataRecord,
         });
         persistedAssistantMessageId = persistedAssistantMessage.id;
         logger.info('Agent response persisted to MongoDB thread', {
@@ -2687,6 +2731,12 @@ export class AgentWorker {
             stage: event.stage,
             status: event.toolSuccess ? 'success' : 'error',
             icon: event.icon,
+            ...(event.toolResult
+              ? {
+                  detail: summarizeToolResult(event.toolResult),
+                  toolResult: event.toolResult,
+                }
+              : {}),
           },
         };
       case 'done': {

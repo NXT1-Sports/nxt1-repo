@@ -86,6 +86,7 @@ const SHARED_PERSISTENCE_CONTRACT = [
   '- Include useful payload fields when known: `coordinatorId`, `workflow`, `outcome`, `entityId`, `teamId`, `organizationId`, `toolName`, `artifactType`.',
   '- Do not emit duplicate analytics for pure reads, internal reasoning, abandoned drafts, or failed retries the user never received.',
   '- When the user asks for analytics or activity history, retrieve it with `get_analytics_summary` instead of guessing.',
+  '- Recurring task delivery (CRITICAL — never contradict this): when a recurring task is scheduled with a sourceId/threadId, each run executes inside that originating thread and posts its full response there, exactly like a normal chat reply. The user sees results in-thread. A push notification is ALSO sent as a supplementary alert. Do NOT tell users recurring tasks only notify via push or that results will not appear in the chat — both happen automatically.',
 ].join('\n');
 
 /**
@@ -2943,6 +2944,7 @@ export abstract class BaseAgent {
       // Automation
       enqueue_heavy_task: 'Queueing background operation',
       schedule_recurring_task: 'Scheduling automation',
+      update_recurring_task: 'Updating scheduled automation',
       list_recurring_tasks: 'Reviewing scheduled automations',
       cancel_recurring_task: 'Cancelling scheduled automation',
       call_apify_actor: 'Running cloud automation',
@@ -3346,6 +3348,7 @@ export abstract class BaseAgent {
     if (draftPostDescriptor) return draftPostDescriptor;
 
     const priorityKeys = [
+      'actionSummary',
       'programName',
       'schoolName',
       'collegeName',
@@ -3415,6 +3418,12 @@ export abstract class BaseAgent {
       'userId',
       'threadId',
       'operationId',
+      // Recurring automation internals; never user-facing in progress labels.
+      'key',
+      'recurringTaskKey',
+      'repeatableKey',
+      'cronExpression',
+      'timezone',
       // Technical identifiers that expose raw snake_case or internal IDs
       'agentId',
       'actorId',

@@ -91,7 +91,15 @@ import {
   GetRecentSyncSummariesTool,
 } from '../tools/analytics/index.js';
 import { SearchMemoryTool, SaveMemoryTool, DeleteMemoryTool } from '../tools/memory/index.js';
-import { GenerateGraphicTool, AnalyzeVideoTool, StageMediaTool } from '../tools/media/index.js';
+import {
+  GenerateGraphicTool,
+  AnalyzeVideoTool,
+  AnalyzeImageTool,
+  StageMediaTool,
+  ExtractHudlVideoTool,
+} from '../tools/media/index.js';
+import { ClassifyMediaUrlTool } from '../tools/media/classify-media-url.tool.js';
+import { WriteAthleteImagesTool } from '../tools/intel/user/write-athlete-images.tool.js';
 import {
   AskUserTool,
   CreatePlanTool,
@@ -141,6 +149,7 @@ import {
   FirecrawlMapTool,
   FirecrawlExtractTool,
   FirecrawlAgentTool,
+  FirecrawlImagesTool,
   ListNxt1DataViewsTool,
   QueryNxt1DataTool,
   MutateNxt1DataTool,
@@ -173,6 +182,7 @@ import {
 } from '../tools/integrations/index.js';
 import {
   ScheduleRecurringTaskTool,
+  UpdateRecurringTaskTool,
   ListRecurringTasksTool,
   CancelRecurringTaskTool,
 } from '../tools/automation/index.js';
@@ -190,6 +200,7 @@ import {
   AthleteScoutingSkill,
   TeamScoutingSkill,
   VideoAnalysisSkill,
+  ImageAnalysisSkill,
   FilmBreakdownTaxonomySkill,
   OpponentScoutingPacketSkill,
   OutreachCopywritingSkill,
@@ -392,6 +403,7 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   toolRegistry.register(new WriteTeamPostTool(stagingDb));
   toolRegistry.register(new WriteRosterEntriesTool(stagingDb));
   toolRegistry.register(new WriteAthleteVideosTool(stagingDb));
+  toolRegistry.register(new WriteAthleteImagesTool(stagingDb));
   toolRegistry.register(new WriteIntelTool(stagingDb));
   // ── Update (patch) tools ─────────────────────────────────────────────
   toolRegistry.register(new UpdateIntelTool(stagingDb));
@@ -416,6 +428,8 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   toolRegistry.register(new GetConferenceLogosTool());
   toolRegistry.register(new GenerateGraphicTool(llm));
   toolRegistry.register(new StageMediaTool());
+  toolRegistry.register(new ClassifyMediaUrlTool());
+  toolRegistry.register(new ExtractHudlVideoTool());
   toolRegistry.register(new DynamicExportTool());
 
   let apifyMcpBridge: ApifyMcpBridgeService | undefined;
@@ -483,8 +497,9 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
     toolRegistry.register(new FirecrawlMapTool(firecrawlMcpBridge));
     toolRegistry.register(new FirecrawlExtractTool(firecrawlMcpBridge));
     toolRegistry.register(new FirecrawlAgentTool(firecrawlMcpBridge));
+    toolRegistry.register(new FirecrawlImagesTool(firecrawlMcpBridge));
     logger.info(
-      'MCP-bridged Firecrawl tools registered (scrape_webpage, firecrawl_search_web, map_website, extract_web_data, firecrawl_agent_research)'
+      'MCP-bridged Firecrawl tools registered (scrape_webpage, firecrawl_search_web, map_website, extract_web_data, firecrawl_agent_research, extract_page_images)'
     );
   }
 
@@ -590,6 +605,7 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   }
 
   toolRegistry.register(new AnalyzeVideoTool(scraperService, llm, apifyMcpBridge, ffmpegBridge));
+  toolRegistry.register(new AnalyzeImageTool(llm));
 
   // ── 1f. MCP-bridged Runway ML tools (AI video generation) ──────────────
   if (runwayMcpBridge) {
@@ -615,6 +631,7 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   skillRegistry.register(new AthleteScoutingSkill());
   skillRegistry.register(new TeamScoutingSkill());
   skillRegistry.register(new VideoAnalysisSkill());
+  skillRegistry.register(new ImageAnalysisSkill());
   skillRegistry.register(new FilmBreakdownTaxonomySkill());
   skillRegistry.register(new OpponentScoutingPacketSkill());
   skillRegistry.register(new OutreachCopywritingSkill());
@@ -692,6 +709,7 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
 
   // ── 3a. Automation tools (require queueService + Firestore for durable metadata) ──
   toolRegistry.register(new ScheduleRecurringTaskTool(queueService, stagingDb));
+  toolRegistry.register(new UpdateRecurringTaskTool(queueService, stagingDb));
   toolRegistry.register(new ListRecurringTasksTool(queueService, stagingDb));
   toolRegistry.register(new CancelRecurringTaskTool(queueService, stagingDb));
 

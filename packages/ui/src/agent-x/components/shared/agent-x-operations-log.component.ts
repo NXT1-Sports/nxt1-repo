@@ -109,6 +109,7 @@ const MENU_VERTICAL_OFFSET_PX = 6;
 const MENU_ESTIMATED_WIDTH_PX = 208;
 const MENU_ESTIMATED_HEIGHT_PX = 220;
 const MONGO_OBJECT_ID_RE = /^[a-f0-9]{24}$/i;
+const ENQUEUE_HYDRATION_REFRESH_DELAYS_MS = [0, 1_000, 2_500, 5_000, 10_000] as const;
 
 // ============================================
 // COMPONENT
@@ -1310,6 +1311,15 @@ export class AgentXOperationsLogComponent {
    */
   private readonly _confirmedTerminalStatuses = new Map<string, OperationLogStatus>();
 
+  /**
+   * Per-thread retry cursor used to refresh enqueue entries once backend
+   * operations-log persistence catches up.
+   */
+  private readonly _enqueueHydrationAttempts = new Map<string, number>();
+
+  /** Active enqueue hydration timers keyed by threadId. */
+  private readonly _enqueueHydrationTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
   protected readonly loading = computed(() => this._loading());
   protected readonly operations = computed(() => this._operations());
   protected readonly activeFilter = computed(() => this._activeFilter());
@@ -1405,12 +1415,35 @@ export class AgentXOperationsLogComponent {
     return this._operations().find((entry) => entry.id === openEntryId) ?? null;
   });
 
+  hasRecurringTaskForThread(threadId: string | null | undefined): boolean {
+    const resolvedThreadId = threadId?.trim();
+    if (!resolvedThreadId) {
+      return false;
+    }
+
+    return this._operations().some((entry) => {
+      if (entry.isScheduled !== true) {
+        return false;
+      }
+
+      return this.getManageableThreadId(entry) === resolvedThreadId;
+    });
+  }
+
   // ============================================
   // METHODS
   // ============================================
 
   constructor() {
     this.loadOperations();
+
+    this.destroyRef.onDestroy(() => {
+      for (const timer of this._enqueueHydrationTimers.values()) {
+        clearTimeout(timer);
+      }
+      this._enqueueHydrationTimers.clear();
+      this._enqueueHydrationAttempts.clear();
+    });
 
     // Subscribe to real-time title updates from the Agent X SSE stream.
     // When the backend auto-generates a title for a new thread, update
@@ -1448,6 +1481,9 @@ export class AgentXOperationsLogComponent {
           threadId: evt.threadId,
           status: evt.status,
         });
+        if (evt.source === 'enqueue') {
+          this.scheduleEnqueueHydrationRefresh(evt.threadId);
+        }
         this.breadcrumb.trackStateChange('operations-log:status-updated', {
           threadId: evt.threadId,
           status: evt.status,
@@ -1471,6 +1507,29 @@ export class AgentXOperationsLogComponent {
                 : op
             );
           }
+
+          // Enqueue jobs are fire-and-forget: only create a row when the event
+          // carries enough context to open the thread safely (operationId + threadId).
+          // Otherwise keep waiting for canonical HTTP hydration.
+          if (evt.source === 'enqueue') {
+            if (!evt.operationId || !evt.operationId.trim()) {
+              return ops;
+            }
+            const newEntry: OperationLogEntry = {
+              id: evt.threadId,
+              title:
+                evt.title?.trim() || this._sseGeneratedTitles.get(evt.threadId) || 'Processing…',
+              summary: '',
+              status: evt.status,
+              category: 'system',
+              timestamp: evt.timestamp,
+              threadId: evt.threadId,
+              operationId: evt.operationId,
+              icon: 'sparkles',
+            };
+            return [newEntry, ...ops];
+          }
+
           // New operation — insert at the top of the list
           const newEntry: OperationLogEntry = {
             id: evt.threadId,
@@ -1507,6 +1566,54 @@ export class AgentXOperationsLogComponent {
   /** Public refresh — callable from parent via viewChild. */
   async refresh(): Promise<void> {
     await this.silentRefresh();
+  }
+
+  /**
+   * Enqueue runs should not create optimistic entries from status events alone.
+   * Instead, poll-refresh with bounded backoff until the canonical HTTP payload
+   * contains the entry, then stop.
+   */
+  private scheduleEnqueueHydrationRefresh(threadId: string): void {
+    const resolvedThreadId = threadId.trim();
+    if (!resolvedThreadId) return;
+    if (this._operations().some((entry) => entry.threadId === resolvedThreadId)) {
+      this._enqueueHydrationAttempts.delete(resolvedThreadId);
+      const existingTimer = this._enqueueHydrationTimers.get(resolvedThreadId);
+      if (existingTimer) {
+        clearTimeout(existingTimer);
+        this._enqueueHydrationTimers.delete(resolvedThreadId);
+      }
+      return;
+    }
+
+    if (this._enqueueHydrationTimers.has(resolvedThreadId)) return;
+
+    const attempt = this._enqueueHydrationAttempts.get(resolvedThreadId) ?? 0;
+    if (attempt >= ENQUEUE_HYDRATION_REFRESH_DELAYS_MS.length) return;
+
+    const delay = ENQUEUE_HYDRATION_REFRESH_DELAYS_MS[attempt];
+    const timer = setTimeout(() => {
+      this._enqueueHydrationTimers.delete(resolvedThreadId);
+      void this.silentRefresh()
+        .catch((error) => {
+          this.logger.warn('Enqueue hydration refresh failed', {
+            threadId: resolvedThreadId,
+            attempt,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        })
+        .finally(() => {
+          if (this._operations().some((entry) => entry.threadId === resolvedThreadId)) {
+            this._enqueueHydrationAttempts.delete(resolvedThreadId);
+            return;
+          }
+
+          this._enqueueHydrationAttempts.set(resolvedThreadId, attempt + 1);
+          this.scheduleEnqueueHydrationRefresh(resolvedThreadId);
+        });
+    }, delay);
+
+    this._enqueueHydrationTimers.set(resolvedThreadId, timer);
   }
 
   /**
@@ -2202,6 +2309,7 @@ export class AgentXOperationsLogComponent {
 
     // If the operation is linked to a persisted thread, open that exact conversation.
     if (entry.threadId) {
+      const hasRecurringTasksHint = this.hasRecurringTaskForThread(entry.threadId);
       await this.bottomSheet.openSheet({
         component: AgentXOperationChatComponent,
         componentProps: {
@@ -2218,6 +2326,7 @@ export class AgentXOperationsLogComponent {
               ? null
               : chatStatus,
           threadId: entry.threadId,
+          hasRecurringTasksHint,
         },
         ...SHEET_PRESETS.FULL,
         showHandle: true,

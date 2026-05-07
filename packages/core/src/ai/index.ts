@@ -302,6 +302,7 @@ export type {
   SyncNewCategory,
   SyncNewScheduleEvent,
   SyncNewVideo,
+  SyncNewPlaybook,
   AgentApprovalReasonCode,
   AgentApprovalRequest,
   AgentApprovalStatus,
@@ -345,8 +346,10 @@ export type { AgentIdentitySnapshot } from './agent-identity';
 export {
   AGENT_X_IDENTITY,
   buildSystemPrompt,
+  extractMediaAttachmentsFromResultData,
   getModeAddendum,
   hashIdentitySnapshot,
+  sanitizeStorageUrlsFromText,
 } from './agent-identity';
 
 // Welcome graphic prompt builders

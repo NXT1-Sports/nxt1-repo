@@ -30,7 +30,6 @@ import {
   getCloudflareHighlightPostId,
   normalizeCloudflareVideoForClient,
 } from '../../../../../routes/core/upload/shared.js';
-import { getAnalyticsLoggerService } from '../../../../../services/core/analytics-logger.service.js';
 import { createProfileWriteAccessService } from '../../../../../services/profile/profile-write-access.service.js';
 import { logger } from '../../../../../utils/logger.js';
 
@@ -53,6 +52,8 @@ const VALIDATION = {
   CONTENT_MIN: POST_LIMITS.CONTENT_MIN,
   CONTENT_MAX: POST_LIMITS.CONTENT_MAX,
 } as const;
+
+const CLOUDFLARE_REPAIR_FALLBACK_DELAYS_MS = [45_000, 180_000, 600_000] as const;
 
 type ValidPostType = (typeof VALID_POST_TYPES)[number];
 type ValidVisibility = (typeof VALID_VISIBILITY)[number];
@@ -415,6 +416,7 @@ export class WriteTimelinePostTool extends BaseTool {
           cloudflareVideoId,
         });
         await this.reconcileCloudflareVideoPost(docRef, cloudflareVideoId, userId);
+        this.scheduleCloudflareRepairFallback(docRef, cloudflareVideoId, userId);
       }
 
       const postId = docRef.id;
@@ -436,29 +438,6 @@ export class WriteTimelinePostTool extends BaseTool {
         phase: 'invalidate_feed_caches',
       });
       await this.invalidateFeedCaches(postVisibility, userId, teamId ?? undefined);
-
-      // Track profile-post creation in user's engagement record.
-      // Posts live on the athlete's profile only (not a social feed), so we
-      // track shares and views only — no likes or comments.
-      void getAnalyticsLoggerService().safeTrack({
-        subjectId: userId,
-        subjectType: 'user',
-        domain: 'engagement',
-        eventType: 'content_viewed',
-        source: 'agent',
-        actorUserId: context?.userId ?? userId,
-        sessionId: context?.sessionId ?? null,
-        threadId: context?.threadId ?? null,
-        tags: [type, visibility],
-        payload: {
-          postId,
-          contentType: type,
-          visibility,
-          views: 0,
-          shares: 0,
-        },
-        metadata: { initiatedBy: 'write_timeline_post' },
-      });
 
       return {
         success: true,
@@ -845,5 +824,24 @@ export class WriteTimelinePostTool extends BaseTool {
         error: err instanceof Error ? err.message : String(err),
       });
     }
+  }
+
+  private scheduleCloudflareRepairFallback(
+    docRef: FirebaseFirestore.DocumentReference,
+    videoId: string,
+    userId: string
+  ): void {
+    for (const delayMs of CLOUDFLARE_REPAIR_FALLBACK_DELAYS_MS) {
+      setTimeout(() => {
+        void this.reconcileCloudflareVideoPost(docRef, videoId, userId);
+      }, delayMs);
+    }
+
+    logger.info('[WriteTimelinePostTool] Scheduled Cloudflare repair fallback retries', {
+      postId: docRef.id,
+      userId,
+      cloudflareVideoId: videoId,
+      delaysMs: [...CLOUDFLARE_REPAIR_FALLBACK_DELAYS_MS],
+    });
   }
 }

@@ -291,9 +291,7 @@ export function toDispatchInput(intent: AgentPushIntent): DispatchNotificationIn
           runId: intent.runId,
           executionStatus: 'completed',
         },
-        idempotencyKey: sanitizeIdempotencyKey(
-          `agent_sched_completed_${intent.userId}_${intent.scheduleId}_${intent.runId}`
-        ),
+        idempotencyKey: sanitizeIdempotencyKey(`sched_c_${intent.runId}`),
       };
     case AGENT_PUSH_INTENT_KINDS.SCHEDULED_EXECUTION_FAILED:
       return {
@@ -301,7 +299,7 @@ export function toDispatchInput(intent: AgentPushIntent): DispatchNotificationIn
         type: NOTIFICATION_TYPES.AGENT_ACTION,
         title: intent.title,
         body: intent.body,
-        deepLink: '/agent-x',
+        deepLink: encodeThreadDeepLink(intent.threadId),
         data: {
           operationId: intent.operationId,
           scheduleId: intent.scheduleId,
@@ -322,9 +320,7 @@ export function toDispatchInput(intent: AgentPushIntent): DispatchNotificationIn
           executionStatus: 'failed',
           errorMessage: intent.errorMessage,
         },
-        idempotencyKey: sanitizeIdempotencyKey(
-          `agent_sched_failed_${intent.userId}_${intent.scheduleId}_${intent.runId}`
-        ),
+        idempotencyKey: sanitizeIdempotencyKey(`sched_f_${intent.runId}`),
       };
     case AGENT_PUSH_INTENT_KINDS.APPROVAL_EXPIRING_SOON:
       return {

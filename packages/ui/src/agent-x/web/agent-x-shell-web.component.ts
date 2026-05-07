@@ -162,6 +162,7 @@ interface AgentXDesktopSession {
   readonly scheduledActions?: readonly OperationQuickAction[];
   readonly initialMessage?: string;
   readonly threadId?: string;
+  readonly hasRecurringTasksHint?: boolean;
   readonly operationStatus?:
     | 'processing'
     | 'complete'
@@ -527,6 +528,7 @@ function sortCoordinatorCategories(
                 [scheduledActions]="session.scheduledActions ?? []"
                 [initialMessage]="session.initialMessage ?? ''"
                 [threadId]="session.threadId ?? ''"
+                [hasRecurringTasksHint]="session.hasRecurringTasksHint ?? false"
                 [resumeOperationId]="session.resumeOperationId ?? ''"
                 [yieldState]="session.yieldState ?? null"
                 [operationStatus]="session.operationStatus ?? null"
@@ -4402,6 +4404,9 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     const resolvedOperationId = isFirestoreOperationId(entry.operationId)
       ? entry.operationId
       : undefined;
+    const hasRecurringTasksHint = entry.threadId
+      ? (this.operationsLog()?.hasRecurringTaskForThread(entry.threadId) ?? false)
+      : false;
 
     this.setDesktopSession({
       contextId: resolvedOperationId ?? entry.threadId ?? entry.id,
@@ -4414,6 +4419,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
           ? null
           : operationStatus,
       threadId: entry.threadId ?? '',
+      hasRecurringTasksHint,
     });
   }
 

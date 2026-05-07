@@ -13,6 +13,7 @@ import { logger } from '../../utils/logger.js';
 import { llmService } from './shared.js';
 import { AgentLinkReconciliationService } from '../../modules/agent/services/agent-link-reconciliation.service.js';
 import { AgentEphemeralStateService } from '../../modules/agent/services/agent-ephemeral-state.service.js';
+import { getCloudflareAnalyticsSyncService } from '../../services/platform/cloudflare-analytics-sync.service.js';
 
 const router = Router();
 
@@ -343,6 +344,37 @@ router.post('/cron/refresh-help-center', cronGuard, async (_req: Request, res: R
     }
   })();
 });
+
+// ─── POST /cron/sync-cloudflare-video-analytics ───────────────────────────
+// Cloud Scheduler: every day at 3:00 AM ET  (cron: 0 3 * * *)
+
+router.post(
+  '/cron/sync-cloudflare-video-analytics',
+  cronGuard,
+  async (_req: Request, res: Response) => {
+    // Respond immediately — analytics backfill can run longer than HTTP timeout.
+    res.json({
+      success: true,
+      message: 'Cloudflare video analytics sync started',
+      status: 'running',
+    });
+
+    // Fire-and-forget background job
+    (async () => {
+      try {
+        const syncService = getCloudflareAnalyticsSyncService();
+        const result = await syncService.syncLast24Hours();
+        logger.info('CRON sync-cloudflare-video-analytics completed', result);
+      } catch (err) {
+        const error = err instanceof Error ? err : new Error(String(err));
+        logger.error('CRON sync-cloudflare-video-analytics failed', {
+          error: error.message,
+          stack: error.stack,
+        });
+      }
+    })();
+  }
+);
 
 // ─── POST /cron/cleanup-tmp-media ────────────────────────────────────────────
 // Deletes Firebase Storage files whose path contains a /tmp/ segment and that

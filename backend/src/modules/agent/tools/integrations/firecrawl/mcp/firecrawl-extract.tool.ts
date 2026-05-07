@@ -24,6 +24,7 @@ import type {
   FirecrawlMcpBridgeService,
   FirecrawlExtractOptions,
 } from './firecrawl-mcp-bridge.service.js';
+import { checkSocialDomainBlock } from '../../../media/media-acquisition.middleware.js';
 import { z } from 'zod';
 import { logger } from '../../../../../../utils/logger.js';
 import {
@@ -188,6 +189,12 @@ export class FirecrawlExtractTool extends BaseTool {
         success: false,
         error: 'No valid URLs provided. URLs must start with http:// or https://.',
       };
+    }
+
+    // Hard block social domains across all extract URLs
+    for (const u of validUrls) {
+      const socialBlock = checkSocialDomainBlock(u);
+      if (socialBlock) return socialBlock;
     }
 
     if (validUrls.length > MAX_URLS) {

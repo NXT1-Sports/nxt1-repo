@@ -104,6 +104,9 @@ export interface AgentXOperationChatSessionFacadeHost {
 
 @Injectable()
 export class AgentXOperationChatSessionFacade {
+  private static readonly ENQUEUE_WAITING_MESSAGE_ID = 'enqueue-waiting';
+  private static readonly ENQUEUE_WAITING_MESSAGE_TEXT = 'Will let you know when complete.';
+
   private readonly logger = inject(NxtLoggingService).child('AgentXOperationChatSession');
   private readonly breadcrumb = inject(NxtBreadcrumbService);
   private readonly haptics = inject(HapticsService);
@@ -137,22 +140,50 @@ export class AgentXOperationChatSessionFacade {
       .map((attachment) => `${attachment.type}|${attachment.url}`)
       .sort()
       .join('||');
-    return `${message.imageUrl ?? ''}|${message.videoUrl ?? ''}|${attachmentSignature}`;
+    return attachmentSignature;
   }
 
   private inferMediaTypeFromUrl(url: string): 'image' | 'video' | null {
-    const lowerUrl = url.toLowerCase();
-    if (/(\.png|\.jpe?g|\.gif|\.webp|\.avif|\.bmp|\.svg)(?:\?|#|$)/i.test(lowerUrl)) {
+    const normalizedUrl = this.normalizeDetectedMediaUrl(url);
+    const pathname = (() => {
+      try {
+        return new URL(normalizedUrl).pathname.toLowerCase();
+      } catch {
+        return normalizedUrl.toLowerCase();
+      }
+    })();
+
+    if (/\.(png|jpe?g|gif|webp|avif|bmp|svg)$/i.test(pathname) || /\/images?\//i.test(pathname)) {
       return 'image';
     }
     if (
-      /(\.mp4|\.mov|\.m4v|\.webm|\.avi|\.mkv|\.m3u8)(?:\?|#|$)/i.test(lowerUrl) ||
-      /videodelivery\.net\//i.test(lowerUrl)
+      /\.(m3u8|mov|mp4|m4v|webm|ogg|ogv)$/i.test(pathname) ||
+      /\/videos?\//i.test(pathname) ||
+      /videodelivery\.net\/|stream|cloudflare/i.test(normalizedUrl)
     ) {
       return 'video';
     }
 
     return null;
+  }
+
+  private normalizeDetectedMediaUrl(value: string): string {
+    return value.trim().replace(/[),.;!?]+$/g, '');
+  }
+
+  private extractMediaUrlsFromText(content: string | undefined): string[] {
+    if (!content) return [];
+
+    const urls = new Set<string>();
+    const matches = content.match(/https?:\/\/[^\s)\]"'<>]+/gi) ?? [];
+    for (const match of matches) {
+      const normalized = this.normalizeDetectedMediaUrl(match);
+      if (!/^https?:\/\//i.test(normalized)) continue;
+      if (!this.inferMediaTypeFromUrl(normalized)) continue;
+      urls.add(normalized);
+    }
+
+    return [...urls];
   }
 
   private extractMediaUrlsFromResultData(resultData: AgentMessage['resultData']): string[] {
@@ -161,10 +192,15 @@ export class AgentXOperationChatSessionFacade {
     const mediaUrls = new Set<string>();
     const pushUrl = (value: unknown): void => {
       if (typeof value !== 'string') return;
-      const trimmed = value.trim();
+      const trimmed = this.normalizeDetectedMediaUrl(value);
       if (!/^https?:\/\//i.test(trimmed)) return;
+      if (!this.inferMediaTypeFromUrl(trimmed)) return;
       mediaUrls.add(trimmed);
     };
+
+    pushUrl(resultData['imageUrl']);
+    pushUrl(resultData['videoUrl']);
+    pushUrl(resultData['outputUrl']);
 
     for (const key of ['persistedMediaUrls', 'mediaUrls', 'imageUrls', 'videoUrls'] as const) {
       const value = resultData[key];
@@ -202,7 +238,7 @@ export class AgentXOperationChatSessionFacade {
             : 'doc';
 
     return {
-      url: attachment.url,
+      url: this.normalizeDetectedMediaUrl(attachment.url),
       name: attachment.name,
       type: mappedType,
       ...(attachment.platform ? { platform: attachment.platform } : {}),
@@ -210,62 +246,74 @@ export class AgentXOperationChatSessionFacade {
     };
   }
 
+  private dedupeMessageAttachments(
+    attachments: readonly NonNullable<OperationMessage['attachments']>[number][]
+  ): NonNullable<OperationMessage['attachments']>[number][] {
+    const seen = new Set<string>();
+
+    return attachments.filter((attachment) => {
+      const key = `${attachment.type}|${this.normalizeDetectedMediaUrl(attachment.url)}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+
+  private stripPersistedAttachmentAnnotations(content: string): string {
+    return content
+      .replace(/\n\n\[Attached (?:file|video): .+/gs, '')
+      .replace(/\n\n\[Connected sources available[^\]]*\]/gs, '')
+      .replace(
+        /\n\[Instruction: treat these as user-connected sources for this request; do not state they are missing\.\]/gs,
+        ''
+      )
+      .trim();
+  }
+
   private collectMessageMedia(message: AgentMessage): {
-    imageUrl?: string;
-    videoUrl?: string;
     attachments?: OperationMessage['attachments'];
   } {
-    const explicitImageUrl =
-      typeof message.resultData?.['imageUrl'] === 'string'
-        ? (message.resultData['imageUrl'] as string)
-        : undefined;
-    const explicitVideoUrl =
-      typeof message.resultData?.['videoUrl'] === 'string'
-        ? (message.resultData['videoUrl'] as string)
-        : typeof message.resultData?.['outputUrl'] === 'string'
-          ? (message.resultData['outputUrl'] as string)
-          : undefined;
-
-    const persistedAttachments = (message.attachments ?? []).map((attachment) =>
-      this.mapPersistedAttachment(attachment as AgentXAttachment)
-    );
-    const attachmentKeySet = new Set(
-      persistedAttachments.map((attachment) => `${attachment.type}|${attachment.url}`)
-    );
-
-    const resultDataAttachments = this.extractMediaUrlsFromResultData(message.resultData)
-      .map((url, index) => {
-        const mediaType = this.inferMediaTypeFromUrl(url);
-        if (!mediaType) return null;
-        return {
-          url,
-          name:
-            mediaType === 'video' ? `media-video-${index + 1}.mp4` : `media-image-${index + 1}.jpg`,
-          type: mediaType,
-        } as const;
-      })
-      .filter(
-        (attachment): attachment is { url: string; name: string; type: 'image' | 'video' } =>
-          attachment !== null
+    // Unified attachment model: backend populates attachments[] at save time.
+    // Frontend simply reads attachments directly — no content scanning, no waterfall.
+    const persistedAttachments = this.dedupeMessageAttachments(
+      (message.attachments ?? []).map((attachment) =>
+        this.mapPersistedAttachment(attachment as AgentXAttachment)
       )
-      .filter((attachment) => {
-        const key = `${attachment.type}|${attachment.url}`;
-        if (attachmentKeySet.has(key)) return false;
-        attachmentKeySet.add(key);
-        return true;
-      });
+    );
 
-    const attachments = [...persistedAttachments, ...resultDataAttachments];
-    const firstImageUrl =
-      explicitImageUrl ?? attachments.find((attachment) => attachment.type === 'image')?.url;
-    const firstVideoUrl =
-      explicitVideoUrl ?? attachments.find((attachment) => attachment.type === 'video')?.url;
+    return persistedAttachments.length > 0 ? { attachments: persistedAttachments } : {};
+  }
 
-    return {
-      ...(firstImageUrl ? { imageUrl: firstImageUrl } : {}),
-      ...(firstVideoUrl ? { videoUrl: firstVideoUrl } : {}),
-      ...(attachments.length > 0 ? { attachments } : {}),
-    };
+  private stripDisplayedMediaUrlsFromContent(
+    content: string,
+    media: { attachments?: readonly MessageAttachment[] }
+  ): string {
+    const attachmentUrls = (media.attachments ?? [])
+      .map((att) => att.url)
+      .filter((url): url is string => typeof url === 'string' && url.trim().length > 0)
+      .map((url) => this.normalizeDetectedMediaUrl(url));
+    if (!attachmentUrls.length) return content.trim();
+
+    const urlSet = new Set(attachmentUrls);
+    const lines = content
+      .split('\n')
+      .filter((line) => !urlSet.has(this.normalizeDetectedMediaUrl(line.trim())));
+
+    const cleaned: string[] = [];
+    for (const line of lines) {
+      const trimmed = line.trim();
+      const isDanglingUrlLabel =
+        /(?:graphic|image|video|media)\s+url\s*:?$/i.test(trimmed) &&
+        cleaned.length > 0 &&
+        cleaned[cleaned.length - 1].trim() === '';
+      if (isDanglingUrlLabel) continue;
+      cleaned.push(line);
+    }
+
+    return cleaned
+      .join('\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
   }
 
   private mergeLiveMediaIntoTypingMessage(media: AgentXStreamMediaEvent): void {
@@ -289,8 +337,6 @@ export class AgentXOperationChatSessionFacade {
 
         return {
           ...message,
-          ...(mediaType === 'image' && !message.imageUrl ? { imageUrl: media.url } : {}),
-          ...(mediaType === 'video' && !message.videoUrl ? { videoUrl: media.url } : {}),
           ...(nextAttachments.length > 0 ? { attachments: nextAttachments } : {}),
         };
       })
@@ -298,27 +344,18 @@ export class AgentXOperationChatSessionFacade {
   }
 
   /**
-   * Build bubble media fields from replayed stream media events.
-   * Mirrors live merge semantics: first image/video become primary URLs,
-   * every unique media item is also present in attachments.
+   * Build attachments from replayed stream media events.
    */
   private buildMessageMediaFromReplayEvents(mediaEvents: readonly AgentXStreamMediaEvent[]): {
-    imageUrl?: string;
-    videoUrl?: string;
     attachments?: OperationMessage['attachments'];
   } {
     if (!mediaEvents.length) return {};
 
-    let imageUrl: string | undefined;
-    let videoUrl: string | undefined;
     const attachments: MessageAttachment[] = [];
     const seenAttachments = new Set<string>();
 
     for (const media of mediaEvents) {
       const mediaType: 'image' | 'video' = media.type === 'video' ? 'video' : 'image';
-      if (mediaType === 'image' && !imageUrl) imageUrl = media.url;
-      if (mediaType === 'video' && !videoUrl) videoUrl = media.url;
-
       const key = `${mediaType}|${media.url}`;
       if (seenAttachments.has(key)) continue;
       seenAttachments.add(key);
@@ -329,11 +366,7 @@ export class AgentXOperationChatSessionFacade {
       });
     }
 
-    return {
-      ...(imageUrl ? { imageUrl } : {}),
-      ...(videoUrl ? { videoUrl } : {}),
-      ...(attachments.length > 0 ? { attachments } : {}),
-    };
+    return attachments.length > 0 ? { attachments } : {};
   }
 
   private dedupeConsecutiveAssistantMessages(
@@ -521,7 +554,8 @@ export class AgentXOperationChatSessionFacade {
         item.role === 'assistant' &&
         item.semanticPhase === 'assistant_tool_call' &&
         item.operationId &&
-        !finalOperationIds.has(item.operationId)
+        !finalOperationIds.has(item.operationId) &&
+        !yieldedOperationIds.has(item.operationId)
       ) {
         const prev = toolCallLastSeen.get(item.operationId);
         if (prev) toolCallSuppressedIds.add(prev);
@@ -742,6 +776,63 @@ export class AgentXOperationChatSessionFacade {
     return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(bare);
   }
 
+  private isChatOperationId(value: string | null | undefined): boolean {
+    const trimmed = value?.trim();
+    return typeof trimmed === 'string' && trimmed.startsWith('chat-');
+  }
+
+  /**
+   * Enqueue jobs use bare UUID operation ids. /chat sessions use chat-prefixed ids.
+   * Hold enqueue jobs until done so partial Firestore deltas never render as live chat.
+   */
+  private shouldHoldEnqueueUntilDone(operationId: string | null | undefined): boolean {
+    return this.isFirestoreOperationId(operationId) && !this.isChatOperationId(operationId);
+  }
+
+  private upsertEnqueueWaitingMessage(): void {
+    this.messageFacade.messages.update((messages) => {
+      const withoutTyping = messages.filter((message) => message.id !== 'typing');
+      const hasWaiting = withoutTyping.some(
+        (message) => message.id === AgentXOperationChatSessionFacade.ENQUEUE_WAITING_MESSAGE_ID
+      );
+      if (hasWaiting) return withoutTyping;
+      return [
+        ...withoutTyping,
+        {
+          id: AgentXOperationChatSessionFacade.ENQUEUE_WAITING_MESSAGE_ID,
+          role: 'assistant',
+          content: AgentXOperationChatSessionFacade.ENQUEUE_WAITING_MESSAGE_TEXT,
+          timestamp: new Date(),
+          isTyping: false,
+        },
+      ];
+    });
+  }
+
+  private clearEnqueueWaitingMessage(): void {
+    this.messageFacade.messages.update((messages) =>
+      messages.filter(
+        (message) => message.id !== AgentXOperationChatSessionFacade.ENQUEUE_WAITING_MESSAGE_ID
+      )
+    );
+  }
+
+  /**
+   * Transitions the enqueue-waiting card to a "stopped" visual state.
+   * Called when the user taps the stop/cancel button while viewing an
+   * in-progress background job. The card stays visible but shows a muted
+   * stopped treatment instead of the animated spinner.
+   */
+  markEnqueueStopped(): void {
+    this.messageFacade.messages.update((messages) =>
+      messages.map((message) =>
+        message.id === AgentXOperationChatSessionFacade.ENQUEUE_WAITING_MESSAGE_ID
+          ? { ...message, interruptedReason: 'cancelled' as const }
+          : message
+      )
+    );
+  }
+
   resolveFirestoreOperationId(): string | null {
     const host = this.requireHost();
     const candidates = [
@@ -760,7 +851,8 @@ export class AgentXOperationChatSessionFacade {
   subscribeToFirestoreJobEvents(
     explicitOperationId?: string,
     startAfterSeq?: number,
-    deltaWatermark?: { optimisticChars: number; confirmedChars: number } | null
+    deltaWatermark?: { optimisticChars: number; confirmedChars: number } | null,
+    options?: { holdUntilDone?: boolean; threadIdForCompletionRefresh?: string }
   ): void {
     const host = this.requireHost();
     const operationId = explicitOperationId ?? host.contextId();
@@ -781,7 +873,12 @@ export class AgentXOperationChatSessionFacade {
       startAfterSeq,
     });
 
-    if (!this.messageFacade.messages().some((message) => message.id === 'typing')) {
+    const holdUntilDone = options?.holdUntilDone === true;
+
+    if (
+      !holdUntilDone &&
+      !this.messageFacade.messages().some((message) => message.id === 'typing')
+    ) {
       host.loading.set(true);
       host.setActivityPhase('reconnecting', 'Reconnecting...');
       this.messageFacade.messages.update((messages) => [
@@ -794,6 +891,13 @@ export class AgentXOperationChatSessionFacade {
           isTyping: true,
         },
       ]);
+    } else if (holdUntilDone) {
+      this.upsertEnqueueWaitingMessage();
+      host.loading.set(true);
+      host.setActivityPhase(
+        'waiting_delta',
+        AgentXOperationChatSessionFacade.ENQUEUE_WAITING_MESSAGE_TEXT
+      );
     }
 
     host.setActiveFirestoreSub(
@@ -801,6 +905,7 @@ export class AgentXOperationChatSessionFacade {
         operationId,
         {
           onDelta: (text) => {
+            if (holdUntilDone) return;
             host.markActivityPulse();
             if (deltaWatermark) {
               const start = deltaWatermark.confirmedChars;
@@ -819,6 +924,7 @@ export class AgentXOperationChatSessionFacade {
             this.messageFacade.queueTypingDelta(text);
           },
           onStep: (step) => {
+            if (holdUntilDone) return;
             this.messageFacade.flushPendingTypingDelta();
             if (!step.label.trim()) return;
             if (step.status === 'active') {
@@ -857,6 +963,7 @@ export class AgentXOperationChatSessionFacade {
             );
           },
           onCard: (card) => {
+            if (holdUntilDone) return;
             this.messageFacade.flushPendingTypingDelta();
             // Route the card through the canonical attach helper so confirmation
             // cards carrying a yieldState collapse onto the existing yield bubble
@@ -872,15 +979,49 @@ export class AgentXOperationChatSessionFacade {
             );
           },
           onMedia: (media) => {
+            if (holdUntilDone) return;
             this.mergeLiveMediaIntoTypingMessage(media);
           },
           onProgress: (event) => {
+            if (holdUntilDone) return;
             const message = typeof event.message === 'string' ? event.message.trim() : '';
             if (!message) return;
             host.latestProgressLabel.set(message);
             host.markActivityPulse(message);
           },
           onDone: (event) => {
+            if (holdUntilDone) {
+              const refreshThreadId =
+                options?.threadIdForCompletionRefresh?.trim() ||
+                host.resolvedThreadId()?.trim() ||
+                host.threadId().trim();
+
+              this.clearEnqueueWaitingMessage();
+              host.latestProgressLabel.set(null);
+              host.setActivityPhase('completed');
+              host.setOperationStatus('complete');
+              this.operationEventService.emitOperationStatusUpdated(
+                refreshThreadId || operationId,
+                'complete',
+                new Date().toISOString()
+              );
+              host.loading.set(false);
+              host.getActiveFirestoreSub()?.unsubscribe();
+              host.setActiveFirestoreSub(null);
+              host.setStreamTurnWatermark(null);
+              void this.haptics.notification('success');
+              this.transportFacade.emitResponseCompleteOnce('firestore-done-enqueue');
+
+              if (refreshThreadId) {
+                void this.loadThreadMessages(refreshThreadId);
+              }
+
+              this.logger.info('Background enqueue operation completed; rendering final output', {
+                operationId,
+                refreshThreadId,
+              });
+              return;
+            }
             this.messageFacade.flushPendingTypingDelta();
             host.latestProgressLabel.set(null);
             host.setActivityPhase('completed');
@@ -899,6 +1040,32 @@ export class AgentXOperationChatSessionFacade {
             this.logger.info('Background job stream complete (Firestore)', { operationId });
           },
           onError: (error) => {
+            if (holdUntilDone) {
+              this.clearEnqueueWaitingMessage();
+              host.latestProgressLabel.set(null);
+              host.setActivityPhase('failed', error);
+              this.messageFacade.pushMessage({
+                id: host.uid(),
+                role: 'assistant',
+                content: error || 'Something went wrong. Please try again.',
+                timestamp: new Date(),
+                error: true,
+              });
+              host.loading.set(false);
+              host.getActiveFirestoreSub()?.unsubscribe();
+              host.setActiveFirestoreSub(null);
+              host.setStreamTurnWatermark(null);
+              void this.haptics.notification('error');
+              this.transportFacade.emitResponseCompleteOnce('firestore-error-enqueue');
+              this.logger.error(
+                'Background enqueue operation failed before completion',
+                new Error(error),
+                {
+                  operationId,
+                }
+              );
+              return;
+            }
             host.latestProgressLabel.set(null);
             host.setActivityPhase('failed', error);
             this.messageFacade.replaceTyping({
@@ -936,6 +1103,12 @@ export class AgentXOperationChatSessionFacade {
       const timelinePendingYieldState = persistedPendingYieldState
         ? null
         : this.extractLatestPendingYieldFromItems(items);
+      this.logger.info('Resolved pending yield candidates during thread load', {
+        threadId,
+        contextId: host.contextId(),
+        fromThreadMetadata: !!persistedPendingYieldState,
+        fromTimelineFallback: !!timelinePendingYieldState,
+      });
 
       if (!items.length) {
         this.logger.warn('Operation thread returned no messages — preserving local state', {
@@ -1019,9 +1192,12 @@ export class AgentXOperationChatSessionFacade {
                   : part
             ) ?? [];
 
-          const cleanContent = message.content
-            .replace(/\n\n\[Attached (?:file|video): .+/gs, '')
-            .trim();
+          const persistedMedia = this.collectMessageMedia(message);
+
+          const cleanContent = this.stripDisplayedMediaUrlsFromContent(
+            this.stripPersistedAttachmentAnnotations(message.content),
+            persistedMedia
+          );
 
           // BUG FIX: Rehydration drops text when cards are present.
           // nxt1-chat-bubble overrides legacy layout to strictly loop over `parts` if any exist.
@@ -1051,8 +1227,6 @@ export class AgentXOperationChatSessionFacade {
           const persistedCards: AgentXRichCard[] = persistedParts
             .filter((part): part is { type: 'card'; card: AgentXRichCard } => part.type === 'card')
             .map((part) => part.card);
-
-          const persistedMedia = this.collectMessageMedia(message);
 
           const persistedYieldState = this.coercePersistedYieldStateFromMessage(
             message,
@@ -1119,16 +1293,46 @@ export class AgentXOperationChatSessionFacade {
           !reorderedMapped.some((persisted) => persisted.id === message.id)
       );
       let persistedRows = reorderedMapped;
+      let preserveTyping = !!existingTyping;
       if (existingTyping) {
         const liveOperationId = this.streamRegistry.getOperationIdForThread(threadId);
         if (liveOperationId) {
-          persistedRows = reorderedMapped.filter(
-            (m) => m.role !== 'assistant' || m.operationId !== liveOperationId
-          );
+          const rowsBeforeFilter = reorderedMapped.length;
+          const assistantRowsForLiveOperation = reorderedMapped.filter(
+            (m) => m.role === 'assistant' && m.operationId === liveOperationId
+          ).length;
+
+          persistedRows = reorderedMapped.filter((m) => {
+            if (m.role !== 'assistant' || m.operationId !== liveOperationId) return true;
+
+            // Keep interruption rows (ask_user/approval) for the live operation.
+            // Dropping all assistant rows for the active operation causes the
+            // pending action card to disappear on session re-entry.
+            if (m.yieldState || this.messageHasYieldCard(m)) return true;
+
+            return false;
+          });
+
+          const hasPersistedYieldAssistantForLiveOperation =
+            this.hasYieldedAssistantRowForOperation(persistedRows, liveOperationId);
+          if (hasPersistedYieldAssistantForLiveOperation) {
+            preserveTyping = false;
+          }
+
+          this.logger.info('Applied live-operation assistant row filter during thread rehydrate', {
+            threadId,
+            contextId: host.contextId(),
+            liveOperationId,
+            rowsBeforeFilter,
+            rowsAfterFilter: persistedRows.length,
+            assistantRowsForLiveOperation,
+            preserveTyping,
+            hasPersistedYieldAssistantForLiveOperation,
+          });
         }
       }
       this.messageFacade.messages.set(
-        existingTyping
+        preserveTyping && existingTyping
           ? [...persistedRows, ...preservedInlineYieldRows, existingTyping]
           : [...persistedRows, ...preservedInlineYieldRows]
       );
@@ -1144,18 +1348,25 @@ export class AgentXOperationChatSessionFacade {
           if (!candidate) return false;
 
           const candidateApprovalId = candidate.approvalId?.trim() ?? '';
-          if (incomingApprovalId && candidateApprovalId && incomingApprovalId === candidateApprovalId) {
+          if (
+            incomingApprovalId &&
+            candidateApprovalId &&
+            incomingApprovalId === candidateApprovalId
+          ) {
             return true;
           }
 
           const candidateToolCallId = candidate.pendingToolCall?.toolCallId?.trim() ?? '';
-          if (incomingToolCallId && candidateToolCallId && incomingToolCallId === candidateToolCallId) {
+          if (
+            incomingToolCallId &&
+            candidateToolCallId &&
+            incomingToolCallId === candidateToolCallId
+          ) {
             return true;
           }
 
           return (
-            candidate.reason === incomingReason &&
-            (message.operationId ?? '') === incomingOpId
+            candidate.reason === incomingReason && (message.operationId ?? '') === incomingOpId
           );
         });
       };
@@ -1176,12 +1387,28 @@ export class AgentXOperationChatSessionFacade {
         // with a different operationId would create a duplicate action card.
         if (!hasMatchingYieldMessage(persistedPendingYieldState)) {
           this.applyPendingYieldState(persistedPendingYieldState, threadId, 'thread-metadata');
+        } else {
+          this.logger.info(
+            'Skipped applying thread-metadata yield: already present in mapped messages',
+            {
+              threadId,
+              contextId: host.contextId(),
+            }
+          );
         }
       } else if (timelinePendingYieldState) {
         // Fallback: recover pending yield from persisted message rows when
         // thread-level `latestPausedYieldState` is missing/stale.
         if (!hasMatchingYieldMessage(timelinePendingYieldState)) {
           this.applyPendingYieldState(timelinePendingYieldState, threadId, 'timeline-fallback');
+        } else {
+          this.logger.info(
+            'Skipped applying timeline-fallback yield: already present in mapped messages',
+            {
+              threadId,
+              contextId: host.contextId(),
+            }
+          );
         }
       } else {
         // No persisted yield from thread metadata — sync any pre-existing active
@@ -1299,10 +1526,7 @@ export class AgentXOperationChatSessionFacade {
 
       if (host.getOperationStatus() === 'complete') {
         this.messageFacade.settleActiveToolSteps('success');
-      } else if (
-        host.getOperationStatus() === 'error' ||
-        host.getOperationStatus() === 'paused'
-      ) {
+      } else if (host.getOperationStatus() === 'error' || host.getOperationStatus() === 'paused') {
         this.messageFacade.settleActiveToolSteps('error');
       }
       // awaiting_input / awaiting_approval: leave active steps unsettled.
@@ -1469,6 +1693,10 @@ export class AgentXOperationChatSessionFacade {
         // on remount so the shimmer paints immediately, even during a silent
         // thinking gap before the next delta/step arrives.
         if (!this.messageFacade.messages().some((message) => message.id === 'typing')) {
+          const snapshotCardsWithoutYield = snapshot.cards.filter(
+            (card) => !this.isYieldRichCard(card)
+          );
+          const snapshotPartsWithoutYield = this.stripYieldCardsFromParts(snapshot.parts);
           this.messageFacade.messages.update((messages) => [
             ...messages,
             {
@@ -1478,10 +1706,18 @@ export class AgentXOperationChatSessionFacade {
               timestamp: new Date(),
               isTyping: !snapshot.content,
               steps: snapshot.steps.length > 0 ? [...snapshot.steps] : undefined,
-              cards: snapshot.cards.length > 0 ? [...snapshot.cards] : undefined,
-              parts: snapshot.parts.length > 0 ? [...snapshot.parts] : undefined,
+              cards:
+                snapshotCardsWithoutYield.length > 0 ? [...snapshotCardsWithoutYield] : undefined,
+              parts:
+                snapshotPartsWithoutYield.length > 0 ? [...snapshotPartsWithoutYield] : undefined,
             },
           ]);
+
+          this.replayYieldCardsIntoTypingRow(
+            snapshot.cards,
+            host.getCurrentOperationId() ?? host.contextId(),
+            'stream-registry-snapshot'
+          );
         }
       }
 
@@ -1515,6 +1751,10 @@ export class AgentXOperationChatSessionFacade {
                     this.normalizeMessageContent(fresh.content)
               );
             if (!alreadyPresent) {
+              const freshCardsWithoutYield = fresh.cards.filter(
+                (card) => !this.isYieldRichCard(card)
+              );
+              const freshPartsWithoutYield = this.stripYieldCardsFromParts(fresh.parts);
               this.messageFacade.messages.update((messages) => [
                 ...messages,
                 {
@@ -1524,8 +1764,10 @@ export class AgentXOperationChatSessionFacade {
                   timestamp: new Date(),
                   isTyping: false,
                   steps: fresh.steps.length > 0 ? [...fresh.steps] : undefined,
-                  cards: fresh.cards.length > 0 ? [...fresh.cards] : undefined,
-                  parts: fresh.parts.length > 0 ? [...fresh.parts] : undefined,
+                  cards:
+                    freshCardsWithoutYield.length > 0 ? [...freshCardsWithoutYield] : undefined,
+                  parts:
+                    freshPartsWithoutYield.length > 0 ? [...freshPartsWithoutYield] : undefined,
                 },
               ]);
             }
@@ -1536,6 +1778,15 @@ export class AgentXOperationChatSessionFacade {
         }
 
         if (fresh.content || fresh.steps.length || fresh.cards.length) {
+          const liveOperationId = this.streamRegistry.getOperationIdForThread(threadId);
+          if (
+            liveOperationId &&
+            this.hasYieldedAssistantRowForOperation(this.messageFacade.messages(), liveOperationId)
+          ) {
+            host.loading.set(false);
+            return;
+          }
+
           // Bug A: cancel any RAF-buffered delta that accumulated between claim() and
           // this bubble insert. fresh.content already has all content from the registry,
           // so the pending delta would be double-counted if the RAF fired after insertion.
@@ -1568,11 +1819,21 @@ export class AgentXOperationChatSessionFacade {
                 timestamp: new Date(),
                 isTyping: !fresh.content,
                 steps: fresh.steps.length > 0 ? [...fresh.steps] : undefined,
-                cards: fresh.cards.length > 0 ? [...fresh.cards] : undefined,
-                parts: fresh.parts.length > 0 ? [...fresh.parts] : undefined,
+                cards: fresh.cards.filter((card) => !this.isYieldRichCard(card)).length
+                  ? [...fresh.cards.filter((card) => !this.isYieldRichCard(card))]
+                  : undefined,
+                parts: this.stripYieldCardsFromParts(fresh.parts).length
+                  ? [...this.stripYieldCardsFromParts(fresh.parts)]
+                  : undefined,
               },
             ];
           });
+
+          this.replayYieldCardsIntoTypingRow(
+            fresh.cards,
+            host.getCurrentOperationId() ?? host.contextId(),
+            'stream-registry-fresh-snapshot'
+          );
         } else {
           // Race condition fix: loadThreadMessages calls messages.set() and
           // wipes the synchronous typing bubble we inserted before awaiting
@@ -1621,6 +1882,7 @@ export class AgentXOperationChatSessionFacade {
         // branches below correctly dedupe content for the current operationId.
         const stored = await this.operationEventService.getStoredEventState(operationId);
         const replayMedia = this.buildMessageMediaFromReplayEvents(stored.media);
+        const holdEnqueueUntilDone = this.shouldHoldEnqueueUntilDone(operationId);
 
         if (stored.latestYieldState) {
           host.applyYieldState({
@@ -1631,6 +1893,7 @@ export class AgentXOperationChatSessionFacade {
         }
 
         if (stored.isDone) {
+          this.clearEnqueueWaitingMessage();
           const alreadyHasAssistant = this.messageFacade
             .messages()
             .some(
@@ -1671,6 +1934,32 @@ export class AgentXOperationChatSessionFacade {
             'complete',
             new Date().toISOString()
           );
+          return;
+        }
+
+        if (holdEnqueueUntilDone) {
+          // Hide any partial assistant rows for this enqueue operation until completion.
+          this.messageFacade.messages.update((messages) =>
+            messages.filter(
+              (message) =>
+                !(
+                  message.role === 'assistant' &&
+                  message.operationId === operationId &&
+                  !message.yieldState &&
+                  !this.messageHasYieldCard(message)
+                )
+            )
+          );
+          this.upsertEnqueueWaitingMessage();
+          host.setActivityPhase(
+            'waiting_delta',
+            AgentXOperationChatSessionFacade.ENQUEUE_WAITING_MESSAGE_TEXT
+          );
+          host.loading.set(true);
+          this.subscribeToFirestoreJobEvents(undefined, stored.maxSeq, undefined, {
+            holdUntilDone: true,
+            threadIdForCompletionRefresh: threadId,
+          });
           return;
         }
 
@@ -1781,7 +2070,9 @@ export class AgentXOperationChatSessionFacade {
         const operationId =
           typeof payload.operationId === 'string' && payload.operationId.trim().length > 0
             ? payload.operationId.trim()
-            : (typeof message.operationId === 'string' ? message.operationId.trim() : '');
+            : typeof message.operationId === 'string'
+              ? message.operationId.trim()
+              : '';
         const threadId = typeof payload.threadId === 'string' ? payload.threadId.trim() : '';
         const yieldedAt = message.createdAt ?? new Date().toISOString();
         const expiresAt = new Date(Date.parse(yieldedAt) + 24 * 60 * 60 * 1000).toISOString();
@@ -1810,7 +2101,9 @@ export class AgentXOperationChatSessionFacade {
     return null;
   }
 
-  private extractLatestPendingYieldFromItems(items: readonly AgentMessage[]): AgentYieldState | null {
+  private extractLatestPendingYieldFromItems(
+    items: readonly AgentMessage[]
+  ): AgentYieldState | null {
     for (let index = items.length - 1; index >= 0; index -= 1) {
       const item = items[index];
       if (item.role !== 'assistant') continue;
@@ -1880,6 +2173,70 @@ export class AgentXOperationChatSessionFacade {
     }
 
     return candidates.find((candidate): candidate is string => !!candidate) ?? host.contextId();
+  }
+
+  private isYieldRichCard(card: AgentXRichCard): boolean {
+    if (card.type === 'ask_user') return true;
+    if (card.type !== 'confirmation') return false;
+
+    const payload = card.payload as Record<string, unknown> | undefined;
+    if (!payload || typeof payload !== 'object') return false;
+
+    if (typeof payload['approvalId'] === 'string' && payload['approvalId'].trim().length > 0) {
+      return true;
+    }
+
+    return !!this.coercePersistedYieldState(payload['yieldState']);
+  }
+
+  private messageHasYieldCard(
+    message: Pick<OperationMessage, 'cards' | 'parts'> | Pick<AgentMessage, 'cards' | 'parts'>
+  ): boolean {
+    const cardFromCards = (message.cards ?? []).some((card) => this.isYieldRichCard(card));
+    if (cardFromCards) return true;
+
+    return (message.parts ?? []).some(
+      (part) => part.type === 'card' && this.isYieldRichCard(part.card)
+    );
+  }
+
+  private hasYieldedAssistantRowForOperation(
+    messages: readonly Pick<
+      OperationMessage,
+      'role' | 'operationId' | 'yieldState' | 'cards' | 'parts'
+    >[],
+    operationId: string
+  ): boolean {
+    return messages.some(
+      (message) =>
+        message.role === 'assistant' &&
+        message.operationId === operationId &&
+        (!!message.yieldState || this.messageHasYieldCard(message))
+    );
+  }
+
+  private stripYieldCardsFromParts(parts: readonly AgentXMessagePart[]): AgentXMessagePart[] {
+    return parts.filter((part) => part.type !== 'card' || !this.isYieldRichCard(part.card));
+  }
+
+  private replayYieldCardsIntoTypingRow(
+    cards: readonly AgentXRichCard[],
+    fallbackOperationId: string,
+    source: string
+  ): void {
+    const yieldCards = cards.filter((card) => this.isYieldRichCard(card));
+    if (!yieldCards.length) return;
+
+    this.logger.info('Replaying yield cards from stream snapshot into canonical row', {
+      source,
+      fallbackOperationId,
+      count: yieldCards.length,
+      cardTypes: yieldCards.map((card) => card.type),
+    });
+
+    for (const card of yieldCards) {
+      this.messageFacade.attachStreamedCard('typing', card, fallbackOperationId, false);
+    }
   }
 
   private injectFailureMessage(): void {

@@ -17,6 +17,9 @@ import { formatSportDisplayName, getPositionAbbreviation } from '../../constants
 import { buildTeamSlug, resolveCanonicalTeamRoute } from '../../helpers/formatters';
 import type { SidenavSportProfile } from '../platform/navigation.model';
 
+// Single token per app session to avoid stale avatar/logo caches in nav surfaces.
+const NAV_IMAGE_CACHE_BUSTER = `nxt1-nav-${Date.now().toString(36)}`;
+
 interface UserDisplayTeamAffiliation {
   readonly name?: string;
   readonly logoUrl?: string | null;
@@ -327,7 +330,8 @@ function buildTeamContext(user: UserDisplayInput, personalName: string): UserDis
   const isPersonalIdentityFallback = !teamName;
 
   // Avatar: ONLY the team logo. Never the user's personal/Google photo.
-  const profileImg = logoUrl || undefined;
+  const profileImgRaw = logoUrl || undefined;
+  const profileImg = withNavImageCacheBuster(profileImgRaw);
 
   // Sport label below name
   const sportLabel = hasTeamAssociation && sport ? formatSportDisplayName(sport) : undefined;
@@ -386,7 +390,9 @@ function buildTeamContext(user: UserDisplayInput, personalName: string): UserDis
             isActive: i === activeSportIndex,
             profileImg: additionalIsPersonalFallback
               ? undefined
-              : additionalLogoUrl || additionalLegacyLogo || profileImg || undefined,
+              : withNavImageCacheBuster(
+                  additionalLogoUrl || additionalLegacyLogo || profileImgRaw || undefined
+                ),
           };
         }) ?? [])
     : [];
@@ -420,7 +426,9 @@ function buildAthleteContext(
   personalName: string
 ): UserDisplayContext {
   // profileImgs[] is the canonical source; profileImg (singular) is the pre-mapped fallback
-  const profileImg = user?.profileImgs?.[0] ?? user?.profileImg ?? undefined;
+  const profileImg = withNavImageCacheBuster(
+    user?.profileImgs?.[0] ?? user?.profileImg ?? undefined
+  );
   const isOnTeam =
     user?.sports?.some(
       (sport) =>
@@ -540,4 +548,13 @@ export function deduplicateSportProfiles(profiles: SidenavSportProfile[]): Siden
   }
 
   return Array.from(seen.values());
+}
+
+function withNavImageCacheBuster(url: string | null | undefined): string | undefined {
+  const trimmed = url?.trim();
+  if (!trimmed) return undefined;
+  if (/[?&]navv=/.test(trimmed)) return trimmed;
+
+  const separator = trimmed.includes('?') ? '&' : '?';
+  return `${trimmed}${separator}navv=${NAV_IMAGE_CACHE_BUSTER}`;
 }

@@ -201,26 +201,6 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
           }
         }
       }
-      @if (!hasExplicitMediaPart() && imageUrl()) {
-        <div class="bubble-media">
-          <img
-            [src]="imageUrl()"
-            [alt]="content() || 'Generated image'"
-            class="bubble-img"
-            loading="lazy"
-          />
-        </div>
-      } @else if (!hasExplicitMediaPart() && videoUrl()) {
-        <div class="bubble-media">
-          <video
-            [src]="videoUrl()"
-            class="bubble-video"
-            controls
-            playsinline
-            preload="metadata"
-          ></video>
-        </div>
-      }
     } @else {
       <!-- ═══ LEGACY FLAT LAYOUT (history messages without parts) ═══ -->
       @if (steps().length) {
@@ -232,26 +212,6 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
         } @else {
           <nxt1-markdown [content]="content()" />
         }
-      }
-      @if (imageUrl()) {
-        <div class="bubble-media">
-          <img
-            [src]="imageUrl()"
-            [alt]="content() || 'Generated image'"
-            class="bubble-img"
-            loading="lazy"
-          />
-        </div>
-      } @else if (videoUrl()) {
-        <div class="bubble-media">
-          <video
-            [src]="videoUrl()"
-            class="bubble-video"
-            controls
-            playsinline
-            preload="metadata"
-          ></video>
-        </div>
       }
       @for (card of cards(); track $index) {
         <div class="agent-card-shell" [style]="cardThemeStyle(card)">
@@ -725,12 +685,6 @@ export class NxtChatBubbleComponent {
 
   /** The text content to display. */
   readonly content = input('');
-
-  /** Optional image URL to display above the text content. */
-  readonly imageUrl = input<string | undefined>(undefined);
-
-  /** Optional video URL to display above the text content. */
-  readonly videoUrl = input<string | undefined>(undefined);
 
   /** Show typing indicator dots instead of text. */
   readonly isTyping = input(false);

@@ -49,6 +49,13 @@ import { AgentEngineError } from '../../../exceptions/agent-engine.error.js';
 /** Apify actor ID for Scweet (altimis/scweet). */
 const SCWEET_ACTOR_ID = 'altimis/scweet';
 
+/**
+ * Apify actor for fetching a single tweet by URL.
+ * Use this instead of tweet-scraper V2 — V2 has a 50-tweet minimum and
+ * explicitly prohibits single tweet fetching.
+ */
+const TWITTER_SCRAPER_LITE_ACTOR_ID = 'apidojo/twitter-scraper-lite';
+
 /** Maximum tweet limit per request to prevent runaway costs. */
 const MAX_TWEET_LIMIT = 500;
 
@@ -269,6 +276,92 @@ export class ApifyService {
       );
     }
     this.client = new ApifyClient({ token: resolved });
+  }
+
+  /**
+   * Fetch a single tweet by its URL using apidojo/twitter-scraper-lite.
+   *
+   * Use this for single tweet URLs (x.com/user/status/ID).
+   * Do NOT use apidojo/tweet-scraper V2 for single tweets — V2 has a
+   * 50-tweet minimum and explicitly prohibits single tweet fetching.
+   *
+   * @param tweetUrl — Full tweet URL, e.g. https://x.com/user/status/123456
+   */
+  async getSingleTweet(tweetUrl: string): Promise<ApifyRunResult<ScweetTweet>> {
+    if (!tweetUrl || tweetUrl.trim().length === 0) {
+      return this.emptyResult('Tweet URL is required');
+    }
+
+    const normalizedUrl = tweetUrl.trim();
+
+    logger.info('[ApifyService] Fetching single tweet', { tweetUrl: normalizedUrl });
+
+    const startMs = Date.now();
+
+    try {
+      const run = await this.client
+        .actor(TWITTER_SCRAPER_LITE_ACTOR_ID)
+        .call(
+          { startUrls: [{ url: normalizedUrl }], maxItems: 1 },
+          { timeout: ACTOR_CALL_TIMEOUT_SECS }
+        );
+
+      const { items } = await this.client.dataset(run.defaultDatasetId).listItems();
+      const durationMs = Date.now() - startMs;
+
+      logger.info('[ApifyService] Single tweet fetch completed', {
+        runId: run.id,
+        datasetId: run.defaultDatasetId,
+        itemCount: items.length,
+        durationMs,
+      });
+
+      if (items.length === 0) {
+        return {
+          success: false,
+          runId: run.id,
+          datasetId: run.defaultDatasetId,
+          items: [],
+          itemCount: 0,
+          durationMs,
+          error: `No tweet data returned for URL: ${normalizedUrl}. The tweet may be private, deleted, or the URL format is unsupported.`,
+        };
+      }
+
+      // twitter-scraper-lite returns a slightly different schema than Scweet—
+      // normalize to the shared ScweetTweet interface.
+      const normalized = items.map((item) =>
+        this.normalizeTwitterScraperLiteItem(item as Record<string, unknown>)
+      );
+
+      return {
+        success: true,
+        runId: run.id,
+        datasetId: run.defaultDatasetId,
+        items: normalized,
+        itemCount: normalized.length,
+        durationMs,
+      };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Single tweet fetch failed';
+      const durationMs = Date.now() - startMs;
+
+      logger.error('[ApifyService] Single tweet fetch failed', {
+        tweetUrl: normalizedUrl,
+        error: message,
+        durationMs,
+      });
+
+      return {
+        success: false,
+        runId: '',
+        datasetId: '',
+        items: [],
+        itemCount: 0,
+        durationMs,
+        error: message,
+      };
+    }
   }
 
   /**
@@ -615,6 +708,64 @@ export class ApifyService {
       url: tweet?.tweet_url ?? raw.tweet_url ?? '',
       imageUrls: this.extractTweetImageUrls(tweet?.media),
       videoUrl: this.extractTweetVideoUrl(tweet?.media),
+    };
+  }
+
+  /**
+   * Normalize a raw twitter-scraper-lite item into the shared ScweetTweet format.
+   * The lite actor uses a slightly different schema than altimis/scweet.
+   */
+  private normalizeTwitterScraperLiteItem(raw: Record<string, unknown>): ScweetTweet {
+    // twitter-scraper-lite nests tweet data differently — try multiple paths
+    const tweetId =
+      (raw['id'] as string) ?? (raw['rest_id'] as string) ?? (raw['tweetId'] as string) ?? '';
+    const text =
+      (raw['text'] as string) ??
+      (raw['full_text'] as string) ??
+      (raw['tweet_text'] as string) ??
+      '';
+    const username =
+      ((raw['author'] as Record<string, unknown>)?.['userName'] as string) ??
+      ((raw['author'] as Record<string, unknown>)?.['screen_name'] as string) ??
+      (raw['userName'] as string) ??
+      (raw['screen_name'] as string) ??
+      '';
+    const timestamp =
+      (raw['createdAt'] as string) ??
+      (raw['created_at'] as string) ??
+      (raw['timestamp'] as string) ??
+      '';
+    const url =
+      (raw['url'] as string) ?? (raw['tweet_url'] as string) ?? (raw['tweetUrl'] as string) ?? '';
+
+    const publicMetrics = raw['public_metrics'] as Record<string, unknown> | undefined;
+    const retweets =
+      (publicMetrics?.['retweet_count'] as number) ?? (raw['retweetCount'] as number) ?? 0;
+    const likes =
+      (publicMetrics?.['like_count'] as number) ??
+      (raw['likeCount'] as number) ??
+      (raw['favoriteCount'] as number) ??
+      0;
+    const replies =
+      (publicMetrics?.['reply_count'] as number) ?? (raw['replyCount'] as number) ?? 0;
+
+    // Media extraction — twitter-scraper-lite uses entities.media[]
+    const entities = raw['entities'] as Record<string, unknown> | undefined;
+    const media = (entities?.['media'] ?? raw['media']) as
+      | readonly Record<string, unknown>[]
+      | undefined;
+
+    return {
+      id: tweetId,
+      text,
+      username,
+      timestamp,
+      retweets,
+      likes,
+      replies,
+      url,
+      imageUrls: this.extractTweetImageUrls(media),
+      videoUrl: this.extractTweetVideoUrl(media),
     };
   }
 

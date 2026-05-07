@@ -217,6 +217,17 @@ import type { OverlayDismissReason, OverlaySize } from './overlay.types';
         }
       }
 
+      /* Agent X attachment viewer: intentionally shorter on mobile so
+         the parent operation sheet context still feels present beneath it. */
+      @media (max-width: 768px) {
+        .nxt1-overlay-panel.nxt1-media-viewer-overlay--compact-mobile {
+          height: 62vh;
+          height: 62dvh;
+          max-height: 62vh;
+          max-height: 62dvh;
+        }
+      }
+
       /* ═══════════════════════════════════════════
          CLOSE BUTTON
          ═══════════════════════════════════════════ */

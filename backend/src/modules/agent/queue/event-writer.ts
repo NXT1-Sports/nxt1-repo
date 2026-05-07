@@ -31,6 +31,7 @@ import {
   sanitizeAgentOutputText,
   sanitizeAgentPayload,
 } from '../utils/platform-identifier-sanitizer.js';
+import { sanitizeStorageUrlsFromText } from '@nxt1/core';
 import { logger } from '../../../utils/logger.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -242,7 +243,11 @@ export class DebouncedEventWriter {
   // ─── Internal ───────────────────────────────────────────────────────────
 
   private bufferDelta(event: StreamEvent): void {
-    const sanitizedDeltaText = event.text ? sanitizeAgentOutputText(event.text) : '';
+    const sanitizedDeltaText = event.text
+      ? sanitizeStorageUrlsFromText(sanitizeAgentOutputText(event.text), {
+          normalizeWhitespace: false,
+        })
+      : '';
 
     if (sanitizedDeltaText.length === 0) {
       return;
@@ -324,7 +329,15 @@ export class DebouncedEventWriter {
   private async persistPendingDelta(): Promise<void> {
     if (this.pendingDeltaText.length === 0) return;
 
-    const text = this.pendingDeltaText;
+    // Final pass: strip any storage URLs that may have arrived across
+    // multiple delta chunks and were only detectable in the accumulated text.
+    const text = sanitizeStorageUrlsFromText(this.pendingDeltaText);
+    if (text.length === 0) {
+      this.pendingDeltaText = '';
+      this.pendingDeltaAgentId = undefined;
+      return;
+    }
+    this.pendingDeltaText = text;
     const agentId = this.pendingDeltaAgentId;
     this.pendingDeltaText = '';
     this.pendingDeltaAgentId = undefined;

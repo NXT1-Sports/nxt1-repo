@@ -9,7 +9,6 @@
 import { setTimeout as delay } from 'node:timers/promises';
 import { BaseTool, type ToolExecutionContext, type ToolResult } from '../../base.tool.js';
 import { sendEmailViaProvider } from '../../../../../services/communications/connected-mail.service.js';
-import { getAnalyticsLoggerService } from '../../../../../services/core/analytics-logger.service.js';
 import { logger } from '../../../../../utils/logger.js';
 import type { Firestore } from 'firebase-admin/firestore';
 import { db as defaultDb } from '../../../../../utils/firebase.js';
@@ -306,32 +305,6 @@ export class BatchSendEmailTool extends BaseTool {
           phase: 'send_email',
           recipientStatus: 'sent',
           progress: `${sent.length}/${recipients.length}`,
-        });
-
-        await getAnalyticsLoggerService().safeTrack({
-          subjectId: userId,
-          subjectType: 'user',
-          domain: 'communication',
-          eventType: 'email_sent',
-          source: 'agent',
-          actorUserId: context?.userId ?? userId,
-          sessionId: context?.sessionId ?? null,
-          threadId: context?.threadId ?? null,
-          tags: [provider, 'agent-email', 'batch-email'],
-          payload: {
-            provider,
-            toEmail: recipient.toEmail,
-            subject: rendered.subject,
-            trackingId: result.trackingId,
-            batchIndex: index,
-            batchSize: recipients.length,
-          },
-          metadata: {
-            toolName: this.name,
-            externalMessageId: result.externalMessageId ?? null,
-            externalThreadId: result.externalThreadId ?? null,
-            trackingId: result.trackingId,
-          },
         });
       } catch (sendErr) {
         const errorMessage = sendErr instanceof Error ? sendErr.message : 'Failed to send email.';

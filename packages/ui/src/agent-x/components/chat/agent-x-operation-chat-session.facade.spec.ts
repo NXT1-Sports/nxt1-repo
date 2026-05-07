@@ -4,6 +4,25 @@ import { AgentXOperationChatSessionFacade } from './agent-x-operation-chat-sessi
 
 type Canonicalizer = {
   resolveCanonicalAssistantRows(items: readonly AgentMessage[]): readonly AgentMessage[];
+  hasYieldedAssistantRowForOperation(
+    messages: readonly Array<{
+      role: string;
+      operationId?: string;
+      yieldState?: AgentMessage['resultData'];
+      cards?: AgentMessage['cards'];
+      parts?: AgentMessage['parts'];
+    }>,
+    operationId: string
+  ): boolean;
+  collectMessageMedia(message: AgentMessage): {
+    imageUrl?: string;
+    videoUrl?: string;
+    attachments?: Array<{ url: string; type: 'image' | 'video' | 'doc' | 'app'; name: string }>;
+  };
+  stripDisplayedMediaUrlsFromContent(
+    content: string,
+    media: { imageUrl?: string; videoUrl?: string }
+  ): string;
 };
 
 describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
@@ -67,48 +86,6 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
     expect(canonical.map((message) => message.id)).toEqual(['partial-2']);
   });
 
-  it('keeps only the latest assistant_tool_call row for a yielded operation', () => {
-    const items: readonly AgentMessage[] = [
-      assistantMessage('tool-call-1', 'assistant_tool_call'),
-      assistantMessage('tool-call-2', 'assistant_tool_call', {
-        parts: [
-          {
-            type: 'card',
-            card: {
-              type: 'ask_user',
-              agentId: 'router',
-              title: 'Need your answer',
-              payload: { prompt: 'Reply with the school name' },
-            },
-          },
-        ],
-      }),
-      assistantMessage('yield-1', 'assistant_yield'),
-    ];
-
-    const canonical = facade.resolveCanonicalAssistantRows(items);
-
-    expect(canonical.map((message) => message.id)).toEqual(['tool-call-2']);
-  });
-});          {
-            type: 'card',
-            card: {
-              type: 'ask_user',
-              agentId: 'router',
-              title: 'Need your answer',
-              payload: { prompt: 'Reply with the school name' },
-            },
-          },
-        ],
-      }),
-      assistantMessage('yield-1', 'assistant_yield'),
-    ];
-
-    const canonical = facade.resolveCanonicalAssistantRows(items);
-
-    expect(canonical.map((message) => message.id)).toEqual(['tool-call-2']);
-  });
-
   it('detects yielded assistant rows so live typing replay can be suppressed', () => {
     const yielded = facade.hasYieldedAssistantRowForOperation(
       [
@@ -161,9 +138,51 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
         name: 'media-image-1.jpg',
       },
     ]);
-    expect(displayContent).toContain('Your Crown Point Football stat graphic is complete featuring:');
-    expect(displayContent).toContain('Want me to post this to your timeline or make any adjustments?');
+    expect(displayContent).toContain(
+      'Your Crown Point Football stat graphic is complete featuring:'
+    );
+    expect(displayContent).toContain(
+      'Want me to post this to your timeline or make any adjustments?'
+    );
     expect(displayContent).not.toContain('Graphic URL:');
     expect(displayContent).not.toContain('https://storage.googleapis.com');
+  });
+
+  it('keeps user-uploaded video as a single attachment without promoting assistant media fields', () => {
+    const uploadedVideoUrl = 'https://cdn.example.com/uploads/highlight.mp4';
+    const userMessage: AgentMessage = {
+      id: 'user-upload-1',
+      threadId: 'thread-1',
+      userId: 'user-1',
+      role: 'user',
+      content: `Please use this clip\n\n[Attached video: highlight.mp4 — ${uploadedVideoUrl}]`,
+      origin: 'user',
+      createdAt: '2026-05-06T12:00:00.000Z',
+      attachments: [
+        {
+          id: 'att-video-1',
+          url: uploadedVideoUrl,
+          name: 'highlight.mp4',
+          mimeType: 'video/mp4',
+          type: 'video',
+          sizeBytes: 4096,
+        },
+      ],
+      resultData: {
+        outputUrl: uploadedVideoUrl,
+      },
+    };
+
+    const media = facade.collectMessageMedia(userMessage);
+
+    expect(media.videoUrl).toBeUndefined();
+    expect(media.imageUrl).toBeUndefined();
+    expect(media.attachments).toEqual([
+      {
+        url: uploadedVideoUrl,
+        type: 'video',
+        name: 'highlight.mp4',
+      },
+    ]);
   });
 });

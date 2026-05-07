@@ -586,6 +586,21 @@ export class ProfileComponent {
             this.isOwnProfile.set(isOwn);
             this.resolvedUnicode.set(profile.unicode ?? profile.id ?? '');
 
+            // Track profile view for other users (non-blocking, anonymous-safe).
+            if (!isOwn) {
+              void this.http
+                .post<{
+                  success: boolean;
+                  tracked?: boolean;
+                }>(`${environment.apiUrl}/analytics/profile-view`, { viewedUserId: profile.id })
+                .catch((err) =>
+                  this.logger.warn('Failed to track mobile profile view', {
+                    viewedUserId: profile.id,
+                    error: err instanceof Error ? err.message : String(err),
+                  })
+                );
+            }
+
             // Role-aware branching: coach/director own profile → load team data
             if (isOwn && isTeamRole(profile.role)) {
               const teamPath = this.buildTeamPathFromUser(profile);

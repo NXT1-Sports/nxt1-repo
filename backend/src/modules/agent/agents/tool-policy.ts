@@ -52,6 +52,8 @@ const GLOBAL_SYSTEM_TOOL_POLICY: readonly ToolPattern[] = composeToolPatterns([
   'extract_live_view_playlist',
   'close_live_view',
   'schedule_recurring_task',
+  'update_recurring_task',
+  'list_recurring_tasks',
   'list_google_workspace_tools',
   'run_google_workspace_tool',
   'list_microsoft_365_tools',
@@ -67,6 +69,10 @@ const GLOBAL_SYSTEM_TOOL_POLICY: readonly ToolPattern[] = composeToolPatterns([
   'firecrawl_agent_research',
   'map_website',
   'extract_web_data',
+  // Media routing utilities — available to all agents
+  'classify_media_url',
+  'extract_page_images',
+  'extract_hudl_video',
 ]);
 
 /**
@@ -108,6 +114,7 @@ const ROUTER_TOOL_POLICY: readonly ToolPattern[] = [
   'scan_timeline_posts',
   'list_google_workspace_tools',
   'run_google_workspace_tool',
+  'list_recurring_tasks',
   'send_email',
   'batch_send_email',
   // Direct Google Workspace families (loosened to prevent false-negative
@@ -213,6 +220,7 @@ const AGENT_TOOL_POLICY: Readonly<Record<CoordinatorAgentId, readonly ToolPatter
     'write_athlete_videos',
     'update_athlete_videos',
     'delete_athlete_videos',
+    'write_athlete_images',
     'write_intel',
     'update_intel',
     'write_connected_source',
@@ -226,6 +234,8 @@ const AGENT_TOOL_POLICY: Readonly<Record<CoordinatorAgentId, readonly ToolPatter
     'call_apify_actor',
     'get_apify_actor_output',
     'stage_media',
+    'analyze_video',
+    'analyze_image',
     'generate_chart_visualization',
     'ffmpeg_trim_video',
     'ffmpeg_generate_thumbnail',
@@ -239,6 +249,7 @@ const AGENT_TOOL_POLICY: Readonly<Record<CoordinatorAgentId, readonly ToolPatter
     'write_combine_metrics',
     'write_schedule',
     'analyze_video',
+    'analyze_image',
     'get_video_details',
     'search_apify_actors',
     'get_apify_actor_details',
@@ -253,6 +264,7 @@ const AGENT_TOOL_POLICY: Readonly<Record<CoordinatorAgentId, readonly ToolPatter
     'ffmpeg_convert_video',
     'ffmpeg_compress_video',
     'ffmpeg_burn_subtitles',
+    'write_athlete_images',
   ]),
 
   recruiting_coordinator: composeToolPatterns([
@@ -290,10 +302,12 @@ const AGENT_TOOL_POLICY: Readonly<Record<CoordinatorAgentId, readonly ToolPatter
     'get_analytics_summary',
     'generate_chart_visualization',
     'list_recurring_tasks',
+    'update_recurring_task',
     'cancel_recurring_task',
     'list_microsoft_365_tools',
     'run_microsoft_365_tool',
     'analyze_video',
+    'analyze_image',
     'get_video_details',
     'search_apify_actors',
     'get_apify_actor_details',
@@ -307,6 +321,7 @@ const AGENT_TOOL_POLICY: Readonly<Record<CoordinatorAgentId, readonly ToolPatter
     'manage_watermark',
     'import_video',
     'write_athlete_videos',
+    'write_athlete_images',
     'ffmpeg_trim_video',
     'ffmpeg_merge_videos',
     'ffmpeg_resize_video',

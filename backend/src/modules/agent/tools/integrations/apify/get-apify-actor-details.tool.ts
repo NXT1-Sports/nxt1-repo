@@ -55,7 +55,7 @@ export class GetApifyActorDetailsTool extends BaseTool {
 
   async execute(
     input: Record<string, unknown>,
-    _context?: ToolExecutionContext
+    context?: ToolExecutionContext
   ): Promise<ToolResult> {
     const parsed = GetApifyActorDetailsInputSchema.safeParse(input);
     if (!parsed.success) {
@@ -70,6 +70,10 @@ export class GetApifyActorDetailsTool extends BaseTool {
     try {
       logger.info('[GetApifyActorDetails] Fetching details', { actorId });
       const details = await this.bridge.getActorDetails(actorId);
+
+      // Register this actor as validated in the thread-scoped preflight set.
+      // call_apify_actor will hard-gate on this before executing.
+      context?.resolvedApifyActors?.add(actorId);
 
       return {
         success: true,

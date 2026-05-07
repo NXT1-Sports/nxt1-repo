@@ -396,22 +396,21 @@ export class WebPushService {
     });
 
     // Agent notification with media (welcome graphic, generated content, etc.) —
-    // auto-inject into Agent X chat. Data-driven: any push with imageUrl + agent deep link.
-    const imageUrl = payload.data?.['imageUrl'];
+    // auto-inject into Agent X chat. Data-driven: any push with agent deep link.
+    // Media is no longer passed here; backend populates attachments[] at save time.
     const pushDeepLink = payload.data?.['deepLink'];
     const pushOrigin = payload.data?.['origin'];
-    if (imageUrl && pushDeepLink?.includes('agent')) {
+    if (pushDeepLink?.includes('agent')) {
       const messageContent = body || 'Agent X completed your request.';
 
       this.agentX.pushMessage({
         role: 'assistant',
         content: messageContent,
-        imageUrl,
       });
 
       // Desktop: open FAB chat panel. Mobile web: navigate to /agent-x.
       if (this.platform.isDesktop()) {
-        this.fabService.openWithMessage({ content: messageContent, imageUrl });
+        this.fabService.openWithMessage({ content: messageContent });
       } else {
         this.router.navigateByUrl('/agent-x');
       }

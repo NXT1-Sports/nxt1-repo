@@ -35,6 +35,7 @@ import type {
   SyncNewCategory,
   SyncNewScheduleEvent,
   SyncNewVideo,
+  SyncNewPlaybook,
 } from '@nxt1/core';
 
 import type {
@@ -46,6 +47,7 @@ import type {
   DistilledScheduleEvent,
   DistilledVideo,
   DistilledMetric,
+  DistilledPlaybook,
 } from '../tools/integrations/firecrawl/scraping/distillers/distiller.types.js';
 
 // ─── Types for Previous State ───────────────────────────────────────────────
@@ -66,6 +68,7 @@ export interface PreviousProfileState {
   readonly awards?: readonly Record<string, unknown>[];
   readonly schedule?: readonly PreviousScheduleEntry[];
   readonly videos?: readonly PreviousVideoEntry[];
+  readonly playbooks?: readonly PreviousPlaybookEntry[];
 }
 
 export interface PreviousSeasonEntry {
@@ -87,6 +90,14 @@ export interface PreviousVideoEntry {
   readonly src: string;
   readonly provider?: string;
   readonly videoId?: string;
+}
+
+export interface PreviousPlaybookEntry {
+  readonly name: string;
+  readonly sport: string;
+  readonly playCount: number;
+  readonly formationTypes?: readonly string[];
+  readonly videoRefs?: readonly string[];
 }
 
 // ─── Identity Fields to Track ───────────────────────────────────────────────
@@ -214,6 +225,7 @@ export class SyncDiffService {
     const newAwards = this.diffAwards(previous.awards ?? [], extracted.awards ?? []);
     const newScheduleEvents = this.diffSchedule(previous.schedule ?? [], extracted.schedule ?? []);
     const newVideos = this.diffVideos(previous.videos ?? [], extracted.videos ?? []);
+    const newPlaybooks = this.diffPlaybooks(previous.playbooks ?? [], extracted.playbooks ?? []);
 
     const totalChanges =
       allIdentityChanges.length +
@@ -222,7 +234,8 @@ export class SyncDiffService {
       newRecruitingActivities.length +
       newAwards.length +
       newScheduleEvents.length +
-      newVideos.length;
+      newVideos.length +
+      newPlaybooks.length;
 
     return {
       userId,
@@ -237,6 +250,7 @@ export class SyncDiffService {
       newAwards,
       newScheduleEvents,
       newVideos,
+      newPlaybooks,
       summary: {
         identityFieldsChanged: allIdentityChanges.length,
         newCategoriesAdded: newCategories.length,
@@ -245,6 +259,7 @@ export class SyncDiffService {
         newAwards: newAwards.length,
         newScheduleEvents: newScheduleEvents.length,
         newVideos: newVideos.length,
+        newPlaybooks: newPlaybooks.length,
         totalChanges,
       },
     };
@@ -566,6 +581,46 @@ export class SyncDiffService {
       // Not a valid URL — compare as-is, lowercased
       return src.toLowerCase().trim();
     }
+  }
+
+  // ─── Playbook Diffing ────────────────────────────────────────────────
+
+  private diffPlaybooks(
+    prev: readonly PreviousPlaybookEntry[],
+    next: readonly DistilledPlaybook[]
+  ): SyncNewPlaybook[] {
+    if (!next.length) return [];
+
+    // Build set of existing playbook keys: "(name, sport, playCount)" composite key
+    const existingKeys = new Set<string>();
+    for (const entry of prev) {
+      existingKeys.add(this.playbookKey(entry.name, entry.sport, entry.playCount));
+    }
+
+    const newPlaybooks: SyncNewPlaybook[] = [];
+    for (const playbook of next) {
+      const key = this.playbookKey(playbook.name, playbook.sport, playbook.playCount);
+      if (!existingKeys.has(key)) {
+        existingKeys.add(key); // Prevent duplicates within the same batch
+        newPlaybooks.push({
+          name: playbook.name,
+          sport: playbook.sport,
+          playCount: playbook.playCount,
+          formationTypes: playbook.formationTypes,
+          videoRefs: playbook.videoRefs,
+        });
+      }
+    }
+
+    return newPlaybooks;
+  }
+
+  /**
+   * Playbook dedup key: (name, sport, playCount) composite.
+   * Playbooks are identified by their name, sport context, and count.
+   */
+  private playbookKey(name: string, sport: string, playCount: number): string {
+    return `${name.toLowerCase().trim()}::${sport.toLowerCase().trim()}::${playCount}`;
   }
 
   // ─── Helpers ──────────────────────────────────────────────────────────

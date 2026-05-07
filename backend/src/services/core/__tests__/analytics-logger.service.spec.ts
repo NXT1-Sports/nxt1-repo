@@ -155,8 +155,20 @@ describe('AnalyticsLoggerService.getSummary', () => {
     expect(mockCreate).not.toHaveBeenCalled();
   });
 
-  it('blocks anonymous events unless they are allowlisted creator-visibility events', async () => {
+  it('allows anonymous events only when event type is explicitly allowlisted', async () => {
     const service = new AnalyticsLoggerService();
+
+    await expect(
+      service.track({
+        subjectId: 'user_123',
+        subjectType: 'user',
+        domain: 'engagement',
+        eventType: 'search_appeared',
+        source: 'user',
+        actorUserId: null,
+        payload: {},
+      })
+    ).rejects.toThrow(/Anonymous analytics events are blocked/i);
 
     await expect(
       service.track({
@@ -168,7 +180,55 @@ describe('AnalyticsLoggerService.getSummary', () => {
         actorUserId: null,
         payload: {},
       })
-    ).rejects.toThrow(/Anonymous analytics events are blocked/i);
+    ).resolves.toBeDefined();
+
+    await expect(
+      service.track({
+        subjectId: 'team_123',
+        subjectType: 'team',
+        domain: 'engagement',
+        eventType: 'content_viewed',
+        source: 'user',
+        actorUserId: null,
+        payload: {},
+      })
+    ).resolves.toBeDefined();
+
+    await expect(
+      service.track({
+        subjectId: 'user_123',
+        subjectType: 'user',
+        domain: 'engagement',
+        eventType: 'content_shared',
+        source: 'user',
+        actorUserId: null,
+        payload: {},
+      })
+    ).resolves.toBeDefined();
+
+    await expect(
+      service.track({
+        subjectId: 'user_123',
+        subjectType: 'user',
+        domain: 'engagement',
+        eventType: 'video_played',
+        source: 'user',
+        actorUserId: null,
+        payload: {},
+      })
+    ).resolves.toBeDefined();
+
+    await expect(
+      service.track({
+        subjectId: 'team_123',
+        subjectType: 'team',
+        domain: 'engagement',
+        eventType: 'video_watched',
+        source: 'user',
+        actorUserId: null,
+        payload: {},
+      })
+    ).resolves.toBeDefined();
 
     await expect(
       service.track({

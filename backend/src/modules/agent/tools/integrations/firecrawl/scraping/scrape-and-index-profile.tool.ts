@@ -453,7 +453,9 @@ export class ScrapeAndIndexProfileTool extends BaseTool {
                 'Use `read_distilled_section` with the URL and a section name to fetch detailed data for each section. ' +
                 'Then call the appropriate write tool for each section: ' +
                 'write_core_identity, write_season_stats, write_combine_metrics, write_rankings, ' +
-                'write_recruiting_activity, write_calendar_events, write_athlete_videos.',
+                'write_recruiting_activity, write_calendar_events, write_athlete_videos, write_athlete_images. ' +
+                'For images: call extract_page_images on this URL to discover image assets, ' +
+                'then verify with analyze_image (cap: 5 images), then persist verified images via write_athlete_images.',
             },
           };
         }

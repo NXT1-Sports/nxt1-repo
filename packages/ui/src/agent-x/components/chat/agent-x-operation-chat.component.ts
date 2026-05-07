@@ -76,6 +76,8 @@ import { AgentXOperationChatTransportFacade } from './agent-x-operation-chat-tra
 import type { BatchEmailCampaignProgress } from './agent-x-operation-chat-transport.facade';
 import { resolveCoordinatorActionId } from './agent-x-operation-chat.utils';
 import { AgentXOperationChatYieldFacade } from './agent-x-operation-chat-yield.facade';
+import { AgentXOperationChatRecurringFacade } from './agent-x-operation-chat-recurring.facade';
+import { AgentXOperationChatRecurringTasksDockComponent } from './agent-x-operation-chat-recurring-tasks-dock.component';
 import type { OperationEventSubscription } from '../../services/agent-x-operation-event.service';
 import { NxtPlatformIconComponent } from '../../../components/platform-icon/platform-icon.component';
 import { NxtDragDropDirective } from '../../../services/gesture';
@@ -84,6 +86,7 @@ import {
   type ActionCardOpenMediaEvent,
 } from '../cards/agent-x-action-card.component';
 import { AgentXAskUserCardComponent } from '../cards/agent-x-ask-user-card.component';
+import { AgentXEnqueueWaitingCardComponent } from '../cards/agent-x-enqueue-waiting-card.component';
 import type { BillingActionResolvedEvent } from '../cards/agent-x-billing-action-card.component';
 import type { DraftSubmittedEvent } from '../cards/agent-x-draft-card.component';
 import type { AgentYieldState } from '@nxt1/core';
@@ -158,6 +161,8 @@ type YieldStateSource =
     AgentXMessageUndoComponent,
     AgentXActionCardComponent,
     AgentXAskUserCardComponent,
+    AgentXEnqueueWaitingCardComponent,
+    AgentXOperationChatRecurringTasksDockComponent,
   ],
   template: `
     <div
@@ -205,30 +210,32 @@ type YieldStateSource =
               [class.msg-row--wide]="msgHasDataTable(msg) || !!msg.yieldState"
             >
               @if (hasBubbleProse(msg) || (!approvalYieldForMessage(msg) && !isAskUserYield(msg))) {
-                <nxt1-chat-bubble
-                  variant="agent-operation"
-                  [isOwn]="msg.role === 'user'"
-                  [content]="msg.content"
-                  [imageUrl]="msg.role === 'assistant' ? msg.imageUrl : undefined"
-                  [videoUrl]="msg.role === 'assistant' ? msg.videoUrl : undefined"
-                  [isStreaming]="msg.id === 'typing' && isActivityInFlight()"
-                  [typingLabel]="msg.id === 'typing' ? thinkingLabel() : 'Thinking...'"
-                  [isError]="!!msg.error"
-                  [isSystem]="msg.role === 'system'"
-                  [steps]="messageStepsForBubble(msg)"
-                  [cards]="messageCardsForBubble(msg)"
-                  [parts]="messagePartsForBubble(msg)"
-                  (billingActionResolved)="onBillingActionResolved($event)"
-                  (confirmationAction)="yieldFacade.onConfirmationAction($event)"
-                  (draftSubmitted)="yieldFacade.onDraftSubmitted($event)"
-                  (askUserReply)="yieldFacade.onAskUserReply($event)"
-                  (retryRequested)="runControlFacade.onRetryErrorMessage(msg)"
-                />
-                @if (msg.id === 'typing' && showThinking()) {
-                  <nxt1-agent-x-operation-chat-thinking
-                    class="msg-inline-thinking"
-                    [label]="thinkingLabel()"
+                @if (msg.id === 'enqueue-waiting') {
+                  <nxt1-agent-x-enqueue-waiting-card [isStopped]="!!msg.interruptedReason" />
+                } @else {
+                  <nxt1-chat-bubble
+                    variant="agent-operation"
+                    [isOwn]="msg.role === 'user'"
+                    [content]="msg.content"
+                    [isStreaming]="msg.id === 'typing' && isActivityInFlight()"
+                    [typingLabel]="msg.id === 'typing' ? thinkingLabel() : 'Thinking...'"
+                    [isError]="!!msg.error"
+                    [isSystem]="msg.role === 'system'"
+                    [steps]="messageStepsForBubble(msg)"
+                    [cards]="messageCardsForBubble(msg)"
+                    [parts]="messagePartsForBubble(msg)"
+                    (billingActionResolved)="onBillingActionResolved($event)"
+                    (confirmationAction)="yieldFacade.onConfirmationAction($event)"
+                    (draftSubmitted)="yieldFacade.onDraftSubmitted($event)"
+                    (askUserReply)="yieldFacade.onAskUserReply($event)"
+                    (retryRequested)="runControlFacade.onRetryErrorMessage(msg)"
                   />
+                  @if (msg.id === 'typing' && showThinking()) {
+                    <nxt1-agent-x-operation-chat-thinking
+                      class="msg-inline-thinking"
+                      [label]="thinkingLabel()"
+                    />
+                  }
                 }
               }
               @if (approvalYieldForMessage(msg); as approvalYield) {
@@ -340,7 +347,13 @@ type YieldStateSource =
                   }
                 </div>
               }
-              @if (!msg.yieldState && msg.id !== 'typing' && msg.role !== 'system' && !msg.error) {
+              @if (
+                !msg.yieldState &&
+                msg.id !== 'typing' &&
+                msg.id !== 'enqueue-waiting' &&
+                msg.role !== 'system' &&
+                !msg.error
+              ) {
                 <nxt1-agent-x-chat-bubble-actions
                   [alignEnd]="msg.role === 'user'"
                   (copy)="messageFacade.copyMessageContent(msg)"
@@ -461,6 +474,17 @@ type YieldStateSource =
           (undo)="messageFacade.undoDeletedMessage()"
           (expired)="messageFacade.clearUndoState()"
         />
+
+        @if (recurringFacade.shouldRenderDock()) {
+          <nxt1-agent-x-operation-chat-recurring-tasks-dock
+            [tasks]="recurringFacade.items()"
+            [loading]="recurringFacade.loading()"
+            [cancellingTaskKeys]="recurringFacade.cancellingTaskKeys()"
+            [expanded]="recurringDockExpanded()"
+            (expandedChange)="recurringDockExpanded.set($event)"
+            (cancelTask)="recurringFacade.cancelRecurringTask($event)"
+          />
+        }
 
         <nxt1-agent-x-input-bar
           [userMessage]="inputValue()"
@@ -1516,6 +1540,7 @@ type YieldStateSource =
     AgentXOperationChatRunControlFacade,
     AgentXOperationChatSessionFacade,
     AgentXOperationChatYieldFacade,
+    AgentXOperationChatRecurringFacade,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -1650,6 +1675,12 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
    * conversation from the backend so the user can review past messages.
    */
   @Input() threadId = '';
+
+  /**
+   * Hint from parent shells that this thread has scheduled recurring tasks.
+   * Used to keep recurring-task UI affordances visible during loading states.
+   */
+  @Input() hasRecurringTasksHint = false;
 
   /**
    * When the operation is in `awaiting_input` state, the shell passes
@@ -1790,6 +1821,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
    * and included in subsequent requests for conversation continuity.
    */
   private readonly _resolvedThreadId = signal<string | null>(null);
+  protected readonly recurringDockExpanded = signal(false);
 
   /** Structured quick action metadata for the next auto-sent chip selection. */
   private readonly _pendingSelectedAction = signal<AgentXSelectedAction | null>(null);
@@ -2083,7 +2115,15 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   // ============================================
 
   private readonly messagesArea = viewChild<ElementRef>('messagesArea');
+
+  protected readonly recurringFacade = inject(AgentXOperationChatRecurringFacade);
+
   constructor() {
+    this.recurringFacade.configure({
+      resolveActiveThreadId: () => this.sessionFacade.resolveActiveThreadId(),
+      hasRecurringTasksHint: () => this.hasRecurringTasksHint,
+    });
+
     this.sessionFacade.configure({
       contextId: () => this.contextId,
       contextType: () => this.contextType,
@@ -2182,6 +2222,9 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
         this._shadowFirestoreSub?.unsubscribe();
         this._shadowFirestoreSub = null;
         this._streamTurnWatermark = null;
+        // Mark the enqueue-waiting card as stopped so it shows the stopped
+        // visual state instead of the spinning spinner.
+        this.sessionFacade.markEnqueueStopped();
       },
       getActiveStream: () => this.activeStream,
       setActiveStream: (controller) => {
@@ -2252,6 +2295,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
         this._shadowFirestoreSub?.unsubscribe();
         this._shadowFirestoreSub = null;
         this._streamTurnWatermark = null;
+        this.sessionFacade.markEnqueueStopped();
       },
       setOperationStatus: (status) => {
         this.operationStatus = status;
@@ -2330,6 +2374,12 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       if (yieldState) {
         this.scrollToBottom({ behavior: 'smooth' });
       }
+    });
+
+    // Trigger recurring task load whenever the thread resolves
+    effect(() => {
+      const resolvedId = this._resolvedThreadId();
+      this.recurringFacade.refreshForThread(resolvedId ?? (this.threadId.trim() || null));
     });
   }
 
@@ -2640,29 +2690,18 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
    * skip the bubble and render only the action/ask-user card.
    */
   /**
-   * Attachments to render in the strip — excludes any whose URL is already
-   * shown as the primary `imageUrl` / `videoUrl` in the bubble above, so
-   * scraped/generated media never appears in both places simultaneously.
+   * Attachments to render in the strip — all attachments for both user and assistant.
    */
   protected messageAttachmentsForStrip(
     msg: OperationMessage
   ): readonly NonNullable<OperationMessage['attachments']>[number][] {
-    const atts = msg.attachments;
-    if (!atts?.length) return [];
-    if (msg.role !== 'assistant') return atts;
-    const primaryUrls = new Set<string>();
-    if (msg.imageUrl?.trim()) primaryUrls.add(msg.imageUrl.trim());
-    if (msg.videoUrl?.trim()) primaryUrls.add(msg.videoUrl.trim());
-    if (!primaryUrls.size) return atts;
-    return atts.filter((att) => !att.url || !primaryUrls.has(att.url.trim()));
+    return msg.attachments ?? [];
   }
 
   protected hasBubbleProse(msg: OperationMessage): boolean {
     if (msg.id === 'typing') return true;
     if ((msg.content ?? '').trim().length > 0) return true;
     if ((msg.attachments?.length ?? 0) > 0) return true;
-    if ((msg.imageUrl?.trim().length ?? 0) > 0) return true;
-    if ((msg.videoUrl?.trim().length ?? 0) > 0) return true;
     if (this.messageStepsForBubble(msg).length > 0) return true;
     if (this.messageCardsForBubble(msg).length > 0) return true;
     if (this.messagePartsForBubble(msg).length > 0) return true;
@@ -2967,8 +3006,6 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     if ((msg.cards?.length ?? 0) > 0) return true;
     if ((msg.steps?.length ?? 0) > 0) return true;
     if ((msg.attachments?.length ?? 0) > 0) return true;
-    if ((msg.imageUrl?.trim().length ?? 0) > 0) return true;
-    if ((msg.videoUrl?.trim().length ?? 0) > 0) return true;
     if ((msg.parts?.length ?? 0) > 0) return true;
     return false;
   }

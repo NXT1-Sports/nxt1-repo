@@ -1,6 +1,6 @@
 {
   "name": "@nxt1/ui",
-  "version": "2.16.2",
+  "version": "2.18.0",
   "description": "NXT1 UI - Shared Angular/Ionic components, services, and infrastructure for cross-platform applications (2026 APF)",
   "sideEffects": [
     "*.css"

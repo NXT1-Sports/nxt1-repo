@@ -16,7 +16,6 @@ import { GoogleWorkspaceBaseTool } from './google-workspace-base.tool.js';
 import { createHash, randomUUID } from 'node:crypto';
 import type { ToolExecutionContext, ToolResult } from '../../base.tool.js';
 import { buildTrackedEmailHtmlWithRecipientHash } from '../../../../../services/communications/connected-mail.service.js';
-import { getAnalyticsLoggerService } from '../../../../../services/core/analytics-logger.service.js';
 import { z } from 'zod';
 
 const EmptyGmailInputSchema = z.object({}).strict();
@@ -147,32 +146,6 @@ export class GmailSendEmailTool extends GoogleWorkspaceBaseTool {
       },
       context
     );
-
-    if (result.success) {
-      void getAnalyticsLoggerService().safeTrack({
-        subjectId: context.userId,
-        subjectType: 'user',
-        domain: 'communication',
-        eventType: 'email_sent',
-        source: 'agent',
-        actorUserId: context.userId,
-        sessionId: context.sessionId ?? null,
-        threadId: context.threadId ?? null,
-        tags: ['gmail', 'google-workspace-mcp', 'gmail_send_email'],
-        payload: {
-          provider: 'gmail',
-          toCount: parsed.data.to.length,
-          ccCount: parsed.data.cc?.length ?? 0,
-          bccCount: parsed.data.bcc?.length ?? 0,
-          subjectLength: parsed.data.subject.length,
-        },
-        metadata: {
-          toolName: this.name,
-          mcpToolName: this.mcpToolName,
-          recipientEmailHash,
-        },
-      });
-    }
 
     return result;
   }

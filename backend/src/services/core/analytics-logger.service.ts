@@ -84,11 +84,18 @@ const summaryQuerySchema = z
 export type TrackAnalyticsInput = z.infer<typeof trackEventSchema>;
 export type AnalyticsSummaryQuery = z.infer<typeof summaryQuerySchema>;
 
-const ANONYMOUS_USER_EVENT_ALLOWLIST = new Set(['email_opened', 'link_clicked', 'profile_viewed']);
+const ANONYMOUS_USER_EVENT_ALLOWLIST = new Set([
+  'email_opened',
+  'link_clicked',
+  'profile_viewed',
+  'content_viewed',
+  'content_shared',
+  'video_played',
+  'video_watched',
+]);
 
 function isAnonymousUserEventAllowed(input: TrackAnalyticsInput): boolean {
   if (input.source !== 'user') return false;
-  if (input.subjectType !== 'user') return false;
   if (input.actorUserId && input.actorUserId.trim().length > 0) return false;
   return ANONYMOUS_USER_EVENT_ALLOWLIST.has(input.eventType);
 }

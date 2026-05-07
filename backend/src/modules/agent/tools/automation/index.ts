@@ -8,6 +8,7 @@
  */
 
 export { ScheduleRecurringTaskTool } from './schedule-recurring.tool.js';
+export { UpdateRecurringTaskTool } from './update-recurring.tool.js';
 export { ListRecurringTasksTool } from './list-recurring.tool.js';
 export { CancelRecurringTaskTool } from './cancel-recurring.tool.js';
 export { EnqueueHeavyTaskTool } from './enqueue-heavy-task.tool.js';

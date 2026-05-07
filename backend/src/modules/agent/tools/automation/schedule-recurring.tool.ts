@@ -88,7 +88,9 @@ export class ScheduleRecurringTaskTool extends BaseTool {
     'Provide a human-readable action summary (what to do each time), a standard cron expression, ' +
     'and an IANA timezone (for example America/Chicago). ' +
     'Optionally include sourceId to override the originating thread ID used for recurring context hydration. ' +
-    'The minimum allowed interval is 1 hour.';
+    'The minimum allowed interval is 1 hour. ' +
+    'Each run executes inside the originating thread and posts its full reply there (identical to a normal chat response), AND sends a push notification as a supplementary alert. ' +
+    'When confirming the schedule to the user, always state that results will appear in this thread each time the task runs.';
 
   readonly parameters = ScheduleRecurringTaskInputSchema;
 
@@ -159,6 +161,7 @@ export class ScheduleRecurringTaskTool extends BaseTool {
       operationId,
       userId,
       intent: actionSummary,
+      displayIntent: actionSummary,
       sessionId: `scheduled-${userId}`,
       origin: 'system_cron',
       ...(resolvedSourceId

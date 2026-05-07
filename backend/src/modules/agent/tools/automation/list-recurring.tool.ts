@@ -11,6 +11,7 @@ import { BaseTool, type ToolResult } from '../base.tool.js';
 import type { AgentToolCategory } from '@nxt1/core';
 import type { AgentQueueService } from '../../queue/queue.service.js';
 import type { RecurringJobInfo } from '../../queue/queue.types.js';
+import { AgentJobRepository } from '../../queue/job.repository.js';
 import { z } from 'zod';
 
 const RECURRING_TASKS_COLLECTION = 'RecurringTasks' as const;
@@ -34,11 +35,13 @@ export class ListRecurringTasksTool extends BaseTool {
 
   private readonly db: Firestore;
   private readonly queueService: AgentQueueService;
+  private readonly jobRepo: AgentJobRepository;
 
   constructor(queueService: AgentQueueService, db?: Firestore) {
     super();
     this.queueService = queueService;
     this.db = db ?? getFirestore();
+    this.jobRepo = new AgentJobRepository(this.db);
   }
 
   async execute(input: Record<string, unknown>): Promise<ToolResult> {
@@ -82,7 +85,7 @@ export class ListRecurringTasksTool extends BaseTool {
         ])
       );
 
-      const tasks: RecurringJobInfo[] = snap.docs.map((doc) => {
+      const baseTasks: RecurringJobInfo[] = snap.docs.map((doc) => {
         const data = doc.data();
         const repeatable = repeatableMap.get(doc.id);
         const persistedTimezone = data['timezone'];
@@ -103,6 +106,27 @@ export class ListRecurringTasksTool extends BaseTool {
               ? new Date(repeatable.nextRun).toISOString()
               : null,
           createdAt: (data['createdAt'] as Timestamp).toDate().toISOString(),
+        };
+      });
+
+      const executionSummaries = await Promise.all(
+        baseTasks.map(async (task) => ({
+          key: task.key,
+          summary: await this.jobRepo.getExecutionSummaryByScheduleKey(userId, task.key),
+        }))
+      );
+
+      const summaryByKey = new Map(executionSummaries.map((entry) => [entry.key, entry.summary]));
+      const tasks: RecurringJobInfo[] = baseTasks.map((task) => {
+        const summary = summaryByKey.get(task.key);
+        if (!summary) return task;
+        return {
+          ...task,
+          totalRuns: summary.totalRuns,
+          successfulRuns: summary.successfulRuns,
+          failedRuns: summary.failedRuns,
+          lastRunAt: summary.lastRunAt,
+          lastRunStatus: summary.lastRunStatus,
         };
       });
 

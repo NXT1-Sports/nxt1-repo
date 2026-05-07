@@ -11,7 +11,6 @@ import { BaseTool, type ToolResult, type ToolExecutionContext } from '../../base
 import { sendEmailViaProvider } from '../../../../../services/communications/connected-mail.service.js';
 import type { Firestore } from 'firebase-admin/firestore';
 import { db as defaultDb } from '../../../../../utils/firebase.js';
-import { getAnalyticsLoggerService } from '../../../../../services/core/analytics-logger.service.js';
 import { logger } from '../../../../../utils/logger.js';
 import {
   type EmailProvider,
@@ -114,30 +113,6 @@ export class SendEmailTool extends BaseTool {
         toEmail,
         messageId: result.externalMessageId,
         threadId: result.externalThreadId,
-      });
-
-      await getAnalyticsLoggerService().safeTrack({
-        subjectId: userId,
-        subjectType: 'user',
-        domain: 'communication',
-        eventType: 'email_sent',
-        source: 'agent',
-        actorUserId: context?.userId ?? userId,
-        sessionId: context?.sessionId ?? null,
-        threadId: context?.threadId ?? null,
-        tags: [provider, 'agent-email'],
-        payload: {
-          provider,
-          toEmail,
-          subject,
-          trackingId: result.trackingId,
-        },
-        metadata: {
-          toolName: this.name,
-          externalMessageId: result.externalMessageId ?? null,
-          externalThreadId: result.externalThreadId ?? null,
-          trackingId: result.trackingId,
-        },
       });
 
       return {
