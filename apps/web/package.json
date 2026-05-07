@@ -1,6 +1,6 @@
 {
   "name": "@nxt1/web",
-  "version": "1.21.0",
+  "version": "1.22.0",
   "description": "NXT1 Web Application - Angular + Ionic with SSR",
   "private": true,
   "scripts": {
