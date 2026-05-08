@@ -134,10 +134,11 @@ platform :ios do
     upload_to_testflight(
       api_key: api_key,
       ipa: "./build/NXT1-release.ipa",
-      skip_waiting_for_build_processing: false,
-      # Apple API does NOT allow assigning internal groups via API key auth —
-      # internal testers (App Store Connect roles) receive builds automatically
-      # once processing completes. Apple sends the "ready to test" email automatically.
+      # Skip waiting — just upload the IPA and exit. Apple processes the build
+      # and automatically makes it available to internal testers (same behaviour
+      # as Xcode upload). Attempting to distribute after processing via API key
+      # triggers an unwanted beta review ("Waiting for Review" status).
+      skip_waiting_for_build_processing: true,
       distribute_external: false,
       notify_external_testers: false,
       changelog: changelog_from_git_commits(
