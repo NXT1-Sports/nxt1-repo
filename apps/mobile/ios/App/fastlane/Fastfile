@@ -127,7 +127,7 @@ platform :ios do
   # ============================================================================
   # TESTFLIGHT UPLOAD
   # ============================================================================
-  desc "Upload to TestFlight"
+  desc "Upload to TestFlight and distribute to internal testers"
   lane :upload_testflight do
     api_key = load_api_key
 
@@ -135,10 +135,12 @@ platform :ios do
       api_key: api_key,
       ipa: "./build/NXT1-release.ipa",
       skip_waiting_for_build_processing: false,
+      # Explicitly assign to the internal group so the build status becomes
+      # "Testing" (not "Ready to Submit") and testers receive the email
+      # notification — same behaviour as uploading directly from Xcode.
+      groups: ["NXT1 Team"],
       distribute_external: false,
-      # Internal testers automatically get access to all builds — do not pass `groups`
-      # with distribute_external:false (App Store Connect API rejects internal group
-      # assignment with "Cannot add internal group to a build").
+      notify_external_testers: false,
       changelog: changelog_from_git_commits(
         commits_count: 10,
         pretty: "- %s"
