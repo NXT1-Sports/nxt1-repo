@@ -316,6 +316,7 @@ jobs:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          GOOGLE_PLAY_JSON_KEY: ${{ secrets.GOOGLE_PLAY_JSON_KEY }}
         run: |
           echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > apps/mobile/android/app/nxt1-release.keystore
           cat > apps/mobile/android/key.properties << EOF
@@ -324,6 +325,9 @@ jobs:
           keyAlias=$ANDROID_KEY_ALIAS
           keyPassword=$ANDROID_KEY_PASSWORD
           EOF
+          # Write google-play-key.json here so the release lane can call
+          # google_play_track_version_codes before we reach the upload steps
+          echo "$GOOGLE_PLAY_JSON_KEY" > apps/mobile/android/google-play-key.json
 
       - name: Build Android (release AAB)
         working-directory: apps/mobile/android
@@ -340,18 +344,10 @@ jobs:
       - name: Upload to Play Store Internal Track
         if: env.BUILD_PROFILE == 'staging'
         working-directory: apps/mobile/android
-        env:
-          GOOGLE_PLAY_JSON_KEY: ${{ secrets.GOOGLE_PLAY_JSON_KEY }}
-        run: |
-          echo "$GOOGLE_PLAY_JSON_KEY" > google-play-key.json
-          fastlane upload_internal
+        run: fastlane upload_internal
 
       # Upload to Play Store Production — production only
       - name: Upload to Play Store Production
         if: env.BUILD_PROFILE == 'production'
         working-directory: apps/mobile/android
-        env:
-          GOOGLE_PLAY_JSON_KEY: ${{ secrets.GOOGLE_PLAY_JSON_KEY }}
-        run: |
-          echo "$GOOGLE_PLAY_JSON_KEY" > google-play-key.json
-          fastlane upload_production
+        run: fastlane upload_production
