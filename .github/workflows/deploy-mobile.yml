@@ -415,6 +415,17 @@ jobs:
             Commit: ${{ github.sha }}
             Branch: ${{ github.ref_name }}
 
+      - name: Locate Android APK
+        if: needs.build-android.result == 'success'
+        id: find-apk
+        run: |
+          APK_PATH=$(find artifacts/android -name "*.apk" -type f | head -1)
+          if [ -z "$APK_PATH" ]; then
+            echo "::error::No APK found under artifacts/android"
+            exit 1
+          fi
+          echo "path=$APK_PATH" >> $GITHUB_OUTPUT
+
       - name: Upload Android to Firebase App Distribution
         if: needs.build-android.result == 'success'
         uses: wzieba/Firebase-Distribution-Github-Action@v1
@@ -422,7 +433,7 @@ jobs:
           appId: ${{ secrets.FIREBASE_ANDROID_APP_ID }}
           serviceCredentialsFileContent: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_PROD }}
           groups: internal-testers
-          file: artifacts/android/**/*.apk
+          file: ${{ steps.find-apk.outputs.path }}
           releaseNotes: |
             Build: ${{ github.run_number }}
             Commit: ${{ github.sha }}
