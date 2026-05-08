@@ -62,9 +62,29 @@ platform :android do
   end
 
   # ============================================================================
-  # RELEASE BUILD (AAB for Play Store)
+  # STAGING BUILD (AAB — version code from GitHub run number, no Play Store API)
   # ============================================================================
-  desc "Build release AAB for Play Store"
+  desc "Build staging AAB for Play Store Internal Track"
+  lane :release_staging do
+    version_code = ENV["GITHUB_RUN_NUMBER"]&.to_i || Time.now.strftime("%Y%m%d%H").to_i
+
+    increment_version_code(
+      gradle_file_path: "app/build.gradle",
+      version_code: version_code
+    )
+
+    gradle(
+      task: "clean bundleRelease",
+      project_dir: "./"
+    )
+
+    sh("mkdir -p ../build && cp ../app/build/outputs/bundle/release/*.aab ../build/NXT1-release.aab")
+  end
+
+  # ============================================================================
+  # PRODUCTION BUILD (AAB — version code from Play Store)
+  # ============================================================================
+  desc "Build production AAB for Play Store"
   lane :release do
     # Get the latest version code from Play Store and increment
     version_codes = google_play_track_version_codes(
@@ -72,7 +92,7 @@ platform :android do
       json_key: "google-play-key.json",
       package_name: PACKAGE_NAME
     )
-    
+
     new_version_code = (version_codes.max || 0) + 1
 
     increment_version_code(
@@ -84,7 +104,7 @@ platform :android do
       task: "clean bundleRelease",
       project_dir: "./"
     )
-    
+
     # Copy AAB to build directory
     sh("mkdir -p ../build && cp ../app/build/outputs/bundle/release/*.aab ../build/NXT1-release.aab")
   end

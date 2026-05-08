@@ -1,5 +1,5 @@
 # NXT1 iOS App Configuration
-app_identifier("com.nxt1.sports")
+app_identifier("com.nxt1sports.nxt1")
 apple_id(ENV["APPLE_ID"] || "developer@nxt1.app")
 team_id(ENV["APPLE_TEAM_ID"])
 
@@ -9,14 +9,14 @@ itc_team_id(ENV["ITC_TEAM_ID"])
 # Match configuration
 for_platform :ios do
   for_lane :dev do
-    app_identifier("com.nxt1.sports")
+    app_identifier("com.nxt1sports.nxt1")
   end
   
   for_lane :beta do
-    app_identifier("com.nxt1.sports")
+    app_identifier("com.nxt1sports.nxt1")
   end
   
   for_lane :release do
-    app_identifier("com.nxt1.sports")
+    app_identifier("com.nxt1sports.nxt1")
   end
 end

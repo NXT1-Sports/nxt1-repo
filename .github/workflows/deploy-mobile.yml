@@ -93,7 +93,12 @@ jobs:
         run: npm ci
 
       - name: Build mobile web assets
-        run: npm run build:mobile
+        run: |
+          if [ "${{ needs.setup.outputs.profile }}" == "production" ]; then
+            npm run build:mobile
+          else
+            npm run build:mobile:staging
+          fi
         env:
           NODE_OPTIONS: --max_old_space_size=4096
 
@@ -142,9 +147,9 @@ jobs:
       - name: Install Node dependencies
         run: npm ci
 
-      - name: Switch Firebase config (production)
+      - name: Switch Firebase config
         working-directory: apps/mobile
-        run: node scripts/auto-switch-firebase-env.js production
+        run: node scripts/auto-switch-firebase-env.js ${{ env.BUILD_PROFILE }}
 
       - name: Sync Capacitor web assets to iOS
         working-directory: apps/mobile
@@ -294,9 +299,9 @@ jobs:
       - name: Install Node dependencies
         run: npm ci
 
-      - name: Switch Firebase config (production)
+      - name: Switch Firebase config
         working-directory: apps/mobile
-        run: node scripts/auto-switch-firebase-env.js production
+        run: node scripts/auto-switch-firebase-env.js ${{ env.BUILD_PROFILE }}
 
       - name: Sync Capacitor plugins and web assets to Android
         working-directory: apps/mobile
@@ -331,7 +336,12 @@ jobs:
 
       - name: Build Android (release AAB)
         working-directory: apps/mobile/android
-        run: fastlane release
+        run: |
+          if [ "$BUILD_PROFILE" == "production" ]; then
+            fastlane release
+          else
+            fastlane release_staging
+          fi
 
       - name: Save AAB artifact
         uses: actions/upload-artifact@v4

@@ -27,6 +27,7 @@
     "build:web": "turbo run build --filter=@nxt1/web",
     "build:web:staging": "turbo run build:staging --filter=@nxt1/web",
     "build:mobile": "turbo run build --filter=@nxt1/mobile",
+    "build:mobile:staging": "turbo run build:staging --filter=@nxt1/mobile",
     "build:backend": "turbo run build --filter=@nxt1/backend",
     "build:functions": "turbo run build --filter=@nxt1/functions",
     "build:core": "turbo run build --filter=@nxt1/core",
