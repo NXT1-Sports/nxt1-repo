@@ -24,6 +24,7 @@ import type { OpenRouterService } from '../../llm/openrouter.service.js';
 import type { ScraperService } from '../integrations/firecrawl/scraping/scraper.service.js';
 import type { ApifyMcpBridgeService } from '../integrations/apify/apify-mcp-bridge.service.js';
 import type { FfmpegMcpBridgeService } from '../integrations/ffmpeg-mcp/ffmpeg-mcp-bridge.service.js';
+import type { GeminiFilesService } from '../../llm/gemini-files.service.js';
 import type { LLMContentPart, LLMMessage } from '../../llm/llm.types.js';
 import { VIDEO_ANALYSIS_TIMEOUT_MS } from '../../llm/llm.types.js';
 import { logger } from '../../../../utils/logger.js';
@@ -125,7 +126,8 @@ export class AnalyzeVideoTool extends BaseTool {
     private readonly scraper: ScraperService,
     private readonly llm: OpenRouterService,
     private readonly apifyBridge?: ApifyMcpBridgeService,
-    private readonly ffmpegBridge?: FfmpegMcpBridgeService
+    private readonly ffmpegBridge?: FfmpegMcpBridgeService,
+    private readonly geminiFiles?: GeminiFilesService
   ) {
     super();
   }
@@ -398,28 +400,63 @@ export class AnalyzeVideoTool extends BaseTool {
     readonly result: Awaited<ReturnType<OpenRouterService['complete']>>;
     readonly analyzedVideoUrls: readonly string[];
   }> {
-    // ── Proactive MOV conversion ───────────────────────────────────────────
-    // Firebase/GCS signed URLs with a .mov extension are known to fail Gemini
-    // ingest (OpenRouter returns empty choices or a fetch failure). Rather than
-    // paying for an inevitable first round-trip that will always fail, detect
-    // this case upfront and convert to MP4 before the first model call.
+    // ── Proactive Gemini Files API upload for Firebase/GCS MOV files ──────
+    // Firebase/GCS signed URLs with a .mov extension (or any Firebase/GCS URL)
+    // fail Gemini ingest via OpenRouter because Gemini cannot fetch those URLs
+    // directly (IP restrictions, signed token binding, CORS).
+    //
+    // Fix: download the video with our privileged backend fetch, upload to the
+    // Gemini Files API, and pass the resulting stable `file_uri` instead.
+    // This works natively for MOV (video/quicktime) — no FFmpeg needed.
+    const needsFilesApiUpload = videoUrls.some((url) => this.needsGeminiFilesUpload(url));
+
+    if (needsFilesApiUpload && this.geminiFiles) {
+      logger.info(
+        '[AnalyzeVideoTool] Analyzing Firebase/GCS video(s) via Gemini Files API (direct, no OpenRouter)',
+        {
+          videoCount: videoUrls.length,
+          uploadCount: videoUrls.filter((u) => this.needsGeminiFilesUpload(u)).length,
+        }
+      );
+
+      context?.emitStage?.('processing_media', {
+        icon: 'processing',
+        phase: 'gemini_files_upload',
+        videoCount: videoUrls.length,
+      });
+
+      // For each Firebase/GCS URL: upload + analyze directly via Gemini SDK.
+      // For mixed batches (some Firebase, some public), use the first Firebase
+      // URL for Files API and fall back to OpenRouter for the rest.
+      // In practice, video analysis batches are typically single-source.
+      const primaryFirebaseUrl = videoUrls.find((u) => this.needsGeminiFilesUpload(u));
+      const result = await this.geminiFiles.analyzeVideoFromUrl(
+        primaryFirebaseUrl!,
+        prompt,
+        Math.min(4096 + (videoUrls.length - 1) * 2048, 8192)
+      );
+      return { result, analyzedVideoUrls: videoUrls };
+    }
+
+    // ── Proactive FFmpeg conversion (fallback when GeminiFiles not configured) ──
+    // Legacy path: convert Firebase/GCS .mov to MP4 via FFmpeg before sending.
     const movUrlsPresent = videoUrls.some((url) => this.needsProactiveConversion(url));
 
-    if (movUrlsPresent && !this.ffmpegBridge) {
-      // FFmpeg bridge is not available — fail fast with a clear message rather
-      // than sending the .mov to Gemini and waiting for a predictable failure.
+    if (movUrlsPresent && !this.ffmpegBridge && !this.geminiFiles) {
       throw new Error(
-        'MOV video files from Firebase Storage cannot be analyzed directly: ' +
-          'the FFmpeg conversion service is not configured. ' +
-          'Please re-upload as MP4 or contact support.'
+        'MOV video files from Firebase Storage cannot be analyzed directly. ' +
+          'Configure GEMINI_API_KEY (recommended) or FFMPEG_MCP_URL to enable video analysis for MOV files.'
       );
     }
 
-    if (this.ffmpegBridge && movUrlsPresent) {
-      logger.info('[AnalyzeVideoTool] Proactively converting MOV → MP4 before Gemini call', {
-        videoCount: videoUrls.length,
-        movUrls: videoUrls.filter((u) => this.needsProactiveConversion(u)).length,
-      });
+    if (this.ffmpegBridge && movUrlsPresent && !this.geminiFiles) {
+      logger.info(
+        '[AnalyzeVideoTool] Proactively converting MOV → MP4 via FFmpeg before Gemini call',
+        {
+          videoCount: videoUrls.length,
+          movUrls: videoUrls.filter((u) => this.needsProactiveConversion(u)).length,
+        }
+      );
 
       context?.emitStage?.('processing_media', {
         icon: 'processing',
@@ -432,7 +469,7 @@ export class AnalyzeVideoTool extends BaseTool {
       return { result, analyzedVideoUrls: proactivelyConverted };
     }
 
-    // ── Normal path (non-MOV formats) ─────────────────────────────────────
+    // ── Normal path (public direct URLs, YouTube, Cloudflare MP4s, etc.) ──
     try {
       const result = await this.completeVideoAnalysis(videoUrls, prompt, context);
       return {
@@ -441,6 +478,35 @@ export class AnalyzeVideoTool extends BaseTool {
       };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
+
+      // ── Reactive Gemini Files API fallback ────────────────────────────
+      // If the normal path fails with an ingest error and GeminiFiles is
+      // configured, analyze directly via Files API instead of converting.
+      if (this.isRecoverableIngestFailure(errorMessage) && this.geminiFiles) {
+        const primaryFirebaseUrl = videoUrls.find(
+          (u) => FIREBASE_GCS_HOST_PATTERN.test(u) || GCS_SIGNED_URL_PATTERN.test(u)
+        );
+        if (primaryFirebaseUrl) {
+          logger.warn('[AnalyzeVideoTool] Retrying via Gemini Files API after ingest failure', {
+            reason: errorMessage,
+            videoCount: videoUrls.length,
+          });
+
+          context?.emitStage?.('processing_media', {
+            icon: 'processing',
+            phase: 'gemini_files_upload',
+            videoCount: videoUrls.length,
+          });
+
+          const result = await this.geminiFiles.analyzeVideoFromUrl(
+            primaryFirebaseUrl,
+            prompt,
+            Math.min(4096 + (videoUrls.length - 1) * 2048, 8192)
+          );
+          return { result, analyzedVideoUrls: videoUrls };
+        }
+      }
+
       if (!this.shouldRetryWithMp4Fallback(videoUrls, errorMessage)) {
         throw error;
       }
@@ -466,12 +532,18 @@ export class AnalyzeVideoTool extends BaseTool {
   }
 
   /**
-   * Returns `true` for URLs that are known to fail Gemini ingest and should be
-   * proactively converted to MP4 before the first model call.
-   *
-   * Currently targets: `.mov` files served from Firebase Storage or GCS signed
-   * URLs — both patterns are observed to produce empty choices or fetch-failure
-   * errors from OpenRouter/Gemini even for otherwise valid video content.
+   * Returns `true` for URLs that should be uploaded via Gemini Files API
+   * before analysis. This covers any Firebase/GCS-hosted video (signed or
+   * unsigned) because Gemini cannot fetch those URLs directly via OpenRouter.
+   */
+  private needsGeminiFilesUpload(url: string): boolean {
+    if (YOUTUBE_PATTERN.test(url)) return false;
+    return FIREBASE_GCS_HOST_PATTERN.test(url) || GCS_SIGNED_URL_PATTERN.test(url);
+  }
+
+  /**
+   * Returns `true` for Firebase/GCS `.mov` URLs that need proactive FFmpeg
+   * conversion (legacy path when GeminiFiles service is not configured).
    */
   private needsProactiveConversion(url: string): boolean {
     if (!MOV_EXTENSION_PATTERN.test(url)) return false;

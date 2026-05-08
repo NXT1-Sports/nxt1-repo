@@ -98,6 +98,7 @@ import {
   StageMediaTool,
   ExtractHudlVideoTool,
 } from '../tools/media/index.js';
+import { GeminiFilesService } from '../llm/gemini-files.service.js';
 import { ClassifyMediaUrlTool } from '../tools/media/classify-media-url.tool.js';
 import { WriteAthleteImagesTool } from '../tools/intel/user/write-athlete-images.tool.js';
 import {
@@ -436,6 +437,7 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   let cfBridge: CloudflareMcpBridgeService | undefined;
   let ffmpegBridge: FfmpegMcpBridgeService | undefined;
   let chartBridge: ChartMcpBridgeService | undefined;
+  let geminiFiles: GeminiFilesService | undefined;
 
   // System tools (cross-cutting infrastructure — available to all agents)
   toolRegistry.register(new DelegateTaskTool());
@@ -595,6 +597,21 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
     logger.warn('FFMPEG_MCP_URL not configured — FFmpeg MCP tools disabled');
   }
 
+  // ── Gemini Files API service (for Firebase/GCS video analysis) ────────────
+  // Enables direct video upload to Gemini Files API, bypassing the OpenRouter
+  // proxy for Firebase GCS signed URLs that Gemini cannot fetch directly.
+  // Supports MOV (video/quicktime) natively — no FFmpeg conversion needed.
+  if (GeminiFilesService.isConfigured()) {
+    geminiFiles = new GeminiFilesService();
+    logger.info(
+      'GeminiFilesService initialized — Firebase/GCS video analysis via Files API enabled'
+    );
+  } else {
+    logger.warn(
+      'GEMINI_API_KEY not configured — GeminiFilesService disabled. Firebase MOV analysis will use FFmpeg fallback.'
+    );
+  }
+
   // ── 1e.2. MCP-bridged Chart tools (analytics + visualization) ─────────
   try {
     chartBridge = new ChartMcpBridgeService();
@@ -604,7 +621,9 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
     logger.warn('CHART_MCP_URL not configured — Chart MCP tools disabled');
   }
 
-  toolRegistry.register(new AnalyzeVideoTool(scraperService, llm, apifyMcpBridge, ffmpegBridge));
+  toolRegistry.register(
+    new AnalyzeVideoTool(scraperService, llm, apifyMcpBridge, ffmpegBridge, geminiFiles)
+  );
   toolRegistry.register(new AnalyzeImageTool(llm));
 
   // ── 1f. MCP-bridged Runway ML tools (AI video generation) ──────────────
