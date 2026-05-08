@@ -129,16 +129,14 @@ platform :ios do
   # ============================================================================
   desc "Upload to TestFlight and distribute to internal testers"
   lane :upload_testflight do
-    api_key = load_api_key
-
+    # Use Apple ID (user session) so we can add the build to internal groups —
+    # API key auth cannot assign internal groups (Apple limitation).
+    # Requires GitHub Secrets: APPLE_ID + FASTLANE_APPLE_APPLICATION_SPECIFIC_PASSWORD
     upload_to_testflight(
-      api_key: api_key,
+      username: ENV["APPLE_ID"],
       ipa: "./build/NXT1-release.ipa",
-      # Skip waiting — just upload the IPA and exit. Apple processes the build
-      # and automatically makes it available to internal testers (same behaviour
-      # as Xcode upload). Attempting to distribute after processing via API key
-      # triggers an unwanted beta review ("Waiting for Review" status).
-      skip_waiting_for_build_processing: true,
+      skip_waiting_for_build_processing: false,
+      groups: ["NXT1 Team"],
       distribute_external: false,
       notify_external_testers: false,
       changelog: changelog_from_git_commits(
