@@ -402,6 +402,17 @@ jobs:
           name: android-build-${{ inputs.profile || 'development' }}
           path: artifacts/android
 
+      - name: Locate iOS IPA
+        if: needs.build-ios.result == 'success'
+        id: find-ipa
+        run: |
+          IPA_PATH=$(find artifacts/ios -name "*.ipa" -type f | head -1)
+          if [ -z "$IPA_PATH" ]; then
+            echo "::error::No IPA found under artifacts/ios"
+            exit 1
+          fi
+          echo "path=$IPA_PATH" >> $GITHUB_OUTPUT
+
       - name: Upload iOS to Firebase App Distribution
         if: needs.build-ios.result == 'success'
         uses: wzieba/Firebase-Distribution-Github-Action@v1
@@ -409,7 +420,7 @@ jobs:
           appId: ${{ secrets.FIREBASE_IOS_APP_ID }}
           serviceCredentialsFileContent: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_PROD }}
           groups: internal-testers
-          file: artifacts/ios/*.ipa
+          file: ${{ steps.find-ipa.outputs.path }}
           releaseNotes: |
             Build: ${{ github.run_number }}
             Commit: ${{ github.sha }}
