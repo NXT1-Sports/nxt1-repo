@@ -136,7 +136,9 @@ platform :ios do
       ipa: "./build/NXT1-release.ipa",
       skip_waiting_for_build_processing: false,
       distribute_external: false,
-      groups: ENV["TESTFLIGHT_GROUPS"] || "NXT1 Team",
+      # Internal testers automatically get access to all builds — do not pass `groups`
+      # with distribute_external:false (App Store Connect API rejects internal group
+      # assignment with "Cannot add internal group to a build").
       changelog: changelog_from_git_commits(
         commits_count: 10,
         pretty: "- %s"
