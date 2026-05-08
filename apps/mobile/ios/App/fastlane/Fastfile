@@ -129,14 +129,12 @@ platform :ios do
   # ============================================================================
   desc "Upload to TestFlight and distribute to internal testers"
   lane :upload_testflight do
-    # Use Apple ID (user session) so we can add the build to internal groups —
-    # API key auth cannot assign internal groups (Apple limitation).
-    # Requires GitHub Secrets: APPLE_ID + FASTLANE_APPLE_APPLICATION_SPECIFIC_PASSWORD
+    api_key = load_api_key
+
     upload_to_testflight(
-      username: ENV["APPLE_ID"],
+      api_key: api_key,
       ipa: "./build/NXT1-release.ipa",
-      skip_waiting_for_build_processing: false,
-      groups: ["NXT1 Team"],
+      skip_waiting_for_build_processing: true,
       distribute_external: false,
       notify_external_testers: false,
       changelog: changelog_from_git_commits(
@@ -149,7 +147,7 @@ platform :ios do
   # ============================================================================
   # APP STORE SUBMISSION
   # ============================================================================
-  desc "Submit to App Store"
+  desc "Submit to App Store (production only — binary already uploaded via upload_testflight)"
   lane :submit_app_store do
     api_key = load_api_key
 
@@ -157,6 +155,9 @@ platform :ios do
       api_key: api_key,
       submit_for_review: true,
       automatic_release: false,
+      # Binary is already on App Store Connect — do NOT upload again.
+      # upload_testflight already pushed the IPA and waited for processing.
+      skip_binary_upload: true,
       force: true,
       precheck_include_in_app_purchases: false
     )
