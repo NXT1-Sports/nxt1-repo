@@ -39,6 +39,6 @@
     "@vitest/ui": "^4.0.18",
     "firebase-functions-test": "^3.3.0",
     "typescript": "~5.9.3",
-    "vitest": "^4.1.4"
+    "vitest": "^4.1.5"
   }
 }
