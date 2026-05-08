@@ -111,7 +111,7 @@ jobs:
         run: corepack enable npm
 
       - name: Download web assets
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@v4
         with:
           name: mobile-www
           path: apps/mobile/www
@@ -151,10 +151,27 @@ jobs:
 
       - name: Install CocoaPods
         working-directory: apps/mobile/ios/App
+        # Retry on transient GitHub Release CDN 502s when downloading pods
+        # (e.g. IONFilesystemLib/IONGeolocationLib zips). curl's built-in --retry
+        # does not cover HTTP 5xx by default, so we retry the whole command.
         run: |
-          pod repo update
-          pod update IONGeolocationLib --no-repo-update
-          pod install --repo-update
+          set -e
+          retry() {
+            local max=5 delay=15 n=1
+            until "$@"; do
+              if [ $n -ge $max ]; then
+                echo "::error::Command failed after $n attempts: $*"
+                return 1
+              fi
+              echo "::warning::Attempt $n failed, retrying in ${delay}s..."
+              sleep $delay
+              n=$((n+1))
+              delay=$((delay*2))
+            done
+          }
+          retry pod repo update
+          retry pod update IONGeolocationLib --no-repo-update
+          retry pod install --repo-update
 
       - name: Install Fastlane
         run: |
@@ -266,7 +283,7 @@ jobs:
           cache: 'gradle'
 
       - name: Download web assets
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@v4
         with:
           name: mobile-www
           path: apps/mobile/www
@@ -372,14 +389,14 @@ jobs:
 
       - name: Download iOS artifact
         if: needs.build-ios.result == 'success'
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@v4
         with:
           name: ios-build-${{ inputs.profile || 'development' }}
           path: artifacts/ios
 
       - name: Download Android artifact
         if: needs.build-android.result == 'success'
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@v4
         with:
           name: android-build-${{ inputs.profile || 'development' }}
           path: artifacts/android
