@@ -318,8 +318,9 @@ jobs:
           # Decode keystore
           echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > apps/mobile/android/app/nxt1-release.keystore
 
-          # Create keystore properties
-          cat > apps/mobile/android/keystore.properties << EOF
+          # Create keystore properties (filename must match rootProject.file("key.properties") in app/build.gradle).
+          # storeFile path is resolved by file() inside app/build.gradle, so it's relative to apps/mobile/android/app/.
+          cat > apps/mobile/android/key.properties << EOF
           storeFile=nxt1-release.keystore
           storePassword=$ANDROID_KEYSTORE_PASSWORD
           keyAlias=$ANDROID_KEY_ALIAS

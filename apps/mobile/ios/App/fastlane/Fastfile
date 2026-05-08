@@ -53,7 +53,7 @@ platform :ios do
       output_directory: "./build",
       output_name: "NXT1-dev.ipa",
       clean: true,
-      xcargs: "CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM=794G2RS4WQ PROVISIONING_PROFILE_SPECIFIER='match Development com.nxt1sports.nxt1'"
+      xcargs: "CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM=794G2RS4WQ CODE_SIGN_IDENTITY='Apple Development' PROVISIONING_PROFILE_SPECIFIER='match Development com.nxt1sports.nxt1'"
     )
   end
 
@@ -77,7 +77,7 @@ platform :ios do
       output_directory: "./build",
       output_name: "NXT1-beta.ipa",
       clean: true,
-      xcargs: "CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM=794G2RS4WQ PROVISIONING_PROFILE_SPECIFIER='match AdHoc com.nxt1sports.nxt1'"
+      xcargs: "CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM=794G2RS4WQ CODE_SIGN_IDENTITY='Apple Distribution' PROVISIONING_PROFILE_SPECIFIER='match AdHoc com.nxt1sports.nxt1'"
     )
 
     # Upload to Firebase App Distribution
@@ -120,7 +120,7 @@ platform :ios do
       output_name: "NXT1-release.ipa",
       clean: true,
       include_bitcode: false,
-      xcargs: "CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM=794G2RS4WQ PROVISIONING_PROFILE_SPECIFIER='match AppStore com.nxt1sports.nxt1'"
+      xcargs: "CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM=794G2RS4WQ CODE_SIGN_IDENTITY='Apple Distribution' PROVISIONING_PROFILE_SPECIFIER='match AppStore com.nxt1sports.nxt1'"
     )
   end
 
