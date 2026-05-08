@@ -219,6 +219,70 @@ export class LiveUpdateService {
   }
 
   /**
+   * Pure OTA check — no `notifyAppReady`, no download, no apply.
+   * Updates the `lastResult` signal so the dev UI reflects the outcome.
+   * Safe to call from developer tools at any time.
+   */
+  async checkOnly(): Promise<LiveUpdateCheckResult> {
+    const result = await this.checkForUpdate();
+    this._lastResult.set(result);
+    return result;
+  }
+
+  /**
+   * Fetch the raw Firestore manifest for the current platform + channel.
+   * Returns null when not on a native platform or when no document exists.
+   * Used by developer tools for diagnostics.
+   */
+  async getManifest(): Promise<LiveUpdateManifest | null> {
+    if (!Capacitor.isNativePlatform()) return null;
+    try {
+      const platform = Capacitor.getPlatform() as LiveUpdatePlatform;
+      return await this.fetchManifest(platform, this.channel);
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Download the latest OTA bundle and apply it **immediately** (uses
+   * `set()` instead of `next()` so the WebView reloads right away).
+   * For developer / QA use only — do not call in production flows.
+   */
+  async downloadAndApplyNow(): Promise<void> {
+    if (!Capacitor.isNativePlatform()) throw new Error('Not running on a native platform');
+    await this.ensureUpdaterLoaded();
+    const updater = this.updaterInstance;
+    if (!updater) throw new Error('Capgo updater plugin not available');
+
+    const platform = Capacitor.getPlatform() as LiveUpdatePlatform;
+    const manifest = await this.fetchManifest(platform, this.channel);
+    if (!manifest) throw new Error('No OTA manifest found in Firestore');
+    if (!manifest.enabled) throw new Error('OTA is disabled in the manifest');
+
+    this._applying.set(true);
+    try {
+      this.logger.info('DEV: Force-downloading OTA bundle', { version: manifest.version });
+      const bundle = await updater.download({
+        url: manifest.bundleUrl,
+        version: manifest.version,
+        checksum: manifest.bundleHash,
+      });
+      // set() = apply immediately (WebView reloads now)
+      await updater.set({ id: bundle.id });
+      this.logger.info('DEV: OTA bundle applied immediately', { version: manifest.version });
+      await this.saveState({
+        currentVersion: manifest.version,
+        lastCheckedAt: new Date().toISOString(),
+        failureCount: 0,
+      });
+      this._currentVersion.set(manifest.version);
+    } finally {
+      this._applying.set(false);
+    }
+  }
+
+  /**
    * Force-reset to the native shell bundle. Used when a bundle keeps
    * crashing or for manual rollback.
    */
