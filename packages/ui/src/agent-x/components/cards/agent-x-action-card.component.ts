@@ -51,6 +51,8 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/ass
 /** Emitted when the user approves or rejects an operation. */
 export interface ActionCardApprovalEvent {
   readonly messageId?: string;
+  /** The operationId of the paused row that rendered this card — used for precise backend resolution. */
+  readonly operationId?: string;
   readonly decision: 'approve' | 'reject';
   readonly toolInput?: Record<string, unknown>;
   /** When true, the user checked "Trust for this session" and future same-group approvals should be skipped. */
@@ -60,6 +62,8 @@ export interface ActionCardApprovalEvent {
 /** Emitted when the user replies to an agent's question. */
 export interface ActionCardReplyEvent {
   readonly messageId?: string;
+  /** The operationId of the paused row that rendered this card — used for precise backend resolution. */
+  readonly operationId?: string;
   readonly response: string;
 }
 
@@ -1831,6 +1835,7 @@ export class AgentXActionCardComponent implements OnDestroy {
     this.cardState.set('submitting');
     this.approve.emit({
       messageId: this.messageId() ?? undefined,
+      operationId: this.operationId(),
       decision: 'approve',
       toolInput: this.isEmailApproval()
         ? this.buildEditedEmailInput()
@@ -1846,6 +1851,7 @@ export class AgentXActionCardComponent implements OnDestroy {
     this.cardState.set('submitting');
     this.approve.emit({
       messageId: this.messageId() ?? undefined,
+      operationId: this.operationId(),
       decision: 'reject',
     });
   }
@@ -1936,6 +1942,7 @@ export class AgentXActionCardComponent implements OnDestroy {
     this.cardState.set('submitting');
     this.reply.emit({
       messageId: this.messageId() ?? undefined,
+      operationId: this.operationId(),
       response: text,
     });
   }

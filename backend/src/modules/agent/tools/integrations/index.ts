@@ -175,6 +175,9 @@ export {
 export { ChartMcpBridgeService } from './chart-mcp/chart-mcp-bridge.service.js';
 export { GenerateChartVisualizationTool } from './chart-mcp/index.js';
 
+// ── draw.io MCP — Play diagram generation ───────────────────────────────
+export { DrawioDiagramService, CreatePlayDiagramTool } from './drawio-mcp/index.js';
+
 // ── Cloudflare Stream — Video processing ─────────────────────────────────
 export { CloudflareMcpBridgeService } from './cloudflare-stream/cloudflare-mcp-bridge.service.js';
 export {

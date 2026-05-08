@@ -707,7 +707,7 @@ function buildTrackingBaseUrl(): string {
   return rawBaseUrl.endsWith('/') ? rawBaseUrl.slice(0, -1) : rawBaseUrl;
 }
 
-function hashRecipientEmail(email: string): string {
+export function hashRecipientEmail(email: string): string {
   return createHash('sha256').update(email.trim().toLowerCase()).digest('hex');
 }
 
@@ -722,7 +722,14 @@ function escapeEmailHtml(value: string): string {
 
 export function buildTrackedEmailHtmlWithRecipientHash(
   body: string,
-  options: { userId: string; trackingId: string; recipientEmailHash?: string | null }
+  options: {
+    userId: string;
+    trackingId: string;
+    recipientEmailHash?: string | null;
+    recipientName?: string | null;
+    recipientKind?: string | null;
+    recipientOrgName?: string | null;
+  }
 ): string {
   const html = normalizeEmailHtml(body);
   const baseUrl = buildTrackingBaseUrl();
@@ -742,6 +749,15 @@ export function buildTrackedEmailHtmlWithRecipientHash(
       clickUrl.searchParams.set('sourceRecordId', options.trackingId);
       if (options.recipientEmailHash) {
         clickUrl.searchParams.set('recipientEmailHash', options.recipientEmailHash);
+      }
+      if (options.recipientName) {
+        clickUrl.searchParams.set('recipientName', options.recipientName);
+      }
+      if (options.recipientKind) {
+        clickUrl.searchParams.set('recipientKind', options.recipientKind);
+      }
+      if (options.recipientOrgName) {
+        clickUrl.searchParams.set('recipientOrgName', options.recipientOrgName);
       }
       return clickUrl.toString();
     } catch {
@@ -771,18 +787,37 @@ export function buildTrackedEmailHtmlWithRecipientHash(
   if (options.recipientEmailHash) {
     openUrl.searchParams.set('recipientEmailHash', options.recipientEmailHash);
   }
+  if (options.recipientName) {
+    openUrl.searchParams.set('recipientName', options.recipientName);
+  }
+  if (options.recipientKind) {
+    openUrl.searchParams.set('recipientKind', options.recipientKind);
+  }
+  if (options.recipientOrgName) {
+    openUrl.searchParams.set('recipientOrgName', options.recipientOrgName);
+  }
 
   return `${rewrittenHtml}<img src="${openUrl.toString()}" alt="" width="1" height="1" style="display:none;max-width:1px;max-height:1px;" />`;
 }
 
 export function buildTrackedEmailHtml(
   body: string,
-  options: { userId: string; to: string; trackingId: string }
+  options: {
+    userId: string;
+    to: string;
+    trackingId: string;
+    recipientName?: string | null;
+    recipientKind?: string | null;
+    recipientOrgName?: string | null;
+  }
 ): string {
   return buildTrackedEmailHtmlWithRecipientHash(body, {
     userId: options.userId,
     trackingId: options.trackingId,
     recipientEmailHash: hashRecipientEmail(options.to),
+    recipientName: options.recipientName,
+    recipientKind: options.recipientKind,
+    recipientOrgName: options.recipientOrgName,
   });
 }
 
@@ -797,7 +832,12 @@ export async function sendEmailViaProvider(
   to: string,
   subject: string,
   body: string,
-  db: Firestore = defaultDb
+  db: Firestore = defaultDb,
+  options?: {
+    recipientName?: string;
+    recipientKind?: string;
+    recipientOrgName?: string;
+  }
 ): Promise<{
   success: boolean;
   externalMessageId?: string;
@@ -811,7 +851,14 @@ export async function sendEmailViaProvider(
 
   const accessToken = await getValidAccessToken(userId, tokens, db);
   const trackingId = randomUUID();
-  const trackedBody = buildTrackedEmailHtml(body, { userId, to, trackingId });
+  const trackedBody = buildTrackedEmailHtml(body, {
+    userId,
+    to,
+    trackingId,
+    recipientName: options?.recipientName,
+    recipientKind: options?.recipientKind,
+    recipientOrgName: options?.recipientOrgName,
+  });
 
   if (provider === 'gmail') {
     const result = await sendGmailMessage(accessToken, to, subject, trackedBody);

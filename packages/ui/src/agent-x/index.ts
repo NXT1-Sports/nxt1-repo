@@ -124,3 +124,7 @@ export {
   AgentXAskUserCardComponent,
   type AskUserReplyEvent,
 } from './components/cards/agent-x-ask-user-card.component';
+export {
+  AgentXConnectAccountCardComponent,
+  type ConnectAccountCardActionEvent,
+} from './components/cards/agent-x-connect-account-card.component';

@@ -83,7 +83,6 @@ const plannerAgentAliases: Readonly<Record<string, (typeof COORDINATOR_AGENT_IDS
   strategycoordinator: 'strategy_coordinator',
   strategy_coordinator: 'strategy_coordinator',
   recruiting: 'recruiting_coordinator',
-  recruiter: 'recruiting_coordinator',
   recruitingcoordinator: 'recruiting_coordinator',
   recruiting_coordinator: 'recruiting_coordinator',
   performance: 'performance_coordinator',

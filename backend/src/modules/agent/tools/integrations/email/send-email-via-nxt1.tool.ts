@@ -1,28 +1,27 @@
 /**
- * @fileoverview Send Email Tool — Multi-Provider (Gmail + Microsoft Outlook)
+ * @fileoverview Send Email Via NXT1 Tool — Platform Email Fallback
  * @module @nxt1/backend/modules/agent/tools/integrations
  *
- * Sends an email through the user's connected email provider (Gmail or Microsoft).
- * Auto-detects the provider by looking up the user's connectedEmails in Firestore.
- * Delegates to the existing `sendEmailViaProvider()` from connected-mail.service.ts.
+ * Sends an email on behalf of the user from the NXT1 platform address
+ * (nxt1@nxt1sports.com) with Reply-To set to the user's registered email.
+ * Use when the user has no connected Gmail or Outlook account, or when they
+ * explicitly choose to send via NXT1. Recipients reply directly to the user.
  */
 
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../../base.tool.js';
-import { sendEmailViaProvider } from '../../../../../services/communications/connected-mail.service.js';
+import {
+  resolveUserReplyToEmail,
+  sendPlatformEmailOnBehalfOf,
+} from '../../../../../services/communications/platform-email.service.js';
 import type { Firestore } from 'firebase-admin/firestore';
 import { db as defaultDb } from '../../../../../utils/firebase.js';
 import { logger } from '../../../../../utils/logger.js';
-import {
-  type EmailProvider,
-  MAX_BODY_LENGTH,
-  MAX_SUBJECT_LENGTH,
-  resolveConnectedEmailProvider,
-} from './email-tool.utils.js';
+import { MAX_BODY_LENGTH, MAX_SUBJECT_LENGTH } from './email-tool.utils.js';
 import { z } from 'zod';
 
 const RECIPIENT_KIND_ENUM = ['coach', 'college', 'person', 'organization', 'unknown'] as const;
 
-const SendEmailInputSchema = z.object({
+const SendEmailViaNxt1InputSchema = z.object({
   userId: z.string().trim().min(1),
   toEmail: z.string().trim().email(),
   subject: z.string().trim().min(1).max(MAX_SUBJECT_LENGTH),
@@ -65,18 +64,21 @@ const SendEmailInputSchema = z.object({
     ),
 });
 
-export class SendEmailTool extends BaseTool {
-  readonly name = 'send_email';
+export class SendEmailViaNxt1Tool extends BaseTool {
+  readonly name = 'send_email_via_nxt1';
   readonly description =
-    "Sends an email via the user's connected email account (Gmail or Microsoft Outlook). " +
-    'The provider is auto-detected from the user profile. ' +
-    'Use this for one-off approved messages. Use batch_send_email when sending the same template to multiple recipients.';
-  readonly parameters = SendEmailInputSchema;
+    'Sends an email on behalf of the user from the NXT1 platform address (nxt1@nxt1sports.com) ' +
+    "with Reply-To set to the user's registered email address. " +
+    'Use when the user has no connected Gmail or Outlook account, or when they explicitly choose ' +
+    'to send via NXT1 instead of their own account. ' +
+    'Recipients can reply directly back to the user. ' +
+    'Use send_email instead when the user has a connected Gmail or Outlook account.';
+  readonly parameters = SendEmailViaNxt1InputSchema;
   override readonly allowedAgents = ['*'] as const;
   readonly isMutation = true;
   readonly category = 'communication' as const;
-
   readonly entityGroup = 'system_tools' as const;
+
   private readonly db: Firestore;
 
   constructor(db?: Firestore) {
@@ -88,7 +90,7 @@ export class SendEmailTool extends BaseTool {
     input: Record<string, unknown>,
     context?: ToolExecutionContext
   ): Promise<ToolResult> {
-    const parsed = SendEmailInputSchema.safeParse(input);
+    const parsed = SendEmailViaNxt1InputSchema.safeParse(input);
     if (!parsed.success) {
       return {
         success: false,
@@ -98,29 +100,26 @@ export class SendEmailTool extends BaseTool {
 
     const { userId, toEmail, subject, bodyHtml } = parsed.data;
 
-    // ── Auto-detect provider from user's connected emails ─────────────────
+    // ── Resolve user's reply-to address ───────────────────────────────────
     context?.emitStage?.('fetching_data', {
       icon: 'email',
       userId,
       recipientEmail: toEmail,
-      phase: 'resolve_provider',
+      phase: 'resolve_reply_to',
     });
-    let provider: EmailProvider;
+
+    let replyTo: string;
     try {
-      provider = await resolveConnectedEmailProvider(userId, this.db);
+      replyTo = (await resolveUserReplyToEmail(userId, this.db)) ?? 'noreply@nxt1sports.com';
     } catch (lookupErr) {
-      logger.error('Failed to look up user email provider', {
+      logger.warn('Failed to resolve user reply-to email, using noreply fallback', {
         error: lookupErr instanceof Error ? lookupErr.message : String(lookupErr),
         userId,
       });
-      return {
-        success: false,
-        error: 'Failed to look up connected email account.',
-        data: { requiresEmailConnection: true },
-      };
+      replyTo = 'noreply@nxt1sports.com';
     }
 
-    // ── Send via the unified email service ────────────────────────────────
+    // ── Send via NXT1 platform SMTP ───────────────────────────────────────
     context?.emitStage?.('submitting_job', {
       icon: 'email',
       userId,
@@ -128,49 +127,53 @@ export class SendEmailTool extends BaseTool {
       subject,
       phase: 'send_email',
     });
+
     try {
-      const result = await sendEmailViaProvider(
+      const result = await sendPlatformEmailOnBehalfOf(
         userId,
-        provider,
+        replyTo,
         toEmail,
         subject,
         bodyHtml,
-        this.db,
         {
           recipientName: parsed.data.recipientName,
           recipientKind: parsed.data.recipientKind,
           recipientOrgName: parsed.data.recipientOrgName,
         }
       );
-      logger.info('Email sent via agent tool', {
+
+      logger.info('Email sent via NXT1 platform on behalf of user', {
         userId,
-        provider,
         toEmail,
-        messageId: result.externalMessageId,
-        threadId: result.externalThreadId,
+        replyTo,
+        trackingId: result.trackingId,
       });
 
       return {
         success: true,
         data: {
-          messageId: result.externalMessageId ?? null,
-          threadId: result.externalThreadId ?? null,
           trackingId: result.trackingId,
-          provider,
-          message: `Email successfully sent to ${toEmail} via ${provider}.`,
+          provider: 'nxt1',
+          message: `Email sent to ${toEmail} via NXT1.`,
         },
       };
     } catch (sendErr) {
-      logger.error('Failed to send email via agent tool', {
-        error: sendErr instanceof Error ? sendErr.message : String(sendErr),
+      const errorMessage = sendErr instanceof Error ? sendErr.message : 'Failed to send email.';
+
+      if (
+        sendErr instanceof Error &&
+        sendErr.message.includes('Platform email service is not configured')
+      ) {
+        return { success: false, error: 'Platform email service is not configured.' };
+      }
+
+      logger.error('Failed to send email via NXT1 platform', {
+        error: errorMessage,
         userId,
-        provider,
         toEmail,
       });
-      return {
-        success: false,
-        error: sendErr instanceof Error ? sendErr.message : 'Failed to send email.',
-      };
+
+      return { success: false, error: errorMessage };
     }
   }
 }

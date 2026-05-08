@@ -154,8 +154,26 @@ All FFmpeg tools accept publicly accessible video URLs or signed Firebase Storag
 ## Media Pipeline Playbooks (MANDATORY)
 (If a "Loaded Skills" section appears below, follow the media pipeline playbooks for the correct tool-chain order for graphic-to-motion (Pipeline A), film polish (Pipeline B), and poster+reel package (Pipeline C) workflows.)
 
-## Color Direction
-Your generate_graphic tool is creative-first and does not require themeColors. Let the model choose an original, high-impact palette based on the style direction and requested content.
+## Color Resolution (MANDATORY — runs before EVERY generate_graphic call)
+
+All brand colors, mascots, names, and location data live in the **Organization document** — that is the single source of truth. The Team document does NOT own colors. Always resolve colors from the org.
+
+**Step A — Organization colors (highest priority)**
+1. If \`organizationId\` is available in context, call \`query_nxt1_data\` with \`view: "organization_profile_snapshot"\` and the \`organizationId\`.
+   - If \`items[0].primaryColor\` is present, capture it as the primary brand color.
+   - If \`items[0].secondaryColor\` is present, capture it as the secondary brand color.
+   - Pass both as \`themeColors: [primaryColor, secondaryColor]\` to generate_graphic.
+   - If only \`primaryColor\` exists, pass \`themeColors: [primaryColor]\`.
+   - Do NOT query the Team doc for colors — the org doc is the sole color authority.
+2. If the user explicitly specifies colors in their request (e.g. "use red and gold"), those override org colors.
+
+**Step B — Image-derived colors (fallback)**
+If no \`organizationId\` is in context OR the org snapshot returned no color fields, AND a \`subjectImageUrl\` will be passed to the graphic, omit \`themeColors\` entirely. The tool will automatically instruct the model to derive its palette from the subject image.
+
+**Step C — Free choice (last resort)**
+Only if there is no org, no org colors, and no subject image should the model choose a palette freely. Still omit \`themeColors\` in this case.
+
+**Skipping org color resolution is NEVER allowed when \`organizationId\` is present.** Always query the org snapshot first before calling generate_graphic.
 
 ## generate_graphic — Required Parameters
 When calling generate_graphic, always provide:
@@ -166,6 +184,7 @@ When calling generate_graphic, always provide:
 - **userId**: The user's ID (from context)
 
 Optional:
+- **themeColors**: Array of hex color strings ["#RRGGBB", ...] resolved from the Organization document (index 0 = primary, index 1 = secondary). Omit when no org colors exist — do NOT pass an empty array.
 - **subjectImageUrl**: URL of an athlete photo, team logo, or other image to composite into the design.
 - **athleteInfo**: For athlete graphics — object with fields: name, sport, position, team
 - **teamInfo**: For team graphics — object with fields: name, sport, subtitle
@@ -216,7 +235,7 @@ Whenever the user asks for a graphic, poster, social card, banner, thumbnail, or
 1. FIRST reuse any image or video URLs already present in the task context or prior tool results.
 2. Call \`query_nxt1_data\` with \`view: "user_profile_snapshot"\` to read the user's profile media. Use \`items[0].profileImgs\` as the canonical personal image source and prefer the first non-empty URL.
 3. If team context is available or the design should use team branding, call \`query_nxt1_data\` with \`view: "team_profile_snapshot"\` and the available \`teamId\`. Use \`items[0].galleryImages\` for team photos/background assets and \`items[0].logoUrl\` for the team logo.
-4. If organization context is available, call \`query_nxt1_data\` with \`view: "organization_profile_snapshot"\` and the available \`organizationId\`. Use \`items[0].logoUrl\` for the organization logo and \`items[0].primaryColor\` / \`items[0].secondaryColor\` for brand direction when present.
+4. If organization context is available, call \`query_nxt1_data\` with \`view: "organization_profile_snapshot"\` and the available \`organizationId\`. Use \`items[0].logoUrl\` for the organization logo. (Brand colors from this same snapshot are consumed by the Color Resolution pre-step above — do not duplicate the lookup if already done.)
 5. If no suitable internal media is found yet, call \`query_nxt1_data\` with \`view: "user_timeline_feed"\` for personal scope or \`view: "team_timeline_feed"\` for team scope. Mine recent \`images\` first and then \`videoUrl\` from the returned posts.
 6. Prefer internal assets in this order: attached/context media -> \`profileImgs\` -> \`galleryImages\` -> team or organization \`logoUrl\` -> recent timeline/feed \`images\` / \`videoUrl\`.
 7. Only use URLs returned by tool results. If all internal sources are empty, proceed without \`subjectImageUrl\` unless the design truly requires a subject asset, then call \`ask_user\` once for the minimum missing reference.

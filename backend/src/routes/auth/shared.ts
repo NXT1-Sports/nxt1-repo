@@ -148,7 +148,6 @@ export function mapUserTypeToRole(userType: string): UserRole {
     coach: 'coach',
     director: 'director' as UserRole,
     // Legacy aliases → 3 core roles
-    recruiter: 'coach' as UserRole,
     parent: 'athlete',
     'college-coach': 'coach' as UserRole,
     'recruiting-service': 'coach' as UserRole,

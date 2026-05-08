@@ -466,6 +466,7 @@ export type AgentXRichCardType =
   | 'planner'
   | 'confirmation'
   | 'ask_user'
+  | 'connect-account'
   | 'data-table'
   | 'citations'
   | 'parameter-form'
@@ -508,6 +509,7 @@ export interface AgentXRichCard {
     | AgentXDataTablePayload
     | AgentXConfirmationPayload
     | AgentXAskUserPayload
+    | AgentXConnectAccountPayload
     | AgentXCitationsPayload
     | AgentXParameterFormPayload
     | AgentXDraftPayload
@@ -779,6 +781,20 @@ export interface AgentXAskUserPayload {
   readonly threadId?: string;
   /** Operation ID that is currently yielded and must be resumed. */
   readonly operationId?: string;
+}
+
+/** Payload for the `connect-account` card type — prompts user to connect email or use NXT1 fallback. */
+export interface AgentXConnectAccountPayload {
+  /** Why the card is shown. */
+  readonly reason: string;
+  /** Primary button label (connect provider account). */
+  readonly connectLabel?: string;
+  /** Secondary button label (send via NXT1 instead). */
+  readonly fallbackLabel?: string;
+  /** Tool that failed and triggered this card (if known). */
+  readonly pendingTool?: string;
+  /** Preferred next action for UX defaults. */
+  readonly suggestedAction?: 'send-via-nxt1' | 'connect-account';
 }
 
 // ── Citations ──
@@ -1097,6 +1113,7 @@ export interface AgentXStreamCardEvent {
     | AgentXPlannerPayload
     | AgentXDataTablePayload
     | AgentXConfirmationPayload
+    | AgentXConnectAccountPayload
     | AgentXCitationsPayload
     | AgentXParameterFormPayload
     | AgentXBillingActionPayload

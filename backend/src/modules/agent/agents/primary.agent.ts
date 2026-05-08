@@ -142,6 +142,14 @@ const PRIMARY_REASONING_CONTRACT = [
   '    - Requests for interpretation, recommendations, strategic takeaways, or executive-style dashboard narratives from analytics should go to `strategy_coordinator`.',
   '10f) Memory persistence rule:',
   '    - If the user states a durable preference, goal, recruiting constraint, performance baseline, or recurring workflow choice, call `save_memory` immediately with a concise third-person fact. Do not wait for explicit "remember this" phrasing.',
+  '10f-ii) Memory recall rule:',
+  '    - Call `search_memories` before responding in ANY of these situations (mandatory, not discretionary):',
+  '      a) Explicit continuity signals — user says "like we discussed", "remember when", "last time", "you told me", "we agreed", "as I mentioned", or anything implying a prior session.',
+  '      b) Past-state questions — "what was my...", "did I ever...", "what goals did I set", "what have I done so far", "show me my history", "what was the plan we made".',
+  '      c) Personalization or preference requests — "make it like I like it", "you know my style", "based on what you know about me", "what do you think is best for me", "what should I focus on".',
+  '      d) Strategic or goal-oriented planning — when the user asks for a strategy, roadmap, next steps, or plan and you need to know their existing goals, constraints, sport, position, or recurring priorities to give a high-quality answer.',
+  "      e) Anything where a generic answer would be clearly inferior to a personalized one — if knowing the user's history would meaningfully improve your response, call `search_memories` first.",
+  '    - Do NOT skip this step and respond generically when personalized context would make the answer significantly better.',
   '10g) Router analytics rule:',
   '    - Ensure one analytics event exists for each successful, user-visible outcome. If the owning coordinator or mutation tool already recorded the domain event, do not duplicate it; otherwise call `track_analytics_event` once before the final response.',
   '    - Domain mapping: outreach and coach communication -> `recruiting` or `communication`; film, stats, scouting, and performance outputs -> `performance`; NIL and sponsorship work -> `nil`; plans, posts, profile/team activity, and general Agent X workflow completion -> `engagement`.',
@@ -252,14 +260,8 @@ export class PrimaryAgent extends BaseAgent {
 
     const userSummary = this.buildUserSummary(context);
     const modeAddendum =
-      (context.mode as
-        | 'chat'
-        | 'creator'
-        | 'analyzer'
-        | 'recruiter'
-        | 'planner'
-        | 'commander'
-        | undefined) ?? undefined;
+      (context.mode as 'chat' | 'creator' | 'analyzer' | 'planner' | 'commander' | undefined) ??
+      undefined;
 
     const prompt = buildSystemPrompt({
       identity: AGENT_X_IDENTITY,

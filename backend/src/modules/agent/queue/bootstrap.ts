@@ -124,6 +124,8 @@ import { AgentPlanRepository } from './agent-plan.repository.js';
 import { WebSearchTool } from '../tools/integrations/web/web-search.tool.js';
 import { SendEmailTool } from '../tools/integrations/email/send-email.tool.js';
 import { BatchSendEmailTool } from '../tools/integrations/email/batch-send-email.tool.js';
+import { SendEmailViaNxt1Tool } from '../tools/integrations/email/send-email-via-nxt1.tool.js';
+import { BatchSendEmailViaNxt1Tool } from '../tools/integrations/email/batch-send-email-via-nxt1.tool.js';
 import { ScrapeTwitterTool } from '../tools/integrations/social/scrape-twitter.tool.js';
 import { ScrapeInstagramTool } from '../tools/integrations/social/scrape-instagram.tool.js';
 import { ApifyService } from '../tools/integrations/apify/apify.service.js';
@@ -165,6 +167,8 @@ import {
   FfmpegCompressVideoTool,
   ChartMcpBridgeService,
   GenerateChartVisualizationTool,
+  DrawioDiagramService,
+  CreatePlayDiagramTool,
   CloudflareMcpBridgeService,
   CreateSupportTicketTool,
   ImportVideoTool,
@@ -464,6 +468,8 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   toolRegistry.register(new ScanTimelinePostsTool(stagingDb, llm, vectorMemory));
   toolRegistry.register(new SendEmailTool(stagingDb));
   toolRegistry.register(new BatchSendEmailTool(stagingDb));
+  toolRegistry.register(new SendEmailViaNxt1Tool(stagingDb));
+  toolRegistry.register(new BatchSendEmailViaNxt1Tool(stagingDb));
   toolRegistry.register(new CreateSupportTicketTool());
 
   // ── 1b. Twitter/X & Instagram scraping (Apify-hosted actors) ─────────
@@ -606,6 +612,11 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   } catch {
     logger.warn('CHART_MCP_URL not configured — Chart MCP tools disabled');
   }
+
+  // ── 1e.3. draw.io play diagram tools (LLM → diagrams.net export → Firebase) ─
+  const drawioService = new DrawioDiagramService(llm);
+  toolRegistry.register(new CreatePlayDiagramTool(drawioService));
+  logger.info('draw.io play diagram tools registered (create_play_diagram)');
 
   toolRegistry.register(new AnalyzeVideoTool(scraperService, llm, apifyMcpBridge, ffmpegBridge));
   toolRegistry.register(new AnalyzeImageTool(llm));

@@ -1518,6 +1518,39 @@ export class AgentWorker {
         successfulTools.push(event.toolName);
       }
 
+      // ── Emit connect-account card when email tool reports no connected provider ─
+      if (
+        event.type === 'tool_result' &&
+        event.toolSuccess === false &&
+        event.toolName &&
+        (event.toolName === 'send_email' || event.toolName === 'batch_send_email') &&
+        typeof event.toolResult === 'object' &&
+        event.toolResult !== null &&
+        typeof (event.toolResult as Record<string, unknown>)['data'] === 'object' &&
+        (event.toolResult as Record<string, unknown>)['data'] !== null &&
+        ((event.toolResult as Record<string, unknown>)['data'] as Record<string, unknown>)[
+          'requiresEmailConnection'
+        ] === true
+      ) {
+        eventWriter.emit({
+          type: 'card',
+          agentId: event.agentId,
+          cardData: {
+            agentId: event.agentId as AgentIdentifier,
+            type: 'connect-account',
+            title: 'Email Account Required',
+            payload: {
+              reason:
+                'Connect your Gmail or Outlook to send from your own address, or send via NXT1 on your behalf.',
+              connectLabel: 'Connect Gmail or Outlook',
+              fallbackLabel: 'Send via NXT1',
+              pendingTool: event.toolName,
+              suggestedAction: 'connect-account',
+            },
+          },
+        });
+      }
+
       persistedAssistantStream.process(event);
 
       // 1. Firestore (existing — persistence for reconnection/replay)
@@ -1858,6 +1891,10 @@ export class AgentWorker {
               origin: 'agent_chain',
               agentId: yieldPayload.agentId,
               operationId: payload.operationId,
+              // Store yield reason so the frontend can distinguish needs_approval
+              // from needs_input on session reload — the in-memory SSE card is
+              // gone after leaving and returning to a session.
+              resultData: { yieldState: { reason: yieldPayload.reason } },
               // Phase-scoped idempotency: prevents duplicate yield prompts on
               // BullMQ retry. Stable per operation — a given job yields at most
               // once, so the key space is safe.
@@ -2460,11 +2497,28 @@ export class AgentWorker {
             sizeBytes: 0,
           }));
 
+        // Ensure generated export/document links are delivered in the same final
+        // assistant message even if the LLM forgets to include them in prose.
+        const missingDocLinks = attachmentsFromResultData
+          .filter((attachment) => attachment.type === 'doc')
+          .filter((attachment) => {
+            const url = attachment.url?.trim();
+            return !!url && !persistedAssistantContentForDone.includes(url);
+          })
+          .map(
+            (attachment) => `- [${attachment.name || 'Download file'}](${attachment.url.trim()})`
+          );
+
+        const persistedAssistantContentForStorage =
+          missingDocLinks.length > 0
+            ? `${persistedAssistantContentForDone.trim()}\n\nDownload:\n${missingDocLinks.join('\n')}`
+            : persistedAssistantContentForDone;
+
         const persistedAssistantMessage = await this.chatService.addMessage({
           threadId,
           userId: payload.userId,
           role: 'assistant',
-          content: persistedAssistantContentForDone,
+          content: persistedAssistantContentForStorage,
           origin: payload.origin,
           agentId,
           operationId: payload.operationId,
@@ -2503,7 +2557,7 @@ export class AgentWorker {
             threadId,
             messageId: persistedAssistantMessageId,
             persistedAt: new Date().toISOString(),
-            summaryPreview: persistedAssistantContentForDone.slice(0, 160),
+            summaryPreview: persistedAssistantContentForStorage.slice(0, 160),
           });
         }
 

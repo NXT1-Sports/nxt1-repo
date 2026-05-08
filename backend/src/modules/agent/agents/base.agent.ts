@@ -1152,66 +1152,6 @@ export abstract class BaseAgent {
       }
     }
 
-    // ── Short-circuit: no remaining plan steps after approved tool ──────────
-    // When the approved tool was the final step in the plan, skip the LLM
-    // round-trip entirely. The tool result IS the completion. We synthesise a
-    // minimal assistant text turn so the thread history stays well-formed and
-    // emit a `text_delta` so the frontend closes the operation cleanly.
-    if (
-      yieldState.reason === 'needs_approval' &&
-      yieldState.pendingToolCall &&
-      yieldState.planContext
-    ) {
-      const { currentTaskId, completedTaskResults } = yieldState.planContext;
-      // Consider the plan "exhausted" when the current task was the last key
-      // ever registered (its result is now being written), OR when there is
-      // exactly one pending task key (the one just approved).
-      const allTaskIds = Object.keys(completedTaskResults);
-      const pendingTaskIds = allTaskIds.filter((id) => completedTaskResults[id] === undefined);
-      const onlyCurrentRemaining =
-        pendingTaskIds.length === 0 ||
-        (pendingTaskIds.length === 1 && pendingTaskIds[0] === currentTaskId);
-
-      if (onlyCurrentRemaining) {
-        const toolName = yieldState.pendingToolCall.toolName;
-        const { resolveApprovalSuccessText } = await import('@nxt1/core');
-        const copy = resolveApprovalSuccessText(toolName);
-        const summaryText = copy.message;
-
-        // Emit stream events so the frontend UI completes gracefully.
-        onStreamEvent?.({ type: 'delta', agentId: this.id, text: summaryText, noBatch: true });
-
-        // Persist the synthetic assistant turn to thread history.
-        const writer = getThreadMessageWriter();
-        if (writer && context.threadId) {
-          await writer.append(
-            { role: 'assistant', content: summaryText },
-            {
-              threadId: context.threadId,
-              userId: context.userId,
-              agentId: this.id,
-              ...(context.operationId ? { operationId: context.operationId } : {}),
-            }
-          );
-        }
-
-        logger.info(`[${this.id}] Short-circuit resume: no remaining steps after approved tool`, {
-          toolName,
-          planTaskId: currentTaskId,
-        });
-
-        return {
-          summary: summaryText,
-          data: {
-            type: 'text',
-            agentId: this.id,
-            content: summaryText,
-            threadId: context.threadId,
-          },
-        };
-      }
-    }
-
     const requiresComputeFirst = this.isComputeIntent(this.extractLatestUserText(messages));
 
     return this.runLoop(

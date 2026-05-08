@@ -2405,12 +2405,13 @@ async function resolveOperationForThreadAction(params: {
     return trimmed;
   };
 
-  if (params.operationIdHint) {
-    const fromHint = await resolveFromHint(params.operationIdHint);
-    if (fromHint) return fromHint;
-  }
-
-  if (params.messageId && params.messageId.trim().length > 0) {
+  // Priority 1: messageId — a direct MongoDB _id pointer to the exact paused row.
+  // This is the most precise identifier and survives stale frontend global state.
+  // Guard: only attempt the query when the value is a valid 24-char hex ObjectId.
+  // Synthetic dedup keys like "yield:operationId:needs_input" are in-memory only
+  // and must never be passed to Mongoose (causes CastError).
+  const isValidObjectId = (id: string) => /^[0-9a-f]{24}$/i.test(id.trim());
+  if (params.messageId && isValidObjectId(params.messageId)) {
     const message = await AgentMessageModel.findOne({
       _id: params.messageId.trim(),
       threadId,
@@ -2426,6 +2427,13 @@ async function resolveOperationForThreadAction(params: {
       const fromMessage = await resolveFromHint(messageOperationId);
       if (fromMessage) return fromMessage;
     }
+  }
+
+  // Priority 2: operationIdHint — frontend-supplied hint, used as fallback when
+  // messageId is absent or its row has no associated operationId yet.
+  if (params.operationIdHint) {
+    const fromHint = await resolveFromHint(params.operationIdHint);
+    if (fromHint) return fromHint;
   }
 
   const pendingSnap = await db

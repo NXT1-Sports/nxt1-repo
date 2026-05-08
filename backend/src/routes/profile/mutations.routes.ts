@@ -76,7 +76,11 @@ async function enqueueAddSportScrape(options: {
   readonly teamId?: string;
   readonly organizationId?: string;
   readonly environment: 'staging' | 'production';
-}): Promise<{ readonly scrapeJobId?: string; readonly scrapeThreadId?: string }> {
+}): Promise<{
+  readonly scrapeJobId?: string;
+  readonly scrapeJobIds?: readonly string[];
+  readonly scrapeThreadId?: string;
+}> {
   if (options.linkedAccounts.length === 0) {
     return {};
   }
@@ -98,8 +102,9 @@ async function enqueueAddSportScrape(options: {
       options.environment
     );
 
+    const operationIds = scrapeResult?.operationIds ?? [];
     return {
-      ...(scrapeResult?.operationId ? { scrapeJobId: scrapeResult.operationId } : {}),
+      ...(operationIds[0] ? { scrapeJobId: operationIds[0], scrapeJobIds: operationIds } : {}),
       ...(scrapeResult?.threadId ? { scrapeThreadId: scrapeResult.threadId } : {}),
     };
   } catch (err) {

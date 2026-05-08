@@ -39,7 +39,12 @@ import { ModalController } from '@ionic/angular/standalone';
 import { TEST_IDS } from '@nxt1/core/testing';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import { ANALYTICS_ADAPTER } from '../../services/analytics';
+import { NxtPlatformService } from '../../services/platform';
+import { NxtMediaService } from '../../services/media';
+import { NxtToastService } from '../../services/toast';
+import { NxtLoggingService } from '../../services/logging';
 import type { MediaViewerItem } from './media-viewer.types';
+import type { MediaImageFormat } from '../../services/media';
 
 @Component({
   selector: 'nxt1-media-viewer-content',
@@ -57,22 +62,38 @@ import type { MediaViewerItem } from './media-viewer.types';
     >
       <!-- Top bar -->
       <div class="top-bar">
-        @if (showShare) {
+        @if (showShare && !platform.isNative()) {
+          <!-- Web: save/download button in top-left -->
           <button
-            class="top-bar-btn share-btn"
+            class="top-bar-btn save-btn"
             [attr.data-testid]="testIds.SHARE_BUTTON"
-            (click)="share()"
-            aria-label="Share media"
+            (click)="saveCurrentItem()"
+            [disabled]="saving()"
+            aria-label="Save media"
           >
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-              <path
-                d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8M16 6l-4-4-4 4M12 2v13"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              />
-            </svg>
+            @if (saving()) {
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" class="spin">
+                <circle
+                  cx="12"
+                  cy="12"
+                  r="10"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-dasharray="31.4"
+                  stroke-dashoffset="10"
+                />
+              </svg>
+            } @else {
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                <path
+                  d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            }
           </button>
         } @else {
           <div class="top-bar-spacer"></div>
@@ -277,6 +298,44 @@ import type { MediaViewerItem } from './media-viewer.types';
       @if (currentItem().caption) {
         <div class="caption" [attr.data-testid]="testIds.CAPTION">
           {{ currentItem().caption }}
+        </div>
+      }
+
+      <!-- Mobile: bottom save-to-camera-roll bar -->
+      @if (showShare && platform.isNative() && currentItem().type !== 'doc') {
+        <div class="bottom-save-bar">
+          <button
+            class="save-btn-mobile"
+            (click)="saveCurrentItem()"
+            [disabled]="saving()"
+            aria-label="Save to camera roll"
+          >
+            @if (saving()) {
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" class="spin">
+                <circle
+                  cx="12"
+                  cy="12"
+                  r="10"
+                  stroke="currentColor"
+                  stroke-width="2.5"
+                  stroke-dasharray="31.4"
+                  stroke-dashoffset="10"
+                />
+              </svg>
+              Saving…
+            } @else {
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                <path
+                  d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+              Save to Camera Roll
+            }
+          </button>
         </div>
       }
     </div>
@@ -566,6 +625,64 @@ import type { MediaViewerItem } from './media-viewer.types';
     .doc-preview__btn--download:hover {
       background: var(--nxt1-color-primary-hover, #b8e600);
     }
+
+    /* ── Mobile bottom save bar ──────────────────── */
+    .bottom-save-bar {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      z-index: 10;
+      display: flex;
+      justify-content: center;
+      padding: 16px 24px calc(env(safe-area-inset-bottom, 0px) + 16px);
+      background: linear-gradient(to top, rgba(0, 0, 0, 0.75) 0%, rgba(0, 0, 0, 0) 100%);
+      pointer-events: none;
+    }
+
+    .bottom-save-bar > * {
+      pointer-events: auto;
+    }
+
+    .save-btn-mobile {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 13px 32px;
+      border-radius: 28px;
+      border: none;
+      background: var(--nxt1-color-primary, #ccff00);
+      color: #000;
+      font-size: 0.9375rem;
+      font-weight: 700;
+      letter-spacing: 0.01em;
+      cursor: pointer;
+      transition:
+        transform 0.15s ease,
+        background 0.15s ease,
+        opacity 0.15s ease;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .save-btn-mobile:active {
+      transform: scale(0.95);
+    }
+
+    .save-btn-mobile:disabled {
+      opacity: 0.65;
+      cursor: not-allowed;
+    }
+
+    /* Spinner animation */
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+
+    .spin {
+      animation: spin 0.8s linear infinite;
+    }
   `,
 })
 export class NxtMediaViewerContentComponent implements OnInit {
@@ -573,6 +690,10 @@ export class NxtMediaViewerContentComponent implements OnInit {
   private readonly platformId = inject(PLATFORM_ID);
   private readonly sanitizer = inject(DomSanitizer);
   private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
+  protected readonly platform = inject(NxtPlatformService);
+  private readonly mediaService = inject(NxtMediaService);
+  private readonly toast = inject(NxtToastService);
+  private readonly logger = inject(NxtLoggingService).child('MediaViewerContent');
 
   /** Output for self-dismissal — NxtOverlayService auto-subscribes. */
   readonly close = output<{ lastIndex: number; item: MediaViewerItem | null }>();
@@ -595,6 +716,8 @@ export class NxtMediaViewerContentComponent implements OnInit {
   // ── Internal state ─────────────────────────────────────
   protected readonly currentIndex = signal(0);
   protected readonly loadErrors = signal<Record<number, boolean>>({});
+  private readonly _saving = signal(false);
+  protected readonly saving = computed(() => this._saving());
 
   protected readonly totalItems = computed(() => this.items.length);
   protected readonly currentItem = computed(() => this.items[this.currentIndex()] ?? null);
@@ -676,7 +799,7 @@ export class NxtMediaViewerContentComponent implements OnInit {
   share(): void {
     this.analytics?.trackEvent(APP_EVENTS.MEDIA_VIEWER_SHARED, {
       index: this.currentIndex(),
-      type: this.currentItem()?.type,
+      type: this.currentItem().type,
       source: this.source,
     });
     const data = { lastIndex: this.currentIndex(), item: this.currentItem() };
@@ -684,6 +807,110 @@ export class NxtMediaViewerContentComponent implements OnInit {
     if (!this.isOverlay) {
       this.modalCtrl?.dismiss(data, 'share').catch(() => undefined);
     }
+  }
+
+  async saveCurrentItem(): Promise<void> {
+    const item = this.currentItem();
+    if (!item || item.type === 'doc' || this._saving()) return;
+
+    this._saving.set(true);
+    this.logger.info('Saving media item', { type: item.type, url: item.url });
+
+    try {
+      if (item.type === 'video') {
+        await this.saveVideoItem(item);
+      } else {
+        await this.saveImageItem(item);
+      }
+
+      this.analytics?.trackEvent(APP_EVENTS.MEDIA_VIEWER_SHARED, {
+        index: this.currentIndex(),
+        type: item.type,
+        source: this.source,
+        action: 'save',
+      });
+    } catch (err) {
+      this.logger.error('Failed to save media item', err, { type: item.type });
+      this.toast.error('Failed to save media');
+    } finally {
+      this._saving.set(false);
+    }
+  }
+
+  private async saveImageItem(item: MediaViewerItem): Promise<void> {
+    const response = await fetch(item.url);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+    const blob = await response.blob();
+    const format = this.inferImageFormat(blob, item.url);
+    const baseName = item.name?.replace(/\.[^.]+$/, '') ?? this.deriveFileName(item);
+
+    const result = await this.mediaService.saveImage({
+      data: blob,
+      fileName: baseName,
+      format,
+      album: 'NXT1',
+    });
+
+    if (result.success) {
+      this.toast.success(this.platform.isNative() ? 'Saved to camera roll!' : 'Download started');
+    } else {
+      this.toast.error(result.error ?? 'Failed to save');
+    }
+  }
+
+  private async saveVideoItem(item: MediaViewerItem): Promise<void> {
+    if (this.platform.isNative()) {
+      // Native: open share sheet so user can save to camera roll
+      const { Share } = await import('@capacitor/share');
+      await Share.share({
+        title: item.name ?? 'Video',
+        url: item.url,
+        dialogTitle: 'Save Video',
+      });
+    } else {
+      // Web: Firebase Storage URLs are cross-origin so a bare <a download> is
+      // ignored by the browser (it navigates instead). Fetch as blob first,
+      // then create a same-origin blob URL that download attribute honours.
+      const response = await fetch(item.url);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = item.name ?? 'nxt1-video.mp4';
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      // Revoke after a generous delay so the browser finishes streaming
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 120_000);
+      this.toast.success('Download started');
+    }
+  }
+
+  private inferImageFormat(blob: Blob, url: string): MediaImageFormat {
+    const mime = blob.type.toLowerCase();
+    if (mime.includes('jpeg') || mime.includes('jpg')) return 'jpeg';
+    if (mime.includes('webp')) return 'webp';
+    const urlPath = url.toLowerCase().split('?')[0];
+    if (urlPath.endsWith('.jpg') || urlPath.endsWith('.jpeg')) return 'jpeg';
+    if (urlPath.endsWith('.webp')) return 'webp';
+    return 'png';
+  }
+
+  private deriveFileName(item: MediaViewerItem): string {
+    try {
+      const pathname = new URL(item.url).pathname;
+      const last = pathname.split('/').pop() ?? '';
+      const clean = decodeURIComponent(last)
+        .split('?')[0]
+        .replace(/\.[^.]+$/, '');
+      if (clean.length > 0 && clean.length < 120) return clean;
+    } catch {
+      /* ignore */
+    }
+    return item.type === 'video' ? 'nxt1-video' : 'nxt1-image';
   }
 
   onMediaError(index: number): void {

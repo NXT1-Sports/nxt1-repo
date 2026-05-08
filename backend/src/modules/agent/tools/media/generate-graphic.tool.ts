@@ -83,6 +83,13 @@ const GenerateGraphicInputSchema = z.object({
     })
     .optional(),
   subjectImageUrl: z.string().trim().min(1).optional(),
+  /**
+   * Brand colors to enforce on the graphic.
+   * Priority: org/team colors (index 0 = primary, index 1 = secondary) > caller-supplied.
+   * When provided, the model uses these as the dominant palette instead of choosing freely.
+   * When absent and a subjectImageUrl is present, the model derives the palette from the image.
+   */
+  themeColors: z.array(z.string().trim().min(1)).max(3).optional(),
   dimensions: z.enum(['1080x1080', '1080x1920', '1920x1080', '1200x675', '1500x500', '1080x1350']),
   styleDescription: z.string().trim().min(1),
   userId: z.string().trim().min(1),
@@ -358,6 +365,7 @@ Return JSON only. No explanation outside the JSON.`;
       athleteInfo,
       teamInfo,
       subjectImageUrl,
+      themeColors,
       dimensions,
       styleDescription,
       userId,
@@ -390,6 +398,7 @@ Return JSON only. No explanation outside the JSON.`;
       styleDescription,
       hasSubjectImage,
       graphicType,
+      themeColors,
     });
 
     // ── Generate the graphic ───────────────────────────────────────────
@@ -506,8 +515,16 @@ Return JSON only. No explanation outside the JSON.`;
     styleDescription: string;
     hasSubjectImage: boolean;
     graphicType: 'athlete' | 'team';
+    themeColors?: readonly string[];
   }): string {
-    const { textRequirements, dimensions, styleDescription, hasSubjectImage, graphicType } = params;
+    const {
+      textRequirements,
+      dimensions,
+      styleDescription,
+      hasSubjectImage,
+      graphicType,
+      themeColors,
+    } = params;
 
     // Build the quoted text block — each item wrapped so model renders them literally
     const quotedTextLines =
@@ -518,6 +535,26 @@ Return JSON only. No explanation outside the JSON.`;
     // Translate raw styleDescription into aesthetic visual language.
     // This prevents the model from treating style label words as on-canvas copy.
     const aestheticStyle = this.translateToAestheticLanguage(styleDescription);
+
+    // Build the color palette instruction.
+    // Priority: explicit themeColors (org/team brand) > image-derived > free choice.
+    const colorPaletteInstruction = (() => {
+      if (themeColors && themeColors.length > 0) {
+        const primary = themeColors[0];
+        const secondary = themeColors[1] ?? null;
+        const accent = themeColors[2] ?? null;
+        const colorList = [primary, secondary, accent].filter(Boolean).join(', ');
+        return `Color palette: USE THESE EXACT BRAND COLORS as the dominant palette — ${colorList}.
+  - Primary color ${primary} must dominate backgrounds, major shapes, and key design elements.
+  ${secondary ? `- Secondary color ${secondary} must be used for contrast elements, borders, and accent shapes.` : ''}
+  ${accent ? `- Accent color ${accent} can be used sparingly for highlights or glow effects.` : ''}
+  Do NOT substitute or invent alternative colors. The palette is locked to the brand colors above.`;
+      }
+      if (hasSubjectImage) {
+        return `Color palette: derive your dominant color palette from the colors present in the attached subject image. Sample the most prominent hues from the image and build the background, shapes, and accent elements around them. Do NOT default to orange and blue.`;
+      }
+      return `Color palette: choose an original, high-contrast sports palette that fits the style above. Do NOT default to orange and blue unless the user's content explicitly calls for it.`;
+    })();
 
     const subjectBlock = hasSubjectImage
       ? `
@@ -555,8 +592,7 @@ RULES FOR TEXT:
 # VISUAL STYLE — Design aesthetic ONLY. DO NOT render any of this as text.
 <STYLE_START>
 ${aestheticStyle}
-Color palette: choose an original, high-contrast sports palette that fits the style above.
-Do NOT default to orange and blue unless the user's content explicitly calls for it.
+${colorPaletteInstruction}
 <STYLE_END>
 
 CRITICAL: The <STYLE_START>…<STYLE_END> block contains visual design instructions only.

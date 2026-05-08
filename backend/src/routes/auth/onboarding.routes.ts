@@ -616,6 +616,7 @@ router.post(
 
     // Linked account scrape
     let scrapeJobId: string | undefined;
+    let scrapeJobIds: readonly string[] | undefined;
     let scrapeThreadId: string | undefined;
     const firstTeamEntry = sportTeamMap.size > 0 ? sportTeamMap.values().next().value : undefined;
     const resolvedTeamId = firstTeamEntry?.teamId as string | undefined;
@@ -641,7 +642,9 @@ router.post(
           },
           agentEnv
         );
-        scrapeJobId = scrapeResult?.operationId;
+        const scrapeOperationIds = scrapeResult?.operationIds ?? [];
+        scrapeJobId = scrapeOperationIds[0];
+        scrapeJobIds = scrapeOperationIds.length > 0 ? scrapeOperationIds : undefined;
         scrapeThreadId = scrapeResult?.threadId;
       } catch (err) {
         logger.error('[Auth] Failed to enqueue linked account scrape', { userId, error: err });
@@ -659,6 +662,7 @@ router.post(
         completeSignUp: true,
       },
       redirectPath: '/home',
+      ...(scrapeJobIds && scrapeJobIds.length > 0 && { scrapeJobIds }),
       ...(scrapeJobId && { scrapeJobId }),
       ...(scrapeThreadId && { scrapeThreadId }),
     });

@@ -16,7 +16,7 @@
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-export type AgentXMode = 'chat' | 'creator' | 'analyzer' | 'recruiter' | 'planner' | 'commander';
+export type AgentXMode = 'chat' | 'creator' | 'analyzer' | 'planner' | 'commander';
 
 export interface AgentIdentitySnapshot {
   /** Stable persona / mission / voice block (>=1y stable). */
@@ -118,6 +118,21 @@ export function extractMediaAttachmentsFromResultData(
           : 'doc';
       addAttachment(url, name, type);
     });
+  }
+
+  // downloadUrl: generated export file (PDF, CSV) from DynamicExportTool
+  if (typeof resultData['downloadUrl'] === 'string') {
+    const exportUrl = resultData['downloadUrl'] as string;
+    const exportName =
+      typeof resultData['fileName'] === 'string' ? (resultData['fileName'] as string) : 'export';
+    const mimeType =
+      typeof resultData['mimeType'] === 'string' ? (resultData['mimeType'] as string) : '';
+    const exportType: 'image' | 'video' | 'doc' = mimeType.startsWith('image/')
+      ? 'image'
+      : mimeType.startsWith('video/')
+        ? 'video'
+        : 'doc';
+    addAttachment(exportUrl, exportName, exportType);
   }
 
   // persistedMediaUrls[] array: map each as media
@@ -270,13 +285,14 @@ BEFORE you answer — your training data is stale.
 
 # Handling Tool-Generated Files
 
-- When a tool produces a downloadable file — an image, video, PDF, CSV, spreadsheet,
-  or any generated asset — NEVER paste the raw storage URL into your text response.
-- Confirm the result with a plain description only. Examples:
-  - "Done! Your graphic is ready."
-  - "I've exported the data as a CSV." 
-  - "Video has been trimmed and is ready for download."
-- The download link will be displayed automatically in the UI attachment strip.
+- When a tool produces a generated asset, you MUST embed or link it directly in
+  the same response. Use the format that matches the asset type:
+  - **Images** — embed inline: ![description](https://your-url) — renders as a visible image in the chat
+  - **Videos** — embed inline using an HTML video tag: <video src="https://your-url" controls playsinline muted></video> — renders as a playable player in the chat
+  - **PDFs / CSVs / documents** — clickable download link: Download: [filename.ext](https://your-url)
+- If a tool returns multiple assets, embed/link each one separately.
+- Do NOT say "it should appear in the attachment strip" or imply the UI will
+  automatically show anything for you — always include the actual embed or link.
 - Regular web URLs (articles, sources, external links, citations) are fine to
   include in text as normal.`;
 
@@ -288,8 +304,6 @@ const MODE_ADDENDA: Readonly<Record<AgentXMode, string>> = Object.freeze({
     'Mode: Creator. Prefer Brand Coordinator delegation for asset generation. Provide concept + variants when designing.',
   analyzer:
     'Mode: Analyzer. Prefer Performance / Data coordinator delegation. Cite numbers; never invent stats.',
-  recruiter:
-    'Mode: Recruiter. Prefer Recruiting Coordinator delegation. Always confirm before sending outbound communication.',
   planner: 'Mode: Planner. Bias toward `plan_and_execute` for any multi-step intent.',
   commander: 'Mode: Commander. Be terse, decisive, action-first. Skip preamble.',
 });

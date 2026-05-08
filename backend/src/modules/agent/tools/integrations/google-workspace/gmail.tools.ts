@@ -26,12 +26,38 @@ const QueryGmailEmailsInputSchema = z.object({
 const GmailGetMessageDetailsInputSchema = z.object({
   email_id: z.string().trim().min(1),
 });
+const RECIPIENT_KIND_ENUM = ['coach', 'college', 'person', 'organization', 'unknown'] as const;
+
 const GmailSendEmailInputSchema = z.object({
   to: z.array(z.string().trim().min(1)).min(1),
   subject: z.string().trim().min(1),
   body: z.string().trim().min(1),
   cc: z.array(z.string().trim().min(1)).optional(),
   bcc: z.array(z.string().trim().min(1)).optional(),
+  recipientName: z
+    .string()
+    .trim()
+    .min(1)
+    .max(200)
+    .optional()
+    .describe(
+      "Display name of the primary recipient if known (e.g. 'Alex Morgan'). " +
+        'Used in email engagement notifications.'
+    ),
+  recipientKind: z
+    .enum(RECIPIENT_KIND_ENUM)
+    .optional()
+    .describe('Category of recipient: coach, college, person, organization, or unknown.'),
+  recipientOrgName: z
+    .string()
+    .trim()
+    .min(1)
+    .max(200)
+    .optional()
+    .describe(
+      "Organization, college, or team the recipient belongs to, if known (e.g. 'Ohio State'). " +
+        'Used in email engagement notifications.'
+    ),
 });
 const CreateGmailDraftInputSchema = z.object({
   to: z.string().trim().min(1),
@@ -39,6 +65,30 @@ const CreateGmailDraftInputSchema = z.object({
   body: z.string().trim().min(1),
   cc: z.string().trim().min(1).optional(),
   bcc: z.string().trim().min(1).optional(),
+  recipientName: z
+    .string()
+    .trim()
+    .min(1)
+    .max(200)
+    .optional()
+    .describe(
+      "Display name of the recipient if known (e.g. 'Alex Morgan'). " +
+        'Used in email engagement notifications.'
+    ),
+  recipientKind: z
+    .enum(RECIPIENT_KIND_ENUM)
+    .optional()
+    .describe('Category of recipient: coach, college, person, organization, or unknown.'),
+  recipientOrgName: z
+    .string()
+    .trim()
+    .min(1)
+    .max(200)
+    .optional()
+    .describe(
+      "Organization, college, or team the recipient belongs to, if known (e.g. 'Ohio State'). " +
+        'Used in email engagement notifications.'
+    ),
 });
 const GmailReplyToEmailInputSchema = z.object({
   email_id: z.string().trim().min(1),
@@ -137,6 +187,9 @@ export class GmailSendEmailTool extends GoogleWorkspaceBaseTool {
       userId: context.userId,
       trackingId: randomUUID(),
       recipientEmailHash,
+      recipientName: parsed.data.recipientName,
+      recipientKind: parsed.data.recipientKind,
+      recipientOrgName: parsed.data.recipientOrgName,
     });
 
     const result = await super.execute(
@@ -194,6 +247,9 @@ export class CreateGmailDraftTool extends GoogleWorkspaceBaseTool {
       userId: context.userId,
       trackingId: randomUUID(),
       recipientEmailHash,
+      recipientName: parsed.data.recipientName,
+      recipientKind: parsed.data.recipientKind,
+      recipientOrgName: parsed.data.recipientOrgName,
     });
 
     return super.execute(

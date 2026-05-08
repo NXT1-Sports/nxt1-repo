@@ -179,6 +179,8 @@ export interface OnboardingCompleteResponse {
   redirectPath: string;
   /** Job ID for linked account scrape (if any linked accounts were provided). */
   scrapeJobId?: string;
+  /** All job IDs enqueued (one per 2-account chunk). scrapeJobId === scrapeJobIds[0]. */
+  scrapeJobIds?: readonly string[];
   /** Thread ID for the Agent X conversation tied to the scrape job. */
   scrapeThreadId?: string;
 }

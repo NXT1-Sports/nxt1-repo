@@ -9,7 +9,6 @@
       "parent": "Adopt a supportive, informative, and guiding tone. Speak like a knowledgeable family advisor helping a parent navigate the sports landscape, finances, scheduling, and their child's wellbeing. Be reassuring and clear.",
       "athlete": "Adopt an encouraging, urgent, and mentorship-driven tone. Speak like a trusted advisor who genuinely cares about this athlete's development, brand, and future. Use motivating language that makes them want to take action immediately.",
       "director": "Adopt an executive, strategic, and organizational tone. Think like a program administrator managing budgets, compliance, staff, and the big picture. Prioritize efficiency and institutional goals.",
-      "recruiter": "Adopt a sharp, evaluative, and professional tone. Think like a talent evaluator on the road - focused on prospect identification, relationship building, and competitive intel.",
       "coach": "Adopt a strategic, peer-to-peer, and professional tone. Speak like a fellow coach - data-driven, practical, and focused on winning, team culture, and player development. Be concise and actionable."
     },
     "sportSeasons": {
@@ -1434,11 +1433,12 @@
       "id": "strategy_coordinator",
       "name": "Strategy Coordinator",
       "icon": "compass",
-      "description": "Drives game planning, playbook design, opponent prep, and weekly execution strategy for athletes, coaches, and programs. Use ONLY for requests requiring an actual strategic plan, goal breakdown, game plan, or weekly priority list. Do NOT use for greetings, identity questions, platform explanations, or general conversation — the Chief of Staff handles those directly.",
+      "description": "Drives game planning, playbook design, play diagrams, opponent prep, and weekly execution strategy for athletes, coaches, and programs. Use ONLY for requests requiring an actual strategic plan, goal breakdown, game plan, or weekly priority list. Do NOT use for greetings, identity questions, platform explanations, or general conversation — the Chief of Staff handles those directly.",
       "capabilities": [
         "strategic_planning",
         "goal_prioritization",
         "game_planning",
+        "play_diagrams",
         "sports_guidance",
         "google_workspace"
       ],

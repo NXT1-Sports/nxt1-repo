@@ -664,6 +664,7 @@ export class AgentXOperationChatMessageFacade {
     const messageId = this.inlineYieldMessageId(yieldState, operationId);
     const incomingKey = this.yieldIdentityKey(yieldState);
     const promptText = this.normalizeYieldPrompt(yieldState.promptToUser);
+    const cardOnlyYield = yieldState.reason === 'needs_input';
 
     this.messages.update((messages) => {
       const isActionableApprovalCard = (card: AgentXRichCard): boolean => {
@@ -696,6 +697,22 @@ export class AgentXOperationChatMessageFacade {
           (carriedParts?.length ?? 0) > 0 ||
           (carriedCards?.length ?? 0) > 0);
 
+      const keepYieldCard = (card: AgentXRichCard): boolean => {
+        if (!incomingKey) return false;
+        return this.cardPayloadYieldIdentityKey(card) === incomingKey;
+      };
+
+      const yieldOnlyCards = (message: OperationMessage | undefined): AgentXRichCard[] =>
+        (message?.cards ?? []).filter(keepYieldCard);
+
+      const yieldOnlyParts = (
+        message: OperationMessage | undefined
+      ): Extract<AgentXMessagePart, { type: 'card' }>[] =>
+        (message?.parts ?? []).filter(
+          (part): part is Extract<AgentXMessagePart, { type: 'card' }> =>
+            part.type === 'card' && keepYieldCard(part.card)
+        );
+
       const carriedTypingPayload: Partial<OperationMessage> = hasCarriedTypingPayload
         ? {
             content: typingMessage?.content ?? '',
@@ -711,6 +728,14 @@ export class AgentXOperationChatMessageFacade {
       const clearTypingCarrier = (rows: readonly OperationMessage[]): OperationMessage[] => {
         if (!hasCarriedTypingPayload) return [...rows];
 
+        if (cardOnlyYield) {
+          // For ask_user interruptions, keep the row card-only and remove the
+          // typing sentinel to avoid a prose bubble above the ask-user card.
+          return rows.filter((message) => message.id !== 'typing');
+        }
+
+        // For approval interruptions, preserve prior stream context while
+        // neutralizing the typing sentinel.
         return rows.map((message) =>
           message.id !== 'typing'
             ? message
@@ -785,18 +810,44 @@ export class AgentXOperationChatMessageFacade {
 
       if (existingIndex >= 0) {
         const existing = messages[existingIndex];
-        const updated: OperationMessage = {
-          ...existing,
-          ...(!messageHasVisiblePayload(existing) ? carriedTypingPayload : {}),
-          id: messageId,
-          yieldState,
-          operationId: operationId || existing.operationId,
-          yieldCardState: existing.yieldCardState ?? 'idle',
-        };
+        const preservedYieldCards = [...yieldOnlyCards(existing), ...yieldOnlyCards(typingMessage)];
+        const preservedYieldParts = [...yieldOnlyParts(existing), ...yieldOnlyParts(typingMessage)];
+        const updated: OperationMessage = cardOnlyYield
+          ? {
+              ...existing,
+              id: messageId,
+              content: '',
+              attachments: [],
+              steps: [],
+              ...(preservedYieldCards.length > 0 ? { cards: preservedYieldCards } : { cards: [] }),
+              ...(preservedYieldParts.length > 0 ? { parts: preservedYieldParts } : { parts: [] }),
+              yieldState,
+              operationId: operationId || existing.operationId,
+              yieldCardState: existing.yieldCardState ?? 'idle',
+            }
+          : {
+              ...existing,
+              ...(!messageHasVisiblePayload(existing) ? carriedTypingPayload : {}),
+              id: messageId,
+              yieldState,
+              operationId: operationId || existing.operationId,
+              yieldCardState: existing.yieldCardState ?? 'idle',
+            };
 
-        // Keep existing persisted row inline with the active stream: when a typing
-        // placeholder exists, the ask-user card should sit directly below it.
+        // Replace any live typing row with the canonical yield row so the card
+        // occupies the active SSE position rather than appearing below stream prose.
         if (typingIndex >= 0) {
+          if (cardOnlyYield) {
+            const withoutExisting = clearTypingCarrier(messages).filter(
+              (_, index) => index !== existingIndex
+            );
+            return [
+              ...withoutExisting.slice(0, typingIndex),
+              updated,
+              ...withoutExisting.slice(typingIndex),
+            ];
+          }
+
           const withoutExisting = clearTypingCarrier(messages).filter(
             (_, index) => index !== existingIndex
           );
@@ -818,8 +869,10 @@ export class AgentXOperationChatMessageFacade {
       const yieldMessage: OperationMessage = {
         id: messageId,
         role: 'assistant',
-        ...(carriedTypingPayload as Omit<OperationMessage, 'id' | 'role' | 'timestamp'>),
-        content: (carriedTypingPayload.content as string | undefined) ?? '',
+        ...(cardOnlyYield
+          ? {}
+          : (carriedTypingPayload as Omit<OperationMessage, 'id' | 'role' | 'timestamp'>)),
+        content: cardOnlyYield ? '' : ((carriedTypingPayload.content as string | undefined) ?? ''),
         timestamp: typingMessage?.timestamp ?? new Date(),
         operationId,
         yieldState,
@@ -828,6 +881,15 @@ export class AgentXOperationChatMessageFacade {
 
       if (typingIndex < 0) {
         return [...messages, yieldMessage];
+      }
+
+      if (cardOnlyYield) {
+        const withoutTyping = clearTypingCarrier(messages);
+        return [
+          ...withoutTyping.slice(0, typingIndex),
+          yieldMessage,
+          ...withoutTyping.slice(typingIndex),
+        ];
       }
 
       return clearTypingCarrier([

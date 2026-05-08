@@ -129,7 +129,52 @@ describe('AgentXOperationChatMessageFacade', () => {
     expect(loadThreadMessages).toHaveBeenCalledWith('thread-1');
   });
 
-  it('moves already-streamed assistant prose onto the inline yield row', () => {
+  it('replaces the live typing row with a card-only inline ask-user yield row', () => {
+    const yieldState: AgentYieldState = {
+      reason: 'needs_input',
+      promptToUser: 'What should I focus on first for recruiting outreach?',
+      agentId: 'router',
+      pendingToolCall: {
+        toolName: 'ask_user',
+        toolCallId: 'tool-1',
+        toolInput: {
+          question: 'What should I focus on first for recruiting outreach?',
+        },
+      },
+      messages: [],
+    };
+
+    facade.messages.set([
+      {
+        id: 'typing',
+        role: 'assistant',
+        content: 'I need your direction before I continue.',
+        timestamp: new Date('2026-05-04T19:00:00.000Z'),
+        steps: [
+          {
+            id: 'tool-1',
+            label: 'Ask user',
+            status: 'active',
+            stageType: 'tool',
+          },
+        ],
+      },
+    ]);
+
+    facade.upsertInlineYieldMessage(yieldState, 'op-1');
+
+    const typing = facade.messages().find((message) => message.id === 'typing');
+    const yieldMessage = facade
+      .messages()
+      .find((message) => message.yieldState?.reason === 'needs_input');
+
+    expect(typing).toBeUndefined();
+    expect(yieldMessage?.content).toBe('');
+    expect(yieldMessage?.steps ?? []).toEqual([]);
+    expect(yieldMessage?.yieldState).toEqual(yieldState);
+  });
+
+  it('preserves streamed context when converting to an approval yield row', () => {
     const yieldState: AgentYieldState = {
       reason: 'needs_approval',
       promptToUser:
@@ -151,20 +196,34 @@ describe('AgentXOperationChatMessageFacade', () => {
       {
         id: 'typing',
         role: 'assistant',
-        content: "I'll send that email to john@nxt1sports.com right now.",
+        content: "I'll execute both steps in order.",
         timestamp: new Date('2026-05-04T19:00:00.000Z'),
+        steps: [
+          {
+            id: 'tool-search',
+            label: 'Search college database',
+            status: 'success',
+            stageType: 'tool',
+          },
+        ],
       },
     ]);
 
     facade.upsertInlineYieldMessage(yieldState, 'op-1');
 
-    const typing = facade.messages().find((message) => message.id === 'typing');
     const yieldMessage = facade
       .messages()
       .find((message) => message.yieldState?.approvalId === 'approval-1');
 
-    expect(typing?.content).toBe('');
-    expect(yieldMessage?.content).toBe("I'll send that email to john@nxt1sports.com right now.");
-    expect(yieldMessage?.yieldState).toEqual(yieldState);
+    expect(yieldMessage).toBeDefined();
+    expect(yieldMessage?.content).toBe("I'll execute both steps in order.");
+    expect(yieldMessage?.steps ?? []).toEqual([
+      {
+        id: 'tool-search',
+        label: 'Search college database',
+        status: 'success',
+        stageType: 'tool',
+      },
+    ]);
   });
 });

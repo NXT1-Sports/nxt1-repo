@@ -177,6 +177,7 @@ describe('Agent tool exposure regressions', () => {
     expect(agent.getAvailableTools().length).toBeGreaterThan(0);
     expect(agent.getAvailableTools()).toContain('get_analytics_summary');
     expect(agent.getAvailableTools()).toContain('generate_chart_visualization');
+    expect(agent.getAvailableTools()).toContain('create_play_diagram');
     expect(agent.getAvailableTools()).toContain('analyze_video');
     expect(agent.getAvailableTools()).not.toContain('write_intel');
     expect(agent.getAvailableTools()).not.toContain('firecrawl_agent_research');

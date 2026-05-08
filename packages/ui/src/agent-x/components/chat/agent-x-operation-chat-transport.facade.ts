@@ -128,6 +128,8 @@ export interface AgentXOperationChatTransportFacadeHost {
     startAfterSeq?: number,
     initialWatermark?: StreamTurnWatermark | null
   ): void;
+  /** Called when the enqueue_heavy_task tool completes — shows the waiting card and marks thread. */
+  onEnqueueHeavyDone(): void;
   uid(): string;
 }
 
@@ -163,11 +165,17 @@ export class AgentXOperationChatTransportFacade {
     this.baseUrl
   );
 
+  private static readonly ENQUEUE_HEAVY_TOOL_NAME = 'enqueue_heavy_task';
+
   private host: AgentXOperationChatTransportFacadeHost | null = null;
   private responseTurnId = 0;
   private responseCompleteEmitted = false;
   private deltaLatencySamples: number[] = [];
   private destroyed = false;
+  /** Set to true when enqueue_heavy_task tool step is detected during the current SSE turn. */
+  private enqueueHeavySeen = false;
+  /** Set once the enqueue waiting card has been rendered for the current turn. */
+  private enqueueHeavyCardShown = false;
 
   constructor() {
     // Per-component facade: when the host component is destroyed, mark this
@@ -517,6 +525,44 @@ export class AgentXOperationChatTransportFacade {
               this.profileGenerationState?.receiveStep(currentOperationId, step);
             }
 
+            // Detect enqueue_heavy_task tool — flag it so onDone can show the waiting card.
+            // Some backend paths don't include stageType/tool metadata consistently, so
+            // also use normalized label fallbacks.
+            const stepMetadata = event.metadata as Record<string, unknown> | undefined;
+            const rawToolName =
+              (stepMetadata?.['toolName'] as string | undefined) ??
+              (stepMetadata?.['tool_name'] as string | undefined) ??
+              (stepMetadata?.['tool'] as string | undefined) ??
+              (stepMetadata?.['name'] as string | undefined) ??
+              null;
+            const normalizedToolName = typeof rawToolName === 'string' ? rawToolName.trim() : '';
+            const rawHeavyTaskOperationId =
+              (stepMetadata?.['heavyTaskOperationId'] as string | undefined) ?? null;
+            const heavyTaskOperationId =
+              typeof rawHeavyTaskOperationId === 'string' &&
+              rawHeavyTaskOperationId.trim().length > 0
+                ? rawHeavyTaskOperationId.trim()
+                : null;
+            const normalizedLabel = event.label.trim().toLowerCase();
+            const isEnqueueHeavy =
+              normalizedToolName === AgentXOperationChatTransportFacade.ENQUEUE_HEAVY_TOOL_NAME ||
+              normalizedLabel.includes('queueing background operation') ||
+              normalizedLabel.includes('queuing background operation') ||
+              normalizedLabel.includes('task queued successfully');
+
+            if (isEnqueueHeavy && heavyTaskOperationId) {
+              host.setCurrentOperationId(heavyTaskOperationId);
+            }
+
+            if (isEnqueueHeavy && (event.status === 'active' || event.status === 'success')) {
+              this.enqueueHeavySeen = true;
+              if (event.status === 'success' && !this.enqueueHeavyCardShown) {
+                host.onEnqueueHeavyDone();
+                this.enqueueHeavyCardShown = true;
+                host.setActivityPhase('waiting_delta');
+              }
+            }
+
             if (event.stageType !== 'tool') return;
 
             const deltaToFlush = this.messageFacade.drainBufferedTypingDelta();
@@ -598,6 +644,23 @@ export class AgentXOperationChatTransportFacade {
                 source: 'sse-operation',
                 ...(event.operationId ? { operationId: event.operationId } : {}),
               });
+            }
+
+            const enqueuePending = this.enqueueHeavySeen || this.enqueueHeavyCardShown;
+
+            if (event.status === 'complete' && enqueuePending) {
+              // Enqueue-heavy turns finish the SSE stream before the background
+              // job completes; keep this thread in-progress until Firestore done.
+              host.setOperationStatus('processing');
+              host.setActivityPhase('waiting_delta', opMessage || null);
+              this.operationEventService.emitOperationStatusUpdated(
+                event.threadId,
+                'running',
+                event.timestamp,
+                'enqueue',
+                event.operationId
+              );
+              return;
             }
 
             if (event.status === 'complete') {
@@ -734,6 +797,43 @@ export class AgentXOperationChatTransportFacade {
           ...(onWaitingForAttachments ? { onWaitingForAttachments } : {}),
 
           onDone: (event) => {
+            // If the enqueue_heavy_task tool fired during this turn, show the waiting card
+            // instead of committing the streamed text as a permanent assistant message.
+            if (this.enqueueHeavySeen) {
+              this.enqueueHeavySeen = false;
+              host.latestProgressLabel.set(null);
+              host.batchEmailProgress.set(null);
+              host.setOperationStatus('processing');
+              host.setActivityPhase('waiting_delta');
+              const threadIdEnqueue = host.resolvedThreadId();
+              if (threadIdEnqueue) {
+                this.streamRegistry.markDone(threadIdEnqueue, {
+                  model: event.model,
+                  threadId: event.threadId,
+                  messageId: event.messageId,
+                  usage: event.usage,
+                });
+              }
+              // Fallback: if no step event rendered the card yet, render it now.
+              if (!this.enqueueHeavyCardShown) {
+                host.onEnqueueHeavyDone();
+                this.enqueueHeavyCardShown = true;
+              }
+              host.setActiveStream(null);
+              this.breadcrumb.trackStateChange('agent-x-operation-chat:enqueue-heavy-done', {
+                contextId: host.contextId(),
+              });
+              host.getShadowFirestoreSub()?.unsubscribe();
+              host.setShadowFirestoreSub(null);
+              host.setStreamTurnWatermark(null);
+              this.logger.info('Stream complete (enqueue heavy — waiting card shown)', {
+                threadId: event.threadId,
+              });
+              this.agentXService.clearDropRecoveryOp();
+              resolve();
+              return;
+            }
+
             this.messageFacade.flushPendingTypingDelta();
             host.latestProgressLabel.set(null);
             host.batchEmailProgress.set(null);
@@ -892,6 +992,8 @@ export class AgentXOperationChatTransportFacade {
     const host = this.requireHost();
     this.responseTurnId += 1;
     this.responseCompleteEmitted = false;
+    this.enqueueHeavySeen = false;
+    this.enqueueHeavyCardShown = false;
     host.latestProgressLabel.set(null);
     this.logger.debug('Response turn started', {
       turnId: this.responseTurnId,

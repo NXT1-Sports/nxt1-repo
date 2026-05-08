@@ -569,10 +569,41 @@ export class AgentXOperationChatSessionFacade {
     const isChatPrefixedOperationId = (value: string | undefined): boolean =>
       typeof value === 'string' && value.startsWith('chat-');
 
+    // Build two sets upfront:
+    //   assistantYieldOpIds — operationIds that have an assistant_yield row
+    //   answeredYieldOpIds  — of those, which also have a user reply message
+    // Used to (a) keep answered yield rows as resolved cards instead of
+    // suppressing them, and (b) suppress the matching user reply bubble so it
+    // doesn't appear as a separate message alongside the card.
+    const assistantYieldOpIds = new Set<string>();
+    for (const item of items) {
+      if (
+        item.semanticPhase === 'assistant_yield' &&
+        typeof item.operationId === 'string' &&
+        item.operationId.trim()
+      ) {
+        assistantYieldOpIds.add(item.operationId.trim());
+      }
+    }
+    const answeredYieldOpIds = new Set<string>();
+    for (const item of items) {
+      if (
+        item.role === 'user' &&
+        typeof item.operationId === 'string' &&
+        item.operationId.trim() &&
+        assistantYieldOpIds.has(item.operationId.trim()) &&
+        item.content?.trim()
+      ) {
+        answeredYieldOpIds.add(item.operationId.trim());
+      }
+    }
+
     // Interruption operations (ask_user / approval / pause) are active turns.
-    // Keep their historical assistant trajectory intact on reload so earlier
-    // progress text does not disappear when the latest yielded card is shown.
+    // needs_input (ask_user): card-only replacement — suppress prior trajectory.
+    // needs_approval: inline card alongside tool steps — keep prior trajectory.
     const yieldedOperationIds = new Set<string>();
+    const inputYieldedOpIds = new Set<string>(); // needs_input only
+    const approvalYieldedOpIds = new Set<string>(); // needs_approval only
     for (const item of items) {
       if (item.role !== 'assistant') continue;
       const opId = typeof item.operationId === 'string' ? item.operationId.trim() : '';
@@ -580,13 +611,14 @@ export class AgentXOperationChatSessionFacade {
 
       const semanticYield = item.semanticPhase === 'assistant_yield';
       const persistedYieldState = this.coercePersistedYieldState(item.resultData?.['yieldState']);
+      // Raw reason: works without pendingToolCall so assistant_yield rows
+      // written without the full yieldState shape are still classified.
+      const rawYieldReason = (
+        item.resultData?.['yieldState'] as Record<string, unknown> | undefined
+      )?.['reason'];
+      // Any 'confirmation' card = approval yield (no payload validation needed).
       const pendingApprovalCard = (item.parts ?? []).some(
-        (part) =>
-          part.type === 'card' &&
-          part.card.type === 'confirmation' &&
-          !!this.coercePersistedYieldState(
-            (part.card.payload as Record<string, unknown> | undefined)?.['yieldState']
-          )
+        (part) => part.type === 'card' && part.card.type === 'confirmation'
       );
       const pendingAskUserCard = (item.parts ?? []).some(
         (part) => part.type === 'card' && part.card.type === 'ask_user'
@@ -594,6 +626,18 @@ export class AgentXOperationChatSessionFacade {
 
       if (semanticYield || persistedYieldState || pendingApprovalCard || pendingAskUserCard) {
         yieldedOperationIds.add(opId);
+        // Classify as input-type ONLY when we have a positive confirmation that
+        // this is a needs_input (ask_user) yield. Unknown reason (old sessions
+        // written before reason storage) defaults to approval-type so that
+        // pre-approval tool_call context is preserved on reload.
+        const isConfirmedInput =
+          !pendingApprovalCard &&
+          (persistedYieldState?.reason === 'needs_input' || rawYieldReason === 'needs_input');
+        if (isConfirmedInput) {
+          inputYieldedOpIds.add(opId);
+        } else {
+          approvalYieldedOpIds.add(opId);
+        }
       }
     }
 
@@ -669,6 +713,29 @@ export class AgentXOperationChatSessionFacade {
       }
     }
 
+    // ── Pass 2c: collapse tool_call rows for completed approval ops ─────────
+    // Approval flows accumulate tool_call rows before the yield point. When the
+    // operation later completes (assistant_final exists), keep only the LAST
+    // tool_call so pre-approval context renders as a single clean bubble above
+    // the final message on session reload.
+    const completedApprovalToolCallSuppressedIds = new Set<string>();
+    {
+      const lastSeenToolCall = new Map<string, string>(); // operationId → id of latest row
+      for (const item of items) {
+        if (
+          item.role === 'assistant' &&
+          item.semanticPhase === 'assistant_tool_call' &&
+          item.operationId &&
+          approvalYieldedOpIds.has(item.operationId) &&
+          finalOperationIds.has(item.operationId)
+        ) {
+          const prev = lastSeenToolCall.get(item.operationId);
+          if (prev) completedApprovalToolCallSuppressedIds.add(prev);
+          lastSeenToolCall.set(item.operationId, item.id);
+        }
+      }
+    }
+
     // ── Pass 3: legacy rows (no semanticPhase) ───────────────────────────
     // Collect operationIds that appear on multiple untagged assistant rows.
     const legacyMultiMap = new Map<string, AgentMessage[]>();
@@ -700,6 +767,17 @@ export class AgentXOperationChatSessionFacade {
     }
 
     return items.filter((item, index) => {
+      // Suppress user messages that are replies to an answered ask_user card.
+      // Their content is shown inline as yieldResolvedText on the resolved
+      // card bubble rather than as a separate standalone message.
+      if (
+        item.role === 'user' &&
+        typeof item.operationId === 'string' &&
+        answeredYieldOpIds.has(item.operationId.trim())
+      ) {
+        return false;
+      }
+
       if (item.role !== 'assistant') return true;
 
       // Suppress `assistant_yield` rows from rendering. These are persisted
@@ -709,13 +787,35 @@ export class AgentXOperationChatSessionFacade {
       // assistant_partial row (or the synthetic yield bubble created by
       // applyPendingYieldState). Rendering this row produces a duplicate
       // "Review and approve…" prose bubble alongside the card.
-      if (item.semanticPhase === 'assistant_yield') return false;
+      if (item.semanticPhase === 'assistant_yield') {
+        const opId = typeof item.operationId === 'string' ? item.operationId.trim() : '';
+        // Keep answered yield rows — they render as resolved ask_user cards on
+        // reload so history shows the question+answer pair. Active (unanswered)
+        // yield rows are still suppressed; the card is shown via applyPendingYieldState.
+        return opId.length > 0 && answeredYieldOpIds.has(opId);
+      }
+
+      // ask_user (needs_input) operations render as card-only interruptions.
+      // Suppress prior trajectory for input ops only.
+      // needs_approval operations keep their tool steps visible alongside the card.
+      if (item.operationId && inputYieldedOpIds.has(item.operationId)) {
+        return false;
+      }
 
       // When assistant_final exists for this operationId, keep only the final
       // row. Suppress everything else — including assistant_partial snapshots
       // and untagged trajectory rows written by ThreadMessageWriter — to
       // prevent duplicate bubbles with repeated media/cards.
+      //
+      // Exception: completed approval flows also keep the last tool_call row
+      // so pre-approval context (search results, step summaries) remains visible
+      // alongside the final completion message after session reload.
       if (item.operationId && finalOperationIds.has(item.operationId)) {
+        if (approvalYieldedOpIds.has(item.operationId)) {
+          return (
+            item.semanticPhase === 'assistant_final' || item.semanticPhase === 'assistant_tool_call'
+          );
+        }
         return item.semanticPhase === 'assistant_final';
       }
 
@@ -738,14 +838,22 @@ export class AgentXOperationChatSessionFacade {
       // Suppress all-but-last assistant_tool_call rows (no final path).
       if (toolCallSuppressedIds.has(item.id)) return false;
 
+      // Suppress earlier tool_call rows for completed approval ops (keep only last).
+      if (completedApprovalToolCallSuppressedIds.has(item.id)) return false;
+
       // If a partial snapshot exists for this in-flight operation (and no
       // final/yield exists), prefer partial over tool_call so only one
       // assistant bubble renders during rehydrate.
       // Do not remove without updating the regression test referenced above.
+      //
+      // Exception: approval flows carry an inline card on the partial row AND
+      // a separate tool_call showing pre-approval context. Both must render,
+      // so skip the partial-supersedes-tool_call rule for approval ops.
       if (
         item.semanticPhase === 'assistant_tool_call' &&
         item.operationId &&
-        operationIdsWithPartialNoFinal.has(item.operationId)
+        operationIdsWithPartialNoFinal.has(item.operationId) &&
+        !approvalYieldedOpIds.has(item.operationId)
       ) {
         return false;
       }
@@ -979,6 +1087,14 @@ export class AgentXOperationChatSessionFacade {
   }
 
   /**
+   * Called by transport when enqueue-heavy tool execution completes.
+   * Converts the transient typing row into the persistent enqueue waiting card.
+   */
+  handleEnqueueHeavyDone(): void {
+    this.markThreadAsEnqueueWaiting();
+    this.upsertEnqueueWaitingMessageNonBlocking();
+  }
+  /**
    * Transitions the enqueue-waiting card to a "stopped" visual state.
    * Called when the user taps the stop/cancel button while viewing an
    * in-progress background job. The card stays visible but shows a muted
@@ -1007,6 +1123,23 @@ export class AgentXOperationChatSessionFacade {
    */
   markEnqueueStopped(): void {
     const host = this.requireHost();
+    const threadId = host.threadId().trim() || host.resolvedThreadId() || host.contextId().trim();
+
+    const hasEnqueueWaitingCard = this.messageFacade
+      .messages()
+      .some(
+        (message) => message.id === AgentXOperationChatSessionFacade.ENQUEUE_WAITING_MESSAGE_ID
+      );
+
+    const hasEnqueueWaitingMarker =
+      !!threadId && !!this.operationEventService.getEnqueueWaitingEntry(threadId);
+
+    // clearRealtimePipelines() is shared by /chat and /enqueue flows.
+    // Only persist "Task stopped" enqueue state when enqueue waiting is active.
+    if (!hasEnqueueWaitingCard && !hasEnqueueWaitingMarker) {
+      return;
+    }
+
     this.messageFacade.messages.update((messages) =>
       messages.map((message) =>
         message.id === AgentXOperationChatSessionFacade.ENQUEUE_WAITING_MESSAGE_ID
@@ -1020,7 +1153,6 @@ export class AgentXOperationChatSessionFacade {
     // On re-entry, this is used to strip exactly the partial assistant rows that
     // belong to this cancelled job — nothing more, nothing less.
     const operationId = this.resolveFirestoreOperationId();
-    const threadId = host.threadId().trim() || host.resolvedThreadId() || host.contextId().trim();
     if (threadId) {
       this.operationEventService.clearEnqueueWaiting(threadId);
       this.operationEventService.markEnqueueCancelled(threadId, operationId);
@@ -1222,6 +1354,34 @@ export class AgentXOperationChatSessionFacade {
             }
             this.messageFacade.flushPendingTypingDelta();
             host.latestProgressLabel.set(null);
+            const shouldDeferToEnqueueWaiting =
+              event.success !== false && this.consumeEnqueueHeavySeen();
+
+            if (shouldDeferToEnqueueWaiting) {
+              this.normalizeTypingAssistantMediaMarkdown();
+              this.messageFacade.finalizeStreamedAssistantMessage({
+                streamingId: 'typing',
+                messageId: event.messageId,
+                success: event.success,
+                source: 'firestore-done-enqueue-waiting',
+              });
+              this.markThreadAsEnqueueWaiting();
+              this.upsertEnqueueWaitingMessageNonBlocking();
+              host.setActivityPhase(
+                'waiting_delta',
+                AgentXOperationChatSessionFacade.ENQUEUE_WAITING_MESSAGE_TEXT
+              );
+              host.loading.set(true);
+              host.getActiveFirestoreSub()?.unsubscribe();
+              host.setActiveFirestoreSub(null);
+              host.setStreamTurnWatermark(null);
+              this.transportFacade.emitResponseCompleteOnce('firestore-done-enqueue-waiting');
+              this.logger.info('Background enqueue deferred to waiting card (Firestore)', {
+                operationId,
+              });
+              return;
+            }
+
             host.setActivityPhase('completed');
             this.normalizeTypingAssistantMediaMarkdown();
             this.messageFacade.finalizeStreamedAssistantMessage({
@@ -1234,10 +1394,6 @@ export class AgentXOperationChatSessionFacade {
             host.getActiveFirestoreSub()?.unsubscribe();
             host.setActiveFirestoreSub(null);
             host.setStreamTurnWatermark(null);
-            if (event.success !== false && this.consumeEnqueueHeavySeen()) {
-              this.markThreadAsEnqueueWaiting();
-              this.upsertEnqueueWaitingMessageNonBlocking();
-            }
             void this.haptics.notification('success');
             this.transportFacade.emitResponseCompleteOnce('firestore-done');
             this.logger.info('Background job stream complete (Firestore)', { operationId });
@@ -1341,6 +1497,26 @@ export class AgentXOperationChatSessionFacade {
       // Phase K (single-bubble guarantee): resolve the canonical set of rows
       // before mapping. Suppresses assistant_partial rows when assistant_final
       // exists for the same operationId (pause/resume double-bubble fix).
+
+      // Pre-compute yield reply content for the mapping step so answered
+      // assistant_yield rows get yieldResolvedText injected inline.
+      const yieldReplyByOpId = new Map<string, string>();
+      for (const item of items) {
+        if (
+          item.semanticPhase === 'assistant_yield' &&
+          typeof item.operationId === 'string' &&
+          item.operationId.trim()
+        ) {
+          const opId = item.operationId.trim();
+          const reply = items.find(
+            (r) => r.role === 'user' && r.operationId === opId && r.content?.trim()
+          );
+          if (reply?.content?.trim()) {
+            yieldReplyByOpId.set(opId, reply.content.trim());
+          }
+        }
+      }
+
       const canonicalItems = this.resolveCanonicalAssistantRows(items);
 
       const mapped: OperationMessage[] = canonicalItems
@@ -1463,6 +1639,22 @@ export class AgentXOperationChatSessionFacade {
               ? (message.resultData['yieldResolvedText'] as string)
               : undefined;
 
+          // For answered assistant_yield rows (kept by resolveCanonicalAssistantRows
+          // when a user reply exists), force yieldCardState='resolved' and populate
+          // yieldResolvedText from the reply so the card renders as answered on reload.
+          const yieldRowOpId =
+            typeof message.operationId === 'string' ? message.operationId.trim() : '';
+          const yieldRowReplyText = yieldRowOpId ? yieldReplyByOpId.get(yieldRowOpId) : undefined;
+          const effectiveYieldCardState: 'idle' | 'submitting' | 'resolved' | undefined =
+            message.semanticPhase === 'assistant_yield' && yieldRowReplyText
+              ? 'resolved'
+              : persistedYieldCardState;
+          const effectiveYieldResolvedText =
+            message.semanticPhase === 'assistant_yield' && yieldRowReplyText
+              ? yieldRowReplyText
+              : persistedYieldResolvedText;
+          const effectiveContent = message.semanticPhase === 'assistant_yield' ? '' : cleanContent;
+
           return {
             id: message.id ?? host.uid(),
             // Phase J (thread-as-truth): preserve role fidelity. The
@@ -1472,15 +1664,15 @@ export class AgentXOperationChatSessionFacade {
             // surface them.
             role: message.role,
             operationId: typeof message.operationId === 'string' ? message.operationId : undefined,
-            content: cleanContent,
+            content: effectiveContent,
             timestamp: message.createdAt ? new Date(message.createdAt) : new Date(),
             ...(persistedSteps.length > 0 ? { steps: persistedSteps } : {}),
             ...(persistedParts.length > 0 ? { parts: persistedParts } : {}),
             ...(persistedCards.length > 0 ? { cards: persistedCards } : {}),
             ...(persistedYieldState ? { yieldState: persistedYieldState } : {}),
-            ...(persistedYieldCardState ? { yieldCardState: persistedYieldCardState } : {}),
-            ...(persistedYieldResolvedText
-              ? { yieldResolvedText: persistedYieldResolvedText }
+            ...(effectiveYieldCardState ? { yieldCardState: effectiveYieldCardState } : {}),
+            ...(effectiveYieldResolvedText
+              ? { yieldResolvedText: effectiveYieldResolvedText }
               : {}),
             ...persistedMedia,
           };
@@ -1570,7 +1762,7 @@ export class AgentXOperationChatSessionFacade {
           latestAssistantTimestampMs <= enqueueWaitingEntry.queuedAt + 30_000;
 
         if (waitingStillActive) {
-          this.upsertEnqueueWaitingMessageNonBlocking();
+          this.upsertEnqueueWaitingMessage();
           host.setOperationStatus('processing');
           this.operationEventService.emitOperationStatusUpdated(
             threadId,
@@ -1816,9 +2008,17 @@ export class AgentXOperationChatSessionFacade {
     // │ operation (partial deltas/tool calls that never completed), then pin  │
     // │ the cancelled card as the final message. No streams are opened.       │
     // └────────────────────────────────────────────────────────────────────────┘
-    const isCancelledEnqueue =
-      this.operationEventService.isEnqueueCancelled(threadId) ||
-      (host.contextType() === 'operation' && host.getOperationStatus() === 'cancelled');
+    const cancelledEntry = this.operationEventService.getEnqueueCancelledEntry(threadId);
+
+    // Guard against stale markers accidentally persisted from /chat paths.
+    if (cancelledEntry?.operationId && this.isChatOperationId(cancelledEntry.operationId)) {
+      this.operationEventService.clearEnqueueCancelled(threadId);
+    }
+
+    const hasCancelledEnqueueMarker =
+      !!cancelledEntry?.operationId && !this.isChatOperationId(cancelledEntry.operationId);
+
+    const isCancelledEnqueue = hasCancelledEnqueueMarker;
 
     if (isCancelledEnqueue) {
       this.logger.info('Restoring cancelled enqueue — loading history with cancelled card', {
@@ -1830,7 +2030,6 @@ export class AgentXOperationChatSessionFacade {
       // cancelled job AND the timestamp. operationId is the authoritative
       // discriminator — it matches `message.operationId` on persisted rows.
       // cancelledAt is a fallback when operationId is unavailable (migrated entries).
-      const cancelledEntry = this.operationEventService.getEnqueueCancelledEntry(threadId);
       const storedOperationId = cancelledEntry?.operationId ?? null;
       const cancelledAt = cancelledEntry?.cancelledAt ?? 0;
 
@@ -1886,13 +2085,9 @@ export class AgentXOperationChatSessionFacade {
             beforeCard = withoutCard;
             afterCard = [];
           }
-
-          // If the thread has continued beyond the cancelled segment, stop
-          // forcing the synthetic "Task stopped" card and resume normal history.
-          if (afterCard.length > 0) {
-            this.operationEventService.clearEnqueueCancelled(threadId);
-            return withoutCard;
-          }
+          // Keep the cancelled enqueue card pinned even when the user continues
+          // the thread. This preserves stopped-job context and suppresses
+          // cancelled enqueue output replay on follow-up and rehydrate.
 
           const cancelledCard: (typeof messages)[number] = {
             id: AgentXOperationChatSessionFacade.ENQUEUE_WAITING_MESSAGE_ID,
@@ -2428,6 +2623,43 @@ export class AgentXOperationChatSessionFacade {
   ): AgentYieldState | null {
     const fromResultData = this.coercePersistedYieldState(message.resultData?.['yieldState']);
     if (fromResultData) return fromResultData;
+
+    // Reconstruct yield state from persisted assistant_yield rows.
+    // The worker saves content = promptToUser (the ask_user question) when the
+    // agent pauses for input. No rich card payload is stored on this row, so
+    // we build a minimal AgentYieldState from the content string.
+    if (message.semanticPhase === 'assistant_yield' && message.content?.trim()) {
+      const question = message.content.trim();
+      const normalizedPrompt = question.toLowerCase();
+      const looksLikeApprovalPrompt =
+        normalizedPrompt.includes('review and approve') ||
+        normalizedPrompt.includes('approve this') ||
+        normalizedPrompt.includes('approval required');
+      // Approval yields require structured payload (approvalId/actions). If we
+      // coerce these prose prompts into needs_input, replay can show a random
+      // ask-user card after completed turns.
+      if (looksLikeApprovalPrompt) {
+        return null;
+      }
+      const operationId = typeof message.operationId === 'string' ? message.operationId.trim() : '';
+      const yieldedAt = message.createdAt ?? new Date().toISOString();
+      const expiresAt = new Date(Date.parse(yieldedAt) + 24 * 60 * 60 * 1000).toISOString();
+      return {
+        reason: 'needs_input',
+        promptToUser: question,
+        agentId: message.agentId ?? 'router',
+        messages: [],
+        pendingToolCall: {
+          toolName: 'ask_user',
+          toolCallId: operationId
+            ? `ask_user:${operationId}`
+            : `ask_user:${message.id ?? 'unknown'}`,
+          toolInput: { question, ...(operationId ? { operationId } : {}) },
+        },
+        yieldedAt,
+        expiresAt,
+      };
+    }
 
     for (const card of persistedCards) {
       if (card.type === 'confirmation') {

@@ -19,6 +19,13 @@
 import nodemailer from 'nodemailer';
 import type { Transporter } from 'nodemailer';
 import { logger } from '../../utils/logger.js';
+import { randomUUID } from 'node:crypto';
+import type { Firestore } from 'firebase-admin/firestore';
+import { db as defaultDb } from '../../utils/firebase.js';
+import {
+  buildTrackedEmailHtmlWithRecipientHash,
+  hashRecipientEmail,
+} from './connected-mail.service.js';
 
 const PLATFORM_FROM_EMAIL = process.env['PLATFORM_FROM_EMAIL']?.trim() || 'nxt1@nxt1sports.com';
 const PLATFORM_FROM_NAME = process.env['PLATFORM_FROM_NAME']?.trim() || 'NXT1';
@@ -91,4 +98,71 @@ export async function sendPlatformEmail(
     });
     throw err;
   }
+}
+
+/** Resolve the best reply-to email for a user from Firestore user profile. */
+export async function resolveUserReplyToEmail(
+  userId: string,
+  db: Firestore = defaultDb
+): Promise<string | null> {
+  const userDoc = await db.collection('Users').doc(userId).get();
+  const email = userDoc.data()?.['email'];
+  if (typeof email !== 'string') return null;
+  const normalized = email.trim();
+  if (!normalized || !normalized.includes('@')) return null;
+  return normalized;
+}
+
+/**
+ * Send an email from the NXT1 platform address on behalf of a specific user.
+ *
+ * - From: NXT1 <nxt1@nxt1sports.com>
+ * - Reply-To: user's email (so recipients reply directly to the user)
+ * - Tracking attribution: subjectId is the userId
+ */
+export async function sendPlatformEmailOnBehalfOf(
+  userId: string,
+  userReplyToEmail: string,
+  to: string,
+  subject: string,
+  html: string,
+  options?: {
+    recipientName?: string;
+    recipientKind?: string;
+    recipientOrgName?: string;
+  }
+): Promise<{ trackingId: string }> {
+  const transport = getTransport();
+  if (!transport) {
+    throw new Error('Platform email service is not configured.');
+  }
+
+  const trackingId = randomUUID();
+  const trackedHtml = buildTrackedEmailHtmlWithRecipientHash(html, {
+    userId,
+    trackingId,
+    recipientEmailHash: hashRecipientEmail(to),
+    recipientName: options?.recipientName,
+    recipientKind: options?.recipientKind,
+    recipientOrgName: options?.recipientOrgName,
+  });
+
+  const from = `${PLATFORM_FROM_NAME} <${PLATFORM_FROM_EMAIL}>`;
+
+  await transport.sendMail({
+    from,
+    to,
+    subject,
+    html: trackedHtml,
+    replyTo: userReplyToEmail,
+  });
+
+  logger.info('[PlatformEmail] On-behalf email sent', {
+    userId,
+    to,
+    subject,
+    trackingId,
+  });
+
+  return { trackingId };
 }

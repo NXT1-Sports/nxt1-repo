@@ -94,17 +94,15 @@ export class EnqueueHeavyTaskTool extends BaseTool {
         ? String(inputContext['parentThreadId'])
         : undefined;
 
-    const operationId =
-      parsed.data.parentOperationId ??
-      inheritedParentOperationId ??
-      context?.operationId ??
-      randomUUID();
+    const parentOperationId =
+      parsed.data.parentOperationId ?? inheritedParentOperationId ?? context?.operationId;
+    const operationId = randomUUID();
     const threadId = parsed.data.parentThreadId ?? inheritedParentThreadId ?? context?.threadId;
 
     const mergedContext: Record<string, unknown> = {
       ...inputContext,
       ...(threadId ? { threadId } : {}),
-      ...(operationId ? { parentOperationId: operationId } : {}),
+      ...(parentOperationId ? { parentOperationId } : {}),
     };
 
     const payload: AgentJobPayload = {
@@ -130,6 +128,8 @@ export class EnqueueHeavyTaskTool extends BaseTool {
       const { jobId } = await enqueueWithOutbox(this.db, payload, env, this.queueService);
       logger.info('Heavy task enqueued from chat', {
         operationId,
+        parentOperationId,
+        threadId,
         jobId,
         userId,
         intent: intent.slice(0, 100),
@@ -140,6 +140,9 @@ export class EnqueueHeavyTaskTool extends BaseTool {
         data: {
           status: 'queued',
           message: 'Background operation started.',
+          heavyTaskOperationId: operationId,
+          ...(parentOperationId ? { parentOperationId } : {}),
+          ...(threadId ? { threadId } : {}),
         },
       };
     } catch (err) {

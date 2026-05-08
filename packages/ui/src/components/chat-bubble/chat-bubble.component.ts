@@ -24,13 +24,26 @@ import {
   AgentXAskUserCardComponent,
   type AskUserReplyEvent,
 } from '../../agent-x/components/cards/agent-x-ask-user-card.component';
+import {
+  AgentXConnectAccountCardComponent,
+  type ConnectAccountCardActionEvent,
+} from '../../agent-x/components/cards/agent-x-connect-account-card.component';
 import { NxtIconComponent } from '../icon/icon.component';
-import { NxtMarkdownComponent } from '../markdown/markdown.component';
+import {
+  NxtMarkdownComponent,
+  type MarkdownMediaRequestedEvent,
+} from '../markdown/markdown.component';
 import { NxtAgentXExtendedThinkingComponent } from '../../agent-x/components/chat/agent-x-extended-thinking.component';
 import { buildAgentCardThemeStyle } from '../../agent-x/types/agent-x-agent-presentation';
 
 /** Visual variant controlling sizing, colors, and border‑radius. */
 export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | 'agent-fab';
+
+export interface ChatBubbleMediaRequestedEvent {
+  readonly url: string;
+  readonly type: 'image' | 'video';
+  readonly alt?: string;
+}
 
 @Component({
   selector: 'nxt1-chat-bubble',
@@ -39,6 +52,7 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
     AgentXToolStepsComponent,
     AgentXBillingActionCardComponent,
     AgentXAskUserCardComponent,
+    AgentXConnectAccountCardComponent,
     NxtIconComponent,
     NxtMarkdownComponent,
     NxtAgentXExtendedThinkingComponent,
@@ -82,7 +96,10 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
             @if (isOwn()) {
               <p class="bubble-text">{{ part.content }}</p>
             } @else {
-              <nxt1-markdown [content]="part.content" />
+              <nxt1-markdown
+                [content]="part.content"
+                (mediaRequested)="onMarkdownMediaRequested($event)"
+              />
             }
           }
           @case ('tool-steps') {
@@ -102,6 +119,11 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
                   [externalResolvedText]="externalResolvedText()"
                   (replySubmitted)="askUserReply.emit($event)"
                 />
+              } @else if (part.card.type === 'connect-account') {
+                <nxt1-agent-x-connect-account-card
+                  [card]="part.card"
+                  (actionSelected)="connectAccountAction.emit($event)"
+                />
               } @else {
                 <div class="card-fallback">
                   <span class="card-fallback__icon">⚠️</span>
@@ -119,6 +141,7 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
                 [alt]="part.alt || 'Generated image'"
                 class="bubble-img"
                 loading="lazy"
+                (click)="mediaRequested.emit({ url: part.url, type: 'image', alt: part.alt })"
               />
             </div>
           }
@@ -130,6 +153,7 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
                 controls
                 playsinline
                 preload="metadata"
+                (click)="mediaRequested.emit({ url: part.url, type: 'video' })"
               ></video>
             </div>
           }
@@ -150,7 +174,10 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
         @if (isOwn()) {
           <p class="bubble-text">{{ content() }}</p>
         } @else {
-          <nxt1-markdown [content]="content()" />
+          <nxt1-markdown
+            [content]="content()"
+            (mediaRequested)="onMarkdownMediaRequested($event)"
+          />
         }
       }
       @for (card of cards(); track $index) {
@@ -166,6 +193,11 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
               [externalCardState]="externalCardState()"
               [externalResolvedText]="externalResolvedText()"
               (replySubmitted)="askUserReply.emit($event)"
+            />
+          } @else if (card.type === 'connect-account') {
+            <nxt1-agent-x-connect-account-card
+              [card]="card"
+              (actionSelected)="connectAccountAction.emit($event)"
             />
           } @else {
             <div class="card-fallback">
@@ -200,6 +232,7 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
         max-width: 100%;
         word-wrap: break-word;
         overflow-wrap: break-word;
+        --bubble-media-max-width: 240px;
         --bubble-error: var(--nxt1-color-error, #ef4444);
         --bubble-error-bg: var(--nxt1-color-errorBg, rgba(239, 68, 68, 0.1));
         --bubble-error-border: color-mix(in srgb, var(--bubble-error) 44%, transparent);
@@ -546,32 +579,53 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
         margin-top: 0.75rem;
         border-radius: 12px;
         overflow: hidden;
+        max-width: var(--bubble-media-max-width);
       }
 
       .bubble-img {
         display: block;
         width: 100%;
-        max-width: 320px;
+        max-width: 100%;
         height: auto;
         border-radius: 12px;
         object-fit: cover;
+        cursor: pointer;
       }
 
       .bubble-video {
         display: block;
         width: 100%;
-        max-width: 320px;
+        max-width: 100%;
         border-radius: 12px;
+        cursor: pointer;
+      }
+
+      :host ::ng-deep nxt1-markdown .md img,
+      :host ::ng-deep nxt1-markdown .md video {
+        width: min(100%, var(--bubble-media-max-width));
+        max-width: min(100%, var(--bubble-media-max-width));
+        height: auto;
+        border-radius: 12px;
+        display: block;
+        cursor: pointer;
       }
 
       :host(.own) .bubble-img,
       :host(.own) .bubble-video {
-        max-width: 240px;
+        max-width: 100%;
+      }
+
+      :host(.own) {
+        --bubble-media-max-width: 200px;
       }
 
       :host(.variant-agent-fab) .bubble-img,
       :host(.variant-agent-fab) .bubble-video {
-        max-width: 260px;
+        max-width: 100%;
+      }
+
+      :host(.variant-agent-fab) {
+        --bubble-media-max-width: 220px;
       }
 
       @media (prefers-reduced-motion: reduce) {
@@ -647,11 +701,21 @@ export class NxtChatBubbleComponent {
   /** Emitted when a billing action card CTA is resolved. */
   readonly billingActionResolved = output<BillingActionResolvedEvent>();
 
+  /** Emitted when media inside markdown/parts should open in a viewer overlay. */
+  readonly mediaRequested = output<ChatBubbleMediaRequestedEvent>();
+
   /** Emitted when the user submits a reply to an ask_user card. */
   readonly askUserReply = output<AskUserReplyEvent>();
 
+  /** Emitted when the user taps connect-account card actions. */
+  readonly connectAccountAction = output<ConnectAccountCardActionEvent>();
+
   /** Emitted when the user clicks "Try again" on an error bubble. */
   readonly retryRequested = output<void>();
+
+  protected onMarkdownMediaRequested(event: MarkdownMediaRequestedEvent): void {
+    this.mediaRequested.emit(event);
+  }
 
   protected cardThemeStyle(card: AgentXRichCard): string {
     return buildAgentCardThemeStyle(card);

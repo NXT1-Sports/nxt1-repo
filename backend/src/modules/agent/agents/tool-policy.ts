@@ -113,6 +113,7 @@ const ROUTER_TOOL_POLICY: readonly ToolPattern[] = [
   'get_conference_logos',
   'get_analytics_summary',
   'track_analytics_event',
+  'create_play_diagram',
   'scan_timeline_posts',
   'list_google_workspace_tools',
   'run_google_workspace_tool',
@@ -305,6 +306,7 @@ const AGENT_TOOL_POLICY: Readonly<Record<CoordinatorAgentId, readonly ToolPatter
   strategy_coordinator: composeToolPatterns([
     'get_analytics_summary',
     'generate_chart_visualization',
+    'create_play_diagram',
     'list_recurring_tasks',
     'update_recurring_task',
     'cancel_recurring_task',

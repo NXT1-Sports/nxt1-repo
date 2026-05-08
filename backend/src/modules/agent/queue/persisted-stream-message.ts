@@ -5,7 +5,6 @@ import type {
   AgentXToolStep,
   AgentXToolStepStatus,
 } from '@nxt1/core';
-import { sanitizeStorageUrlsFromText } from '@nxt1/core';
 import type { StreamEvent } from './event-writer.js';
 import {
   sanitizeAgentOutputText,
@@ -170,20 +169,10 @@ export class PersistedAssistantStreamBuilder {
   }
 
   snapshot(): PersistedAssistantStreamSnapshot {
-    // Strip any storage URLs from the full accumulated content before persisting.
-    // URLs may arrive across multiple delta chunks making them undetectable
-    // per-chunk; the full accumulation is the only reliable sanitization point.
-    const sanitizedContent = sanitizeStorageUrlsFromText(this.content);
-
-    // Mirror sanitization in the text parts so the parts array matches content.
-    const sanitizedParts = this.parts.map((part) =>
-      part.type === 'text' ? { ...part, content: sanitizeStorageUrlsFromText(part.content) } : part
-    );
-
     return {
-      content: sanitizedContent,
+      content: this.content,
       steps: [...this.steps],
-      parts: sanitizedParts,
+      parts: [...this.parts],
     };
   }
 

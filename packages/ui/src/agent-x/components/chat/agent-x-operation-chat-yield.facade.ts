@@ -101,7 +101,11 @@ export class AgentXOperationChatYieldFacade {
   }
 
   async onAskUserReply(event: AskUserReplyEvent): Promise<void> {
-    const operationId = this.yieldOperationId();
+    // Prefer the row-level operationId emitted by the card (derived from msg.operationId).
+    // This ensures we resume the exact paused checkpoint, not whatever the global
+    // activeYieldState happens to point at (which may be stale after a reload or
+    // in a multi-operation thread).
+    const operationId = event.operationId ?? this.yieldOperationId();
 
     this.logger.info('ask_user reply submitted', { operationId });
     this.breadcrumb.trackUserAction('ask-user-reply', {
@@ -127,12 +131,6 @@ export class AgentXOperationChatYieldFacade {
 
       if (result) {
         await this.haptics.notification('success');
-        this.messageFacade.pushMessage({
-          id: this.requireHost().uid(),
-          role: 'user',
-          content: event.answer,
-          timestamp: new Date(),
-        });
         this.messageFacade.updateInlineYieldMessageState(operationId, 'resolved', 'Answered');
 
         if (result.resumed && result.operationId) {
@@ -162,7 +160,8 @@ export class AgentXOperationChatYieldFacade {
   }
 
   async onApproveAction(event: ActionCardApprovalEvent): Promise<void> {
-    const operationId = this.yieldOperationId();
+    // Prefer the row-level operationId emitted by the card — see onAskUserReply for rationale.
+    const operationId = event.operationId ?? this.yieldOperationId();
     const approvedToolName = this.requireHost().activeYieldState()?.pendingToolCall?.toolName;
     this.logger.info('Action card approval', {
       operationId,
@@ -218,7 +217,8 @@ export class AgentXOperationChatYieldFacade {
   }
 
   async onReplyAction(event: ActionCardReplyEvent): Promise<void> {
-    const operationId = this.yieldOperationId();
+    // Prefer the row-level operationId emitted by the card — see onAskUserReply for rationale.
+    const operationId = event.operationId ?? this.yieldOperationId();
     this.logger.info('Action card reply', { operationId });
     this.breadcrumb.trackUserAction('action-card-reply', { operationId });
     this.messageFacade.updateInlineYieldMessageState(operationId, 'submitting');
@@ -233,12 +233,6 @@ export class AgentXOperationChatYieldFacade {
 
       if (result) {
         await this.haptics.notification('success');
-        this.messageFacade.pushMessage({
-          id: this.requireHost().uid(),
-          role: 'user',
-          content: event.response,
-          timestamp: new Date(),
-        });
         this.messageFacade.updateInlineYieldMessageState(operationId, 'resolved', 'Replied');
 
         if (result.resumed && result.operationId) {

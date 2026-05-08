@@ -369,7 +369,6 @@ export class SettingsUserCardComponent {
       athlete: 'Athlete',
       coach: 'Coach',
       director: 'Director',
-      recruiter: 'Recruiter',
       parent: 'Parent',
     };
 

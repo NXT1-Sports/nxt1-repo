@@ -1,27 +1,29 @@
 /**
- * @fileoverview Batch Send Email Tool — Multi-Provider Campaign Sending
+ * @fileoverview Batch Send Email Via NXT1 Tool — Platform Email Fallback (Batch)
  * @module @nxt1/backend/modules/agent/tools/integrations
  *
- * Sends a single approved email template to multiple recipients with
- * per-recipient variable replacement.
+ * Sends a single approved email template to multiple recipients via the NXT1
+ * platform address (nxt1@nxt1sports.com) with per-recipient variable replacement.
+ * Use when the user has no connected Gmail or Outlook account.
  */
 
 import { setTimeout as delay } from 'node:timers/promises';
 import { BaseTool, type ToolExecutionContext, type ToolResult } from '../../base.tool.js';
-import { sendEmailViaProvider } from '../../../../../services/communications/connected-mail.service.js';
+import {
+  resolveUserReplyToEmail,
+  sendPlatformEmailOnBehalfOf,
+} from '../../../../../services/communications/platform-email.service.js';
 import { logger } from '../../../../../utils/logger.js';
 import type { Firestore } from 'firebase-admin/firestore';
 import { db as defaultDb } from '../../../../../utils/firebase.js';
 import {
   type BatchEmailRecipient,
-  type EmailProvider,
   MAX_BATCH_RECIPIENTS,
   MAX_BODY_LENGTH,
   MAX_SUBJECT_LENGTH,
   getMissingTemplatePlaceholders,
   normalizeTemplateSyntax,
   renderEmailTemplate,
-  resolveConnectedEmailProvider,
 } from './email-tool.utils.js';
 import { z } from 'zod';
 
@@ -62,7 +64,7 @@ const BatchRecipientObjectSchema = z.object({
 
 const BatchRecipientSchema = z.union([z.string().trim().email(), BatchRecipientObjectSchema]);
 
-const BatchSendEmailInputSchema = z.object({
+const BatchSendEmailViaNxt1InputSchema = z.object({
   userId: z.string().trim().min(1),
   recipients: z.array(BatchRecipientSchema).min(1).max(MAX_BATCH_RECIPIENTS),
   subjectTemplate: z.string().trim().min(1).max(MAX_SUBJECT_LENGTH),
@@ -83,8 +85,6 @@ const BatchSendEmailInputSchema = z.object({
 interface BatchSendSuccess {
   readonly toEmail: string;
   readonly subject: string;
-  readonly messageId: string | null;
-  readonly threadId: string | null;
   readonly trackingId: string;
 }
 
@@ -97,12 +97,8 @@ function normalizeBatchRecipient(
   recipient: z.infer<typeof BatchRecipientSchema>
 ): BatchEmailRecipient {
   if (typeof recipient === 'string') {
-    return {
-      toEmail: recipient,
-      variables: {},
-    };
+    return { toEmail: recipient, variables: {} };
   }
-
   return {
     toEmail: recipient.toEmail,
     variables: recipient.variables,
@@ -119,7 +115,6 @@ function normalizeEmailAddress(email: string): string {
 function assertUniqueRecipients(recipients: readonly BatchEmailRecipient[]): string | null {
   const seen = new Set<string>();
   const duplicates = new Set<string>();
-
   for (const recipient of recipients) {
     const normalized = normalizeEmailAddress(recipient.toEmail);
     if (seen.has(normalized)) {
@@ -128,30 +123,15 @@ function assertUniqueRecipients(recipients: readonly BatchEmailRecipient[]): str
     }
     seen.add(normalized);
   }
-
   if (duplicates.size === 0) return null;
   return `Duplicate recipient emails are not allowed: ${[...duplicates].join(', ')}`;
-}
-
-function formatMissingVariableError(
-  recipient: BatchEmailRecipient,
-  missingVariables: readonly string[]
-): string {
-  return `Recipient ${recipient.toEmail} is missing template variables: ${missingVariables.join(', ')}`;
 }
 
 function resolveRenderedMessage(input: {
   recipient: BatchEmailRecipient;
   subjectTemplate: string;
   bodyHtmlTemplate: string;
-}):
-  | {
-      readonly subject: string;
-      readonly bodyHtml: string;
-    }
-  | {
-      readonly error: string;
-    } {
+}): { readonly subject: string; readonly bodyHtml: string } | { readonly error: string } {
   const { recipient, subjectTemplate, bodyHtmlTemplate } = input;
   const missingVariables = getMissingTemplatePlaceholders(
     [subjectTemplate, bodyHtmlTemplate],
@@ -159,7 +139,9 @@ function resolveRenderedMessage(input: {
   );
 
   if (missingVariables.length > 0) {
-    return { error: formatMissingVariableError(recipient, missingVariables) };
+    return {
+      error: `Recipient ${recipient.toEmail} is missing template variables: ${missingVariables.join(', ')}`,
+    };
   }
 
   const subject = renderEmailTemplate(subjectTemplate, recipient.variables);
@@ -168,17 +150,14 @@ function resolveRenderedMessage(input: {
   if (subject.trim().length === 0) {
     return { error: `Recipient ${recipient.toEmail} resolved to an empty subject.` };
   }
-
   if (subject.length > MAX_SUBJECT_LENGTH) {
     return {
       error: `Recipient ${recipient.toEmail} resolved to a subject longer than ${MAX_SUBJECT_LENGTH} characters.`,
     };
   }
-
   if (bodyHtml.trim().length === 0) {
     return { error: `Recipient ${recipient.toEmail} resolved to an empty email body.` };
   }
-
   if (bodyHtml.length > MAX_BODY_LENGTH) {
     return {
       error: `Recipient ${recipient.toEmail} resolved to a body longer than ${MAX_BODY_LENGTH} characters.`,
@@ -188,13 +167,15 @@ function resolveRenderedMessage(input: {
   return { subject, bodyHtml };
 }
 
-export class BatchSendEmailTool extends BaseTool {
-  readonly name = 'batch_send_email';
+export class BatchSendEmailViaNxt1Tool extends BaseTool {
+  readonly name = 'batch_send_email_via_nxt1';
   readonly description =
-    'Sends the same approved email template to multiple recipients with per-recipient placeholder replacement. ' +
-    'Use this instead of looping send_email when sending to more than one person. ' +
-    "Placeholders like {{firstName}} and {{collegeName}} are filled from each recipient's variables object.";
-  readonly parameters = BatchSendEmailInputSchema;
+    'Sends the same approved email template to multiple recipients via the NXT1 platform address ' +
+    '(nxt1@nxt1sports.com) with per-recipient placeholder replacement. ' +
+    'Use when the user has no connected Gmail or Outlook account, or when they explicitly choose to send via NXT1. ' +
+    "Reply-To is set to the user's registered email so recipients can reply directly to them. " +
+    'Use batch_send_email instead when the user has a connected Gmail or Outlook account.';
+  readonly parameters = BatchSendEmailViaNxt1InputSchema;
   override readonly allowedAgents = ['*'] as const;
   readonly isMutation = true;
   readonly category = 'communication' as const;
@@ -211,55 +192,50 @@ export class BatchSendEmailTool extends BaseTool {
     input: Record<string, unknown>,
     context?: ToolExecutionContext
   ): Promise<ToolResult> {
-    const parsed = BatchSendEmailInputSchema.safeParse(input);
+    const parsed = BatchSendEmailViaNxt1InputSchema.safeParse(input);
     if (!parsed.success) {
       return this.zodError(parsed.error);
     }
 
     const { userId, recipients: rawRecipients } = parsed.data;
-    // Normalize template syntax: convert any LLM-generated single-brace {key} to {{key}}
     const subjectTemplate = normalizeTemplateSyntax(parsed.data.subjectTemplate);
     const bodyHtmlTemplate = normalizeTemplateSyntax(parsed.data.bodyHtmlTemplate);
     const recipients = rawRecipients.map(normalizeBatchRecipient);
-    const duplicateRecipientError = assertUniqueRecipients(recipients);
-    if (duplicateRecipientError) {
-      return { success: false, error: duplicateRecipientError };
+
+    const duplicateError = assertUniqueRecipients(recipients);
+    if (duplicateError) {
+      return { success: false, error: duplicateError };
     }
 
+    // ── Resolve user's reply-to address once ──────────────────────────────
     context?.emitStage?.('fetching_data', {
       icon: 'email',
       userId,
       recipientCount: recipients.length,
-      phase: 'resolve_provider',
+      phase: 'resolve_reply_to',
     });
 
-    let provider: EmailProvider;
+    let replyTo: string;
     try {
-      provider = await resolveConnectedEmailProvider(userId, this.db);
+      replyTo = (await resolveUserReplyToEmail(userId, this.db)) ?? 'noreply@nxt1sports.com';
     } catch (lookupErr) {
-      logger.error('Failed to look up user email provider for batch email tool', {
-        error: lookupErr instanceof Error ? lookupErr.message : String(lookupErr),
-        userId,
-      });
-      return {
-        success: false,
-        error:
-          lookupErr instanceof Error
-            ? lookupErr.message
-            : 'Failed to look up connected email account.',
-        data: { requiresEmailConnection: true },
-      };
+      logger.warn(
+        'Failed to resolve user reply-to email for batch NXT1 send, using noreply fallback',
+        {
+          error: lookupErr instanceof Error ? lookupErr.message : String(lookupErr),
+          userId,
+        }
+      );
+      replyTo = 'noreply@nxt1sports.com';
     }
 
+    // ── Pre-validate all templates ────────────────────────────────────────
     const previewErrors = recipients
       .map((recipient) => resolveRenderedMessage({ recipient, subjectTemplate, bodyHtmlTemplate }))
       .flatMap((result) => ('error' in result ? [result.error] : []));
 
     if (previewErrors.length > 0) {
-      return {
-        success: false,
-        error: previewErrors.slice(0, 5).join(' | '),
-      };
+      return { success: false, error: previewErrors.slice(0, 5).join(' | ') };
     }
 
     context?.emitStage?.('submitting_job', {
@@ -279,7 +255,7 @@ export class BatchSendEmailTool extends BaseTool {
           success: false,
           error: 'Batch email sending was cancelled before completion.',
           data: {
-            provider,
+            provider: 'nxt1',
             requestedCount: recipients.length,
             sentCount: sent.length,
             failedCount: failures.length,
@@ -308,13 +284,12 @@ export class BatchSendEmailTool extends BaseTool {
       });
 
       try {
-        const result = await sendEmailViaProvider(
+        const result = await sendPlatformEmailOnBehalfOf(
           userId,
-          provider,
+          replyTo,
           recipient.toEmail,
           rendered.subject,
           rendered.bodyHtml,
-          this.db,
           {
             recipientName: recipient.recipientName,
             recipientKind: recipient.recipientKind,
@@ -325,8 +300,6 @@ export class BatchSendEmailTool extends BaseTool {
         sent.push({
           toEmail: recipient.toEmail,
           subject: rendered.subject,
-          messageId: result.externalMessageId ?? null,
-          threadId: result.externalThreadId ?? null,
           trackingId: result.trackingId,
         });
 
@@ -344,10 +317,9 @@ export class BatchSendEmailTool extends BaseTool {
       } catch (sendErr) {
         const errorMessage = sendErr instanceof Error ? sendErr.message : 'Failed to send email.';
         failures.push({ toEmail: recipient.toEmail, error: errorMessage });
-        logger.error('Failed to send recipient inside batch email tool', {
+        logger.error('Failed to send recipient inside batch NXT1 email tool', {
           error: errorMessage,
           userId,
-          provider,
           toEmail: recipient.toEmail,
           batchIndex: index,
           batchSize: recipients.length,
@@ -359,59 +331,33 @@ export class BatchSendEmailTool extends BaseTool {
           recipientEmail: recipient.toEmail,
           recipientIndex: index + 1,
           recipientCount: recipients.length,
-          subject: rendered.subject,
           phase: 'send_email',
           recipientStatus: 'failed',
-          recipientError: errorMessage,
           progress: `${sent.length}/${recipients.length}`,
         });
       }
 
       if (index < recipients.length - 1) {
-        await delay(INTER_SEND_DELAY_MS, undefined, { signal: context?.signal });
+        await delay(INTER_SEND_DELAY_MS);
       }
     }
 
-    const sentCount = sent.length;
-    const failedCount = failures.length;
-    const requestedCount = recipients.length;
-
-    if (sentCount === 0) {
-      return {
-        success: false,
-        error: `Failed to send all ${requestedCount} emails. ${failures[0]?.error ?? 'Unknown error.'}`,
-        data: {
-          provider,
-          requestedCount,
-          sentCount,
-          failedCount,
-          sent,
-          failures,
-        },
-      };
-    }
-
-    logger.info('Batch email sent via agent tool', {
-      userId,
-      provider,
-      requestedCount,
-      sentCount,
-      failedCount,
-    });
+    const allFailed = sent.length === 0 && failures.length > 0;
 
     return {
-      success: true,
+      success: !allFailed,
+      ...(allFailed ? { error: `All ${failures.length} emails failed to send.` } : {}),
       data: {
-        provider,
-        requestedCount,
-        sentCount,
-        failedCount,
+        provider: 'nxt1',
+        requestedCount: recipients.length,
+        sentCount: sent.length,
+        failedCount: failures.length,
         sent,
         failures,
         message:
-          failedCount > 0
-            ? `Sent ${sentCount} of ${requestedCount} emails via ${provider}. ${failedCount} failed.`
-            : `Successfully sent ${sentCount} emails via ${provider}.`,
+          sent.length === recipients.length
+            ? `All ${sent.length} emails sent via NXT1.`
+            : `Sent ${sent.length} of ${recipients.length} emails via NXT1. ${failures.length} failed.`,
       },
     };
   }

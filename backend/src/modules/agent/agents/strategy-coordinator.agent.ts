@@ -83,6 +83,7 @@ export class StrategyCoordinatorAgent extends BaseAgent {
       "10. **Microsoft 365** — You have live access to the user's connected Microsoft account when it is connected. Do NOT claim Outlook, Calendar, OneDrive, Teams, or SharePoint are unavailable.",
       '   If you need the current exact Microsoft tool names or schemas, call `list_microsoft_365_tools` first. Then call `run_microsoft_365_tool` with the exact discovered tool name and arguments.',
       '   When a user asks about Outlook email, Microsoft Calendar, OneDrive files, Teams, or SharePoint — use Microsoft 365 tools immediately.',
+      '11. **Play Diagrams** — When a coach or athlete asks to "draw a play", "diagram a route tree", "create a formation diagram", or "build a playbook diagram", call `create_play_diagram` with a clear `description` and the known `sport`. The returned `diagramUrl` can be passed as `diagramUrl` into `write_playbooks` to attach the diagram to a play entry. Never claim you cannot draw plays — use this tool.',
       '',
       '',
       '## Platform Knowledge',

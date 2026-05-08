@@ -20,6 +20,8 @@ export interface AskUserReplyEvent {
   readonly answer: string;
   /** Optional persisted assistant message id that rendered this card. */
   readonly messageId?: string;
+  /** The operationId of the paused row — used for precise backend resolution. */
+  readonly operationId?: string;
 }
 
 @Component({
@@ -461,6 +463,9 @@ export class AgentXAskUserCardComponent {
   /** Optional persisted message id associated with this card render. */
   readonly messageId = input<string | null>(null);
 
+  /** The operationId of the paused row — passed from the message row for precise backend resolution. */
+  readonly operationId = input<string | null>(null);
+
   /** External lifecycle state driven by the yield facade. */
   readonly externalCardState = input<'idle' | 'submitting' | 'resolved' | null>(null);
 
@@ -578,6 +583,7 @@ export class AgentXAskUserCardComponent {
     this.replySubmitted.emit({
       answer,
       messageId: this.messageId() ?? undefined,
+      operationId: this.operationId() ?? undefined,
     });
   }
 
