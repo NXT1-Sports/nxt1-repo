@@ -134,9 +134,9 @@ platform :ios do
     upload_to_testflight(
       api_key: api_key,
       ipa: "./build/NXT1-release.ipa",
-      skip_submission: false,
-      skip_waiting_for_build_processing: true,
+      skip_waiting_for_build_processing: false,
       distribute_external: false,
+      groups: ENV["TESTFLIGHT_GROUPS"] || "NXT1 Team",
       changelog: changelog_from_git_commits(
         commits_count: 10,
         pretty: "- %s"
