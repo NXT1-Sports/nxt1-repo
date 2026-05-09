@@ -43,7 +43,7 @@ function normalizeDataSource(value: unknown): string {
 
 function normalizeMissingDataCategory(value: unknown): keyof IntelDataAvailability {
   return typeof value === 'string' &&
-    INTEL_DATA_AVAILABILITY_KEYS.includes(value as keyof IntelDataAvailability)
+    (INTEL_DATA_AVAILABILITY_KEYS as readonly string[]).includes(value)
     ? (value as keyof IntelDataAvailability)
     : 'hasMetrics';
 }

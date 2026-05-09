@@ -119,7 +119,13 @@ export interface CachedUserProfile {
 
   // Onboarding status (V2 + legacy)
   readonly onboardingCompleted?: boolean;
+  /** ISO timestamp set by normal onboarding flow — NEVER set by migration script. Reliable completion signal. */
+  readonly onboardingCompletedAt?: string;
   readonly completeSignUp?: boolean;
+  /** Original document ID from the legacy NXT1 system — set by migration script. */
+  readonly _legacyId?: string;
+  /** Whether a legacy-migrated user has completed the 3-step intro onboarding. */
+  readonly legacyOnboardingCompleted?: boolean;
 
   // Sports data
   readonly primarySport?: string;

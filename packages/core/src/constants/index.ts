@@ -49,6 +49,7 @@ export {
   SPORT_STATS,
   ATHLETIC_INFO_FIELDS,
   formatSportDisplayName,
+  normalizeBaseSportKey,
   normalizeSportKey,
   formatPositionDisplay,
   DEFAULT_SPORTS,

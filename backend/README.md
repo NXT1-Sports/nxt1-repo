@@ -255,10 +255,17 @@ This deploys an authenticated Cloud Run service backed by
 [backend/mcp/ffmpeg-mcp/Dockerfile](/Users/johnkeller/My Mac
 (Johns-MacBook-Pro.local)/Main/NXT1/nxt1-monorepo/backend/mcp/ffmpeg-mcp/Dockerfile)
 and exposes Streamable HTTP on `/mcp`. After deployment, set these backend
-runtime secrets:
+runtime environment variables:
 
 - `FFMPEG_MCP_URL=<service-url>/mcp`
 - `FFMPEG_MCP_API_TOKEN=<same bearer token value used by the service>`
+
+For the current live production backend, these values must be present on the
+SSH/PM2 server before `pm2 reload ... --update-env` runs. The checked-in
+production deploy workflow is
+[`.github/workflows/deploy-backend.yml`](/Users/johnkeller/My Mac
+(Johns-MacBook-Pro.local)/Main/NXT1/nxt1-monorepo/.github/workflows/deploy-backend.yml),
+so App Hosting secret references alone do not enable FFmpeg on the live backend.
 
 ### Testing
 

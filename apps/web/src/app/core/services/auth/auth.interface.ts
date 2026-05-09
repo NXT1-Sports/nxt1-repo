@@ -33,6 +33,10 @@ export interface AppUser {
   profileImg?: string;
   role: UserRole;
   hasCompletedOnboarding: boolean;
+  /** Original legacy system document ID — presence means migrated user */
+  _legacyId?: string;
+  /** Whether legacy-migrated user has completed the 3-step intro onboarding */
+  legacyOnboardingCompleted?: boolean;
   createdAt: string;
   updatedAt: string;
   unicode?: string | null;
@@ -211,9 +215,10 @@ export interface IAuthService {
 
   /**
    * Get ID token for authenticated API requests
+   * @param forceRefresh - If true, bypass cache and force a new token from Firebase
    * @returns Token string or null if not authenticated
    */
-  getIdToken(): Promise<string | null>;
+  getIdToken(forceRefresh?: boolean): Promise<string | null>;
 
   /**
    * Refresh user profile from backend

@@ -294,6 +294,7 @@ export class SettingsComponent implements OnInit {
                 username?: string;
                 url?: string;
                 connected?: boolean;
+                connectionType?: string;
               }[];
             };
           }

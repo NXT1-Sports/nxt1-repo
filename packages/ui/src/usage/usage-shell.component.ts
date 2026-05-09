@@ -265,10 +265,10 @@ export interface UsageUser {
                   @case ('metered-usage') {
                     <nxt1-usage-chart
                       [chartData]="svc.chartData()"
-                      [timeframe]="svc.timeframe()"
+                      [timeframe]="svc.chartTimeframe()"
                       [yLabels]="svc.chartYLabels()"
                       [chartMaxCents]="svc.chartMaxValue()"
-                      (timeframeChange)="svc.setTimeframe($event)"
+                      (timeframeChange)="svc.setChartTimeframe($event)"
                       (viewBreakdown)="svc.setActiveSection('breakdown')"
                     />
                   }
@@ -277,10 +277,10 @@ export interface UsageUser {
                     <nxt1-usage-breakdown-table
                       [rows]="svc.filteredBreakdownRows()"
                       [expandedRow]="svc.expandedBreakdownRow()"
-                      [periodLabel]="svc.periodLabel()"
-                      [timeframe]="svc.timeframe()"
+                      [periodLabel]="svc.breakdownPeriodLabel()"
+                      [timeframe]="svc.breakdownTimeframe()"
                       (toggleRow)="svc.toggleBreakdownRow($event)"
-                      (timeframeChange)="svc.setTimeframe($event)"
+                      (timeframeChange)="svc.setBreakdownTimeframe($event)"
                     />
                   }
 

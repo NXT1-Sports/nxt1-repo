@@ -81,18 +81,36 @@ export class LiveUpdateService {
    * Lazily resolves the Capgo updater plugin. We avoid a static import so the
    * web build (and SSR) doesn't pull native code paths.
    */
-  private async getUpdater(): Promise<LiveUpdaterPlugin | null> {
-    if (!Capacitor.isNativePlatform()) return null;
-    try {
-      // Dynamic import keeps web bundles clean.
-      const mod = (await import('@capgo/capacitor-updater')) as unknown as {
-        CapacitorUpdater: LiveUpdaterPlugin;
-      };
-      return mod.CapacitorUpdater;
-    } catch (err) {
-      this.logger.warn('Capgo updater plugin not installed; skipping OTA', { err: String(err) });
-      return null;
+  private updaterInstance: LiveUpdaterPlugin | null = null;
+  private updaterLoaded = false;
+
+  /**
+   * Capacitor's registerPlugin() returns a Proxy that traps ALL property
+   * access — including `.then()`. The Promise/A+ spec requires that any
+   * value resolved from a Promise is checked for a `.then()` method
+   * (thenable assimilation). This means we can NEVER resolve a Promise
+   * with a Capacitor plugin Proxy, or the runtime will call `.then()`
+   * on it and the native bridge will throw.
+   *
+   * Solution: load the plugin synchronously into a field via a void
+   * Promise, then access it via a sync getter.
+   */
+  private ensureUpdaterLoaded(): Promise<void> {
+    if (this.updaterLoaded) return Promise.resolve();
+    if (!Capacitor.isNativePlatform()) {
+      this.updaterLoaded = true;
+      return Promise.resolve();
     }
+    return import('@capgo/capacitor-updater').then(
+      (mod) => {
+        this.updaterInstance = mod.CapacitorUpdater as unknown as LiveUpdaterPlugin;
+        this.updaterLoaded = true;
+      },
+      (err) => {
+        this.logger.warn('Capgo updater plugin not installed; skipping OTA', { err: String(err) });
+        this.updaterLoaded = true;
+      }
+    );
   }
 
   /**
@@ -105,7 +123,8 @@ export class LiveUpdateService {
       return;
     }
 
-    const updater = await this.getUpdater();
+    await this.ensureUpdaterLoaded();
+    const updater = this.updaterInstance;
     if (!updater) {
       this._lastResult.set({ status: 'skipped', reason: 'not-native' });
       return;
@@ -200,11 +219,76 @@ export class LiveUpdateService {
   }
 
   /**
+   * Pure OTA check — no `notifyAppReady`, no download, no apply.
+   * Updates the `lastResult` signal so the dev UI reflects the outcome.
+   * Safe to call from developer tools at any time.
+   */
+  async checkOnly(): Promise<LiveUpdateCheckResult> {
+    const result = await this.checkForUpdate();
+    this._lastResult.set(result);
+    return result;
+  }
+
+  /**
+   * Fetch the raw Firestore manifest for the current platform + channel.
+   * Returns null when not on a native platform or when no document exists.
+   * Used by developer tools for diagnostics.
+   */
+  async getManifest(): Promise<LiveUpdateManifest | null> {
+    if (!Capacitor.isNativePlatform()) return null;
+    try {
+      const platform = Capacitor.getPlatform() as LiveUpdatePlatform;
+      return await this.fetchManifest(platform, this.channel);
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Download the latest OTA bundle and apply it **immediately** (uses
+   * `set()` instead of `next()` so the WebView reloads right away).
+   * For developer / QA use only — do not call in production flows.
+   */
+  async downloadAndApplyNow(): Promise<void> {
+    if (!Capacitor.isNativePlatform()) throw new Error('Not running on a native platform');
+    await this.ensureUpdaterLoaded();
+    const updater = this.updaterInstance;
+    if (!updater) throw new Error('Capgo updater plugin not available');
+
+    const platform = Capacitor.getPlatform() as LiveUpdatePlatform;
+    const manifest = await this.fetchManifest(platform, this.channel);
+    if (!manifest) throw new Error('No OTA manifest found in Firestore');
+    if (!manifest.enabled) throw new Error('OTA is disabled in the manifest');
+
+    this._applying.set(true);
+    try {
+      this.logger.info('DEV: Force-downloading OTA bundle', { version: manifest.version });
+      const bundle = await updater.download({
+        url: manifest.bundleUrl,
+        version: manifest.version,
+        checksum: manifest.bundleHash,
+      });
+      // set() = apply immediately (WebView reloads now)
+      await updater.set({ id: bundle.id });
+      this.logger.info('DEV: OTA bundle applied immediately', { version: manifest.version });
+      await this.saveState({
+        currentVersion: manifest.version,
+        lastCheckedAt: new Date().toISOString(),
+        failureCount: 0,
+      });
+      this._currentVersion.set(manifest.version);
+    } finally {
+      this._applying.set(false);
+    }
+  }
+
+  /**
    * Force-reset to the native shell bundle. Used when a bundle keeps
    * crashing or for manual rollback.
    */
   async resetToNativeBundle(): Promise<void> {
-    const updater = await this.getUpdater();
+    await this.ensureUpdaterLoaded();
+    const updater = this.updaterInstance;
     if (!updater) return;
     try {
       await updater.reset({ toLastSuccessful: false });

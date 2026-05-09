@@ -23,6 +23,12 @@ import { DelegateToCoordinatorException } from '../../exceptions/delegate-to-coo
 const InputSchema = z.object({
   coordinator: z.enum(COORDINATOR_AGENT_IDS as readonly [string, ...string[]]),
   goal: z.string().trim().min(1).max(2_000),
+  /**
+   * Optional structured key/value pairs forwarded verbatim to the coordinator.
+   * Use this to pass IDs, codes, and references that must not be paraphrased
+   * by the LLM (e.g. postId, teamCode, userId, itemCount).
+   */
+  structured_payload: z.record(z.string(), z.unknown()).optional(),
 });
 
 export class DelegateToCoordinatorTool extends BaseTool {
@@ -31,13 +37,14 @@ export class DelegateToCoordinatorTool extends BaseTool {
   readonly description =
     'Hand a focused sub-task to a specialist coordinator. ' +
     'Coordinator routing guide — always pick the correct specialist:\n' +
-    '• data_coordinator — ANY write/save operation: create posts (team posts, timeline announcements, season recaps), write season stats, rankings, metrics, roster entries, schedule, recruiting activity, calendar events, connected sources, or ingest data from external URLs (MaxPreps, Hudl, 247Sports, etc.).\n' +
-    '• brand_coordinator — Creative assets: generate graphics, images, thumbnails, video editing, Runway AI video, captions, watermarks, staged media.\n' +
+    '• data_coordinator — ANY write/save operation: create posts (team posts, timeline announcements, season recaps), write season stats, rankings, metrics, roster entries, schedule, recruiting activity, calendar events, connected sources, ingest data from external URLs (MaxPreps, Hudl, 247Sports, etc.), or visualize imported/extracted datasets as charts or spreadsheet-style tables.\n' +
+    '• brand_coordinator — Creative assets only: generate graphics, images, thumbnails, video editing, Runway AI video, captions, watermarks, staged media. Do NOT use for analytics charts, recruiting funnels, pipeline maps, or process diagrams.\n' +
     '• performance_coordinator — Film/video analysis, game breakdowns, performance metric interpretation, highlight clip generation.\n' +
     '• recruiting_coordinator — College search strategy, coach outreach emails, recruiting presentations, visit coordination, offer tracking.\n' +
-    '• strategy_coordinator — Scheduling strategy, analytics dashboards, long-term planning, multi-game review, Microsoft 365 workflows.\n' +
+    '• strategy_coordinator — Scheduling strategy, analytics dashboards, long-term planning, multi-game review, recruiting pipeline charts, strategic funnels, process maps, and Microsoft 365 workflows.\n' +
     '• admin_coordinator — Compliance, platform administration, support tickets, user management, recurring task scheduling.\n' +
-    'Do NOT delegate simple factual lookups the router can answer directly. For work spanning multiple coordinators in sequence, use `plan_and_execute` instead.';
+    'Do NOT delegate simple factual lookups the router can answer directly. For work spanning multiple coordinators in sequence, use `create_plan` so the user can review the plan before execution begins. `plan_and_execute` remains a legacy alias only.\n' +
+    'IMPORTANT: When you have exact IDs, codes, or references the coordinator needs (e.g. postId, teamCode, userId), always include them in `structured_payload` — never rely on prose to carry them.';
 
   readonly parameters = InputSchema;
   readonly isMutation = false;
@@ -60,6 +67,9 @@ export class DelegateToCoordinatorTool extends BaseTool {
         'router'
       >,
       goal: parsed.data.goal,
+      ...(parsed.data.structured_payload
+        ? { structuredPayload: parsed.data.structured_payload }
+        : {}),
     });
   }
 }

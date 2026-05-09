@@ -150,7 +150,7 @@ function isPlannerExecutionOptions(
 
 export class PlannerAgent extends BaseAgent {
   readonly id: AgentIdentifier = 'router';
-  readonly name = 'Chief of Staff';
+  readonly name = 'Planner Agent';
 
   /** Default LLM instance (used when execute() is called without an llm parameter). */
   private readonly defaultLlm: OpenRouterService;
@@ -193,6 +193,8 @@ ${agentCatalogue}
 6. Imperative requests such as open, launch, navigate, watch, send, create, generate, run, log in, or analyze should default to execution unless a concrete missing parameter prevents safe execution.
 7. Do not invent missing recipients, destinations, or assets just to avoid clarification.
 8. Assign each task to exactly one coordinator by id.
+9. If the user input contains [Plan Revision Context], treat it as an in-place revision of an existing saved plan. Preserve valid steps where possible and modify only the parts required by the latest request.
+10. For tasks containing external links/media URLs, plan direct extraction first (classification/scrape/staged media path). Do not start with live view unless the source is explicitly auth-gated or direct extraction fails.
 
 ## Output Format (STRICT JSON)
 Respond with ONLY a JSON object:
@@ -205,9 +207,9 @@ Respond with ONLY a JSON object:
   "tasks": [
     {
       "id": "1",
-      "assignedAgent": "strategy_coordinator",
-      "displayLabel": "Navigate to Hudl",
-      "description": "Open live view and navigate to Hudl.",
+      "assignedAgent": "data_coordinator",
+      "displayLabel": "Extract Link Data",
+      "description": "Classify the URL and extract media directly using the platform-specific route before any fallback.",
       "dependsOn": []
     }
   ]
@@ -257,7 +259,14 @@ description: full execution intent for the coordinator — as detailed as needed
    * for multi-task dependency graphs.
    */
   getModelRouting(): ModelRoutingConfig {
-    return { ...MODEL_ROUTING_DEFAULTS['routing'], maxTokens: 1024 };
+    // Planner needs deep reasoning to decompose complex tasks into accurate DAGs.
+    // Extended thinking is enabled here so it can fully reason before outputting JSON.
+    return {
+      ...MODEL_ROUTING_DEFAULTS['routing'],
+      maxTokens: 4096,
+      enableThinking: true,
+      thinkingBudgetTokens: 8000,
+    };
   }
 
   /**
@@ -279,14 +288,15 @@ description: full execution intent for the coordinator — as detailed as needed
       ? toolRegistryOrOptions
       : options;
 
-    return this.executeStrictPlanning(intent, context, activeLlm, plannerOptions);
+    return this.executeStrictPlanning(intent, context, activeLlm, plannerOptions, _onStreamEvent);
   }
 
   private async executeStrictPlanning(
     intent: string,
     context: AgentSessionContext,
     llm: OpenRouterService,
-    plannerOptions?: PlannerExecutionOptions
+    plannerOptions?: PlannerExecutionOptions,
+    onStreamEvent?: OnStreamEvent
   ): Promise<AgentOperationResult> {
     const capabilitySnapshot =
       plannerOptions?.capabilitySnapshot ??
@@ -299,22 +309,38 @@ description: full execution intent for the coordinator — as detailed as needed
       : intent;
 
     const routing = this.getModelRouting();
-    const result = await llm.prompt(this.getStrictPlanningPrompt(context), plannerIntent, {
-      tier: routing.tier,
-      maxTokens: routing.maxTokens,
-      temperature: routing.temperature,
-      outputSchema: {
-        name: 'planner_execution_plan',
-        schema: strictPlannerResponseSchema,
-      },
-      ...(context.operationId && {
-        telemetryContext: {
+    const telemetryContext = context.operationId
+      ? {
           operationId: context.operationId,
           userId: context.userId,
           agentId: this.id,
-        },
-      }),
-    });
+        }
+      : undefined;
+
+    const result: AgentPlannerLlmResult = onStreamEvent
+      ? await this.executeStrictPlanningStream(
+          llm,
+          this.getStrictPlanningPrompt(context),
+          plannerIntent,
+          routing,
+          telemetryContext,
+          context.signal,
+          onStreamEvent
+        )
+      : await llm.prompt(this.getStrictPlanningPrompt(context), plannerIntent, {
+          tier: routing.tier,
+          maxTokens: routing.maxTokens,
+          temperature: routing.temperature,
+          ...(routing.enableThinking && {
+            enableThinking: true,
+            thinkingBudgetTokens: routing.thinkingBudgetTokens,
+          }),
+          outputSchema: {
+            name: 'planner_execution_plan',
+            schema: strictPlannerResponseSchema,
+          },
+          ...(telemetryContext ? { telemetryContext } : {}),
+        });
 
     const parsed = this.resolveStrictPlanningResponse(result);
     const now = new Date().toISOString();
@@ -436,6 +462,75 @@ description: full execution intent for the coordinator — as detailed as needed
     };
   }
 
+  private async executeStrictPlanningStream(
+    llm: OpenRouterService,
+    systemPrompt: string,
+    plannerIntent: string,
+    routing: ModelRoutingConfig,
+    telemetryContext:
+      | {
+          readonly operationId: string;
+          readonly userId: string;
+          readonly agentId: AgentIdentifier;
+        }
+      | undefined,
+    signal: AbortSignal | undefined,
+    onStreamEvent: OnStreamEvent
+  ): Promise<AgentPlannerLlmResult> {
+    let thinkingContent = '';
+    const streamed = await llm.completeStream(
+      [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: plannerIntent },
+      ],
+      {
+        tier: routing.tier,
+        maxTokens: routing.maxTokens,
+        temperature: routing.temperature,
+        ...(routing.enableThinking && {
+          enableThinking: true,
+          thinkingBudgetTokens: routing.thinkingBudgetTokens,
+        }),
+        ...(telemetryContext ? { telemetryContext } : {}),
+        ...(signal ? { signal } : {}),
+      },
+      (delta) => {
+        if (!delta.thinkingContent) return;
+        thinkingContent += delta.thinkingContent;
+        onStreamEvent({
+          type: 'thinking',
+          agentId: this.id,
+          thinkingText: delta.thinkingContent,
+        });
+      }
+    );
+
+    const parsedOutput = this.parsePlannerJson(streamed.content);
+
+    return {
+      content: streamed.content,
+      parsedOutput,
+      thinkingContent: thinkingContent.length > 0 ? thinkingContent : null,
+    };
+  }
+
+  private parsePlannerJson(content: string): unknown {
+    try {
+      return JSON.parse(content);
+    } catch {
+      const trimmed = content.trim();
+      if (trimmed.startsWith('```') && trimmed.endsWith('```')) {
+        const withoutFence = trimmed.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+        try {
+          return JSON.parse(withoutFence);
+        } catch {
+          return undefined;
+        }
+      }
+      return undefined;
+    }
+  }
+
   // ─── Internal Helpers ───────────────────────────────────────────────────
 
   /**
@@ -525,4 +620,5 @@ interface PlannerLLMTask {
 interface AgentPlannerLlmResult {
   readonly content: string | null;
   readonly parsedOutput?: unknown;
+  readonly thinkingContent?: string | null;
 }

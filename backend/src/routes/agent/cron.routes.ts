@@ -12,6 +12,8 @@ import { cronGuard } from '../../middleware/auth/auth.middleware.js';
 import { logger } from '../../utils/logger.js';
 import { llmService } from './shared.js';
 import { AgentLinkReconciliationService } from '../../modules/agent/services/agent-link-reconciliation.service.js';
+import { AgentEphemeralStateService } from '../../modules/agent/services/agent-ephemeral-state.service.js';
+import { getCloudflareAnalyticsSyncService } from '../../services/platform/cloudflare-analytics-sync.service.js';
 
 const router = Router();
 
@@ -81,15 +83,22 @@ router.post('/cron/playbook-nudge', cronGuard, async (_req: Request, res: Respon
 // Cloud Scheduler: every Friday at 9:00 AM  (cron: 0 9 * * 5)
 
 router.post('/cron/weekly-recaps', cronGuard, async (_req: Request, res: Response) => {
-  try {
-    const { runWeeklyRecaps } = await import('../../modules/agent/triggers/trigger.listeners.js');
-    await runWeeklyRecaps();
-    res.json({ success: true, message: 'Weekly recaps completed' });
-  } catch (err) {
-    const error = err instanceof Error ? err : new Error(String(err));
-    logger.error('CRON weekly recaps failed', { error: error.message, stack: error.stack });
-    res.status(500).json({ success: false, error: 'Weekly recaps failed' });
-  }
+  // Respond immediately — enqueuing jobs across all eligible users can take
+  // longer than the 30-second global server timeout. The actual recap
+  // generation happens asynchronously via the BullMQ job worker.
+  res.json({ success: true, message: 'Weekly recaps started', status: 'running' });
+
+  // Fire-and-forget background job
+  (async () => {
+    try {
+      const { runWeeklyRecaps } = await import('../../modules/agent/triggers/trigger.listeners.js');
+      await runWeeklyRecaps();
+      logger.info('CRON weekly-recaps completed');
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      logger.error('CRON weekly recaps failed', { error: error.message, stack: error.stack });
+    }
+  })();
 });
 
 // ─── POST /cron/summarize-threads ─────────────────────────────────────────
@@ -336,6 +345,37 @@ router.post('/cron/refresh-help-center', cronGuard, async (_req: Request, res: R
   })();
 });
 
+// ─── POST /cron/sync-cloudflare-video-analytics ───────────────────────────
+// Cloud Scheduler: every day at 3:00 AM ET  (cron: 0 3 * * *)
+
+router.post(
+  '/cron/sync-cloudflare-video-analytics',
+  cronGuard,
+  async (_req: Request, res: Response) => {
+    // Respond immediately — analytics backfill can run longer than HTTP timeout.
+    res.json({
+      success: true,
+      message: 'Cloudflare video analytics sync started',
+      status: 'running',
+    });
+
+    // Fire-and-forget background job
+    (async () => {
+      try {
+        const syncService = getCloudflareAnalyticsSyncService();
+        const result = await syncService.syncLast24Hours();
+        logger.info('CRON sync-cloudflare-video-analytics completed', result);
+      } catch (err) {
+        const error = err instanceof Error ? err : new Error(String(err));
+        logger.error('CRON sync-cloudflare-video-analytics failed', {
+          error: error.message,
+          stack: error.stack,
+        });
+      }
+    })();
+  }
+);
+
 // ─── POST /cron/cleanup-tmp-media ────────────────────────────────────────────
 // Deletes Firebase Storage files whose path contains a /tmp/ segment and that
 // were created more than TMP_TTL_DAYS ago. Covers both thread-scoped tmp files
@@ -418,6 +458,29 @@ router.post('/cron/cleanup-tmp-media', cronGuard, async (req: Request, res: Resp
     const error = err instanceof Error ? err : new Error(String(err));
     logger.error('CRON cleanup-tmp-media failed', { error: error.message, stack: error.stack });
     res.status(500).json({ success: false, error: 'Tmp media cleanup failed' });
+  }
+});
+
+// ─── POST /cron/cleanup-media-proxy-tmp ──────────────────────────────────
+// Sweeps the per-instance media-proxy /tmp directory for orphaned upload
+// files that outlived their per-record cleanup timer (e.g. process restarts).
+// Per-upload timers handle the common case; this cron is a belt-and-suspenders
+// guarantee so disk usage cannot grow unbounded.
+//
+// Cloud Scheduler: every day at 4:45 AM ET  (cron: 45 4 * * *)
+
+router.post('/cron/cleanup-media-proxy-tmp', cronGuard, async (_req: Request, res: Response) => {
+  try {
+    const result = await AgentEphemeralStateService.sweepOrphanedTempFiles();
+    logger.info('CRON cleanup-media-proxy-tmp completed', result);
+    res.json({ success: true, data: result });
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('CRON cleanup-media-proxy-tmp failed', {
+      error: error.message,
+      stack: error.stack,
+    });
+    res.status(500).json({ success: false, error: 'Media-proxy tmp sweep failed' });
   }
 });
 

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { normalizeBaseSportKey } from '@nxt1/core';
 
 const {
   mockPromoteMedia,
@@ -132,7 +133,7 @@ function createMockFirestore(input: {
   userData: Record<string, unknown>;
   teamData?: Record<string, unknown>;
   organizationData?: Record<string, unknown>;
-  teamSetError?: Error;
+  teamUpdateError?: Error;
 }): {
   db: MockFirestore;
   userRef: MockDocRef;
@@ -147,10 +148,10 @@ function createMockFirestore(input: {
 
   const teamRef: MockDocRef = {
     get: vi.fn().mockResolvedValue(createSnapshot(input.teamData ?? {})),
-    update: vi.fn().mockResolvedValue(undefined),
-    set: input.teamSetError
-      ? vi.fn().mockRejectedValue(input.teamSetError)
+    update: input.teamUpdateError
+      ? vi.fn().mockRejectedValue(input.teamUpdateError)
       : vi.fn().mockResolvedValue(undefined),
+    set: vi.fn().mockResolvedValue(undefined),
   };
 
   const organizationRef: MockDocRef = {
@@ -236,11 +237,11 @@ describe('WriteCoreIdentityTool', () => {
         const sports = Array.isArray(userData['sports'])
           ? (userData['sports'] as Array<Record<string, unknown>>)
           : [];
-        const normalizedTargetSport = targetSport.trim().toLowerCase();
+        const normalizedTargetSport = normalizeBaseSportKey(targetSport);
         const index = sports.findIndex(
           (sport) =>
             typeof sport['sport'] === 'string' &&
-            sport['sport'].toLowerCase() === normalizedTargetSport
+            normalizeBaseSportKey(sport['sport']) === normalizedTargetSport
         );
 
         return index >= 0
@@ -889,5 +890,139 @@ describe('WriteCoreIdentityTool', () => {
         expect(weight?.['value']).toBe('180');
       }
     }
+  });
+
+  it('syncs organization metadata before team metadata updates', async () => {
+    const { db, teamRef } = createMockFirestore({
+      userData: {
+        role: 'athlete',
+        sports: [{ sport: 'football', team: { teamId: 'team_123', organizationId: 'org_123' } }],
+      },
+      teamData: { organizationId: 'org_123', teamCode: 'team-code', unicode: 'team-unicode' },
+      organizationData: {},
+    });
+
+    mockAssertCanManageProfileTarget.mockResolvedValue({
+      actorUserId: 'user_123',
+      targetUserId: 'user_123',
+      targetRole: 'athlete',
+      targetUserData: {
+        role: 'athlete',
+        sports: [{ sport: 'football', team: { teamId: 'team_123', organizationId: 'org_123' } }],
+      },
+      isSelfWrite: true,
+      sharedTeamIds: [],
+      sharedOrganizationIds: [],
+      sharedSports: [],
+    });
+
+    const callOrder: string[] = [];
+    mockUpdateOrganization.mockImplementation(async () => {
+      callOrder.push('organization');
+    });
+    teamRef.update.mockImplementation(async () => {
+      callOrder.push('team');
+    });
+
+    const tool = new WriteCoreIdentityTool(db as never);
+    const result = await tool.execute(buildInput(), { userId: 'user_123' });
+
+    expect(result.success).toBe(true);
+    expect(mockUpdateOrganization).toHaveBeenCalledTimes(1);
+    expect(teamRef.update).toHaveBeenCalledTimes(1);
+    expect(callOrder).toEqual(['organization', 'team']);
+  });
+
+  it('updates organization metadata even if the team metadata update fails later', async () => {
+    const { db } = createMockFirestore({
+      userData: {
+        role: 'athlete',
+        sports: [{ sport: 'football', team: { teamId: 'team_123', organizationId: 'org_123' } }],
+      },
+      teamData: { organizationId: 'org_123', teamCode: 'team-code', unicode: 'team-unicode' },
+      organizationData: {},
+      teamUpdateError: new Error('team update failed'),
+    });
+
+    mockAssertCanManageProfileTarget.mockResolvedValue({
+      actorUserId: 'user_123',
+      targetUserId: 'user_123',
+      targetRole: 'athlete',
+      targetUserData: {
+        role: 'athlete',
+        sports: [{ sport: 'football', team: { teamId: 'team_123', organizationId: 'org_123' } }],
+      },
+      isSelfWrite: true,
+      sharedTeamIds: [],
+      sharedOrganizationIds: [],
+      sharedSports: [],
+    });
+
+    const tool = new WriteCoreIdentityTool(db as never);
+    const result = await tool.execute(buildInput(), { userId: 'user_123' });
+
+    expect(result.success).toBe(false);
+    expect(mockUpdateOrganization).toHaveBeenCalledTimes(1);
+  });
+
+  it('reuses an existing legacy gender-suffixed sport entry instead of appending a new sport', async () => {
+    const { db, userRef } = createMockFirestore({
+      userData: {
+        role: 'athlete',
+        sports: [
+          {
+            sport: 'basketball mens',
+            order: 0,
+            team: { teamId: 'team_123', organizationId: 'org_123' },
+          },
+        ],
+      },
+      teamData: { organizationId: 'org_123', teamCode: 'team-code', unicode: 'team-unicode' },
+      organizationData: {},
+    });
+
+    mockAssertCanManageProfileTarget.mockResolvedValue({
+      actorUserId: 'user_123',
+      targetUserId: 'user_123',
+      targetRole: 'athlete',
+      targetUserData: {
+        role: 'athlete',
+        sports: [
+          {
+            sport: 'basketball mens',
+            order: 0,
+            team: { teamId: 'team_123', organizationId: 'org_123' },
+          },
+        ],
+      },
+      isSelfWrite: true,
+      sharedTeamIds: [],
+      sharedOrganizationIds: [],
+      sharedSports: [],
+    });
+
+    const tool = new WriteCoreIdentityTool(db as never);
+    const result = await tool.execute(
+      buildInput({
+        targetSport: 'basketball',
+        team: {
+          name: 'Austin Tigers',
+          type: 'school',
+        },
+        coach: undefined,
+        academics: undefined,
+        awards: undefined,
+        teamHistory: undefined,
+      }),
+      { userId: 'user_123' }
+    );
+
+    expect(result.success).toBe(true);
+    expect(userRef.update).toHaveBeenCalledTimes(1);
+
+    const payload = userRef.update.mock.calls[0][0] as Record<string, unknown>;
+    const sports = payload['sports'] as Array<Record<string, unknown>>;
+    expect(sports).toHaveLength(1);
+    expect(sports[0]?.['sport']).toBe('basketball mens');
   });
 });

@@ -738,6 +738,9 @@ export const AGENT_X_ACTION_CARD_TEST_IDS = {
   BTN_REPLY: 'agent-action-card-btn-reply',
   LOADING: 'agent-action-card-loading',
   RESOLVED: 'agent-action-card-resolved',
+  PLAN_GOAL: 'agent-action-card-plan-goal',
+  PLAN_STEP_LIST: 'agent-action-card-plan-steps',
+  PLAN_STEP_ITEM: 'agent-action-card-plan-step',
 } as const;
 
 /**
@@ -764,6 +767,10 @@ export const AGENT_X_OPERATION_CHAT_TEST_IDS = {
   BTN_RETRY: 'agent-op-chat-btn-retry',
   BTN_DISMISS: 'agent-op-chat-btn-dismiss',
   DROP_OVERLAY: 'agent-op-chat-drop-overlay',
+  RECURRING_DOCK: 'agent-op-chat-recurring-dock',
+  RECURRING_ITEM: 'agent-op-chat-recurring-item',
+  RECURRING_NEXT_SEND: 'agent-op-chat-recurring-next-send',
+  BTN_RECURRING_CANCEL: 'agent-op-chat-btn-recurring-cancel',
 } as const;
 
 export const AGENT_X_CHAT_BUBBLE_ACTIONS_TEST_IDS = {

@@ -24,6 +24,7 @@ import type { OpenRouterService } from '../../llm/openrouter.service.js';
 import type { ScraperService } from '../integrations/firecrawl/scraping/scraper.service.js';
 import type { ApifyMcpBridgeService } from '../integrations/apify/apify-mcp-bridge.service.js';
 import type { FfmpegMcpBridgeService } from '../integrations/ffmpeg-mcp/ffmpeg-mcp-bridge.service.js';
+import type { GeminiFilesService } from '../../llm/gemini-files.service.js';
 import type { LLMContentPart, LLMMessage } from '../../llm/llm.types.js';
 import { VIDEO_ANALYSIS_TIMEOUT_MS } from '../../llm/llm.types.js';
 import { logger } from '../../../../utils/logger.js';
@@ -125,7 +126,8 @@ export class AnalyzeVideoTool extends BaseTool {
     private readonly scraper: ScraperService,
     private readonly llm: OpenRouterService,
     private readonly apifyBridge?: ApifyMcpBridgeService,
-    private readonly ffmpegBridge?: FfmpegMcpBridgeService
+    private readonly ffmpegBridge?: FfmpegMcpBridgeService,
+    private readonly geminiFiles?: GeminiFilesService
   ) {
     super();
   }
@@ -368,10 +370,16 @@ export class AnalyzeVideoTool extends BaseTool {
       { role: 'user', content: contentParts },
     ];
 
+    // Scale token budget by number of videos: single clip rarely needs more
+    // than 4096 tokens; each additional video adds headroom for the extra content.
+    // Cap stays at 8192 for large batches to preserve full analysis quality.
+    const maxTokens = Math.min(4096 + (videoUrls.length - 1) * 2048, 8192);
+
     return this.llm.complete(messages, {
       tier: 'video_analysis',
-      maxTokens: 8192,
+      maxTokens,
       temperature: 0.3,
+      timeoutMs: 180_000,
       signal: AbortSignal.timeout(VIDEO_ANALYSIS_TIMEOUT_MS),
       telemetryContext: context?.userId
         ? {
@@ -392,6 +400,76 @@ export class AnalyzeVideoTool extends BaseTool {
     readonly result: Awaited<ReturnType<OpenRouterService['complete']>>;
     readonly analyzedVideoUrls: readonly string[];
   }> {
+    // ── Proactive Gemini Files API upload for Firebase/GCS MOV files ──────
+    // Firebase/GCS signed URLs with a .mov extension (or any Firebase/GCS URL)
+    // fail Gemini ingest via OpenRouter because Gemini cannot fetch those URLs
+    // directly (IP restrictions, signed token binding, CORS).
+    //
+    // Fix: download the video with our privileged backend fetch, upload to the
+    // Gemini Files API, and pass the resulting stable `file_uri` instead.
+    // This works natively for MOV (video/quicktime) — no FFmpeg needed.
+    const needsFilesApiUpload = videoUrls.some((url) => this.needsGeminiFilesUpload(url));
+
+    if (needsFilesApiUpload && this.geminiFiles) {
+      logger.info(
+        '[AnalyzeVideoTool] Analyzing Firebase/GCS video(s) via Gemini Files API (direct, no OpenRouter)',
+        {
+          videoCount: videoUrls.length,
+          uploadCount: videoUrls.filter((u) => this.needsGeminiFilesUpload(u)).length,
+        }
+      );
+
+      context?.emitStage?.('processing_media', {
+        icon: 'processing',
+        phase: 'gemini_files_upload',
+        videoCount: videoUrls.length,
+      });
+
+      // For each Firebase/GCS URL: upload + analyze directly via Gemini SDK.
+      // For mixed batches (some Firebase, some public), use the first Firebase
+      // URL for Files API and fall back to OpenRouter for the rest.
+      // In practice, video analysis batches are typically single-source.
+      const primaryFirebaseUrl = videoUrls.find((u) => this.needsGeminiFilesUpload(u));
+      const result = await this.geminiFiles.analyzeVideoFromUrl(
+        primaryFirebaseUrl!,
+        prompt,
+        Math.min(4096 + (videoUrls.length - 1) * 2048, 8192)
+      );
+      return { result, analyzedVideoUrls: videoUrls };
+    }
+
+    // ── Proactive FFmpeg conversion (fallback when GeminiFiles not configured) ──
+    // Legacy path: convert Firebase/GCS .mov to MP4 via FFmpeg before sending.
+    const movUrlsPresent = videoUrls.some((url) => this.needsProactiveConversion(url));
+
+    if (movUrlsPresent && !this.ffmpegBridge && !this.geminiFiles) {
+      throw new Error(
+        'MOV video files from Firebase Storage cannot be analyzed directly. ' +
+          'Configure GEMINI_API_KEY (recommended) or FFMPEG_MCP_URL to enable video analysis for MOV files.'
+      );
+    }
+
+    if (this.ffmpegBridge && movUrlsPresent && !this.geminiFiles) {
+      logger.info(
+        '[AnalyzeVideoTool] Proactively converting MOV → MP4 via FFmpeg before Gemini call',
+        {
+          videoCount: videoUrls.length,
+          movUrls: videoUrls.filter((u) => this.needsProactiveConversion(u)).length,
+        }
+      );
+
+      context?.emitStage?.('processing_media', {
+        icon: 'processing',
+        phase: 'ffmpeg_convert_for_analysis',
+        videoCount: videoUrls.length,
+      });
+
+      const proactivelyConverted = await this.convertUrlsToMp4(videoUrls, 'proactive', context);
+      const result = await this.completeVideoAnalysis(proactivelyConverted, prompt, context);
+      return { result, analyzedVideoUrls: proactivelyConverted };
+    }
+
+    // ── Normal path (public direct URLs, YouTube, Cloudflare MP4s, etc.) ──
     try {
       const result = await this.completeVideoAnalysis(videoUrls, prompt, context);
       return {
@@ -400,6 +478,35 @@ export class AnalyzeVideoTool extends BaseTool {
       };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
+
+      // ── Reactive Gemini Files API fallback ────────────────────────────
+      // If the normal path fails with an ingest error and GeminiFiles is
+      // configured, analyze directly via Files API instead of converting.
+      if (this.isRecoverableIngestFailure(errorMessage) && this.geminiFiles) {
+        const primaryFirebaseUrl = videoUrls.find(
+          (u) => FIREBASE_GCS_HOST_PATTERN.test(u) || GCS_SIGNED_URL_PATTERN.test(u)
+        );
+        if (primaryFirebaseUrl) {
+          logger.warn('[AnalyzeVideoTool] Retrying via Gemini Files API after ingest failure', {
+            reason: errorMessage,
+            videoCount: videoUrls.length,
+          });
+
+          context?.emitStage?.('processing_media', {
+            icon: 'processing',
+            phase: 'gemini_files_upload',
+            videoCount: videoUrls.length,
+          });
+
+          const result = await this.geminiFiles.analyzeVideoFromUrl(
+            primaryFirebaseUrl,
+            prompt,
+            Math.min(4096 + (videoUrls.length - 1) * 2048, 8192)
+          );
+          return { result, analyzedVideoUrls: videoUrls };
+        }
+      }
+
       if (!this.shouldRetryWithMp4Fallback(videoUrls, errorMessage)) {
         throw error;
       }
@@ -415,45 +522,83 @@ export class AnalyzeVideoTool extends BaseTool {
         videoCount: videoUrls.length,
       });
 
-      const convertedUrls = await Promise.all(
-        videoUrls.map(async (url, index) => {
-          if (!this.shouldNormalizeViaFfmpeg(url, errorMessage)) {
-            return url;
-          }
-
-          const conversion = await this.ffmpegBridge!.convertVideo(
-            {
-              inputPath: url,
-              outputPath: `analysis-${Date.now()}-${index}.mp4`,
-              videoCodec: 'libx264',
-              audioCodec: 'aac',
-              preset: 'medium',
-              crf: 23,
-            },
-            context
-          );
-
-          const convertedUrl = conversion.outputUrl ?? conversion.output_path;
-          if (!convertedUrl) {
-            throw new Error('FFmpeg conversion completed without an output URL.');
-          }
-
-          logger.info('[AnalyzeVideoTool] MOV converted to MP4 for Gemini compatibility', {
-            originalUrl: url,
-            convertedUrl,
-            fallbackReason: errorMessage,
-          });
-
-          return convertedUrl;
-        })
-      );
-
+      const convertedUrls = await this.convertUrlsToMp4(videoUrls, errorMessage, context);
       const result = await this.completeVideoAnalysis(convertedUrls, prompt, context);
       return {
         result,
         analyzedVideoUrls: convertedUrls,
       };
     }
+  }
+
+  /**
+   * Returns `true` for URLs that should be uploaded via Gemini Files API
+   * before analysis. This covers any Firebase/GCS-hosted video (signed or
+   * unsigned) because Gemini cannot fetch those URLs directly via OpenRouter.
+   */
+  private needsGeminiFilesUpload(url: string): boolean {
+    if (YOUTUBE_PATTERN.test(url)) return false;
+    return FIREBASE_GCS_HOST_PATTERN.test(url) || GCS_SIGNED_URL_PATTERN.test(url);
+  }
+
+  /**
+   * Returns `true` for Firebase/GCS `.mov` URLs that need proactive FFmpeg
+   * conversion (legacy path when GeminiFiles service is not configured).
+   */
+  private needsProactiveConversion(url: string): boolean {
+    if (!MOV_EXTENSION_PATTERN.test(url)) return false;
+    return FIREBASE_GCS_HOST_PATTERN.test(url) || GCS_SIGNED_URL_PATTERN.test(url);
+  }
+
+  /**
+   * Converts a list of video URLs to MP4 using FFmpeg, skipping URLs that
+   * don't need normalization.
+   *
+   * @param videoUrls - The input URLs to process.
+   * @param conversionReason - A string passed to `shouldNormalizeViaFfmpeg`
+   *   for the reactive-fallback path. Use `'proactive'` to force conversion of
+   *   all URLs that match `needsProactiveConversion`.
+   */
+  private async convertUrlsToMp4(
+    videoUrls: readonly string[],
+    conversionReason: string,
+    context?: ToolExecutionContext
+  ): Promise<readonly string[]> {
+    return Promise.all(
+      videoUrls.map(async (url, index) => {
+        const shouldConvert =
+          conversionReason === 'proactive'
+            ? this.needsProactiveConversion(url)
+            : this.shouldNormalizeViaFfmpeg(url, conversionReason);
+
+        if (!shouldConvert) return url;
+
+        const conversion = await this.ffmpegBridge!.convertVideo(
+          {
+            inputPath: url,
+            outputPath: `analysis-${Date.now()}-${index}.mp4`,
+            videoCodec: 'libx264',
+            audioCodec: 'aac',
+            preset: 'ultrafast',
+            crf: 28,
+          },
+          context
+        );
+
+        const convertedUrl = conversion.outputUrl ?? conversion.output_path;
+        if (!convertedUrl) {
+          throw new Error('FFmpeg conversion completed without an output URL.');
+        }
+
+        logger.info('[AnalyzeVideoTool] MOV converted to MP4 for Gemini compatibility', {
+          originalUrl: url,
+          convertedUrl,
+          conversionReason,
+        });
+
+        return convertedUrl;
+      })
+    );
   }
 
   private shouldRetryWithMp4Fallback(videoUrls: readonly string[], errorMessage: string): boolean {

@@ -10,10 +10,17 @@
  */
 
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
+import {
+  SPORT_POSITIONS,
+  normalizeBaseSportKey,
+  normalizeSportKey,
+  type SportProfile,
+} from '@nxt1/core';
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../../base.tool.js';
 import { getCacheService } from '../../../../../services/core/cache.service.js';
 import { createProfileWriteAccessService } from '../../../../../services/profile/profile-write-access.service.js';
 import { CACHE_KEYS as USER_CACHE_KEYS } from '../../../../../services/profile/users.service.js';
+import { createRosterEntryService } from '../../../../../services/team/roster-entry.service.js';
 import { invalidateProfileCaches } from '../../../../../routes/profile/shared.js';
 import { logger } from '../../../../../utils/logger.js';
 import { z } from 'zod';
@@ -21,27 +28,40 @@ import { z } from 'zod';
 // ─── Constants ──────────────────────────────────────────────────────────────
 
 const USERS_COLLECTION = 'Users';
+const MAX_POSITIONS = 5;
 
 const StringOrNumberSchema = z.union([z.string().trim().min(1), z.number()]);
 
-const UpdateCoreIdentityInputSchema = z.object({
-  userId: z.string().trim().min(1),
-  firstName: z.string().trim().min(1).optional(),
-  lastName: z.string().trim().min(1).optional(),
-  displayName: z.string().trim().min(1).optional(),
-  aboutMe: z.string().trim().min(1).optional(),
-  height: z.string().trim().min(1).optional(),
-  weight: z.string().trim().min(1).optional(),
-  classOf: z.union([z.number(), z.string().trim().min(1)]).optional(),
-  city: z.string().trim().min(1).optional(),
-  state: z.string().trim().min(1).optional(),
-  country: z.string().trim().min(1).optional(),
-  profileImage: z.string().trim().min(1).optional(),
-  gpa: StringOrNumberSchema.optional(),
-  satScore: StringOrNumberSchema.optional(),
-  actScore: StringOrNumberSchema.optional(),
-  intendedMajor: z.string().trim().min(1).optional(),
-});
+const UpdateCoreIdentityInputSchema = z
+  .object({
+    userId: z.string().trim().min(1),
+    targetSport: z.string().trim().min(1).optional(),
+    positions: z.array(z.string().trim().min(1)).max(MAX_POSITIONS).optional(),
+    firstName: z.string().trim().min(1).optional(),
+    lastName: z.string().trim().min(1).optional(),
+    displayName: z.string().trim().min(1).optional(),
+    aboutMe: z.string().trim().min(1).optional(),
+    height: z.string().trim().min(1).optional(),
+    weight: z.string().trim().min(1).optional(),
+    classOf: z.union([z.number(), z.string().trim().min(1)]).optional(),
+    city: z.string().trim().min(1).optional(),
+    state: z.string().trim().min(1).optional(),
+    country: z.string().trim().min(1).optional(),
+    profileImage: z.string().trim().min(1).optional(),
+    gpa: StringOrNumberSchema.optional(),
+    satScore: StringOrNumberSchema.optional(),
+    actScore: StringOrNumberSchema.optional(),
+    intendedMajor: z.string().trim().min(1).optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (value.positions !== undefined && !value.targetSport) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'targetSport is required when updating positions.',
+        path: ['targetSport'],
+      });
+    }
+  });
 
 // ─── Tool ───────────────────────────────────────────────────────────────────
 
@@ -50,6 +70,7 @@ export class UpdateCoreIdentityTool extends BaseTool {
 
   readonly description =
     'Partial-updates core identity fields in the user profile. ' +
+    'Supports sport-scoped position corrections when targetSport and positions are provided. ' +
     'Only supplied fields are written; omitted fields remain unchanged. ' +
     'Use this to correct or enhance existing identity data.';
 
@@ -106,8 +127,68 @@ export class UpdateCoreIdentityTool extends BaseTool {
 
     const userRef = this.db.collection(USERS_COLLECTION).doc(userId);
     const patch: Record<string, unknown> = {};
+    let syncedSports: SportProfile[] | null = null;
 
     // Build patch from supplied fields
+    if (parsed.data.positions !== undefined) {
+      const existingSports = Array.isArray(userData['sports'])
+        ? (userData['sports'] as Record<string, unknown>[]).map((sport) => ({ ...sport }))
+        : [];
+      const targetSport = parsed.data.targetSport!.trim();
+      const normalizedPositions = this.normalizePositions(parsed.data.positions, targetSport);
+      const sportIndex = this.resolveSportIndex(existingSports, targetSport);
+
+      if (sportIndex === existingSports.length) {
+        existingSports.push({
+          sport: targetSport,
+          positions: normalizedPositions,
+          updatedAt: new Date().toISOString(),
+        });
+      } else {
+        const nextSport = { ...existingSports[sportIndex] };
+        nextSport['sport'] =
+          typeof nextSport['sport'] === 'string' && nextSport['sport'].trim().length > 0
+            ? nextSport['sport']
+            : targetSport;
+        if (normalizedPositions.length > 0) {
+          nextSport['positions'] = normalizedPositions;
+        } else {
+          delete nextSport['positions'];
+        }
+        nextSport['updatedAt'] = new Date().toISOString();
+        existingSports[sportIndex] = nextSport;
+      }
+
+      patch['sports'] = existingSports;
+      syncedSports = existingSports.reduce<SportProfile[]>((result, sport, index) => {
+        const sportName = typeof sport['sport'] === 'string' ? sport['sport'].trim() : '';
+        if (!sportName) {
+          return result;
+        }
+
+        const sportProfile: SportProfile = {
+          sport: sportName,
+          order: typeof sport['order'] === 'number' ? sport['order'] : index,
+        };
+
+        if (Array.isArray(sport['positions'])) {
+          const positions = sport['positions'].filter(
+            (value): value is string => typeof value === 'string'
+          );
+          if (positions.length > 0) {
+            sportProfile.positions = positions;
+          }
+        }
+
+        if (typeof sport['jerseyNumber'] === 'string') {
+          sportProfile.jerseyNumber = sport['jerseyNumber'];
+        }
+
+        result.push(sportProfile);
+        return result;
+      }, []);
+    }
+
     if (parsed.data.firstName !== undefined) patch['firstName'] = parsed.data.firstName;
     if (parsed.data.lastName !== undefined) patch['lastName'] = parsed.data.lastName;
     if (parsed.data.displayName !== undefined) patch['displayName'] = parsed.data.displayName;
@@ -138,6 +219,10 @@ export class UpdateCoreIdentityTool extends BaseTool {
 
     try {
       await userRef.update(patch);
+
+      if (syncedSports) {
+        await createRosterEntryService(this.db).syncAthleteSportProfiles(userId, syncedSports);
+      }
 
       // ── Cache invalidation ────────────────────────────────────────────
       const cache = getCacheService();
@@ -173,5 +258,46 @@ export class UpdateCoreIdentityTool extends BaseTool {
         error: error instanceof Error ? error.message : 'Failed to update identity data.',
       };
     }
+  }
+
+  private resolveSportIndex(
+    existingSports: Record<string, unknown>[],
+    targetSport: string
+  ): number {
+    const normalizedTargetSport = normalizeBaseSportKey(targetSport);
+
+    for (let index = 0; index < existingSports.length; index++) {
+      const sportName = existingSports[index]['sport'];
+      if (
+        typeof sportName === 'string' &&
+        normalizeBaseSportKey(sportName) === normalizedTargetSport
+      ) {
+        return index;
+      }
+    }
+
+    return existingSports.length;
+  }
+
+  private normalizePositions(positions: readonly string[], sport: string): string[] {
+    const sportKey = normalizeSportKey(sport);
+    const canonicalPositions = SPORT_POSITIONS[sportKey] ?? [];
+    const canonicalMap = new Map<string, string>();
+
+    for (const position of canonicalPositions) {
+      canonicalMap.set(position.toLowerCase(), position);
+    }
+
+    const normalized = new Set<string>();
+    for (const position of positions) {
+      const trimmed = position.trim();
+      if (!trimmed) continue;
+      const canonical = canonicalMap.get(trimmed.toLowerCase());
+      normalized.add(
+        canonical ?? trimmed.toLowerCase().replace(/\b\w/g, (char) => char.toUpperCase())
+      );
+    }
+
+    return Array.from(normalized);
   }
 }

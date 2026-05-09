@@ -127,6 +127,9 @@ export class AgentRouterResumeService {
       operationId,
       resumeThreadId,
       environment,
+      typeof (resumeContextObj as Record<string, unknown>)['appBaseUrl'] === 'string'
+        ? ((resumeContextObj as Record<string, unknown>)['appBaseUrl'] as string)
+        : undefined,
       signal,
       undefined,
       undefined,

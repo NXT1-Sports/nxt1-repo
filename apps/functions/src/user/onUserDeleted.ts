@@ -397,7 +397,12 @@ async function deleteUserStorage(userId: string): Promise<void> {
     await bucket.deleteFiles({ prefix: `Users/${userId}/` });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    if (message.includes('No such object')) {
+    // GCS returns different 'not found' strings depending on the SDK version
+    // and bucket configuration — treat both as "no files to delete".
+    if (
+      message.includes('No such object') ||
+      message.includes('The specified key does not exist')
+    ) {
       return;
     }
 

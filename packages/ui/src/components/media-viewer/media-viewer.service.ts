@@ -116,6 +116,17 @@ export class NxtMediaViewerService {
   private async openWebOverlay(
     config: MediaViewerConfig & { initialIndex: number; showCounter: boolean }
   ): Promise<MediaViewerResult> {
+    const isAgentXAttachmentSource =
+      config.source === 'agent-x-chat' || config.source === 'agent-x-pending';
+    const isCompactMobileContext =
+      this.platform.isNative() ||
+      (this.platform.isBrowser() && this.platform.viewport().width < 768);
+    const panelClass = ['nxt1-media-viewer-overlay'];
+
+    if (isAgentXAttachmentSource && isCompactMobileContext) {
+      panelClass.push('nxt1-media-viewer-overlay--compact-mobile');
+    }
+
     const ref = this.overlay.open<
       NxtMediaViewerContentComponent,
       { lastIndex: number; item: MediaViewerItem | null }
@@ -127,9 +138,10 @@ export class NxtMediaViewerService {
         showShare: config.showShare ?? true,
         showCounter: config.showCounter,
         source: config.source ?? '',
+        isOverlay: true,
       },
       size: 'full',
-      panelClass: 'nxt1-media-viewer-overlay',
+      panelClass,
       showCloseButton: false,
       backdropDismiss: true,
       escDismiss: true,

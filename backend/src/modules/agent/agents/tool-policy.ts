@@ -34,8 +34,10 @@ const GLOBAL_SYSTEM_TOOL_POLICY: readonly ToolPattern[] = composeToolPatterns([
   'create_support_ticket',
   'delegate_task',
   'track_analytics_event',
+  'get_analytics_summary',
   'search_memory',
   'search_memories',
+  'save_memory',
   'get_recent_sync_summaries',
   'delete_memory',
   'dynamic_export',
@@ -50,6 +52,8 @@ const GLOBAL_SYSTEM_TOOL_POLICY: readonly ToolPattern[] = composeToolPatterns([
   'extract_live_view_playlist',
   'close_live_view',
   'schedule_recurring_task',
+  'update_recurring_task',
+  'list_recurring_tasks',
   'list_google_workspace_tools',
   'run_google_workspace_tool',
   'list_microsoft_365_tools',
@@ -65,6 +69,10 @@ const GLOBAL_SYSTEM_TOOL_POLICY: readonly ToolPattern[] = composeToolPatterns([
   'firecrawl_agent_research',
   'map_website',
   'extract_web_data',
+  // Media routing utilities — available to all agents
+  'classify_media_url',
+  'extract_page_images',
+  'extract_hudl_video',
 ]);
 
 /**
@@ -73,9 +81,10 @@ const GLOBAL_SYSTEM_TOOL_POLICY: readonly ToolPattern[] = composeToolPatterns([
  * to the model and execute at runtime. It mirrors PRIMARY_FAST_PATH_TOOLS in
  * primary.agent.ts — that constant now derives directly from this policy.
  *
- * System-category tools (delegate_to_coordinator, plan_and_execute,
- * whoami_capabilities, delegate_task) bypass policy checks in BaseAgent and
- * are always available regardless of this list.
+ * System-category tools (delegate_to_coordinator, create_plan,
+ * execute_saved_plan, plan_and_execute, whoami_capabilities, delegate_task)
+ * bypass policy checks in BaseAgent and are always available regardless of
+ * this list.
  */
 const ROUTER_TOOL_POLICY: readonly ToolPattern[] = [
   // Lazy context (Tier B)
@@ -85,6 +94,7 @@ const ROUTER_TOOL_POLICY: readonly ToolPattern[] = [
   'get_recent_sync_summaries',
   'search_memory',
   'search_memories',
+  'save_memory',
   // Read-only data lookup — Primary calls these directly for factual questions
   // to avoid hallucination. Delegating a simple lookup to a coordinator adds
   // latency without value.
@@ -94,20 +104,17 @@ const ROUTER_TOOL_POLICY: readonly ToolPattern[] = [
   'query_nxt1_data',
   'search_colleges',
   'search_college_coaches',
-  'search_web',
-  'firecrawl_search_web',
-  'scrape_webpage',
-  'map_website',
-  'extract_web_data',
   'open_live_view',
   'read_live_view',
   'close_live_view',
   'get_college_logos',
   'get_conference_logos',
   'get_analytics_summary',
+  'track_analytics_event',
   'scan_timeline_posts',
   'list_google_workspace_tools',
   'run_google_workspace_tool',
+  'list_recurring_tasks',
   'send_email',
   'batch_send_email',
   // Direct Google Workspace families (loosened to prevent false-negative
@@ -139,6 +146,8 @@ const ROUTER_TOOL_POLICY: readonly ToolPattern[] = [
 
 const INTERNAL_ONLY_TOOL_POLICY: readonly string[] = [
   'delegate_to_coordinator',
+  'create_plan',
+  'execute_saved_plan',
   'get_active_threads',
   'get_other_thread_history',
   'get_user_profile',
@@ -182,39 +191,25 @@ const AGENT_TOOL_POLICY: Readonly<Record<CoordinatorAgentId, readonly ToolPatter
   ]),
 
   data_coordinator: composeToolPatterns([
+    'get_analytics_summary',
     'scrape_and_index_profile',
     'read_distilled_section',
     'dispatch_extraction',
+    'list_nxt1_data_views',
+    'query_nxt1_data',
+    'mutate_nxt1_data',
     'write_core_identity',
     'update_core_identity',
     'delete_core_identity',
     'write_awards',
-    'update_awards',
-    'delete_awards',
     'write_combine_metrics',
-    'update_combine_metrics',
-    'delete_combine_metrics',
     'write_rankings',
-    'update_rankings',
-    'delete_rankings',
     'write_season_stats',
-    'update_season_stats',
-    'delete_season_stats',
     'write_recruiting_activity',
-    'update_recruiting_activity',
-    'delete_recruiting_activity',
     'write_calendar_events',
-    'update_calendar_events',
-    'delete_calendar_events',
     'write_schedule',
-    'update_schedule_event',
-    'delete_schedule_event',
     'write_team_stats',
-    'update_team_stats',
-    'delete_team_stats',
     'write_team_news',
-    'update_team_news',
-    'delete_team_news',
     'write_team_post',
     'update_team_post',
     'delete_team_post',
@@ -222,14 +217,12 @@ const AGENT_TOOL_POLICY: Readonly<Record<CoordinatorAgentId, readonly ToolPatter
     'update_timeline_post',
     'delete_timeline_post',
     'write_roster_entries',
-    'update_roster_entries',
-    'delete_roster_entries',
     'write_athlete_videos',
     'update_athlete_videos',
     'delete_athlete_videos',
+    'write_athlete_images',
     'write_intel',
     'update_intel',
-    'delete_intel',
     'write_connected_source',
     'update_connected_source',
     'delete_connected_source',
@@ -241,6 +234,9 @@ const AGENT_TOOL_POLICY: Readonly<Record<CoordinatorAgentId, readonly ToolPatter
     'call_apify_actor',
     'get_apify_actor_output',
     'stage_media',
+    'analyze_video',
+    'analyze_image',
+    'generate_chart_visualization',
     'ffmpeg_trim_video',
     'ffmpeg_generate_thumbnail',
   ]),
@@ -249,13 +245,11 @@ const AGENT_TOOL_POLICY: Readonly<Record<CoordinatorAgentId, readonly ToolPatter
     'scrape_and_index_profile',
     'read_distilled_section',
     'write_season_stats',
-    'update_season_stats',
-    'delete_season_stats',
+    'mutate_nxt1_data',
     'write_combine_metrics',
     'write_schedule',
-    'update_schedule_event',
-    'delete_schedule_event',
     'analyze_video',
+    'analyze_image',
     'get_video_details',
     'search_apify_actors',
     'get_apify_actor_details',
@@ -270,6 +264,7 @@ const AGENT_TOOL_POLICY: Readonly<Record<CoordinatorAgentId, readonly ToolPatter
     'ffmpeg_convert_video',
     'ffmpeg_compress_video',
     'ffmpeg_burn_subtitles',
+    'write_athlete_images',
   ]),
 
   recruiting_coordinator: composeToolPatterns([
@@ -305,11 +300,14 @@ const AGENT_TOOL_POLICY: Readonly<Record<CoordinatorAgentId, readonly ToolPatter
 
   strategy_coordinator: composeToolPatterns([
     'get_analytics_summary',
+    'generate_chart_visualization',
     'list_recurring_tasks',
+    'update_recurring_task',
     'cancel_recurring_task',
     'list_microsoft_365_tools',
     'run_microsoft_365_tool',
     'analyze_video',
+    'analyze_image',
     'get_video_details',
     'search_apify_actors',
     'get_apify_actor_details',
@@ -323,6 +321,7 @@ const AGENT_TOOL_POLICY: Readonly<Record<CoordinatorAgentId, readonly ToolPatter
     'manage_watermark',
     'import_video',
     'write_athlete_videos',
+    'write_athlete_images',
     'ffmpeg_trim_video',
     'ffmpeg_merge_videos',
     'ffmpeg_resize_video',

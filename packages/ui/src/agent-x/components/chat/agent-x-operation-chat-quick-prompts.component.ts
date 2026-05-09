@@ -13,7 +13,6 @@ import { chunkOperationActions, resolveCoordinatorChipId } from './agent-x-opera
         variant="agent-operation"
         [isOwn]="false"
         [content]="welcomeMessage"
-        [isTyping]="false"
         [isError]="false"
         [isSystem]="false"
       />

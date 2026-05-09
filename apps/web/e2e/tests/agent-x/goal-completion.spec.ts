@@ -2,15 +2,12 @@
  * @fileoverview Agent X Goal Completion E2E Tests
  * @module @nxt1/web/e2e/tests/agent-x
  *
- * End-to-end tests for the Agent X goal completion flow.
+ * End-to-end tests for the Agent X goals editor and history flow.
  *
  * Coverage:
- * - Goals panel renders active goals with complete buttons
- * - Completing a goal removes the pill optimistically (athlete role)
- * - Completing a goal removes the pill optimistically (coach role)
+ * - Goals panel renders saved goals without duplicate completion controls
  * - Goal history section shows completed records
  * - Goal history shows empty state when no goals completed
- * - API failure triggers rollback — pill re-appears
  * - History API failure shows error state
  *
  * NOTE: Authenticated flows require E2E_REAL_AUTH=true and a valid test user.
@@ -70,11 +67,6 @@ const MOCK_DASHBOARD_RESPONSE = {
   },
 };
 
-const MOCK_COMPLETE_SUCCESS = {
-  success: true,
-  data: { completedGoal: MOCK_COMPLETED_GOAL },
-};
-
 const MOCK_HISTORY_RESPONSE = {
   success: true,
   data: {
@@ -101,38 +93,6 @@ async function mockDashboard(page: import('@playwright/test').Page, override?: o
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify(override ?? MOCK_DASHBOARD_RESPONSE),
-    })
-  );
-}
-
-/**
- * Mock the complete goal endpoint (success).
- */
-async function mockCompleteGoalSuccess(
-  page: import('@playwright/test').Page,
-  goalId = MOCK_GOAL_ID
-) {
-  await page.route(`**/agent-x/goals/${goalId}/complete`, (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify(MOCK_COMPLETE_SUCCESS),
-    })
-  );
-}
-
-/**
- * Mock the complete goal endpoint to return a server error.
- */
-async function mockCompleteGoalFailure(
-  page: import('@playwright/test').Page,
-  goalId = MOCK_GOAL_ID
-) {
-  await page.route(`**/agent-x/goals/${goalId}/complete`, (route) =>
-    route.fulfill({
-      status: 500,
-      contentType: 'application/json',
-      body: JSON.stringify({ success: false, error: 'Server error' }),
     })
   );
 }
@@ -167,7 +127,7 @@ async function mockGoalHistoryFailure(page: import('@playwright/test').Page) {
 // TESTS
 // =============================================================================
 
-test.describe('Agent X Goal Completion', () => {
+test.describe('Agent X Goals Editor', () => {
   // -------------------------------------------------------------------------
   // UNAUTHENTICATED
   // -------------------------------------------------------------------------
@@ -199,61 +159,12 @@ test.describe('Agent X Goal Completion', () => {
 
     // ----- Happy path -----
 
-    test('should display active goal pills with complete buttons', async ({ page }) => {
+    test('should display saved goal pills without duplicate complete buttons', async () => {
       test.skip(!process.env['E2E_REAL_AUTH'], 'Requires E2E_REAL_AUTH=true');
 
       await expect(goalsPage.activeList).toBeVisible();
-      // Two goals mocked
       await expect(goalsPage.activeItems).toHaveCount(2);
-      await expect(goalsPage.completeButtons).toHaveCount(2);
-    });
-
-    test('[athlete] should optimistically remove pill when complete button clicked', async ({
-      page,
-    }) => {
-      test.skip(!process.env['E2E_REAL_AUTH'], 'Requires E2E_REAL_AUTH=true');
-
-      await mockCompleteGoalSuccess(page);
-
-      const countBefore = await goalsPage.getActivePillCount();
-      expect(countBefore).toBe(2);
-
-      await goalsPage.completeFirstGoal();
-
-      // Optimistic removal — count drops immediately
-      await expect(goalsPage.activeItems).toHaveCount(1, { timeout: 3_000 });
-    });
-
-    test('[athlete] should show completed goal in history after completion', async ({ page }) => {
-      test.skip(!process.env['E2E_REAL_AUTH'], 'Requires E2E_REAL_AUTH=true');
-
-      await mockCompleteGoalSuccess(page);
-      await mockGoalHistory(page);
-
-      await goalsPage.completeFirstGoal();
-      await goalsPage.openHistorySection();
-
-      await expect(goalsPage.historyContainer).toBeVisible();
-      await expect(goalsPage.historyItems).toHaveCount(1, { timeout: 5_000 });
-      // Days badge should display
-      await expect(goalsPage.historyItemDays.first()).toContainText('14d');
-    });
-
-    // ----- Rollback on failure -----
-
-    test('[athlete] should roll back pill removal when complete API fails', async ({ page }) => {
-      test.skip(!process.env['E2E_REAL_AUTH'], 'Requires E2E_REAL_AUTH=true');
-
-      // Mock server failure for complete
-      await mockCompleteGoalFailure(page);
-
-      const countBefore = await goalsPage.getActivePillCount();
-      expect(countBefore).toBe(2);
-
-      await goalsPage.completeFirstGoal();
-
-      // Pill should reappear after rollback
-      await expect(goalsPage.activeItems).toHaveCount(2, { timeout: 5_000 });
+      await expect(goalsPage.completeButtons).toHaveCount(0);
     });
   });
 
@@ -287,20 +198,10 @@ test.describe('Agent X Goal Completion', () => {
       await goalsPage.openGoalsPanel();
     });
 
-    test('[coach] should display active goals panel with complete button', async ({ page }) => {
+    test('[coach] should display active goals panel without duplicate complete buttons', async () => {
       test.skip(!process.env['E2E_REAL_AUTH'], 'Requires E2E_REAL_AUTH=true');
       await expect(goalsPage.activeItems).toHaveCount(1);
-      await expect(goalsPage.completeButtons).toHaveCount(1);
-    });
-
-    test('[coach] should optimistically remove pill on complete', async ({ page }) => {
-      test.skip(!process.env['E2E_REAL_AUTH'], 'Requires E2E_REAL_AUTH=true');
-
-      await mockCompleteGoalSuccess(page, 'coach-goal-001');
-
-      await goalsPage.completeFirstGoal();
-
-      await expect(goalsPage.activeItems).toHaveCount(0, { timeout: 3_000 });
+      await expect(goalsPage.completeButtons).toHaveCount(0);
     });
   });
 

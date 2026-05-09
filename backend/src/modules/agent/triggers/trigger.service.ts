@@ -155,23 +155,33 @@ export class AgentTriggerService {
     let enqueued = 0;
     let skipped = 0;
 
-    for (const userId of userIds) {
-      const event: AgentTriggerEvent = {
-        id: this.generateOperationId(),
-        type: triggerType,
-        userId,
-        intent: '', // Will be synthesized by processTrigger
-        eventData: { scheduledAt: new Date().toISOString() },
-        origin: 'system_cron',
-        priority: 'normal',
-        createdAt: new Date().toISOString(),
-      };
+    // Process in concurrent chunks of 20 to avoid sequential bottleneck
+    // while staying within Firestore connection limits.
+    const CHUNK_SIZE = 20;
+    for (let i = 0; i < userIds.length; i += CHUNK_SIZE) {
+      const chunk = userIds.slice(i, i + CHUNK_SIZE);
+      const results = await Promise.all(
+        chunk.map((userId) => {
+          const event: AgentTriggerEvent = {
+            id: this.generateOperationId(),
+            type: triggerType,
+            userId,
+            intent: '', // Will be synthesized by processTrigger
+            eventData: { scheduledAt: new Date().toISOString() },
+            origin: 'system_cron',
+            priority: 'normal',
+            createdAt: new Date().toISOString(),
+          };
+          return this.processTrigger(event);
+        })
+      );
 
-      const result = await this.processTrigger(event);
-      if (result.enqueued) {
-        enqueued++;
-      } else {
-        skipped++;
+      for (const result of results) {
+        if (result.enqueued) {
+          enqueued++;
+        } else {
+          skipped++;
+        }
       }
     }
 

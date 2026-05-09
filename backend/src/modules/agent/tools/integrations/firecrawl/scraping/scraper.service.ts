@@ -320,7 +320,7 @@ export class ScraperService {
       async (url: string) => {
         const sanitized = this.validateUrl(url);
         // Fire the scrape call — the MCP bridge will cache the result automatically
-        await this.mcpBridge!.scrape(sanitized, { formats: ['markdown', 'html'] });
+        await this.mcpBridge!.scrape(sanitized, { formats: ['markdown', 'rawHtml'] });
         return url;
       },
       {
@@ -410,7 +410,7 @@ export class ScraperService {
 
     try {
       // Request BOTH markdown AND HTML in a single call
-      const result = await this.mcpBridge.scrape(url, { formats: ['markdown', 'html'] });
+      const result = await this.mcpBridge.scrape(url, { formats: ['markdown', 'rawHtml'] });
       const markdown = this.extractMarkdownFromMcpResult(result);
       if (!markdown || markdown.trim().length < 50) return null;
 
@@ -443,11 +443,14 @@ export class ScraperService {
 
   /**
    * Extract raw HTML from an MCP bridge scrape result.
-   * Available when `formats: ['markdown', 'html']` is requested.
+   * Prefers rawHtml (full unmodified HTML including <script> tags) over cleaned html.
+   * Available when `formats: ['markdown', 'rawHtml']` is requested.
    */
   private extractHtmlFromMcpResult(result: unknown): string | null {
     if (result && typeof result === 'object') {
       const obj = result as Record<string, unknown>;
+      if (typeof obj['rawHtml'] === 'string' && obj['rawHtml'].trim().length > 0)
+        return obj['rawHtml'];
       if (typeof obj['html'] === 'string' && obj['html'].trim().length > 0) return obj['html'];
     }
     return null;

@@ -1,6 +1,6 @@
 /**
  * @fileoverview Agent X Goal History Component
- * Displays the user's completed goals with completion date and days-to-complete stat.
+ * Displays the user's completed playbook task history.
  * Lazy-loaded via @defer — only fetches data when the panel is first opened.
  */
 
@@ -8,6 +8,14 @@ import { Component, ChangeDetectionStrategy, inject, computed, OnInit } from '@a
 import { DatePipe } from '@angular/common';
 import { AgentXService } from '../../services/agent-x.service';
 import { TEST_IDS } from '@nxt1/core/testing';
+
+type CompletedTaskHistoryEntry = {
+  readonly id: string;
+  readonly title: string;
+  readonly completedAt: string;
+  readonly category: string;
+  readonly goalText: string;
+};
 
 /** Category icon map — mirrors AgentGoalCategory from core */
 const CATEGORY_ICONS: Record<string, string> = {
@@ -26,7 +34,7 @@ const CATEGORY_ICONS: Record<string, string> = {
   template: `
     <div class="goal-history-panel" [attr.data-testid]="testIds.HISTORY_CONTAINER">
       <div class="goal-history-header">
-        <span class="goal-history-title">Completed Goals</span>
+        <span class="goal-history-title">Task History</span>
         <span class="goal-history-count">{{ totalCompleted() }}</span>
       </div>
 
@@ -50,32 +58,27 @@ const CATEGORY_ICONS: Record<string, string> = {
       } @else if (isEmpty()) {
         <div class="goal-history-empty" [attr.data-testid]="testIds.HISTORY_EMPTY">
           <span class="goal-history-empty-icon">🎯</span>
-          <p class="goal-history-empty-text">Complete a goal to see it here.</p>
+          <p class="goal-history-empty-text">Completed tasks will appear here.</p>
         </div>
       } @else {
         <ul class="goal-history-list" role="list">
-          @for (record of history(); track record.id) {
+          @for (task of completedTasks(); track task.id) {
             <li class="goal-history-item" [attr.data-testid]="testIds.HISTORY_ITEM">
               <span class="goal-history-item-icon" aria-hidden="true">
-                {{ categoryIcon(record.category) }}
+                {{ categoryIcon(task.category) }}
               </span>
               <div class="goal-history-item-body">
-                <span class="goal-history-item-text">{{ record.text }}</span>
+                <span class="goal-history-item-text">{{ task.title }}</span>
                 <div class="goal-history-item-meta">
                   <span class="goal-history-item-date">
-                    {{ record.completedAt | date: 'MMM d, y' }}
+                    {{ task.completedAt | date: 'MMM d, y' }}
                   </span>
                   <span
                     class="goal-history-item-days"
                     [attr.data-testid]="testIds.HISTORY_ITEM_DAYS"
-                    [title]="
-                      'Completed in ' +
-                      record.daysToComplete +
-                      ' day' +
-                      (record.daysToComplete === 1 ? '' : 's')
-                    "
+                    [title]="'Completed for goal: ' + task.goalText"
                   >
-                    {{ record.daysToComplete }}d
+                    {{ task.goalText }}
                   </span>
                 </div>
               </div>
@@ -155,14 +158,14 @@ const CATEGORY_ICONS: Record<string, string> = {
         font-weight: 500;
         color: var(--nxt1-text-primary, #f9fafb);
         line-height: 1.4;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
+        white-space: normal;
+        overflow-wrap: anywhere;
       }
 
       .goal-history-item-meta {
         display: flex;
         align-items: center;
+        flex-wrap: wrap;
         gap: 8px;
       }
 
@@ -174,11 +177,14 @@ const CATEGORY_ICONS: Record<string, string> = {
       .goal-history-item-days {
         font-size: 11px;
         font-weight: 600;
-        color: var(--nxt1-accent-green, #34d399);
-        background: rgba(52, 211, 153, 0.1);
+        color: var(--nxt1-accent-blue, #60a5fa);
+        background: rgba(96, 165, 250, 0.12);
         border-radius: 6px;
         padding: 1px 5px;
         cursor: default;
+        max-width: 100%;
+        white-space: normal;
+        overflow-wrap: anywhere;
       }
 
       /* Loading skeleton */
@@ -273,8 +279,23 @@ export class AgentXGoalHistoryComponent implements OnInit {
   protected readonly history = this.agentX.goalHistory;
   protected readonly loading = this.agentX.goalHistoryLoading;
   protected readonly error = this.agentX.goalHistoryError;
-  protected readonly totalCompleted = this.agentX.totalGoalsCompleted;
-  protected readonly isEmpty = computed(() => this.history().length === 0 && !this.loading());
+  protected readonly completedTasks = computed<CompletedTaskHistoryEntry[]>(() =>
+    this.history()
+      .flatMap((record) =>
+        (record.completedItems ?? []).map((task) => ({
+          id: `${record.goalId}:${task.id}:${task.completedAt}`,
+          title: task.title,
+          completedAt: String(task.completedAt),
+          category: record.category,
+          goalText: record.text,
+        }))
+      )
+      .sort((a, b) => new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime())
+  );
+  protected readonly totalCompleted = computed(() => this.completedTasks().length);
+  protected readonly isEmpty = computed(
+    () => this.completedTasks().length === 0 && !this.loading()
+  );
 
   ngOnInit(): void {
     // Fetch on first open — if already loaded (non-empty history), skip

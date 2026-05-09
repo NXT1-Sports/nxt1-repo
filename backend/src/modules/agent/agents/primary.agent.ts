@@ -13,7 +13,8 @@
  *    {@link CapabilityRegistry} compact card + a one-paragraph user summary.
  *    No template strings; the model writes its own transitions.
  *  - Available tools = lazy-context tools + delegate-to-coordinator +
- *    plan-and-execute + whoami_capabilities + a curated fast-path set.
+ *    create-plan / execute-saved-plan + whoami_capabilities + a curated
+ *    fast-path set.
  *  - Coordinators are NOT in the Primary's tool list directly; they're
  *    dispatched via {@link DelegateToCoordinatorTool} which throws a
  *    control-flow exception this class intercepts and routes through the
@@ -46,6 +47,10 @@ import {
   PlanAndExecuteException,
   isPlanAndExecute,
 } from '../exceptions/plan-and-execute.exception.js';
+import {
+  ExecuteSavedPlanException,
+  isExecuteSavedPlan,
+} from '../exceptions/execute-saved-plan.exception.js';
 import type { LLMToolCall, LLMMessage } from '../llm/llm.types.js';
 import type { OpenRouterService } from '../llm/openrouter.service.js';
 import type { ToolRegistry } from '../tools/tool-registry.js';
@@ -66,6 +71,8 @@ import { getOperationMemoryService } from '../services/operation-memory.service.
 const PRIMARY_SYSTEM_TOOLS: readonly string[] = [
   'whoami_capabilities',
   'delegate_to_coordinator',
+  'create_plan',
+  'execute_saved_plan',
   'plan_and_execute',
 ];
 
@@ -73,12 +80,15 @@ const PRIMARY_REASONING_CONTRACT = [
   '## Primary Reasoning Contract (2026)',
   '',
   '⚠️  **CRITICAL OVERRIDE — DELETE-BY-POSITION PATTERN (EXECUTE FIRST)**:',
-  'If the user request contains ANY of these keywords: "delete", "remove", "clear", "take off", "erase" + ANY of: "post", "posts", "video", "content", "last", "recent", "recent posts", "team posts":',
+  'If the user request contains ANY of these keywords: "delete", "remove", "clear", "take off", "erase" + timeline/content targets (post, video, stats, stat, schedule, game, news, recruiting, offer, commitment, visit, camp, recent, last):',
   '  0.1) STOP. Do NOT ask the user for postIds.',
-  '  0.2) IMMEDIATELY call `query_nxt1_data` with parameters: view="team_timeline_feed", teamId from context.',
-  '  0.3) Parse the response. Each post item contains: id (postId), teamId, teamCode. Extract all three fields for the posts matching the user\'s target ("last 2" = first 2 items, already sorted newest-first).',
-  '  0.4) Delegate to `data_coordinator` with resolved postIds, teamId, teamCode in the handoff. DO NOT ask user for anything.',
-  '  EXAMPLE: "delete the last 2 posts" → call query_nxt1_data view=team_timeline_feed → items[0].id + items[0].teamId + items[0].teamCode, items[1].id same → delegate both to data_coordinator. NEVER ask for IDs.',
+  '  0.2) Determine scope from user intent: team scope → query `team_timeline_feed`; profile/personal scope → query `user_timeline_feed`.',
+  '  0.3) Call `query_nxt1_data` immediately for that scope (team query includes teamId filter when available).',
+  '  0.4) Parse response and select target items by recency/category ("last 2" = first 2 matching items, newest-first).',
+  '  0.5) Extract IDs by `items[].feedType`: `POST` uses `items[].id`; `STAT`/`NEWS`/`SCHEDULE`/recruiting variants use `items[].referenceId` as source doc ID.',
+  '  0.6) Include required ownership IDs in handoff: team scope includes `teamId` + `teamCode`; profile post deletes include `userId`; recruiting deletes must include resolved recruiting owner `userId` from the source Recruiting doc.',
+  '  0.7) Delegate to `data_coordinator` with resolved IDs and target feedType(s). DO NOT ask user for anything.',
+  '  EXAMPLE (team): "delete last 2 schedule items" → query team_timeline_feed → choose first 2 with feedType `SCHEDULE` → pass `referenceId` values for `delete_schedule_event`. EXAMPLE (profile): "delete my last 2 posts" → query user_timeline_feed → items[0].id/userId + items[1].id/userId → delegate. NEVER ask for IDs.',
   '',
   '1) Decide request class first: simple_routing | ambiguous | numeric_or_aggregation | safety_or_mutation.',
   '2) Before choosing the first tool, sketch the likely steps to finish the request and check whether any required step depends on coordinator-owned tools.',
@@ -95,9 +105,22 @@ const PRIMARY_REASONING_CONTRACT = [
   '7) Tool path decision for recruiting and college lookup:',
   "   - Simple factual lookup (find programs by division/state, look up a coach's contact): use `search_colleges` or `search_college_coaches` directly — no delegation needed.",
   '   - Full recruiting workflow (outreach drafting, email sequences, presentation generation, multi-step strategy): use `delegate_to_coordinator` with coordinatorId=`recruiting_coordinator`.',
-  '8) Prefer `plan_and_execute` when the work clearly spans two or more specialist coordinators in sequence (e.g. film analysis → brand asset → outreach email).',
-  '9) Treat `search_web` and `firecrawl_search_web` as fallback tools only when NXT1 database and platform tools cannot satisfy the request.',
-  '10) NEVER call `analyze_video` directly from router; always use `delegate_to_coordinator` with coordinatorId=`performance_coordinator` for film analysis.',
+  '8) Prefer `create_plan` whenever the request is goal-oriented and naturally breaks into multiple phases or reviewable steps, especially for plans, roadmaps, audits, playbooks, campaign sequencing, prioritization, comparisons with recommendations, or next-step workflows. This includes requests phrased as questions such as "what should I do", "how should we approach this", or "can you map out a plan".',
+  '8b) Default to `create_plan` instead of a conversational answer or a single coordinator handoff when the work likely spans discovery -> analysis -> recommendation, analysis -> asset creation -> outreach, audit -> prioritization -> execution drafting, or any two-or-more phase workflow. `create_plan` drafts a saved plan first; execution starts only after the user explicitly approves it.',
+  '8c) When `create_plan` returns `plan_created: true`, explain the plan conversationally in your own words using the returned summary + steps. Do NOT dump raw payload JSON to the user and do NOT call `execute_saved_plan` in that same turn.',
+  '8d) For plan follow-ups in the same thread: if the user asks for revisions, call `create_plan` again with the requested changes. The backend will revise the existing draft in-place (same `plan_id`, incremented version). Explain what changed. If the user explicitly approves ("approve", "go", "run it"), call `execute_saved_plan` with that same current `plan_id`.',
+  '9) The router must stay fast. Do NOT perform web research, crawling, or page scraping directly from the Primary Agent.',
+  '   - If the request needs external web acquisition, deep page discovery, crawling, or scraping, delegate to `data_coordinator`.',
+  '   - If the request needs external research plus strategic interpretation or recommendations, delegate to `strategy_coordinator`.',
+  '10) NEVER call `analyze_video` directly from router; always use `delegate_to_coordinator` to hand video work to the right specialist:',
+  '    - `performance_coordinator` for film analysis, technique breakdowns, scouting, and player evaluation.',
+  '    - `strategy_coordinator` for strategic interpretation, planning recommendations, and executive summaries from video.',
+  '    - `brand_coordinator` for creative/video-content outputs (social edits, thumbnails, branded storytelling assets).',
+  '10a) URL ingestion routing rule (CRITICAL):',
+  '    - When the user provides any external link and asks to extract, import, analyze, or post media, enforce DIRECT-FIRST acquisition.',
+  '    - Delegate link/media ingestion to `data_coordinator` first so it can run `classify_media_url` and follow `nextStep` exactly.',
+  '    - Live view is fallback-only: use it only when classifier strategy is `live_view_required`, or when direct acquisition fails and no staged media URL exists.',
+  '    - If direct extraction returns staged media URLs, treat those as authoritative assets and proceed without opening live view.',
   '10b) Tool path decision for ANY write/post/data-save operation:',
   '    - Writing posts (team posts, timeline posts, announcements, season recaps): delegate to `data_coordinator`.',
   '    - Writing stats, season records, rankings, metrics, recruiting activity, calendar events, roster entries, schedule, or connected sources: delegate to `data_coordinator`.',
@@ -108,8 +131,23 @@ const PRIMARY_REASONING_CONTRACT = [
   '    - Default team publishing path: delegate to `data_coordinator` for a team post unless the user explicitly asks for personal profile/timeline publishing.',
   '    - Player-level profile/stat updates must target a named player. If the request does not clearly identify which player, ask for clarification before delegating.',
   '    - For athletes: default write target is always their own profile. No change to current routing.',
+  '10d) Chart routing rule:',
+  '    - Requests for charts, graphs, dashboards, funnels, pipeline maps, process visuals, or spreadsheet-style data views are NOT brand requests by default.',
+  '    - Use `delegate_to_coordinator` with `strategy_coordinator` for strategic or conceptual visuals such as recruiting pipelines, stage funnels, operating models, and planning dashboards.',
+  '    - Use `delegate_to_coordinator` with `data_coordinator` when the chart should be built from imported, scraped, or normalized datasets.',
+  '    - Only use `brand_coordinator` when the user explicitly wants a creative poster, social graphic, thumbnail, or image-first branded asset rather than a data/process chart.',
+  '10e) Analytics event routing rule:',
+  '    - Requests for raw analytics events, Agent X activity so far, outreach event history, engagement summaries, exported activity data, or spreadsheet/table views of activity should go to `data_coordinator`.',
+  '    - Requests for interpretation, recommendations, strategic takeaways, or executive-style dashboard narratives from analytics should go to `strategy_coordinator`.',
+  '10f) Memory persistence rule:',
+  '    - If the user states a durable preference, goal, recruiting constraint, performance baseline, or recurring workflow choice, call `save_memory` immediately with a concise third-person fact. Do not wait for explicit "remember this" phrasing.',
+  '10g) Router analytics rule:',
+  '    - Ensure one analytics event exists for each successful, user-visible outcome. If the owning coordinator or mutation tool already recorded the domain event, do not duplicate it; otherwise call `track_analytics_event` once before the final response.',
+  '    - Domain mapping: outreach and coach communication -> `recruiting` or `communication`; film, stats, scouting, and performance outputs -> `performance`; NIL and sponsorship work -> `nil`; plans, posts, profile/team activity, and general Agent X workflow completion -> `engagement`.',
+  '10h) Analytics payload rule:',
+  '    - For team or organization work, use the target `subjectId` and matching `subjectType`; otherwise default to the user. Include payload keys like `coordinatorId`, `workflow`, `outcome`, `entityId`, `teamId`, `organizationId`, `toolName`, and `artifactType` when known.',
   '11) When delegating, provide a single objective sentence as the handoff payload.',
-  '12) After `delegate_to_coordinator` or `plan_and_execute`, inspect the tool result JSON fields `user_already_received_response` and `follow_up_required`.',
+  '12) After `delegate_to_coordinator`, `create_plan`, or `execute_saved_plan`, inspect the tool result JSON fields `user_already_received_response` and `follow_up_required`.',
   '13) If `user_already_received_response` is true and `follow_up_required` is false, do NOT add any extra narration, recap, or postamble. End your turn immediately.',
   '14) Only add follow-up text when `follow_up_required` is true (for example failures or missing output). Keep it to one concise recovery sentence.',
 ].join('\n');
@@ -142,7 +180,7 @@ export class PrimaryAgent extends BaseAgent {
    * progress events. The class name and behavior are what changed.
    */
   readonly id: AgentIdentifier = 'router';
-  readonly name = 'Primary Agent';
+  readonly name = 'Chief of Staff';
 
   /**
    * Per-run state stash keyed by operationId. Set by the AgentRouter just
@@ -180,9 +218,9 @@ export class PrimaryAgent extends BaseAgent {
   // ─── BaseAgent contract ─────────────────────────────────────────────────
 
   getModelRouting(): ModelRoutingConfig {
-    const cfg = getCachedAgentAppConfig();
-    const tier = cfg.primary?.modelTier ?? 'routing';
-    return MODEL_ROUTING_DEFAULTS[tier] ?? MODEL_ROUTING_DEFAULTS['routing'];
+    // Fast routing tier — no thinking. Primary handles streaming ReAct loop
+    // where thinking tokens disrupt chat flow. Deep reasoning lives in Planner.
+    return { ...MODEL_ROUTING_DEFAULTS['routing'], maxTokens: 4096, temperature: 0 };
   }
 
   override getToolConcurrency(): number {
@@ -224,7 +262,7 @@ export class PrimaryAgent extends BaseAgent {
       ...(modeAddendum ? { modeAddendum } : {}),
     });
 
-    return this.applyConfiguredPrimaryPrompt(`${prompt}\n\n${PRIMARY_REASONING_CONTRACT}`);
+    return `${prompt}\n\n${PRIMARY_REASONING_CONTRACT}`;
   }
 
   override async execute(
@@ -279,7 +317,7 @@ export class PrimaryAgent extends BaseAgent {
 
   /**
    * Intercept Primary-only control-flow exceptions thrown by
-   * `delegate_to_coordinator` and `plan_and_execute` tools. Dispatch through
+   * `delegate_to_coordinator`, `create_plan`, and `execute_saved_plan` tools. Dispatch through
    * the {@link PrimaryDispatcher} and return the coordinator/plan result as
    * the next ReAct observation so the loop continues seamlessly.
    */
@@ -295,6 +333,20 @@ export class PrimaryAgent extends BaseAgent {
     onStreamEvent?: OnStreamEvent
   ): Promise<string> {
     this.recordToolSelectionTrace(sessionContext?.operationId, toolCall.function.name);
+
+    // Safety fallback: some model generations may still attempt analyze_video
+    // even when router-only tools are exposed. Force coordinator dispatch.
+    if (toolCall.function.name === 'analyze_video') {
+      return this.handleDirectVideoAnalysisFallback(
+        toolCall,
+        userId,
+        sessionContext?.operationId,
+        approvalGate,
+        onStreamEvent,
+        signal
+      );
+    }
+
     try {
       return await super.executeTool(
         toolCall,
@@ -333,8 +385,144 @@ export class PrimaryAgent extends BaseAgent {
         );
         return result;
       }
+      if (isExecuteSavedPlan(err)) {
+        const result = await this.handleSavedPlanDispatch(
+          err,
+          toolCall,
+          userId,
+          sessionContext?.operationId,
+          approvalGate,
+          onStreamEvent,
+          signal
+        );
+        return result;
+      }
       throw err;
     }
+  }
+
+  private async handleDirectVideoAnalysisFallback(
+    toolCall: LLMToolCall,
+    userId: string,
+    operationId: string | undefined,
+    approvalGate: ApprovalGateService | undefined,
+    onStreamEvent: OnStreamEvent | undefined,
+    signal: AbortSignal | undefined
+  ): Promise<string> {
+    const ctx = this.resolveDispatchContext(
+      operationId,
+      userId,
+      approvalGate,
+      onStreamEvent,
+      signal
+    );
+
+    if (!ctx) {
+      return JSON.stringify({
+        success: false,
+        error: 'Video delegation unavailable: missing per-run state.',
+      });
+    }
+
+    let args: Record<string, unknown> = {};
+    try {
+      const parsed = JSON.parse(toolCall.function.arguments) as unknown;
+      if (parsed && typeof parsed === 'object') {
+        args = parsed as Record<string, unknown>;
+      }
+    } catch {
+      // Keep fallback resilient even if model emits malformed JSON.
+      args = {};
+    }
+
+    const prompt =
+      typeof args['prompt'] === 'string' && args['prompt'].trim().length > 0
+        ? args['prompt'].trim()
+        : 'Analyze the provided video and return user-ready findings.';
+    const url =
+      typeof args['url'] === 'string' && args['url'].trim().length > 0
+        ? args['url'].trim()
+        : undefined;
+
+    const coordinatorId = this.resolveVideoAnalysisCoordinator(`${ctx.enrichedIntent}\n${prompt}`);
+    const goal = `Analyze the provided video and deliver ${coordinatorId.replace('_', ' ')} output for the user.`;
+    const structuredPayload = {
+      ...(url ? { url } : {}),
+      prompt,
+      ...(args['artifact'] && typeof args['artifact'] === 'object'
+        ? { artifact: args['artifact'] }
+        : {}),
+      source: 'router_analyze_video_fallback',
+    };
+
+    onStreamEvent?.({
+      type: 'tool_result',
+      agentId: this.id,
+      stepId: toolCall.id,
+      toolName: toolCall.function.name,
+      stageType: 'tool',
+      toolSuccess: true,
+      toolResult: {
+        delegated: true,
+        coordinatorId,
+      },
+      icon: this.resolveToolStepIcon(toolCall.function.name),
+      message: this.resolveToolInvocationLabel(toolCall.function.name, toolCall.function.arguments),
+    });
+
+    const result = await this.dispatcher.runCoordinator(
+      coordinatorId,
+      goal,
+      ctx,
+      structuredPayload
+    );
+
+    const userAlreadyReceivedResponse = result.userAlreadyReceivedResponse === true;
+    const followUpRequired = !result.success && !userAlreadyReceivedResponse;
+    return JSON.stringify({
+      success: result.success,
+      data: {
+        dispatch_kind: result.dispatchKind ?? 'coordinator',
+        coordinator_id: coordinatorId,
+        user_already_received_response: userAlreadyReceivedResponse,
+        follow_up_required: followUpRequired,
+        follow_up_hint: followUpRequired
+          ? 'Coordinator dispatch did not complete successfully. Provide a single recovery sentence and next step.'
+          : 'No follow-up needed because the coordinator already responded directly to the user.',
+        coordinator_observation: result.observation,
+        ...(result.coordinatorArtifacts && Object.keys(result.coordinatorArtifacts).length > 0
+          ? { coordinator_artifacts: result.coordinatorArtifacts }
+          : {}),
+        streamed_delta_count: result.streamedDeltaCount ?? 0,
+        streamed_char_count: result.streamedCharCount ?? 0,
+      },
+    });
+  }
+
+  private resolveVideoAnalysisCoordinator(
+    text: string
+  ): Extract<
+    AgentIdentifier,
+    'brand_coordinator' | 'performance_coordinator' | 'strategy_coordinator'
+  > {
+    const normalized = text.toLowerCase();
+    const brandSignals =
+      /brand|branding|creative|thumbnail|social|marketing|poster|promo|highlight reel|storytelling/.test(
+        normalized
+      );
+    if (brandSignals) {
+      return 'brand_coordinator';
+    }
+
+    const strategySignals =
+      /strategy|strategic|plan|roadmap|recommendation|executive|insight|summary|decision/.test(
+        normalized
+      );
+    if (strategySignals) {
+      return 'strategy_coordinator';
+    }
+
+    return 'performance_coordinator';
   }
 
   // ─── Dispatcher Integration ─────────────────────────────────────────────
@@ -439,7 +627,8 @@ export class PrimaryAgent extends BaseAgent {
     const result = await this.dispatcher.runCoordinator(
       err.payload.coordinatorId,
       err.payload.goal,
-      dispatchCtx
+      dispatchCtx,
+      err.payload.structuredPayload
     );
 
     // Record completion with artifacts produced
@@ -510,16 +699,114 @@ export class PrimaryAgent extends BaseAgent {
       message: this.resolveToolInvocationLabel(toolCall.function.name, toolCall.function.arguments),
     });
     const result = await this.dispatcher.runPlan(err.payload.goal, ctx);
+    let parsedPlanObservation: Record<string, unknown> | null = null;
+    try {
+      const candidate = JSON.parse(result.observation) as unknown;
+      if (candidate && typeof candidate === 'object' && !Array.isArray(candidate)) {
+        parsedPlanObservation = candidate as Record<string, unknown>;
+      }
+    } catch {
+      parsedPlanObservation = null;
+    }
+
+    const planId =
+      parsedPlanObservation && typeof parsedPlanObservation['plan_id'] === 'string'
+        ? parsedPlanObservation['plan_id']
+        : null;
+    const planSummary =
+      parsedPlanObservation && typeof parsedPlanObservation['summary'] === 'string'
+        ? parsedPlanObservation['summary']
+        : null;
+    const planCreated =
+      parsedPlanObservation && typeof parsedPlanObservation['plan_created'] === 'boolean'
+        ? parsedPlanObservation['plan_created']
+        : result.success;
+    const planRevised =
+      parsedPlanObservation && typeof parsedPlanObservation['plan_revised'] === 'boolean'
+        ? parsedPlanObservation['plan_revised']
+        : false;
+    const planVersion =
+      parsedPlanObservation && typeof parsedPlanObservation['plan_version'] === 'number'
+        ? parsedPlanObservation['plan_version']
+        : null;
+    const planSteps =
+      parsedPlanObservation && Array.isArray(parsedPlanObservation['steps'])
+        ? parsedPlanObservation['steps']
+        : null;
+
     const userAlreadyReceivedResponse = result.userAlreadyReceivedResponse === true;
     const followUpRequired = !result.success && !userAlreadyReceivedResponse;
     return JSON.stringify({
       success: result.success,
       data: {
         dispatch_kind: result.dispatchKind ?? 'plan',
+        plan_created: planCreated,
+        plan_revised: planRevised,
+        ...(planId ? { plan_id: planId } : {}),
+        ...(planVersion !== null ? { plan_version: planVersion } : {}),
+        ...(planSummary ? { plan_summary: planSummary } : {}),
+        ...(planSteps ? { plan_steps: planSteps } : {}),
         user_already_received_response: userAlreadyReceivedResponse,
         follow_up_required: followUpRequired,
         follow_up_hint: followUpRequired
           ? 'Plan execution did not complete successfully. Provide a single recovery sentence and next step.'
+          : planRevised
+            ? 'You revised the current saved plan in place. Briefly explain what changed from the previous version, then ask the user to approve execution or request more revisions. Do not execute yet.'
+            : 'Plan drafted successfully. Explain the plan in your own words, then ask the user to approve execution or request revisions. Do not execute yet.',
+        plan_observation: parsedPlanObservation ?? result.observation,
+        streamed_delta_count: result.streamedDeltaCount ?? 0,
+        streamed_char_count: result.streamedCharCount ?? 0,
+      },
+    });
+  }
+
+  private async handleSavedPlanDispatch(
+    err: ExecuteSavedPlanException,
+    toolCall: LLMToolCall,
+    userId: string,
+    operationId: string | undefined,
+    approvalGate: ApprovalGateService | undefined,
+    onStreamEvent: OnStreamEvent | undefined,
+    signal: AbortSignal | undefined
+  ): Promise<string> {
+    const ctx = this.resolveDispatchContext(
+      operationId,
+      userId,
+      approvalGate,
+      onStreamEvent,
+      signal
+    );
+    if (!ctx) {
+      return JSON.stringify({
+        success: false,
+        error: 'Saved plan execution unavailable: missing per-run state.',
+      });
+    }
+    onStreamEvent?.({
+      type: 'tool_result',
+      agentId: this.id,
+      stepId: toolCall.id,
+      toolName: toolCall.function.name,
+      stageType: 'tool',
+      toolSuccess: true,
+      toolResult: {
+        planId: err.payload.planId,
+        executing: true,
+      },
+      icon: this.resolveToolStepIcon(toolCall.function.name),
+      message: this.resolveToolInvocationLabel(toolCall.function.name, toolCall.function.arguments),
+    });
+    const result = await this.dispatcher.runApprovedPlan(err.payload.planId, ctx);
+    const userAlreadyReceivedResponse = result.userAlreadyReceivedResponse === true;
+    const followUpRequired = !result.success && !userAlreadyReceivedResponse;
+    return JSON.stringify({
+      success: result.success,
+      data: {
+        dispatch_kind: result.dispatchKind ?? 'saved_plan',
+        user_already_received_response: userAlreadyReceivedResponse,
+        follow_up_required: followUpRequired,
+        follow_up_hint: followUpRequired
+          ? 'Saved plan execution did not complete successfully. Provide a single recovery sentence and next step.'
           : 'No follow-up needed because delegated agents already streamed the user-facing response.',
         plan_observation: result.observation,
         streamed_delta_count: result.streamedDeltaCount ?? 0,
@@ -557,7 +844,9 @@ export class PrimaryAgent extends BaseAgent {
     const reasonPath: PrimaryToolSelectionTrace['reasonPath'] =
       toolName === 'delegate_to_coordinator'
         ? 'delegation'
-        : toolName === 'plan_and_execute'
+        : toolName === 'plan_and_execute' ||
+            toolName === 'create_plan' ||
+            toolName === 'execute_saved_plan'
           ? 'planning'
           : toolName === 'whoami_capabilities'
             ? 'system'
@@ -591,31 +880,6 @@ export class PrimaryAgent extends BaseAgent {
     if (context.sessionId) parts.push(`Session: \`${context.sessionId}\``);
     if (context.mode) parts.push(`Mode: ${context.mode}`);
     return parts.join(' • ');
-  }
-
-  /**
-   * Helper used to apply any operator-configured prompt override (e.g.
-   * `prompts.primarySystemPrompt`). Named distinctly from the base class
-   * `withConfiguredSystemPrompt` to avoid privacy collisions.
-   */
-  private applyConfiguredPrimaryPrompt(prompt: string): string {
-    const cfg = getCachedAgentAppConfig();
-    const overrideCandidates = [
-      cfg.prompts?.primarySystemPrompt,
-      cfg.prompts?.agentSystemPrompts?.router,
-    ];
-    const overrides = overrideCandidates.filter(
-      (value, index, values): value is string =>
-        typeof value === 'string' &&
-        value.trim().length > 0 &&
-        values.findIndex((candidate) => candidate === value) === index
-    );
-
-    if (overrides.length === 0) {
-      return prompt;
-    }
-
-    return `${prompt}\n\n## Operator Additions\n${overrides.join('\n\n')}`;
   }
 
   /**

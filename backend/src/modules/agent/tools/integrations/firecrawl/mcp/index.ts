@@ -4,3 +4,4 @@ export { FirecrawlSearchTool } from './firecrawl-search.tool.js';
 export { FirecrawlMapTool } from './firecrawl-map.tool.js';
 export { FirecrawlExtractTool } from './firecrawl-extract.tool.js';
 export { FirecrawlAgentTool } from './firecrawl-agent.tool.js';
+export { FirecrawlImagesTool } from './firecrawl-images.tool.js';

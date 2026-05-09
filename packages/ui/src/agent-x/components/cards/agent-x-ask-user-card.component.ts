@@ -83,7 +83,7 @@ export interface AskUserReplyEvent {
             <button
               type="button"
               class="ask-card__nav-btn"
-              [disabled]="!canAdvance() || isLastQuestion()"
+              [disabled]="isLastQuestion()"
               (click)="onNext()"
               aria-label="Next question"
             >
@@ -244,6 +244,9 @@ export interface AskUserReplyEvent {
         line-height: 1.55;
         font-weight: 500;
         color: var(--nxt1-color-text-primary, #ffffff);
+        white-space: pre-wrap;
+        overflow-wrap: break-word;
+        word-break: normal;
       }
 
       .ask-card__context {
@@ -322,8 +325,19 @@ export interface AskUserReplyEvent {
         overflow-y: auto;
         resize: none;
         outline: none;
+        box-shadow: none;
+        appearance: none;
+        -webkit-appearance: none;
+        -webkit-tap-highlight-color: transparent;
         font-family: inherit;
         caret-color: var(--ask-input-primary);
+      }
+
+      .ask-card__textarea:focus,
+      .ask-card__textarea:focus-visible {
+        outline: none;
+        box-shadow: none;
+        border: none;
       }
 
       .ask-card__textarea::placeholder {
@@ -463,8 +477,8 @@ export class AgentXAskUserCardComponent {
 
   protected readonly currentQuestion = computed(() => {
     const qs = this.questions();
-    if (qs.length === 0) return this.question();
-    return qs[this.currentQuestionIndex()] ?? qs[0];
+    const question = qs.length === 0 ? this.question() : (qs[this.currentQuestionIndex()] ?? qs[0]);
+    return this.formatQuestionForDisplay(question);
   });
 
   protected readonly placeholder = computed(() =>
@@ -511,7 +525,7 @@ export class AgentXAskUserCardComponent {
   }
 
   protected onNext(): void {
-    if (!this.canAdvance() || this.isLastQuestion()) return;
+    if (this.isLastQuestion()) return;
     this.persistDraftForCurrentQuestion();
     const nextIndex = this.currentQuestionIndex() + 1;
     this.currentQuestionIndex.set(nextIndex);
@@ -607,5 +621,14 @@ export class AgentXAskUserCardComponent {
     if (questionFragments.length >= 2) return questionFragments;
 
     return [trimmed];
+  }
+
+  private formatQuestionForDisplay(question: string): string {
+    return question
+      .replace(/\*\*(.*?)\*\*/g, '$1')
+      .replace(/__(.*?)__/g, '$1')
+      .replace(/`([^`]+)`/g, '$1')
+      .replace(/[ \t]+/g, ' ')
+      .trim();
   }
 }

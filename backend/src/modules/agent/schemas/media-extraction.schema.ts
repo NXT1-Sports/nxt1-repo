@@ -54,6 +54,19 @@ const SourceRefSchema = z.object({
   displayName: z.string().optional().describe('Profile display name on that platform'),
 });
 
+// ─── Image Asset ─────────────────────────────────────────────────────────────
+
+export const ImageKindSchema = z
+  .enum(['action_shot', 'headshot', 'team_photo', 'graphic', 'banner', 'unknown'])
+  .describe('Classification of the image type');
+
+export const ImageAssetSchema = z.object({
+  url: z.string().url().describe('Full URL of the image'),
+  alt: z.string().optional().describe('Alt text or short description'),
+  kind: ImageKindSchema.default('unknown'),
+  sourceUrl: z.string().url().optional().describe('Page URL the image was extracted from'),
+});
+
 // ─── Root Schema ────────────────────────────────────────────────────────────
 
 export const MediaExtractionSchema = z.object({
@@ -67,4 +80,5 @@ export const MediaExtractionSchema = z.object({
   bannerImageUrl: z.string().url().optional().describe('Banner/cover image URL if found'),
 });
 
+export type ImageAsset = z.infer<typeof ImageAssetSchema>;
 export type MediaExtraction = z.infer<typeof MediaExtractionSchema>;

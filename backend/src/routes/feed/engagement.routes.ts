@@ -60,6 +60,7 @@ async function resolveAuthorId(
  */
 router.post(
   '/:id/view',
+  optionalAuth,
   asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const { id } = req.params as { id: string };
     const db = req.firebase!.db;
@@ -67,23 +68,35 @@ router.post(
     // Respond immediately — never block the client on a view write
     res.status(204).end();
 
-    const viewerUserId = (req as Request & { user?: { uid?: string } }).user?.uid ?? null;
+    const viewerUserId = req.user?.uid ?? null;
 
-    db.collection(ENGAGEMENT_COLLECTION)
-      .doc(id)
-      .set({ views: FieldValue.increment(1) }, { merge: true })
-      .catch((err) =>
-        logger.warn('[Engagement] viewCount increment failed', {
-          itemId: id,
-          error: err?.message,
-        })
-      );
+    void (async () => {
+      const authorId = await resolveAuthorId(db, id);
 
-    // Mirror to MongoDB so Agent X analytics queries reflect live view counts
-    if (viewerUserId) {
-      void getAnalyticsLoggerService()
+      // Skip counting a post view when the viewer is the post owner.
+      if (viewerUserId && authorId && authorId === viewerUserId) {
+        return;
+      }
+
+      await db
+        .collection(ENGAGEMENT_COLLECTION)
+        .doc(id)
+        .set({ views: FieldValue.increment(1) }, { merge: true })
+        .catch((err) =>
+          logger.warn('[Engagement] viewCount increment failed', {
+            itemId: id,
+            error: err?.message,
+          })
+        );
+
+      // Mirror to MongoDB so Agent X analytics queries reflect live view counts.
+      // For anonymous viewers, attribute the event to the content owner when
+      // available; otherwise fall back to an item-scoped anonymous subject.
+      const analyticsSubjectId = authorId ?? viewerUserId ?? `anonymous:${id}`;
+
+      await getAnalyticsLoggerService()
         .safeTrack({
-          subjectId: viewerUserId,
+          subjectId: analyticsSubjectId,
           subjectType: 'user',
           domain: 'engagement',
           eventType: 'content_viewed',
@@ -91,9 +104,13 @@ router.post(
           actorUserId: viewerUserId,
           sessionId: null,
           threadId: null,
-          tags: ['feed_card', 'view'],
+          tags: ['feed_card', 'view', viewerUserId ? 'authenticated' : 'anonymous'],
           payload: { itemId: id },
-          metadata: { initiatedBy: 'engagement_route' },
+          metadata: {
+            initiatedBy: 'engagement_route',
+            contentOwnerId: authorId,
+            viewerAuthenticated: Boolean(viewerUserId),
+          },
         })
         .catch((err) =>
           logger.warn('[Engagement] analytics track view failed', {
@@ -101,7 +118,12 @@ router.post(
             error: err?.message,
           })
         );
-    }
+    })().catch((err) =>
+      logger.warn('[Engagement] view pipeline failed', {
+        itemId: id,
+        error: err instanceof Error ? err.message : String(err),
+      })
+    );
   })
 );
 
@@ -143,30 +165,36 @@ router.post(
       sharerUid: req.user?.uid ?? 'anonymous',
     });
 
-    // Mirror to MongoDB so Agent X analytics queries reflect live share counts
+    // Mirror to MongoDB so Agent X analytics queries reflect live share counts.
+    // For anonymous sharers, attribute the event to the content owner when
+    // available; otherwise fall back to an item-scoped anonymous subject.
     const sharerUserId = req.user?.uid ?? null;
-    if (sharerUserId) {
-      void getAnalyticsLoggerService()
-        .safeTrack({
-          subjectId: sharerUserId,
-          subjectType: 'user',
-          domain: 'engagement',
-          eventType: 'content_shared',
-          source: 'user',
-          actorUserId: sharerUserId,
-          sessionId: null,
-          threadId: null,
-          tags: ['feed_card', 'share'],
-          payload: { itemId: id, shareCount },
-          metadata: { initiatedBy: 'engagement_route' },
+    const analyticsSubjectId = authorId ?? sharerUserId ?? `anonymous:${id}`;
+
+    void getAnalyticsLoggerService()
+      .safeTrack({
+        subjectId: analyticsSubjectId,
+        subjectType: 'user',
+        domain: 'engagement',
+        eventType: 'content_shared',
+        source: 'user',
+        actorUserId: sharerUserId,
+        sessionId: null,
+        threadId: null,
+        tags: ['feed_card', 'share', sharerUserId ? 'authenticated' : 'anonymous'],
+        payload: { itemId: id, shareCount },
+        metadata: {
+          initiatedBy: 'engagement_route',
+          contentOwnerId: authorId,
+          sharerAuthenticated: Boolean(sharerUserId),
+        },
+      })
+      .catch((err) =>
+        logger.warn('[Engagement] analytics track share failed', {
+          itemId: id,
+          error: err?.message,
         })
-        .catch((err) =>
-          logger.warn('[Engagement] analytics track share failed', {
-            itemId: id,
-            error: err?.message,
-          })
-        );
-    }
+      );
 
     res.json({ success: true, data: { shareCount } });
   })

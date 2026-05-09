@@ -46,6 +46,10 @@ import type { AgentXPlannerItem, AgentXRichCard } from '@nxt1/core/ai';
           <button
             class="planner-item"
             [class.planner-item--done]="item.done"
+            [class.planner-item--active]="item.active && !item.done"
+            [class.planner-item--failed]="item.status === 'failed'"
+            [class.planner-item--blocked]="item.status === 'blocked'"
+            [class.planner-item--awaiting]="item.status === 'awaiting_tool_approval'"
             (click)="onToggle(item)"
           >
             <div class="planner-item__checkbox">
@@ -67,6 +71,16 @@ import type { AgentXPlannerItem, AgentXRichCard } from '@nxt1/core/ai';
                     stroke-linejoin="round"
                   />
                 </svg>
+              } @else if (item.active && !item.done) {
+                <svg class="planner-item__spinner" viewBox="0 0 16 16" fill="none">
+                  <circle cx="8" cy="8" r="6.5" stroke="currentColor" stroke-width="1.2" />
+                  <path
+                    d="M8 1.5A6.5 6.5 0 0 1 14.5 8"
+                    stroke="var(--nxt1-color-primary, #ccff00)"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                  />
+                </svg>
               } @else {
                 <svg viewBox="0 0 16 16" fill="none">
                   <rect
@@ -81,7 +95,12 @@ import type { AgentXPlannerItem, AgentXRichCard } from '@nxt1/core/ai';
                 </svg>
               }
             </div>
-            <span class="planner-item__label">{{ item.label }}</span>
+            <span class="planner-item__content">
+              <span class="planner-item__label">{{ item.label }}</span>
+              @if (item.note) {
+                <span class="planner-item__note">{{ item.note }}</span>
+              }
+            </span>
           </button>
         }
       </div>
@@ -163,6 +182,20 @@ import type { AgentXPlannerItem, AgentXRichCard } from '@nxt1/core/ai';
         color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.4));
       }
 
+      .planner-item--active .planner-item__label {
+        color: var(--nxt1-color-text-primary, #ffffff);
+        font-weight: 600;
+      }
+
+      .planner-item--failed .planner-item__note,
+      .planner-item--blocked .planner-item__note {
+        color: #ff8f8f;
+      }
+
+      .planner-item--awaiting .planner-item__note {
+        color: #ffd27a;
+      }
+
       .planner-item__checkbox {
         width: 16px;
         height: 16px;
@@ -175,11 +208,36 @@ import type { AgentXPlannerItem, AgentXRichCard } from '@nxt1/core/ai';
         height: 16px;
       }
 
+      .planner-item__spinner {
+        animation: nxt1-plan-spin 0.9s linear infinite;
+        transform-origin: center;
+      }
+
+      @keyframes nxt1-plan-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      .planner-item__content {
+        display: flex;
+        flex: 1;
+        min-width: 0;
+        flex-direction: column;
+        gap: 2px;
+      }
+
       .planner-item__label {
         flex: 1;
         font-size: 0.8125rem;
         line-height: 1.4;
         transition: color 0.2s ease;
+      }
+
+      .planner-item__note {
+        font-size: 0.75rem;
+        line-height: 1.35;
+        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
       }
     `,
   ],

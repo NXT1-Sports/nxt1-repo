@@ -49,11 +49,14 @@ export const cleanupStaleAgentJobs = onSchedule(
 
       if (!response.ok) {
         const body = await response.text().catch(() => '');
-        logger.error('Stale job cleanup backend call failed', {
+        // Use warn (not error) so the scheduler wrapper doesn't create a
+        // duplicate Error Reporting group — the outer catch logs the single
+        // authoritative error entry.
+        logger.warn('Backend returned non-OK response', {
           status: response.status,
           body: body.slice(0, 500),
         });
-        throw new Error(`Backend returned ${response.status}`);
+        throw new Error(`Stale job cleanup: backend returned ${response.status}`);
       }
 
       const result = (await response.json()) as {

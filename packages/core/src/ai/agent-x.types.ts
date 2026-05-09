@@ -54,6 +54,8 @@ export interface AgentXAttachment {
   readonly cloudflareVideoId?: string;
   /** Connected-source platform label for app attachments. */
   readonly platform?: string;
+  /** Connected-source profile/account URL for app attachments. */
+  readonly profileUrl?: string;
   /** Platform favicon URL for app attachments. */
   readonly faviconUrl?: string;
 }
@@ -105,8 +107,9 @@ export type AgentXMessagePart =
    * Extended thinking block emitted by Claude 3.7+ / Gemini 2.5 before the
    * answer. Hidden by default (collapsed) — surfaced as a collapsible panel
    * in the chat UI so power users can inspect the model's reasoning.
+   * `done` is set to true when the first text delta arrives, collapsing the block.
    */
-  | { readonly type: 'thinking'; readonly content: string };
+  | { readonly type: 'thinking'; readonly content: string; readonly done?: true };
 
 /**
  * A single message in the Agent X conversation.
@@ -124,9 +127,7 @@ export interface AgentXMessage {
   readonly isTyping?: boolean;
   /** Whether this message represents an error */
   readonly error?: boolean;
-  /** Optional image URL (e.g. generated graphic from Agent X) */
-  readonly imageUrl?: string;
-  /** File attachments (images, PDFs, CSVs) uploaded with this message. */
+  /** File attachments (images, PDFs, CSVs, videos) for this message. */
   readonly attachments?: readonly AgentXAttachment[];
   /** Optional metadata */
   readonly metadata?: AgentXMessageMetadata;
@@ -484,6 +485,10 @@ export interface AgentXPlannerItem {
   readonly done: boolean;
   /** True while this specific task is actively executing. At most one item is active at a time. */
   readonly active?: boolean;
+  /** Typed task status for richer execution-plan rendering. */
+  readonly status?: import('./agent.types').AgentTaskStatus;
+  /** Optional short detail line shown under the main label. */
+  readonly note?: string;
 }
 
 /**
@@ -560,12 +565,15 @@ export interface AgentXConfirmationAction {
  * - `timeline_post`   — Timeline/team post approval with editable title + description.
  * - `generic_approval`— Rich approval card for non-email tools (profile/team writes,
  *                       workspace actions, deletes, etc.) with action summary + data preview.
+ * - `plan_approval`   — Multi-step execution plan review card with goal + ordered
+ *                       step list (used by `create_plan` / `execute_saved_plan`).
  */
 export type AgentXConfirmationVariant =
   | 'email'
   | 'email-batch'
   | 'timeline_post'
-  | 'generic_approval';
+  | 'generic_approval'
+  | 'plan_approval';
 
 /**
  * Email payload attached to `email` and `email-batch` confirmation cards.
@@ -686,6 +694,41 @@ export interface AgentXConfirmationTimelinePostData {
   readonly isTeamPost: boolean;
 }
 
+/**
+ * A single step inside a plan approval card.
+ * Mirrors the persisted `AgentTask` shape but only carries display-relevant fields
+ * so the frontend can render an ordered, human-readable list without leaking
+ * internal scheduling/DAG metadata.
+ */
+export interface AgentXPlanApprovalStep {
+  /** Stable task id (`task_1`, `task_2`, …) — used as `track` key on the frontend. */
+  readonly id: string;
+  /** Short human-readable label (e.g. "Draft outreach email to coach Smith"). */
+  readonly label: string;
+  /** Optional longer description shown under the label. */
+  readonly description?: string;
+  /** Coordinator/agent that will execute this step (e.g. "communication_coordinator"). */
+  readonly coordinator?: string;
+  /** Tool the coordinator is expected to invoke (display only). */
+  readonly toolName?: string;
+}
+
+/**
+ * Plan approval payload attached to `plan_approval` confirmation cards.
+ *
+ * Surfaces the actual plan (goal + ordered steps) so users can review and
+ * approve a multi-step execution plan, instead of seeing only an opaque
+ * `planId` in the generic-approval data table.
+ */
+export interface AgentXPlanApprovalData {
+  /** The user-stated goal that produced this plan. */
+  readonly goal: string;
+  /** Backend-issued plan id — preserved for the resume / execute step. */
+  readonly planId: string;
+  /** Ordered, display-ready list of plan steps. */
+  readonly steps: ReadonlyArray<AgentXPlanApprovalStep>;
+}
+
 /** Payload for the `confirmation` card type. */
 export interface AgentXConfirmationPayload {
   /** Descriptive message body. */
@@ -716,6 +759,12 @@ export interface AgentXConfirmationPayload {
    * Provides editable title/description for timeline/team post approvals.
    */
   readonly timelinePostData?: AgentXConfirmationTimelinePostData;
+  /**
+   * Plan approval data — present on `plan_approval` variant.
+   * Surfaces the goal and the ordered list of steps Agent X drafted so the
+   * user can review the actual plan instead of just an opaque plan id.
+   */
+  readonly planApprovalData?: AgentXPlanApprovalData;
 }
 
 // ── Ask User ──
@@ -1020,6 +1069,8 @@ export interface AgentXStreamStepEvent {
   readonly icon?: AgentXToolStepIcon;
   /** Optional expanded detail (e.g. "Found 24 matching athletes"). */
   readonly detail?: string;
+  /** Optional structured tool payload for successful terminal step updates. */
+  readonly toolResult?: Record<string, unknown>;
 }
 
 /**
@@ -1382,6 +1433,29 @@ export interface CompletedGoalRecord {
   readonly role: string;
   /** Whole-day count from createdAt → completedAt */
   readonly daysToComplete: number;
+  /** Total playbook items generated for this goal across the active cycle. */
+  readonly itemsTotal?: number;
+  /** Number of playbook items completed for this goal. */
+  readonly itemsCompleted?: number;
+  /** Completed playbook tasks linked to this goal. */
+  readonly completedItems?: readonly CompletedPlaybookTaskRecord[];
+  /** Pending playbook tasks still linked to this goal. */
+  readonly pendingItems?: readonly PendingPlaybookTaskRecord[];
+  /** Whether the goal has been fully completed. */
+  readonly isCompleted?: boolean;
+}
+
+/** A playbook task completed under a goal-history record. */
+export interface CompletedPlaybookTaskRecord {
+  readonly id: string;
+  readonly title: string;
+  readonly completedAt: PortableTimestamp;
+}
+
+/** A playbook task still pending under a goal-history record. */
+export interface PendingPlaybookTaskRecord {
+  readonly id: string;
+  readonly title: string;
 }
 
 /** Request body for completing an active goal. */
@@ -1432,6 +1506,7 @@ export interface AgentDashboardBriefing {
 
 /** Goal-driven weekly playbook. */
 export interface AgentDashboardPlaybook {
+  readonly id?: string;
   readonly items: readonly ShellWeeklyPlaybookItem[];
   readonly goals: readonly AgentDashboardGoal[];
   readonly generatedAt: string | null;

@@ -150,7 +150,7 @@ jobs:
 
       - name: Download build artifacts
         if: github.event_name == 'workflow_dispatch'
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@v4
         with:
           name: web-build
           path: apps/web/dist
@@ -215,7 +215,7 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && always()
     steps:
       - name: Download all reports
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@v4
         with:
           pattern: playwright-report-*
           merge-multiple: true
@@ -294,7 +294,7 @@ jobs:
 
       - name: Download build artifacts
         if: github.event_name == 'workflow_dispatch'
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@v4
         with:
           name: web-build
           path: apps/web/dist

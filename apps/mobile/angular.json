@@ -149,7 +149,10 @@
           "builder": "@angular-devkit/build-angular:dev-server",
           "options": {
             "port": 4300,
-            "prebundle": false
+            "prebundle": false,
+            "headers": {
+              "Cross-Origin-Opener-Policy": "unsafe-none"
+            }
           },
           "configurations": {
             "production": {

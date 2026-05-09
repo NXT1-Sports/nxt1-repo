@@ -43,11 +43,14 @@ export const cleanupStaleWalletHolds = onSchedule(
 
       if (!response.ok) {
         const body = await response.text().catch(() => '');
-        logger.error('Stale wallet hold cleanup backend call failed', {
+        // Use warn (not error) so the scheduler wrapper doesn't create a
+        // duplicate Error Reporting group — the outer catch logs the single
+        // authoritative error entry.
+        logger.warn('Backend returned non-OK response', {
           status: response.status,
           body: body.slice(0, 500),
         });
-        throw new Error(`Backend returned ${response.status}`);
+        throw new Error(`Stale wallet hold cleanup: backend returned ${response.status}`);
       }
 
       const result = (await response.json()) as {

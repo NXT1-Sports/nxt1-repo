@@ -273,7 +273,15 @@ export class FirebaseAuthService implements OnDestroy {
       this.logger.debug('Using native Google Sign-In via @capacitor-firebase/authentication');
 
       try {
+        // ⏱️ DEBUG: Time the native Google plugin call
+        const __dbgNativeStart = performance.now();
+        this.logger.info(
+          '⏱️ [DEBUG] Google: calling FirebaseAuthentication.signInWithGoogle (native plugin)...'
+        );
         const nativeResult = await this.nativeAuth.signInWithGoogle();
+        this.logger.info(
+          `⏱️ [DEBUG] Google: native plugin took ${(performance.now() - __dbgNativeStart).toFixed(0)}ms`
+        );
 
         // User cancelled
         if (!nativeResult) {
@@ -290,16 +298,29 @@ export class FirebaseAuthService implements OnDestroy {
         let currentUser = this.auth.currentUser;
 
         if (!currentUser) {
-          this.logger.debug('Waiting for Firebase auth state to sync...');
+          // ⏱️ DEBUG: Time Firebase auth state polling
+          const __dbgPollStart = performance.now();
+          this.logger.info('⏱️ [DEBUG] Google: Firebase auth state not yet synced — polling...');
           // Wait up to 2 seconds for auth state to update
           for (let i = 0; i < 20; i++) {
             await new Promise((resolve) => setTimeout(resolve, 100));
             currentUser = this.auth.currentUser;
             if (currentUser) {
-              this.logger.debug('Firebase auth state synced', { delayMs: (i + 1) * 100 });
+              this.logger.info(
+                `⏱️ [DEBUG] Google: Firebase auth state synced after ${(performance.now() - __dbgPollStart).toFixed(0)}ms (${i + 1} polls × 100ms)`
+              );
               break;
             }
           }
+          if (!currentUser) {
+            this.logger.warn(
+              `⏱️ [DEBUG] Google: Firebase auth state never synced after ${(performance.now() - __dbgPollStart).toFixed(0)}ms (20 polls)`
+            );
+          }
+        } else {
+          this.logger.info(
+            '⏱️ [DEBUG] Google: Firebase auth state already synced (no polling needed)'
+          );
         }
 
         if (!currentUser) {
@@ -310,12 +331,16 @@ export class FirebaseAuthService implements OnDestroy {
 
           // Last resort: manually sign in with the credential if we have idToken
           if (nativeResult.idToken) {
-            this.logger.debug('Attempting manual sign-in with credential...');
+            // ⏱️ DEBUG: Time the manual credential sign-in fallback
+            const __dbgCredStart = performance.now();
+            this.logger.info('⏱️ [DEBUG] Google: trying signInWithCredential fallback...');
             const credential = GoogleAuthProvider.credential(nativeResult.idToken);
             const result = await runInInjectionContext(this.injector, () =>
               signInWithCredential(this.auth, credential)
             );
-            this.logger.debug('Manual sign-in successful');
+            this.logger.info(
+              `⏱️ [DEBUG] Google: signInWithCredential fallback took ${(performance.now() - __dbgCredStart).toFixed(0)}ms`
+            );
             if (nativeResult.serverAuthCode) {
               void this.exchangeGmailServerAuthCode(result.user, nativeResult.serverAuthCode);
             }
@@ -461,7 +486,14 @@ export class FirebaseAuthService implements OnDestroy {
         // This avoids both:
         // - signInWithCredential 400 (requestUri mismatch in WebView)
         // - @capacitor-firebase/authentication "missing initial state" redirect error
+
+        // ⏱️ DEBUG: Time the MSAL native plugin call
+        const __dbgMsalStart = performance.now();
+        this.logger.info('⏱️ [DEBUG] Microsoft: calling nativeAuth.signInWithMicrosoft (MSAL)...');
         const result = await this.nativeAuth.signInWithMicrosoft();
+        this.logger.info(
+          `⏱️ [DEBUG] Microsoft: MSAL native plugin took ${(performance.now() - __dbgMsalStart).toFixed(0)}ms`
+        );
 
         // User cancelled
         if (!result) {
@@ -472,7 +504,15 @@ export class FirebaseAuthService implements OnDestroy {
         // Native account has been chosen. Signal the caller so UI can show loading.
         onAccountSelected?.();
 
+        // ⏱️ DEBUG: Time the backend custom-token exchange + Firebase signIn
+        const __dbgNativeCredStart = performance.now();
+        this.logger.info(
+          '⏱️ [DEBUG] Microsoft: exchanging MSAL token via backend + signInWithCustomToken...'
+        );
         const userCredential = await this.signInWithNativeCredential(result);
+        this.logger.info(
+          `⏱️ [DEBUG] Microsoft: signInWithNativeCredential took ${(performance.now() - __dbgNativeCredStart).toFixed(0)}ms`
+        );
 
         // Capture accessToken for Microsoft Mail so backend can send emails on
         // behalf of this user (fire-and-forget — sign-in succeeds regardless).
@@ -683,6 +723,12 @@ export class FirebaseAuthService implements OnDestroy {
           // Firebase rejects it with auth/invalid-credential-or-provider-id.
           // Instead: exchange via backend custom-token endpoint, which validates
           // the MSAL token server-side and returns a proper Firebase custom token.
+
+          // ⏱️ DEBUG: Time the backend custom-token HTTP call
+          const __dbgMsBackendStart = performance.now();
+          this.logger.info(
+            '⏱️ [DEBUG] Microsoft: POST /auth/microsoft/custom-token (backend exchange)...'
+          );
           const msResponse = await fetch(`${environment.apiUrl}/auth/microsoft/custom-token`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -691,6 +737,9 @@ export class FirebaseAuthService implements OnDestroy {
               accessToken: nativeResult.accessToken,
             }),
           });
+          this.logger.info(
+            `⏱️ [DEBUG] Microsoft: backend custom-token HTTP call took ${(performance.now() - __dbgMsBackendStart).toFixed(0)}ms (status=${msResponse.status})`
+          );
 
           if (!msResponse.ok) {
             const errorText = await msResponse.text();
@@ -703,8 +752,14 @@ export class FirebaseAuthService implements OnDestroy {
             displayName: msDisplayName,
           } = await msResponse.json();
 
+          // ⏱️ DEBUG: Time signInWithCustomToken
+          const __dbgMsCustomTokenStart = performance.now();
+          this.logger.info('⏱️ [DEBUG] Microsoft: signInWithCustomToken...');
           const { signInWithCustomToken } = await import('@angular/fire/auth');
           const userCred = await signInWithCustomToken(this.auth, firebaseToken);
+          this.logger.info(
+            `⏱️ [DEBUG] Microsoft: signInWithCustomToken took ${(performance.now() - __dbgMsCustomTokenStart).toFixed(0)}ms`
+          );
 
           await userCred.user.reload();
 

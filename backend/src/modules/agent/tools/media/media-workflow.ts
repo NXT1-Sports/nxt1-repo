@@ -255,7 +255,8 @@ export function buildPortableMediaArtifact(params: {
         ? 'persistence_optional'
         : 'portable',
     analysisReady: true,
-    recommendedNextAction: 'analyze_video',
+    recommendedNextAction:
+      (params.mediaKind ?? 'video') === 'image' ? 'review_media' : 'analyze_video',
     sourceUrl: params.sourceUrl,
     portableUrl: params.sourceUrl,
     playableUrls: [params.sourceUrl],
@@ -266,6 +267,44 @@ export function buildPortableMediaArtifact(params: {
         : [],
     rationale:
       params.rationale ?? 'This media source is already portable and ready for direct analysis.',
+  };
+}
+
+export interface BuildImageArtifactInput {
+  readonly url: string;
+  readonly alt?: string;
+  readonly sourceUrl?: string;
+  readonly rationale?: string;
+}
+
+/**
+ * Build a MediaWorkflowArtifact for a single image URL.
+ *
+ * - Firebase Storage / Firebase Hosting → staged, portable, review_media
+ * - Any other public URL → public_direct, portable, review_media
+ * mediaKind is always 'image'.
+ */
+export function buildImageWorkflowArtifact(input: BuildImageArtifactInput): MediaWorkflowArtifact {
+  const url = input.url.trim();
+  const isStaged = FIREBASE_STORAGE_PATTERN.test(url);
+
+  return {
+    mediaKind: 'image',
+    sourceType: isStaged ? 'staged' : 'public_direct',
+    transportReadiness: 'portable',
+    analysisReady: true,
+    recommendedNextAction: 'review_media',
+    sourceUrl: input.sourceUrl ?? url,
+    portableUrl: url,
+    playableUrls: [url],
+    directMp4Urls: [],
+    manifestUrls: [],
+    stagingHeaders: undefined,
+    rationale:
+      input.rationale ??
+      (isStaged
+        ? 'Image has been staged to Firebase Storage and is portable for review.'
+        : 'Public image URL is portable and ready for review or write_athlete_images.'),
   };
 }
 

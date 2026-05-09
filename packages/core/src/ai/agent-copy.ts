@@ -182,6 +182,15 @@ export function resolveAgentApprovalCopy(input: {
   }
 
   switch (toolName) {
+    case 'execute_saved_plan': {
+      const actionSummary = 'Review this plan and approve execution when you are ready.';
+      return {
+        reasonCode: 'run_tool',
+        actionSummary,
+        notificationTitle: 'Review Execution Plan',
+        notificationBody: actionSummary,
+      };
+    }
     case 'send_email': {
       const toEmail =
         typeof toolInput['toEmail'] === 'string' ? toolInput['toEmail'] : 'the recipient';

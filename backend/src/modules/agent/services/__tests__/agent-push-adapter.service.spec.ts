@@ -61,13 +61,35 @@ describe('agent-push-adapter.service', () => {
     });
 
     expect(payload.type).toBe('agent_action');
-    expect(payload.idempotencyKey).toBe(
-      'agent_sched_completed_user-1_repeat_abc123_repeat_abc123_1711111111111'
-    );
+    expect(payload.idempotencyKey).toBe('sched_c_repeat_abc123_1711111111111');
     expect(payload.data).toMatchObject({
       scheduleId: 'repeat:abc123',
       runId: 'repeat:abc123:1711111111111',
       scheduledExecutionStatus: 'completed',
+      entityId: 'repeat:abc123:1711111111111',
+    });
+  });
+
+  it('maps scheduled execution failed intent to thread deep link and run-based idempotency key', () => {
+    const payload = toDispatchInput({
+      kind: 'agent_scheduled_execution_failed',
+      userId: 'user-1',
+      operationId: 'recurring-op-1',
+      scheduleId: 'repeat:abc123',
+      runId: 'repeat:abc123:1711111111111',
+      threadId: 'thread-99',
+      title: 'Scheduled Agent Task Failed',
+      body: 'Run failed',
+      errorMessage: 'Tool error',
+    });
+
+    expect(payload.deepLink).toBe('/agent-x?thread=thread-99');
+    expect(payload.idempotencyKey).toBe('sched_f_repeat_abc123_1711111111111');
+    expect(payload.data).toMatchObject({
+      scheduleId: 'repeat:abc123',
+      runId: 'repeat:abc123:1711111111111',
+      scheduledExecutionStatus: 'failed',
+      failed: 'true',
       entityId: 'repeat:abc123:1711111111111',
     });
   });

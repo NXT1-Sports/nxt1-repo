@@ -143,6 +143,14 @@ export interface DistilledAward {
   readonly date?: string;
 }
 
+export interface DistilledPlaybook {
+  readonly name: string;
+  readonly sport: string;
+  readonly playCount: number;
+  readonly formationTypes?: readonly string[];
+  readonly videoRefs?: readonly string[];
+}
+
 // ─── Unified Profile ────────────────────────────────────────────────────────
 
 /**
@@ -160,7 +168,8 @@ export type DistilledSectionKey =
   | 'schedule'
   | 'videos'
   | 'recruiting'
-  | 'awards';
+  | 'awards'
+  | 'playbooks';
 
 /**
  * The unified output of any platform distiller.
@@ -183,6 +192,7 @@ export interface DistilledProfile {
   readonly videos?: readonly DistilledVideo[];
   readonly recruiting?: readonly DistilledRecruitingActivity[];
   readonly awards?: readonly DistilledAward[];
+  readonly playbooks?: readonly DistilledPlaybook[];
 }
 
 /**

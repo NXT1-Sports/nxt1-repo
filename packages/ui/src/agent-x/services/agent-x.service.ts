@@ -38,6 +38,7 @@ import {
   type AgentXAttachment,
   type AgentXMessage,
   type AgentXQuickTask,
+  type AgentXRichCard,
   type AgentXMode,
   type AgentXUserContext,
   type AgentDashboardData,
@@ -155,6 +156,15 @@ export class AgentXService {
   } | null>(null);
 
   /**
+   * Pending resolved op: filled when onThread fires for an in-flight stream
+   * after the originating chat component was destroyed.
+   */
+  private readonly _pendingResolvedOp = signal<{
+    operationId: string;
+    threadId: string;
+  } | null>(null);
+
+  /**
    * Pending startup message queued by an external surface (e.g. profile timeline CTA).
    * The Agent X web shell reads this via effect() after resetToDefaultDesktopSession()
    * and immediately sends it as the opening message in a new desktop session.
@@ -208,6 +218,7 @@ export class AgentXService {
   private readonly _weeklyPlaybook = signal<ShellWeeklyPlaybookItem[]>([]);
   private readonly _coordinators = signal<ShellCommandCategory[]>([]);
   private readonly _goals = signal<AgentDashboardGoal[]>([]);
+  private readonly _activePlaybookId = signal<string | null>(null);
   private readonly _playbookGeneratedAt = signal<string | null>(null);
   private readonly _canRegenerate = signal(false);
   private readonly _playbookGenerating = signal(false);
@@ -291,6 +302,14 @@ export class AgentXService {
    * The web shell effect watches this and opens op-chat with the resume params.
    */
   readonly pendingResumeOp = computed(() => this._pendingResumeOp());
+
+  /**
+   * Set when the SSE `onThread` event fires for a stream whose chat component
+   * was already destroyed (navigate-away-before-thread race). The web shell
+   * effect watches this and remounts the chat component with the correct
+   * threadId so it can claim the buffered stream from the registry.
+   */
+  readonly pendingResolvedOp = computed(() => this._pendingResolvedOp());
 
   /**
    * Requested side panel content from the agent.
@@ -512,16 +531,20 @@ export class AgentXService {
    * Push a message into the chat from an external source
    * (e.g., background agent task completion, push notification).
    *
-   * Supports text-only, image-only, or text + image messages.
+   * Supports text-only, text + attachments messages.
    */
   pushMessage(message: Omit<AgentXMessage, 'id' | 'timestamp'>): void {
-    // Dedup: skip if the last message has the same imageUrl (prevents duplicate
+    // Dedup: skip if the last message has the same attachment URLs (prevents duplicate
     // injection when user taps an activity item or notification multiple times).
-    if (message.imageUrl) {
+    const attachmentUrls = (message.attachments ?? []).map((a) => a.url).join('|');
+    if (attachmentUrls.length > 0) {
       const msgs = this._messages();
       const last = msgs[msgs.length - 1];
-      if (last?.imageUrl === message.imageUrl) {
-        this.logger.debug('Duplicate image message skipped', { imageUrl: message.imageUrl });
+      const lastUrls = (last?.attachments ?? []).map((a) => a.url).join('|');
+      if (lastUrls === attachmentUrls) {
+        this.logger.debug('Duplicate message with same attachments skipped', {
+          attachmentUrls,
+        });
         return;
       }
     }
@@ -534,7 +557,7 @@ export class AgentXService {
     this._messages.update((msgs) => [...msgs, fullMessage]);
     this.logger.info('External message pushed', {
       role: message.role,
-      hasImage: !!message.imageUrl,
+      attachmentCount: message.attachments?.length ?? 0,
     });
   }
 
@@ -625,6 +648,23 @@ export class AgentXService {
   }
 
   /**
+   * Signal that an in-flight SSE stream resolved its threadId while no
+   * chat component was mounted. The shell's effect will remount the
+   * component with the correct threadId to claim the buffered stream.
+   */
+  setPendingResolvedOp(operationId: string, threadId: string): void {
+    const trimmedOp = operationId.trim();
+    const trimmedThread = threadId.trim();
+    if (!trimmedOp || !trimmedThread) return;
+    this._pendingResolvedOp.set({ operationId: trimmedOp, threadId: trimmedThread });
+  }
+
+  /** Clear the pending resolved op after the shell has consumed it. */
+  clearPendingResolvedOp(): void {
+    this._pendingResolvedOp.set(null);
+  }
+
+  /**
    * Read and immediately clear any pending drop-recovery operation from
    * sessionStorage (saved mid-stream when the page was refreshed).
    * The web shell calls this on init and opens op-chat with the result.
@@ -643,6 +683,38 @@ export class AgentXService {
       };
     } catch {
       return null;
+    }
+  }
+
+  /**
+   * Persist an in-flight operation so the web shell can recover it after
+   * refresh/navigation even before the stream resolves a threadId.
+   */
+  persistDropRecoveryOp(operationId: string, threadId?: string): void {
+    if (!isPlatformBrowser(this.platformId)) return;
+    const trimmedOperationId = operationId.trim();
+    if (!trimmedOperationId) return;
+    try {
+      sessionStorage.setItem(
+        AGENT_X_PENDING_OP_KEY,
+        JSON.stringify({
+          operationId: trimmedOperationId,
+          ...(threadId?.trim() ? { threadId: threadId.trim() } : {}),
+          savedAt: Date.now(),
+        })
+      );
+    } catch {
+      // Non-blocking best-effort persistence.
+    }
+  }
+
+  /** Clear any persisted drop-recovery operation marker. */
+  clearDropRecoveryOp(): void {
+    if (!isPlatformBrowser(this.platformId)) return;
+    try {
+      sessionStorage.removeItem(AGENT_X_PENDING_OP_KEY);
+    } catch {
+      // Non-blocking best-effort cleanup.
     }
   }
 
@@ -700,6 +772,16 @@ export class AgentXService {
         // Phase J (thread-as-truth): tool/system rows are persisted for
         // backend replay only — they must not render as chat bubbles.
         .filter((m) => m.role === 'user' || m.role === 'assistant')
+        // P1: skip empty assistant rows (no content, no parts, no steps, no resultData).
+        .filter((m) => {
+          if (m.role !== 'assistant') return true;
+          return (
+            (m.content ?? '').trim().length > 0 ||
+            (m.parts?.length ?? 0) > 0 ||
+            (m.steps?.length ?? 0) > 0 ||
+            (!!m.resultData && Object.keys(m.resultData).length > 0)
+          );
+        })
         .map((message) => this.mapPersistedMessageToUi(message));
 
       this._messages.set(messages);
@@ -1015,17 +1097,61 @@ export class AgentXService {
    * ranked as: has resultData > has steps > has toolCalls > longest content.
    * The richest row is the final persist; the earlier partial has no metadata.
    *
-   * `assistant_yield` rows are never suppressed — they carry distinct
-   * user-facing prompts that require interaction.
+   * `assistant_yield` rows are kept until a final exists because they carry
+   * distinct user-facing prompts that require interaction.
    */
   private resolveCanonicalAssistantRows(
     messages: readonly AgentMessage[]
   ): readonly AgentMessage[] {
+    const isChatPrefixedOperationId = (value: string | undefined): boolean =>
+      typeof value === 'string' && value.startsWith('chat-');
+
     // Phase-tagged final rows.
     const finalOperationIds = new Set<string>();
-    for (const msg of messages) {
+    let lastBareFinalIndex = -1;
+    messages.forEach((msg, index) => {
       if (msg.role === 'assistant' && msg.semanticPhase === 'assistant_final' && msg.operationId) {
         finalOperationIds.add(msg.operationId);
+        if (!isChatPrefixedOperationId(msg.operationId)) {
+          lastBareFinalIndex = Math.max(lastBareFinalIndex, index);
+        }
+      }
+    });
+
+    // Collapse assistant_tool_call rows when no final exists for the operationId.
+    // Keep only the last intermediate row per operationId (last-wins as items are
+    // in chronological order). Earlier turns are suppressed — they are abandoned
+    // ReAct iterations, not distinct user-visible replies.
+    const toolCallSuppressedIds = new Set<string>();
+    const toolCallLastSeen = new Map<string, string>();
+    for (const msg of messages) {
+      if (
+        msg.role === 'assistant' &&
+        msg.semanticPhase === 'assistant_tool_call' &&
+        msg.operationId &&
+        !finalOperationIds.has(msg.operationId)
+      ) {
+        const prev = toolCallLastSeen.get(msg.operationId);
+        if (prev) toolCallSuppressedIds.add(prev);
+        toolCallLastSeen.set(msg.operationId, msg.id);
+      }
+    }
+
+    // Collapse assistant_partial rows when no final exists for the operationId.
+    // These are durability snapshots for an in-flight stream, so only the latest
+    // snapshot should render while the operation is still running.
+    const partialSuppressedIds = new Set<string>();
+    const partialLastSeen = new Map<string, string>();
+    for (const msg of messages) {
+      if (
+        msg.role === 'assistant' &&
+        msg.semanticPhase === 'assistant_partial' &&
+        msg.operationId &&
+        !finalOperationIds.has(msg.operationId)
+      ) {
+        const prev = partialLastSeen.get(msg.operationId);
+        if (prev) partialSuppressedIds.add(prev);
+        partialLastSeen.set(msg.operationId, msg.id);
       }
     }
 
@@ -1055,17 +1181,45 @@ export class AgentXService {
       }
     }
 
-    if (finalOperationIds.size === 0 && legacySuppressedIds.size === 0) return messages;
+    if (
+      finalOperationIds.size === 0 &&
+      toolCallSuppressedIds.size === 0 &&
+      partialSuppressedIds.size === 0 &&
+      legacySuppressedIds.size === 0
+    )
+      return messages;
 
-    return messages.filter((msg) => {
+    return messages.filter((msg, index) => {
       if (msg.role !== 'assistant') return true;
 
       // When assistant_final exists for this operationId, keep only the final
-      // row and any yield rows. Suppress partials and untagged trajectory rows
-      // (written by ThreadMessageWriter) that would cause duplicate bubbles.
+      // row. Suppress partials and untagged trajectory rows (written by
+      // ThreadMessageWriter) that would cause duplicate bubbles with repeated
+      // media/cards.
       if (msg.operationId && finalOperationIds.has(msg.operationId)) {
-        return msg.semanticPhase === 'assistant_final' || msg.semanticPhase === 'assistant_yield';
+        return msg.semanticPhase === 'assistant_final';
       }
+
+      // Pause/resume cross-operation collapse:
+      // parent operation ids are `chat-*` while resumed child operations use
+      // bare UUID ids. When a later bare-UUID final exists, suppress stale
+      // parent assistant trajectory rows so only the resumed final bubble remains.
+      if (
+        lastBareFinalIndex >= 0 &&
+        index < lastBareFinalIndex &&
+        msg.operationId &&
+        isChatPrefixedOperationId(msg.operationId) &&
+        !finalOperationIds.has(msg.operationId) &&
+        (msg.semanticPhase === 'assistant_tool_call' || !msg.semanticPhase)
+      ) {
+        return false;
+      }
+
+      // Suppress all-but-last assistant_tool_call rows (no final path).
+      if (toolCallSuppressedIds.has(msg.id)) return false;
+
+      // Suppress all-but-last assistant_partial rows (no final path).
+      if (partialSuppressedIds.has(msg.id)) return false;
 
       // Suppress non-richest legacy duplicates (untagged rows with no final).
       if (legacySuppressedIds.has(msg.id)) return false;
@@ -1084,15 +1238,104 @@ export class AgentXService {
     return score;
   }
 
-  private mapPersistedMessageToUi(message: AgentMessage): AgentXMessage {
-    const imageUrl = message.resultData?.['imageUrl'] as string | undefined;
-    const attachments = (message.attachments ?? []) as readonly AgentXAttachment[];
+  private normalizeDetectedMediaUrl(url: string): string {
+    return url.trim().replace(/[.,!?;:]+$/g, '');
+  }
 
-    // Strip the AI-context annotation lines appended by the backend before display.
-    // These "[Attached file: ...]" / "[Attached video: ...]" suffixes are injected into
-    // the message content so the LLM knows what was attached — they are not meant for
-    // the chat UI and would show up as raw text when the thread is reloaded from MongoDB.
-    const displayContent = message.content
+  private inferMediaTypeFromUrl(url: string): 'image' | 'video' | null {
+    const normalizedUrl = this.normalizeDetectedMediaUrl(url).toLowerCase();
+    const pathname = normalizedUrl.split(/[?#]/, 1)[0] ?? normalizedUrl;
+
+    if (
+      /\.(avif|bmp|gif|heic|heif|jpe?g|png|svg|webp)$/i.test(pathname) ||
+      /\/images?\//i.test(pathname)
+    ) {
+      return 'image';
+    }
+
+    if (
+      /\.(m3u8|mov|mp4|m4v|webm|ogg|ogv)$/i.test(pathname) ||
+      /\/videos?\//i.test(pathname) ||
+      /stream|cloudflare/i.test(normalizedUrl)
+    ) {
+      return 'video';
+    }
+
+    return null;
+  }
+
+  private extractMediaUrlsFromText(content: string | undefined): string[] {
+    if (!content) return [];
+
+    const urls = new Set<string>();
+    const matches = content.match(/https?:\/\/[^\s)\]"'<>]+/gi) ?? [];
+    for (const match of matches) {
+      const normalized = this.normalizeDetectedMediaUrl(match);
+      if (!normalized || !/^https?:\/\//i.test(normalized)) continue;
+      if (!this.inferMediaTypeFromUrl(normalized)) continue;
+      urls.add(normalized);
+    }
+
+    return [...urls];
+  }
+
+  private extractMediaUrlsFromResultData(resultData: AgentMessage['resultData']): string[] {
+    if (!resultData) return [];
+
+    const mediaUrls = new Set<string>();
+    const pushUrl = (value: unknown): void => {
+      if (typeof value !== 'string') return;
+      const trimmed = this.normalizeDetectedMediaUrl(value);
+      if (!/^https?:\/\//i.test(trimmed)) return;
+      if (!this.inferMediaTypeFromUrl(trimmed)) return;
+      mediaUrls.add(trimmed);
+    };
+
+    pushUrl(resultData['imageUrl']);
+    pushUrl(resultData['videoUrl']);
+    pushUrl(resultData['outputUrl']);
+
+    for (const key of ['persistedMediaUrls', 'mediaUrls', 'imageUrls', 'videoUrls'] as const) {
+      const value = resultData[key];
+      if (!Array.isArray(value)) continue;
+      for (const url of value) pushUrl(url);
+    }
+
+    const files = resultData['files'];
+    if (Array.isArray(files)) {
+      for (const file of files) {
+        if (!file || typeof file !== 'object') continue;
+        const record = file as Record<string, unknown>;
+        pushUrl(record['url']);
+        pushUrl(record['downloadUrl']);
+      }
+    }
+
+    return [...mediaUrls];
+  }
+
+  private normalizePersistedAttachments(
+    attachments: readonly AgentXAttachment[]
+  ): readonly AgentXAttachment[] {
+    const seen = new Set<string>();
+    const deduped: AgentXAttachment[] = [];
+
+    for (const attachment of attachments) {
+      const normalizedUrl = this.normalizeDetectedMediaUrl(attachment.url);
+      const key = `${attachment.type}|${normalizedUrl}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      deduped.push({
+        ...attachment,
+        url: normalizedUrl,
+      });
+    }
+
+    return deduped;
+  }
+
+  private stripPersistedAttachmentAnnotations(content: string): string {
+    return content
       .replace(/\n\n\[Attached (?:file|video): .+/gs, '')
       .replace(/\n\n\[Connected sources available[^\]]*\]/gs, '')
       .replace(
@@ -1100,18 +1343,52 @@ export class AgentXService {
         ''
       )
       .trim();
+  }
+
+  private mapPersistedMessageToUi(message: AgentMessage): AgentXMessage {
+    const attachments = this.normalizePersistedAttachments(
+      (message.attachments ?? []) as readonly AgentXAttachment[]
+    );
+
+    // Strip the AI-context annotation lines appended by the backend FIRST, before
+    // any URL scanning. "[Attached video: ...]" suffixes are injected into message
+    // content so the LLM knows what was resolved — scanning the raw content would
+    // cause those URLs to appear as derivedVideoUrl and render as attachment pills
+    // on the user's message bubble even though the user never uploaded anything.
+    const displayContent = this.stripPersistedAttachmentAnnotations(message.content);
+
+    if (message.role !== 'assistant') {
+      return {
+        id: message.id || this.generateId(),
+        role: message.role,
+        content: displayContent,
+        timestamp: message.createdAt ? new Date(message.createdAt) : new Date(),
+        ...(attachments.length > 0 ? { attachments } : {}),
+      };
+    }
+
+    // Unified attachment model: backend populates attachments[] at save time from tool resultData.
+    // Frontend simply reads attachments directly — no content scanning, no waterfall.
+    const cards = (
+      message.cards?.length
+        ? message.cards
+        : (message.parts ?? [])
+            .filter(
+              (
+                part
+              ): part is Extract<NonNullable<AgentMessage['parts']>[number], { type: 'card' }> =>
+                part.type === 'card'
+            )
+            .map((part) => part.card)
+    ) as readonly AgentXRichCard[];
 
     return {
       id: message.id || this.generateId(),
-      // Phase J (thread-as-truth): preserve role fidelity. Persisted
-      // tool/system rows surface as their true role and are filtered
-      // out of the chat-bubble feed by the consuming component's
-      // computed signal (see `agent-x-fab-chat-panel`).
       role: message.role,
       content: displayContent,
       timestamp: message.createdAt ? new Date(message.createdAt) : new Date(),
-      ...(imageUrl ? { imageUrl } : {}),
       ...(attachments.length > 0 ? { attachments } : {}),
+      ...(cards.length > 0 ? { cards } : {}),
     };
   }
 
@@ -1172,6 +1449,7 @@ export class AgentXService {
         this._briefingInsights.set([...briefing.insights]);
         this._briefingPreviewText.set(briefing.previewText);
         this._weeklyPlaybook.set([...playbook.items]);
+        this._activePlaybookId.set(playbook.id ?? null);
         this.resetCategoryFilter();
         this._goals.set([...playbook.goals]);
         this._playbookGeneratedAt.set(playbook.generatedAt);
@@ -1503,6 +1781,7 @@ export class AgentXService {
   ): Promise<void> {
     if (playbook) {
       const newItems = playbook.items as ShellWeeklyPlaybookItem[];
+      this._activePlaybookId.set(playbook.id ?? null);
 
       // Forced regenerations should immediately reflect the server-generated
       // playbook, even when IDs are reused. This fixes the stale UI case where
@@ -1733,20 +2012,46 @@ export class AgentXService {
    * Mark a playbook item as explicitly complete (user pressed "Mark Done").
    * Updates the local signal immediately and persists to backend.
    */
-  markPlaybookItemComplete(itemId: string): void {
+  async markPlaybookItemComplete(itemId: string): Promise<boolean> {
+    const previousItems = this._weeklyPlaybook();
+    const playbookId = this._activePlaybookId() ?? undefined;
+
     this._weeklyPlaybook.update((items) =>
       items.map((i) => (i.id === itemId ? { ...i, status: 'complete' as const } : i))
     );
-    this.logger.info('Playbook item marked done', { itemId });
+    this.logger.info('Playbook item marked done', { itemId, playbookId });
 
-    firstValueFrom(
-      this.http.post<{ success: boolean }>(
-        `${this.baseUrl}/agent-x/playbook/item/${encodeURIComponent(itemId)}/status`,
-        { status: 'complete' }
-      )
-    ).catch((err) => {
-      this.logger.warn('Failed to persist mark-done to backend', { itemId, error: String(err) });
-    });
+    try {
+      const response = await firstValueFrom(
+        this.http.post<{ success: boolean; error?: string }>(
+          `${this.baseUrl}/agent-x/playbook/item/${encodeURIComponent(itemId)}/status`,
+          { status: 'complete', ...(playbookId ? { playbookId } : {}) }
+        )
+      );
+
+      if (!response.success) {
+        this._weeklyPlaybook.set(previousItems);
+        this.logger.warn('Mark-done rejected by backend', {
+          itemId,
+          playbookId,
+          error: response.error,
+        });
+        this.toast.error(response.error ?? 'Failed to save completed task');
+        return false;
+      }
+
+      await this.loadGoalHistory();
+      return true;
+    } catch (err) {
+      this._weeklyPlaybook.set(previousItems);
+      this.logger.warn('Failed to persist mark-done to backend', {
+        itemId,
+        playbookId,
+        error: String(err),
+      });
+      this.toast.error('Failed to save completed task');
+      return false;
+    }
   }
 
   /**

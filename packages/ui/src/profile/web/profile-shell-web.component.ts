@@ -302,51 +302,6 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
                     ariaLabel="Section navigation"
                     (selectionChange)="onSectionNavChange($event)"
                   />
-
-                  <!-- ═══ SPORT PROFILE SWITCHER ═══ -->
-                  @if (profile.hasMultipleSports() && !profile.isOwnProfile()) {
-                    <div class="sport-switcher" role="group" aria-label="Sport profiles">
-                      <span class="sport-switcher__title">Sport Profiles</span>
-                      <div class="sport-switcher__list">
-                        @for (sport of profile.allSports(); track sport.name; let i = $index) {
-                          <button
-                            type="button"
-                            class="sport-switcher__item"
-                            [class.sport-switcher__item--active]="profile.activeSportIndex() === i"
-                            [attr.aria-selected]="profile.activeSportIndex() === i"
-                            [attr.aria-label]="
-                              'Switch to ' + formatSportDisplayName(sport.name) + ' profile'
-                            "
-                            role="tab"
-                            (click)="onSportSwitch(i)"
-                          >
-                            @if (profile.user()?.profileImg) {
-                              <nxt1-image
-                                class="sport-switcher__avatar"
-                                [src]="profile.user()?.profileImg"
-                                [alt]="sport.name"
-                                [width]="28"
-                                [height]="28"
-                                variant="avatar"
-                                fit="cover"
-                                [showPlaceholder]="false"
-                              />
-                            } @else {
-                              <span class="sport-switcher__avatar-fallback" aria-hidden="true">
-                                {{ sport.name.charAt(0) }}
-                              </span>
-                            }
-                            <span class="sport-switcher__sport-name">{{
-                              formatSportDisplayName(sport.name)
-                            }}</span>
-                            @if (profile.activeSportIndex() === i) {
-                              <span class="sport-switcher__active-badge" aria-hidden="true"></span>
-                            }
-                          </button>
-                        }
-                      </div>
-                    </div>
-                  }
                 </div>
 
                 <!-- MAIN CONTENT AREA -->
@@ -368,7 +323,8 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
                   @if (
                     profile.isOwnProfile() &&
                     profile.activeTab() === 'timeline' &&
-                    !platform.isMobile()
+                    !platform.isMobile() &&
+                    !platform.isBelowBreakpoint('md')
                   ) {
                     <div class="desktop-intel-action-bar">
                       <button
@@ -425,7 +381,13 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
                     }
 
                     @case ('connect') {
-                      <nxt1-profile-contact [activeSection]="activeSideTab()" />
+                      <nxt1-profile-contact
+                        [activeSection]="activeSideTab()"
+                        [hideConnectedInlineCta]="
+                          profile.isOwnProfile() &&
+                          (platform.isMobile() || platform.isBelowBreakpoint('md'))
+                        "
+                      />
                     }
                   }
                 </section>
@@ -462,47 +424,86 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
                   </div>
                 }
 
-                @if (teamAffiliations().length > 0) {
-                  <div class="madden-team-stack">
-                    @for (
-                      team of teamAffiliations();
-                      track team.name + '-' + (team.type || 'other')
-                    ) {
-                      <div
-                        class="madden-team-block madden-team-block--clickable"
-                        role="button"
-                        tabindex="0"
-                        (click)="onTeamClick(team)"
-                        (keydown.enter)="onTeamClick(team)"
-                        (keydown.space)="onTeamClick(team); $event.preventDefault()"
-                      >
-                        @if (team.logoUrl) {
-                          <nxt1-image
-                            class="madden-team-logo"
-                            [src]="team.logoUrl"
-                            [alt]="team.name"
-                            [width]="32"
-                            [height]="32"
-                            variant="avatar"
-                            fit="contain"
-                            [priority]="true"
-                            [showPlaceholder]="false"
-                          />
-                        } @else {
-                          <div class="madden-team-logo-placeholder">
-                            <nxt1-icon [name]="teamIconName(team.type)" [size]="22" />
-                          </div>
-                        }
-                        <div class="madden-team-info">
-                          <div class="madden-team-headline">
-                            <span class="madden-team-name">{{ team.name }}</span>
-                          </div>
-                          @if (team.location) {
-                            <span class="madden-team-location">{{ team.location }}</span>
+                @if (profile.hasMultipleSports() && !profile.isOwnProfile()) {
+                  <div class="sport-switcher" role="group" aria-label="Sport profiles">
+                    <span class="sport-switcher__title">Sport Profiles</span>
+                    <div class="sport-switcher__list">
+                      @for (sport of profile.allSports(); track sport.name; let i = $index) {
+                        <button
+                          type="button"
+                          class="sport-switcher__item"
+                          [class.sport-switcher__item--active]="profile.activeSportIndex() === i"
+                          [attr.aria-selected]="profile.activeSportIndex() === i"
+                          [attr.aria-label]="
+                            'Switch to ' + formatSportDisplayName(sport.name) + ' profile'
+                          "
+                          role="tab"
+                          (click)="onSportSwitch(i)"
+                        >
+                          @if (profile.user()?.profileImg) {
+                            <nxt1-image
+                              class="sport-switcher__avatar"
+                              [src]="profile.user()?.profileImg"
+                              [alt]="sport.name"
+                              [width]="28"
+                              [height]="28"
+                              variant="avatar"
+                              fit="cover"
+                              [showPlaceholder]="false"
+                            />
+                          } @else {
+                            <span class="sport-switcher__avatar-fallback" aria-hidden="true">
+                              {{ sport.name.charAt(0) }}
+                            </span>
                           }
+                          <span class="sport-switcher__sport-name">{{
+                            formatSportDisplayName(sport.name)
+                          }}</span>
+                          @if (profile.activeSportIndex() === i) {
+                            <span class="sport-switcher__active-badge" aria-hidden="true"></span>
+                          }
+                        </button>
+                      }
+                    </div>
+                  </div>
+                }
+
+                @if (primaryRailTeam(); as team) {
+                  <div class="madden-team-stack">
+                    <div
+                      class="madden-team-block madden-team-block--clickable"
+                      role="button"
+                      tabindex="0"
+                      (click)="onTeamClick(team)"
+                      (keydown.enter)="onTeamClick(team)"
+                      (keydown.space)="onTeamClick(team); $event.preventDefault()"
+                    >
+                      @if (team.logoUrl) {
+                        <nxt1-image
+                          class="madden-team-logo"
+                          [src]="team.logoUrl"
+                          [alt]="team.name"
+                          [width]="32"
+                          [height]="32"
+                          variant="avatar"
+                          fit="contain"
+                          [priority]="true"
+                          [showPlaceholder]="false"
+                        />
+                      } @else {
+                        <div class="madden-team-logo-placeholder">
+                          <nxt1-icon [name]="teamIconName(team.type)" [size]="22" />
                         </div>
+                      }
+                      <div class="madden-team-info">
+                        <div class="madden-team-headline">
+                          <span class="madden-team-name">{{ team.name }}</span>
+                        </div>
+                        @if (team.location) {
+                          <span class="madden-team-location">{{ team.location }}</span>
+                        }
                       </div>
-                    }
+                    </div>
                   </div>
                 }
               </div>
@@ -514,14 +515,18 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
         <ng-content />
       }
 
-      @if (profile.isOwnProfile() && profile.activeTab() === 'timeline' && platform.isMobile()) {
+      @if (
+        profile.isOwnProfile() &&
+        (profile.activeTab() === 'timeline' || profile.activeTab() === 'connect') &&
+        (platform.isMobile() || platform.isBelowBreakpoint('md'))
+      ) {
         <div class="mobile-intel-footer">
           <button
             type="button"
             class="mobile-intel-footer__btn mobile-intel-footer__btn--primary mobile-intel-footer__btn--full"
-            (click)="onAddUpdate()"
+            (click)="onFooterPrimaryAction()"
           >
-            Add Update
+            {{ profile.activeTab() === 'connect' ? 'Connect Accounts' : 'Add Update' }}
           </button>
         </div>
       }
@@ -728,7 +733,7 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
         align-items: center;
         gap: var(--nxt1-spacing-3);
         width: 300px;
-        height: auto;
+        min-height: 100%;
         padding-top: 20px;
         padding-bottom: 12px;
       }
@@ -1046,7 +1051,7 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
         align-self: stretch;
         overflow-y: auto;
         scrollbar-width: none;
-        padding-bottom: 120px;
+        padding-bottom: var(--nxt1-spacing-4, 16px);
       }
       .madden-side-nav-column::-webkit-scrollbar {
         display: none;
@@ -1065,16 +1070,23 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
       .sport-switcher {
         display: flex;
         flex-direction: column;
-        gap: 6px;
-        padding-top: 0;
-        position: absolute;
-        bottom: 65px;
-        left: 0;
+        gap: 10px;
+        order: 2;
+        margin-top: auto;
+        position: sticky;
+        bottom: 16px;
+        align-self: stretch;
+        z-index: 1;
         width: 100%;
+        padding: 12px;
+        border: 1px solid var(--m-border, rgba(255, 255, 255, 0.08));
+        border-radius: 16px;
+        background: color-mix(in srgb, var(--m-surface, rgba(17, 17, 17, 0.96)) 94%, black);
+        box-shadow: 0 10px 24px rgba(0, 0, 0, 0.22);
       }
 
       .sport-switcher__title {
-        padding: 0 var(--nxt1-spacing-2);
+        padding: 0 2px;
         color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.45));
         font-size: 10px;
         font-weight: 600;
@@ -1084,18 +1096,22 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
 
       .sport-switcher__list {
         display: flex;
-        flex-direction: row;
-        flex-wrap: wrap;
-        gap: 4px;
+        flex-direction: column;
+        gap: 8px;
       }
 
       .sport-switcher__item {
         display: flex;
         align-items: center;
         gap: 6px;
-        padding: 4px 10px 4px 4px;
-        background: transparent;
-        border: 1px solid transparent;
+        width: 100%;
+        padding: 8px 10px 8px 8px;
+        background: color-mix(
+          in srgb,
+          var(--m-surface-2, rgba(255, 255, 255, 0.04)) 88%,
+          transparent
+        );
+        border: 1px solid var(--m-border, rgba(255, 255, 255, 0.08));
         border-radius: var(--nxt1-radius-full, 999px);
         cursor: pointer;
         text-align: left;
@@ -1164,6 +1180,8 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
         font-weight: 500;
         line-height: 1;
         white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
 
       .sport-switcher__active-badge {
@@ -1172,7 +1190,7 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
         border-radius: 50%;
         background: var(--nxt1-color-primary);
         flex-shrink: 0;
-        margin-left: -2px;
+        margin-left: auto;
       }
 
       /* ─── MAIN CONTENT SCROLL AREA ─── */
@@ -1507,6 +1525,8 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
   readonly menuClick = output<void>();
   readonly qrCodeClick = output<void>();
   readonly aiSummaryClick = output<void>();
+  readonly connectedAccountsClick = output<void>();
+  readonly sportProfileSelect = output<number>();
   readonly retryClick = output<void>();
   readonly generationDismissed = output<'completed' | 'skipped'>();
 
@@ -1759,8 +1779,11 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
 
   /** Handle sport profile switching */
   protected onSportSwitch(index: number): void {
-    this.profile.setActiveSportIndex(index);
-    this.logger.debug('Sport profile switched', { index, sport: this.profile.activeSport()?.name });
+    this.sportProfileSelect.emit(index);
+    this.logger.debug('Sport profile selected', {
+      index,
+      sport: this.profile.allSports()[index]?.name,
+    });
   }
 
   /**
@@ -1991,51 +2014,39 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
     const user = this.profile.user();
     if (!user) return;
 
-    const userName = user.displayName?.trim() ?? user.firstName?.trim() ?? 'Athlete';
     const activeTab = this.activeSideTab();
-
-    let tabContext: string;
-    let sourceCollection: string;
+    let message: string;
     switch (activeTab) {
-      case 'stats':
-        tabContext = 'my statistics, performance data, or game stats';
-        sourceCollection = 'season stats';
-        break;
-      case 'schedule':
-        tabContext = 'my upcoming games or schedule';
-        sourceCollection = 'schedule';
-        break;
-      case 'recruiting':
-        tabContext = 'recruiting updates or college recruitment news';
-        sourceCollection = 'recruiting activity';
-        break;
-      case 'news':
-        tabContext = 'news articles or personal announcements';
-        sourceCollection = 'news';
-        break;
-      case 'media':
-        tabContext = 'photos or highlight videos';
-        sourceCollection = 'media';
+      case 'all-posts':
+        message = `I'd like to add a general update. Please help me figure out whether this belongs in Posts, PlayerStats, Schedule, Recruiting, or News based on what I'm sharing. If this is photos or highlight video, save it in Posts with the post type set to image or video. If the right section is not obvious, ask me a quick follow-up before saving anything.`;
         break;
       case 'pinned':
-        tabContext = 'important pinned announcement';
-        sourceCollection = 'news';
+        message = `I need to create an important featured update that should stay at the top of my profile. Please help me write it, then save it to the Posts collection with isPinned set to true.`;
+        break;
+      case 'stats':
+        message = `I want to update my season stats and recent performances. Please guide me through the latest numbers, then save that data to the PlayerStats collection.`;
+        break;
+      case 'schedule':
+        message = `I want to add upcoming games or recent results. Please help me organize the details, then add the update to the Schedule collection.`;
+        break;
+      case 'recruiting':
+        message = `I have new recruiting activity to add, including college interest and outreach updates. Please help me put it together, then save it to the Recruiting collection.`;
+        break;
+      case 'news':
+        message = `I'd like to share a news update or announcement. Please help me write it clearly, then publish it to the News collection.`;
+        break;
+      case 'media':
+        message = `I want to add new photos or highlight videos. Please help me prepare the update, then save it to the Posts collection and make sure the post type is set correctly as image or video.`;
         break;
       default:
-        tabContext = 'update';
-        sourceCollection = 'profile updates';
+        message = `I'd like to add a new profile update. Please help me draft it, then save it to the Posts collection.`;
     }
 
     const hasReport = !!this.intel.athleteReport();
-    const baseMessage =
-      `This is an ATHLETE profile update request for ${userName}. ` +
-      `Active tab: ${activeTab}. ` +
-      `Focus area: ${tabContext}. ` +
-      `Write or update the ${sourceCollection} source collection first, ` +
-      `then create a timeline post only when a public announcement is needed.`;
-    const message = hasReport
-      ? `${baseMessage} After saving the source data, review and update any relevant sections of my Agent X Intel report with new stats, achievements, or profile updates.`
-      : baseMessage;
+    if (hasReport) {
+      message +=
+        ' After that is saved, refresh any relevant parts of my Intel report with the latest stats, achievements, and profile updates.';
+    }
     if (this.platform.isMobile()) {
       await this.bottomSheet.openSheet({
         component: AgentXOperationChatComponent,
@@ -2060,6 +2071,15 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
 
   protected onAddUpdate(): void {
     void this.onCreatePostWithAgent();
+  }
+
+  protected onFooterPrimaryAction(): void {
+    if (this.profile.activeTab() === 'connect') {
+      this.connectedAccountsClick.emit();
+      return;
+    }
+
+    this.onAddUpdate();
   }
 
   protected async onGenerateIntel(): Promise<void> {
@@ -2275,6 +2295,7 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
   protected readonly teamAffiliations = computed((): ReadonlyArray<ProfileTeamAffiliation> => {
     const user = this.profile.user();
     if (!user) return [];
+    const activeSportName = this.profile.activeSport()?.name?.trim().toLowerCase();
 
     const normalized: ProfileTeamAffiliation[] = [];
     const seen = new Set<string>();
@@ -2290,6 +2311,7 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
       seen.add(key);
       normalized.push({
         name,
+        sport: affiliation.sport,
         type,
         logoUrl: affiliation.logoUrl,
         teamCode: affiliation.teamCode,
@@ -2318,11 +2340,24 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
       });
     }
 
+    if (activeSportName) {
+      normalized.sort((left, right) => {
+        const leftMatches = left.sport?.trim().toLowerCase() === activeSportName;
+        const rightMatches = right.sport?.trim().toLowerCase() === activeSportName;
+        if (leftMatches === rightMatches) return 0;
+        return leftMatches ? -1 : 1;
+      });
+    }
+
     return normalized.slice(0, 2);
   });
 
   protected readonly primaryRailTeam = computed((): ProfileTeamAffiliation | null => {
-    const existing = this.teamAffiliations()[0];
+    const activeSportName = this.profile.activeSport()?.name?.trim().toLowerCase();
+    const existing =
+      this.teamAffiliations().find(
+        (team) => team.sport?.trim().toLowerCase() === activeSportName
+      ) ?? this.teamAffiliations()[0];
     if (existing) return existing;
 
     const user = this.profile.user();

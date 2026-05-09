@@ -60,6 +60,7 @@ import { IntelService } from '@nxt1/ui/intel';
 import { TeamProfileService } from '@nxt1/ui/team-profile';
 import { EditProfileModalService } from '@nxt1/ui/edit-profile';
 import { ManageTeamModalService } from '@nxt1/ui/manage-team';
+import { ConnectedAccountsModalService } from '@nxt1/ui/components/connected-sources';
 import { NxtOverlayService } from '@nxt1/ui/components/overlay';
 import {
   ShareActionsOverlayComponent,
@@ -115,9 +116,10 @@ const CTA_AVATARS: readonly CtaAvatarImage[] = [
 @Component({
   selector: 'app-profile',
   standalone: true,
-  // Scope ProfileService to this component instance so each route navigation
-  // gets isolated state and cannot pollute a concurrent instance's view.
-  providers: [ProfileService],
+  // ProfileService is providedIn:'root' — using the root instance here so the
+  // Agent X transport facade (also root-scoped) can notify the same instance
+  // when a timeline mutation completes (e.g. delete_timeline_post).
+  // startLoading() resets all state on each navigation, so there is no stale-data risk.
   imports: [ProfileShellWebComponent, NxtCtaBannerComponent],
   template: `
     <nxt1-profile-shell-web
@@ -135,6 +137,8 @@ const CTA_AVATARS: readonly CtaAvatarImage[] = [
       (copyLinkClick)="onCopyLink()"
       (qrCodeClick)="onQrCode()"
       (aiSummaryClick)="onAiSummary()"
+      (connectedAccountsClick)="onConnectedAccounts()"
+      (sportProfileSelect)="onSportProfileSelect($event)"
       (retryClick)="onRetry()"
       (generationDismissed)="onGenerationDismissed($event)"
     >
@@ -186,6 +190,7 @@ export class ProfileComponent implements OnInit, OnDestroy {
   private readonly qrCode = inject(QrCodeService);
   private readonly editProfileModal = inject(EditProfileModalService);
   private readonly manageTeamModal = inject(ManageTeamModalService);
+  private readonly connectedAccountsModal = inject(ConnectedAccountsModalService);
   private readonly sidenavService = inject(NxtSidenavService);
   private readonly platform = inject(NxtPlatformService);
   private readonly router = inject(Router);
@@ -411,6 +416,9 @@ export class ProfileComponent implements OnInit, OnDestroy {
     // Register the cursor-based load-more handler so the timeline shell's
     // "Load More" button fetches the next page via the real API.
     this.profileService.registerLoadMoreHandler(() => this.loadMoreTimeline());
+    // Register the Agent X timeline refresh handler so delete/update tool
+    // completions silently re-fetch the timeline without a full page reload.
+    this.profileService.registerTimelineRefreshHandler(() => this.refreshTimeline());
 
     // Auto-invalidate profile cache when user returns to tab/window.
     // This ensures fresh data after editing profile in another tab or coming back from edit page.
@@ -783,23 +791,32 @@ export class ProfileComponent implements OnInit, OnDestroy {
 
     // Re-fetch timeline posts on tab select so data stays fresh
     if (tab === 'timeline') {
-      const userId = this.fetchedProfile()?.id;
-      if (userId) {
-        this.apiProfileService
-          .getProfileTimeline(userId)
-          .pipe(first())
-          .subscribe({
-            next: (resp) => {
-              if (resp.success)
-                this.profileService.setPolymorphicTimeline(resp.data, {
-                  hasMore: resp.hasMore,
-                  nextCursor: resp.nextCursor,
-                });
-            },
-            error: (err) => this.logger.warn('Failed to refresh timeline posts', { err }),
-          });
-      }
+      this.refreshTimeline();
     }
+  }
+
+  /**
+   * Silently re-fetches the timeline for the currently loaded profile and
+   * pushes updated items into ProfileService. Called by the Agent X bridge
+   * after a timeline mutation tool (delete / update) completes successfully.
+   */
+  private refreshTimeline(): void {
+    const userId = this.fetchedProfile()?.id;
+    if (!userId) return;
+    this.apiProfileService
+      .getProfileTimeline(userId)
+      .pipe(first())
+      .subscribe({
+        next: (resp) => {
+          if (resp.success)
+            this.profileService.setPolymorphicTimeline(resp.data, {
+              hasMore: resp.hasMore,
+              nextCursor: resp.nextCursor,
+            });
+        },
+        error: (err) =>
+          this.logger.warn('Failed to refresh timeline after Agent X mutation', { err }),
+      });
   }
 
   /**
@@ -924,6 +941,17 @@ export class ProfileComponent implements OnInit, OnDestroy {
     fetch$.pipe(first()).subscribe({
       next: (response) => this.handleProfileResponse(response),
       error: (err) => this.handleProfileError(err),
+    });
+  }
+
+  protected async onConnectedAccounts(): Promise<void> {
+    const user = this.authService.user();
+    const role = user?.role ?? null;
+
+    await this.connectedAccountsModal.open({
+      role,
+      selectedSports: user?.selectedSports ?? [],
+      scope: role === 'coach' || role === 'director' ? 'team' : 'athlete',
     });
   }
 
@@ -1076,6 +1104,38 @@ export class ProfileComponent implements OnInit, OnDestroy {
       this.logger.error('Failed to open QR code modal', err);
       this.toast.error('Unable to open QR code');
     }
+  }
+
+  protected onSportProfileSelect(index: number): void {
+    const profile = this.fetchedProfile();
+    const selectedSport =
+      this.profileService.allSports()[index]?.name ?? profile?.sports?.[index]?.sport;
+
+    if (!selectedSport) {
+      void this.profileService.setActiveSportIndex(index);
+      return;
+    }
+
+    void this.profileService.setActiveSportIndex(index);
+
+    const profilePath = buildCanonicalProfilePath({
+      athleteName:
+        `${profile?.firstName ?? ''} ${profile?.lastName ?? ''}`.trim() || 'NXT1 Athlete',
+      sport: selectedSport,
+      unicode: profile?.unicode ?? this.profileUnicode(),
+    });
+
+    this.logger.debug('Profile sport selected from page rail', {
+      index,
+      sport: selectedSport,
+      profilePath,
+    });
+
+    if (profilePath === this.router.url.split('?')[0]) {
+      return;
+    }
+
+    void this.router.navigateByUrl(profilePath);
   }
 
   /**

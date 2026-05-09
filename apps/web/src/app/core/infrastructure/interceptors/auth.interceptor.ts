@@ -24,7 +24,7 @@ import {
   HttpEvent,
   HttpErrorResponse,
 } from '@angular/common/http';
-import { Observable, from, switchMap, throwError } from 'rxjs';
+import { Observable, from, switchMap, catchError, throwError } from 'rxjs';
 import { NxtLoggingService } from '@nxt1/ui/services';
 import { environment } from '../../../../environments/environment';
 import { AuthFlowService } from '../../services/auth';
@@ -142,7 +142,28 @@ export const authInterceptor: HttpInterceptorFn = (
         },
       });
 
-      return next(authReq);
+      return next(authReq).pipe(
+        catchError((error: HttpErrorResponse) => {
+          // When the server rejects the token as expired, force-refresh and retry once.
+          // This handles clock drift and the ~5-minute gap between client cache expiry
+          // (55 min) and Firebase's actual token lifetime (60 min).
+          if (error.status === 401) {
+            return from(authFlow.getIdToken(true)).pipe(
+              switchMap((freshToken) => {
+                if (!freshToken) {
+                  return throwError(() => error);
+                }
+                const retryReq = req.clone({
+                  setHeaders: { Authorization: `Bearer ${freshToken}` },
+                });
+                return next(retryReq);
+              }),
+              catchError(() => throwError(() => error))
+            );
+          }
+          return throwError(() => error);
+        })
+      );
     })
   );
 };

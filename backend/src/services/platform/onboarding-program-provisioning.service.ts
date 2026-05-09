@@ -4,6 +4,7 @@ import { RosterEntryStatus } from '@nxt1/core/models';
 import * as teamCodeService from '../team/team-code.service.js';
 import { createOrganizationService } from '../team/organization.service.js';
 import { createRosterEntryService } from '../team/roster-entry.service.js';
+import { resolveRosterPositions } from '../team/roster-sport-profile.service.js';
 import { normalizeProgramName } from '../core/name-normalizer.service.js';
 import { logger } from '../../utils/logger.js';
 
@@ -140,15 +141,6 @@ export function getProvisioningSports(sports: readonly SportProfile[]): string[]
     new Set(sports.map((sport) => sport.sport).filter((sport): sport is string => Boolean(sport)))
   );
   return uniqueSports.length > 0 ? uniqueSports : ['basketball'];
-}
-
-function getSportProfileForRoster(
-  sports: readonly SportProfile[],
-  sportName: string
-): SportProfile | undefined {
-  return sports.find(
-    (sport) => sport.sport?.trim().toLowerCase() === sportName.trim().toLowerCase()
-  );
 }
 
 function getRosterTitleForSport(
@@ -383,8 +375,8 @@ async function ensureRosterEntry(
   const rosterStatus =
     input.role === 'athlete' ? RosterEntryStatus.PENDING : RosterEntryStatus.ACTIVE;
   const rosterTitle = getRosterTitleForSport(input.sports, sportName, input.updateData.coachTitle);
-  const matchingSport = getSportProfileForRoster(input.sports, sportName);
-  const rosterPositions = input.role === 'athlete' ? matchingSport?.positions : undefined;
+  const rosterPositions =
+    input.role === 'athlete' ? resolveRosterPositions(input.sports, sportName) : undefined;
 
   try {
     const existingEntry = await rosterEntryService.getActiveOrPendingRosterEntry(

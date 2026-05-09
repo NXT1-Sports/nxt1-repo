@@ -153,37 +153,36 @@ function appendIdentityLine(lead: string, identityLine: string): string {
 export function buildInviteShareTitle(source: InviteShareSource): string {
   if (source.inviteType === 'team') {
     const teamName = normalizeText(source.team?.name);
-    return teamName ? `Step Into ${teamName} on NXT1` : 'Step Into This Team on NXT1';
+    return teamName
+      ? `You're Invited to Join ${teamName} on NXT1`
+      : "You're Invited to Join Our Team on NXT1";
   }
 
   if (isTeamManagementRole(source.senderRole) && hasTeamInviteContext(source)) {
-    return 'Run With My Program on NXT1';
+    return 'Join Our Program on NXT1';
   }
 
-  return 'Move Different With Me on NXT1';
+  return "You're Invited to Join NXT1";
 }
 
 export function buildInviteShareText(source: InviteShareSource): string {
   if (source.inviteType === 'team') {
-    return appendIdentityLine(
-      'Get to know our athletes & program.\nPowered by NXT1, the sports intelligence platform.',
-      buildInviteIdentityLine(source)
-    );
-  }
-
-  if (source.senderRole === USER_ROLES.DIRECTOR && hasTeamInviteContext(source)) {
-    return appendIdentityLine(
-      'Add your program to our network on NXT1.',
-      buildInviteIdentityLine(source)
-    );
+    const teamName = normalizeText(source.team?.name);
+    const lead = teamName
+      ? `You've been invited to join ${teamName} on NXT1 — the sports intelligence platform built for athletes, coaches, and programs.`
+      : "You've been invited to join our team on NXT1 — the sports intelligence platform built for athletes, coaches, and programs.";
+    return appendIdentityLine(lead, buildInviteIdentityLine(source));
   }
 
   if (isTeamManagementRole(source.senderRole) && hasTeamInviteContext(source)) {
-    return appendIdentityLine('Join our program on NXT1.', buildInviteIdentityLine(source));
+    return appendIdentityLine(
+      "You've been invited to join our program on NXT1 — the sports intelligence platform built for athletes, coaches, and programs.",
+      buildInviteIdentityLine(source)
+    );
   }
 
   return appendIdentityLine(
-    'Join me & sign up free on NXT1, the sports intelligence platform.',
+    "You've been invited to join NXT1 — the sports intelligence platform built for athletes, coaches, and programs. Sign up free.",
     buildInviteIdentityLine(source)
   );
 }
@@ -192,33 +191,33 @@ export function buildInviteUiCopy(source: InviteShareSource): InviteUiCopy {
   if (source.inviteType === 'team') {
     const teamName = normalizeText(source.team?.name);
     return {
-      title: 'Bring Your Team Into The System',
+      title: 'Invite Players & Staff to Your Team',
       subtitle:
-        'Share the team invite so players and staff step into one command center for communication, schedule, and sports intelligence.',
+        'Send this invite to connect your players and staff directly to your team on NXT1 — one place for communication, schedules, and sports intelligence.',
       shareText: buildInviteShareText(source),
       howItWorksText: teamName
-        ? `Share this team invite with players and staff. Once they join, they connect directly to ${teamName} on NXT1.`
-        : 'Share this team invite with players and staff. Once they join, they connect directly to your team on NXT1.',
+        ? `Share this link or QR code with your players and staff. Once they accept, they are connected directly to ${teamName} on NXT1.`
+        : 'Share this link or QR code with your players and staff. Once they accept, they are connected directly to your team on NXT1.',
     };
   }
 
   if (isTeamManagementRole(source.senderRole) && hasTeamInviteContext(source)) {
     return {
-      title: 'Run Your Program From One Place',
+      title: 'Grow Your Program on NXT1',
       subtitle:
-        'Invite players and staff into one connected environment where communication, visibility, and sports intelligence stay aligned.',
+        'Invite players and staff to your program. Once they join, everything is connected — communication, schedules, film, and sports intelligence in one place.',
       shareText: buildInviteShareText(source),
       howItWorksText:
-        'Share this QR code or link with your players and staff. Once they join, they are connected to your program on NXT1.',
+        'Share this link or QR code with your players and staff. Once they join, they are connected to your program on NXT1.',
     };
   }
 
   const reward = formatReferralReward(source.rewardCents);
   return {
     title: `Earn ${reward} in Agent X Credits`,
-    subtitle: `You earn ${reward} in Agent X credits every time someone joins through your invite.`,
+    subtitle: `Invite teammates and friends to NXT1. Every time someone joins through your link, you earn ${reward} in Agent X credits.`,
     shareText: buildInviteShareText(source),
-    howItWorksText: `Share this QR code or link with friends and teammates. When they join through your invite, they land inside NXT1 and you earn ${reward} in Agent X credits.`,
+    howItWorksText: `Share your invite link or QR code. When someone joins through your invite, they land inside NXT1 and you earn ${reward} in Agent X credits automatically.`,
   };
 }
 
@@ -298,7 +297,7 @@ export function buildArticleShareTitle(article: ArticleShareSource): string {
 export function buildArticleShareText(article: ArticleShareSource): string {
   const creditLine = buildBulletLine([article.title, article.source]);
   return appendIdentityLine(
-    'Catch this story on NXT1, The sports intelligence platform.',
+    'Catch this story on NXT1, the sports intelligence platform.',
     creditLine
   );
 }

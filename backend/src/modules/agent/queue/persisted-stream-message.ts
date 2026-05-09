@@ -5,6 +5,7 @@ import type {
   AgentXToolStep,
   AgentXToolStepStatus,
 } from '@nxt1/core';
+import { sanitizeStorageUrlsFromText } from '@nxt1/core';
 import type { StreamEvent } from './event-writer.js';
 import {
   sanitizeAgentOutputText,
@@ -20,6 +21,13 @@ export interface PersistedAssistantStreamSnapshot {
 function sanitizeMetadata(metadata?: AgentProgressMetadata): AgentProgressMetadata | undefined {
   if (!metadata) return undefined;
   return sanitizeAgentPayload(metadata) as AgentProgressMetadata;
+}
+
+function humanizeToolName(toolName: string): string {
+  return toolName
+    .replace(/[_-]+/g, ' ')
+    .replace(/\b\w/g, (char) => char.toUpperCase())
+    .trim();
 }
 
 function summarizeToolResult(result: Record<string, unknown>): string {
@@ -162,10 +170,20 @@ export class PersistedAssistantStreamBuilder {
   }
 
   snapshot(): PersistedAssistantStreamSnapshot {
+    // Strip any storage URLs from the full accumulated content before persisting.
+    // URLs may arrive across multiple delta chunks making them undetectable
+    // per-chunk; the full accumulation is the only reliable sanitization point.
+    const sanitizedContent = sanitizeStorageUrlsFromText(this.content);
+
+    // Mirror sanitization in the text parts so the parts array matches content.
+    const sanitizedParts = this.parts.map((part) =>
+      part.type === 'text' ? { ...part, content: sanitizeStorageUrlsFromText(part.content) } : part
+    );
+
     return {
-      content: this.content,
+      content: sanitizedContent,
       steps: [...this.steps],
-      parts: [...this.parts],
+      parts: sanitizedParts,
     };
   }
 
@@ -226,9 +244,16 @@ export class PersistedAssistantStreamBuilder {
   }
 
   private resolveStepLabel(event: StreamEvent): string | null {
-    const label =
+    const explicitLabel =
       typeof event.message === 'string' ? sanitizeAgentOutputText(event.message).trim() : '';
-    return label.length > 0 ? label : null;
+    if (explicitLabel.length > 0) return explicitLabel;
+
+    const fallback =
+      typeof event.toolName === 'string' && event.toolName.trim().length > 0
+        ? humanizeToolName(event.toolName)
+        : '';
+
+    return fallback.length > 0 ? fallback : null;
   }
 
   private upsertStep(step: AgentXToolStep): void {

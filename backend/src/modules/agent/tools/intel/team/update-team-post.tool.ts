@@ -13,6 +13,7 @@
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../../base.tool.js';
 import { getCacheService } from '../../../../../services/core/cache.service.js';
+import { canManageTeamMutationForUser } from '../../../../../services/team/team-intel-permissions.js';
 import { logger } from '../../../../../utils/logger.js';
 import { z } from 'zod';
 
@@ -87,8 +88,14 @@ export class UpdateTeamPostTool extends BaseTool {
       if (!teamDoc.exists) {
         return { success: false, error: `Team ${teamId} not found.` };
       }
-      const teamOwnerId = teamDoc.data()?.['ownerId'] as string | undefined;
-      if (teamOwnerId !== context.userId) {
+      const teamData = teamDoc.data() ?? {};
+      const isAuthorized = await canManageTeamMutationForUser(
+        this.db,
+        context.userId,
+        teamId,
+        teamData
+      );
+      if (!isAuthorized) {
         return { success: false, error: 'Not authorized to update posts for this team.' };
       }
 

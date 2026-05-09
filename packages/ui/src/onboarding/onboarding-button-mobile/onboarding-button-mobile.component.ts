@@ -108,17 +108,6 @@ import { OnboardingProgressPillsComponent } from '../onboarding-progress-pills';
             }
           </button>
         </div>
-
-        @if (showSignOut) {
-          <button
-            type="button"
-            class="nxt1-signout-link"
-            (click)="signOutClick.emit()"
-            data-testid="onboarding-signout"
-          >
-            Sign out and start over
-          </button>
-        }
       </div>
     </div>
   `,

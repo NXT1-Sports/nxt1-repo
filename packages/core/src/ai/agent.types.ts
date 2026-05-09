@@ -352,6 +352,8 @@ export interface AgentSessionContext {
   readonly lastActiveAt: string;
   /** Which backend environment is serving this agent run. */
   readonly environment?: 'staging' | 'production';
+  /** Public app origin for environment-aware NXT1 URLs, including localhost during development. */
+  readonly appBaseUrl?: string;
   /** The job/operation ID — threaded into LLM calls as Helicone-Property-Job-Id for cost tracking. */
   readonly operationId?: string;
   /** The MongoDB thread ID for the current conversation. Used by tools for thread-scoped storage. */
@@ -615,6 +617,15 @@ export interface SyncNewVideo {
   readonly title?: string;
 }
 
+/** A new playbook detected during a daily sync. */
+export interface SyncNewPlaybook {
+  readonly name: string;
+  readonly sport: string;
+  readonly playCount: number;
+  readonly formationTypes?: readonly string[];
+  readonly videoRefs?: readonly string[];
+}
+
 /**
  * Deterministic report of what changed between the previous DB state
  * and the latest AI-extracted web data during a daily sync.
@@ -659,6 +670,9 @@ export interface SyncDeltaReport {
   /** New videos/highlights detected on external platforms. */
   readonly newVideos: readonly SyncNewVideo[];
 
+  /** New playbooks detected. */
+  readonly newPlaybooks?: readonly SyncNewPlaybook[];
+
   /** Summary counts for quick decisions. */
   readonly summary: {
     readonly identityFieldsChanged: number;
@@ -668,7 +682,16 @@ export interface SyncDeltaReport {
     readonly newAwards: number;
     readonly newScheduleEvents: number;
     readonly newVideos: number;
+    readonly newPlaybooks: number;
     readonly totalChanges: number;
+  };
+
+  /** Metadata indicating delta generation approach and version. */
+  readonly metadata?: {
+    readonly generationType: 'typed' | 'synthetic';
+    readonly policyVersion: string;
+    readonly fallbackReason?: string;
+    readonly adapterVersion?: string;
   };
 }
 
@@ -750,7 +773,14 @@ export interface AgentJobUpdate {
 // ─── Execution Plan (DAG) ───────────────────────────────────────────────────
 
 /** Status of an individual task within an execution plan. */
-export type AgentTaskStatus = 'pending' | 'in_progress' | 'completed' | 'failed' | 'skipped';
+export type AgentTaskStatus =
+  | 'pending'
+  | 'in_progress'
+  | 'completed'
+  | 'failed'
+  | 'blocked'
+  | 'skipped'
+  | 'awaiting_tool_approval';
 
 /** A single task in the agent's execution plan (To-Do List). */
 export interface AgentTask {
@@ -761,13 +791,54 @@ export interface AgentTask {
   readonly displayLabel?: string;
   /** Full execution intent passed to the coordinator agent. */
   readonly description: string;
+  /**
+   * Optional structured key/value data forwarded verbatim to the coordinator.
+   * Injected as a machine-readable JSON block in the task intent so coordinators
+   * can extract IDs, codes, and references without relying on prose paraphrasing.
+   */
+  readonly structuredPayload?: Record<string, unknown>;
   readonly status: AgentTaskStatus;
   /** IDs of tasks that must complete before this one starts. */
   readonly dependsOn: readonly string[];
   /** Optional output data from the task once finished. */
   readonly result?: Record<string, unknown>;
+  /** Optional human-readable result summary for execution logs and review UIs. */
+  readonly resultSummary?: string;
+  /** Canonical artifacts produced by the task for downstream handoff. */
+  readonly artifacts?: AgentArtifactHandoff;
+  /** Short operator-facing note about the current state of the task. */
+  readonly statusNote?: string;
   readonly error?: string;
   readonly createdAt: string;
+  readonly updatedAt?: string;
+}
+
+/** Persisted lifecycle state of a saved execution plan. */
+export type AgentSavedPlanStatus =
+  | 'draft'
+  | 'awaiting_approval'
+  | 'approved'
+  | 'executing'
+  | 'completed'
+  | 'failed'
+  | 'superseded'
+  | 'cancelled';
+
+/** A first-class saved plan that can be reviewed, approved, and executed later. */
+export interface AgentSavedPlan {
+  readonly planId: string;
+  readonly userId: string;
+  readonly threadId?: string;
+  readonly originOperationId: string;
+  readonly approvedExecutionOperationId?: string;
+  readonly supersededByPlanId?: string;
+  readonly version: number;
+  readonly status: AgentSavedPlanStatus;
+  readonly summary: string;
+  readonly planHash: string;
+  readonly tasks: readonly AgentTask[];
+  readonly createdAt: string;
+  readonly approvedAt?: string;
   readonly updatedAt?: string;
 }
 

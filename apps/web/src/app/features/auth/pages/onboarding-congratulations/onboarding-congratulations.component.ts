@@ -253,6 +253,10 @@ export class OnboardingCongratulationsComponent implements OnInit {
     this.themeService.clearTemporaryOverride();
     this.logger.debug('Cleared temporary theme override, restored user preference');
 
+    // Mark legacy user as done — prevents congratulations screen on future logins.
+    // Fire-and-forget: runs in parallel with the profile refresh below.
+    void this.authFlow.completeLegacyOnboarding();
+
     // Ensure the authFlow signal reflects the latest backend role (e.g. 'director')
     // before the shell renders. Without this await, a newly registered Director
     // would see the Athlete UI on first load because the previous refresh may have

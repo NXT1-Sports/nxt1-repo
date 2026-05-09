@@ -46,9 +46,9 @@ export class PostDetailOverlayService {
    * Open the post detail overlay.
    *
    * On browser:
-   * 1. Pushes a canonical `/post/{unicode}/{id}` URL to browser history
+   * 1. Reflects a canonical `/post/{unicode}/{id}` URL in the current history entry
    * 2. Opens the overlay with post data
-   * 3. On close, restores the previous URL via `history.back()`
+   * 3. On close, restores the previous URL/state in-place
    *
    * On server: no-op.
    */
@@ -62,7 +62,9 @@ export class PostDetailOverlayService {
       ? `/post/${encodeURIComponent(userUnicode)}/${encodeURIComponent(post.id)}`
       : `/post/_/${encodeURIComponent(post.id)}`;
 
+    const previousState = window.history.state;
     const previousUrl = window.location.pathname + window.location.search;
+    const overlayStateId = `${Date.now()}-${post.id}`;
 
     this.logger.info('Opening post detail overlay', {
       postId: post.id,
@@ -70,9 +72,14 @@ export class PostDetailOverlayService {
       userUnicode,
     });
 
-    // Push canonical URL to history without triggering Angular router
-    // This makes shared links work correctly
-    window.history.pushState({ nxt1PostOverlay: true, previousUrl }, '', canonicalPath);
+    // Reflect the canonical post URL without adding a new browser history entry.
+    // This keeps copy/share URLs correct while the overlay is open, but closing
+    // the overlay should leave the user on the exact same page stack position.
+    window.history.replaceState(
+      { nxt1PostOverlay: true, previousUrl, overlayStateId },
+      '',
+      canonicalPath
+    );
 
     try {
       const ref = this.overlay.open<PostDetailOverlayComponent, void>({
@@ -90,8 +97,19 @@ export class PostDetailOverlayService {
       await ref.closed;
       this.logger.info('Post detail overlay closed', { postId: post.id });
     } finally {
-      // Restore the previous URL on close (whether normal or error)
-      window.history.replaceState(null, '', previousUrl);
+      // Restore the original route in-place so closing the overlay does not
+      // trigger a same-page route navigation or add an extra Back step.
+      const currentState = window.history.state as {
+        nxt1PostOverlay?: boolean;
+        overlayStateId?: string;
+      } | null;
+
+      if (currentState?.nxt1PostOverlay && currentState.overlayStateId === overlayStateId) {
+        window.history.replaceState(previousState ?? null, '', previousUrl);
+      } else if (window.location.pathname + window.location.search !== previousUrl) {
+        // Fallback for unexpected history mutations while the overlay was open.
+        window.history.replaceState(previousState ?? null, '', previousUrl);
+      }
     }
   }
 }

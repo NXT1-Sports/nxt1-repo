@@ -19,6 +19,7 @@
 import type { AgentIdentifier, AgentJobOrigin, AgentToolCallRecord } from './agent.types';
 import type { AgentXMessagePart, AgentXToolStep } from './agent-x.types';
 import type { AgentXAttachment } from './agent-x.types';
+import type { AgentXRichCard } from './agent-x.types';
 
 // ─── Thread ─────────────────────────────────────────────────────────────────
 
@@ -154,6 +155,8 @@ export interface AgentMessage {
   readonly operationId?: string;
   /** File attachments (images, videos, docs) sent with this message. */
   readonly attachments?: readonly AgentXAttachment[];
+  /** Rich card widgets rendered below a message (images, emails, graphics, etc.). */
+  readonly cards?: readonly AgentXRichCard[];
   /** Structured result data the UI can render (graphics, emails, etc.). */
   readonly resultData?: Record<string, unknown>;
   /** Tool calls made during this message's generation. */

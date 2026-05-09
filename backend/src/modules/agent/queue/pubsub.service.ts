@@ -46,6 +46,16 @@ export const AGENT_STREAM_CHANNEL_PREFIX =
 export const AGENT_CONTROL_CHANNEL_PREFIX =
   getRuntimeEnvironment() === 'production' ? 'agent:control:prod:' : 'agent:control:stg:';
 
+/**
+ * Redis PubSub channel prefix for cross-instance pending-attachment
+ * resolutions. The /chat handler subscribes here while it waits for the
+ * frontend to finish uploading deferred attachments; the /pending-attachments
+ * resolver publishes the resolved payload so the waiting handler can resume
+ * regardless of which instance received the resolution POST.
+ */
+export const AGENT_ATTACHMENTS_CHANNEL_PREFIX =
+  getRuntimeEnvironment() === 'production' ? 'agent:attachments:prod:' : 'agent:attachments:stg:';
+
 /** Reserved event type indicating the stream is complete (worker finished). */
 export const STREAM_TERMINAL_EVENTS = new Set(['done', 'error']);
 
@@ -87,6 +97,21 @@ export interface AgentControlMessage {
 /** Callback invoked when a control message arrives for a subscribed operation. */
 export type AgentControlHandler = (message: AgentControlMessage) => void;
 
+/**
+ * Payload published when the frontend finishes resolving deferred attachment
+ * stubs for an operation. Shape mirrors the HTTP body of
+ * `POST /pending-attachments/:operationId` so consumers can forward it
+ * without translation.
+ */
+export interface AgentAttachmentsResolvedMessage {
+  readonly operationId: string;
+  readonly userId: string;
+  readonly attachments: ReadonlyArray<Record<string, unknown>>;
+  readonly resolvedAt: string;
+}
+
+export type AgentAttachmentsResolvedHandler = (message: AgentAttachmentsResolvedMessage) => void;
+
 // ─── Service ────────────────────────────────────────────────────────────────
 
 export class AgentPubSubService {
@@ -101,6 +126,9 @@ export class AgentPubSubService {
 
   /** Active control-channel subscriptions: channelId → Set of control handlers. */
   private readonly controlHandlers = new Map<string, Set<AgentControlHandler>>();
+
+  /** Active attachments-channel subscriptions: channelId → Set of handlers. */
+  private readonly attachmentsHandlers = new Map<string, Set<AgentAttachmentsResolvedHandler>>();
 
   /** Whether the message listener has been attached to the subscriber client. */
   private listenerAttached = false;
@@ -174,6 +202,31 @@ export class AgentPubSubService {
             handler(parsedControl);
           } catch (err) {
             logger.warn('[pubsub] Control handler threw', {
+              channel,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+        }
+        return;
+      }
+
+      const attachmentsSet = this.attachmentsHandlers.get(channel);
+      if (attachmentsSet && attachmentsSet.size > 0) {
+        let parsedAttachments: AgentAttachmentsResolvedMessage;
+        try {
+          parsedAttachments = JSON.parse(rawMessage) as AgentAttachmentsResolvedMessage;
+        } catch {
+          logger.warn('[pubsub] Failed to parse attachments-resolved message', {
+            channel,
+            raw: rawMessage.slice(0, 200),
+          });
+          return;
+        }
+        for (const handler of attachmentsSet) {
+          try {
+            handler(parsedAttachments);
+          } catch (err) {
+            logger.warn('[pubsub] Attachments handler threw', {
               channel,
               error: err instanceof Error ? err.message : String(err),
             });
@@ -372,6 +425,65 @@ export class AgentPubSubService {
     }
   }
 
+  // ─── Attachments-resolved channel (cross-instance stub waiter) ─────────
+
+  /** Build the attachments-resolved channel name for an operation. */
+  static attachmentsChannelFor(operationId: string): string {
+    return `${AGENT_ATTACHMENTS_CHANNEL_PREFIX}${operationId}`;
+  }
+
+  /**
+   * Publish an attachments-resolved payload. Called by the
+   * `/pending-attachments/:operationId` resolver so the `/chat` handler that
+   * is currently parked waiting for stub URLs can resume — even if the
+   * resolver lands on a different instance than the SSE connection.
+   */
+  async publishAttachmentsResolved(message: AgentAttachmentsResolvedMessage): Promise<void> {
+    const channel = AgentPubSubService.attachmentsChannelFor(message.operationId);
+    try {
+      await this.getPublisher().publish(channel, JSON.stringify(message));
+    } catch (err) {
+      logger.warn('[pubsub] Attachments publish failed', {
+        channel,
+        operationId: message.operationId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  /**
+   * Subscribe to an operation's attachments-resolved channel. Returns an
+   * unsubscribe function that MUST be invoked when the wait completes so we
+   * don't leak Redis subscriptions.
+   */
+  async subscribeAttachmentsResolved(
+    operationId: string,
+    handler: AgentAttachmentsResolvedHandler
+  ): Promise<PubSubUnsubscribe> {
+    const channel = AgentPubSubService.attachmentsChannelFor(operationId);
+    this.ensureListener();
+
+    let handlerSet = this.attachmentsHandlers.get(channel);
+    if (!handlerSet) {
+      handlerSet = new Set();
+      this.attachmentsHandlers.set(channel, handlerSet);
+      await this.getSubscriber().subscribe(channel);
+    }
+    handlerSet.add(handler);
+
+    return async () => {
+      const set = this.attachmentsHandlers.get(channel);
+      if (!set) return;
+      set.delete(handler);
+      if (set.size === 0) {
+        this.attachmentsHandlers.delete(channel);
+        await this.getSubscriber()
+          .unsubscribe(channel)
+          .catch(() => undefined);
+      }
+    };
+  }
+
   // ─── Shutdown ───────────────────────────────────────────────────────────
 
   /**
@@ -381,6 +493,7 @@ export class AgentPubSubService {
   async shutdown(): Promise<void> {
     this.handlers.clear();
     this.controlHandlers.clear();
+    this.attachmentsHandlers.clear();
     if (this.subscriber) {
       await this.subscriber.quit().catch(() => undefined);
       this.subscriber = null;

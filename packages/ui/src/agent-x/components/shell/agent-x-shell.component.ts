@@ -47,6 +47,7 @@ import { FormsModule } from '@angular/forms';
 import { IonContent, NavController } from '@ionic/angular/standalone';
 import { Capacitor } from '@capacitor/core';
 import { NxtPageHeaderComponent } from '../../../components/page-header';
+import { NxtLogoComponent } from '../../../components/logo';
 import { NxtRefresherComponent, type RefreshEvent } from '../../../components/refresh-container';
 import { NxtIconComponent } from '../../../components/icon';
 import { AgentXService } from '../../services/agent-x.service';
@@ -201,6 +202,7 @@ function sortCoordinatorCategories(
     FormsModule,
     IonContent,
     NxtPageHeaderComponent,
+    NxtLogoComponent,
     NxtRefresherComponent,
     NxtIconComponent,
     NxtStateViewComponent,
@@ -214,23 +216,8 @@ function sortCoordinatorCategories(
         [config]="{ variant: 'transparent', bordered: false }"
         (menuClick)="avatarClick.emit()"
       >
-        <!-- Agent X Title in center title slot -->
         <div pageHeaderSlot="title" class="header-logo">
-          <span class="header-title-text">Agent</span>
-          <svg
-            class="header-agent-logo"
-            viewBox="0 0 612 792"
-            width="40"
-            height="40"
-            fill="currentColor"
-            stroke="currentColor"
-            stroke-width="10"
-            stroke-linejoin="round"
-            aria-hidden="true"
-          >
-            <path [attr.d]="agentXLogoPath" />
-            <polygon [attr.points]="agentXLogoPolygon" />
-          </svg>
+          <nxt1-logo size="sm" variant="header" alt="NXT1" />
         </div>
 
         <div pageHeaderSlot="end" class="agent-header-actions">
@@ -597,10 +584,6 @@ function sortCoordinatorCategories(
               </button>
             }
           </div>
-        } @else {
-          <div class="floating-coordinators-empty" role="status" aria-live="polite">
-            No coordinators are configured for this role.
-          </div>
         }
       </section>
 
@@ -670,29 +653,13 @@ function sortCoordinatorCategories(
         display: flex;
         align-items: center;
         justify-content: center;
-        gap: 0;
         width: 100%;
-        margin-top: -8px;
-        margin-left: -18px;
+        margin-top: -2px;
+        margin-left: -36px;
       }
 
-      .header-title-text {
-        display: inline-flex;
-        align-items: center;
-        font-family: var(--nxt1-font-family-brand, var(--ion-font-family));
-        font-size: var(--nxt1-font-size-xl, 20px);
-        font-weight: var(--nxt1-font-weight-semibold, 600);
-        letter-spacing: var(--nxt1-letter-spacing-tight, -0.01em);
-        color: var(--agent-text-primary);
-        line-height: 1;
-        transform: translateY(1px);
-      }
-
-      .header-agent-logo {
+      .header-logo nxt1-logo {
         display: block;
-        flex-shrink: 0;
-        color: var(--agent-text-primary);
-        transform: translateY(1px);
       }
 
       .agent-header-actions {
@@ -2318,6 +2285,7 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
     // Capture and transfer any pending attachments from the main input strip
     const servicePendingFiles = this.agentX.pendingFiles();
     const initialFiles = servicePendingFiles.map((f) => ({
+      id: crypto.randomUUID(),
       file: f.file,
       previewUrl: f.previewUrl,
       isImage: f.type === 'image',
@@ -2407,8 +2375,10 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
    * Mark a task as explicitly done — user already completed it outside the app.
    */
   protected async onMarkDoneTask(task: ShellWeeklyPlaybookItem): Promise<void> {
-    await this.haptics.notification('success');
-    this.agentX.markPlaybookItemComplete(task.id);
+    const saved = await this.agentX.markPlaybookItemComplete(task.id);
+    if (saved) {
+      await this.haptics.notification('success');
+    }
   }
 
   /**
@@ -2432,6 +2402,7 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
 
     // Capture pending files and convert to operation-chat PendingFile shape
     const initialFiles = servicePendingFiles.map((f) => ({
+      id: crypto.randomUUID(),
       file: f.file,
       previewUrl: f.previewUrl,
       isImage: f.type === 'image',
@@ -2552,11 +2523,24 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
         firebaseProviders: user?.firebaseProviders ?? [],
       })?.links ?? [];
 
-    const withFavicons = linkedSources.map((source) => ({
-      ...source,
-      faviconUrl:
-        source.faviconUrl ?? getPlatformFaviconUrl(source.platform.toLowerCase()) ?? undefined,
-    }));
+    const withFavicons = linkedSources.flatMap((source) => {
+      const platform = source.platform.trim();
+      const profileUrl = source.profileUrl.trim();
+      if (!platform || !profileUrl || platform.toLowerCase() === 'nxt1') {
+        return [];
+      }
+
+      return [
+        {
+          platform,
+          profileUrl,
+          faviconUrl:
+            source.faviconUrl ?? getPlatformFaviconUrl(platform.toLowerCase()) ?? undefined,
+          scopeType: source.scopeType,
+          scopeId: source.scopeId,
+        } satisfies ConnectedAppSource,
+      ];
+    });
 
     const attachmentSourcesMap = new Map<string, ConnectedAppSource>();
 

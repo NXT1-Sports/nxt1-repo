@@ -24,8 +24,8 @@ import type { HttpAdapter } from '../api/http-adapter';
 import type {
   AgentXChatRequest,
   AgentXChatResponse,
-  AgentXQuickTask,
   AgentXMessage,
+  AgentXQuickTask,
   AgentDashboardData,
   AgentDashboardGoal,
   AgentDashboardPlaybook,
@@ -50,7 +50,7 @@ import type {
   AgentGoalHistoryResponse,
 } from './agent-x.types';
 import type { AgentMessage } from './chat.types';
-import { AGENT_X_ENDPOINTS } from './agent-x.constants';
+import { AGENT_X_ENDPOINTS, AGENT_X_REQUEST_HEADERS } from './agent-x.constants';
 import { AGENT_X_RUNTIME_CONFIG } from './agent-x-runtime.constants';
 import { externalServiceError, rateLimitError, isNxtApiError } from '../errors';
 
@@ -69,18 +69,18 @@ interface ApiResponse<T> {
 }
 
 /**
- * Tasks response from API.
- */
-interface TasksResponse {
-  readonly tasks: AgentXQuickTask[];
-}
-
-/**
  * History response from API (general chat history).
  */
 interface HistoryResponse {
   readonly messages: AgentXMessage[];
   readonly hasMore: boolean;
+}
+
+/**
+ * Quick tasks response from API.
+ */
+interface TasksResponse {
+  readonly tasks: AgentXQuickTask[];
 }
 
 /**
@@ -124,6 +124,7 @@ export interface DeleteMessageResult extends AgentMessageActionResult {
 
 export interface AgentXStreamMessageOptions {
   readonly idempotencyKey?: string;
+  readonly appBaseUrl?: string;
 }
 
 // ============================================
@@ -148,8 +149,6 @@ export interface AgentXStreamMessageOptions {
  *   userContext: { role: 'athlete', sport: 'football' }
  * });
  *
- * // Get tasks for user role
- * const tasks = await api.getQuickTasks('athlete');
  * ```
  */
 export function createAgentXApi(http: HttpAdapter, baseUrl: string) {
@@ -205,30 +204,6 @@ export function createAgentXApi(http: HttpAdapter, baseUrl: string) {
     },
 
     /**
-     * Get quick tasks filtered by user role.
-     *
-     * @param role - User role to filter tasks
-     * @returns List of quick tasks for the role
-     */
-    async getQuickTasks(role?: string): Promise<AgentXQuickTask[]> {
-      try {
-        const url = role
-          ? `${endpoint(AGENT_X_ENDPOINTS.TASKS)}?role=${encodeURIComponent(role)}`
-          : endpoint(AGENT_X_ENDPOINTS.TASKS);
-
-        const response = await http.get<ApiResponse<TasksResponse>>(url);
-
-        if (!response.success || !response.data) {
-          return [];
-        }
-
-        return response.data.tasks;
-      } catch {
-        return [];
-      }
-    },
-
-    /**
      * Get conversation history.
      *
      * @param limit - Maximum messages to retrieve
@@ -251,6 +226,30 @@ export function createAgentXApi(http: HttpAdapter, baseUrl: string) {
         return response.data;
       } catch {
         return { messages: [], hasMore: false };
+      }
+    },
+
+    /**
+     * Get quick tasks filtered by user role.
+     *
+     * @param role - User role to filter tasks
+     * @returns List of quick tasks for the role
+     */
+    async getQuickTasks(role?: string): Promise<AgentXQuickTask[]> {
+      try {
+        const url = role
+          ? `${endpoint(AGENT_X_ENDPOINTS.TASKS)}?role=${encodeURIComponent(role)}`
+          : endpoint(AGENT_X_ENDPOINTS.TASKS);
+
+        const response = await http.get<ApiResponse<TasksResponse>>(url);
+
+        if (!response.success || !response.data) {
+          return [];
+        }
+
+        return response.data.tasks;
+      } catch {
+        return [];
       }
     },
 
@@ -763,6 +762,9 @@ export function createAgentXApi(http: HttpAdapter, baseUrl: string) {
               Accept: 'text/event-stream',
               Authorization: `Bearer ${authToken}`,
               ...(options?.idempotencyKey ? { 'x-idempotency-key': options.idempotencyKey } : {}),
+              ...(options?.appBaseUrl
+                ? { [AGENT_X_REQUEST_HEADERS.APP_BASE_URL]: options.appBaseUrl }
+                : {}),
             },
             body: JSON.stringify(request),
             signal: controller.signal,

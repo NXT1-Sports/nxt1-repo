@@ -15,6 +15,7 @@
 import { Timestamp, getFirestore, type Firestore } from 'firebase-admin/firestore';
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../../base.tool.js';
 import { getCacheService } from '../../../../../services/core/cache.service.js';
+import { canManageTeamMutationForUser } from '../../../../../services/team/team-intel-permissions.js';
 import { ScraperMediaService } from '../../integrations/social/scraper-media.service.js';
 import {
   CLOUDFLARE_API_BASE_URL,
@@ -65,7 +66,7 @@ export class WriteTeamPostTool extends BaseTool {
     '- posts (required): Array of posts to create:\n' +
     '  • type (required): "text" | "image" | "video" | "announcement".\n' +
     '  • content (required for text/announcement): Post body text.\n' +
-    '  • mediaUrls (optional): Array of image/video URLs.\n' +
+    '  • mediaUrls (REQUIRED when posting video or image): Array of image/video URLs. When the user\'s message contains an [Attached video: name — URL] annotation, you MUST extract that URL and pass it here with type set to "video". Never omit this field when media is present.\n' +
     '  • title (optional): Post title.\n' +
     '  • sportId (optional): Sport this post is related to.\n' +
     '  • isPinned (optional): Pin post to top of timeline.';
@@ -104,14 +105,19 @@ export class WriteTeamPostTool extends BaseTool {
       if (!teamDoc.exists) {
         return { success: false, error: `Team ${teamId} not found.` };
       }
-      const teamOwnerId = teamDoc.data()?.['ownerId'] as string | undefined;
-      if (teamOwnerId && teamOwnerId !== context.userId) {
+      const teamData = (teamDoc.data() ?? {}) as Record<string, unknown>;
+      const isAuthorized = await canManageTeamMutationForUser(
+        this.db,
+        context.userId,
+        teamId,
+        teamData
+      );
+      if (!isAuthorized) {
         return { success: false, error: 'Not authorized to post on behalf of this team.' };
       }
 
       // Resolve the team's default sport for post tagging.
       // Explicit sportId on each post overrides this; falls back to team sport.
-      const teamData = teamDoc.data() as Record<string, unknown>;
       const teamSport =
         typeof teamData['sport'] === 'string' ? teamData['sport'].trim().toLowerCase() : undefined;
 
@@ -167,6 +173,15 @@ export class WriteTeamPostTool extends BaseTool {
             phase: 'submit_video_cloudflare',
           });
 
+          logger.info('[WriteTeamPostTool] Submitting video to Cloudflare Stream', {
+            teamId,
+            teamCode,
+            actorUserId: context.userId,
+            sourceVideoUrl,
+            backendUrl: (process.env['BACKEND_URL'] ?? '').replace(/\/$/, ''),
+            environment: process.env['NODE_ENV'] ?? 'production',
+          });
+
           const cfResult = await this.submitVideoToCloudflare(sourceVideoUrl, context.userId);
 
           if (!cfResult) {
@@ -180,6 +195,17 @@ export class WriteTeamPostTool extends BaseTool {
 
           const cloudflareVideoId = cfResult.videoId;
           const docId = getCloudflareHighlightPostId(cloudflareVideoId);
+
+          logger.info('[WriteTeamPostTool] Cloudflare submission completed', {
+            teamId,
+            teamCode,
+            actorUserId: context.userId,
+            cloudflareVideoId,
+            readyToStream: cfResult.readyToStream,
+            iframeUrl: cfResult.iframeUrl,
+            hlsUrl: cfResult.hlsUrl,
+            docId,
+          });
 
           const docRef = this.db.collection(POSTS_COLLECTION).doc(docId);
 
@@ -229,10 +255,32 @@ export class WriteTeamPostTool extends BaseTool {
                   cloudflareStatus: 'inprogress',
                   readyToStream: false,
                   mediaUrl: null,
+                  // Save embed URLs now — iframe works even while video is processing
+                  ...(cfResult.iframeUrl ? { iframeUrl: cfResult.iframeUrl } : {}),
+                  ...(cfResult.hlsUrl ? { videoUrl: cfResult.hlsUrl } : {}),
+                  ...(cfResult.iframeUrl
+                    ? {
+                        playback: {
+                          hlsUrl: cfResult.hlsUrl ?? undefined,
+                          iframeUrl: cfResult.iframeUrl,
+                        },
+                      }
+                    : {}),
                 }),
             engagement: { likeCount: 0, commentCount: 0, shareCount: 0, viewCount: 0 },
             createdAt: resolveCreatedAt(undefined, undefined, now),
             updatedAt: now,
+          });
+
+          logger.info('[WriteTeamPostTool] Queued team post document write', {
+            teamId,
+            teamCode,
+            postId: docId,
+            actorUserId: context.userId,
+            cloudflareVideoId,
+            initialCloudflareStatus: alreadyReady ? 'ready' : 'inprogress',
+            readyToStream: cfResult.readyToStream,
+            mediaUrl: alreadyReady ? (cfResult.iframeUrl ?? null) : null,
           });
 
           if (!alreadyReady) {
@@ -292,27 +340,46 @@ export class WriteTeamPostTool extends BaseTool {
       });
       await batch.commit();
 
+      logger.info('[WriteTeamPostTool] Batch commit completed', {
+        teamId,
+        teamCode,
+        written,
+        skipped,
+        pendingVideoReconciliations: pendingVideoReconciliations.length,
+      });
+
       await Promise.all(
         pendingVideoReconciliations.map((target) =>
           this.reconcileCloudflareVideoPost(target.docId, target.videoId, target.userId)
         )
       );
 
-      // Invalidate team timeline and profile caches
+      // Invalidate team timeline and profile caches (all key variants)
       const cache = getCacheService();
       await Promise.all([
         cache.delByPrefix(`team:timeline:v1:${teamCode}:`),
         cache.delByPrefix(`team:profile:code:${teamCode}:`),
+        cache.delByPrefix(`team:profile:id:${teamId}:`),
       ]);
 
       logger.info('[WriteTeamPostTool] Posts written', { teamId, teamCode, written, skipped });
+
+      const pendingVideoCount = pendingVideoReconciliations.length;
+      const processingNote =
+        pendingVideoCount > 0
+          ? `${pendingVideoCount} video post(s) are still processing in Cloudflare Stream and will become playable shortly.`
+          : null;
 
       return {
         success: true,
         data: {
           written,
           skipped,
-          message: `Created ${written} team post(s)${skipped > 0 ? `, skipped ${skipped}` : ''}.`,
+          pendingVideoCount,
+          ...(processingNote ? { processingNote } : {}),
+          message:
+            `Created ${written} team post(s)${skipped > 0 ? `, skipped ${skipped}` : ''}.` +
+            (processingNote ? ` ${processingNote}` : ''),
         },
       };
     } catch (err) {
@@ -370,6 +437,7 @@ export class WriteTeamPostTool extends BaseTool {
     }
 
     try {
+      const webhookBackendUrl = (process.env['BACKEND_URL'] ?? '').replace(/\/$/, '');
       const response = await fetch(`${CLOUDFLARE_API_BASE_URL}/accounts/${accountId}/stream/copy`, {
         method: 'POST',
         headers: {
@@ -381,10 +449,19 @@ export class WriteTeamPostTool extends BaseTool {
           meta: {
             nxt1_user_id: userId,
             nxt1_context: 'agent_team_post',
-            nxt1_env: process.env['NODE_ENV'] ?? 'production',
+            // nxt1_env: process.env['NODE_ENV'] ?? 'production',
+            nxt1_env: 'staging',
             webhook_backend_url: (process.env['BACKEND_URL'] ?? '').replace(/\/$/, ''),
           },
         }),
+      });
+
+      logger.info('[WriteTeamPostTool] Cloudflare copy API responded', {
+        userId,
+        sourceVideoUrl: videoUrl,
+        webhookBackendUrl,
+        status: response.status,
+        ok: response.ok,
       });
 
       if (!response.ok) {
@@ -453,6 +530,12 @@ export class WriteTeamPostTool extends BaseTool {
       );
 
       if (!response.ok) {
+        logger.warn('[WriteTeamPostTool] Immediate Cloudflare reconcile returned non-2xx', {
+          userId,
+          cloudflareVideoId: videoId,
+          docId,
+          status: response.status,
+        });
         return;
       }
 
@@ -460,11 +543,29 @@ export class WriteTeamPostTool extends BaseTool {
       const result = body['result'] as Record<string, unknown> | null | undefined;
 
       if (!result) {
+        logger.warn('[WriteTeamPostTool] Immediate Cloudflare reconcile returned no result', {
+          userId,
+          cloudflareVideoId: videoId,
+          docId,
+        });
         return;
       }
 
       const normalized = normalizeCloudflareVideoForClient(videoId, result, customerCode);
       if (!normalized.readyToStream || !normalized.playback.iframeUrl) {
+        logger.info(
+          '[WriteTeamPostTool] Immediate Cloudflare reconcile found video not ready yet',
+          {
+            userId,
+            cloudflareVideoId: videoId,
+            docId,
+            status: normalized.status,
+            readyToStream: normalized.readyToStream,
+            iframeUrl: normalized.playback.iframeUrl,
+          }
+        );
+        // Start a background poller — works even on localhost (no webhook needed)
+        this.startBackgroundVideoPoller(docId, videoId, userId);
         return;
       }
 
@@ -500,5 +601,138 @@ export class WriteTeamPostTool extends BaseTool {
         error: err instanceof Error ? err.message : String(err),
       });
     }
+  }
+
+  /**
+   * Fire-and-forget background poller.
+   * Polls Cloudflare every 15 seconds for up to 10 minutes until the video
+   * becomes ready, then updates the Firestore post and invalidates caches.
+   * Works on localhost (no webhook delivery required).
+   */
+  private startBackgroundVideoPoller(docId: string, videoId: string, userId: string): void {
+    const accountId = process.env['CLOUDFLARE_ACCOUNT_ID'];
+    const apiToken = process.env['CLOUDFLARE_API_TOKEN'];
+    const customerCode = process.env['CLOUDFLARE_STREAM_CUSTOMER_CODE'];
+
+    if (!accountId || !apiToken) return;
+
+    const POLL_INTERVAL_MS = 15_000; // 15 seconds
+    const MAX_ATTEMPTS = 40; // 10 minutes total
+    let attempts = 0;
+
+    const poll = async (): Promise<void> => {
+      attempts++;
+      try {
+        const response = await fetch(
+          `${CLOUDFLARE_API_BASE_URL}/accounts/${accountId}/stream/${videoId}`,
+          { headers: { Authorization: `Bearer ${apiToken}` } }
+        );
+
+        if (!response.ok) {
+          logger.warn('[WriteTeamPostTool] Background poller got non-2xx from CF', {
+            cloudflareVideoId: videoId,
+            docId,
+            status: response.status,
+            attempt: attempts,
+          });
+          if (attempts < MAX_ATTEMPTS)
+            setTimeout(() => {
+              void poll();
+            }, POLL_INTERVAL_MS);
+          return;
+        }
+
+        const body = (await response.json()) as Record<string, unknown>;
+        const result = body['result'] as Record<string, unknown> | null | undefined;
+        if (!result) {
+          if (attempts < MAX_ATTEMPTS)
+            setTimeout(() => {
+              void poll();
+            }, POLL_INTERVAL_MS);
+          return;
+        }
+
+        const normalized = normalizeCloudflareVideoForClient(videoId, result, customerCode);
+        logger.info('[WriteTeamPostTool] Background poller check', {
+          cloudflareVideoId: videoId,
+          docId,
+          attempt: attempts,
+          status: normalized.status,
+          readyToStream: normalized.readyToStream,
+        });
+
+        if (!normalized.readyToStream || !normalized.playback.iframeUrl) {
+          if (attempts < MAX_ATTEMPTS)
+            setTimeout(() => {
+              void poll();
+            }, POLL_INTERVAL_MS);
+          return;
+        }
+
+        // Video is ready — update Firestore
+        await this.db
+          .collection(POSTS_COLLECTION)
+          .doc(docId)
+          .update({
+            cloudflareStatus: normalized.status,
+            readyToStream: true,
+            mediaUrl: normalized.playback.iframeUrl,
+            videoUrl: normalized.playback.hlsUrl,
+            duration: normalized.durationSeconds,
+            playback: normalized.playback,
+            ...(normalized.thumbnailUrl
+              ? { thumbnailUrl: normalized.thumbnailUrl, poster: normalized.thumbnailUrl }
+              : {}),
+            updatedAt: Timestamp.now(),
+          });
+
+        // Invalidate all caches for this team post
+        const cache = getCacheService();
+        const postDoc = await this.db.collection(POSTS_COLLECTION).doc(docId).get();
+        const teamId = postDoc.data()?.['teamId'] as string | undefined;
+        if (teamId) {
+          const teamDoc = await this.db.collection(TEAMS_COLLECTION).doc(teamId).get();
+          const teamCode = teamDoc.data()?.['teamCode'] as string | undefined;
+          if (teamCode) {
+            await Promise.all([
+              cache.delByPrefix(`team:timeline:v1:${teamCode}:`),
+              cache.delByPrefix(`team:profile:code:${teamCode}:`),
+              cache.delByPrefix(`team:profile:id:${teamId}:`),
+            ]);
+          }
+        }
+
+        logger.info('[WriteTeamPostTool] Background poller updated video post to ready', {
+          cloudflareVideoId: videoId,
+          docId,
+          userId,
+          attempts,
+        });
+      } catch (err) {
+        logger.warn('[WriteTeamPostTool] Background poller error', {
+          cloudflareVideoId: videoId,
+          docId,
+          attempt: attempts,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        if (attempts < MAX_ATTEMPTS)
+          setTimeout(() => {
+            void poll();
+          }, POLL_INTERVAL_MS);
+      }
+    };
+
+    // First retry after initial interval
+    setTimeout(() => {
+      void poll();
+    }, POLL_INTERVAL_MS);
+
+    logger.info('[WriteTeamPostTool] Background video poller started', {
+      cloudflareVideoId: videoId,
+      docId,
+      userId,
+      pollIntervalMs: POLL_INTERVAL_MS,
+      maxAttempts: MAX_ATTEMPTS,
+    });
   }
 }

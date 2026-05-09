@@ -410,7 +410,7 @@ export async function runWeeklyRecaps(): Promise<void> {
   try {
     const { getFirestore } = await import('firebase-admin/firestore');
     const db = getFirestore();
-    const snap = await db.collection('Users').select().get();
+    const snap = await db.collection('Users').select('weeklyRecapEmailEnabled').get();
     eligibleUserIds = snap.docs
       .filter((doc) => doc.data()['weeklyRecapEmailEnabled'] !== false)
       .map((doc) => doc.id);

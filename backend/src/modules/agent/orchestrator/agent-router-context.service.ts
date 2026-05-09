@@ -17,6 +17,19 @@ const EMPTY_RETRIEVED_MEMORIES: AgentRetrievedMemories = {
   organization: [],
 };
 
+function stripRequestSection(enrichedContext?: string): string | null {
+  if (!enrichedContext) return null;
+
+  const marker = '\n\n[Request]\n';
+  const markerIndex = enrichedContext.indexOf(marker);
+  if (markerIndex < 0) {
+    return enrichedContext.trim().length > 0 ? enrichedContext : null;
+  }
+
+  const scoped = enrichedContext.slice(0, markerIndex).trim();
+  return scoped.length > 0 ? scoped : null;
+}
+
 export class AgentRouterContextService {
   constructor(
     private readonly contextBuilder: ContextBuilder,
@@ -35,7 +48,13 @@ export class AgentRouterContextService {
     const contextStr = this.contextBuilder.compressToPrompt(
       userContext,
       memories,
-      recentSyncSummaries
+      recentSyncSummaries,
+      {
+        appBaseUrl:
+          typeof jobContext?.['appBaseUrl'] === 'string'
+            ? String(jobContext['appBaseUrl'])
+            : undefined,
+      }
     );
     let enriched = `[User Profile]\n${contextStr}`;
 
@@ -44,6 +63,7 @@ export class AgentRouterContextService {
         threadId: _threadId,
         mode: _mode,
         attachments: _attachments,
+        appBaseUrl: _appBaseUrl,
         ...visibleContext
       } = jobContext;
       if (Object.keys(visibleContext).length > 0) {
@@ -75,8 +95,9 @@ export class AgentRouterContextService {
   ): string {
     const parts: string[] = [];
 
-    if (enrichedContext) {
-      parts.push(enrichedContext);
+    const scopedContext = stripRequestSection(enrichedContext);
+    if (scopedContext) {
+      parts.push(scopedContext);
     }
 
     if (task.dependsOn.length > 0) {
@@ -100,6 +121,21 @@ export class AgentRouterContextService {
 
     parts.push('[Agent Handoff]');
     parts.push(`Objective: ${task.description}`);
+    parts.push('[Task Boundaries]');
+    parts.push('- Execute only this Objective for the current task.');
+    parts.push('- Do NOT perform downstream or future plan tasks in this step.');
+    parts.push(
+      '- If blocked by missing prerequisite data, report blocked status instead of continuing.'
+    );
+
+    // Inject verbatim structured data so coordinators can read IDs, codes, and
+    // references without relying on LLM paraphrasing. This block is the single
+    // source of truth for machine-readable handoff data.
+    if (task.structuredPayload && Object.keys(task.structuredPayload).length > 0) {
+      parts.push(
+        `[Structured Handoff Data — use these values exactly, do not paraphrase]:\n${JSON.stringify(task.structuredPayload, null, 2)}`
+      );
+    }
 
     return parts.join('\n\n');
   }
@@ -110,6 +146,7 @@ export class AgentRouterContextService {
     operationId?: string,
     threadId?: string,
     environment?: 'staging' | 'production',
+    appBaseUrl?: string,
     signal?: AbortSignal,
     mode?: string,
     attachments?: readonly {
@@ -134,6 +171,7 @@ export class AgentRouterContextService {
       createdAt: now,
       lastActiveAt: now,
       ...(environment && { environment }),
+      ...(appBaseUrl && { appBaseUrl }),
       ...(operationId && { operationId }),
       ...(threadId && { threadId }),
       ...(mode && { mode }),

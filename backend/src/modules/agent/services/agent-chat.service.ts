@@ -40,6 +40,8 @@ import type {
   AgentMessageQuery,
   PaginatedResult,
   AgentXAttachment,
+  AgentXRichCard,
+  AgentXMessagePart,
   AgentYieldState,
 } from '@nxt1/core';
 import { AgentThreadModel } from '../../../models/agent/agent-thread.model.js';
@@ -81,6 +83,75 @@ const PROMPT_ONLY_TITLE_GENERATION_PROMPT = `You are a concise title generator f
 - Be specific (e.g. "Ohio D2 College Search" not "College Question")
 - Include sport/context when relevant
 - Maximum 50 characters`;
+
+function extractCardsFromParts(
+  parts?: readonly AgentXMessagePart[]
+): readonly AgentXRichCard[] | undefined {
+  if (!parts || parts.length === 0) return undefined;
+
+  const cards = parts
+    .filter((part): part is Extract<AgentXMessagePart, { type: 'card' }> => part.type === 'card')
+    .map((part) => part.card);
+
+  return cards.length > 0 ? cards : undefined;
+}
+
+function normalizeAttachmentValue(value: string | undefined): string | null {
+  const trimmed = value?.trim();
+  return trimmed && trimmed.length > 0 ? trimmed : null;
+}
+
+function attachmentsMatch(left: AgentXAttachment, right: AgentXAttachment): boolean {
+  if (left.id && right.id && left.id === right.id) return true;
+
+  const leftStoragePath = normalizeAttachmentValue(left.storagePath);
+  const rightStoragePath = normalizeAttachmentValue(right.storagePath);
+  if (leftStoragePath && rightStoragePath && leftStoragePath === rightStoragePath) return true;
+
+  const leftCloudflareId = normalizeAttachmentValue(left.cloudflareVideoId);
+  const rightCloudflareId = normalizeAttachmentValue(right.cloudflareVideoId);
+  if (leftCloudflareId && rightCloudflareId && leftCloudflareId === rightCloudflareId) return true;
+
+  const leftUrl = normalizeAttachmentValue(left.url);
+  const rightUrl = normalizeAttachmentValue(right.url);
+  if (leftUrl && rightUrl && leftUrl === rightUrl) return true;
+
+  return (
+    left.name === right.name &&
+    left.mimeType === right.mimeType &&
+    left.sizeBytes === right.sizeBytes &&
+    left.type === right.type
+  );
+}
+
+function mergeAttachment(existing: AgentXAttachment, incoming: AgentXAttachment): AgentXAttachment {
+  return {
+    ...existing,
+    ...incoming,
+    id: incoming.id || existing.id,
+    url: incoming.url || existing.url,
+    name: incoming.name || existing.name,
+    mimeType: incoming.mimeType || existing.mimeType,
+    type: incoming.type || existing.type,
+    sizeBytes: incoming.sizeBytes || existing.sizeBytes,
+  };
+}
+
+function mergeUniqueAttachments(
+  existing: readonly AgentXAttachment[],
+  incoming: readonly AgentXAttachment[]
+): AgentXAttachment[] {
+  const merged = [...existing];
+  for (const attachment of incoming) {
+    const existingIndex = merged.findIndex((candidate) => attachmentsMatch(candidate, attachment));
+    if (existingIndex >= 0) {
+      merged[existingIndex] = mergeAttachment(merged[existingIndex], attachment);
+      continue;
+    }
+    merged.push(attachment);
+  }
+  return merged;
+}
 
 // ─── Service ────────────────────────────────────────────────────────────────
 
@@ -444,6 +515,7 @@ export class AgentChatService {
     agentId?: AgentIdentifier;
     operationId?: string;
     attachments?: readonly AgentXAttachment[];
+    cards?: readonly AgentXRichCard[];
     resultData?: Record<string, unknown>;
     toolCalls?: readonly AgentToolCallRecord[];
     /**
@@ -460,7 +532,7 @@ export class AgentChatService {
      */
     toolCallId?: string;
     steps?: readonly import('@nxt1/core').AgentXToolStep[];
-    parts?: readonly import('@nxt1/core').AgentXMessagePart[];
+    parts?: readonly AgentXMessagePart[];
     tokenUsage?: AgentMessageTokenUsage;
     /**
      * Optional caller-supplied idempotency key. When set, a unique sparse
@@ -479,6 +551,7 @@ export class AgentChatService {
     semanticPhase?: import('@nxt1/core').AgentMessageSemanticPhase;
   }): Promise<AgentMessage> {
     const now = new Date().toISOString();
+    const normalizedCards = params.cards ?? extractCardsFromParts(params.parts);
 
     const docFields = {
       threadId: params.threadId,
@@ -489,6 +562,7 @@ export class AgentChatService {
       agentId: params.agentId,
       operationId: params.operationId,
       attachments: params.attachments,
+      cards: normalizedCards,
       resultData: params.resultData,
       toolCalls: params.toolCalls,
       toolCallsWire: params.toolCallsWire,
@@ -516,11 +590,55 @@ export class AgentChatService {
         );
       } catch (err: unknown) {
         if ((err as { code?: number }).code === 11000) {
-          // Duplicate key — return the already-persisted message as-is.
+          // Duplicate key — the row was already written (BullMQ retry, concurrent
+          // write, or a prior app version that omitted steps/parts). Instead of
+          // returning the stale row blindly, check whether the new write carries
+          // richer data (steps or parts) that the existing row is missing and
+          // patch it in-place so historical chats gain tool-call visibility.
           const existing = await AgentMessageModel.findOne({
             idempotencyKey: params.idempotencyKey,
           }).exec();
           if (!existing) throw err; // Should never happen; re-throw to surface the issue.
+
+          const existingStepsEmpty = !existing.steps || (existing.steps as unknown[]).length === 0;
+          const existingPartsEmpty = !existing.parts || (existing.parts as unknown[]).length === 0;
+          const existingCardsEmpty = !existing.cards || (existing.cards as unknown[]).length === 0;
+          const newStepsProvided = params.steps && params.steps.length > 0;
+          const newPartsProvided = params.parts && params.parts.length > 0;
+          const newCardsProvided = normalizedCards && normalizedCards.length > 0;
+
+          if (
+            (newStepsProvided && existingStepsEmpty) ||
+            (newPartsProvided && existingPartsEmpty) ||
+            (newCardsProvided && existingCardsEmpty)
+          ) {
+            // Enrich the existing row without changing its idempotencyKey or
+            // creating a duplicate — safe to call repeatedly.
+            const patch: Record<string, unknown> = {};
+            if (newStepsProvided && existingStepsEmpty) patch['steps'] = params.steps;
+            if (newPartsProvided && existingPartsEmpty) patch['parts'] = params.parts;
+            if (newCardsProvided && existingCardsEmpty) patch['cards'] = normalizedCards;
+
+            const enriched = await AgentMessageModel.findOneAndUpdate(
+              { idempotencyKey: params.idempotencyKey },
+              { $set: patch },
+              { new: true }
+            ).exec();
+
+            logger.info(
+              '[AgentChatService] Idempotent duplicate — enriched existing message with steps/parts',
+              {
+                idempotencyKey: params.idempotencyKey,
+                existingId: existing.id,
+                stepCount: params.steps?.length ?? 0,
+                partCount: params.parts?.length ?? 0,
+                cardCount: normalizedCards?.length ?? 0,
+              }
+            );
+
+            return this.toMessage(enriched ?? existing);
+          }
+
           logger.info('[AgentChatService] Idempotent duplicate — returning existing message', {
             idempotencyKey: params.idempotencyKey,
             existingId: existing.id,
@@ -624,6 +742,26 @@ export class AgentChatService {
     idempotencyKey: string;
     attachment: AgentXAttachment;
   }): Promise<void> {
+    const existingPending = await AgentUploadOutboxModel.findOne({
+      userId: params.userId,
+      idempotencyKey: params.idempotencyKey,
+      status: 'pending',
+    })
+      .lean()
+      .exec();
+
+    if (
+      existingPending?.attachment &&
+      attachmentsMatch(existingPending.attachment as AgentXAttachment, params.attachment)
+    ) {
+      logger.info('[AgentChatService] Skipping duplicate upload outbox entry', {
+        idempotencyKey: params.idempotencyKey,
+        attachmentId: params.attachment.id,
+        userId: params.userId,
+      });
+      return;
+    }
+
     const now = new Date().toISOString();
     await AgentUploadOutboxModel.create({
       userId: params.userId,
@@ -737,10 +875,10 @@ export class AgentChatService {
     }
 
     const currentAttachments = Array.isArray(existing.attachments) ? existing.attachments : [];
-    const nextAttachments = [
-      ...currentAttachments.filter((attachment) => attachment?.id !== params.attachment.id),
-      params.attachment,
-    ];
+    const nextAttachments = mergeUniqueAttachments(
+      currentAttachments as readonly AgentXAttachment[],
+      [params.attachment]
+    );
 
     const doc = await AgentMessageModel.findOneAndUpdate(
       {
@@ -759,6 +897,49 @@ export class AgentChatService {
       .exec();
 
     return doc ? this.toMessage(doc) : null;
+  }
+
+  async updateMessageResolvedAttachments(params: {
+    userId: string;
+    messageId: string;
+    content: string;
+    attachments: readonly AgentXAttachment[];
+  }): Promise<AgentMessage | null> {
+    const uniqueAttachments = mergeUniqueAttachments([], params.attachments);
+    const doc = await AgentMessageModel.findOneAndUpdate(
+      {
+        _id: params.messageId,
+        userId: params.userId,
+        role: 'user',
+        deletedAt: null,
+      },
+      {
+        $set: {
+          content: params.content,
+          attachments: uniqueAttachments,
+        },
+      },
+      { new: true }
+    )
+      .lean()
+      .exec();
+
+    if (!doc) {
+      logger.warn('[AgentChatService] Resolved attachment message update missed', {
+        userId: params.userId,
+        messageId: params.messageId,
+        attachmentCount: uniqueAttachments.length,
+      });
+      return null;
+    }
+
+    logger.info('[AgentChatService] Resolved attachments persisted to user message', {
+      userId: params.userId,
+      messageId: params.messageId,
+      attachmentCount: params.attachments.length,
+    });
+
+    return this.toMessage(doc);
   }
 
   /**
@@ -794,6 +975,81 @@ export class AgentChatService {
       .exec();
 
     return doc ? this.toMessage(doc) : null;
+  }
+
+  /**
+   * Enrich the latest persisted assistant row for an operation with streamed
+   * replay data (steps / parts / cards) without creating a second assistant
+   * bubble. Used by yield handling to patch the already-written
+   * `assistant_tool_call` row when execution pauses before a final answer.
+   */
+  async enrichLatestAssistantMessageForOperation(params: {
+    threadId: string;
+    userId: string;
+    operationId: string;
+    steps?: readonly import('@nxt1/core').AgentXToolStep[];
+    parts?: readonly AgentXMessagePart[];
+    cards?: readonly AgentXRichCard[];
+  }): Promise<AgentMessage | null> {
+    const normalizedCards = params.cards ?? extractCardsFromParts(params.parts);
+
+    const existing = await AgentMessageModel.findOne({
+      threadId: params.threadId,
+      userId: params.userId,
+      operationId: params.operationId,
+      role: 'assistant',
+      deletedAt: null,
+    })
+      .sort({ createdAt: -1 })
+      .lean()
+      .exec();
+
+    if (!existing) return null;
+
+    if (
+      existing.semanticPhase === 'assistant_final' ||
+      existing.semanticPhase === 'assistant_yield'
+    ) {
+      return this.toMessage(existing);
+    }
+
+    const incomingStepCount = params.steps?.length ?? 0;
+    const incomingPartCount = params.parts?.length ?? 0;
+    const incomingCardCount = normalizedCards?.length ?? 0;
+    const existingStepCount = Array.isArray(existing.steps) ? existing.steps.length : 0;
+    const existingPartCount = Array.isArray(existing.parts) ? existing.parts.length : 0;
+    const existingCardCount = Array.isArray(existing.cards) ? existing.cards.length : 0;
+
+    const patch: Record<string, unknown> = {};
+    if (incomingStepCount > existingStepCount) patch['steps'] = params.steps;
+    if (incomingPartCount > existingPartCount) patch['parts'] = params.parts;
+    if (incomingCardCount > existingCardCount) patch['cards'] = normalizedCards;
+
+    if (Object.keys(patch).length === 0) {
+      return this.toMessage(existing);
+    }
+
+    const doc = await AgentMessageModel.findOneAndUpdate(
+      {
+        _id: existing._id,
+        userId: params.userId,
+        deletedAt: null,
+      },
+      { $set: patch },
+      { new: true }
+    )
+      .lean()
+      .exec();
+
+    logger.info('[AgentChatService] Enriched latest assistant message for operation', {
+      operationId: params.operationId,
+      messageId: existing.id,
+      stepCount: incomingStepCount,
+      partCount: incomingPartCount,
+      cardCount: incomingCardCount,
+    });
+
+    return doc ? this.toMessage(doc) : this.toMessage(existing);
   }
 
   /**
@@ -1040,6 +1296,9 @@ export class AgentChatService {
         : typeof doc.deletedAt === 'string'
           ? doc.deletedAt
           : null;
+    const attachments = Array.isArray(doc.attachments)
+      ? mergeUniqueAttachments([], doc.attachments as readonly AgentXAttachment[])
+      : doc.attachments;
 
     return {
       id: String(doc._id),
@@ -1050,7 +1309,8 @@ export class AgentChatService {
       origin: doc.origin,
       agentId: doc.agentId,
       operationId: doc.operationId,
-      attachments: doc.attachments,
+      attachments,
+      cards: doc.cards,
       resultData: doc.resultData,
       toolCalls: doc.toolCalls,
       toolCallsWire: doc.toolCallsWire,

@@ -11,8 +11,9 @@
  * SSR-safe — no direct browser API access.
  */
 
-import { Component, ChangeDetectionStrategy, input, output, computed } from '@angular/core';
+import { Component, ChangeDetectionStrategy, input, output, computed, inject } from '@angular/core';
 import { DatePipe, DecimalPipe } from '@angular/common';
+import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import type { IconName } from '@nxt1/design-tokens/assets/icons';
 import { NxtImageComponent } from '../components/image';
 import { NxtIconComponent } from '../components/icon';
@@ -122,14 +123,33 @@ const TYPE_LABELS: Record<string, string> = {
         <!-- ── MEDIA ── -->
         @if (hasVideo()) {
           <div class="pdo-video-wrap">
-            <iframe
-              [src]="videoEmbedUrl()"
-              class="pdo-video-iframe"
-              allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-              allowfullscreen
-              loading="lazy"
-              title="{{ post().title || 'Post video' }}"
-            ></iframe>
+            @if (videoEmbedUrl(); as embedUrl) {
+              <iframe
+                [src]="embedUrl"
+                class="pdo-video-iframe"
+                allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowfullscreen
+                loading="lazy"
+                title="{{ post().title || 'Post video' }}"
+              ></iframe>
+            } @else {
+              <!-- Video is still processing — show thumbnail if available, otherwise placeholder -->
+              <div class="pdo-video-processing">
+                @if (post().thumbnailUrl) {
+                  <nxt1-image
+                    [src]="post().thumbnailUrl!"
+                    alt="Video thumbnail"
+                    [width]="800"
+                    [height]="450"
+                    fit="cover"
+                    class="pdo-video-thumb"
+                  />
+                }
+                <div class="pdo-video-processing-overlay">
+                  <span class="pdo-video-processing-label">Video processing…</span>
+                </div>
+              </div>
+            }
           </div>
         } @else if (hasImage()) {
           <div class="pdo-image-wrap">
@@ -372,6 +392,37 @@ const TYPE_LABELS: Record<string, string> = {
         border: none;
       }
 
+      .pdo-video-processing {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+      }
+
+      .pdo-video-thumb {
+        display: block;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        opacity: 0.4;
+      }
+
+      .pdo-video-processing-overlay {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(0, 0, 0, 0.45);
+      }
+
+      .pdo-video-processing-label {
+        font-size: 13px;
+        font-weight: 600;
+        color: rgba(255, 255, 255, 0.75);
+        letter-spacing: 0.02em;
+      }
+
       .pdo-image-wrap {
         width: 100%;
         max-height: 420px;
@@ -463,6 +514,8 @@ const TYPE_LABELS: Record<string, string> = {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class PostDetailOverlayComponent {
+  private readonly sanitizer = inject(DomSanitizer);
+
   // ─── INPUTS ───
   readonly post = input.required<PostDetailInput>();
   readonly author = input<PostAuthorInfo>({ name: 'Athlete' });
@@ -501,9 +554,11 @@ export class PostDetailOverlayComponent {
     return !!(p.thumbnailUrl || (p.type === 'image' && p.mediaUrl));
   });
 
-  protected readonly videoEmbedUrl = computed(() => {
+  protected readonly videoEmbedUrl = computed<SafeResourceUrl | null>(() => {
     const p = this.post();
-    return p.iframeUrl ?? p.mediaUrl ?? '';
+    const rawUrl = p.iframeUrl ?? p.mediaUrl ?? '';
+    if (!rawUrl) return null;
+    return this.sanitizer.bypassSecurityTrustResourceUrl(rawUrl);
   });
 
   protected readonly imageUrl = computed(() => {

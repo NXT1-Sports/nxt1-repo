@@ -181,6 +181,7 @@ export {
   getRecommendedPlatforms,
   ROLE_SELECTION_STEP,
   ONBOARDING_STEPS,
+  LEGACY_ONBOARDING_STEPS,
   AGENT_X_ONBOARDING_MESSAGES,
   getAgentXMessage,
   validateStep,

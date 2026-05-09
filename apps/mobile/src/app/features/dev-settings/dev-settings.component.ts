@@ -13,7 +13,7 @@
  * @version 1.0.0
  */
 
-import { Component, ChangeDetectionStrategy, inject, signal } from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject, signal, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import {
   IonHeader,
@@ -32,6 +32,7 @@ import {
   IonCardContent,
   IonBadge,
   IonToggle,
+  IonSpinner,
   AlertController,
   ToastController,
 } from '@ionic/angular/standalone';
@@ -44,15 +45,22 @@ import {
   closeCircleOutline,
   refreshOutline,
   cloudUploadOutline,
+  cloudDownloadOutline,
   personOutline,
   keyOutline,
   analyticsOutline,
   sendOutline,
   trashOutline,
   informationCircleOutline,
+  documentTextOutline,
+  flashOutline,
+  wifiOutline,
 } from 'ionicons/icons';
 
 import { CrashlyticsService } from '../../core/services/infrastructure/crashlytics.service';
+import { LiveUpdateService } from '../../core/services/native/live-update.service';
+import { Capacitor } from '@capacitor/core';
+import { Preferences } from '@capacitor/preferences';
 import { CRASH_KEYS } from '@nxt1/core/crashlytics';
 import { environment } from '../../../environments/environment';
 
@@ -90,6 +98,7 @@ import { environment } from '../../../environments/environment';
     IonCardContent,
     IonBadge,
     IonToggle,
+    IonSpinner,
   ],
   template: `
     <ion-header>
@@ -133,6 +142,125 @@ import { environment } from '../../../environments/environment';
               <ion-label>
                 <h3>App Version</h3>
                 <p>{{ appVersion() }}</p>
+              </ion-label>
+            </ion-item>
+          </ion-list>
+        </ion-card-content>
+      </ion-card>
+
+      <!-- OTA Live Update Debug -->
+      <ion-card>
+        <ion-card-header>
+          <ion-card-title>
+            <ion-icon name="refresh-outline" /> OTA Live Update
+            @if (otaChecking()) {
+              <ion-spinner name="crescent" style="width:18px;height:18px;margin-left:8px" />
+            }
+            @if (otaApplying()) {
+              <ion-spinner
+                name="dots"
+                color="warning"
+                style="width:18px;height:18px;margin-left:8px"
+              />
+            }
+          </ion-card-title>
+        </ion-card-header>
+        <ion-card-content>
+          <!-- Status grid -->
+          <ion-list lines="none">
+            <ion-item>
+              <ion-label>
+                <h3>Platform / Channel</h3>
+                <p>{{ otaPlatform() }} — {{ otaChannel() }}</p>
+              </ion-label>
+              <ion-badge slot="end" color="primary">{{ otaChannel() }}</ion-badge>
+            </ion-item>
+            <ion-item>
+              <ion-label>
+                <h3>Active Bundle (Capgo)</h3>
+                <p>{{ otaCurrentVersion() ?? '(native shell — no OTA applied)' }}</p>
+              </ion-label>
+              <ion-badge slot="end" [color]="otaCurrentVersion() ? 'success' : 'medium'">
+                {{ otaCurrentVersion() ? 'OTA' : 'NATIVE' }}
+              </ion-badge>
+            </ion-item>
+            <ion-item>
+              <ion-label>
+                <h3>Last Check Result</h3>
+                <p>{{ otaLastResultText() }}</p>
+              </ion-label>
+              <ion-badge slot="end" [color]="otaStatusColor()">{{ otaStatusBadge() }}</ion-badge>
+            </ion-item>
+            <ion-item>
+              <ion-label>
+                <h3>Circuit Breaker</h3>
+                <p>
+                  {{ otaFailureCount() }} / 3 failures —
+                  {{ otaFailureCount() >= 3 ? '🔴 TRIPPED (OTA blocked)' : '🟢 OK' }}
+                </p>
+              </ion-label>
+              <ion-badge slot="end" [color]="otaFailureCount() >= 3 ? 'danger' : 'success'">
+                {{ otaFailureCount() >= 3 ? 'TRIPPED' : 'OK' }}
+              </ion-badge>
+            </ion-item>
+            <ion-item>
+              <ion-label>
+                <h3>Last Checked At</h3>
+                <p>{{ otaLastCheckedAt() ?? 'never' }}</p>
+              </ion-label>
+            </ion-item>
+          </ion-list>
+
+          <!-- Actions -->
+          <ion-list lines="full" style="margin-top: 8px">
+            <ion-item button detail="false" [disabled]="otaChecking()" (click)="otaForceCheck()">
+              <ion-icon name="refresh-outline" slot="start" color="primary" />
+              <ion-label>
+                <h2>Check for Update</h2>
+                <p>Pure check — shows detailed result alert (no download)</p>
+              </ion-label>
+              @if (otaChecking()) {
+                <ion-spinner slot="end" name="crescent" />
+              }
+            </ion-item>
+
+            <ion-item button detail="false" (click)="otaFetchManifest()">
+              <ion-icon name="document-text-outline" slot="start" color="secondary" />
+              <ion-label>
+                <h2>Fetch Firestore Manifest</h2>
+                <p>Show raw manifest doc from AppUpdates collection</p>
+              </ion-label>
+            </ion-item>
+
+            <ion-item
+              button
+              detail="false"
+              [disabled]="otaApplying()"
+              (click)="otaDownloadApplyNow()"
+            >
+              <ion-icon name="flash-outline" slot="start" color="warning" />
+              <ion-label>
+                <h2>Download &amp; Apply NOW</h2>
+                <p>Force-download bundle and reload WebView immediately (set)</p>
+              </ion-label>
+              @if (otaApplying()) {
+                <ion-spinner slot="end" name="dots" color="warning" />
+              }
+            </ion-item>
+
+            <ion-item button detail="false" (click)="otaResetCircuitBreaker()">
+              <ion-icon name="warning-outline" slot="start" color="warning" />
+              <ion-label>
+                <h2>Reset Circuit Breaker</h2>
+                <p>Clear failure count — allows OTA to retry</p>
+              </ion-label>
+            </ion-item>
+
+            <ion-item button detail="false" (click)="otaResetToNative()">
+              <ion-icon name="trash-outline" slot="start" color="danger" />
+              <ion-label>
+                <h2>Reset to Native Bundle</h2>
+                <p>Rollback to built-in JS — removes all OTA bundles</p>
               </ion-label>
             </ion-item>
           </ion-list>
@@ -378,6 +506,7 @@ import { environment } from '../../../environments/environment';
 })
 export class DevSettingsComponent {
   private readonly crashlytics = inject(CrashlyticsService);
+  private readonly liveUpdate = inject(LiveUpdateService);
   private readonly alertController = inject(AlertController);
   private readonly toastController = inject(ToastController);
 
@@ -391,6 +520,38 @@ export class DevSettingsComponent {
   readonly crashlyticsEnabled = signal(false);
   readonly didCrashPreviously = signal(false);
 
+  // OTA signals — live from service
+  readonly otaCurrentVersion = this.liveUpdate.currentVersion;
+  readonly otaChecking = this.liveUpdate.checking;
+  readonly otaApplying = this.liveUpdate.applying;
+  readonly otaFailureCount = signal(0);
+  readonly otaLastCheckedAt = signal<string | null>(null);
+  readonly otaPlatform = signal(Capacitor.getPlatform());
+  readonly otaChannel = signal(environment.production ? 'production' : 'staging');
+
+  readonly otaLastResultText = computed(() => {
+    const r = this.liveUpdate.lastResult();
+    if (!r) return '(not checked yet — tap "Check for Update")';
+    if (r.status === 'skipped') return `skipped: ${r.reason}`;
+    if (r.status === 'error') return `error: ${r.error}`;
+    if (r.status === 'available')
+      return `🆕 available → v${r.manifest.version} (minNative: ${r.manifest.minNativeVersion})`;
+    return `✅ up-to-date (${r.currentVersion ?? 'native shell'})`;
+  });
+  readonly otaStatusColor = computed(() => {
+    const r = this.liveUpdate.lastResult();
+    if (!r) return 'medium';
+    if (r.status === 'error') return 'danger';
+    if (r.status === 'skipped') return 'warning';
+    if (r.status === 'available') return 'success';
+    return 'primary';
+  });
+  readonly otaStatusBadge = computed(() => {
+    const r = this.liveUpdate.lastResult();
+    if (!r) return '?';
+    return r.status.toUpperCase();
+  });
+
   constructor() {
     // Register Ionicons
     addIcons({
@@ -401,16 +562,199 @@ export class DevSettingsComponent {
       closeCircleOutline,
       refreshOutline,
       cloudUploadOutline,
+      cloudDownloadOutline,
       personOutline,
       keyOutline,
       analyticsOutline,
       sendOutline,
       trashOutline,
       informationCircleOutline,
+      documentTextOutline,
+      flashOutline,
+      wifiOutline,
     });
 
     // Initialize status
     this.refreshStatus();
+    void this.loadOtaState();
+  }
+
+  async loadOtaState(): Promise<void> {
+    try {
+      const { value } = await Preferences.get({ key: 'nxt1.liveUpdate.state.v1' });
+      if (value) {
+        const state = JSON.parse(value) as { failureCount: number; lastCheckedAt: string | null };
+        this.otaFailureCount.set(state.failureCount ?? 0);
+        this.otaLastCheckedAt.set(state.lastCheckedAt ?? null);
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  async otaForceCheck(): Promise<void> {
+    try {
+      // checkOnly() = pure Firestore read, no notifyAppReady, no download
+      const result = await this.liveUpdate.checkOnly();
+      await this.loadOtaState();
+
+      let title = '';
+      let message = '';
+      let color: 'success' | 'warning' | 'danger' | 'primary' = 'primary';
+
+      if (result.status === 'skipped') {
+        title = 'OTA Skipped';
+        color = 'warning';
+        const reasons: Record<string, string> = {
+          'not-native': 'Running in browser/web — plugin not active',
+          disabled: 'OTA is disabled in the Firestore manifest',
+          'native-too-old': 'Native shell version is too old for this bundle',
+          'rollout-excluded': 'Device is excluded from current rollout %',
+          'previous-failures': 'Circuit breaker tripped (3+ failures)',
+          'already-current': 'Bundle version already current',
+        };
+        message =
+          reasons[(result as { reason: string }).reason] ??
+          `reason: ${(result as { reason: string }).reason}`;
+      } else if (result.status === 'up-to-date') {
+        title = '✅ Up to Date';
+        color = 'success';
+        message = `Running: ${result.currentVersion ?? 'native shell'}\nNo newer bundle in Firestore.`;
+      } else if (result.status === 'available') {
+        title = '🆕 Update Available!';
+        color = 'success';
+        const m = result.manifest;
+        message = [
+          `New version: ${m.version}`,
+          `Current:     ${result.currentVersion ?? 'native shell'}`,
+          `Min native:  ${m.minNativeVersion}`,
+          `Rollout:     ${m.rolloutPercentage}%`,
+          `Size:        ${(m.bundleSize / 1024).toFixed(1)} KB`,
+          `Published:   ${m.publishedAt}`,
+          m.releaseNotes ? `Notes: ${m.releaseNotes}` : '',
+        ]
+          .filter(Boolean)
+          .join('\n');
+      } else if (result.status === 'error') {
+        title = '❌ OTA Check Failed';
+        color = 'danger';
+        message = result.error;
+      }
+
+      const alert = await this.alertController.create({
+        header: title,
+        message: message.replace(/\n/g, '<br>'),
+        buttons: ['OK'],
+        cssClass: `ota-result-alert ota-${color}`,
+      });
+      await alert.present();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      await this.showToast(`OTA check failed: ${message}`, 'danger');
+    }
+  }
+
+  async otaFetchManifest(): Promise<void> {
+    try {
+      const manifest = await this.liveUpdate.getManifest();
+      if (!manifest) {
+        const alert = await this.alertController.create({
+          header: 'No Manifest Found',
+          message: `No document exists in Firestore at:<br><br><code>AppUpdates/${this.otaPlatform()}_${this.otaChannel()}</code><br><br>OTA has never been deployed to this channel, or the document was deleted.`,
+          buttons: ['OK'],
+        });
+        await alert.present();
+        return;
+      }
+
+      const lines = [
+        `version:      ${manifest.version}`,
+        `enabled:      ${manifest.enabled}`,
+        `channel:      ${manifest.channel}`,
+        `platform:     ${manifest.platform}`,
+        `minNative:    ${manifest.minNativeVersion}`,
+        `rollout:      ${manifest.rolloutPercentage}%`,
+        `size:         ${(manifest.bundleSize / 1024).toFixed(1)} KB`,
+        `published:    ${manifest.publishedAt}`,
+        `git sha:      ${manifest.gitSha ?? 'n/a'}`,
+        `bundleUrl:    ${manifest.bundleUrl.substring(0, 60)}...`,
+        `hash(sha256): ${manifest.bundleHash.substring(0, 16)}...`,
+        manifest.releaseNotes ? `notes: ${manifest.releaseNotes}` : '',
+      ]
+        .filter(Boolean)
+        .join('<br>');
+
+      const alert = await this.alertController.create({
+        header: `📦 Manifest v${manifest.version}`,
+        message: `<small>${lines}</small>`,
+        buttons: ['OK'],
+      });
+      await alert.present();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      await this.showToast(`Manifest fetch failed: ${message}`, 'danger');
+    }
+  }
+
+  async otaDownloadApplyNow(): Promise<void> {
+    const confirm = await this.alertController.create({
+      header: 'Download & Apply NOW',
+      message:
+        'This will download the latest bundle from Firestore and immediately reload the WebView (set — not next). The app screen will flash/reload. Proceed?',
+      buttons: [
+        { text: 'Cancel', role: 'cancel' },
+        {
+          text: 'Apply Now',
+          role: 'confirm',
+          handler: async () => {
+            try {
+              await this.liveUpdate.downloadAndApplyNow();
+              await this.loadOtaState();
+              await this.showToast('✅ Bundle applied — WebView reloaded', 'success');
+            } catch (err) {
+              const message = err instanceof Error ? err.message : 'Unknown error';
+              await this.showToast(`Apply failed: ${message}`, 'danger');
+            }
+          },
+        },
+      ],
+    });
+    await confirm.present();
+  }
+
+  async otaResetCircuitBreaker(): Promise<void> {
+    try {
+      const { value } = await Preferences.get({ key: 'nxt1.liveUpdate.state.v1' });
+      const state = value ? JSON.parse(value) : {};
+      await Preferences.set({
+        key: 'nxt1.liveUpdate.state.v1',
+        value: JSON.stringify({ ...state, failureCount: 0 }),
+      });
+      this.otaFailureCount.set(0);
+      await this.showToast('Circuit breaker reset — failure count = 0', 'success');
+    } catch {
+      await this.showToast('Failed to reset', 'danger');
+    }
+  }
+
+  async otaResetToNative(): Promise<void> {
+    const alert = await this.alertController.create({
+      header: 'Reset to Native Bundle',
+      message: 'This will rollback to the original built-in JS bundle. The app will reload.',
+      buttons: [
+        { text: 'Cancel', role: 'cancel' },
+        {
+          text: 'Reset',
+          role: 'destructive',
+          handler: async () => {
+            await this.liveUpdate.resetToNativeBundle();
+            await this.loadOtaState();
+            await this.showToast('Reset to native bundle', 'warning');
+          },
+        },
+      ],
+    });
+    await alert.present();
   }
 
   async refreshStatus(): Promise<void> {

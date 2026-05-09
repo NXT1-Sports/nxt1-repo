@@ -24,15 +24,14 @@ describe('Agent tool exposure regressions', () => {
   const context = createMockContext();
 
   it('keeps system-auto-included core/research tools out of per-coordinator policy', () => {
-    const agents = [
-      new DataCoordinatorAgent(),
+    const nonDataAgents = [
       new BrandCoordinatorAgent(),
       new PerformanceCoordinatorAgent(),
       new RecruitingCoordinatorAgent(),
       new StrategyCoordinatorAgent(),
     ];
 
-    for (const agent of agents) {
+    for (const agent of nonDataAgents) {
       const tools = agent.getAvailableTools();
       expect(tools).not.toContain('ask_user');
       expect(tools).not.toContain('search_web');
@@ -56,6 +55,13 @@ describe('Agent tool exposure regressions', () => {
       expect(tools).not.toContain('extract_live_view_media');
       expect(tools).not.toContain('close_live_view');
     }
+
+    const dataTools = new DataCoordinatorAgent().getAvailableTools();
+    expect(dataTools).toContain('query_nxt1_data');
+    expect(dataTools).toContain('list_nxt1_data_views');
+    expect(dataTools).not.toContain('search_nxt1_platform');
+    expect(dataTools).not.toContain('query_nxt1_platform_data');
+    expect(dataTools).not.toContain('scan_timeline_posts');
 
     // Admin coordinator should now be policy-empty and rely entirely on system tools.
     expect(new AdminCoordinatorAgent().getAvailableTools()).toEqual([]);
@@ -93,8 +99,9 @@ describe('Agent tool exposure regressions', () => {
     expect(agent.getAvailableTools()).toContain('write_rankings');
     expect(agent.getAvailableTools()).not.toContain('search_nxt1_platform');
     expect(agent.getAvailableTools()).not.toContain('query_nxt1_platform_data');
-    expect(agent.getAvailableTools()).not.toContain('query_nxt1_data');
-    expect(agent.getAvailableTools()).not.toContain('list_nxt1_data_views');
+    expect(agent.getAvailableTools()).toContain('query_nxt1_data');
+    expect(agent.getAvailableTools()).toContain('list_nxt1_data_views');
+    expect(agent.getAvailableTools()).toContain('generate_chart_visualization');
     expect(agent.getAvailableTools()).not.toContain('firecrawl_agent_research');
   });
 
@@ -121,6 +128,15 @@ describe('Agent tool exposure regressions', () => {
     expect(agent.getAvailableTools()).toContain('runway_generate_video');
     expect(prompt).toContain('call write_timeline_post after the asset is generated');
     expect(prompt).toContain('Do NOT publish automatically unless the user clearly asked');
+    expect(prompt).toContain('## Internal Asset Fallback — MANDATORY Pre-Step');
+    expect(prompt).toContain('query_nxt1_data');
+    expect(prompt).toContain('user_profile_snapshot');
+    expect(prompt).toContain('team_profile_snapshot');
+    expect(prompt).toContain('organization_profile_snapshot');
+    expect(prompt).toContain('profileImgs');
+    expect(prompt).toContain('galleryImages');
+    expect(prompt).toContain('user_timeline_feed');
+    expect(prompt).toContain('team_timeline_feed');
   });
 
   it('exposes Intel persistence to the performance coordinator', () => {
@@ -160,6 +176,7 @@ describe('Agent tool exposure regressions', () => {
 
     expect(agent.getAvailableTools().length).toBeGreaterThan(0);
     expect(agent.getAvailableTools()).toContain('get_analytics_summary');
+    expect(agent.getAvailableTools()).toContain('generate_chart_visualization');
     expect(agent.getAvailableTools()).toContain('analyze_video');
     expect(agent.getAvailableTools()).not.toContain('write_intel');
     expect(agent.getAvailableTools()).not.toContain('firecrawl_agent_research');
@@ -212,11 +229,21 @@ describe('Agent tool exposure regressions', () => {
     }
   });
 
+  it('exposes shared persistence tools in effective policy for all coordinators', () => {
+    for (const agentId of COORDINATOR_AGENT_IDS) {
+      const tools = getEffectiveAgentToolPolicy(agentId);
+      expect(tools).toContain('track_analytics_event');
+      expect(tools).toContain('get_analytics_summary');
+      expect(tools).toContain('save_memory');
+    }
+  });
+
   it('allows direct Google Workspace tool families for the router policy', () => {
     const routerTools = getEffectiveAgentToolPolicy('router');
 
     expect(routerTools).toContain('search_colleges');
     expect(routerTools).toContain('search_college_coaches');
+    expect(routerTools).not.toContain('generate_chart_visualization');
     expect(isToolAllowedByPatterns('send_email', routerTools)).toBe(true);
     expect(isToolAllowedByPatterns('batch_send_email', routerTools)).toBe(true);
     expect(isToolAllowedByPatterns('query_gmail_emails', routerTools)).toBe(true);
@@ -252,6 +279,10 @@ describe('Agent tool exposure regressions', () => {
         'Do NOT call `ask_user` for data already present in task context, prior tool results, or deterministic lookups.'
       );
       expect(prompt).toContain('For low-risk read/processing steps, proceed without asking');
+      expect(prompt).toContain('## Shared Persistence Contract (CRITICAL)');
+      expect(prompt).toContain('call `save_memory` immediately');
+      expect(prompt).toContain('call `track_analytics_event` before your final reply');
+      expect(prompt).toContain('retrieve it with `get_analytics_summary` instead of guessing');
     }
   });
 });

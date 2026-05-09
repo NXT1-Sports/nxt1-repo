@@ -1,7 +1,7 @@
 # ============================================================================
 # NXT1 Monorepo - Release Workflow
 # ============================================================================
-# AUTO-RELEASE on push to production branch — version type detected from commits:
+# AUTO-RELEASE on push to main branch — version type detected from commits:
 #   BREAKING CHANGE / feat!: / fix!:  →  major (x.0.0)
 #   feat: / feat(scope):              →  minor (1.x.0)
 #   fix: / chore: / docs: / etc.      →  patch (1.2.x)
@@ -12,9 +12,10 @@
 name: Release
 
 on:
-  # Auto-release on every push to production — type detected from commit messages
+  # Auto-release on every push to main so staging gets the next real semver.
+  # Production should deploy the version already created on main without rebumping.
   push:
-    branches: [production]
+    branches: [main]
   # Manual dispatch to force a specific type or create a beta pre-release
   workflow_dispatch:
     inputs:

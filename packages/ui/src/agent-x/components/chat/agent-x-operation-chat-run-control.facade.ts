@@ -3,13 +3,7 @@ import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import type { AgentYieldState } from '@nxt1/core';
 import { APP_EVENTS } from '@nxt1/core/analytics';
-import type {
-  AgentXAttachment,
-  AgentXAttachmentStub,
-  AgentXSelectedAction,
-  AgentXToolStep,
-} from '@nxt1/core/ai';
-import { AGENT_X_ENDPOINTS } from '@nxt1/core/ai';
+import type { AgentXAttachment, AgentXSelectedAction, AgentXToolStep } from '@nxt1/core/ai';
 import { HapticsService } from '../../../services/haptics/haptics.service';
 import { NxtToastService } from '../../../services/toast/toast.service';
 import { NxtLoggingService } from '../../../services/logging/logging.service';
@@ -48,11 +42,13 @@ export interface AgentXOperationChatRunControlFacadeHost {
   readonly contextId: () => string;
   readonly contextTitle: () => string;
   readonly contextType: () => 'operation' | 'command';
+  readonly getOperationStatus: () => OperationChatStatus | null;
   readonly inputValue: WritableSignal<string>;
   readonly loading: WritableSignal<boolean>;
   readonly retryStarted: WritableSignal<boolean>;
   readonly activeYieldState: WritableSignal<AgentYieldState | null>;
   readonly yieldResolved: WritableSignal<boolean>;
+  clearRealtimePipelines(): void;
   setActivityPhase(
     phase:
       | 'idle'
@@ -85,7 +81,7 @@ export interface AgentXOperationChatRunControlFacadeHost {
   uid(): string;
 }
 
-@Injectable()
+@Injectable({ providedIn: 'root' })
 export class AgentXOperationChatRunControlFacade {
   private readonly http = inject(HttpClient);
   private readonly baseUrl = inject(AGENT_X_API_BASE_URL);
@@ -159,7 +155,14 @@ export class AgentXOperationChatRunControlFacade {
       host.setActiveStream(null);
     }
 
-    const currentOperationId = host.getCurrentOperationId();
+    host.clearRealtimePipelines();
+
+    // For /chat turns, currentOperationId is set by the SSE stream transport.
+    // For /enqueue threads, no SSE stream runs so currentOperationId is null —
+    // fall back to contextId() which IS the operationId for contextType 'operation'.
+    const currentOperationId =
+      host.getCurrentOperationId() ??
+      (host.contextType() === 'operation' ? host.contextId() : null);
     if (currentOperationId) {
       pausedOperationId = currentOperationId;
       this.firePauseRequest(currentOperationId);
@@ -172,8 +175,8 @@ export class AgentXOperationChatRunControlFacade {
     const targetOperationId = pausedOperationId ?? host.contextId();
     if (targetOperationId) {
       host.setCurrentOperationId(targetOperationId);
-      host.activeYieldState.set(this.buildLocalPauseYieldState(targetOperationId));
-      host.yieldResolved.set(false);
+      host.activeYieldState.set(null);
+      host.yieldResolved.set(true);
     }
 
     this.logger.info('Stream paused by user', { contextId: host.contextId() });
@@ -209,7 +212,13 @@ export class AgentXOperationChatRunControlFacade {
       host.setActiveStream(null);
     }
 
-    const currentOperationId = host.getCurrentOperationId();
+    host.clearRealtimePipelines();
+
+    // Same enqueue fallback as pauseStream() — contextId() is the operationId
+    // for 'operation' context type when no SSE turn has set currentOperationId.
+    const currentOperationId =
+      host.getCurrentOperationId() ??
+      (host.contextType() === 'operation' ? host.contextId() : null);
     if (currentOperationId) {
       host.setCurrentOperationId(null);
       this.fireCancelRequest(currentOperationId);
@@ -248,6 +257,25 @@ export class AgentXOperationChatRunControlFacade {
 
     if ((!text && files.length === 0 && pendingSources.length === 0) || host.loading()) {
       return;
+    }
+
+    const previousOperationId = host.getCurrentOperationId();
+    const previousStatus = host.getOperationStatus();
+    host.clearRealtimePipelines();
+
+    if (previousStatus === 'paused' && previousOperationId) {
+      this.logger.info('New message after paused stream; cancelling stale paused operation', {
+        pausedOperationId: previousOperationId,
+        contextId: host.contextId(),
+      });
+      this.breadcrumb.trackUserAction('send-after-paused-stream', {
+        operationId: previousOperationId,
+      });
+      this.fireCancelRequest(previousOperationId);
+      host.setCurrentOperationId(null);
+      host.activeYieldState.set(null);
+      host.yieldResolved.set(true);
+      host.setOperationStatus('processing');
     }
 
     const idempotencyKey = options?.idempotencyKey ?? this.createChatIdempotencyKey();
@@ -320,8 +348,6 @@ export class AgentXOperationChatRunControlFacade {
       ...sourceDisplayAttachments,
     ];
 
-    this.attachmentsFacade.pendingFiles.set([]);
-
     this.messageFacade.pushMessage({
       id: host.uid(),
       role: 'user',
@@ -332,7 +358,6 @@ export class AgentXOperationChatRunControlFacade {
       ...(selectedAction ? { selectedAction } : {}),
     });
 
-    this.transportFacade.beginResponseTurn('send');
     this.messageFacade.pushMessage({
       id: 'typing',
       role: 'assistant',
@@ -341,27 +366,59 @@ export class AgentXOperationChatRunControlFacade {
       isTyping: true,
     });
 
+    // Mirror regular chat UX: move staged files into the sent message row instantly.
+    this.attachmentsFacade.pendingFiles.set([]);
+
     try {
       let readyAttachments: AgentXAttachment[] = [];
-      let attachmentStubs: AgentXAttachmentStub[] = [];
       let authToken: string | null = null;
       if (files.length > 0) {
         authToken = (await this.getAuthToken?.().catch(() => null)) ?? null;
         if (authToken) {
-          // Non-blocking: immediately returns already-uploaded files as `ready`
-          // and still-uploading files as `stubs`. The stubs trigger the backend's
-          // `waiting_for_attachments` pipeline rather than blocking the send.
-          const split = this.attachmentsFacade.prepareForImmediateSend(files, authToken);
-          readyAttachments = split.ready;
-          attachmentStubs = split.stubs;
-
-          this.logger.info('Attachment split before chat dispatch', {
+          this.logger.info('Uploading staged attachments before chat dispatch', {
             contextId: host.contextId(),
             selectedFileCount: files.length,
-            readyCount: readyAttachments.length,
-            stubCount: attachmentStubs.length,
-            stubNames: attachmentStubs.map((s) => s.name),
           });
+
+          readyAttachments = await this.attachmentsFacade.prepareAttachmentsForSend(
+            files,
+            authToken
+          );
+          if (readyAttachments.length !== files.length) {
+            const failedCount = files.length - readyAttachments.length;
+            this.logger.warn('Blocking chat send because some attachments failed to upload', {
+              contextId: host.contextId(),
+              selectedCount: files.length,
+              uploadedCount: readyAttachments.length,
+              failedCount,
+            });
+            this.breadcrumb.trackStateChange(
+              'agent-x-operation-chat:attachment-upload-incomplete',
+              {
+                contextId: host.contextId(),
+                selectedCount: files.length,
+                uploadedCount: readyAttachments.length,
+                failedCount,
+              }
+            );
+            this.toast.error(
+              failedCount === 1
+                ? '1 attachment failed to upload. Fix it and retry before sending.'
+                : `${failedCount} attachments failed to upload. Fix them and retry before sending.`
+            );
+            this.attachmentsFacade.pendingFiles.set([...files]);
+            this.messageFacade.replaceTyping({
+              id: host.uid(),
+              role: 'assistant',
+              content:
+                failedCount === 1
+                  ? '1 attachment failed to upload. Fix it and tap send again.'
+                  : `${failedCount} attachments failed to upload. Fix them and tap send again.`,
+              timestamp: new Date(),
+              error: true,
+            });
+            return;
+          }
         } else {
           this.logger.error('Auth token unavailable — staged attachments cannot be sent to AI', {
             count: files.length,
@@ -379,6 +436,7 @@ export class AgentXOperationChatRunControlFacade {
           this.toast.error(
             `Session expired: ${files.length} attached file(s) cannot be sent. Please re-authenticate.`
           );
+          this.attachmentsFacade.pendingFiles.set([...files]);
           this.messageFacade.replaceTyping({
             id: host.uid(),
             role: 'assistant',
@@ -391,59 +449,15 @@ export class AgentXOperationChatRunControlFacade {
         }
       }
 
-      // Mutable set — the `onWaitingForAttachments` closure adds resolved IDs after the send.
-      const sentAttachmentIds = new Set(readyAttachments.map((attachment) => attachment.id));
+      this.transportFacade.beginResponseTurn('send');
 
-      const pendingAttachmentOptions =
-        attachmentStubs.length > 0 && authToken
-          ? {
-              stubs: attachmentStubs,
-              onWaitingForAttachments: async (operationId: string): Promise<void> => {
-                this.logger.info(
-                  'Backend waiting for attachment stubs — awaiting upload completion',
-                  { operationId, stubCount: attachmentStubs.length }
-                );
-                this.breadcrumb.trackStateChange('agent-x-operation-chat:awaiting-stubs', {
-                  operationId,
-                  stubCount: attachmentStubs.length,
-                });
-                // Allow 80 s — backend timeout is 90 s, giving a buffer for the POST.
-                const resolved = await this.attachmentsFacade.awaitPendingUploads(
-                  files,
-                  authToken!,
-                  80_000
-                );
-                this.logger.info('Pending uploads complete — notifying backend', {
-                  operationId,
-                  resolvedCount: resolved.length,
-                });
-                await this.notifyAttachmentsReady(operationId, resolved);
-                for (const attachment of resolved) {
-                  sentAttachmentIds.add(attachment.id);
-                }
-              },
-            }
-          : undefined;
-
-      const chatPromise = this.transportFacade.callAgentChat(
+      await this.transportFacade.callAgentChat(
         displayContent,
         readyAttachments,
         selectedAction ?? undefined,
         idempotencyKey,
-        pendingSources.length > 0 ? pendingSources : undefined,
-        pendingAttachmentOptions
+        pendingSources.length > 0 ? pendingSources : undefined
       );
-
-      if (files.length > 0 && authToken) {
-        this.attachmentsFacade.syncPendingAttachmentsAfterSend(
-          files,
-          idempotencyKey,
-          authToken,
-          sentAttachmentIds
-        );
-      }
-
-      await chatPromise;
       await this.haptics.notification('success');
     } catch (error) {
       this.logger.error('Chat message failed', error, { contextId: host.contextId() });
@@ -494,6 +508,9 @@ export class AgentXOperationChatRunControlFacade {
   }
 
   private transitionInFlightMessages(label: 'Paused' | 'Cancelled'): void {
+    const interruptedReason = label === 'Paused' ? 'paused' : 'cancelled';
+    const host = this.requireHost();
+
     this.messageFacade.messages.update((messages) =>
       messages.map((message) => {
         const hasTyping = message.isTyping === true;
@@ -502,7 +519,14 @@ export class AgentXOperationChatRunControlFacade {
           (part) =>
             part.type === 'tool-steps' && part.steps.some((step) => step.status === 'active')
         );
-        if (!hasTyping && !hasActiveSteps && !hasActiveParts) {
+        // The streaming bubble keeps id === 'typing' even after the first
+        // delta flips isTyping=false (so flushPendingTypingDelta can keep
+        // appending into it). On pause/cancel we MUST rotate that sentinel
+        // off the now-finalized row, otherwise the next send's typing push
+        // is rejected by pushMessage's typing-dedup and new deltas keep
+        // landing in this old bubble (rendering above the new user message).
+        const carriesTypingSentinel = message.id === 'typing';
+        if (!hasTyping && !hasActiveSteps && !hasActiveParts && !carriesTypingSentinel) {
           return message;
         }
 
@@ -511,7 +535,9 @@ export class AgentXOperationChatRunControlFacade {
 
         return {
           ...message,
+          ...(carriesTypingSentinel ? { id: host.uid() } : {}),
           isTyping: false,
+          ...(message.role === 'assistant' ? { interruptedReason } : {}),
           steps: message.steps?.map(updateStep),
           parts: message.parts?.map((part) =>
             part.type === 'tool-steps' ? { ...part, steps: part.steps.map(updateStep) } : part
@@ -519,30 +545,6 @@ export class AgentXOperationChatRunControlFacade {
         };
       })
     );
-  }
-
-  private buildLocalPauseYieldState(operationId: string): AgentYieldState {
-    const nowIso = new Date().toISOString();
-    const expiresAtIso = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-    const existing = this.requireHost().activeYieldState();
-
-    return {
-      reason: 'needs_input',
-      promptToUser: 'Operation paused. Resume whenever you are ready.',
-      agentId: (existing?.agentId ?? 'router') as AgentYieldState['agentId'],
-      messages: existing?.messages ?? [],
-      ...(existing?.planContext ? { planContext: existing.planContext } : {}),
-      pendingToolCall: {
-        toolName: PAUSE_RESUME_TOOL_NAME,
-        toolInput: {
-          operationId,
-          pauseRequestedAt: nowIso,
-        },
-        toolCallId: existing?.pendingToolCall?.toolCallId ?? `pause_resume_${operationId}`,
-      },
-      yieldedAt: nowIso,
-      expiresAt: expiresAtIso,
-    };
   }
 
   private fireCancelRequest(operationId: string): void {
@@ -594,54 +596,5 @@ export class AgentXOperationChatRunControlFacade {
       throw new Error('AgentXOperationChatRunControlFacade host not configured');
     }
     return this.host;
-  }
-
-  /**
-   * POSTs fully-resolved attachment URLs to the backend waiter opened when the
-   * initial chat request contained `attachmentStubs`. The backend unblocks and
-   * enqueues the job immediately upon receiving this call.
-   */
-  private async notifyAttachmentsReady(
-    operationId: string,
-    attachments: readonly AgentXAttachment[]
-  ): Promise<void> {
-    const authToken = await this.getAuthToken?.().catch(() => null);
-    if (!authToken) {
-      this.logger.error('Cannot notify backend: auth token unavailable', {
-        operationId,
-        attachmentCount: attachments.length,
-      });
-      return;
-    }
-
-    const url = `${this.baseUrl}${AGENT_X_ENDPOINTS.PENDING_ATTACHMENTS_RESOLVE}/${operationId}`;
-    try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${authToken}`,
-        },
-        body: JSON.stringify({ attachments }),
-      });
-      if (!response.ok) {
-        const text = await response.text().catch(() => '');
-        this.logger.error('Failed to notify backend of resolved attachments', {
-          operationId,
-          status: response.status,
-          body: text.slice(0, 200),
-        });
-      } else {
-        this.logger.info('Backend notified of resolved attachments', {
-          operationId,
-          attachmentCount: attachments.length,
-        });
-      }
-    } catch (err) {
-      this.logger.error('Network error notifying backend of resolved attachments', err, {
-        operationId,
-        attachmentCount: attachments.length,
-      });
-    }
   }
 }

@@ -211,6 +211,16 @@ export interface RecurringJobInfo {
   readonly nextRun: string | null;
   /** ISO timestamp of when the schedule was created. */
   readonly createdAt: string;
+  /** Number of recorded executions linked to this recurring task key. */
+  readonly totalRuns?: number;
+  /** Number of completed executions linked to this recurring task key. */
+  readonly successfulRuns?: number;
+  /** Number of failed executions linked to this recurring task key. */
+  readonly failedRuns?: number;
+  /** ISO timestamp of the latest execution for this recurring task key. */
+  readonly lastRunAt?: string | null;
+  /** Terminal status of the latest execution for this recurring task key. */
+  readonly lastRunStatus?: 'completed' | 'failed' | null;
 }
 
 /**

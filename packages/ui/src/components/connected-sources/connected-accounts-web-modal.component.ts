@@ -58,6 +58,7 @@ export interface ConnectedAccountsModalCloseData {
     connected: boolean;
     username?: string;
     url?: string;
+    connectionType?: string;
   }[];
 }
 
@@ -344,6 +345,27 @@ export class ConnectedAccountsWebModalComponent implements OnInit {
   protected onClose(): void {
     if (this._hasChanges()) {
       const data = this.buildCloseData();
+
+      // Detect any link-type accounts that were newly added in this session
+      const originalConnectedPlatforms = new Set(
+        (this.linkSourcesData() ?? { links: [] }).links
+          .filter((l) => l.connected)
+          .map((l) => l.platform)
+      );
+      const newLinkSources = data.sources.filter(
+        (s) => s.connectionType === 'link' && !originalConnectedPlatforms.has(s.platform)
+      );
+
+      if (newLinkSources.length > 0) {
+        // Save AND auto-resync for the newly added link accounts
+        this.breadcrumb.trackStateChange('connected-accounts-modal:saved-with-resync', {
+          count: data.updatedLinks.length,
+          newLinkCount: newLinkSources.length,
+        });
+        this.close.emit({ saved: false, resync: true, ...data, sources: newLinkSources });
+        return;
+      }
+
       this.breadcrumb.trackStateChange('connected-accounts-modal:saved', {
         count: data.updatedLinks.length,
       });
@@ -453,6 +475,7 @@ export class ConnectedAccountsWebModalComponent implements OnInit {
       connected: boolean;
       username?: string;
       url?: string;
+      connectionType?: string;
     }[];
   } {
     const linkSources = this._latestLinkSources() ?? this.linkSourcesData() ?? undefined;
@@ -474,6 +497,7 @@ export class ConnectedAccountsWebModalComponent implements OnInit {
         connected: link.connected,
         username: link.username,
         url: link.url,
+        connectionType: link.connectionType,
       })),
     };
   }

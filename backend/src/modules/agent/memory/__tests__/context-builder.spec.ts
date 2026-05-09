@@ -46,6 +46,19 @@ vi.mock('../../../../adapters/team.adapter.js', () => ({
   },
 }));
 
+const mockFirestoreDocGet = vi.fn();
+const mockFirestoreCollection = vi.fn((collectionName: string) => {
+  if (collectionName === 'Teams') {
+    return {
+      doc: vi.fn((docId: string) => ({
+        get: () => mockFirestoreDocGet(docId),
+      })),
+    };
+  }
+
+  return { doc: vi.fn(() => ({ get: vi.fn() })) };
+});
+
 const mockListRecentSummaries = vi.fn().mockResolvedValue([]);
 vi.mock('../../../../services/core/sync-delta-event.service.js', () => ({
   getSyncDeltaEventService: () => ({
@@ -54,7 +67,7 @@ vi.mock('../../../../services/core/sync-delta-event.service.js', () => ({
 }));
 
 vi.mock('firebase-admin/firestore', () => ({
-  getFirestore: vi.fn(() => ({ collection: vi.fn() })),
+  getFirestore: vi.fn(() => ({ collection: mockFirestoreCollection })),
 }));
 
 const mockLogger = {
@@ -80,6 +93,7 @@ function createFullUserDoc() {
     firstName: 'John',
     lastName: 'Doe',
     displayName: 'John Doe',
+    unicode: '469697',
     primarySport: 'football',
     activeSportIndex: 0,
     sports: [
@@ -91,9 +105,20 @@ function createFullUserDoc() {
           weight: '195',
           gpa: '3.8',
         },
-        team: { name: 'Lincoln HS' },
+        team: {
+          name: 'Lincoln HS',
+          slug: 'crown-point-basketball-mens',
+          teamId: 'mC3D9qg5d9amvcO0otvi',
+        },
       },
     ],
+    teamCode: {
+      teamCode: '2P49TB',
+      teamId: 'mC3D9qg5d9amvcO0otvi',
+      slug: 'crown-point-basketball-mens',
+      teamName: 'Crown Point Basketball Mens',
+      sport: 'Basketball',
+    },
     height: '6\'2"',
     weight: '195',
     highSchool: 'Lincoln High School',
@@ -158,6 +183,39 @@ function createDirectorUserDoc() {
   };
 }
 
+function createDirectorWithOnlyTeamIdUserDoc() {
+  return {
+    id: 'director-crown-point',
+    role: 'director',
+    firstName: 'John',
+    lastName: 'Doe',
+    activeSportIndex: 0,
+    sports: [
+      {
+        sport: 'Basketball Mens',
+        team: {
+          name: 'Crown Point',
+          teamId: 'mC3D9qg5d9amvcO0otvi',
+        },
+      },
+      {
+        sport: 'Football',
+        team: {
+          name: 'Crown Point',
+          teamId: '0ORPTNTxADr8wMmQkDrr',
+        },
+      },
+      {
+        sport: 'Soccer Mens',
+        team: {
+          name: 'Crown Point',
+          teamId: 'Okthw6G7NuSOaA5505Vb',
+        },
+      },
+    ],
+  };
+}
+
 function createBasketballUserDoc() {
   return {
     id: 'user-bball',
@@ -185,6 +243,11 @@ describe('ContextBuilder', () => {
     vi.clearAllMocks();
     mockGetUserTeams.mockResolvedValue([]);
     mockListRecentSummaries.mockResolvedValue([]);
+    mockFirestoreDocGet.mockResolvedValue({
+      exists: false,
+      id: '',
+      data: () => undefined,
+    });
     builder = new ContextBuilder();
   });
 
@@ -359,6 +422,54 @@ describe('ContextBuilder', () => {
       expect(ctx.organizationId).toBe('org-director-1');
     });
 
+    it('should hydrate the canonical team route from the team document when user data only has teamId', async () => {
+      mockCacheGet.mockResolvedValueOnce(null);
+      mockGetUserById.mockResolvedValueOnce(createDirectorWithOnlyTeamIdUserDoc());
+      mockFirestoreDocGet.mockImplementation(async (teamDocId: string) => {
+        const teams: Record<string, Record<string, unknown>> = {
+          mC3D9qg5d9amvcO0otvi: {
+            teamName: 'Crown Point Basketball Mens',
+            slug: 'crown-point-basketball-mens',
+            teamCode: '2P49TB',
+            sport: 'Basketball Mens',
+          },
+          '0ORPTNTxADr8wMmQkDrr': {
+            teamName: 'Crown Point Football',
+            slug: 'crown-point-football',
+            teamCode: 'HP71NI',
+            sport: 'Football',
+          },
+          Okthw6G7NuSOaA5505Vb: {
+            teamName: 'Crown Point Soccer Mens',
+            slug: 'crown-point-soccer-mens',
+            teamCode: 'LDOMFX',
+            sport: 'Soccer Mens',
+          },
+        };
+
+        const team = teams[teamDocId];
+        return {
+          exists: Boolean(team),
+          id: teamDocId,
+          data: () => team,
+        };
+      });
+
+      const ctx = await builder.buildContext('director-crown-point');
+
+      expect(ctx.teamId).toBe('mC3D9qg5d9amvcO0otvi');
+      expect(ctx.teamPath).toBe('/team/crown-point-basketball-mens/2P49TB');
+      expect(
+        ctx.teamPaths?.some((entry) => entry.path === '/team/crown-point-basketball-mens/2P49TB')
+      ).toBe(true);
+      expect(
+        ctx.teamPaths?.some((entry) => entry.path === '/team/crown-point-football/HP71NI')
+      ).toBe(true);
+      expect(
+        ctx.teamPaths?.some((entry) => entry.path === '/team/crown-point-soccer-mens/LDOMFX')
+      ).toBe(true);
+    });
+
     it('should build displayName from firstName + lastName when displayName is missing', async () => {
       mockCacheGet.mockResolvedValueOnce(null);
       mockGetUserById.mockResolvedValueOnce({
@@ -426,13 +537,13 @@ describe('ContextBuilder', () => {
       );
 
       expect(recallByScope).toHaveBeenCalledWith('user-123', 'Which schools should I focus on?', {
-        teamId: undefined,
+        teamId: 'mC3D9qg5d9amvcO0otvi',
         organizationId: undefined,
         perTargetLimit: 3,
       });
       expect(mockListRecentSummaries).toHaveBeenCalledWith({
         userId: 'user-123',
-        teamId: undefined,
+        teamId: 'mC3D9qg5d9amvcO0otvi',
         organizationId: undefined,
         limit: 4,
       });
@@ -489,6 +600,24 @@ describe('ContextBuilder', () => {
       expect(prompt).not.toContain('Views:');
     });
 
+    it('should include exact absolute profile and team URLs when an app base URL is provided', async () => {
+      mockCacheGet.mockResolvedValueOnce(null);
+      mockGetUserById.mockResolvedValueOnce(createFullUserDoc());
+
+      const ctx = await builder.buildContext('user-123');
+      const prompt = builder.compressToPrompt(ctx, undefined, undefined, {
+        appBaseUrl: 'http://localhost:4200',
+      });
+
+      expect(prompt).toContain('Use the exact NXT1 URLs below when referencing a profile or team.');
+      expect(prompt).toContain(
+        'Profile URL: http://localhost:4200/profile/football/john-doe/469697'
+      );
+      expect(prompt).toContain(
+        'Team URL: http://localhost:4200/team/crown-point-basketball-mens/2P49TB'
+      );
+    });
+
     it('should produce a minimal prompt for an unknown user', () => {
       const prompt = builder.compressToPrompt({
         userId: 'unknown',
@@ -496,7 +625,8 @@ describe('ContextBuilder', () => {
         displayName: 'Unknown User',
       });
 
-      expect(prompt).toBe('User: Unknown User | Role: athlete');
+      expect(prompt).toContain('UserID: unknown');
+      expect(prompt).toContain('User: Unknown User | Role: athlete');
     });
 
     it('should produce correct prompt for a coach', async () => {

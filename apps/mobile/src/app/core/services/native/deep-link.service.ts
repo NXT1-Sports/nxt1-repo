@@ -189,6 +189,13 @@ export class DeepLinkService {
       pattern: /^\/home\/?$/,
       route: '/home',
     },
+
+    // Developer settings (hidden, deep-link only)
+    {
+      pattern: /^\/dev-settings\/?$/,
+      route: '/dev-settings',
+    },
+
     {
       pattern: /^\/?$/,
       route: '/home',

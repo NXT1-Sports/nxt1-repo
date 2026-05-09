@@ -83,6 +83,23 @@ function compareCreatedAtDescWithSeasonTieBreaker(
   return 0;
 }
 
+function shouldIncludePostInTimeline(post: FirestorePostDoc): boolean {
+  // Hide Cloudflare-backed videos until playback is fully ready.
+  if (post.type !== 'video') return true;
+
+  const hasCloudflareVideoId =
+    typeof post.cloudflareVideoId === 'string' && post.cloudflareVideoId.trim().length > 0;
+
+  if (!hasCloudflareVideoId) return true;
+
+  if (post.readyToStream === true) return true;
+
+  const normalizedStatus =
+    typeof post.cloudflareStatus === 'string' ? post.cloudflareStatus.trim().toLowerCase() : '';
+
+  return normalizedStatus === 'ready';
+}
+
 // ============================================
 // TYPES
 // ============================================
@@ -300,10 +317,12 @@ export class TimelineService {
       query = query.limit(limit);
       const snap = await query.get();
 
-      return snap.docs.map((doc) => ({
-        id: doc.id,
-        data: doc.data() as FirestorePostDoc,
-      }));
+      return snap.docs
+        .map((doc) => ({
+          id: doc.id,
+          data: doc.data() as FirestorePostDoc,
+        }))
+        .filter((post) => shouldIncludePostInTimeline(post.data));
     } catch (err) {
       logger.error('[Timeline] Failed to fetch posts', {
         userId,
@@ -1139,7 +1158,9 @@ export class TimelineService {
       if (sportId) query = query.where('sportId', '==', sportId);
 
       const snap = await query.get();
-      return snap.docs.map((doc) => ({ id: doc.id, data: doc.data() as FirestorePostDoc }));
+      return snap.docs
+        .map((doc) => ({ id: doc.id, data: doc.data() as FirestorePostDoc }))
+        .filter((post) => shouldIncludePostInTimeline(post.data));
     } catch (err) {
       logger.error('[Timeline] Failed to fetch team posts', {
         teamId,
@@ -1398,17 +1419,27 @@ export class TimelineService {
     }>
   > {
     try {
-      // Fan-out via RosterEntries: get all playerIds for this team
+      // Fan-out via RosterEntries: prefer canonical userId, fall back to legacy playerId
       const rosterSnap = await this.db
         .collection(ROSTER_ENTRIES_COLLECTION)
         .where('teamId', '==', teamId)
         .where('status', 'in', ['active', 'ghost'])
-        .select('playerId')
+        .select('userId', 'playerId')
         .get();
 
-      const playerIds = rosterSnap.docs
-        .map((doc) => doc.data()['playerId'] as string | undefined)
-        .filter((id): id is string => !!id);
+      const playerIds = [
+        ...new Set(
+          rosterSnap.docs
+            .map((doc) => {
+              const data = doc.data();
+              const userId = data['userId'];
+              if (typeof userId === 'string' && userId.trim()) return userId.trim();
+              const playerId = data['playerId'];
+              return typeof playerId === 'string' && playerId.trim() ? playerId.trim() : undefined;
+            })
+            .filter((id): id is string => !!id)
+        ),
+      ];
 
       if (playerIds.length === 0) return [];
 

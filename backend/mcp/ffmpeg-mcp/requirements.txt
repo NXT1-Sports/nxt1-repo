@@ -3,3 +3,4 @@ starlette>=0.37.2
 uvicorn[standard]>=0.30.0
 pydantic>=2.0.0
 google-cloud-storage>=2.10.0
+google-auth>=2.29.0

@@ -14,6 +14,7 @@ import { ModalController } from '@ionic/angular/standalone';
 import type { ManageTeamFormData, ManageTeamSectionId } from '@nxt1/core';
 import { SHEET_PRESETS } from '../components/bottom-sheet';
 import { ManageTeamShellComponent, type ManageTeamCloseEvent } from './manage-team-shell.component';
+import { ManageTeamService } from './manage-team.service';
 import { NxtLoggingService } from '../services/logging';
 
 /** Options for presenting the manage team sheet */
@@ -32,6 +33,9 @@ export interface ManageTeamSheetOptions {
 
   /** Initial breakpoint */
   initialBreakpoint?: number;
+
+  /** When the backdrop becomes visible */
+  backdropBreakpoint?: number;
 
   /** CSS class for the sheet */
   cssClass?: string;
@@ -52,6 +56,7 @@ export interface ManageTeamSheetResult {
 @Injectable({ providedIn: 'root' })
 export class ManageTeamBottomSheetService {
   private readonly modalController = inject(ModalController);
+  private readonly manageTeam = inject(ManageTeamService);
   private readonly logger = inject(NxtLoggingService);
 
   private activeModal: HTMLIonModalElement | null = null;
@@ -67,12 +72,16 @@ export class ManageTeamBottomSheetService {
       await this.activeModal.dismiss();
     }
 
+    // ManageTeamService is root-scoped; clear any stale editor state before opening.
+    this.manageTeam.reset();
+
     const {
       teamId = null,
       initialSection = null,
       title = teamId ? 'Manage Team' : 'Create Team',
       breakpoints = SHEET_PRESETS.FULL.breakpoints,
       initialBreakpoint = SHEET_PRESETS.FULL.initialBreakpoint,
+      backdropBreakpoint = SHEET_PRESETS.FULL.backdropBreakpoint,
       cssClass = 'manage-team-sheet',
     } = options;
 
@@ -86,26 +95,31 @@ export class ManageTeamBottomSheetService {
       },
       breakpoints,
       initialBreakpoint,
+      backdropBreakpoint,
       cssClass,
-      handle: false,
+      handle: true,
+      handleBehavior: 'cycle',
       backdropDismiss: true,
       showBackdrop: true,
     });
 
-    await this.activeModal.present();
+    try {
+      await this.activeModal.present();
 
-    // Wait for dismissal
-    const { data } = await this.activeModal.onWillDismiss<ManageTeamCloseEvent>();
+      // Wait for dismissal
+      const { data } = await this.activeModal.onWillDismiss<ManageTeamCloseEvent>();
 
-    this.activeModal = null;
+      this.logger.debug('ManageTeamBottomSheet: Sheet dismissed');
 
-    this.logger.debug('ManageTeamBottomSheet: Sheet dismissed');
-
-    return {
-      saved: data?.saved ?? false,
-      data: data?.data,
-      dismissed: true,
-    };
+      return {
+        saved: data?.saved ?? false,
+        data: data?.data,
+        dismissed: true,
+      };
+    } finally {
+      this.activeModal = null;
+      this.manageTeam.reset();
+    }
   }
 
   /**

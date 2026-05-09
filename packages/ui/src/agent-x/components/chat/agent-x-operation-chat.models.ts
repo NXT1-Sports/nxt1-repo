@@ -32,8 +32,6 @@ export interface OperationMessage {
   readonly timestamp: Date;
   readonly idempotencyKey?: string;
   readonly operationId?: string;
-  readonly imageUrl?: string;
-  readonly videoUrl?: string;
   readonly attachments?: readonly MessageAttachment[];
   readonly isTyping?: boolean;
   readonly error?: boolean;
@@ -44,6 +42,7 @@ export interface OperationMessage {
   readonly yieldCardState?: 'idle' | 'submitting' | 'resolved';
   readonly yieldResolvedText?: string;
   readonly selectedAction?: AgentXSelectedAction;
+  readonly interruptedReason?: 'paused' | 'cancelled';
 }
 
 export interface PendingUndoState {

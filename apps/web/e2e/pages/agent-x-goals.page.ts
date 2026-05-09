@@ -3,7 +3,8 @@
  * @module @nxt1/web/e2e/pages
  *
  * Page Object Model for the Agent X Goals control panel and goal history.
- * Covers goal pills (active goals), the complete button, and the history section.
+ * Covers goal pills in the editor, verifies legacy complete controls stay absent,
+ * and exercises the history section.
  *
  * Uses TEST_IDS.AGENT_X_GOALS from @nxt1/core/testing for all selectors.
  */
@@ -26,7 +27,7 @@ export class AgentXGoalsPage extends BasePage {
   readonly activeList: Locator;
   /** Individual active goal pill (all instances). */
   readonly activeItems: Locator;
-  /** "✓ Done" complete button inside a pill (all instances). */
+  /** Legacy completion controls that should not render in the editor. */
   readonly completeButtons: Locator;
 
   // ── Goal history section ──────────────────────────────────────────────────
@@ -76,31 +77,11 @@ export class AgentXGoalsPage extends BasePage {
   }
 
   /**
-   * Click the complete button on the first active goal pill.
-   * Waits for the pill to disappear (optimistic removal).
-   */
-  async completeFirstGoal(): Promise<void> {
-    await this.completeButtons.first().click();
-    // Optimistic update removes the pill — wait for count to drop
-    await this.activeItems
-      .first()
-      .waitFor({ state: 'hidden', timeout: 5_000 })
-      .catch(() => {});
-  }
-
-  /**
-   * Click the complete button on the goal pill at `index`.
-   */
-  async completeGoalAt(index: number): Promise<void> {
-    await this.completeButtons.nth(index).click();
-  }
-
-  /**
    * Trigger the deferred history section by clicking the placeholder trigger.
    * Waits for the history container to appear.
    */
   async openHistorySection(): Promise<void> {
-    const trigger = this.page.getByRole('button', { name: /view completed goals/i });
+    const trigger = this.page.getByRole('button', { name: /view task history/i });
     await trigger.click();
     await this.historyContainer.waitFor({ state: 'visible', timeout: 8_000 });
   }

@@ -124,6 +124,62 @@ router.post(
 
     const currentUser = userDoc.data() as UserV2Document | undefined;
 
+    // ─── Legacy migration short-circuit ─────────────────────────────────────
+    // When isLegacyOnboardingUpdate is true AND the user doc has a _legacyId,
+    // only save linkSources and mark legacyOnboardingCompleted.
+    // Do NOT overwrite existing profile fields.
+    const isLegacyUpdate =
+      profileData['isLegacyOnboardingUpdate'] === true && !!currentUser?._legacyId;
+    if (isLegacyUpdate) {
+      const legacyUpdateData: Record<string, unknown> = {
+        updatedAt: FieldValue.serverTimestamp(),
+        legacyOnboardingCompleted: true,
+      };
+
+      // Save link sources if provided
+      const legacyLinkSources = profileData['linkSources'] as
+        | { links?: Array<{ platform?: string; url?: string; connected?: boolean }> }
+        | undefined;
+      if (legacyLinkSources?.links && Array.isArray(legacyLinkSources.links)) {
+        const existingConnected: Record<string, unknown>[] =
+          (currentUser?.['connectedSources'] as Record<string, unknown>[] | undefined) ?? [];
+        const connectedMap = new Map<string, Record<string, unknown>>();
+        for (const s of existingConnected) {
+          connectedMap.set(s['platform'] as string, s);
+        }
+        for (const link of legacyLinkSources.links) {
+          if (link.connected && link.platform) {
+            connectedMap.set(link.platform, {
+              platform: link.platform,
+              profileUrl: link.url ?? '',
+              syncStatus: 'idle',
+              displayOrder: connectedMap.size,
+            });
+          }
+        }
+        if (connectedMap.size > 0) {
+          legacyUpdateData['connectedSources'] = Array.from(connectedMap.values());
+        }
+      }
+
+      await db.collection('Users').doc(userId).update(legacyUpdateData);
+      await invalidateProfileCaches(userId).catch((err) =>
+        logger.warn('[POST /profile/onboarding] Legacy cache invalidation failed', { userId, err })
+      );
+
+      const updatedUser = await db.collection('Users').doc(userId).get();
+      const updatedData = updatedUser.data() as UserV2Document | undefined;
+
+      logger.info('[POST /profile/onboarding] Legacy update success:', {
+        userId,
+        legacyOnboardingCompleted: true,
+      });
+
+      res.json({ success: true, user: updatedData ?? {} });
+      return;
+    }
+    // ─── End legacy short-circuit ────────────────────────────────────────────
+
     const updateData: OnboardingFirestoreUpdate = {
       updatedAt: FieldValue.serverTimestamp(),
       lastLoginAt: FieldValue.serverTimestamp(),

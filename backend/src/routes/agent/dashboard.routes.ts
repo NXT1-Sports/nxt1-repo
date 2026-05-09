@@ -1,6 +1,7 @@
 /**
  * @fileoverview Agent X — Dashboard, history, operations-log, goals, upload routes.
  *
+ * GET  /jobs/:operationId
  * GET  /history
  * GET  /operations-log
  * GET  /dashboard
@@ -8,11 +9,6 @@
  * POST /upload
  */
 
-import path from 'path';
-import os from 'os';
-import { createReadStream } from 'fs';
-import { unlink } from 'fs/promises';
-import multer from 'multer';
 import { Router, type Request, type Response } from 'express';
 import { appGuard } from '../../middleware/auth/auth.middleware.js';
 import { uploadRateLimit } from '../../middleware/rate-limit/rate-limit.middleware.js';
@@ -81,25 +77,6 @@ type FirestoreDocLike = {
 const router = Router();
 const RECURRING_TASKS_COLLECTION = 'RecurringTasks' as const;
 
-const agentVideoProxyUpload = multer({
-  storage: multer.diskStorage({
-    destination: os.tmpdir(),
-    filename: (_req, file, cb) => {
-      const timestamp = Date.now();
-      const safeName = file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_');
-      cb(null, `${timestamp}-${crypto.randomUUID()}-${safeName}`);
-    },
-  }),
-  limits: { fileSize: AGENT_X_MAX_VIDEO_FILE_SIZE },
-  fileFilter: (_req, file, cb) => {
-    if (file.mimetype.startsWith('video/')) {
-      cb(null, true);
-    } else {
-      cb(new Error(`File type ${file.mimetype} not allowed for Agent X video attachments`));
-    }
-  },
-});
-
 function readRecurringTaskString(data: Record<string, unknown>, key: string): string | undefined {
   const value = data[key];
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
@@ -131,6 +108,58 @@ function buildRecurringTaskPayload(userId: string, actionSummary: string, source
       : {}),
   };
 }
+
+// ─── GET /jobs/:operationId ─────────────────────────────────────────────────
+
+router.get('/jobs/:operationId', appGuard, async (req: Request, res: Response) => {
+  try {
+    if (!jobRepository) {
+      res.status(503).json({ success: false, error: 'Agent queue not initialized' });
+      return;
+    }
+
+    const user = getAuthUser(req);
+    if (!user?.uid) {
+      res.status(401).json({ success: false, error: 'Unauthorized' });
+      return;
+    }
+
+    const operationId = req.params['operationId'] as string;
+    const { db } = req.firebase!;
+    const job = await jobRepository.withDb(db).getById(operationId);
+
+    if (!job) {
+      res.status(404).json({ success: false, error: 'Job not found' });
+      return;
+    }
+
+    // Enforce ownership — only the job owner can poll their own job.
+    if (job.userId !== user.uid) {
+      res.status(403).json({ success: false, error: 'Forbidden' });
+      return;
+    }
+
+    const progress = job.progress;
+
+    res.json({
+      success: true,
+      data: {
+        jobId: job.operationId,
+        operationId,
+        status: job.status,
+        progress: progress
+          ? { percent: progress.percent ?? 0, message: progress.message ?? '' }
+          : undefined,
+        result: job.result,
+        error: job.error,
+      },
+    });
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('Failed to get job status', { error: error.message, stack: error.stack });
+    res.status(500).json({ success: false, error: 'Failed to get job status' });
+  }
+});
 
 // ─── GET /history ─────────────────────────────────────────────────────────
 
@@ -221,7 +250,7 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
         }
 
         if (threadResult.hasMore) {
-          logger.warn('Operations log thread augmentation truncated — consider increasing limit', {
+          logger.info('Operations log thread augmentation truncated — consider increasing limit', {
             userId: user.uid,
             displayedCount: activeThreads.length,
             limit,
@@ -360,7 +389,9 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
             id: `schedule:${doc.id}`,
             title: (explicitTitle || resolvedTitle || actionSummary).slice(0, 120),
             summary: nextRunIso
-              ? `Next run ${new Date(nextRunIso).toLocaleString()} (${timezone})`
+              ? cronExpression
+                ? `Next run ${cronExpression} (${timezone})`
+                : `Next run (${timezone})`
               : cronExpression
                 ? `Schedule ${cronExpression} (${timezone})`
                 : `Scheduled task (${timezone})`,
@@ -678,35 +709,26 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
       .limit(1)
       .get();
 
-    let suggestedActionsPayload: Record<string, unknown> | null = suggestedActionsDoc.empty
+    const suggestedActionsPayload: Record<string, unknown> | null = suggestedActionsDoc.empty
       ? null
       : (suggestedActionsDoc.docs[0].data() as Record<string, unknown>);
 
     if (!suggestedActionsPayload) {
-      try {
-        logger.info('Generating first-load suggested actions during dashboard request', {
-          userId: user.uid,
-          role,
-        });
-
-        const generatedSuggestedActions =
-          await getGenerationService().generateWeeklySuggestedActions(user.uid, true, db);
-
-        if (generatedSuggestedActions) {
-          suggestedActionsPayload = {
-            coordinators: generatedSuggestedActions.coordinators,
-            generatedAt: generatedSuggestedActions.generatedAt,
-          };
-        }
-      } catch (suggestedActionsErr) {
-        logger.warn('Failed to generate first-load suggested actions during dashboard request', {
-          userId: user.uid,
-          error:
-            suggestedActionsErr instanceof Error
-              ? suggestedActionsErr.message
-              : String(suggestedActionsErr),
-        });
-      }
+      // Fire-and-forget — do NOT block the dashboard response waiting for an LLM call.
+      // The client will get an empty suggested actions list on first load and will
+      // receive the generated actions on the next dashboard request.
+      logger.info('Triggering first-load suggested actions generation in background', {
+        userId: user.uid,
+        role,
+      });
+      getGenerationService()
+        .generateWeeklySuggestedActions(user.uid, true, db)
+        .catch((err) =>
+          logger.warn('Failed to generate first-load suggested actions during dashboard request', {
+            userId: user.uid,
+            error: err instanceof Error ? err.message : String(err),
+          })
+        );
     }
 
     const suggestedActionsByCoordinator = new Map<string, readonly ShellActionChip[]>();
@@ -802,6 +824,7 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
           generatedAt: briefingGeneratedAt,
         },
         playbook: {
+          ...(latestRealPlaybook ? { id: latestRealPlaybook.id } : {}),
           items: playbookItems,
           goals: agentGoals,
           generatedAt: playbookGeneratedAt,
@@ -1352,47 +1375,50 @@ router.post('/upload/video', appGuard, uploadRateLimit, async (req: Request, res
     const resolvedThreadId =
       typeof threadId === 'string' && threadId.trim() ? threadId.trim() : null;
 
-    // Strip any path components from the filename — prevents path traversal
-    const safeName = path.basename(fileName).replace(/[^a-zA-Z0-9._-]/g, '_');
-    const timestamp = Date.now();
-    const uniqueId = crypto.randomUUID();
-
-    const storagePath = resolvedThreadId
-      ? `Users/${user.uid}/threads/${resolvedThreadId}/media/video/${timestamp}-${uniqueId}-${safeName}`
-      : `Users/${user.uid}/uploads/video/unbound/${timestamp}-${uniqueId}-${safeName}`;
-
     const bucket = req.firebase.storage.bucket();
-    const storageFile = bucket.file(storagePath);
-
-    // Write signed URL: browser PUTs directly to GCS — 15 min window to start
-    const uploadExpiresAt = Date.now() + 15 * 60 * 1000;
-    const [uploadUrl] = await storageFile.getSignedUrl({
-      version: 'v4',
-      action: 'write',
-      expires: uploadExpiresAt,
-      contentType: mimeType,
-      // Enforce content length so GCS rejects oversized payloads at the edge
-      extensionHeaders: {
-        'x-goog-content-length-range': `1,${AGENT_X_MAX_VIDEO_FILE_SIZE}`,
-      },
+    const storagePath = AgentMediaLifecycleService.buildStoragePath({
+      userId: user.uid,
+      threadId: resolvedThreadId,
+      mimeType,
+      fileName,
+      zone: 'media',
     });
+    const storageFile = bucket.file(storagePath) as {
+      getSignedUrl: (options: {
+        version: 'v4';
+        action: 'write' | 'read';
+        expires: number;
+        contentType?: string;
+        extensionHeaders?: Record<string, string>;
+      }) => Promise<[string]>;
+    };
 
-    // Read signed URL: 24-hour window for AI tools to access the video
-    const readExpiresAt = Date.now() + 24 * 60 * 60 * 1000;
-    const [readUrl] = await storageFile.getSignedUrl({
-      version: 'v4',
-      action: 'read',
-      expires: readExpiresAt,
-    });
+    const uploadExpiresAtMs = Date.now() + 30 * 60 * 1000;
+    const readExpiresAtMs = Date.now() + AgentMediaLifecycleService.DEFAULT_SIGNED_URL_TTL_MS;
 
-    logger.info('Agent X video upload URL provisioned', {
+    const [uploadUrl, readUrl] = await Promise.all([
+      storageFile.getSignedUrl({
+        version: 'v4',
+        action: 'write',
+        expires: uploadExpiresAtMs,
+        contentType: mimeType,
+      }),
+      storageFile.getSignedUrl({
+        version: 'v4',
+        action: 'read',
+        expires: readExpiresAtMs,
+      }),
+    ]).then((entries) => entries.map(([url]) => url) as [string, string]);
+
+    logger.info('Agent X video upload URL provisioned (firebase)', {
       userId: user.uid,
       threadId: resolvedThreadId ?? 'unbound',
       mimeType,
       fileSize,
       storagePath,
-      uploadExpiresAt: new Date(uploadExpiresAt).toISOString(),
-      readExpiresAt: new Date(readExpiresAt).toISOString(),
+      uploadExpiresAt: new Date(uploadExpiresAtMs).toISOString(),
+      readExpiresAt: new Date(readExpiresAtMs).toISOString(),
+      bucketName: bucket.name,
     });
 
     res.json({
@@ -1401,7 +1427,7 @@ router.post('/upload/video', appGuard, uploadRateLimit, async (req: Request, res
         uploadUrl,
         readUrl,
         storagePath,
-        expiresAt: new Date(readExpiresAt).toISOString(),
+        expiresAt: new Date(readExpiresAtMs).toISOString(),
       },
     });
   } catch (err) {
@@ -1413,124 +1439,5 @@ router.post('/upload/video', appGuard, uploadRateLimit, async (req: Request, res
     res.status(500).json({ success: false, error: 'Failed to provision video upload URL' });
   }
 });
-
-// ─── POST /upload/video/proxy ─────────────────────────────────────────────
-// Fallback upload path used when browser direct PUT to GCS is blocked by CORS
-// (common in local dev on localhost). Streams video to Firebase Storage via
-// backend, then returns a signed read URL for immediate AI access.
-router.post(
-  '/upload/video/proxy',
-  appGuard,
-  uploadRateLimit,
-  agentVideoProxyUpload.single('file'),
-  async (req: Request, res: Response) => {
-    let tempFilePath: string | null = null;
-    try {
-      const user = getAuthUser(req);
-      if (!user?.uid) {
-        res.status(401).json({ success: false, error: 'Unauthorized' });
-        return;
-      }
-
-      const file = req.file;
-      if (!file) {
-        res.status(400).json({ success: false, error: 'No video file provided' });
-        return;
-      }
-      tempFilePath = file.path;
-
-      if (!file.mimetype.startsWith('video/')) {
-        res.status(400).json({ success: false, error: 'file must be video/*' });
-        return;
-      }
-
-      if (file.size > AGENT_X_MAX_VIDEO_FILE_SIZE) {
-        res.status(400).json({
-          success: false,
-          error: 'File exceeds maximum video size limit (500 MB)',
-          code: 'FILE_TOO_LARGE',
-        });
-        return;
-      }
-
-      const rawThreadId = req.body?.threadId;
-      const resolvedThreadId =
-        typeof rawThreadId === 'string' && rawThreadId.trim() ? rawThreadId.trim() : null;
-
-      const safeName = path.basename(file.originalname).replace(/[^a-zA-Z0-9._-]/g, '_');
-      const timestamp = Date.now();
-      const uniqueId = crypto.randomUUID();
-      const storagePath = resolvedThreadId
-        ? `Users/${user.uid}/threads/${resolvedThreadId}/media/video/${timestamp}-${uniqueId}-${safeName}`
-        : `Users/${user.uid}/uploads/video/unbound/${timestamp}-${uniqueId}-${safeName}`;
-
-      const bucket = req.firebase.storage.bucket();
-      const storageFile = bucket.file(storagePath);
-
-      await new Promise<void>((resolve, reject) => {
-        const readStream = createReadStream(file.path);
-        const writeStream = storageFile.createWriteStream({
-          metadata: {
-            contentType: file.mimetype,
-            cacheControl: 'private, max-age=0',
-          },
-        });
-
-        readStream.on('error', reject);
-        writeStream.on('error', reject);
-        writeStream.on('finish', () => resolve());
-
-        readStream.pipe(writeStream);
-      });
-
-      const readExpiresAt = Date.now() + 24 * 60 * 60 * 1000;
-      const [readUrl] = await storageFile.getSignedUrl({
-        version: 'v4',
-        action: 'read',
-        expires: readExpiresAt,
-      });
-
-      logger.info('Agent X video uploaded via backend proxy fallback', {
-        userId: user.uid,
-        threadId: resolvedThreadId ?? 'unbound',
-        mimeType: file.mimetype,
-        fileSize: file.size,
-        storagePath,
-        readExpiresAt: new Date(readExpiresAt).toISOString(),
-      });
-
-      res.json({
-        success: true,
-        data: {
-          readUrl,
-          storagePath,
-          expiresAt: new Date(readExpiresAt).toISOString(),
-        },
-      });
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error(String(err));
-      const errorCode = (error as ErrorWithCode).code;
-
-      if (errorCode === 'LIMIT_FILE_SIZE') {
-        res.status(400).json({
-          success: false,
-          error: 'File exceeds maximum video size limit (500 MB)',
-          code: 'FILE_TOO_LARGE',
-        });
-        return;
-      }
-
-      logger.error('Agent X proxy video upload failed', {
-        error: error.message,
-        stack: error.stack,
-      });
-      res.status(500).json({ success: false, error: 'Failed to upload video' });
-    } finally {
-      if (tempFilePath) {
-        void unlink(tempFilePath).catch(() => undefined);
-      }
-    }
-  }
-);
 
 export default router;

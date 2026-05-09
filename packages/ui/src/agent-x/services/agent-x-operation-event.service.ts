@@ -68,6 +68,9 @@ export interface OperationStatusUpdatedEvent {
   readonly threadId: string;
   readonly status: OperationLogStatus;
   readonly timestamp: string;
+  readonly source: 'chat' | 'enqueue';
+  readonly operationId?: string;
+  readonly title?: string;
 }
 
 const LIFECYCLE_TO_LOG_STATUS: Readonly<
@@ -285,6 +288,27 @@ export class AgentXOperationEventService {
       }
     }
 
+    const attachments = toolResult['attachments'];
+    if (Array.isArray(attachments)) {
+      for (const attachment of attachments) {
+        if (!attachment || typeof attachment !== 'object') continue;
+        const record = attachment as Record<string, unknown>;
+        const forcedType =
+          record['type'] === 'image' || record['type'] === 'video' ? record['type'] : undefined;
+        pushCandidate(record['url'], record['mimeType'], forcedType);
+        pushCandidate(record['downloadUrl'], record['mimeType'], forcedType);
+      }
+    }
+
+    const mediaArtifact = toolResult['mediaArtifact'];
+    if (mediaArtifact && typeof mediaArtifact === 'object' && !Array.isArray(mediaArtifact)) {
+      const record = mediaArtifact as Record<string, unknown>;
+      const forcedType =
+        record['type'] === 'image' || record['type'] === 'video' ? record['type'] : undefined;
+      pushCandidate(record['url'], record['mimeType'], forcedType);
+      pushCandidate(record['downloadUrl'], record['mimeType'], forcedType);
+    }
+
     const markdownOrText = [toolResult['markdown'], toolResult['text'], toolResult['content']]
       .filter((value): value is string => typeof value === 'string')
       .join('\n');
@@ -316,7 +340,10 @@ export class AgentXOperationEventService {
   emitOperationStatusUpdated(
     threadId: string,
     status: AgentXOperationLifecycleStatus | OperationLogStatus,
-    timestamp: string
+    timestamp: string,
+    source: 'chat' | 'enqueue' = 'chat',
+    operationId?: string,
+    title?: string
   ): void {
     const normalizedStatus =
       status in LIFECYCLE_TO_LOG_STATUS
@@ -329,6 +356,9 @@ export class AgentXOperationEventService {
         threadId,
         status: normalizedStatus,
         timestamp,
+        source,
+        ...(operationId ? { operationId } : {}),
+        ...(title ? { title } : {}),
       })
     );
   }
@@ -352,6 +382,7 @@ export class AgentXOperationEventService {
     parts: AgentXMessagePart[];
     steps: AgentXToolStep[];
     cards: AgentXStreamCardEvent[];
+    media: AgentXStreamMediaEvent[];
     latestYieldState: AgentYieldState | null;
     latestLifecycleStatus: AgentXOperationLifecycleStatus | null;
     isDone: boolean;
@@ -364,6 +395,7 @@ export class AgentXOperationEventService {
         parts: [],
         steps: [],
         cards: [],
+        media: [],
         latestYieldState: null,
         latestLifecycleStatus: null,
         isDone: false,
@@ -379,6 +411,7 @@ export class AgentXOperationEventService {
           parts: [],
           steps: [],
           cards: [],
+          media: [],
           latestYieldState: null,
           latestLifecycleStatus: null,
           isDone: false,
@@ -393,6 +426,8 @@ export class AgentXOperationEventService {
       const parts: AgentXMessagePart[] = [];
       const steps: AgentXToolStep[] = [];
       const cards: AgentXStreamCardEvent[] = [];
+      const media: AgentXStreamMediaEvent[] = [];
+      const seenMedia = new Set<string>();
       const pendingStepIds = new Map<string, string[]>();
       let latestYieldState: AgentYieldState | null = null;
       let latestLifecycleStatus: AgentXOperationLifecycleStatus | null = null;
@@ -430,6 +465,14 @@ export class AgentXOperationEventService {
               if (lastPart?.type === 'text') {
                 parts[parts.length - 1] = { type: 'text', content: lastPart.content + event.text };
               } else {
+                // First text delta after a non-text part — mark any open thinking blocks as done
+                // so they collapse immediately rather than waiting for the full stream to finish.
+                for (let i = 0; i < parts.length; i++) {
+                  const p = parts[i];
+                  if (p.type === 'thinking' && !p.done) {
+                    parts[i] = { type: 'thinking', content: p.content, done: true };
+                  }
+                }
                 parts.push({ type: 'text', content: event.text });
               }
             }
@@ -490,6 +533,16 @@ export class AgentXOperationEventService {
             if (idx >= 0) steps[idx] = resolved;
             else steps.push(resolved);
             upsertStepIntoParts(resolved);
+
+            if (event.type === 'tool_result' && event.toolResult) {
+              const extractedMedia = this.extractMediaEventsFromToolResult(event.toolResult);
+              for (const mediaEvent of extractedMedia) {
+                const key = `${mediaEvent.type}|${mediaEvent.url}`;
+                if (seenMedia.has(key)) continue;
+                seenMedia.add(key);
+                media.push(mediaEvent);
+              }
+            }
             break;
           }
 
@@ -510,21 +563,6 @@ export class AgentXOperationEventService {
             if (idx >= 0) steps[idx] = errored;
             else steps.push(errored);
             upsertStepIntoParts(errored);
-            break;
-          }
-
-          case 'thinking': {
-            if (event.thinkingText) {
-              const lastPart = parts[parts.length - 1];
-              if (lastPart?.type === 'thinking') {
-                parts[parts.length - 1] = {
-                  type: 'thinking',
-                  content: lastPart.content + event.thinkingText,
-                };
-              } else {
-                parts.push({ type: 'thinking', content: event.thinkingText });
-              }
-            }
             break;
           }
 
@@ -612,6 +650,7 @@ export class AgentXOperationEventService {
         partCount: parts.length,
         stepCount: steps.length,
         cardCount: cards.length,
+        mediaCount: media.length,
         hasYieldState: !!latestYieldState,
         lifecycleStatus: latestLifecycleStatus,
         isDone,
@@ -622,6 +661,7 @@ export class AgentXOperationEventService {
         parts,
         steps,
         cards,
+        media,
         latestYieldState,
         latestLifecycleStatus,
         isDone,
@@ -638,6 +678,7 @@ export class AgentXOperationEventService {
         parts: [],
         steps: [],
         cards: [],
+        media: [],
         latestYieldState: null,
         latestLifecycleStatus: null,
         isDone: false,
@@ -883,12 +924,6 @@ export class AgentXOperationEventService {
       case 'delta':
         if (event.text) {
           callbacks.onDelta(event.text, event.agentId);
-        }
-        break;
-
-      case 'thinking':
-        if (event.thinkingText) {
-          callbacks.onThinking?.(event.thinkingText, event.agentId);
         }
         break;
 

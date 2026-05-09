@@ -164,4 +164,82 @@ describe('mapTeamCodeToProfile', () => {
     expect(result.roster[0]?.id).toBe('athlete-legacy-1');
     expect(result.roster[0]?.unicode).toBe('legacy-athlete');
   });
+
+  it('prefers canonical roster fields and falls back to legacy playerId for user hydration', async () => {
+    getUsersByIdsMock.mockResolvedValue([
+      {
+        id: 'athlete-canonical-1',
+        firstName: 'Jordan',
+        lastName: 'Miles',
+        displayName: 'Jordan Miles',
+        unicode: 'jordan-miles',
+        role: 'athlete',
+        classOf: 2028,
+        sports: [{ sport: 'Basketball', positions: ['SG'] }],
+      },
+      {
+        id: 'athlete-legacy-1',
+        firstName: 'Taylor',
+        lastName: 'Legacy',
+        displayName: 'Taylor Legacy',
+        unicode: 'taylor-legacy',
+        role: 'athlete',
+        classOf: 2029,
+        sports: [{ sport: 'Basketball', positions: ['SF'] }],
+      },
+    ]);
+
+    const db = createFirestoreMock([
+      {
+        id: 'r1',
+        teamId: 'team-canonical',
+        userId: 'athlete-canonical-1',
+        role: 'athlete',
+        status: RosterEntryStatus.ACTIVE,
+        sport: 'Basketball',
+        positions: ['PG', 'SG'],
+        classOfWhenJoined: 2027,
+      },
+      {
+        id: 'r2',
+        teamId: 'team-canonical',
+        playerId: 'athlete-legacy-1',
+        role: 'athlete',
+        status: RosterEntryStatus.ACTIVE,
+        sport: 'Basketball',
+        position: 'PF',
+        classYear: '2026',
+      },
+    ]);
+
+    const result = await mapTeamCodeToProfile(
+      {
+        id: 'team-canonical',
+        teamCode: 'CANON1',
+        teamName: 'Canonical Cougars',
+        teamType: 'high-school',
+        sport: 'Basketball',
+      },
+      { includeRoster: true },
+      db as never
+    );
+
+    expect(result.roster).toHaveLength(2);
+    expect(result.roster.map((member) => member.id)).toEqual([
+      'athlete-canonical-1',
+      'athlete-legacy-1',
+    ]);
+    expect(result.roster[0]).toMatchObject({
+      id: 'athlete-canonical-1',
+      unicode: 'jordan-miles',
+      position: 'PG',
+      classYear: '2027',
+    });
+    expect(result.roster[1]).toMatchObject({
+      id: 'athlete-legacy-1',
+      unicode: 'taylor-legacy',
+      position: 'PF',
+      classYear: '2026',
+    });
+  });
 });

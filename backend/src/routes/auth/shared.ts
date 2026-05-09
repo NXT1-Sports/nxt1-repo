@@ -78,6 +78,10 @@ export interface UserV2Document {
   onboardingCompleted: boolean;
   onboardingCompletedAt?: PortableTimestamp;
   onboardingProgress?: Record<string, { completed: boolean; completedAt: PortableTimestamp }>;
+  /** Original document ID from the legacy NXT1 system — set by migration script. */
+  _legacyId?: string;
+  /** Whether a legacy-migrated user has completed the 3-step intro onboarding. */
+  legacyOnboardingCompleted?: boolean;
 
   // Team association (for team-based access)
   teamCode?: {

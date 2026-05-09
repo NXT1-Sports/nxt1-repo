@@ -25,7 +25,7 @@ export const AGENT_X_RUNTIME_CONFIG = {
   },
   clientRecovery: {
     streamLimitRetryBackoffMs: 900,
-    activityGapTimeoutMs: 900,
+    activityGapTimeoutMs: 2_500,
     streamLatencyClampMs: 120_000,
     abortControllerSweepIntervalMs: 60_000,
     abortControllerTtlMs: 10 * 60 * 1_000,

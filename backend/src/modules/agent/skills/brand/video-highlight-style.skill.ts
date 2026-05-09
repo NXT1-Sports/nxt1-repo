@@ -50,7 +50,8 @@ Use concrete tool pipelines for production-grade outputs:
 - Use runway_check_task to verify async completion before proceeding.
 
 2. **Build highlight sequence**
-- Use ffmpeg_trim_video to isolate each play.
+- Call ALL ffmpeg_trim_video operations simultaneously as a single parallel batch to isolate each play.
+- Do not wait for one trim to finish before starting the next. Only call ffmpeg_merge_videos after all trims have resolved.
 - Use ffmpeg_merge_videos to assemble intro + highlights + outro.
 - Use ffmpeg_add_text_overlay for athlete name, position, and verified metrics.
 

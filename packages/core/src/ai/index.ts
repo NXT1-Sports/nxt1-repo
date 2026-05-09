@@ -92,6 +92,8 @@ export type {
   AgentXConfirmationVariant,
   AgentXConfirmationEmailData,
   AgentXConfirmationTimelinePostData,
+  AgentXPlanApprovalData,
+  AgentXPlanApprovalStep,
   AgentXGenericApprovalCategory,
   AgentXGenericApprovalData,
   SeasonStatsPreview,
@@ -118,6 +120,7 @@ export {
   AGENT_X_CONFIG,
   AGENT_X_MODES,
   AGENT_X_DEFAULT_MODE,
+  AGENT_X_REQUEST_HEADERS,
   AGENT_X_ENDPOINTS,
   AGENT_X_RATE_LIMITS,
   AGENT_X_CACHE_KEYS,
@@ -284,6 +287,8 @@ export type {
   AgentTaskStatus,
   AgentTask,
   AgentExecutionPlan,
+  AgentSavedPlanStatus,
+  AgentSavedPlan,
   AgentPlannerOutput,
   AgentTaskNode,
   AgentJobOrigin,
@@ -297,6 +302,7 @@ export type {
   SyncNewCategory,
   SyncNewScheduleEvent,
   SyncNewVideo,
+  SyncNewPlaybook,
   AgentApprovalReasonCode,
   AgentApprovalRequest,
   AgentApprovalStatus,
@@ -340,8 +346,10 @@ export type { AgentIdentitySnapshot } from './agent-identity';
 export {
   AGENT_X_IDENTITY,
   buildSystemPrompt,
+  extractMediaAttachmentsFromResultData,
   getModeAddendum,
   hashIdentitySnapshot,
+  sanitizeStorageUrlsFromText,
 } from './agent-identity';
 
 // Welcome graphic prompt builders

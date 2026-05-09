@@ -39,6 +39,7 @@ import type {
 } from '@nxt1/core';
 import { AGENT_X_RUNTIME_CONFIG, AGENT_APPROVAL_TOOL_GROUPS } from '@nxt1/core/ai';
 import {
+  extractMediaAttachmentsFromResultData,
   resolveAgentApprovalCopy,
   resolveAgentSuccessNotificationCopy,
   formatApprovalRichPreview,
@@ -82,6 +83,7 @@ import { processRecapForUser } from '../services/weekly-recap-email.service.js';
 import { dispatchAgentPush } from '../services/agent-push-adapter.service.js';
 import { logger } from '../../../utils/logger.js';
 import { AgentGenerationService } from '../services/generation.service.js';
+import { runWithMongoEnvironmentScope } from '../../../middleware/mongo/mongo-scope.context.js';
 import crypto from 'node:crypto';
 
 const AGENT_IDENTIFIER_SET = new Set<AgentIdentifier>([
@@ -132,6 +134,26 @@ function toMillis(value: unknown): number | null {
   }
 
   return null;
+}
+
+function summarizeToolResult(result: Record<string, unknown>): string {
+  if (Array.isArray(result['items'])) {
+    return `Found ${result['items'].length} result(s)`;
+  }
+  if (Array.isArray(result['views'])) {
+    return `Found ${result['views'].length} data view(s)`;
+  }
+  if (typeof result['count'] === 'number') {
+    return `${result['count']} result(s)`;
+  }
+  if (typeof result['url'] === 'string') {
+    return 'Generated successfully';
+  }
+  if (typeof result['imageUrl'] === 'string') {
+    return 'Image generated';
+  }
+  const keys = Object.keys(result);
+  return keys.length > 0 ? `Returned ${keys.length} field(s)` : 'Completed';
 }
 
 function isJobTimeoutError(err: unknown): err is Error {
@@ -399,6 +421,7 @@ export function buildInlineYieldCard(params: {
             { id: 'approve', label: 'Send', variant: 'primary' },
           ],
           approvalId,
+          toolCallId: pendingToolCall.toolCallId,
           operationId,
         },
       };
@@ -463,6 +486,7 @@ export function buildInlineYieldCard(params: {
             { id: 'approve', label: 'Send All', variant: 'primary' },
           ],
           approvalId,
+          toolCallId: pendingToolCall.toolCallId,
           operationId,
         },
       };
@@ -490,6 +514,85 @@ export function buildInlineYieldCard(params: {
               { id: 'approve', label: 'Publish', variant: 'primary' },
             ],
             approvalId,
+            toolCallId: pendingToolCall.toolCallId,
+            operationId,
+          },
+        };
+      }
+    }
+
+    // Plan approval (`execute_saved_plan`) → rich `plan_approval` card showing
+    // goal + ordered step list. The plan content is passed through the
+    // pendingToolCall.toolInput under the `__planApproval` namespace by
+    // `agent-router-primary.service.ts.runPlan` precisely so this card
+    // builder can surface the actual plan to the user instead of a bare
+    // `planId` data row.
+    if (toolName === 'execute_saved_plan') {
+      const planMeta =
+        toolInput['__planApproval'] && typeof toolInput['__planApproval'] === 'object'
+          ? (toolInput['__planApproval'] as Record<string, unknown>)
+          : null;
+      const planId =
+        (planMeta && typeof planMeta['planId'] === 'string' && planMeta['planId']) ||
+        (typeof toolInput['planId'] === 'string' ? toolInput['planId'] : '');
+      const goal =
+        planMeta && typeof planMeta['goal'] === 'string' && planMeta['goal'].trim()
+          ? planMeta['goal'].trim()
+          : '';
+      const summary =
+        planMeta && typeof planMeta['summary'] === 'string' && planMeta['summary'].trim()
+          ? planMeta['summary'].trim()
+          : '';
+      const rawSteps =
+        planMeta && Array.isArray(planMeta['steps']) ? (planMeta['steps'] as Array<unknown>) : [];
+      const steps = rawSteps
+        .map((entry) => {
+          if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return null;
+          const step = entry as Record<string, unknown>;
+          const id = typeof step['id'] === 'string' ? step['id'] : '';
+          const label =
+            (typeof step['label'] === 'string' && step['label'].trim()) ||
+            (typeof step['description'] === 'string' && step['description'].trim()) ||
+            '';
+          if (!id || !label) return null;
+          return {
+            id,
+            label,
+            ...(typeof step['description'] === 'string' && step['description'].trim()
+              ? { description: step['description'].trim() }
+              : {}),
+            ...(typeof step['coordinator'] === 'string' && step['coordinator'].trim()
+              ? { coordinator: step['coordinator'].trim() }
+              : {}),
+            ...(typeof step['toolName'] === 'string' && step['toolName'].trim()
+              ? { toolName: step['toolName'].trim() }
+              : {}),
+          };
+        })
+        .filter((s): s is NonNullable<typeof s> => s !== null);
+
+      // Only render the rich plan card when we actually have steps to show;
+      // fall through to the generic approval renderer otherwise so the user
+      // never sees a blank card.
+      if (steps.length > 0 && planId) {
+        return {
+          type: 'confirmation',
+          agentId,
+          title: 'Review Execution Plan',
+          payload: {
+            message: promptToUser,
+            variant: 'plan_approval',
+            planApprovalData: {
+              goal: goal || summary || 'Multi-step plan',
+              planId,
+              steps,
+            },
+            actions: [
+              { id: 'reject', label: 'Reject', variant: 'secondary' },
+              { id: 'approve', label: 'Approve & Execute', variant: 'primary' },
+            ],
+            approvalId,
+            toolCallId: pendingToolCall.toolCallId,
             operationId,
           },
         };
@@ -524,6 +627,7 @@ export function buildInlineYieldCard(params: {
           { id: 'approve', label: 'Approve', variant: 'primary' },
         ],
         approvalId,
+        toolCallId: pendingToolCall.toolCallId,
         operationId,
       },
     };
@@ -531,6 +635,14 @@ export function buildInlineYieldCard(params: {
 
   // ── Ask-user / paused cards ────────────────────────────────────────────
   if (reason === 'needs_input') {
+    // Saved-plan review is handled conversationally: keep the planner card
+    // already emitted by the router, persist the assistant prompt text, and
+    // let the user reply in normal chat. Do not replace that text with an
+    // ask_user input card.
+    if (pendingToolCall?.toolName === 'execute_saved_plan') {
+      return null;
+    }
+
     return {
       type: 'ask_user',
       agentId,
@@ -571,14 +683,23 @@ export class AgentWorker {
     // Parse URL into RedisOptions for BullMQ compatibility (includes auth)
     const connection = AgentQueueService.parseRedisUrl(url);
 
-    this.worker = new Worker(AGENT_QUEUE_NAME, async (job) => this.processJob(job), {
-      connection,
-      prefix: AGENT_QUEUE_PREFIX,
-      concurrency: WORKER_CONCURRENCY,
-      lockDuration: JOB_LOCK_DURATION_MS,
-      removeOnComplete: { age: COMPLETED_JOB_TTL_S, count: 1000 },
-      removeOnFail: { age: FAILED_JOB_TTL_S, count: 500 },
-    });
+    this.worker = new Worker(
+      AGENT_QUEUE_NAME,
+      async (job) => {
+        // BullMQ jobs run outside the Express request lifecycle, so rehydrate
+        // the Mongo environment scope from the job payload before any model access.
+        const scope = job.data.environment === 'production' ? 'production' : 'staging';
+        return runWithMongoEnvironmentScope(scope, () => this.processJob(job));
+      },
+      {
+        connection,
+        prefix: AGENT_QUEUE_PREFIX,
+        concurrency: WORKER_CONCURRENCY,
+        lockDuration: JOB_LOCK_DURATION_MS,
+        removeOnComplete: { age: COMPLETED_JOB_TTL_S, count: 1000 },
+        removeOnFail: { age: FAILED_JOB_TTL_S, count: 500 },
+      }
+    );
 
     this.attachEventListeners();
 
@@ -1695,6 +1816,59 @@ export class AgentWorker {
 
         if (threadId && this.chatService) {
           try {
+            // Persist stream snapshot (tool steps + parts) so the thread
+            // timeline survives a page reload while the yield card is active.
+            // Without this, only the assistant_yield text row is stored and
+            // all streamed tool steps are lost from MongoDB on reload.
+            // Uses the same idempotency key as the controlled-abort path —
+            // safe because the two paths are mutually exclusive per operation.
+            const yieldSnapshot = persistedAssistantStream.snapshot();
+            const hasYieldSnapshot =
+              yieldSnapshot.content.length > 0 ||
+              yieldSnapshot.steps.length > 0 ||
+              yieldSnapshot.parts.length > 0;
+
+            if (hasYieldSnapshot) {
+              const enrichedExisting =
+                await this.chatService.enrichLatestAssistantMessageForOperation({
+                  threadId,
+                  userId: payload.userId,
+                  operationId: payload.operationId,
+                  ...(yieldSnapshot.steps.length > 0 ? { steps: yieldSnapshot.steps } : {}),
+                  ...(yieldSnapshot.parts.length > 0 ? { parts: yieldSnapshot.parts } : {}),
+                });
+
+              if (!enrichedExisting) {
+                await this.chatService.addMessage({
+                  threadId,
+                  userId: payload.userId,
+                  role: 'assistant',
+                  content: yieldSnapshot.content || '',
+                  origin: payload.origin,
+                  agentId: yieldPayload.agentId,
+                  operationId: payload.operationId,
+                  idempotencyKey: `${payload.operationId}:assistant_partial`,
+                  semanticPhase: 'assistant_partial',
+                  ...(yieldSnapshot.steps.length > 0 ? { steps: yieldSnapshot.steps } : {}),
+                  ...(yieldSnapshot.parts.length > 0 ? { parts: yieldSnapshot.parts } : {}),
+                });
+                logger.info('Persisted fallback partial agent response on yield', {
+                  operationId: payload.operationId,
+                  threadId,
+                  contentLength: yieldSnapshot.content.length,
+                  stepCount: yieldSnapshot.steps.length,
+                });
+              } else {
+                logger.info('Enriched existing assistant response on yield', {
+                  operationId: payload.operationId,
+                  threadId,
+                  contentLength: yieldSnapshot.content.length,
+                  stepCount: yieldSnapshot.steps.length,
+                  messageId: enrichedExisting.id,
+                });
+              }
+            }
+
             await this.chatService.updateThreadPausedYieldState?.(threadId, yieldState);
             await this.chatService.addMessage({
               threadId,
@@ -2282,6 +2456,29 @@ export class AgentWorker {
         const toolCalls = Array.isArray(rawToolCalls)
           ? (rawToolCalls as import('@nxt1/core').AgentToolCallRecord[])
           : undefined;
+        const resultDataRecord =
+          typeof result.data === 'object' && result.data !== null
+            ? (result.data as Record<string, unknown>)
+            : undefined;
+        const generatedAttachments = resultDataRecord
+          ? extractMediaAttachmentsFromResultData(resultDataRecord)
+          : [];
+        const attachmentsFromResultData: import('@nxt1/core').AgentXAttachment[] =
+          generatedAttachments.map((attachment) => ({
+            id: crypto.randomUUID(),
+            url: attachment.url,
+            name: attachment.name,
+            mimeType:
+              attachment.type === 'image'
+                ? 'image/jpeg'
+                : attachment.type === 'video'
+                  ? 'video/mp4'
+                  : attachment.type === 'doc'
+                    ? 'application/octet-stream'
+                    : 'application/octet-stream',
+            type: attachment.type,
+            sizeBytes: 0,
+          }));
 
         const persistedAssistantMessage = await this.chatService.addMessage({
           threadId,
@@ -2307,10 +2504,10 @@ export class AgentWorker {
           ...(persistedStreamSnapshot.parts.length > 0
             ? { parts: persistedStreamSnapshot.parts }
             : {}),
-          resultData:
-            typeof result.data === 'object' && result.data !== null
-              ? (result.data as Record<string, unknown>)
-              : undefined,
+          ...(attachmentsFromResultData.length > 0
+            ? { attachments: attachmentsFromResultData }
+            : {}),
+          resultData: resultDataRecord,
         });
         persistedAssistantMessageId = persistedAssistantMessage.id;
         logger.info('Agent response persisted to MongoDB thread', {
@@ -2534,6 +2731,12 @@ export class AgentWorker {
             stage: event.stage,
             status: event.toolSuccess ? 'success' : 'error',
             icon: event.icon,
+            ...(event.toolResult
+              ? {
+                  detail: summarizeToolResult(event.toolResult),
+                  toolResult: event.toolResult,
+                }
+              : {}),
           },
         };
       case 'done': {

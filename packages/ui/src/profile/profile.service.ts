@@ -959,6 +959,52 @@ export class ProfileService {
     this._loadMoreHandler = handler;
   }
 
+  // ============================================
+  // AGENT X TOOL STEP BRIDGE
+  // ============================================
+
+  /**
+   * Optional callback registered by the platform shell to refresh the timeline
+   * after an Agent X mutation (e.g. delete_timeline_post) completes.
+   */
+  private _timelineRefreshHandler?: () => void;
+
+  /**
+   * Register a platform-specific timeline refresh callback.
+   * Called by the platform shell (e.g. ProfileComponent) so Agent X delete
+   * completions can trigger a fresh timeline fetch without a full page reload.
+   */
+  registerTimelineRefreshHandler(handler: () => void): void {
+    this._timelineRefreshHandler = handler;
+  }
+
+  /**
+   * Called by the Agent X transport facade when a tool step fires during streaming.
+   * Mirrors IntelService.notifyToolStep — watches for profile timeline mutations
+   * and triggers a silent re-fetch so the UI reflects Agent X changes in real time.
+   *
+   * @param toolId   Step ID from the SSE event (e.g. "delete_timeline_post-0")
+   * @param toolName Human-readable step label
+   * @param status   "active" | "success" | "error"
+   */
+  notifyAgentToolStep(toolId: string, toolName: string, status: string): void {
+    const normalizedName = toolName.toLowerCase();
+    const isMutation =
+      normalizedName.startsWith('delete_') ||
+      normalizedName.startsWith('update_') ||
+      normalizedName.startsWith('write_') ||
+      normalizedName === 'mutate_nxt1_data';
+
+    if (!isMutation) return;
+
+    if (status === 'success') {
+      this.logger.info('Agent X profile timeline mutation completed — refreshing timeline', {
+        toolId,
+      });
+      this._timelineRefreshHandler?.();
+    }
+  }
+
   /** Set loading-more state (used by platform handlers). */
   setLoadingMore(loading: boolean): void {
     this._isLoadingMore.set(loading);
@@ -1079,6 +1125,7 @@ export class ProfileService {
     const sports = this.allSports();
     if (index >= 0 && index < sports.length) {
       const selectedSport = sports[index];
+      const isOwnProfile = this.isOwnProfile();
 
       this.logger.info('Sport profile switched', {
         from: this._activeSportIndex(),
@@ -1095,7 +1142,7 @@ export class ProfileService {
 
       // Persist to database if API service is configured and we have a user ID
       const userId = this.user()?.uid;
-      if (this.api?.updateActiveSportIndex && userId) {
+      if (isOwnProfile && this.api?.updateActiveSportIndex && userId) {
         try {
           const result = await this.api.updateActiveSportIndex(userId, index);
           if (result.success) {
@@ -1118,6 +1165,11 @@ export class ProfileService {
             error: err,
           });
         }
+      } else if (!isOwnProfile) {
+        this.logger.debug('Skipped active sport index persistence for public profile view', {
+          userId,
+          activeSportIndex: index,
+        });
       }
     }
   }

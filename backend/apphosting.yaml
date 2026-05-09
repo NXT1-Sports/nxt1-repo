@@ -42,8 +42,28 @@ env:
   # App Hosting injects env vars at runtime — dotenv is a no-op in production
   - variable: NODE_ENV
     value: 'staging'
+  - variable: BACKEND_URL
+    value: 'https://api.nxt1sports.com'
+  - variable: MEDIA_PROXY_HMAC_SECRET
+    secret: media-proxy-hmac-secret
   # Allow devDependencies during build (needed for TypeScript compiler + shx)
   - variable: NPM_CONFIG_PRODUCTION
     value: 'false'
   - variable: NPM_CONFIG_INCLUDE
     value: 'dev'
+  - variable: CLOUDFLARE_WEBHOOK_SECRET
+    secret: CLOUDFLARE_WEBHOOK_SECRET
+    availability:
+      - RUNTIME
+  - variable: CHART_MCP_URL
+    secret: CHART_MCP_URL
+    availability:
+      - RUNTIME
+  - variable: CHART_MCP_API_TOKEN
+    secret: CHART_MCP_API_TOKEN
+    availability:
+      - RUNTIME
+  - variable: GEMINI_API_KEY
+    secret: GEMINI_API_KEY
+    availability:
+      - RUNTIME

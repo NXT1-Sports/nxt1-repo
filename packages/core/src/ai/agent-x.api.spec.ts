@@ -4,7 +4,7 @@
  *
  * Pure Vitest tests for createAgentXApi — no TestBed, no Angular.
  * Covers: sendMessage, getDashboard, setGoals, generatePlaybook,
- * updatePlaybookItemStatus, generateBriefing, getQuickTasks,
+ * updatePlaybookItemStatus, generateBriefing,
  * getHistory, clearHistory.
  */
 
@@ -538,45 +538,6 @@ describe('createAgentXApi', () => {
   });
 
   // ============================================
-  // getQuickTasks
-  // ============================================
-
-  describe('getQuickTasks', () => {
-    it('should fetch tasks without role filter', async () => {
-      const tasks = [{ id: '1', label: 'Find colleges', prompt: 'Help me find colleges' }];
-      vi.mocked(http.get).mockResolvedValue({
-        success: true,
-        data: { tasks },
-      });
-
-      const result = await api.getQuickTasks();
-
-      expect(http.get).toHaveBeenCalledWith(`${baseUrl}${AGENT_X_ENDPOINTS.TASKS}`);
-      expect(result).toEqual(tasks);
-    });
-
-    it('should fetch tasks with role filter', async () => {
-      vi.mocked(http.get).mockResolvedValue({
-        success: true,
-        data: { tasks: [] },
-      });
-
-      await api.getQuickTasks('athlete');
-
-      const url = vi.mocked(http.get).mock.calls[0][0];
-      expect(url).toContain('role=athlete');
-    });
-
-    it('should return empty array on failure', async () => {
-      vi.mocked(http.get).mockRejectedValue(new Error('Network failure'));
-
-      const result = await api.getQuickTasks();
-
-      expect(result).toEqual([]);
-    });
-  });
-
-  // ============================================
   // getHistory
   // ============================================
 
@@ -884,6 +845,46 @@ describe('createAgentXApi', () => {
           Accept: 'text/event-stream',
           Authorization: 'Bearer token-123',
           'x-idempotency-key': 'chat_retry_key_001',
+        },
+        body: JSON.stringify({ message: 'hello', mode: 'recruiting' }),
+        signal: expect.any(AbortSignal),
+      });
+    });
+
+    it('should forward the frontend app base URL via SSE request headers when provided', async () => {
+      const frames = 'event: done\ndata: {"threadId":"thread-123"}\n\n';
+      const encoder = new TextEncoder();
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(encoder.encode(frames));
+          controller.close();
+        },
+      });
+
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValue(new Response(body, { status: 200, statusText: 'OK' }));
+      vi.stubGlobal('fetch', fetchMock);
+
+      const callbacks = {
+        onDelta: vi.fn(),
+        onDone: vi.fn(),
+        onError: vi.fn(),
+      };
+
+      api.streamMessage({ message: 'hello', mode: 'recruiting' }, callbacks, 'token-123', baseUrl, {
+        appBaseUrl: 'http://localhost:4200',
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 25));
+
+      expect(fetchMock).toHaveBeenCalledWith(`${baseUrl}${AGENT_X_ENDPOINTS.CHAT}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'text/event-stream',
+          Authorization: 'Bearer token-123',
+          'x-nxt1-app-base-url': 'http://localhost:4200',
         },
         body: JSON.stringify({ message: 'hello', mode: 'recruiting' }),
         signal: expect.any(AbortSignal),

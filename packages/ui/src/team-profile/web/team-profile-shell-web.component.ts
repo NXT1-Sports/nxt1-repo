@@ -47,7 +47,7 @@ import {
   getSeasonForDate,
 } from '@nxt1/core';
 import { NxtIconComponent } from '../../components/icon';
-// NxtPageHeaderComponent not used — web team profile uses shell top nav on mobile and page header in wide layouts
+import { NxtPageHeaderComponent } from '../../components/page-header';
 import { NxtRefresherComponent, type RefreshEvent } from '../../components/refresh-container';
 import {
   NxtOptionScrollerComponent,
@@ -72,6 +72,7 @@ import { AgentXOperationChatComponent } from '../../agent-x';
 import { NxtPlatformService } from '../../services/platform/platform.service';
 import { Router } from '@angular/router';
 import { TeamProfileService } from '../team-profile.service';
+import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/assets';
 
 // ─── Extracted Section Components ───
 import { TeamMobileHeroComponent } from './team-mobile-hero.component';
@@ -145,6 +146,7 @@ const TEAM_TIMELINE_EMPTY_STATE_BY_SECTION: Readonly<
   imports: [
     CommonModule,
     NxtIconComponent,
+    NxtPageHeaderComponent,
     NxtRefresherComponent,
     NxtOptionScrollerComponent,
     NxtSectionNavWebComponent,
@@ -257,6 +259,49 @@ const TEAM_TIMELINE_EMPTY_STATE_BY_SECTION: Readonly<
         </svg>
       </button>
     </ng-template>
+
+    @if (showPageHeader()) {
+      <nxt1-page-header [showBack]="true" (backClick)="backClick.emit()">
+        <div pageHeaderSlot="title" class="header-logo">
+          <span class="header-title-text">Team</span>
+          <svg
+            class="header-brand-logo"
+            viewBox="0 0 612 792"
+            width="40"
+            height="40"
+            fill="currentColor"
+            stroke="currentColor"
+            stroke-width="10"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path [attr.d]="agentXLogoPath" />
+            <polygon [attr.points]="agentXLogoPolygon" />
+          </svg>
+        </div>
+
+        <div pageHeaderSlot="end" class="header-actions">
+          <button
+            type="button"
+            class="header-action-btn"
+            aria-label="More options"
+            (click)="onMenuClick()"
+          >
+            <nxt1-icon name="moreHorizontal" [size]="22" />
+          </button>
+          @if (isTeamAdmin()) {
+            <button
+              type="button"
+              class="header-action-btn"
+              aria-label="Manage team"
+              (click)="manageTeamClick.emit()"
+            >
+              <nxt1-icon name="pencil" [size]="20" />
+            </button>
+          }
+        </div>
+      </nxt1-page-header>
+    }
 
     <main class="team-profile-main">
       <nxt-refresher (onRefresh)="handleRefresh($event)" (onTimeout)="handleRefreshTimeout()" />
@@ -394,6 +439,7 @@ const TEAM_TIMELINE_EMPTY_STATE_BY_SECTION: Readonly<
                     @case ('connect') {
                       <nxt1-team-contact-web
                         [activeSection]="activeSideTab()"
+                        [hideConnectedInlineCta]="hideConnectInlineCta()"
                         (manageTeam)="manageTeamClick.emit()"
                         (connectedAccountsClick)="connectedAccountsClick.emit()"
                       />
@@ -474,20 +520,20 @@ const TEAM_TIMELINE_EMPTY_STATE_BY_SECTION: Readonly<
         <!-- Projected content (e.g. CTA banner for logged-out users) -->
         <ng-content />
 
-        @if (
-          isTeamAdmin() &&
-          teamProfile.activeTab() === 'timeline' &&
-          !platform.isMobile() &&
-          platform.isBelowBreakpoint('md') &&
-          !hideFooterFab()
-        ) {
+        @if (showFooterActionBar()) {
           <div class="mobile-web-fab-bar">
             <button
               type="button"
               class="mobile-web-fab-bar__btn mobile-web-fab-bar__btn--primary"
-              (click)="onAddUpdate()"
+              (click)="onFooterPrimaryAction()"
             >
-              + Add Update
+              {{
+                teamProfile.activeTab() === 'connect'
+                  ? 'Connect Accounts'
+                  : teamProfile.activeTab() === 'roster'
+                    ? 'Invite'
+                    : '+ Add Update'
+              }}
             </button>
           </div>
         }
@@ -507,11 +553,14 @@ const TEAM_TIMELINE_EMPTY_STATE_BY_SECTION: Readonly<
          ═══════════════════════════════════════════════════════════ */
 
       :host {
-        display: block;
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        min-height: 0;
         height: 100%;
         width: 100%;
         overflow-x: hidden;
-        overflow-y: auto;
+        overflow-y: hidden;
         --m-bg: var(--nxt1-color-bg-primary, #0a0a0a);
         --m-surface: var(--nxt1-color-surface-100, rgba(255, 255, 255, 0.04));
         --m-surface-2: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.08));
@@ -526,6 +575,35 @@ const TEAM_TIMELINE_EMPTY_STATE_BY_SECTION: Readonly<
         display: flex;
         align-items: center;
         gap: var(--nxt1-spacing-1, 4px);
+      }
+
+      .header-logo {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0;
+        width: 100%;
+        margin-top: -8px;
+        margin-left: -18px;
+      }
+
+      .header-title-text {
+        display: inline-flex;
+        align-items: center;
+        font-family: var(--nxt1-font-family-brand, var(--ion-font-family));
+        font-size: var(--nxt1-font-size-xl, 20px);
+        font-weight: var(--nxt1-font-weight-semibold, 600);
+        letter-spacing: var(--nxt1-letter-spacing-tight, -0.01em);
+        color: var(--nxt1-color-text-primary, #ffffff);
+        line-height: 1;
+        transform: translateY(1px);
+      }
+
+      .header-brand-logo {
+        display: block;
+        flex-shrink: 0;
+        color: var(--nxt1-color-text-primary, #ffffff);
+        transform: translateY(1px);
       }
 
       .header-action-btn {
@@ -554,7 +632,8 @@ const TEAM_TIMELINE_EMPTY_STATE_BY_SECTION: Readonly<
 
       .team-profile-main {
         background: var(--m-bg);
-        height: 100%;
+        flex: 1;
+        min-height: 0;
         overflow-x: hidden;
         overflow-y: auto;
         padding-top: 0;
@@ -1194,6 +1273,8 @@ const TEAM_TIMELINE_EMPTY_STATE_BY_SECTION: Readonly<
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDestroy {
+  protected readonly agentXLogoPath = AGENT_X_LOGO_PATH;
+  protected readonly agentXLogoPolygon = AGENT_X_LOGO_POLYGON;
   protected readonly teamProfile = inject(TeamProfileService);
   private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('TeamProfileShellWeb');
@@ -1240,6 +1321,12 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
   readonly skipInternalLoad = input(false);
 
   /**
+   * When true, render an internal mobile page header in the shell.
+   * Used by mobile wrappers to avoid wrapper-level header nesting.
+   */
+  readonly showPageHeader = input(false);
+
+  /**
    * When true, hide the built-in mobile FAB footer bar.
    * Use this when the parent component renders its own footer action bar
    * (e.g. mobile team.page.ts which has its own team-action-footer-bar).
@@ -1268,6 +1355,23 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
   // ============================================
 
   /** Check if content is ready to render (prevents SSR hydration mismatch) */
+  protected readonly showFooterActionBar = computed(
+    () =>
+      this.isTeamAdmin() &&
+      !this.hideFooterFab() &&
+      (this.teamProfile.activeTab() === 'timeline' ||
+        this.teamProfile.activeTab() === 'connect' ||
+        this.teamProfile.activeTab() === 'roster') &&
+      (this.platform.isMobile() || this.platform.isBelowBreakpoint('md'))
+  );
+
+  protected readonly hideConnectInlineCta = computed(
+    () =>
+      this.isTeamAdmin() &&
+      this.teamProfile.activeTab() === 'connect' &&
+      (this.hideFooterFab() || this.showFooterActionBar())
+  );
+
   protected readonly isContentReady = computed(() => {
     return (
       !this.teamProfile.isLoading() &&
@@ -1716,6 +1820,8 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
   }
 
   ngAfterViewInit(): void {
+    if (this.showPageHeader()) return;
+
     const centerTpl = this.teamPortalContent();
     if (centerTpl) this.headerPortal.setCenterContent(centerTpl);
     const rightTpl = this.teamRightPortalContent();
@@ -1724,7 +1830,9 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
 
   ngOnDestroy(): void {
     this.teamProfile.reset();
-    this.headerPortal.clearAll();
+    if (!this.showPageHeader()) {
+      this.headerPortal.clearAll();
+    }
   }
 
   // ============================================
@@ -1787,7 +1895,6 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
     const isAdmin = this.isTeamAdmin();
     const actions: BottomSheetAction[] = isAdmin
       ? [
-          { label: 'Manage Team', role: 'secondary', icon: 'settings' },
           { label: 'Share Team', role: 'secondary', icon: 'share' },
           { label: 'QR Code', role: 'secondary', icon: 'qrCode' },
           { label: 'Copy Link', role: 'secondary', icon: 'link' },
@@ -1809,9 +1916,6 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
     if (!selected) return;
 
     switch (selected.label) {
-      case 'Manage Team':
-        this.manageTeamClick.emit();
-        break;
       case 'Share Team':
         this.shareClick.emit();
         break;
@@ -1919,56 +2023,61 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
     void this.onCreatePostWithAgent();
   }
 
-  private async onCreatePostWithAgent(): Promise<void> {
+  protected onFooterPrimaryAction(): void {
+    if (this.teamProfile.activeTab() === 'connect') {
+      this.connectedAccountsClick.emit();
+      return;
+    }
+
+    if (this.teamProfile.activeTab() === 'roster') {
+      this.inviteRosterClick.emit();
+      return;
+    }
+
+    this.onAddUpdate();
+  }
+
+  public triggerAddUpdateFromExternalAction(includeIntelSync = true): Promise<void> {
+    return this.onCreatePostWithAgent(includeIntelSync);
+  }
+
+  private async onCreatePostWithAgent(includeIntelSync = true): Promise<void> {
     const team = this.teamProfile.team();
     if (!team) return;
 
-    const teamName = team.teamName?.trim() ?? 'Team';
     const activeTab = this.activeSideTab();
-
-    // Build tab-specific context
-    let tabContext: string;
-    let sourceCollection: string;
+    let message: string;
     switch (activeTab) {
-      case 'stats':
-        tabContext = 'team statistics and performance data';
-        sourceCollection = 'team stats';
-        break;
-      case 'schedule':
-        tabContext = 'upcoming games, schedule changes, or game results';
-        sourceCollection = 'schedule';
-        break;
-      case 'recruiting':
-        tabContext = 'recruiting updates, scholarships, or player recruitment';
-        sourceCollection = 'recruiting activity';
-        break;
-      case 'news':
-        tabContext = 'news articles or program announcements';
-        sourceCollection = 'news';
-        break;
-      case 'media':
-        tabContext = 'photos or highlight videos';
-        sourceCollection = 'media';
+      case 'all-posts':
+        message = `I'd like to add a general team update. Please help me figure out whether this belongs in Posts, TeamStats, Schedule, Recruiting, or News based on what I'm sharing. If this is team photos or highlight video, save it in Posts with the post type set to image or video. If the right section is not obvious, ask me a quick follow-up before saving anything.`;
         break;
       case 'pinned':
-        tabContext = 'important pinned announcement';
-        sourceCollection = 'news';
+        message = `We need to create an important featured update. Please help me write it, then save it to the Posts collection with isPinned set to true.`;
+        break;
+      case 'stats':
+        message = `I need to update the team stats and recent results. Please guide me through the latest numbers, then save that data to the TeamStats collection.`;
+        break;
+      case 'schedule':
+        message = `I want to add upcoming games or recent results. Please help me organize the details, then add the update to the Schedule collection.`;
+        break;
+      case 'recruiting':
+        message = `We have recruiting activity to add, including roster movement and college-related updates. Please help me put it together, then save it to the Recruiting collection.`;
+        break;
+      case 'news':
+        message = `I'd like to share a program announcement or news update. Please help me write it clearly, then publish it to the News collection.`;
+        break;
+      case 'media':
+        message = `I want to add new team photos or highlight videos. Please help me prepare the update, then save it to the Posts collection and make sure the post type is set correctly as image or video.`;
         break;
       default:
-        tabContext = 'update';
-        sourceCollection = 'team updates';
+        message = `I'd like to post a general team update. Please help me draft it, then save it to the Posts collection.`;
     }
 
     const hasReport = !!this.intel.teamReport();
-    const baseMessage =
-      `This is a TEAM profile update request for ${teamName}. ` +
-      `Active tab: ${activeTab}. ` +
-      `Focus area: ${tabContext}. ` +
-      `Write or update the ${sourceCollection} source collection first, ` +
-      `then create a timeline post only when a public announcement is needed.`;
-    const message = hasReport
-      ? `${baseMessage} After saving the source data, review and update any relevant sections of our Agent X Intel report with new stats, results, recruiting activity, or program updates.`
-      : baseMessage;
+    if (hasReport && includeIntelSync) {
+      message +=
+        ' After that is saved, refresh any relevant parts of our Intel report with the latest stats, results, recruiting activity, and program updates.';
+    }
 
     if (this.platform.isMobile()) {
       await this.bottomSheet.openSheet({

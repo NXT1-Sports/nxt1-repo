@@ -114,6 +114,15 @@ export function normalizeSportKey(sportName: string): string {
     .replace(/_$/, '');
 }
 
+export function normalizeBaseSportKey(sportName: string): string {
+  const normalized = normalizeSportKey(sportName);
+  if (!normalized) return '';
+
+  return normalized
+    .replace(/^(?:men'?s|women'?s|mens|womens)_/i, '')
+    .replace(/_(?:men'?s|women'?s|mens|womens)$/i, '');
+}
+
 export function formatSportDisplayName(sportName: string): string {
   if (!sportName) return '';
 

@@ -32,6 +32,7 @@ import {
   type PersistedMedia,
   type MediaThreadContext,
 } from './scraper-media.service.js';
+import { checkTwitterSingleTweetIntent } from '../../media/media-acquisition.middleware.js';
 import { logger } from '../../../../../utils/logger.js';
 
 /** Maximum tweets to return in the LLM context to avoid overflow. */
@@ -46,17 +47,22 @@ const MAX_QUERY_LENGTH = 500;
 export class ScrapeTwitterTool extends BaseTool {
   readonly name = 'scrape_twitter';
   readonly description =
-    'Scrape tweets, profile timelines, or followers from Twitter/X. ' +
-    'No API key needed — uses the Apify-hosted Scweet actor. ' +
-    'Supports three modes: ' +
-    '1) "search" — find tweets by keyword, hashtag, or phrase (e.g. "#D1Commits since:2025-01-01"). ' +
-    '2) "profile_tweets" — get recent tweets from specific user(s). ' +
-    '3) "followers" — get follower list of specific user(s). ' +
+    'Scrape tweets, profile timelines, followers, or a single tweet from Twitter/X. ' +
+    'No API key needed — uses Apify-hosted actors. ' +
+    'Supports four modes: ' +
+    '1) "single_tweet" — fetch ONE specific tweet by URL (e.g. https://x.com/user/status/ID). ' +
+    '   Returns tweet text, imageUrls[], videoUrl, and a mediaArtifact ready for analyze_video. ' +
+    '   Use this whenever you have a specific tweet permalink. ' +
+    '2) "search" — find tweets by keyword, hashtag, or phrase. ' +
+    '3) "profile_tweets" — get recent tweets from specific user(s). ' +
+    '4) "followers" — get follower list of specific user(s). ' +
     'Returns structured JSON: tweet text, engagement metrics (likes, retweets, replies), timestamps, and URLs. ' +
     'Use this for recruiting intel, coach monitoring, trending topic analysis, and brand auditing.';
 
   readonly parameters = z.object({
-    mode: z.enum(['search', 'profile_tweets', 'followers']),
+    mode: z.enum(['search', 'profile_tweets', 'followers', 'single_tweet']),
+    /** Required for mode=single_tweet: the full tweet permalink URL. */
+    tweetUrl: z.string().url().optional(),
     query: z.string().trim().min(1).optional(),
     usernames: z.array(z.string().trim().min(1)).optional(),
     limit: z.number().int().min(1).max(500).optional(),
@@ -83,11 +89,11 @@ export class ScrapeTwitterTool extends BaseTool {
     context?: ToolExecutionContext
   ): Promise<ToolResult> {
     const mode = this.str(input, 'mode');
-    if (!mode || !['search', 'profile_tweets', 'followers'].includes(mode)) {
+    if (!mode || !['search', 'profile_tweets', 'followers', 'single_tweet'].includes(mode)) {
       return {
         success: false,
         error:
-          'Parameter "mode" is required and must be one of: "search", "profile_tweets", "followers".',
+          'Parameter "mode" is required and must be one of: "single_tweet", "search", "profile_tweets", "followers".',
       };
     }
 
@@ -101,6 +107,31 @@ export class ScrapeTwitterTool extends BaseTool {
 
     try {
       switch (mode) {
+        case 'single_tweet': {
+          const tweetUrl = this.str(input, 'tweetUrl');
+          if (!tweetUrl) {
+            return {
+              success: false,
+              error:
+                'Parameter "tweetUrl" is required for mode=single_tweet. Provide the full tweet permalink URL (e.g. https://x.com/user/status/123456789).',
+            };
+          }
+
+          // Hard preflight gate: mode=single_tweet requires a true /status/{id} permalink.
+          // This prevents profile/search URLs from bypassing classifier routing.
+          const singleTweetGate = checkTwitterSingleTweetIntent(tweetUrl);
+          if (singleTweetGate) {
+            return singleTweetGate;
+          }
+
+          emitStage?.('fetching_data', {
+            icon: 'media',
+            mode: 'single_tweet',
+            tweetUrl,
+            platform: 'twitter',
+          });
+          return await this.handleSingleTweet(tweetUrl, staging);
+        }
         case 'search': {
           const query = this.str(input, 'query') ?? '';
           emitStage?.('fetching_data', {
@@ -161,7 +192,76 @@ export class ScrapeTwitterTool extends BaseTool {
   }
 
   // ─── Mode Handlers ─────────────────────────────────────────────────────
+  /**
+   * Fetch a single tweet by permalink URL.
+   * Uses apidojo/twitter-scraper-lite (NOT tweet-scraper V2 which requires 50-tweet minimum).
+   */
+  private async handleSingleTweet(
+    tweetUrl: string,
+    staging?: MediaThreadContext
+  ): Promise<ToolResult> {
+    logger.info('[ScrapeTwitterTool] Fetching single tweet', { tweetUrl });
 
+    const result = await this.apify.getSingleTweet(tweetUrl);
+
+    if (!result.success) {
+      return {
+        success: false,
+        error: result.error ?? `Failed to fetch tweet from ${tweetUrl}`,
+      };
+    }
+
+    const tweet = result.items[0];
+    if (!tweet) {
+      return {
+        success: false,
+        error: `No tweet data returned for URL: ${tweetUrl}. The tweet may be private or deleted.`,
+      };
+    }
+
+    const imageUrls: readonly string[] = tweet.imageUrls ?? [];
+    const videoUrl: string | undefined = tweet.videoUrl;
+
+    // Persist any media assets found in the tweet to staging
+    let artifact: import('../../media/media-workflow.js').MediaWorkflowArtifact | undefined;
+    if (videoUrl && staging) {
+      const mediaItems: import('../social/scraper-media.service.js').MediaInput[] = [
+        { url: videoUrl, type: 'video', platform: 'twitter', sourceUrl: tweetUrl },
+      ];
+      await this.media.persistBatch(mediaItems, staging);
+
+      const { buildVideoWorkflowArtifact } = await import('../../media/media-workflow.js');
+      artifact = buildVideoWorkflowArtifact({
+        sourceUrl: tweetUrl,
+        playableUrls: [videoUrl],
+        directMp4Urls: videoUrl.endsWith('.mp4') ? [videoUrl] : [],
+      });
+    }
+
+    logger.info('[ScrapeTwitterTool] Single tweet fetched', {
+      tweetUrl,
+      hasVideo: !!videoUrl,
+      imageCount: imageUrls.length,
+      runId: result.runId,
+    });
+
+    return {
+      success: true,
+      data: {
+        tweet,
+        videoUrl,
+        imageUrls,
+        ...(artifact ? { artifact } : {}),
+        runId: result.runId,
+        durationMs: result.durationMs,
+        nextStep: videoUrl
+          ? `Call analyze_video({ url: "${videoUrl}", platform: "twitter" }) to process this video.`
+          : imageUrls.length > 0
+            ? `Use write_athlete_images to persist ${imageUrls.length} image(s) to the athlete profile.`
+            : 'No media found in tweet.',
+      },
+    };
+  }
   private async handleSearch(
     input: Record<string, unknown>,
     staging?: MediaThreadContext

@@ -13,6 +13,8 @@ export interface ConnectedAccountsResyncSource {
   readonly username?: string;
   readonly url?: string;
   readonly connected?: boolean;
+  /** 'link' = pasted URL/username, 'signin' = OAuth. Sign-in accounts are excluded from the resync prompt. */
+  readonly connectionType?: string;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -28,6 +30,8 @@ export class ConnectedAccountsResyncService {
   async request(accounts: readonly ConnectedAccountsResyncSource[] = []): Promise<boolean> {
     const requestedAccounts = accounts
       .filter((account) => account.connected || !!account.username || !!account.url)
+      // Exclude OAuth sign-in accounts — only URL/username-linked accounts are mentioned in the prompt
+      .filter((account) => account.connectionType !== 'signin')
       .map((account) => ({
         platform: account.platform,
         label: account.label ?? account.platform,

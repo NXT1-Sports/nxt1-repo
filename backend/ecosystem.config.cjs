@@ -11,7 +11,8 @@ module.exports = {
   apps: [
     {
       name: 'nxt1-backend',
-      script: './dist/index.js',
+      script: 'node',
+      args: '-r dotenv/config dist/index.js',
       cwd: '/home/vyacheslav_rud1996/nxt1-repo/backend', // actual path on server
 
       // Number of instances (cluster mode to utilise multiple CPUs)

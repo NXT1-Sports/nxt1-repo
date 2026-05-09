@@ -634,6 +634,36 @@ export class TeamProfileService {
   }
 
   /**
+   * Called by the Agent X transport facade when a tool step fires during streaming.
+   * Watches for team timeline mutations and triggers a silent re-fetch so the UI
+   * reflects Agent X changes (e.g. delete_team_post) in real time.
+   *
+   * @param toolId   Step ID from the SSE event (e.g. "delete_team_post-0")
+   * @param toolName Human-readable step label
+   * @param status   "active" | "success" | "error"
+   */
+  notifyAgentToolStep(toolId: string, toolName: string, status: string): void {
+    const normalizedName = toolName.toLowerCase();
+    const isMutation =
+      normalizedName.startsWith('delete_') ||
+      normalizedName.startsWith('update_') ||
+      normalizedName.startsWith('write_') ||
+      normalizedName === 'mutate_nxt1_data';
+
+    if (!isMutation) return;
+
+    if (status === 'success') {
+      const teamCode = this._teamData()?.team?.teamCode ?? '';
+      if (!teamCode) return;
+      this.logger.info('Agent X team timeline mutation completed — refreshing timeline', {
+        toolId,
+        teamCode,
+      });
+      void this.loadTimeline(teamCode);
+    }
+  }
+
+  /**
    * Load the next page of the timeline (infinite scroll).
    */
   async loadMoreTimeline(teamCode: string): Promise<void> {

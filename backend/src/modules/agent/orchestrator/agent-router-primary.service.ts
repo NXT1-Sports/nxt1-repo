@@ -16,7 +16,13 @@
  * ReAct loop can ingest it as the next tool result and continue reasoning.
  */
 
-import type { AgentIdentifier, AgentTask, AgentToolAccessContext } from '@nxt1/core';
+import type {
+  AgentIdentifier,
+  AgentOperationResult,
+  AgentTask,
+  AgentTaskStatus,
+  AgentToolAccessContext,
+} from '@nxt1/core';
 import type { BaseAgent } from '../agents/base.agent.js';
 import type {
   PrimaryDispatcher,
@@ -27,16 +33,20 @@ import type { PlannerAgent } from '../agents/planner.agent.js';
 import type { AgentRouterExecutionService } from './agent-router-execution.service.js';
 import type { AgentRouterContextService } from './agent-router-context.service.js';
 import type { AgentRouterPolicyService } from './agent-router-policy.service.js';
+import type { AgentRouterPlanningService } from './agent-router-planning.service.js';
 import { isAgentYield } from '../exceptions/agent-yield.exception.js';
+import { AgentPlanRepository, buildPlanTaskSnapshot } from '../queue/agent-plan.repository.js';
 import { logger } from '../../../utils/logger.js';
 
 interface PrimaryServiceOptions {
   readonly executionService: AgentRouterExecutionService;
   readonly contextService: AgentRouterContextService;
   readonly policyService: AgentRouterPolicyService;
+  readonly planningService: AgentRouterPlanningService;
   readonly planner: PlannerAgent;
   readonly agents: ReadonlyMap<AgentIdentifier, BaseAgent>;
   readonly resolveToolAccessContext: (userId: string) => Promise<AgentToolAccessContext>;
+  readonly planRepository: AgentPlanRepository;
 }
 
 export class AgentRouterPrimaryService implements PrimaryDispatcher {
@@ -45,7 +55,8 @@ export class AgentRouterPrimaryService implements PrimaryDispatcher {
   async runCoordinator(
     coordinatorId: Exclude<AgentIdentifier, 'router'>,
     goal: string,
-    ctx: PrimaryDispatchContext
+    ctx: PrimaryDispatchContext,
+    structuredPayload?: Record<string, unknown>
   ): Promise<PrimaryDispatchResult> {
     let streamedDeltaCount = 0;
     let streamedCharCount = 0;
@@ -68,6 +79,7 @@ export class AgentRouterPrimaryService implements PrimaryDispatcher {
       id: `${coordinatorId}_${Date.now()}`,
       assignedAgent: coordinatorId,
       description: goal,
+      ...(structuredPayload ? { structuredPayload } : {}),
       dependsOn: [],
       status: 'pending',
       createdAt: new Date().toISOString(),
@@ -89,8 +101,13 @@ export class AgentRouterPrimaryService implements PrimaryDispatcher {
         ...(ctx.signal ? { signal: ctx.signal } : {}),
         buildTaskIntent: (t, upstream, enriched) =>
           this.opts.contextService.buildTaskIntent(t, upstream, enriched),
-        rerouteDelegatedTask: (intent, sourceAgentId, rerouteContext) =>
-          this.opts.policyService.rerouteDelegatedTask(intent, sourceAgentId, rerouteContext),
+        rerouteDelegatedTask: (intent, sourceAgentId, rerouteContext, payload) =>
+          this.opts.policyService.rerouteDelegatedTask(
+            intent,
+            sourceAgentId,
+            rerouteContext,
+            payload
+          ),
       });
 
       return formatDispatchResult({
@@ -129,6 +146,161 @@ export class AgentRouterPrimaryService implements PrimaryDispatcher {
   }
 
   async runPlan(goal: string, ctx: PrimaryDispatchContext): Promise<PrimaryDispatchResult> {
+    const streamedDeltaCount = 0;
+    const streamedCharCount = 0;
+
+    try {
+      const existingDraft =
+        typeof ctx.sessionContext.threadId === 'string' && ctx.sessionContext.threadId.length > 0
+          ? await this.opts.planRepository.getLatestRevisableByThread(
+              ctx.userId,
+              ctx.sessionContext.threadId,
+              ctx.sessionContext.environment
+            )
+          : null;
+
+      const toolAccessContext = await this.opts.resolveToolAccessContext(ctx.userId);
+      const capabilitySnapshot = await this.opts.planningService
+        .buildCapabilitySnapshot(ctx.enrichedIntent, toolAccessContext, this.opts.agents)
+        .catch(() => undefined);
+
+      const plannerGoal = existingDraft
+        ? this.opts.planningService.buildRevisionIntent(goal, existingDraft)
+        : goal;
+
+      const planResult = await this.opts.planner.execute(
+        plannerGoal,
+        ctx.sessionContext,
+        [],
+        undefined,
+        { capabilitySnapshot },
+        undefined,
+        ctx.onStreamEvent
+      );
+
+      const planTasks = (planResult as { data?: { plan?: { tasks?: readonly AgentTask[] } } })?.data
+        ?.plan?.tasks;
+      const planSummary = (planResult as { summary?: string }).summary?.trim() || goal;
+
+      if (!planTasks || planTasks.length === 0) {
+        return {
+          success: false,
+          observation: JSON.stringify({
+            success: false,
+            error: 'Planner produced no tasks for goal.',
+          }),
+          dispatchKind: 'plan',
+          userAlreadyReceivedResponse: false,
+          streamedDeltaCount,
+          streamedCharCount,
+        };
+      }
+
+      const planId = existingDraft?.planId ?? `plan_${ctx.operationId}`;
+      const planHash = this.opts.planningService.hashExecutionPlan({
+        operationId: ctx.operationId,
+        tasks: planTasks,
+        createdAt: new Date().toISOString(),
+      });
+
+      const savedPlan = existingDraft
+        ? await this.opts.planRepository.reviseDraft({
+            existingPlan: existingDraft,
+            originOperationId: ctx.operationId,
+            summary: planSummary,
+            planHash,
+            tasks: planTasks,
+            environment: ctx.sessionContext.environment,
+          })
+        : await this.opts.planRepository.createDraft({
+            planId,
+            userId: ctx.userId,
+            threadId: ctx.sessionContext.threadId,
+            originOperationId: ctx.operationId,
+            summary: planSummary,
+            planHash,
+            tasks: planTasks,
+            environment: ctx.sessionContext.environment,
+          });
+
+      this.emitPlanReviewCard(ctx, planSummary, planTasks);
+
+      const planSteps = planTasks.map((task) => ({
+        id: task.id,
+        label: task.displayLabel ?? task.description,
+        ...(task.description && task.description !== (task.displayLabel ?? '')
+          ? { description: task.description }
+          : {}),
+        ...(task.assignedAgent ? { coordinator: task.assignedAgent } : {}),
+      }));
+
+      return {
+        success: true,
+        observation: JSON.stringify({
+          success: true,
+          plan_created: existingDraft === null,
+          plan_revised: existingDraft !== null,
+          goal,
+          plan_id: planId,
+          plan_version: savedPlan.version,
+          summary: planSummary,
+          steps: planSteps,
+          approval: {
+            tool_name: 'execute_saved_plan',
+            payload: { planId },
+            instruction:
+              'Explain the plan in your own words. Wait for explicit user approval before execution.',
+          },
+        }),
+        dispatchKind: 'plan',
+        userAlreadyReceivedResponse: false,
+        streamedDeltaCount,
+        streamedCharCount,
+      };
+    } catch (err) {
+      // Plan creation is intentionally non-yielding. If a nested yield leaks
+      // through, normalize to a regular error so Primary can recover with a
+      // conversational follow-up instead of entering resume mode.
+      if (isAgentYield(err)) {
+        logger.warn('[PrimaryService] runPlan received unexpected yield; converting to failure', {
+          reason: err.payload.reason,
+          pendingTool: err.payload.pendingToolCall?.toolName,
+        });
+        return {
+          success: false,
+          observation: JSON.stringify({
+            success: false,
+            error:
+              'Plan drafting paused unexpectedly. Please restate the plan request in one sentence.',
+          }),
+          dispatchKind: 'plan',
+          userAlreadyReceivedResponse: false,
+          streamedDeltaCount,
+          streamedCharCount,
+        };
+      }
+
+      logger.error('[PrimaryService] runPlan failed', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return {
+        success: false,
+        observation: JSON.stringify({
+          success: false,
+          error: `Multi-step plan failed: ${err instanceof Error ? err.message : String(err)}`,
+        }),
+        dispatchKind: 'plan',
+        userAlreadyReceivedResponse: false,
+        streamedDeltaCount,
+        streamedCharCount,
+      };
+    }
+  }
+
+  async runApprovedPlan(
+    planId: string,
+    ctx: PrimaryDispatchContext
+  ): Promise<PrimaryDispatchResult> {
     let streamedDeltaCount = 0;
     let streamedCharCount = 0;
     const onDispatchStreamEvent =
@@ -147,37 +319,45 @@ export class AgentRouterPrimaryService implements PrimaryDispatcher {
         ctx.onStreamEvent?.(event);
       });
 
-    try {
-      const planResult = await this.opts.planner.execute(
-        goal,
-        ctx.sessionContext,
-        [],
-        undefined,
-        undefined,
-        undefined,
-        ctx.onStreamEvent
-      );
+    const environment = ctx.sessionContext.environment;
+    const savedPlan = await this.opts.planRepository.getById(planId, environment);
+    if (!savedPlan) {
+      return {
+        success: false,
+        observation: JSON.stringify({ success: false, error: `Saved plan not found: ${planId}` }),
+        dispatchKind: 'saved_plan',
+        userAlreadyReceivedResponse: false,
+        streamedDeltaCount,
+        streamedCharCount,
+      };
+    }
 
-      const planTasks = (planResult as { plan?: { tasks?: readonly AgentTask[] } })?.plan?.tasks;
-      if (!planTasks || planTasks.length === 0) {
-        return {
+    if (savedPlan.userId !== ctx.userId) {
+      return {
+        success: false,
+        observation: JSON.stringify({
           success: false,
-          observation: JSON.stringify({
-            success: false,
-            error: 'Planner produced no tasks for goal.',
-          }),
-          dispatchKind: 'plan',
-          userAlreadyReceivedResponse: false,
-          streamedDeltaCount,
-          streamedCharCount,
-        };
-      }
+          error: 'Saved plan ownership mismatch.',
+        }),
+        dispatchKind: 'saved_plan',
+        userAlreadyReceivedResponse: false,
+        streamedDeltaCount,
+        streamedCharCount,
+      };
+    }
+
+    try {
+      await this.opts.planRepository.markExecuting({
+        planId,
+        executionOperationId: ctx.operationId,
+        environment,
+      });
 
       const toolAccessContext = await this.opts.resolveToolAccessContext(ctx.userId);
       const { taskResults, mutableTasks } = await this.opts.executionService.executePlan({
         operationId: ctx.operationId,
         userId: ctx.userId,
-        plan: { tasks: planTasks },
+        plan: { tasks: savedPlan.tasks },
         enrichedIntent: ctx.enrichedIntent,
         context: ctx.sessionContext,
         toolAccessContext,
@@ -186,46 +366,122 @@ export class AgentRouterPrimaryService implements PrimaryDispatcher {
         agents: this.opts.agents,
         ...(onDispatchStreamEvent ? { onStreamEvent: onDispatchStreamEvent } : {}),
         ...(ctx.signal ? { signal: ctx.signal } : {}),
+        onPlanStateChange: async (tasks, results) => {
+          await this.opts.planRepository.syncExecutionSnapshot({
+            planId,
+            tasks: this.toPersistedTasks(tasks, results),
+            environment,
+            executionOperationId: ctx.operationId,
+          });
+        },
         buildTaskIntent: (t, upstream, enriched) =>
           this.opts.contextService.buildTaskIntent(t, upstream, enriched),
-        rerouteDelegatedTask: (intent, sourceAgentId, rerouteContext) =>
-          this.opts.policyService.rerouteDelegatedTask(intent, sourceAgentId, rerouteContext),
+        rerouteDelegatedTask: (intent, sourceAgentId, rerouteContext, payload) =>
+          this.opts.policyService.rerouteDelegatedTask(
+            intent,
+            sourceAgentId,
+            rerouteContext,
+            payload
+          ),
+      });
+
+      const persistedTasks = this.toPersistedTasks(mutableTasks, taskResults);
+      await this.opts.planRepository.markTerminal({
+        planId,
+        status: mutableTasks.every(
+          (task) => task.status === 'completed' || task.status === 'skipped'
+        )
+          ? 'completed'
+          : 'failed',
+        tasks: persistedTasks,
+        environment,
+        executionOperationId: ctx.operationId,
       });
 
       return formatDispatchResult({
-        label: 'plan_and_execute',
-        dispatchKind: 'plan',
+        label: 'execute_saved_plan',
+        dispatchKind: 'saved_plan',
         taskResults,
         mutableTasks,
         streamedDeltaCount,
         streamedCharCount,
       });
     } catch (err) {
-      // Preserve HITL control-flow for planned multi-step dispatches.
       if (isAgentYield(err)) {
         throw err;
       }
-      logger.error('[PrimaryService] runPlan failed', {
+
+      await this.opts.planRepository.markTerminal({
+        planId,
+        status: 'failed',
+        tasks: savedPlan.tasks,
+        environment,
+        executionOperationId: ctx.operationId,
+      });
+      logger.error('[PrimaryService] runApprovedPlan failed', {
+        planId,
         error: err instanceof Error ? err.message : String(err),
       });
       return {
         success: false,
         observation: JSON.stringify({
           success: false,
-          error: `Multi-step plan failed: ${err instanceof Error ? err.message : String(err)}`,
+          error: `Saved plan execution failed: ${err instanceof Error ? err.message : String(err)}`,
         }),
-        dispatchKind: 'plan',
+        dispatchKind: 'saved_plan',
         userAlreadyReceivedResponse: false,
         streamedDeltaCount,
         streamedCharCount,
       };
     }
   }
+
+  private emitPlanReviewCard(
+    ctx: PrimaryDispatchContext,
+    summary: string,
+    tasks: readonly AgentTask[]
+  ): void {
+    ctx.onStreamEvent?.({
+      type: 'card',
+      cardData: {
+        agentId: 'router',
+        type: 'planner',
+        title: 'Review Execution Plan',
+        payload: {
+          summary,
+          items: tasks.map((task) => ({
+            id: task.id,
+            label: task.displayLabel ?? task.description,
+            done: false,
+            active: false,
+            status: 'pending' satisfies AgentTaskStatus,
+          })),
+        },
+      },
+    });
+  }
+
+  private toPersistedTasks(
+    tasks: readonly AgentTask[],
+    taskResults: ReadonlyMap<string, AgentOperationResult>
+  ): AgentTask[] {
+    return tasks.map((task) =>
+      buildPlanTaskSnapshot({
+        task,
+        result: taskResults.get(task.id),
+        status: task.status,
+        statusNote:
+          '_lastError' in task && typeof task._lastError === 'string'
+            ? task._lastError
+            : task.statusNote,
+      })
+    );
+  }
 }
 
 function formatDispatchResult(payload: {
   readonly label: string;
-  readonly dispatchKind: 'coordinator' | 'plan';
+  readonly dispatchKind: 'coordinator' | 'plan' | 'saved_plan';
   readonly taskResults: ReadonlyMap<string, unknown>;
   readonly mutableTasks: ReadonlyArray<{
     id: string;

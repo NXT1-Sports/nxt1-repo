@@ -88,6 +88,7 @@ export class ReadDistilledSectionTool extends BaseTool {
       videos: profile.videos,
       recruiting: profile.recruiting,
       awards: profile.awards,
+      playbooks: profile.playbooks,
     };
 
     const data = sectionMap[sectionKey];

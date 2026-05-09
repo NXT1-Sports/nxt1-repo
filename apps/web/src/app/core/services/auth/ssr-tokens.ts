@@ -51,6 +51,8 @@ export interface SerializedAuthUser {
   profileImg?: string;
   role: string;
   hasCompletedOnboarding: boolean;
+  _legacyId?: string;
+  legacyOnboardingCompleted?: boolean;
   createdAt: string;
   updatedAt: string;
   connectedEmails?: unknown[];

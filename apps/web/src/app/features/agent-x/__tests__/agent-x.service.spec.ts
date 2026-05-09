@@ -250,6 +250,143 @@ describe('AgentXService', () => {
     ]);
   });
 
+  it('rehydrates image and video media from persisted history fallback fields', async () => {
+    const persistedWithMediaFallbacks: AgentMessage = {
+      ...createPersistedMessage(
+        'm-media-2',
+        'Can you add this clip?\n\n[Attached video: https://cdn.example.com/highlight.mp4]',
+        '2026-04-13T10:06:00.000Z'
+      ),
+      role: 'assistant',
+      origin: 'agent_chain',
+      attachments: [
+        {
+          id: 'att-image-1',
+          url: 'https://cdn.example.com/poster.jpg',
+          name: 'poster.jpg',
+          mimeType: 'image/jpeg',
+          type: 'image',
+          sizeBytes: 1024,
+        },
+      ],
+      resultData: {
+        outputUrl: 'https://cdn.example.com/highlight.mp4',
+      },
+    };
+
+    httpMock.get.mockReturnValueOnce(
+      of({
+        success: true,
+        data: {
+          items: [persistedWithMediaFallbacks],
+          hasMore: false,
+        },
+      })
+    );
+
+    await service.loadThread('thread-123');
+
+    const [message] = service.messages();
+    expect(message?.content).toBe('Can you add this clip?');
+    expect(message?.attachments?.length).toBe(2);
+    expect(message?.attachments?.[0]?.url).toBe('https://cdn.example.com/poster.jpg');
+    expect(message?.attachments?.[1]?.url).toBe('https://cdn.example.com/highlight.mp4');
+  });
+
+  it('prefers refreshed attachment media over stale fallback fields on history reload', async () => {
+    const persistedWithRefreshedAttachments: AgentMessage = {
+      ...createPersistedMessage(
+        'm-media-2',
+        'Please review this upload\n\n[Attached video: stale-url-will-not-render]',
+        '2026-04-13T10:07:00.000Z'
+      ),
+      attachments: [
+        {
+          id: 'att-image-2',
+          url: 'https://storage.googleapis.com/bucket/thread/poster-refreshed.jpg',
+          name: 'poster-refreshed.jpg',
+          mimeType: 'image/jpeg',
+          type: 'image',
+          sizeBytes: 1024,
+        },
+        {
+          id: 'att-video-2',
+          url: 'https://storage.googleapis.com/bucket/thread/highlight-refreshed.mp4',
+          name: 'highlight-refreshed.mp4',
+          mimeType: 'video/mp4',
+          type: 'video',
+          sizeBytes: 4096,
+        },
+      ],
+      resultData: {
+        imageUrl: 'https://media-proxy.example/expired-poster-token',
+        outputUrl: 'https://media-proxy.example/expired-video-token',
+      },
+    };
+
+    httpMock.get.mockReturnValueOnce(
+      of({
+        success: true,
+        data: {
+          items: [persistedWithRefreshedAttachments],
+          hasMore: false,
+        },
+      })
+    );
+
+    await service.loadThread('thread-123');
+
+    const [message] = service.messages();
+    expect(message?.attachments?.[0]?.url).toBe(
+      'https://storage.googleapis.com/bucket/thread/poster-refreshed.jpg'
+    );
+    expect(message?.attachments?.[1]?.url).toBe(
+      'https://storage.googleapis.com/bucket/thread/highlight-refreshed.mp4'
+    );
+  });
+
+  it('keeps uploaded user video only in attachments when reloading history', async () => {
+    const uploadedVideoUrl = 'https://cdn.example.com/uploads/highlight.mp4';
+    const persistedUserUpload: AgentMessage = {
+      ...createPersistedMessage(
+        'm-user-upload-1',
+        `Please add this clip\n\n[Attached video: highlight.mp4 — ${uploadedVideoUrl}]`,
+        '2026-04-13T10:08:00.000Z'
+      ),
+      attachments: [
+        {
+          id: 'att-video-user-1',
+          url: uploadedVideoUrl,
+          name: 'highlight.mp4',
+          mimeType: 'video/mp4',
+          type: 'video',
+          sizeBytes: 4096,
+        },
+      ],
+      resultData: {
+        outputUrl: uploadedVideoUrl,
+      },
+    };
+
+    httpMock.get.mockReturnValueOnce(
+      of({
+        success: true,
+        data: {
+          items: [persistedUserUpload],
+          hasMore: false,
+        },
+      })
+    );
+
+    await service.loadThread('thread-123');
+
+    const [message] = service.messages();
+    expect(message?.content).toBe('Please add this clip');
+    expect(message?.attachments?.length).toBe(1);
+    expect(message?.attachments?.[0]?.url).toBe(uploadedVideoUrl);
+    expect(message?.attachments?.[0]?.type).toBe('video');
+  });
+
   it('keeps Weekly Tasks as the last action plan pill', () => {
     const playbookState = service as unknown as {
       _weeklyPlaybook: { set: (items: ShellWeeklyPlaybookItem[]) => void };

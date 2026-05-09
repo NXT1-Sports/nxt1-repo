@@ -217,7 +217,7 @@ describe('share copy builders', () => {
       'Texas recruiting momentum rises heading into spring | NXT1 Pulse'
     );
     expect(buildArticleShareText(mockArticle)).toBe(
-      'Catch this story on NXT1, The sports intelligence platform.\nTexas recruiting momentum rises heading into spring • ESPN'
+      'Catch this story on NXT1, the sports intelligence platform.\nTexas recruiting momentum rises heading into spring • ESPN'
     );
     expect(buildArticleShareDescription(mockArticle)).toBe(
       'ESPN | Football | Texas. NXT1 Pulse briefing with sports intelligence and source context.'
@@ -230,7 +230,7 @@ describe('share copy builders', () => {
         inviteType: 'general',
         senderRole: USER_ROLES.ATHLETE,
       })
-    ).toBe('Move Different With Me on NXT1');
+    ).toBe("You're Invited to Join NXT1");
     expect(
       buildInviteShareText({
         inviteType: 'general',
@@ -241,7 +241,7 @@ describe('share copy builders', () => {
         senderLocation: 'Austin, TX',
       })
     ).toBe(
-      'Join me & sign up free on NXT1, the sports intelligence platform.\nJohn Smith • QB • Lincoln High School • Austin, TX'
+      "You've been invited to join NXT1 — the sports intelligence platform built for athletes, coaches, and programs. Sign up free.\nJohn Smith • QB • Lincoln High School • Austin, TX"
     );
     expect(
       buildInviteUiCopy({
@@ -254,11 +254,12 @@ describe('share copy builders', () => {
       })
     ).toEqual({
       title: 'Earn $5 in Agent X Credits',
-      subtitle: 'You earn $5 in Agent X credits every time someone joins through your invite.',
+      subtitle:
+        'Invite teammates and friends to NXT1. Every time someone joins through your link, you earn $5 in Agent X credits.',
       shareText:
-        'Join me & sign up free on NXT1, the sports intelligence platform.\nJohn Smith • QB • Lincoln High School • Austin, TX',
+        "You've been invited to join NXT1 — the sports intelligence platform built for athletes, coaches, and programs. Sign up free.\nJohn Smith • QB • Lincoln High School • Austin, TX",
       howItWorksText:
-        'Share this QR code or link with friends and teammates. When they join through your invite, they land inside NXT1 and you earn $5 in Agent X credits.',
+        'Share your invite link or QR code. When someone joins through your invite, they land inside NXT1 and you earn $5 in Agent X credits automatically.',
     });
   });
 
@@ -269,7 +270,7 @@ describe('share copy builders', () => {
         senderRole: USER_ROLES.COACH,
         team: mockInviteTeam,
       })
-    ).toBe('Step Into Lincoln High Football on NXT1');
+    ).toBe("You're Invited to Join Lincoln High Football on NXT1");
     expect(
       buildInviteShareText({
         inviteType: 'team',
@@ -278,7 +279,7 @@ describe('share copy builders', () => {
         senderLocation: 'Austin, TX',
       })
     ).toBe(
-      'Get to know our athletes & program.\nPowered by NXT1, the sports intelligence platform.\nLincoln High Football • Football • Austin, TX'
+      "You've been invited to join Lincoln High Football on NXT1 — the sports intelligence platform built for athletes, coaches, and programs.\nLincoln High Football • Football • Austin, TX"
     );
     expect(
       buildInviteUiCopy({
@@ -288,13 +289,13 @@ describe('share copy builders', () => {
         senderLocation: 'Austin, TX',
       })
     ).toEqual({
-      title: 'Bring Your Team Into The System',
+      title: 'Invite Players & Staff to Your Team',
       subtitle:
-        'Share the team invite so players and staff step into one command center for communication, schedule, and sports intelligence.',
+        'Send this invite to connect your players and staff directly to your team on NXT1 — one place for communication, schedules, and sports intelligence.',
       shareText:
-        'Get to know our athletes & program.\nPowered by NXT1, the sports intelligence platform.\nLincoln High Football • Football • Austin, TX',
+        "You've been invited to join Lincoln High Football on NXT1 — the sports intelligence platform built for athletes, coaches, and programs.\nLincoln High Football • Football • Austin, TX",
       howItWorksText:
-        'Share this team invite with players and staff. Once they join, they connect directly to Lincoln High Football on NXT1.',
+        'Share this link or QR code with your players and staff. Once they accept, they are connected directly to Lincoln High Football on NXT1.',
     });
   });
 
@@ -311,7 +312,9 @@ describe('share copy builders', () => {
           sport: 'Football',
         },
       })
-    ).toBe('Join our program on NXT1.\nCoach Smith • Lincoln High School • Football');
+    ).toBe(
+      "You've been invited to join our program on NXT1 — the sports intelligence platform built for athletes, coaches, and programs.\nCoach Smith • Lincoln High School • Football"
+    );
   });
 
   it('should generate athletic director invite share copy with sender identity', () => {
@@ -326,7 +329,9 @@ describe('share copy builders', () => {
           sport: 'Football',
         },
       })
-    ).toBe('Add your program to our network on NXT1.\nAlex Director • Lincoln High School');
+    ).toBe(
+      "You've been invited to join our program on NXT1 — the sports intelligence platform built for athletes, coaches, and programs.\nAlex Director • Lincoln High School"
+    );
   });
 
   it('should fallback to personal referral copy when coach only has school but no team', () => {
@@ -336,7 +341,7 @@ describe('share copy builders', () => {
         senderRole: USER_ROLES.COACH,
         senderSchool: 'Lincoln High School',
       })
-    ).toBe('Move Different With Me on NXT1');
+    ).toBe("You're Invited to Join NXT1");
 
     expect(
       buildInviteShareText({
@@ -346,10 +351,7 @@ describe('share copy builders', () => {
         senderSchool: 'Lincoln High School',
       })
     ).toBe(
-      'Join me & sign up free on NXT1, the sports intelligence platform.\nCoach Smith • Lincoln High School • Football'.replace(
-        ' • Football',
-        ''
-      )
+      "You've been invited to join NXT1 — the sports intelligence platform built for athletes, coaches, and programs. Sign up free.\nCoach Smith • Lincoln High School"
     );
   });
 
@@ -359,7 +361,7 @@ describe('share copy builders', () => {
         inviteType: 'general',
         senderRole: USER_ROLES.COACH,
       })
-    ).toBe('Move Different With Me on NXT1');
+    ).toBe("You're Invited to Join NXT1");
 
     expect(
       buildInviteShareText({
@@ -367,7 +369,9 @@ describe('share copy builders', () => {
         senderRole: USER_ROLES.COACH,
         senderName: 'Coach Smith',
       })
-    ).toBe('Join me & sign up free on NXT1, the sports intelligence platform.\nCoach Smith');
+    ).toBe(
+      "You've been invited to join NXT1 — the sports intelligence platform built for athletes, coaches, and programs. Sign up free.\nCoach Smith"
+    );
 
     expect(
       buildInviteUiCopy({
@@ -377,10 +381,12 @@ describe('share copy builders', () => {
       })
     ).toEqual({
       title: 'Earn $5 in Agent X Credits',
-      subtitle: 'You earn $5 in Agent X credits every time someone joins through your invite.',
-      shareText: 'Join me & sign up free on NXT1, the sports intelligence platform.\nCoach Smith',
+      subtitle:
+        'Invite teammates and friends to NXT1. Every time someone joins through your link, you earn $5 in Agent X credits.',
+      shareText:
+        "You've been invited to join NXT1 — the sports intelligence platform built for athletes, coaches, and programs. Sign up free.\nCoach Smith",
       howItWorksText:
-        'Share this QR code or link with friends and teammates. When they join through your invite, they land inside NXT1 and you earn $5 in Agent X credits.',
+        'Share your invite link or QR code. When someone joins through your invite, they land inside NXT1 and you earn $5 in Agent X credits automatically.',
     });
   });
 
@@ -390,7 +396,7 @@ describe('share copy builders', () => {
         inviteType: 'general',
         senderRole: USER_ROLES.DIRECTOR,
       })
-    ).toBe('Move Different With Me on NXT1');
+    ).toBe("You're Invited to Join NXT1");
 
     expect(
       buildInviteShareText({
@@ -398,7 +404,9 @@ describe('share copy builders', () => {
         senderRole: USER_ROLES.DIRECTOR,
         senderName: 'Alex Director',
       })
-    ).toBe('Join me & sign up free on NXT1, the sports intelligence platform.\nAlex Director');
+    ).toBe(
+      "You've been invited to join NXT1 — the sports intelligence platform built for athletes, coaches, and programs. Sign up free.\nAlex Director"
+    );
   });
 });
 

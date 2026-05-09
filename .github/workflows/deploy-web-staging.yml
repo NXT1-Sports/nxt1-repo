@@ -1,0 +1,85 @@
+# ============================================================================
+# Deploy Web App to Firebase Hosting Staging
+# ============================================================================
+# Auto-deploys the Angular web app to Firebase Hosting (staging) on every
+# push to main. Only runs when web-relevant files are changed.
+#
+# URL: https://nxt-1-staging-v2.web.app
+# Project: nxt-1-staging-v2
+# Secret required: FIREBASE_SERVICE_ACCOUNT_STAGING
+# ============================================================================
+
+name: Deploy Web Staging
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/web/src/**'
+      - 'packages/core/src/**'
+      - 'packages/ui/src/**'
+      - 'packages/design-tokens/**'
+      - 'apps/web/package.json'
+      - 'apps/web/angular.json'
+      - 'apps/web/tailwind.config.js'
+      - 'package.json'
+      - 'turbo.json'
+      - 'apphosting.yaml'
+      - 'firebase.json'
+      - '.firebaserc'
+
+  # Allow manual trigger from GitHub Actions UI
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-web-staging-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '22'
+
+jobs:
+  deploy-staging:
+    name: Build & Deploy to Staging
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Enable corepack
+        run: corepack enable npm
+
+      - name: Cache Turborepo
+        uses: actions/cache@v5
+        with:
+          path: .turbo
+          key: turbo-web-staging-${{ github.sha }}
+          restore-keys: |
+            turbo-web-staging-
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build shared packages
+        run: npx turbo run build --filter=@nxt1/core --filter=@nxt1/ui
+        env:
+          TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+          TURBO_TEAM: ${{ vars.TURBO_TEAM }}
+
+      - name: Build web app (staging config)
+        working-directory: apps/web
+        run: npm run build:staging
+
+      - name: Deploy to Firebase Hosting Staging
+        uses: w9jds/firebase-action@v13.29.1
+        with:
+          args: deploy --only hosting -P staging --force
+        env:
+          GCP_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_STAGING }}

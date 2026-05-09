@@ -274,7 +274,9 @@ Keep the tone professional yet energetic. Be specific — reference sports conte
 
   try {
     const response = await llm.complete([{ role: 'user', content: prompt }], {
-      tier: 'chat',
+      // Weekly recap emails are offline automation output and should be priced
+      // and routed like other background worker tasks.
+      tier: 'task_automation',
       temperature: 0.7,
       maxTokens: 700,
       outputSchema: {

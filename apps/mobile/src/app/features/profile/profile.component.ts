@@ -34,6 +34,7 @@ import {
   signal,
   effect,
   DestroyRef,
+  viewChild,
 } from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
 import { toSignal, toObservable, takeUntilDestroyed } from '@angular/core/rxjs-interop';
@@ -60,6 +61,7 @@ import {
   NxtBottomSheetService,
   SHEET_PRESETS,
   ConnectedAccountsModalService,
+  InviteBottomSheetService,
   type ActionFooterButton,
   type TeamSearchResult,
 } from '@nxt1/ui';
@@ -76,6 +78,7 @@ import {
 import { resolveCanonicalTeamRoute } from '@nxt1/core/helpers';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import type { User, ProfileTabId, ProfileTeamAffiliation } from '@nxt1/core';
+import type { ProfilePost } from '@nxt1/core/profile';
 import type { TeamProfileTabId, TeamProfileRosterMember, TeamProfilePost } from '@nxt1/core';
 
 // Mobile-specific services
@@ -90,6 +93,7 @@ import { TeamProfileApiService } from '../../core/services/api/team-profile-api.
 import { AnalyticsService } from '../../core/services/infrastructure/analytics.service';
 import { CapacitorHttpAdapter } from '../../core/infrastructure';
 import { environment } from '../../../environments/environment';
+import { PostDetailOverlayService } from '@nxt1/ui/post-cards';
 
 const TEAM_INTEL_ENABLED = false;
 
@@ -128,12 +132,15 @@ const TEAM_INTEL_ENABLED = false;
           [teamIntelEnabled]="teamIntelEnabled"
           [isTeamAdmin]="true"
           [skipInternalLoad]="true"
+          [hideFooterFab]="true"
           (backClick)="onBackClick()"
           (tabChange)="onTeamTabChange($event)"
           (shareClick)="onTeamShare()"
           (copyLinkClick)="onTeamCopyLink()"
           (qrCodeClick)="onTeamQrCode()"
           (manageTeamClick)="onManageTeam()"
+          (connectedAccountsClick)="onConnectAccountsFooter()"
+          (inviteRosterClick)="onInviteRoster()"
           (rosterMemberClick)="onRosterMemberClick($event)"
           (postClick)="onTeamPostClick($event)"
           (refreshRequest)="onTeamRefreshRequest()"
@@ -157,6 +164,7 @@ const TEAM_INTEL_ENABLED = false;
           (copyLinkClick)="onCopyLink()"
           (qrCodeClick)="onQrCode()"
           (aiSummaryClick)="onAiSummary()"
+          (postClick)="onPostClick($event)"
           (refreshRequest)="onRefreshRequest()"
           (generationDismissed)="onGenerationDismissed($event)"
         />
@@ -273,12 +281,14 @@ export class ProfileComponent {
   protected readonly intel = inject(IntelService);
   private readonly bottomSheet = inject(NxtBottomSheetService);
   private readonly connectedAccountsModal = inject(ConnectedAccountsModalService);
+  private readonly inviteModal = inject(InviteBottomSheetService);
 
   // Team profile dependencies (for coach/director own-profile view)
   private readonly teamProfile = inject(TeamProfileService);
   private readonly teamApi = inject(TeamProfileApiService);
   private readonly qrCode = inject(QrCodeBottomSheetService);
   private readonly analyticsService = inject(AnalyticsService);
+  private readonly postDetailOverlay = inject(PostDetailOverlayService);
   private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('ProfileComponent');
   private readonly breadcrumb = inject(NxtBreadcrumbService);
@@ -288,6 +298,7 @@ export class ProfileComponent {
   // ============================================
 
   private readonly fetchedProfile = signal<User | null>(null);
+  private readonly profileShell = viewChild(ProfileShellComponent);
 
   /**
    * Guard: tracks the last "userId:sportId" key that sub-collections were fetched for.
@@ -364,6 +375,26 @@ export class ProfileComponent {
             label: this.intel.teamReport() ? 'Update Intel' : 'Generate Intel',
             variant: 'primary',
             onClick: () => void this.onGenerateTeamIntel(),
+          },
+        ];
+      }
+      if (this.teamProfile.activeTab() === 'connect') {
+        return [
+          {
+            id: 'team-connect-accounts',
+            label: 'Connect Accounts',
+            variant: 'primary',
+            onClick: () => this.onConnectAccountsFooter(),
+          },
+        ];
+      }
+      if (this.teamProfile.activeTab() === 'roster') {
+        return [
+          {
+            id: 'team-invite-roster',
+            label: 'Invite',
+            variant: 'primary',
+            onClick: () => void this.onInviteRoster(),
           },
         ];
       }
@@ -554,6 +585,21 @@ export class ProfileComponent {
             const isOwn = response._isOwnProfile;
             this.isOwnProfile.set(isOwn);
             this.resolvedUnicode.set(profile.unicode ?? profile.id ?? '');
+
+            // Track profile view for other users (non-blocking, anonymous-safe).
+            if (!isOwn) {
+              void this.http
+                .post<{
+                  success: boolean;
+                  tracked?: boolean;
+                }>(`${environment.apiUrl}/analytics/profile-view`, { viewedUserId: profile.id })
+                .catch((err) =>
+                  this.logger.warn('Failed to track mobile profile view', {
+                    viewedUserId: profile.id,
+                    error: err instanceof Error ? err.message : String(err),
+                  })
+                );
+            }
 
             // Role-aware branching: coach/director own profile → load team data
             if (isOwn && isTeamRole(profile.role)) {
@@ -881,9 +927,33 @@ export class ProfileComponent {
   }
 
   protected onTeamPostClick(post: TeamProfilePost): void {
-    if (post.id) {
-      void this.navController.navigateForward(`/post/${post.id}`);
-    }
+    if (!post.id) return;
+    const team = this.teamProfile.team();
+    const unicode = team?.teamCode || team?.slug || this.teamSlug() || '_';
+    void this.postDetailOverlay.open({
+      post,
+      userUnicode: unicode,
+      author: {
+        name: team?.teamName ?? 'Team',
+        avatarUrl: team?.logoUrl,
+      },
+    });
+  }
+
+  protected onPostClick(post: ProfilePost): void {
+    const user = this.uiProfileService.user();
+    const unicode = this.profileUnicode() || user?.profileCode || user?.uid || '_';
+    void this.postDetailOverlay.open({
+      post,
+      userUnicode: unicode,
+      author: {
+        name:
+          user?.displayName ||
+          `${user?.firstName ?? ''} ${user?.lastName ?? ''}`.trim() ||
+          'Athlete',
+        avatarUrl: user?.profileImg,
+      },
+    });
   }
 
   /**
@@ -1246,10 +1316,12 @@ export class ProfileComponent {
   // ============================================
 
   private onAddUpdate(): void {
-    void this.openCreatePostSheet();
+    const profileShell = this.profileShell();
+    if (!profileShell) return;
+    void profileShell.triggerAddUpdateFromExternalAction();
   }
 
-  private async onConnectAccountsFooter(): Promise<void> {
+  protected async onConnectAccountsFooter(): Promise<void> {
     const user = this.uiProfileService.user();
     const role = user?.role ?? null;
     await this.connectedAccountsModal.open({
@@ -1262,25 +1334,20 @@ export class ProfileComponent {
     });
   }
 
-  private async openCreatePostSheet(): Promise<void> {
-    const hasReport = !!this.intel.athleteReport();
-    const message = hasReport
-      ? 'I want to create a post for my timeline. After creating the post, automatically review it and update any relevant sections of my Agent X Intel report with new stats, achievements, or information from the post.'
-      : 'I want to create a post for my timeline.';
-    await this.bottomSheet.openSheet({
-      component: AgentXOperationChatComponent,
-      componentProps: {
-        contextId: 'profile-timeline-post',
-        contextTitle: 'Create a Post',
-        contextIcon: 'create-outline',
-        contextType: 'command',
-        initialMessage: message,
+  protected async onInviteRoster(): Promise<void> {
+    const team = this.teamProfile.team();
+    if (!team) return;
+
+    await this.inviteModal.open({
+      inviteType: 'team',
+      team: {
+        id: team.id,
+        name: team.teamName || 'Team',
+        sport: team.sport || 'Sports',
+        logoUrl: team.logoUrl ?? undefined,
+        memberCount: this.teamProfile.rosterCount(),
+        teamCode: team.teamCode ?? undefined,
       },
-      ...SHEET_PRESETS.FULL,
-      showHandle: true,
-      handleBehavior: 'cycle',
-      backdropDismiss: true,
-      cssClass: 'agent-x-operation-sheet',
     });
   }
 

@@ -28,13 +28,13 @@ describe('platform identifier sanitizer', () => {
     });
   });
 
-  it('redacts identifier-like text and profile routes without leaking [redacted] token', () => {
+  it('redacts identifier-like text without leaking [redacted] token', () => {
     const sanitized = sanitizeAgentOutputText(
       'User id user-123 can be viewed at /profile/123456 and team code FBN123.'
     );
 
     expect(sanitized).not.toContain('user-123');
-    expect(sanitized).not.toContain('/profile/123456');
+    expect(sanitized).toContain('/profile/123456');
     expect(sanitized).not.toContain('FBN123');
     // [redacted] token must never appear in user-visible text
     expect(sanitized).not.toContain('[redacted]');
@@ -50,6 +50,24 @@ describe('platform identifier sanitizer', () => {
     expect(sanitized).not.toContain('nB8n9iNsm5M5KBxfGUC9');
     // [redacted] token must never appear in user-visible text
     expect(sanitized).not.toContain('[redacted]');
+  });
+
+  it('preserves absolute public team and profile URLs', () => {
+    const sanitized = sanitizeAgentOutputText(
+      'Team URL: http://localhost:4200/team/crown-point-basketball-mens/2P49TB and athlete URL: http://localhost:4200/profile/football/huy-toan-nguyen/469697'
+    );
+
+    expect(sanitized).toContain('http://localhost:4200/team/crown-point-basketball-mens/2P49TB');
+    expect(sanitized).toContain('http://localhost:4200/profile/football/huy-toan-nguyen/469697');
+  });
+
+  it('preserves relative public team and profile paths for streamed chunks', () => {
+    const sanitized = sanitizeAgentOutputText(
+      'Use /team/crown-point-basketball-mens/2P49TB and /profile/football/huy-toan-nguyen/469697'
+    );
+
+    expect(sanitized).toContain('/team/crown-point-basketball-mens/2P49TB');
+    expect(sanitized).toContain('/profile/football/huy-toan-nguyen/469697');
   });
 
   describe('infrastructure term sanitization', () => {

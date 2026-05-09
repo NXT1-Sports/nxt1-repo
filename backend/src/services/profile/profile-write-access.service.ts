@@ -1,6 +1,12 @@
 import type { Firestore } from 'firebase-admin/firestore';
 import { forbiddenError, notFoundError } from '@nxt1/core/errors';
-import { isAthleteRole, isTeamRole, normalizeRole, type UserRole } from '@nxt1/core';
+import {
+  isAthleteRole,
+  isTeamRole,
+  normalizeBaseSportKey,
+  normalizeRole,
+  type UserRole,
+} from '@nxt1/core';
 import { RosterEntryStatus, type RosterEntry } from '@nxt1/core/models';
 import { createRosterEntryService } from '../team/roster-entry.service.js';
 import { logger } from '../../utils/logger.js';
@@ -40,6 +46,15 @@ interface AssertProfileWriteAccessInput {
   readonly requireDelegatedAthleteTarget?: boolean;
 }
 
+function normalizeScopedSportKey(value: unknown): string | null {
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    return null;
+  }
+
+  const normalized = normalizeBaseSportKey(value);
+  return normalized.length > 0 ? normalized : null;
+}
+
 function getSportSelectionContext(
   sportRecord: Record<string, unknown>,
   index: number
@@ -53,11 +68,7 @@ function getSportSelectionContext(
     index,
     sportRecord,
     sportKey:
-      typeof sportRecord['sport'] === 'string' && sportRecord['sport'].trim().length > 0
-        ? sportRecord['sport'].trim().toLowerCase()
-        : typeof sportRecord['id'] === 'string' && sportRecord['id'].trim().length > 0
-          ? sportRecord['id'].trim().toLowerCase()
-          : null,
+      normalizeScopedSportKey(sportRecord['sport']) ?? normalizeScopedSportKey(sportRecord['id']),
     teamId:
       (typeof nestedTeam?.['teamId'] === 'string' ? nestedTeam['teamId'] : undefined) ??
       (sportRecord['teamId'] as string | undefined),
@@ -121,7 +132,11 @@ export function resolveAuthorizedTargetSportSelection(
   targetSport: string,
   accessGrant: ProfileWriteAccessGrant
 ): AuthorizedTargetSportSelection | null {
-  const normalizedTargetSport = targetSport.trim().toLowerCase();
+  const normalizedTargetSport = normalizeScopedSportKey(targetSport);
+  if (!normalizedTargetSport) {
+    return null;
+  }
+
   return (
     getAuthorizedTargetSportSelections(targetUserData, accessGrant).find(
       (selection) => selection.sportKey === normalizedTargetSport
@@ -252,14 +267,8 @@ export class ProfileWriteAccessService {
       new Set(
         sharedMemberships
           .map(({ actorEntry, targetEntry }) => {
-            const actorSport =
-              typeof actorEntry.sport === 'string' && actorEntry.sport.trim().length > 0
-                ? actorEntry.sport.trim().toLowerCase()
-                : null;
-            const targetSport =
-              typeof targetEntry.sport === 'string' && targetEntry.sport.trim().length > 0
-                ? targetEntry.sport.trim().toLowerCase()
-                : null;
+            const actorSport = normalizeScopedSportKey(actorEntry.sport);
+            const targetSport = normalizeScopedSportKey(targetEntry.sport);
 
             return actorSport && targetSport && actorSport === targetSport ? actorSport : null;
           })
@@ -268,14 +277,8 @@ export class ProfileWriteAccessService {
     );
     const sharedMembershipScopes = sharedMemberships
       .map<SharedMembershipScope | null>(({ actorEntry, targetEntry }) => {
-        const actorSport =
-          typeof actorEntry.sport === 'string' && actorEntry.sport.trim().length > 0
-            ? actorEntry.sport.trim().toLowerCase()
-            : null;
-        const targetSport =
-          typeof targetEntry.sport === 'string' && targetEntry.sport.trim().length > 0
-            ? targetEntry.sport.trim().toLowerCase()
-            : null;
+        const actorSport = normalizeScopedSportKey(actorEntry.sport);
+        const targetSport = normalizeScopedSportKey(targetEntry.sport);
 
         if (!actorSport || !targetSport || actorSport !== targetSport) {
           return null;

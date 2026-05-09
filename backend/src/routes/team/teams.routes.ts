@@ -11,7 +11,7 @@
  */
 
 import { Router, type Router as ExpressRouter, type Request, type Response } from 'express';
-import { FieldValue } from 'firebase-admin/firestore';
+import { FieldValue, type Firestore } from 'firebase-admin/firestore';
 import { appGuard, optionalAuth } from '../../middleware/auth/auth.middleware.js';
 import { validateBody, validateQuery } from '../../middleware/validation/validation.middleware.js';
 import {
@@ -32,8 +32,11 @@ import {
   type MapTeamProfileOptions,
 } from '../../adapters/team-profile.adapter.js';
 import { logger } from '../../utils/logger.js';
+import { getAnalyticsLoggerService } from '../../services/core/analytics-logger.service.js';
 import { dispatch } from '../../services/communications/notification.service.js';
+import { notifyTeamJoined } from '../../services/communications/team-join-notifications.js';
 import { getUserById } from '../../services/profile/users.service.js';
+import { resolveRosterPositions } from '../../services/team/roster-sport-profile.service.js';
 import { NOTIFICATION_TYPES } from '@nxt1/core';
 import {
   performanceMiddleware,
@@ -55,6 +58,15 @@ import {
 } from '../../modules/agent/sync/manual-sync-state.helpers.js';
 import { onDailySyncComplete } from '../../modules/agent/triggers/trigger.listeners.js';
 import { createTimelineService } from '../../services/profile/timeline.service.js';
+import {
+  canGenerateTeamIntelForUser,
+  canManageTeamMembershipForRole,
+} from '../../services/team/team-intel-permissions.js';
+
+export {
+  canGenerateTeamIntelForUser,
+  canManageTeamMembershipForRole,
+} from '../../services/team/team-intel-permissions.js';
 
 const router: ExpressRouter = Router();
 
@@ -63,6 +75,12 @@ interface ValidatedRequest extends Request {
   markCacheHit?: (source: string, key: string) => void;
   markCacheMiss?: () => void;
 }
+
+type RosterSportLookupItem = {
+  sport?: string;
+  positions?: string[];
+  order?: number;
+};
 
 // Add performance tracking to all routes
 router.use(performanceMiddleware);
@@ -137,62 +155,6 @@ function parseRosterEditorStatus(status: string | undefined): RosterEntryStatus 
       rule: 'enum',
     },
   ]);
-}
-
-interface TeamIntelPermissionMemberLike {
-  readonly id?: string;
-  readonly uid?: string;
-  readonly userId?: string;
-  readonly role?: string | null;
-}
-
-interface TeamIntelPermissionInput {
-  readonly userId: string;
-  readonly legacyMembers?: readonly TeamIntelPermissionMemberLike[];
-  readonly roster?: readonly TeamIntelPermissionMemberLike[];
-}
-
-const TEAM_INTEL_MANAGER_ROLES = new Set([
-  'administrative',
-  'admin',
-  'coach',
-  'director',
-  'owner',
-  'head-coach',
-  'assistant-coach',
-  'staff',
-  'program-director',
-]);
-
-export function canManageTeamMembershipForRole(role: unknown): boolean {
-  return TEAM_INTEL_MANAGER_ROLES.has(normalizeTeamIntelRole(role));
-}
-
-function normalizeTeamIntelRole(value: unknown): string {
-  if (typeof value !== 'string') return '';
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/[_\s]+/g, '-');
-}
-
-export function canGenerateTeamIntelForUser({
-  userId,
-  legacyMembers = [],
-  roster = [],
-}: TeamIntelPermissionInput): boolean {
-  const hasLegacyPermission = legacyMembers.some((member) => {
-    const memberId = member.id ?? member.uid ?? member.userId;
-    const role = normalizeTeamIntelRole(member.role);
-    return memberId === userId && TEAM_INTEL_MANAGER_ROLES.has(role);
-  });
-
-  const hasRosterPermission = roster.some((entry) => {
-    const role = normalizeTeamIntelRole(entry.role);
-    return entry.userId === userId && TEAM_INTEL_MANAGER_ROLES.has(role);
-  });
-
-  return hasLegacyPermission || hasRosterPermission;
 }
 
 // ============================================
@@ -941,30 +903,33 @@ router.post(
       logger.error('[Teams] Failed to dispatch team_join_request notification', { error: err })
     );
 
-    // Fire-and-forget: notify team owner that a new member joined
-    void (async () => {
-      if (!team.id) return;
-      const [teamDoc, joiner] = await Promise.all([
-        db.collection('Teams').doc(team.id).get(),
-        getUserById(userId, db),
-      ]);
-      const teamOwnerId = teamDoc.data()?.['createdBy'] as string | undefined;
-      if (!teamOwnerId || teamOwnerId === userId) return;
-      const joinerName = joiner
-        ? `${(joiner['firstName'] as string | undefined) ?? ''} ${(joiner['lastName'] as string | undefined) ?? ''}`.trim() ||
-          'Someone'
-        : 'Someone';
-      await dispatch(db, {
-        userId: teamOwnerId,
-        type: NOTIFICATION_TYPES.TEAM_MEMBER_JOINED,
-        title: `${joinerName} joined ${team.teamName}`,
-        body: 'A new member joined your team',
-        data: { teamId: team.id },
-        source: { userId, userName: joinerName, teamName: team.teamName },
-      });
-    })().catch((err) =>
-      logger.error('[Teams] Failed to dispatch team_member_joined notification', { error: err })
-    );
+    // Fire-and-forget: notify ALL org admins (not just team.createdBy) that a
+    // new member joined. Direct-join via /teams/:teamCode/join is always an
+    // ACTIVE join (no approval workflow on this path), so pending=false.
+    if (team.id) {
+      void (async () => {
+        const joiner = await getUserById(userId, db);
+        const joinerName =
+          (joiner
+            ? `${(joiner['firstName'] as string | undefined) ?? ''} ${(joiner['lastName'] as string | undefined) ?? ''}`.trim()
+            : '') || 'Someone';
+        const joinerAvatarUrl = (joiner?.['profileImgs'] as string[] | undefined)?.[0] ?? null;
+
+        await notifyTeamJoined(db, {
+          teamId: team.id!,
+          teamName: team.teamName ?? 'your team',
+          organizationId: team.organizationId,
+          joinerUid: userId,
+          joinerName,
+          joinerAvatarUrl,
+          pending: false,
+        });
+      })().catch((err) =>
+        logger.error('[Teams] Failed to dispatch org-level team join notification', {
+          error: err,
+        })
+      );
+    }
 
     res.status(201);
     sendSuccess(res, team);
@@ -1241,6 +1206,7 @@ router.get(
  */
 router.post(
   '/:id/view',
+  optionalAuth,
   asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
     const db = req.firebase!.db;
@@ -1248,6 +1214,22 @@ router.post(
     validateRequired(id, 'Team ID');
 
     await teamCodeService.incrementTeamPageView(db, String(id));
+
+    const viewerUserId = req.user?.uid ?? null;
+    void getAnalyticsLoggerService().safeTrack({
+      subjectId: String(id),
+      subjectType: 'team',
+      domain: 'engagement',
+      eventType: 'content_viewed',
+      source: 'user',
+      actorUserId: viewerUserId,
+      tags: ['team_page', 'view', viewerUserId ? 'authenticated' : 'anonymous'],
+      payload: { teamId: String(id), route: 'teams/:id/view' },
+      metadata: {
+        initiatedBy: 'teams_route',
+        viewerAuthenticated: Boolean(viewerUserId),
+      },
+    });
 
     sendSuccess(res, { message: 'View recorded' });
   })
@@ -1262,6 +1244,7 @@ router.post(
  */
 router.post(
   '/:id/page-view',
+  optionalAuth,
   asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
     const db = req.firebase!.db;
@@ -1270,7 +1253,26 @@ router.post(
 
     await teamCodeService.incrementTeamPageView(db, String(id));
 
-    const viewerId: string | undefined = req.body?.viewerId;
+    const viewerIdRaw = req.body?.viewerId;
+    const viewerId =
+      typeof viewerIdRaw === 'string' && viewerIdRaw.trim().length > 0 ? viewerIdRaw.trim() : null;
+    const viewerUserId = req.user?.uid ?? viewerId;
+
+    void getAnalyticsLoggerService().safeTrack({
+      subjectId: String(id),
+      subjectType: 'team',
+      domain: 'engagement',
+      eventType: 'content_viewed',
+      source: 'user',
+      actorUserId: viewerUserId,
+      tags: ['team_page', 'view', viewerUserId ? 'authenticated' : 'anonymous'],
+      payload: { teamId: String(id), route: 'teams/:id/page-view' },
+      metadata: {
+        initiatedBy: 'teams_route',
+        viewerAuthenticated: Boolean(viewerUserId),
+      },
+    });
+
     logger.debug('[Teams API] Page view recorded', { teamId: id, viewerId });
 
     sendSuccess(res, { message: 'Page view recorded' });
@@ -1722,6 +1724,29 @@ function mapRosterEntryToEditorItem(
   };
 }
 
+async function loadUserSportsLookup(
+  db: Firestore,
+  userIds: readonly string[]
+): Promise<Map<string, RosterSportLookupItem[]>> {
+  const uniqueUserIds = Array.from(new Set(userIds.filter(Boolean)));
+  if (uniqueUserIds.length === 0) {
+    return new Map();
+  }
+
+  const userRefs = uniqueUserIds.map((userId) => db.collection('Users').doc(userId));
+  const userDocs = await db.getAll(...userRefs);
+  const lookup = new Map<string, RosterSportLookupItem[]>();
+
+  for (const userDoc of userDocs) {
+    const sports = userDoc.data()?.['sports'];
+    if (Array.isArray(sports)) {
+      lookup.set(userDoc.id, sports as RosterSportLookupItem[]);
+    }
+  }
+
+  return lookup;
+}
+
 /**
  * List all membership editor items for a team.
  * GET /api/v1/teams/:teamId/membership
@@ -1743,8 +1768,37 @@ router.get(
       status: [RosterEntryStatus.ACTIVE, RosterEntryStatus.PENDING],
     });
 
+    const teamDoc = await db.collection('Teams').doc(teamId).get();
+    const teamSport =
+      typeof teamDoc.data()?.['sport'] === 'string' ? teamDoc.data()?.['sport'] : '';
+    const athleteUserIdsNeedingFallback = entries
+      .map((entry) => entry as unknown as Record<string, unknown>)
+      .filter((entry) => {
+        const role = typeof entry['role'] === 'string' ? entry['role'].trim().toLowerCase() : '';
+        return (
+          role === 'athlete' &&
+          typeof entry['userId'] === 'string' &&
+          !Array.isArray(entry['positions'])
+        );
+      })
+      .map((entry) => String(entry['userId'] ?? ''));
+    const userSportsLookup = await loadUserSportsLookup(db, athleteUserIdsNeedingFallback);
+
     const members = entries.map((entry) => {
       const raw = entry as unknown as Record<string, unknown>;
+      const role = typeof raw['role'] === 'string' ? raw['role'].trim().toLowerCase() : '';
+      const userId = typeof raw['userId'] === 'string' ? raw['userId'] : undefined;
+      if (role === 'athlete' && userId && !Array.isArray(raw['positions'])) {
+        const fallbackSport =
+          typeof raw['sport'] === 'string' && raw['sport'].trim() ? raw['sport'] : teamSport;
+        const fallbackPositions = resolveRosterPositions(
+          userSportsLookup.get(userId),
+          fallbackSport
+        );
+        if (fallbackPositions) {
+          raw['positions'] = fallbackPositions;
+        }
+      }
       return mapRosterEntryToEditorItem(String(raw['id'] ?? raw['entryId'] ?? ''), raw);
     });
 

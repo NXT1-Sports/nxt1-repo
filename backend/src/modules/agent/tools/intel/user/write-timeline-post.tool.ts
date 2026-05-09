@@ -30,7 +30,6 @@ import {
   getCloudflareHighlightPostId,
   normalizeCloudflareVideoForClient,
 } from '../../../../../routes/core/upload/shared.js';
-import { getAnalyticsLoggerService } from '../../../../../services/core/analytics-logger.service.js';
 import { createProfileWriteAccessService } from '../../../../../services/profile/profile-write-access.service.js';
 import { logger } from '../../../../../utils/logger.js';
 
@@ -53,6 +52,8 @@ const VALIDATION = {
   CONTENT_MIN: POST_LIMITS.CONTENT_MIN,
   CONTENT_MAX: POST_LIMITS.CONTENT_MAX,
 } as const;
+
+const CLOUDFLARE_REPAIR_FALLBACK_DELAYS_MS = [45_000, 180_000, 600_000] as const;
 
 type ValidPostType = (typeof VALID_POST_TYPES)[number];
 type ValidVisibility = (typeof VALID_VISIBILITY)[number];
@@ -84,7 +85,9 @@ export class WriteTimelinePostTool extends BaseTool {
     '- achievement: Achievement or badge earned\n' +
     '- announcement: General announcement\n\n' +
     'Image and video URLs must be HTTPS CDN-hosted media URLs ' +
-    '(from generate_image, scrape_twitter, scrape_instagram, or other agent tools).\n\n' +
+    '(from generate_image, scrape_twitter, scrape_instagram, or other agent tools).\n' +
+    "IMPORTANT: When the user's message contains an [Attached video: name — URL] annotation, " +
+    'you MUST pass that URL as `videoUrl` and set `type: "video"`. Never omit videoUrl when a video is attached.\n\n' +
     'Sport tagging:\n' +
     'Pass `sportId` (lowercase, e.g. "football", "basketball") so the post ' +
     'is filed under the correct sport profile. If omitted, it falls back to ' +
@@ -286,8 +289,20 @@ export class WriteTimelinePostTool extends BaseTool {
           icon: 'media',
           phase: 'submit_video_cloudflare',
         });
+        logger.info('[WriteTimelinePostTool] Submitting video to Cloudflare Stream', {
+          userId,
+          postIdForMedia,
+          sourceVideoUrl: videoUrl,
+          backendUrl: (process.env['BACKEND_URL'] ?? '').replace(/\/$/, ''),
+          environment: process.env['NODE_ENV'] ?? 'production',
+        });
         cfResult = await this.submitVideoToCloudflare(videoUrl, userId);
         if (!cfResult) {
+          logger.warn('[WriteTimelinePostTool] Cloudflare submission returned no result', {
+            userId,
+            postIdForMedia,
+            sourceVideoUrl: videoUrl,
+          });
           return {
             success: false,
             error:
@@ -296,6 +311,15 @@ export class WriteTimelinePostTool extends BaseTool {
         }
         cloudflareVideoId = cfResult.videoId;
         finalDocId = getCloudflareHighlightPostId(cfResult.videoId);
+
+        logger.info('[WriteTimelinePostTool] Cloudflare submission completed', {
+          userId,
+          cloudflareVideoId,
+          readyToStream: cfResult.readyToStream,
+          iframeUrl: cfResult.iframeUrl,
+          hlsUrl: cfResult.hlsUrl,
+          finalDocId,
+        });
 
         // If CF already processed the video (common for short clips), log it.
         // The postDoc below will write it in ready state immediately.
@@ -367,8 +391,32 @@ export class WriteTimelinePostTool extends BaseTool {
       const docRef = this.db.collection(POSTS_COLLECTIONS.POSTS).doc(finalDocId);
       await docRef.set(postDoc);
 
+      logger.info('[WriteTimelinePostTool] Post document persisted', {
+        postId: docRef.id,
+        userId,
+        hasVideo: !!cloudflareVideoId,
+        cloudflareVideoId,
+        initialCloudflareStatus:
+          cloudflareVideoId && cfResult?.readyToStream === true
+            ? 'ready'
+            : cloudflareVideoId
+              ? 'inprogress'
+              : null,
+        readyToStream: cfResult?.readyToStream ?? null,
+        mediaUrl:
+          cloudflareVideoId && cfResult?.readyToStream === true
+            ? (cfResult?.iframeUrl ?? null)
+            : null,
+      });
+
       if (cloudflareVideoId && cfResult && !cfResult.readyToStream) {
+        logger.info('[WriteTimelinePostTool] Starting immediate Cloudflare reconcile after write', {
+          postId: docRef.id,
+          userId,
+          cloudflareVideoId,
+        });
         await this.reconcileCloudflareVideoPost(docRef, cloudflareVideoId, userId);
+        this.scheduleCloudflareRepairFallback(docRef, cloudflareVideoId, userId);
       }
 
       const postId = docRef.id;
@@ -390,29 +438,6 @@ export class WriteTimelinePostTool extends BaseTool {
         phase: 'invalidate_feed_caches',
       });
       await this.invalidateFeedCaches(postVisibility, userId, teamId ?? undefined);
-
-      // Track profile-post creation in user's engagement record.
-      // Posts live on the athlete's profile only (not a social feed), so we
-      // track shares and views only — no likes or comments.
-      void getAnalyticsLoggerService().safeTrack({
-        subjectId: userId,
-        subjectType: 'user',
-        domain: 'engagement',
-        eventType: 'content_viewed',
-        source: 'agent',
-        actorUserId: context?.userId ?? userId,
-        sessionId: context?.sessionId ?? null,
-        threadId: context?.threadId ?? null,
-        tags: [type, visibility],
-        payload: {
-          postId,
-          contentType: type,
-          visibility,
-          views: 0,
-          shares: 0,
-        },
-        metadata: { initiatedBy: 'write_timeline_post' },
-      });
 
       return {
         success: true,
@@ -638,6 +663,7 @@ export class WriteTimelinePostTool extends BaseTool {
     }
 
     try {
+      const webhookBackendUrl = (process.env['BACKEND_URL'] ?? '').replace(/\/$/, '');
       const response = await fetch(`${CLOUDFLARE_API_BASE_URL}/accounts/${accountId}/stream/copy`, {
         method: 'POST',
         headers: {
@@ -650,9 +676,17 @@ export class WriteTimelinePostTool extends BaseTool {
             nxt1_user_id: userId,
             nxt1_context: 'agent_post',
             nxt1_env: process.env['NODE_ENV'] ?? 'production',
-            webhook_backend_url: (process.env['BACKEND_URL'] ?? '').replace(/\/$/, ''),
+            webhook_backend_url: webhookBackendUrl,
           },
         }),
+      });
+
+      logger.info('[WriteTimelinePostTool] Cloudflare copy API responded', {
+        userId,
+        sourceVideoUrl: videoUrl,
+        webhookBackendUrl,
+        status: response.status,
+        ok: response.ok,
       });
 
       if (!response.ok) {
@@ -723,6 +757,12 @@ export class WriteTimelinePostTool extends BaseTool {
       );
 
       if (!response.ok) {
+        logger.warn('[WriteTimelinePostTool] Immediate Cloudflare reconcile returned non-2xx', {
+          userId,
+          cloudflareVideoId: videoId,
+          postId: docRef.id,
+          status: response.status,
+        });
         return;
       }
 
@@ -730,11 +770,27 @@ export class WriteTimelinePostTool extends BaseTool {
       const result = body['result'] as Record<string, unknown> | null | undefined;
 
       if (!result) {
+        logger.warn('[WriteTimelinePostTool] Immediate Cloudflare reconcile returned no result', {
+          userId,
+          cloudflareVideoId: videoId,
+          postId: docRef.id,
+        });
         return;
       }
 
       const normalized = normalizeCloudflareVideoForClient(videoId, result, customerCode);
       if (!normalized.readyToStream || !normalized.playback.iframeUrl) {
+        logger.info(
+          '[WriteTimelinePostTool] Immediate Cloudflare reconcile found video not ready yet',
+          {
+            userId,
+            cloudflareVideoId: videoId,
+            postId: docRef.id,
+            status: normalized.status,
+            readyToStream: normalized.readyToStream,
+            iframeUrl: normalized.playback.iframeUrl,
+          }
+        );
         return;
       }
 
@@ -768,5 +824,24 @@ export class WriteTimelinePostTool extends BaseTool {
         error: err instanceof Error ? err.message : String(err),
       });
     }
+  }
+
+  private scheduleCloudflareRepairFallback(
+    docRef: FirebaseFirestore.DocumentReference,
+    videoId: string,
+    userId: string
+  ): void {
+    for (const delayMs of CLOUDFLARE_REPAIR_FALLBACK_DELAYS_MS) {
+      setTimeout(() => {
+        void this.reconcileCloudflareVideoPost(docRef, videoId, userId);
+      }, delayMs);
+    }
+
+    logger.info('[WriteTimelinePostTool] Scheduled Cloudflare repair fallback retries', {
+      postId: docRef.id,
+      userId,
+      cloudflareVideoId: videoId,
+      delaysMs: [...CLOUDFLARE_REPAIR_FALLBACK_DELAYS_MS],
+    });
   }
 }

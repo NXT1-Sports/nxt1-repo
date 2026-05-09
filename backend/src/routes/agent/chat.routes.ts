@@ -27,9 +27,12 @@ import type {
   AgentXOperationLifecycleStatus,
   AgentXSelectedAction,
 } from '@nxt1/core';
-import { resolveApprovalSuccessText } from '@nxt1/core';
-import { AGENT_X_RUNTIME_CONFIG } from '@nxt1/core/ai';
-import { STREAM_TERMINAL_EVENTS } from '../../modules/agent/queue/pubsub.service.js';
+import { AGENT_X_REQUEST_HEADERS, AGENT_X_RUNTIME_CONFIG } from '@nxt1/core/ai';
+import {
+  STREAM_TERMINAL_EVENTS,
+  type PubSubUnsubscribe,
+} from '../../modules/agent/queue/pubsub.service.js';
+import { AgentEphemeralStateService } from '../../modules/agent/services/agent-ephemeral-state.service.js';
 import { logger } from '../../utils/logger.js';
 import {
   resolveBillingTarget,
@@ -57,6 +60,7 @@ import {
   resolveThread,
   forceProxyFlush,
 } from './shared.js';
+import { resolveAppBaseUrl } from '../../utils/app-url.js';
 
 const router = Router();
 
@@ -73,22 +77,136 @@ const POLL_BACKOFF_MAX_MS: number = AGENT_X_RUNTIME_CONFIG.operationStream.pollB
 const FALLBACK_ALERT_THRESHOLD_MS: number =
   AGENT_X_RUNTIME_CONFIG.operationStream.fallbackAlertThresholdMs;
 const STREAM_IDLE_TIMEOUT_MS: number = AGENT_X_RUNTIME_CONFIG.operationStream.idleTimeoutMs;
+const STREAM_LEASE_STALE_AFTER_MS: number = STREAM_IDLE_TIMEOUT_MS + 30_000;
 const ATTACHMENT_WAIT_TIMEOUT_MS: number =
   AGENT_X_RUNTIME_CONFIG.operationStream.attachmentWaitTimeoutMs;
+const ATTACHMENT_WAIT_PROGRESS_INTERVAL_MS = 4_000;
 const LIVE_BUFFER_MAX_EVENTS: number = AGENT_X_RUNTIME_CONFIG.operationStream.liveBufferMaxEvents;
 const PAUSE_YIELD_TTL_MS = 24 * 60 * 60 * 1000;
 const CHAT_BILLING_GATE_ESTIMATED_COST_USD = 0.1;
 const PAUSE_RESUME_TOOL_NAME = 'resume_paused_operation';
 const AGENT_STREAM_EVENT_SCHEMA_VERSION = 2;
-const activeUserStreams = new Map<string, Set<string>>();
+
+interface ActiveUserStreamLease {
+  readonly streamId: string;
+  readonly operationId: string;
+  readonly attachedAt: number;
+  lastActivityAt: number;
+}
+
+const activeUserStreams = new Map<string, Map<string, ActiveUserStreamLease>>();
 
 interface ActiveOperationStreamLease {
   readonly userId: string;
   readonly streamId: string;
+  readonly operationId: string;
+  readonly attachedAt: number;
+  lastActivityAt: number;
+  touch(): void;
   terminate(reason: 'replaced', replacedByStreamId: string): void;
 }
 
 const activeOperationStreams = new Map<string, ActiveOperationStreamLease>();
+
+function ensureActiveUserStreamLeases(userId: string): Map<string, ActiveUserStreamLease> {
+  const existing = activeUserStreams.get(userId);
+  if (existing) return existing;
+  const created = new Map<string, ActiveUserStreamLease>();
+  activeUserStreams.set(userId, created);
+  return created;
+}
+
+function setActiveUserStreamLease(
+  userId: string,
+  streamId: string,
+  operationId: string,
+  timestamp = Date.now()
+): void {
+  ensureActiveUserStreamLeases(userId).set(streamId, {
+    streamId,
+    operationId,
+    attachedAt: timestamp,
+    lastActivityAt: timestamp,
+  });
+}
+
+function touchActiveStreamLease(userId: string, operationId: string, streamId: string): void {
+  const timestamp = Date.now();
+  const userStreams = activeUserStreams.get(userId);
+  const userLease = userStreams?.get(streamId);
+  if (userLease) {
+    userLease.lastActivityAt = timestamp;
+  }
+
+  const operationLease = activeOperationStreams.get(operationId);
+  if (operationLease && operationLease.streamId === streamId && operationLease.userId === userId) {
+    operationLease.touch();
+  }
+}
+
+function removeActiveUserStreamLease(userId: string, streamId: string): void {
+  const userStreams = activeUserStreams.get(userId);
+  if (!userStreams) return;
+  userStreams.delete(streamId);
+  if (userStreams.size === 0) {
+    activeUserStreams.delete(userId);
+  }
+}
+
+function resolveRequestAppBaseUrl(req: Request): string {
+  const explicitAppBaseUrlHeader = req.header(AGENT_X_REQUEST_HEADERS.APP_BASE_URL) ?? undefined;
+
+  return resolveAppBaseUrl({
+    environment: req.isStaging ? 'staging' : 'production',
+    appBaseUrl: explicitAppBaseUrlHeader,
+    origin: typeof req.headers.origin === 'string' ? req.headers.origin : undefined,
+    referer: typeof req.headers.referer === 'string' ? req.headers.referer : undefined,
+    host: typeof req.headers.host === 'string' ? req.headers.host : undefined,
+    protocol: req.protocol,
+    forwardedHost:
+      typeof req.headers['x-forwarded-host'] === 'string'
+        ? req.headers['x-forwarded-host']
+        : undefined,
+    forwardedProto:
+      typeof req.headers['x-forwarded-proto'] === 'string'
+        ? req.headers['x-forwarded-proto']
+        : undefined,
+  });
+}
+
+function pruneInactiveUserStreams(userId: string, now = Date.now()): number {
+  const userStreams = activeUserStreams.get(userId);
+  if (!userStreams?.size) return 0;
+
+  let prunedCount = 0;
+  for (const [streamId, lease] of userStreams) {
+    const operationLease = activeOperationStreams.get(lease.operationId);
+    const isOwnedOperationLease =
+      operationLease?.userId === userId && operationLease.streamId === streamId;
+    const lastActivityAt = Math.max(
+      lease.lastActivityAt,
+      isOwnedOperationLease ? (operationLease?.lastActivityAt ?? lease.lastActivityAt) : 0
+    );
+    const isStale = now - lastActivityAt > STREAM_LEASE_STALE_AFTER_MS;
+
+    if (isOwnedOperationLease && !isStale) {
+      continue;
+    }
+
+    userStreams.delete(streamId);
+    prunedCount += 1;
+
+    if (isOwnedOperationLease) {
+      activeOperationStreams.delete(lease.operationId);
+    }
+  }
+
+  if (userStreams.size === 0) {
+    activeUserStreams.delete(userId);
+  }
+
+  return prunedCount;
+}
 
 /** In-memory waiter for a pending-attachment stub resolution. */
 interface PendingAttachmentWaiter {
@@ -413,6 +531,134 @@ async function isAgentInfraHealthy(): Promise<boolean> {
 /** Build a Firestore Timestamp N days from now for outbox TTL writes. */
 function outboxTtlFromNow(days: number): FirebaseFirestore.Timestamp {
   return Timestamp.fromMillis(Date.now() + days * 24 * 60 * 60 * 1000);
+}
+
+// ─── Shared attachment utilities ──────────────────────────────────────────
+// Used by both /chat and /enqueue so attachment processing is identical.
+
+const ATTACHMENT_VIDEO_URL_HINT_PATTERN =
+  /(?:storage\.googleapis\.com|firebasestorage\.googleapis\.com|\.(?:mp4|mov|m4v|webm|avi|mkv))(?:$|[?#/])/i;
+
+function isVideoAttachmentDto(a: {
+  mimeType?: string;
+  type?: string;
+  url?: string;
+  cloudflareVideoId?: string;
+}): boolean {
+  if (typeof a.mimeType === 'string' && a.mimeType.startsWith('video/')) return true;
+  if (a.type === 'video') return true;
+  if (typeof a.url === 'string' && ATTACHMENT_VIDEO_URL_HINT_PATTERN.test(a.url)) return true;
+  return false;
+}
+
+/**
+ * Build typed attachment arrays and an enriched text string from raw DTO
+ * inputs. Mirrors the processing in the /chat handler so /enqueue produces
+ * the same enriched message content and worker payload.
+ */
+function buildAttachmentArrays(
+  rawAttachments: ReadonlyArray<{
+    id?: string;
+    url?: string;
+    storagePath?: string;
+    name?: string;
+    mimeType?: string;
+    type?: string;
+    sizeBytes?: number;
+    cloudflareVideoId?: string;
+    platform?: string;
+    profileUrl?: string;
+    faviconUrl?: string;
+  }>,
+  rawConnectedSources: ReadonlyArray<{
+    platform: string;
+    profileUrl: string;
+    faviconUrl?: string;
+  }>,
+  baseText: string
+): {
+  fileAttachments: AgentXAttachment[];
+  videoAttachments: AgentXAttachment[];
+  connectedSourceAttachments: AgentXAttachment[];
+  enrichedText: string;
+} {
+  const fileAttachments: AgentXAttachment[] = rawAttachments
+    .filter(
+      (a) =>
+        !isVideoAttachmentDto(a) &&
+        typeof a.url === 'string' &&
+        typeof a.mimeType === 'string' &&
+        typeof a.sizeBytes === 'number' &&
+        (a.mimeType.startsWith('image/') ||
+          a.mimeType === 'application/pdf' ||
+          a.mimeType === 'text/csv' ||
+          a.mimeType === 'text/plain' ||
+          a.mimeType === 'application/vnd.ms-excel' ||
+          a.mimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+          a.mimeType === 'application/msword' ||
+          a.mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')
+    )
+    .map((a) => ({
+      id: a.id as string,
+      url: a.url as string,
+      ...(a.storagePath ? { storagePath: a.storagePath } : {}),
+      name: a.name ?? '',
+      mimeType: a.mimeType as string,
+      type: a.type as AgentXAttachment['type'],
+      sizeBytes: a.sizeBytes as number,
+    }));
+
+  const videoAttachments: AgentXAttachment[] = rawAttachments
+    .filter(
+      (a) =>
+        isVideoAttachmentDto(a) &&
+        typeof a.url === 'string' &&
+        typeof a.mimeType === 'string' &&
+        typeof a.sizeBytes === 'number'
+    )
+    .map((a) => ({
+      id: a.id as string,
+      url: a.url as string,
+      ...(a.storagePath ? { storagePath: a.storagePath } : {}),
+      name: a.name ?? '',
+      mimeType: a.mimeType as string,
+      type: a.type as AgentXAttachment['type'],
+      sizeBytes: a.sizeBytes as number,
+      ...(a.cloudflareVideoId ? { cloudflareVideoId: a.cloudflareVideoId } : {}),
+    }));
+
+  const connectedSourceAttachments: AgentXAttachment[] = rawConnectedSources.map((source) => ({
+    id: crypto.randomUUID(),
+    url: source.profileUrl,
+    name: source.platform,
+    mimeType: 'application/x-connected-source',
+    type: 'app' as AgentXAttachment['type'],
+    sizeBytes: 1,
+    ...(source.platform ? { platform: source.platform } : {}),
+    ...(source.profileUrl ? { profileUrl: source.profileUrl } : {}),
+    ...(source.faviconUrl ? { faviconUrl: source.faviconUrl } : {}),
+  }));
+
+  let enrichedText = baseText;
+
+  if (rawConnectedSources.length > 0) {
+    const sourceRefs = rawConnectedSources.map((s) => `${s.platform}: ${s.profileUrl}`).join(', ');
+    enrichedText = `${enrichedText}\n\n[Connected sources available (confirmed by user for this turn): ${sourceRefs}]\n[Instruction: treat these as user-connected sources for this request; do not state they are missing.]`;
+  }
+  if (videoAttachments.length > 0) {
+    const videoRefs = videoAttachments
+      .map((v) => `[Attached video: ${v.name} — ${v.url}]`)
+      .join('\n');
+    enrichedText = `${enrichedText}\n\n${videoRefs}`;
+  }
+  if (fileAttachments.length > 0) {
+    const fileRefs = fileAttachments
+      .map((f) => `[Attached file: ${f.name} (${f.mimeType}) — ${f.url}]`)
+      .join('\n');
+    enrichedText = `${enrichedText}\n\n${fileRefs}`;
+  }
+
+  return { fileAttachments, videoAttachments, connectedSourceAttachments, enrichedText };
 }
 
 function writeSseHeaders(res: Response): void {
@@ -1066,7 +1312,16 @@ async function streamOperationToSse(params: {
     streamObservability.streamTakeoverTotal += 1;
   }
 
-  const userStreams = activeUserStreams.get(userId) ?? new Set<string>();
+  const prunedStreamCount = pruneInactiveUserStreams(userId);
+  if (prunedStreamCount > 0) {
+    logger.warn('Pruned inactive Agent X stream leases before enforcing user limit', {
+      userId,
+      operationId,
+      prunedStreamCount,
+    });
+  }
+
+  const userStreams = ensureActiveUserStreamLeases(userId);
   if (userStreams.size >= MAX_CONCURRENT_STREAMS_PER_USER) {
     res.status(429).json({
       success: false,
@@ -1075,15 +1330,11 @@ async function streamOperationToSse(params: {
     });
     return;
   }
-  userStreams.add(streamId);
-  activeUserStreams.set(userId, userStreams);
+  setActiveUserStreamLease(userId, streamId, operationId);
   streamObservability.streamAttachedTotal += 1;
 
   const releaseStreamSlot = () => {
-    const streams = activeUserStreams.get(userId);
-    if (!streams) return;
-    streams.delete(streamId);
-    if (streams.size === 0) activeUserStreams.delete(userId);
+    removeActiveUserStreamLease(userId, streamId);
   };
 
   writeSseHeaders(res);
@@ -1181,6 +1432,16 @@ async function streamOperationToSse(params: {
   activeOperationStreams.set(operationId, {
     userId,
     streamId,
+    operationId,
+    attachedAt: Date.now(),
+    lastActivityAt: Date.now(),
+    touch: () => {
+      const activeLease = activeOperationStreams.get(operationId);
+      if (!activeLease || activeLease.streamId !== streamId || activeLease.userId !== userId) {
+        return;
+      }
+      activeLease.lastActivityAt = Date.now();
+    },
     terminate: terminateStream,
   });
 
@@ -1204,6 +1465,7 @@ async function streamOperationToSse(params: {
   const heartbeat = setInterval(() => {
     if (closed) return;
     try {
+      touchActiveStreamLease(userId, operationId, streamId);
       res.write('event: ping\ndata: {}\n\n');
       repo
         .patchContext(operationId, {
@@ -1266,6 +1528,7 @@ async function streamOperationToSse(params: {
     }
 
     try {
+      touchActiveStreamLease(userId, operationId, streamId);
       const payload =
         msg.data && typeof msg.data === 'object'
           ? ({ ...(msg.data as Record<string, unknown>) } as Record<string, unknown>)
@@ -2074,6 +2337,7 @@ router.post('/resume-job/:operationId', appGuard, async (req: Request, res: Resp
       sessionId: crypto.randomUUID(),
       origin: 'user' as AgentJobOrigin,
       context: {
+        appBaseUrl: resolveRequestAppBaseUrl(req),
         threadId,
         resumedFrom: operationId,
         yieldState: {
@@ -2328,83 +2592,7 @@ router.post('/approvals/:id/resolve', appGuard, async (req: Request, res: Respon
     const threadId = jobDoc.threadId;
     const yieldState = jobDoc.yieldState as AgentYieldState | undefined;
 
-    const toolName =
-      typeof yieldState?.pendingToolCall?.toolName === 'string'
-        ? yieldState.pendingToolCall.toolName
-        : 'requested action';
-    const readableToolName = toolName.replace(/[_-]+/g, ' ');
-
-    const persistApprovalResolutionCard = async (decisionValue: 'approved' | 'rejected') => {
-      if (!threadId || !chatService) return;
-
-      const title = decisionValue === 'approved' ? 'Approval Confirmed' : 'Approval Rejected';
-      const message =
-        decisionValue === 'approved'
-          ? `Approved ${readableToolName}. Agent X will continue this task.`
-          : `Rejected ${readableToolName}. Agent X stopped this action.`;
-      const successCopy = resolveApprovalSuccessText(toolName);
-      const resolvedText = decisionValue === 'approved' ? successCopy.badge : 'Rejected';
-
-      const persistedYieldState = yieldState?.pendingToolCall
-        ? {
-            ...yieldState,
-            approvalId,
-            pendingToolCall: {
-              ...yieldState.pendingToolCall,
-              ...(decisionValue === 'approved' && resolvedToolInput
-                ? { toolInput: resolvedToolInput }
-                : {}),
-            },
-          }
-        : yieldState;
-
-      try {
-        await chatService.addMessage({
-          threadId,
-          userId: user.uid,
-          role: 'assistant',
-          content: message,
-          origin: 'agent_chain',
-          agentId: 'router',
-          operationId,
-          resultData: {
-            yieldState: persistedYieldState,
-            yieldCardState: 'resolved',
-            yieldResolvedText: resolvedText,
-          },
-          parts: [
-            {
-              type: 'card',
-              card: {
-                type: 'confirmation',
-                agentId: 'router',
-                title,
-                payload: {
-                  message,
-                  actions: [],
-                  approvalId,
-                  operationId,
-                  yieldState: persistedYieldState,
-                  yieldCardState: 'resolved',
-                  yieldResolvedText: resolvedText,
-                },
-              },
-            },
-          ],
-        });
-      } catch (chatErr) {
-        logger.warn('Failed to persist approval resolution assistant message to MongoDB', {
-          error: chatErr instanceof Error ? chatErr.message : String(chatErr),
-          userId: user.uid,
-          threadId,
-          approvalId,
-          decision: decisionValue,
-        });
-      }
-    };
-
     if (decision === 'rejected') {
-      await persistApprovalResolutionCard('rejected');
       await jobRepository.withDb(db).markCancelled(operationId);
       if (threadId && chatService) {
         try {
@@ -2440,6 +2628,7 @@ router.post('/approvals/:id/resolve', appGuard, async (req: Request, res: Respon
       sessionId: crypto.randomUUID(),
       origin: 'user' as AgentJobOrigin,
       context: {
+        appBaseUrl: resolveRequestAppBaseUrl(req),
         threadId,
         resumedFrom: operationId,
         approvalId,
@@ -2458,7 +2647,6 @@ router.post('/approvals/:id/resolve', appGuard, async (req: Request, res: Respon
     };
 
     await jobRepository.withDb(db).create(resumedPayload);
-    await persistApprovalResolutionCard('approved');
     await jobRepository.withDb(db).markCompleted(operationId, {
       summary: `Approved — continuing as ${resumedPayload.operationId}`,
       data: { resumedAs: resumedPayload.operationId, approvalId },
@@ -2529,10 +2717,12 @@ router.post('/approvals/:id/resolve', appGuard, async (req: Request, res: Respon
 });
 
 // ─── POST /pending-attachments/:operationId — Resolve attachment stubs ────
-// Called by the frontend after background uploads complete. Finds the in-memory
-// waiter registered by the /chat handler (when the request contained
-// `attachmentStubs`), validates the caller is the same user, then resolves the
-// waiter so the SSE stream can proceed with fully-resolved attachment URLs.
+// Called by the frontend after background uploads complete. The /chat handler
+// that opened the operation may be parked on this instance (in the in-memory
+// `pendingAttachmentWaiters` map) OR on another instance (subscribed via
+// Redis pubsub). We try the local waiter first; otherwise we publish the
+// resolved payload to the attachments-resolved channel so the parked handler
+// on the owning instance can pick it up.
 
 const resolvePendingAttachmentsHandler = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -2543,10 +2733,36 @@ const resolvePendingAttachmentsHandler = async (req: Request, res: Response): Pr
     }
 
     const { operationId } = req.params as { operationId: string };
-    const waiter = pendingAttachmentWaiters.get(operationId);
+    const body = req.body as ResolvePendingAttachmentsDto;
+    const localWaiter = pendingAttachmentWaiters.get(operationId);
 
-    if (!waiter) {
-      // Already resolved, timed out, or never existed
+    if (localWaiter) {
+      if (localWaiter.userId !== user.uid) {
+        res.status(403).json({ success: false, error: 'Forbidden' });
+        return;
+      }
+
+      clearTimeout(localWaiter.timeoutHandle);
+      pendingAttachmentWaiters.delete(operationId);
+      localWaiter.resolve(body.attachments);
+
+      logger.info('Agent chat: pending attachments resolved (local)', {
+        operationId,
+        userId: user.uid,
+        attachmentCount: body.attachments.length,
+      });
+
+      res.status(200).json({ success: true });
+      return;
+    }
+
+    // No local waiter — check Redis for a cross-instance owner before
+    // publishing so we don't blast resolved payloads at unowned channels.
+    const ownerUid = await AgentEphemeralStateService.getAttachmentWaitOwner(operationId).catch(
+      () => null
+    );
+
+    if (!ownerUid) {
       res.status(404).json({
         success: false,
         error: 'No pending attachment waiter found for this operationId. It may have timed out.',
@@ -2555,24 +2771,35 @@ const resolvePendingAttachmentsHandler = async (req: Request, res: Response): Pr
       return;
     }
 
-    if (waiter.userId !== user.uid) {
-      // Security: only the user who opened the stream can resolve it
+    if (ownerUid !== user.uid) {
       res.status(403).json({ success: false, error: 'Forbidden' });
       return;
     }
 
-    const body = req.body as ResolvePendingAttachmentsDto;
-    clearTimeout(waiter.timeoutHandle);
-    pendingAttachmentWaiters.delete(operationId);
-    waiter.resolve(body.attachments);
+    if (!pubsubService) {
+      res.status(503).json({
+        success: false,
+        error: 'Cross-instance pubsub is unavailable',
+        code: 'PUBSUB_UNAVAILABLE',
+      });
+      return;
+    }
 
-    logger.info('Agent chat: pending attachments resolved', {
+    await pubsubService.publishAttachmentsResolved({
+      operationId,
+      userId: user.uid,
+      attachments: body.attachments as unknown as ReadonlyArray<Record<string, unknown>>,
+      resolvedAt: new Date().toISOString(),
+    });
+
+    logger.info('Agent chat: pending attachments resolved (pubsub)', {
       operationId,
       userId: user.uid,
       attachmentCount: body.attachments.length,
     });
 
     res.status(200).json({ success: true });
+    return;
   } catch (err) {
     logger.error('POST /pending-attachments error', {
       route: 'pending-attachments',
@@ -2627,7 +2854,8 @@ router.post(
         return;
       }
 
-      const { intent, userContext, threadId, selectedAction } = req.body as AgentEnqueueRequestDto;
+      const { intent, userContext, threadId, selectedAction, attachments, connectedSources } =
+        req.body as AgentEnqueueRequestDto;
       const normalizedSelectedAction = normalizeSelectedActionForPayload(selectedAction);
       const db = req.firebase?.db;
       if (!db) {
@@ -2636,6 +2864,10 @@ router.post(
       }
       const environment = req.isStaging ? 'staging' : 'production';
       const trimmedIntent = intent.trim();
+
+      // ── Attachment processing (mirrors /chat) ─────────────────────────────
+      const { fileAttachments, videoAttachments, connectedSourceAttachments, enrichedText } =
+        buildAttachmentArrays(attachments ?? [], connectedSources ?? [], trimmedIntent);
       const resolvedIntent = await resolveSelectedActionIntent({
         db,
         userId: user.uid,
@@ -2693,8 +2925,20 @@ router.post(
               threadId: resolvedThreadId,
               userId: user.uid,
               role: 'user',
-              content: intent.trim(),
+              content: enrichedText,
               origin: 'user',
+              ...(idempotencyKey ? { idempotencyKey } : {}),
+              ...(fileAttachments.length > 0 ||
+              videoAttachments.length > 0 ||
+              connectedSourceAttachments.length > 0
+                ? {
+                    attachments: [
+                      ...fileAttachments,
+                      ...videoAttachments,
+                      ...connectedSourceAttachments,
+                    ],
+                  }
+                : {}),
             });
           }
         } catch (threadErr) {
@@ -2719,6 +2963,7 @@ router.post(
         sessionId,
         origin: 'user' as AgentJobOrigin,
         context: {
+          appBaseUrl: resolveRequestAppBaseUrl(req),
           ...(userContext ?? {}),
           ...(idempotencyKey ? { idempotencyKey } : {}),
           ...(resolvedThreadId ? { threadId: resolvedThreadId } : {}),
@@ -2726,6 +2971,8 @@ router.post(
             ? { parentOperationId: concurrencyDecision.parentOperationId }
             : {}),
           ...(normalizedSelectedAction ? { selectedAction: normalizedSelectedAction } : {}),
+          ...(fileAttachments.length > 0 ? { attachments: fileAttachments } : {}),
+          ...(videoAttachments.length > 0 ? { videoAttachments } : {}),
         },
       };
 
@@ -2910,7 +3157,7 @@ router.post(
         videoCount: allAttachments.filter((attachment) => attachment.type === 'video').length,
       });
       const VIDEO_URL_HINT_PATTERN =
-        /(?:watch\.cloudflarestream\.com|videodelivery\.net|storage\.googleapis\.com|firebasestorage\.googleapis\.com|\.(?:mp4|mov|m4v|webm|avi|mkv))(?:$|[?#/])/i;
+        /(?:storage\.googleapis\.com|firebasestorage\.googleapis\.com|\.(?:mp4|mov|m4v|webm|avi|mkv))(?:$|[?#/])/i;
       const isVideoAttachment = (attachment: {
         mimeType?: string;
         type?: string;
@@ -2921,12 +3168,6 @@ router.post(
           return true;
         }
         if (attachment.type === 'video') return true;
-        if (
-          typeof attachment.cloudflareVideoId === 'string' &&
-          attachment.cloudflareVideoId.trim()
-        ) {
-          return true;
-        }
         if (typeof attachment.url === 'string' && VIDEO_URL_HINT_PATTERN.test(attachment.url)) {
           return true;
         }
@@ -2986,6 +3227,7 @@ router.post(
             ({
               id: a.id,
               url: a.url as string,
+              ...(a.storagePath ? { storagePath: a.storagePath } : {}),
               name: a.name,
               mimeType: a.mimeType as string,
               type: a.type as AgentXAttachment['type'],
@@ -3003,6 +3245,7 @@ router.post(
           type: 'app',
           sizeBytes: 1,
           ...(source.platform ? { platform: source.platform } : {}),
+          ...(source.profileUrl ? { profileUrl: source.profileUrl } : {}),
           ...(source.faviconUrl ? { faviconUrl: source.faviconUrl } : {}),
         })
       );
@@ -3016,12 +3259,7 @@ router.post(
       }
       if (videoAttachments.length > 0) {
         const videoRefs = videoAttachments
-          .map((v) => {
-            const idPart = v.cloudflareVideoId
-              ? ` | cloudflareVideoId: ${v.cloudflareVideoId}`
-              : '';
-            return `[Attached video: ${v.name} — ${v.url}${idPart}]`;
-          })
+          .map((v) => `[Attached video: ${v.name} — ${v.url}]`)
           .join('\n');
         enrichedMessageText = `${enrichedMessageText}\n\n${videoRefs}`;
       }
@@ -3044,11 +3282,13 @@ router.post(
         }
       }
 
+      let persistedUserMessageId: string | null = null;
+
       if (chatService) {
         try {
           effectiveThreadId = await resolveThread(chatService, user.uid, threadId, message);
           if (effectiveThreadId) {
-            await chatService.addMessage({
+            const persistedUserMessage = await chatService.addMessage({
               threadId: effectiveThreadId,
               userId: user.uid,
               role: 'user',
@@ -3067,6 +3307,8 @@ router.post(
                   }
                 : {}),
             });
+            persistedUserMessageId =
+              typeof persistedUserMessage?.id === 'string' ? persistedUserMessage.id : null;
           }
         } catch (chatErr) {
           logger.warn('Failed to persist user message to MongoDB', {
@@ -3233,6 +3475,34 @@ router.post(
         );
         forceProxyFlush(res);
 
+        const attachmentWaitStartedAt = Date.now();
+        const attachmentWaitProgressHandle = setInterval(() => {
+          if (res.destroyed || res.writableEnded) {
+            clearInterval(attachmentWaitProgressHandle);
+            return;
+          }
+
+          res.write(
+            `event: progress\ndata: ${JSON.stringify({
+              ...buildPreEnvelope(),
+              operationId,
+              ...(effectiveThreadId ? { threadId: effectiveThreadId } : {}),
+              type: 'progress_stage',
+              metadata: {
+                phase: 'attachment_upload',
+                stubCount: rawAttachmentStubs.length,
+                elapsedMs: Date.now() - attachmentWaitStartedAt,
+              },
+              message:
+                rawAttachmentStubs.length === 1
+                  ? 'Uploading attachment...'
+                  : `Uploading ${rawAttachmentStubs.length} attachments...`,
+              timestamp: new Date().toISOString(),
+            })}\n\n`
+          );
+          forceProxyFlush(res);
+        }, ATTACHMENT_WAIT_PROGRESS_INTERVAL_MS);
+
         logger.info('Agent chat: waiting for attachment stubs to resolve', {
           operationId,
           userId: user.uid,
@@ -3241,24 +3511,75 @@ router.post(
           threadId: effectiveThreadId ?? null,
         });
 
-        const resolvedStubs = await new Promise<readonly ChatAttachmentDto[] | null>((resolve) => {
-          const timeoutHandle = setTimeout(() => {
-            pendingAttachmentWaiters.delete(operationId);
-            logger.warn('Agent chat: attachment stub wait timed out', {
-              operationId,
-              userId: user.uid,
-              stubCount: rawAttachmentStubs.length,
-            });
-            resolve(null);
-          }, ATTACHMENT_WAIT_TIMEOUT_MS);
+        // Set up the cross-instance pubsub subscription BEFORE registering the
+        // local waiter so a resolution POST that lands on another instance is
+        // never lost to a race. The local waiter remains the primary path on
+        // single-instance setups; pubsub is only used when the resolver POST
+        // hits a different instance than the one parked on /chat.
+        let pubsubUnsubscribe: PubSubUnsubscribe | null = null;
+        let resolveStubsExternal: ((value: readonly ChatAttachmentDto[] | null) => void) | null =
+          null;
+        const stubsResolutionPromise = new Promise<readonly ChatAttachmentDto[] | null>(
+          (resolve) => {
+            resolveStubsExternal = resolve;
+          }
+        );
 
-          pendingAttachmentWaiters.set(operationId, {
+        if (pubsubService) {
+          try {
+            pubsubUnsubscribe = await pubsubService.subscribeAttachmentsResolved(
+              operationId,
+              (msg) => {
+                if (msg.userId !== user.uid) return;
+                const attachments = msg.attachments as unknown as readonly ChatAttachmentDto[];
+                resolveStubsExternal?.(attachments);
+              }
+            );
+            await AgentEphemeralStateService.setAttachmentWaitOwner(operationId, user.uid).catch(
+              (err) => {
+                logger.warn('Failed to register attachment wait owner in Redis', {
+                  operationId,
+                  error: err instanceof Error ? err.message : String(err),
+                });
+              }
+            );
+          } catch (err) {
+            logger.warn('Failed to subscribe to attachments-resolved channel', {
+              operationId,
+              error: err instanceof Error ? err.message : String(err),
+            });
+            pubsubUnsubscribe = null;
+          }
+        }
+
+        const timeoutHandle = setTimeout(() => {
+          clearInterval(attachmentWaitProgressHandle);
+          pendingAttachmentWaiters.delete(operationId);
+          logger.warn('Agent chat: attachment stub wait timed out', {
+            operationId,
             userId: user.uid,
-            resolve: (attachments) => resolve(attachments),
-            reject: () => resolve(null),
-            timeoutHandle,
+            stubCount: rawAttachmentStubs.length,
           });
+          resolveStubsExternal?.(null);
+        }, ATTACHMENT_WAIT_TIMEOUT_MS);
+
+        pendingAttachmentWaiters.set(operationId, {
+          userId: user.uid,
+          resolve: (attachments) => resolveStubsExternal?.(attachments),
+          reject: () => resolveStubsExternal?.(null),
+          timeoutHandle,
         });
+
+        const resolvedStubs = await stubsResolutionPromise;
+        clearInterval(attachmentWaitProgressHandle);
+        clearTimeout(timeoutHandle);
+        pendingAttachmentWaiters.delete(operationId);
+        if (pubsubUnsubscribe) {
+          await pubsubUnsubscribe().catch(() => undefined);
+        }
+        await AgentEphemeralStateService.clearAttachmentWaitOwner(operationId).catch(
+          () => undefined
+        );
 
         if (resolvedStubs === null) {
           const endSeq = preSeq;
@@ -3304,6 +3625,10 @@ router.post(
             id: stub.id,
             url: stub.url,
             ...(stub.storagePath ? { storagePath: stub.storagePath } : {}),
+            ...(stub.cloudflareVideoId ? { cloudflareVideoId: stub.cloudflareVideoId } : {}),
+            ...(stub.platform ? { platform: stub.platform } : {}),
+            ...(stub.profileUrl ? { profileUrl: stub.profileUrl } : {}),
+            ...(stub.faviconUrl ? { faviconUrl: stub.faviconUrl } : {}),
             name: stub.name,
             mimeType: stub.mimeType,
             type: stub.type as AgentXAttachment['type'],
@@ -3315,6 +3640,34 @@ router.post(
           } else {
             fileAttachments.push(agentAttachment);
             enrichedMessageText += `\n\n[Attached file: ${agentAttachment.name} (${agentAttachment.mimeType}) — ${agentAttachment.url}]`;
+          }
+        }
+
+        if (chatService && persistedUserMessageId) {
+          const resolvedAttachments = [
+            ...fileAttachments,
+            ...videoAttachments,
+            ...connectedSourceAttachments,
+          ];
+
+          if (resolvedAttachments.length > 0) {
+            try {
+              await chatService.updateMessageResolvedAttachments({
+                userId: user.uid,
+                messageId: persistedUserMessageId,
+                content: enrichedMessageText,
+                attachments: resolvedAttachments,
+              });
+            } catch (chatErr) {
+              logger.warn('Failed to persist resolved attachment stubs to MongoDB', {
+                error: chatErr instanceof Error ? chatErr.message : String(chatErr),
+                userId: user.uid,
+                threadId: effectiveThreadId ?? null,
+                messageId: persistedUserMessageId,
+                operationId,
+                attachmentCount: resolvedAttachments.length,
+              });
+            }
           }
         }
       }
@@ -3338,6 +3691,7 @@ router.post(
         sessionId: crypto.randomUUID(),
         origin: 'user' as AgentJobOrigin,
         context: {
+          appBaseUrl: resolveRequestAppBaseUrl(req),
           ...(idempotencyKey ? { idempotencyKey } : {}),
           ...(effectiveThreadId ? { threadId: effectiveThreadId } : {}),
           ...(mode ? { mode } : {}),
@@ -3457,25 +3811,90 @@ export const __agentChatRouteTestUtils = {
     activeOperationStreams.clear();
   },
   setActiveUserStreams(userId: string, count: number): void {
-    const slots = new Set<string>();
+    const slots = new Map<string, ActiveUserStreamLease>();
+    const now = Date.now();
     for (let index = 0; index < Math.max(0, count); index += 1) {
-      slots.add(`test-stream-${index}`);
+      const streamId = `test-stream-${index}`;
+      const operationId = `test-operation-${index}`;
+      slots.set(streamId, {
+        streamId,
+        operationId,
+        attachedAt: now,
+        lastActivityAt: now,
+      });
+      activeOperationStreams.set(operationId, {
+        userId,
+        streamId,
+        operationId,
+        attachedAt: now,
+        lastActivityAt: now,
+        touch: () => {
+          const lease = activeOperationStreams.get(operationId);
+          if (!lease) return;
+          lease.lastActivityAt = Date.now();
+        },
+        terminate: () => {
+          removeActiveUserStreamLease(userId, streamId);
+          activeOperationStreams.delete(operationId);
+        },
+      });
+    }
+    activeUserStreams.set(userId, slots);
+  },
+  setStaleActiveUserStreams(
+    userId: string,
+    count: number,
+    ageMs = STREAM_LEASE_STALE_AFTER_MS + 1
+  ): void {
+    const slots = new Map<string, ActiveUserStreamLease>();
+    const timestamp = Date.now() - Math.max(0, ageMs);
+    for (let index = 0; index < Math.max(0, count); index += 1) {
+      const streamId = `stale-stream-${index}`;
+      const operationId = `stale-operation-${index}`;
+      slots.set(streamId, {
+        streamId,
+        operationId,
+        attachedAt: timestamp,
+        lastActivityAt: timestamp,
+      });
+      activeOperationStreams.set(operationId, {
+        userId,
+        streamId,
+        operationId,
+        attachedAt: timestamp,
+        lastActivityAt: timestamp,
+        touch: () => {
+          const lease = activeOperationStreams.get(operationId);
+          if (!lease) return;
+          lease.lastActivityAt = timestamp;
+        },
+        terminate: () => {
+          removeActiveUserStreamLease(userId, streamId);
+          activeOperationStreams.delete(operationId);
+        },
+      });
     }
     activeUserStreams.set(userId, slots);
   },
   setActiveOperationStream(userId: string, operationId: string, streamId = 'test-stream-0'): void {
-    const slots = activeUserStreams.get(userId) ?? new Set<string>();
-    slots.add(streamId);
-    activeUserStreams.set(userId, slots);
+    setActiveUserStreamLease(userId, streamId, operationId);
+    const activeLease = activeUserStreams.get(userId)?.get(streamId);
+    const now = Date.now();
 
     activeOperationStreams.set(operationId, {
       userId,
       streamId,
+      operationId,
+      attachedAt: activeLease?.attachedAt ?? now,
+      lastActivityAt: activeLease?.lastActivityAt ?? now,
+      touch: () => {
+        const lease = activeOperationStreams.get(operationId);
+        if (!lease) return;
+        lease.lastActivityAt = Date.now();
+      },
       terminate: () => {
-        const userSlots = activeUserStreams.get(userId);
-        if (!userSlots) return;
-        userSlots.delete(streamId);
-        if (userSlots.size === 0) activeUserStreams.delete(userId);
+        removeActiveUserStreamLease(userId, streamId);
+        activeOperationStreams.delete(operationId);
       },
     });
   },

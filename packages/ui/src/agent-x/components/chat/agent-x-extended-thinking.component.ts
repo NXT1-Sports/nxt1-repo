@@ -3,8 +3,8 @@
  *
  * Renders the extended thinking tokens emitted by Claude 3.7+ / Gemini 2.5
  * as a collapsible block beneath the assistant message bubble.  During
- * streaming the block shows a pulsing indicator; once done it collapses to
- * a "View reasoning" toggle that the user can expand.
+ * streaming the block shows a pulsing indicator on a collapsed toggle that
+ * the user can expand when they want to inspect the reasoning.
  *
  * The component is rendered by `NxtChatBubbleComponent` for
  * `AgentXMessagePart` entries whose `type === 'thinking'`.
@@ -29,23 +29,22 @@ import { HapticsService } from '../../../services/haptics/haptics.service';
       >
         @if (isStreaming()) {
           <span class="ext-thinking__pulse" aria-hidden="true"></span>
-        } @else {
-          <svg
-            class="ext-thinking__chevron"
-            [class.ext-thinking__chevron--open]="expanded()"
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            aria-hidden="true"
-          >
-            <polyline points="9 18 15 12 9 6" />
-          </svg>
         }
+        <svg
+          class="ext-thinking__chevron"
+          [class.ext-thinking__chevron--open]="expanded()"
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <polyline points="9 18 15 12 9 6" />
+        </svg>
         <span class="ext-thinking__label">{{ toggleLabel() }}</span>
       </button>
 
@@ -168,23 +167,21 @@ export class NxtAgentXExtendedThinkingComponent {
 
   /**
    * True while the model is still emitting thinking tokens (stream in progress).
-   * When true: show pulse indicator and keep panel auto-expanded.
-   * When false: collapse to toggle button.
+   * When true: show pulse indicator while leaving the reasoning body collapsed.
    */
   readonly isStreaming = input<boolean>(false);
 
   private readonly _expanded = signal(false);
 
-  /** Expanded state: auto-open while streaming, user-controlled afterward. */
-  readonly expanded = computed(() => this.isStreaming() || this._expanded());
+  /** Expanded state is always user-controlled so streaming starts collapsed. */
+  readonly expanded = computed(() => this._expanded());
 
   readonly toggleLabel = computed(() => {
-    if (this.isStreaming()) return 'Thinking…';
+    if (this.isStreaming()) return 'Thinking...';
     return this._expanded() ? 'Hide reasoning' : 'View reasoning';
   });
 
   async toggle(): Promise<void> {
-    if (this.isStreaming()) return;
     await this.haptics.impact('light');
     this._expanded.update((v) => !v);
   }

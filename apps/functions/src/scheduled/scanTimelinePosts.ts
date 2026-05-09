@@ -56,11 +56,14 @@ export const scanTimelinePosts = onSchedule(
 
       if (!response.ok) {
         const body = await response.text();
-        logger.error('Backend returned error', {
+        // Use warn (not error) so the scheduler wrapper doesn't create a
+        // duplicate Error Reporting group — the outer catch logs the single
+        // authoritative error entry.
+        logger.warn('Backend returned non-OK response', {
           status: response.status,
           body: body.slice(0, 500),
         });
-        throw new Error(`Backend responded with ${response.status}`);
+        throw new Error(`Timeline post scan: backend returned ${response.status}`);
       }
 
       const result = await response.json();

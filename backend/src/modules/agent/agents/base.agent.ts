@@ -48,6 +48,7 @@ import {
 } from '../exceptions/agent-delegation.exception.js';
 import { isDelegateToCoordinator } from '../exceptions/delegate-to-coordinator.exception.js';
 import { isPlanAndExecute } from '../exceptions/plan-and-execute.exception.js';
+import { isExecuteSavedPlan } from '../exceptions/execute-saved-plan.exception.js';
 import { AgentEngineError } from '../exceptions/agent-engine.error.js';
 import type { ApprovalGateService } from '../services/approval-gate.service.js';
 import { ASK_USER_CONTEXT_KEY, type AskUserToolContext } from '../tools/system/ask-user.tool.js';
@@ -74,6 +75,19 @@ import { resolveUrlText } from '../tools/favicon-registry.js';
 
 /** Maximum tool-calling iterations before we force the agent to respond. */
 const MAX_ITERATIONS = 20;
+
+const SHARED_PERSISTENCE_CONTRACT = [
+  '## Shared Persistence Contract (CRITICAL)',
+  '- Long-term memory: call `save_memory` immediately when the user states a durable preference, goal, recruiting constraint, performance baseline, recurring workflow preference, or brand/compliance constraint that should persist across sessions.',
+  '- Save concise third-person facts only. Do not save transient chat, drafts, internal reasoning, duplicate facts, or one-off tool errors.',
+  '- Analytics logging: after any successful user-visible mutation, saved artifact, outbound communication, imported dataset, published content, generated deliverable, or completed workflow milestone, call `track_analytics_event` before your final reply.',
+  '- Domain mapping: recruiting emails, coach outreach, visits, commitments, and recruiting pipelines -> `recruiting` or `communication`; film analysis, stat imports, scouting, rankings, and performance reports -> `performance`; NIL deals, sponsorships, and brand partnerships -> `nil`; posts, graphics, videos, plans, profile/team activity, and general Agent X workflow completion -> `engagement`.',
+  '- Use the target `subjectId` and `subjectType` when the work is for a team or organization; otherwise default to the current user.',
+  '- Include useful payload fields when known: `coordinatorId`, `workflow`, `outcome`, `entityId`, `teamId`, `organizationId`, `toolName`, `artifactType`.',
+  '- Do not emit duplicate analytics for pure reads, internal reasoning, abandoned drafts, or failed retries the user never received.',
+  '- When the user asks for analytics or activity history, retrieve it with `get_analytics_summary` instead of guessing.',
+  '- Recurring task delivery (CRITICAL — never contradict this): when a recurring task is scheduled with a sourceId/threadId, each run executes inside that originating thread and posts its full response there, exactly like a normal chat reply. The user sees results in-thread. A push notification is ALSO sent as a supplementary alert. Do NOT tell users recurring tasks only notify via push or that results will not appear in the chat — both happen automatically.',
+].join('\n');
 
 /**
  * Maximum characters for a single tool observation fed back to the LLM.
@@ -107,6 +121,8 @@ const PROGRESS_COMMENTARY_SLOW_BURST_TOOLS = 2;
 const PROGRESS_COMMENTARY_SLOW_BURST_MS = 4_000;
 const PROGRESS_COMMENTARY_STALE_SILENCE_TOOLS = 4;
 const PROGRESS_COMMENTARY_COOLDOWN_MS = 5_000;
+const PROGRESS_COMMENTARY_COUNT_PATTERN =
+  /\b(?:processed|completed|handled|ran|executed)\s+\d+\s+tool\s+calls?\b/i;
 
 /** Artifact field names promoted from tool results for cross-coordinator handoff. */
 const ARTIFACT_KEYS = [
@@ -169,6 +185,7 @@ export interface ToolSessionContext {
   readonly threadId?: string;
   readonly operationId?: string;
   readonly environment?: 'staging' | 'production';
+  readonly appBaseUrl?: string;
   readonly approvalId?: string;
   readonly allowedToolNames?: readonly string[];
   readonly allowedEntityGroups?: readonly AgentToolEntityGroup[];
@@ -221,7 +238,7 @@ export abstract class BaseAgent {
    * the messages array remains structurally valid for OpenRouter.
    */
   getToolConcurrency(): number {
-    return 1;
+    return 5;
   }
 
   private shouldInlineDocumentAttachment(attachment: SessionImageAttachment): boolean {
@@ -540,7 +557,11 @@ export abstract class BaseAgent {
     basePrompt: string,
     templateValues?: Readonly<Record<string, string | undefined>>
   ): string {
-    return resolveAgentSystemPrompt(this.id, basePrompt, templateValues);
+    return resolveAgentSystemPrompt(
+      this.id,
+      `${basePrompt}\n\n${SHARED_PERSISTENCE_CONTRACT}`,
+      templateValues
+    );
   }
 
   private extractSportFromIntent(intent: string): string | undefined {
@@ -674,20 +695,7 @@ export abstract class BaseAgent {
       'delegate instead. Never apologize or tell the user you cannot help; just delegate.',
     ].join('\n');
 
-    let systemContent = this.getSystemPrompt(context);
-    const appConfig = getCachedAgentAppConfig();
-    // 'router' (PrimaryAgent) has its own dedicated override path via
-    // prompts.primarySystemPrompt — skip the coordinator override map for it.
-    const configuredPrompt =
-      this.id !== 'router' ? appConfig.prompts.agentSystemPrompts[this.id] : undefined;
-    if (configuredPrompt) {
-      systemContent = configuredPrompt;
-      logger.info(`[${this.id}] Applying configured system prompt override`, {
-        agentId: this.id,
-        configSchemaVersion: appConfig.schemaVersion,
-        configUpdatedAt: appConfig.updatedAt,
-      });
-    }
+    let systemContent = this.withConfiguredSystemPrompt(this.getSystemPrompt(context));
 
     if (skillBlock) systemContent += `\n${skillBlock}`;
 
@@ -988,11 +996,22 @@ export abstract class BaseAgent {
     } else {
       messages = yieldState.messages.map((msg) => ({ ...msg })) as unknown as LLMMessage[];
     }
+    if (yieldState.reason === 'needs_input' && yieldState.pendingToolCall) {
+      const pendingToolMessage = this.buildPendingInputResumeMessage(yieldState.pendingToolCall);
+      const alreadyPresent = messages.some(
+        (msg) => msg.role === 'assistant' && msg.content === pendingToolMessage
+      );
+      if (!alreadyPresent) {
+        messages.push({ role: 'assistant', content: pendingToolMessage });
+      }
+    }
+
     const sessionContext: ToolSessionContext = {
       sessionId: context.sessionId,
       threadId: context.threadId,
       operationId: context.operationId,
       ...(context.environment && { environment: context.environment }),
+      ...(context.appBaseUrl && { appBaseUrl: context.appBaseUrl }),
       ...(approvalId ? { approvalId } : {}),
       ...(yieldState.reason === 'needs_approval' && yieldState.pendingToolCall
         ? {
@@ -1013,6 +1032,52 @@ export abstract class BaseAgent {
           arguments: JSON.stringify(yieldState.pendingToolCall.toolInput),
         },
       };
+
+      // ── Repair the assistant↔tool pairing for Anthropic/Vertex ─────────
+      // The replay reconciliation strips `tool_calls` from any assistant
+      // turn whose tool wasn't resolved by a following `tool` row. After a
+      // pause-for-approval, the originating assistant turn is persisted
+      // with tool_calls but no tool row follows it, so reconcileToolPairs
+      // drops the tool_calls. Pushing the resumed tool_result without a
+      // matching `tool_use` block on the immediately preceding assistant
+      // produces a 400 from Anthropic:
+      //   "messages.N.content.0: unexpected tool_use_id ... Each
+      //    tool_result block must have a corresponding tool_use block in
+      //    the previous message."
+      // Synthesize/repair the assistant turn so the pairing is valid.
+      const lastAssistantWithCallIdx = (() => {
+        for (let i = messages.length - 1; i >= 0; i--) {
+          const m = messages[i];
+          if (!m) continue;
+          if (m.role === 'assistant') return i;
+          if (m.role === 'user') return -1;
+        }
+        return -1;
+      })();
+      const lastAssistant =
+        lastAssistantWithCallIdx >= 0 ? messages[lastAssistantWithCallIdx] : undefined;
+      const lastAssistantCoversCall =
+        lastAssistant?.role === 'assistant' &&
+        (lastAssistant.tool_calls ?? []).some((tc: LLMToolCall) => tc.id === pendingToolCall.id);
+
+      if (!lastAssistantCoversCall) {
+        if (lastAssistant?.role === 'assistant' && lastAssistantWithCallIdx >= 0) {
+          // Re-attach the missing tool_call to the most recent assistant turn.
+          const repaired: LLMMessage = {
+            ...lastAssistant,
+            tool_calls: [...(lastAssistant.tool_calls ?? []), pendingToolCall],
+          };
+          messages[lastAssistantWithCallIdx] = repaired;
+        } else {
+          // No suitable assistant turn (e.g. resume from snapshot only) —
+          // synthesize a minimal assistant turn that owns the tool_call.
+          messages.push({
+            role: 'assistant',
+            content: '',
+            tool_calls: [pendingToolCall],
+          });
+        }
+      }
 
       onStreamEvent?.({
         type: 'step_active',
@@ -1170,6 +1235,21 @@ export abstract class BaseAgent {
     );
   }
 
+  private buildPendingInputResumeMessage(pendingToolCall: {
+    readonly toolName: string;
+    readonly toolInput: Record<string, unknown>;
+    readonly toolCallId: string;
+  }): string {
+    const toolArgs = JSON.stringify(pendingToolCall.toolInput);
+    return [
+      'Resume context:',
+      `A pending tool is available: ${pendingToolCall.toolName}.`,
+      `If the latest user reply clearly approves proceeding, call ${pendingToolCall.toolName} with exactly this payload: ${toolArgs}.`,
+      'If the latest user reply requests changes, asks questions, or is ambiguous, do not call the tool yet.',
+      'Instead, revise the plan or ask one focused follow-up question.',
+    ].join(' ');
+  }
+
   private async runLoop(
     messages: LLMMessage[],
     context: AgentSessionContext,
@@ -1200,6 +1280,7 @@ export abstract class BaseAgent {
     const recentToolNames: string[] = [];
     let lastProgressCommentaryAtMs = 0;
     let lastProgressCommentaryToolCount = 0;
+    let lastProgressCommentaryText = '';
 
     for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
       this.throwIfAborted(context.signal);
@@ -1238,6 +1319,8 @@ export abstract class BaseAgent {
         maxTokens: routing.maxTokens,
         temperature: routing.temperature,
         tools: toolSchemas.length > 0 ? toolSchemas : undefined,
+        // Agent queue jobs can take longer than the default 60s — use 5 minutes
+        timeoutMs: 300_000,
         ...(routing.enableThinking && {
           enableThinking: true,
           thinkingBudgetTokens: routing.thinkingBudgetTokens,
@@ -1468,6 +1551,7 @@ export abstract class BaseAgent {
         sessionId: context.sessionId,
         threadId: context.threadId,
         operationId: context.operationId,
+        ...(context.appBaseUrl ? { appBaseUrl: context.appBaseUrl } : {}),
         allowedToolNames,
         allowedEntityGroups,
       };
@@ -1719,15 +1803,19 @@ export abstract class BaseAgent {
           nowMs,
         });
         if (shouldEmitProgress) {
-          await this.emitLlmProgressCommentary(
+          const emittedProgressText = await this.emitLlmProgressCommentary(
             llm,
             onStreamEvent,
             context,
             completedToolCallCount,
-            recentToolNames
+            recentToolNames,
+            lastProgressCommentaryText
           );
-          lastProgressCommentaryAtMs = nowMs;
-          lastProgressCommentaryToolCount = completedToolCallCount;
+          if (emittedProgressText) {
+            lastProgressCommentaryAtMs = nowMs;
+            lastProgressCommentaryToolCount = completedToolCallCount;
+            lastProgressCommentaryText = emittedProgressText;
+          }
         }
       }
 
@@ -1739,7 +1827,12 @@ export abstract class BaseAgent {
       //    follow_up_required: false), skip the next LLM call entirely.
       //    Without this guard the model generates an acknowledgment token
       //    like "Completed:" that appears as a spurious second response.
-      const DELEGATION_TOOLS = new Set(['delegate_to_coordinator', 'plan_and_execute']);
+      const DELEGATION_TOOLS = new Set([
+        'delegate_to_coordinator',
+        'create_plan',
+        'execute_saved_plan',
+        'plan_and_execute',
+      ]);
       const shouldExitAfterDelegation = result.toolCalls.some((tc) => {
         if (!DELEGATION_TOOLS.has(tc.function.name)) return false;
         const toolMsg = [...messages]
@@ -1878,21 +1971,24 @@ export abstract class BaseAgent {
     onStreamEvent: OnStreamEvent | undefined,
     context: AgentSessionContext,
     completedToolCallCount: number,
-    recentToolNames: readonly string[]
-  ): Promise<void> {
-    if (!onStreamEvent) return;
-    if (typeof llm.complete !== 'function') return;
+    recentToolNames: readonly string[],
+    previousCommentary: string
+  ): Promise<string | null> {
+    if (!onStreamEvent) return null;
+    if (typeof llm.complete !== 'function') return null;
 
     try {
       const progressPrompt: readonly LLMMessage[] = [
         {
           role: 'system',
           content:
-            'Write exactly one short live progress line for an AI workflow stream. ' +
+            'Write exactly one short live operations commentary line for an AI workflow stream. ' +
+            'Use a play-by-play style about what is happening right now. ' +
             'Keep it operational, clear, and under 14 words. ' +
             'No hype, no filler, no markdown, no emojis, no quotes. ' +
             'Do not invent results, metrics, counts, or names. ' +
-            'You may reference only the provided completed tool call count.',
+            'Never mention number of tool calls or numeric progress totals. ' +
+            'Avoid template phrasing; the line must read naturally and be materially different from the prior line.',
         },
         {
           role: 'user',
@@ -1900,6 +1996,7 @@ export abstract class BaseAgent {
             `Agent: ${this.id}\n` +
             `Completed tool calls: ${completedToolCallCount}\n` +
             `Recent tools: ${recentToolNames.join(', ') || 'none'}\n` +
+            `Prior commentary: ${previousCommentary || 'none'}\n` +
             'Return one progress line now.',
         },
       ];
@@ -1916,21 +2013,44 @@ export abstract class BaseAgent {
         .trim()
         .slice(0, PROGRESS_COMMENTARY_MAX_CHARS);
 
-      if (!text) return;
+      if (!text) return null;
+      if (this.shouldSuppressProgressCommentary(text, previousCommentary)) return null;
 
       onStreamEvent({
         type: 'delta',
         agentId: this.id,
-        text,
+        text: `\n${text}\n`,
         noBatch: true,
       });
+      return text;
     } catch (err) {
       logger.warn(`[${this.id}] Failed to generate LLM progress commentary`, {
         agentId: this.id,
         completedToolCallCount,
         error: err instanceof Error ? err.message : String(err),
       });
+      return null;
     }
+  }
+
+  private shouldSuppressProgressCommentary(text: string, previousCommentary: string): boolean {
+    const normalized = text
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, '')
+      .trim();
+    const normalizedPrev = previousCommentary
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, '')
+      .trim();
+
+    if (!normalized) return true;
+    if (PROGRESS_COMMENTARY_COUNT_PATTERN.test(text)) return true;
+    if (normalized.includes('currently querying platform data sources')) return true;
+    if (normalizedPrev && (normalized === normalizedPrev || normalized.includes(normalizedPrev))) {
+      return true;
+    }
+
+    return false;
   }
 
   private shouldEmitProgressCommentary(input: {
@@ -2278,7 +2398,12 @@ export abstract class BaseAgent {
     // Delegation handoffs stream their user-facing output from downstream
     // coordinators/plans. Emitting "Completed: delegate to coordinator." here
     // creates redundant noise and can concatenate awkwardly with streamed text.
-    const HANDOFF_TOOLS = new Set(['delegate_to_coordinator', 'plan_and_execute']);
+    const HANDOFF_TOOLS = new Set([
+      'delegate_to_coordinator',
+      'create_plan',
+      'execute_saved_plan',
+      'plan_and_execute',
+    ]);
     const allSuccessesAreHandoffs = successRecords.every((r) => HANDOFF_TOOLS.has(r.toolName));
     if (allSuccessesAreHandoffs) {
       return '';
@@ -2477,6 +2602,7 @@ export abstract class BaseAgent {
       userId,
       ...(signal && { signal }),
       ...(sessionContext?.environment && { environment: sessionContext.environment }),
+      ...(sessionContext?.appBaseUrl && { appBaseUrl: sessionContext.appBaseUrl }),
       ...(sessionContext?.operationId && { operationId: sessionContext.operationId }),
       ...(sessionContext?.threadId && { threadId: sessionContext.threadId }),
       ...(sessionContext?.sessionId && { sessionId: sessionContext.sessionId }),
@@ -2511,20 +2637,22 @@ export abstract class BaseAgent {
       const result = await registry.execute(toolName, input, toolExecContext);
       this.throwIfAborted(signal);
 
-      const sanitizedData =
-        result.data !== undefined ? sanitizeAgentPayload(result.data) : undefined;
+      // Keep exact tool payloads for the agent's internal ReAct loop so later
+      // tool calls can reuse IDs, cursors, routes, and other machine-readable
+      // references. User-visible text is scrubbed separately at render/stream time.
+      const rawData = result.data !== undefined ? result.data : undefined;
 
       // Classify the outcome for the loop detector:
       //   'failure' — tool explicitly reported an error (success: false)
       //   'empty'   — tool succeeded but returned null / [] / {} (futile search)
       //   'success' — tool returned real data
       const isDataEmpty =
-        sanitizedData === null ||
-        sanitizedData === undefined ||
-        (Array.isArray(sanitizedData) && sanitizedData.length === 0) ||
-        (typeof sanitizedData === 'object' &&
-          !Array.isArray(sanitizedData) &&
-          Object.keys(sanitizedData as object).length === 0);
+        rawData === null ||
+        rawData === undefined ||
+        (Array.isArray(rawData) && rawData.length === 0) ||
+        (typeof rawData === 'object' &&
+          !Array.isArray(rawData) &&
+          Object.keys(rawData as object).length === 0);
 
       const outcome: 'success' | 'failure' | 'empty' = !result.success
         ? 'failure'
@@ -2547,16 +2675,16 @@ export abstract class BaseAgent {
           outcome: result.success ? 'success' : 'failure',
         });
 
-        if (result.success && sanitizedData !== undefined) {
+        if (result.success && rawData !== undefined) {
           operationMemory.rememberSuccessfulResult(
             sessionContext.operationId,
             toolName,
             input,
-            sanitizedData
+            rawData
           );
 
-          if (typeof sanitizedData === 'object' && sanitizedData !== null) {
-            const artifactData = sanitizedData as Record<string, unknown>;
+          if (typeof rawData === 'object' && rawData !== null) {
+            const artifactData = rawData as Record<string, unknown>;
             for (const key of ARTIFACT_KEYS) {
               if (artifactData[key] !== undefined) {
                 operationMemory.logArtifact(sessionContext.operationId, {
@@ -2589,7 +2717,7 @@ export abstract class BaseAgent {
       const payload = result.success
         ? {
             success: true,
-            ...(sanitizedData !== undefined ? { data: sanitizedData } : {}),
+            ...(rawData !== undefined ? { data: rawData } : {}),
             ...(advisory ? { _advisory: advisory } : {}),
           }
         : {
@@ -2606,6 +2734,7 @@ export abstract class BaseAgent {
       // the result as the next ReAct observation.
       if (isDelegateToCoordinator(err)) throw err;
       if (isPlanAndExecute(err)) throw err;
+      if (isExecuteSavedPlan(err)) throw err;
       if (isAgentDelegation(err)) {
         // ── Tier 2: Enrich delegation with source agent ID and prior work context ──
         // Append artifacts + tool summaries from current-turn messages so the
@@ -2663,7 +2792,7 @@ export abstract class BaseAgent {
     if (/(download|export)/.test(normalized)) return 'download';
     if (/(search|query|find|fetch)/.test(normalized)) return 'search';
     if (/(email|mail)/.test(normalized)) return 'email';
-    if (/(video|image|graphic|media)/.test(normalized)) return 'media';
+    if (/(video|image|graphic|media|chart|graph)/.test(normalized)) return 'media';
     if (/(database|firebase|mongo|memory)/.test(normalized)) return 'database';
     if (/(document|pdf|doc)/.test(normalized)) return 'document';
     if (/approval/.test(normalized)) return 'approval';
@@ -2724,6 +2853,7 @@ export abstract class BaseAgent {
 
       // Media & Video
       generate_graphic: 'Designing graphic',
+      generate_chart_visualization: 'Generating chart visualization',
       runway_generate_video: 'Generating AI video',
       analyze_video: 'Analyzing game film',
       runway_upscale_video: 'Enhancing video quality',
@@ -2814,13 +2944,16 @@ export abstract class BaseAgent {
       // Automation
       enqueue_heavy_task: 'Queueing background operation',
       schedule_recurring_task: 'Scheduling automation',
+      update_recurring_task: 'Updating scheduled automation',
       list_recurring_tasks: 'Reviewing scheduled automations',
       cancel_recurring_task: 'Cancelling scheduled automation',
       call_apify_actor: 'Running cloud automation',
       search_apify_actors: 'Finding automation templates',
       get_apify_actor_details: 'Reviewing automation details',
       get_apify_actor_output: 'Reviewing automation results',
-      plan_and_execute: 'Building execution plan',
+      create_plan: 'Drafting execution plan',
+      execute_saved_plan: 'Executing approved plan',
+      plan_and_execute: 'Drafting execution plan',
       delegate_to_coordinator: 'Routing to specialist coordinator',
       discover_analytics_templates: 'Reviewing analytics templates',
       register_analytics_template: 'Saving analytics template',
@@ -3215,6 +3348,7 @@ export abstract class BaseAgent {
     if (draftPostDescriptor) return draftPostDescriptor;
 
     const priorityKeys = [
+      'actionSummary',
       'programName',
       'schoolName',
       'collegeName',
@@ -3284,6 +3418,12 @@ export abstract class BaseAgent {
       'userId',
       'threadId',
       'operationId',
+      // Recurring automation internals; never user-facing in progress labels.
+      'key',
+      'recurringTaskKey',
+      'repeatableKey',
+      'cronExpression',
+      'timezone',
       // Technical identifiers that expose raw snake_case or internal IDs
       'agentId',
       'actorId',

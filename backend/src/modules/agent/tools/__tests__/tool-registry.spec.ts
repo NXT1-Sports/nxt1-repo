@@ -202,6 +202,14 @@ describe('ToolRegistry', () => {
     });
 
     it('should expose a per-tool migration checklist for legacy schemas', () => {
+      setCachedAgentAppConfig({
+        ...DEFAULT_AGENT_APP_CONFIG,
+        featureFlags: {
+          ...DEFAULT_AGENT_APP_CONFIG.featureFlags,
+          strictZodToolSchemas: false,
+        },
+      });
+
       registry.register(new LegacySchemaTool());
 
       expect(registry.getLegacyToolSchemaChecklist()).toEqual([

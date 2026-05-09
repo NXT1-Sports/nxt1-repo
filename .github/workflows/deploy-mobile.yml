@@ -1,22 +1,23 @@
 # ============================================================================
 # NXT1 Monorepo - Mobile Build & Deploy Pipeline
 # ============================================================================
-# Builds iOS/Android apps using EAS (Expo Application Services)
-# Supports development, staging, and production builds
-# Last updated: 2026-04-25 — Android build fixes (cap sync, JDK 21, SDK 36, Firebase config)
+# Branch strategy:
+#   main       → iOS: appstore cert → IPA → TestFlight
+#                Android: release AAB → Play Store Internal Track
+#   production → iOS: appstore cert → IPA → TestFlight → App Store submission
+#                Android: release AAB → Play Store Production
+#   workflow_dispatch → manual run with profile choice (staging | production)
 # ============================================================================
 
 name: Deploy Mobile
 
 on:
   push:
-    branches: [production]
+    branches: [main, production]
     paths:
       - 'apps/mobile/**'
       - 'packages/core/**'
       - '.github/workflows/deploy-mobile.yml'
-    tags:
-      - 'mobile-v*'
   workflow_dispatch:
     inputs:
       platform:
@@ -29,18 +30,13 @@ on:
           - ios
           - android
       profile:
-        description: 'Build profile'
+        description: 'staging → TestFlight + Play Internal | production → App Store + Play Production'
         required: true
-        default: 'development'
+        default: 'staging'
         type: choice
         options:
-          - development
           - staging
           - production
-      submit:
-        description: 'Submit to stores after build'
-        type: boolean
-        default: false
 
 concurrency:
   group: deploy-mobile-${{ github.ref }}
@@ -52,11 +48,34 @@ env:
 
 jobs:
   # ============================================================================
+  # DERIVE PROFILE FROM BRANCH OR MANUAL INPUT
+  # ============================================================================
+  setup:
+    name: Derive Build Profile
+    runs-on: ubuntu-latest
+    outputs:
+      profile: ${{ steps.derive.outputs.profile }}
+    steps:
+      - name: Derive profile
+        id: derive
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            PROFILE="${{ inputs.profile }}"
+          elif [ "${{ github.ref_name }}" == "production" ]; then
+            PROFILE="production"
+          else
+            PROFILE="staging"
+          fi
+          echo "profile=$PROFILE" >> $GITHUB_OUTPUT
+          echo "▶ Build profile: $PROFILE"
+
+  # ============================================================================
   # BUILD WEB ASSETS
   # ============================================================================
   build-web-assets:
     name: Build Web Assets
     runs-on: ubuntu-latest
+    needs: setup
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -67,14 +86,19 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
 
-      - name: Enable Corepack (enforces packageManager field)
+      - name: Enable Corepack
         run: corepack enable npm
 
       - name: Install dependencies
         run: npm ci
 
       - name: Build mobile web assets
-        run: npm run build:mobile
+        run: |
+          if [ "${{ needs.setup.outputs.profile }}" == "production" ]; then
+            npm run build:mobile
+          else
+            npm run build:mobile:staging
+          fi
         env:
           NODE_OPTIONS: --max_old_space_size=4096
 
@@ -86,17 +110,21 @@ jobs:
           retention-days: 1
 
   # ============================================================================
-  # BUILD IOS (Using Fastlane)
+  # BUILD iOS
+  #   staging    → appstore cert → IPA → TestFlight
+  #   production → appstore cert → IPA → TestFlight → submit App Store review
   # ============================================================================
   build-ios:
-    name: Build iOS
+    name: Build iOS (${{ needs.setup.outputs.profile }})
     runs-on: macos-latest
-    needs: build-web-assets
+    needs: [setup, build-web-assets]
     if: |
       github.event_name == 'push' ||
       (github.event_name == 'workflow_dispatch' && (inputs.platform == 'all' || inputs.platform == 'ios'))
     environment:
-      name: ${{ inputs.profile || 'development' }}
+      name: ${{ needs.setup.outputs.profile }}
+    env:
+      BUILD_PROFILE: ${{ needs.setup.outputs.profile }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -107,11 +135,11 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
 
-      - name: Enable Corepack (enforces packageManager field)
+      - name: Enable Corepack
         run: corepack enable npm
 
       - name: Download web assets
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@v4
         with:
           name: mobile-www
           path: apps/mobile/www
@@ -119,11 +147,11 @@ jobs:
       - name: Install Node dependencies
         run: npm ci
 
-      - name: Switch Firebase config for iOS (always production)
+      - name: Switch Firebase config
         working-directory: apps/mobile
-        run: node scripts/auto-switch-firebase-env.js production
+        run: node scripts/auto-switch-firebase-env.js ${{ env.BUILD_PROFILE }}
 
-      - name: Sync Capacitor plugins and web assets to iOS native
+      - name: Sync Capacitor web assets to iOS
         working-directory: apps/mobile
         run: npx cap copy ios
 
@@ -134,44 +162,41 @@ jobs:
           bundler-cache: true
           working-directory: apps/mobile/ios/App
 
-      # IONGeolocationLib 1.0.1 (a dep of @capacitor/geolocation) ships a
-      # pre-compiled XCFramework built with exactly Swift 6.2.3 (swiftlang-6.2.3.3.21).
-      # Xcode 26.2 (released Dec 12 2025, build 17C52) is the ONLY version with that
-      # exact toolchain. 'latest-stable' picks Xcode 16.4 (the runner default, Swift 6.1.2)
-      # which is incompatible. Apple renamed Xcode 17 → Xcode 26 to match iOS/macOS versioning.
-      - name: Select Xcode 26.2 (Swift 6.2.3 — exact match for IONGeolocationLib 1.0.1)
+      # IONGeolocationLib 1.0.1 ships a pre-compiled XCFramework built with
+      # Swift 6.2.3 (swiftlang-6.2.3.3.21). Xcode 26.2 is the only matching version.
+      - name: Select Xcode 26.2
         uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: '26.2'
 
-      - name: Show Xcode version
-        run: |
-          xcodebuild -version
-          swift --version
+      - name: Show Xcode / Swift version
+        run: xcodebuild -version && swift --version
 
-      - name: Install CocoaPods
+      - name: Install CocoaPods (with retry for CDN flakiness)
         working-directory: apps/mobile/ios/App
         run: |
-          pod repo update
-          pod update IONGeolocationLib --no-repo-update
-          pod install --repo-update
+          set -e
+          retry() {
+            local max=5 delay=15 n=1
+            until "$@"; do
+              [ $n -ge $max ] && { echo "::error::Failed after $n attempts: $*"; return 1; }
+              echo "::warning::Attempt $n failed — retrying in ${delay}s..."
+              sleep $delay; n=$((n+1)); delay=$((delay*2))
+            done
+          }
+          retry pod repo update
+          retry pod update IONGeolocationLib --no-repo-update
+          retry pod install --repo-update
 
       - name: Install Fastlane
-        run: |
-          gem install fastlane -N
-          gem install fastlane-plugin-firebase_app_distribution
+        run: gem install fastlane -N
 
-      - name: Setup code signing
+      - name: Write App Store Connect API key
         env:
-          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
-          MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
-          MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}
           APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
           APP_STORE_CONNECT_API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
           APP_STORE_CONNECT_API_KEY_CONTENT: ${{ secrets.APP_STORE_CONNECT_API_KEY_CONTENT }}
-        working-directory: apps/mobile/ios/App
         run: |
-          # Create API key JSON file (format fastlane expects)
           mkdir -p ~/.appstoreconnect/private_keys
           KEY_CONTENT=$(echo "$APP_STORE_CONNECT_API_KEY_CONTENT" | awk 'NF {printf "%s\\n", $0}')
           cat > ~/.appstoreconnect/private_keys/AuthKey_${APP_STORE_CONNECT_API_KEY_ID}.json << EOF
@@ -183,22 +208,7 @@ jobs:
           }
           EOF
 
-      - name: Determine build type
-        id: build-type
-        run: |
-          PROFILE="${{ inputs.profile || 'development' }}"
-          if [ "$PROFILE" == "production" ]; then
-            echo "lane=release" >> $GITHUB_OUTPUT
-            echo "method=app-store" >> $GITHUB_OUTPUT
-          elif [ "$PROFILE" == "staging" ]; then
-            echo "lane=beta" >> $GITHUB_OUTPUT
-            echo "method=ad-hoc" >> $GITHUB_OUTPUT
-          else
-            echo "lane=dev" >> $GITHUB_OUTPUT
-            echo "method=development" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Build iOS app
+      - name: Build iOS app (release lane — appstore cert)
         working-directory: apps/mobile/ios/App
         env:
           MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
@@ -208,43 +218,58 @@ jobs:
           APP_STORE_CONNECT_API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
           APP_STORE_CONNECT_API_KEY_CONTENT: ${{ secrets.APP_STORE_CONNECT_API_KEY_CONTENT }}
           FASTLANE_XCODEBUILD_SETTINGS_TIMEOUT: 120
-        run: fastlane ${{ steps.build-type.outputs.lane }}
+        run: fastlane release
 
       - name: Upload gym build log on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: gym-log-${{ inputs.profile || 'development' }}
+          name: gym-log-${{ env.BUILD_PROFILE }}
           path: ~/Library/Logs/gym/App-App.log
           retention-days: 7
 
-      - name: Upload iOS artifact
+      - name: Save IPA artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ios-build-${{ inputs.profile || 'development' }}
+          name: ios-build-${{ env.BUILD_PROFILE }}
           path: apps/mobile/ios/App/build/*.ipa
           retention-days: 30
 
+      # Upload to TestFlight — runs for BOTH staging and production
       - name: Upload to TestFlight
-        if: inputs.submit && (inputs.profile == 'staging' || inputs.profile == 'production')
         working-directory: apps/mobile/ios/App
         env:
           APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
           APP_STORE_CONNECT_API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
+          APP_STORE_CONNECT_API_KEY_CONTENT: ${{ secrets.APP_STORE_CONNECT_API_KEY_CONTENT }}
         run: fastlane upload_testflight
 
+      # Submit for App Store review — DISABLED (uncomment when ready to re-enable)
+      - name: Submit to App Store
+        if: env.BUILD_PROFILE == 'production'
+        working-directory: apps/mobile/ios/App
+        env:
+          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          APP_STORE_CONNECT_API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
+          APP_STORE_CONNECT_API_KEY_CONTENT: ${{ secrets.APP_STORE_CONNECT_API_KEY_CONTENT }}
+        run: fastlane submit_app_store
+
   # ============================================================================
-  # BUILD ANDROID (Using Fastlane)
+  # BUILD ANDROID
+  #   staging    → release AAB → Play Store Internal Track
+  #   production → release AAB → Play Store Production
   # ============================================================================
   build-android:
-    name: Build Android
+    name: Build Android (${{ needs.setup.outputs.profile }})
     runs-on: ubuntu-latest
-    needs: build-web-assets
+    needs: [setup, build-web-assets]
     if: |
       github.event_name == 'push' ||
       (github.event_name == 'workflow_dispatch' && (inputs.platform == 'all' || inputs.platform == 'android'))
     environment:
-      name: ${{ inputs.profile || 'development' }}
+      name: ${{ needs.setup.outputs.profile }}
+    env:
+      BUILD_PROFILE: ${{ needs.setup.outputs.profile }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -255,10 +280,10 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
 
-      - name: Enable Corepack (enforces packageManager field)
+      - name: Enable Corepack
         run: corepack enable npm
 
-      - name: Setup Java
+      - name: Setup Java 21
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
@@ -266,7 +291,7 @@ jobs:
           cache: 'gradle'
 
       - name: Download web assets
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@v4
         with:
           name: mobile-www
           path: apps/mobile/www
@@ -274,11 +299,11 @@ jobs:
       - name: Install Node dependencies
         run: npm ci
 
-      - name: Switch Firebase config for Android (always production)
+      - name: Switch Firebase config
         working-directory: apps/mobile
-        run: node scripts/auto-switch-firebase-env.js production
+        run: node scripts/auto-switch-firebase-env.js ${{ env.BUILD_PROFILE }}
 
-      - name: Sync Capacitor plugins and web assets to Android native
+      - name: Sync Capacitor plugins and web assets to Android
         working-directory: apps/mobile
         run: npx cap sync android
 
@@ -286,7 +311,6 @@ jobs:
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: '3.2'
-          # No bundler-cache here — android dir has no Gemfile; fastlane installed directly
 
       - name: Install Fastlane
         run: gem install fastlane -N
@@ -297,115 +321,43 @@ jobs:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          GOOGLE_PLAY_JSON_KEY: ${{ secrets.GOOGLE_PLAY_JSON_KEY }}
         run: |
-          # Decode keystore
           echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > apps/mobile/android/app/nxt1-release.keystore
-
-          # Create keystore properties
-          cat > apps/mobile/android/keystore.properties << EOF
+          cat > apps/mobile/android/key.properties << EOF
           storeFile=nxt1-release.keystore
           storePassword=$ANDROID_KEYSTORE_PASSWORD
           keyAlias=$ANDROID_KEY_ALIAS
           keyPassword=$ANDROID_KEY_PASSWORD
           EOF
+          # Write google-play-key.json here so the release lane can call
+          # google_play_track_version_codes before we reach the upload steps
+          echo "$GOOGLE_PLAY_JSON_KEY" > apps/mobile/android/google-play-key.json
 
-      - name: Determine build type
-        id: build-type
+      - name: Build Android (release AAB)
+        working-directory: apps/mobile/android
         run: |
-          PROFILE="${{ inputs.profile || 'development' }}"
-          if [ "$PROFILE" == "production" ]; then
-            echo "lane=release" >> $GITHUB_OUTPUT
-            echo "build_type=bundle" >> $GITHUB_OUTPUT
-          elif [ "$PROFILE" == "staging" ]; then
-            echo "lane=beta" >> $GITHUB_OUTPUT
-            echo "build_type=apk" >> $GITHUB_OUTPUT
+          if [ "$BUILD_PROFILE" == "production" ]; then
+            fastlane release
           else
-            echo "lane=dev" >> $GITHUB_OUTPUT
-            echo "build_type=apk" >> $GITHUB_OUTPUT
+            fastlane release_staging
           fi
 
-      - name: Build Android app
-        working-directory: apps/mobile/android
-        run: fastlane ${{ steps.build-type.outputs.lane }}
-
-      - name: Upload Android artifact
+      - name: Save AAB artifact
         uses: actions/upload-artifact@v4
         with:
-          name: android-build-${{ inputs.profile || 'development' }}
-          path: |
-            apps/mobile/android/app/build/outputs/apk/**/*.apk
-            apps/mobile/android/app/build/outputs/bundle/**/*.aab
+          name: android-build-${{ env.BUILD_PROFILE }}
+          path: apps/mobile/android/app/build/outputs/bundle/release/*.aab
           retention-days: 30
 
-      - name: Upload to Play Store (Internal Track)
-        if: inputs.submit && inputs.profile == 'staging'
+      # Upload to Play Internal Track — staging only
+      - name: Upload to Play Store Internal Track
+        if: env.BUILD_PROFILE == 'staging'
         working-directory: apps/mobile/android
-        env:
-          GOOGLE_PLAY_JSON_KEY: ${{ secrets.GOOGLE_PLAY_JSON_KEY }}
-        run: |
-          echo "$GOOGLE_PLAY_JSON_KEY" > google-play-key.json
-          fastlane upload_internal
+        run: fastlane upload_internal
 
-      - name: Upload to Play Store (Production)
-        if: inputs.submit && inputs.profile == 'production'
+      # Upload to Play Store Production — production only
+      - name: Upload to Play Store Production
+        if: env.BUILD_PROFILE == 'production'
         working-directory: apps/mobile/android
-        env:
-          GOOGLE_PLAY_JSON_KEY: ${{ secrets.GOOGLE_PLAY_JSON_KEY }}
-        run: |
-          echo "$GOOGLE_PLAY_JSON_KEY" > google-play-key.json
-          fastlane upload_production
-
-  # ============================================================================
-  # DISTRIBUTE TO FIREBASE APP DISTRIBUTION (Development/Beta)
-  # ============================================================================
-  distribute:
-    name: Firebase Distribution
-    runs-on: ubuntu-latest
-    needs: [build-ios, build-android]
-    if: |
-      always() &&
-      (needs.build-ios.result == 'success' || needs.build-android.result == 'success') &&
-      (inputs.profile == 'development' || inputs.profile == 'staging')
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Download iOS artifact
-        if: needs.build-ios.result == 'success'
-        uses: actions/download-artifact@v8
-        with:
-          name: ios-build-${{ inputs.profile || 'development' }}
-          path: artifacts/ios
-
-      - name: Download Android artifact
-        if: needs.build-android.result == 'success'
-        uses: actions/download-artifact@v8
-        with:
-          name: android-build-${{ inputs.profile || 'development' }}
-          path: artifacts/android
-
-      - name: Upload iOS to Firebase App Distribution
-        if: needs.build-ios.result == 'success'
-        uses: wzieba/Firebase-Distribution-Github-Action@v1
-        with:
-          appId: ${{ secrets.FIREBASE_IOS_APP_ID }}
-          serviceCredentialsFileContent: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_PROD }}
-          groups: internal-testers
-          file: artifacts/ios/*.ipa
-          releaseNotes: |
-            Build: ${{ github.run_number }}
-            Commit: ${{ github.sha }}
-            Branch: ${{ github.ref_name }}
-
-      - name: Upload Android to Firebase App Distribution
-        if: needs.build-android.result == 'success'
-        uses: wzieba/Firebase-Distribution-Github-Action@v1
-        with:
-          appId: ${{ secrets.FIREBASE_ANDROID_APP_ID }}
-          serviceCredentialsFileContent: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_PROD }}
-          groups: internal-testers
-          file: artifacts/android/**/*.apk
-          releaseNotes: |
-            Build: ${{ github.run_number }}
-            Commit: ${{ github.sha }}
-            Branch: ${{ github.ref_name }}
+        run: fastlane upload_production

@@ -112,6 +112,15 @@ export const routes: Routes = [
         loadChildren: () => import('./features/help-center/help-center.routes'),
       },
 
+      // Manage Team - route bridge for notification deep links
+      {
+        path: 'manage-team',
+        loadComponent: () =>
+          import('./features/manage-team/manage-team-route.component').then(
+            (m) => m.ManageTeamRouteComponent
+          ),
+      },
+
       // Invite - Referral & Sharing
       {
         path: 'invite',

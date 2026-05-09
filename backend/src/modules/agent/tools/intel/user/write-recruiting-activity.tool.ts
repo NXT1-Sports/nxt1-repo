@@ -22,10 +22,7 @@ import {
 import { CACHE_KEYS as USER_CACHE_KEYS } from '../../../../../services/profile/users.service.js';
 import { invalidateProfileCaches } from '../../../../../routes/profile/shared.js';
 import { normalizeCollegeName } from '../dedup-utils.js';
-import { getAnalyticsLoggerService } from '../../../../../services/core/analytics-logger.service.js';
 import { logger } from '../../../../../utils/logger.js';
-import { SyncDiffService, type PreviousProfileState } from '../../../sync/index.js';
-import { onDailySyncComplete } from '../../../triggers/trigger.listeners.js';
 import { resolveCreatedAt } from '../doc-date-utils.js';
 import { z } from 'zod';
 
@@ -152,12 +149,6 @@ export class WriteRecruitingActivityTool extends BaseTool {
         .where('sport', '==', sportId)
         .get();
 
-      // Snapshot previous recruiting state for delta detection
-      const previousRecruiting: Record<string, unknown>[] = existingSnap.docs.map((d) => d.data());
-      const previousState: PreviousProfileState = {
-        recruiting: previousRecruiting,
-      };
-
       const existingKeys = new Set<string>();
       for (const doc of existingSnap.docs) {
         const data = doc.data();
@@ -166,8 +157,6 @@ export class WriteRecruitingActivityTool extends BaseTool {
 
       let written = 0;
       let skipped = 0;
-      const writtenRecords: Record<string, unknown>[] = [];
-
       const batch = this.db.batch();
 
       for (const activity of activities) {
@@ -228,7 +217,6 @@ export class WriteRecruitingActivityTool extends BaseTool {
         const docRef = this.db.collection(RECRUITING_COLLECTION).doc();
         record['id'] = docRef.id;
         batch.set(docRef, record);
-        writtenRecords.push(record);
         written++;
       }
 
@@ -269,100 +257,6 @@ export class WriteRecruitingActivityTool extends BaseTool {
         ]);
       } catch {
         // Best-effort
-      }
-
-      if (writtenRecords.length > 0) {
-        const analytics = getAnalyticsLoggerService();
-        await Promise.allSettled(
-          writtenRecords.map((record) => {
-            const category = String(record['category'] ?? 'activity_recorded');
-            const eventType =
-              category === 'offer'
-                ? 'offer_recorded'
-                : category === 'visit'
-                  ? 'visit_recorded'
-                  : category === 'contact'
-                    ? 'coach_contact_recorded'
-                    : category === 'commitment'
-                      ? 'commitment_recorded'
-                      : 'activity_recorded';
-
-            return analytics.safeTrack({
-              subjectId: userId,
-              subjectType: 'user',
-              domain: 'recruiting',
-              eventType,
-              source: 'agent',
-              actorUserId: context.userId,
-              sessionId: context.sessionId ?? null,
-              threadId: context.threadId ?? null,
-              tags: [sportId, category, source].filter(Boolean),
-              payload: {
-                sportId,
-                source,
-                sourceUrl,
-                collegeName: record['collegeName'],
-                division: record['division'],
-                conference: record['conference'],
-                coachName: record['coachName'],
-                coachTitle: record['coachTitle'],
-                scholarshipType: record['scholarshipType'],
-                date: record['date'],
-                notes: record['notes'],
-              },
-              metadata: {
-                toolName: this.name,
-              },
-            });
-          })
-        );
-      }
-
-      // ── Delta Detection & Trigger ─────────────────────────────────────
-      if (written > 0) {
-        try {
-          const diffService = new SyncDiffService();
-          const extractedProfile = {
-            platform: source ?? '',
-            profileUrl: sourceUrl ?? '',
-            recruiting: writtenRecords.map((r) => ({
-              category: String(r['category'] ?? '') as
-                | 'offer'
-                | 'interest'
-                | 'visit'
-                | 'camp'
-                | 'commitment',
-              collegeName: r['collegeName'] != null ? String(r['collegeName']) : undefined,
-              collegeLogoUrl: r['collegeLogoUrl'] != null ? String(r['collegeLogoUrl']) : undefined,
-              division: r['division'] != null ? String(r['division']) : undefined,
-              conference: r['conference'] != null ? String(r['conference']) : undefined,
-              city: r['city'] != null ? String(r['city']) : undefined,
-              state: r['state'] != null ? String(r['state']) : undefined,
-              date: r['date'] != null ? String(r['date']) : undefined,
-              scholarshipType:
-                r['scholarshipType'] != null ? String(r['scholarshipType']) : undefined,
-              coachName: r['coachName'] != null ? String(r['coachName']) : undefined,
-              coachTitle: r['coachTitle'] != null ? String(r['coachTitle']) : undefined,
-              notes: r['notes'] != null ? String(r['notes']) : undefined,
-            })),
-          };
-          const delta = diffService.diff(userId, sportId, source, previousState, extractedProfile);
-          if (!delta.isEmpty) {
-            onDailySyncComplete(delta).catch((err) =>
-              logger.error('[WriteRecruitingActivity] Trigger failed', {
-                userId,
-                sport: sportId,
-                error: err instanceof Error ? err.message : String(err),
-              })
-            );
-          }
-        } catch (err) {
-          logger.error('[WriteRecruitingActivity] Delta computation failed', {
-            userId,
-            sport: sportId,
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }
       }
 
       return {

@@ -22,8 +22,6 @@ import {
 } from '../../../../../services/profile/profile-write-access.service.js';
 import { CACHE_KEYS as USER_CACHE_KEYS } from '../../../../../services/profile/users.service.js';
 import { invalidateProfileCaches } from '../../../../../routes/profile/shared.js';
-import { SyncDiffService, type PreviousVideoEntry } from '../../../sync/index.js';
-import { onDailySyncComplete } from '../../../triggers/trigger.listeners.js';
 import { logger } from '../../../../../utils/logger.js';
 import { normalizeVideoUrl } from '../dedup-utils.js';
 import { resolveCreatedAt } from '../doc-date-utils.js';
@@ -44,6 +42,7 @@ const VideoEntrySchema = z
     videoId: z.string().trim().min(1).optional(),
     poster: z.string().trim().min(1).optional(),
     title: z.string().trim().min(1).optional(),
+    visionSummary: z.string().trim().optional(),
   })
   .passthrough();
 
@@ -144,15 +143,10 @@ export class WriteAthleteVideosTool extends BaseTool {
         .get();
 
       const existingKeys = new Set<string>();
-      const previousVideos: PreviousVideoEntry[] = [];
       for (const doc of existingSnap.docs) {
         const data = doc.data();
         const src = String(data['src'] ?? data['url'] ?? '');
         existingKeys.add(normalizeVideoUrl(src));
-        previousVideos.push({
-          src,
-          provider: String(data['provider'] ?? data['platform'] ?? 'other'),
-        });
       }
 
       let written = 0;
@@ -219,6 +213,7 @@ export class WriteAthleteVideosTool extends BaseTool {
         const videoId = this.str(v, 'videoId');
         const poster = this.str(v, 'poster');
         const title = this.str(v, 'title');
+        const visionSummary = this.str(v, 'visionSummary');
         const trimmedSrc = src.trim();
 
         const record: Record<string, unknown> = {
@@ -254,6 +249,7 @@ export class WriteAthleteVideosTool extends BaseTool {
           record['thumbnailUrl'] = poster; // Frontend mapTimelineDoc reads this
         }
         if (title) record['title'] = title;
+        if (visionSummary) record['visionSummary'] = visionSummary;
 
         const docRef = this.db.collection(POSTS_COLLECTION).doc();
         record['id'] = docRef.id;
@@ -290,66 +286,6 @@ export class WriteAthleteVideosTool extends BaseTool {
         ]);
       } catch {
         // Best-effort
-      }
-
-      // ── Delta computation & fire trigger for Agent X ──────────────────
-      if (written > 0) {
-        try {
-          const diffService = new SyncDiffService();
-          const extractedProfile = {
-            platform: source,
-            profileUrl: '',
-            videos: (videos as Record<string, unknown>[])
-              .filter(
-                (v) =>
-                  v &&
-                  typeof v === 'object' &&
-                  typeof (v as Record<string, unknown>)['src'] === 'string'
-              )
-              .map((v) => {
-                const vid = v as Record<string, unknown>;
-                return {
-                  src: String(vid['src'] ?? ''),
-                  provider: String(vid['provider'] ?? 'other') as
-                    | 'youtube'
-                    | 'hudl'
-                    | 'vimeo'
-                    | 'twitter'
-                    | 'other',
-                  videoId: typeof vid['videoId'] === 'string' ? vid['videoId'] : undefined,
-                  title: typeof vid['title'] === 'string' ? vid['title'] : undefined,
-                };
-              }),
-          };
-
-          const delta = diffService.diff(
-            userId,
-            sportId,
-            source,
-            { videos: previousVideos },
-            extractedProfile
-          );
-
-          if (!delta.isEmpty) {
-            logger.info('[WriteAthleteVideos] Delta detected, firing sync trigger', {
-              userId,
-              sport: sportId,
-              newVideos: delta.summary.newVideos,
-            });
-            onDailySyncComplete(delta).catch((err) => {
-              logger.warn('[WriteAthleteVideos] Trigger dispatch failed', {
-                userId,
-                error: err instanceof Error ? err.message : String(err),
-              });
-            });
-          }
-        } catch (err) {
-          // Delta/trigger is non-critical — log and continue
-          logger.warn('[WriteAthleteVideos] Delta computation failed', {
-            userId,
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }
       }
 
       return {

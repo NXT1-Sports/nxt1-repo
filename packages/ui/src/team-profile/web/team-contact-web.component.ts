@@ -51,16 +51,22 @@ function deriveConnectedHandle(profileUrl: string, fallback: string, prefix = ''
             />
           </div>
           <h3>
-            {{ activeSection() === 'connected' ? 'No social media added' : 'Contact info not set' }}
+            {{
+              activeSection() === 'connected' ? 'No connected accounts yet' : 'Contact info not set'
+            }}
           </h3>
           <p>
             @if (activeSection() === 'connected') {
-              This team hasn't added social media yet.
+              Connect your team's verified platforms and accounts so the program profile feels
+              complete.
             } @else {
               This team hasn't added contact information yet.
             }
           </p>
-          @if (teamProfile.isTeamAdmin()) {
+          @if (
+            teamProfile.isTeamAdmin() &&
+            !(activeSection() === 'connected' && hideConnectedInlineCta())
+          ) {
             <button
               type="button"
               class="madden-cta-btn"
@@ -68,7 +74,7 @@ function deriveConnectedHandle(profileUrl: string, fallback: string, prefix = ''
                 activeSection() === 'connected' ? connectedAccountsClick.emit() : manageTeam.emit()
               "
             >
-              {{ activeSection() === 'connected' ? 'Add Social Media' : 'Add Contact Info' }}
+              {{ activeSection() === 'connected' ? 'Connect Accounts' : 'Add Contact Info' }}
             </button>
           }
         </div>
@@ -122,7 +128,7 @@ function deriveConnectedHandle(profileUrl: string, fallback: string, prefix = ''
               }
 
               @if (activeSection() === 'connected' && connectedAccountsList().length > 0) {
-                <h3 class="contact-section-title">Social Media</h3>
+                <h3 class="contact-section-title">Connected</h3>
                 <div class="contact-social-chips">
                   @for (acct of connectedAccountsList(); track acct.key) {
                     <a
@@ -538,6 +544,7 @@ function deriveConnectedHandle(profileUrl: string, fallback: string, prefix = ''
 export class TeamContactWebComponent {
   protected readonly teamProfile = inject(TeamProfileService);
   readonly activeSection = input<string>('contact');
+  readonly hideConnectedInlineCta = input(false);
 
   /** Emitted when admin clicks a manage CTA button */
   readonly manageTeam = output<void>();

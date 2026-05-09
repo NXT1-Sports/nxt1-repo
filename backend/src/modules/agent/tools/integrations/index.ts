@@ -41,11 +41,13 @@ export { FirecrawlSearchTool } from './firecrawl/mcp/firecrawl-search.tool.js';
 export { FirecrawlMapTool } from './firecrawl/mcp/firecrawl-map.tool.js';
 export { FirecrawlExtractTool } from './firecrawl/mcp/firecrawl-extract.tool.js';
 export { FirecrawlAgentTool } from './firecrawl/mcp/firecrawl-agent.tool.js';
+export { FirecrawlImagesTool } from './firecrawl/mcp/firecrawl-images.tool.js';
 
 // ── Firebase MCP — Read-only Firestore access ─────────────────────────────
 export { FirebaseMcpBridgeService } from './firebase-mcp/firebase-mcp-bridge.service.js';
 export { ListNxt1DataViewsTool } from './firebase-mcp/list-user-firebase-views.tool.js';
 export { QueryNxt1DataTool } from './firebase-mcp/query-user-firebase-data.tool.js';
+export { MutateNxt1DataTool } from './firebase-mcp/mutate-nxt1-data.tool.js';
 
 // ── Microsoft 365 MCP — User-scoped productivity actions ─────────────────
 export {
@@ -168,6 +170,10 @@ export {
   FfmpegConvertVideoTool,
   FfmpegCompressVideoTool,
 } from './ffmpeg-mcp/index.js';
+
+// ── Chart MCP — Data visualization operations ──────────────────────────
+export { ChartMcpBridgeService } from './chart-mcp/chart-mcp-bridge.service.js';
+export { GenerateChartVisualizationTool } from './chart-mcp/index.js';
 
 // ── Cloudflare Stream — Video processing ─────────────────────────────────
 export { CloudflareMcpBridgeService } from './cloudflare-stream/cloudflare-mcp-bridge.service.js';

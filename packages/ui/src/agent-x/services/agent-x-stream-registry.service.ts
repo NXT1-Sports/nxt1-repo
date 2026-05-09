@@ -204,6 +204,15 @@ export class AgentXStreamRegistryService {
   }
 
   /**
+   * Look up the in-flight operationId for a thread (if any). Used by chat
+   * rehydration to suppress persisted `assistant_partial` rows for the
+   * operation that is currently streaming live into the typing bubble.
+   */
+  getOperationIdForThread(threadId: string): string | undefined {
+    return this.threadToOperation.get(threadId);
+  }
+
+  /**
    * Register a new stream. If one already exists for this threadId,
    * the old one is aborted and replaced.
    */
@@ -252,6 +261,14 @@ export class AgentXStreamRegistryService {
     if (last?.type === 'text') {
       entry.parts[entry.parts.length - 1] = { type: 'text', content: last.content + text };
     } else {
+      // First text delta after a non-text part — mark any open thinking blocks as done
+      // so they collapse immediately in the UI rather than waiting for the whole stream.
+      for (let i = 0; i < entry.parts.length; i++) {
+        const p = entry.parts[i];
+        if (p.type === 'thinking' && !p.done) {
+          entry.parts[i] = { type: 'thinking', content: p.content, done: true };
+        }
+      }
       entry.parts.push({ type: 'text', content: text });
     }
 

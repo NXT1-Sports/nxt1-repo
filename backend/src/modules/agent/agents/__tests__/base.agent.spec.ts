@@ -10,6 +10,11 @@ import {
   resetOperationMemoryServiceForTests,
   getOperationMemoryService,
 } from '../../services/operation-memory.service.js';
+import {
+  DEFAULT_AGENT_APP_CONFIG,
+  parseAgentAppConfig,
+  setCachedAgentAppConfig,
+} from '../../config/agent-app-config.js';
 
 class FakeReadTool extends BaseTool {
   readonly name = 'fake_read_tool';
@@ -206,9 +211,44 @@ function createMockContext(): AgentSessionContext {
 afterEach(() => {
   vi.unstubAllGlobals();
   resetOperationMemoryServiceForTests();
+  setCachedAgentAppConfig(DEFAULT_AGENT_APP_CONFIG);
 });
 
 describe('BaseAgent identifier scrubbing', () => {
+  it('preserves identifier fields inside internal tool observations for follow-up tool calls', async () => {
+    const agent = new FakeAgent();
+    const registry = new ToolRegistry();
+    registry.register(new FakeReadTool());
+
+    const observation = await agent.callExecuteTool(
+      {
+        id: 'call_fake_read',
+        type: 'function',
+        function: {
+          name: 'fake_read_tool',
+          arguments: '{}',
+        },
+      },
+      registry,
+      'viewer-1',
+      {
+        operationId: 'op-preserve-identifiers',
+        sessionId: 'session-preserve-identifiers',
+        allowedToolNames: ['fake_read_tool'],
+      }
+    );
+
+    expect(JSON.parse(observation)).toEqual({
+      success: true,
+      data: {
+        userId: 'user-123',
+        teamId: 'team-789',
+        route: '/profile/123456',
+        name: 'Jordan Miles',
+      },
+    });
+  });
+
   it('sanitizes final summaries in non-streaming mode', async () => {
     const agent = new FakeAgent();
     const registry = new ToolRegistry();
@@ -978,6 +1018,45 @@ describe('BaseAgent identifier scrubbing', () => {
 
     expect(systemContent).toContain('Deterministic Compute-First Rule');
     expect(systemContent).toContain('Never estimate or infer totals/counts');
+  });
+
+  it('ignores configured coordinator prompt additions and keeps the base coordinator prompt authoritative', async () => {
+    setCachedAgentAppConfig(
+      parseAgentAppConfig({
+        prompts: {
+          agentSystemPrompts: {
+            strategy_coordinator: 'Operator note for {{today}}.',
+          },
+        },
+      })
+    );
+
+    const agent = new FakeAgent();
+    const registry = new ToolRegistry();
+    const llm = {
+      complete: vi.fn().mockResolvedValue({
+        content: 'Done.',
+        toolCalls: [],
+        model: 'test-model',
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+        latencyMs: 1,
+        costUsd: 0,
+        finishReason: 'stop',
+      }),
+    };
+
+    await agent.execute('What should I do today?', createMockContext(), [], llm as never, registry);
+
+    const messages = vi.mocked(llm.complete).mock.calls[0]?.[0] as Array<{
+      role: string;
+      content: unknown;
+    }>;
+    const systemMessage = messages.find((message) => message.role === 'system');
+    const systemContent = String(systemMessage?.content ?? '');
+
+    expect(systemContent).toContain('You are a test agent.');
+    expect(systemContent).not.toContain('## Operator Additions');
+    expect(systemContent).not.toContain('Operator note for');
   });
 
   it('attaches evidenceTrace metadata for numeric tool-backed responses', async () => {

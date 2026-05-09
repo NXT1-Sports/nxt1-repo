@@ -15,6 +15,7 @@ import crypto from 'crypto';
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../../base.tool.js';
 import { getCacheService } from '../../../../../services/core/cache.service.js';
+import { canManageTeamMutationForUser } from '../../../../../services/team/team-intel-permissions.js';
 import { logger } from '../../../../../utils/logger.js';
 import { resolveCreatedAt } from '../doc-date-utils.js';
 import { z } from 'zod';
@@ -95,10 +96,20 @@ export class WriteTeamNewsTool extends BaseTool {
     }
 
     try {
-      // Verify team exists
+      // Verify team exists and actor can manage team content
       const teamDoc = await this.db.collection(TEAMS_COLLECTION).doc(teamId).get();
       if (!teamDoc.exists) {
         return { success: false, error: `Team ${teamId} not found.` };
+      }
+      const teamData = teamDoc.data() ?? {};
+      const isAuthorized = await canManageTeamMutationForUser(
+        this.db,
+        context.userId,
+        teamId,
+        teamData
+      );
+      if (!isAuthorized) {
+        return { success: false, error: 'Not authorized to write news for this team.' };
       }
 
       const now = new Date().toISOString();

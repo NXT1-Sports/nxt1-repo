@@ -7,8 +7,8 @@
  *
  * Suffix rules:
  *   environment.ts         → {version}-dev
- *   environment.staging.ts → {version}-staging
- *   environment.prod.ts    → {version}          (no suffix)
+ *   environment.staging.ts → {version}
+ *   environment.prod.ts    → {version}
  *
  * Usage:
  *   node scripts/sync-version.mjs          # auto-detect from package.json
@@ -51,11 +51,11 @@ console.log(`📦 Syncing appVersion → ${version}`);
 const targets = [
   // Web
   { file: 'apps/web/src/environments/environment.ts', suffix: '-dev' },
-  { file: 'apps/web/src/environments/environment.staging.ts', suffix: '-staging' },
+  { file: 'apps/web/src/environments/environment.staging.ts', suffix: '' },
   { file: 'apps/web/src/environments/environment.prod.ts', suffix: '' },
   // Mobile
   { file: 'apps/mobile/src/environments/environment.ts', suffix: '-dev' },
-  { file: 'apps/mobile/src/environments/environment.staging.ts', suffix: '-staging' },
+  { file: 'apps/mobile/src/environments/environment.staging.ts', suffix: '' },
   { file: 'apps/mobile/src/environments/environment.prod.ts', suffix: '' },
 ];
 

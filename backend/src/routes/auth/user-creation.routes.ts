@@ -18,6 +18,7 @@ import { RosterEntryStatus } from '@nxt1/core/models';
 import { validateBody } from '../../middleware/validation/validation.middleware.js';
 import { CreateUserDto, JoinTeamDto } from '../../dtos/auth.dto.js';
 import { createRosterEntryService } from '../../services/team/roster-entry.service.js';
+import { resolveRosterPositions } from '../../services/team/roster-sport-profile.service.js';
 import { logger } from '../../utils/logger.js';
 
 const router: RouterType = Router();
@@ -225,11 +226,7 @@ router.post(
 
       const sportProfiles = freshUserData?.['sports'] as SportProfile[] | undefined;
       const athletePositions =
-        userRole === 'athlete'
-          ? sportProfiles?.find(
-              (s) => s.sport?.trim().toLowerCase() === teamSport.trim().toLowerCase()
-            )?.positions
-          : undefined;
+        userRole === 'athlete' ? resolveRosterPositions(sportProfiles, teamSport) : undefined;
 
       await rosterService.createRosterEntry({
         userId,

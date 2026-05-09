@@ -279,8 +279,8 @@ export function buildCanonicalTeamPath(input: CanonicalTeamPathInput): string {
     buildTeamSlug(input.teamName ?? input.title ?? String(input.id ?? 'team')) ||
     'team';
 
-  const teamCode = normalizeTeamRouteValue(input.teamCode);
-  const preferredIdentifier = teamCode && !isLikelyDocumentIdentifier(teamCode) ? teamCode : '';
+  const preferredIdentifier =
+    normalizeTeamRouteValue(input.teamCode) || normalizeTeamRouteValue(input.id);
 
   return preferredIdentifier
     ? `/team/${slugSegment}/${encodeURIComponent(preferredIdentifier)}`
@@ -309,16 +309,6 @@ function normalizeTeamRouteValue(value: string | number | null | undefined): str
   return value == null ? '' : String(value).trim();
 }
 
-function isLikelySlugValue(value: string): boolean {
-  return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value.trim());
-}
-
-function isLikelyDocumentIdentifier(value: string): boolean {
-  const trimmed = value.trim();
-  // Firestore IDs are commonly 20+ alphanumeric mixed-case strings.
-  return /^[A-Za-z0-9]{20,}$/.test(trimmed) && /[A-Z]/.test(trimmed) && /[a-z]/.test(trimmed);
-}
-
 export function resolveCanonicalTeamRoute(
   input: ResolveCanonicalTeamRouteInput
 ): ResolvedCanonicalTeamRoute | null {
@@ -328,14 +318,16 @@ export function resolveCanonicalTeamRoute(
     buildTeamSlug(teamName || normalizeTeamRouteValue(input.id) || 'team');
 
   const explicitTeamIdentifier =
-    [normalizeTeamRouteValue(input.teamCode), normalizeTeamRouteValue(input.code)]
+    [
+      normalizeTeamRouteValue(input.teamCode),
+      normalizeTeamRouteValue(input.code),
+      normalizeTeamRouteValue(input.teamId),
+      normalizeTeamRouteValue(input.id),
+    ]
       .filter(Boolean)
       .find((value) => {
         const normalizedValue = value.toLowerCase();
-        if (slug && normalizedValue === slug.toLowerCase()) return false;
-        if (isLikelyDocumentIdentifier(value)) return false;
-
-        return !isLikelySlugValue(value) || /[A-Z0-9]/.test(value);
+        return !(slug && normalizedValue === slug.toLowerCase());
       }) ?? '';
 
   const teamIdentifier = explicitTeamIdentifier;
@@ -348,7 +340,6 @@ export function resolveCanonicalTeamRoute(
     slug,
     teamName,
     teamCode: teamIdentifier,
-    id: input.id,
   });
 
   return {

@@ -40,6 +40,7 @@ function createMockLLM(result: LLMCompletionResult): OpenRouterService {
   return {
     prompt: vi.fn().mockResolvedValue(result),
     complete: vi.fn(),
+    completeStream: vi.fn(),
   } as unknown as OpenRouterService;
 }
 
@@ -251,7 +252,7 @@ describe('PlannerAgent', () => {
     const planner = new PlannerAgent(createMockLLM(createStrictPlannerResponse()));
 
     expect(planner.getAvailableTools()).toEqual([]);
-    expect(planner.getModelRouting()).toMatchObject({ tier: 'routing', maxTokens: 1024 });
+    expect(planner.getModelRouting()).toMatchObject({ tier: 'routing', maxTokens: 4096 });
   });
 
   it('returns strict-planning metadata', async () => {
@@ -269,5 +270,57 @@ describe('PlannerAgent', () => {
     expect(String(metadata['classificationReasoning'])).toContain(
       'legacy tier classification removed'
     );
+  });
+
+  it('streams planner thinking immediately when onStreamEvent is provided', async () => {
+    const response = createStrictPlannerResponse({
+      summary: 'Planned successfully.',
+      tasks: [
+        {
+          id: '1',
+          assignedAgent: 'strategy_coordinator',
+          description: 'Create recruiting plan.',
+          dependsOn: [],
+        },
+      ],
+    });
+    const llm = createMockLLM(response);
+
+    (llm.completeStream as ReturnType<typeof vi.fn>).mockImplementation(
+      async (_messages, _options, onDelta) => {
+        onDelta({ content: '', done: false, thinkingContent: 'Thinking first...' });
+        onDelta({ content: '', done: false, thinkingContent: 'Thinking second...' });
+        onDelta({ content: '', done: true });
+        return {
+          content: JSON.stringify(response.parsedOutput),
+          model: 'anthropic/claude-sonnet-4-5',
+          toolCalls: [],
+          usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
+          latencyMs: 200,
+          costUsd: 0.0001,
+          finishReason: 'stop',
+        };
+      }
+    );
+
+    const planner = new PlannerAgent(llm);
+    const events: string[] = [];
+    const result = await planner.execute(
+      'Build plan',
+      context,
+      [],
+      undefined,
+      undefined,
+      undefined,
+      (event) => {
+        if (event.type === 'thinking' && event.thinkingText) {
+          events.push(event.thinkingText);
+        }
+      }
+    );
+
+    expect(llm.completeStream).toHaveBeenCalledTimes(1);
+    expect(events).toEqual(['Thinking first...', 'Thinking second...']);
+    expect(result.summary).toBe('Planned successfully.');
   });
 });

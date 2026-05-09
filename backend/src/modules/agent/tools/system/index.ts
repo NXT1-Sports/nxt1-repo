@@ -1,5 +1,7 @@
 export { DelegateTaskTool } from './delegate-task.tool.js';
 export { DelegateToCoordinatorTool } from './delegate-to-coordinator.tool.js';
+export { CreatePlanTool } from './create-plan.tool.js';
+export { ExecuteSavedPlanTool } from './execute-saved-plan.tool.js';
 export { PlanAndExecuteTool } from './plan-and-execute.tool.js';
 export { WhoamiCapabilitiesTool } from './whoami-capabilities.tool.js';
 export * from './dynamic-export.tool.js';

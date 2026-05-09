@@ -66,35 +66,14 @@ import {
   // ── Update (patch) ──────────────────────────────────────────────────
   UpdateIntelTool,
   UpdateCoreIdentityTool,
-  UpdateAwardsTool,
-  UpdateCombineMetricsTool,
-  UpdateRankingsTool,
-  UpdateSeasonStatsTool,
-  UpdateRecruitingActivityTool,
   UpdateAthleteVideosTool,
   UpdateTimelinePostTool,
-  UpdateCalendarEventsTool,
-  UpdateRosterEntriesTool,
-  UpdateScheduleEventTool,
-  UpdateTeamStatsTool,
-  UpdateTeamNewsTool,
   UpdateTeamPostTool,
   UpdateConnectedSourceTool,
   // ── Delete ──────────────────────────────────────────────────────────
-  DeleteIntelTool,
   DeleteCoreIdentityTool,
-  DeleteAwardsTool,
-  DeleteCombineMetricsTool,
-  DeleteRankingsTool,
-  DeleteSeasonStatsTool,
-  DeleteRecruitingActivityTool,
   DeleteAthleteVideosTool,
   DeleteTimelinePostTool,
-  DeleteCalendarEventsTool,
-  DeleteRosterEntriesTool,
-  DeleteScheduleEventTool,
-  DeleteTeamStatsTool,
-  DeleteTeamNewsTool,
   DeleteTeamPostTool,
   DeleteConnectedSourceTool,
 } from '../tools/intel/index.js';
@@ -112,12 +91,23 @@ import {
   GetRecentSyncSummariesTool,
 } from '../tools/analytics/index.js';
 import { SearchMemoryTool, SaveMemoryTool, DeleteMemoryTool } from '../tools/memory/index.js';
-import { GenerateGraphicTool, AnalyzeVideoTool, StageMediaTool } from '../tools/media/index.js';
+import {
+  GenerateGraphicTool,
+  AnalyzeVideoTool,
+  AnalyzeImageTool,
+  StageMediaTool,
+  ExtractHudlVideoTool,
+} from '../tools/media/index.js';
+import { GeminiFilesService } from '../llm/gemini-files.service.js';
+import { ClassifyMediaUrlTool } from '../tools/media/classify-media-url.tool.js';
+import { WriteAthleteImagesTool } from '../tools/intel/user/write-athlete-images.tool.js';
 import {
   AskUserTool,
+  CreatePlanTool,
   DelegateTaskTool,
   DelegateToCoordinatorTool,
   DynamicExportTool,
+  ExecuteSavedPlanTool,
   PlanAndExecuteTool,
   WhoamiCapabilitiesTool,
 } from '../tools/system/index.js';
@@ -130,6 +120,7 @@ import {
 import { CapabilityRegistry } from '../capabilities/capability-registry.js';
 import { PrimaryAgent } from '../agents/primary.agent.js';
 import { AgentRouterPrimaryService } from '../orchestrator/agent-router-primary.service.js';
+import { AgentPlanRepository } from './agent-plan.repository.js';
 import { WebSearchTool } from '../tools/integrations/web/web-search.tool.js';
 import { SendEmailTool } from '../tools/integrations/email/send-email.tool.js';
 import { BatchSendEmailTool } from '../tools/integrations/email/batch-send-email.tool.js';
@@ -159,8 +150,10 @@ import {
   FirecrawlMapTool,
   FirecrawlExtractTool,
   FirecrawlAgentTool,
+  FirecrawlImagesTool,
   ListNxt1DataViewsTool,
   QueryNxt1DataTool,
+  MutateNxt1DataTool,
   FfmpegMcpBridgeService,
   FfmpegTrimVideoTool,
   FfmpegMergeVideosTool,
@@ -170,6 +163,8 @@ import {
   FfmpegGenerateThumbnailTool,
   FfmpegConvertVideoTool,
   FfmpegCompressVideoTool,
+  ChartMcpBridgeService,
+  GenerateChartVisualizationTool,
   CloudflareMcpBridgeService,
   CreateSupportTicketTool,
   ImportVideoTool,
@@ -188,6 +183,7 @@ import {
 } from '../tools/integrations/index.js';
 import {
   ScheduleRecurringTaskTool,
+  UpdateRecurringTaskTool,
   ListRecurringTasksTool,
   CancelRecurringTaskTool,
 } from '../tools/automation/index.js';
@@ -205,6 +201,7 @@ import {
   AthleteScoutingSkill,
   TeamScoutingSkill,
   VideoAnalysisSkill,
+  ImageAnalysisSkill,
   FilmBreakdownTaxonomySkill,
   OpponentScoutingPacketSkill,
   OutreachCopywritingSkill,
@@ -407,39 +404,19 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   toolRegistry.register(new WriteTeamPostTool(stagingDb));
   toolRegistry.register(new WriteRosterEntriesTool(stagingDb));
   toolRegistry.register(new WriteAthleteVideosTool(stagingDb));
+  toolRegistry.register(new WriteAthleteImagesTool(stagingDb));
   toolRegistry.register(new WriteIntelTool(stagingDb));
   // ── Update (patch) tools ─────────────────────────────────────────────
   toolRegistry.register(new UpdateIntelTool(stagingDb));
   toolRegistry.register(new UpdateCoreIdentityTool(stagingDb));
-  toolRegistry.register(new UpdateAwardsTool(stagingDb));
-  toolRegistry.register(new UpdateCombineMetricsTool(stagingDb));
-  toolRegistry.register(new UpdateRankingsTool(stagingDb));
-  toolRegistry.register(new UpdateSeasonStatsTool(stagingDb));
-  toolRegistry.register(new UpdateRecruitingActivityTool(stagingDb));
   toolRegistry.register(new UpdateAthleteVideosTool(stagingDb));
   toolRegistry.register(new UpdateTimelinePostTool(stagingDb));
-  toolRegistry.register(new UpdateCalendarEventsTool(stagingDb));
-  toolRegistry.register(new UpdateRosterEntriesTool(stagingDb));
-  toolRegistry.register(new UpdateScheduleEventTool(stagingDb));
-  toolRegistry.register(new UpdateTeamStatsTool(stagingDb));
-  toolRegistry.register(new UpdateTeamNewsTool(stagingDb));
   toolRegistry.register(new UpdateTeamPostTool(stagingDb));
   toolRegistry.register(new UpdateConnectedSourceTool(stagingDb));
   // ── Delete tools ─────────────────────────────────────────────────────
-  toolRegistry.register(new DeleteIntelTool(stagingDb));
   toolRegistry.register(new DeleteCoreIdentityTool(stagingDb));
-  toolRegistry.register(new DeleteAwardsTool(stagingDb));
-  toolRegistry.register(new DeleteCombineMetricsTool(stagingDb));
-  toolRegistry.register(new DeleteRankingsTool(stagingDb));
-  toolRegistry.register(new DeleteSeasonStatsTool(stagingDb));
-  toolRegistry.register(new DeleteRecruitingActivityTool(stagingDb));
   toolRegistry.register(new DeleteAthleteVideosTool(stagingDb));
   toolRegistry.register(new DeleteTimelinePostTool(stagingDb));
-  toolRegistry.register(new DeleteCalendarEventsTool(stagingDb));
-  toolRegistry.register(new DeleteRosterEntriesTool(stagingDb));
-  toolRegistry.register(new DeleteScheduleEventTool(stagingDb));
-  toolRegistry.register(new DeleteTeamStatsTool(stagingDb));
-  toolRegistry.register(new DeleteTeamNewsTool(stagingDb));
   toolRegistry.register(new DeleteTeamPostTool(stagingDb));
   toolRegistry.register(new DeleteConnectedSourceTool(stagingDb));
   toolRegistry.register(new SearchNxt1PlatformTool());
@@ -452,11 +429,15 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   toolRegistry.register(new GetConferenceLogosTool());
   toolRegistry.register(new GenerateGraphicTool(llm));
   toolRegistry.register(new StageMediaTool());
+  toolRegistry.register(new ClassifyMediaUrlTool());
+  toolRegistry.register(new ExtractHudlVideoTool());
   toolRegistry.register(new DynamicExportTool());
 
   let apifyMcpBridge: ApifyMcpBridgeService | undefined;
   let cfBridge: CloudflareMcpBridgeService | undefined;
   let ffmpegBridge: FfmpegMcpBridgeService | undefined;
+  let chartBridge: ChartMcpBridgeService | undefined;
+  let geminiFiles: GeminiFilesService | undefined;
 
   // System tools (cross-cutting infrastructure — available to all agents)
   toolRegistry.register(new DelegateTaskTool());
@@ -465,6 +446,8 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   // The Primary Agent handles all conversational requests and dispatches
   // sub-tasks via these tools.
   toolRegistry.register(new DelegateToCoordinatorTool());
+  toolRegistry.register(new CreatePlanTool());
+  toolRegistry.register(new ExecuteSavedPlanTool());
   toolRegistry.register(new PlanAndExecuteTool());
 
   // ── 1a. Vector memory & knowledge tools ──────────────────────────────
@@ -516,8 +499,9 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
     toolRegistry.register(new FirecrawlMapTool(firecrawlMcpBridge));
     toolRegistry.register(new FirecrawlExtractTool(firecrawlMcpBridge));
     toolRegistry.register(new FirecrawlAgentTool(firecrawlMcpBridge));
+    toolRegistry.register(new FirecrawlImagesTool(firecrawlMcpBridge));
     logger.info(
-      'MCP-bridged Firecrawl tools registered (scrape_webpage, firecrawl_search_web, map_website, extract_web_data, firecrawl_agent_research)'
+      'MCP-bridged Firecrawl tools registered (scrape_webpage, firecrawl_search_web, map_website, extract_web_data, firecrawl_agent_research, extract_page_images)'
     );
   }
 
@@ -525,7 +509,10 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   if (firebaseMcpBridge) {
     toolRegistry.register(new ListNxt1DataViewsTool(firebaseMcpBridge));
     toolRegistry.register(new QueryNxt1DataTool(firebaseMcpBridge));
-    logger.info('MCP-bridged NXT1 data tools registered (list_nxt1_data_views, query_nxt1_data)');
+    toolRegistry.register(new MutateNxt1DataTool(firebaseMcpBridge));
+    logger.info(
+      'MCP-bridged NXT1 data tools registered (list_nxt1_data_views, query_nxt1_data, mutate_nxt1_data)'
+    );
   }
 
   // ── 1d.2. Google Workspace MCP tools (user-scoped productivity actions) ───
@@ -610,7 +597,34 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
     logger.warn('FFMPEG_MCP_URL not configured — FFmpeg MCP tools disabled');
   }
 
-  toolRegistry.register(new AnalyzeVideoTool(scraperService, llm, apifyMcpBridge, ffmpegBridge));
+  // ── Gemini Files API service (for Firebase/GCS video analysis) ────────────
+  // Enables direct video upload to Gemini Files API, bypassing the OpenRouter
+  // proxy for Firebase GCS signed URLs that Gemini cannot fetch directly.
+  // Supports MOV (video/quicktime) natively — no FFmpeg conversion needed.
+  if (GeminiFilesService.isConfigured()) {
+    geminiFiles = new GeminiFilesService();
+    logger.info(
+      'GeminiFilesService initialized — Firebase/GCS video analysis via Files API enabled'
+    );
+  } else {
+    logger.warn(
+      'GEMINI_API_KEY not configured — GeminiFilesService disabled. Firebase MOV analysis will use FFmpeg fallback.'
+    );
+  }
+
+  // ── 1e.2. MCP-bridged Chart tools (analytics + visualization) ─────────
+  try {
+    chartBridge = new ChartMcpBridgeService();
+    toolRegistry.register(new GenerateChartVisualizationTool(chartBridge));
+    logger.info('MCP-bridged Chart tools registered (generate_chart_visualization)');
+  } catch {
+    logger.warn('CHART_MCP_URL not configured — Chart MCP tools disabled');
+  }
+
+  toolRegistry.register(
+    new AnalyzeVideoTool(scraperService, llm, apifyMcpBridge, ffmpegBridge, geminiFiles)
+  );
+  toolRegistry.register(new AnalyzeImageTool(llm));
 
   // ── 1f. MCP-bridged Runway ML tools (AI video generation) ──────────────
   if (runwayMcpBridge) {
@@ -636,6 +650,7 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   skillRegistry.register(new AthleteScoutingSkill());
   skillRegistry.register(new TeamScoutingSkill());
   skillRegistry.register(new VideoAnalysisSkill());
+  skillRegistry.register(new ImageAnalysisSkill());
   skillRegistry.register(new FilmBreakdownTaxonomySkill());
   skillRegistry.register(new OpponentScoutingPacketSkill());
   skillRegistry.register(new OutreachCopywritingSkill());
@@ -691,6 +706,7 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   const primaryService = new AgentRouterPrimaryService({
     ...router.getOrchestratorBundle(),
     agents: router.getRegisteredAgents(),
+    planRepository: new AgentPlanRepository(appDb, stagingDb),
     resolveToolAccessContext: async (uid: string) => {
       const userCtx = await contextBuilder.buildContext(uid);
       return router.getOrchestratorBundle().policyService.buildToolAccessContext(userCtx);
@@ -712,6 +728,7 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
 
   // ── 3a. Automation tools (require queueService + Firestore for durable metadata) ──
   toolRegistry.register(new ScheduleRecurringTaskTool(queueService, stagingDb));
+  toolRegistry.register(new UpdateRecurringTaskTool(queueService, stagingDb));
   toolRegistry.register(new ListRecurringTasksTool(queueService, stagingDb));
   toolRegistry.register(new CancelRecurringTaskTool(queueService, stagingDb));
 

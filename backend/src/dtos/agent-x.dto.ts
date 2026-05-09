@@ -323,6 +323,20 @@ export class AgentEnqueueRequestDto {
   @Matches(/^[a-f0-9]{24}$/i, { message: 'threadId must be a valid 24-character hex string' })
   threadId?: string;
 
+  @IsArray()
+  @IsOptional()
+  @ArrayMaxSize(5)
+  @ValidateNested({ each: true })
+  @Type(() => ChatAttachmentDto)
+  attachments?: ChatAttachmentDto[];
+
+  @IsArray()
+  @IsOptional()
+  @ArrayMaxSize(20)
+  @ValidateNested({ each: true })
+  @Type(() => ConnectedSourceDto)
+  connectedSources?: ConnectedSourceDto[];
+
   @IsOptional()
   @ValidateNested()
   @Type(() => SelectedActionDto)
@@ -593,6 +607,10 @@ export class UpdatePlaybookItemStatusDto {
   })
   @IsNotEmpty()
   status!: PlaybookItemStatus;
+
+  @IsString()
+  @IsOptional()
+  playbookId?: string;
 }
 
 export class GenerateBriefingDto {

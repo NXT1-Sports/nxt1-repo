@@ -120,6 +120,39 @@ describe('ProfileWriteAccessService', () => {
     expect(result.sharedSports).toEqual(['football']);
   });
 
+  it('normalizes delegated shared sport scope for legacy gender-suffixed roster sports', async () => {
+    mockGetUserTeams.mockResolvedValue([
+      {
+        userId: 'coach-1',
+        teamId: 'team-1',
+        organizationId: 'org-1',
+        sport: 'basketball',
+        role: 'coach',
+        status: RosterEntryStatus.ACTIVE,
+      },
+    ]);
+    mockGetActiveOrPendingRosterEntry.mockResolvedValue({
+      userId: 'athlete-1',
+      teamId: 'team-1',
+      organizationId: 'org-1',
+      sport: 'basketball mens',
+      role: 'athlete',
+      status: RosterEntryStatus.ACTIVE,
+    });
+
+    const service = createProfileWriteAccessService(
+      createDb({ role: 'athlete', displayName: 'Athlete Target' }) as never
+    );
+
+    const result = await service.assertCanManageProfileTarget({
+      actorUserId: 'coach-1',
+      targetUserId: 'athlete-1',
+      action: 'test:delegated-gender-normalized-sport-scope',
+    });
+
+    expect(result.sharedSports).toEqual(['basketball']);
+  });
+
   it('rejects delegated writes when the target is not an athlete', async () => {
     const service = createProfileWriteAccessService(
       createDb({ role: 'coach', displayName: 'Another Coach' }) as never
@@ -251,6 +284,36 @@ describe('ProfileWriteAccessService', () => {
 
     expect(selection?.index).toBe(0);
     expect(selection?.sportKey).toBe('football');
+  });
+
+  it('resolves sport access when the stored sport uses legacy gender suffix formatting', () => {
+    const selection = resolveAuthorizedTargetSportSelection(
+      {
+        sports: [
+          {
+            sport: 'basketball mens',
+            team: {
+              teamId: 'team-1',
+              organizationId: 'org-1',
+            },
+          },
+        ],
+      },
+      'basketball',
+      {
+        actorUserId: 'user-1',
+        targetUserId: 'user-1',
+        targetRole: 'athlete',
+        targetUserData: {},
+        isSelfWrite: true,
+        sharedTeamIds: [],
+        sharedOrganizationIds: [],
+        sharedSports: [],
+      }
+    );
+
+    expect(selection?.index).toBe(0);
+    expect(selection?.sportKey).toBe('basketball');
   });
 
   it('rejects delegated sport access when the roster sport does not match', () => {

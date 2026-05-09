@@ -5,8 +5,12 @@ import { firstValueFrom } from 'rxjs';
 import {
   createAgentXApi,
   type AgentXApi,
+  type AgentXAskUserPayload,
+  type AgentXBillingActionPayload,
+  type AgentXBillingActionReason,
   type AgentXToolStep,
   type AgentXMessagePart,
+  type AgentXRichCard,
 } from '@nxt1/core/ai';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import { HapticsService } from '../../../services/haptics/haptics.service';
@@ -72,7 +76,16 @@ export class AgentXOperationChatMessageFacade {
   }
 
   pushMessage(message: OperationMessage): void {
-    this.messages.update((previous) => [...previous, message]);
+    this.messages.update((previous) => {
+      // Sentinel-id dedup: only one row may carry id === 'typing' at a time.
+      // Multiple call sites (run-control send, yield resume, sse-fallback,
+      // reconnect rehydrate) push typing bubbles independently, so guard here
+      // to keep @for track unique and avoid NG0955.
+      if (message.id === 'typing' && previous.some((entry) => entry.id === 'typing')) {
+        return previous;
+      }
+      return [...previous, message];
+    });
   }
 
   replaceTyping(message: OperationMessage): void {
@@ -649,21 +662,165 @@ export class AgentXOperationChatMessageFacade {
 
   upsertInlineYieldMessage(yieldState: AgentYieldState, operationId: string): void {
     const messageId = this.inlineYieldMessageId(yieldState, operationId);
+    const incomingKey = this.yieldIdentityKey(yieldState);
+    const promptText = this.normalizeYieldPrompt(yieldState.promptToUser);
 
     this.messages.update((messages) => {
-      const existingIndex = messages.findIndex((message) => message.id === messageId);
-      if (existingIndex >= 0) {
-        return messages.map((message, index) =>
-          index === existingIndex ? { ...message, yieldState, operationId } : message
+      const isActionableApprovalCard = (card: AgentXRichCard): boolean => {
+        if (card.type !== 'confirmation') return false;
+        const payload = card.payload as Record<string, unknown> | undefined;
+        if (!payload || typeof payload !== 'object') return false;
+        const hasApprovalId =
+          typeof payload['approvalId'] === 'string' && payload['approvalId'].length > 0;
+        if (!hasApprovalId) return false;
+        const actions = payload['actions'];
+        return Array.isArray(actions) && actions.length > 0;
+      };
+      const messageHasVisiblePayload = (message: OperationMessage): boolean =>
+        (message.content ?? '').trim().length > 0 ||
+        (message.attachments?.length ?? 0) > 0 ||
+        (message.steps?.length ?? 0) > 0 ||
+        (message.parts?.length ?? 0) > 0 ||
+        (message.cards?.length ?? 0) > 0;
+      const typingIndex = messages.findIndex((message) => message.id === 'typing');
+      const typingMessage = typingIndex >= 0 ? messages[typingIndex] : undefined;
+      const carriedParts = typingMessage?.parts?.filter(
+        (part) => part.type !== 'card' || !isActionableApprovalCard(part.card)
+      );
+      const carriedCards = typingMessage?.cards?.filter((card) => !isActionableApprovalCard(card));
+      const hasCarriedTypingPayload =
+        !!typingMessage &&
+        ((typingMessage.content ?? '').trim().length > 0 ||
+          (typingMessage.attachments?.length ?? 0) > 0 ||
+          (typingMessage.steps?.length ?? 0) > 0 ||
+          (carriedParts?.length ?? 0) > 0 ||
+          (carriedCards?.length ?? 0) > 0);
+
+      const carriedTypingPayload: Partial<OperationMessage> = hasCarriedTypingPayload
+        ? {
+            content: typingMessage?.content ?? '',
+            ...(typingMessage?.attachments?.length
+              ? { attachments: typingMessage.attachments }
+              : {}),
+            ...(typingMessage?.steps?.length ? { steps: typingMessage.steps } : {}),
+            ...(carriedCards?.length ? { cards: carriedCards } : {}),
+            ...(carriedParts?.length ? { parts: carriedParts } : {}),
+          }
+        : {};
+
+      const clearTypingCarrier = (rows: readonly OperationMessage[]): OperationMessage[] => {
+        if (!hasCarriedTypingPayload) return [...rows];
+
+        return rows.map((message) =>
+          message.id !== 'typing'
+            ? message
+            : {
+                ...message,
+                content: '',
+                attachments: [],
+                cards: [],
+                parts: [],
+                steps: [],
+                isTyping: false,
+              }
+        );
+      };
+
+      // Resolve the existing row in priority order:
+      //   1. Exact ID match (current canonical id).
+      //   2. Any existing yield bubble carrying the same yield identity
+      //      (approvalId / toolCallId / reason). This collapses legacy ids
+      //      that historically embedded the operationId.
+      //   3. An assistant row whose cards/parts already include a
+      //      confirmation card carrying this yield identity. This covers
+      //      the live SSE path where `onCard` attaches the confirmation
+      //      card to the streaming message *before* `onOperation` fires
+      //      with the yield state — without this we'd render two cards
+      //      (one from the persisted card payload, one from the synthetic
+      //      yield bubble).
+      //   4. A persisted assistant row in the same operation whose content
+      //      matches the yield's promptToUser. The backend persists the
+      //      prompt as an assistant message *and* on the thread metadata —
+      //      adopting it here prevents a duplicate "I drafted a plan" bubble
+      //      on rehydrate.
+      //   5. Any existing yield row in the same operation with the same
+      //      reason. This collapses mixed-source ask_user arrivals where
+      //      the card-synthesized yield and operation-stream yield carry
+      //      different toolCallId values but refer to the same interruption.
+      let existingIndex = messages.findIndex((message) => message.id === messageId);
+
+      if (existingIndex < 0 && incomingKey) {
+        existingIndex = messages.findIndex(
+          (message) =>
+            !!message.yieldState && this.yieldIdentityKey(message.yieldState) === incomingKey
         );
       }
 
-      const typingIndex = messages.findIndex((message) => message.id === 'typing');
+      if (existingIndex < 0) {
+        existingIndex = messages.findIndex(
+          (message) =>
+            message.role === 'assistant' && this.assistantRowHasYieldIdentity(message, incomingKey)
+        );
+      }
+
+      if (existingIndex < 0 && promptText) {
+        existingIndex = messages.findIndex(
+          (message) =>
+            message.role === 'assistant' &&
+            !message.yieldState &&
+            !message.isTyping &&
+            (message.operationId ?? '') === (operationId ?? '') &&
+            this.normalizeYieldPrompt(message.content) === promptText
+        );
+      }
+
+      if (existingIndex < 0) {
+        existingIndex = messages.findIndex(
+          (message) =>
+            !!message.yieldState &&
+            (message.operationId ?? '') === (operationId ?? '') &&
+            message.yieldState.reason === yieldState.reason
+        );
+      }
+
+      if (existingIndex >= 0) {
+        const existing = messages[existingIndex];
+        const updated: OperationMessage = {
+          ...existing,
+          ...(!messageHasVisiblePayload(existing) ? carriedTypingPayload : {}),
+          id: messageId,
+          yieldState,
+          operationId: operationId || existing.operationId,
+          yieldCardState: existing.yieldCardState ?? 'idle',
+        };
+
+        // Keep existing persisted row inline with the active stream: when a typing
+        // placeholder exists, the ask-user card should sit directly below it.
+        if (typingIndex >= 0) {
+          const withoutExisting = clearTypingCarrier(messages).filter(
+            (_, index) => index !== existingIndex
+          );
+          const nextTypingIndex = withoutExisting.findIndex((message) => message.id === 'typing');
+          if (nextTypingIndex >= 0) {
+            return [
+              ...withoutExisting.slice(0, nextTypingIndex + 1),
+              updated,
+              ...withoutExisting.slice(nextTypingIndex + 1),
+            ];
+          }
+        }
+
+        return clearTypingCarrier(messages).map((message, index) =>
+          index === existingIndex ? updated : message
+        );
+      }
+
       const yieldMessage: OperationMessage = {
         id: messageId,
         role: 'assistant',
-        content: '',
-        timestamp: new Date(),
+        ...(carriedTypingPayload as Omit<OperationMessage, 'id' | 'role' | 'timestamp'>),
+        content: (carriedTypingPayload.content as string | undefined) ?? '',
+        timestamp: typingMessage?.timestamp ?? new Date(),
         operationId,
         yieldState,
         yieldCardState: 'idle',
@@ -673,12 +830,237 @@ export class AgentXOperationChatMessageFacade {
         return [...messages, yieldMessage];
       }
 
-      return [
+      return clearTypingCarrier([
         ...messages.slice(0, typingIndex + 1),
         yieldMessage,
         ...messages.slice(typingIndex + 1),
-      ];
+      ]);
     });
+  }
+
+  /**
+   * Attach a card emitted by the live SSE stream to the in-flight assistant
+   * message. When the card is a `confirmation` carrying a `yieldState`, the
+   * card represents an approval prompt that is *also* delivered via the
+   * `operation` SSE event — routing it through `upsertInlineYieldMessage`
+   * collapses both sources onto a single canonical yield bubble (avoids
+   * rendering two stacked approval cards).
+   *
+   * @param streamingId - The id of the streaming assistant message.
+   * @param card - The card payload from the SSE `card` event.
+   * @param fallbackOperationId - Operation id used when the host has no
+   *                              currently-tracked operation id.
+   * @param clearText - Whether the streaming message text should be cleared
+   *                    (mirrors the SSE event flag).
+   */
+  attachStreamedCard(
+    streamingId: string,
+    card: AgentXRichCard,
+    fallbackOperationId: string,
+    clearText: boolean
+  ): void {
+    const yieldPayload = this.extractYieldStateFromCard(card);
+
+    if (yieldPayload) {
+      const incomingKey = this.yieldIdentityKey(yieldPayload);
+      const operationId = this.resolveCardOperationId(fallbackOperationId, yieldPayload);
+
+      // Route the yield through the canonical upsert: this either creates
+      // the synthetic yield bubble or adopts an existing row (e.g. a paused
+      // assistant turn loaded from history).
+      this.upsertInlineYieldMessage(yieldPayload, operationId);
+
+      const canonicalId = this.inlineYieldMessageId(yieldPayload, operationId);
+
+      // Stamp the card onto the canonical yield row (so persisted-card
+      // render paths still work) and ensure the streaming row does not
+      // also carry a duplicate confirmation card with the same identity.
+      this.messages.update((messages) =>
+        messages.map((message) => {
+          if (message.id === canonicalId) {
+            const existingCards = message.cards ?? [];
+            const existingParts = message.parts ?? [];
+            const cardAlreadyPresent = existingCards.some(
+              (existing) =>
+                this.yieldIdentityKey(this.extractYieldStateFromCard(existing)) === incomingKey
+            );
+            if (cardAlreadyPresent) return message;
+
+            return {
+              ...message,
+              cards: [...existingCards, card],
+              parts: [...existingParts, { type: 'card', card }],
+            };
+          }
+
+          if (message.id === streamingId) {
+            const filterCard = (existing: AgentXRichCard): boolean =>
+              this.yieldIdentityKey(this.extractYieldStateFromCard(existing)) !== incomingKey;
+            const nextCards = message.cards?.filter(filterCard);
+            const nextParts = message.parts?.filter(
+              (part) => part.type !== 'card' || filterCard(part.card)
+            );
+
+            const cardsChanged = (message.cards?.length ?? 0) !== (nextCards?.length ?? 0);
+            const partsChanged = (message.parts?.length ?? 0) !== (nextParts?.length ?? 0);
+            if (!cardsChanged && !partsChanged) {
+              return clearText ? { ...message, content: '' } : message;
+            }
+
+            return {
+              ...message,
+              ...(clearText ? { content: '' } : {}),
+              ...(message.cards ? { cards: nextCards } : {}),
+              ...(message.parts ? { parts: nextParts } : {}),
+            };
+          }
+
+          return message;
+        })
+      );
+
+      return;
+    }
+
+    // Non-yield cards (charts, media, billing, etc.) attach directly to the
+    // streaming message — preserving prior behaviour.
+    this.messages.update((messages) =>
+      messages.map((message) => {
+        if (message.id !== streamingId) return message;
+        const baseParts = clearText ? [] : (message.parts ?? []);
+        return {
+          ...message,
+          ...(clearText ? { content: '' } : {}),
+          cards: [...(message.cards ?? []), card],
+          parts: [...baseParts, { type: 'card', card }],
+        };
+      })
+    );
+  }
+
+  private extractYieldStateFromCard(
+    card: AgentXRichCard | undefined | null
+  ): AgentYieldState | null {
+    if (!card) return null;
+
+    if (card.type === 'confirmation') {
+      const payload = card.payload as { yieldState?: AgentYieldState } | undefined;
+      const yieldState = payload?.yieldState;
+      if (!yieldState || typeof yieldState !== 'object') return null;
+      if (typeof yieldState.reason !== 'string') return null;
+      if (!yieldState.pendingToolCall || typeof yieldState.pendingToolCall.toolName !== 'string') {
+        return null;
+      }
+      return yieldState;
+    }
+
+    if (card.type !== 'ask_user') return null;
+
+    const payload = card.payload as AgentXAskUserPayload | undefined;
+    if (!payload) return null;
+    const question = payload?.question?.trim();
+    if (!question) return null;
+
+    const nowIso = new Date().toISOString();
+    const expiresIso = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    const context = typeof payload.context === 'string' ? payload.context.trim() : '';
+    const operationId = typeof payload.operationId === 'string' ? payload.operationId.trim() : '';
+    const threadId = typeof payload.threadId === 'string' ? payload.threadId.trim() : '';
+    const prompt = context ? `${question}\n\n${context}` : question;
+
+    return {
+      reason: 'needs_input',
+      promptToUser: prompt,
+      agentId: card.agentId,
+      messages: [],
+      pendingToolCall: {
+        toolName: 'ask_user',
+        toolCallId: operationId ? `ask_user:${operationId}` : `ask_user:${question}`,
+        toolInput: {
+          question,
+          ...(context ? { context } : {}),
+          ...(operationId ? { operationId } : {}),
+          ...(threadId ? { threadId } : {}),
+        },
+      },
+      yieldedAt: nowIso,
+      expiresAt: expiresIso,
+    };
+  }
+
+  private resolveCardOperationId(fallback: string, yieldState?: AgentYieldState): string {
+    const toolInputOperationId =
+      yieldState?.pendingToolCall?.toolInput &&
+      typeof yieldState.pendingToolCall.toolInput['operationId'] === 'string'
+        ? yieldState.pendingToolCall.toolInput['operationId'].trim()
+        : '';
+    if (toolInputOperationId) return toolInputOperationId;
+
+    const trimmedFallback = (fallback ?? '').trim();
+    if (trimmedFallback) return trimmedFallback;
+    const host = this.host;
+    return host?.contextId() ?? '';
+  }
+
+  private yieldIdentityKey(yieldState: AgentYieldState | undefined | null): string {
+    if (!yieldState) return '';
+    const approvalId = yieldState.approvalId?.trim();
+    if (approvalId) return `approval:${approvalId}`;
+    const toolCallId = yieldState.pendingToolCall?.toolCallId?.trim();
+    if (toolCallId) return `tool:${toolCallId}`;
+    return `reason:${yieldState.reason}`;
+  }
+
+  /**
+   * Extract the yield identity directly from a confirmation card's payload.
+   * The backend's `buildInlineYieldCard` writes `approvalId` and (optionally)
+   * `toolCallId` at the top level of the payload — it does NOT embed a full
+   * `yieldState` object. This helper bridges the gap so identity matching
+   * (used to collapse duplicate approval cards on rehydrate) works without
+   * requiring a synthesized yieldState.
+   */
+  private cardPayloadYieldIdentityKey(card: AgentXRichCard | undefined | null): string {
+    if (!card || card.type !== 'confirmation') return '';
+    const payload = card.payload as
+      | { approvalId?: unknown; toolCallId?: unknown; yieldState?: AgentYieldState }
+      | undefined;
+    if (!payload) return '';
+    // Prefer embedded yieldState identity when present.
+    const embedded = this.yieldIdentityKey(payload.yieldState);
+    if (embedded) return embedded;
+    const approvalId = typeof payload.approvalId === 'string' ? payload.approvalId.trim() : '';
+    if (approvalId) return `approval:${approvalId}`;
+    const toolCallId = typeof payload.toolCallId === 'string' ? payload.toolCallId.trim() : '';
+    if (toolCallId) return `tool:${toolCallId}`;
+    return '';
+  }
+
+  private normalizeYieldPrompt(value: string | undefined | null): string {
+    return (value ?? '').replace(/\s+/g, ' ').trim();
+  }
+
+  /**
+   * True when the assistant row carries a confirmation card whose payload
+   * yield identity (approvalId / toolCallId / reason) matches `incomingKey`.
+   * Walks both `cards` and `parts` because the live SSE path appends to
+   * both arrays while the rehydrate path may only populate one.
+   */
+  private assistantRowHasYieldIdentity(message: OperationMessage, incomingKey: string): boolean {
+    if (!incomingKey) return false;
+
+    const matchesCard = (card: AgentXRichCard | undefined): boolean => {
+      if (!card) return false;
+      // Read identity from card payload directly (handles the common case
+      // where backend cards carry approvalId at the top level rather than
+      // an embedded yieldState).
+      return this.cardPayloadYieldIdentityKey(card) === incomingKey;
+    };
+
+    if (message.cards?.some(matchesCard)) return true;
+    if (message.parts?.some((part) => part.type === 'card' && matchesCard(part.card))) {
+      return true;
+    }
+    return false;
   }
 
   updateInlineYieldMessageState(
@@ -696,6 +1078,29 @@ export class AgentXOperationChatMessageFacade {
             }
           : message
       )
+    );
+  }
+
+  dismissBillingActionCards(reason: AgentXBillingActionReason): void {
+    this.messages.update((messages) =>
+      messages.map((message) => {
+        const nextCards = message.cards?.filter(
+          (card) => !this.isMatchingBillingCard(card, reason)
+        );
+        const nextParts = message.parts?.filter(
+          (part) => part.type !== 'card' || !this.isMatchingBillingCard(part.card, reason)
+        );
+
+        const cardsChanged = (message.cards?.length ?? 0) !== (nextCards?.length ?? 0);
+        const partsChanged = (message.parts?.length ?? 0) !== (nextParts?.length ?? 0);
+        if (!cardsChanged && !partsChanged) return message;
+
+        return {
+          ...message,
+          ...(message.cards ? { cards: nextCards } : {}),
+          ...(message.parts ? { parts: nextParts } : {}),
+        };
+      })
     );
   }
 
@@ -758,9 +1163,25 @@ export class AgentXOperationChatMessageFacade {
 
   private inlineYieldMessageId(yieldState: AgentYieldState, operationId: string): string {
     const host = this.requireHost();
-    const discriminator =
-      yieldState.approvalId ?? yieldState.pendingToolCall?.toolCallId ?? yieldState.reason;
-    return `yield:${operationId ?? host.contextId()}:${discriminator}`;
+    // Prefer approvalId — globally unique and stable across all rehydrate
+    // paths (thread metadata, Firestore fallback, live SSE). This guarantees
+    // upsert idempotency: every source resolves to the same row instead of
+    // appending a new card whenever the operationId resolution order varies.
+    const approvalId = yieldState.approvalId?.trim();
+    if (approvalId) return `yield:${approvalId}`;
+
+    const toolCallId = yieldState.pendingToolCall?.toolCallId?.trim();
+    if (toolCallId) return `yield:tool:${toolCallId}`;
+
+    const fallbackOperation = (operationId ?? '').trim() || host.contextId();
+    return `yield:${fallbackOperation}:${yieldState.reason}`;
+  }
+
+  private isMatchingBillingCard(card: AgentXRichCard, reason: AgentXBillingActionReason): boolean {
+    if (card.type !== 'billing-action') return false;
+
+    const payload = card.payload as AgentXBillingActionPayload | undefined;
+    return !payload?.reason || payload.reason === reason;
   }
 
   private async copyText(value: string): Promise<boolean> {

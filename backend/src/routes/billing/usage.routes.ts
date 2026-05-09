@@ -471,20 +471,17 @@ async function fetchOrgUsageEvents(
   teamIds: string[],
   startDate: Date,
   endDate: Date,
-  orderDesc = true,
-  limit = 1000
+  orderDesc = true
 ): Promise<UsageEventDocument[]> {
   if (teamIds.length === 0) return [];
 
-  const docs = await UsageEventModel.find({
-    teamId: { $in: teamIds },
-    createdAt: { $gte: startDate, $lte: endDate },
-  })
-    .sort({ createdAt: orderDesc ? -1 : 1 })
-    .limit(limit)
-    .lean();
-
-  return docs as UsageEventDocument[];
+  return fetchUsageEventBatches(
+    {
+      teamId: { $in: teamIds },
+      createdAt: { $gte: startDate, $lte: endDate },
+    },
+    orderDesc
+  );
 }
 
 /**
@@ -495,22 +492,67 @@ async function fetchUsageEvents(
   target: ResolvedBillingTarget,
   startDate: Date,
   endDate: Date,
-  orderDesc = true,
-  limit = 1000
+  orderDesc = true
 ): Promise<UsageEventDocument[]> {
   if (target.type === 'organization' && target.teamIds && target.teamIds.length > 0) {
-    return fetchOrgUsageEvents(target.teamIds, startDate, endDate, orderDesc, limit);
+    return fetchOrgUsageEvents(target.teamIds, startDate, endDate, orderDesc);
   }
 
-  const docs = await UsageEventModel.find({
-    userId: target.billingUserId,
-    createdAt: { $gte: startDate, $lte: endDate },
-  })
-    .sort({ createdAt: orderDesc ? -1 : 1 })
-    .limit(limit)
-    .lean();
+  return fetchUsageEventBatches(
+    {
+      userId: target.billingUserId,
+      createdAt: { $gte: startDate, $lte: endDate },
+    },
+    orderDesc
+  );
+}
 
-  return docs as UsageEventDocument[];
+const USAGE_EVENT_BATCH_SIZE = 1000;
+
+function buildUsageEventCursorFilter(lastDoc: UsageEventDocument, orderDesc: boolean) {
+  const createdAtComparator = orderDesc ? '$lt' : '$gt';
+  const idComparator = orderDesc ? '$lt' : '$gt';
+
+  return {
+    $or: [
+      { createdAt: { [createdAtComparator]: lastDoc.createdAt } },
+      {
+        createdAt: lastDoc.createdAt,
+        _id: { [idComparator]: lastDoc._id },
+      },
+    ],
+  };
+}
+
+async function fetchUsageEventBatches(
+  baseFilter: Record<string, unknown>,
+  orderDesc: boolean
+): Promise<UsageEventDocument[]> {
+  const docs: UsageEventDocument[] = [];
+  let cursorFilter: Record<string, unknown> | null = null;
+
+  while (true) {
+    const queryFilter = cursorFilter ? { $and: [baseFilter, cursorFilter] } : baseFilter;
+
+    const batch = (await UsageEventModel.find(queryFilter)
+      .sort({ createdAt: orderDesc ? -1 : 1, _id: orderDesc ? -1 : 1 })
+      .limit(USAGE_EVENT_BATCH_SIZE)
+      .lean()) as UsageEventDocument[];
+
+    if (batch.length === 0) {
+      break;
+    }
+
+    docs.push(...batch);
+
+    if (batch.length < USAGE_EVENT_BATCH_SIZE) {
+      break;
+    }
+
+    cursorFilter = buildUsageEventCursorFilter(batch[batch.length - 1]!, orderDesc);
+  }
+
+  return docs;
 }
 
 // ============================================
@@ -592,7 +634,7 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
       return { isOrgAdmin: false, isTeamAdmin: false };
     })();
 
-    const eventsPromise = fetchUsageEvents(db, target, start, end, true, 1000);
+    const eventsPromise = fetchUsageEvents(db, target, start, end, true);
 
     const paymentLogsPromise = PaymentLogModel.find({ userId: target.billingUserId })
       .sort({ createdAt: -1 })
@@ -904,7 +946,7 @@ router.get('/overview', appGuard, async (req: Request, res: Response) => {
     const target = await resolveBillingTarget(db, userId);
     const billingCtx = target.context;
 
-    const eventsDocs = await fetchUsageEvents(db, target, start, end, false, 10000);
+    const eventsDocs = await fetchUsageEvents(db, target, start, end, false);
 
     // For IAP wallet users, personal billing overrides, and org billing contexts,
     // use the atomic counter (currentPeriodSpend) as the authoritative total.
@@ -981,7 +1023,7 @@ router.get('/chart', appGuard, async (req: Request, res: Response) => {
     // Resolve billing target (director → org, otherwise individual)
     const target = await resolveBillingTarget(db, userId);
 
-    const eventsDocs = await fetchUsageEvents(db, target, start, end, false, 10000);
+    const eventsDocs = await fetchUsageEvents(db, target, start, end, false);
 
     const dailyUsage = new Map<string, number>();
     for (const doc of eventsDocs) {
@@ -1033,7 +1075,7 @@ router.get('/breakdown', appGuard, async (req: Request, res: Response) => {
     // Resolve billing target (director → org, otherwise individual)
     const target = await resolveBillingTarget(db, userId);
 
-    const eventsDocs = await fetchUsageEvents(db, target, start, end, true, 500);
+    const eventsDocs = await fetchUsageEvents(db, target, start, end, true);
 
     const breakdownRows = await buildBreakdownRows(db, eventsDocs, target);
 

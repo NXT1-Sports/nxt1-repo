@@ -64,4 +64,25 @@ describe('notification.service billing activity mapping', () => {
     expect(activityWrite?.data.type).toBe('announcement');
     expect(activityWrite?.data.tab).toBe('alerts');
   });
+
+  it.each([NOTIFICATION_TYPES.EMAIL_OPENED, NOTIFICATION_TYPES.LINK_CLICKED])(
+    'writes %s as an update activity item',
+    async (type) => {
+      const { db, writes } = createMockFirestore();
+
+      await dispatch(db, {
+        userId: 'user_123',
+        type,
+        title: 'Email engagement',
+        body: 'A recipient engaged with your email.',
+        source: { userName: 'Email analytics' },
+      });
+
+      const activityWrite = writes.find((write) => write.path.includes('/activity/'));
+
+      expect(activityWrite).toBeDefined();
+      expect(activityWrite?.data.type).toBe('update');
+      expect(activityWrite?.data.tab).toBe('alerts');
+    }
+  );
 });

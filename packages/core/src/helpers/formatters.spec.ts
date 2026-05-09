@@ -33,6 +33,8 @@ import {
   formatDistance,
   normalizeWeightDisplay,
   isFemaleGender,
+  buildCanonicalTeamPath,
+  resolveCanonicalTeamRoute,
 } from './formatters';
 
 // ============================================
@@ -398,6 +400,45 @@ describe('slugify', () => {
 
   it('should handle complex strings', () => {
     expect(slugify("John's 2025 Basketball Highlights!")).toBe('johns-2025-basketball-highlights');
+  });
+});
+
+describe('buildCanonicalTeamPath', () => {
+  it('should use a short team code when available', () => {
+    expect(
+      buildCanonicalTeamPath({
+        slug: 'crown-point-basketball-mens',
+        teamName: 'Crown Point Basketball Mens',
+        teamCode: '57L791',
+      })
+    ).toBe('/team/crown-point-basketball-mens/57L791');
+  });
+
+  it('should fall back to the team id when no short team code exists', () => {
+    expect(
+      buildCanonicalTeamPath({
+        slug: 'crown-point-basketball-mens',
+        teamName: 'Crown Point Basketball Mens',
+        id: 'mC3D9qg5d9amvcO0otvi',
+      })
+    ).toBe('/team/crown-point-basketball-mens/mC3D9qg5d9amvcO0otvi');
+  });
+});
+
+describe('resolveCanonicalTeamRoute', () => {
+  it('should resolve a working team route when only a Firestore team id is available', () => {
+    expect(
+      resolveCanonicalTeamRoute({
+        slug: 'crown-point-basketball-mens',
+        teamName: 'Crown Point Basketball Mens',
+        teamId: 'mC3D9qg5d9amvcO0otvi',
+      })
+    ).toEqual({
+      slug: 'crown-point-basketball-mens',
+      teamIdentifier: 'mC3D9qg5d9amvcO0otvi',
+      teamName: 'Crown Point Basketball Mens',
+      path: '/team/crown-point-basketball-mens/mC3D9qg5d9amvcO0otvi',
+    });
   });
 });
 

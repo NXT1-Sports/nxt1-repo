@@ -73,11 +73,14 @@ export class ManageTeamModalService {
 
   /**
    * Opens Manage Team with platform-appropriate presentation:
-   * - Native mobile app: bottom sheet with drag handle (Ionic)
-   * - Web browsers, including mobile web: overlay modal (pure Angular)
+   * - Native mobile app and small-screen mobile web: bottom sheet with drag handle (Ionic)
+   * - Desktop web: overlay modal (pure Angular)
    */
   async open(options: ManageTeamModalOptions = {}): Promise<ManageTeamModalResult> {
     const presentation = this.shouldUseBottomSheet() ? 'bottom-sheet' : 'web-overlay';
+
+    // ManageTeamService is shared across presentations; always start from a clean editor state.
+    this.manageTeam.reset();
 
     this.logger.info('Opening manage team', { presentation, teamId: options.teamId });
     this.breadcrumb.trackUserAction('manage-team-open', { presentation });
@@ -141,6 +144,8 @@ export class ManageTeamModalService {
     } catch (err) {
       this.logger.error('Failed to open manage team overlay', err);
       return { saved: false };
+    } finally {
+      this.manageTeam.reset();
     }
   }
 
@@ -148,8 +153,11 @@ export class ManageTeamModalService {
   // PLATFORM DETECTION
   // ============================================
 
-  /** Only native mobile apps should use the Ionic bottom sheet presentation. */
+  /** Native app and small-screen web should use the Ionic bottom sheet presentation. */
   private shouldUseBottomSheet(): boolean {
-    return this.platform.isNative();
+    return (
+      this.platform.isNative() ||
+      (this.platform.isBrowser() && this.platform.viewport().width < 768)
+    );
   }
 }

@@ -69,11 +69,15 @@ const FEED_ITEM_TYPE_LABELS: Readonly<Record<FeedItemType, string>> = {
   selector: 'nxt1-feed-card-shell',
   standalone: true,
   imports: [IonRippleEffect, NxtAvatarComponent, NxtIconComponent],
+  host: {
+    '[class.feed-shell-host--menu-open]': 'menuOpen()',
+  },
   template: `
     <article
       class="feed-shell"
       [class.feed-shell--pinned]="item().isPinned"
       [class.feed-shell--compact]="compact()"
+      [class.feed-shell--menu-open]="menuOpen()"
       role="article"
       [attr.aria-label]="ariaLabel()"
       [attr.data-testid]="testIds.SHELL_ARTICLE"
@@ -284,6 +288,11 @@ const FEED_ITEM_TYPE_LABELS: Readonly<Record<FeedItemType, string>> = {
         --shell-primary: var(--nxt1-color-primary, #d4ff00);
       }
 
+      :host.feed-shell-host--menu-open {
+        content-visibility: visible;
+        contain: none;
+      }
+
       .feed-shell {
         position: relative;
         display: flex;
@@ -306,6 +315,10 @@ const FEED_ITEM_TYPE_LABELS: Readonly<Record<FeedItemType, string>> = {
             background: var(--shell-bg-hover);
           }
         }
+      }
+
+      .feed-shell--menu-open {
+        z-index: var(--nxt1-nav-z-dropdown, 1000);
       }
 
       /* Lead media clips to the top corners of the card */

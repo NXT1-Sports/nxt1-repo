@@ -25,14 +25,6 @@ import {
 import { CACHE_KEYS as USER_CACHE_KEYS } from '../../../../../services/profile/users.service.js';
 import { invalidateProfileCaches } from '../../../../../routes/profile/shared.js';
 import { ContextBuilder } from '../../../memory/context-builder.js';
-import { getAnalyticsLoggerService } from '../../../../../services/core/analytics-logger.service.js';
-import {
-  SyncDiffService,
-  type PreviousProfileState,
-  type PreviousSeasonEntry,
-} from '../../../sync/index.js';
-import { onDailySyncComplete } from '../../../triggers/trigger.listeners.js';
-import { logger } from '../../../../../utils/logger.js';
 import { resolveCreatedAt, seasonToDate } from '../doc-date-utils.js';
 import { z } from 'zod';
 
@@ -169,9 +161,6 @@ export class WriteSeasonStatsTool extends BaseTool {
         existingPSDocs.set(doc.id, { id: doc.id, ...doc.data() });
       }
 
-      // Snapshot previous state for delta computation
-      const previousState = this.snapshotPreviousState(userData, existingPSDocs);
-
       context?.emitStage?.('processing_media', {
         icon: 'database',
         phase: 'build_game_logs_and_stats',
@@ -274,77 +263,6 @@ export class WriteSeasonStatsTool extends BaseTool {
         // Best-effort
       }
 
-      // ── 6. Compute delta & fire trigger for Agent X ───────────────────
-      try {
-        const diffService = new SyncDiffService();
-        // Reconstruct the extracted profile shape from the raw seasonStats input
-        const extractedProfile = {
-          platform: source,
-          profileUrl: '',
-          seasonStats: (seasonStats as Record<string, unknown>[]).map((s) => ({
-            season: (s['season'] as string) ?? '',
-            category: (s['category'] as string) ?? '',
-            columns: Array.isArray(s['columns'])
-              ? (s['columns'] as Array<{ key: string; label: string }>)
-              : [],
-            games: Array.isArray(s['games'])
-              ? (s['games'] as Array<Record<string, unknown>>).map((g) => ({
-                  ...g,
-                  values: (g['values'] as Record<string, string | number>) ?? {},
-                }))
-              : [],
-            totals: (s['totals'] as Record<string, string | number>) ?? undefined,
-            averages: (s['averages'] as Record<string, string | number>) ?? undefined,
-          })),
-        };
-
-        const delta = diffService.diff(userId, sportId, source, previousState, extractedProfile);
-
-        if (!delta.isEmpty) {
-          logger.info('[WriteSeasonStats] Delta detected, firing sync trigger', {
-            userId,
-            sport: sportId,
-            totalChanges: delta.summary.totalChanges,
-          });
-          // Fire-and-forget — don't let trigger failures block the write response
-          onDailySyncComplete(delta).catch((err) => {
-            logger.warn('[WriteSeasonStats] Trigger dispatch failed', {
-              userId,
-              error: err instanceof Error ? err.message : String(err),
-            });
-          });
-        }
-      } catch (err) {
-        // Delta/trigger is non-critical — log and continue
-        logger.warn('[WriteSeasonStats] Delta computation failed', {
-          userId,
-          error: err instanceof Error ? err.message : String(err),
-        });
-      }
-
-      if (playerStatsWritten > 0) {
-        await getAnalyticsLoggerService().safeTrack({
-          subjectId: userId,
-          subjectType: 'user',
-          domain: 'performance',
-          eventType: 'metric_recorded',
-          source: accessGrant.isSelfWrite ? 'user' : 'agent',
-          actorUserId: context.userId,
-          value: playerStatsWritten,
-          tags: ['season-stats', sportId, source],
-          payload: {
-            toolName: this.name,
-            sportId,
-            source,
-            seasonsProcessed: allSeasons.size,
-            gameLogCategories: gameLogs.length,
-          },
-          metadata: {
-            initiatedBy: 'write-season-stats',
-          },
-        });
-      }
-
       return {
         success: true,
         data: {
@@ -362,46 +280,6 @@ export class WriteSeasonStatsTool extends BaseTool {
         error: err instanceof Error ? err.message : 'Failed to write season stats',
       };
     }
-  }
-
-  // ─── Previous State Snapshot (for Delta Computation) ─────────────────────
-
-  /**
-   * Extract the current state from existing PlayerStats documents before writing.
-   * This snapshot is compared against the new extraction to compute the delta.
-   */
-  private snapshotPreviousState(
-    _userData: Record<string, unknown>,
-    existingPSDocs: Map<string, Record<string, unknown>>
-  ): PreviousProfileState {
-    const seasonStats: PreviousSeasonEntry[] = [];
-
-    for (const [, psData] of existingPSDocs) {
-      const gameLogs = Array.isArray(psData['gameLogs'])
-        ? (psData['gameLogs'] as Record<string, unknown>[])
-        : [];
-
-      for (const log of gameLogs) {
-        seasonStats.push({
-          season: (log['season'] as string) ?? '',
-          category: (log['category'] as string) ?? '',
-          columns: Array.isArray(log['columns'])
-            ? (log['columns'] as Array<{ key: string; label: string }>)
-            : [],
-          totals: (
-            log['totals'] as Array<{ label: string; stats: Record<string, string | number> }>
-          )?.[0]?.stats,
-          averages: (
-            log['totals'] as Array<{ label: string; stats: Record<string, string | number> }>
-          )?.[1]?.stats,
-        });
-      }
-    }
-
-    return {
-      // Identity diffing is owned by write_core_identity — omitted here.
-      seasonStats,
-    };
   }
 
   // ─── Build Game Logs (ProfileSeasonGameLog format) ──────────────────────
@@ -542,35 +420,6 @@ export class WriteSeasonStatsTool extends BaseTool {
 
   // ─── Merge Helpers ──────────────────────────────────────────────────────
 
-  private mergeGameLogs(
-    existing: Record<string, unknown>[],
-    incoming: Record<string, unknown>[]
-  ): Record<string, unknown>[] {
-    const merged = [...existing];
-    const keyOf = (log: Record<string, unknown>) => {
-      const season = String(log['season'] ?? '').toLowerCase();
-      const category = String(log['category'] ?? '').toLowerCase();
-      return `${season}::${category}`;
-    };
-
-    const indexMap = new Map<string, number>();
-    for (let i = 0; i < merged.length; i++) indexMap.set(keyOf(merged[i]), i);
-
-    for (const log of incoming) {
-      const key = keyOf(log);
-      const idx = indexMap.get(key);
-      if (idx !== undefined) {
-        // Replace existing with newer data
-        merged[idx] = log;
-      } else {
-        indexMap.set(key, merged.length);
-        merged.push(log);
-      }
-    }
-
-    return merged;
-  }
-
   private mergeFlatStats(
     existing: Record<string, unknown>[],
     incoming: Array<{ field: string; label: string; value: string | number; category: string }>,
@@ -608,6 +457,49 @@ export class WriteSeasonStatsTool extends BaseTool {
       } else {
         indexMap.set(key, merged.length);
         merged.push(record);
+      }
+    }
+
+    return merged;
+  }
+
+  private mergeGameLogs(
+    existing: Record<string, unknown>[],
+    incoming: Record<string, unknown>[]
+  ): Record<string, unknown>[] {
+    if (incoming.length === 0) return existing;
+
+    const dedupeKey = (entry: Record<string, unknown>): string => {
+      const season = String(entry['season'] ?? '')
+        .trim()
+        .toLowerCase();
+      const category = String(entry['category'] ?? '')
+        .trim()
+        .toLowerCase();
+      const teamType = String(entry['teamType'] ?? '')
+        .trim()
+        .toLowerCase();
+      return `${season}::${category}::${teamType}`;
+    };
+
+    const merged = [...existing];
+    const indexMap = new Map<string, number>();
+    for (let i = 0; i < merged.length; i++) {
+      indexMap.set(dedupeKey(merged[i]), i);
+    }
+
+    for (const log of incoming) {
+      const key = dedupeKey(log);
+      const existingIndex = indexMap.get(key);
+      if (existingIndex !== undefined) {
+        merged[existingIndex] = {
+          ...merged[existingIndex],
+          ...log,
+          updatedAt: new Date().toISOString(),
+        };
+      } else {
+        indexMap.set(key, merged.length);
+        merged.push(log);
       }
     }
 

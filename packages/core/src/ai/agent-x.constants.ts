@@ -665,6 +665,11 @@ export function resolveAttachmentType(mimeType: string): AgentXAttachmentType {
 /**
  * Agent X API endpoints (relative to base URL).
  */
+export const AGENT_X_REQUEST_HEADERS = {
+  /** Explicit frontend app origin used when backend is behind a proxy. */
+  APP_BASE_URL: 'x-nxt1-app-base-url',
+} as const;
+
 export const AGENT_X_ENDPOINTS = {
   /** Chat completion endpoint */
   CHAT: '/agent-x/chat',
@@ -678,16 +683,14 @@ export const AGENT_X_ENDPOINTS = {
   CLOUDFLARE_DIRECT_URL: '/upload/cloudflare/direct-url',
   /** Provision a Firebase Storage signed upload URL for Agent X chat video attachments */
   VIDEO_UPLOAD_PROVISION: '/agent-x/upload/video',
-  /** Proxy video upload through backend when direct GCS upload is blocked (e.g., local CORS) */
-  VIDEO_UPLOAD_PROXY: '/agent-x/upload/video/proxy',
   /** Upload a file to the temporary scratch folder (worker output, staged uploads, scraped assets) */
   UPLOAD_TMP: '/agent-x/upload/tmp',
   /** Promote a file from the tmp folder to permanent media storage (copy + delete original) */
   UPLOAD_PROMOTE: '/agent-x/upload/promote',
-  /** Get quick tasks endpoint */
-  TASKS: '/agent-x/tasks',
   /** Get conversation history */
   HISTORY: '/agent-x/history',
+  /** Get role-filtered quick tasks */
+  TASKS: '/agent-x/tasks',
   /** Clear conversation */
   CLEAR: '/agent-x/clear',
   /** Aggregated dashboard (briefing + playbook + operations) */

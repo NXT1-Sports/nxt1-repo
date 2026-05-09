@@ -320,6 +320,12 @@ export class NxtSheetHeaderComponent {
   /** Optional data-testid for the close button. */
   readonly closeTestId = input<string | undefined>(undefined);
 
+  /**
+   * When true, the header attempts to dismiss the active Ionic modal directly before
+   * notifying the parent. Set to false for sheets that need custom save/cancel logic.
+   */
+  readonly dismissOnClose = input<boolean>(true);
+
   // ============================================
   // OUTPUTS
   // ============================================
@@ -334,8 +340,12 @@ export class NxtSheetHeaderComponent {
   async onClose(): Promise<void> {
     await this.haptics.impact('light');
 
-    // Match manual swipe-down animation: animate through breakpoints (backdrop fades),
-    // then dismiss when sheet reaches closed position
+    if (!this.dismissOnClose()) {
+      this.closeSheet.emit();
+      return;
+    }
+
+    // Dismiss immediately so backdrop and sheet close timing match classic behavior.
     const topOverlay = await this.modalCtrl.getTop();
     if (
       topOverlay instanceof Element &&
@@ -344,22 +354,7 @@ export class NxtSheetHeaderComponent {
     ) {
       const modal = topOverlay as {
         dismiss(data?: unknown, role?: string): Promise<boolean>;
-        setCurrentBreakpoint?(breakpoint: number): Promise<void>;
       };
-
-      // If sheet has breakpoints and setCurrentBreakpoint method, animate to 0
-      // This triggers the same backdrop fade + sheet slide as manual swipe
-      if (typeof modal.setCurrentBreakpoint === 'function') {
-        try {
-          await modal.setCurrentBreakpoint(0);
-          // Wait for sheet animation to complete before dismissing
-          await new Promise((resolve) => setTimeout(resolve, 350));
-          await modal.dismiss(undefined, 'cancel');
-          return;
-        } catch {
-          // Fallback if setCurrentBreakpoint fails
-        }
-      }
 
       // Fallback: standard dismiss
       const dismissed = await modal.dismiss(undefined, 'cancel');

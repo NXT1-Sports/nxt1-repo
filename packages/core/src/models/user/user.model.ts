@@ -254,6 +254,18 @@ export interface User {
   onboardingCompleted?: boolean;
   /** ISO timestamp when onboarding was completed. */
   onboardingCompletedAt?: string;
+  /**
+   * Original document ID from the old NXT1 system, set by the migration script.
+   * Presence of this field means the user was migrated from the legacy system.
+   * When set and legacyOnboardingCompleted is falsy, the app shows a simplified
+   * 3-step onboarding (link-sources, select-teams, referral).
+   */
+  _legacyId?: string;
+  /**
+   * Whether a legacy-migrated user has completed the 3-step intro onboarding.
+   * Set to true after the user finishes or skips the legacy onboarding flow.
+   */
+  legacyOnboardingCompleted?: boolean;
 
   // ============================================
   // PROFILE COMPLETENESS
@@ -377,7 +389,9 @@ export function isDirector(user: User): boolean {
 
 /** Check if user has completed onboarding */
 export function isOnboarded(user: User): boolean {
-  return user.onboardingCompleted === true;
+  // onboardingCompletedAt is NEVER set by migration — only by real onboarding completion.
+  // legacyOnboardingCompleted is set after a legacy user completes the 3-step intro.
+  return !!user.onboardingCompletedAt || user.legacyOnboardingCompleted === true;
 }
 
 /** Check if user is verified (verified or premium status) */

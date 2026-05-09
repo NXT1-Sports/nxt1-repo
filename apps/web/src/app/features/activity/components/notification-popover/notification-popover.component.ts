@@ -45,6 +45,7 @@ import { Router, RouterModule, NavigationEnd } from '@angular/router';
 import { filter } from 'rxjs/operators';
 import { type ActivityItem, type InboxEmailProvider } from '@nxt1/core';
 import { ActivityService, ActivityListComponent } from '@nxt1/ui/activity';
+import { ManageTeamMembershipModalService } from '@nxt1/ui/manage-team';
 
 import { NxtIconComponent } from '@nxt1/ui/components/icon';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
@@ -388,6 +389,7 @@ export class NotificationPopoverComponent {
   private readonly destroyRef = inject(DestroyRef);
   private readonly logger = inject(NxtLoggingService).child('NotificationPopover');
   private readonly authService = inject(AUTH_SERVICE) as IAuthService;
+  private readonly membershipModal = inject(ManageTeamMembershipModalService);
   private readonly emailConnection = inject(WebEmailConnectionService);
   private readonly oauthTokens = inject(OAuthTokensService);
   protected readonly connectedEmails = this.oauthTokens.connectedEmails;
@@ -495,7 +497,35 @@ export class NotificationPopoverComponent {
     this.logger.debug('Item clicked', { id: item.id, type: item.type });
     this.close();
     if (item.deepLink) {
+      if (this.openManageMembersModal(item.deepLink)) {
+        return;
+      }
       this.router.navigateByUrl(item.deepLink);
+    }
+  }
+
+  private openManageMembersModal(deepLink: string): boolean {
+    if (!deepLink.startsWith('/manage-team')) {
+      return false;
+    }
+
+    try {
+      const url = new URL(deepLink, 'https://nxt1.local');
+      const teamId = url.searchParams.get('teamId');
+      const tab = url.searchParams.get('tab');
+      if (!teamId) {
+        return false;
+      }
+
+      const initialFilter = tab === 'pending' ? 'pending' : tab === 'staff' ? 'staff' : 'roster';
+
+      void this.membershipModal.open({ teamId, initialFilter });
+      return true;
+    } catch {
+      this.logger.warn('Failed to parse manage-team deep link from notification popover', {
+        deepLink,
+      });
+      return false;
     }
   }
 

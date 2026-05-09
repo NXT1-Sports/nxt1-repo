@@ -26,6 +26,7 @@
 import { Injectable, inject, InjectionToken } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
+import { AGENT_X_REQUEST_HEADERS } from '@nxt1/core/ai';
 import { NxtLoggingService } from '../../services/logging/logging.service';
 import { ANALYTICS_ADAPTER } from '../../services/analytics/analytics-adapter.token';
 import { NxtBreadcrumbService } from '../../services/breadcrumb/breadcrumb.service';
@@ -34,6 +35,7 @@ import { APP_EVENTS } from '@nxt1/core/analytics';
 import { ATTRIBUTE_NAMES, TRACE_NAMES } from '@nxt1/core/performance';
 import { AgentXControlPanelStateService } from './agent-x-control-panel-state.service';
 import { ProfileGenerationStateService } from '../../profile/profile-generation-state.service';
+import { AgentXOperationEventService } from './agent-x-operation-event.service';
 
 /**
  * Injection token for the Agent X API base URL.
@@ -64,6 +66,17 @@ export const AGENT_X_API_BASE_URL = new InjectionToken<string>('AGENT_X_API_BASE
 export const AGENT_X_AUTH_TOKEN_FACTORY = new InjectionToken<() => Promise<string | null>>(
   'AGENT_X_AUTH_TOKEN_FACTORY'
 );
+
+export function resolveCurrentAgentXAppBaseUrl(): string | undefined {
+  const origin = globalThis.location?.origin;
+  if (typeof origin !== 'string' || !origin.trim()) return undefined;
+
+  try {
+    return new URL(origin).origin;
+  } catch {
+    return undefined;
+  }
+}
 
 /** Result returned when enqueue fails. */
 export interface EnqueueFailure {
@@ -104,6 +117,7 @@ export class AgentXJobService {
   private readonly performance = inject(PERFORMANCE_ADAPTER, { optional: true });
   private readonly controlPanelState = inject(AgentXControlPanelStateService);
   private readonly profileGeneration = inject(ProfileGenerationStateService);
+  private readonly operationEventService = inject(AgentXOperationEventService);
 
   private readonly baseUrl = `${inject(AGENT_X_API_BASE_URL)}/agent-x`;
 
@@ -128,6 +142,7 @@ export class AgentXJobService {
     });
 
     try {
+      const appBaseUrl = resolveCurrentAgentXAppBaseUrl();
       const enqueueHttp = () =>
         firstValueFrom(
           this.http.post<{
@@ -135,10 +150,18 @@ export class AgentXJobService {
             data?: { jobId: string; operationId: string; threadId?: string };
             error?: string;
             code?: string;
-          }>(`${this.baseUrl}/enqueue`, {
-            intent,
-            userContext: context,
-          })
+          }>(
+            `${this.baseUrl}/enqueue`,
+            {
+              intent,
+              userContext: context,
+            },
+            {
+              ...(appBaseUrl
+                ? { headers: { [AGENT_X_REQUEST_HEADERS.APP_BASE_URL]: appBaseUrl } }
+                : {}),
+            }
+          )
         );
 
       const response = await (this.performance?.trace(
@@ -192,6 +215,44 @@ export class AgentXJobService {
         source: 'background-enqueue',
         intent: intent.slice(0, 80),
       });
+      if (response.data.threadId && response.data.threadId.trim().length > 0) {
+        this.operationEventService.emitOperationStatusUpdated(
+          response.data.threadId,
+          'queued',
+          new Date().toISOString(),
+          'enqueue',
+          response.data.operationId,
+          intent.trim().slice(0, 80)
+        );
+        // Set the intent as the sidebar title immediately — /enqueue has no open SSE
+        // stream so without this the ops log placeholder 'Processing…' would never
+        // get replaced.
+        this.operationEventService.emitTitleUpdated(
+          response.data.threadId,
+          intent.trim().slice(0, 80)
+        );
+
+        // Open a lightweight Firestore subscription so the backend's LLM-generated
+        // title_updated event is received in real-time. processEvent() internally
+        // calls emitTitleUpdated() for 'title_updated' events — no extra callback
+        // wiring needed. Delta/step/card events are ignored (no-op callbacks) so
+        // the UI doesn't stream partial content for background jobs. The subscription
+        // self-destructs when the job's 'done' event fires (processEvent unsubscribes
+        // automatically), so no manual cleanup is required.
+        const enqueueOperationId = response.data.operationId;
+        this.operationEventService.subscribe(enqueueOperationId, {
+          onDelta: () => undefined,
+          onStep: () => undefined,
+          onDone: () => undefined,
+          onError: (msg) => {
+            this.logger.warn('Firestore title-watch error for enqueued job', {
+              operationId: enqueueOperationId,
+              msg,
+            });
+          },
+        });
+      }
+
       this.profileGeneration.watchForProfileWrites(response.data.operationId);
 
       return response.data;
@@ -207,12 +268,31 @@ export class AgentXJobService {
   }
 
   /**
-   * @deprecated Status polling is no longer supported. All job status is
-   * streamed via the unified /chat SSE connection. Returns null.
+   * Poll the current status of an enqueued background job.
+   *
+   * Use this as a fallback when neither an SSE stream nor a Firestore
+   * real-time listener is available (e.g. a quick in-app status check).
+   *
+   * @param operationId - The operationId returned from `enqueue()`
    */
-  async getStatus(_jobId: string): Promise<JobStatusResponse['data'] | null> {
-    this.logger.warn('getStatus() is deprecated — use /chat SSE stream instead', { _jobId });
-    return null;
+  async getStatus(operationId: string): Promise<JobStatusResponse['data'] | null> {
+    this.logger.info('Polling job status', { operationId });
+
+    try {
+      const response = await firstValueFrom(
+        this.http.get<JobStatusResponse>(`${this.baseUrl}/jobs/${encodeURIComponent(operationId)}`)
+      );
+
+      if (!response.success || !response.data) {
+        this.logger.warn('Job status response missing data', { operationId });
+        return null;
+      }
+
+      return response.data;
+    } catch (err) {
+      this.logger.error('Failed to poll job status', err, { operationId });
+      return null;
+    }
   }
 
   // ============================================

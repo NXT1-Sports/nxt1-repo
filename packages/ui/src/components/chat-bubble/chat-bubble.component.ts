@@ -196,7 +196,7 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
           @case ('thinking') {
             <nxt1-agent-x-extended-thinking
               [content]="part.content"
-              [isStreaming]="isStreaming()"
+              [isStreaming]="isStreaming() && !part.done"
             />
           }
         }
@@ -212,26 +212,6 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
         } @else {
           <nxt1-markdown [content]="content()" />
         }
-      }
-      @if (imageUrl()) {
-        <div class="bubble-media">
-          <img
-            [src]="imageUrl()"
-            [alt]="content() || 'Generated image'"
-            class="bubble-img"
-            loading="lazy"
-          />
-        </div>
-      } @else if (videoUrl()) {
-        <div class="bubble-media">
-          <video
-            [src]="videoUrl()"
-            class="bubble-video"
-            controls
-            playsinline
-            preload="metadata"
-          ></video>
-        </div>
       }
       @for (card of cards(); track $index) {
         <div class="agent-card-shell" [style]="cardThemeStyle(card)">
@@ -706,12 +686,6 @@ export class NxtChatBubbleComponent {
   /** The text content to display. */
   readonly content = input('');
 
-  /** Optional image URL to display above the text content. */
-  readonly imageUrl = input<string | undefined>(undefined);
-
-  /** Optional video URL to display above the text content. */
-  readonly videoUrl = input<string | undefined>(undefined);
-
   /** Show typing indicator dots instead of text. */
   readonly isTyping = input(false);
 
@@ -726,6 +700,10 @@ export class NxtChatBubbleComponent {
     const label = this.typingLabel()?.trim();
     return label && label.length > 0 ? label : 'Agent X is thinking...';
   });
+
+  protected readonly hasExplicitMediaPart = computed(() =>
+    this.parts().some((part) => part.type === 'image' || part.type === 'video')
+  );
 
   /** Error state. */
   readonly isError = input(false);

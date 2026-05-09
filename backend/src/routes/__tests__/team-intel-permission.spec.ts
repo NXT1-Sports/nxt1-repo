@@ -3,7 +3,8 @@ import { describe, expect, it } from 'vitest';
 import {
   canGenerateTeamIntelForUser,
   canManageTeamMembershipForRole,
-} from '../team/teams.routes.js';
+  canManageTeamMutationWithResolvedRole,
+} from '../../services/team/team-intel-permissions.js';
 
 describe('canGenerateTeamIntelForUser', () => {
   it('allows administrative, coach, and director team managers to generate Intel', () => {
@@ -57,5 +58,53 @@ describe('canManageTeamMembershipForRole', () => {
     expect(canManageTeamMembershipForRole('athlete')).toBe(false);
     expect(canManageTeamMembershipForRole('parent')).toBe(false);
     expect(canManageTeamMembershipForRole(undefined)).toBe(false);
+  });
+});
+
+describe('canManageTeamMutationWithResolvedRole', () => {
+  it('allows roster managers and explicit team admins to mutate team data', () => {
+    expect(
+      canManageTeamMutationWithResolvedRole({
+        userId: 'coach-1',
+        rosterRole: 'assistant-coach',
+        teamData: {},
+      })
+    ).toBe(true);
+
+    expect(
+      canManageTeamMutationWithResolvedRole({
+        userId: 'admin-1',
+        teamData: { adminIds: ['admin-1'] },
+      })
+    ).toBe(true);
+
+    expect(
+      canManageTeamMutationWithResolvedRole({
+        userId: 'creator-1',
+        teamData: { createdBy: 'creator-1' },
+      })
+    ).toBe(true);
+
+    expect(
+      canManageTeamMutationWithResolvedRole({
+        userId: 'legacy-1',
+        teamData: {
+          members: [{ id: 'legacy-1', role: 'Administrative' }],
+        },
+      })
+    ).toBe(true);
+  });
+
+  it('rejects users without a manager role or admin linkage', () => {
+    expect(
+      canManageTeamMutationWithResolvedRole({
+        userId: 'athlete-1',
+        rosterRole: 'athlete',
+        teamData: {
+          adminIds: ['admin-1'],
+          members: [{ id: 'athlete-1', role: 'athlete' }],
+        },
+      })
+    ).toBe(false);
   });
 });
