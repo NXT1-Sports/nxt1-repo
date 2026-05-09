@@ -1760,7 +1760,16 @@ export class AgentXOperationsLogComponent {
       if (err.status === 0) return 'Network error — check your connection';
       if (err.status === 401 || err.status === 403) return 'Session expired — please sign in again';
       if (err.status >= 500) return 'Server error — try again in a moment';
-      return err.error?.error ?? `Request failed (${err.status})`;
+      // err.error?.error may be an object (backend error shape); extract message string safely
+      const apiError = err.error?.error;
+      if (typeof apiError === 'string') return apiError;
+      if (typeof apiError === 'object' && apiError !== null) {
+        return (
+          ((apiError as Record<string, unknown>)['message'] as string) ??
+          `Request failed (${err.status})`
+        );
+      }
+      return err.error?.message ?? `Request failed (${err.status})`;
     }
     return err instanceof Error ? err.message : 'Failed to load operations';
   }

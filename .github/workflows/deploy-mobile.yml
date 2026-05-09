@@ -356,8 +356,8 @@ jobs:
         working-directory: apps/mobile/android
         run: fastlane upload_internal
 
-      # Upload to Play Store Production — production only
+      # Upload to Play Store Production — promote from internal track
       - name: Upload to Play Store Production
         if: env.BUILD_PROFILE == 'production'
         working-directory: apps/mobile/android
-        run: fastlane upload_production
+        run: fastlane promote_to_production

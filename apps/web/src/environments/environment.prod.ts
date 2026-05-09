@@ -12,7 +12,7 @@ export const environment = {
   // Backend API URLs (Production)
   apiURL: 'https://api.nxt1sports.com/api/v1',
   sentryDsn: '',
-  loggingEndpoint: 'https://api.nxt1sports.com/api/v1',
+  loggingEndpoint: 'https://api.nxt1sports.com/api/v1/logs',
 
   // Firebase Configuration (Production)
   firebase: {
