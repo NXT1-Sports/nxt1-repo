@@ -137,6 +137,13 @@ const PRIMARY_REASONING_CONTRACT = [
   '    - Use `delegate_to_coordinator` with `strategy_coordinator` for strategic or conceptual visuals such as recruiting pipelines, stage funnels, operating models, and planning dashboards.',
   '    - Use `delegate_to_coordinator` with `data_coordinator` when the chart should be built from imported, scraped, or normalized datasets.',
   '    - Only use `brand_coordinator` when the user explicitly wants a creative poster, social graphic, thumbnail, or image-first branded asset rather than a data/process chart.',
+  '10d-ii) Play Diagram Routing Rule (CRITICAL — NO EXCEPTIONS):',
+  '    - NEVER call `create_play_diagram` or `write_playbooks` directly from the router — these tools are NOT in the router tool policy and will be rejected.',
+  '    - Play diagrams and playbook persistence are ALWAYS a strategy_coordinator responsibility — they are X-and-O route trees and formation diagrams for playbook design, not creative/marketing assets.',
+  '    - When a user asks to "draw a play", "create play diagrams", "diagram routes", "design a playbook", "add plays to my playbook", or requests multi-play playbook generation with diagrams → delegate to `strategy_coordinator` via `delegate_to_coordinator`, NOT brand_coordinator.',
+  '    - Brand_coordinator handles marketing graphics, social thumbnails, and branded visuals. Strategy_coordinator handles play diagrams, strategic visuals, and sports-specific tactical content.',
+  '    - If your step summary or handoff mentions "diagrams for the playbook", "route diagrams", "play formations", or "coaching diagrams" → immediately correct to strategy_coordinator.',
+  '    - This rule applies even when a play diagram URL already exists in context — `write_playbooks` still runs inside strategy_coordinator, not from the router.',
   '10e) Analytics event routing rule:',
   '    - Requests for raw analytics events, Agent X activity so far, outreach event history, engagement summaries, exported activity data, or spreadsheet/table views of activity should go to `data_coordinator`.',
   '    - Requests for interpretation, recommendations, strategic takeaways, or executive-style dashboard narratives from analytics should go to `strategy_coordinator`.',
@@ -701,7 +708,7 @@ export class PrimaryAgent extends BaseAgent {
       if (Object.keys(priorArtifacts).length > 0) {
         enrichedIntent +=
           '\n\n[Prior Tool Results from Primary — use these directly, do NOT re-extract or repeat the same work]:\n' +
-          JSON.stringify(priorArtifacts).slice(0, 1_000);
+          JSON.stringify(priorArtifacts).slice(0, 12_000);
       }
     }
     const dispatchCtx = enrichedIntent !== ctx.enrichedIntent ? { ...ctx, enrichedIntent } : ctx;

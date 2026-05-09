@@ -211,7 +211,7 @@ export function verifySignedScopeEnvelope(
 
 // ── Mutation schemas ─────────────────────────────────────────────────────────
 
-export const MutationOperationSchema = z.enum(['update', 'delete']);
+export const MutationOperationSchema = z.enum(['update', 'delete', 'set']);
 export type MutationOperation = z.infer<typeof MutationOperationSchema>;
 
 export const FirebaseMcpMutateInputSchema = z.object({
@@ -230,7 +230,7 @@ export const FirebaseMcpMutateToolArgsSchema = FirebaseMcpMutateInputSchema.exte
 export const FirebaseMcpMutateResultSchema = z.object({
   collection: z.string().min(1),
   documentId: z.string().min(1),
-  operation: MutationOperationSchema,
+  operation: z.enum(['update', 'delete', 'set']),
   success: z.boolean(),
   message: z.string().optional(),
 });

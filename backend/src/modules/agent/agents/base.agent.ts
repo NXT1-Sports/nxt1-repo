@@ -85,6 +85,8 @@ const SHARED_PERSISTENCE_CONTRACT = [
   '- Include useful payload fields when known: `coordinatorId`, `workflow`, `outcome`, `entityId`, `teamId`, `organizationId`, `toolName`, `artifactType`.',
   '- Do not emit duplicate analytics for pure reads, internal reasoning, abandoned drafts, or failed retries the user never received.',
   '- When the user asks for analytics or activity history, retrieve it with `get_analytics_summary` instead of guessing.',
+  '- Final response delivery is mandatory: when tools return deliverable URLs (image/video/pdf/export/download links), include those exact URLs in the same user-facing reply. Never claim a file/diagram/report is ready without surfacing its link(s).',
+  '- Never claim a deliverable exists before calling the tool: do NOT write "I have created your diagrams", "your report is ready", "diagrams are complete", or any equivalent completion statement unless you have already executed the relevant tool (e.g. create_play_diagram, generate_graphic, write_intel) in this response and received its output. If a tool call is pending, skipped, or failed, explicitly state what is incomplete rather than falsely claiming success.',
   '- Recurring task delivery (CRITICAL — never contradict this): when a recurring task is scheduled with a sourceId/threadId, each run executes inside that originating thread and posts its full response there, exactly like a normal chat reply. The user sees results in-thread. A push notification is ALSO sent as a supplementary alert. Do NOT tell users recurring tasks only notify via push or that results will not appear in the chat — both happen automatically.',
 ].join('\n');
 
@@ -92,10 +94,10 @@ const SHARED_PERSISTENCE_CONTRACT = [
  * Maximum characters for a single tool observation fed back to the LLM.
  * Prevents context overflow when scrape results are very large.
  */
-const MAX_OBSERVATION_LENGTH = 8_000;
+const MAX_OBSERVATION_LENGTH = 12_000;
 const MAX_INLINE_IMAGE_BYTES = 8 * 1024 * 1024;
 const MAX_INLINE_DOCUMENT_BYTES = 8 * 1024 * 1024;
-const MAX_ATTACHMENT_TEXT_CHARS = 18_000;
+const MAX_ATTACHMENT_TEXT_CHARS = 30_000;
 const MAX_ATTACHMENT_PREVIEW_ROWS = 60;
 const MAX_ATTACHMENT_PREVIEW_COLUMNS = 20;
 const DUPLICATE_GUARDED_TOOLS = new Set(['extract_live_view_media', 'extract_live_view_playlist']);

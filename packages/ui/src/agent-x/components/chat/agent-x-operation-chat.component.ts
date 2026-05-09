@@ -1899,6 +1899,27 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   /** Most recent planner card so execution plan can dock above the composer. */
   protected readonly executionPlanCard = computed<AgentXRichCard | null>(() => {
     const messages = this.messages();
+
+    const resolvePlannerCard = (card: AgentXRichCard): AgentXRichCard | null => {
+      if (card.type !== 'planner') return null;
+
+      const payload = card.payload;
+      if (!('items' in payload) || !Array.isArray(payload.items) || payload.items.length < 2) {
+        return null;
+      }
+
+      // Only show planner card once execution has visibly started (not during planning phase).
+      // Check if at least one item is active, done, or has a non-pending status.
+      const hasExecutionStarted = payload.items.some(
+        (item: any) =>
+          item.active === true ||
+          item.done === true ||
+          (typeof item.status === 'string' && item.status !== 'pending')
+      );
+
+      return hasExecutionStarted ? card : null;
+    };
+
     for (let messageIndex = messages.length - 1; messageIndex >= 0; messageIndex -= 1) {
       const message = messages[messageIndex];
       if (!message) continue;
@@ -1906,42 +1927,22 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       const parts = message.parts ?? [];
       for (let partIndex = parts.length - 1; partIndex >= 0; partIndex -= 1) {
         const part = parts[partIndex];
-        if (part?.type === 'card' && part.card.type === 'planner') {
-          const p = part.card.payload;
-          // Only show card when plan has ≥3 tasks — single/dual-task plans run silently
-          if ('items' in p && Array.isArray(p.items) && p.items.length >= 3) {
-            // Suppress pre-execution review cards; show only once execution has started.
-            const hasExecutionStarted = p.items.some(
-              (item) =>
-                item.active === true ||
-                item.done === true ||
-                (typeof item.status === 'string' && item.status !== 'pending')
-            );
-            if (hasExecutionStarted) {
-              return part.card;
-            }
+        if (part?.type === 'card') {
+          const plannerCard = resolvePlannerCard(part.card);
+          if (plannerCard) {
+            return plannerCard;
           }
-          return null;
         }
       }
 
       const cards = message.cards ?? [];
       for (let cardIndex = cards.length - 1; cardIndex >= 0; cardIndex -= 1) {
         const card = cards[cardIndex];
-        if (card?.type === 'planner') {
-          const p = card.payload;
-          if ('items' in p && Array.isArray(p.items) && p.items.length >= 3) {
-            const hasExecutionStarted = p.items.some(
-              (item) =>
-                item.active === true ||
-                item.done === true ||
-                (typeof item.status === 'string' && item.status !== 'pending')
-            );
-            if (hasExecutionStarted) {
-              return card;
-            }
+        if (card) {
+          const plannerCard = resolvePlannerCard(card);
+          if (plannerCard) {
+            return plannerCard;
           }
-          return null;
         }
       }
     }

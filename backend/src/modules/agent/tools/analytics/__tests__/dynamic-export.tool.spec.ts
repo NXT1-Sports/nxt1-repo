@@ -66,6 +66,9 @@ function pdfInput(overrides?: Record<string, unknown>): Record<string, unknown> 
   };
 }
 
+const TINY_PNG_DATA_URL =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACklEQVR4nGNgAAAAAgAB4iG8MwAAAABJRU5ErkJggg==';
+
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 describe('DynamicExportTool', () => {
@@ -223,6 +226,23 @@ describe('DynamicExportTool', () => {
         context
       );
       expect(result.success).toBe(true);
+    });
+
+    it('should accept PDF with imageUrls and no text/table body', async () => {
+      const result = await tool.execute(
+        pdfInput({
+          columns: undefined,
+          rows: undefined,
+          bodyParagraphs: undefined,
+          bulletPoints: undefined,
+          description: undefined,
+          imageUrls: [TINY_PNG_DATA_URL],
+        }),
+        context
+      );
+      expect(result.success).toBe(true);
+      const data = result.data as Record<string, unknown>;
+      expect(data['format']).toBe('pdf');
     });
   });
 

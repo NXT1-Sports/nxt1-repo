@@ -120,9 +120,11 @@ export async function logAgentTaskFailure(
  *
  * Priority:
  * 1. result.summary — the LLM's direct response (most common path)
- * 2. Multi-task plan: "Completed N tasks: label1, label2, label3."
- * 3. Tool call records: "Completed N steps: tool a, tool b."
- * 4. Empty string (caller falls back to generic copy)
+ * 2. result.data.response — explicit agent response from orchestration data
+ * 3. coordinator/plan observations from successful tool records
+ * 4. Multi-task plan: "Completed N tasks: label1, label2, label3."
+ * 5. Tool call records fallback: "Completed N steps: tool a, tool b."
+ * 6. Empty string (caller falls back to generic copy)
  */
 export function deriveBodyFromResult(result: AgentOperationResult): string {
   if (result.summary?.trim()) return result.summary.trim();
@@ -132,6 +134,40 @@ export function deriveBodyFromResult(result: AgentOperationResult): string {
       ? (result.data as Record<string, unknown>)
       : undefined;
   if (!data) return '';
+
+  const response = data['response'];
+  if (typeof response === 'string' && response.trim().length > 0) {
+    return response.trim();
+  }
+
+  const records = data['toolCallRecords'] as
+    | Array<{
+        toolName?: string;
+        status?: string;
+        output?: Record<string, unknown>;
+      }>
+    | undefined;
+
+  if (records && records.length > 0) {
+    // Prefer explicit coordinator/plan observations over synthetic tool-name lists.
+    // Iterate from newest to oldest so the latest successful dispatch wins.
+    for (let i = records.length - 1; i >= 0; i -= 1) {
+      const record = records[i];
+      if (record.status !== 'success') continue;
+      const output = record.output;
+      if (!output || typeof output !== 'object') continue;
+
+      const coordinatorObservation = output['coordinator_observation'];
+      if (typeof coordinatorObservation === 'string' && coordinatorObservation.trim().length > 0) {
+        return coordinatorObservation.trim();
+      }
+
+      const planObservation = output['plan_observation'];
+      if (typeof planObservation === 'string' && planObservation.trim().length > 0) {
+        return planObservation.trim();
+      }
+    }
+  }
 
   // Multi-task orchestration path — plan with named tasks
   const plan = data['plan'] as
@@ -147,10 +183,7 @@ export function deriveBodyFromResult(result: AgentOperationResult): string {
     return `Completed ${count} task${count > 1 ? 's' : ''}: ${taskLabels}.`;
   }
 
-  // Delegation fast-exit path — toolCallRecords
-  const records = data['toolCallRecords'] as
-    | Array<{ toolName?: string; status?: string }>
-    | undefined;
+  // Delegation fallback path — toolCallRecords
   if (records && records.length > 0) {
     const successTools = [
       ...new Set(

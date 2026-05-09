@@ -60,12 +60,8 @@ function uniqueSorted(values: readonly string[]): string[] {
   );
 }
 
-function extractPayload(result: McpToolCallResult): unknown {
-  if (result.structuredContent && Object.keys(result.structuredContent).length > 0) {
-    return result.structuredContent;
-  }
-
-  const textPayload = result.content
+function extractTextPayload(result: McpToolCallResult): string {
+  return result.content
     .flatMap((content) => {
       if (content.type === 'text' && content.text) return [content.text];
       if (typeof content.data === 'string' && content.data.trim().length > 0) return [content.data];
@@ -73,6 +69,43 @@ function extractPayload(result: McpToolCallResult): unknown {
     })
     .join('\n')
     .trim();
+}
+
+function extractMcpErrorMessage(result: McpToolCallResult): string {
+  if (result.structuredContent && typeof result.structuredContent['error'] === 'string') {
+    return result.structuredContent['error'];
+  }
+
+  const textPayload = extractTextPayload(result);
+  if (!textPayload) {
+    return 'Firebase MCP returned an unknown error.';
+  }
+
+  try {
+    const parsed = JSON.parse(textPayload) as Record<string, unknown>;
+    if (typeof parsed['error'] === 'string' && parsed['error'].trim().length > 0) {
+      return parsed['error'];
+    }
+  } catch {
+    // Not JSON — return raw text from MCP server.
+  }
+
+  return textPayload;
+}
+
+function extractPayload(result: McpToolCallResult): unknown {
+  if (result.isError) {
+    throw new AgentEngineError(
+      'FIREBASE_MCP_INVALID_RESPONSE',
+      `[MCP:firebase] ${extractMcpErrorMessage(result)}`
+    );
+  }
+
+  if (result.structuredContent && Object.keys(result.structuredContent).length > 0) {
+    return result.structuredContent;
+  }
+
+  const textPayload = extractTextPayload(result);
 
   if (!textPayload) {
     throw new AgentEngineError(

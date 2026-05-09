@@ -62,6 +62,28 @@ export class DynamicExportTool extends BaseTool {
     rows: z.array(z.array(z.union([z.string(), z.number(), z.boolean(), z.null()]))).optional(),
     bodyParagraphs: z.array(z.string()).optional(),
     bulletPoints: z.array(z.string()).optional(),
+    imageUrls: z
+      .array(z.string().trim().min(1))
+      .optional()
+      .describe('Optional diagram/image URLs to embed directly inside PDF exports.'),
+    theme: z.enum(['dark', 'light']).optional(),
+    brandPrimaryColor: z
+      .string()
+      .trim()
+      .optional()
+      .describe('Optional team/organization primary color (hex like #0055AA).'),
+    organizationName: z
+      .string()
+      .trim()
+      .min(1)
+      .optional()
+      .describe('Optional organization/team display name for PDF header branding.'),
+    logoUrl: z
+      .string()
+      .trim()
+      .min(1)
+      .optional()
+      .describe('Optional logo URL (https or data:image/*) rendered in PDF header.'),
   });
 
   readonly isMutation = true;
@@ -107,6 +129,11 @@ export class DynamicExportTool extends BaseTool {
     const description = this.str(input, 'description') ?? undefined;
     const bodyParagraphs = this.parseStringArray(input, 'bodyParagraphs');
     const bulletPoints = this.parseStringArray(input, 'bulletPoints');
+    const imageUrls = this.resolvePdfImageUrls(input, description, bodyParagraphs, bulletPoints);
+    const theme = this.str(input, 'theme');
+    const brandPrimaryColor = this.str(input, 'brandPrimaryColor') ?? undefined;
+    const organizationName = this.str(input, 'organizationName') ?? undefined;
+    const logoUrl = this.str(input, 'logoUrl') ?? undefined;
 
     // ── Format-specific validation ────────────────────────────────────
     if (format === 'csv') {
@@ -120,7 +147,8 @@ export class DynamicExportTool extends BaseTool {
 
     if (format === 'pdf') {
       const hasTable = columns?.length && rows?.length;
-      const hasBody = bodyParagraphs?.length || bulletPoints?.length || description;
+      const hasBody =
+        bodyParagraphs?.length || bulletPoints?.length || description || imageUrls.length > 0;
       if (!hasTable && !hasBody) {
         return {
           success: false,
@@ -163,6 +191,11 @@ export class DynamicExportTool extends BaseTool {
           rows: rows ?? undefined,
           bodyParagraphs: bodyParagraphs ?? undefined,
           bulletPoints: bulletPoints ?? undefined,
+          imageUrls: imageUrls.length > 0 ? imageUrls : undefined,
+          theme: theme === 'light' ? 'light' : theme === 'dark' ? 'dark' : undefined,
+          brandPrimaryColor,
+          organizationName,
+          logoUrl,
         });
         mimeType = 'application/pdf';
         extension = 'pdf';
@@ -267,5 +300,47 @@ export class DynamicExportTool extends BaseTool {
     const raw = input[key];
     if (!Array.isArray(raw) || raw.length === 0) return null;
     return raw.filter((item): item is string => typeof item === 'string' && item.trim().length > 0);
+  }
+
+  private resolvePdfImageUrls(
+    input: Record<string, unknown>,
+    description?: string,
+    bodyParagraphs?: readonly string[] | null,
+    bulletPoints?: readonly string[] | null
+  ): string[] {
+    const urls = new Set<string>();
+
+    const explicit = this.parseStringArray(input, 'imageUrls') ?? [];
+    for (const url of explicit) {
+      if (this.isSupportedImageUrl(url)) urls.add(url.trim());
+    }
+
+    const textCandidates: string[] = [];
+    if (description) textCandidates.push(description);
+    if (bodyParagraphs?.length) textCandidates.push(...bodyParagraphs);
+    if (bulletPoints?.length) textCandidates.push(...bulletPoints);
+
+    for (const text of textCandidates) {
+      for (const url of this.extractHttpUrls(text)) {
+        if (this.isSupportedImageUrl(url)) {
+          urls.add(url);
+        }
+      }
+    }
+
+    return [...urls];
+  }
+
+  private extractHttpUrls(text: string): string[] {
+    const match = text.match(/https?:\/\/\S+/gi);
+    if (!match) return [];
+    return match.map((url) => url.replace(/[),.;!?]+$/, ''));
+  }
+
+  private isSupportedImageUrl(url: string): boolean {
+    const value = url.trim();
+    if (value.startsWith('data:image/')) return true;
+    if (!/^https?:\/\//i.test(value)) return false;
+    return /\.(png|jpe?g|webp|gif)(\?.*)?$/i.test(value) || /\/media\//i.test(value);
   }
 }

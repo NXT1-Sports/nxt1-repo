@@ -17,6 +17,32 @@ const EMPTY_RETRIEVED_MEMORIES: AgentRetrievedMemories = {
   organization: [],
 };
 
+const MAX_TASK_HANDOFF_ARTIFACT_CHARS = 20_000;
+
+function collectHttpUrls(value: unknown, sink: Set<string>): void {
+  if (typeof value === 'string') {
+    const match = value.match(/https?:\/\/\S+/g);
+    if (!match) return;
+    for (const rawUrl of match) {
+      sink.add(rawUrl.replace(/[),.;!?]+$/, ''));
+    }
+    return;
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      collectHttpUrls(item, sink);
+    }
+    return;
+  }
+
+  if (value && typeof value === 'object') {
+    for (const nested of Object.values(value as Record<string, unknown>)) {
+      collectHttpUrls(nested, sink);
+    }
+  }
+}
+
 function stripRequestSection(enrichedContext?: string): string | null {
   if (!enrichedContext) return null;
 
@@ -109,9 +135,18 @@ export class AgentRouterContextService {
           // so downstream coordinators have direct URL access rather than relying on prose.
           if (depResult.artifacts && Object.keys(depResult.artifacts).length > 0) {
             let artifactStr = JSON.stringify(depResult.artifacts);
-            // Cap at 500 chars to respect token budget
-            if (artifactStr.length > 500) {
-              artifactStr = artifactStr.slice(0, 497) + '...';
+            // Cap to a reasonable upper bound to protect prompt budget while
+            // still carrying complete artifact URL sets (e.g. multi-diagram playbooks).
+            if (artifactStr.length > MAX_TASK_HANDOFF_ARTIFACT_CHARS) {
+              artifactStr = artifactStr.slice(0, MAX_TASK_HANDOFF_ARTIFACT_CHARS - 3) + '...';
+
+              const extractedUrls = new Set<string>();
+              collectHttpUrls(depResult.artifacts, extractedUrls);
+              if (extractedUrls.size > 0) {
+                parts.push(
+                  `[Artifact URLs from task ${depId}]: ${JSON.stringify([...extractedUrls])}`
+                );
+              }
             }
             parts.push(`[Artifacts from task ${depId}]: ${artifactStr}`);
           }

@@ -25,7 +25,6 @@ describe('Agent workflow integration coverage', () => {
           'search_colleges',
           'search_college_coaches',
           'send_email',
-          'run_google_workspace_tool',
           'gmail_send_email',
         ],
       },
